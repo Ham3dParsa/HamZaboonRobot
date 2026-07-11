@@ -91,7 +91,7 @@ def format_card(data: dict, footer: str = "") -> str:
         lines.append(f"\n✍️ *نکته‌ی گرامری:*\n{grammar_tip}")
     
     if footer:
-        lines.append(f"\n{footer}")
+        lines.append(f"\n{escape_mdv2(footer)}")
     
     return "\n".join(lines)
 
@@ -206,6 +206,18 @@ async def on_goal_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, go
 
 # ---------------- دکمه‌های اصلی ----------------
 
+def _generate_unique_card(lang: str, goal: str, used_words, retries: int = 2) -> dict:
+    """یک کارت روزانه می‌سازد و اگر واژه‌اش تکراری بود چند بار دوباره تلاش می‌کند."""
+    used_norm = {str(w).strip().lower() for w in (used_words or []) if w}
+    data = {}
+    for _ in range(retries + 1):
+        data = ai.ask_json(prompts.daily_card_system_prompt(lang, goal, avoid_words=used_words))
+        word = str(data.get("word", "")).strip().lower()
+        if word and word not in used_norm:
+            return data
+    return data
+
+
 async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     row = db.get_user(user_id)
@@ -254,10 +266,11 @@ async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-    # ۳) هنوز ظرفیت داری → یک کارت جدید بساز، ذخیره کن و نشان بده
+    # ۳) هنوز ظرفیت داری → یک کارت جدید (غیرتکراری) بساز، ذخیره کن و نشان بده
+    used_words = [c.get("word", "") for c in cards]
     await update.message.chat.send_action("typing")
     try:
-        data = ai.ask_json(prompts.daily_card_system_prompt(row["target_lang"], row["goal"]))
+        data = _generate_unique_card(row["target_lang"], row["goal"], used_words)
     except Exception:
         log.exception("AI error")
         await update.message.reply_text("مشکلی در ارتباط با هوش مصنوعی پیش اومد.")
@@ -528,6 +541,10 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
             log.exception(f"srs_job failed for user {user_id}")
 
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    log.exception("Unhandled exception while processing update", exc_info=context.error)
+
+
 def main():
     db.init_db()
     if not BOT_TOKEN:
@@ -538,6 +555,7 @@ def main():
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(callback_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
+    app.add_error_handler(error_handler)
 
     if app.job_queue:
         app.job_queue.run_daily(daily_job, time=datetime.time(hour=DAILY_SEND_HOUR, minute=0))

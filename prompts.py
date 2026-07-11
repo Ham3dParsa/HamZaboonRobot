@@ -15,7 +15,7 @@ _JSON_RULES = (
 )
 
 
-def daily_card_system_prompt(lang: str, goal: str) -> str:
+def daily_card_system_prompt(lang: str, goal: str, avoid_words=None) -> str:
     lang_fa = LANG_NAMES_FA.get(lang, lang)
     goal_fa = GOALS_FA.get(goal, "عمومی")
     
@@ -28,12 +28,21 @@ def daily_card_system_prompt(lang: str, goal: str) -> str:
     # متن پویا برای مثال‌ها
     example_lang = "انگلیسی" if lang == "en" else lang_fa
 
+    avoid_hint = ""
+    if avoid_words:
+        joined = "، ".join(str(w) for w in avoid_words if w)
+        if joined:
+            avoid_hint = (
+                f"\nاین واژه‌ها را همین امروز داده‌ای؛ هیچ‌کدام را دوباره انتخاب نکن "
+                f"و یک واژهٔ کاملاً متفاوت بده: {joined}\n"
+            )
+
     return f"""تو معلم خصوصی زبان {lang_fa} برای فارسی‌زبانان هستی. هدف کاربر: {goal_fa}.
 
 {goal_hint}
 
 هر بار یک واژهٔ مفید، کاربردی و نسبتاً رایج (نه خیلی ساده، نه خیلی نادر) انتخاب کن.
-
+{avoid_hint}
 خروجی را **دقیقاً** به صورت JSON خام بده و هیچ چیز دیگری ننویس:
 
 {{
