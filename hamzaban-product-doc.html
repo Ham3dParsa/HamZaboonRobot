@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>هم‌زبان — سند معرفی و نقشه‌ی توسعه</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #102420;
+    --bg-deep: #0a1815;
+    --paper: #FBF6EC;
+    --paper-dim: #F1E9D8;
+    --ink: #211C14;
+    --ink-soft: #4a4438;
+    --cream-text: #EDE7D9;
+    --cream-dim: #B9C3BB;
+    --gold: #C99A3F;
+    --gold-soft: #E8C77A;
+    --coral: #E15B43;
+    --teal: #4FAE8C;
+    --azure: #6C8FE0;
+    --violet: #9A82D6;
+    --rose: #D9789A;
+    --line: rgba(237,231,217,0.14);
+    --radius: 14px;
+    --maxw: 1080px;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(ellipse at 15% -10%, rgba(201,154,63,0.14), transparent 45%),
+      radial-gradient(ellipse at 100% 10%, rgba(79,174,140,0.10), transparent 40%),
+      var(--bg);
+    color:var(--cream-text);
+    font-family:'Vazirmatn', sans-serif;
+    line-height:1.85;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:'JetBrains Mono', monospace;}
+  a{color:inherit;}
+  ::selection{background:var(--gold); color:var(--ink);}
+  :focus-visible{outline:2px solid var(--gold-soft); outline-offset:3px; border-radius:4px;}
+
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 24px;}
+
+  /* NAV */
+  nav{
+    position:sticky; top:0; z-index:50;
+    backdrop-filter: blur(10px);
+    background:rgba(10,24,21,0.72);
+    border-bottom:1px solid var(--line);
+  }
+  nav .wrap{display:flex; align-items:center; justify-content:space-between; padding-top:14px; padding-bottom:14px;}
+  .brand{display:flex; align-items:center; gap:10px; font-weight:700; font-size:16px; letter-spacing:.2px;}
+  .brand .dot{width:9px; height:9px; border-radius:2px; background:var(--gold); transform:rotate(45deg); flex:none;}
+  .navlinks{display:flex; gap:22px; font-size:14px; color:var(--cream-dim);}
+  .navlinks a{text-decoration:none; transition:color .15s;}
+  .navlinks a:hover{color:var(--gold-soft);}
+  @media (max-width:720px){ .navlinks{display:none;} }
+
+  /* HERO */
+  header.hero{padding:76px 0 60px;}
+  .hero-grid{display:flex; gap:56px; align-items:center; flex-wrap:wrap;}
+  .hero-copy{flex:1 1 420px; min-width:300px;}
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:8px;
+    font-family:'JetBrains Mono', monospace; font-size:12.5px; letter-spacing:.06em;
+    color:var(--gold-soft); background:rgba(201,154,63,0.12);
+    border:1px solid rgba(201,154,63,0.35); border-radius:999px; padding:6px 14px;
+    margin-bottom:22px;
+  }
+  h1{font-size:clamp(30px,4.4vw,46px); line-height:1.35; font-weight:800; margin:0 0 20px; color:var(--paper);}
+  h1 span{color:var(--gold-soft);}
+  .lede{font-size:17px; color:var(--cream-dim); max-width:52ch; margin:0 0 30px;}
+  .hero-meta{display:flex; gap:28px; flex-wrap:wrap; font-size:13.5px; color:var(--cream-dim);}
+  .hero-meta b{color:var(--paper); display:block; font-size:15px; font-weight:600; margin-bottom:2px;}
+
+  /* FLASHCARD MOCK */
+  .card-mock{flex:1 1 340px; min-width:290px; max-width:380px; margin-inline:auto;}
+  .flashcard{
+    background:var(--paper); color:var(--ink); border-radius:18px;
+    padding:26px 24px 22px; box-shadow:0 30px 60px -20px rgba(0,0,0,0.55), 0 2px 0 rgba(0,0,0,0.05);
+    transform:rotate(-1.4deg);
+    transition:transform .4s ease;
+    position:relative;
+  }
+  .flashcard:hover{transform:rotate(0deg) translateY(-4px);}
+  .fc-top{display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px;}
+  .fc-lang{font-family:'JetBrains Mono'; font-size:11px; background:var(--azure); color:#0d1a2f; padding:3px 9px; border-radius:6px; font-weight:600;}
+  .fc-streak{font-family:'JetBrains Mono'; font-size:12px; color:var(--coral); font-weight:600;}
+  .fc-word{font-family:'JetBrains Mono'; font-size:28px; font-weight:600; color:var(--ink); margin:0;}
+  .fc-phon{font-family:'JetBrains Mono'; font-size:13px; color:var(--ink-soft); margin:2px 0 14px;}
+  .fc-fa{font-size:16px; font-weight:600; margin:0 0 4px;}
+  .fc-fa-sub{font-size:13.5px; color:var(--ink-soft); margin:0 0 14px;}
+  .fc-row{display:flex; gap:10px; font-size:12.5px; margin-bottom:12px; flex-wrap:wrap;}
+  .fc-tag{padding:3px 9px; border-radius:6px; font-family:'JetBrains Mono'; font-size:11.5px;}
+  .fc-tag.syn{background:rgba(79,174,140,0.16); color:#1e5c48;}
+  .fc-tag.ant{background:rgba(225,91,67,0.14); color:#8a2f1f;}
+  .fc-example{font-size:13.5px; color:var(--ink-soft); border-right:2px solid var(--paper-dim); padding-right:10px; margin:0;}
+  .fc-foot{margin-top:16px; padding-top:12px; border-top:1px dashed rgba(33,28,20,0.18); display:flex; justify-content:space-between; font-size:11.5px; color:var(--ink-soft); font-family:'JetBrains Mono';}
+
+  /* SECTIONS */
+  section{padding:64px 0;}
+  .section-head{max-width:640px; margin-bottom:36px;}
+  .kicker{font-family:'JetBrains Mono'; font-size:12px; letter-spacing:.08em; color:var(--gold-soft); margin-bottom:10px;}
+  h2{font-size:clamp(22px,3vw,30px); font-weight:700; color:var(--paper); margin:0 0 12px;}
+  .section-desc{color:var(--cream-dim); font-size:15.5px; max-width:60ch;}
+
+  /* INSIGHT */
+  .insight-box{
+    border:1px solid var(--line); border-radius:var(--radius); padding:28px 30px;
+    background:linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
+    font-size:16px; color:var(--cream-text);
+  }
+  .insight-box b{color:var(--gold-soft);}
+
+  /* PILLARS GRID */
+  .pillars{display:grid; grid-template-columns:repeat(auto-fit, minmax(230px,1fr)); gap:18px;}
+  .pillar{
+    border:1px solid var(--line); border-radius:var(--radius); padding:22px 20px;
+    background:rgba(255,255,255,0.025); transition:border-color .2s, transform .2s;
+  }
+  .pillar:hover{border-color:rgba(201,154,63,0.4); transform:translateY(-3px);}
+  .pillar .icon{font-size:22px; margin-bottom:12px; display:block;}
+  .pillar h3{font-size:16px; margin:0 0 8px; color:var(--paper); font-weight:600;}
+  .pillar p{font-size:13.8px; color:var(--cream-dim); margin:0;}
+
+  /* MVP */
+  .mvp-panel{
+    border:1px solid rgba(201,154,63,0.4); border-radius:18px;
+    background:linear-gradient(160deg, rgba(201,154,63,0.09), rgba(201,154,63,0.02));
+    padding:32px; 
+  }
+  .mvp-panel-head{display:flex; align-items:center; gap:12px; margin-bottom:22px; flex-wrap:wrap;}
+  .mvp-badge{font-family:'JetBrains Mono'; font-size:12px; background:var(--gold); color:#241b06; padding:5px 12px; border-radius:6px; font-weight:700;}
+  .mvp-time{font-family:'JetBrains Mono'; font-size:12.5px; color:var(--gold-soft);}
+  .mvp-cols{display:grid; grid-template-columns:1fr; gap:28px;}
+  @media (min-width:760px){ .mvp-cols{grid-template-columns:1.3fr 1fr;} }
+  .chiplist{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px;}
+  .chiplist li{
+    display:flex; gap:10px; align-items:flex-start; font-size:14.5px; color:var(--cream-text);
+    background:rgba(255,255,255,0.03); border:1px solid var(--line); border-radius:10px; padding:10px 14px;
+  }
+  .chiplist li::before{content:"✓"; color:var(--teal); font-weight:700; flex:none;}
+  .descope{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px;}
+  .descope li{
+    font-size:14px; color:var(--cream-dim); border-right:2px solid var(--coral); padding-right:12px;
+  }
+  .descope-title{font-size:13px; font-family:'JetBrains Mono'; color:var(--coral); margin-bottom:12px; letter-spacing:.03em;}
+  .eng-note{
+    margin-top:22px; padding-top:20px; border-top:1px dashed var(--line);
+    font-size:14.3px; color:var(--cream-dim);
+  }
+  .eng-note b{color:var(--paper);}
+
+  /* ROADMAP */
+  .roadmap{position:relative; margin-top:10px;}
+  .phase{
+    display:grid; grid-template-columns:64px 1fr; gap:22px; padding-bottom:46px; position:relative;
+  }
+  .phase:last-child{padding-bottom:0;}
+  .phase-num-col{display:flex; flex-direction:column; align-items:center;}
+  .phase-num{
+    width:44px; height:44px; border-radius:12px; background:var(--paper); color:var(--ink);
+    font-family:'JetBrains Mono'; font-weight:700; font-size:15px;
+    display:flex; align-items:center; justify-content:center; flex:none; box-shadow:0 6px 14px -6px rgba(0,0,0,0.5);
+  }
+  .phase-line{flex:1; width:2px; background:var(--line); margin-top:6px;}
+  .phase-body{border:1px solid var(--line); border-radius:var(--radius); padding:24px 26px; background:rgba(255,255,255,0.025);}
+  .phase-head{display:flex; flex-wrap:wrap; align-items:baseline; gap:10px; margin-bottom:6px;}
+  .phase-head h3{font-size:18px; margin:0; color:var(--paper); font-weight:700;}
+  .phase-when{font-family:'JetBrains Mono'; font-size:12px; color:var(--gold-soft);}
+  .phase-goal{font-size:14px; color:var(--cream-dim); margin:0 0 16px; font-style:italic;}
+  .phase-feats{margin:0 0 18px; padding-right:20px; font-size:14.3px; color:var(--cream-text); display:flex; flex-direction:column; gap:6px;}
+  .phase-eng{font-size:14.3px; color:var(--cream-dim); background:rgba(255,255,255,0.03); border-radius:10px; padding:14px 16px; margin-bottom:16px;}
+  .phase-eng b{color:var(--paper);}
+  .notes{display:flex; gap:10px; flex-wrap:wrap;}
+  .note{
+    flex:1 1 220px; border-radius:10px; padding:12px 14px; font-size:13px; line-height:1.7;
+  }
+  .note .who{font-family:'JetBrains Mono'; font-size:11px; display:block; margin-bottom:5px; letter-spacing:.04em;}
+  .note.pm{background:rgba(108,143,224,0.1); border:1px solid rgba(108,143,224,0.28);}
+  .note.pm .who{color:var(--azure);}
+  .note.biz{background:rgba(225,91,67,0.1); border:1px solid rgba(225,91,67,0.28);}
+  .note.biz .who{color:var(--coral);}
+
+  .phase-body.future{border-style:dashed; opacity:.88;}
+
+  /* PRICING */
+  .price-table{width:100%; border-collapse:collapse; font-size:14px;}
+  .price-table th, .price-table td{padding:13px 14px; border-bottom:1px solid var(--line); text-align:right;}
+  .price-table th{font-family:'JetBrains Mono'; font-size:12px; color:var(--cream-dim); font-weight:500;}
+  .price-table td:first-child, .price-table th:first-child{color:var(--cream-dim); font-size:13.5px;}
+  .plan-head{font-weight:700; color:var(--paper); font-size:15px;}
+  .plan-price{font-family:'JetBrains Mono'; font-size:12.5px; color:var(--gold-soft); font-weight:normal; display:block; margin-top:2px;}
+  .yes{color:var(--teal);}
+  .no{color:rgba(237,231,217,0.28);}
+  .price-note{font-size:12.5px; color:var(--cream-dim); margin-top:16px; border-right:2px solid var(--gold); padding-right:12px;}
+  .table-scroll{overflow-x:auto; border:1px solid var(--line); border-radius:var(--radius); padding:8px 20px;}
+
+  /* STACK NOTE */
+  .stack{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; margin-top:8px;
+  }
+  .stack div{border:1px solid var(--line); border-radius:10px; padding:16px; font-size:13.5px; color:var(--cream-dim);}
+  .stack div b{display:block; color:var(--paper); font-family:'JetBrains Mono'; font-size:13px; margin-bottom:6px;}
+
+  footer{border-top:1px solid var(--line); padding:34px 0 50px; font-size:12.5px; color:var(--cream-dim);}
+
+  .reveal{opacity:0; transform:translateY(14px); transition:opacity .6s ease, transform .6s ease;}
+  .reveal.in{opacity:1; transform:translateY(0);}
+
+  @media (prefers-reduced-motion: reduce){
+    *{transition:none !important; scroll-behavior:auto !important;}
+    .reveal{opacity:1; transform:none;}
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <div class="brand"><span class="dot"></span> هم‌زبان</div>
+    <div class="navlinks">
+      <a href="#insight">مسئله</a>
+      <a href="#pillars">ستون‌ها</a>
+      <a href="#mvp">MVP</a>
+      <a href="#roadmap">فازها</a>
+      <a href="#pricing">قیمت‌گذاری</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <span class="eyebrow">سند معرفی محصول · ربات تلگرام</span>
+      <h1>زبانی که یاد می‌گیری، باید در <span>زندگی روزمره‌ات</span> هم نفس بکشد.</h1>
+      <p class="lede">
+        هم‌زبان هر روز یک کارت واژه، یک نکته‌ی گرامری کوتاه و یک یادآوری کوچک برای شما می‌فرستد —
+        دقیقاً به همان زبانی که دارید یاد می‌گیرید. جای اپ آموزش ساختاریافته‌ی شما را نمی‌گیرد؛
+        فاصله‌ی بین جلسه‌های تمرین را با تماسِ روزمره با زبان پر می‌کند.
+      </p>
+      <div class="hero-meta">
+        <div><b>مخاطب</b>زبان‌آموزان فارسی‌زبان در تلگرام</div>
+        <div><b>هسته‌ی فنی</b>مدل زبانی، نه دیتای هاردکد</div>
+        <div><b>تمرکز این سند</b>دیدگاه مهندس توسعه</div>
+      </div>
+    </div>
+
+    <div class="card-mock">
+      <div class="flashcard">
+        <div class="fc-top">
+          <span class="fc-lang">EN</span>
+          <span class="fc-streak">🔥 ۱۲ روز متوالی</span>
+        </div>
+        <p class="fc-word mono">serendipity</p>
+        <p class="fc-phon mono">/ˌser.ənˈdɪp.ə.ti/</p>
+        <p class="fc-fa">شانس هوشمندانه، تصادف خوش‌یمن</p>
+        <p class="fc-fa-sub">پیدا کردن چیزی خوب، بدون این‌که دنبالش بوده باشی.</p>
+        <div class="fc-row">
+          <span class="fc-tag syn">مترادف: fluke, chance</span>
+          <span class="fc-tag ant">متضاد: misfortune</span>
+        </div>
+        <p class="fc-example">"Meeting her at that café was pure <b>serendipity</b>."</p>
+        <div class="fc-foot">
+          <span>کارت ۴۷ از هدف تافل</span>
+          <span>پلن: طلایی</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section id="insight">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">۰۱ · مسئله</div>
+      <h2>خیلی‌ها اپ یادگیری زبان را باز می‌کنند، ولی زبان را زندگی نمی‌کنند</h2>
+    </div>
+    <div class="insight-box reveal">
+      خیلی از کاربران ماه‌ها با اپ‌های آموزش زبان تمرین می‌کنند، ولی چون بیرون از آن اپ با آن زبان
+      مواجه نمی‌شوند — نه فیلمی، نه هم‌صحبتی، نه حتی منوی یک برنامه — واژه‌ها و قواعد جدید در ذهن
+      نمی‌نشینند. <b>هم‌زبان</b> قرار نیست جایگزین یک آموزگار کامل زبان شود؛ قرار است زبان را در
+      جریان روزمره‌ی کاربر — جایی که او هر روز هست، یعنی تلگرام — زنده نگه دارد.
+    </div>
+  </div>
+</section>
+
+<section id="pillars">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">۰۲ · ستون‌های اصلی</div>
+      <h2>چهار تصمیم که کل محصول را می‌سازند</h2>
+      <p class="section-desc">این‌ها چیزهایی هستند که در همه‌ی فازها ثابت می‌مانند؛ هر فیچر جدید روی همین چهار ستون سوار می‌شود.</p>
+    </div>
+    <div class="pillars">
+      <div class="pillar reveal">
+        <span class="icon">🧠</span>
+        <h3>هسته‌ی مدل‌محور، نه هاردکد</h3>
+        <p>منطق اصلیِ تولید محتوا (کلمه، مترادف، مثال، ترجمه) به یک پرامپت سیستمی سپرده می‌شود، نه به دیتابیس دستی. افزودن زبان جدید یعنی تغییر یک پرامپت، نه نوشتن کد جدید.</p>
+      </div>
+      <div class="pillar reveal">
+        <span class="icon">🗂️</span>
+        <h3>کارت روزانه، شخصی‌سازی‌شده</h3>
+        <p>محتوا بر اساس زبان، سطح و هدف کاربر (عمومی، کنکور، تافل) تنظیم می‌شود؛ یک پیام واحد برای همه فرستاده نمی‌شود.</p>
+      </div>
+      <div class="pillar reveal">
+        <span class="icon">🔁</span>
+        <h3>یادآوری فاصله‌دار برای واژه‌های دلخواه</h3>
+        <p>کاربر واژه‌ی خودش را ثبت می‌کند و ربات با یک الگوریتم تکرار فاصله‌دار ساده، در زمان درست دوباره یادآوری می‌کند.</p>
+      </div>
+      <div class="pillar reveal">
+        <span class="icon">💳</span>
+        <h3>پلن‌های متناسب با عمق تعامل</h3>
+        <p>لایه‌ی رایگان محدود ولی واقعی است؛ هر پلن بالاتر، عمق تعامل (کوییز، تصویر، گروه) را باز می‌کند، نه فقط حذف تبلیغ.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="mvp">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">۰۳ · حداقل محصول قابل‌عرضه</div>
+      <h2>تمرکز اول: فقط ثابت کنیم کسی برای این ارزش، پول می‌دهد</h2>
+      <p class="section-desc">هدف MVP اثبات فیچر کامل نیست؛ اثبات این است که کارت روزانه باعث برگشتن کاربر می‌شود.</p>
+    </div>
+    <div class="mvp-panel reveal">
+      <div class="mvp-panel-head">
+        <span class="mvp-badge">MVP</span>
+        <span class="mvp-time">تخمین ساخت با ابزارهای AI: ۳ تا ۴ هفته، تنها</span>
+      </div>
+      <div class="mvp-cols">
+        <div>
+          <ul class="chiplist">
+            <li>انتخاب زبان مقصد و هدف (عمومی / کنکور / تافل) در همان اول با چند سوال ساده</li>
+            <li>کارت واژه‌ی روزانه‌ی متنی: کلمه، تلفظ، معنی فارسی، مترادف و متضاد، یک یا دو جمله‌ی نمونه</li>
+            <li>یک نکته‌ی گرامری کوتاه در همان پیام روزانه</li>
+            <li>ثبت واژه‌ی دلخواه کاربر + یادآوری فاصله‌دار ساده</li>
+            <li>محدودیت روزانه‌ی پرسش واژه: ۳ بار رایگان</li>
+            <li>شمارنده‌ی استریک ساده (روزهای متوالی فعالیت)</li>
+            <li>دو پلن: رایگان و طلایی، با پرداخت دستی یا زرین‌پال</li>
+          </ul>
+        </div>
+        <div>
+          <div class="descope-title">عمداً کنار گذاشته شد (برای الان)</div>
+          <ul class="descope">
+            <li>تولید تصویر AI برای کارت‌ها — هزینه‌اش با تعداد کاربر رشد می‌کند و بودجه‌ی آزمون‌وخطا را می‌خورد</li>
+            <li>تست سطح تطبیقی واقعی (CEFR) — یک پروژه‌ی مستقل است، نه یک فیچر</li>
+            <li>امکانات گروهی و رتبه‌بندی — نیاز به مدیریت state جدید دارد، فعلاً اولویت نیست</li>
+            <li>کوییز و آزمون کوچک — فاز بعدی، بعد از اینکه کارت روزانه اثبات شد</li>
+          </ul>
+        </div>
+      </div>
+      <div class="eng-note">
+        <b>چرا این‌قدر ساده است، از دید مهندسی:</b>
+        فقط سه تکه لازم داری — یک webhook تلگرام که پیام‌ها را می‌گیرد، یک فراخوانی به API مدل زبانی
+        برای ساختن کارت و نکته‌ی گرامری، و یک دیتابیس کوچک (کاربر، زبان هدف، سطح، لیست واژه‌های
+        ذخیره‌شده، تاریخچه‌ی استریک). یک کرون‌جاب ساده هر روز پیام را می‌فرستد. هیچ بخش از این‌ها
+        نیاز به معماری پیچیده ندارد؛ با Cursor یا Codex و کمی مشورت با یک دوستِ کدنویس، در حد
+        چند هفته قابل ساخت است.
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="roadmap">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">۰۴ · نقشه‌ی توسعه</div>
+      <h2>از کارت ساده تا لایه‌ی اجتماعی — قدم به قدم</h2>
+      <p class="section-desc">ترتیب این فازها عمدی است: هر فاز، سیگنالِ فازِ قبل را تأیید می‌کند قبل از افزایش پیچیدگی و هزینه.</p>
+    </div>
+
+    <div class="roadmap">
+
+      <div class="phase reveal">
+        <div class="phase-num-col">
+          <div class="phase-num">۰</div>
+          <div class="phase-line"></div>
+        </div>
+        <div class="phase-body">
+          <div class="phase-head"><h3>فاز صفر — MVP</h3><span class="phase-when">هفته‌ی ۱ تا ۴</span></div>
+          <p class="phase-goal">هدف: بفهمیم آیا کاربر برای کارت روزانه برمی‌گردد و پول می‌دهد یا نه.</p>
+          <p class="phase-eng"><b>از دید مهندسی:</b> جزئیات این فاز در بخش MVP بالا آمده. نکته‌ی مهم: هیچ فیچری اضافه نکن که در تست اولیه با ۲۰-۳۰ کاربر واقعی قابل بررسی نیست.</p>
+          <div class="notes">
+            <div class="note pm"><span class="who">📊 محصول</span>فقط دو عدد را دنبال کن: نرخ برگشتِ روز ۷ و نرخ برگشتِ روز ۳۰. اگر این دو پایین بمانند، فیچر اضافه‌کردن کمکی نمی‌کند.</div>
+            <div class="note biz"><span class="who">💰 بازرگانی</span>حتی در MVP یک پلن پولی محدود بگذار، نه فقط «به‌زودی». بدون سیگنال پرداخت واقعی، علاقه‌مندی معنی ندارد.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase reveal">
+        <div class="phase-num-col">
+          <div class="phase-num">۱</div>
+          <div class="phase-line"></div>
+        </div>
+        <div class="phase-body">
+          <div class="phase-head"><h3>فاز یک — تعمیق تعامل</h3><span class="phase-when">هفته‌ی ۵ تا ۸</span></div>
+          <p class="phase-goal">هدف: از «پیام روزانه» به «تعامل روزانه» ارتقا بدهیم.</p>
+          <ul class="phase-feats">
+            <li>کوییز کوتاه هفتگی، ساخته‌شده از واژه‌های اخیر خودِ کاربر</li>
+            <li>تست خودارزیابی ساده‌ی سطح زبان (نه تطبیقی کامل)</li>
+            <li>پشتیبانی هم‌زمان از چند زبان برای یک کاربر</li>
+            <li>افزایش سقف پرسش واژه برای پلن میانی جدید</li>
+          </ul>
+          <p class="phase-eng"><b>از دید مهندسی:</b> کوییز فقط یک پرامپت جدید است که از تاریخچه‌ی واژه‌های کاربر، سوال چهارگزینه‌ای می‌سازد. تست خودارزیابی هم ۱۰ تا ۱۵ سوال ثابت با امتیازدهی ساده است — نه یک موتور adaptive واقعی. هیچ‌کدام نیاز به سرویس جدید ندارند، فقط پرامپت و یک جدول امتیاز.</p>
+          <div class="notes">
+            <div class="note pm"><span class="who">📊 محصول</span>اینجا دقیقاً جایی است که می‌فهمیم آیا کاربر حاضر است بیشتر از «خواندن» درگیر شود یا نه.</div>
+            <div class="note biz"><span class="who">💰 بازرگانی</span>وقت خوبی برای معرفی پلن میانی (نقره‌ای) است تا نردبان قیمتی سه‌پله‌ای کامل شود.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase reveal">
+        <div class="phase-num-col">
+          <div class="phase-num">۲</div>
+          <div class="phase-line"></div>
+        </div>
+        <div class="phase-body">
+          <div class="phase-head"><h3>فاز دو — رسانه و شخصی‌سازی بصری</h3><span class="phase-when">هفته‌ی ۹ تا ۱۲</span></div>
+          <p class="phase-goal">هدف: کارت‌ها را برای کاربران پولی جذاب‌تر کنیم، بدون منفجر شدن هزینه.</p>
+          <ul class="phase-feats">
+            <li>تصویر تولیدشده با AI، فقط برای پلن طلایی</li>
+            <li>کش کردن تصاویر پرتکرار برای کنترل هزینه</li>
+            <li>نکات فرهنگی و اصطلاحات محاوره‌ای در کنار کارت رسمی</li>
+          </ul>
+          <p class="phase-eng"><b>از دید مهندسی:</b> تصویر باید drip باشد، نه push همگانی — یعنی فقط وقتی پلن طلایی فعال است ساخته می‌شود، و اگر کلمه‌ی تکراری بین کاربران باشد، از کش استفاده می‌کنیم تا دوباره تولید نشود. این تنها فازی است که هزینه‌ی هر کاربر به‌طور محسوس بالا می‌رود، پس باید محدود و اندازه‌گیری‌شده باشد.</p>
+          <div class="notes">
+            <div class="note pm"><span class="who">📊 محصول</span>تصویر تجربه را خاطره‌انگیزتر می‌کند، اما اگر رایگان بدهیمش، فقط هزینه‌ست بدون تمایز پلن.</div>
+            <div class="note biz"><span class="who">💰 بازرگانی</span>هزینه‌ی هر تصویر را دقیق حساب کن و در قیمت پلن طلایی لحاظ کن؛ وگرنه مارجین همین‌جا از بین می‌رود.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase reveal">
+        <div class="phase-num-col">
+          <div class="phase-num">۳</div>
+          <div class="phase-line"></div>
+        </div>
+        <div class="phase-body">
+          <div class="phase-head"><h3>فاز سه — لایه‌ی اجتماعی</h3><span class="phase-when">هفته‌ی ۱۳ به بعد</span></div>
+          <p class="phase-goal">هدف: از رشدِ فرد به رشدِ گروهی برسیم.</p>
+          <ul class="phase-feats">
+            <li>افزودن ربات به گروه — نسخه‌ی رایگانِ محدود و نسخه‌ی پولیِ کامل</li>
+            <li>رتبه‌بندی بین اعضای گروه</li>
+            <li>اشتراک‌گذاری استریک و چالش هفتگی گروهی</li>
+          </ul>
+          <p class="phase-eng"><b>از دید مهندسی:</b> این فاز نیاز به یک لایه‌ی جدید دارد چون حالا context گروه (شناسه‌ی گروه، لیست اعضا) از context فرد جداست. رتبه‌بندی یعنی یک کوئری تجمیعی ساده روی امتیازهای اعضا، و کنترل پولی/رایگان یعنی چک کردن نقش ادمین گروه هنگام فعال‌سازی.</p>
+          <div class="notes">
+            <div class="note pm"><span class="who">📊 محصول</span>لایه‌ی اجتماعی معمولاً موتور رشد ارگانیک است — یک نفر در گروه می‌بیند، خودش هم نصب می‌کند.</div>
+            <div class="note biz"><span class="who">💰 بازرگانی</span>قیمت‌گذاری گروه باید جدا از فرد باشد؛ ارزش یک گروه ۵۰ نفره با یک کاربر تکی فرق دارد.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase reveal">
+        <div class="phase-num-col">
+          <div class="phase-num">۴</div>
+        </div>
+        <div class="phase-body future">
+          <div class="phase-head"><h3>افق بلندمدت — شخصی‌سازی عمیق</h3><span class="phase-when">بدون تعهد زمانی، فقط ایده</span></div>
+          <p class="phase-goal">هدف: از «کارت روزانه» به «برنامه‌ی درسی تطبیقی» برسیم — وقتی داده‌ی کافی از کاربران واقعی جمع شد.</p>
+          <ul class="phase-feats">
+            <li>curriculum تطبیقی واقعی بر اساس تاریخچه‌ی هر کاربر</li>
+            <li>تست سطح CEFR واقعی و adaptive</li>
+            <li>ارجاع دوستان (referral) و گیمیفیکیشن پیشرفته‌تر</li>
+          </ul>
+          <p class="phase-eng"><b>از دید مهندسی:</b> این فاز عمداً باز نگه داشته شده. تصمیم درباره‌اش را بعد از دیدن رفتار واقعی کاربران در فازهای ۰ تا ۳ بگیر، نه از قبل.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section id="pricing">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">۰۵ · قیمت‌گذاری (نمونه)</div>
+      <h2>سه پله، متناسب با عمق تعامل</h2>
+      <p class="section-desc">اعداد زیر فقط نمونه‌اند برای شکل‌دادن به ساختار پلن‌ها، نه پیشنهاد قطعی قیمت — قیمت نهایی باید بعد از تست با کاربر واقعی و حساب دقیق هزینه‌ی API تنظیم شود.</p>
+    </div>
+    <div class="table-scroll reveal">
+      <table class="price-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th><span class="plan-head">رایگان</span><span class="plan-price">۰ تومان</span></th>
+            <th><span class="plan-head">نقره‌ای</span><span class="plan-price">نمونه: ۵۰–۸۰ هزار تومان / ماه</span></th>
+            <th><span class="plan-head">طلایی</span><span class="plan-price">نمونه: ۱۵۰–۲۰۰ هزار تومان / ماه</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>کارت واژه‌ی روزانه</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>پرسش واژه‌ی دلخواه در روز</td><td>۳ بار</td><td>نامحدود</td><td>نامحدود</td></tr>
+          <tr><td>نکته‌ی گرامری روزانه</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>کوییز و تست خودارزیابی</td><td class="no">—</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>تصویر AI برای کارت‌ها</td><td class="no">—</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>استفاده در گروه</td><td>محدود</td><td>محدود</td><td class="yes">کامل</td></tr>
+          <tr><td>مدل زبانی</td><td>مدل ارزان‌تر</td><td>مدل ارزان‌تر</td><td>مدل قوی‌تر</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="price-note">قاعده‌ی مهندسی پشت این جدول: هزینه‌ی هر پلن باید قابل پیش‌بینی باشد — پلن رایگان و نقره‌ای از مدل‌های ارزان‌تر استفاده می‌کنند، فقط طلایی به مدل و تصویر گران‌تر دسترسی دارد.</p>
+  </div>
+</section>
+
+<section id="stack">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">۰۶ · یادداشت فنی</div>
+      <h2>چرا این پروژه برای یک مبتدی، با ابزار درست، شدنی است</h2>
+    </div>
+    <div class="stack reveal">
+      <div><b>تلگرام</b>Telegram Bot API با webhook — مستندسازی خوب دارد و الگوهای آماده‌ی زیادی برای کپی‌برداری هست.</div>
+      <div><b>هوش مصنوعی</b>یک فراخوانی API مدل زبانی برای هر فیچر (کارت، کوییز، تست) — منطق در پرامپت است، نه در کد.</div>
+      <div><b>دیتابیس</b>یک جدول کاربر، یک جدول واژه‌های ذخیره‌شده، یک جدول تاریخچه‌ی استریک — همین برای MVP کافی است.</div>
+      <div><b>زمان‌بندی</b>یک کرون‌جاب ساده برای ارسال روزانه — نیازی به صف پیچیده در این مقیاس نیست.</div>
+      <div><b>ابزار ساخت</b>Cursor یا Codex برای نوشتن و دیباگ کد، و مشورت نقطه‌ای با یک دوست کدنویس برای بخش‌های مبهم.</div>
+      <div><b>قاعده‌ی طلایی</b>هر فیچری که در MVP قابل تست با ۲۰-۳۰ کاربر واقعی نیست، به فاز بعد منتقل می‌شود.</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    این صفحه یک سند مفهومی برای طراحی و برنامه‌ریزی محصول است، نه یک پیشنهاد سرمایه‌گذاری یا قیمت‌گذاری قطعی.
+    اعداد و بازه‌های زمانی، نمونه‌اند و باید بر اساس تست واقعی با کاربر تنظیم شوند.
+  </div>
+</footer>
+
+<script>
+  const revealEls = document.querySelectorAll('.reveal');
+  const io = new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{
+      if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, {threshold:0.12});
+  revealEls.forEach(el=>io.observe(el));
+</script>
+
+</body>
+</html>
