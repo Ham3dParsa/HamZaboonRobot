@@ -9,7 +9,7 @@ BTN_STATUS = "📊 وضعیت من"
 BTN_GRAMMAR = "✍️ نکته‌ی گرامری"
 BTN_CHANGE_LANG = "🌐 تغییر زبان"
 BTN_CHANGE_GOAL = "🎯 تغییر هدف"
-BTN_CHANGE_LEVEL = "📚 تغییر سطح"
+BTN_CHANGE_LEVEL = "📚 تنظیم سطح زبان"
 BTN_ADMIN = "🛠 مدیریت ربات"
 
 
@@ -18,9 +18,8 @@ def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
     rows = [
         [BTN_TODAY_CARD, BTN_GRAMMAR],
         [BTN_ADD_WORD, BTN_ASK_WORD],
-        [BTN_STATUS],
+        [BTN_STATUS, BTN_CHANGE_LEVEL],
         [BTN_CHANGE_LANG, BTN_CHANGE_GOAL],
-        [BTN_CHANGE_LEVEL],
     ]
     if is_owner:
         rows.append([BTN_ADMIN])
