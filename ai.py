@@ -22,15 +22,23 @@ class CardValidationError(ValueError):
     """Raised when the model output cannot be stored as a vocabulary card."""
 
 
-def _extract_json(text: str) -> dict:
+class BatchValidationError(ValueError):
+    """Raised when a model response cannot be interpreted as a card batch."""
+
+
+def _extract_json(text: str) -> object:
     text = text.strip()
-    # حذف بلاک کد
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
-    # پیدا کردن بزرگ‌ترین آبجکت JSON
-    match = re.search(r"\{[\s\S]*\}", text)
-    if match:
-        text = match.group(0)
-    return json.loads(text)
+    decoder = json.JSONDecoder()
+    for index, character in enumerate(text):
+        if character not in "[{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        return value
+    raise json.JSONDecodeError("No JSON value found", text, 0)
 
 
 def _required_text(data: Mapping[str, object], field: str) -> str:
@@ -74,7 +82,7 @@ def validate_card(data: object) -> dict:
     }
 
 
-def ask_json(system_prompt: str, user_prompt: str = "بساز.") -> dict:
+def _request_json(system_prompt: str, user_prompt: str = "بساز.") -> object:
     """یک تماس با مدل زبانی می‌گیرد و انتظار دارد خروجی JSON خام باشد."""
     client = _client()
     resp = client.chat.completions.create(
@@ -89,5 +97,55 @@ def ask_json(system_prompt: str, user_prompt: str = "بساز.") -> dict:
     return _extract_json(content)
 
 
+def ask_json(system_prompt: str, user_prompt: str = "بساز.") -> dict:
+    value = _request_json(system_prompt, user_prompt)
+    if not isinstance(value, Mapping):
+        raise CardValidationError("Expected a JSON object")
+    return dict(value)
+
+
 def ask_card(system_prompt: str, user_prompt: str = "بساز.") -> dict:
     return validate_card(ask_json(system_prompt, user_prompt))
+
+
+def validate_batch(
+    data: object,
+    expected_count: int,
+    used_words: list[str] | None = None,
+) -> list[dict]:
+    if isinstance(data, Mapping):
+        data = data.get("cards")
+    if not isinstance(data, list):
+        raise BatchValidationError("Batch output must be a JSON array")
+
+    used = {
+        word.strip().casefold()
+        for word in (used_words or [])
+        if isinstance(word, str) and word.strip()
+    }
+    cards: list[dict] = []
+    for item in data:
+        try:
+            card = validate_card(item)
+        except CardValidationError:
+            continue
+        normalized_word = card["word"].strip().casefold()
+        if normalized_word in used:
+            continue
+        used.add(normalized_word)
+        cards.append(card)
+        if len(cards) >= expected_count:
+            break
+    return cards
+
+
+def ask_batch(
+    system_prompt: str,
+    expected_count: int,
+    used_words: list[str] | None = None,
+) -> list[dict]:
+    return validate_batch(
+        _request_json(system_prompt),
+        expected_count,
+        used_words=used_words,
+    )

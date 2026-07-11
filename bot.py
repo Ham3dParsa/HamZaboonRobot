@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import datetime
 import re
@@ -249,29 +250,60 @@ async def on_level_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, l
 
 # ---------------- دکمه‌های اصلی ----------------
 
-def _generate_unique_card(
+def _generate_daily_batch(
     lang: str,
     goal: str,
     level: str,
-    used_words,
-    retries: int = 2,
-) -> dict:
-    """یک کارت روزانه می‌سازد و اگر واژه‌اش تکراری بود چند بار دوباره تلاش می‌کند."""
-    used_norm = {str(w).strip().lower() for w in (used_words or []) if w}
-    data = {}
-    for _ in range(retries + 1):
-        data = ai.ask_card(
-            prompts.daily_card_system_prompt(
-                lang,
-                goal,
-                level=level,
-                avoid_words=used_words,
+    card_count: int,
+    used_words: list[str],
+) -> list[dict]:
+    cards: list[dict] = []
+    last_error: Exception | None = None
+    for _ in range(3):
+        remaining = card_count - len(cards)
+        if remaining <= 0:
+            break
+        batch_words = used_words + [card["word"] for card in cards]
+        try:
+            batch = ai.ask_batch(
+                prompts.daily_batch_system_prompt(
+                    lang,
+                    goal,
+                    level,
+                    remaining,
+                    avoid_words=batch_words,
+                ),
+                expected_count=remaining,
+                used_words=batch_words,
             )
-        )
-        word = str(data.get("word", "")).strip().lower()
-        if word and word not in used_norm:
-            return data
-    return data
+        except Exception as exc:
+            last_error = exc
+            continue
+        if not batch:
+            continue
+        cards.extend(batch)
+
+    if not cards and last_error:
+        raise last_error
+    return cards
+
+
+def _ensure_daily_cards(user_id: int, row, card_date: str, limit: int) -> list[dict]:
+    cards = db.get_daily_cards(user_id, card_date)
+    if len(cards) >= limit:
+        return cards
+
+    used_words = [str(card.get("word", "")) for card in cards]
+    new_cards = _generate_daily_batch(
+        row["target_lang"],
+        row["goal"],
+        row["level"],
+        limit - len(cards),
+        used_words,
+    )
+    for offset, card in enumerate(new_cards):
+        db.add_daily_card(user_id, card_date, len(cards) + offset, card)
+    return db.get_daily_cards(user_id, card_date)
 
 
 async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -285,14 +317,22 @@ async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE
     plan = row["plan"] or "free"
     limit = daily_card_count_for_plan(plan)
 
-    # کارت‌های امروز از قبل تولید شده‌اند؟ اگر بله، به‌جای فراخوانی دوباره‌ی API
-    # همان‌ها را برای مرور نشان می‌دهیم. مکان‌نمای مرور در حافظه‌ی همان روز نگه داشته می‌شود.
-    cards = db.get_daily_cards(user_id, today)
+    await update.message.chat.send_action("typing")
+    try:
+        cards = _ensure_daily_cards(user_id, row, today, limit)
+    except Exception:
+        log.exception("Daily batch generation failed")
+        await update.message.reply_text("مشکلی در ساخت کارت‌های امروز پیش اومد.")
+        return
 
     if context.user_data.get("daily_cursor_date") != today:
         context.user_data["daily_cursor_date"] = today
         context.user_data["daily_cursor"] = 0
     cursor = context.user_data.get("daily_cursor", 0)
+
+    if not cards:
+        await update.message.reply_text("امروز هنوز کارتی آماده نشده؛ دوباره امتحان کن.")
+        return
 
     # ۱) هنوز کارتی از امروز برای دیدن باقی مانده → از کش نشان بده (بدون هزینه‌ی API)
     if cursor < len(cards):
@@ -301,6 +341,14 @@ async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE
         footer = f"📖 مرور کارت {cursor + 1} از {len(cards)} امروز"
         await update.message.reply_text(
             format_card(data, footer=footer),
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+        return
+
+    if len(cards) < limit:
+        context.user_data["daily_cursor"] = 0
+        await update.message.reply_text(
+            format_card(cards[0], footer=f"📖 مرور کارت ۱ از {len(cards)} امروز"),
             parse_mode=ParseMode.MARKDOWN_V2,
         )
         return
@@ -321,33 +369,6 @@ async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode=ParseMode.MARKDOWN_V2,
         )
         return
-
-    # ۳) هنوز ظرفیت داری → یک کارت جدید (غیرتکراری) بساز، ذخیره کن و نشان بده
-    used_words = [c.get("word", "") for c in cards]
-    await update.message.chat.send_action("typing")
-    try:
-        data = _generate_unique_card(
-            row["target_lang"],
-            row["goal"],
-            row["level"],
-            used_words,
-        )
-    except Exception:
-        log.exception("AI error")
-        await update.message.reply_text("مشکلی در ارتباط با هوش مصنوعی پیش اومد.")
-        return
-
-    new_index = len(cards)
-    db.add_daily_card(user_id, today, new_index, data)
-    context.user_data["daily_cursor"] = new_index + 1
-
-    streak = db.touch_streak(user_id)
-    footer = f"🔥 استریک: {streak} روز  ·  کارت {new_index + 1} از {limit}"
-    await update.message.reply_text(
-        format_card(data, footer=footer),
-        parse_mode=ParseMode.MARKDOWN_V2,
-    )
-
 
 async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -588,23 +609,26 @@ async def daily_job(context: ContextTypes.DEFAULT_TYPE):
     for row in db.all_active_users():
         user_id = row["user_id"]
         try:
-            # اگر امروز کارت خودکار قبلاً ساخته شده، دوباره از API نگیر.
-            if db.count_daily_cards(user_id, today) > 0:
+            limit = daily_card_count_for_plan(row["plan"] or "free")
+            existing_cards = db.get_daily_cards(user_id, today)
+            if len(existing_cards) >= limit:
                 continue
-            data = ai.ask_card(
-                prompts.daily_card_system_prompt(
-                    row["target_lang"],
-                    row["goal"],
-                    level=row["level"],
-                )
-            )
-            db.add_daily_card(user_id, today, 0, data)
+            cards = _ensure_daily_cards(user_id, row, today, limit)
+            new_cards = cards[len(existing_cards):]
+            if not new_cards:
+                continue
             streak = db.touch_streak(user_id)
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=format_card(data, footer=f"🔥 استریک: {streak} روز"),
-                parse_mode=ParseMode.MARKDOWN_V2,
-            )
+            for index, card in enumerate(new_cards, start=len(existing_cards) + 1):
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=format_card(
+                        card,
+                        footer=f"🔥 استریک: {streak} روز  ·  کارت {index} از {limit}",
+                    ),
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                )
+                if index < limit:
+                    await asyncio.sleep(0.3)
         except Exception:
             log.exception(f"daily_job failed for user {user_id}")
 
