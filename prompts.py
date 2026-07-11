@@ -100,6 +100,50 @@ def daily_card_system_prompt(
 همیشه synonyms و antonyms را با حرف کوچک شروع کن.
 {_JSON_RULES}"""
 
+
+def daily_batch_system_prompt(
+    lang: str,
+    goal: str,
+    level: str,
+    card_count: int,
+    avoid_words=None,
+) -> str:
+    lang_fa = LANG_NAMES_FA.get(lang, lang)
+    goal_fa = GOALS_FA.get(goal, "عمومی")
+    level_name = LEVEL_NAMES_FA.get(level, LEVEL_NAMES_FA["beginner"])
+    example_lang = "انگلیسی" if lang == "en" else lang_fa
+    avoid_hint = ""
+    if avoid_words:
+        joined = "، ".join(str(word) for word in avoid_words if word)
+        if joined:
+            avoid_hint = f"\nاین واژه‌ها را تکرار نکن: {joined}\n"
+
+    return f"""تو معلم خصوصی زبان {lang_fa} برای فارسی‌زبانان هستی.
+هدف کاربر: {goal_fa}. سطح کاربر: {level_name}.
+{_level_guidance(level)}
+{_language_guidance(lang)}
+
+دقیقاً {card_count} کارت واژه‌ای مستقل و غیرتکراری بساز.
+{avoid_hint}
+خروجی باید دقیقاً یک آرایه JSON خام باشد و هیچ متن دیگری نداشته باشد:
+[
+  {{
+    "word": "واژه در زبان {lang_fa}",
+    "phonetic": "آوانگاری تلفظ یا رشته خالی",
+    "fa_meaning": "معادل کوتاه فارسی",
+    "fa_explanation": "توضیح ۱-۲ جمله‌ای به فارسی",
+    "synonyms": ["مترادف ۱", "مترادف ۲", "مترادف ۳"],
+    "antonyms": ["متضاد ۱", "متضاد ۲"],
+    "examples": ["جمله نمونه اول به زبان {example_lang}.", "جمله نمونه دوم به زبان {example_lang}."],
+    "example_translations": ["ترجمه فارسی جمله اول.", "ترجمه فارسی جمله دوم."],
+    "grammar_tip": "نکته گرامری کوتاه با نام فارسی و معادل انگلیسی/لاتین اصطلاح"
+  }}
+]
+
+همه واژه‌های داخل آرایه باید متفاوت باشند.
+{_JSON_RULES}"""
+
+
 def custom_word_system_prompt(lang: str, level: str = "beginner") -> str:
     lang_fa = LANG_NAMES_FA.get(lang, lang)
     level_name = LEVEL_NAMES_FA.get(level, LEVEL_NAMES_FA["beginner"])
