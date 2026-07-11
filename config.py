@@ -21,6 +21,7 @@ FREE_DAILY_WORD_LIMIT = int(os.getenv("FREE_DAILY_WORD_LIMIT", "3"))
 FREE_DAILY_CARD_COUNT = int(os.getenv("FREE_DAILY_CARD_COUNT", "3"))
 SILVER_DAILY_CARD_COUNT = int(os.getenv("SILVER_DAILY_CARD_COUNT", "12"))
 GOLD_DAILY_CARD_COUNT = int(os.getenv("GOLD_DAILY_CARD_COUNT", "30"))
+OWNER_BYPASS_LIMITS = os.getenv("OWNER_BYPASS_LIMITS", "true").lower() in {"1", "true", "yes"}
 
 SUPPORTED_LANGS = {
     "en": "انگلیسی",
@@ -50,6 +51,12 @@ LEVEL_CEFR = {
 
 DEFAULT_LEVEL = "beginner"
 
+PLANS = {
+    "free": "رایگان",
+    "silver": "نقره‌ای",
+    "gold": "طلایی",
+}
+
 
 def daily_card_count_for_plan(plan: str) -> int:
     return {
@@ -57,3 +64,9 @@ def daily_card_count_for_plan(plan: str) -> int:
         "silver": SILVER_DAILY_CARD_COUNT,
         "gold": GOLD_DAILY_CARD_COUNT,
     }.get(plan, FREE_DAILY_CARD_COUNT)
+
+
+def effective_plan(plan: str, bypass_limits: bool = False) -> str:
+    if bypass_limits:
+        return "gold"
+    return plan if plan in PLANS else "free"

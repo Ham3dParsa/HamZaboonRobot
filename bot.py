@@ -24,7 +24,10 @@ from config import (
     GOALS,
     LEVELS,
     LEVEL_CEFR,
+    PLANS,
+    OWNER_BYPASS_LIMITS,
     daily_card_count_for_plan,
+    effective_plan,
 )
 import db
 import ai
@@ -58,6 +61,17 @@ def escape_mdv2(text: str) -> str:
 
 def is_owner(user_id: int) -> bool:
     return OWNER_ID != 0 and user_id == OWNER_ID
+
+
+def _user_plan(row) -> str:
+    return effective_plan(row["plan"] or "free", OWNER_BYPASS_LIMITS and is_owner(row["user_id"]))
+
+
+def _user_plan_label(row) -> str:
+    actual = PLANS.get(row["plan"] or "free", row["plan"] or "free")
+    if OWNER_BYPASS_LIMITS and is_owner(row["user_id"]):
+        return f"{actual} (دسترسی مالک)"
+    return actual
 
 
 def format_card(data: dict, footer: str = "") -> str:
@@ -314,7 +328,7 @@ async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     today = datetime.date.today().isoformat()
-    plan = row["plan"] or "free"
+    plan = _user_plan(row)
     limit = daily_card_count_for_plan(plan)
 
     await update.message.chat.send_action("typing")
@@ -408,7 +422,11 @@ async def ask_for_add_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ask_for_ask_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if not db.can_ask_word(user_id, FREE_DAILY_WORD_LIMIT):
+    if not db.can_ask_word(
+        user_id,
+        FREE_DAILY_WORD_LIMIT,
+        bypass_limits=OWNER_BYPASS_LIMITS and is_owner(user_id),
+    ):
         await update.message.reply_text(
             f"سقف روزانه‌ی پرسش واژه‌ی رایگان ({FREE_DAILY_WORD_LIMIT} بار) تموم شده. "
             "برای پرسش نامحدود، پلن نقره‌ای یا طلایی رو فعال کن."
@@ -429,7 +447,7 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🌐 زبان: {SUPPORTED_LANGS.get(row['target_lang'], row['target_lang'])}\n"
         f"🎯 هدف: {GOALS.get(row['goal'], row['goal'])}\n"
         f"📚 سطح: {LEVELS.get(row['level'], row['level'])} ({LEVEL_CEFR.get(row['level'], '')})\n"
-        f"💳 پلن: {row['plan']}\n"
+        f"💳 پلن: {_user_plan_label(row)}\n"
         f"🔥 استریک: {row['streak'] or 0} روز\n"
         f"⏰ واژه‌های آماده‌ی مرور: {len(due)}"
     )
@@ -451,6 +469,14 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, act
     q = update.callback_query
     if action == "stats":
         await q.edit_message_text(f"👥 تعداد کل کاربران: {db.count_users()}")
+    elif action == "set_plan":
+        context.user_data["awaiting"] = "admin_set_plan"
+        await q.edit_message_text(
+            "فرمت را ارسال کنید:\n`user_id_or_username plan`\n\n"
+            "مثال: `123456789 silver` یا `@username gold`\n"
+            "پلن‌ها: free، silver، gold",
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
     elif action == "set_model":
         context.user_data["awaiting"] = "admin_set_model"
         await q.edit_message_text(
@@ -521,6 +547,27 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if awaiting == "admin_set_model":
             db.set_setting("ai_model", text)
             await update.message.reply_text(f"مدل جدید ثبت شد: `{text}`", parse_mode=ParseMode.MARKDOWN_V2)
+            return
+
+        if awaiting == "admin_set_plan":
+            parts = text.split()
+            if len(parts) != 2 or parts[1].lower() not in PLANS:
+                await update.message.reply_text(
+                    "فرمت نامعتبر است. نمونه: `123456789 silver` یا `@username gold`",
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                )
+                return
+            target = db.find_user(parts[0])
+            if not target:
+                await update.message.reply_text("کاربر پیدا نشد؛ ابتدا باید کاربر /start را زده باشد.")
+                return
+            plan = parts[1].lower()
+            previous_plan = target["plan"] or "free"
+            db.set_plan(target["user_id"], plan)
+            await update.message.reply_text(
+                f"پلن کاربر {target['user_id']} از {PLANS.get(previous_plan, previous_plan)} "
+                f"به {PLANS[plan]} تغییر کرد."
+            )
             return
 
         if awaiting == "admin_set_base_url":
@@ -609,7 +656,7 @@ async def daily_job(context: ContextTypes.DEFAULT_TYPE):
     for row in db.all_active_users():
         user_id = row["user_id"]
         try:
-            limit = daily_card_count_for_plan(row["plan"] or "free")
+            limit = daily_card_count_for_plan(_user_plan(row))
             existing_cards = db.get_daily_cards(user_id, today)
             if len(existing_cards) >= limit:
                 continue
