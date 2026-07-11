@@ -13,7 +13,16 @@ from telegram.ext import (
     filters,
 )
 
-from config import BOT_TOKEN, OWNER_ID, FREE_DAILY_WORD_LIMIT, DAILY_SEND_HOUR, SUPPORTED_LANGS, GOALS
+from config import (
+    BOT_TOKEN,
+    OWNER_ID,
+    FREE_DAILY_WORD_LIMIT,
+    DAILY_SEND_HOUR,
+    SRS_SEND_HOUR,
+    SUPPORTED_LANGS,
+    GOALS,
+    daily_card_count_for_plan,
+)
 import db
 import ai
 import prompts
@@ -205,23 +214,64 @@ async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     today = datetime.date.today().isoformat()
-    
-    # اگر امروز قبلاً کارت گرفته، همان را نشان بده (نیاز به ذخیره کارت در DB)
-    # فعلاً ساده: فقط اگر کمتر از ۱ ساعت گذشته، تکرار نکن
-    # یا منطق کامل‌تر بعداً
+    plan = row["plan"] or "free"
+    limit = daily_card_count_for_plan(plan)
 
+    # کارت‌های امروز از قبل تولید شده‌اند؟ اگر بله، به‌جای فراخوانی دوباره‌ی API
+    # همان‌ها را برای مرور نشان می‌دهیم. مکان‌نمای مرور در حافظه‌ی همان روز نگه داشته می‌شود.
+    cards = db.get_daily_cards(user_id, today)
+
+    if context.user_data.get("daily_cursor_date") != today:
+        context.user_data["daily_cursor_date"] = today
+        context.user_data["daily_cursor"] = 0
+    cursor = context.user_data.get("daily_cursor", 0)
+
+    # ۱) هنوز کارتی از امروز برای دیدن باقی مانده → از کش نشان بده (بدون هزینه‌ی API)
+    if cursor < len(cards):
+        data = cards[cursor]
+        context.user_data["daily_cursor"] = cursor + 1
+        footer = f"📖 مرور کارت {cursor + 1} از {len(cards)} امروز"
+        await update.message.reply_text(
+            format_card(data, footer=footer),
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+        return
+
+    # ۲) به سقف پلن رسیده‌ای → کارت جدید تولید نکن، از اول مرور کن
+    if len(cards) >= limit:
+        if not cards:
+            await update.message.reply_text("امروز کارتی برای نمایش نیست.")
+            return
+        data = cards[0]
+        context.user_data["daily_cursor"] = 1
+        footer = (
+            f"✅ کارت‌های امروزت ({limit} کارت) کامل شده؛ این‌ها را مرور کن.\n"
+            f"📖 مرور کارت ۱ از {len(cards)}"
+        )
+        await update.message.reply_text(
+            format_card(data, footer=footer),
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+        return
+
+    # ۳) هنوز ظرفیت داری → یک کارت جدید بساز، ذخیره کن و نشان بده
     await update.message.chat.send_action("typing")
     try:
         data = ai.ask_json(prompts.daily_card_system_prompt(row["target_lang"], row["goal"]))
-    except Exception as e:
+    except Exception:
         log.exception("AI error")
         await update.message.reply_text("مشکلی در ارتباط با هوش مصنوعی پیش اومد.")
         return
 
+    new_index = len(cards)
+    db.add_daily_card(user_id, today, new_index, data)
+    context.user_data["daily_cursor"] = new_index + 1
+
     streak = db.touch_streak(user_id)
+    footer = f"🔥 استریک: {streak} روز  ·  کارت {new_index + 1} از {limit}"
     await update.message.reply_text(
-        format_card(data, footer=f"🔥 استریک: {streak} روز"), 
-        parse_mode=ParseMode.MARKDOWN_V2
+        format_card(data, footer=footer),
+        parse_mode=ParseMode.MARKDOWN_V2,
     )
 
 
@@ -435,17 +485,47 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------- ارسال روزانه‌ی خودکار ----------------
 
 async def daily_job(context: ContextTypes.DEFAULT_TYPE):
+    today = datetime.date.today().isoformat()
     for row in db.all_active_users():
+        user_id = row["user_id"]
         try:
+            # اگر امروز کارت خودکار قبلاً ساخته شده، دوباره از API نگیر.
+            if db.count_daily_cards(user_id, today) > 0:
+                continue
             data = ai.ask_json(prompts.daily_card_system_prompt(row["target_lang"], row["goal"]))
-            streak = db.touch_streak(row["user_id"])
+            db.add_daily_card(user_id, today, 0, data)
+            streak = db.touch_streak(user_id)
             await context.bot.send_message(
-                chat_id=row["user_id"],
+                chat_id=user_id,
                 text=format_card(data, footer=f"🔥 استریک: {streak} روز"),
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
         except Exception:
-            log.exception(f"daily_job failed for user {row['user_id']}")
+            log.exception(f"daily_job failed for user {user_id}")
+
+
+async def srs_job(context: ContextTypes.DEFAULT_TYPE):
+    """یادآوری واژه‌های ذخیره‌شده‌ی سررسیدشده (مرور فاصله‌دار)."""
+    for row in db.all_active_users():
+        user_id = row["user_id"]
+        try:
+            due = db.due_words_for_user(user_id)
+            if not due:
+                continue
+            words = "\n".join(f"• {escape_mdv2(w['word'])}" for w in due)
+            text = (
+                f"⏰ *وقت مرور {len(due)} واژه‌ست:*\n\n{words}\n\n"
+                "سعی کن معنی هرکدوم رو یادت بیاری، بعد چک کن\\."
+            )
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=text,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            for w in due:
+                db.advance_word_review(w["id"])
+        except Exception:
+            log.exception(f"srs_job failed for user {user_id}")
 
 
 def main():
@@ -461,6 +541,7 @@ def main():
 
     if app.job_queue:
         app.job_queue.run_daily(daily_job, time=datetime.time(hour=DAILY_SEND_HOUR, minute=0))
+        app.job_queue.run_daily(srs_job, time=datetime.time(hour=SRS_SEND_HOUR, minute=0))
 
     log.info("ربات هم‌زبان استارت شد.")
     app.run_polling()

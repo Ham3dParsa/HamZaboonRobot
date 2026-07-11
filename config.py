@@ -15,6 +15,7 @@ DEFAULT_AI_MODEL = os.getenv("AI_MODEL", "gapgpt-qwen-3.6")
 
 DB_PATH = os.getenv("DB_PATH", "hamzaban.db")
 DAILY_SEND_HOUR = int(os.getenv("DAILY_SEND_HOUR", "9"))
+SRS_SEND_HOUR = int(os.getenv("SRS_SEND_HOUR", "10"))
 FREE_DAILY_WORD_LIMIT = int(os.getenv("FREE_DAILY_WORD_LIMIT", "3"))
 
 FREE_DAILY_CARD_COUNT = int(os.getenv("FREE_DAILY_CARD_COUNT", "3"))

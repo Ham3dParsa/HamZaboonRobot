@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import datetime
 from contextlib import contextmanager
@@ -198,6 +199,36 @@ def count_users():
 def set_plan(user_id: int, plan: str):
     with get_conn() as conn:
         conn.execute("UPDATE users SET plan=? WHERE user_id=?", (plan, user_id))
+        conn.commit()
+
+
+# ---------- کارت‌های روزانه (کش‌شده برای هر روز و هر کاربر) ----------
+
+def get_daily_cards(user_id: int, card_date: str):
+    """کارت‌های تولیدشده‌ی همان روز را به ترتیب برمی‌گرداند (لیست dict)."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT card_data FROM daily_cards WHERE user_id=? AND card_date=? ORDER BY card_index",
+            (user_id, card_date),
+        ).fetchall()
+    return [json.loads(r["card_data"]) for r in rows]
+
+
+def count_daily_cards(user_id: int, card_date: str) -> int:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) c FROM daily_cards WHERE user_id=? AND card_date=?",
+            (user_id, card_date),
+        ).fetchone()["c"]
+
+
+def add_daily_card(user_id: int, card_date: str, card_index: int, card_data: dict):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO daily_cards(user_id, card_date, card_index, card_data) "
+            "VALUES (?, ?, ?, ?)",
+            (user_id, card_date, card_index, json.dumps(card_data, ensure_ascii=False)),
+        )
         conn.commit()
 
 
