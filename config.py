@@ -27,6 +27,7 @@ SUPPORTED_LANGS = {
     "es": "اسپانیایی",
     "ar": "عربی",
     "fr": "فرانسوی",
+    "de": "آلمانی",
 }
 
 GOALS = {
@@ -34,6 +35,21 @@ GOALS = {
     "konkur": "کنکور",
     "toefl": "تافل",
 }
+
+LEVELS = {
+    "beginner": "مبتدی",
+    "intermediate": "متوسط",
+    "advanced": "پیشرفته",
+}
+
+LEVEL_CEFR = {
+    "beginner": "A1/A2",
+    "intermediate": "B1/B2",
+    "advanced": "C1/C2",
+}
+
+DEFAULT_LEVEL = "beginner"
+
 
 def daily_card_count_for_plan(plan: str) -> int:
     return {

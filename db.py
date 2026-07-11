@@ -3,7 +3,13 @@ import sqlite3
 import datetime
 from contextlib import contextmanager
 
-from config import DB_PATH, DEFAULT_AI_BASE_URL, DEFAULT_AI_API_KEY, DEFAULT_AI_MODEL
+from config import (
+    DB_PATH,
+    DEFAULT_AI_API_KEY,
+    DEFAULT_AI_BASE_URL,
+    DEFAULT_AI_MODEL,
+    DEFAULT_LEVEL,
+)
 
 INTERVALS_DAYS = [1, 3, 7, 16, 30]
 
@@ -27,6 +33,7 @@ def init_db():
                 username TEXT,
                 target_lang TEXT,
                 goal TEXT,
+                level TEXT NOT NULL DEFAULT 'beginner',
                 plan TEXT DEFAULT 'free',
                 streak INTEGER DEFAULT 0,
                 last_active_date TEXT,
@@ -58,6 +65,15 @@ def init_db():
             );
             """
         )
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(users)").fetchall()
+        }
+        if "level" not in columns:
+            conn.execute(
+                f"ALTER TABLE users ADD COLUMN level TEXT NOT NULL DEFAULT "
+                f"'{DEFAULT_LEVEL.replace(chr(39), chr(39) * 2)}'",
+            )
         defaults = {
             "ai_base_url": DEFAULT_AI_BASE_URL,
             "ai_api_key": DEFAULT_AI_API_KEY,
@@ -105,11 +121,21 @@ def create_user_if_needed(user_id: int, username: str):
 def set_user_lang_goal(user_id: int, lang: str, goal: str):
     with get_conn() as conn:
         conn.execute(
-            "UPDATE users SET target_lang=?, goal=?, onboarded=1 WHERE user_id=?",
+            "UPDATE users SET target_lang=?, goal=? WHERE user_id=?",
             (lang, goal, user_id),
         )
         conn.commit()
-        
+
+
+def set_user_level(user_id: int, level: str):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE users SET level=?, onboarded=1 WHERE user_id=?",
+            (level, user_id),
+        )
+        conn.commit()
+
+
 def set_user_lang(user_id: int, lang: str):
     """تغییر فقط زبان"""
     with get_conn() as conn:

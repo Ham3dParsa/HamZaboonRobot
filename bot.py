@@ -21,6 +21,8 @@ from config import (
     SRS_SEND_HOUR,
     SUPPORTED_LANGS,
     GOALS,
+    LEVELS,
+    LEVEL_CEFR,
     daily_card_count_for_plan,
 )
 import db
@@ -30,6 +32,7 @@ from keyboards import (
     main_menu,
     lang_inline_keyboard,
     goal_inline_keyboard,
+    level_inline_keyboard,
     admin_panel_keyboard,
     BTN_TODAY_CARD,
     BTN_ADD_WORD,
@@ -39,6 +42,7 @@ from keyboards import (
     BTN_ADMIN,
     BTN_CHANGE_LANG,
     BTN_CHANGE_GOAL,
+    BTN_CHANGE_LEVEL,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -137,21 +141,36 @@ async def on_goal_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, g
     user_id = update.effective_user.id
     lang = context.user_data.get("pending_lang", "en")
     db.set_user_lang_goal(user_id, lang, goal)
-    
-    lang_name = SUPPORTED_LANGS.get(lang, lang)
-    goal_name = GOALS.get(goal, goal)
-    
+
     await update.callback_query.edit_message_text(
-        f"عالی! از حالا هر روز یک کارت واژه‌ی *{escape_mdv2(lang_name)}* "
-        f"با هدف *{escape_mdv2(goal_name)}* برات می‌فرستم. 🎯",
-        parse_mode=ParseMode.MARKDOWN_V2
+        "حالا سطح فعلی زبانت را انتخاب کن:",
+        reply_markup=level_inline_keyboard(),
+    )
+
+
+async def on_level_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, level: str):
+    user_id = update.effective_user.id
+    db.set_user_level(user_id, level)
+    row = db.get_user(user_id)
+    lang_name = SUPPORTED_LANGS.get(row["target_lang"], row["target_lang"])
+    goal_name = GOALS.get(row["goal"], row["goal"])
+    level_name = LEVELS.get(level, level)
+    cefr = LEVEL_CEFR.get(level, "")
+
+    await update.callback_query.edit_message_text(
+        f"عالی! سطح تو *{escape_mdv2(level_name)}* \\({escape_mdv2(cefr)}\\) ثبت شد\\.",
+        parse_mode=ParseMode.MARKDOWN_V2,
     )
     await context.bot.send_message(
-        chat_id=user_id, 
-        text="از منوی پایین استفاده کن:",
-        reply_markup=main_menu(is_owner(user_id))
+        chat_id=user_id,
+        text=(
+            f"زبان: {lang_name} · هدف: {goal_name}\n"
+            "از منوی پایین استفاده کن:"
+        ),
+        reply_markup=main_menu(is_owner(user_id)),
     )
-    
+
+
 async def change_lang_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "زبان جدید خود را انتخاب کنید:",
@@ -162,6 +181,13 @@ async def change_goal_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "هدف جدید خود را انتخاب کنید:",
         reply_markup=goal_inline_keyboard()
+    )
+
+
+async def change_level_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "سطح جدید خود را انتخاب کنید:",
+        reply_markup=level_inline_keyboard(),
     )
 
 
@@ -204,14 +230,44 @@ async def on_goal_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, go
     )
 
 
+async def on_level_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, level: str):
+    user_id = update.effective_user.id
+    db.set_user_level(user_id, level)
+    level_name = LEVELS.get(level, level)
+    cefr = LEVEL_CEFR.get(level, "")
+    text = f"✅ سطح با موفقیت به *{level_name}* ({cefr}) تغییر کرد."
+    await update.callback_query.edit_message_text(
+        escape_mdv2(text),
+        parse_mode=ParseMode.MARKDOWN_V2,
+    )
+    await context.bot.send_message(
+        chat_id=user_id,
+        text="از منوی پایین استفاده کنید:",
+        reply_markup=main_menu(is_owner(user_id)),
+    )
+
+
 # ---------------- دکمه‌های اصلی ----------------
 
-def _generate_unique_card(lang: str, goal: str, used_words, retries: int = 2) -> dict:
+def _generate_unique_card(
+    lang: str,
+    goal: str,
+    level: str,
+    used_words,
+    retries: int = 2,
+) -> dict:
     """یک کارت روزانه می‌سازد و اگر واژه‌اش تکراری بود چند بار دوباره تلاش می‌کند."""
     used_norm = {str(w).strip().lower() for w in (used_words or []) if w}
     data = {}
     for _ in range(retries + 1):
-        data = ai.ask_json(prompts.daily_card_system_prompt(lang, goal, avoid_words=used_words))
+        data = ai.ask_card(
+            prompts.daily_card_system_prompt(
+                lang,
+                goal,
+                level=level,
+                avoid_words=used_words,
+            )
+        )
         word = str(data.get("word", "")).strip().lower()
         if word and word not in used_norm:
             return data
@@ -270,7 +326,12 @@ async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE
     used_words = [c.get("word", "") for c in cards]
     await update.message.chat.send_action("typing")
     try:
-        data = _generate_unique_card(row["target_lang"], row["goal"], used_words)
+        data = _generate_unique_card(
+            row["target_lang"],
+            row["goal"],
+            row["level"],
+            used_words,
+        )
     except Exception:
         log.exception("AI error")
         await update.message.reply_text("مشکلی در ارتباط با هوش مصنوعی پیش اومد.")
@@ -297,7 +358,13 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.chat.send_action("typing")
     try:
-        data = ai.ask_json(prompts.grammar_tip_system_prompt(row["target_lang"], row["goal"]))
+        data = ai.ask_json(
+            prompts.grammar_tip_system_prompt(
+                row["target_lang"],
+                row["goal"],
+                row["level"],
+            )
+        )
     except Exception:
         log.exception("AI error")
         await update.message.reply_text("مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.")
@@ -340,6 +407,7 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         f"🌐 زبان: {SUPPORTED_LANGS.get(row['target_lang'], row['target_lang'])}\n"
         f"🎯 هدف: {GOALS.get(row['goal'], row['goal'])}\n"
+        f"📚 سطح: {LEVELS.get(row['level'], row['level'])} ({LEVEL_CEFR.get(row['level'], '')})\n"
         f"💳 پلن: {row['plan']}\n"
         f"🔥 استریک: {row['streak'] or 0} روز\n"
         f"⏰ واژه‌های آماده‌ی مرور: {len(due)}"
@@ -414,7 +482,13 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             row = db.get_user(user_id)
             await update.message.chat.send_action("typing")
             try:
-                data = ai.ask_json(prompts.custom_word_system_prompt(row["target_lang"]), user_prompt=text)
+                data = ai.ask_card(
+                    prompts.custom_word_system_prompt(
+                        row["target_lang"],
+                        row["level"],
+                    ),
+                    user_prompt=text,
+                )
             except Exception:
                 log.exception("AI error")
                 await update.message.reply_text("مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.")
@@ -467,6 +541,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await change_lang_start(update, context)
     elif text == BTN_CHANGE_GOAL:
         await change_goal_start(update, context)
+    elif text == BTN_CHANGE_LEVEL:
+        await change_level_start(update, context)
     else:
         await update.message.reply_text("از دکمه‌های پایین استفاده کن 🙂", reply_markup=main_menu(is_owner(user_id)))
 
@@ -491,6 +567,16 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await on_goal_changed(update, context, goal)      # تغییر هدف
         else:
             await on_goal_selected(update, context, goal)     # onboarding
+    elif data.startswith("level:"):
+        level = data.split(":", 1)[1]
+        if level not in LEVELS:
+            await update.callback_query.answer("سطح نامعتبر است.", show_alert=True)
+            return
+        row = db.get_user(update.effective_user.id)
+        if row and row["onboarded"]:
+            await on_level_changed(update, context, level)
+        else:
+            await on_level_selected(update, context, level)
     elif data.startswith("admin:"):
         await admin_callback(update, context, data.split(":", 1)[1])
 
@@ -505,7 +591,13 @@ async def daily_job(context: ContextTypes.DEFAULT_TYPE):
             # اگر امروز کارت خودکار قبلاً ساخته شده، دوباره از API نگیر.
             if db.count_daily_cards(user_id, today) > 0:
                 continue
-            data = ai.ask_json(prompts.daily_card_system_prompt(row["target_lang"], row["goal"]))
+            data = ai.ask_card(
+                prompts.daily_card_system_prompt(
+                    row["target_lang"],
+                    row["goal"],
+                    level=row["level"],
+                )
+            )
             db.add_daily_card(user_id, today, 0, data)
             streak = db.touch_streak(user_id)
             await context.bot.send_message(
