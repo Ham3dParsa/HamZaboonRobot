@@ -26,3 +26,8 @@ env/
 .vscode/
 .idea/
 .DS_Store
+
+issues.html
+env-example.txt
+hamzaban-product-doc-*.html
+hamzaban-product-doc-v1_files/
