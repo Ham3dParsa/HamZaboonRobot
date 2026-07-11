@@ -9,6 +9,7 @@ from config import (
     DEFAULT_AI_BASE_URL,
     DEFAULT_AI_MODEL,
     DEFAULT_LEVEL,
+    PLANS,
 )
 
 INTERVALS_DAYS = [1, 3, 7, 16, 30]
@@ -178,7 +179,7 @@ def touch_streak(user_id: int) -> int:
         return new_streak
 
 
-def can_ask_word(user_id: int, free_limit: int) -> bool:
+def can_ask_word(user_id: int, free_limit: int, bypass_limits: bool = False) -> bool:
     with get_conn() as conn:
         row = conn.execute(
             "SELECT plan, words_asked_today, words_asked_date FROM users WHERE user_id=?",
@@ -186,7 +187,7 @@ def can_ask_word(user_id: int, free_limit: int) -> bool:
         ).fetchone()
         if not row:
             return False
-        if row["plan"] != "free":
+        if bypass_limits or row["plan"] != "free":
             return True
         today = datetime.date.today().isoformat()
         asked = row["words_asked_today"] or 0
@@ -223,9 +224,24 @@ def count_users():
 
 
 def set_plan(user_id: int, plan: str):
+    if plan not in PLANS:
+        raise ValueError(f"Unknown plan: {plan}")
     with get_conn() as conn:
         conn.execute("UPDATE users SET plan=? WHERE user_id=?", (plan, user_id))
         conn.commit()
+
+
+def find_user(identifier: str):
+    identifier = identifier.strip()
+    if identifier.startswith("@"):
+        identifier = identifier[1:]
+    if identifier.isdigit():
+        return get_user(int(identifier))
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM users WHERE username=? COLLATE NOCASE",
+            (identifier,),
+        ).fetchone()
 
 
 # ---------- کارت‌های روزانه (کش‌شده برای هر روز و هر کاربر) ----------

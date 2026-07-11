@@ -48,6 +48,7 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("📈 آمار کاربران", callback_data="admin:stats")],
+            [InlineKeyboardButton("💳 تنظیم پلن کاربر", callback_data="admin:set_plan")],
             [InlineKeyboardButton("🤖 تغییر مدل AI", callback_data="admin:set_model")],
             [InlineKeyboardButton("🌐 تغییر Base URL", callback_data="admin:set_base_url")],
             [InlineKeyboardButton("🔑 تغییر API Key", callback_data="admin:set_api_key")],
