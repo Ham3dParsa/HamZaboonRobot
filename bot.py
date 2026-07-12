@@ -35,10 +35,6 @@ from config import (
     AI_MAX_REQUESTS_PER_MINUTE,
     TELEGRAM_MAX_CONCURRENCY,
     SESSION_CARD_DELAY_SECONDS,
-    SUPPORTED_LANGS,
-    GOALS,
-    LEVELS,
-    LEVEL_CEFR,
     PLANS,
     OWNER_BYPASS_LIMITS,
     daily_card_count_for_plan,
@@ -48,6 +44,7 @@ from config import (
 import db
 import ai
 import prompts
+from catalog import LEVELS, goal_label, language_label, level_cefr, level_label
 from scheduling import plan_sessions
 from telegram.error import NetworkError, RetryAfter, TimedOut
 from keyboards import (
@@ -182,7 +179,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def on_lang_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str):
     context.user_data["pending_lang"] = lang
-    lang_name = SUPPORTED_LANGS.get(lang, lang)
+    lang_name = language_label(lang)
     text = f"زبان انتخابی: *{lang_name}* ✅\nحالا هدفت از یادگیری چیه؟"
     text = escape_mdv2(text)
     
@@ -208,10 +205,10 @@ async def on_level_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     user_id = update.effective_user.id
     db.set_user_level(user_id, level)
     row = db.get_user(user_id)
-    lang_name = SUPPORTED_LANGS.get(row["target_lang"], row["target_lang"])
-    goal_name = GOALS.get(row["goal"], row["goal"])
-    level_name = LEVELS.get(level, level)
-    cefr = LEVEL_CEFR.get(level, "")
+    lang_name = language_label(row["target_lang"])
+    goal_name = goal_label(row["goal"])
+    level_name = level_label(level)
+    cefr = level_cefr(level)
 
     await update.callback_query.edit_message_text(
         f"عالی! سطح تو *{escape_mdv2(level_name)}* \\({escape_mdv2(cefr)}\\) ثبت شد\\.",
@@ -251,7 +248,7 @@ async def on_lang_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, la
     user_id = update.effective_user.id
     db.set_user_lang(user_id, lang)
     
-    lang_name = SUPPORTED_LANGS.get(lang, lang)
+    lang_name = language_label(lang)
     # متن کامل را اول بسازیم سپس escape کنیم
     text = f"✅ زبان با موفقیت به *{lang_name}* تغییر کرد."
     text = escape_mdv2(text)
@@ -271,7 +268,7 @@ async def on_goal_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, go
     user_id = update.effective_user.id
     db.set_user_goal(user_id, goal)
     
-    goal_name = GOALS.get(goal, goal)
+    goal_name = goal_label(goal)
     text = f"✅ هدف با موفقیت به *{goal_name}* تغییر کرد."
     text = escape_mdv2(text)
     
@@ -289,8 +286,8 @@ async def on_goal_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, go
 async def on_level_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, level: str):
     user_id = update.effective_user.id
     db.set_user_level(user_id, level)
-    level_name = LEVELS.get(level, level)
-    cefr = LEVEL_CEFR.get(level, "")
+    level_name = level_label(level)
+    cefr = level_cefr(level)
     text = f"✅ سطح با موفقیت به *{level_name}* ({cefr}) تغییر کرد."
     await update.callback_query.edit_message_text(
         escape_mdv2(text),
@@ -534,9 +531,9 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     due = db.due_words_for_user(user_id)
     text = (
-        f"🌐 زبان: {SUPPORTED_LANGS.get(row['target_lang'], row['target_lang'])}\n"
-        f"🎯 هدف: {GOALS.get(row['goal'], row['goal'])}\n"
-        f"📚 سطح: {LEVELS.get(row['level'], row['level'])} ({LEVEL_CEFR.get(row['level'], '')})\n"
+        f"🌐 زبان: {language_label(row['target_lang'])}\n"
+        f"🎯 هدف: {goal_label(row['goal'])}\n"
+        f"📚 سطح: {level_label(row['level'])}\n"
         f"💳 پلن: {_user_plan_label(row)}\n"
         f"🔥 استریک: {row['streak'] or 0} روز\n"
         f"⏰ واژه‌های آماده‌ی مرور: {len(due)}"

@@ -1,6 +1,6 @@
 from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 
-from config import LEVELS, SUPPORTED_LANGS, GOALS
+from catalog import GOALS, LANGUAGES, LEVELS
 
 BTN_TODAY_CARD = "🃏 فلش‌کارت امروز"
 BTN_ADD_WORD = "➕ ثبت واژه‌ی دلخواه"
@@ -27,19 +27,30 @@ def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
 
 
 def lang_inline_keyboard() -> InlineKeyboardMarkup:
-    buttons = [[InlineKeyboardButton(name, callback_data=f"lang:{code}")] for code, name in SUPPORTED_LANGS.items()]
+    buttons = [
+        [InlineKeyboardButton(option.name_fa, callback_data=f"lang:{option.code}")]
+        for option in LANGUAGES.values()
+    ]
     return InlineKeyboardMarkup(buttons)
 
 
 def goal_inline_keyboard() -> InlineKeyboardMarkup:
-    buttons = [[InlineKeyboardButton(name, callback_data=f"goal:{code}")] for code, name in GOALS.items()]
+    buttons = [
+        [InlineKeyboardButton(option.name_fa, callback_data=f"goal:{option.code}")]
+        for option in GOALS.values()
+    ]
     return InlineKeyboardMarkup(buttons)
 
 
 def level_inline_keyboard() -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(f"{name} ({code})", callback_data=f"level:{code}")]
-        for code, name in LEVELS.items()
+        [
+            InlineKeyboardButton(
+                f"{option.name_fa} ({option.cefr})",
+                callback_data=f"level:{option.code}",
+            )
+        ]
+        for option in LEVELS.values()
     ]
     return InlineKeyboardMarkup(buttons)
 
