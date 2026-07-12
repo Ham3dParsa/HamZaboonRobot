@@ -62,10 +62,10 @@ from keyboards import (
     lang_inline_keyboard,
     goal_inline_keyboard,
     level_inline_keyboard,
+    query_result_keyboard,
     admin_panel_keyboard,
     daily_card_keyboard,
     BTN_TODAY_CARD,
-    BTN_ADD_WORD,
     BTN_ASK_WORD,
     BTN_STATUS,
     BTN_GRAMMAR,
@@ -108,6 +108,21 @@ def _ask_batch_limited(*args, **kwargs):
 
 def _app_today() -> str:
     return datetime.datetime.now(_app_timezone).date().isoformat()
+
+
+def _word_query_usage(row) -> tuple[int, int]:
+    used = row["words_asked_today"] or 0
+    if row["words_asked_date"] != _app_today():
+        used = 0
+    return used, daily_word_query_limit_for_plan(row["plan"] or "free")
+
+
+def _word_query_usage_text(row) -> str:
+    used, limit = _word_query_usage(row)
+    if limit < 0:
+        return f"📊 استفاده امروز: {used} / نامحدود"
+    remaining = max(limit - used, 0)
+    return f"📊 استفاده امروز: {used}/{limit} · باقی‌مانده: {remaining}"
 
 
 def escape_mdv2(text: str) -> str:
@@ -524,27 +539,25 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
 
 
-async def ask_for_add_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["awaiting"] = "add_word"
-    await update.message.reply_text("واژه‌ای که می‌خوای یادت بمونه رو بفرست:")
-
-
 async def ask_for_ask_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     row = db.get_user(user_id)
     plan = row["plan"] if row else "free"
     limit = daily_word_query_limit_for_plan(plan)
+    usage_text = _word_query_usage_text(row) if row else f"📊 استفاده امروز: 0/{limit}"
     if not db.can_ask_word(
         user_id,
         limit,
         bypass_limits=OWNER_BYPASS_LIMITS and is_owner(user_id),
     ):
         await update.message.reply_text(
-            f"سقف روزانه‌ی پرسش واژه‌ی پلن شما ({limit} بار) تموم شده."
+            f"{usage_text}\n\nسقف روزانه‌ی پرسش واژه‌ی پلن شما تموم شده."
         )
         return
     context.user_data["awaiting"] = "ask_word"
-    await update.message.reply_text("چه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟")
+    await update.message.reply_text(
+        f"{usage_text}\n\nچه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟"
+    )
 
 
 async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -563,6 +576,25 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⏰ واژه‌های آماده‌ی مرور: {len(due)}"
     )
     await update.message.reply_text(text)
+
+
+async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str):
+    user_id = update.effective_user.id
+    row = db.get_query_result(token, user_id=user_id)
+    if not row:
+        await update.callback_query.answer("این نتیجه منقضی شده یا در دسترس نیست.", show_alert=True)
+        return
+    if row["saved_at"]:
+        await update.callback_query.answer("این واژه قبلاً به مرور اضافه شده است.", show_alert=True)
+        return
+
+    added = db.add_saved_word(user_id, row["word"], row["lang"])
+    db.mark_query_result_saved(token)
+    if added:
+        message = "واژه به مرور شما اضافه شد. ✅"
+    else:
+        message = "این واژه از قبل در مرور شما ثبت شده بود."
+    await update.callback_query.answer(message, show_alert=True)
 
 
 # ---------------- پنل ادمین (فقط مالک) ----------------
@@ -630,16 +662,6 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if awaiting.startswith("admin_") and not is_owner(user_id):
             return  # لایه‌ی امنیتی اضافه؛ در حالت عادی اصلاً به این حالت نمی‌رسد
 
-        if awaiting == "add_word":
-            row = db.get_user(user_id)
-            added = db.add_saved_word(user_id, text, row["target_lang"] if row else "en")
-            if added:
-                message = f"واژه‌ی «{text}» ثبت شد؛ سر وقتش برات یادآوری می‌کنم. ✅"
-            else:
-                message = f"واژه‌ی «{text}» قبلاً در فهرست مرور شما ثبت شده است."
-            await update.message.reply_text(message)
-            return
-
         if awaiting == "ask_word":
             row = db.get_user(user_id)
             limit = daily_word_query_limit_for_plan(row["plan"] if row else "free")
@@ -667,7 +689,27 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 log.exception("AI error")
                 await update.message.reply_text("مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.")
                 return
-            await update.message.reply_text(format_card(data), parse_mode=ParseMode.MARKDOWN_V2)
+            row_after = db.get_user(user_id)
+            usage_row = row_after or row
+            usage_text = _word_query_usage_text(usage_row) if usage_row else f"📊 استفاده امروز: 1/{limit}"
+            query_token = db.create_query_result(
+                user_id,
+                text,
+                data.get("word", text),
+                row["target_lang"] if row else "en",
+                data,
+            )
+            await update.message.reply_text(
+                format_card(
+                    data,
+                    footer=(
+                        f"{usage_text}\n\n"
+                        "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
+                    ),
+                ),
+                parse_mode=ParseMode.MARKDOWN_V2,
+                reply_markup=query_result_keyboard(query_token),
+            )
             return
 
         if awaiting == "admin_set_model":
@@ -723,8 +765,6 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_daily_card_now(update, context)
     elif text == BTN_GRAMMAR:
         await send_grammar_tip(update, context)
-    elif text == BTN_ADD_WORD:
-        await ask_for_add_word(update, context)
     elif text == BTN_ASK_WORD:
         await ask_for_ask_word(update, context)
     elif text == BTN_STATUS:
@@ -745,7 +785,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = update.callback_query.data
-    await update.callback_query.answer()
+    if not data.startswith("query:add:"):
+        await update.callback_query.answer()
     
     if data.startswith("lang:"):
         lang = data.split(":", 1)[1]
@@ -820,6 +861,12 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=update.effective_chat.id,
                 text="مشکلی در ساخت کارت بعدی پیش اومد.",
             )
+    elif data.startswith("query:add:"):
+        parts = data.split(":", 2)
+        if len(parts) != 3:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        await _handle_query_add(update, context, parts[2])
     elif data.startswith("admin:"):
         await admin_callback(update, context, data.split(":", 1)[1])
 

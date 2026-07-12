@@ -3,7 +3,6 @@ from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardBu
 from catalog import GOALS, LANGUAGES, LEVELS
 
 BTN_TODAY_CARD = "🃏 فلش‌کارت امروز"
-BTN_ADD_WORD = "➕ ثبت واژه‌ی دلخواه"
 BTN_ASK_WORD = "❓ پرسیدن یک واژه"
 BTN_STATUS = "📊 وضعیت من"
 BTN_GRAMMAR = "✍️ نکته‌ی گرامری"
@@ -17,7 +16,7 @@ BTN_ADMIN = "🛠 مدیریت ربات"
 def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
     rows = [
         [BTN_TODAY_CARD, BTN_GRAMMAR],
-        [BTN_ADD_WORD, BTN_ASK_WORD],
+        [BTN_ASK_WORD],
         [BTN_STATUS, BTN_CHANGE_LEVEL],
         [BTN_CHANGE_LANG, BTN_CHANGE_GOAL],
     ]
@@ -69,6 +68,19 @@ def daily_card_keyboard(
                 InlineKeyboardButton(
                     "➡️ کارت بعدی",
                     callback_data=f"daily:next:{user_id}:{card_date}:{card_index}",
+                )
+            ]
+        ]
+    )
+
+
+def query_result_keyboard(token: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "➕ افزودن به مرور",
+                    callback_data=f"query:add:{token}",
                 )
             ]
         ]

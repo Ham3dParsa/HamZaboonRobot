@@ -50,11 +50,14 @@ Completed on the current main branch:
 - Local issue-review manager (`issues/issues.html`) backed by canonical
   structured issue data in `issues/issues.json`; `hamzaban-issues.md` is an
   optional Markdown export for review
+- Custom-word query improvements: daily quota visibility, persistent
+  short-lived query identity, inline `Add to review`, and removal of the
+  standalone manual-save action from the primary menu
 
 The remaining work is tracked in the explicit ToDo section near the end of
-this document. The next user-facing feature remains the custom-word query
-improvement, but configuration and quota semantics must stay consistent with
-the decisions below.
+this document. The next user-facing feature now shifts to AI Mini Quizzes,
+but configuration and quota semantics must stay consistent with the decisions
+below.
 
 ## Latest Code Review
 
@@ -527,15 +530,6 @@ a separate lesson system.
   model.
 
 ## Remaining ToDo
-
-### Next PR — Custom-word query improvements
-
-- Show `used / limit` before and after a custom-word query for every plan.
-- Add an idempotent inline `Add to review` action backed by a persistent
-  short-lived query-result identity.
-- Remove the standalone manual-save action from the primary menu while
-  retaining the internal saved-word capability.
-- Make duplicate saves safe for repeated callbacks.
 
 ### Reliability and data lifecycle follow-ups
 
