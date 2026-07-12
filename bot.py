@@ -2,7 +2,9 @@ import asyncio
 import logging
 import datetime
 import re
-from collections import defaultdict
+import time
+import threading
+from collections import defaultdict, deque
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -21,6 +23,18 @@ from config import (
     FREE_DAILY_WORD_LIMIT,
     DAILY_SEND_HOUR,
     SRS_SEND_HOUR,
+    DEFAULT_ACTIVE_START_MINUTE,
+    DEFAULT_ACTIVE_END_MINUTE,
+    DEFAULT_PREFERRED_DELIVERY_MINUTE,
+    MIN_SESSIONS,
+    MAX_SESSIONS,
+    TARGET_CARDS_PER_SESSION,
+    SCHEDULER_SLOT_MINUTES,
+    SCHEDULER_BUCKET_CAPACITY,
+    AI_MAX_CONCURRENCY,
+    AI_MAX_REQUESTS_PER_MINUTE,
+    TELEGRAM_MAX_CONCURRENCY,
+    SESSION_CARD_DELAY_SECONDS,
     SUPPORTED_LANGS,
     GOALS,
     LEVELS,
@@ -28,11 +42,14 @@ from config import (
     PLANS,
     OWNER_BYPASS_LIMITS,
     daily_card_count_for_plan,
+    effective_daily_allowance,
     effective_plan,
 )
 import db
 import ai
 import prompts
+from scheduling import plan_sessions
+from telegram.error import NetworkError, RetryAfter, TimedOut
 from keyboards import (
     main_menu,
     lang_inline_keyboard,
@@ -54,6 +71,27 @@ from keyboards import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("hamzaban")
 _daily_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+_ai_slots = threading.BoundedSemaphore(AI_MAX_CONCURRENCY)
+_ai_request_times: deque[float] = deque()
+_ai_request_lock = threading.Lock()
+_telegram_slots = asyncio.Semaphore(TELEGRAM_MAX_CONCURRENCY)
+
+
+def _ask_batch_limited(*args, **kwargs):
+    _ai_slots.acquire()
+    try:
+        while True:
+            now = time.monotonic()
+            with _ai_request_lock:
+                while _ai_request_times and now - _ai_request_times[0] >= 60:
+                    _ai_request_times.popleft()
+                if len(_ai_request_times) < AI_MAX_REQUESTS_PER_MINUTE:
+                    _ai_request_times.append(now)
+                    break
+            time.sleep(0.25)
+        return ai.ask_batch(*args, **kwargs)
+    finally:
+        _ai_slots.release()
 
 def escape_mdv2(text: str) -> str:
     """Escape کامل‌تر برای MarkdownV2"""
@@ -282,7 +320,7 @@ def _generate_daily_batch(
             break
         batch_words = used_words + [card["word"] for card in cards]
         try:
-            batch = ai.ask_batch(
+            batch = _ask_batch_limited(
                 prompts.daily_batch_system_prompt(
                     lang,
                     goal,
@@ -321,6 +359,32 @@ def _ensure_daily_cards(user_id: int, row, card_date: str, limit: int) -> list[d
     for offset, card in enumerate(new_cards):
         db.add_daily_card(user_id, card_date, len(cards) + offset, card)
     return db.get_daily_cards(user_id, card_date)
+
+
+def _ensure_scheduled_session_cards(user_id: int, row, queue_row) -> list[dict]:
+    existing = db.get_daily_cards(user_id, queue_row["delivery_date"])
+    start = queue_row["card_start_index"]
+    end = start + queue_row["card_count"]
+    if len(existing) >= end:
+        return existing[start:end]
+
+    used_words = [str(card.get("word", "")) for card in existing]
+    cards: list[dict] = []
+    while len(existing) + len(cards) < end:
+        remaining = end - len(existing) - len(cards)
+        batch = _generate_daily_batch(
+            row["target_lang"],
+            row["goal"],
+            row["level"],
+            min(6, remaining),
+            used_words + [card["word"] for card in cards],
+        )
+        if not batch:
+            raise RuntimeError("AI returned no cards for the scheduled session")
+        cards.extend(batch)
+    for offset, card in enumerate(cards):
+        db.add_daily_card(user_id, queue_row["delivery_date"], len(existing) + offset, card)
+    return db.get_daily_cards(user_id, queue_row["delivery_date"])[start:end]
 
 
 def _ensure_next_daily_card(user_id: int, row, card_date: str, limit: int) -> tuple[dict | None, int]:
@@ -397,7 +461,11 @@ async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     today = datetime.date.today().isoformat()
     plan = _user_plan(row)
-    limit = daily_card_count_for_plan(plan)
+    limit = effective_daily_allowance(
+        row["plan"] or "free",
+        row["optional_daily_limit"],
+        OWNER_BYPASS_LIMITS and is_owner(user_id),
+    )
 
     await update.message.chat.send_action("typing")
     try:
@@ -696,7 +764,11 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.answer("این دکمه قبلاً استفاده شده است.", show_alert=True)
             return
 
-        limit = daily_card_count_for_plan(_user_plan(row))
+        limit = effective_daily_allowance(
+            row["plan"] or "free",
+            row["optional_daily_limit"],
+            OWNER_BYPASS_LIMITS and is_owner(user_id),
+        )
         await update.callback_query.answer()
         try:
             await _send_next_daily_card(update, context, row, today, limit)
@@ -712,34 +784,114 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------------- ارسال روزانه‌ی خودکار ----------------
 
-async def daily_job(context: ContextTypes.DEFAULT_TYPE):
-    today = datetime.date.today().isoformat()
+def _plan_daily_queue(delivery_date: str):
+    loads: dict[int, int] = defaultdict(int)
     for row in db.all_active_users():
         user_id = row["user_id"]
+        if db.delivery_queue_for_user(user_id, delivery_date):
+            continue
+        limit = effective_daily_allowance(
+            row["plan"] or "free",
+            row["optional_daily_limit"],
+            OWNER_BYPASS_LIMITS and is_owner(user_id),
+        )
+        preferred = row["preferred_delivery_minute"] or DEFAULT_PREFERRED_DELIVERY_MINUTE
+        start = row["active_window_start_minute"]
+        end = row["active_window_end_minute"]
+        sessions = plan_sessions(
+            limit,
+            preferred,
+            DEFAULT_ACTIVE_START_MINUTE if start is None else start,
+            DEFAULT_ACTIVE_END_MINUTE if end is None else end,
+            slot_minutes=SCHEDULER_SLOT_MINUTES,
+            bucket_capacity=SCHEDULER_BUCKET_CAPACITY,
+            min_sessions=MIN_SESSIONS,
+            max_sessions=MAX_SESSIONS,
+            target_cards_per_session=TARGET_CARDS_PER_SESSION,
+            bucket_loads=loads,
+        )
+        for session in sessions:
+            loads[session.planned_minute] += 1
+        db.enqueue_delivery_sessions(user_id, delivery_date, sessions)
+
+
+async def _send_with_retry(bot, chat_id: int, text: str):
+    for attempt in range(3):
         try:
-            limit = daily_card_count_for_plan(_user_plan(row))
-            existing_cards = db.get_daily_cards(user_id, today)
-            if len(existing_cards) >= limit:
-                continue
-            async with _daily_locks[user_id]:
-                cards = await asyncio.to_thread(_ensure_daily_cards, user_id, row, today, limit)
-            new_cards = cards[len(existing_cards):]
-            if not new_cards:
-                continue
-            streak = db.touch_streak(user_id)
-            for index, card in enumerate(new_cards, start=len(existing_cards) + 1):
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=format_card(
-                        card,
-                        footer=f"🔥 استریک: {streak} روز  ·  کارت {index} از {limit}",
-                    ),
+            async with _telegram_slots:
+                return await bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
                     parse_mode=ParseMode.MARKDOWN_V2,
                 )
-                if index < limit:
-                    await asyncio.sleep(0.3)
-        except Exception:
-            log.exception(f"daily_job failed for user {user_id}")
+        except RetryAfter as exc:
+            if attempt == 2:
+                raise
+            await asyncio.sleep(min(float(exc.retry_after), 30))
+        except (TimedOut, NetworkError):
+            if attempt == 2:
+                raise
+            await asyncio.sleep(2**attempt)
+
+
+async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str):
+    now = datetime.datetime.utcnow().isoformat()
+    for queue_row in db.get_delivery_queue(delivery_date):
+        if queue_row["planned_for"] > now:
+            continue
+        claimed = db.claim_delivery_queue(queue_row["id"])
+        if not claimed:
+            continue
+        user_id = claimed["user_id"]
+        try:
+            row = db.get_user(user_id)
+            if not row:
+                raise RuntimeError("user no longer exists")
+            async with _daily_locks[user_id]:
+                cards = await asyncio.to_thread(
+                    _ensure_scheduled_session_cards,
+                    user_id,
+                    row,
+                    claimed,
+                )
+            limit = effective_daily_allowance(
+                row["plan"] or "free",
+                row["optional_daily_limit"],
+                OWNER_BYPASS_LIMITS and is_owner(user_id),
+            )
+            streak = db.touch_streak(user_id)
+            for offset, card in enumerate(cards[claimed["sent_count"] :], start=claimed["sent_count"]):
+                await _send_with_retry(
+                    context.bot,
+                    user_id,
+                    format_card(
+                        card,
+                        footer=(
+                            f"🔥 استریک: {streak} روز  · جلسه "
+                            f"{claimed['session_index'] + 1} · کارت "
+                            f"{claimed['card_start_index'] + offset + 1} از {limit}"
+                        ),
+                    ),
+                )
+                db.advance_delivery_progress(claimed["id"], offset + 1)
+                if offset + 1 < len(cards):
+                    await asyncio.sleep(SESSION_CARD_DELAY_SECONDS)
+            db.mark_delivery_sent(claimed["id"])
+        except Exception as exc:
+            db.mark_delivery_failed(claimed["id"], repr(exc))
+            log.exception("scheduled delivery failed for user %s", user_id)
+
+
+async def daily_job(context: ContextTypes.DEFAULT_TYPE):
+    today = datetime.date.today().isoformat()
+    stale_before = (datetime.datetime.utcnow() - datetime.timedelta(minutes=15)).isoformat()
+    db.requeue_stale_deliveries(stale_before)
+    await asyncio.to_thread(_plan_daily_queue, today)
+    await _dispatch_queue(context, today)
+
+
+async def delivery_dispatch_job(context: ContextTypes.DEFAULT_TYPE):
+    await _dispatch_queue(context, datetime.date.today().isoformat())
 
 
 async def srs_job(context: ContextTypes.DEFAULT_TYPE):
@@ -783,7 +935,8 @@ def main():
     app.add_error_handler(error_handler)
 
     if app.job_queue:
-        app.job_queue.run_daily(daily_job, time=datetime.time(hour=DAILY_SEND_HOUR, minute=0))
+        app.job_queue.run_daily(daily_job, time=datetime.time(hour=0, minute=1))
+        app.job_queue.run_repeating(delivery_dispatch_job, interval=60, first=0)
         app.job_queue.run_daily(srs_job, time=datetime.time(hour=SRS_SEND_HOUR, minute=0))
 
     log.info("ربات هم‌زبان استارت شد.")

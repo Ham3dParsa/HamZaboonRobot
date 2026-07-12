@@ -2,6 +2,7 @@ import json
 import sqlite3
 import datetime
 from contextlib import contextmanager
+from scheduling import planned_datetime
 
 from config import (
     DB_PATH,
@@ -40,6 +41,10 @@ def init_db():
                 last_active_date TEXT,
                 words_asked_today INTEGER DEFAULT 0,
                 words_asked_date TEXT,
+                optional_daily_limit INTEGER,
+                preferred_delivery_minute INTEGER,
+                active_window_start_minute INTEGER,
+                active_window_end_minute INTEGER,
                 onboarded INTEGER DEFAULT 0,
                 created_at TEXT
             );
@@ -70,6 +75,23 @@ def init_db():
                 next_index INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY(user_id, card_date)
             );
+            CREATE TABLE IF NOT EXISTS delivery_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                delivery_date TEXT NOT NULL,
+                session_index INTEGER NOT NULL,
+                card_start_index INTEGER NOT NULL,
+                card_count INTEGER NOT NULL,
+                planned_for TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                processing_started_at TEXT,
+                sent_count INTEGER NOT NULL DEFAULT 0,
+                sent_at TEXT,
+                UNIQUE(user_id, delivery_date, session_index)
+            );
             """
         )
         columns = {
@@ -80,6 +102,23 @@ def init_db():
             conn.execute(
                 f"ALTER TABLE users ADD COLUMN level TEXT NOT NULL DEFAULT "
                 f"'{DEFAULT_LEVEL.replace(chr(39), chr(39) * 2)}'",
+            )
+        user_columns = {
+            "optional_daily_limit": "INTEGER",
+            "preferred_delivery_minute": "INTEGER",
+            "active_window_start_minute": "INTEGER",
+            "active_window_end_minute": "INTEGER",
+        }
+        for name, definition in user_columns.items():
+            if name not in columns:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {name} {definition}")
+        delivery_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(delivery_queue)").fetchall()
+        }
+        if "sent_count" not in delivery_columns:
+            conn.execute(
+                "ALTER TABLE delivery_queue ADD COLUMN sent_count INTEGER NOT NULL DEFAULT 0"
             )
         defaults = {
             "ai_base_url": DEFAULT_AI_BASE_URL,
@@ -222,6 +261,99 @@ def increment_word_ask(user_id: int):
 def all_active_users():
     with get_conn() as conn:
         return conn.execute("SELECT * FROM users WHERE onboarded=1").fetchall()
+
+
+def get_delivery_queue(delivery_date: str, statuses=("pending", "failed")):
+    placeholders = ",".join("?" for _ in statuses)
+    with get_conn() as conn:
+        return conn.execute(
+            f"SELECT * FROM delivery_queue WHERE delivery_date=? AND status IN ({placeholders}) "
+            "ORDER BY planned_for, id",
+            (delivery_date, *statuses),
+        ).fetchall()
+
+
+def delivery_queue_for_user(user_id: int, delivery_date: str):
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM delivery_queue WHERE user_id=? AND delivery_date=? ORDER BY session_index",
+            (user_id, delivery_date),
+        ).fetchall()
+
+
+def enqueue_delivery_sessions(user_id: int, delivery_date: str, sessions):
+    with get_conn() as conn:
+        for session in sessions:
+            key = f"{user_id}:{delivery_date}:{session.session_index}"
+            conn.execute(
+                "INSERT OR IGNORE INTO delivery_queue("
+                "user_id, delivery_date, session_index, card_start_index, card_count, "
+                "planned_for, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    user_id,
+                    delivery_date,
+                    session.session_index,
+                    sum(item.card_count for item in sessions[:session.session_index]),
+                    session.card_count,
+                    planned_datetime(
+                        datetime.date.fromisoformat(delivery_date),
+                        session.planned_minute,
+                    ),
+                    key,
+                ),
+            )
+        conn.commit()
+
+
+def claim_delivery_queue(queue_id: int):
+    now = datetime.datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        row = conn.execute(
+            "UPDATE delivery_queue SET status='processing', attempts=attempts+1, "
+            "processing_started_at=? WHERE id=? AND status IN ('pending', 'failed')",
+            (now, queue_id),
+        )
+        conn.commit()
+        if row.rowcount != 1:
+            return None
+        return conn.execute("SELECT * FROM delivery_queue WHERE id=?", (queue_id,)).fetchone()
+
+
+def mark_delivery_sent(queue_id: int):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE delivery_queue SET status='sent', sent_at=?, last_error=NULL WHERE id=?",
+            (datetime.datetime.utcnow().isoformat(), queue_id),
+        )
+        conn.commit()
+
+
+def advance_delivery_progress(queue_id: int, sent_count: int):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE delivery_queue SET sent_count=? WHERE id=? AND status='processing'",
+            (sent_count, queue_id),
+        )
+        conn.commit()
+
+
+def mark_delivery_failed(queue_id: int, error: str):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE delivery_queue SET status='failed', last_error=? WHERE id=?",
+            (error[:1000], queue_id),
+        )
+        conn.commit()
+
+
+def requeue_stale_deliveries(stale_before: str):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE delivery_queue SET status='failed', last_error='worker restarted' "
+            "WHERE status='processing' AND processing_started_at<?",
+            (stale_before,),
+        )
+        conn.commit()
 
 
 def count_users():
