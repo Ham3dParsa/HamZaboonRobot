@@ -197,6 +197,69 @@
             color: #94a3b8;
             font-weight: 300;
         }
+        .controls .search-box .clear-search {
+            border: none;
+            background: transparent;
+            color: #94a3b8;
+            cursor: pointer;
+            padding: 0.3rem 0.5rem;
+            border-radius: 999px;
+        }
+        .controls .search-box .clear-search:hover {
+            color: #dc2626;
+            background: rgba(220, 38, 38, 0.08);
+        }
+
+        .controls .control-pill {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            background: #f3f7fb;
+            border-radius: 40px;
+            padding: 0.28rem 0.75rem;
+            border: 1.5px solid transparent;
+        }
+        .controls .control-pill:focus-within {
+            border-color: #1f4f70;
+            background: #ffffff;
+        }
+        .controls .control-pill i {
+            color: #94a3b8;
+            font-size: 0.92rem;
+        }
+        .controls .control-pill select,
+        .controls .control-pill input {
+            border: none;
+            background: transparent;
+            font-family: inherit;
+            font-size: 0.92rem;
+            outline: none;
+            color: #10243f;
+            min-width: 120px;
+        }
+        .controls .control-pill input {
+            width: 130px;
+        }
+        .controls .control-pill button {
+            border: none;
+            background: #1f4f70;
+            color: #fff;
+            cursor: pointer;
+            padding: 0.35rem 0.7rem;
+            border-radius: 999px;
+            font-family: inherit;
+            font-size: 0.82rem;
+            font-weight: 600;
+        }
+        .controls .control-pill button:hover {
+            background: #184862;
+        }
+        .controls .results-summary {
+            font-size: 0.9rem;
+            color: #475569;
+            font-weight: 600;
+            padding: 0 0.2rem;
+        }
 
         .controls .reset-btn,
         .controls .btn-add {
@@ -539,6 +602,20 @@
             font-size: 0.8rem;
             color: #1e293b;
         }
+        .card-meta .roadmap {
+            display: inline-flex;
+            gap: 0.35rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .card-meta .roadmap .ref {
+            background: #e0f2fe;
+            color: #075985;
+            padding: 0.12rem 0.65rem;
+            border-radius: 999px;
+            font-size: 0.76rem;
+            font-weight: 600;
+        }
 
         .card-body {
             margin-top: 0.4rem;
@@ -566,6 +643,12 @@
         }
         .card-body .solution strong {
             color: #065f46;
+        }
+        mark.match {
+            background: #fde68a;
+            color: inherit;
+            padding: 0 0.08rem;
+            border-radius: 0.2rem;
         }
 
         /* ---------- Editable Note / Suggestion ---------- */
@@ -912,7 +995,48 @@
             </div>
             <div class="search-box">
                 <i class="fas fa-search"></i>
-                <input type="text" id="searchInput" placeholder="جستجو..." />
+                <input type="text" id="searchInput" placeholder="جستجو یا id:12" title="جستجو در عنوان، ماژول، تابع، مشکل، راه‌حل، یادداشت و roadmap refs" />
+                <button type="button" class="clear-search" id="clearSearchBtn" title="پاک کردن جستجو">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="control-pill">
+                <i class="fas fa-flag"></i>
+                <select id="statusFilter" title="فیلتر وضعیت">
+                    <option value="all">همه وضعیت‌ها</option>
+                    <option value="open">باز</option>
+                    <option value="partial">نسبتاً حل‌شده</option>
+                    <option value="resolved">حل‌شده</option>
+                    <option value="accepted-risk">ریسک پذیرفته‌شده</option>
+                    <option value="obsolete">منسوخ</option>
+                </select>
+            </div>
+            <div class="control-pill">
+                <i class="fas fa-folder-open"></i>
+                <select id="moduleFilter" title="فیلتر ماژول">
+                    <option value="all">همه ماژول‌ها</option>
+                </select>
+            </div>
+            <div class="control-pill">
+                <i class="fas fa-diagram-project"></i>
+                <input type="text" id="roadmapFilter" placeholder="roadmap ref" title="فیلتر roadmap refs" />
+            </div>
+            <div class="control-pill">
+                <i class="fas fa-sort"></i>
+                <select id="sortBy" title="مرتب‌سازی">
+                    <option value="id">ID</option>
+                    <option value="priority">اولویت</option>
+                    <option value="status">وضعیت</option>
+                    <option value="module">ماژول</option>
+                    <option value="title">عنوان</option>
+                </select>
+                <button type="button" id="sortDirectionBtn" title="تغییر جهت مرتب‌سازی">↑</button>
+            </div>
+            <div class="results-summary" id="resultsSummary">۰ مورد</div>
+            <div class="control-pill">
+                <i class="fas fa-location-arrow"></i>
+                <input type="number" id="jumpToIdInput" min="1" placeholder="ID" title="پرش به کارت" />
+                <button type="button" id="jumpToIdBtn">برو</button>
             </div>
             <button class="btn-add" id="addCardBtn" title="افزودن کارت جدید">
                 <i class="fas fa-plus-circle"></i> افزودن کارت
@@ -932,6 +1056,12 @@
             </button>
             <button class="btn" id="exportAllJsonBtn" title="خروجی همه (JSON)" style="background:transparent;border:none;color:#475569;padding:0.45rem 0.9rem;border-radius:40px;">
                 <i class="fas fa-file-download"></i> خروجی همه (JSON)
+            </button>
+            <button class="btn" id="exportFilteredMdBtn" title="خروجی فیلتر فعلی (Markdown)" style="background:transparent;border:none;color:#475569;padding:0.45rem 0.9rem;border-radius:40px;">
+                <i class="fas fa-filter"></i> خروجی فیلتر (MD)
+            </button>
+            <button class="btn" id="exportFilteredJsonBtn" title="خروجی فیلتر فعلی (JSON)" style="background:transparent;border:none;color:#475569;padding:0.45rem 0.9rem;border-radius:40px;">
+                <i class="fas fa-filter"></i> خروجی فیلتر (JSON)
             </button>
             <button class="reset-btn" id="resetStorageBtn" title="بازنشانی همه تغییرات">
                 <i class="fas fa-undo-alt"></i>
@@ -1370,8 +1500,13 @@
         const STORAGE_KEY = 'hamzaban_review_data';
 
         let issues = [];
-        let filter = 'all';
+        let priorityFilter = 'all';
+        let statusFilter = 'all';
+        let moduleFilter = 'all';
+        let roadmapFilter = '';
         let searchQuery = '';
+        let sortBy = 'id';
+        let sortDirection = 'asc';
 
         // ================================================================
         //  HELPERS
@@ -1394,23 +1529,178 @@
             };
         }
 
-        function loadFromStorage() {
+        function loadFromStorage(baseIssues = ISSUES_DATA) {
             const stored = localStorage.getItem(STORAGE_KEY);
+            const base = Array.isArray(baseIssues) ? baseIssues : ISSUES_DATA;
             if (stored) {
                 try {
                     const parsed = JSON.parse(stored);
-                    const merged = ISSUES_DATA.map(d => {
+                    const merged = base.map(d => {
                         const saved = Array.isArray(parsed) ? parsed.find(p => p.id === d.id) : null;
                         return normalizeIssue(saved ? { ...d, ...saved } : { ...d });
                     });
                     const extras = Array.isArray(parsed)
-                        ? parsed.filter(p => !ISSUES_DATA.some(d => d.id === p.id)).map(normalizeIssue)
+                        ? parsed.filter(p => !base.some(d => d.id === p.id)).map(normalizeIssue)
                         : [];
                     issues = [...merged, ...extras];
                     return;
                 } catch (_) { /* fall through */ }
             }
-            issues = ISSUES_DATA.map(d => normalizeIssue({ ...d }));
+            issues = base.map(d => normalizeIssue({ ...d }));
+        }
+
+        function getStatus(issue) {
+            return issue.status || (issue.resolved === true ? 'resolved' : 'open');
+        }
+
+        function getRoadmapRefs(issue) {
+            return Array.isArray(issue.roadmap_refs) ? issue.roadmap_refs.filter(Boolean) : [];
+        }
+
+        function tokenizeSearch(query) {
+            const tokens = [];
+            const re = /"([^"]+)"|'([^']+)'|(\S+)/g;
+            let match;
+            while ((match = re.exec(query || '')) !== null) {
+                tokens.push(match[1] || match[2] || match[3]);
+            }
+            return tokens.filter(Boolean);
+        }
+
+        function parseSearchQuery(query) {
+            const tokens = tokenizeSearch(query);
+            const idFilters = [];
+            const terms = [];
+            tokens.forEach(token => {
+                const lower = token.toLowerCase();
+                if (lower.startsWith('id:')) {
+                    const value = token.slice(3).trim();
+                    if (value) idFilters.push(value);
+                } else if (/^#\d+$/.test(token)) {
+                    idFilters.push(token.slice(1));
+                } else {
+                    terms.push(token);
+                }
+            });
+            return { idFilters, terms };
+        }
+
+        function issueSearchText(issue) {
+            return [
+                issue.id,
+                issue.title,
+                issue.module,
+                issue.func,
+                issue.problem,
+                issue.solution,
+                issue.note,
+                getStatus(issue),
+                getRoadmapRefs(issue).join(' '),
+                issue.evidence,
+                issue.last_reviewed
+            ]
+                .map(value => String(value || '').toLowerCase())
+                .join(' ');
+        }
+
+        function matchesSearch(issue, parsed) {
+            const haystack = issueSearchText(issue);
+            if (parsed.idFilters.length) {
+                const idText = String(issue.id);
+                if (!parsed.idFilters.every(value => idText === value || idText.includes(value))) {
+                    return false;
+                }
+            }
+            return parsed.terms.every(term => haystack.includes(term.toLowerCase()));
+        }
+
+        function escapeRegExp(text) {
+            return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        function highlightText(text, terms) {
+            const raw = String(text || '');
+            if (!terms.length) return escapeHtml(raw);
+            const escaped = escapeHtml(raw);
+            const uniqueTerms = [...new Set(terms.filter(Boolean).map(t => t.trim()).filter(Boolean))];
+            if (!uniqueTerms.length) return escaped;
+            const pattern = uniqueTerms
+                .map(term => escapeRegExp(term))
+                .sort((a, b) => b.length - a.length)
+                .join('|');
+            if (!pattern) return escaped;
+            const regex = new RegExp(`(${pattern})`, 'gi');
+            return escaped.replace(regex, '<mark class="match">$1</mark>');
+        }
+
+        function getPriorityRank(priority) {
+            const order = { high: 0, medium: 1, low: 2, none: 3 };
+            return Object.prototype.hasOwnProperty.call(order, priority) ? order[priority] : 4;
+        }
+
+        function getStatusRank(status) {
+            const order = { open: 0, partial: 1, resolved: 2, 'accepted-risk': 3, obsolete: 4 };
+            return Object.prototype.hasOwnProperty.call(order, status) ? order[status] : 5;
+        }
+
+        function compareIssues(a, b) {
+            const direction = sortDirection === 'desc' ? -1 : 1;
+            const statusA = getStatus(a);
+            const statusB = getStatus(b);
+            let result = 0;
+            switch (sortBy) {
+                case 'priority':
+                    result = getPriorityRank(a.priority) - getPriorityRank(b.priority);
+                    break;
+                case 'status':
+                    result = getStatusRank(statusA) - getStatusRank(statusB);
+                    break;
+                case 'module':
+                    result = String(a.module || '').localeCompare(String(b.module || ''), 'fa');
+                    break;
+                case 'title':
+                    result = String(a.title || '').localeCompare(String(b.title || ''), 'fa');
+                    break;
+                case 'id':
+                default:
+                    result = Number(a.id) - Number(b.id);
+                    break;
+            }
+            if (result === 0) {
+                result = Number(a.id) - Number(b.id);
+            }
+            return result * direction;
+        }
+
+        function getFilteredIssues() {
+            const parsedSearch = parseSearchQuery(searchQuery);
+            return issues.filter(issue => {
+                if (priorityFilter !== 'all' && issue.priority !== priorityFilter) return false;
+                if (statusFilter !== 'all' && getStatus(issue) !== statusFilter) return false;
+                if (moduleFilter !== 'all' && issue.module !== moduleFilter) return false;
+                if (roadmapFilter.trim()) {
+                    const refs = getRoadmapRefs(issue);
+                    const needle = roadmapFilter.trim().toLowerCase();
+                    if (!refs.some(ref => String(ref).toLowerCase().includes(needle))) return false;
+                }
+                return matchesSearch(issue, parsedSearch);
+            }).slice().sort(compareIssues);
+        }
+
+        function getAllIssueTerms() {
+            return parseSearchQuery(searchQuery).terms;
+        }
+
+        function updateModuleFilterOptions() {
+            const select = document.getElementById('moduleFilter');
+            if (!select) return;
+            const selected = select.value || moduleFilter;
+            const modules = [...new Set(issues.map(issue => issue.module).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'fa'));
+            select.innerHTML = ['<option value="all">همه ماژول‌ها</option>']
+                .concat(modules.map(module => `<option value="${escapeHtml(module)}">${escapeHtml(module)}</option>`))
+                .join('');
+            select.value = modules.includes(selected) ? selected : 'all';
+            moduleFilter = select.value;
         }
 
         function getNextId() {
@@ -1537,27 +1827,10 @@
         function render() {
             const grid = document.getElementById('cardsGrid');
             const empty = document.getElementById('emptyState');
+            updateModuleFilterOptions();
 
-            // Filter
-            let filtered = issues.filter(i => {
-                if (filter === 'high') return i.priority === 'high';
-                if (filter === 'medium') return i.priority === 'medium';
-                if (filter === 'low') return i.priority === 'low';
-                if (filter === 'resolved') return i.resolved === true;
-                return true;
-            });
-
-            // Search
-            if (searchQuery.trim()) {
-                const q = searchQuery.trim().toLowerCase();
-                filtered = filtered.filter(i =>
-                    i.title.toLowerCase().includes(q) ||
-                    i.module.toLowerCase().includes(q) ||
-                    (i.func && i.func.toLowerCase().includes(q)) ||
-                    i.problem.toLowerCase().includes(q) ||
-                    i.solution.toLowerCase().includes(q)
-                );
-            }
+            const parsedSearch = parseSearchQuery(searchQuery);
+            const filtered = getFilteredIssues();
 
             // Update stats
             const total = issues.length;
@@ -1565,12 +1838,38 @@
             const medium = issues.filter(i => i.priority === 'medium').length;
             const low = issues.filter(i => i.priority === 'low').length;
             const resolved = issues.filter(i => i.resolved === true).length;
+            const visible = filtered.length;
 
             document.getElementById('totalCount').textContent = total;
             document.getElementById('highCount').textContent = high;
             document.getElementById('mediumCount').textContent = medium;
             document.getElementById('lowCount').textContent = low;
             document.getElementById('resolvedCount').textContent = resolved;
+            const resultsSummary = document.getElementById('resultsSummary');
+            if (resultsSummary) {
+                const parts = [`${visible} مورد از ${total}`];
+                const filters = [];
+                const priorityLabels = {
+                    high: 'بالا',
+                    medium: 'متوسط',
+                    low: 'پایین',
+                    resolved: 'حل‌شده'
+                };
+                const statusLabels = {
+                    open: 'باز',
+                    partial: 'نسبتاً حل‌شده',
+                    resolved: 'حل‌شده',
+                    'accepted-risk': 'ریسک پذیرفته‌شده',
+                    obsolete: 'منسوخ'
+                };
+                if (priorityFilter !== 'all') filters.push(`فیلتر: ${priorityLabels[priorityFilter] || priorityFilter}`);
+                if (statusFilter !== 'all') filters.push(`وضعیت: ${statusLabels[statusFilter] || statusFilter}`);
+                if (moduleFilter !== 'all') filters.push(`ماژول: ${moduleFilter}`);
+                if (roadmapFilter.trim()) filters.push(`roadmap: ${roadmapFilter.trim()}`);
+                if (parsedSearch.idFilters.length) filters.push(`ID: ${parsedSearch.idFilters.join(', ')}`);
+                if (parsedSearch.terms.length) filters.push(`جستجو: ${parsedSearch.terms.join(' ')}`);
+                resultsSummary.textContent = filters.length ? `${parts.join(' • ')} — ${filters.join(' / ')}` : parts.join(' • ');
+            }
 
             if (filtered.length === 0) {
                 grid.innerHTML = '';
@@ -1582,7 +1881,7 @@
             // Build cards
             let html = '';
             filtered.forEach((issue) => {
-                const status = issue.status || (issue.resolved === true ? 'resolved' : 'open');
+                const status = getStatus(issue);
                 const isResolved = status === 'resolved';
                 const statusLabels = {
                     open: 'باز',
@@ -1599,29 +1898,32 @@
                 const detailOpen = issue.detailOpen === true ? 'open' : '';
                 const editOpen = issue.editing === true ? 'open' : '';
                 const editLabel = issue.editing ? 'بستن ویرایش' : 'ویرایش کامل';
+                const highlightTerms = [...parsedSearch.terms, ...parsedSearch.idFilters];
+                const roadmapRefs = getRoadmapRefs(issue);
 
                 html += `
                     <div class="card ${priorityClass} ${resolvedClass}" data-id="${issue.id}">
                         <div class="card-header">
                             <span class="number">#${issue.id}</span>
-                            <span class="title">${escapeHtml(issue.title)}</span>
+                            <span class="title">${highlightText(issue.title, highlightTerms)}</span>
                             <span class="badge ${badgeClass}">${priorityLabel}</span>
                             <span class="badge" style="background:${isResolved ? '#d1fae5;color:#065f46' : status === 'partial' ? '#fef3c7;color:#92400e' : '#e2e8f0;color:#334155'};">${escapeHtml(statusLabels[status] || status)}</span>
                         </div>
 
                         <div class="card-meta">
-                            <span><i class="fas fa-folder-open"></i> ماژول: <span class="module">${escapeHtml(issue.module)}</span></span>
-                            ${issue.func && issue.func !== '—' ? `<span><i class="fas fa-code"></i> تابع: <span class="func">${escapeHtml(issue.func)}</span></span>` : ''}
+                            <span><i class="fas fa-folder-open"></i> ماژول: <span class="module">${highlightText(issue.module, highlightTerms)}</span></span>
+                            ${issue.func && issue.func !== '—' ? `<span><i class="fas fa-code"></i> تابع: <span class="func">${highlightText(issue.func, highlightTerms)}</span></span>` : ''}
+                            ${roadmapRefs.length ? `<span class="roadmap"><i class="fas fa-diagram-project"></i> ${roadmapRefs.map(ref => `<span class="ref">${highlightText(ref, highlightTerms)}</span>`).join(' ')}</span>` : ''}
                         </div>
 
                         <div class="card-body">
                             <div class="problem">
                                 <strong><i class="fas fa-exclamation-triangle" style="color:#dc2626;"></i> مشکل:</strong><br>
-                                ${escapeHtml(issue.problem)}
+                                ${highlightText(issue.problem, highlightTerms)}
                             </div>
                             <div class="solution">
                                 <strong><i class="fas fa-lightbulb" style="color:#10b981;"></i> راه‌حل:</strong><br>
-                                ${escapeHtml(issue.solution)}
+                                ${highlightText(issue.solution, highlightTerms)}
                             </div>
                         </div>
 
@@ -1716,9 +2018,12 @@
                                 ${issue.func && issue.func !== '—' ? `<strong>تابع:</strong> ${escapeHtml(issue.func)}<br>` : ''}
                                 <strong>اولویت:</strong> ${priorityLabel}<br>
                                 <strong>وضعیت:</strong> ${escapeHtml(statusLabels[status] || status)}<br><br>
+                                ${roadmapRefs.length ? `<strong>Roadmap refs:</strong> ${roadmapRefs.map(ref => escapeHtml(ref)).join(', ')}<br><br>` : ''}
                                 <strong>مشکل (متن کامل):</strong><br>${escapeHtml(issue.problem)}<br><br>
                                 <strong>راه‌حل (متن کامل):</strong><br>${escapeHtml(issue.solution)}
                                 ${issue.note ? `<br><br><strong>✏️ یادداشت شما:</strong><br>${escapeHtml(issue.note)}` : ''}
+                                ${issue.evidence ? `<br><br><strong>شاهد:</strong><br>${escapeHtml(issue.evidence)}` : ''}
+                                ${issue.last_reviewed ? `<br><br><strong>آخرین بازبینی:</strong> ${escapeHtml(issue.last_reviewed)}` : ''}
                             </div>
                         </div>
                     </div>
@@ -1888,13 +2193,24 @@
             });
 
             document.querySelectorAll('#filterGroup button').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.filter === filter);
-                if (btn.dataset.filter === filter && filter !== 'all') {
-                    btn.classList.add('active-' + filter);
+                btn.classList.toggle('active', btn.dataset.filter === priorityFilter);
+                if (btn.dataset.filter === priorityFilter && priorityFilter !== 'all') {
+                    btn.classList.add('active-' + priorityFilter);
                 } else {
                     btn.classList.remove('active-high', 'active-medium', 'active-low');
                 }
             });
+
+            const statusSelect = document.getElementById('statusFilter');
+            if (statusSelect) statusSelect.value = statusFilter;
+            const moduleSelect = document.getElementById('moduleFilter');
+            if (moduleSelect) moduleSelect.value = moduleFilter;
+            const roadmapInput = document.getElementById('roadmapFilter');
+            if (roadmapInput) roadmapInput.value = roadmapFilter;
+            const sortSelect = document.getElementById('sortBy');
+            if (sortSelect) sortSelect.value = sortBy;
+            const sortDirectionBtn = document.getElementById('sortDirectionBtn');
+            if (sortDirectionBtn) sortDirectionBtn.textContent = sortDirection === 'desc' ? '↓' : '↑';
         }
 
         // ================================================================
@@ -1930,7 +2246,12 @@
                     lines.push(`- ID: ${issue.id}`);
                     lines.push(`- Module: ${issue.module}`);
                     if (issue.func && issue.func !== '—') lines.push(`- Function: ${issue.func}`);
+                    lines.push(`- Status: ${getStatus(issue)}`);
                     lines.push(`- Priority: ${getPriorityLabel(issue.priority)}`);
+                    const refs = getRoadmapRefs(issue);
+                    if (refs.length) lines.push(`- Roadmap refs: ${refs.join(', ')}`);
+                    if (issue.evidence) lines.push(`- Evidence: ${issue.evidence}`);
+                    if (issue.last_reviewed) lines.push(`- Last reviewed: ${issue.last_reviewed}`);
                     lines.push('');
                     lines.push('## Problem');
                     lines.push(issue.problem || '');
@@ -1974,7 +2295,7 @@
                 }
 
                 function exportAllMD() {
-                    const all = issues.slice().sort((a,b)=>a.id-b.id);
+                    const all = issues.slice().sort(compareIssues);
                     const parts = [];
                     parts.push('# HamZaban — Issues Export');
                     parts.push('');
@@ -1988,9 +2309,29 @@
                 }
 
                 function exportAllJSON() {
-                    const data = JSON.stringify(issues, null, 2);
+                    const data = JSON.stringify(issues.slice().sort(compareIssues), null, 2);
                     downloadFile('hamzaban-issues.json', data, 'application/json;charset=utf-8');
                     showToast('⬇️ فایل JSON همه کارت‌ها دانلود شد');
+                }
+
+                function exportFilteredMD() {
+                    const all = getFilteredIssues();
+                    const parts = [];
+                    parts.push(`# HamZaban — Issues Export (${all.length})`);
+                    parts.push('');
+                    all.forEach((issue, idx) => {
+                        parts.push(buildIssueMarkdown(issue));
+                        if (idx < all.length - 1) parts.push('\n---\n');
+                    });
+                    const content = parts.join('\n');
+                    downloadFile('hamzaban-issues.filtered.md', content, 'text/markdown;charset=utf-8');
+                    showToast('⬇️ فایل Markdown فیلتر فعلی دانلود شد');
+                }
+
+                function exportFilteredJSON() {
+                    const data = JSON.stringify(getFilteredIssues(), null, 2);
+                    downloadFile('hamzaban-issues.filtered.json', data, 'application/json;charset=utf-8');
+                    showToast('⬇️ فایل JSON فیلتر فعلی دانلود شد');
                 }
 
         // ================================================================
@@ -2006,11 +2347,11 @@
                 })
                 .then(parsed => {
                     if (Array.isArray(parsed)) {
-                        issues = parsed.map(normalizeIssue);
-                        saveToStorage();
+                        loadFromStorage(parsed);
                     } else if (parsed && Array.isArray(parsed.issues)) {
-                        issues = parsed.issues.map(normalizeIssue);
-                        saveToStorage();
+                        loadFromStorage(parsed.issues);
+                    } else {
+                        loadFromStorage();
                     }
                     render();
                 })
@@ -2031,7 +2372,7 @@
             // Filter buttons
             document.querySelectorAll('#filterGroup button').forEach(btn => {
                 btn.addEventListener('click', function() {
-                    filter = this.dataset.filter;
+                    priorityFilter = this.dataset.filter;
                     render();
                 });
             });
@@ -2041,6 +2382,73 @@
             searchInput.addEventListener('input', function() {
                 searchQuery = this.value;
                 render();
+            });
+            const clearSearchBtn = document.getElementById('clearSearchBtn');
+            if (clearSearchBtn) clearSearchBtn.addEventListener('click', function() {
+                searchQuery = '';
+                searchInput.value = '';
+                render();
+                searchInput.focus();
+            });
+
+            const statusFilterInput = document.getElementById('statusFilter');
+            if (statusFilterInput) statusFilterInput.addEventListener('change', function() {
+                statusFilter = this.value;
+                render();
+            });
+
+            const moduleFilterInput = document.getElementById('moduleFilter');
+            if (moduleFilterInput) moduleFilterInput.addEventListener('change', function() {
+                moduleFilter = this.value;
+                render();
+            });
+
+            const roadmapFilterInput = document.getElementById('roadmapFilter');
+            if (roadmapFilterInput) roadmapFilterInput.addEventListener('input', function() {
+                roadmapFilter = this.value;
+                render();
+            });
+
+            const sortBySelect = document.getElementById('sortBy');
+            if (sortBySelect) sortBySelect.addEventListener('change', function() {
+                sortBy = this.value;
+                render();
+            });
+
+            const sortDirectionBtn = document.getElementById('sortDirectionBtn');
+            if (sortDirectionBtn) sortDirectionBtn.addEventListener('click', function() {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+                render();
+            });
+
+            const jumpToIdInput = document.getElementById('jumpToIdInput');
+            const jumpToIdBtn = document.getElementById('jumpToIdBtn');
+            const jumpToIssue = function() {
+                const id = parseInt(jumpToIdInput.value, 10);
+                if (!id) {
+                    showToast('ID معتبر نیست');
+                    return;
+                }
+                if (!issues.some(issue => Number(issue.id) === id)) {
+                    showToast('کارت با این ID پیدا نشد');
+                    return;
+                }
+                priorityFilter = 'all';
+                statusFilter = 'all';
+                moduleFilter = 'all';
+                roadmapFilter = '';
+                searchQuery = `id:${id}`;
+                document.getElementById('searchInput').value = searchQuery;
+                document.getElementById('statusFilter').value = 'all';
+                document.getElementById('moduleFilter').value = 'all';
+                document.getElementById('roadmapFilter').value = '';
+                render();
+                const card = document.querySelector(`.card[data-id="${id}"]`);
+                if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            };
+            if (jumpToIdBtn) jumpToIdBtn.addEventListener('click', jumpToIssue);
+            if (jumpToIdInput) jumpToIdInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') jumpToIssue();
             });
 
             // Reset storage
@@ -2068,11 +2476,15 @@
             if (exportAllMdBtn) exportAllMdBtn.addEventListener('click', exportAllMD);
             const exportAllJsonBtn = document.getElementById('exportAllJsonBtn');
             if (exportAllJsonBtn) exportAllJsonBtn.addEventListener('click', exportAllJSON);
+            const exportFilteredMdBtn = document.getElementById('exportFilteredMdBtn');
+            if (exportFilteredMdBtn) exportFilteredMdBtn.addEventListener('click', exportFilteredMD);
+            const exportFilteredJsonBtn = document.getElementById('exportFilteredJsonBtn');
+            if (exportFilteredJsonBtn) exportFilteredJsonBtn.addEventListener('click', exportFilteredJSON);
 
             // Copy all buttons
             const copyAllMdBtn = document.getElementById('copyAllMdBtn');
             if (copyAllMdBtn) copyAllMdBtn.addEventListener('click', function() {
-                const all = issues.slice().sort((a,b)=>a.id-b.id);
+                const all = issues.slice().sort(compareIssues);
                 const parts = ['# HamZaban — Issues Export', ''];
                 all.forEach((issue, idx) => {
                     parts.push(buildIssueMarkdown(issue));
@@ -2090,7 +2502,7 @@
 
             const copyAllJsonBtn = document.getElementById('copyAllJsonBtn');
             if (copyAllJsonBtn) copyAllJsonBtn.addEventListener('click', function() {
-                const data = JSON.stringify(issues, null, 2);
+                const data = JSON.stringify(issues.slice().sort(compareIssues), null, 2);
                 copyToClipboard(data).then(() => {
                     if (confirm('JSON همه کارت‌ها به کلیپ‌بورد کپی شد. آیا می‌خواهید فایل JSON نیز ذخیره شود؟')) {
                         const name = prompt('نام فایل را وارد کنید:', 'hamzaban-issues.json');
