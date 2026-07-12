@@ -491,6 +491,41 @@ After the core flow is stable, record:
 Use these measurements before introducing CEFR granularity, collocations,
 advanced personalization, or additional paid features.
 
+### Future Feature: AI Mini Quizzes
+
+This feature is intentionally downstream of the core card flow. It should
+reuse the existing AI generation and validation pipeline rather than creating
+a separate lesson system.
+
+**MVP scope**
+
+- Quizzes are short and optional.
+- Questions are generated from already-learned material: the current card,
+  saved words, or recent review items.
+- The first release may use a single prompt per quiz or a very small fixed
+  set of questions.
+- Quiz output is validated with the same safety rules as card content.
+- Only lightweight attempt/result data is stored.
+- Quiz delivery must never delay or block the main daily-card flow.
+
+**Locked MVP logic**
+
+- The MVP is a recall/review feature, not a new study path.
+- Incorrect answers can be recorded, but they do not trigger adaptive follow-up
+  in the first release.
+- Premium plans may later add educational tips based on mistakes, extra hints,
+  and richer feedback.
+- Future enhancements must be additive so the base quiz flow stays simple and
+  cheap to maintain.
+
+**Acceptance criteria**
+
+- The quiz starts from existing learning data, not from a new content model.
+- Bad AI output fails safely through the current validation path.
+- The quiz feature can be shipped without changing the daily-card contract.
+- Premium extensions can be layered on later without redesigning the MVP data
+  model.
+
 ## Remaining ToDo
 
 ### Next PR — Custom-word query improvements
@@ -518,6 +553,7 @@ advanced personalization, or additional paid features.
 ### Later product phases
 
 - Premium smart placement testing for Silver and Gold.
+- AI Mini Quizzes after the MVP above proves stable.
 - Measurement-informed advanced learning and personalization.
 - Additional languages only through the canonical `catalog.py` registry.
 - Keep `issues/issues.json` as the canonical issue source, validate it with
