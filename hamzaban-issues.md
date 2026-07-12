@@ -1,5 +1,8 @@
 # HamZaban — Issues Export
 
+> Review note: this Markdown file is the canonical issue source. `issues.html`
+> is a local review/export view and may lag behind this file.
+
 # عدم کش کارت روزانه – هزینه‌ی اضافی و گیج‌کننده
 
 - ID: 1
@@ -234,3 +237,127 @@ LANG_NAMES_FA به صورت دستی تعریف شده و اگر زبانی به
 
 ## Solution
 دیکشنری goal_hint را به صورت جداگانه تعریف کنید و اگر هدفی در آن نبود، از یک مقدار پیش‌فرض استفاده کنید.
+
+---
+
+# وضعیت بازبینی issues 1 تا 15 در main فعلی
+
+## حل‌شده
+
+- 1: کش کارت روزانه با جدول `daily_cards` و progress پایدار پیاده شده است.
+- 4: registryهای زبان/هدف/سطح به `catalog.py` منتقل شده‌اند.
+- 5: نبود JSON اکنون با خطای مشخص مدیریت می‌شود.
+- 6: `advance_word_review` در Job مرور SRS استفاده می‌شود.
+- 10: رفتار فعلی یک guard صحیح برای کاربر onboard نشده است، نه باگ.
+- 14: `format_card` نکته‌ی گرامری خالی را نمایش نمی‌دهد.
+- 15: hint اهداف و fallbackها در catalog متمرکز شده‌اند.
+
+## حل‌شده اما نیازمند سخت‌سازی
+
+- 2: Job یادآوری SRS وجود دارد، اما باید chunking، retry و rate-limit مشترک
+  اضافه شود.
+- 3 و 11: ارسال زمان‌بندی‌شده محدود و retry می‌شود، اما broadcast و SRS هنوز
+  از همان مسیر امن استفاده نمی‌کنند.
+- 8: scheduler از timezone تنظیم‌شده استفاده می‌کند، اما توابع روزمحور
+  دیتابیس هنوز در همه‌جا از timezone برنامه استفاده نمی‌کنند.
+- 13: logging پایه وجود دارد، ولی eventهای lifecycle و متریک‌ها کامل نیستند.
+
+## باز
+
+- 7: API key همچنان plaintext در جدول settings ذخیره می‌شود.
+- 9: برخی `edit_message_text`ها برای پیام حذف‌شده یا قدیمی fallback متمرکز
+  ندارند.
+- 12: timeout صریح برای OpenAI client تنظیم نشده است.
+
+---
+
+# یافته‌های جدید در بازبینی کامل کد
+
+# Retry نامحدود برای صف delivery
+
+- ID: 16
+- Module: bot.py / db.py
+- Priority: بالا
+
+## Problem
+صف‌های `failed` در هر tick دوباره claim می‌شوند و retry budget، backoff یا
+وضعیت terminal ندارند. خطای دائمی می‌تواند باعث تلاش بی‌نهایت و مصرف دوباره‌ی
+AI/Telegram شود.
+
+## Solution
+برای هر queue row سقف تلاش، backoff زمان‌دار و وضعیت manual-retry/terminal
+تعریف کنید و تعداد تلاش و آخرین خطا را در admin metrics نمایش دهید.
+
+# اجرای synchronous درخواست AI داخل handlerهای async
+
+- ID: 17
+- Module: bot.py
+- Priority: بالا
+
+## Problem
+مسیر custom-word و grammar مستقیماً `ai.ask_card`/`ai.ask_json` را در handler
+async اجرا می‌کند و در زمان کندی provider، event loop تلگرام را متوقف می‌کند.
+
+## Solution
+همه‌ی تماس‌های blocking را با `asyncio.to_thread` یا کلاینت async اجرا کنید و
+timeout صریح provider را اضافه کنید.
+
+# اعتبارسنجی ناقص callbackهای زبان و هدف
+
+- ID: 18
+- Module: bot.py
+- Priority: بالا
+
+## Problem
+callback مربوط به level اعتبارسنجی می‌شود، اما callbackهای language و goal
+قبل از ذخیره‌سازی علیه `catalog.py` بررسی نمی‌شوند. یک callback دست‌کاری‌شده
+می‌تواند مقدار نامعتبر در profile ذخیره کند.
+
+## Solution
+اعتبارسنجی identifierها را در یک helper متمرکز کنید و برای language/goal/level
+قبل از هر تغییر profile از آن استفاده کنید.
+
+# quota غیراتمی و ذخیره‌ی واژه‌ی تکراری
+
+- ID: 19
+- Module: bot.py / db.py
+- Priority: بالا
+
+## Problem
+سقف custom-word قبل از ورود واژه بررسی و بعداً جداگانه increment می‌شود؛
+درخواست‌های هم‌زمان می‌توانند سقف را دور بزنند. همچنین `saved_words` برای
+یک کاربر/زبان/واژه محدودیت uniqueness ندارد و کلیک یا ورود تکراری رکوردهای
+تکراری می‌سازد.
+
+## Solution
+رزرو quota و increment را در transaction انجام دهید و برای واژه‌ی normalize‌شده
+یک کلید idempotent تعریف کنید.
+
+# SRS و broadcast بدون مسیر مشترک rate-limit
+
+- ID: 20
+- Module: bot.py
+- Priority: متوسط
+
+## Problem
+ارسال SRS و broadcast مستقیماً `send_message` را صدا می‌زنند و از semaphore،
+RetryAfter، retry محدود و chunking استفاده نمی‌کنند.
+
+## Solution
+یک sender مشترک با محدودیت concurrency، handling خطای Telegram و تقسیم پیام
+بسازید و همه‌ی مسیرهای همگانی را از آن عبور دهید.
+
+# ناهماهنگی منبع issues.html و Markdown
+
+- ID: 21
+- Module: issues.html / hamzaban-issues.md
+- Priority: پایین
+
+## Problem
+`issues.html` داده‌ی issue را داخل JavaScript کپی می‌کند و تغییرات/یادداشت‌های
+`localStorage` را جدا نگه می‌دارد. بنابراین HTML می‌تواند با فایل Markdown
+canonical یا وضعیت واقعی کد متفاوت باشد.
+
+## Solution
+Markdown را تنها منبع نگه دارید و HTML را از آن تولید/refresh کنید، یا در
+README صریحاً HTML را فقط view محلی بدانید و قبل از هر review آن را sync کنید.
