@@ -49,6 +49,35 @@ and protected learning-data reset described below.
   messages with a short delay.
 - Manual and scheduled flows share persisted cards and duplicate-avoidance
   rules, but they do not have to share the same generation granularity.
+- The effective daily allowance is the lower of the plan allowance and an
+  optional user-configured daily limit. A user cannot configure a limit above
+  the plan allowance.
+- LLM generation batches and learner-facing delivery sessions are separate
+  concepts. LLM batches are usually 2–6 cards for efficiency; delivery
+  sessions are derived from the effective allowance and active delivery window.
+- Session sizing uses a plan-agnostic formula rather than a plan-name lookup:
+  - Let `L` be the effective daily allowance.
+  - Target roughly 3 cards per learner-facing session.
+  - Choose `S = min(L, max_sessions, max(min_sessions, ceil(L / 3)))`,
+    further constrained by the number of feasible time slots in the user's
+    active window.
+  - Partition `L` as evenly as possible across `S` sessions; session sizes
+    may differ by at most one card.
+- The default educational bounds are configurable policy constants:
+  `min_sessions = 3`, `max_sessions = 6`, and `target_cards_per_session = 3`.
+  They are not tied to Free, Silver, or Gold, so new plans inherit the same
+  behavior automatically.
+- Examples of the formula:
+  - `L=4` → 3 sessions containing 2, 1, and 1 cards
+  - `L=12` → 4 sessions of 3 cards
+  - `L=24` → 6 sessions of 4 cards
+  - `L=30` → 6 sessions of 5 cards
+- Users can choose a preferred delivery start time. It is a soft target, not
+  a promise that all users will receive content at the exact same minute.
+- The scheduler spreads sessions across the user's active day and shifts them
+  within an allowed window when a preferred time is overloaded.
+- Missed sessions do not create a large backlog message. Pending content is
+  rolled forward while preserving the plan's session-size limit.
 - The primary manual menu action is named `🃏 فلش‌کارت امروز` (or an equivalent
   wording that clearly communicates on-demand cards).
 - Every manual card shows progress against the effective daily allowance and
@@ -82,8 +111,9 @@ and protected learning-data reset described below.
 1. Prefer one reliable, validated content contract over loosely structured AI
    output.
 2. Generate content in batches of 2-6 to reduce prompt overhead, latency, and
-   duplicate vocabulary where batch generation is appropriate; do not
-   pre-generate content that a manual user has not requested.
+   duplicate vocabulary where batch generation is appropriate. A generation
+   batch must not be confused with a learner-facing session, and the manual
+   flow must not pre-generate content the user has not requested.
 3. Cache generated daily content before sending it.
 4. Keep the primary card readable; put optional detail behind interaction.
 5. Keep language-specific grammar and assessment rules explicit and extensible.
@@ -149,12 +179,14 @@ sharing assumptions from English.
 Support two deliberate generation modes:
 
 - **On-demand manual mode:** generate and persist only the next requested card.
-- **Scheduled delivery mode:** generate a validated batch when automatic
-  delivery needs the user's remaining allowance.
+- **Scheduled delivery mode:** generate only the next learner-facing session,
+  using the plan template and an internal LLM batch of 2–6 where appropriate.
 
 The shared storage and validation layer must:
 
-- Request the exact number of cards needed for the selected mode.
+- Request only the number of cards needed for the selected mode.
+- Split scheduled delivery into plan-specific sessions instead of generating
+  the full daily allowance at the beginning of the day.
 - Avoid words already generated for that user on the same date.
 - Reject duplicates within the batch.
 - Persist cards individually in the existing `daily_cards` table.
@@ -166,8 +198,10 @@ The shared storage and validation layer must:
 **Acceptance criteria**
 
 - A manual first-card request creates at most one new card.
-- A complete scheduled Gold delivery uses at most one successful generation
-  request when the provider returns a valid batch.
+- A scheduled delivery never generates the user's entire daily allowance just
+  because the day started.
+- A scheduled session respects the formula-derived session count and the
+  effective daily allowance.
 - No daily batch contains duplicate normalized words.
 - A partial or malformed response does not discard valid cards.
 - Manual and automatic flows can reuse the same persisted cards without
@@ -225,7 +259,13 @@ menu, but the database save and SRS functions remain internal capabilities.
 Make manual generation and scheduled delivery restart-safe and isolated per
 user. Add:
 
-- Short delays between messages
+- User-configurable preferred delivery start time and an active delivery
+  window
+- A durable per-user session queue with planned delivery timestamps
+- Load-aware slot selection that treats preferred time as a soft target
+- Capacity buckets for provider requests and Telegram sends
+- A global AI concurrency/request limiter
+- Short delays between cards in one learner session
 - Bounded retries for Telegram delivery errors
 - Per-user error logging
 - Idempotent daily dispatch
@@ -234,6 +274,8 @@ user. Add:
 - Per-user locks or equivalent coordination for manual and scheduled work
 - Async-safe provider calls that do not block the Telegram event loop
 - A clear user-facing fallback when content generation fails
+- Session-size limits that prevent a missed schedule from becoming a burst
+- Fair scheduling across users when preferred time buckets are saturated
 - An owner-only learning-data reset with two-step confirmation
 - Scoped reset behavior that clears users, saved words, and daily cards while
   preserving AI settings
@@ -243,6 +285,12 @@ user. Add:
 - A restart does not regenerate or resend completed daily content.
 - One user's failure does not stop delivery to other users.
 - Telegram rate limits are handled without unbounded retries.
+- A large user base does not cause an unbounded LLM request burst at the
+  configured default hour.
+- Preferred delivery times are respected when capacity allows and shifted
+  predictably when capacity is saturated.
+- Session sizes remain within the configured educational bounds, regardless of
+  plan names or the number of plans.
 - Manual retrieval and scheduled delivery remain consistent without sharing a
   global blocking queue.
 - A reset cannot be triggered by a non-owner or a single accidental click.
