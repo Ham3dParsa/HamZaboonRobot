@@ -2,7 +2,7 @@ from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardBu
 
 from config import LEVELS, SUPPORTED_LANGS, GOALS
 
-BTN_TODAY_CARD = "📇 واژه‌ی امروز"
+BTN_TODAY_CARD = "🃏 فلش‌کارت امروز"
 BTN_ADD_WORD = "➕ ثبت واژه‌ی دلخواه"
 BTN_ASK_WORD = "❓ پرسیدن یک واژه"
 BTN_STATUS = "📊 وضعیت من"
@@ -42,6 +42,26 @@ def level_inline_keyboard() -> InlineKeyboardMarkup:
         for code, name in LEVELS.items()
     ]
     return InlineKeyboardMarkup(buttons)
+
+
+def daily_card_keyboard(
+    user_id: int,
+    card_date: str,
+    card_index: int,
+    has_next: bool,
+) -> InlineKeyboardMarkup | None:
+    if not has_next:
+        return None
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "➡️ کارت بعدی",
+                    callback_data=f"daily:next:{user_id}:{card_date}:{card_index}",
+                )
+            ]
+        ]
+    )
 
 
 def admin_panel_keyboard() -> InlineKeyboardMarkup:

@@ -2,6 +2,7 @@ import asyncio
 import logging
 import datetime
 import re
+from collections import defaultdict
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -38,6 +39,7 @@ from keyboards import (
     goal_inline_keyboard,
     level_inline_keyboard,
     admin_panel_keyboard,
+    daily_card_keyboard,
     BTN_TODAY_CARD,
     BTN_ADD_WORD,
     BTN_ASK_WORD,
@@ -51,6 +53,7 @@ from keyboards import (
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("hamzaban")
+_daily_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 def escape_mdv2(text: str) -> str:
     """Escape کامل‌تر برای MarkdownV2"""
@@ -320,6 +323,71 @@ def _ensure_daily_cards(user_id: int, row, card_date: str, limit: int) -> list[d
     return db.get_daily_cards(user_id, card_date)
 
 
+def _ensure_next_daily_card(user_id: int, row, card_date: str, limit: int) -> tuple[dict | None, int]:
+    next_index = db.get_daily_progress(user_id, card_date)
+    if next_index >= limit:
+        return None, next_index
+
+    cards = db.get_daily_cards(user_id, card_date)
+    if next_index >= len(cards):
+        used_words = [str(card.get("word", "")) for card in cards]
+        new_cards = _generate_daily_batch(
+            row["target_lang"],
+            row["goal"],
+            row["level"],
+            1,
+            used_words,
+        )
+        if not new_cards:
+            raise RuntimeError("AI returned no card for the requested daily card")
+        db.add_daily_card(user_id, card_date, len(cards), new_cards[0])
+        cards = db.get_daily_cards(user_id, card_date)
+
+    card = cards[next_index]
+    db.set_daily_progress(user_id, card_date, next_index + 1)
+    return card, next_index
+
+
+async def _send_next_daily_card(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    row,
+    card_date: str,
+    limit: int,
+):
+    user_id = row["user_id"]
+    async with _daily_locks[user_id]:
+        card, card_index = await asyncio.to_thread(
+            _ensure_next_daily_card,
+            user_id,
+            row,
+            card_date,
+            limit,
+        )
+
+    if card is None:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"✅ سهمیه‌ی امروزت ({limit} کارت) کامل شده است.",
+        )
+        return
+
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=format_card(
+            card,
+            footer=f"📖 کارت {card_index + 1} از {limit} امروز",
+        ),
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=daily_card_keyboard(
+            user_id,
+            card_date,
+            card_index,
+            card_index + 1 < limit,
+        ),
+    )
+
+
 async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     row = db.get_user(user_id)
@@ -333,56 +401,10 @@ async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     await update.message.chat.send_action("typing")
     try:
-        cards = _ensure_daily_cards(user_id, row, today, limit)
+        await _send_next_daily_card(update, context, row, today, limit)
     except Exception:
-        log.exception("Daily batch generation failed")
+        log.exception("Daily card generation failed")
         await update.message.reply_text("مشکلی در ساخت کارت‌های امروز پیش اومد.")
-        return
-
-    if context.user_data.get("daily_cursor_date") != today:
-        context.user_data["daily_cursor_date"] = today
-        context.user_data["daily_cursor"] = 0
-    cursor = context.user_data.get("daily_cursor", 0)
-
-    if not cards:
-        await update.message.reply_text("امروز هنوز کارتی آماده نشده؛ دوباره امتحان کن.")
-        return
-
-    # ۱) هنوز کارتی از امروز برای دیدن باقی مانده → از کش نشان بده (بدون هزینه‌ی API)
-    if cursor < len(cards):
-        data = cards[cursor]
-        context.user_data["daily_cursor"] = cursor + 1
-        footer = f"📖 مرور کارت {cursor + 1} از {len(cards)} امروز"
-        await update.message.reply_text(
-            format_card(data, footer=footer),
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
-        return
-
-    if len(cards) < limit:
-        context.user_data["daily_cursor"] = 0
-        await update.message.reply_text(
-            format_card(cards[0], footer=f"📖 مرور کارت ۱ از {len(cards)} امروز"),
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
-        return
-
-    # ۲) به سقف پلن رسیده‌ای → کارت جدید تولید نکن، از اول مرور کن
-    if len(cards) >= limit:
-        if not cards:
-            await update.message.reply_text("امروز کارتی برای نمایش نیست.")
-            return
-        data = cards[0]
-        context.user_data["daily_cursor"] = 1
-        footer = (
-            f"✅ کارت‌های امروزت ({limit} کارت) کامل شده؛ این‌ها را مرور کن.\n"
-            f"📖 مرور کارت ۱ از {len(cards)}"
-        )
-        await update.message.reply_text(
-            format_card(data, footer=footer),
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
-        return
 
 async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -645,6 +667,45 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await on_level_changed(update, context, level)
         else:
             await on_level_selected(update, context, level)
+    elif data.startswith("daily:next:"):
+        parts = data.split(":")
+        if len(parts) != 5:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        target_user_id_text, card_date, current_index_text = parts[2], parts[3], parts[4]
+        today = datetime.date.today().isoformat()
+        if card_date != today:
+            await update.callback_query.answer("این کارت مربوط به روز گذشته است.", show_alert=True)
+            return
+        try:
+            target_user_id = int(target_user_id_text)
+            current_index = int(current_index_text)
+        except ValueError:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+
+        user_id = update.effective_user.id
+        if user_id != target_user_id:
+            await update.callback_query.answer("این کارت برای کاربر دیگری است.", show_alert=True)
+            return
+        row = db.get_user(user_id)
+        if not row or not row["onboarded"]:
+            await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
+            return
+        if db.get_daily_progress(user_id, today) != current_index + 1:
+            await update.callback_query.answer("این دکمه قبلاً استفاده شده است.", show_alert=True)
+            return
+
+        limit = daily_card_count_for_plan(_user_plan(row))
+        await update.callback_query.answer()
+        try:
+            await _send_next_daily_card(update, context, row, today, limit)
+        except Exception:
+            log.exception("Next daily card generation failed")
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="مشکلی در ساخت کارت بعدی پیش اومد.",
+            )
     elif data.startswith("admin:"):
         await admin_callback(update, context, data.split(":", 1)[1])
 
@@ -660,7 +721,8 @@ async def daily_job(context: ContextTypes.DEFAULT_TYPE):
             existing_cards = db.get_daily_cards(user_id, today)
             if len(existing_cards) >= limit:
                 continue
-            cards = _ensure_daily_cards(user_id, row, today, limit)
+            async with _daily_locks[user_id]:
+                cards = await asyncio.to_thread(_ensure_daily_cards, user_id, row, today, limit)
             new_cards = cards[len(existing_cards):]
             if not new_cards:
                 continue
