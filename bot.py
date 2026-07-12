@@ -62,11 +62,14 @@ from keyboards import (
     lang_inline_keyboard,
     goal_inline_keyboard,
     level_inline_keyboard,
+    awaiting_reply_keyboard,
+    awaiting_inline_keyboard,
     daily_review_dates_keyboard,
     daily_review_menu_keyboard,
     query_result_keyboard,
     admin_panel_keyboard,
     daily_card_keyboard,
+    awaiting_inline_keyboard,
     BTN_TODAY_CARD,
     BTN_ASK_WORD,
     BTN_STATUS,
@@ -75,6 +78,8 @@ from keyboards import (
     BTN_CHANGE_LANG,
     BTN_CHANGE_GOAL,
     BTN_CHANGE_LEVEL,
+    BTN_CANCEL,
+    BTN_BACK,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -85,6 +90,17 @@ _ai_slots = threading.BoundedSemaphore(AI_MAX_CONCURRENCY)
 _ai_request_times: deque[float] = deque()
 _ai_request_lock = threading.Lock()
 _telegram_slots = asyncio.Semaphore(TELEGRAM_MAX_CONCURRENCY)
+_CUSTOM_WORD_MAX_CHARS = 42
+_CUSTOM_WORD_MAX_WORDS = 3
+_CANCEL_INPUTS = {
+    "cancel",
+    "back",
+    "لغو",
+    "بازگشت",
+    "انصراف",
+    BTN_CANCEL.casefold(),
+    BTN_BACK.casefold(),
+}
 
 
 def _call_ai_limited(function, *args, **kwargs):
@@ -142,6 +158,44 @@ def _grammar_tip_usage_text(row) -> str:
     return f"📊 استفاده امروز از نکات گرامری: {used}/{limit} · باقی‌مانده: {remaining}"
 
 
+def _normalize_custom_word_input(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _custom_word_input_error(text: str, target_lang: str) -> str | None:
+    normalized = _normalize_custom_word_input(text)
+    if not normalized:
+        return "یک واژه یا عبارت کوتاه بفرست."
+    if len(normalized) > _CUSTOM_WORD_MAX_CHARS:
+        return f"فقط یک واژه یا عبارت کوتاهِ حداکثر {_CUSTOM_WORD_MAX_WORDS} کلمه‌ای بفرست."
+
+    words = normalized.split()
+    if len(words) > _CUSTOM_WORD_MAX_WORDS:
+        return f"فقط یک واژه یا عبارت کوتاهِ حداکثر {_CUSTOM_WORD_MAX_WORDS} کلمه‌ای بفرست."
+    if any(len(word) > 20 for word in words):
+        return "واژه یا عبارتت خیلی بلند است؛ کوتاه‌تر بفرست."
+    if any(char.isdigit() for char in normalized):
+        return "لطفاً فقط واژه یا عبارت بفرست، نه عدد و نشانه‌های اضافی."
+    if not re.fullmatch(r"[\w\s\u0600-\u06FF'’\-]+", normalized):
+        return "لطفاً فقط واژه یا عبارت ساده بفرست."
+
+    has_persian = bool(re.search(r"[\u0600-\u06FF]", normalized))
+    has_latin = bool(re.search(r"[A-Za-z]", normalized))
+    if not has_persian and not has_latin:
+        return "یک واژه یا عبارت واقعی بفرست."
+
+    latin_target = target_lang in {"en", "es", "fr", "de"}
+    if latin_target and has_persian and len(words) >= 3:
+        return "برای این زبان، یک واژه یا عبارت کوتاه‌تر و مرتبط‌تر بفرست."
+    if latin_target and not has_latin and len(words) > 2:
+        return "برای این زبان، یک واژه یا عبارت کوتاه‌تر و مرتبط‌تر بفرست."
+    return None
+
+
+def _is_cancel_input(text: str) -> bool:
+    return _normalize_custom_word_input(text).casefold() in _CANCEL_INPUTS
+
+
 async def _start_llm_wait_state(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
     chat = update.effective_chat
     if not chat:
@@ -161,6 +215,18 @@ async def _finish_llm_wait_state(wait_message):
         await wait_message.delete()
     except Exception:
         log.exception("Failed to delete LLM wait-state message")
+
+
+async def _exit_awaiting_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, *, via_callback: bool = False):
+    context.user_data.pop("awaiting", None)
+    user_id = update.effective_user.id
+    reply_markup = main_menu(is_owner(user_id))
+    if via_callback:
+        await update.callback_query.edit_message_text("انصراف شد.")
+        await update.callback_query.message.reply_text("انصراف شد.", reply_markup=reply_markup)
+        await update.callback_query.answer("انصراف شد.", show_alert=False)
+        return
+    await update.message.reply_text("انصراف شد.", reply_markup=reply_markup)
 
 
 async def _send_card_from_store(
@@ -653,7 +719,8 @@ async def ask_for_ask_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     context.user_data["awaiting"] = "ask_word"
     await update.message.reply_text(
-        f"{usage_text}\n\nچه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟"
+        f"{usage_text}\n\nچه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟",
+        reply_markup=awaiting_reply_keyboard(),
     )
 
 
@@ -752,25 +819,34 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, act
             "مثال: `123456789 silver` یا `@username gold`\n"
             "پلن‌ها: free، silver، gold",
             parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=awaiting_inline_keyboard(),
         )
     elif action == "set_model":
         context.user_data["awaiting"] = "admin_set_model"
         await q.edit_message_text(
             f"نام مدل فعلی: `{db.get_setting('ai_model')}`\nنام مدل جدید رو بفرست:",
             parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=awaiting_inline_keyboard(),
         )
     elif action == "set_base_url":
         context.user_data["awaiting"] = "admin_set_base_url"
         await q.edit_message_text(
             f"Base URL فعلی: `{db.get_setting('ai_base_url')}`\nBase URL جدید رو بفرست:",
             parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=awaiting_inline_keyboard(),
         )
     elif action == "set_api_key":
         context.user_data["awaiting"] = "admin_set_api_key"
-        await q.edit_message_text("API Key جدید رو بفرست (بعداً این پیام رو از چت پاک کن):")
+        await q.edit_message_text(
+            "API Key جدید رو بفرست (بعداً این پیام رو از چت پاک کن):",
+            reply_markup=awaiting_inline_keyboard(),
+        )
     elif action == "broadcast":
         context.user_data["awaiting"] = "admin_broadcast"
-        await q.edit_message_text("متن پیام همگانی رو بفرست:")
+        await q.edit_message_text(
+            "متن پیام همگانی رو بفرست:",
+            reply_markup=awaiting_inline_keyboard(),
+        )
     elif action == "show_settings":
         key = db.get_setting("ai_api_key", "")
         masked = (key[:6] + "…" + key[-4:]) if len(key) > 12 else "—"
@@ -790,6 +866,10 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     awaiting = context.user_data.get("awaiting")
 
     if awaiting:
+        if _is_cancel_input(text):
+            await _exit_awaiting_flow(update, context)
+            return
+
         context.user_data["awaiting"] = None
 
         if awaiting.startswith("admin_") and not is_owner(user_id):
@@ -798,6 +878,14 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if awaiting == "ask_word":
             row = db.get_user(user_id)
             limit = daily_word_query_limit_for_plan(row["plan"] if row else "free")
+            error = _custom_word_input_error(text, row["target_lang"] if row else "en")
+            if error:
+                context.user_data["awaiting"] = "ask_word"
+                await update.message.reply_text(
+                    f"{error}\n\nچه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟",
+                    reply_markup=awaiting_inline_keyboard(),
+                )
+                return
             if not db.reserve_word_query(
                 user_id,
                 limit,
@@ -860,6 +948,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if awaiting == "admin_set_plan":
             parts = text.split()
             if len(parts) != 2 or parts[1].lower() not in PLANS:
+                context.user_data["awaiting"] = "admin_set_plan"
                 await update.message.reply_text(
                     "فرمت نامعتبر است. نمونه: `123456789 silver` یا `@username gold`",
                     parse_mode=ParseMode.MARKDOWN_V2,
@@ -867,6 +956,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             target = db.find_user(parts[0])
             if not target:
+                context.user_data["awaiting"] = "admin_set_plan"
                 await update.message.reply_text("کاربر پیدا نشد؛ ابتدا باید کاربر /start را زده باشد.")
                 return
             plan = parts[1].lower()
@@ -925,9 +1015,16 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = update.callback_query.data
-    if not data.startswith("query:add:"):
+    if not data.startswith(("query:add:", "flow:")):
         await update.callback_query.answer()
-    
+
+    if data in {"flow:cancel", "flow:back"}:
+        if context.user_data.get("awaiting"):
+            await _exit_awaiting_flow(update, context, via_callback=True)
+        else:
+            await update.callback_query.answer("فعلاً چیزی برای لغو نیست.", show_alert=True)
+        return
+
     if data.startswith("lang:"):
         lang = data.split(":", 1)[1]
         if lang not in LANGUAGES:

@@ -4,8 +4,10 @@ import tempfile
 import unittest
 
 import db
+from bot import _custom_word_input_error, _is_cancel_input
 from keyboards import (
     BTN_ASK_WORD,
+    awaiting_inline_keyboard,
     daily_card_keyboard,
     daily_review_dates_keyboard,
     daily_review_menu_keyboard,
@@ -87,6 +89,23 @@ class CustomWordQueryTests(unittest.TestCase):
             next_card.inline_keyboard[0][0].callback_data,
             "review:next:1:2026-07-12:0",
         )
+
+    def test_custom_word_validation_rejects_long_or_unrelated_input(self):
+        self.assertIsNone(_custom_word_input_error("thick burger", "en"))
+        self.assertIsNotNone(_custom_word_input_error("همبرگر آفرقایی کلفت", "en"))
+        self.assertIsNotNone(_custom_word_input_error("one two three four", "en"))
+        self.assertIsNotNone(_custom_word_input_error("", "en"))
+
+    def test_cancel_back_inline_keyboard_is_shared(self):
+        markup = awaiting_inline_keyboard()
+        labels = [button.text for row in markup.inline_keyboard for button in row]
+        callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
+        self.assertIn("↩️ بازگشت", labels)
+        self.assertIn("❌ لغو", labels)
+        self.assertIn("flow:back", callbacks)
+        self.assertIn("flow:cancel", callbacks)
+        self.assertTrue(_is_cancel_input("لغو"))
+        self.assertTrue(_is_cancel_input("بازگشت"))
 
 
 if __name__ == "__main__":

@@ -558,11 +558,6 @@ a separate lesson system.
 
 ### Custom-word safety and menu ergonomics follow-ups
 
-- Validate custom-word queries before the AI call: bound input length, limit the
-  token count / word count, and reject unrelated text that does not look like a
-  language query for the active target language.
-- Add explicit cancel/back actions to every “awaiting input” flow so users can
-  exit query/admin prompts cleanly from both inline and reply-keyboard menus.
 - Keep the saved-review action label aligned with its actual behavior and
   preserve the target language on persisted query results for future
   multi-language review flows.
@@ -587,6 +582,10 @@ a separate lesson system.
 
 ### Delivered reliability fixes
 
+- Custom-word requests now validate short, language-like input before the AI
+  call, rejecting long or clearly unrelated text and preserving quota.
+- Awaiting flows now expose shared cancel/back controls through both inline
+  callbacks and typed shortcuts so users can exit prompts cleanly.
 - Streak now updates on the first meaningful user interaction of the day, so
   manual card requests and core learning flows count while scheduled delivery
   only reports the current streak.

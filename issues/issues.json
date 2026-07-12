@@ -111,8 +111,8 @@
     "solution": "از یک رمزنگاری ساده (مثلاً Fernet با کلید ثابت در env) برای ذخیره و بازیابی استفاده کنید. یا حداقل در README هشدار دهید که دیتابیس را امن نگه دارند.",
     "priority": "low",
     "note": "",
-    "resolved": false,
-    "status": "open",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 7,
@@ -147,8 +147,8 @@
     "solution": "تمام edit_message_textها را در try/except با telegram.error.BadRequest بپوشانید و در صورت خطا، یک پیام جدید ارسال کنید. یا از answer_callback_query با show_alert استفاده کنید و پیام را عوض نکنید (که فعلاً این کار را نمی‌کند).",
     "priority": "medium",
     "note": "",
-    "resolved": false,
-    "status": "open",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 9,
@@ -384,15 +384,15 @@
     "solution": "قبل از رزرو quota و فراخوانی AI، ورودی را از نظر طول، تعداد کلمات/توکن‌ها و تناسب با زبان فعال کاربر validate کنید و برای ورودی‌های نامعتبر یک پیام اصلاحی نشان دهید.",
     "priority": "medium",
     "note": "این guardrail باید روی مسیر custom-word و هر مسیر مشابهی که از awaiting input استفاده می‌کند اعمال شود.",
-    "resolved": false,
-    "status": "open",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 22,
     "roadmap_refs": [
       "custom-word-safety"
     ],
-    "evidence": "bot.py:text_router passes awaiting ask_word text directly to prompts.custom_word_system_prompt()",
+    "evidence": "bot.py now validates awaiting ask_word input with _custom_word_input_error() before reserve_word_query() and the AI call, so long or unrelated text is rejected before quota consumption.",
     "last_reviewed": "2026-07-12"
   },
   {
@@ -403,15 +403,15 @@
     "solution": "یک کنترل cancel/back مشترک بسازید که هم در reply keyboard و هم در inline keyboard قابل استفاده باشد و awaiting state را پاک کند.",
     "priority": "medium",
     "note": "این control باید در menus مختلف reuse شود، نه این که هر flow دکمه‌ی اختصاصی خودش را با callback متفاوت پیاده کند.",
-    "resolved": false,
-    "status": "open",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 23,
     "roadmap_refs": [
       "custom-word-safety"
     ],
-    "evidence": "bot.py sets context.user_data['awaiting'] for ask_word/admin flows; keyboards.py has no cancel/back helper",
+    "evidence": "bot.py now exposes _exit_awaiting_flow() plus flow:cancel/flow:back callbacks; ask_word uses a shared reply keyboard and admin prompts use the shared inline buttons, so the same cancel/back actions work across both menu styles.",
     "last_reviewed": "2026-07-12"
   },
   {
