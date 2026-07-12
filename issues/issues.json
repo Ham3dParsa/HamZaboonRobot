@@ -8,10 +8,10 @@
     "priority": "high",
     "note": " کاربر رایگان باید 3 کارت روزانه داشته باشد که قابل مرور هستند.",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 1,
-    "status": "resolved",
     "roadmap_refs": [],
     "evidence": "",
     "last_reviewed": ""
@@ -25,10 +25,10 @@
     "priority": "high",
     "note": "",
     "resolved": false,
+    "status": "partial",
     "detailOpen": false,
     "editing": false,
     "id": 2,
-    "status": "partial",
     "roadmap_refs": [],
     "evidence": "",
     "last_reviewed": ""
@@ -42,10 +42,10 @@
     "priority": "medium",
     "note": "این مشکل فعلا فوریت ندارد اما برای این که بعدا و با هجوم کاربران و وظایف دچار مشکل نشویم بهتر است از همین الان به فکر آن روز باشیم!",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 3,
-    "status": "resolved",
     "roadmap_refs": [
       "reliability-hardening"
     ],
@@ -61,10 +61,10 @@
     "priority": "low",
     "note": "",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 4,
-    "status": "resolved",
     "roadmap_refs": [],
     "evidence": "",
     "last_reviewed": ""
@@ -78,10 +78,10 @@
     "priority": "medium",
     "note": "",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 5,
-    "status": "resolved",
     "roadmap_refs": [],
     "evidence": "",
     "last_reviewed": ""
@@ -95,10 +95,10 @@
     "priority": "medium",
     "note": "",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 6,
-    "status": "resolved",
     "roadmap_refs": [],
     "evidence": "",
     "last_reviewed": ""
@@ -112,10 +112,10 @@
     "priority": "low",
     "note": "",
     "resolved": false,
+    "status": "open",
     "detailOpen": false,
     "editing": false,
     "id": 7,
-    "status": "open",
     "roadmap_refs": [],
     "evidence": "",
     "last_reviewed": ""
@@ -129,10 +129,10 @@
     "priority": "low",
     "note": "",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 8,
-    "status": "resolved",
     "roadmap_refs": [
       "reliability-hardening"
     ],
@@ -148,10 +148,10 @@
     "priority": "medium",
     "note": "",
     "resolved": false,
+    "status": "open",
     "detailOpen": false,
     "editing": false,
     "id": 9,
-    "status": "open",
     "roadmap_refs": [],
     "evidence": "",
     "last_reviewed": ""
@@ -165,10 +165,10 @@
     "priority": "none",
     "note": "",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 10,
-    "status": "resolved",
     "roadmap_refs": [],
     "evidence": "",
     "last_reviewed": ""
@@ -182,10 +182,10 @@
     "priority": "medium",
     "note": "این مشکل فعلا فوریت ندارد اما برای این که بعدا و با هجوم کاربران و وظایف دچار مشکل نشویم بهتر است از همین الان به فکر آن روز باشیم!",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 11,
-    "status": "resolved",
     "roadmap_refs": [
       "reliability-hardening"
     ],
@@ -201,10 +201,10 @@
     "priority": "low",
     "note": "",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 12,
-    "status": "resolved",
     "roadmap_refs": [
       "reliability-hardening"
     ],
@@ -220,10 +220,10 @@
     "priority": "low",
     "note": "",
     "resolved": false,
+    "status": "partial",
     "detailOpen": false,
     "editing": false,
     "id": 13,
-    "status": "partial",
     "roadmap_refs": [],
     "evidence": "",
     "last_reviewed": ""
@@ -237,10 +237,10 @@
     "priority": "low",
     "note": "",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 14,
-    "status": "resolved",
     "roadmap_refs": [],
     "evidence": "",
     "last_reviewed": ""
@@ -254,10 +254,10 @@
     "priority": "low",
     "note": "",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 15,
-    "status": "resolved",
     "roadmap_refs": [],
     "evidence": "",
     "last_reviewed": ""
@@ -271,10 +271,10 @@
     "priority": "high",
     "note": "",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 16,
-    "status": "resolved",
     "roadmap_refs": [
       "reliability-hardening"
     ],
@@ -290,10 +290,10 @@
     "priority": "high",
     "note": "",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 17,
-    "status": "resolved",
     "roadmap_refs": [
       "reliability-hardening"
     ],
@@ -309,10 +309,10 @@
     "priority": "high",
     "note": "",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 18,
-    "status": "resolved",
     "roadmap_refs": [
       "reliability-hardening"
     ],
@@ -328,10 +328,10 @@
     "priority": "high",
     "note": "",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 19,
-    "status": "resolved",
     "roadmap_refs": [
       "reliability-hardening"
     ],
@@ -347,10 +347,10 @@
     "priority": "medium",
     "note": "",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 20,
-    "status": "resolved",
     "roadmap_refs": [
       "reliability-hardening"
     ],
@@ -366,10 +366,10 @@
     "priority": "low",
     "note": "",
     "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 21,
-    "status": "resolved",
     "roadmap_refs": [
       "issue-tooling"
     ],
@@ -385,10 +385,10 @@
     "priority": "medium",
     "note": "این guardrail باید روی مسیر custom-word و هر مسیر مشابهی که از awaiting input استفاده می‌کند اعمال شود.",
     "resolved": false,
+    "status": "open",
     "detailOpen": false,
     "editing": false,
     "id": 22,
-    "status": "open",
     "roadmap_refs": [
       "custom-word-safety"
     ],
@@ -404,10 +404,10 @@
     "priority": "medium",
     "note": "این control باید در menus مختلف reuse شود، نه این که هر flow دکمه‌ی اختصاصی خودش را با callback متفاوت پیاده کند.",
     "resolved": false,
+    "status": "open",
     "detailOpen": false,
     "editing": false,
     "id": 23,
-    "status": "open",
     "roadmap_refs": [
       "custom-word-safety"
     ],
@@ -423,10 +423,10 @@
     "priority": "low",
     "note": "این مورد بیشتر UX است تا data-model bug؛ prerequisite داده‌ای اصلی از قبل موجود است.",
     "resolved": false,
+    "status": "open",
     "detailOpen": false,
     "editing": false,
     "id": 24,
-    "status": "open",
     "roadmap_refs": [
       "custom-word-safety"
     ],
@@ -442,10 +442,10 @@
     "priority": "medium",
     "note": "این مورد اکنون اولویت پایین‌تری دارد اما برای رشد تاریخچه‌ی روزانه در آینده مهم است.",
     "resolved": false,
+    "status": "open",
     "detailOpen": false,
     "editing": false,
     "id": 25,
-    "status": "open",
     "roadmap_refs": [
       "custom-word-safety"
     ],
@@ -456,15 +456,15 @@
     "title": "daily card session با تغییر زبان وسط روز زبان‌ها را قاطی می‌کند",
     "module": "bot.py / db.py",
     "func": "send_daily_card_now / _ensure_next_daily_card / callback_router",
-    "problem": "daily_cards فقط بر اساس user/date/index ذخیره می‌شوند. اگر کاربر وسط allowance روزانه زبان، هدف یا سطحش را عوض کند، کارت‌های باقی‌مانده‌ی همان روز می‌توانند با profile جدید تولید شوند و یک session ترکیبی بسازند.",
-    "solution": "برای هر روز یک snapshot از target_lang / goal / level را lock کنید و همان snapshot را تا پایان allowance همان روز استفاده کنید؛ تغییر profile باید فقط روی sessionهای بعدی اثر بگذارد یا reset صریح بخواهد.",
+    "problem": "daily_cards فقط بر اساس user/date/index ذخیره می‌شوند. اگر کاربر وسط allowance روزانه زبان، هدف یا سطحش را عوض کند، کارت‌های باقی‌مانده‌ی همان روز می‌توانند با profile جدید تولید شوند و یک session ترکیبی بسازند.\nالبته سقف اشتراک کاربر نیز باید مدیریت شود. در واقع این باگ برای مالک ربات بیشتر دیده میشه اما اگر کاربر رایگان وسط روز و بعد از مصرف سهمیه روزانه رایگانش اشتراک نقره ای شود نیز چنین مواردی قابل رخ دادن است. در این سناریو، کاربر نباید اس سقف سهمیه های اشتراک خودش با تقلب های این چنینی فراتر برود.",
+    "solution": "برای هر روز یک snapshot از target_lang / goal / level را lock کنید و همان snapshot را تا پایان allowance همان روز استفاده کنید؛ تغییر profile باید فقط روی sessionهای بعدی اثر بگذارد یا reset صریح بخواهد. یا مثلا نوعی هشدار به کاربر داده شود که ربات از این نظر چگونه عمل خواهد کرد.",
     "priority": "high",
     "note": "این باگ در حساب owner با bypass limits راحت‌تر دیده می‌شود، اما یک risk correctness برای همه‌ی کاربران است.",
     "resolved": false,
+    "status": "open",
     "detailOpen": false,
     "editing": false,
     "id": 26,
-    "status": "open",
     "roadmap_refs": [
       "reliability-hardening"
     ],
@@ -480,10 +480,10 @@
     "priority": "medium",
     "note": "این یک بهبود ساختاری است و باید بدون شکستن backward compatibility اضافه شود.",
     "resolved": false,
+    "status": "open",
     "detailOpen": false,
     "editing": false,
     "id": 27,
-    "status": "open",
     "roadmap_refs": [
       "issue-tooling"
     ],
