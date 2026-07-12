@@ -48,9 +48,9 @@
 - Module: bot.py
 - Function: daily_job / admin_broadcast
 - Priority: medium
-- Status: Resolved
-- Roadmap refs: reliability-hardening
-- Evidence: bot.py:_send_with_retry applies Telegram concurrency and retry handling
+- Status: Partial
+- Roadmap refs: —
+- Evidence: —
 
 ## Problem
 ارسال همزمان پیام به تعداد زیاد ممکن است باعث خطای Too Many Requests از سمت تلگرام شود.
@@ -141,9 +141,9 @@ LANG_NAMES_FA به صورت دستی تعریف شده و اگر زبانی به
 - Module: db.py
 - Function: touch_streak / can_ask_word / add_saved_word
 - Priority: low
-- Status: Resolved
-- Roadmap refs: reliability-hardening
-- Evidence: db.py:_today uses APP_TIMEZONE for streak, quota, and SRS dates
+- Status: Partial
+- Roadmap refs: —
+- Evidence: —
 
 ## Problem
 استفاده از datetime.date.today() بر اساس ساعت سیستم است. اگر سرور در منطقه‌ی زمانی متفاوتی باشد، ممکن است روزها جابجا شوند.
@@ -195,9 +195,9 @@ LANG_NAMES_FA به صورت دستی تعریف شده و اگر زبانی به
 - Module: bot.py
 - Function: admin_broadcast
 - Priority: medium
-- Status: Resolved
-- Roadmap refs: reliability-hardening
-- Evidence: bot.py:admin_broadcast uses _send_with_retry
+- Status: Partial
+- Roadmap refs: —
+- Evidence: —
 
 ## Problem
 همانند شماره ۳ — ارسال همزمان پیام به تعداد زیاد ممکن است باعث خطای Too Many Requests شود.
@@ -216,9 +216,9 @@ LANG_NAMES_FA به صورت دستی تعریف شده و اگر زبانی به
 - Module: ai.py
 - Function: client.chat.completions.create
 - Priority: low
-- Status: Resolved
-- Roadmap refs: reliability-hardening
-- Evidence: ai.py:_client configures AI_TIMEOUT_SECONDS
+- Status: Open
+- Roadmap refs: —
+- Evidence: —
 
 ## Problem
 پیش‌فرض timeout ندارد و ممکن است درخواست به دلیل کندی شبکه یا سرویس، مدت‌ها معلق بماند.
@@ -290,9 +290,9 @@ LANG_NAMES_FA به صورت دستی تعریف شده و اگر زبانی به
 - Module: bot.py / db.py
 - Function: delivery queue
 - Priority: high
-- Status: Resolved
-- Roadmap refs: reliability-hardening
-- Evidence: bot.py:_dispatch_queue and db.py:retry_at
+- Status: Open
+- Roadmap refs: —
+- Evidence: —
 
 ## Problem
 صف‌های failed بدون سقف تلاش یا backoff در هر tick دوباره تلاش می‌شوند و خطای دائمی می‌تواند مصرف API و Telegram را بی‌نهایت تکرار کند.
@@ -308,9 +308,9 @@ Retry budget، backoff و وضعیت terminal/manual-retry اضافه کنید.
 - Module: bot.py
 - Function: custom-word / grammar handlers
 - Priority: high
-- Status: Resolved
-- Roadmap refs: reliability-hardening
-- Evidence: bot.py:_call_ai_limited with asyncio.to_thread
+- Status: Open
+- Roadmap refs: —
+- Evidence: —
 
 ## Problem
 تماس مستقیم با کلاینت synchronous در زمان کندی provider event loop تلگرام را متوقف می‌کند.
@@ -326,9 +326,9 @@ Retry budget، backoff و وضعیت terminal/manual-retry اضافه کنید.
 - Module: bot.py
 - Function: callback_router
 - Priority: high
-- Status: Resolved
-- Roadmap refs: reliability-hardening
-- Evidence: bot.py:callback_router validates LANGUAGES and GOALS
+- Status: Open
+- Roadmap refs: —
+- Evidence: —
 
 ## Problem
 callbackهای language و goal قبل از ذخیره‌سازی علیه catalog بررسی نمی‌شوند.
@@ -344,9 +344,9 @@ callbackهای language و goal قبل از ذخیره‌سازی علیه catal
 - Module: bot.py / db.py
 - Function: can_ask_word / add_saved_word
 - Priority: high
-- Status: Resolved
-- Roadmap refs: reliability-hardening
-- Evidence: db.py:reserve_word_query and saved_words unique index
+- Status: Open
+- Roadmap refs: —
+- Evidence: —
 
 ## Problem
 بررسی و increment سقف جدا هستند و saved_words نیز uniqueness ندارد.
@@ -362,9 +362,9 @@ callbackهای language و goal قبل از ذخیره‌سازی علیه catal
 - Module: bot.py
 - Function: srs_job / admin_broadcast
 - Priority: medium
-- Status: Resolved
-- Roadmap refs: reliability-hardening
-- Evidence: bot.py:_send_with_retry used by SRS and broadcasts
+- Status: Open
+- Roadmap refs: —
+- Evidence: —
 
 ## Problem
 این مسیرها مستقیماً send_message را صدا می‌زنند و retry، semaphore و chunking ندارند.
@@ -380,9 +380,9 @@ callbackهای language و goal قبل از ذخیره‌سازی علیه catal
 - Module: issues.html / hamzaban-issues.md
 - Function: ISSUES_DATA / localStorage
 - Priority: low
-- Status: Resolved
-- Roadmap refs: issue-tooling
-- Evidence: issues/validate.py generates Markdown and HTML fallback
+- Status: Open
+- Roadmap refs: —
+- Evidence: —
 
 ## Problem
 HTML داده‌ی issue و یادداشت‌ها را جداگانه نگه می‌دارد و ممکن است با Markdown canonical متفاوت شود.

@@ -48,8 +48,8 @@ Completed on the current main branch:
 - Operational configuration contract with readable clock values, shared
   timezone support for scheduled jobs, and explicit per-plan quotas
 - Local issue-review manager (`issues/issues.html`) backed by canonical
-  structured issue data in `issues/issues.json`; `hamzaban-issues.md` is a
-  generated Markdown export
+  structured issue data in `issues/issues.json`; `hamzaban-issues.md` is an
+  optional Markdown export for review
 
 The remaining work is tracked in the explicit ToDo section near the end of
 this document. The next user-facing feature remains the custom-word query
@@ -112,7 +112,8 @@ delivery sessions use bounded exponential retries and become terminal after
 the configured attempt budget.
 
 The issue-tooling ownership is locked: `issues/issues.json` is canonical,
-`issues/issues.html` is the review UI, and `hamzaban-issues.md` is generated.
+`issues/issues.html` reads the canonical data, and `hamzaban-issues.md` is an
+optional export generated only when a review snapshot is needed.
 
 ## Locked Architectural Decision
 
@@ -520,8 +521,8 @@ advanced personalization, or additional paid features.
 - Measurement-informed advanced learning and personalization.
 - Additional languages only through the canonical `catalog.py` registry.
 - Keep `issues/issues.json` as the canonical issue source, validate it with
-  `issues/validate.py`, and generate `hamzaban-issues.md` and the HTML fallback
-  data from it to prevent drift.
+  `issues/validate.py`; generate the Markdown report or HTML fallback only
+  when a human review snapshot is needed.
 
 ## Out of Scope for the Current MVP
 

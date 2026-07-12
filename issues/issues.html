@@ -1046,16 +1046,14 @@
         "solution": "از asyncio.sleep بین هر چند پیام استفاده کنید (مثلاً هر ۱۰ پیام ۰.۵ ثانیه مکث). یا از telegram.ext با Application و JobQueue به صورت تکی ارسال کنید.",
         "priority": "medium",
         "note": "این مشکل فعلا فوریت ندارد اما برای این که بعدا و با هجوم کاربران و وظایف دچار مشکل نشویم بهتر است از همین الان به فکر آن روز باشیم!",
-        "resolved": true,
+        "resolved": false,
         "detailOpen": false,
         "editing": false,
         "id": 3,
-        "status": "resolved",
-        "roadmap_refs": [
-            "reliability-hardening"
-        ],
-        "evidence": "bot.py:_send_with_retry applies Telegram concurrency and retry handling",
-        "last_reviewed": "2026-07-12"
+        "status": "partial",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
     },
     {
         "title": "همگام‌سازی نبودن نام زبان‌ها در prompts.py و config.py",
@@ -1133,16 +1131,14 @@
         "solution": "از pytz یا datetime.timezone.utc استفاده کنید و ساعت ارسال روزانه (DAILY_SEND_HOUR) را بر اساس UTC تنظیم کنید. یا یک تنظیمات timezone برای کاربر اضافه کنید (پیچیده‌تر).",
         "priority": "low",
         "note": "",
-        "resolved": true,
+        "resolved": false,
         "detailOpen": false,
         "editing": false,
         "id": 8,
-        "status": "resolved",
-        "roadmap_refs": [
-            "reliability-hardening"
-        ],
-        "evidence": "db.py:_today uses APP_TIMEZONE for streak, quota, and SRS dates",
-        "last_reviewed": "2026-07-12"
+        "status": "partial",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
     },
     {
         "title": "استفاده از edit_message_text بدون مدیریت خطا هنگام ویرایش پیام قدیمی",
@@ -1186,16 +1182,14 @@
         "solution": "مشابه راه‌حل شماره ۳: از asyncio.sleep بین هر چند پیام استفاده کنید یا از JobQueue استفاده کنید.",
         "priority": "medium",
         "note": "این مشکل فعلا فوریت ندارد اما برای این که بعدا و با هجوم کاربران و وظایف دچار مشکل نشویم بهتر است از همین الان به فکر آن روز باشیم!",
-        "resolved": true,
+        "resolved": false,
         "detailOpen": false,
         "editing": false,
         "id": 11,
-        "status": "resolved",
-        "roadmap_refs": [
-            "reliability-hardening"
-        ],
-        "evidence": "bot.py:admin_broadcast uses _send_with_retry",
-        "last_reviewed": "2026-07-12"
+        "status": "partial",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
     },
     {
         "title": "عدم مدیریت timeout برای درخواست‌های AI",
@@ -1205,16 +1199,14 @@
         "solution": "در OpenAI هنگام ساخت کلاینت، timeout تنظیم کنید: OpenAI(base_url=base_url, api_key=api_key, timeout=30.0)",
         "priority": "low",
         "note": "",
-        "resolved": true,
+        "resolved": false,
         "detailOpen": false,
         "editing": false,
         "id": 12,
-        "status": "resolved",
-        "roadmap_refs": [
-            "reliability-hardening"
-        ],
-        "evidence": "ai.py:_client configures AI_TIMEOUT_SECONDS",
-        "last_reviewed": "2026-07-12"
+        "status": "open",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
     },
     {
         "title": "عدم استفاده از log در بخش‌های مهم (به جز خطاها)",
@@ -1275,16 +1267,14 @@
         "solution": "Retry budget، backoff و وضعیت terminal/manual-retry اضافه کنید.",
         "priority": "high",
         "note": "",
-        "resolved": true,
+        "resolved": false,
         "detailOpen": false,
         "editing": false,
         "id": 16,
-        "status": "resolved",
-        "roadmap_refs": [
-            "reliability-hardening"
-        ],
-        "evidence": "bot.py:_dispatch_queue and db.py:retry_at",
-        "last_reviewed": "2026-07-12"
+        "status": "open",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
     },
     {
         "title": "اجرای synchronous درخواست AI داخل handlerهای async",
@@ -1294,16 +1284,14 @@
         "solution": "همه‌ی تماس‌های blocking را با asyncio.to_thread یا کلاینت async اجرا و timeout صریح تنظیم کنید.",
         "priority": "high",
         "note": "",
-        "resolved": true,
+        "resolved": false,
         "detailOpen": false,
         "editing": false,
         "id": 17,
-        "status": "resolved",
-        "roadmap_refs": [
-            "reliability-hardening"
-        ],
-        "evidence": "bot.py:_call_ai_limited with asyncio.to_thread",
-        "last_reviewed": "2026-07-12"
+        "status": "open",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
     },
     {
         "title": "اعتبارسنجی ناقص callbackهای زبان و هدف",
@@ -1313,16 +1301,14 @@
         "solution": "اعتبارسنجی identifierها را قبل از هر تغییر profile متمرکز کنید.",
         "priority": "high",
         "note": "",
-        "resolved": true,
+        "resolved": false,
         "detailOpen": false,
         "editing": false,
         "id": 18,
-        "status": "resolved",
-        "roadmap_refs": [
-            "reliability-hardening"
-        ],
-        "evidence": "bot.py:callback_router validates LANGUAGES and GOALS",
-        "last_reviewed": "2026-07-12"
+        "status": "open",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
     },
     {
         "title": "quota غیراتمی و ذخیره‌ی واژه‌ی تکراری",
@@ -1332,16 +1318,14 @@
         "solution": "رزرو quota را transactionی کنید و ذخیره‌ی واژه را idempotent کنید.",
         "priority": "high",
         "note": "",
-        "resolved": true,
+        "resolved": false,
         "detailOpen": false,
         "editing": false,
         "id": 19,
-        "status": "resolved",
-        "roadmap_refs": [
-            "reliability-hardening"
-        ],
-        "evidence": "db.py:reserve_word_query and saved_words unique index",
-        "last_reviewed": "2026-07-12"
+        "status": "open",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
     },
     {
         "title": "SRS و broadcast بدون مسیر مشترک rate-limit",
@@ -1351,16 +1335,14 @@
         "solution": "یک sender مشترک مقاوم در برابر rate-limit برای همه‌ی ارسال‌های همگانی بسازید.",
         "priority": "medium",
         "note": "",
-        "resolved": true,
+        "resolved": false,
         "detailOpen": false,
         "editing": false,
         "id": 20,
-        "status": "resolved",
-        "roadmap_refs": [
-            "reliability-hardening"
-        ],
-        "evidence": "bot.py:_send_with_retry used by SRS and broadcasts",
-        "last_reviewed": "2026-07-12"
+        "status": "open",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
     },
     {
         "title": "ناهماهنگی منبع issues.html و Markdown",
@@ -1370,16 +1352,14 @@
         "solution": "Markdown را تنها منبع نگه دارید و HTML را generate/refresh کنید یا آن را فقط view محلی مستند کنید.",
         "priority": "low",
         "note": "",
-        "resolved": true,
+        "resolved": false,
         "detailOpen": false,
         "editing": false,
         "id": 21,
-        "status": "resolved",
-        "roadmap_refs": [
-            "issue-tooling"
-        ],
-        "evidence": "issues/validate.py generates Markdown and HTML fallback",
-        "last_reviewed": "2026-07-12"
+        "status": "open",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
     }
 ];
         // END GENERATED ISSUE DATA
