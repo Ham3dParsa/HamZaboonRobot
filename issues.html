@@ -1,0 +1,1739 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>بررسی کد ربات هم‌زبان — نقاط بهبود</title>
+    <!-- Font Awesome (for icons) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <!-- Google Font: Vazirmatn (Persian) -->
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+        /* ---------- Reset & Base ---------- */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Vazirmatn', Tahoma, sans-serif;
+            background: linear-gradient(180deg, #e9eef7 0%, #f7fafc 100%);
+            color: #10243f;
+            padding: 2rem 1rem;
+            min-height: 100vh;
+            direction: rtl;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        /* ---------- Header ---------- */
+        .header {
+            background: linear-gradient(145deg, #1a425e, #2f6d8a);
+            color: #f8fbff;
+            border-radius: 28px;
+            padding: 2rem 2.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 18px 48px rgba(15, 43, 75, 0.22);
+            position: relative;
+            overflow: hidden;
+        }
+        .header::after {
+            content: '';
+            position: absolute;
+            top: -45%;
+            left: -28%;
+            width: 320px;
+            height: 320px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+        .header h1 {
+            font-size: 2rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            position: relative;
+            z-index: 1;
+        }
+        .header h1 i {
+            color: #f4d35e;
+            font-size: 1.8rem;
+        }
+        .header p {
+            margin-top: 0.6rem;
+            font-size: 1rem;
+            opacity: 0.95;
+            font-weight: 400;
+            position: relative;
+            z-index: 1;
+            max-width: 85%;
+            color: #e6eef7;
+        }
+        .header .stats {
+            display: flex;
+            gap: 1.6rem;
+            margin-top: 1.2rem;
+            flex-wrap: wrap;
+            position: relative;
+            z-index: 1;
+        }
+        .header .stats span {
+            background: rgba(255, 255, 255, 0.14);
+            padding: 0.35rem 1rem;
+            border-radius: 40px;
+            font-size: 0.85rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            backdrop-filter: blur(6px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .header .stats span i {
+            font-size: 0.9rem;
+        }
+        .stats .badge-high {
+            color: #f8c6c3;
+        }
+        .stats .badge-medium {
+            color: #ffe49f;
+        }
+        .stats .badge-low {
+            color: #a7f3d0;
+        }
+
+        /* ---------- Controls ---------- */
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.8rem;
+            align-items: center;
+            margin-bottom: 1rem;
+            background: #ffffff;
+            padding: 0.9rem 1.5rem;
+            border-radius: 60px;
+            box-shadow: 0 12px 30px rgba(15, 43, 75, 0.08);
+        }
+        .controls .filter-group {
+            display: flex;
+            gap: 0.4rem;
+            flex-wrap: wrap;
+        }
+        .controls .filter-group button {
+            background: transparent;
+            border: none;
+            padding: 0.45rem 1rem;
+            border-radius: 40px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #475569;
+            border: 1.5px solid transparent;
+        }
+        .controls .filter-group button:hover {
+            background: #f3f7fb;
+            color: #10243f;
+        }
+        .controls .filter-group button.active {
+            background: #1f4f70;
+            color: #fff;
+            border-color: #1f4f70;
+        }
+        .controls .filter-group button.active-high {
+            background: #b91c1c;
+            border-color: #b91c1c;
+            color: #fff;
+        }
+        .controls .filter-group button.active-medium {
+            background: #b45309;
+            border-color: #b45309;
+            color: #fff;
+        }
+        .controls .filter-group button.active-low {
+            background: #047857;
+            border-color: #047857;
+            color: #fff;
+        }
+
+        .controls .search-box {
+            margin-right: auto;
+            display: flex;
+            align-items: center;
+            background: #f3f7fb;
+            border-radius: 40px;
+            padding: 0.28rem 0.2rem 0.28rem 1rem;
+            border: 1.5px solid transparent;
+            transition: border 0.2s;
+        }
+        .controls .search-box:focus-within {
+            border-color: #1f4f70;
+            background: #ffffff;
+        }
+        .controls .search-box i {
+            color: #94a3b8;
+            font-size: 0.95rem;
+        }
+        .controls .search-box input {
+            border: none;
+            background: transparent;
+            padding: 0.55rem 0.8rem;
+            font-family: inherit;
+            font-size: 0.95rem;
+            outline: none;
+            width: 180px;
+            color: #10243f;
+        }
+        .controls .search-box input::placeholder {
+            color: #94a3b8;
+            font-weight: 300;
+        }
+
+        .controls .reset-btn,
+        .controls .btn-add {
+            background: transparent;
+            border: none;
+            color: #64748b;
+            font-size: 0.95rem;
+            cursor: pointer;
+            padding: 0.45rem 0.9rem;
+            border-radius: 40px;
+            transition: all 0.2s;
+        }
+        .controls .btn-add {
+            background: #1f4f70;
+            color: #fff;
+            border: 1.5px solid transparent;
+            box-shadow: 0 12px 24px rgba(31, 79, 112, 0.16);
+        }
+        .controls .reset-btn:hover {
+            background: #f1f5f9;
+            color: #ef4444;
+        }
+        .controls .btn-add:hover {
+            background: #184862;
+        }
+
+        .form-panel {
+            display: none;
+            background: #ffffff;
+            border: 1px solid rgba(15, 43, 75, 0.08);
+            border-radius: 24px;
+            padding: 1.4rem 1.5rem;
+            box-shadow: 0 18px 40px rgba(15, 43, 75, 0.08);
+            margin-bottom: 1.5rem;
+        }
+        .form-panel.open {
+            display: block;
+        }
+        .form-panel h2 {
+            margin-bottom: 1rem;
+            font-size: 1.05rem;
+            color: #10243f;
+        }
+        .form-panel .field-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            align-items: start;
+        }
+        .form-panel .field-grid.full {
+            grid-template-columns: 1fr;
+        }
+        .form-panel label {
+            display: block;
+            font-size: 0.85rem;
+            color: #475569;
+            margin-bottom: 0.35rem;
+        }
+        .form-panel input,
+        .form-panel select,
+        .form-panel textarea {
+            width: 100%;
+            border: 1px solid #d1d5db;
+            border-radius: 14px;
+            background: #f8fafc;
+            color: #10243f;
+            font-family: inherit;
+            font-size: 0.92rem;
+            padding: 0.9rem 1rem;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .form-panel input:focus,
+        .form-panel select:focus,
+        .form-panel textarea:focus {
+            border-color: #1f4f70;
+            box-shadow: 0 0 0 4px rgba(31, 79, 112, 0.1);
+            background: #ffffff;
+        }
+        .form-panel textarea {
+            resize: vertical;
+            min-height: 120px;
+        }
+        .form-panel .form-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            justify-content: flex-start;
+            align-items: center;
+            margin-top: 0.25rem;
+        }
+        .form-panel .form-actions button {
+            border: none;
+            border-radius: 999px;
+            padding: 0.75rem 1.3rem;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+        }
+        .form-panel .form-actions .btn-save {
+            background: #1f4f70;
+            color: #fff;
+            box-shadow: 0 12px 24px rgba(31, 79, 112, 0.16);
+        }
+        .form-panel .form-actions .btn-cancel {
+            background: #f1f5f9;
+            color: #475569;
+        }
+        .form-panel .form-actions .btn-save:hover {
+            transform: translateY(-1px);
+            background: #184862;
+        }
+        .form-panel .form-actions .btn-cancel:hover {
+            background: #e2e8f0;
+        }
+
+        /* ---------- Cards ---------- */
+        .cards-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+        }
+
+        .card {
+            background: #fbfdff;
+            border-radius: 20px;
+            padding: 1.5rem 1.8rem;
+            box-shadow: 0 12px 34px rgba(33, 59, 80, 0.08);
+            transition: all 0.25s ease;
+            border-right: 6px solid #cbd5e1;
+            position: relative;
+        }
+        .card:hover {
+            box-shadow: 0 16px 48px rgba(33, 59, 80, 0.12);
+            transform: translateY(-1px);
+        }
+        .card.priority-high {
+            border-right-color: #dc2626;
+        }
+        .card.priority-medium {
+            border-right-color: #f59e0b;
+        }
+        .card.priority-low {
+            border-right-color: #10b981;
+        }
+        .card.priority-none {
+            border-right-color: #94a3b8;
+        }
+        .card.resolved {
+            opacity: 0.84;
+            background: #f6f8fb;
+        }
+        .card.resolved .card-header .title {
+            text-decoration: line-through;
+            text-decoration-color: #94a3b8;
+        }
+
+        .card-edit-form {
+            overflow: hidden;
+            max-height: 0;
+            opacity: 0;
+            transition: max-height 0.4s ease, opacity 0.3s ease, margin 0.3s ease;
+            margin-top: 0;
+        }
+        .card-edit-form.open {
+            max-height: 900px;
+            opacity: 1;
+            margin-top: 1rem;
+        }
+        .card-edit-form .edit-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+        .card-edit-form .edit-grid.full {
+            grid-template-columns: 1fr;
+        }
+        .card-edit-form label {
+            display: block;
+            font-size: 0.78rem;
+            color: #475569;
+            margin-bottom: 0.4rem;
+        }
+        .card-edit-form input,
+        .card-edit-form select,
+        .card-edit-form textarea {
+            width: 100%;
+            border: 1px solid #d1d5db;
+            border-radius: 14px;
+            background: #ffffff;
+            color: #10243f;
+            font-family: inherit;
+            font-size: 0.9rem;
+            padding: 0.8rem 0.95rem;
+            outline: none;
+        }
+        .card-edit-form textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        .card-edit-form .actions {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            margin-top: 0.8rem;
+        }
+        .card-edit-form .actions button {
+            border: none;
+            border-radius: 999px;
+            padding: 0.65rem 1.15rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .card-edit-form .actions .btn-save {
+            background: #0f70c2;
+            color: #fff;
+        }
+        .card-edit-form .actions .btn-cancel {
+            background: #f1f5f9;
+            color: #475569;
+        }
+        .card-edit-form .actions .btn-save:hover {
+            background: #0d639e;
+        }
+        .card-edit-form .actions .btn-cancel:hover {
+            background: #e2e8f0;
+        }
+
+        .card {
+            background: #ffffff;
+            border-radius: 20px;
+            padding: 1.5rem 1.8rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+            transition: all 0.25s ease;
+            border-right: 6px solid #cbd5e1;
+            position: relative;
+        }
+        .card:hover {
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+            transform: translateY(-2px);
+        }
+        .card.priority-high {
+            border-right-color: #dc2626;
+        }
+        .card.priority-medium {
+            border-right-color: #f59e0b;
+        }
+        .card.priority-low {
+            border-right-color: #10b981;
+        }
+        .card.priority-none {
+            border-right-color: #94a3b8;
+        }
+        .card.resolved {
+            opacity: 0.7;
+            background: #f8fafc;
+        }
+        .card.resolved .card-header .title {
+            text-decoration: line-through;
+            text-decoration-color: #94a3b8;
+        }
+
+        .card-header {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-start;
+            gap: 0.6rem 1rem;
+            margin-bottom: 0.5rem;
+        }
+        .card-header .number {
+            font-weight: 700;
+            font-size: 0.8rem;
+            color: #94a3b8;
+            background: #f1f5f9;
+            padding: 0.1rem 0.8rem;
+            border-radius: 40px;
+            line-height: 1.8;
+            white-space: nowrap;
+        }
+        .card-header .title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #0f2b4b;
+            flex: 1;
+            min-width: 180px;
+        }
+        .card-header .badge {
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 0.2rem 1rem;
+            border-radius: 40px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+        }
+        .badge-high {
+            background: #fecaca;
+            color: #991b1b;
+        }
+        .badge-medium {
+            background: #fde68a;
+            color: #92400e;
+        }
+        .badge-low {
+            background: #a7f3d0;
+            color: #065f46;
+        }
+        .badge-none {
+            background: #e2e8f0;
+            color: #475569;
+        }
+
+        .card-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.8rem 1.8rem;
+            font-size: 0.85rem;
+            color: #64748b;
+            margin-bottom: 0.8rem;
+            padding-bottom: 0.8rem;
+            border-bottom: 1px dashed #e2e8f0;
+        }
+        .card-meta i {
+            width: 1.1rem;
+            color: #94a3b8;
+        }
+        .card-meta .module {
+            font-weight: 500;
+            color: #1e293b;
+        }
+        .card-meta .func {
+            font-family: 'Courier New', monospace;
+            background: #f1f5f9;
+            padding: 0.1rem 0.7rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            color: #1e293b;
+        }
+
+        .card-body {
+            margin-top: 0.4rem;
+        }
+        .card-body .problem {
+            background: #fef2f2;
+            padding: 0.8rem 1.2rem;
+            border-radius: 14px;
+            border-right: 4px solid #fca5a5;
+            margin-bottom: 0.9rem;
+            font-size: 0.95rem;
+            line-height: 1.7;
+        }
+        .card-body .problem strong {
+            color: #991b1b;
+        }
+        .card-body .solution {
+            background: #f0fdf4;
+            padding: 0.8rem 1.2rem;
+            border-radius: 14px;
+            border-right: 4px solid #6ee7b7;
+            margin-bottom: 0.9rem;
+            font-size: 0.95rem;
+            line-height: 1.7;
+        }
+        .card-body .solution strong {
+            color: #065f46;
+        }
+
+        /* ---------- Editable Note / Suggestion ---------- */
+        .note-area {
+            margin-top: 0.8rem;
+            background: #f8fafc;
+            border-radius: 16px;
+            padding: 0.8rem 1.2rem;
+            border: 1.5px dashed #d1d5db;
+            transition: border 0.2s;
+        }
+        .note-area:focus-within {
+            border-color: #1a3f66;
+            background: #fff;
+        }
+        .note-area .note-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #94a3b8;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            margin-bottom: 0.3rem;
+            letter-spacing: 0.3px;
+        }
+        .note-area .note-label i {
+            font-size: 0.8rem;
+        }
+        .note-area textarea {
+            width: 100%;
+            border: none;
+            background: transparent;
+            resize: vertical;
+            font-family: inherit;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            color: #1e293b;
+            outline: none;
+            min-height: 48px;
+            padding: 0.2rem 0;
+        }
+        .note-area textarea::placeholder {
+            color: #adb5bd;
+            font-weight: 300;
+        }
+
+        .card-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.8rem;
+            align-items: center;
+        }
+        .card-actions button {
+            background: transparent;
+            border: none;
+            padding: 0.3rem 0.9rem;
+            border-radius: 40px;
+            font-family: inherit;
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            color: #64748b;
+            border: 1.5px solid transparent;
+        }
+        .card-actions button:hover {
+            background: #f1f5f9;
+        }
+        .card-actions .btn-resolve {
+            color: #10b981;
+        }
+        .card-actions .btn-resolve:hover {
+            background: #ecfdf5;
+            border-color: #6ee7b7;
+        }
+        .card-actions .btn-resolve.resolved {
+            color: #f59e0b;
+        }
+        .card-actions .btn-resolve.resolved:hover {
+            background: #fffbeb;
+            border-color: #fcd34d;
+        }
+        .card-actions .btn-edit {
+            color: #3b82f6;
+        }
+        .card-actions .btn-edit:hover {
+            background: #eff6ff;
+            border-color: #93c5fd;
+        }
+        .card-actions .btn-suggestion {
+            color: #8b5cf6;
+        }
+        .card-actions .btn-suggestion:hover {
+            background: #f5f3ff;
+            border-color: #c4b5fd;
+        }
+        .card-actions .btn-delete {
+            color: #dc2626;
+        }
+        .card-actions .btn-delete:hover {
+            background: #fef2f2;
+            border-color: #fecaca;
+        }
+        .card-actions .btn-collapse {
+            color: #94a3b8;
+            margin-right: auto;
+        }
+        .card-actions .btn-collapse:hover {
+            background: #f1f5f9;
+        }
+
+        /* ---------- Collapsible detail ---------- */
+        .card-detail {
+            overflow: hidden;
+            max-height: 0;
+            opacity: 0;
+            transition: max-height 0.4s ease, opacity 0.3s ease, margin 0.3s ease;
+            margin-top: 0;
+        }
+        .card-detail.open {
+            max-height: 1200px;
+            opacity: 1;
+            margin-top: 0.8rem;
+        }
+        .card-detail .detail-inner {
+            background: #f1f5f9;
+            border-radius: 16px;
+            padding: 1rem 1.4rem;
+            font-size: 0.92rem;
+            line-height: 1.8;
+            color: #1e293b;
+            border: 1px solid #e2e8f0;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .card-detail .detail-inner strong {
+            color: #0f2b4b;
+        }
+
+        /* ---------- Toast ---------- */
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(80px);
+            background: #0f2b4b;
+            color: #fff;
+            padding: 0.8rem 2rem;
+            border-radius: 60px;
+            font-size: 0.9rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+            opacity: 0;
+            transition: all 0.4s ease;
+            pointer-events: none;
+            z-index: 999;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+        .toast i {
+            color: #facc15;
+        }
+
+        /* ---------- Responsive ---------- */
+        @media (max-width: 700px) {
+            .header {
+                padding: 1.5rem 1.2rem;
+            }
+            .header h1 {
+                font-size: 1.5rem;
+                flex-wrap: wrap;
+            }
+            .header p {
+                max-width: 100%;
+                font-size: 0.9rem;
+            }
+            .header .stats {
+                gap: 0.8rem;
+            }
+            .header .stats span {
+                font-size: 0.75rem;
+                padding: 0.2rem 0.8rem;
+            }
+            .controls {
+                padding: 0.6rem 1rem;
+                border-radius: 28px;
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .controls .search-box {
+                margin-right: 0;
+            }
+            .controls .search-box input {
+                width: 100%;
+            }
+            .controls .filter-group {
+                justify-content: center;
+            }
+            .card {
+                padding: 1.2rem 1rem;
+            }
+            .card-header .title {
+                font-size: 1rem;
+            }
+            .card-meta {
+                font-size: 0.75rem;
+                gap: 0.4rem 1rem;
+            }
+            .card-body .problem,
+            .card-body .solution {
+                font-size: 0.85rem;
+                padding: 0.6rem 1rem;
+            }
+            .card-actions {
+                gap: 0.3rem;
+            }
+            .card-actions button {
+                font-size: 0.7rem;
+                padding: 0.2rem 0.7rem;
+            }
+            .card-detail .detail-inner {
+                font-size: 0.82rem;
+                padding: 0.8rem 1rem;
+            }
+            .note-area textarea {
+                font-size: 0.85rem;
+                min-height: 36px;
+            }
+            .toast {
+                font-size: 0.8rem;
+                padding: 0.6rem 1.5rem;
+                bottom: 1.2rem;
+                width: 90%;
+                justify-content: center;
+            }
+        }
+
+        @media (max-width: 450px) {
+            body {
+                padding: 1rem 0.6rem;
+            }
+            .header h1 {
+                font-size: 1.2rem;
+            }
+            .card-header .number {
+                font-size: 0.7rem;
+            }
+            .card-header .badge {
+                font-size: 0.6rem;
+                padding: 0.1rem 0.7rem;
+            }
+        }
+
+        /* ---------- Scrollbar ---------- */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #e2e8f0;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #94a3b8;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+
+        /* ---------- Empty state ---------- */
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: #94a3b8;
+        }
+        .empty-state i {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+        .empty-state p {
+            font-size: 1.1rem;
+        }
+
+        /* ---------- Print ---------- */
+        @media print {
+            .card-actions,
+            .controls,
+            .note-area,
+            .toast {
+                display: none !important;
+            }
+            .card-detail {
+                max-height: none !important;
+                opacity: 1 !important;
+                margin-top: 0.8rem !important;
+            }
+            .card {
+                break-inside: avoid;
+                border: 1px solid #ddd;
+            }
+            .header {
+                background: #0f2b4b !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+
+        <!-- HEADER -->
+        <header class="header">
+            <h1><i class="fas fa-code-branch"></i> بررسی کد ربات هم‌زبان</h1>
+            <p>نقاط بهبود، باگ‌ها و پیشنهادات — با قابلیت ویرایش کامل مشکل/راه‌حل و افزودن یا حذف کارت‌های جدید</p>
+            <div class="stats" id="statsBar">
+                <span><i class="fas fa-list"></i> مجموع: <strong id="totalCount">۰</strong></span>
+                <span><i class="fas fa-circle" style="color:#dc2626;"></i> بالا: <strong id="highCount">۰</strong></span>
+                <span><i class="fas fa-circle" style="color:#f59e0b;"></i> متوسط: <strong id="mediumCount">۰</strong></span>
+                <span><i class="fas fa-circle" style="color:#10b981;"></i> پایین: <strong id="lowCount">۰</strong></span>
+                <span><i class="fas fa-check-circle" style="color:#6ee7b7;"></i> حل‌شده: <strong id="resolvedCount">۰</strong></span>
+            </div>
+        </header>
+
+        <!-- CONTROLS -->
+        <div class="controls">
+            <div class="filter-group" id="filterGroup">
+                <button class="active" data-filter="all">همه</button>
+                <button data-filter="high">🔴 بالا</button>
+                <button data-filter="medium">🟠 متوسط</button>
+                <button data-filter="low">🟢 پایین</button>
+                <button data-filter="resolved">✅ حل‌شده</button>
+            </div>
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="searchInput" placeholder="جستجو..." />
+            </div>
+            <button class="btn-add" id="addCardBtn" title="افزودن کارت جدید">
+                <i class="fas fa-plus-circle"></i> افزودن کارت
+            </button>
+            <button class="btn" id="exportAllMdBtn" title="خروجی همه (Markdown)" style="background:transparent;border:none;color:#475569;padding:0.45rem 0.9rem;border-radius:40px;">
+                <i class="fas fa-file-download"></i> خروجی همه (MD)
+            </button>
+            <button class="btn" id="exportAllJsonBtn" title="خروجی همه (JSON)" style="background:transparent;border:none;color:#475569;padding:0.45rem 0.9rem;border-radius:40px;">
+                <i class="fas fa-file-download"></i> خروجی همه (JSON)
+            </button>
+            <button class="reset-btn" id="resetStorageBtn" title="بازنشانی همه تغییرات">
+                <i class="fas fa-undo-alt"></i>
+            </button>
+        </div>
+
+        <div class="form-panel" id="addCardForm">
+            <h2>افزودن کارت جدید</h2>
+            <div class="field-grid">
+                <div>
+                    <label for="newTitle">عنوان</label>
+                    <input type="text" id="newTitle" placeholder="عنوان کوتاه مشکل یا پیشنهاد" />
+                </div>
+                <div>
+                    <label for="newModule">ماژول</label>
+                    <input type="text" id="newModule" placeholder="مثال: bot.py" />
+                </div>
+                <div>
+                    <label for="newFunc">تابع</label>
+                    <input type="text" id="newFunc" placeholder="مثال: send_daily_card_now" />
+                </div>
+                <div>
+                    <label for="newPriority">اولویت</label>
+                    <select id="newPriority">
+                        <option value="high">بالا</option>
+                        <option value="medium" selected>متوسط</option>
+                        <option value="low">پایین</option>
+                        <option value="none">بدون اولویت</option>
+                    </select>
+                </div>
+            </div>
+            <div class="field-grid full">
+                <div>
+                    <label for="newProblem">شرح مشکل</label>
+                    <textarea id="newProblem" placeholder="توضیحات کامل مشکل"></textarea>
+                </div>
+            </div>
+            <div class="field-grid full">
+                <div>
+                    <label for="newSolution">راه‌حل پیشنهادی</label>
+                    <textarea id="newSolution" placeholder="پیشنهاد شما برای حل مشکل"></textarea>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button class="btn-add-save" id="saveNewCardBtn">ذخیره و افزودن</button>
+                <button class="btn-cancel" id="cancelNewCardBtn">انصراف</button>
+            </div>
+        </div>
+
+        <!-- CARDS -->
+        <div class="cards-grid" id="cardsGrid"></div>
+
+        <!-- EMPTY STATE (hidden by default) -->
+        <div class="empty-state" id="emptyState" style="display:none;">
+            <i class="fas fa-search"></i>
+            <p>هیچ موردی با این فیلتر پیدا نشد.</p>
+        </div>
+
+    </div>
+
+    <!-- TOAST -->
+    <div class="toast" id="toast">
+        <i class="fas fa-check-circle"></i>
+        <span id="toastMessage">ذخیره شد</span>
+    </div>
+
+    <script>
+        // ================================================================
+        //  DATA
+        // ================================================================
+        const ISSUES_DATA = [{
+            id: 1,
+            title: 'عدم کش کارت روزانه – هزینه‌ی اضافی و گیج‌کننده',
+            module: 'bot.py',
+            func: 'send_daily_card_now',
+            problem: 'هر بار که کاربر دکمه‌ی «واژه‌ی امروز» را می‌زند، یک کارت جدید از مدل زبانی گرفته می‌شود. این هم هزینه‌ی API را افزایش می‌دهد و هم مفهوم «کارت روزانه» را نقض می‌کند (کاربر باید همان کارت را ببیند).',
+            solution: 'یک ستون daily_card (JSON یا TEXT) و daily_card_date به جدول users اضافه کنید. در send_daily_card_now و daily_job، ابتدا چک کنید که آیا امروز کارت از قبل تولید شده است. اگر بله، همان را برگردانید؛ در غیر این صورت تولید کنید و ذخیره کنید. در db.py توابع get_daily_card(user_id) و set_daily_card(user_id, card_json) اضافه کنید.',
+            priority: 'high'
+        }, {
+            id: 2,
+            title: 'عدم ارسال یادآوری واژه‌های ذخیره‌شده (SRS)',
+            module: 'bot.py',
+            func: '—',
+            problem: 'کاربر می‌تواند واژه‌ی دلخواه ثبت کند و due_words_for_user تعداد واژه‌های سررسید را نشان می‌دهد، ولی هیچ Jobای برای ارسال خودکار آن‌ها وجود ندارد.',
+            solution: 'یک Job جدید (مثلاً هر روز ساعت ۱۰ صبح) اضافه کنید که برای هر کاربر، واژه‌های سررسید را گرفته و به صورت یک پیام گروهی یا جداگانه ارسال کند. پس از ارسال، تابع advance_word_review را برای هر واژه صدا بزنید تا زمان مرور بعدی محاسبه شود.',
+            priority: 'high'
+        }, {
+            id: 3,
+            title: 'مدیریت Rate Limit تلگرام در ارسال همگانی و Job روزانه',
+            module: 'bot.py',
+            func: 'daily_job / admin_broadcast',
+            problem: 'ارسال همزمان پیام به تعداد زیاد ممکن است باعث خطای Too Many Requests از سمت تلگرام شود.',
+            solution: 'از asyncio.sleep بین هر چند پیام استفاده کنید (مثلاً هر ۱۰ پیام ۰.۵ ثانیه مکث). یا از telegram.ext با Application و JobQueue به صورت تکی ارسال کنید.',
+            priority: 'medium'
+        }, {
+            id: 4,
+            title: 'همگام‌سازی نبودن نام زبان‌ها در prompts.py و config.py',
+            module: 'prompts.py',
+            func: 'LANG_NAMES_FA',
+            problem: 'LANG_NAMES_FA به صورت دستی تعریف شده و اگر زبانی به SUPPORTED_LANGS اضافه شود، باید در دو جا به‌روز شود.',
+            solution: 'در prompts.py، LANG_NAMES_FA را با from config import SUPPORTED_LANGS بسازید: LANG_NAMES_FA = {code: name for code, name in SUPPORTED_LANGS.items()} سپس در پرامپت‌ها از LANG_NAMES_FA.get(lang, lang) استفاده کنید.',
+            priority: 'low'
+        }, {
+            id: 5,
+            title: 'خطا در _extract_json هنگام عدم وجود JSON',
+            module: 'ai.py',
+            func: '_extract_json',
+            problem: 'اگر مدل هیچ JSONای برنگرداند، re.search موفق نمی‌شود و json.loads("") خطا می‌دهد. در ask_json این خطا گرفته نمی‌شود و به بالا می‌رود.',
+            solution: 'در _extract_json، اگر JSON پیدا نشد، یک استثنای سفارشی پرتاب کنید یا {} برگردانید. در ask_json، خطا را catch کرده و پیام مناسب به کاربر نشان دهید (در حال حاضر در bot.py catch می‌شود، ولی بهتر است خود ask_json یک None برگرداند و بالادست مدیریت کند).',
+            priority: 'medium'
+        }, {
+            id: 6,
+            title: 'عدم استفاده از advance_word_review در هیچ‌کجای کد',
+            module: 'db.py / bot.py',
+            func: 'advance_word_review',
+            problem: 'تابع advance_word_review تعریف شده ولی هیچ‌گاه صدا زده نمی‌شود.',
+            solution: 'پس از پیاده‌سازی ارسال یادآوری (مشکل شماره ۲)، پس از ارسال هر واژه، این تابع را صدا بزنید.',
+            priority: 'medium'
+        }, {
+            id: 7,
+            title: 'ذخیره‌سازی API Key به صورت متن ساده در دیتابیس',
+            module: 'db.py',
+            func: 'جدول settings',
+            problem: 'کلید API به صورت plaintext در دیتابیس ذخیره می‌شود که در صورت نفوذ به دیتابیس، لو می‌رود.',
+            solution: 'از یک رمزنگاری ساده (مثلاً Fernet با کلید ثابت در env) برای ذخیره و بازیابی استفاده کنید. یا حداقل در README هشدار دهید که دیتابیس را امن نگه دارند.',
+            priority: 'low'
+        }, {
+            id: 8,
+            title: 'عدم استفاده از timezone در تاریخ‌گذاری',
+            module: 'db.py',
+            func: 'touch_streak / can_ask_word / add_saved_word',
+            problem: 'استفاده از datetime.date.today() بر اساس ساعت سیستم است. اگر سرور در منطقه‌ی زمانی متفاوتی باشد، ممکن است روزها جابجا شوند.',
+            solution: 'از pytz یا datetime.timezone.utc استفاده کنید و ساعت ارسال روزانه (DAILY_SEND_HOUR) را بر اساس UTC تنظیم کنید. یا یک تنظیمات timezone برای کاربر اضافه کنید (پیچیده‌تر).',
+            priority: 'low'
+        }, {
+            id: 9,
+            title: 'استفاده از edit_message_text بدون مدیریت خطا هنگام ویرایش پیام قدیمی',
+            module: 'bot.py',
+            func: 'on_lang_selected / on_goal_selected / on_lang_changed / on_goal_changed / admin_callback',
+            problem: 'اگر کاربر روی دکمه‌ای کلیک کند که پیام قبلاً حذف شده باشد، edit_message_text خطا می‌دهد و کرش می‌کند.',
+            solution: 'تمام edit_message_textها را در try/except با telegram.error.BadRequest بپوشانید و در صورت خطا، یک پیام جدید ارسال کنید. یا از answer_callback_query با show_alert استفاده کنید و پیام را عوض نکنید (که فعلاً این کار را نمی‌کند).',
+            priority: 'medium'
+        }, {
+            id: 10,
+            title: 'عدم محدودیت در دریافت کارت روزانه برای کاربران غیر onboarded',
+            module: 'bot.py',
+            func: 'send_daily_card_now',
+            problem: 'اگر کاربری /start را نزده باشد و مستقیم دکمه را بزند، پیام «اول باید /start رو بزنی.» نشان داده می‌شود. این درست است، ولی دکمه‌ها تا زمانی که کاربر onboarded نشده باشد نمایش داده نمی‌شوند (چون منوی اصلی را نمی‌بیند). پس خطری ندارد.',
+            solution: '— (این مورد یک باگ واقعی نیست، فقط یک رفتار صحیح است که بررسی شد.)',
+            priority: 'none'
+        }, {
+            id: 11,
+            title: 'ارسال پیام همگانی بدون تأخیر ممکن است با محدودیت مواجه شود',
+            module: 'bot.py',
+            func: 'admin_broadcast',
+            problem: 'همانند شماره ۳ — ارسال همزمان پیام به تعداد زیاد ممکن است باعث خطای Too Many Requests شود.',
+            solution: 'مشابه راه‌حل شماره ۳: از asyncio.sleep بین هر چند پیام استفاده کنید یا از JobQueue استفاده کنید.',
+            priority: 'medium'
+        }, {
+            id: 12,
+            title: 'عدم مدیریت timeout برای درخواست‌های AI',
+            module: 'ai.py',
+            func: 'client.chat.completions.create',
+            problem: 'پیش‌فرض timeout ندارد و ممکن است درخواست به دلیل کندی شبکه یا سرویس، مدت‌ها معلق بماند.',
+            solution: 'در OpenAI هنگام ساخت کلاینت، timeout تنظیم کنید: OpenAI(base_url=base_url, api_key=api_key, timeout=30.0)',
+            priority: 'low'
+        }, {
+            id: 13,
+            title: 'عدم استفاده از log در بخش‌های مهم (به جز خطاها)',
+            module: 'bot.py',
+            func: '—',
+            problem: 'لاگ‌های کمی برای رویدادهای مهم وجود دارد.',
+            solution: 'لاگ‌های بیشتری برای رویدادهای مهم مانند ورود کاربر جدید، تغییر پلن، ارسال کارت روزانه و ... اضافه کنید تا دیباگ و تحلیل رفتار کاربر راحت‌تر شود.',
+            priority: 'low'
+        }, {
+            id: 14,
+            title: 'format_card در صورت خالی بودن grammar_tip یک خط خالی اضافه می‌کند',
+            module: 'bot.py',
+            func: 'format_card',
+            problem: 'اگر grammar_tip خالی باشد، یک خط خالی اضافی در خروجی ایجاد می‌شود.',
+            solution: 'قبل از اضافه کردن بخش گرامر، چک کنید که grammar_tip خالی نباشد: if grammar_tip: lines.append(f"\n✍️ *نکته‌ی گرامری:*\n{grammar_tip}")',
+            priority: 'low'
+        }, {
+            id: 15,
+            title: 'پرامپت daily_card_system_prompt برای اهداف جدید قابل گسترش نیست',
+            module: 'prompts.py',
+            func: 'daily_card_system_prompt',
+            problem: 'دیکشنری goal_hint به صورت جداگانه تعریف نشده و اگر هدفی در آن نبود، از یک مقدار پیش‌فرض استفاده نمی‌شود.',
+            solution: 'دیکشنری goal_hint را به صورت جداگانه تعریف کنید و اگر هدفی در آن نبود، از یک مقدار پیش‌فرض استفاده کنید.',
+            priority: 'low'
+        }];
+
+        // ================================================================
+        //  STATE
+        // ================================================================
+        const STORAGE_KEY = 'hamzaban_review_data';
+
+        let issues = [];
+        let filter = 'all';
+        let searchQuery = '';
+
+        // ================================================================
+        //  HELPERS
+        // ================================================================
+        function normalizeIssue(issue) {
+            return {
+                title: issue.title || '',
+                module: issue.module || '—',
+                func: issue.func || '—',
+                problem: issue.problem || '',
+                solution: issue.solution || '',
+                priority: issue.priority || 'none',
+                note: issue.note || '',
+                resolved: issue.resolved === true,
+                detailOpen: issue.detailOpen === true,
+                editing: issue.editing === true,
+                ...issue
+            };
+        }
+
+        function loadFromStorage() {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                try {
+                    const parsed = JSON.parse(stored);
+                    const merged = ISSUES_DATA.map(d => {
+                        const saved = Array.isArray(parsed) ? parsed.find(p => p.id === d.id) : null;
+                        return normalizeIssue(saved ? { ...d, ...saved } : { ...d });
+                    });
+                    const extras = Array.isArray(parsed)
+                        ? parsed.filter(p => !ISSUES_DATA.some(d => d.id === p.id)).map(normalizeIssue)
+                        : [];
+                    issues = [...merged, ...extras];
+                    return;
+                } catch (_) { /* fall through */ }
+            }
+            issues = ISSUES_DATA.map(d => normalizeIssue({ ...d }));
+        }
+
+        function getNextId() {
+            return issues.length ? Math.max(...issues.map(i => i.id)) + 1 : 1;
+        }
+
+        function saveToStorage() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(issues));
+        }
+
+        function toggleAddCardForm(show) {
+            const panel = document.getElementById('addCardForm');
+            panel.classList.toggle('open', show);
+            if (show) {
+                panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        function clearNewCardForm() {
+            document.getElementById('newTitle').value = '';
+            document.getElementById('newModule').value = '';
+            document.getElementById('newFunc').value = '';
+            document.getElementById('newPriority').value = 'medium';
+            document.getElementById('newProblem').value = '';
+            document.getElementById('newSolution').value = '';
+        }
+
+        function insertNewCard() {
+            const title = document.getElementById('newTitle').value.trim();
+            const module = document.getElementById('newModule').value.trim() || '—';
+            const func = document.getElementById('newFunc').value.trim() || '—';
+            const priority = document.getElementById('newPriority').value;
+            const problem = document.getElementById('newProblem').value.trim();
+            const solution = document.getElementById('newSolution').value.trim();
+
+            if (!title || !problem || !solution) {
+                showToast('عنوان، مشکل و راه‌حل باید پر شوند.');
+                return;
+            }
+
+            const newIssue = {
+                id: getNextId(),
+                title,
+                module,
+                func,
+                priority,
+                problem,
+                solution,
+                note: '',
+                resolved: false,
+                detailOpen: false,
+                editing: false
+            };
+
+            issues.unshift(newIssue);
+            saveToStorage();
+            render();
+            clearNewCardForm();
+            toggleAddCardForm(false);
+            showToast('✅ کارت جدید اضافه شد');
+        }
+
+        function deleteIssue(id) {
+            if (!confirm('آیا مطمئن هستید که این کارت حذف شود؟')) return;
+            issues = issues.filter(i => i.id !== id);
+            saveToStorage();
+            render();
+            showToast('🗑️ کارت حذف شد');
+        }
+
+        function saveEditForm(id) {
+            const title = document.getElementById(`editTitle-${id}`).value.trim();
+            const module = document.getElementById(`editModule-${id}`).value.trim() || '—';
+            const func = document.getElementById(`editFunc-${id}`).value.trim() || '—';
+            const priority = document.getElementById(`editPriority-${id}`).value;
+            const problem = document.getElementById(`editProblem-${id}`).value.trim();
+            const solution = document.getElementById(`editSolution-${id}`).value.trim();
+
+            if (!title || !problem || !solution) {
+                showToast('عنوان، مشکل و راه‌حل باید پر شوند.');
+                return;
+            }
+
+            updateIssue(id, {
+                title,
+                module,
+                func,
+                priority,
+                problem,
+                solution,
+                editing: false
+            });
+            showToast('✅ تغییرات کارت ذخیره شد');
+        }
+
+        function getPriorityLabel(p) {
+            const map = { high: 'بالا', medium: 'متوسط', low: 'پایین', none: '—' };
+            return map[p] || p;
+        }
+
+        function getPriorityBadgeClass(p) {
+            return 'badge-' + p;
+        }
+
+        function getCardPriorityClass(p) {
+            return 'priority-' + p;
+        }
+
+        function getIssueById(id) {
+            return issues.find(i => i.id === id);
+        }
+
+        function updateIssue(id, updates) {
+            const idx = issues.findIndex(i => i.id === id);
+            if (idx === -1) return;
+            issues[idx] = { ...issues[idx], ...updates };
+            saveToStorage();
+            render();
+        }
+
+        // ================================================================
+        //  RENDER
+        // ================================================================
+        function render() {
+            const grid = document.getElementById('cardsGrid');
+            const empty = document.getElementById('emptyState');
+
+            // Filter
+            let filtered = issues.filter(i => {
+                if (filter === 'high') return i.priority === 'high';
+                if (filter === 'medium') return i.priority === 'medium';
+                if (filter === 'low') return i.priority === 'low';
+                if (filter === 'resolved') return i.resolved === true;
+                return true;
+            });
+
+            // Search
+            if (searchQuery.trim()) {
+                const q = searchQuery.trim().toLowerCase();
+                filtered = filtered.filter(i =>
+                    i.title.toLowerCase().includes(q) ||
+                    i.module.toLowerCase().includes(q) ||
+                    (i.func && i.func.toLowerCase().includes(q)) ||
+                    i.problem.toLowerCase().includes(q) ||
+                    i.solution.toLowerCase().includes(q)
+                );
+            }
+
+            // Update stats
+            const total = issues.length;
+            const high = issues.filter(i => i.priority === 'high').length;
+            const medium = issues.filter(i => i.priority === 'medium').length;
+            const low = issues.filter(i => i.priority === 'low').length;
+            const resolved = issues.filter(i => i.resolved === true).length;
+
+            document.getElementById('totalCount').textContent = total;
+            document.getElementById('highCount').textContent = high;
+            document.getElementById('mediumCount').textContent = medium;
+            document.getElementById('lowCount').textContent = low;
+            document.getElementById('resolvedCount').textContent = resolved;
+
+            if (filtered.length === 0) {
+                grid.innerHTML = '';
+                empty.style.display = 'block';
+                return;
+            }
+            empty.style.display = 'none';
+
+            // Build cards
+            let html = '';
+            filtered.forEach((issue) => {
+                const isResolved = issue.resolved === true;
+                const priorityClass = getCardPriorityClass(issue.priority);
+                const badgeClass = getPriorityBadgeClass(issue.priority);
+                const priorityLabel = getPriorityLabel(issue.priority);
+                const resolvedClass = isResolved ? 'resolved' : '';
+                const note = issue.note || '';
+                const detailOpen = issue.detailOpen === true ? 'open' : '';
+                const editOpen = issue.editing === true ? 'open' : '';
+                const editLabel = issue.editing ? 'بستن ویرایش' : 'ویرایش کامل';
+
+                html += `
+                    <div class="card ${priorityClass} ${resolvedClass}" data-id="${issue.id}">
+                        <div class="card-header">
+                            <span class="number">#${issue.id}</span>
+                            <span class="title">${escapeHtml(issue.title)}</span>
+                            <span class="badge ${badgeClass}">${priorityLabel}</span>
+                            ${isResolved ? '<span class="badge" style="background:#d1fae5;color:#065f46;">✅ حل‌شده</span>' : ''}
+                        </div>
+
+                        <div class="card-meta">
+                            <span><i class="fas fa-folder-open"></i> ماژول: <span class="module">${escapeHtml(issue.module)}</span></span>
+                            ${issue.func && issue.func !== '—' ? `<span><i class="fas fa-code"></i> تابع: <span class="func">${escapeHtml(issue.func)}</span></span>` : ''}
+                        </div>
+
+                        <div class="card-body">
+                            <div class="problem">
+                                <strong><i class="fas fa-exclamation-triangle" style="color:#dc2626;"></i> مشکل:</strong><br>
+                                ${escapeHtml(issue.problem)}
+                            </div>
+                            <div class="solution">
+                                <strong><i class="fas fa-lightbulb" style="color:#10b981;"></i> راه‌حل:</strong><br>
+                                ${escapeHtml(issue.solution)}
+                            </div>
+                        </div>
+
+                        <!-- Note / Suggestion -->
+                        <div class="note-area">
+                            <div class="note-label"><i class="fas fa-pen"></i> یادداشت / پیشنهاد شما</div>
+                            <textarea id="note-${issue.id}" placeholder="توضیح، پیشنهاد یا نکته‌ی اضافی خود را اینجا بنویسید..." data-id="${issue.id}">${escapeHtml(note)}</textarea>
+                        </div>
+
+                        <div class="card-edit-form ${editOpen}" id="editForm-${issue.id}">
+                            <div class="edit-grid">
+                                <div>
+                                    <label for="editTitle-${issue.id}">عنوان</label>
+                                    <input id="editTitle-${issue.id}" type="text" value="${escapeHtml(issue.title)}" />
+                                </div>
+                                <div>
+                                    <label for="editModule-${issue.id}">ماژول</label>
+                                    <input id="editModule-${issue.id}" type="text" value="${escapeHtml(issue.module)}" />
+                                </div>
+                                <div>
+                                    <label for="editFunc-${issue.id}">تابع</label>
+                                    <input id="editFunc-${issue.id}" type="text" value="${escapeHtml(issue.func)}" />
+                                </div>
+                                <div>
+                                    <label for="editPriority-${issue.id}">اولویت</label>
+                                    <select id="editPriority-${issue.id}">
+                                        <option value="high" ${issue.priority === 'high' ? 'selected' : ''}>بالا</option>
+                                        <option value="medium" ${issue.priority === 'medium' ? 'selected' : ''}>متوسط</option>
+                                        <option value="low" ${issue.priority === 'low' ? 'selected' : ''}>پایین</option>
+                                        <option value="none" ${issue.priority === 'none' ? 'selected' : ''}>بدون اولویت</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="edit-grid full">
+                                <div>
+                                    <label for="editProblem-${issue.id}">شرح مشکل</label>
+                                    <textarea id="editProblem-${issue.id}">${escapeHtml(issue.problem)}</textarea>
+                                </div>
+                            </div>
+                            <div class="edit-grid full">
+                                <div>
+                                    <label for="editSolution-${issue.id}">راه‌حل پیشنهادی</label>
+                                    <textarea id="editSolution-${issue.id}">${escapeHtml(issue.solution)}</textarea>
+                                </div>
+                            </div>
+                            <div class="actions">
+                                <button class="btn-save" data-id="${issue.id}">ذخیره تغییرات</button>
+                                <button class="btn-cancel" data-id="${issue.id}">انصراف</button>
+                            </div>
+                        </div>
+
+                        <div class="card-actions">
+                            <button class="btn-resolve ${isResolved ? 'resolved' : ''}" data-id="${issue.id}">
+                                <i class="fas ${isResolved ? 'fa-undo' : 'fa-check-circle'}"></i>
+                                ${isResolved ? 'بازگشایی' : 'حل شد'}
+                            </button>
+                            <button class="btn-collapse" data-id="${issue.id}">
+                                <i class="fas fa-chevron-${detailOpen ? 'up' : 'down'}"></i>
+                                ${detailOpen ? 'بستن جزئیات' : 'نمایش جزئیات بیشتر'}
+                            </button>
+                            <button class="btn-edit" data-id="${issue.id}">
+                                <i class="fas fa-edit"></i> ${editLabel}
+                            </button>
+                            <button class="btn-delete" data-id="${issue.id}">
+                                <i class="fas fa-trash-alt"></i> حذف کارت
+                            </button>
+                            <button class="btn-suggestion" data-id="${issue.id}">
+                                <i class="fas fa-plus-circle"></i> افزودن پیشنهاد سریع
+                            </button>
+                            <button class="btn-export-md" data-id="${issue.id}" title="خروجی این کارت (MD)">
+                                <i class="fas fa-file-download"></i> خروجی (MD)
+                            </button>
+                            <button class="btn-export-json" data-id="${issue.id}" title="خروجی این کارت (JSON)">
+                                <i class="fas fa-file-download"></i> خروجی (JSON)
+                            </button>
+                            <span style="font-size:0.7rem;color:#94a3b8;margin-right:auto;">
+                                <i class="fas fa-sync-alt" style="font-size:0.6rem;"></i> تغییرات خودکار ذخیره می‌شوند
+                            </span>
+                        </div>
+
+                        <!-- Collapsible detail -->
+                        <div class="card-detail ${detailOpen}">
+                            <div class="detail-inner">
+                                <strong>📌 جزئیات کامل:</strong><br>
+                                <strong>ماژول:</strong> ${escapeHtml(issue.module)}<br>
+                                ${issue.func && issue.func !== '—' ? `<strong>تابع:</strong> ${escapeHtml(issue.func)}<br>` : ''}
+                                <strong>اولویت:</strong> ${priorityLabel}<br><br>
+                                <strong>مشکل (متن کامل):</strong><br>${escapeHtml(issue.problem)}<br><br>
+                                <strong>راه‌حل (متن کامل):</strong><br>${escapeHtml(issue.solution)}
+                                ${issue.note ? `<br><br><strong>✏️ یادداشت شما:</strong><br>${escapeHtml(issue.note)}` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            grid.innerHTML = html;
+
+            document.querySelectorAll('.btn-resolve').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const id = parseInt(this.dataset.id);
+                    const issue = getIssueById(id);
+                    if (!issue) return;
+                    const newVal = !issue.resolved;
+                    updateIssue(id, { resolved: newVal });
+                    showToast(newVal ? '✅ مورد حل شد' : '🔁 مورد بازگشایی شد');
+                });
+            });
+
+            document.querySelectorAll('.btn-collapse').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const id = parseInt(this.dataset.id);
+                    const issue = getIssueById(id);
+                    if (!issue) return;
+                    const current = issue.detailOpen === true;
+                    updateIssue(id, { detailOpen: !current });
+                });
+            });
+
+            document.querySelectorAll('.btn-edit').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const id = parseInt(this.dataset.id);
+                    const issue = getIssueById(id);
+                    if (!issue) return;
+                    updateIssue(id, { editing: !issue.editing });
+                });
+            });
+
+            document.querySelectorAll('.btn-delete').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const id = parseInt(this.dataset.id);
+                    deleteIssue(id);
+                });
+            });
+
+            document.querySelectorAll('.btn-save').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const id = parseInt(this.dataset.id);
+                    saveEditForm(id);
+                });
+            });
+
+            document.querySelectorAll('.btn-cancel').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const id = parseInt(this.dataset.id);
+                    updateIssue(id, { editing: false });
+                });
+            });
+
+            document.querySelectorAll('.btn-suggestion').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const id = parseInt(this.dataset.id);
+                    const issue = getIssueById(id);
+                    if (!issue) return;
+                    const ta = document.getElementById(`note-${id}`);
+                    if (!ta) return;
+                    const suggestion = prompt('پیشنهاد خود را برای این مورد وارد کنید:', ta.value || '');
+                    if (suggestion !== null) {
+                        ta.value = suggestion;
+                        const event = new Event('input', { bubbles: true });
+                        ta.dispatchEvent(event);
+                        showToast('💡 پیشنهاد ذخیره شد');
+                    }
+                });
+            });
+
+            // Export buttons (per-card)
+            document.querySelectorAll('.btn-export-md').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const id = parseInt(this.dataset.id);
+                    exportIssueMD(id);
+                });
+            });
+            document.querySelectorAll('.btn-export-json').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const id = parseInt(this.dataset.id);
+                    exportIssueJSON(id);
+                });
+            });
+
+            // Textarea auto-save
+            document.querySelectorAll('.note-area textarea').forEach(ta => {
+                ta.addEventListener('input', function() {
+                    const id = parseInt(this.dataset.id);
+                    const val = this.value;
+                    updateIssue(id, { note: val });
+                });
+            });
+
+            document.querySelectorAll('#filterGroup button').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.filter === filter);
+                if (btn.dataset.filter === filter && filter !== 'all') {
+                    btn.classList.add('active-' + filter);
+                } else {
+                    btn.classList.remove('active-high', 'active-medium', 'active-low');
+                }
+            });
+        }
+
+        // ================================================================
+        //  UTILITY
+        // ================================================================
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        let toastTimeout;
+
+        function showToast(msg) {
+            const el = document.getElementById('toast');
+            const msgEl = document.getElementById('toastMessage');
+            msgEl.textContent = msg;
+            el.classList.add('show');
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => {
+                el.classList.remove('show');
+            }, 2200);
+        }
+
+                // ================================================================
+                //  EXPORT HELPERS
+                // ================================================================
+                function buildIssueMarkdown(issue) {
+                    const lines = [];
+                    lines.push(`# ${issue.title}`);
+                    lines.push('');
+                    lines.push(`- ID: ${issue.id}`);
+                    lines.push(`- Module: ${issue.module}`);
+                    if (issue.func && issue.func !== '—') lines.push(`- Function: ${issue.func}`);
+                    lines.push(`- Priority: ${getPriorityLabel(issue.priority)}`);
+                    lines.push('');
+                    lines.push('## Problem');
+                    lines.push(issue.problem || '');
+                    lines.push('');
+                    lines.push('## Solution');
+                    lines.push(issue.solution || '');
+                    if (issue.note) {
+                        lines.push('');
+                        lines.push('## Note');
+                        lines.push(issue.note);
+                    }
+                    return lines.join('\n');
+                }
+
+                function downloadFile(filename, content, mime) {
+                    const blob = new Blob([content], { type: mime || 'text/plain;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 5000);
+                }
+
+                function exportIssueMD(id) {
+                    const issue = getIssueById(id);
+                    if (!issue) { showToast('کارت پیدا نشد'); return; }
+                    const md = buildIssueMarkdown(issue);
+                    downloadFile(`issue-${id}.md`, md, 'text/markdown;charset=utf-8');
+                    showToast('⬇️ خروجی Markdown دانلود شد');
+                }
+
+                function exportIssueJSON(id) {
+                    const issue = getIssueById(id);
+                    if (!issue) { showToast('کارت پیدا نشد'); return; }
+                    const json = JSON.stringify(issue, null, 2);
+                    downloadFile(`issue-${id}.json`, json, 'application/json;charset=utf-8');
+                    showToast('⬇️ خروجی JSON دانلود شد');
+                }
+
+                function exportAllMD() {
+                    const all = issues.slice().sort((a,b)=>a.id-b.id);
+                    const parts = [];
+                    parts.push('# HamZaban — Issues Export');
+                    parts.push('');
+                    all.forEach((issue, idx) => {
+                        parts.push(buildIssueMarkdown(issue));
+                        if (idx < all.length - 1) parts.push('\n---\n');
+                    });
+                    const content = parts.join('\n');
+                    downloadFile('hamzaban-issues.md', content, 'text/markdown;charset=utf-8');
+                    showToast('⬇️ فایل Markdown همه کارت‌ها دانلود شد');
+                }
+
+                function exportAllJSON() {
+                    const data = JSON.stringify(issues, null, 2);
+                    downloadFile('hamzaban-issues.json', data, 'application/json;charset=utf-8');
+                    showToast('⬇️ فایل JSON همه کارت‌ها دانلود شد');
+                }
+
+        // ================================================================
+        //  INIT
+        // ================================================================
+        document.addEventListener('DOMContentLoaded', function() {
+            loadFromStorage();
+            render();
+
+            // Filter buttons
+            document.querySelectorAll('#filterGroup button').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    filter = this.dataset.filter;
+                    render();
+                });
+            });
+
+            // Search
+            const searchInput = document.getElementById('searchInput');
+            searchInput.addEventListener('input', function() {
+                searchQuery = this.value;
+                render();
+            });
+
+            // Reset storage
+            document.getElementById('resetStorageBtn').addEventListener('click', function() {
+                if (confirm('آیا مطمئنید که می‌خواهید همه تغییرات (یادداشت‌ها، وضعیت حل‌شدن و ...) را بازنشانی کنید؟')) {
+                    localStorage.removeItem(STORAGE_KEY);
+                    loadFromStorage();
+                    render();
+                    showToast('🔄 همه تغییرات بازنشانی شد');
+                }
+            });
+
+            document.getElementById('addCardBtn').addEventListener('click', function() {
+                const form = document.getElementById('addCardForm');
+                const isOpen = form.classList.contains('open');
+                if (isOpen) {
+                    toggleAddCardForm(false);
+                } else {
+                    toggleAddCardForm(true);
+                }
+            });
+
+            // Export all buttons
+            const exportAllMdBtn = document.getElementById('exportAllMdBtn');
+            if (exportAllMdBtn) exportAllMdBtn.addEventListener('click', exportAllMD);
+            const exportAllJsonBtn = document.getElementById('exportAllJsonBtn');
+            if (exportAllJsonBtn) exportAllJsonBtn.addEventListener('click', exportAllJSON);
+
+            document.getElementById('saveNewCardBtn').addEventListener('click', function(e) {
+                e.preventDefault();
+                insertNewCard();
+            });
+
+            document.getElementById('cancelNewCardBtn').addEventListener('click', function(e) {
+                e.preventDefault();
+                clearNewCardForm();
+                toggleAddCardForm(false);
+            });
+
+            // Keyboard shortcut: Ctrl+F to focus search
+            document.addEventListener('keydown', function(e) {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+                    e.preventDefault();
+                    document.getElementById('searchInput').focus();
+                }
+            });
+        });
+    </script>
+
+</body>
+</html>
