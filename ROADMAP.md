@@ -564,8 +564,9 @@ a separate lesson system.
 ### Later product phases
 
 - Premium smart placement testing for Silver and Gold.
-- Premium vocab-size estimation testing so Gold users can estimate how many
-  words they know before and after onboarding/refresh cycles.
+- Premium vocabulary-knowledge estimation testing so Gold users can get a
+  general estimate of how many words they know, separate from bot progress
+  metrics.
 - AI Mini Quizzes after the MVP above proves stable.
 - Measurement-informed advanced learning and personalization.
 - Additional languages only through the canonical `catalog.py` registry.
