@@ -375,5 +375,62 @@
     ],
     "evidence": "issues/validate.py generates Markdown and HTML fallback",
     "last_reviewed": "2026-07-12"
+  },
+  {
+    "title": "custom-word query ورودی نامرتبط و بدون guardrail را می‌پذیرد",
+    "module": "bot.py",
+    "func": "ask_for_ask_word / text_router",
+    "problem": "کاربر می‌تواند هر متن دلخواهی را به حالت ask_word بفرستد و ربات آن را مستقیم به پرامپت AI پاس می‌دهد؛ متن‌های نامرتبط یا بسیار بلند هیچ پیش‌اعتبارسنجی ندارند.",
+    "solution": "قبل از رزرو quota و فراخوانی AI، ورودی را از نظر طول، تعداد کلمات/توکن‌ها و تناسب با زبان فعال کاربر validate کنید و برای ورودی‌های نامعتبر یک پیام اصلاحی نشان دهید.",
+    "priority": "medium",
+    "note": "این guardrail باید روی مسیر custom-word و هر مسیر مشابهی که از awaiting input استفاده می‌کند اعمال شود.",
+    "resolved": false,
+    "detailOpen": false,
+    "editing": false,
+    "id": 22,
+    "status": "open",
+    "roadmap_refs": [
+      "custom-word-safety"
+    ],
+    "evidence": "bot.py:text_router passes awaiting ask_word text directly to prompts.custom_word_system_prompt()",
+    "last_reviewed": "2026-07-12"
+  },
+  {
+    "title": "منوهای awaiting برای برگشت/لغو یک مسیر مشترک ندارند",
+    "module": "bot.py / keyboards.py",
+    "func": "ask_for_ask_word / admin_* awaiting states",
+    "problem": "وقتی ربات منتظر ورودی کاربر یا ادمین است، دکمه‌ی بازگشت/لغو یکنواختی وجود ندارد و کاربر باید حدس بزند چطور از flow خارج شود.",
+    "solution": "یک کنترل cancel/back مشترک بسازید که هم در reply keyboard و هم در inline keyboard قابل استفاده باشد و awaiting state را پاک کند.",
+    "priority": "medium",
+    "note": "این control باید در menus مختلف reuse شود، نه این که هر flow دکمه‌ی اختصاصی خودش را با callback متفاوت پیاده کند.",
+    "resolved": false,
+    "detailOpen": false,
+    "editing": false,
+    "id": 23,
+    "status": "open",
+    "roadmap_refs": [
+      "custom-word-safety"
+    ],
+    "evidence": "bot.py sets context.user_data['awaiting'] for ask_word/admin flows; keyboards.py has no cancel/back helper",
+    "last_reviewed": "2026-07-12"
+  },
+  {
+    "title": "برچسب دکمه‌ی ذخیره‌ی نتیجه‌ی پرسش واژه مبهم است",
+    "module": "keyboards.py / bot.py",
+    "func": "query_result_keyboard",
+    "problem": "دکمه‌ی inline فعلی فقط می‌گوید «افزودن به مرور» و برای future multi-language flows یا برای کاربری که انتظار ذخیره‌ی واژه‌ی همان زبان را دارد، شفافیت کافی ندارد.",
+    "solution": "label را به عبارتی دقیق‌تر مثل «افزودن واژه به مرور» یا «ذخیره برای مرور» تغییر دهید و همان رفتار ذخیره‌ی فعلی را حفظ کنید؛ schema فعلی already lang را روی query_result و saved_words نگه می‌دارد.",
+    "priority": "low",
+    "note": "این مورد بیشتر UX است تا data-model bug؛ prerequisite داده‌ای اصلی از قبل موجود است.",
+    "resolved": false,
+    "detailOpen": false,
+    "editing": false,
+    "id": 24,
+    "status": "open",
+    "roadmap_refs": [
+      "custom-word-safety"
+    ],
+    "evidence": "keyboards.py:query_result_keyboard uses '➕ افزودن به مرور'; db.py stores lang in query_results and saved_words",
+    "last_reviewed": "2026-07-12"
   }
 ]
