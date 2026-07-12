@@ -68,6 +68,38 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertEqual(card["word"], "word-0")
         self.assertEqual(db.count_daily_cards(1, card_date), 6)
 
+    def test_daily_cards_lock_to_the_first_session_snapshot_of_the_day(self):
+        db.create_user_if_needed(1, "learner")
+        db.set_user_lang_goal(1, "en", "general")
+        db.set_user_level(1, "beginner")
+        row = db.get_user(1)
+        card_date = dt.date(2026, 7, 12).isoformat()
+        calls: list[tuple[str, str, str, int]] = []
+
+        def fake_generate_daily_batch(lang, goal, level, card_count, used_words):
+            calls.append((lang, goal, level, card_count))
+            return [
+                {
+                    "word": f"{lang}-{goal}-{level}-{index}",
+                    "translation": f"translation-{index}",
+                    "romanization": "",
+                    "grammar_tip": "",
+                }
+                for index in range(card_count)
+            ]
+
+        with patch.object(bot, "_generate_daily_batch", side_effect=fake_generate_daily_batch):
+            bot._ensure_next_daily_card(1, row, card_date, 12)
+            db.set_daily_progress(1, card_date, 6)
+            db.set_user_lang_goal(1, "es", "toeic")
+            db.set_user_level(1, "advanced")
+            bot._ensure_next_daily_card(1, db.get_user(1), card_date, 12)
+
+        self.assertEqual(calls[0][:3], ("en", "general", "beginner"))
+        self.assertEqual(calls[1][:3], ("en", "general", "beginner"))
+        self.assertEqual(db.get_daily_card_session(1, card_date)["target_lang"], "en")
+        self.assertEqual(db.count_daily_cards(1, card_date), 12)
+
 
 if __name__ == "__main__":
     unittest.main()

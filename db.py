@@ -113,6 +113,15 @@ def init_db():
                 next_index INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY(user_id, card_date)
             );
+            CREATE TABLE IF NOT EXISTS daily_card_sessions (
+                user_id INTEGER,
+                card_date TEXT,
+                target_lang TEXT,
+                goal TEXT,
+                level TEXT,
+                created_at TEXT,
+                PRIMARY KEY(user_id, card_date)
+            );
             CREATE TABLE IF NOT EXISTS delivery_queue (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -175,6 +184,18 @@ def init_db():
             )
         if "retry_at" not in delivery_columns:
             conn.execute("ALTER TABLE delivery_queue ADD COLUMN retry_at TEXT")
+        session_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(daily_card_sessions)").fetchall()
+        }
+        if session_columns and "target_lang" not in session_columns:
+            conn.execute("ALTER TABLE daily_card_sessions ADD COLUMN target_lang TEXT")
+        if session_columns and "goal" not in session_columns:
+            conn.execute("ALTER TABLE daily_card_sessions ADD COLUMN goal TEXT")
+        if session_columns and "level" not in session_columns:
+            conn.execute("ALTER TABLE daily_card_sessions ADD COLUMN level TEXT")
+        if session_columns and "created_at" not in session_columns:
+            conn.execute("ALTER TABLE daily_card_sessions ADD COLUMN created_at TEXT")
         saved_word_columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(saved_words)").fetchall()
@@ -642,6 +663,42 @@ def set_daily_progress(user_id: int, card_date: str, next_index: int):
             (user_id, card_date, next_index),
         )
         conn.commit()
+
+
+def get_daily_card_session(user_id: int, card_date: str):
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM daily_card_sessions WHERE user_id=? AND card_date=?",
+            (user_id, card_date),
+        ).fetchone()
+
+
+def ensure_daily_card_session(
+    user_id: int,
+    card_date: str,
+    target_lang: str,
+    goal: str,
+    level: str,
+):
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM daily_card_sessions WHERE user_id=? AND card_date=?",
+            (user_id, card_date),
+        ).fetchone()
+        if row:
+            conn.commit()
+            return row
+        conn.execute(
+            "INSERT INTO daily_card_sessions(user_id, card_date, target_lang, goal, level, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, card_date, target_lang, goal, level, _utc_now().isoformat()),
+        )
+        conn.commit()
+        return conn.execute(
+            "SELECT * FROM daily_card_sessions WHERE user_id=? AND card_date=?",
+            (user_id, card_date),
+        ).fetchone()
 
 
 # ---------- واژه‌های دلخواه + یادآوری فاصله‌دار ساده ----------
