@@ -90,6 +90,25 @@ class CustomWordQueryTests(unittest.TestCase):
             "review:next:1:2026-07-12:0",
         )
 
+    def test_review_history_keyboard_adds_week_pagination_controls(self):
+        dates = [
+            "2026-07-12",
+            "2026-07-11",
+            "2026-07-10",
+            "2026-07-09",
+            "2026-07-08",
+            "2026-07-07",
+            "2026-07-06",
+        ]
+        markup = daily_review_dates_keyboard(dates, page=1, total_pages=3)
+        labels = [button.text for row in markup.inline_keyboard for button in row]
+        callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
+        self.assertIn("⬅️ جدیدتر", labels)
+        self.assertIn("📚 منوی مرور", labels)
+        self.assertIn("قدیمی‌تر ➡️", labels)
+        self.assertIn("review:page:0", callbacks)
+        self.assertIn("review:page:2", callbacks)
+
     def test_custom_word_validation_rejects_long_or_unrelated_input(self):
         self.assertIsNone(_custom_word_input_error("thick burger", "en"))
         self.assertIsNotNone(_custom_word_input_error("همبرگر آفرقایی کلفت", "en"))
