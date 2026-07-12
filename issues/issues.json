@@ -489,5 +489,24 @@
     ],
     "evidence": "issues/issues.json currently stores status/priority/roadmap_refs only; issues/issues.html renders from that structure",
     "last_reviewed": "2026-07-12"
+  },
+  {
+    "title": "streak فقط در مسیر ارسال زمان‌بندی‌شده touch می‌شود",
+    "module": "bot.py / db.py",
+    "func": "_dispatch_queue / touch_streak / send_daily_card_now",
+    "problem": "streak کاربر از `db.touch_streak` فقط در `_dispatch_queue` تغذیه می‌شود؛ یعنی اگر کاربر همان روز از کارت‌های دستی یا core flow استفاده کند ولی scheduled delivery اجرا نشود، `🔥 استریک` یک روز کمتر نشان داده می‌شود.",
+    "solution": "streak را روی اولین interaction معنادار روزانه بزنید، نه فقط روی job زمان‌بندی‌شده. این منطق باید از `send_daily_card_now` و delivery job به یک helper مشترک منتقل شود تا دستی/اتوماتیک هر دو یک منبع حقیقت داشته باشند.",
+    "priority": "high",
+    "note": "اگر می‌خواهید SRS یا مرورهای دیگر هم روز فعال را بشمارند، همان helper باید در آن مسیرها هم قابل استفاده باشد.",
+    "resolved": false,
+    "detailOpen": false,
+    "editing": false,
+    "id": 28,
+    "status": "open",
+    "roadmap_refs": [
+      "reliability-hardening"
+    ],
+    "evidence": "bot.py:_dispatch_queue calls db.touch_streak(user_id), while send_daily_card_now does not",
+    "last_reviewed": "2026-07-12"
   }
 ]
