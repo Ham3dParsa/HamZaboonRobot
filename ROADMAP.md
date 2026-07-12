@@ -43,8 +43,9 @@ Completed on the current main branch:
 - Plan access controls, owner bypass, and owner-only per-user plan assignment
 - Operational configuration contract with readable clock values, shared
   timezone support for scheduled jobs, and explicit per-plan quotas
-- Local issue-review manager (`issues.html`) with Markdown export; the
-  canonical issue record remains `hamzaban-issues.md`
+- Local issue-review manager (`issues/issues.html`) backed by canonical
+  structured issue data in `issues/issues.json`; `hamzaban-issues.md` is a
+  generated Markdown export
 
 The remaining work is tracked in the explicit ToDo section near the end of
 this document. The next user-facing feature remains the custom-word query
@@ -54,8 +55,8 @@ the decisions below.
 ## Latest Code Review
 
 Review scope: every Python module, all tests, `ROADMAP.md`,
-`hamzaban-issues.md`, and the static `issues.html` manager on the current
-`main` branch.
+`hamzaban-issues.md`, and the static `issues/issues.html` manager on the
+current `main` branch.
 
 ### Confirmed resolved from the issue export
 
@@ -79,8 +80,8 @@ Review scope: every Python module, all tests, `ROADMAP.md`,
   word-quota, SRS, and some callback paths.
 - Logging exists for failures and some admin actions, but important lifecycle
   events and delivery metrics are not structured or complete.
-- The issue manager is useful for local review, but its embedded issue data and
-  browser `localStorage` state can drift from the canonical Markdown export.
+- The issue manager is useful for local review, but browser `localStorage`
+  remains local draft state and must not be treated as committed issue data.
 
 ### Open bugs and engineering risks found in this review
 
@@ -124,9 +125,9 @@ Review scope: every Python module, all tests, `ROADMAP.md`,
   (recommended), or remain manually retryable indefinitely?
 - Should plan quota changes apply immediately to already-queued daily sessions,
   or only to sessions planned after the change?
-- Should the canonical issue source remain Markdown, with `issues.html`
-  treated as a generated/local review view rather than a second editable
-  registry?
+
+The issue-tooling ownership is locked: `issues/issues.json` is canonical,
+`issues/issues.html` is the review UI, and `hamzaban-issues.md` is generated.
 
 ## Locked Architectural Decision
 
@@ -544,8 +545,9 @@ advanced personalization, or additional paid features.
 - Premium smart placement testing for Silver and Gold.
 - Measurement-informed advanced learning and personalization.
 - Additional languages only through the canonical `catalog.py` registry.
-- Make `hamzaban-issues.md` the only maintained issue source and generate or
-  explicitly refresh `issues.html` from it to prevent drift.
+- Keep `issues/issues.json` as the canonical issue source, validate it with
+  `issues/validate.py`, and generate `hamzaban-issues.md` and the HTML fallback
+  data from it to prevent drift.
 
 ## Out of Scope for the Current MVP
 

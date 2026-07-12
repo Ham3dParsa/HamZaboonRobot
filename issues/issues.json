@@ -10,7 +10,11 @@
     "resolved": true,
     "detailOpen": false,
     "editing": false,
-    "id": 1
+    "id": 1,
+    "status": "resolved",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "عدم ارسال یادآوری واژه‌های ذخیره‌شده (SRS)",
@@ -23,7 +27,11 @@
     "resolved": false,
     "detailOpen": false,
     "editing": false,
-    "id": 2
+    "id": 2,
+    "status": "partial",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "مدیریت Rate Limit تلگرام در ارسال همگانی و Job روزانه",
@@ -36,7 +44,11 @@
     "resolved": false,
     "detailOpen": false,
     "editing": false,
-    "id": 3
+    "id": 3,
+    "status": "partial",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "همگام‌سازی نبودن نام زبان‌ها در prompts.py و config.py",
@@ -46,10 +58,14 @@
     "solution": "در prompts.py، LANG_NAMES_FA را با from config import SUPPORTED_LANGS بسازید: LANG_NAMES_FA = {code: name for code, name in SUPPORTED_LANGS.items()} سپس در پرامپت‌ها از LANG_NAMES_FA.get(lang, lang) استفاده کنید.",
     "priority": "low",
     "note": "",
-    "resolved": false,
+    "resolved": true,
     "detailOpen": false,
     "editing": false,
-    "id": 4
+    "id": 4,
+    "status": "resolved",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "خطا در _extract_json هنگام عدم وجود JSON",
@@ -59,10 +75,14 @@
     "solution": "در _extract_json، اگر JSON پیدا نشد، یک استثنای سفارشی پرتاب کنید یا {} برگردانید. در ask_json، خطا را catch کرده و پیام مناسب به کاربر نشان دهید (در حال حاضر در bot.py catch می‌شود، ولی بهتر است خود ask_json یک None برگرداند و بالادست مدیریت کند).",
     "priority": "medium",
     "note": "",
-    "resolved": false,
+    "resolved": true,
     "detailOpen": false,
     "editing": false,
-    "id": 5
+    "id": 5,
+    "status": "resolved",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "عدم استفاده از advance_word_review در هیچ‌کجای کد",
@@ -72,10 +92,14 @@
     "solution": "پس از پیاده‌سازی ارسال یادآوری (مشکل شماره ۲)، پس از ارسال هر واژه، این تابع را صدا بزنید.",
     "priority": "medium",
     "note": "",
-    "resolved": false,
+    "resolved": true,
     "detailOpen": false,
     "editing": false,
-    "id": 6
+    "id": 6,
+    "status": "resolved",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "ذخیره‌سازی API Key به صورت متن ساده در دیتابیس",
@@ -88,7 +112,11 @@
     "resolved": false,
     "detailOpen": false,
     "editing": false,
-    "id": 7
+    "id": 7,
+    "status": "open",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "عدم استفاده از timezone در تاریخ‌گذاری",
@@ -101,7 +129,11 @@
     "resolved": false,
     "detailOpen": false,
     "editing": false,
-    "id": 8
+    "id": 8,
+    "status": "partial",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "استفاده از edit_message_text بدون مدیریت خطا هنگام ویرایش پیام قدیمی",
@@ -114,7 +146,11 @@
     "resolved": false,
     "detailOpen": false,
     "editing": false,
-    "id": 9
+    "id": 9,
+    "status": "open",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "عدم محدودیت در دریافت کارت روزانه برای کاربران غیر onboarded",
@@ -124,10 +160,14 @@
     "solution": "— (این مورد یک باگ واقعی نیست، فقط یک رفتار صحیح است که بررسی شد.)",
     "priority": "none",
     "note": "",
-    "resolved": false,
+    "resolved": true,
     "detailOpen": false,
     "editing": false,
-    "id": 10
+    "id": 10,
+    "status": "resolved",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "ارسال پیام همگانی بدون تأخیر ممکن است با محدودیت مواجه شود",
@@ -140,7 +180,11 @@
     "resolved": false,
     "detailOpen": false,
     "editing": false,
-    "id": 11
+    "id": 11,
+    "status": "partial",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "عدم مدیریت timeout برای درخواست‌های AI",
@@ -153,7 +197,11 @@
     "resolved": false,
     "detailOpen": false,
     "editing": false,
-    "id": 12
+    "id": 12,
+    "status": "open",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "عدم استفاده از log در بخش‌های مهم (به جز خطاها)",
@@ -166,7 +214,11 @@
     "resolved": false,
     "detailOpen": false,
     "editing": false,
-    "id": 13
+    "id": 13,
+    "status": "partial",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "format_card در صورت خالی بودن grammar_tip یک خط خالی اضافه می‌کند",
@@ -176,10 +228,14 @@
     "solution": "قبل از اضافه کردن بخش گرامر، چک کنید که grammar_tip خالی نباشد: if grammar_tip: lines.append(f\"\n✍️ *نکته‌ی گرامری:*\n{grammar_tip}\")",
     "priority": "low",
     "note": "",
-    "resolved": false,
+    "resolved": true,
     "detailOpen": false,
     "editing": false,
-    "id": 14
+    "id": 14,
+    "status": "resolved",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "پرامپت daily_card_system_prompt برای اهداف جدید قابل گسترش نیست",
@@ -189,10 +245,14 @@
     "solution": "دیکشنری goal_hint را به صورت جداگانه تعریف کنید و اگر هدفی در آن نبود، از یک مقدار پیش‌فرض استفاده کنید.",
     "priority": "low",
     "note": "",
-    "resolved": false,
+    "resolved": true,
     "detailOpen": false,
     "editing": false,
-    "id": 15
+    "id": 15,
+    "status": "resolved",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "Retry نامحدود برای صف delivery",
@@ -205,7 +265,11 @@
     "resolved": false,
     "detailOpen": false,
     "editing": false,
-    "id": 16
+    "id": 16,
+    "status": "open",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "اجرای synchronous درخواست AI داخل handlerهای async",
@@ -218,7 +282,11 @@
     "resolved": false,
     "detailOpen": false,
     "editing": false,
-    "id": 17
+    "id": 17,
+    "status": "open",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "اعتبارسنجی ناقص callbackهای زبان و هدف",
@@ -231,7 +299,11 @@
     "resolved": false,
     "detailOpen": false,
     "editing": false,
-    "id": 18
+    "id": 18,
+    "status": "open",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "quota غیراتمی و ذخیره‌ی واژه‌ی تکراری",
@@ -244,7 +316,11 @@
     "resolved": false,
     "detailOpen": false,
     "editing": false,
-    "id": 19
+    "id": 19,
+    "status": "open",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "SRS و broadcast بدون مسیر مشترک rate-limit",
@@ -257,7 +333,11 @@
     "resolved": false,
     "detailOpen": false,
     "editing": false,
-    "id": 20
+    "id": 20,
+    "status": "open",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   },
   {
     "title": "ناهماهنگی منبع issues.html و Markdown",
@@ -270,6 +350,10 @@
     "resolved": false,
     "detailOpen": false,
     "editing": false,
-    "id": 21
+    "id": 21,
+    "status": "open",
+    "roadmap_refs": [],
+    "evidence": "",
+    "last_reviewed": ""
   }
 ]
