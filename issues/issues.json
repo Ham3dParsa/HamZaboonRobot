@@ -441,15 +441,15 @@
     "solution": "navigation را به هفته/ماه paginate کنید و به جای لیست تخت، دسته‌بندی زمانی یا صفحه‌بندی مرحله‌ای برای بازه‌های قدیمی‌تر ارائه دهید.",
     "priority": "medium",
     "note": "این مورد اکنون اولویت پایین‌تری دارد اما برای رشد تاریخچه‌ی روزانه در آینده مهم است.",
-    "resolved": false,
-    "status": "open",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 25,
     "roadmap_refs": [
       "custom-word-safety"
     ],
-    "evidence": "bot.py:_show_review_menu currently renders db.get_recent_daily_card_dates(... limit=7) as a flat keyboard",
+    "evidence": "bot.py now slices review history into week-sized pages with review:page callbacks and older/newer navigation controls.",
     "last_reviewed": "2026-07-12"
   },
   {

@@ -85,11 +85,28 @@ def daily_review_menu_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def daily_review_dates_keyboard(dates: list[str]) -> InlineKeyboardMarkup:
+def daily_review_dates_keyboard(
+    dates: list[str],
+    *,
+    page: int = 0,
+    total_pages: int = 1,
+) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(date, callback_data=f"review:date:{date}")]
         for date in dates
     ]
+    nav_buttons = []
+    if total_pages > 1:
+        if page > 0:
+            nav_buttons.append(
+                InlineKeyboardButton("⬅️ جدیدتر", callback_data=f"review:page:{page - 1}")
+            )
+        nav_buttons.append(InlineKeyboardButton("📚 منوی مرور", callback_data="review:menu"))
+        if page + 1 < total_pages:
+            nav_buttons.append(
+                InlineKeyboardButton("قدیمی‌تر ➡️", callback_data=f"review:page:{page + 1}")
+            )
+        buttons.append(nav_buttons)
     return InlineKeyboardMarkup(buttons or [[InlineKeyboardButton("فعلاً کارتی نیست", callback_data="review:noop")]])
 
 

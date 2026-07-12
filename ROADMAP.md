@@ -558,8 +558,6 @@ a separate lesson system.
 - Keep the saved-review action label aligned with its actual behavior and
   preserve the target language on persisted query results for future
   multi-language review flows.
-- Paginate review-history navigation by week or month so long histories do not
-  turn into an unwieldy date list.
 
 ### Later product phases
 
@@ -589,6 +587,8 @@ a separate lesson system.
 - Daily-card sessions now lock to the first generated language / goal / level
   snapshot for that day, so mid-session profile edits cannot mix languages
   inside one allowance.
+- Review-history navigation now paginates by week with older/newer controls
+  instead of showing a flat list once the history grows.
 - Streak now updates on the first meaningful user interaction of the day, so
   manual card requests and core learning flows count while scheduled delivery
   only reports the current streak.

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import datetime
+import math
 import re
 import time
 import threading
@@ -525,6 +526,14 @@ def _daily_card_session_profile(user_id: int, row, card_date: str):
     return session
 
 
+def _review_history_page(dates: list[str], page: int, page_size: int = 7) -> tuple[list[str], int, int]:
+    total_pages = max(1, math.ceil(len(dates) / page_size))
+    page = max(0, min(page, total_pages - 1))
+    start = page * page_size
+    end = start + page_size
+    return dates[start:end], page, total_pages
+
+
 def _ensure_daily_cards(user_id: int, row, card_date: str, limit: int) -> list[dict]:
     session = _daily_card_session_profile(user_id, row, card_date)
     cards = db.get_daily_cards(user_id, card_date)
@@ -778,19 +787,24 @@ async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     await update.callback_query.answer(message, show_alert=True)
 
 
-async def _show_review_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def _show_review_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
     user_id = update.effective_user.id
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
         await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
         return
-    dates = db.get_recent_daily_card_dates(user_id, limit=7)
+    dates = db.get_recent_daily_card_dates(user_id, limit=90)
     if not dates:
         await update.callback_query.answer("هنوز کارتی برای مرور ندارید.", show_alert=True)
         return
+    page_dates, page, total_pages = _review_history_page(dates, page)
     await update.callback_query.edit_message_text(
-        "کدوم روز رو می‌خوای مرور کنی؟",
-        reply_markup=daily_review_dates_keyboard(dates),
+        (
+            "کدوم روز رو می‌خوای مرور کنی؟"
+            if total_pages == 1
+            else f"کدوم روز رو می‌خوای مرور کنی؟\nصفحه {page + 1} از {total_pages}"
+        ),
+        reply_markup=daily_review_dates_keyboard(page_dates, page=page, total_pages=total_pages),
     )
 
 
@@ -1117,6 +1131,17 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     elif data == "review:menu":
         await _show_review_menu(update, context)
+    elif data.startswith("review:page:"):
+        parts = data.split(":")
+        if len(parts) != 3:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        try:
+            page = int(parts[2])
+        except ValueError:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        await _show_review_menu(update, context, page)
     elif data.startswith("review:date:"):
         card_date = data.split(":", 2)[2]
         await _show_review_date(update, context, card_date)
