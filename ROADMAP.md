@@ -247,6 +247,8 @@ The next language addition must use this contract.
 - A successful custom-word query shows the user's daily usage and remaining
   allowance. The result offers an inline action to add that word to spaced
   repetition.
+- Grammar tips use the same per-plan daily cap as custom-word queries, with an
+  atomic reserve before the AI call.
 - The separate `Save a custom word` menu action is removed from the primary
   user menu; the persistence and SRS backend remain available to the query
   flow.
@@ -557,6 +559,8 @@ a separate lesson system.
 - Keep the saved-review action label aligned with its actual behavior and
   preserve the target language on persisted query results for future
   multi-language review flows.
+- Paginate review-history navigation by week or month so long histories do not
+  turn into an unwieldy date list.
 
 ### Later product phases
 

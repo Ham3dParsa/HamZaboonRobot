@@ -432,5 +432,24 @@
     ],
     "evidence": "keyboards.py:query_result_keyboard uses '➕ افزودن به مرور'; db.py stores lang in query_results and saved_words",
     "last_reviewed": "2026-07-12"
+  },
+  {
+    "title": "مرور تاریخچه‌ی کارت‌ها pagination هفتگی/ماهانه ندارد",
+    "module": "bot.py / keyboards.py",
+    "func": "review:menu / review:date",
+    "problem": "صفحه‌ی مرور تاریخچه برای روزهای قبلی فقط یک لیست تخت از تاریخ‌های اخیر نشان می‌دهد؛ اگر کاربر 50+ روز کارت داشته باشد، این UX به‌سرعت شلوغ و سخت‌اسکن می‌شود.",
+    "solution": "navigation را به هفته/ماه paginate کنید و به جای لیست تخت، دسته‌بندی زمانی یا صفحه‌بندی مرحله‌ای برای بازه‌های قدیمی‌تر ارائه دهید.",
+    "priority": "medium",
+    "note": "این مورد اکنون اولویت پایین‌تری دارد اما برای رشد تاریخچه‌ی روزانه در آینده مهم است.",
+    "resolved": false,
+    "detailOpen": false,
+    "editing": false,
+    "id": 25,
+    "status": "open",
+    "roadmap_refs": [
+      "custom-word-safety"
+    ],
+    "evidence": "bot.py:_show_review_menu currently renders db.get_recent_daily_card_dates(... limit=7) as a flat keyboard",
+    "last_reviewed": "2026-07-12"
   }
 ]

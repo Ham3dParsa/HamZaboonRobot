@@ -127,6 +127,21 @@ def _word_query_usage_text(row) -> str:
     return f"📊 استفاده امروز: {used}/{limit} · باقی‌مانده: {remaining}"
 
 
+def _grammar_tip_usage(row) -> tuple[int, int]:
+    used = row["grammar_tips_asked_today"] or 0
+    if row["grammar_tips_asked_date"] != _app_today():
+        used = 0
+    return used, daily_word_query_limit_for_plan(row["plan"] or "free")
+
+
+def _grammar_tip_usage_text(row) -> str:
+    used, limit = _grammar_tip_usage(row)
+    if limit < 0:
+        return f"📊 استفاده امروز از نکات گرامری: {used} / نامحدود"
+    remaining = max(limit - used, 0)
+    return f"📊 استفاده امروز از نکات گرامری: {used}/{limit} · باقی‌مانده: {remaining}"
+
+
 async def _send_card_from_store(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,
@@ -550,6 +565,19 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("اول باید /start رو بزنی.")
         return
 
+    limit = daily_word_query_limit_for_plan(row["plan"] or "free")
+    usage_before_text = _grammar_tip_usage_text(row)
+    if not db.reserve_grammar_tip(
+        user_id,
+        limit,
+        bypass_limits=OWNER_BYPASS_LIMITS and is_owner(user_id),
+    ):
+        await update.message.reply_text(
+            f"{usage_before_text}\n\nسقف روزانه‌ی نکته‌ی گرامری تموم شده."
+        )
+        return
+    usage_text = _grammar_tip_usage_text(db.get_user(user_id) or row)
+
     await update.message.chat.send_action("typing")
     try:
         data = await asyncio.to_thread(
@@ -571,7 +599,7 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     explanation = escape_mdv2(data.get('explanation', ''))
     example = escape_mdv2(data.get('example', ''))
 
-    text = f"✍️ *{title}*\n\n{explanation}\n\n`{example}`"   # مثال را در کد قرار دادیم
+    text = f"✍️ *{title}*\n\n{explanation}\n\n`{example}`\n\n{escape_mdv2(usage_text)}"
 
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
 

@@ -21,6 +21,11 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertTrue(db.reserve_word_query(1, 1))
         self.assertFalse(db.reserve_word_query(1, 1))
 
+    def test_grammar_tip_reservation_is_atomic_and_bounded(self):
+        db.create_user_if_needed(1, "learner")
+        self.assertTrue(db.reserve_grammar_tip(1, 1))
+        self.assertFalse(db.reserve_grammar_tip(1, 1))
+
     def test_saved_word_insert_is_idempotent(self):
         db.create_user_if_needed(1, "learner")
         self.assertTrue(db.add_saved_word(1, "  Hello   ", "en"))

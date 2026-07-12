@@ -32,6 +32,25 @@ def _normalize_word(word: str) -> str:
     return " ".join(word.split()).casefold()
 
 
+def _current_daily_count(asked_value, asked_date) -> int:
+    today = _today().isoformat()
+    if asked_date != today:
+        return 0
+    return asked_value or 0
+
+
+def _can_consume_daily_count(
+    asked_value,
+    asked_date,
+    daily_limit: int,
+    *,
+    bypass_limits: bool = False,
+) -> bool:
+    if bypass_limits or daily_limit < 0:
+        return True
+    return _current_daily_count(asked_value, asked_date) < daily_limit
+
+
 @contextmanager
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
@@ -57,6 +76,8 @@ def init_db():
                 last_active_date TEXT,
                 words_asked_today INTEGER DEFAULT 0,
                 words_asked_date TEXT,
+                grammar_tips_asked_today INTEGER DEFAULT 0,
+                grammar_tips_asked_date TEXT,
                 optional_daily_limit INTEGER,
                 preferred_delivery_minute INTEGER,
                 active_window_start_minute INTEGER,
@@ -138,6 +159,8 @@ def init_db():
             "preferred_delivery_minute": "INTEGER",
             "active_window_start_minute": "INTEGER",
             "active_window_end_minute": "INTEGER",
+            "grammar_tips_asked_today": "INTEGER DEFAULT 0",
+            "grammar_tips_asked_date": "TEXT",
         }
         for name, definition in user_columns.items():
             if name not in columns:
@@ -287,17 +310,15 @@ def can_ask_word(user_id: int, daily_limit: int, bypass_limits: bool = False) ->
         ).fetchone()
         if not row:
             return False
-        if bypass_limits or daily_limit < 0:
-            return True
-        today = _today().isoformat()
-        asked = row["words_asked_today"] or 0
-        if row["words_asked_date"] != today:
-            asked = 0
-        return asked < daily_limit
+        return _can_consume_daily_count(
+            row["words_asked_today"],
+            row["words_asked_date"],
+            daily_limit,
+            bypass_limits=bypass_limits,
+        )
 
 
 def reserve_word_query(user_id: int, daily_limit: int, bypass_limits: bool = False) -> bool:
-    today = _today().isoformat()
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
@@ -306,13 +327,49 @@ def reserve_word_query(user_id: int, daily_limit: int, bypass_limits: bool = Fal
         ).fetchone()
         if not row:
             return False
-        asked = row["words_asked_today"] or 0
-        if row["words_asked_date"] != today:
-            asked = 0
+        asked = _current_daily_count(row["words_asked_today"], row["words_asked_date"])
         if not bypass_limits and daily_limit >= 0 and asked >= daily_limit:
             return False
+        today = _today().isoformat()
         conn.execute(
             "UPDATE users SET words_asked_today=?, words_asked_date=? WHERE user_id=?",
+            (asked + 1, today, user_id),
+        )
+        conn.commit()
+        return True
+
+
+def can_ask_grammar_tip(user_id: int, daily_limit: int, bypass_limits: bool = False) -> bool:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT grammar_tips_asked_today, grammar_tips_asked_date FROM users WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+        if not row:
+            return False
+        return _can_consume_daily_count(
+            row["grammar_tips_asked_today"],
+            row["grammar_tips_asked_date"],
+            daily_limit,
+            bypass_limits=bypass_limits,
+        )
+
+
+def reserve_grammar_tip(user_id: int, daily_limit: int, bypass_limits: bool = False) -> bool:
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT grammar_tips_asked_today, grammar_tips_asked_date FROM users WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+        if not row:
+            return False
+        asked = _current_daily_count(row["grammar_tips_asked_today"], row["grammar_tips_asked_date"])
+        if not bypass_limits and daily_limit >= 0 and asked >= daily_limit:
+            return False
+        today = _today().isoformat()
+        conn.execute(
+            "UPDATE users SET grammar_tips_asked_today=?, grammar_tips_asked_date=? WHERE user_id=?",
             (asked + 1, today, user_id),
         )
         conn.commit()
