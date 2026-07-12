@@ -917,6 +917,16 @@
             <button class="btn-add" id="addCardBtn" title="افزودن کارت جدید">
                 <i class="fas fa-plus-circle"></i> افزودن کارت
             </button>
+            <button class="btn" id="copyAllMdBtn" title="کپی همه (Markdown)" style="background:transparent;border:none;color:#475569;padding:0.45rem 0.9rem;border-radius:40px;">
+                <i class="fas fa-clipboard"></i> کپی همه (MD)
+            </button>
+            <button class="btn" id="copyAllJsonBtn" title="کپی همه (JSON)" style="background:transparent;border:none;color:#475569;padding:0.45rem 0.9rem;border-radius:40px;">
+                <i class="fas fa-clipboard"></i> کپی همه (JSON)
+            </button>
+            <label for="importFileInput" class="btn" id="importBtn" title="وارد کردن فایل" style="background:transparent;border:none;color:#475569;padding:0.45rem 0.9rem;border-radius:40px;cursor:pointer;">
+                <i class="fas fa-file-import"></i> وارد کردن
+            </label>
+            <input id="importFileInput" type="file" accept="application/json,text/markdown,.md" style="display:none" />
             <button class="btn" id="exportAllMdBtn" title="خروجی همه (Markdown)" style="background:transparent;border:none;color:#475569;padding:0.45rem 0.9rem;border-radius:40px;">
                 <i class="fas fa-file-download"></i> خروجی همه (MD)
             </button>
@@ -1486,6 +1496,12 @@
                             <button class="btn-suggestion" data-id="${issue.id}">
                                 <i class="fas fa-plus-circle"></i> افزودن پیشنهاد سریع
                             </button>
+                            <button class="btn-copy-md" data-id="${issue.id}" title="کپی این کارت (MD)">
+                                <i class="fas fa-clipboard"></i> کپی (MD)
+                            </button>
+                            <button class="btn-copy-json" data-id="${issue.id}" title="کپی این کارت (JSON)">
+                                <i class="fas fa-clipboard"></i> کپی (JSON)
+                            </button>
                             <button class="btn-export-md" data-id="${issue.id}" title="خروجی این کارت (MD)">
                                 <i class="fas fa-file-download"></i> خروجی (MD)
                             </button>
@@ -1603,6 +1619,63 @@
                     e.stopPropagation();
                     const id = parseInt(this.dataset.id);
                     exportIssueJSON(id);
+                });
+            });
+
+            // Copy (clipboard) buttons (per-card)
+            function copyToClipboard(text) {
+                if (!text) return Promise.reject('Empty');
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    return navigator.clipboard.writeText(text);
+                }
+                return new Promise((resolve, reject) => {
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    try {
+                        document.execCommand('copy');
+                        resolve();
+                    } catch (e) {
+                        reject(e);
+                    } finally {
+                        ta.remove();
+                    }
+                });
+            }
+
+            document.querySelectorAll('.btn-copy-md').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const id = parseInt(this.dataset.id);
+                    const issue = getIssueById(id);
+                    if (!issue) return;
+                    const md = buildIssueMarkdown(issue);
+                    copyToClipboard(md).then(() => {
+                        // ask to save
+                        if (confirm('متن به کلیپ‌بورد کپی شد. آیا می‌خواهید فایل نیز ذخیره شود؟')) {
+                            const name = prompt('نام فایل را وارد کنید (مثلاً issue-' + id + '.md):', 'issue-' + id + '.md');
+                            if (name) downloadFile(name, md, 'text/markdown;charset=utf-8');
+                        }
+                        showToast('⬇️ متن کپی شد');
+                    }).catch(() => showToast('کپی در کلیپ‌بورد ناموفق بود'));
+                });
+            });
+
+            document.querySelectorAll('.btn-copy-json').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const id = parseInt(this.dataset.id);
+                    const issue = getIssueById(id);
+                    if (!issue) return;
+                    const json = JSON.stringify(issue, null, 2);
+                    copyToClipboard(json).then(() => {
+                        if (confirm('متن JSON به کلیپ‌بورد کپی شد. آیا می‌خواهید فایل نیز ذخیره شود؟')) {
+                            const name = prompt('نام فایل را وارد کنید (مثلاً issue-' + id + '.json):', 'issue-' + id + '.json');
+                            if (name) downloadFile(name, json, 'application/json;charset=utf-8');
+                        }
+                        showToast('⬇️ JSON کپی شد');
+                    }).catch(() => showToast('کپی در کلیپ‌بورد ناموفق بود'));
                 });
             });
 
@@ -1725,8 +1798,36 @@
         //  INIT
         // ================================================================
         document.addEventListener('DOMContentLoaded', function() {
-            loadFromStorage();
-            render();
+            // Try to load `issues/data.json` from disk via fetch (works when served over http://localhost).
+            // If fetch fails (e.g. opened via file:// or CORS), fall back to localStorage or embedded data.
+            fetch('issues/data.json')
+                .then(resp => {
+                    if (!resp.ok) throw new Error('no-data');
+                    return resp.json();
+                })
+                .then(parsed => {
+                    if (Array.isArray(parsed)) {
+                        issues = parsed.map(normalizeIssue);
+                        saveToStorage();
+                    } else if (parsed && Array.isArray(parsed.issues)) {
+                        issues = parsed.issues.map(normalizeIssue);
+                        saveToStorage();
+                    }
+                    render();
+                })
+                .catch(err => {
+                    // fallback
+                    loadFromStorage();
+                    render();
+                    // Friendly hint when page opened via file:// which prevents fetch of local files in some browsers
+                    if (location.protocol === 'file:') {
+                        const hint = document.createElement('div');
+                        hint.style.cssText = 'background:#fff3bf;border:1px solid #f1c40f;padding:8px 12px;border-radius:8px;margin:8px 0;font-size:0.95rem;color:#664d03;';
+                        hint.innerHTML = 'توجه: برای خواندن خودکار <strong>issues/data.json</strong> بهتر است صفحه را با یک سرور محلی باز کنید. در پوشهٔ پروژه اجرا کنید: <code>python -m http.server 8000</code> و سپس <a href="http://localhost:8000/issues.html">http://localhost:8000/issues.html</a> را باز کنید.';
+                        const container = document.querySelector('.container');
+                        if (container) container.insertBefore(hint, container.firstChild);
+                    }
+                });
 
             // Filter buttons
             document.querySelectorAll('#filterGroup button').forEach(btn => {
@@ -1768,6 +1869,115 @@
             if (exportAllMdBtn) exportAllMdBtn.addEventListener('click', exportAllMD);
             const exportAllJsonBtn = document.getElementById('exportAllJsonBtn');
             if (exportAllJsonBtn) exportAllJsonBtn.addEventListener('click', exportAllJSON);
+
+            // Copy all buttons
+            const copyAllMdBtn = document.getElementById('copyAllMdBtn');
+            if (copyAllMdBtn) copyAllMdBtn.addEventListener('click', function() {
+                const all = issues.slice().sort((a,b)=>a.id-b.id);
+                const parts = ['# HamZaban — Issues Export', ''];
+                all.forEach((issue, idx) => {
+                    parts.push(buildIssueMarkdown(issue));
+                    if (idx < all.length - 1) parts.push('\n---\n');
+                });
+                const md = parts.join('\n');
+                copyToClipboard(md).then(() => {
+                    if (confirm('همه متن‌ها به کلیپ‌بورد کپی شد. آیا می‌خواهید فایل Markdown نیز ذخیره شود؟')) {
+                        const name = prompt('نام فایل را وارد کنید:', 'hamzaban-issues.md');
+                        if (name) downloadFile(name, md, 'text/markdown;charset=utf-8');
+                    }
+                    showToast('⬇️ همه متن‌ها کپی شد');
+                }).catch(() => showToast('کپی در کلیپ‌بورد ناموفق بود'));
+            });
+
+            const copyAllJsonBtn = document.getElementById('copyAllJsonBtn');
+            if (copyAllJsonBtn) copyAllJsonBtn.addEventListener('click', function() {
+                const data = JSON.stringify(issues, null, 2);
+                copyToClipboard(data).then(() => {
+                    if (confirm('JSON همه کارت‌ها به کلیپ‌بورد کپی شد. آیا می‌خواهید فایل JSON نیز ذخیره شود؟')) {
+                        const name = prompt('نام فایل را وارد کنید:', 'hamzaban-issues.json');
+                        if (name) downloadFile(name, data, 'application/json;charset=utf-8');
+                    }
+                    showToast('⬇️ JSON همه کارت‌ها کپی شد');
+                }).catch(() => showToast('کپی در کلیپ‌بورد ناموفق بود'));
+            });
+
+            // Import (file input)
+            const importInput = document.getElementById('importFileInput');
+            if (importInput) {
+                importInput.addEventListener('change', function(e) {
+                    const f = this.files && this.files[0];
+                    if (!f) return;
+                    const reader = new FileReader();
+                    reader.onload = function(ev) {
+                        const text = ev.target.result;
+                        const name = f.name || '';
+                        if (name.endsWith('.json') || f.type === 'application/json') {
+                            try {
+                                const parsed = JSON.parse(text);
+                                handleImportedJSON(parsed);
+                            } catch (err) { showToast('فایل JSON نامعتبر است'); }
+                        } else {
+                            // Treat as Markdown: create single issue with content
+                            const title = (text.split('\n')[0] || 'Imported Issue').replace(/^#\s*/, '').trim();
+                            const newIssue = {
+                                id: getNextId(),
+                                title,
+                                module: 'import.md',
+                                func: '—',
+                                priority: 'none',
+                                problem: text,
+                                solution: '',
+                                note: '',
+                                resolved: false
+                            };
+                            issues.unshift(normalizeIssue(newIssue));
+                            saveToStorage();
+                            render();
+                            showToast('MD وارد شد و به عنوان کارت اضافه شد');
+                        }
+                    };
+                    reader.readAsText(f, 'utf-8');
+                    // reset input
+                    this.value = '';
+                });
+            }
+
+            function handleImportedJSON(parsed) {
+                if (Array.isArray(parsed)) {
+                    const replace = confirm('فایل شامل آرایه‌ای از کارت‌هاست. آیا مایلید تمام داده‌ها جایگزین شوند؟ (Cancel برای الحاق)');
+                    if (replace) {
+                        issues = parsed.map(normalizeIssue);
+                        saveToStorage();
+                        render();
+                        showToast('داده‌ها جایگزین شد');
+                        return;
+                    }
+                    // merge: append new ones, avoid id collisions
+                    const existingIds = new Set(issues.map(i => i.id));
+                    parsed.forEach(item => {
+                        const it = normalizeIssue(item);
+                        if (!it.id || existingIds.has(it.id)) it.id = getNextId();
+                        issues.push(it);
+                    });
+                    saveToStorage();
+                    render();
+                    showToast('داده‌ها الحاق شد');
+                } else if (parsed && typeof parsed === 'object') {
+                    // single issue object or envelope
+                    if (parsed.issues && Array.isArray(parsed.issues)) {
+                        handleImportedJSON(parsed.issues);
+                        return;
+                    }
+                    const it = normalizeIssue(parsed);
+                    it.id = getNextId();
+                    issues.unshift(it);
+                    saveToStorage();
+                    render();
+                    showToast('کارت تک وارد شد');
+                } else {
+                    showToast('فرمت فایل نامعتبر است');
+                }
+            }
 
             document.getElementById('saveNewCardBtn').addEventListener('click', function(e) {
                 e.preventDefault();
