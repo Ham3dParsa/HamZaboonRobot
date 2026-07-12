@@ -29,13 +29,23 @@ Completed on the current main branch:
 - Phase 1: validated card schema, safe JSON handling, and example
   translations
 - Phase 2: manual proficiency levels, CEFR labels, and German support
+- Phase 3 baseline: on-demand/manual card generation, scheduled session
+  planning, persisted daily cards, duplicate filtering, and partial-batch
+  retry
+- Phase 4 baseline: interactive next-card flow with persisted daily progress
+- Phase 6 baseline: durable load-aware scheduled delivery, per-user queue
+  states, bounded provider/Telegram concurrency, and restart recovery
+- Cross-cutting option catalog: language, goal, and level metadata now live in
+  `catalog.py` and are consumed by prompts, keyboards, bot status, and
+  database defaults
 - Batch generation infrastructure with duplicate filtering and partial-batch
   retry
 - Plan access controls, owner bypass, and owner-only per-user plan assignment
 
-The next implementation work is the on-demand interactive card flow,
-custom-word usage visibility, one-action SRS capture, concurrency isolation,
-and protected learning-data reset described below.
+The remaining work is tracked in the explicit ToDo section near the end of
+this document. The next user-facing feature remains the custom-word query
+improvement, but configuration and quota semantics must stay consistent with
+the decisions below.
 
 ## Locked Architectural Decision
 
@@ -85,6 +95,33 @@ The next language addition must use this contract.
   consumer but missing metadata in the canonical source.
 - Existing stored language/goal IDs continue to load safely, including
   retired IDs with a controlled fallback.
+
+## Locked Operational Configuration Decisions
+
+- The configuration contract uses one shared IANA timezone for all scheduled
+  behavior. The default is `APP_TIMEZONE=Asia/Tehran`.
+- Human-editable clock settings use local `HH:MM` values:
+  `ACTIVE_WINDOW_START`, `ACTIVE_WINDOW_END`, `PREFERRED_DELIVERY_TIME`, and
+  `SRS_REMINDER_TIME`.
+- The environment file provides global defaults. Per-user preferred delivery
+  time, active window, and optional daily card limit remain database-backed
+  overrides.
+- Plan quotas are explicit deployment settings:
+  `FREE_DAILY_CARD_LIMIT=3`, `SILVER_DAILY_CARD_LIMIT=12`, and
+  `GOLD_DAILY_CARD_LIMIT=30`.
+- Custom-word query quotas are also explicit:
+  `FREE_DAILY_WORD_QUERY_LIMIT=3`, `SILVER_DAILY_WORD_QUERY_LIMIT=16`, and
+  `GOLD_DAILY_WORD_QUERY_LIMIT=40`. `-1` means unlimited.
+- AI base URL, model, and API key in `.env` are bootstrap defaults only;
+  owner/admin runtime overrides remain supported. Real secrets must never be
+  committed.
+- `OWNER_BYPASS_LIMITS=false` is the production-safe default. Development
+  sessions may opt in explicitly.
+- `.env.example` is organized into beginner settings and an Advanced
+  scheduling/safety section. Advanced settings document units and safe
+  operational ranges.
+- SRS review intervals `[1, 3, 7, 16, 30]` remain product logic in code;
+  only the reminder time is deployment-configurable.
 
 ## Locked Product Decisions
 
@@ -385,6 +422,34 @@ After the core flow is stable, record:
 
 Use these measurements before introducing CEFR granularity, collocations,
 advanced personalization, or additional paid features.
+
+## Remaining ToDo
+
+### Next PR — Custom-word query improvements
+
+- Show `used / limit` before and after a custom-word query for every plan.
+- Add an idempotent inline `Add to review` action backed by a persistent
+  short-lived query-result identity.
+- Remove the standalone manual-save action from the primary menu while
+  retaining the internal saved-word capability.
+- Make duplicate saves safe for repeated callbacks.
+
+### Reliability and data lifecycle follow-ups
+
+- Add the owner-only two-step learning-data reset with scoped preservation of
+  AI settings.
+- Add explicit UI for per-user preferred delivery time, active window, and
+  optional daily card limit, using the application timezone.
+- Add timezone-aware per-user UI and migration coverage for existing
+  installations, including stored delivery timestamps.
+- Add provider cost/latency, validation, duplicate, delivery, and SRS usage
+  measurements before advanced personalization.
+
+### Later product phases
+
+- Premium smart placement testing for Silver and Gold.
+- Measurement-informed advanced learning and personalization.
+- Additional languages only through the canonical `catalog.py` registry.
 
 ## Out of Scope for the Current MVP
 

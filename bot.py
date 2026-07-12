@@ -5,6 +5,7 @@ import re
 import time
 import threading
 from collections import defaultdict, deque
+from zoneinfo import ZoneInfo
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -20,9 +21,8 @@ from telegram.ext import (
 from config import (
     BOT_TOKEN,
     OWNER_ID,
-    FREE_DAILY_WORD_LIMIT,
-    DAILY_SEND_HOUR,
-    SRS_SEND_HOUR,
+    APP_TIMEZONE,
+    SRS_REMINDER_MINUTE,
     DEFAULT_ACTIVE_START_MINUTE,
     DEFAULT_ACTIVE_END_MINUTE,
     DEFAULT_PREFERRED_DELIVERY_MINUTE,
@@ -37,7 +37,7 @@ from config import (
     SESSION_CARD_DELAY_SECONDS,
     PLANS,
     OWNER_BYPASS_LIMITS,
-    daily_card_count_for_plan,
+    daily_word_query_limit_for_plan,
     effective_daily_allowance,
     effective_plan,
 )
@@ -67,6 +67,7 @@ from keyboards import (
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("hamzaban")
+_app_timezone = ZoneInfo(APP_TIMEZONE)
 _daily_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 _ai_slots = threading.BoundedSemaphore(AI_MAX_CONCURRENCY)
 _ai_request_times: deque[float] = deque()
@@ -509,14 +510,16 @@ async def ask_for_add_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ask_for_ask_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    row = db.get_user(user_id)
+    plan = row["plan"] if row else "free"
+    limit = daily_word_query_limit_for_plan(plan)
     if not db.can_ask_word(
         user_id,
-        FREE_DAILY_WORD_LIMIT,
+        limit,
         bypass_limits=OWNER_BYPASS_LIMITS and is_owner(user_id),
     ):
         await update.message.reply_text(
-            f"سقف روزانه‌ی پرسش واژه‌ی رایگان ({FREE_DAILY_WORD_LIMIT} بار) تموم شده. "
-            "برای پرسش نامحدود، پلن نقره‌ای یا طلایی رو فعال کن."
+            f"سقف روزانه‌ی پرسش واژه‌ی پلن شما ({limit} بار) تموم شده."
         )
         return
     context.user_data["awaiting"] = "ask_word"
@@ -832,7 +835,7 @@ async def _send_with_retry(bot, chat_id: int, text: str):
 
 
 async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str):
-    now = datetime.datetime.utcnow().isoformat()
+    now = datetime.datetime.now(_app_timezone).isoformat()
     for queue_row in db.get_delivery_queue(delivery_date):
         if queue_row["planned_for"] > now:
             continue
@@ -880,7 +883,7 @@ async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str
 
 
 async def daily_job(context: ContextTypes.DEFAULT_TYPE):
-    today = datetime.date.today().isoformat()
+    today = datetime.datetime.now(_app_timezone).date().isoformat()
     stale_before = (datetime.datetime.utcnow() - datetime.timedelta(minutes=15)).isoformat()
     db.requeue_stale_deliveries(stale_before)
     await asyncio.to_thread(_plan_daily_queue, today)
@@ -888,7 +891,10 @@ async def daily_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def delivery_dispatch_job(context: ContextTypes.DEFAULT_TYPE):
-    await _dispatch_queue(context, datetime.date.today().isoformat())
+    await _dispatch_queue(
+        context,
+        datetime.datetime.now(_app_timezone).date().isoformat(),
+    )
 
 
 async def srs_job(context: ContextTypes.DEFAULT_TYPE):
@@ -932,9 +938,19 @@ def main():
     app.add_error_handler(error_handler)
 
     if app.job_queue:
-        app.job_queue.run_daily(daily_job, time=datetime.time(hour=0, minute=1))
+        app.job_queue.run_daily(
+            daily_job,
+            time=datetime.time(hour=0, minute=1, tzinfo=_app_timezone),
+        )
         app.job_queue.run_repeating(delivery_dispatch_job, interval=60, first=0)
-        app.job_queue.run_daily(srs_job, time=datetime.time(hour=SRS_SEND_HOUR, minute=0))
+        app.job_queue.run_daily(
+            srs_job,
+            time=datetime.time(
+                hour=SRS_REMINDER_MINUTE // 60,
+                minute=SRS_REMINDER_MINUTE % 60,
+                tzinfo=_app_timezone,
+            ),
+        )
 
     log.info("ربات هم‌زبان استارت شد.")
     app.run_polling()

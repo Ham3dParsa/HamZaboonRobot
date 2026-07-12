@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo
 
 
 @dataclass(frozen=True)
@@ -97,5 +98,9 @@ def plan_sessions(
     return sessions
 
 
-def planned_datetime(day: dt.date, minute: int) -> str:
-    return dt.datetime.combine(day, dt.time(minute // 60, minute % 60)).isoformat()
+def planned_datetime(day: dt.date, minute: int, timezone_name: str | None = None) -> str:
+    timezone = ZoneInfo(timezone_name) if timezone_name else None
+    return dt.datetime.combine(
+        day,
+        dt.time(minute // 60, minute % 60, tzinfo=timezone),
+    ).isoformat()

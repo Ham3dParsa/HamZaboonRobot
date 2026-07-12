@@ -14,13 +14,44 @@ DEFAULT_AI_API_KEY = os.getenv("AI_API_KEY", "")
 DEFAULT_AI_MODEL = os.getenv("AI_MODEL", "gapgpt-qwen-3.6")
 
 DB_PATH = os.getenv("DB_PATH", "hamzaban.db")
-DAILY_SEND_HOUR = int(os.getenv("DAILY_SEND_HOUR", "9"))
-SRS_SEND_HOUR = int(os.getenv("SRS_SEND_HOUR", "10"))
-FREE_DAILY_WORD_LIMIT = int(os.getenv("FREE_DAILY_WORD_LIMIT", "3"))
-DEFAULT_ACTIVE_START_MINUTE = int(os.getenv("ACTIVE_START_MINUTE", "480"))
-DEFAULT_ACTIVE_END_MINUTE = int(os.getenv("ACTIVE_END_MINUTE", "1260"))
-DEFAULT_PREFERRED_DELIVERY_MINUTE = int(
-    os.getenv("PREFERRED_DELIVERY_MINUTE", str(DAILY_SEND_HOUR * 60))
+APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Tehran")
+
+
+def _parse_clock(value: str, default: str) -> int:
+    raw = value or default
+    try:
+        hour_text, minute_text = raw.split(":", 1)
+        hour, minute = int(hour_text), int(minute_text)
+    except (AttributeError, ValueError):
+        raise ValueError(f"invalid clock value {raw!r}; expected HH:MM") from None
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        raise ValueError(f"invalid clock value {raw!r}; expected HH:MM")
+    return hour * 60 + minute
+
+
+def _clock_setting(name: str, default: str, legacy_name: str) -> int:
+    value = os.getenv(name)
+    if value is not None:
+        return _parse_clock(value, default)
+    legacy_value = os.getenv(legacy_name)
+    if legacy_value is not None:
+        return int(legacy_value)
+    return _parse_clock(default, default)
+
+
+DEFAULT_ACTIVE_START_MINUTE = _clock_setting(
+    "ACTIVE_WINDOW_START", "08:00", "ACTIVE_START_MINUTE"
+)
+DEFAULT_ACTIVE_END_MINUTE = _clock_setting(
+    "ACTIVE_WINDOW_END", "21:00", "ACTIVE_END_MINUTE"
+)
+DEFAULT_PREFERRED_DELIVERY_MINUTE = _clock_setting(
+    "PREFERRED_DELIVERY_TIME", "09:00", "PREFERRED_DELIVERY_MINUTE"
+)
+SRS_REMINDER_MINUTE = (
+    _parse_clock(os.getenv("SRS_REMINDER_TIME", "10:00"), "10:00")
+    if os.getenv("SRS_REMINDER_TIME") is not None
+    else int(os.getenv("SRS_SEND_HOUR", "10")) * 60
 )
 MIN_SESSIONS = int(os.getenv("MIN_SESSIONS", "3"))
 MAX_SESSIONS = int(os.getenv("MAX_SESSIONS", "6"))
@@ -32,10 +63,25 @@ AI_MAX_REQUESTS_PER_MINUTE = int(os.getenv("AI_MAX_REQUESTS_PER_MINUTE", "30"))
 TELEGRAM_MAX_CONCURRENCY = int(os.getenv("TELEGRAM_MAX_CONCURRENCY", "4"))
 SESSION_CARD_DELAY_SECONDS = float(os.getenv("SESSION_CARD_DELAY_SECONDS", "0.3"))
 
-FREE_DAILY_CARD_COUNT = int(os.getenv("FREE_DAILY_CARD_COUNT", "3"))
-SILVER_DAILY_CARD_COUNT = int(os.getenv("SILVER_DAILY_CARD_COUNT", "12"))
-GOLD_DAILY_CARD_COUNT = int(os.getenv("GOLD_DAILY_CARD_COUNT", "30"))
-OWNER_BYPASS_LIMITS = os.getenv("OWNER_BYPASS_LIMITS", "true").lower() in {"1", "true", "yes"}
+FREE_DAILY_CARD_LIMIT = int(
+    os.getenv("FREE_DAILY_CARD_LIMIT", os.getenv("FREE_DAILY_CARD_COUNT", "3"))
+)
+SILVER_DAILY_CARD_LIMIT = int(
+    os.getenv("SILVER_DAILY_CARD_LIMIT", os.getenv("SILVER_DAILY_CARD_COUNT", "12"))
+)
+GOLD_DAILY_CARD_LIMIT = int(
+    os.getenv("GOLD_DAILY_CARD_LIMIT", os.getenv("GOLD_DAILY_CARD_COUNT", "30"))
+)
+FREE_DAILY_WORD_QUERY_LIMIT = int(
+    os.getenv("FREE_DAILY_WORD_QUERY_LIMIT", os.getenv("FREE_DAILY_WORD_LIMIT", "3"))
+)
+SILVER_DAILY_WORD_QUERY_LIMIT = int(os.getenv("SILVER_DAILY_WORD_QUERY_LIMIT", "16"))
+GOLD_DAILY_WORD_QUERY_LIMIT = int(os.getenv("GOLD_DAILY_WORD_QUERY_LIMIT", "40"))
+OWNER_BYPASS_LIMITS = os.getenv("OWNER_BYPASS_LIMITS", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 
 PLANS = {
     "free": "رایگان",
@@ -46,10 +92,18 @@ PLANS = {
 
 def daily_card_count_for_plan(plan: str) -> int:
     return {
-        "free": FREE_DAILY_CARD_COUNT,
-        "silver": SILVER_DAILY_CARD_COUNT,
-        "gold": GOLD_DAILY_CARD_COUNT,
-    }.get(plan, FREE_DAILY_CARD_COUNT)
+        "free": FREE_DAILY_CARD_LIMIT,
+        "silver": SILVER_DAILY_CARD_LIMIT,
+        "gold": GOLD_DAILY_CARD_LIMIT,
+    }.get(plan, FREE_DAILY_CARD_LIMIT)
+
+
+def daily_word_query_limit_for_plan(plan: str) -> int:
+    return {
+        "free": FREE_DAILY_WORD_QUERY_LIMIT,
+        "silver": SILVER_DAILY_WORD_QUERY_LIMIT,
+        "gold": GOLD_DAILY_WORD_QUERY_LIMIT,
+    }.get(plan, FREE_DAILY_WORD_QUERY_LIMIT)
 
 
 def effective_plan(plan: str, bypass_limits: bool = False) -> str:

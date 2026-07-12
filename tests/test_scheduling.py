@@ -4,7 +4,7 @@ import tempfile
 import unittest
 
 import db
-from scheduling import plan_sessions, session_sizes
+from scheduling import plan_sessions, planned_datetime, session_sizes
 
 
 class SchedulingPolicyTests(unittest.TestCase):
@@ -39,6 +39,10 @@ class SchedulingPolicyTests(unittest.TestCase):
         sessions = plan_sessions(30, 600, 540, 900)
         self.assertEqual(sum(session.card_count for session in sessions), 30)
         self.assertTrue(all(540 <= session.planned_minute <= 900 for session in sessions))
+
+    def test_planned_datetime_uses_configured_timezone(self):
+        planned = planned_datetime(dt.date(2026, 7, 12), 540, "Asia/Tehran")
+        self.assertIn("09:00:00+03:30", planned)
 
 
 class DurableQueueTests(unittest.TestCase):
