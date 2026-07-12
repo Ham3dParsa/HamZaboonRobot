@@ -498,15 +498,15 @@
     "solution": "streak را روی اولین interaction معنادار روزانه بزنید، نه فقط روی job زمان‌بندی‌شده. این منطق باید از `send_daily_card_now` و delivery job به یک helper مشترک منتقل شود تا دستی/اتوماتیک هر دو یک منبع حقیقت داشته باشند.",
     "priority": "high",
     "note": "اگر می‌خواهید SRS یا مرورهای دیگر هم روز فعال را بشمارند، همان helper باید در آن مسیرها هم قابل استفاده باشد.",
-    "resolved": false,
+    "resolved": true,
     "detailOpen": false,
     "editing": false,
     "id": 28,
-    "status": "open",
+    "status": "resolved",
     "roadmap_refs": [
       "reliability-hardening"
     ],
-    "evidence": "bot.py:_dispatch_queue calls db.touch_streak(user_id), while send_daily_card_now does not",
+    "evidence": "bot.py now calls db.touch_streak(user_id) from the manual daily-card path, the grammar-tip path, the custom-word path, and the scheduled delivery path.",
     "last_reviewed": "2026-07-12"
   }
 ]

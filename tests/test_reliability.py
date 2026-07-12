@@ -32,6 +32,11 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertFalse(db.add_saved_word(1, "hello", "en"))
         self.assertEqual(len(db.due_words_for_user(1)), 0)
 
+    def test_touch_streak_is_idempotent_within_a_day(self):
+        db.create_user_if_needed(1, "learner")
+        self.assertEqual(db.touch_streak(1), 1)
+        self.assertEqual(db.touch_streak(1), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -550,8 +550,6 @@ a separate lesson system.
   installations, including stored delivery timestamps.
 - Add provider cost/latency, validation, duplicate, delivery, and SRS usage
   measurements before advanced personalization.
-- Increment the streak on the first meaningful learning interaction of the day,
-  not only when the scheduled delivery job happens to run.
 - Expand tests around callback authorization, provider failures, Telegram retry
   behavior, SRS chunking, migrations, and reset safeguards.
 
@@ -583,6 +581,12 @@ a separate lesson system.
 - Keep `issues/issues.json` as the canonical issue source, validate it with
   `issues/validate.py`; generate the Markdown report or HTML fallback only
   when a human review snapshot is needed.
+
+### Delivered reliability fixes
+
+- Streak now updates on the first meaningful daily learning interaction, so
+  manual card requests and core learning flows stay aligned with scheduled
+  delivery.
 
 ## Out of Scope for the Current MVP
 
