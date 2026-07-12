@@ -561,12 +561,6 @@ a separate lesson system.
 - Paginate review-history navigation by week or month so long histories do not
   turn into an unwieldy date list.
 
-### Daily-session consistency follow-ups
-
-- Lock daily-card sessions to the language / goal / level snapshot that was
-  active when the first card of that day was generated, so mid-session profile
-  changes cannot mix languages inside one daily allowance.
-
 ### Later product phases
 
 - Premium smart placement testing for Silver and Gold.
@@ -589,6 +583,9 @@ a separate lesson system.
 - Startup catch-up now replays missed `daily_job`, `delivery_dispatch_job`,
   and `srs_job` work shortly after process start so downtime does not skip
   queue planning or reminders.
+- Daily-card sessions now lock to the first generated language / goal / level
+  snapshot for that day, so mid-session profile edits cannot mix languages
+  inside one allowance.
 - Streak now updates on the first meaningful user interaction of the day, so
   manual card requests and core learning flows count while scheduled delivery
   only reports the current streak.

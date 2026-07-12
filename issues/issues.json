@@ -460,15 +460,15 @@
     "solution": "برای هر روز یک snapshot از target_lang / goal / level را lock کنید و همان snapshot را تا پایان allowance همان روز استفاده کنید؛ تغییر profile باید فقط روی sessionهای بعدی اثر بگذارد یا reset صریح بخواهد. یا مثلا نوعی هشدار به کاربر داده شود که ربات از این نظر چگونه عمل خواهد کرد.",
     "priority": "high",
     "note": "این باگ در حساب owner با bypass limits راحت‌تر دیده می‌شود، اما یک risk correctness برای همه‌ی کاربران است.",
-    "resolved": false,
-    "status": "open",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 26,
     "roadmap_refs": [
       "reliability-hardening"
     ],
-    "evidence": "bot.py:_ensure_next_daily_card reads the live user row when generating additional cards; daily_cards schema has no per-day profile snapshot",
+    "evidence": "bot.py now calls db.ensure_daily_card_session() before generating daily cards, and reuses the stored target_lang/goal/level snapshot for the rest of that day.",
     "last_reviewed": "2026-07-12"
   },
   {

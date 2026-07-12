@@ -514,16 +514,28 @@ def _generate_daily_batch(
     return cards
 
 
+def _daily_card_session_profile(user_id: int, row, card_date: str):
+    session = db.ensure_daily_card_session(
+        user_id,
+        card_date,
+        row["target_lang"],
+        row["goal"],
+        row["level"],
+    )
+    return session
+
+
 def _ensure_daily_cards(user_id: int, row, card_date: str, limit: int) -> list[dict]:
+    session = _daily_card_session_profile(user_id, row, card_date)
     cards = db.get_daily_cards(user_id, card_date)
     if len(cards) >= limit:
         return cards
 
     used_words = [str(card.get("word", "")) for card in cards]
     new_cards = _generate_daily_batch(
-        row["target_lang"],
-        row["goal"],
-        row["level"],
+        session["target_lang"],
+        session["goal"],
+        session["level"],
         limit - len(cards),
         used_words,
     )
@@ -533,6 +545,7 @@ def _ensure_daily_cards(user_id: int, row, card_date: str, limit: int) -> list[d
 
 
 def _ensure_scheduled_session_cards(user_id: int, row, queue_row) -> list[dict]:
+    session = _daily_card_session_profile(user_id, row, queue_row["delivery_date"])
     existing = db.get_daily_cards(user_id, queue_row["delivery_date"])
     start = queue_row["card_start_index"]
     end = start + queue_row["card_count"]
@@ -544,9 +557,9 @@ def _ensure_scheduled_session_cards(user_id: int, row, queue_row) -> list[dict]:
     while len(existing) + len(cards) < end:
         remaining = end - len(existing) - len(cards)
         batch = _generate_daily_batch(
-            row["target_lang"],
-            row["goal"],
-            row["level"],
+            session["target_lang"],
+            session["goal"],
+            session["level"],
             min(6, remaining),
             used_words + [card["word"] for card in cards],
         )
@@ -559,6 +572,7 @@ def _ensure_scheduled_session_cards(user_id: int, row, queue_row) -> list[dict]:
 
 
 def _ensure_next_daily_card(user_id: int, row, card_date: str, limit: int) -> tuple[dict | None, int]:
+    session = _daily_card_session_profile(user_id, row, card_date)
     next_index = db.get_daily_progress(user_id, card_date)
     if next_index >= limit:
         return None, next_index
@@ -568,9 +582,9 @@ def _ensure_next_daily_card(user_id: int, row, card_date: str, limit: int) -> tu
         used_words = [str(card.get("word", "")) for card in cards]
         remaining = limit - len(cards)
         new_cards = _generate_daily_batch(
-            row["target_lang"],
-            row["goal"],
-            row["level"],
+            session["target_lang"],
+            session["goal"],
+            session["level"],
             min(_MANUAL_DAILY_BATCH_SIZE, remaining),
             used_words,
         )
