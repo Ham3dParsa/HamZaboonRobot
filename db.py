@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import datetime
+import secrets
 from contextlib import contextmanager
 from zoneinfo import ZoneInfo
 from scheduling import planned_datetime
@@ -109,6 +110,18 @@ def init_db():
                 retry_at TEXT,
                 UNIQUE(user_id, delivery_date, session_index)
             );
+            CREATE TABLE IF NOT EXISTS query_results (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                query_text TEXT NOT NULL,
+                word TEXT NOT NULL,
+                lang TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                saved_at TEXT,
+                saved_word_id INTEGER
+            );
             """
         )
         columns = {
@@ -165,6 +178,10 @@ def init_db():
         }
         for k, v in defaults.items():
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
+        conn.execute(
+            "DELETE FROM query_results WHERE expires_at<?",
+            (_utc_now().isoformat(),),
+        )
         conn.commit()
 
 
@@ -300,6 +317,73 @@ def reserve_word_query(user_id: int, daily_limit: int, bypass_limits: bool = Fal
         )
         conn.commit()
         return True
+
+
+def _query_result_expired(row) -> bool:
+    return row is not None and row["expires_at"] <= _utc_now().isoformat()
+
+
+def create_query_result(
+    user_id: int,
+    query_text: str,
+    word: str,
+    lang: str,
+    result_data: dict,
+    ttl_seconds: int = 24 * 60 * 60,
+) -> str:
+    token = secrets.token_hex(16)
+    now = _utc_now()
+    expires_at = now + datetime.timedelta(seconds=ttl_seconds)
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO query_results("
+            "token, user_id, query_text, word, lang, result_json, created_at, expires_at"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                token,
+                user_id,
+                " ".join(query_text.split()),
+                " ".join(word.split()),
+                lang,
+                json.dumps(result_data, ensure_ascii=False),
+                now.isoformat(),
+                expires_at.isoformat(),
+            ),
+        )
+        conn.commit()
+    return token
+
+
+def get_query_result(token: str, user_id: int | None = None, include_expired: bool = False):
+    with get_conn() as conn:
+        params = [token]
+        query = "SELECT * FROM query_results WHERE token=?"
+        if user_id is not None:
+            query += " AND user_id=?"
+            params.append(user_id)
+        row = conn.execute(query, params).fetchone()
+    if row and not include_expired and _query_result_expired(row):
+        return None
+    return row
+
+
+def mark_query_result_saved(token: str, saved_word_id: int | None = None):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE query_results SET saved_at=COALESCE(saved_at, ?), "
+            "saved_word_id=COALESCE(saved_word_id, ?) WHERE token=?",
+            (_utc_now().isoformat(), saved_word_id, token),
+        )
+        conn.commit()
+
+
+def cleanup_expired_query_results():
+    with get_conn() as conn:
+        conn.execute(
+            "DELETE FROM query_results WHERE expires_at<?",
+            (_utc_now().isoformat(),),
+        )
+        conn.commit()
 
 
 def all_active_users():
