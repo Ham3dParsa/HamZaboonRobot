@@ -81,7 +81,7 @@ and protected learning-data reset described below.
 
 1. Prefer one reliable, validated content contract over loosely structured AI
    output.
-2. Generate content in batches to reduce prompt overhead, latency, and
+2. Generate content in batches of 2-6 to reduce prompt overhead, latency, and
    duplicate vocabulary where batch generation is appropriate; do not
    pre-generate content that a manual user has not requested.
 3. Cache generated daily content before sending it.
