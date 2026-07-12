@@ -1,4 +1,4 @@
-# Daily-card batching audit
+# Daily-card batching and LLM wait-state UX audit
 
 ## Scope
 Reviewed the current batching mechanism for:
@@ -20,6 +20,11 @@ Reviewed the current batching mechanism for:
 - There is no shared batch reservoir that lets the first manual request prime a 2–6 card batch for later requests.
 - Result: repeated manual clicks still incur fresh LLM work instead of reusing a pre-generated batch.
 
+### Waiting-state UX
+- The main LLM-backed manual paths already call `chat_action("typing")` before waiting.
+- That gives a subtle Telegram signal, but it is not a user-visible loading message or animation.
+- There is no shared helper that standardizes the waiting experience across all LLM-backed commands.
+
 ## Findings
 
 1. **Auto flow is partially batched and already efficient enough for MVP delivery.**
@@ -34,13 +39,19 @@ Reviewed the current batching mechanism for:
    - That keeps the current implementation simple.
    - It also means the manual path cannot benefit from the same batch efficiency as scheduled delivery.
 
+4. **The waiting experience is only partially addressed.**
+   - `typing` is good baseline feedback, but it is easy to miss.
+   - A shared helper could add a short visible “در حال تولید…” style response and keep the UX consistent across daily cards, grammar tips, and custom-word lookups.
+
 ## Recommendation
 
 - Keep the current scheduled batching behavior.
 - Add a shared daily-card batch reservoir for manual requests so the first interaction can prime a small batch, then later clicks read from storage.
 - Reuse the same generation helper, but keep manual and automatic consumption separate so user-triggered and auto-delivery state do not leak into each other.
+- Add a shared waiting-state helper for all user-triggered LLM calls so the user sees a clear “still working” signal while the model responds.
 
 ## Related roadmap / issue notes
 
 - `ROADMAP.md` now calls out a shared batch reservoir as a reliability follow-up.
-- `issues/issues.json` records the manual daily-card batching gap as issue `29`.
+- `ROADMAP.md` now also calls out a shared LLM wait-state UX helper for manual learning flows.
+- `issues/issues.json` records the manual daily-card batching gap as issue `29` and the loading-feedback gap as issue `30`.
