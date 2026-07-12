@@ -451,5 +451,43 @@
     ],
     "evidence": "bot.py:_show_review_menu currently renders db.get_recent_daily_card_dates(... limit=7) as a flat keyboard",
     "last_reviewed": "2026-07-12"
+  },
+  {
+    "title": "daily card session با تغییر زبان وسط روز زبان‌ها را قاطی می‌کند",
+    "module": "bot.py / db.py",
+    "func": "send_daily_card_now / _ensure_next_daily_card / callback_router",
+    "problem": "daily_cards فقط بر اساس user/date/index ذخیره می‌شوند. اگر کاربر وسط allowance روزانه زبان، هدف یا سطحش را عوض کند، کارت‌های باقی‌مانده‌ی همان روز می‌توانند با profile جدید تولید شوند و یک session ترکیبی بسازند.",
+    "solution": "برای هر روز یک snapshot از target_lang / goal / level را lock کنید و همان snapshot را تا پایان allowance همان روز استفاده کنید؛ تغییر profile باید فقط روی sessionهای بعدی اثر بگذارد یا reset صریح بخواهد.",
+    "priority": "high",
+    "note": "این باگ در حساب owner با bypass limits راحت‌تر دیده می‌شود، اما یک risk correctness برای همه‌ی کاربران است.",
+    "resolved": false,
+    "detailOpen": false,
+    "editing": false,
+    "id": 26,
+    "status": "open",
+    "roadmap_refs": [
+      "reliability-hardening"
+    ],
+    "evidence": "bot.py:_ensure_next_daily_card reads the live user row when generating additional cards; daily_cards schema has no per-day profile snapshot",
+    "last_reviewed": "2026-07-12"
+  },
+  {
+    "title": "issues.json phase-aware grouping ندارد",
+    "module": "issues/issues.json / issues/issues.html",
+    "func": "schema / explorer filters",
+    "problem": "فقط status، priority و roadmap_refs ذخیره می‌شوند؛ برای batchهای مبتنی بر phase یا alignment دقیق‌تر با ROADMAP.md یک فیلد صریح phase وجود ندارد و UI هم آن را نشان نمی‌دهد.",
+    "solution": "یک فیلد اختیاری phase به schema اضافه کنید، آن را در issues.html فیلتر/badge کنید، و در validate چک کنید که phaseها با بخش‌های roadmap هم‌راستا بمانند.",
+    "priority": "medium",
+    "note": "این یک بهبود ساختاری است و باید بدون شکستن backward compatibility اضافه شود.",
+    "resolved": false,
+    "detailOpen": false,
+    "editing": false,
+    "id": 27,
+    "status": "open",
+    "roadmap_refs": [
+      "issue-tooling"
+    ],
+    "evidence": "issues/issues.json currently stores status/priority/roadmap_refs only; issues/issues.html renders from that structure",
+    "last_reviewed": "2026-07-12"
   }
 ]

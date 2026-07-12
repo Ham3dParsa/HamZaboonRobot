@@ -118,6 +118,10 @@ The issue-tooling ownership is locked: `issues/issues.json` is canonical,
 `issues/issues.html` reads the canonical data, and `hamzaban-issues.md` is an
 optional export generated only when a review snapshot is needed.
 
+- Issue records may gain optional `phase` tags later so roadmap-stage grouping
+  stays explicit, but `roadmap_refs` remains the primary link back to the
+  roadmap text.
+
 ## Locked Architectural Decision
 
 ### Canonical Language and Learning-Option Registry
@@ -561,6 +565,12 @@ a separate lesson system.
   multi-language review flows.
 - Paginate review-history navigation by week or month so long histories do not
   turn into an unwieldy date list.
+
+### Daily-session consistency follow-ups
+
+- Lock daily-card sessions to the language / goal / level snapshot that was
+  active when the first card of that day was generated, so mid-session profile
+  changes cannot mix languages inside one daily allowance.
 
 ### Later product phases
 
