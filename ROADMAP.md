@@ -37,7 +37,7 @@ The next implementation work is the on-demand interactive card flow,
 custom-word usage visibility, one-action SRS capture, concurrency isolation,
 and protected learning-data reset described below.
 
-## Proposed Architectural Decision — Pending Lock
+## Locked Architectural Decision
 
 ### Canonical Language and Learning-Option Registry
 
@@ -66,11 +66,12 @@ each supported identifier must have exactly one registered source of truth.
 Existing database values and callback identifiers must remain backward
 compatible during migration.
 
-**Decision to lock:** choose whether the canonical registry lives in a
-dedicated module such as `catalog.py`/`domain_options.py`, or whether
-`config.py` is the canonical owner and other modules import from it. Do not
-implement the next language addition until this choice and the registry
-contract are confirmed.
+**Locked decision:** the canonical registry lives in a dedicated module named
+`catalog.py` (or the equivalent `domain_options.py` if the implementation
+needs a more domain-oriented name). `config.py` remains responsible for
+runtime and deployment settings only; `prompts.py`, `bot.py`, and
+`keyboards.py` import the registry instead of defining parallel option maps.
+The next language addition must use this contract.
 
 **Acceptance criteria**
 
