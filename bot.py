@@ -92,6 +92,7 @@ _ai_request_lock = threading.Lock()
 _telegram_slots = asyncio.Semaphore(TELEGRAM_MAX_CONCURRENCY)
 _CUSTOM_WORD_MAX_CHARS = 42
 _CUSTOM_WORD_MAX_WORDS = 3
+_MANUAL_DAILY_BATCH_SIZE = 6
 _CANCEL_INPUTS = {
     "cancel",
     "back",
@@ -565,16 +566,18 @@ def _ensure_next_daily_card(user_id: int, row, card_date: str, limit: int) -> tu
     cards = db.get_daily_cards(user_id, card_date)
     if next_index >= len(cards):
         used_words = [str(card.get("word", "")) for card in cards]
+        remaining = limit - len(cards)
         new_cards = _generate_daily_batch(
             row["target_lang"],
             row["goal"],
             row["level"],
-            1,
+            min(_MANUAL_DAILY_BATCH_SIZE, remaining),
             used_words,
         )
         if not new_cards:
             raise RuntimeError("AI returned no card for the requested daily card")
-        db.add_daily_card(user_id, card_date, len(cards), new_cards[0])
+        for offset, card in enumerate(new_cards):
+            db.add_daily_card(user_id, card_date, len(cards) + offset, card)
         cards = db.get_daily_cards(user_id, card_date)
 
     card = cards[next_index]
@@ -1284,6 +1287,14 @@ async def daily_job(context: ContextTypes.DEFAULT_TYPE):
     await _dispatch_queue(context, today)
 
 
+async def startup_catch_up_job(context: ContextTypes.DEFAULT_TYPE):
+    for job in (daily_job, delivery_dispatch_job, srs_job):
+        try:
+            await job(context)
+        except Exception:
+            log.exception("startup catch-up job failed for %s", job.__name__)
+
+
 async def delivery_dispatch_job(context: ContextTypes.DEFAULT_TYPE):
     await _dispatch_queue(
         context,
@@ -1347,6 +1358,7 @@ def main():
     app.add_error_handler(error_handler)
 
     if app.job_queue:
+        app.job_queue.run_once(startup_catch_up_job, when=1)
         app.job_queue.run_daily(
             daily_job,
             time=datetime.time(hour=0, minute=1, tzinfo=_app_timezone),

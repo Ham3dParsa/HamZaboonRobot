@@ -2,7 +2,9 @@ import datetime as dt
 import os
 import tempfile
 import unittest
+from unittest.mock import AsyncMock, patch
 
+import bot
 import db
 from scheduling import plan_sessions, planned_datetime, session_sizes
 
@@ -86,6 +88,21 @@ class DurableQueueTests(unittest.TestCase):
         self.assertIsNone(db.claim_delivery_queue(row["id"]))
         db.mark_delivery_failed(row["id"], "permanent", terminal=True)
         self.assertIsNone(db.claim_delivery_queue(row["id"]))
+
+
+class StartupCatchUpTests(unittest.IsolatedAsyncioTestCase):
+    async def test_startup_catch_up_runs_scheduled_jobs_in_order(self):
+        context = object()
+        with (
+            patch.object(bot, "daily_job", new=AsyncMock()) as daily_job,
+            patch.object(bot, "delivery_dispatch_job", new=AsyncMock()) as delivery_dispatch_job,
+            patch.object(bot, "srs_job", new=AsyncMock()) as srs_job,
+        ):
+            await bot.startup_catch_up_job(context)
+
+        daily_job.assert_awaited_once_with(context)
+        delivery_dispatch_job.assert_awaited_once_with(context)
+        srs_job.assert_awaited_once_with(context)
 
 
 if __name__ == "__main__":
