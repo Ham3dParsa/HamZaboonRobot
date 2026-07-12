@@ -54,11 +54,24 @@ and protected learning-data reset described below.
   the plan allowance.
 - LLM generation batches and learner-facing delivery sessions are separate
   concepts. LLM batches are usually 2–6 cards for efficiency; delivery
-  sessions follow the plan-specific learning templates below.
-- The default learning-session templates are:
-  - Free: 3 sessions/day × 1 card/session
-  - Silver: 6 sessions/day × 2 cards/session
-  - Gold: 10 sessions/day × 3 cards/session
+  sessions are derived from the effective allowance and active delivery window.
+- Session sizing uses a plan-agnostic formula rather than a plan-name lookup:
+  - Let `L` be the effective daily allowance.
+  - Target roughly 3 cards per learner-facing session.
+  - Choose `S = min(L, max_sessions, max(min_sessions, ceil(L / 3)))`,
+    further constrained by the number of feasible time slots in the user's
+    active window.
+  - Partition `L` as evenly as possible across `S` sessions; session sizes
+    may differ by at most one card.
+- The default educational bounds are configurable policy constants:
+  `min_sessions = 3`, `max_sessions = 6`, and `target_cards_per_session = 3`.
+  They are not tied to Free, Silver, or Gold, so new plans inherit the same
+  behavior automatically.
+- Examples of the formula:
+  - `L=4` → 3 sessions containing 2, 1, and 1 cards
+  - `L=12` → 4 sessions of 3 cards
+  - `L=24` → 6 sessions of 4 cards
+  - `L=30` → 6 sessions of 5 cards
 - Users can choose a preferred delivery start time. It is a soft target, not
   a promise that all users will receive content at the exact same minute.
 - The scheduler spreads sessions across the user's active day and shifts them
@@ -187,8 +200,8 @@ The shared storage and validation layer must:
 - A manual first-card request creates at most one new card.
 - A scheduled delivery never generates the user's entire daily allowance just
   because the day started.
-- A scheduled session respects the plan template and the effective daily
-  allowance.
+- A scheduled session respects the formula-derived session count and the
+  effective daily allowance.
 - No daily batch contains duplicate normalized words.
 - A partial or malformed response does not discard valid cards.
 - Manual and automatic flows can reuse the same persisted cards without
@@ -276,7 +289,8 @@ user. Add:
   configured default hour.
 - Preferred delivery times are respected when capacity allows and shifted
   predictably when capacity is saturated.
-- Each plan's session template remains educationally bounded.
+- Session sizes remain within the configured educational bounds, regardless of
+  plan names or the number of plans.
 - Manual retrieval and scheduled delivery remain consistent without sharing a
   global blocking queue.
 - A reset cannot be triggered by a non-owner or a single accidental click.
