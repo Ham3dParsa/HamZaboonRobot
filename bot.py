@@ -520,6 +520,7 @@ async def _send_next_daily_card(
         )
         return
 
+    db.touch_streak(user_id)
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=format_card(
@@ -601,6 +602,7 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = f"✍️ *{title}*\n\n{explanation}\n\n`{example}`\n\n{escape_mdv2(usage_text)}"
 
+    db.touch_streak(user_id)
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
 
 
@@ -800,6 +802,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 row["target_lang"] if row else "en",
                 data,
             )
+            db.touch_streak(user_id)
             await update.message.reply_text(
                 format_card(
                     data,
@@ -1096,7 +1099,7 @@ async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str
                 row["optional_daily_limit"],
                 OWNER_BYPASS_LIMITS and is_owner(user_id),
             )
-            streak = db.touch_streak(user_id)
+            streak = row["streak"] or 0
             for offset, card in enumerate(cards[claimed["sent_count"] :], start=claimed["sent_count"]):
                 await _send_with_retry(
                     context.bot,
