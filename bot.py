@@ -33,6 +33,8 @@ from config import (
     SCHEDULER_BUCKET_CAPACITY,
     AI_MAX_CONCURRENCY,
     AI_MAX_REQUESTS_PER_MINUTE,
+    DELIVERY_MAX_ATTEMPTS,
+    DELIVERY_RETRY_BASE_SECONDS,
     TELEGRAM_MAX_CONCURRENCY,
     SESSION_CARD_DELAY_SECONDS,
     PLANS,
@@ -44,9 +46,17 @@ from config import (
 import db
 import ai
 import prompts
-from catalog import LEVELS, goal_label, language_label, level_cefr, level_label
+from catalog import (
+    GOALS,
+    LANGUAGES,
+    LEVELS,
+    goal_label,
+    language_label,
+    level_cefr,
+    level_label,
+)
 from scheduling import plan_sessions
-from telegram.error import NetworkError, RetryAfter, TimedOut
+from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 from keyboards import (
     main_menu,
     lang_inline_keyboard,
@@ -75,7 +85,7 @@ _ai_request_lock = threading.Lock()
 _telegram_slots = asyncio.Semaphore(TELEGRAM_MAX_CONCURRENCY)
 
 
-def _ask_batch_limited(*args, **kwargs):
+def _call_ai_limited(function, *args, **kwargs):
     _ai_slots.acquire()
     try:
         while True:
@@ -87,9 +97,18 @@ def _ask_batch_limited(*args, **kwargs):
                     _ai_request_times.append(now)
                     break
             time.sleep(0.25)
-        return ai.ask_batch(*args, **kwargs)
+        return function(*args, **kwargs)
     finally:
         _ai_slots.release()
+
+
+def _ask_batch_limited(*args, **kwargs):
+    return _call_ai_limited(ai.ask_batch, *args, **kwargs)
+
+
+def _app_today() -> str:
+    return datetime.datetime.now(_app_timezone).date().isoformat()
+
 
 def escape_mdv2(text: str) -> str:
     """Escape کامل‌تر برای MarkdownV2"""
@@ -457,7 +476,7 @@ async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("اول باید /start رو بزنی.")
         return
 
-    today = datetime.date.today().isoformat()
+    today = _app_today()
     plan = _user_plan(row)
     limit = effective_daily_allowance(
         row["plan"] or "free",
@@ -481,12 +500,14 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.chat.send_action("typing")
     try:
-        data = ai.ask_json(
+        data = await asyncio.to_thread(
+            _call_ai_limited,
+            ai.ask_json,
             prompts.grammar_tip_system_prompt(
                 row["target_lang"],
                 row["goal"],
                 row["level"],
-            )
+            ),
         )
     except Exception:
         log.exception("AI error")
@@ -611,15 +632,31 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if awaiting == "add_word":
             row = db.get_user(user_id)
-            db.add_saved_word(user_id, text, row["target_lang"] if row else "en")
-            await update.message.reply_text(f"واژه‌ی «{text}» ثبت شد؛ سر وقتش برات یادآوری می‌کنم. ✅")
+            added = db.add_saved_word(user_id, text, row["target_lang"] if row else "en")
+            if added:
+                message = f"واژه‌ی «{text}» ثبت شد؛ سر وقتش برات یادآوری می‌کنم. ✅"
+            else:
+                message = f"واژه‌ی «{text}» قبلاً در فهرست مرور شما ثبت شده است."
+            await update.message.reply_text(message)
             return
 
         if awaiting == "ask_word":
             row = db.get_user(user_id)
+            limit = daily_word_query_limit_for_plan(row["plan"] if row else "free")
+            if not db.reserve_word_query(
+                user_id,
+                limit,
+                bypass_limits=OWNER_BYPASS_LIMITS and is_owner(user_id),
+            ):
+                await update.message.reply_text(
+                    f"سقف روزانه‌ی پرسش واژه‌ی پلن شما ({limit} بار) تموم شده."
+                )
+                return
             await update.message.chat.send_action("typing")
             try:
-                data = ai.ask_card(
+                data = await asyncio.to_thread(
+                    _call_ai_limited,
+                    ai.ask_card,
                     prompts.custom_word_system_prompt(
                         row["target_lang"],
                         row["level"],
@@ -630,7 +667,6 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 log.exception("AI error")
                 await update.message.reply_text("مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.")
                 return
-            db.increment_word_ask(user_id)
             await update.message.reply_text(format_card(data), parse_mode=ParseMode.MARKDOWN_V2)
             return
 
@@ -675,10 +711,10 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sent = 0
             for u in users:
                 try:
-                    await context.bot.send_message(chat_id=u["user_id"], text=text)
+                    await _send_with_retry(context.bot, u["user_id"], text)
                     sent += 1
                 except Exception:
-                    pass
+                    log.exception("Broadcast failed for user %s", u["user_id"])
             await update.message.reply_text(f"پیام برای {sent} کاربر ارسال شد.")
             return
 
@@ -713,6 +749,9 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if data.startswith("lang:"):
         lang = data.split(":", 1)[1]
+        if lang not in LANGUAGES:
+            await update.callback_query.answer("زبان نامعتبر است.", show_alert=True)
+            return
         row = db.get_user(update.effective_user.id)
         if row and row["onboarded"]:
             await on_lang_changed(update, context, lang)      # تغییر زبان
@@ -720,6 +759,9 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await on_lang_selected(update, context, lang)     # onboarding
     elif data.startswith("goal:"):
         goal = data.split(":", 1)[1]
+        if goal not in GOALS:
+            await update.callback_query.answer("هدف نامعتبر است.", show_alert=True)
+            return
         row = db.get_user(update.effective_user.id)
         if row and row["onboarded"]:
             await on_goal_changed(update, context, goal)      # تغییر هدف
@@ -741,7 +783,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
             return
         target_user_id_text, card_date, current_index_text = parts[2], parts[3], parts[4]
-        today = datetime.date.today().isoformat()
+        today = _app_today()
         if card_date != today:
             await update.callback_query.answer("این کارت مربوط به روز گذشته است.", show_alert=True)
             return
@@ -815,15 +857,22 @@ def _plan_daily_queue(delivery_date: str):
         db.enqueue_delivery_sessions(user_id, delivery_date, sessions)
 
 
-async def _send_with_retry(bot, chat_id: int, text: str):
+async def _send_with_retry(
+    bot,
+    chat_id: int,
+    text: str,
+    *,
+    parse_mode: str | None = None,
+):
     for attempt in range(3):
         try:
             async with _telegram_slots:
-                return await bot.send_message(
-                    chat_id=chat_id,
-                    text=text,
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                )
+                kwargs = {"chat_id": chat_id, "text": text}
+                if parse_mode is not None:
+                    kwargs["parse_mode"] = parse_mode
+                return await bot.send_message(**kwargs)
+        except BadRequest:
+            raise
         except RetryAfter as exc:
             if attempt == 2:
                 raise
@@ -872,20 +921,41 @@ async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str
                             f"{claimed['card_start_index'] + offset + 1} از {limit}"
                         ),
                     ),
+                    parse_mode=ParseMode.MARKDOWN_V2,
                 )
                 db.advance_delivery_progress(claimed["id"], offset + 1)
                 if offset + 1 < len(cards):
                     await asyncio.sleep(SESSION_CARD_DELAY_SECONDS)
             db.mark_delivery_sent(claimed["id"])
         except Exception as exc:
-            db.mark_delivery_failed(claimed["id"], repr(exc))
+            attempts = claimed["attempts"]
+            if attempts >= DELIVERY_MAX_ATTEMPTS:
+                db.mark_delivery_failed(
+                    claimed["id"],
+                    repr(exc),
+                    terminal=True,
+                )
+            else:
+                delay = DELIVERY_RETRY_BASE_SECONDS * (2 ** (attempts - 1))
+                retry_at = (
+                    datetime.datetime.now(datetime.timezone.utc)
+                    + datetime.timedelta(seconds=delay)
+                ).isoformat()
+                db.mark_delivery_failed(
+                    claimed["id"],
+                    repr(exc),
+                    retry_at=retry_at,
+                )
             log.exception("scheduled delivery failed for user %s", user_id)
 
 
 async def daily_job(context: ContextTypes.DEFAULT_TYPE):
     today = datetime.datetime.now(_app_timezone).date().isoformat()
-    stale_before = (datetime.datetime.utcnow() - datetime.timedelta(minutes=15)).isoformat()
-    db.requeue_stale_deliveries(stale_before)
+    stale_before = (
+        datetime.datetime.now(datetime.timezone.utc)
+        - datetime.timedelta(minutes=15)
+    ).isoformat()
+    db.requeue_stale_deliveries(stale_before, DELIVERY_MAX_ATTEMPTS)
     await asyncio.to_thread(_plan_daily_queue, today)
     await _dispatch_queue(context, today)
 
@@ -893,7 +963,7 @@ async def daily_job(context: ContextTypes.DEFAULT_TYPE):
 async def delivery_dispatch_job(context: ContextTypes.DEFAULT_TYPE):
     await _dispatch_queue(
         context,
-        datetime.datetime.now(_app_timezone).date().isoformat(),
+        _app_today(),
     )
 
 
@@ -905,18 +975,33 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
             due = db.due_words_for_user(user_id)
             if not due:
                 continue
-            words = "\n".join(f"• {escape_mdv2(w['word'])}" for w in due)
-            text = (
-                f"⏰ *وقت مرور {len(due)} واژه‌ست:*\n\n{words}\n\n"
-                "سعی کن معنی هرکدوم رو یادت بیاری، بعد چک کن\\."
-            )
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=text,
-                parse_mode=ParseMode.MARKDOWN_V2,
-            )
-            for w in due:
-                db.advance_word_review(w["id"])
+            chunks: list[list] = []
+            current: list = []
+            current_length = 0
+            for word in due:
+                line = f"• {escape_mdv2(word['word'])}\n"
+                if current and current_length + len(line) > 3500:
+                    chunks.append(current)
+                    current = []
+                    current_length = 0
+                current.append(word)
+                current_length += len(line)
+            if current:
+                chunks.append(current)
+            for chunk in chunks:
+                words = "\n".join(f"• {escape_mdv2(w['word'])}" for w in chunk)
+                text = (
+                    f"⏰ *وقت مرور {len(chunk)} واژه‌ست:*\n\n{words}\n\n"
+                    "سعی کن معنی هرکدوم رو یادت بیاری، بعد چک کن\\."
+                )
+                await _send_with_retry(
+                    context.bot,
+                    user_id,
+                    text,
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                )
+                for word in chunk:
+                    db.advance_word_review(word["id"])
         except Exception:
             log.exception(f"srs_job failed for user {user_id}")
 

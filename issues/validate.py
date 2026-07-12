@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Validate and synchronize the issue-review artifacts.
+"""Validate the canonical issue registry and optionally export its views.
 
-The canonical source is ``issues.json``. The HTML app and Markdown report are
-generated views of that file.
+The canonical source is ``issues.json``. The HTML app reads it, while the
+Markdown report and embedded HTML fallback are optional exports.
 
 Usage:
   python issues/validate.py check
@@ -179,18 +179,6 @@ def synchronize(issues: list[dict]) -> None:
 def check() -> int:
     issues = load_data()
     validate_issues(issues)
-    expected_markdown = render_markdown(issues)
-    actual_markdown = MARKDOWN_PATH.read_text(encoding="utf-8")
-    if actual_markdown != expected_markdown:
-        raise ValueError("hamzaban-issues.md is stale; run `validate.py sync`")
-    html = HTML_PATH.read_text(encoding="utf-8")
-    pattern = re.compile(
-        re.escape(DATA_START) + r".*?" + re.escape(DATA_END),
-        flags=re.DOTALL,
-    )
-    match = pattern.search(html)
-    if match is None or match.group(0) != render_html_data(issues):
-        raise ValueError("issues.html generated data is stale; run `validate.py sync`")
     print(f"Valid: {len(issues)} issues")
     return 0
 
@@ -214,8 +202,9 @@ def main(argv: list[str]) -> int:
             return 1
         source = Path(argv[2])
         imported = load_data(source)
-        synchronize(imported)
-        print(f"Imported and synchronized {len(imported)} issues")
+        validate_issues(imported)
+        write_json(imported)
+        print(f"Imported {len(imported)} issues into issues.json")
         return 0
     if argv[1] == "sync":
         synchronize(load_data())
