@@ -1,7 +1,10 @@
+import datetime as dt
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
+import bot
 import db
 
 
@@ -36,6 +39,34 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         db.create_user_if_needed(1, "learner")
         self.assertEqual(db.touch_streak(1), 1)
         self.assertEqual(db.touch_streak(1), 1)
+
+    def test_manual_daily_card_request_primes_a_shared_batch_reservoir(self):
+        db.create_user_if_needed(1, "learner")
+        db.set_user_lang_goal(1, "en", "words")
+        db.set_user_level(1, "beginner")
+        row = db.get_user(1)
+        card_date = dt.date(2026, 7, 12).isoformat()
+        calls: list[int] = []
+
+        def fake_generate_daily_batch(lang, goal, level, card_count, used_words):
+            calls.append(card_count)
+            return [
+                {
+                    "word": f"word-{index}",
+                    "translation": f"translation-{index}",
+                    "romanization": "",
+                    "grammar_tip": "",
+                }
+                for index in range(card_count)
+            ]
+
+        with patch.object(bot, "_generate_daily_batch", side_effect=fake_generate_daily_batch):
+            card, index = bot._ensure_next_daily_card(1, row, card_date, 30)
+
+        self.assertEqual(calls, [6])
+        self.assertEqual(index, 0)
+        self.assertEqual(card["word"], "word-0")
+        self.assertEqual(db.count_daily_cards(1, card_date), 6)
 
 
 if __name__ == "__main__":

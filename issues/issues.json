@@ -517,15 +517,15 @@
     "solution": "یک batch reservoir مشترک بسازید که هنگام اولین درخواست روزانه 2–6 کارت را با یک LLM call prime کند، بعد manual requests بعدی را از همان reservoir بخواند. مسیر scheduled delivery می‌تواند از همان helper استفاده کند ولی نباید payloadهای auto را با manual interaction قاطی کند.",
     "priority": "medium",
     "note": "batchingِ فعلی در delivery queue فقط روی sessionهای زمان‌بندی‌شده اعمال می‌شود و برای manual flow تکرار نمی‌شود.",
-    "resolved": false,
+    "resolved": true,
     "detailOpen": false,
     "editing": false,
     "id": 29,
-    "status": "open",
+    "status": "resolved",
     "roadmap_refs": [
       "reliability-hardening"
     ],
-    "evidence": "bot.py:_ensure_next_daily_card calls _generate_daily_batch(..., 1, used_words) while _ensure_scheduled_session_cards can request batches up to 6 cards per AI call.",
+    "evidence": "bot.py:_ensure_next_daily_card now primes up to _MANUAL_DAILY_BATCH_SIZE cards in one call and stores each card in daily_cards before serving the first result.",
     "last_reviewed": "2026-07-12"
   },
   {
@@ -555,15 +555,15 @@
     "solution": "برای jobهای روزانه یک replay/catch-up step در startup یا post_init اضافه کنید؛ last-run marker را ذخیره کنید و missed daily_job / srs_job / queue planning را بعد از reboot backfill کنید.",
     "priority": "high",
     "note": "این gap با manual batching فرق دارد؛ این یکی روی availability خود delivery و reminderها اثر می‌گذارد.",
-    "resolved": false,
+    "resolved": true,
     "detailOpen": false,
     "editing": false,
     "id": 31,
-    "status": "partial",
+    "status": "resolved",
     "roadmap_refs": [
       "reliability-hardening"
     ],
-    "evidence": "bot.py:main only registers job_queue schedules; there is no startup replay/backfill, and daily_job is the only place that enqueues today's delivery sessions and requeues stale processing rows.",
+    "evidence": "bot.py now registers startup_catch_up_job() on app.job_queue, which replays daily_job, delivery_dispatch_job, and srs_job once after startup before the regular schedules continue.",
     "last_reviewed": "2026-07-12"
   }
 ]

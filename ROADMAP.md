@@ -550,11 +550,6 @@ a separate lesson system.
   installations, including stored delivery timestamps.
 - Add provider cost/latency, validation, duplicate, delivery, and SRS usage
   measurements before advanced personalization.
-- Add a shared batch reservoir for manual daily-card requests so the user can
-  request from a pre-generated 2–6 card set instead of forcing a fresh LLM
-  call per card.
-- Add startup catch-up for scheduled jobs so missed `daily_job`,
-  `delivery_dispatch_job`, and `srs_job` runs can replay after downtime.
 - Expand tests around callback authorization, provider failures, Telegram retry
   behavior, SRS chunking, migrations, and reset safeguards.
 
@@ -588,6 +583,12 @@ a separate lesson system.
   call, rejecting long or clearly unrelated text and preserving quota.
 - Awaiting flows now expose shared cancel/back controls through both inline
   callbacks and typed shortcuts so users can exit prompts cleanly.
+- Manual daily-card requests now prime a shared 2–6 card reservoir on the
+  first request of the day instead of forcing a fresh LLM call for every
+  button press.
+- Startup catch-up now replays missed `daily_job`, `delivery_dispatch_job`,
+  and `srs_job` work shortly after process start so downtime does not skip
+  queue planning or reminders.
 - Streak now updates on the first meaningful user interaction of the day, so
   manual card requests and core learning flows count while scheduled delivery
   only reports the current streak.
