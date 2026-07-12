@@ -11,6 +11,7 @@ from config import (
     DEFAULT_AI_BASE_URL,
     DEFAULT_AI_MODEL,
     PLANS,
+    APP_TIMEZONE,
 )
 
 INTERVALS_DAYS = [1, 3, 7, 16, 30]
@@ -224,7 +225,7 @@ def touch_streak(user_id: int) -> int:
         return new_streak
 
 
-def can_ask_word(user_id: int, free_limit: int, bypass_limits: bool = False) -> bool:
+def can_ask_word(user_id: int, daily_limit: int, bypass_limits: bool = False) -> bool:
     with get_conn() as conn:
         row = conn.execute(
             "SELECT plan, words_asked_today, words_asked_date FROM users WHERE user_id=?",
@@ -232,13 +233,13 @@ def can_ask_word(user_id: int, free_limit: int, bypass_limits: bool = False) -> 
         ).fetchone()
         if not row:
             return False
-        if bypass_limits or row["plan"] != "free":
+        if bypass_limits or daily_limit < 0:
             return True
         today = datetime.date.today().isoformat()
         asked = row["words_asked_today"] or 0
         if row["words_asked_date"] != today:
             asked = 0
-        return asked < free_limit
+        return asked < daily_limit
 
 
 def increment_word_ask(user_id: int):
@@ -298,6 +299,7 @@ def enqueue_delivery_sessions(user_id: int, delivery_date: str, sessions):
                     planned_datetime(
                         datetime.date.fromisoformat(delivery_date),
                         session.planned_minute,
+                        APP_TIMEZONE,
                     ),
                     key,
                 ),
