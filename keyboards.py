@@ -10,6 +10,8 @@ BTN_CHANGE_LANG = "🌐 تغییر زبان"
 BTN_CHANGE_GOAL = "🎯 تغییر هدف"
 BTN_CHANGE_LEVEL = "📚 تنظیم سطح زبان"
 BTN_ADMIN = "🛠 مدیریت ربات"
+BTN_CANCEL = "❌ لغو"
+BTN_BACK = "↩️ بازگشت"
 
 
 
@@ -99,6 +101,25 @@ def query_result_keyboard(token: str) -> InlineKeyboardMarkup:
                     "➕ افزودن به مرور",
                     callback_data=f"query:add:{token}",
                 )
+            ]
+        ]
+    )
+
+
+def awaiting_reply_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [[BTN_BACK, BTN_CANCEL]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+
+
+def awaiting_inline_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("↩️ بازگشت", callback_data="flow:back"),
+                InlineKeyboardButton("❌ لغو", callback_data="flow:cancel"),
             ]
         ]
     )
