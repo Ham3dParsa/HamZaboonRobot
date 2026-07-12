@@ -565,5 +565,41 @@
     ],
     "evidence": "bot.py now registers startup_catch_up_job() on app.job_queue, which replays daily_job, delivery_dispatch_job, and srs_job once after startup before the regular schedules continue.",
     "last_reviewed": "2026-07-12"
+  },
+  {
+    "title": "یادآوری SRS فقط نام واژه را نمایش می‌دهد",
+    "module": "db.py / bot.py",
+    "func": "saved_words / add_saved_word / srs_job",
+    "problem": "saved_words فقط نام واژه و فراداده‌ی SRS را نگه می‌دارد و srs_job نیز فقط نام واژه‌ها را می‌فرستد؛ بنابراین یادآوری تعریف، معنی فارسی، تلفظ، مثال‌ها، مترادف‌ها، متضادها و نکته‌ی گرامری کارت را ندارد.",
+    "solution": "کارت معتبر تولیدشده برای واژه را به‌صورت JSON در saved_words ذخیره کنید، برای نصب‌های قبلی migration امن اضافه کنید، و در srs_job همان payload را با format_card نمایش دهید. مسیر افزودن واژه باید فقط پس از تولید و اعتبارسنجی کارت، entry مرور را ثبت کند.",
+    "priority": "high",
+    "note": "این مورد با وجود حل شدن زمان‌بندی و ارسال پایه‌ی SRS، یک gap مستقل در ارزش آموزشی reminder است.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "id": 32,
+    "roadmap_refs": [
+      "srs-complete-card-review"
+    ],
+    "evidence": "db.py:saved_words has no card_data column; db.py:add_saved_word stores only word/lang/SRS metadata; bot.py:srs_job formats due rows as bullet-list word names instead of using format_card.",
+    "last_reviewed": "2026-07-12"
+  },
+  {
+    "title": "مرور SRS کنترل تعاملی و ثبت تعامل کاربر ندارد",
+    "module": "bot.py / keyboards.py / db.py",
+    "func": "srs_job / callback_router / saved_words",
+    "problem": "یادآوری SRS هیچ inline control برای دیدن یا تأیید کارت، درخواست مرور بعدی، یا تعویق ندارد و srs_job بلافاصله بعد از ارسال موفق، advance_word_review را اجرا می‌کند؛ در نتیجه interval بدون سنجش تعامل واقعی کاربر جلو می‌رود.",
+    "solution": "برای هر کارت مرور keyboard و callbackهای محدود به همان کاربر اضافه کنید، advance را به تأیید کاربر وابسته کنید، و defer/review-later را با یک سیاست روشن و restart-safe ذخیره کنید. ارسال خودکار باید وضعیت pending تعامل را نگه دارد تا reminder تکراری یا advancement زودهنگام رخ ندهد.",
+    "priority": "high",
+    "note": "جزء «advance بعد از ارسال» فعلاً یک رفتار موجود و مستقل از issue حل‌شده‌ی استفاده از تابع است؛ مشکل جدید، وابستگی advancement به ارسال به‌جای تعامل learner است.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "id": 33,
+    "roadmap_refs": [
+      "srs-interaction-controls"
+    ],
+    "evidence": "bot.py:srs_job sends only text with no reply_markup and calls db.advance_word_review() immediately after _send_with_retry; keyboards.py defines no SRS-specific keyboard or callbacks; callback_router has no srs:* branch.",
+    "last_reviewed": "2026-07-12"
   }
 ]

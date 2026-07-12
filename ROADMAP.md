@@ -54,6 +54,12 @@ Completed on the current main branch:
   short-lived query identity, inline `Add to review`, and removal of the
   standalone manual-save action from the primary menu
 
+The saved-word SRS backend can schedule and send reminders, but its review
+presentation is still incomplete: saved entries do not retain the validated
+card payload, reminders show only word names, and advancement is automatic
+without learner interaction controls. These gaps are tracked as
+`srs-complete-card-review` and `srs-interaction-controls`.
+
 The remaining work is tracked in the explicit ToDo section near the end of
 this document. The next user-facing feature now shifts to AI Mini Quizzes,
 but configuration and quota semantics must stay consistent with the decisions
@@ -84,6 +90,11 @@ current `main` branch.
   events and delivery metrics are not structured or complete.
 - The issue manager is useful for local review, but browser `localStorage`
   remains local draft state and must not be treated as committed issue data.
+- SRS scheduling and delivery are implemented, but the reminder payload is
+  incomplete: `saved_words` stores no validated card JSON and `srs_job`
+  renders only word names.
+- SRS review progression is not learner-controlled: the job advances each
+  due word immediately after sending and provides no review/defer buttons.
 
 ### Open bugs and engineering risks found in this review
 
@@ -409,6 +420,12 @@ Extend the custom-word flow so that:
   full card content is not packed into Telegram callback data.
 - The existing review intervals remain the source of truth for the first
   reminder and subsequent reviews.
+- A saved review entry retains the validated card payload needed to render a
+  complete reminder without another AI request.
+- An SRS reminder renders the complete stored card and provides safe controls
+  for learner confirmation or deferral.
+- Review intervals advance from an explicit learner action, not merely because
+  Telegram accepted an automated reminder.
 
 The standalone custom-word registration button is removed from the primary
 menu, but the database save and SRS functions remain internal capabilities.
@@ -552,6 +569,15 @@ a separate lesson system.
   measurements before advanced personalization.
 - Expand tests around callback authorization, provider failures, Telegram retry
   behavior, SRS chunking, migrations, and reset safeguards.
+
+### Saved-word SRS follow-ups
+
+- Store validated card JSON with saved words, including a backward-compatible
+  migration and a fallback policy for legacy entries without card data.
+- Replace word-name-only reminders with complete formatted cards and
+  user-scoped inline review controls.
+- Keep due-review state pending until the learner confirms or defers the item;
+  make repeated callbacks, retries, and restarts idempotent.
 
 ### Custom-word safety and menu ergonomics follow-ups
 
