@@ -3,13 +3,13 @@ import sqlite3
 import datetime
 from contextlib import contextmanager
 from scheduling import planned_datetime
+from catalog import DEFAULT_LEVEL
 
 from config import (
     DB_PATH,
     DEFAULT_AI_API_KEY,
     DEFAULT_AI_BASE_URL,
     DEFAULT_AI_MODEL,
-    DEFAULT_LEVEL,
     PLANS,
 )
 

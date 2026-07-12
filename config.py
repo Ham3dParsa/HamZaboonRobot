@@ -37,34 +37,6 @@ SILVER_DAILY_CARD_COUNT = int(os.getenv("SILVER_DAILY_CARD_COUNT", "12"))
 GOLD_DAILY_CARD_COUNT = int(os.getenv("GOLD_DAILY_CARD_COUNT", "30"))
 OWNER_BYPASS_LIMITS = os.getenv("OWNER_BYPASS_LIMITS", "true").lower() in {"1", "true", "yes"}
 
-SUPPORTED_LANGS = {
-    "en": "انگلیسی",
-    "es": "اسپانیایی",
-    "ar": "عربی",
-    "fr": "فرانسوی",
-    "de": "آلمانی",
-}
-
-GOALS = {
-    "general": "عمومی",
-    "konkur": "کنکور",
-    "toefl": "تافل",
-}
-
-LEVELS = {
-    "beginner": "مبتدی",
-    "intermediate": "متوسط",
-    "advanced": "پیشرفته",
-}
-
-LEVEL_CEFR = {
-    "beginner": "A1/A2",
-    "intermediate": "B1/B2",
-    "advanced": "C1/C2",
-}
-
-DEFAULT_LEVEL = "beginner"
-
 PLANS = {
     "free": "رایگان",
     "silver": "نقره‌ای",
