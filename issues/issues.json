@@ -24,14 +24,14 @@
     "solution": "یک Job جدید (مثلاً هر روز ساعت ۱۰ صبح) اضافه کنید که برای هر کاربر، واژه‌های سررسید را گرفته و به صورت یک پیام گروهی یا جداگانه ارسال کند. پس از ارسال، تابع advance_word_review را برای هر واژه صدا بزنید تا زمان مرور بعدی محاسبه شود.",
     "priority": "high",
     "note": "",
-    "resolved": false,
-    "status": "partial",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 2,
     "roadmap_refs": [],
-    "evidence": "",
-    "last_reviewed": ""
+    "evidence": "bot.py:main schedules srs_job via app.job_queue.run_daily(...) and bot.py:srs_job sends due-word reminders then calls db.advance_word_review().",
+    "last_reviewed": "2026-07-12"
   },
   {
     "title": "مدیریت Rate Limit تلگرام در ارسال همگانی و Job روزانه",
@@ -545,6 +545,25 @@
       "custom-word-safety"
     ],
     "evidence": "bot.py now uses _start_llm_wait_state() and _finish_llm_wait_state() in send_daily_card_now, send_grammar_tip, and the ask_word awaiting branch to show and clear a visible loading message.",
+    "last_reviewed": "2026-07-12"
+  },
+  {
+    "title": "scheduled jobs catch-up بعد از downtime ندارند",
+    "module": "bot.py / db.py",
+    "func": "daily_job / delivery_dispatch_job / srs_job / main",
+    "problem": "jobهای زمان‌بندی‌شده فقط وقتی bot زنده است اجرا می‌شوند و هیچ catch-up در startup ندارند. اگر bot در زمان daily_job یا srs_job offline باشد، queue همان روز ساخته نمی‌شود یا reminder از دست می‌رود؛ delivery_dispatch_job هم فقط queue موجود را می‌فرستد.",
+    "solution": "برای jobهای روزانه یک replay/catch-up step در startup یا post_init اضافه کنید؛ last-run marker را ذخیره کنید و missed daily_job / srs_job / queue planning را بعد از reboot backfill کنید.",
+    "priority": "high",
+    "note": "این gap با manual batching فرق دارد؛ این یکی روی availability خود delivery و reminderها اثر می‌گذارد.",
+    "resolved": false,
+    "detailOpen": false,
+    "editing": false,
+    "id": 31,
+    "status": "partial",
+    "roadmap_refs": [
+      "reliability-hardening"
+    ],
+    "evidence": "bot.py:main only registers job_queue schedules; there is no startup replay/backfill, and daily_job is the only place that enqueues today's delivery sessions and requeues stale processing rows.",
     "last_reviewed": "2026-07-12"
   }
 ]

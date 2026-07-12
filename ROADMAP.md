@@ -553,6 +553,8 @@ a separate lesson system.
 - Add a shared batch reservoir for manual daily-card requests so the user can
   request from a pre-generated 2–6 card set instead of forcing a fresh LLM
   call per card.
+- Add startup catch-up for scheduled jobs so missed `daily_job`,
+  `delivery_dispatch_job`, and `srs_job` runs can replay after downtime.
 - Expand tests around callback authorization, provider failures, Telegram retry
   behavior, SRS chunking, migrations, and reset safeguards.
 
