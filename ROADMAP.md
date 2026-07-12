@@ -568,9 +568,6 @@ a separate lesson system.
   multi-language review flows.
 - Paginate review-history navigation by week or month so long histories do not
   turn into an unwieldy date list.
-- Add a shared “still working” loading helper for all user-triggered LLM calls
-  so daily cards, grammar tips, and custom-word lookups show a clear wait
-  state instead of relying only on Telegram typing indicators.
 
 ### Daily-session consistency follow-ups
 
@@ -593,6 +590,9 @@ a separate lesson system.
 - Streak now updates on the first meaningful user interaction of the day, so
   manual card requests and core learning flows count while scheduled delivery
   only reports the current streak.
+- A shared LLM wait-state helper now shows a clearer “still working” signal
+  for daily cards, grammar tips, and custom-word lookups instead of relying
+  only on Telegram typing indicators.
 
 ## Out of Scope for the Current MVP
 

@@ -536,15 +536,15 @@
     "solution": "یک helper مشترک برای wait-state بسازید که قبل از هر call به LLM یک signal قابل‌دیدن و یکپارچه نشان دهد؛ حداقل typing، و در صورت مناسب یک متن کوتاه مثل «دارم می‌سازمش…» یا یک animation سبک. این helper باید در همه‌ی flowهای منتظر پاسخ LLM reuse شود.",
     "priority": "medium",
     "note": "این مورد UX است و نباید مسیرهای غیر-LLM مثل admin broadcast را درگیر کند.",
-    "resolved": false,
+    "resolved": true,
     "detailOpen": false,
     "editing": false,
     "id": 30,
-    "status": "open",
+    "status": "resolved",
     "roadmap_refs": [
       "custom-word-safety"
     ],
-    "evidence": "bot.py already calls send_action('typing') in send_daily_card_now, send_grammar_tip, and text_router ask_word, but there is no shared loading helper or user-visible wait message.",
+    "evidence": "bot.py now uses _start_llm_wait_state() and _finish_llm_wait_state() in send_daily_card_now, send_grammar_tip, and the ask_word awaiting branch to show and clear a visible loading message.",
     "last_reviewed": "2026-07-12"
   }
 ]
