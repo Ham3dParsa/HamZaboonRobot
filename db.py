@@ -2,6 +2,7 @@ import json
 import sqlite3
 import datetime
 from contextlib import contextmanager
+from zoneinfo import ZoneInfo
 from scheduling import planned_datetime
 from catalog import DEFAULT_LEVEL
 
@@ -15,6 +16,19 @@ from config import (
 )
 
 INTERVALS_DAYS = [1, 3, 7, 16, 30]
+_app_timezone = ZoneInfo(APP_TIMEZONE)
+
+
+def _today() -> datetime.date:
+    return datetime.datetime.now(_app_timezone).date()
+
+
+def _utc_now() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def _normalize_word(word: str) -> str:
+    return " ".join(word.split()).casefold()
 
 
 @contextmanager
@@ -54,6 +68,7 @@ def init_db():
                 user_id INTEGER,
                 word TEXT,
                 lang TEXT,
+                normalized_word TEXT,
                 interval_idx INTEGER DEFAULT 0,
                 next_review TEXT,
                 added_at TEXT
@@ -91,6 +106,7 @@ def init_db():
                 processing_started_at TEXT,
                 sent_count INTEGER NOT NULL DEFAULT 0,
                 sent_at TEXT,
+                retry_at TEXT,
                 UNIQUE(user_id, delivery_date, session_index)
             );
             """
@@ -121,6 +137,27 @@ def init_db():
             conn.execute(
                 "ALTER TABLE delivery_queue ADD COLUMN sent_count INTEGER NOT NULL DEFAULT 0"
             )
+        if "retry_at" not in delivery_columns:
+            conn.execute("ALTER TABLE delivery_queue ADD COLUMN retry_at TEXT")
+        saved_word_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(saved_words)").fetchall()
+        }
+        if "normalized_word" not in saved_word_columns:
+            conn.execute("ALTER TABLE saved_words ADD COLUMN normalized_word TEXT")
+        conn.execute(
+            "UPDATE saved_words SET normalized_word=lower(trim(word)) "
+            "WHERE normalized_word IS NULL"
+        )
+        conn.execute(
+            "DELETE FROM saved_words WHERE id NOT IN ("
+            "SELECT MIN(id) FROM saved_words "
+            "GROUP BY user_id, lang, normalized_word)"
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS saved_words_user_lang_word "
+            "ON saved_words(user_id, lang, normalized_word)"
+        )
         defaults = {
             "ai_base_url": DEFAULT_AI_BASE_URL,
             "ai_api_key": DEFAULT_AI_API_KEY,
@@ -160,7 +197,7 @@ def create_user_if_needed(user_id: int, username: str):
     with get_conn() as conn:
         conn.execute(
             "INSERT OR IGNORE INTO users(user_id, username, created_at) VALUES (?, ?, ?)",
-            (user_id, username, datetime.datetime.utcnow().isoformat()),
+            (user_id, username, _utc_now().isoformat()),
         )
         conn.commit()
 
@@ -204,7 +241,7 @@ def set_user_goal(user_id: int, goal: str):
 
 
 def touch_streak(user_id: int) -> int:
-    today = datetime.date.today().isoformat()
+    today = _today().isoformat()
     with get_conn() as conn:
         row = conn.execute(
             "SELECT streak, last_active_date FROM users WHERE user_id=?", (user_id,)
@@ -215,7 +252,7 @@ def touch_streak(user_id: int) -> int:
         if last_date == today:
             new_streak = streak
         else:
-            yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+            yesterday = (_today() - datetime.timedelta(days=1)).isoformat()
             new_streak = streak + 1 if last_date == yesterday else 1
         conn.execute(
             "UPDATE users SET streak=?, last_active_date=? WHERE user_id=?",
@@ -235,28 +272,34 @@ def can_ask_word(user_id: int, daily_limit: int, bypass_limits: bool = False) ->
             return False
         if bypass_limits or daily_limit < 0:
             return True
-        today = datetime.date.today().isoformat()
+        today = _today().isoformat()
         asked = row["words_asked_today"] or 0
         if row["words_asked_date"] != today:
             asked = 0
         return asked < daily_limit
 
 
-def increment_word_ask(user_id: int):
-    today = datetime.date.today().isoformat()
+def reserve_word_query(user_id: int, daily_limit: int, bypass_limits: bool = False) -> bool:
+    today = _today().isoformat()
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT words_asked_today, words_asked_date FROM users WHERE user_id=?",
             (user_id,),
         ).fetchone()
+        if not row:
+            return False
         asked = row["words_asked_today"] or 0
         if row["words_asked_date"] != today:
             asked = 0
+        if not bypass_limits and daily_limit >= 0 and asked >= daily_limit:
+            return False
         conn.execute(
             "UPDATE users SET words_asked_today=?, words_asked_date=? WHERE user_id=?",
             (asked + 1, today, user_id),
         )
         conn.commit()
+        return True
 
 
 def all_active_users():
@@ -264,13 +307,19 @@ def all_active_users():
         return conn.execute("SELECT * FROM users WHERE onboarded=1").fetchall()
 
 
-def get_delivery_queue(delivery_date: str, statuses=("pending", "failed")):
+def get_delivery_queue(
+    delivery_date: str,
+    statuses=("pending", "failed"),
+    now: str | None = None,
+):
     placeholders = ",".join("?" for _ in statuses)
+    now = now or _utc_now().isoformat()
+    retry_filter = " AND (status='pending' OR (status='failed' AND retry_at IS NOT NULL AND retry_at<=?))"
     with get_conn() as conn:
         return conn.execute(
             f"SELECT * FROM delivery_queue WHERE delivery_date=? AND status IN ({placeholders}) "
-            "ORDER BY planned_for, id",
-            (delivery_date, *statuses),
+            f"{retry_filter} ORDER BY planned_for, id",
+            (delivery_date, *statuses, now),
         ).fetchall()
 
 
@@ -308,12 +357,14 @@ def enqueue_delivery_sessions(user_id: int, delivery_date: str, sessions):
 
 
 def claim_delivery_queue(queue_id: int):
-    now = datetime.datetime.utcnow().isoformat()
+    now = _utc_now().isoformat()
     with get_conn() as conn:
         row = conn.execute(
             "UPDATE delivery_queue SET status='processing', attempts=attempts+1, "
-            "processing_started_at=? WHERE id=? AND status IN ('pending', 'failed')",
-            (now, queue_id),
+            "processing_started_at=?, retry_at=NULL "
+            "WHERE id=? AND (status='pending' OR "
+            "(status='failed' AND retry_at IS NOT NULL AND retry_at<=?))",
+            (now, queue_id, now),
         )
         conn.commit()
         if row.rowcount != 1:
@@ -325,7 +376,7 @@ def mark_delivery_sent(queue_id: int):
     with get_conn() as conn:
         conn.execute(
             "UPDATE delivery_queue SET status='sent', sent_at=?, last_error=NULL WHERE id=?",
-            (datetime.datetime.utcnow().isoformat(), queue_id),
+            (_utc_now().isoformat(), queue_id),
         )
         conn.commit()
 
@@ -339,21 +390,30 @@ def advance_delivery_progress(queue_id: int, sent_count: int):
         conn.commit()
 
 
-def mark_delivery_failed(queue_id: int, error: str):
+def mark_delivery_failed(
+    queue_id: int,
+    error: str,
+    retry_at: str | None = None,
+    *,
+    terminal: bool = False,
+):
+    if retry_at is None and not terminal:
+        retry_at = _utc_now().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE delivery_queue SET status='failed', last_error=? WHERE id=?",
-            (error[:1000], queue_id),
+            "UPDATE delivery_queue SET status='failed', last_error=?, retry_at=? WHERE id=?",
+            (error[:1000], retry_at, queue_id),
         )
         conn.commit()
 
 
-def requeue_stale_deliveries(stale_before: str):
+def requeue_stale_deliveries(stale_before: str, max_attempts: int = 5):
     with get_conn() as conn:
         conn.execute(
-            "UPDATE delivery_queue SET status='failed', last_error='worker restarted' "
+            "UPDATE delivery_queue SET status='failed', last_error='worker restarted', "
+            "retry_at=CASE WHEN attempts<? THEN ? ELSE NULL END "
             "WHERE status='processing' AND processing_started_at<?",
-            (stale_before,),
+            (max_attempts, _utc_now().isoformat(), stale_before),
         )
         conn.commit()
 
@@ -435,19 +495,25 @@ def set_daily_progress(user_id: int, card_date: str, next_index: int):
 
 # ---------- واژه‌های دلخواه + یادآوری فاصله‌دار ساده ----------
 
-def add_saved_word(user_id: int, word: str, lang: str):
-    next_review = (datetime.date.today() + datetime.timedelta(days=INTERVALS_DAYS[0])).isoformat()
+def add_saved_word(user_id: int, word: str, lang: str) -> bool:
+    normalized_word = _normalize_word(word)
+    if not normalized_word:
+        return False
+    word = " ".join(word.split())
+    next_review = (_today() + datetime.timedelta(days=INTERVALS_DAYS[0])).isoformat()
     with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO saved_words(user_id, word, lang, interval_idx, next_review, added_at) "
-            "VALUES (?, ?, ?, 0, ?, ?)",
-            (user_id, word, lang, next_review, datetime.datetime.utcnow().isoformat()),
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO saved_words("
+            "user_id, word, lang, normalized_word, interval_idx, next_review, added_at) "
+            "VALUES (?, ?, ?, ?, 0, ?, ?)",
+            (user_id, word, lang, normalized_word, next_review, _utc_now().isoformat()),
         )
         conn.commit()
+        return cursor.rowcount == 1
 
 
 def due_words_for_user(user_id: int):
-    today = datetime.date.today().isoformat()
+    today = _today().isoformat()
     with get_conn() as conn:
         return conn.execute(
             "SELECT * FROM saved_words WHERE user_id=? AND next_review<=?", (user_id, today)
@@ -458,7 +524,7 @@ def advance_word_review(word_id: int):
     with get_conn() as conn:
         row = conn.execute("SELECT interval_idx FROM saved_words WHERE id=?", (word_id,)).fetchone()
         idx = min((row["interval_idx"] or 0) + 1, len(INTERVALS_DAYS) - 1)
-        next_review = (datetime.date.today() + datetime.timedelta(days=INTERVALS_DAYS[idx])).isoformat()
+        next_review = (_today() + datetime.timedelta(days=INTERVALS_DAYS[idx])).isoformat()
         conn.execute(
             "UPDATE saved_words SET interval_idx=?, next_review=? WHERE id=?",
             (idx, next_review, word_id),

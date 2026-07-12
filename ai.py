@@ -4,14 +4,23 @@ from collections.abc import Mapping
 
 from openai import OpenAI
 
-from config import DEFAULT_AI_BASE_URL, DEFAULT_AI_API_KEY, DEFAULT_AI_MODEL
+from config import (
+    AI_TIMEOUT_SECONDS,
+    DEFAULT_AI_BASE_URL,
+    DEFAULT_AI_API_KEY,
+    DEFAULT_AI_MODEL,
+)
 import db
 
 
 def _client() -> OpenAI:
     base_url = db.get_setting("ai_base_url", DEFAULT_AI_BASE_URL)
     api_key = db.get_setting("ai_api_key", DEFAULT_AI_API_KEY)
-    return OpenAI(base_url=base_url, api_key=api_key)
+    return OpenAI(
+        base_url=base_url,
+        api_key=api_key,
+        timeout=AI_TIMEOUT_SECONDS,
+    )
 
 
 def _model() -> str:

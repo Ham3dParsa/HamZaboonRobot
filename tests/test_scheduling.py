@@ -74,6 +74,19 @@ class DurableQueueTests(unittest.TestCase):
         db.mark_delivery_sent(claimed["id"])
         self.assertEqual(db.delivery_queue_for_user(1, date)[0]["status"], "sent")
 
+    def test_failed_queue_waits_for_backoff_and_terminal_failures_stop(self):
+        db.create_user_if_needed(1, "learner")
+        sessions = plan_sessions(1, 540, 480, 1260)
+        date = dt.date(2026, 7, 12).isoformat()
+        db.enqueue_delivery_sessions(1, date, sessions)
+        row = db.delivery_queue_for_user(1, date)[0]
+        claimed = db.claim_delivery_queue(row["id"])
+        future = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=5)).isoformat()
+        db.mark_delivery_failed(row["id"], "temporary", retry_at=future)
+        self.assertIsNone(db.claim_delivery_queue(row["id"]))
+        db.mark_delivery_failed(row["id"], "permanent", terminal=True)
+        self.assertIsNone(db.claim_delivery_queue(row["id"]))
+
 
 if __name__ == "__main__":
     unittest.main()

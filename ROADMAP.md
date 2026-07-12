@@ -35,6 +35,10 @@ Completed on the current main branch:
 - Phase 4 baseline: interactive next-card flow with persisted daily progress
 - Phase 6 baseline: durable load-aware scheduled delivery, per-user queue
   states, bounded provider/Telegram concurrency, and restart recovery
+- Phase 6 hardening: bounded delivery retries with exponential backoff,
+  explicit AI timeout/offloading, shared Telegram retry handling, chunked SRS
+  reminders, timezone-consistent day boundaries, callback validation, atomic
+  word-query reservations, and idempotent saved-word persistence
 - Cross-cutting option catalog: language, goal, and level metadata now live in
   `catalog.py` and are consumed by prompts, keyboards, bot status, and
   database defaults
@@ -73,11 +77,6 @@ current `main` branch.
 
 ### Partially resolved
 
-- Telegram rate limiting is handled for scheduled card delivery, but not
-  consistently for SRS reminders or owner broadcasts.
-- The application timezone is used by scheduler timestamps and JobQueue
-  triggers, but database day boundaries still use the host timezone in streak,
-  word-quota, SRS, and some callback paths.
 - Logging exists for failures and some admin actions, but important lifecycle
   events and delivery metrics are not structured or complete.
 - The issue manager is useful for local review, but browser `localStorage`
@@ -85,28 +84,12 @@ current `main` branch.
 
 ### Open bugs and engineering risks found in this review
 
-- AI clients have no explicit timeout, and custom-word and grammar handlers
-  call the synchronous OpenAI client directly from async Telegram handlers.
-- Failed delivery queue rows are retried on every dispatch tick without a
-  maximum attempt count, backoff, or terminal failure policy. This contradicts
-  the bounded-retry goal and can create repeated AI/API work.
-- Callback handlers validate levels but accept arbitrary language and goal
-  callback payloads before writing them to the database.
-- The custom-word quota check happens before the user enters the word and is
-  not atomically reserved with the later increment, so concurrent requests can
-  exceed the configured plan limit.
-- Saved words have no uniqueness constraint or idempotent insert operation;
-  repeated manual saves create duplicate SRS entries.
-- Several `edit_message_text` calls and SRS/broadcast sends lack targeted
-  Telegram error handling and retry/rate-limit coordination.
-- SRS reminders are sent as one unbounded message per user; many due words can
-  exceed Telegram's message-size limit and prevent all due entries from being
-  advanced.
-- Daily progress and timezone-sensitive database operations use separate
-  notions of “today”, which can disagree around midnight.
+- Several `edit_message_text` calls still lack a centralized fallback when a
+  callback refers to a deleted or outdated Telegram message.
+- API keys remain stored as plaintext in the SQLite settings table.
 - The current tests cover catalog/configuration and scheduling policy, but not
-  callback authorization, quota races, AI timeout/offloading, Telegram retry
-  behavior, SRS chunking, or migration/reset behavior.
+  all callback authorization, provider failure, Telegram retry, SRS chunking,
+  migration, or reset behavior.
 
 ### Efficiency observations
 
@@ -119,12 +102,14 @@ current `main` branch.
   it is safe to recompute but does not reflect manually inserted queue rows
   from another worker.
 
-### Review questions to lock before implementation
+### Review question still open
 
-- Should failed delivery sessions become terminal after a small retry budget
-  (recommended), or remain manually retryable indefinitely?
 - Should plan quota changes apply immediately to already-queued daily sessions,
   or only to sessions planned after the change?
+
+The reliability-hardening policy is locked for this implementation: failed
+delivery sessions use bounded exponential retries and become terminal after
+the configured attempt budget.
 
 The issue-tooling ownership is locked: `issues/issues.json` is canonical,
 `issues/issues.html` is the review UI, and `hamzaban-issues.md` is generated.
@@ -520,25 +505,14 @@ advanced personalization, or additional paid features.
 
 - Add the owner-only two-step learning-data reset with scoped preservation of
   AI settings.
-- Add explicit retry budgets, backoff, and terminal/manual-retry states to
-  delivery queue processing.
-- Offload every synchronous AI call from async handlers and configure an
-  explicit provider timeout.
-- Validate every callback identifier against `catalog.py` before persistence
-  and keep callback authorization checks centralized.
-- Make custom-word quota reservation atomic and add idempotent saved-word
-  uniqueness for `(user, language, normalized word)`.
-- Add shared Telegram retry/rate-limit handling for SRS and owner broadcasts.
-- Chunk SRS reminders under Telegram's message-size limit and advance only
-  the words whose reminder was successfully delivered.
 - Add explicit UI for per-user preferred delivery time, active window, and
   optional daily card limit, using the application timezone.
 - Add timezone-aware per-user UI and migration coverage for existing
   installations, including stored delivery timestamps.
 - Add provider cost/latency, validation, duplicate, delivery, and SRS usage
   measurements before advanced personalization.
-- Expand tests around callback security, quota concurrency, provider failures,
-  Telegram retry behavior, SRS chunking, migrations, and reset safeguards.
+- Expand tests around callback authorization, provider failures, Telegram retry
+  behavior, SRS chunking, migrations, and reset safeguards.
 
 ### Later product phases
 
