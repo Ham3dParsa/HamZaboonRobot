@@ -1099,7 +1099,7 @@ async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str
                 row["optional_daily_limit"],
                 OWNER_BYPASS_LIMITS and is_owner(user_id),
             )
-            streak = db.touch_streak(user_id)
+            streak = row["streak"] or 0
             for offset, card in enumerate(cards[claimed["sent_count"] :], start=claimed["sent_count"]):
                 await _send_with_retry(
                     context.bot,

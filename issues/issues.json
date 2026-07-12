@@ -495,9 +495,9 @@
     "module": "bot.py / db.py",
     "func": "_dispatch_queue / touch_streak / send_daily_card_now",
     "problem": "streak کاربر از `db.touch_streak` فقط در `_dispatch_queue` تغذیه می‌شود؛ یعنی اگر کاربر همان روز از کارت‌های دستی یا core flow استفاده کند ولی scheduled delivery اجرا نشود، `🔥 استریک` یک روز کمتر نشان داده می‌شود.",
-    "solution": "streak را روی اولین interaction معنادار روزانه بزنید، نه فقط روی job زمان‌بندی‌شده. این منطق باید از `send_daily_card_now` و delivery job به یک helper مشترک منتقل شود تا دستی/اتوماتیک هر دو یک منبع حقیقت داشته باشند.",
+    "solution": "streak را فقط روی تعامل واقعی و آموزشیِ کاربر touch کنید؛ delivery job باید صرفاً استریک ذخیره‌شده را نمایش دهد و هر شمارش واقعی از مسیر manual daily card / grammar tip / word query بیاید.",
     "priority": "high",
-    "note": "اگر می‌خواهید SRS یا مرورهای دیگر هم روز فعال را بشمارند، همان helper باید در آن مسیرها هم قابل استفاده باشد.",
+    "note": "اگر می‌خواهید SRS یا مرورهای دیگر هم روز فعال را بشمارند، همان helper باید در آن مسیرها هم از user interaction تغذیه شود، نه از پیام‌های خودکار.",
     "resolved": true,
     "detailOpen": false,
     "editing": false,
@@ -506,7 +506,7 @@
     "roadmap_refs": [
       "reliability-hardening"
     ],
-    "evidence": "bot.py now calls db.touch_streak(user_id) from the manual daily-card path, the grammar-tip path, the custom-word path, and the scheduled delivery path.",
+    "evidence": "bot.py now calls db.touch_streak(user_id) from the manual daily-card path, the grammar-tip path, and the custom-word path; _dispatch_queue now reads the stored streak instead of touching it.",
     "last_reviewed": "2026-07-12"
   }
 ]

@@ -584,9 +584,9 @@ a separate lesson system.
 
 ### Delivered reliability fixes
 
-- Streak now updates on the first meaningful daily learning interaction, so
-  manual card requests and core learning flows stay aligned with scheduled
-  delivery.
+- Streak now updates on the first meaningful user interaction of the day, so
+  manual card requests and core learning flows count while scheduled delivery
+  only reports the current streak.
 
 ## Out of Scope for the Current MVP
 
