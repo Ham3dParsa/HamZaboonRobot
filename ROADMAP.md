@@ -547,6 +547,17 @@ a separate lesson system.
 - Expand tests around callback authorization, provider failures, Telegram retry
   behavior, SRS chunking, migrations, and reset safeguards.
 
+### Custom-word safety and menu ergonomics follow-ups
+
+- Validate custom-word queries before the AI call: bound input length, limit the
+  token count / word count, and reject unrelated text that does not look like a
+  language query for the active target language.
+- Add explicit cancel/back actions to every “awaiting input” flow so users can
+  exit query/admin prompts cleanly from both inline and reply-keyboard menus.
+- Keep the saved-review action label aligned with its actual behavior and
+  preserve the target language on persisted query results for future
+  multi-language review flows.
+
 ### Later product phases
 
 - Premium smart placement testing for Silver and Gold.
