@@ -142,6 +142,27 @@ def _grammar_tip_usage_text(row) -> str:
     return f"📊 استفاده امروز از نکات گرامری: {used}/{limit} · باقی‌مانده: {remaining}"
 
 
+async def _start_llm_wait_state(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    chat = update.effective_chat
+    if not chat:
+        return None
+    await chat.send_action("typing")
+    try:
+        return await context.bot.send_message(chat_id=chat.id, text=text)
+    except Exception:
+        log.exception("Failed to send LLM wait-state message")
+        return None
+
+
+async def _finish_llm_wait_state(wait_message):
+    if not wait_message:
+        return
+    try:
+        await wait_message.delete()
+    except Exception:
+        log.exception("Failed to delete LLM wait-state message")
+
+
 async def _send_card_from_store(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,
@@ -552,12 +573,18 @@ async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE
         OWNER_BYPASS_LIMITS and is_owner(user_id),
     )
 
-    await update.message.chat.send_action("typing")
+    wait_message = await _start_llm_wait_state(
+        update,
+        context,
+        "⏳ دارم کارت امروز رو می‌سازم…",
+    )
     try:
         await _send_next_daily_card(update, context, row, today, limit)
     except Exception:
         log.exception("Daily card generation failed")
         await update.message.reply_text("مشکلی در ساخت کارت‌های امروز پیش اومد.")
+    finally:
+        await _finish_llm_wait_state(wait_message)
 
 async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -578,8 +605,11 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     usage_text = _grammar_tip_usage_text(db.get_user(user_id) or row)
-
-    await update.message.chat.send_action("typing")
+    wait_message = await _start_llm_wait_state(
+        update,
+        context,
+        "⏳ دارم نکته‌ی گرامری رو آماده می‌کنم…",
+    )
     try:
         data = await asyncio.to_thread(
             _call_ai_limited,
@@ -590,20 +620,20 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 row["level"],
             ),
         )
+        # ساخت متن با escape مناسب برای MarkdownV2
+        title = escape_mdv2(data.get('title', ''))
+        explanation = escape_mdv2(data.get('explanation', ''))
+        example = escape_mdv2(data.get('example', ''))
+
+        text = f"✍️ *{title}*\n\n{explanation}\n\n`{example}`\n\n{escape_mdv2(usage_text)}"
+
+        db.touch_streak(user_id)
+        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
     except Exception:
         log.exception("AI error")
         await update.message.reply_text("مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.")
-        return
-
-    # ساخت متن با escape مناسب برای MarkdownV2
-    title = escape_mdv2(data.get('title', ''))
-    explanation = escape_mdv2(data.get('explanation', ''))
-    example = escape_mdv2(data.get('example', ''))
-
-    text = f"✍️ *{title}*\n\n{explanation}\n\n`{example}`\n\n{escape_mdv2(usage_text)}"
-
-    db.touch_streak(user_id)
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
+    finally:
+        await _finish_llm_wait_state(wait_message)
 
 
 async def ask_for_ask_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -777,7 +807,11 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"سقف روزانه‌ی پرسش واژه‌ی پلن شما ({limit} بار) تموم شده."
                 )
                 return
-            await update.message.chat.send_action("typing")
+            wait_message = await _start_llm_wait_state(
+                update,
+                context,
+                "⏳ دارم معنی و توضیحش رو پیدا می‌کنم…",
+            )
             try:
                 data = await asyncio.to_thread(
                     _call_ai_limited,
@@ -790,6 +824,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception:
                 log.exception("AI error")
+                await _finish_llm_wait_state(wait_message)
                 await update.message.reply_text("مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.")
                 return
             row_after = db.get_user(user_id)
@@ -803,6 +838,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 data,
             )
             db.touch_streak(user_id)
+            await _finish_llm_wait_state(wait_message)
             await update.message.reply_text(
                 format_card(
                     data,
