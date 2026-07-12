@@ -508,5 +508,43 @@
     ],
     "evidence": "bot.py now calls db.touch_streak(user_id) from the manual daily-card path, the grammar-tip path, and the custom-word path; _dispatch_queue now reads the stored streak instead of touching it.",
     "last_reviewed": "2026-07-12"
+  },
+  {
+    "title": "manual daily-card path هنوز batch reservoir مشترک ندارد",
+    "module": "bot.py / scheduling.py / prompts.py",
+    "func": "_ensure_next_daily_card / _generate_daily_batch / send_daily_card_now",
+    "problem": "مسیر دکمه‌ی «🃏 فلش‌کارت امروز» هر بار فقط یک کارت تازه می‌سازد (`card_count=1`) و از batch generation shared با delivery queue استفاده نمی‌کند؛ بنابراین اگر کاربر چند بار کارت بخواهد، مصرف token بهینه نمی‌شود.",
+    "solution": "یک batch reservoir مشترک بسازید که هنگام اولین درخواست روزانه 2–6 کارت را با یک LLM call prime کند، بعد manual requests بعدی را از همان reservoir بخواند. مسیر scheduled delivery می‌تواند از همان helper استفاده کند ولی نباید payloadهای auto را با manual interaction قاطی کند.",
+    "priority": "medium",
+    "note": "batchingِ فعلی در delivery queue فقط روی sessionهای زمان‌بندی‌شده اعمال می‌شود و برای manual flow تکرار نمی‌شود.",
+    "resolved": false,
+    "detailOpen": false,
+    "editing": false,
+    "id": 29,
+    "status": "open",
+    "roadmap_refs": [
+      "reliability-hardening"
+    ],
+    "evidence": "bot.py:_ensure_next_daily_card calls _generate_daily_batch(..., 1, used_words) while _ensure_scheduled_session_cards can request batches up to 6 cards per AI call.",
+    "last_reviewed": "2026-07-12"
+  },
+  {
+    "title": "LLM wait-state feedback فقط به typing تلگرام محدود است",
+    "module": "bot.py",
+    "func": "send_daily_card_now / send_grammar_tip / text_router",
+    "problem": "مسیرهای اصلی LLM-backed فعلی فقط `chat_action(\"typing\")` می‌فرستند. این یک نشانه‌ی کم‌رنگ است و برای کاربر به‌صورت یک پیام/انیمیشن واضح و مشترک بین daily card, grammar tip, و custom word دیده نمی‌شود.",
+    "solution": "یک helper مشترک برای wait-state بسازید که قبل از هر call به LLM یک signal قابل‌دیدن و یکپارچه نشان دهد؛ حداقل typing، و در صورت مناسب یک متن کوتاه مثل «دارم می‌سازمش…» یا یک animation سبک. این helper باید در همه‌ی flowهای منتظر پاسخ LLM reuse شود.",
+    "priority": "medium",
+    "note": "این مورد UX است و نباید مسیرهای غیر-LLM مثل admin broadcast را درگیر کند.",
+    "resolved": false,
+    "detailOpen": false,
+    "editing": false,
+    "id": 30,
+    "status": "open",
+    "roadmap_refs": [
+      "custom-word-safety"
+    ],
+    "evidence": "bot.py already calls send_action('typing') in send_daily_card_now, send_grammar_tip, and text_router ask_word, but there is no shared loading helper or user-visible wait message.",
+    "last_reviewed": "2026-07-12"
   }
 ]
