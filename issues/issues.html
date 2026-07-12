@@ -1002,182 +1002,367 @@
         // ================================================================
         //  DATA
         // ================================================================
-        const ISSUES_DATA = [{
-            id: 1,
-            title: 'عدم کش کارت روزانه – هزینه‌ی اضافی و گیج‌کننده',
-            module: 'bot.py',
-            func: 'send_daily_card_now',
-            problem: 'هر بار که کاربر دکمه‌ی «واژه‌ی امروز» را می‌زند، یک کارت جدید از مدل زبانی گرفته می‌شود. این هم هزینه‌ی API را افزایش می‌دهد و هم مفهوم «کارت روزانه» را نقض می‌کند (کاربر باید همان کارت را ببیند).',
-            solution: 'یک ستون daily_card (JSON یا TEXT) و daily_card_date به جدول users اضافه کنید. در send_daily_card_now و daily_job، ابتدا چک کنید که آیا امروز کارت از قبل تولید شده است. اگر بله، همان را برگردانید؛ در غیر این صورت تولید کنید و ذخیره کنید. در db.py توابع get_daily_card(user_id) و set_daily_card(user_id, card_json) اضافه کنید.',
-            priority: 'high',
-            resolved: true
-        }, {
-            id: 2,
-            title: 'عدم ارسال یادآوری واژه‌های ذخیره‌شده (SRS)',
-            module: 'bot.py',
-            func: '—',
-            problem: 'کاربر می‌تواند واژه‌ی دلخواه ثبت کند و due_words_for_user تعداد واژه‌های سررسید را نشان می‌دهد، ولی هیچ Jobای برای ارسال خودکار آن‌ها وجود ندارد.',
-            solution: 'یک Job جدید (مثلاً هر روز ساعت ۱۰ صبح) اضافه کنید که برای هر کاربر، واژه‌های سررسید را گرفته و به صورت یک پیام گروهی یا جداگانه ارسال کند. پس از ارسال، تابع advance_word_review را برای هر واژه صدا بزنید تا زمان مرور بعدی محاسبه شود.',
-            priority: 'high'
-        }, {
-            id: 3,
-            title: 'مدیریت Rate Limit تلگرام در ارسال همگانی و Job روزانه',
-            module: 'bot.py',
-            func: 'daily_job / admin_broadcast',
-            problem: 'ارسال همزمان پیام به تعداد زیاد ممکن است باعث خطای Too Many Requests از سمت تلگرام شود.',
-            solution: 'از asyncio.sleep بین هر چند پیام استفاده کنید (مثلاً هر ۱۰ پیام ۰.۵ ثانیه مکث). یا از telegram.ext با Application و JobQueue به صورت تکی ارسال کنید.',
-            priority: 'medium'
-        }, {
-            id: 4,
-            title: 'همگام‌سازی نبودن نام زبان‌ها در prompts.py و config.py',
-            module: 'prompts.py',
-            func: 'LANG_NAMES_FA',
-            problem: 'LANG_NAMES_FA به صورت دستی تعریف شده و اگر زبانی به SUPPORTED_LANGS اضافه شود، باید در دو جا به‌روز شود.',
-            solution: 'در prompts.py، LANG_NAMES_FA را با from config import SUPPORTED_LANGS بسازید: LANG_NAMES_FA = {code: name for code, name in SUPPORTED_LANGS.items()} سپس در پرامپت‌ها از LANG_NAMES_FA.get(lang, lang) استفاده کنید.',
-            priority: 'low',
-            resolved: true
-        }, {
-            id: 5,
-            title: 'خطا در _extract_json هنگام عدم وجود JSON',
-            module: 'ai.py',
-            func: '_extract_json',
-            problem: 'اگر مدل هیچ JSONای برنگرداند، re.search موفق نمی‌شود و json.loads("") خطا می‌دهد. در ask_json این خطا گرفته نمی‌شود و به بالا می‌رود.',
-            solution: 'در _extract_json، اگر JSON پیدا نشد، یک استثنای سفارشی پرتاب کنید یا {} برگردانید. در ask_json، خطا را catch کرده و پیام مناسب به کاربر نشان دهید (در حال حاضر در bot.py catch می‌شود، ولی بهتر است خود ask_json یک None برگرداند و بالادست مدیریت کند).',
-            priority: 'medium',
-            resolved: true
-        }, {
-            id: 6,
-            title: 'عدم استفاده از advance_word_review در هیچ‌کجای کد',
-            module: 'db.py / bot.py',
-            func: 'advance_word_review',
-            problem: 'تابع advance_word_review تعریف شده ولی هیچ‌گاه صدا زده نمی‌شود.',
-            solution: 'پس از پیاده‌سازی ارسال یادآوری (مشکل شماره ۲)، پس از ارسال هر واژه، این تابع را صدا بزنید.',
-            priority: 'medium',
-            resolved: true
-        }, {
-            id: 7,
-            title: 'ذخیره‌سازی API Key به صورت متن ساده در دیتابیس',
-            module: 'db.py',
-            func: 'جدول settings',
-            problem: 'کلید API به صورت plaintext در دیتابیس ذخیره می‌شود که در صورت نفوذ به دیتابیس، لو می‌رود.',
-            solution: 'از یک رمزنگاری ساده (مثلاً Fernet با کلید ثابت در env) برای ذخیره و بازیابی استفاده کنید. یا حداقل در README هشدار دهید که دیتابیس را امن نگه دارند.',
-            priority: 'low'
-        }, {
-            id: 8,
-            title: 'عدم استفاده از timezone در تاریخ‌گذاری',
-            module: 'db.py',
-            func: 'touch_streak / can_ask_word / add_saved_word',
-            problem: 'استفاده از datetime.date.today() بر اساس ساعت سیستم است. اگر سرور در منطقه‌ی زمانی متفاوتی باشد، ممکن است روزها جابجا شوند.',
-            solution: 'از pytz یا datetime.timezone.utc استفاده کنید و ساعت ارسال روزانه (DAILY_SEND_HOUR) را بر اساس UTC تنظیم کنید. یا یک تنظیمات timezone برای کاربر اضافه کنید (پیچیده‌تر).',
-            priority: 'low'
-        }, {
-            id: 9,
-            title: 'استفاده از edit_message_text بدون مدیریت خطا هنگام ویرایش پیام قدیمی',
-            module: 'bot.py',
-            func: 'on_lang_selected / on_goal_selected / on_lang_changed / on_goal_changed / admin_callback',
-            problem: 'اگر کاربر روی دکمه‌ای کلیک کند که پیام قبلاً حذف شده باشد، edit_message_text خطا می‌دهد و کرش می‌کند.',
-            solution: 'تمام edit_message_textها را در try/except با telegram.error.BadRequest بپوشانید و در صورت خطا، یک پیام جدید ارسال کنید. یا از answer_callback_query با show_alert استفاده کنید و پیام را عوض نکنید (که فعلاً این کار را نمی‌کند).',
-            priority: 'medium'
-        }, {
-            id: 10,
-            title: 'عدم محدودیت در دریافت کارت روزانه برای کاربران غیر onboarded',
-            module: 'bot.py',
-            func: 'send_daily_card_now',
-            problem: 'اگر کاربری /start را نزده باشد و مستقیم دکمه را بزند، پیام «اول باید /start رو بزنی.» نشان داده می‌شود. این درست است، ولی دکمه‌ها تا زمانی که کاربر onboarded نشده باشد نمایش داده نمی‌شوند (چون منوی اصلی را نمی‌بیند). پس خطری ندارد.',
-            solution: '— (این مورد یک باگ واقعی نیست، فقط یک رفتار صحیح است که بررسی شد.)',
-            priority: 'none',
-            resolved: true
-        }, {
-            id: 11,
-            title: 'ارسال پیام همگانی بدون تأخیر ممکن است با محدودیت مواجه شود',
-            module: 'bot.py',
-            func: 'admin_broadcast',
-            problem: 'همانند شماره ۳ — ارسال همزمان پیام به تعداد زیاد ممکن است باعث خطای Too Many Requests شود.',
-            solution: 'مشابه راه‌حل شماره ۳: از asyncio.sleep بین هر چند پیام استفاده کنید یا از JobQueue استفاده کنید.',
-            priority: 'medium'
-        }, {
-            id: 12,
-            title: 'عدم مدیریت timeout برای درخواست‌های AI',
-            module: 'ai.py',
-            func: 'client.chat.completions.create',
-            problem: 'پیش‌فرض timeout ندارد و ممکن است درخواست به دلیل کندی شبکه یا سرویس، مدت‌ها معلق بماند.',
-            solution: 'در OpenAI هنگام ساخت کلاینت، timeout تنظیم کنید: OpenAI(base_url=base_url, api_key=api_key, timeout=30.0)',
-            priority: 'low'
-        }, {
-            id: 13,
-            title: 'عدم استفاده از log در بخش‌های مهم (به جز خطاها)',
-            module: 'bot.py',
-            func: '—',
-            problem: 'لاگ‌های کمی برای رویدادهای مهم وجود دارد.',
-            solution: 'لاگ‌های بیشتری برای رویدادهای مهم مانند ورود کاربر جدید، تغییر پلن، ارسال کارت روزانه و ... اضافه کنید تا دیباگ و تحلیل رفتار کاربر راحت‌تر شود.',
-            priority: 'low'
-        }, {
-            id: 14,
-            title: 'format_card در صورت خالی بودن grammar_tip یک خط خالی اضافه می‌کند',
-            module: 'bot.py',
-            func: 'format_card',
-            problem: 'اگر grammar_tip خالی باشد، یک خط خالی اضافی در خروجی ایجاد می‌شود.',
-            solution: 'قبل از اضافه کردن بخش گرامر، چک کنید که grammar_tip خالی نباشد: if grammar_tip: lines.append(f"\n✍️ *نکته‌ی گرامری:*\n{grammar_tip}")',
-            priority: 'low',
-            resolved: true
-        }, {
-            id: 15,
-            title: 'پرامپت daily_card_system_prompt برای اهداف جدید قابل گسترش نیست',
-            module: 'prompts.py',
-            func: 'daily_card_system_prompt',
-            problem: 'دیکشنری goal_hint به صورت جداگانه تعریف نشده و اگر هدفی در آن نبود، از یک مقدار پیش‌فرض استفاده نمی‌شود.',
-            solution: 'دیکشنری goal_hint را به صورت جداگانه تعریف کنید و اگر هدفی در آن نبود، از یک مقدار پیش‌فرض استفاده کنید.',
-            priority: 'low',
-            resolved: true
-        }, {
-            id: 16,
-            title: 'Retry نامحدود برای صف delivery',
-            module: 'bot.py / db.py',
-            func: 'delivery queue',
-            problem: 'صف‌های failed بدون سقف تلاش یا backoff در هر tick دوباره تلاش می‌شوند و خطای دائمی می‌تواند مصرف API و Telegram را بی‌نهایت تکرار کند.',
-            solution: 'Retry budget، backoff و وضعیت terminal/manual-retry اضافه کنید.',
-            priority: 'high'
-        }, {
-            id: 17,
-            title: 'اجرای synchronous درخواست AI داخل handlerهای async',
-            module: 'bot.py',
-            func: 'custom-word / grammar handlers',
-            problem: 'تماس مستقیم با کلاینت synchronous در زمان کندی provider event loop تلگرام را متوقف می‌کند.',
-            solution: 'همه‌ی تماس‌های blocking را با asyncio.to_thread یا کلاینت async اجرا و timeout صریح تنظیم کنید.',
-            priority: 'high'
-        }, {
-            id: 18,
-            title: 'اعتبارسنجی ناقص callbackهای زبان و هدف',
-            module: 'bot.py',
-            func: 'callback_router',
-            problem: 'callbackهای language و goal قبل از ذخیره‌سازی علیه catalog بررسی نمی‌شوند.',
-            solution: 'اعتبارسنجی identifierها را قبل از هر تغییر profile متمرکز کنید.',
-            priority: 'high'
-        }, {
-            id: 19,
-            title: 'quota غیراتمی و ذخیره‌ی واژه‌ی تکراری',
-            module: 'bot.py / db.py',
-            func: 'can_ask_word / add_saved_word',
-            problem: 'بررسی و increment سقف جدا هستند و saved_words نیز uniqueness ندارد.',
-            solution: 'رزرو quota را transactionی کنید و ذخیره‌ی واژه را idempotent کنید.',
-            priority: 'high'
-        }, {
-            id: 20,
-            title: 'SRS و broadcast بدون مسیر مشترک rate-limit',
-            module: 'bot.py',
-            func: 'srs_job / admin_broadcast',
-            problem: 'این مسیرها مستقیماً send_message را صدا می‌زنند و retry، semaphore و chunking ندارند.',
-            solution: 'یک sender مشترک مقاوم در برابر rate-limit برای همه‌ی ارسال‌های همگانی بسازید.',
-            priority: 'medium'
-        }, {
-            id: 21,
-            title: 'ناهماهنگی منبع issues.html و Markdown',
-            module: 'issues.html / hamzaban-issues.md',
-            func: 'ISSUES_DATA / localStorage',
-            problem: 'HTML داده‌ی issue و یادداشت‌ها را جداگانه نگه می‌دارد و ممکن است با Markdown canonical متفاوت شود.',
-            solution: 'Markdown را تنها منبع نگه دارید و HTML را generate/refresh کنید یا آن را فقط view محلی مستند کنید.',
-            priority: 'low'
-        }];
+        // BEGIN GENERATED ISSUE DATA
+        const ISSUES_DATA = [
+    {
+        "title": "عدم کش کارت روزانه – هزینه‌ی اضافی و گیج‌کننده",
+        "module": "bot.py",
+        "func": "send_daily_card_now",
+        "problem": "هر بار که کاربر دکمه‌ی «واژه‌ی امروز» را می‌زند، یک کارت جدید از مدل زبانی گرفته می‌شود. این هم هزینه‌ی API را افزایش می‌دهد و هم مفهوم «کارت روزانه» را نقض می‌کند (کاربر باید همان کارت را ببیند).",
+        "solution": "یک ستون daily_card (JSON یا TEXT) و daily_card_date به جدول users اضافه کنید. در send_daily_card_now و daily_job، ابتدا چک کنید که آیا امروز کارت از قبل تولید شده است. اگر بله، همان را برگردانید؛ در غیر این صورت تولید کنید و ذخیره کنید. در db.py توابع get_daily_card(user_id) و set_daily_card(user_id, card_json) اضافه کنید.",
+        "priority": "high",
+        "note": " کاربر رایگان باید 3 کارت روزانه داشته باشد که قابل مرور هستند.",
+        "resolved": true,
+        "detailOpen": false,
+        "editing": false,
+        "id": 1,
+        "status": "resolved",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "عدم ارسال یادآوری واژه‌های ذخیره‌شده (SRS)",
+        "module": "bot.py",
+        "func": "—",
+        "problem": "کاربر می‌تواند واژه‌ی دلخواه ثبت کند و due_words_for_user تعداد واژه‌های سررسید را نشان می‌دهد، ولی هیچ Jobای برای ارسال خودکار آن‌ها وجود ندارد.",
+        "solution": "یک Job جدید (مثلاً هر روز ساعت ۱۰ صبح) اضافه کنید که برای هر کاربر، واژه‌های سررسید را گرفته و به صورت یک پیام گروهی یا جداگانه ارسال کند. پس از ارسال، تابع advance_word_review را برای هر واژه صدا بزنید تا زمان مرور بعدی محاسبه شود.",
+        "priority": "high",
+        "note": "",
+        "resolved": false,
+        "detailOpen": false,
+        "editing": false,
+        "id": 2,
+        "status": "partial",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "مدیریت Rate Limit تلگرام در ارسال همگانی و Job روزانه",
+        "module": "bot.py",
+        "func": "daily_job / admin_broadcast",
+        "problem": "ارسال همزمان پیام به تعداد زیاد ممکن است باعث خطای Too Many Requests از سمت تلگرام شود.",
+        "solution": "از asyncio.sleep بین هر چند پیام استفاده کنید (مثلاً هر ۱۰ پیام ۰.۵ ثانیه مکث). یا از telegram.ext با Application و JobQueue به صورت تکی ارسال کنید.",
+        "priority": "medium",
+        "note": "این مشکل فعلا فوریت ندارد اما برای این که بعدا و با هجوم کاربران و وظایف دچار مشکل نشویم بهتر است از همین الان به فکر آن روز باشیم!",
+        "resolved": false,
+        "detailOpen": false,
+        "editing": false,
+        "id": 3,
+        "status": "partial",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "همگام‌سازی نبودن نام زبان‌ها در prompts.py و config.py",
+        "module": "prompts.py",
+        "func": "LANG_NAMES_FA",
+        "problem": "LANG_NAMES_FA به صورت دستی تعریف شده و اگر زبانی به SUPPORTED_LANGS اضافه شود، باید در دو جا به‌روز شود.",
+        "solution": "در prompts.py، LANG_NAMES_FA را با from config import SUPPORTED_LANGS بسازید: LANG_NAMES_FA = {code: name for code, name in SUPPORTED_LANGS.items()} سپس در پرامپت‌ها از LANG_NAMES_FA.get(lang, lang) استفاده کنید.",
+        "priority": "low",
+        "note": "",
+        "resolved": true,
+        "detailOpen": false,
+        "editing": false,
+        "id": 4,
+        "status": "resolved",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "خطا در _extract_json هنگام عدم وجود JSON",
+        "module": "ai.py",
+        "func": "_extract_json",
+        "problem": "اگر مدل هیچ JSONای برنگرداند، re.search موفق نمی‌شود و json.loads(\"\") خطا می‌دهد. در ask_json این خطا گرفته نمی‌شود و به بالا می‌رود.",
+        "solution": "در _extract_json، اگر JSON پیدا نشد، یک استثنای سفارشی پرتاب کنید یا {} برگردانید. در ask_json، خطا را catch کرده و پیام مناسب به کاربر نشان دهید (در حال حاضر در bot.py catch می‌شود، ولی بهتر است خود ask_json یک None برگرداند و بالادست مدیریت کند).",
+        "priority": "medium",
+        "note": "",
+        "resolved": true,
+        "detailOpen": false,
+        "editing": false,
+        "id": 5,
+        "status": "resolved",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "عدم استفاده از advance_word_review در هیچ‌کجای کد",
+        "module": "db.py / bot.py",
+        "func": "advance_word_review",
+        "problem": "تابع advance_word_review تعریف شده ولی هیچ‌گاه صدا زده نمی‌شود.",
+        "solution": "پس از پیاده‌سازی ارسال یادآوری (مشکل شماره ۲)، پس از ارسال هر واژه، این تابع را صدا بزنید.",
+        "priority": "medium",
+        "note": "",
+        "resolved": true,
+        "detailOpen": false,
+        "editing": false,
+        "id": 6,
+        "status": "resolved",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "ذخیره‌سازی API Key به صورت متن ساده در دیتابیس",
+        "module": "db.py",
+        "func": "جدول settings",
+        "problem": "کلید API به صورت plaintext در دیتابیس ذخیره می‌شود که در صورت نفوذ به دیتابیس، لو می‌رود.",
+        "solution": "از یک رمزنگاری ساده (مثلاً Fernet با کلید ثابت در env) برای ذخیره و بازیابی استفاده کنید. یا حداقل در README هشدار دهید که دیتابیس را امن نگه دارند.",
+        "priority": "low",
+        "note": "",
+        "resolved": false,
+        "detailOpen": false,
+        "editing": false,
+        "id": 7,
+        "status": "open",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "عدم استفاده از timezone در تاریخ‌گذاری",
+        "module": "db.py",
+        "func": "touch_streak / can_ask_word / add_saved_word",
+        "problem": "استفاده از datetime.date.today() بر اساس ساعت سیستم است. اگر سرور در منطقه‌ی زمانی متفاوتی باشد، ممکن است روزها جابجا شوند.",
+        "solution": "از pytz یا datetime.timezone.utc استفاده کنید و ساعت ارسال روزانه (DAILY_SEND_HOUR) را بر اساس UTC تنظیم کنید. یا یک تنظیمات timezone برای کاربر اضافه کنید (پیچیده‌تر).",
+        "priority": "low",
+        "note": "",
+        "resolved": false,
+        "detailOpen": false,
+        "editing": false,
+        "id": 8,
+        "status": "partial",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "استفاده از edit_message_text بدون مدیریت خطا هنگام ویرایش پیام قدیمی",
+        "module": "bot.py",
+        "func": "on_lang_selected / on_goal_selected / on_lang_changed / on_goal_changed / admin_callback",
+        "problem": "اگر کاربر روی دکمه‌ای کلیک کند که پیام قبلاً حذف شده باشد، edit_message_text خطا می‌دهد و کرش می‌کند.",
+        "solution": "تمام edit_message_textها را در try/except با telegram.error.BadRequest بپوشانید و در صورت خطا، یک پیام جدید ارسال کنید. یا از answer_callback_query با show_alert استفاده کنید و پیام را عوض نکنید (که فعلاً این کار را نمی‌کند).",
+        "priority": "medium",
+        "note": "",
+        "resolved": false,
+        "detailOpen": false,
+        "editing": false,
+        "id": 9,
+        "status": "open",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "عدم محدودیت در دریافت کارت روزانه برای کاربران غیر onboarded",
+        "module": "bot.py",
+        "func": "send_daily_card_now",
+        "problem": "اگر کاربری /start را نزده باشد و مستقیم دکمه را بزند، پیام «اول باید /start رو بزنی.» نشان داده می‌شود. این درست است، ولی دکمه‌ها تا زمانی که کاربر onboarded نشده باشد نمایش داده نمی‌شوند (چون منوی اصلی را نمی‌بیند). پس خطری ندارد.",
+        "solution": "— (این مورد یک باگ واقعی نیست، فقط یک رفتار صحیح است که بررسی شد.)",
+        "priority": "none",
+        "note": "",
+        "resolved": true,
+        "detailOpen": false,
+        "editing": false,
+        "id": 10,
+        "status": "resolved",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "ارسال پیام همگانی بدون تأخیر ممکن است با محدودیت مواجه شود",
+        "module": "bot.py",
+        "func": "admin_broadcast",
+        "problem": "همانند شماره ۳ — ارسال همزمان پیام به تعداد زیاد ممکن است باعث خطای Too Many Requests شود.",
+        "solution": "مشابه راه‌حل شماره ۳: از asyncio.sleep بین هر چند پیام استفاده کنید یا از JobQueue استفاده کنید.",
+        "priority": "medium",
+        "note": "این مشکل فعلا فوریت ندارد اما برای این که بعدا و با هجوم کاربران و وظایف دچار مشکل نشویم بهتر است از همین الان به فکر آن روز باشیم!",
+        "resolved": false,
+        "detailOpen": false,
+        "editing": false,
+        "id": 11,
+        "status": "partial",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "عدم مدیریت timeout برای درخواست‌های AI",
+        "module": "ai.py",
+        "func": "client.chat.completions.create",
+        "problem": "پیش‌فرض timeout ندارد و ممکن است درخواست به دلیل کندی شبکه یا سرویس، مدت‌ها معلق بماند.",
+        "solution": "در OpenAI هنگام ساخت کلاینت، timeout تنظیم کنید: OpenAI(base_url=base_url, api_key=api_key, timeout=30.0)",
+        "priority": "low",
+        "note": "",
+        "resolved": false,
+        "detailOpen": false,
+        "editing": false,
+        "id": 12,
+        "status": "open",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "عدم استفاده از log در بخش‌های مهم (به جز خطاها)",
+        "module": "bot.py",
+        "func": "—",
+        "problem": "لاگ‌های کمی برای رویدادهای مهم وجود دارد.",
+        "solution": "لاگ‌های بیشتری برای رویدادهای مهم مانند ورود کاربر جدید، تغییر پلن، ارسال کارت روزانه و ... اضافه کنید تا دیباگ و تحلیل رفتار کاربر راحت‌تر شود.",
+        "priority": "low",
+        "note": "",
+        "resolved": false,
+        "detailOpen": false,
+        "editing": false,
+        "id": 13,
+        "status": "partial",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "format_card در صورت خالی بودن grammar_tip یک خط خالی اضافه می‌کند",
+        "module": "bot.py",
+        "func": "format_card",
+        "problem": "اگر grammar_tip خالی باشد، یک خط خالی اضافی در خروجی ایجاد می‌شود.",
+        "solution": "قبل از اضافه کردن بخش گرامر، چک کنید که grammar_tip خالی نباشد: if grammar_tip: lines.append(f\"\n✍️ *نکته‌ی گرامری:*\n{grammar_tip}\")",
+        "priority": "low",
+        "note": "",
+        "resolved": true,
+        "detailOpen": false,
+        "editing": false,
+        "id": 14,
+        "status": "resolved",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "پرامپت daily_card_system_prompt برای اهداف جدید قابل گسترش نیست",
+        "module": "prompts.py",
+        "func": "daily_card_system_prompt",
+        "problem": "دیکشنری goal_hint به صورت جداگانه تعریف نشده و اگر هدفی در آن نبود، از یک مقدار پیش‌فرض استفاده نمی‌شود.",
+        "solution": "دیکشنری goal_hint را به صورت جداگانه تعریف کنید و اگر هدفی در آن نبود، از یک مقدار پیش‌فرض استفاده کنید.",
+        "priority": "low",
+        "note": "",
+        "resolved": true,
+        "detailOpen": false,
+        "editing": false,
+        "id": 15,
+        "status": "resolved",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "Retry نامحدود برای صف delivery",
+        "module": "bot.py / db.py",
+        "func": "delivery queue",
+        "problem": "صف‌های failed بدون سقف تلاش یا backoff در هر tick دوباره تلاش می‌شوند و خطای دائمی می‌تواند مصرف API و Telegram را بی‌نهایت تکرار کند.",
+        "solution": "Retry budget، backoff و وضعیت terminal/manual-retry اضافه کنید.",
+        "priority": "high",
+        "note": "",
+        "resolved": false,
+        "detailOpen": false,
+        "editing": false,
+        "id": 16,
+        "status": "open",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "اجرای synchronous درخواست AI داخل handlerهای async",
+        "module": "bot.py",
+        "func": "custom-word / grammar handlers",
+        "problem": "تماس مستقیم با کلاینت synchronous در زمان کندی provider event loop تلگرام را متوقف می‌کند.",
+        "solution": "همه‌ی تماس‌های blocking را با asyncio.to_thread یا کلاینت async اجرا و timeout صریح تنظیم کنید.",
+        "priority": "high",
+        "note": "",
+        "resolved": false,
+        "detailOpen": false,
+        "editing": false,
+        "id": 17,
+        "status": "open",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "اعتبارسنجی ناقص callbackهای زبان و هدف",
+        "module": "bot.py",
+        "func": "callback_router",
+        "problem": "callbackهای language و goal قبل از ذخیره‌سازی علیه catalog بررسی نمی‌شوند.",
+        "solution": "اعتبارسنجی identifierها را قبل از هر تغییر profile متمرکز کنید.",
+        "priority": "high",
+        "note": "",
+        "resolved": false,
+        "detailOpen": false,
+        "editing": false,
+        "id": 18,
+        "status": "open",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "quota غیراتمی و ذخیره‌ی واژه‌ی تکراری",
+        "module": "bot.py / db.py",
+        "func": "can_ask_word / add_saved_word",
+        "problem": "بررسی و increment سقف جدا هستند و saved_words نیز uniqueness ندارد.",
+        "solution": "رزرو quota را transactionی کنید و ذخیره‌ی واژه را idempotent کنید.",
+        "priority": "high",
+        "note": "",
+        "resolved": false,
+        "detailOpen": false,
+        "editing": false,
+        "id": 19,
+        "status": "open",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "SRS و broadcast بدون مسیر مشترک rate-limit",
+        "module": "bot.py",
+        "func": "srs_job / admin_broadcast",
+        "problem": "این مسیرها مستقیماً send_message را صدا می‌زنند و retry، semaphore و chunking ندارند.",
+        "solution": "یک sender مشترک مقاوم در برابر rate-limit برای همه‌ی ارسال‌های همگانی بسازید.",
+        "priority": "medium",
+        "note": "",
+        "resolved": false,
+        "detailOpen": false,
+        "editing": false,
+        "id": 20,
+        "status": "open",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    },
+    {
+        "title": "ناهماهنگی منبع issues.html و Markdown",
+        "module": "issues.html / hamzaban-issues.md",
+        "func": "ISSUES_DATA / localStorage",
+        "problem": "HTML داده‌ی issue و یادداشت‌ها را جداگانه نگه می‌دارد و ممکن است با Markdown canonical متفاوت شود.",
+        "solution": "Markdown را تنها منبع نگه دارید و HTML را generate/refresh کنید یا آن را فقط view محلی مستند کنید.",
+        "priority": "low",
+        "note": "",
+        "resolved": false,
+        "detailOpen": false,
+        "editing": false,
+        "id": 21,
+        "status": "open",
+        "roadmap_refs": [],
+        "evidence": "",
+        "last_reviewed": ""
+    }
+];
+        // END GENERATED ISSUE DATA
 
         // ================================================================
         //  STATE
@@ -1192,6 +1377,7 @@
         //  HELPERS
         // ================================================================
         function normalizeIssue(issue) {
+            const status = issue.status || (issue.resolved === true ? 'resolved' : 'open');
             return {
                 title: issue.title || '',
                 module: issue.module || '—',
@@ -1200,7 +1386,8 @@
                 solution: issue.solution || '',
                 priority: issue.priority || 'none',
                 note: issue.note || '',
-                resolved: issue.resolved === true,
+                resolved: status === 'resolved',
+                status,
                 detailOpen: issue.detailOpen === true,
                 editing: issue.editing === true,
                 ...issue
@@ -1395,7 +1582,15 @@
             // Build cards
             let html = '';
             filtered.forEach((issue) => {
-                const isResolved = issue.resolved === true;
+                const status = issue.status || (issue.resolved === true ? 'resolved' : 'open');
+                const isResolved = status === 'resolved';
+                const statusLabels = {
+                    open: 'باز',
+                    partial: 'نسبتاً حل‌شده',
+                    resolved: 'حل‌شده',
+                    'accepted-risk': 'ریسک پذیرفته‌شده',
+                    obsolete: 'منسوخ'
+                };
                 const priorityClass = getCardPriorityClass(issue.priority);
                 const badgeClass = getPriorityBadgeClass(issue.priority);
                 const priorityLabel = getPriorityLabel(issue.priority);
@@ -1411,7 +1606,7 @@
                             <span class="number">#${issue.id}</span>
                             <span class="title">${escapeHtml(issue.title)}</span>
                             <span class="badge ${badgeClass}">${priorityLabel}</span>
-                            ${isResolved ? '<span class="badge" style="background:#d1fae5;color:#065f46;">✅ حل‌شده</span>' : ''}
+                            <span class="badge" style="background:${isResolved ? '#d1fae5;color:#065f46' : status === 'partial' ? '#fef3c7;color:#92400e' : '#e2e8f0;color:#334155'};">${escapeHtml(statusLabels[status] || status)}</span>
                         </div>
 
                         <div class="card-meta">
@@ -1519,7 +1714,8 @@
                                 <strong>📌 جزئیات کامل:</strong><br>
                                 <strong>ماژول:</strong> ${escapeHtml(issue.module)}<br>
                                 ${issue.func && issue.func !== '—' ? `<strong>تابع:</strong> ${escapeHtml(issue.func)}<br>` : ''}
-                                <strong>اولویت:</strong> ${priorityLabel}<br><br>
+                                <strong>اولویت:</strong> ${priorityLabel}<br>
+                                <strong>وضعیت:</strong> ${escapeHtml(statusLabels[status] || status)}<br><br>
                                 <strong>مشکل (متن کامل):</strong><br>${escapeHtml(issue.problem)}<br><br>
                                 <strong>راه‌حل (متن کامل):</strong><br>${escapeHtml(issue.solution)}
                                 ${issue.note ? `<br><br><strong>✏️ یادداشت شما:</strong><br>${escapeHtml(issue.note)}` : ''}
@@ -1538,7 +1734,10 @@
                     const issue = getIssueById(id);
                     if (!issue) return;
                     const newVal = !issue.resolved;
-                    updateIssue(id, { resolved: newVal });
+                    updateIssue(id, {
+                        resolved: newVal,
+                        status: newVal ? 'resolved' : 'open'
+                    });
                     showToast(newVal ? '✅ مورد حل شد' : '🔁 مورد بازگشایی شد');
                 });
             });
@@ -1798,9 +1997,9 @@
         //  INIT
         // ================================================================
         document.addEventListener('DOMContentLoaded', function() {
-            // Try to load `issues/data.json` from disk via fetch (works when served over http://localhost).
+            // Try to load `issues.json` from disk via fetch (works when served over http://localhost).
             // If fetch fails (e.g. opened via file:// or CORS), fall back to localStorage or embedded data.
-            fetch('issues/data.json')
+            fetch('./issues.json')
                 .then(resp => {
                     if (!resp.ok) throw new Error('no-data');
                     return resp.json();
@@ -1823,7 +2022,7 @@
                     if (location.protocol === 'file:') {
                         const hint = document.createElement('div');
                         hint.style.cssText = 'background:#fff3bf;border:1px solid #f1c40f;padding:8px 12px;border-radius:8px;margin:8px 0;font-size:0.95rem;color:#664d03;';
-                        hint.innerHTML = 'توجه: برای خواندن خودکار <strong>issues/data.json</strong> بهتر است صفحه را با یک سرور محلی باز کنید. در پوشهٔ پروژه اجرا کنید: <code>python -m http.server 8000</code> و سپس <a href="http://localhost:8000/issues.html">http://localhost:8000/issues.html</a> را باز کنید.';
+                        hint.innerHTML = 'توجه: برای خواندن خودکار <strong>issues/issues.json</strong> بهتر است صفحه را با یک سرور محلی باز کنید. در ریشهٔ پروژه اجرا کنید: <code>python -m http.server 8000</code> و سپس <a href="http://localhost:8000/issues/issues.html">http://localhost:8000/issues/issues.html</a> را باز کنید.';
                         const container = document.querySelector('.container');
                         if (container) container.insertBefore(hint, container.firstChild);
                     }
