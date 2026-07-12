@@ -59,6 +59,7 @@ def daily_card_keyboard(
     card_date: str,
     card_index: int,
     has_next: bool,
+    callback_prefix: str = "daily:next",
 ) -> InlineKeyboardMarkup | None:
     if not has_next:
         return None
@@ -67,11 +68,27 @@ def daily_card_keyboard(
             [
                 InlineKeyboardButton(
                     "➡️ کارت بعدی",
-                    callback_data=f"daily:next:{user_id}:{card_date}:{card_index}",
+                    callback_data=f"{callback_prefix}:{user_id}:{card_date}:{card_index}",
                 )
             ]
         ]
     )
+
+
+def daily_review_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📚 مرور کارت‌ها", callback_data="review:menu")],
+        ]
+    )
+
+
+def daily_review_dates_keyboard(dates: list[str]) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(date, callback_data=f"review:date:{date}")]
+        for date in dates
+    ]
+    return InlineKeyboardMarkup(buttons or [[InlineKeyboardButton("فعلاً کارتی نیست", callback_data="review:noop")]])
 
 
 def query_result_keyboard(token: str) -> InlineKeyboardMarkup:

@@ -239,6 +239,9 @@ The next language addition must use this contract.
   wording that clearly communicates on-demand cards).
 - Every manual card shows progress against the effective daily allowance and
   provides an inline `Next card` action until the allowance is consumed.
+- When the daily allowance is complete, the completion message should expose a
+  review entry point for today’s cards and recent prior days stored in
+  `daily_cards`.
 - Example translations are stored with the card but remain hidden until the
   user presses an inline `Show translations` button.
 - A successful custom-word query shows the user's daily usage and remaining

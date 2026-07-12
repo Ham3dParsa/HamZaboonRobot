@@ -4,7 +4,14 @@ import tempfile
 import unittest
 
 import db
-from keyboards import main_menu, query_result_keyboard, BTN_ASK_WORD
+from keyboards import (
+    BTN_ASK_WORD,
+    daily_card_keyboard,
+    daily_review_dates_keyboard,
+    daily_review_menu_keyboard,
+    main_menu,
+    query_result_keyboard,
+)
 
 
 class CustomWordQueryTests(unittest.TestCase):
@@ -56,6 +63,30 @@ class CustomWordQueryTests(unittest.TestCase):
         labels = [button.text for row in markup.keyboard for button in row]
         self.assertNotIn("➕ ثبت واژه‌ی دلخواه", labels)
         self.assertIn(BTN_ASK_WORD, labels)
+
+    def test_recent_daily_card_dates_are_sorted_descending(self):
+        db.create_user_if_needed(1, "learner")
+        db.add_daily_card(1, "2026-07-10", 0, {"word": "a"})
+        db.add_daily_card(1, "2026-07-12", 0, {"word": "b"})
+        db.add_daily_card(1, "2026-07-11", 0, {"word": "c"})
+        self.assertEqual(
+            db.get_recent_daily_card_dates(1, limit=3),
+            ["2026-07-12", "2026-07-11", "2026-07-10"],
+        )
+
+    def test_review_keyboards_expose_dates_and_menu(self):
+        menu = daily_review_menu_keyboard()
+        self.assertEqual(menu.inline_keyboard[0][0].callback_data, "review:menu")
+
+        dates = daily_review_dates_keyboard(["2026-07-12", "2026-07-11"])
+        self.assertEqual(dates.inline_keyboard[0][0].callback_data, "review:date:2026-07-12")
+        self.assertEqual(dates.inline_keyboard[1][0].callback_data, "review:date:2026-07-11")
+
+        next_card = daily_card_keyboard(1, "2026-07-12", 0, True, callback_prefix="review:next")
+        self.assertEqual(
+            next_card.inline_keyboard[0][0].callback_data,
+            "review:next:1:2026-07-12:0",
+        )
 
 
 if __name__ == "__main__":
