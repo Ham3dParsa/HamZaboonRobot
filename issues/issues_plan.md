@@ -10,6 +10,7 @@ This plan is based on the current state of `issues/issues.html`, which today pro
 - LocalStorage persistence for edited issue state
 - Import/export support for JSON and Markdown
 - Fallback data loading from embedded `ISSUES_DATA` when `issues.json` is unavailable
+- Canonical records already carry `roadmap_refs`, `status`, `priority`, and review metadata that can be reused for roadmap-aware organization
 
 ### Current gaps
 - Search ignores useful fields: `note`, `status`, `id`, `roadmap_refs`, `evidence`, `last_reviewed`
@@ -20,6 +21,7 @@ This plan is based on the current state of `issues/issues.html`, which today pro
 - Issue data is embedded in HTML as a secondary source, creating a stale-source risk relative to canonical JSON
 - Export operations do not support exporting only the current filtered set
 - No quick “jump to issue ID” or issue navigation helper
+- No explicit `phase` field in the issue schema, so roadmap-stage groupings are only inferred from `roadmap_refs`
 
 ## Improvement Goals
 - Expand search scope and add issue ID matching
@@ -27,6 +29,7 @@ This plan is based on the current state of `issues/issues.html`, which today pro
 - Improve exploration UX with active result counts, sort control, and navigation shortcuts
 - Align data loading so `issues.json` is the authoritative source and the HTML UI remains a thin viewer/editor
 - Add filtered export support and minimize stale data risk
+- Add explicit phase-aware organization without replacing `roadmap_refs`
 
 ## Proposed Feature List
 1. Search improvements
@@ -51,6 +54,10 @@ This plan is based on the current state of `issues/issues.html`, which today pro
    - Add a small “clear search” button inside the search box
    - Add a tooltip or help text explaining filter/search behavior
    - Add a visual badge for `status` and `roadmap_refs` on each card
+6. Phase-aware organization
+   - Add an optional `phase` field to `issues.json` entries with values that map to roadmap stages or release phases
+   - Surface `phase` as a badge/filter in the explorer UI
+   - Validate that `phase` values and `roadmap_refs` stay aligned with `ROADMAP.md`
 
 ## Implementation Plan
 1. Create or update `issues_plan.md` (this file) and document the feature scope.
@@ -61,6 +68,7 @@ This plan is based on the current state of `issues/issues.html`, which today pro
 6. Change the data-loading flow so `fetch('./issues.json')` is the authoritative source and embedded fallback is explicitly secondary.
 7. Add result-count text and visible filter state summary within the controls or header.
 8. Test the explorer locally by opening `issues/issues.html` in a browser and verifying search/filter combinations.
+9. If phase support is added, validate the explorer badge/filter behavior and ensure phase values remain backward compatible for older issue entries.
 
 ## Notes and Next Steps
 - This plan is intentionally limited to issue explorer improvements and does not alter production bot logic.
