@@ -540,6 +540,16 @@ def get_daily_cards(user_id: int, card_date: str):
     return [json.loads(r["card_data"]) for r in rows]
 
 
+def get_recent_daily_card_dates(user_id: int, limit: int = 7):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT card_date FROM daily_cards WHERE user_id=? "
+            "ORDER BY card_date DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+    return [row["card_date"] for row in rows]
+
+
 def count_daily_cards(user_id: int, card_date: str) -> int:
     with get_conn() as conn:
         return conn.execute(

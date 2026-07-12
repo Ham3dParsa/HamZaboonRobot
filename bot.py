@@ -62,6 +62,8 @@ from keyboards import (
     lang_inline_keyboard,
     goal_inline_keyboard,
     level_inline_keyboard,
+    daily_review_dates_keyboard,
+    daily_review_menu_keyboard,
     query_result_keyboard,
     admin_panel_keyboard,
     daily_card_keyboard,
@@ -123,6 +125,40 @@ def _word_query_usage_text(row) -> str:
         return f"📊 استفاده امروز: {used} / نامحدود"
     remaining = max(limit - used, 0)
     return f"📊 استفاده امروز: {used}/{limit} · باقی‌مانده: {remaining}"
+
+
+async def _send_card_from_store(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    user_id: int,
+    card_date: str,
+    card_index: int,
+    *,
+    review_mode: bool = False,
+):
+    cards = db.get_daily_cards(user_id, card_date)
+    if card_index >= len(cards):
+        return None, len(cards)
+    card = cards[card_index]
+    footer = f"📖 کارت {card_index + 1} از {len(cards)} برای {card_date}"
+    if review_mode:
+        footer = f"📚 مرور کارت {card_index + 1} از {len(cards)} برای {card_date}"
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=format_card(
+            card,
+            footer=footer,
+        ),
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=daily_card_keyboard(
+            user_id,
+            card_date,
+            card_index,
+            card_index + 1 < len(cards),
+            callback_prefix="review:next" if review_mode else "daily:next",
+        ),
+    )
+    return card, len(cards)
 
 
 def escape_mdv2(text: str) -> str:
@@ -465,6 +501,7 @@ async def _send_next_daily_card(
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=f"✅ سهمیه‌ی امروزت ({limit} کارت) کامل شده است.",
+            reply_markup=daily_review_menu_keyboard(),
         )
         return
 
@@ -595,6 +632,42 @@ async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     else:
         message = "این واژه از قبل در مرور شما ثبت شده بود."
     await update.callback_query.answer(message, show_alert=True)
+
+
+async def _show_review_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    row = db.get_user(user_id)
+    if not row or not row["onboarded"]:
+        await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
+        return
+    dates = db.get_recent_daily_card_dates(user_id, limit=7)
+    if not dates:
+        await update.callback_query.answer("هنوز کارتی برای مرور ندارید.", show_alert=True)
+        return
+    await update.callback_query.edit_message_text(
+        "کدوم روز رو می‌خوای مرور کنی؟",
+        reply_markup=daily_review_dates_keyboard(dates),
+    )
+
+
+async def _show_review_date(update: Update, context: ContextTypes.DEFAULT_TYPE, card_date: str):
+    user_id = update.effective_user.id
+    row = db.get_user(user_id)
+    if not row or not row["onboarded"]:
+        await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
+        return
+    cards = db.get_daily_cards(user_id, card_date)
+    if not cards:
+        await update.callback_query.answer("برای این روز کارتی پیدا نشد.", show_alert=True)
+        return
+    await _send_card_from_store(
+        context,
+        update.effective_chat.id,
+        user_id,
+        card_date,
+        0,
+        review_mode=True,
+    )
 
 
 # ---------------- پنل ادمین (فقط مالک) ----------------
@@ -861,6 +934,46 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=update.effective_chat.id,
                 text="مشکلی در ساخت کارت بعدی پیش اومد.",
             )
+    elif data == "review:menu":
+        await _show_review_menu(update, context)
+    elif data.startswith("review:date:"):
+        card_date = data.split(":", 2)[2]
+        await _show_review_date(update, context, card_date)
+    elif data.startswith("review:next:"):
+        parts = data.split(":")
+        if len(parts) != 5:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        target_user_id_text, card_date, current_index_text = parts[2], parts[3], parts[4]
+        try:
+            target_user_id = int(target_user_id_text)
+            current_index = int(current_index_text)
+        except ValueError:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        user_id = update.effective_user.id
+        if user_id != target_user_id:
+            await update.callback_query.answer("این کارت برای کاربر دیگری است.", show_alert=True)
+            return
+        row = db.get_user(user_id)
+        if not row or not row["onboarded"]:
+            await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
+            return
+        cards = db.get_daily_cards(user_id, card_date)
+        if current_index + 1 >= len(cards):
+            await update.callback_query.answer("کارت دیگری برای این روز وجود ندارد.", show_alert=True)
+            return
+        await update.callback_query.answer()
+        await _send_card_from_store(
+            context,
+            update.effective_chat.id,
+            user_id,
+            card_date,
+            current_index + 1,
+            review_mode=True,
+        )
+    elif data == "review:noop":
+        await update.callback_query.answer("هنوز کارتی برای مرور ندارید.", show_alert=True)
     elif data.startswith("query:add:"):
         parts = data.split(":", 2)
         if len(parts) != 3:
