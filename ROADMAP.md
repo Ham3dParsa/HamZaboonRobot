@@ -41,11 +41,92 @@ Completed on the current main branch:
 - Batch generation infrastructure with duplicate filtering and partial-batch
   retry
 - Plan access controls, owner bypass, and owner-only per-user plan assignment
+- Operational configuration contract with readable clock values, shared
+  timezone support for scheduled jobs, and explicit per-plan quotas
+- Local issue-review manager (`issues.html`) with Markdown export; the
+  canonical issue record remains `hamzaban-issues.md`
 
 The remaining work is tracked in the explicit ToDo section near the end of
 this document. The next user-facing feature remains the custom-word query
 improvement, but configuration and quota semantics must stay consistent with
 the decisions below.
+
+## Latest Code Review
+
+Review scope: every Python module, all tests, `ROADMAP.md`,
+`hamzaban-issues.md`, and the static `issues.html` manager on the current
+`main` branch.
+
+### Confirmed resolved from the issue export
+
+- Daily cards are persisted per user/date/index; manual retrieval and
+  scheduled delivery reuse the same storage.
+- SRS reminders are scheduled and `advance_word_review` is called after a
+  successful reminder message.
+- Language, goal, and level metadata are centralized in `catalog.py`.
+- `_extract_json` now raises a clear parsing error instead of attempting to
+  decode an empty string.
+- Empty grammar tips are omitted from formatted cards.
+- Goal hints and fallback labels are catalog-backed.
+- The non-onboarded-card item is expected guard behavior, not a defect.
+
+### Partially resolved
+
+- Telegram rate limiting is handled for scheduled card delivery, but not
+  consistently for SRS reminders or owner broadcasts.
+- The application timezone is used by scheduler timestamps and JobQueue
+  triggers, but database day boundaries still use the host timezone in streak,
+  word-quota, SRS, and some callback paths.
+- Logging exists for failures and some admin actions, but important lifecycle
+  events and delivery metrics are not structured or complete.
+- The issue manager is useful for local review, but its embedded issue data and
+  browser `localStorage` state can drift from the canonical Markdown export.
+
+### Open bugs and engineering risks found in this review
+
+- AI clients have no explicit timeout, and custom-word and grammar handlers
+  call the synchronous OpenAI client directly from async Telegram handlers.
+- Failed delivery queue rows are retried on every dispatch tick without a
+  maximum attempt count, backoff, or terminal failure policy. This contradicts
+  the bounded-retry goal and can create repeated AI/API work.
+- Callback handlers validate levels but accept arbitrary language and goal
+  callback payloads before writing them to the database.
+- The custom-word quota check happens before the user enters the word and is
+  not atomically reserved with the later increment, so concurrent requests can
+  exceed the configured plan limit.
+- Saved words have no uniqueness constraint or idempotent insert operation;
+  repeated manual saves create duplicate SRS entries.
+- Several `edit_message_text` calls and SRS/broadcast sends lack targeted
+  Telegram error handling and retry/rate-limit coordination.
+- SRS reminders are sent as one unbounded message per user; many due words can
+  exceed Telegram's message-size limit and prevent all due entries from being
+  advanced.
+- Daily progress and timezone-sensitive database operations use separate
+  notions of “today”, which can disagree around midnight.
+- The current tests cover catalog/configuration and scheduling policy, but not
+  callback authorization, quota races, AI timeout/offloading, Telegram retry
+  behavior, SRS chunking, or migration/reset behavior.
+
+### Efficiency observations
+
+- Each database helper opens a new SQLite connection; this is acceptable for
+  the MVP but increases overhead during queue dispatch and broadcasts.
+- Queue dispatch processes all due rows sequentially in one job invocation;
+  the Telegram semaphore limits sends but does not provide fair concurrent
+  progress across users.
+- The scheduler's load accounting is in-memory and rebuilt each daily run;
+  it is safe to recompute but does not reflect manually inserted queue rows
+  from another worker.
+
+### Review questions to lock before implementation
+
+- Should failed delivery sessions become terminal after a small retry budget
+  (recommended), or remain manually retryable indefinitely?
+- Should plan quota changes apply immediately to already-queued daily sessions,
+  or only to sessions planned after the change?
+- Should the canonical issue source remain Markdown, with `issues.html`
+  treated as a generated/local review view rather than a second editable
+  registry?
 
 ## Locked Architectural Decision
 
@@ -438,18 +519,33 @@ advanced personalization, or additional paid features.
 
 - Add the owner-only two-step learning-data reset with scoped preservation of
   AI settings.
+- Add explicit retry budgets, backoff, and terminal/manual-retry states to
+  delivery queue processing.
+- Offload every synchronous AI call from async handlers and configure an
+  explicit provider timeout.
+- Validate every callback identifier against `catalog.py` before persistence
+  and keep callback authorization checks centralized.
+- Make custom-word quota reservation atomic and add idempotent saved-word
+  uniqueness for `(user, language, normalized word)`.
+- Add shared Telegram retry/rate-limit handling for SRS and owner broadcasts.
+- Chunk SRS reminders under Telegram's message-size limit and advance only
+  the words whose reminder was successfully delivered.
 - Add explicit UI for per-user preferred delivery time, active window, and
   optional daily card limit, using the application timezone.
 - Add timezone-aware per-user UI and migration coverage for existing
   installations, including stored delivery timestamps.
 - Add provider cost/latency, validation, duplicate, delivery, and SRS usage
   measurements before advanced personalization.
+- Expand tests around callback security, quota concurrency, provider failures,
+  Telegram retry behavior, SRS chunking, migrations, and reset safeguards.
 
 ### Later product phases
 
 - Premium smart placement testing for Silver and Gold.
 - Measurement-informed advanced learning and personalization.
 - Additional languages only through the canonical `catalog.py` registry.
+- Make `hamzaban-issues.md` the only maintained issue source and generate or
+  explicitly refresh `issues.html` from it to prevent drift.
 
 ## Out of Scope for the Current MVP
 
