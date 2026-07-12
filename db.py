@@ -64,6 +64,12 @@ def init_db():
                 card_data TEXT,                -- محتوای JSON کارت
                 UNIQUE(user_id, card_date, card_index)
             );
+            CREATE TABLE IF NOT EXISTS daily_progress (
+                user_id INTEGER,
+                card_date TEXT,
+                next_index INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(user_id, card_date)
+            );
             """
         )
         columns = {
@@ -270,6 +276,25 @@ def add_daily_card(user_id: int, card_date: str, card_index: int, card_data: dic
             "INSERT OR IGNORE INTO daily_cards(user_id, card_date, card_index, card_data) "
             "VALUES (?, ?, ?, ?)",
             (user_id, card_date, card_index, json.dumps(card_data, ensure_ascii=False)),
+        )
+        conn.commit()
+
+
+def get_daily_progress(user_id: int, card_date: str) -> int:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT next_index FROM daily_progress WHERE user_id=? AND card_date=?",
+            (user_id, card_date),
+        ).fetchone()
+    return row["next_index"] if row else 0
+
+
+def set_daily_progress(user_id: int, card_date: str, next_index: int):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO daily_progress(user_id, card_date, next_index) VALUES (?, ?, ?) "
+            "ON CONFLICT(user_id, card_date) DO UPDATE SET next_index=excluded.next_index",
+            (user_id, card_date, next_index),
         )
         conn.commit()
 
