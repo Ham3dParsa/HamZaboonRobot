@@ -37,6 +37,54 @@ The next implementation work is the on-demand interactive card flow,
 custom-word usage visibility, one-action SRS capture, concurrency isolation,
 and protected learning-data reset described below.
 
+## Proposed Architectural Decision — Pending Lock
+
+### Canonical Language and Learning-Option Registry
+
+The current implementation keeps overlapping display-name and behavior
+registries in multiple modules, for example `config.SUPPORTED_LANGS` versus
+`prompts.LANG_NAMES_FA`, and `config.GOALS` versus `prompts.GOALS_FA`. This
+means adding, removing, or changing a language or goal requires editing
+several unrelated files and can silently produce inconsistent menus, prompts,
+validation, or fallback behavior.
+
+Before adding more languages or language-specific features, introduce one
+canonical registry for learner-facing learning options. The registry should
+own, or explicitly reference, the metadata needed by all consumers:
+
+- stable language and goal identifiers
+- Persian display names
+- availability and rollout status
+- prompt guidance and language-specific content rules
+- example-language labels and formatting requirements
+- validation/default behavior for unsupported or retired options
+
+Modules such as `bot.py`, `keyboards.py`, and `prompts.py` must consume this
+registry rather than maintaining parallel dictionaries. Language-specific
+prompt guidance may remain structured data or dedicated strategy objects, but
+each supported identifier must have exactly one registered source of truth.
+Existing database values and callback identifiers must remain backward
+compatible during migration.
+
+**Decision to lock:** choose whether the canonical registry lives in a
+dedicated module such as `catalog.py`/`domain_options.py`, or whether
+`config.py` is the canonical owner and other modules import from it. Do not
+implement the next language addition until this choice and the registry
+contract are confirmed.
+
+**Acceptance criteria**
+
+- Adding or retiring a language or goal changes one registry and its focused
+  tests, not duplicated display-name dictionaries across modules.
+- Menus, onboarding, settings, validation, fallback labels, and prompts
+  derive their identifiers and display names from the same registry.
+- Language-specific prompt rules remain explicit, testable, and do not leak
+  into unrelated UI configuration.
+- A registry consistency test fails when an option is referenced by one
+  consumer but missing metadata in the canonical source.
+- Existing stored language/goal IDs continue to load safely, including
+  retired IDs with a controlled fallback.
+
 ## Locked Product Decisions
 
 - Each vocabulary card is sent as a separate Telegram message.
