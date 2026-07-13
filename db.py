@@ -12,8 +12,11 @@ from config import (
     DEFAULT_AI_API_KEY,
     DEFAULT_AI_BASE_URL,
     DEFAULT_AI_MODEL,
+    LLM_INPUT_COST_USD_PER_MILLION,
+    LLM_OUTPUT_COST_USD_PER_MILLION,
     PLANS,
     APP_TIMEZONE,
+    USD_TO_TOMAN_RATE,
 )
 
 INTERVALS_DAYS = [1, 3, 7, 16, 30]
@@ -166,6 +169,28 @@ def init_db():
                 tip_json TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS llm_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                request_date TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                plan TEXT NOT NULL,
+                request_kind TEXT NOT NULL,
+                model TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                prompt_tokens INTEGER,
+                completion_tokens INTEGER,
+                total_tokens INTEGER,
+                input_cost_usd_per_million REAL NOT NULL,
+                output_cost_usd_per_million REAL NOT NULL,
+                usd_to_toman_rate REAL NOT NULL,
+                cost_usd REAL NOT NULL,
+                cost_toman REAL NOT NULL,
+                latency_ms INTEGER,
+                error_class TEXT,
+                error_message TEXT
+            );
             """
         )
         columns = {
@@ -245,9 +270,26 @@ def init_db():
             "ai_base_url": DEFAULT_AI_BASE_URL,
             "ai_api_key": DEFAULT_AI_API_KEY,
             "ai_model": DEFAULT_AI_MODEL,
+            "llm_input_cost_usd_per_million": str(LLM_INPUT_COST_USD_PER_MILLION),
+            "llm_output_cost_usd_per_million": str(LLM_OUTPUT_COST_USD_PER_MILLION),
+            "usd_to_toman_rate": str(USD_TO_TOMAN_RATE),
         }
         for k, v in defaults.items():
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
+        llm_request_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(llm_requests)").fetchall()
+        }
+        if llm_request_columns:
+            for index_sql in (
+                "CREATE INDEX IF NOT EXISTS llm_requests_request_date_idx ON llm_requests(request_date)",
+                "CREATE INDEX IF NOT EXISTS llm_requests_user_id_idx ON llm_requests(user_id)",
+                "CREATE INDEX IF NOT EXISTS llm_requests_plan_idx ON llm_requests(plan)",
+                "CREATE INDEX IF NOT EXISTS llm_requests_model_idx ON llm_requests(model)",
+                "CREATE INDEX IF NOT EXISTS llm_requests_kind_idx ON llm_requests(request_kind)",
+                "CREATE INDEX IF NOT EXISTS llm_requests_outcome_idx ON llm_requests(outcome)",
+            ):
+                conn.execute(index_sql)
         conn.execute(
             "DELETE FROM query_results WHERE expires_at<?",
             (_utc_now().isoformat(),),
@@ -269,6 +311,43 @@ def set_setting(key: str, value: str):
             "INSERT INTO settings(key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, value),
+        )
+        conn.commit()
+
+
+def get_llm_cost_profile() -> dict[str, float]:
+    return {
+        "input_cost_usd_per_million": float(
+            get_setting("llm_input_cost_usd_per_million", str(LLM_INPUT_COST_USD_PER_MILLION))
+        ),
+        "output_cost_usd_per_million": float(
+            get_setting("llm_output_cost_usd_per_million", str(LLM_OUTPUT_COST_USD_PER_MILLION))
+        ),
+        "usd_to_toman_rate": float(get_setting("usd_to_toman_rate", str(USD_TO_TOMAN_RATE))),
+    }
+
+
+def set_llm_cost_profile(
+    *,
+    input_cost_usd_per_million: float,
+    output_cost_usd_per_million: float,
+    usd_to_toman_rate: float,
+):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            ("llm_input_cost_usd_per_million", str(input_cost_usd_per_million)),
+        )
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            ("llm_output_cost_usd_per_million", str(output_cost_usd_per_million)),
+        )
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            ("usd_to_toman_rate", str(usd_to_toman_rate)),
         )
         conn.commit()
 
@@ -558,6 +637,156 @@ def recent_grammar_tip_titles(
     with get_conn() as conn:
         rows = conn.execute(query, params).fetchall()
     return [row["title"] for row in rows]
+
+
+def add_llm_request(
+    *,
+    user_id: int,
+    plan: str,
+    request_kind: str,
+    model: str,
+    outcome: str,
+    prompt_tokens: int | None,
+    completion_tokens: int | None,
+    total_tokens: int | None,
+    input_cost_usd_per_million: float,
+    output_cost_usd_per_million: float,
+    usd_to_toman_rate: float,
+    latency_ms: int | None,
+    error_class: str | None = None,
+    error_message: str | None = None,
+):
+    prompt_tokens = int(prompt_tokens or 0)
+    completion_tokens = int(completion_tokens or 0)
+    total_tokens = int(total_tokens or (prompt_tokens + completion_tokens))
+    cost_usd = (
+        (prompt_tokens / 1_000_000) * float(input_cost_usd_per_million)
+        + (completion_tokens / 1_000_000) * float(output_cost_usd_per_million)
+    )
+    cost_toman = cost_usd * float(usd_to_toman_rate)
+    request_id = secrets.token_hex(16)
+    now = _utc_now()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO llm_requests("
+            "request_id, created_at, request_date, user_id, plan, request_kind, model, "
+            "outcome, prompt_tokens, completion_tokens, total_tokens, "
+            "input_cost_usd_per_million, output_cost_usd_per_million, usd_to_toman_rate, "
+            "cost_usd, cost_toman, latency_ms, error_class, error_message"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                request_id,
+                now.isoformat(),
+                _today().isoformat(),
+                user_id,
+                plan,
+                request_kind,
+                model,
+                outcome,
+                prompt_tokens,
+                completion_tokens,
+                total_tokens,
+                float(input_cost_usd_per_million),
+                float(output_cost_usd_per_million),
+                float(usd_to_toman_rate),
+                cost_usd,
+                cost_toman,
+                latency_ms,
+                error_class,
+                (error_message or "")[:1000] or None,
+            ),
+        )
+        conn.commit()
+    return request_id
+
+
+def _llm_request_filters_where(filters: dict[str, object]) -> tuple[str, list[object]]:
+    clauses: list[str] = []
+    params: list[object] = []
+
+    def add_clause(sql: str, value: object | None):
+        if value is None or value == "":
+            return
+        clauses.append(sql)
+        params.append(value)
+
+    add_clause("request_date>=?", filters.get("start_date"))
+    add_clause("request_date<=?", filters.get("end_date"))
+    add_clause("user_id=?", filters.get("user_id"))
+    add_clause("plan=?", filters.get("plan"))
+    add_clause("request_kind=?", filters.get("request_kind"))
+    add_clause("model=?", filters.get("model"))
+    add_clause("outcome=?", filters.get("outcome"))
+    where = " WHERE " + " AND ".join(clauses) if clauses else ""
+    return where, params
+
+
+def summarize_llm_requests(filters: dict[str, object] | None = None) -> dict[str, object]:
+    where, params = _llm_request_filters_where(filters or {})
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT "
+            "COUNT(*) AS request_count, "
+            "SUM(COALESCE(prompt_tokens, 0)) AS prompt_tokens, "
+            "SUM(COALESCE(completion_tokens, 0)) AS completion_tokens, "
+            "SUM(COALESCE(total_tokens, 0)) AS total_tokens, "
+            "SUM(COALESCE(cost_usd, 0)) AS cost_usd, "
+            "SUM(COALESCE(cost_toman, 0)) AS cost_toman, "
+            "AVG(latency_ms) AS avg_latency_ms, "
+            "SUM(CASE WHEN outcome='success' THEN 1 ELSE 0 END) AS success_count, "
+            "SUM(CASE WHEN outcome='failure_billed' THEN 1 ELSE 0 END) AS billed_failure_count, "
+            "SUM(CASE WHEN outcome='failure_zero_cost' THEN 1 ELSE 0 END) AS zero_cost_failure_count "
+            "FROM llm_requests"
+            f"{where}",
+            params,
+        ).fetchone()
+    return dict(row or {})
+
+
+def breakdown_llm_requests(
+    group_by: str,
+    filters: dict[str, object] | None = None,
+    limit: int = 10,
+) -> list[dict[str, object]]:
+    if group_by not in {"user_id", "plan", "request_kind", "model", "outcome"}:
+        raise ValueError(f"Unsupported LLM breakdown: {group_by}")
+    where, params = _llm_request_filters_where(filters or {})
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT "
+            f"{group_by} AS bucket, "
+            "COUNT(*) AS request_count, "
+            "SUM(COALESCE(prompt_tokens, 0)) AS prompt_tokens, "
+            "SUM(COALESCE(completion_tokens, 0)) AS completion_tokens, "
+            "SUM(COALESCE(total_tokens, 0)) AS total_tokens, "
+            "SUM(COALESCE(cost_usd, 0)) AS cost_usd, "
+            "SUM(COALESCE(cost_toman, 0)) AS cost_toman, "
+            "AVG(latency_ms) AS avg_latency_ms "
+            "FROM llm_requests"
+            f"{where} "
+            f"GROUP BY {group_by} "
+            "ORDER BY cost_usd DESC, request_count DESC, bucket ASC "
+            "LIMIT ?",
+            [*params, limit],
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def recent_llm_requests(
+    filters: dict[str, object] | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict[str, object]]:
+    where, params = _llm_request_filters_where(filters or {})
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM llm_requests"
+            f"{where} "
+            "ORDER BY created_at DESC, id DESC "
+            "LIMIT ? OFFSET ?",
+            [*params, limit, offset],
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def all_active_users():

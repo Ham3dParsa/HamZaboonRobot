@@ -77,10 +77,10 @@ python bot.py
 4. مقدارهای `.env` bootstrap هستند؛ owner می‌تواند base URL/model/key را از
    پنل مدیریت عوض کند. دیتابیس SQLite را مثل secret store محافظت کن، چون key
    runtime در جدول settings ذخیره می‌شود.
-5. log فعلی latency و token usage خام را ثبت می‌کند. برای production آن را با
-   request count، validation failure، duplicate rate و cost aggregation بر
-   اساس مدل/پلن تکمیل کن؛ roadmap این اندازه‌گیری را پیش‌نیاز personalization
-   پیشرفته نگه داشته است.
+5. log فعلی latency، token usage و cost telemetry خام را ثبت می‌کند. owner
+   می‌تواند از پنل مدیریت، قیمت ورودی/خروجی به ازای یک میلیون توکن و نرخ
+   USD→تومان را override کند و داشبورد هزینه‌ی LLM را بر اساس پلن، کاربر،
+   مدل، نوع درخواست و وضعیت خطا فیلتر کند.
 
 ## محدودیت‌های عمدی MVP
 

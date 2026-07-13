@@ -87,7 +87,7 @@ current `main` branch.
 ### Partially resolved
 
 - Logging now covers provider latency/token usage and important learning
-  lifecycle events, but plan-level cost aggregation remains future work.
+  lifecycle events.
 - The issue manager is useful for local review, but browser `localStorage`
   remains local draft state and must not be treated as committed issue data.
 ### Open bugs and engineering risks found in this review
@@ -562,6 +562,8 @@ a separate lesson system.
   optional daily card limit, using the application timezone.
 - Add timezone-aware per-user UI and migration coverage for existing
   installations, including stored delivery timestamps.
+- Finish the owner-facing LLM cost dashboard with hybrid pricing overrides,
+  per-request accounting, plan/user/model filters, and monthly projections.
 - Add provider cost/latency, validation, duplicate, delivery, and SRS usage
   measurements before advanced personalization.
 - Expand tests around callback authorization, provider failures, Telegram retry
@@ -624,6 +626,8 @@ a separate lesson system.
   latency/token logs; failed custom-word or grammar calls refund reservations.
 - Callback edits use a shared fallback that sends a replacement message when
   the original Telegram message is stale or unavailable.
+- The owner-only LLM cost dashboard now exposes per-request accounting,
+  plan/user/model/outcome filters, price overrides, and monthly projections.
 
 ## Out of Scope for the Current MVP
 

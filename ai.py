@@ -33,6 +33,56 @@ def _model() -> str:
     return db.get_setting("ai_model", DEFAULT_AI_MODEL)
 
 
+def _log_llm_request(
+    *,
+    request_kind: str,
+    user_id: int | None,
+    plan: str | None,
+    model: str,
+    telemetry: dict[str, object],
+    outcome: str,
+    error: Exception | None = None,
+):
+    usage = telemetry.get("usage")
+    latency_ms = telemetry.get("latency_ms")
+    latency_value = round(float(latency_ms)) if isinstance(latency_ms, (int, float)) else None
+    if usage is None:
+        prompt_tokens = completion_tokens = total_tokens = None
+    else:
+        prompt_tokens = getattr(usage, "prompt_tokens", None)
+        completion_tokens = getattr(usage, "completion_tokens", None)
+        total_tokens = getattr(usage, "total_tokens", None)
+    log.info(
+        "ai request kind=%s user_id=%s model=%s outcome=%s latency_ms=%s "
+        "prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+        request_kind,
+        user_id,
+        model,
+        outcome,
+        latency_value,
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+    )
+    profile = db.get_llm_cost_profile()
+    db.add_llm_request(
+        user_id=user_id or 0,
+        plan=plan or "unknown",
+        request_kind=request_kind,
+        model=model,
+        outcome=outcome,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=total_tokens,
+        input_cost_usd_per_million=profile["input_cost_usd_per_million"],
+        output_cost_usd_per_million=profile["output_cost_usd_per_million"],
+        usd_to_toman_rate=profile["usd_to_toman_rate"],
+        latency_ms=latency_value,
+        error_class=type(error).__name__ if error else None,
+        error_message=str(error) if error else None,
+    )
+
+
 class CardValidationError(ValueError):
     """Raised when the model output cannot be stored as a vocabulary card."""
 
@@ -103,11 +153,16 @@ def _request_json(
     *,
     request_kind: str = "json",
     user_id: int | None = None,
+    plan: str | None = None,
+    telemetry: dict[str, object] | None = None,
 ) -> object:
     """یک تماس با مدل زبانی می‌گیرد و انتظار دارد خروجی JSON خام باشد."""
     client = _client()
     model = _model()
     started = time.monotonic()
+    telemetry = telemetry if telemetry is not None else {}
+    telemetry["model"] = model
+    telemetry["request_kind"] = request_kind
     resp = client.chat.completions.create(
         model=model,
         messages=[
@@ -117,20 +172,14 @@ def _request_json(
         temperature=AI_TEMPERATURE,
         max_tokens=AI_MAX_OUTPUT_TOKENS,
     )
-    usage = resp.usage
-    log.info(
-        "ai request kind=%s user_id=%s model=%s latency_ms=%d "
-        "prompt_tokens=%s completion_tokens=%s total_tokens=%s",
-        request_kind,
-        user_id,
-        model,
-        round((time.monotonic() - started) * 1000),
-        getattr(usage, "prompt_tokens", None),
-        getattr(usage, "completion_tokens", None),
-        getattr(usage, "total_tokens", None),
-    )
+    telemetry["usage"] = resp.usage
+    telemetry["latency_ms"] = (time.monotonic() - started) * 1000
     content = resp.choices[0].message.content or ""
-    return _extract_json(content)
+    try:
+        return _extract_json(content)
+    except Exception as exc:
+        telemetry["error"] = exc
+        raise
 
 
 def ask_json(
@@ -139,16 +188,37 @@ def ask_json(
     *,
     request_kind: str = "json",
     user_id: int | None = None,
+    plan: str | None = None,
 ) -> dict:
-    value = _request_json(
-        system_prompt,
-        user_prompt,
-        request_kind=request_kind,
-        user_id=user_id,
-    )
-    if not isinstance(value, Mapping):
-        raise CardValidationError("Expected a JSON object")
-    return dict(value)
+    telemetry: dict[str, object] = {}
+    error: Exception | None = None
+    try:
+        value = _request_json(
+            system_prompt,
+            user_prompt,
+            request_kind=request_kind,
+            user_id=user_id,
+            plan=plan,
+            telemetry=telemetry,
+        )
+        if not isinstance(value, Mapping):
+            raise CardValidationError("Expected a JSON object")
+        return dict(value)
+    except Exception as exc:
+        error = exc
+        raise
+    finally:
+        _log_llm_request(
+            request_kind=request_kind,
+            user_id=user_id,
+            plan=plan,
+            model=str(telemetry.get("model") or _model()),
+            telemetry=telemetry,
+            outcome="success" if error is None else (
+                "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"
+            ),
+            error=error,
+        )
 
 
 def ask_card(
@@ -157,15 +227,35 @@ def ask_card(
     *,
     request_kind: str = "card",
     user_id: int | None = None,
+    plan: str | None = None,
 ) -> dict:
-    return validate_card(
-        ask_json(
+    telemetry: dict[str, object] = {}
+    error: Exception | None = None
+    try:
+        value = _request_json(
             system_prompt,
             user_prompt,
             request_kind=request_kind,
             user_id=user_id,
+            plan=plan,
+            telemetry=telemetry,
         )
-    )
+        return validate_card(value)
+    except Exception as exc:
+        error = exc
+        raise
+    finally:
+        _log_llm_request(
+            request_kind=request_kind,
+            user_id=user_id,
+            plan=plan,
+            model=str(telemetry.get("model") or _model()),
+            telemetry=telemetry,
+            outcome="success" if error is None else (
+                "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"
+            ),
+            error=error,
+        )
 
 
 def validate_batch(
@@ -206,13 +296,35 @@ def ask_batch(
     *,
     request_kind: str = "batch",
     user_id: int | None = None,
+    plan: str | None = None,
 ) -> list[dict]:
-    return validate_batch(
-        _request_json(
+    telemetry: dict[str, object] = {}
+    error: Exception | None = None
+    try:
+        value = _request_json(
             system_prompt,
             request_kind=request_kind,
             user_id=user_id,
-        ),
-        expected_count,
-        used_words=used_words,
-    )
+            plan=plan,
+            telemetry=telemetry,
+        )
+        return validate_batch(
+            value,
+            expected_count,
+            used_words=used_words,
+        )
+    except Exception as exc:
+        error = exc
+        raise
+    finally:
+        _log_llm_request(
+            request_kind=request_kind,
+            user_id=user_id,
+            plan=plan,
+            model=str(telemetry.get("model") or _model()),
+            telemetry=telemetry,
+            outcome="success" if error is None else (
+                "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"
+            ),
+            error=error,
+        )

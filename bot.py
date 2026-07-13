@@ -1,4 +1,5 @@
 import asyncio
+import calendar
 import logging
 import datetime
 import json
@@ -71,6 +72,11 @@ from keyboards import (
     query_result_keyboard,
     srs_review_keyboard,
     admin_panel_keyboard,
+    llm_cost_dashboard_keyboard,
+    llm_cost_plan_keyboard,
+    llm_cost_kind_keyboard,
+    llm_cost_status_keyboard,
+    llm_cost_pricing_keyboard,
     daily_card_keyboard,
     BTN_TODAY_CARD,
     BTN_ASK_WORD,
@@ -519,6 +525,7 @@ def _generate_daily_batch(
     card_count: int,
     used_words: list[str],
     user_id: int | None = None,
+    plan: str | None = None,
 ) -> list[dict]:
     cards: list[dict] = []
     last_error: Exception | None = None
@@ -540,6 +547,7 @@ def _generate_daily_batch(
                 used_words=batch_words,
                 request_kind="daily_batch",
                 user_id=user_id,
+                plan=plan,
             )
         except Exception as exc:
             last_error = exc
@@ -603,6 +611,7 @@ def _ensure_daily_cards(user_id: int, row, card_date: str, limit: int) -> list[d
         limit - len(cards),
         used_words,
         user_id,
+        row["plan"] or "free",
     )
     for offset, card in enumerate(new_cards):
         db.add_daily_card(user_id, card_date, len(cards) + offset, card)
@@ -628,6 +637,7 @@ def _ensure_scheduled_session_cards(user_id: int, row, queue_row) -> list[dict]:
             min(6, remaining),
             used_words + [card["word"] for card in cards],
             user_id,
+            row["plan"] or "free",
         )
         if not batch:
             raise RuntimeError("AI returned no cards for the scheduled session")
@@ -654,6 +664,7 @@ def _ensure_next_daily_card(user_id: int, row, card_date: str, limit: int) -> tu
             min(_MANUAL_DAILY_BATCH_SIZE, remaining),
             used_words,
             user_id,
+            row["plan"] or "free",
         )
         if not new_cards:
             raise RuntimeError("AI returned no card for the requested daily card")
@@ -778,6 +789,7 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ),
                 request_kind="grammar_tip",
                 user_id=user_id,
+                plan=row["plan"] or "free",
             )
         except Exception:
             db.release_grammar_tip(user_id)
@@ -970,6 +982,255 @@ async def _show_review_date(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     )
 
 
+def _llm_cost_default_state() -> dict[str, object]:
+    return {
+        "range": "mtd",
+        "detail": False,
+        "plan": None,
+        "user_id": None,
+        "request_kind": None,
+        "model": None,
+        "outcome": None,
+    }
+
+
+def _llm_cost_state(context: ContextTypes.DEFAULT_TYPE) -> dict[str, object]:
+    state = context.user_data.get("llm_cost_state")
+    if not isinstance(state, dict):
+        state = _llm_cost_default_state()
+    else:
+        merged = _llm_cost_default_state()
+        merged.update({key: state.get(key, value) for key, value in merged.items()})
+        state = merged
+    context.user_data["llm_cost_state"] = state
+    return state
+
+
+def _llm_cost_set_state(
+    context: ContextTypes.DEFAULT_TYPE,
+    **updates,
+) -> dict[str, object]:
+    state = _llm_cost_state(context).copy()
+    for key, value in updates.items():
+        if value == "":
+            value = None
+        state[key] = value
+    context.user_data["llm_cost_state"] = state
+    return state
+
+
+def _llm_cost_range_bounds(range_name: str) -> tuple[str, str, str]:
+    today = datetime.datetime.now(_app_timezone).date()
+    if range_name == "today":
+        start = end = today
+        label = "today"
+    elif range_name == "7d":
+        start = today - datetime.timedelta(days=6)
+        end = today
+        label = "7d"
+    elif range_name == "30d":
+        start = today - datetime.timedelta(days=29)
+        end = today
+        label = "30d"
+    else:
+        start = today.replace(day=1)
+        end = today
+        label = "MTD"
+    return start.isoformat(), end.isoformat(), label
+
+
+def _llm_cost_query_filters(state: dict[str, object]) -> dict[str, object]:
+    start_date, end_date, _ = _llm_cost_range_bounds(str(state.get("range") or "mtd"))
+    filters: dict[str, object] = {
+        "start_date": start_date,
+        "end_date": end_date,
+    }
+    for key in ("plan", "user_id", "request_kind", "model", "outcome"):
+        value = state.get(key)
+        if value not in {None, "", "all"}:
+            filters[key] = value
+    return filters
+
+
+def _llm_cost_currency_text(cost_usd: float, cost_toman: float) -> str:
+    return f"${cost_usd:,.4f} / {round(cost_toman):,} تومان"
+
+
+def _llm_cost_projection(filters: dict[str, object]) -> tuple[str, str] | None:
+    month_start = datetime.datetime.now(_app_timezone).date().replace(day=1)
+    today = datetime.datetime.now(_app_timezone).date()
+    projection_filters = dict(filters)
+    projection_filters["start_date"] = month_start.isoformat()
+    projection_filters["end_date"] = today.isoformat()
+    summary = db.summarize_llm_requests(projection_filters)
+    request_count = int(summary.get("request_count") or 0)
+    cost_usd = float(summary.get("cost_usd") or 0)
+    cost_toman = float(summary.get("cost_toman") or 0)
+    if request_count <= 0 or cost_usd <= 0:
+        return None
+    month_days = calendar.monthrange(today.year, today.month)[1]
+    elapsed_days = max((today - month_start).days + 1, 1)
+    linear_usd = (cost_usd / elapsed_days) * month_days
+    linear_toman = (cost_toman / elapsed_days) * month_days
+    daily_rows = db.recent_llm_requests(projection_filters, limit=5000)
+    daily_costs: dict[str, float] = defaultdict(float)
+    for row in daily_rows:
+        daily_costs[str(row["request_date"])] += float(row["cost_usd"] or 0)
+    recent_days = sorted(daily_costs)[-7:]
+    if recent_days:
+        rolling_usd = sum(daily_costs[day] for day in recent_days) / len(recent_days) * month_days
+        rolling_toman = rolling_usd * (
+            cost_toman / cost_usd if cost_usd else db.get_llm_cost_profile()["usd_to_toman_rate"]
+        )
+    else:
+        rolling_toman = linear_toman
+        rolling_usd = linear_usd
+    return (
+        _llm_cost_currency_text(linear_usd, linear_toman),
+        _llm_cost_currency_text(rolling_usd, rolling_toman),
+    )
+
+
+def _llm_cost_filter_label(value: object, fallback: str = "all") -> str:
+    if value in {None, "", "all"}:
+        return fallback
+    return str(value)
+
+
+def _llm_cost_state_label(state: dict[str, object]) -> str:
+    parts = [
+        f"range={state.get('range', 'mtd')}",
+        f"plan={_llm_cost_filter_label(state.get('plan'))}",
+        f"user={_llm_cost_filter_label(state.get('user_id'))}",
+        f"kind={_llm_cost_filter_label(state.get('request_kind'))}",
+        f"model={_llm_cost_filter_label(state.get('model'))}",
+        f"status={_llm_cost_filter_label(state.get('outcome'))}",
+    ]
+    return " | ".join(parts)
+
+
+def _llm_cost_report_text(state: dict[str, object]) -> str:
+    filters = _llm_cost_query_filters(state)
+    summary = db.summarize_llm_requests(filters)
+    request_count = int(summary.get("request_count") or 0)
+    prompt_tokens = int(summary.get("prompt_tokens") or 0)
+    completion_tokens = int(summary.get("completion_tokens") or 0)
+    total_tokens = int(summary.get("total_tokens") or 0)
+    cost_usd = float(summary.get("cost_usd") or 0)
+    cost_toman = float(summary.get("cost_toman") or 0)
+    avg_latency = summary.get("avg_latency_ms")
+    avg_cost = cost_usd / request_count if request_count else 0.0
+    success_count = int(summary.get("success_count") or 0)
+    billed_failures = int(summary.get("billed_failure_count") or 0)
+    zero_cost_failures = int(summary.get("zero_cost_failure_count") or 0)
+    range_label = str(state.get("range") or "mtd").upper()
+
+    lines = [
+        "LLM cost dashboard",
+        _llm_cost_state_label(state),
+        "",
+        f"Overview for {range_label}",
+        f"- Requests: {request_count}",
+        f"- Tokens: prompt {prompt_tokens:,} | completion {completion_tokens:,} | total {total_tokens:,}",
+        f"- Spend: {_llm_cost_currency_text(cost_usd, cost_toman)}",
+        f"- Avg cost/request: {_llm_cost_currency_text(avg_cost, avg_cost * db.get_llm_cost_profile()['usd_to_toman_rate'])}",
+        f"- Success: {success_count} | billed failures: {billed_failures} | zero-cost failures: {zero_cost_failures}",
+        f"- Avg latency: {round(float(avg_latency), 1) if avg_latency is not None else 0.0} ms",
+    ]
+
+    projection = None
+    if state.get("range") == "mtd":
+        projection = _llm_cost_projection(filters)
+    if projection:
+        linear, rolling = projection
+        lines.extend(
+            [
+                "",
+                "Month-end projection",
+                f"- Linear: {linear}",
+                f"- Rolling avg: {rolling}",
+            ]
+        )
+
+    breakdown_specs = [
+        ("By plan", "plan"),
+        ("By request kind", "request_kind"),
+        ("By model", "model"),
+    ]
+    if state.get("user_id") is None:
+        breakdown_specs.append(("By user", "user_id"))
+    for title, key in breakdown_specs:
+        rows = db.breakdown_llm_requests(key, filters, limit=5)
+        lines.append("")
+        lines.append(title + ":")
+        if not rows:
+            lines.append("- none")
+            continue
+        for row in rows:
+            bucket = row.get("bucket")
+            if key == "plan":
+                bucket = {
+                    "free": "free",
+                    "silver": "silver",
+                    "gold": "gold",
+                }.get(str(bucket), str(bucket))
+            lines.append(
+                f"- {bucket}: {int(row.get('request_count') or 0)} req, "
+                f"{_llm_cost_currency_text(float(row.get('cost_usd') or 0), float(row.get('cost_toman') or 0))}"
+            )
+
+    if state.get("detail"):
+        rows = db.recent_llm_requests(filters, limit=10)
+        lines.extend(["", "Recent requests:"])
+        if not rows:
+            lines.append("- none")
+        else:
+            for row in rows:
+                lines.append(
+                    f"- {str(row['created_at'])[:19]} | user {row['user_id']} | plan {row['plan']} | "
+                    f"{row['request_kind']} | {row['outcome']} | "
+                    f"{int(row['total_tokens'] or 0):,} tok | "
+                    f"{_llm_cost_currency_text(float(row['cost_usd'] or 0), float(row['cost_toman'] or 0))}"
+                )
+
+    return "\n".join(lines)
+
+
+def _llm_pricing_text() -> str:
+    profile = db.get_llm_cost_profile()
+    return "\n".join(
+        [
+            "LLM pricing defaults",
+            f"- Input: ${profile['input_cost_usd_per_million']:,.4f} / 1M tokens",
+            f"- Output: ${profile['output_cost_usd_per_million']:,.4f} / 1M tokens",
+            f"- USD→toman: {profile['usd_to_toman_rate']:,.0f}",
+            "",
+            "These values are the active defaults used by new requests unless the admin updates them.",
+        ]
+    )
+
+
+async def _show_llm_cost_dashboard(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    detail: bool | None = None,
+):
+    state = _llm_cost_state(context)
+    if detail is not None:
+        state = _llm_cost_set_state(context, detail=detail)
+    text = _llm_cost_report_text(state)
+    if update.callback_query:
+        await _edit_or_send(
+            update,
+            context,
+            text,
+            reply_markup=llm_cost_dashboard_keyboard(),
+        )
+    else:
+        await update.message.reply_text(text, reply_markup=llm_cost_dashboard_keyboard())
+
+
 # ---------------- پنل ادمین (فقط مالک) ----------------
 
 async def open_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -984,6 +1245,15 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, act
         return
     if action == "stats":
         await _edit_or_send(update, context, f"👥 تعداد کل کاربران: {db.count_users()}")
+    elif action == "llm_costs":
+        await _show_llm_cost_dashboard(update, context)
+    elif action == "llm_pricing":
+        await _edit_or_send(
+            update,
+            context,
+            _llm_pricing_text(),
+            reply_markup=llm_cost_pricing_keyboard(),
+        )
     elif action == "set_plan":
         context.user_data["awaiting"] = "admin_set_plan"
         await _edit_or_send(
@@ -1056,7 +1326,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data["awaiting"] = None
 
-        if awaiting.startswith("admin_") and not is_owner(user_id):
+        if (awaiting.startswith("admin_") or awaiting.startswith("llm_cost_") or awaiting.startswith("llm_price_")) and not is_owner(user_id):
             return  # لایه‌ی امنیتی اضافه؛ در حالت عادی اصلاً به این حالت نمی‌رسد
 
         if awaiting == "ask_word":
@@ -1095,6 +1365,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     user_prompt=text,
                     request_kind="custom_word",
                     user_id=user_id,
+                    plan=row["plan"] or "free",
                 )
             except Exception:
                 db.release_word_query(user_id)
@@ -1131,6 +1402,64 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if awaiting == "admin_set_model":
             db.set_setting("ai_model", text)
             await update.message.reply_text(f"مدل جدید ثبت شد: `{text}`", parse_mode=ParseMode.MARKDOWN_V2)
+            return
+
+        if awaiting == "llm_cost_user":
+            if text.casefold() in {"all", "همه", "none", "null"}:
+                _llm_cost_set_state(context, user_id=None)
+            else:
+                target = db.find_user(text)
+                if not target:
+                    context.user_data["awaiting"] = "llm_cost_user"
+                    await update.message.reply_text(
+                        "کاربر پیدا نشد. یک user_id یا @username معتبر بفرست، یا بنویس all.",
+                        reply_markup=awaiting_inline_keyboard(),
+                    )
+                    return
+                _llm_cost_set_state(context, user_id=target["user_id"])
+            await _show_llm_cost_dashboard(update, context)
+            return
+
+        if awaiting == "llm_cost_model":
+            if text.casefold() in {"all", "همه", "none", "null"}:
+                _llm_cost_set_state(context, model=None)
+            else:
+                _llm_cost_set_state(context, model=text.strip())
+            await _show_llm_cost_dashboard(update, context)
+            return
+
+        if awaiting in {"llm_price_input", "llm_price_output", "llm_price_rate"}:
+            try:
+                value = float(text.replace(",", "").strip())
+                if value < 0:
+                    raise ValueError
+            except ValueError:
+                context.user_data["awaiting"] = awaiting
+                await update.message.reply_text(
+                    "عدد معتبر بفرست، مثلاً 0.12 یا 65000.",
+                    reply_markup=awaiting_inline_keyboard(),
+                )
+                return
+            profile = db.get_llm_cost_profile()
+            if awaiting == "llm_price_input":
+                db.set_llm_cost_profile(
+                    input_cost_usd_per_million=value,
+                    output_cost_usd_per_million=profile["output_cost_usd_per_million"],
+                    usd_to_toman_rate=profile["usd_to_toman_rate"],
+                )
+            elif awaiting == "llm_price_output":
+                db.set_llm_cost_profile(
+                    input_cost_usd_per_million=profile["input_cost_usd_per_million"],
+                    output_cost_usd_per_million=value,
+                    usd_to_toman_rate=profile["usd_to_toman_rate"],
+                )
+            else:
+                db.set_llm_cost_profile(
+                    input_cost_usd_per_million=profile["input_cost_usd_per_million"],
+                    output_cost_usd_per_million=profile["output_cost_usd_per_million"],
+                    usd_to_toman_rate=value,
+                )
+            await update.message.reply_text(_llm_pricing_text())
             return
 
         if awaiting == "admin_set_plan":
@@ -1343,6 +1672,105 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
             return
         await _handle_query_add(update, context, parts[2])
+    elif data.startswith("llm:"):
+        parts = data.split(":")
+        if len(parts) < 2:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        action = parts[1]
+        if action == "pricing" and len(parts) >= 2:
+            if len(parts) == 2 or (len(parts) == 3 and parts[2] == "back"):
+                await _show_llm_cost_dashboard(update, context)
+            elif len(parts) == 3 and parts[2] == "set_input":
+                context.user_data["awaiting"] = "llm_price_input"
+                await _edit_or_send(
+                    update,
+                    context,
+                    "Input cost per 1M tokens in USD را بفرست:",
+                    reply_markup=awaiting_inline_keyboard(),
+                )
+            elif len(parts) == 3 and parts[2] == "set_output":
+                context.user_data["awaiting"] = "llm_price_output"
+                await _edit_or_send(
+                    update,
+                    context,
+                    "Output cost per 1M tokens in USD را بفرست:",
+                    reply_markup=awaiting_inline_keyboard(),
+                )
+            elif len(parts) == 3 and parts[2] == "set_rate":
+                context.user_data["awaiting"] = "llm_price_rate"
+                await _edit_or_send(
+                    update,
+                    context,
+                    "USD→تومان rate را بفرست:",
+                    reply_markup=awaiting_inline_keyboard(),
+                )
+            else:
+                await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        if action == "range" and len(parts) == 3:
+            _llm_cost_set_state(context, range=parts[2], detail=False)
+            await _show_llm_cost_dashboard(update, context)
+        elif action == "set" and len(parts) == 3:
+            field = parts[2]
+            if field == "plan":
+                await _edit_or_send(
+                    update,
+                    context,
+                    "یک پلن را انتخاب کن:",
+                    reply_markup=llm_cost_plan_keyboard(),
+                )
+            elif field == "user":
+                context.user_data["awaiting"] = "llm_cost_user"
+                await _edit_or_send(
+                    update,
+                    context,
+                    "یک user_id یا @username بفرست، یا بنویس all:",
+                    reply_markup=awaiting_inline_keyboard(),
+                )
+            elif field == "kind":
+                await _edit_or_send(
+                    update,
+                    context,
+                    "نوع درخواست را انتخاب کن:",
+                    reply_markup=llm_cost_kind_keyboard(),
+                )
+            elif field == "model":
+                context.user_data["awaiting"] = "llm_cost_model"
+                await _edit_or_send(
+                    update,
+                    context,
+                    "نام مدل را بفرست، یا بنویس all:",
+                    reply_markup=awaiting_inline_keyboard(),
+                )
+            elif field == "status":
+                await _edit_or_send(
+                    update,
+                    context,
+                    "وضعیت را انتخاب کن:",
+                    reply_markup=llm_cost_status_keyboard(),
+                )
+            else:
+                await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+        elif action == "plan" and len(parts) == 3:
+            _llm_cost_set_state(context, plan=None if parts[2] == "all" else parts[2], detail=False)
+            await _show_llm_cost_dashboard(update, context)
+        elif action == "kind" and len(parts) == 3:
+            _llm_cost_set_state(context, request_kind=None if parts[2] == "all" else parts[2], detail=False)
+            await _show_llm_cost_dashboard(update, context)
+        elif action == "status" and len(parts) == 3:
+            _llm_cost_set_state(context, outcome=None if parts[2] == "all" else parts[2], detail=False)
+            await _show_llm_cost_dashboard(update, context)
+        elif action == "clear":
+            context.user_data["llm_cost_state"] = _llm_cost_default_state()
+            await _show_llm_cost_dashboard(update, context)
+        elif action == "refresh":
+            await _show_llm_cost_dashboard(update, context)
+        elif action == "recent":
+            _llm_cost_set_state(context, detail=not bool(_llm_cost_state(context).get("detail")))
+            await _show_llm_cost_dashboard(update, context)
+        else:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
     elif data.startswith("srs:"):
         parts = data.split(":")
         if len(parts) != 4:

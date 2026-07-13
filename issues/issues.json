@@ -704,5 +704,26 @@
     ],
     "evidence": "bot.py:escape_mdv2_code only escapes backslash/backtick and is used for phonetic and grammar examples; tests verify punctuation remains readable inside code spans.",
     "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "پنل ادمین هنوز نمای تجمیعی و فیلترپذیر هزینه‌ی LLM ندارد",
+    "module": "bot.py / db.py / ai.py",
+    "func": "llm cost dashboard, llm request logging, llm pricing overrides",
+    "problem": "هزینه‌ی واقعی LLM هنوز به‌صورت per-request با break-down روزانه/هفتگی/ماهانه و فیلتر بر اساس پلن، کاربر، مدل و وضعیت خطا در پنل ادمین دیده نمی‌شود و ادمین هم جای مستقلی برای override قیمت‌های ورودی/خروجی و نرخ دلار ندارد.",
+    "solution": "یک جدول durable برای درخواست‌های LLM، محاسبه‌ی هزینه‌ی خام USD و تومان، خلاصه‌سازی و drill-down قابل فیلتر، projection ماهانه، و یک بخش owner-only برای override قیمت‌ها و نرخ تبدیل اضافه کنید.",
+    "priority": "medium",
+    "note": "Hybrid pricing overrides, per-request accounting, and filterable admin reporting are now implemented with focused verification.",
+    "resolved": true,
+    "status": "resolved",
+    "detailOpen": false,
+    "editing": false,
+    "id": 39,
+    "roadmap_refs": [
+      "cost-control",
+      "measurement-and-observability",
+      "runtime-configuration"
+    ],
+    "evidence": "config.py now exposes LLM pricing defaults; db.py persists llm_requests and settings overrides; ai.py records request telemetry and outcomes; bot.py adds an owner-only cost dashboard and pricing panel.",
+    "last_reviewed": "2026-07-13"
   }
 ]
