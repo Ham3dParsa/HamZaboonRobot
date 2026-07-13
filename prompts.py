@@ -29,11 +29,32 @@ def _level_guidance(level: str) -> str:
     return level_prompt_guidance(level)
 
 
+def _card_schema(lang_fa: str, example_lang: str, *, compact: bool) -> str:
+    if compact:
+        return f"""{{"w":"واژه در زبان {lang_fa}","ph":"تلفظ یا خالی","m":"معنی فارسی",
+"x":"توضیح فارسی","s":["مترادف"],"a":["متضاد"],
+"e":["جمله به زبان {example_lang}."],"t":["ترجمه فارسی جمله."],"g":"نکته گرامری"}}
+فقط همین کلیدها را برگردان؛ s، a و g اختیاری‌اند و در نبود []، [] و "" بگذار."""
+    return f"""{{
+  "word": "واژه در زبان {lang_fa}",
+  "phonetic": "آوانگاری تلفظ یا رشته خالی",
+  "fa_meaning": "معادل کوتاه فارسی",
+  "fa_explanation": "توضیح ۱-۲ جمله‌ای به فارسی",
+  "synonyms": ["مترادف ۱", "مترادف ۲"],
+  "antonyms": ["متضاد ۱"],
+  "examples": ["جمله نمونه به زبان {example_lang}."],
+  "example_translations": ["ترجمه فارسی جمله نمونه."],
+  "grammar_tip": "نکته گرامری کوتاه"
+}}"""
+
+
 def daily_card_system_prompt(
     lang: str,
     goal: str,
     avoid_words=None,
     level: str = "beginner",
+    *,
+    compact: bool = False,
 ) -> str:
     lang_fa = language_label(lang)
     goal_fa = goal_label(goal)
@@ -62,17 +83,7 @@ def daily_card_system_prompt(
 {avoid_hint}
 خروجی را **دقیقاً** به صورت JSON خام بده و هیچ چیز دیگری ننویس:
 
-{{
-  "word": "واژه در زبان {lang_fa}",
-  "phonetic": "آوانگاری تلفظ یا رشته خالی",
-  "fa_meaning": "معادل کوتاه فارسی",
-  "fa_explanation": "توضیح ۱-۲ جمله‌ای به فارسی",
-  "synonyms": ["مترادف ۱", "مترادف ۲", "مترادف ۳"],
-  "antonyms": ["متضاد ۱", "متضاد ۲"],
-  "examples": ["جمله نمونه اول به زبان {example_lang}.", "جمله نمونه دوم به زبان {example_lang}."],
-  "example_translations": ["ترجمه فارسی جمله اول.", "ترجمه فارسی جمله دوم."],
-  "grammar_tip": "نکته گرامری کوتاه و کاربردی، با نام فارسی و معادل انگلیسی/لاتین اصطلاح، حداکثر دو جمله"
-}}
+{_card_schema(lang_fa, example_lang, compact=compact)}
 
 همیشه synonyms و antonyms را با حرف کوچک شروع کن.
 {_JSON_RULES}"""
@@ -84,6 +95,8 @@ def daily_batch_system_prompt(
     level: str,
     card_count: int,
     avoid_words=None,
+    *,
+    compact: bool = False,
 ) -> str:
     lang_fa = language_label(lang)
     goal_fa = goal_label(goal)
@@ -104,24 +117,19 @@ def daily_batch_system_prompt(
 {avoid_hint}
 خروجی باید دقیقاً یک آرایه JSON خام باشد و هیچ متن دیگری نداشته باشد:
 [
-  {{
-    "word": "واژه در زبان {lang_fa}",
-    "phonetic": "آوانگاری تلفظ یا رشته خالی",
-    "fa_meaning": "معادل کوتاه فارسی",
-    "fa_explanation": "توضیح ۱-۲ جمله‌ای به فارسی",
-    "synonyms": ["مترادف ۱", "مترادف ۲", "مترادف ۳"],
-    "antonyms": ["متضاد ۱", "متضاد ۲"],
-    "examples": ["جمله نمونه اول به زبان {example_lang}.", "جمله نمونه دوم به زبان {example_lang}."],
-    "example_translations": ["ترجمه فارسی جمله اول.", "ترجمه فارسی جمله دوم."],
-    "grammar_tip": "نکته گرامری کوتاه با نام فارسی و معادل انگلیسی/لاتین اصطلاح"
-  }}
+  {_card_schema(lang_fa, example_lang, compact=compact)}
 ]
 
 همه واژه‌های داخل آرایه باید متفاوت باشند.
 {_JSON_RULES}"""
 
 
-def custom_word_system_prompt(lang: str, level: str = "beginner") -> str:
+def custom_word_system_prompt(
+    lang: str,
+    level: str = "beginner",
+    *,
+    compact: bool = False,
+) -> str:
     lang_fa = language_label(lang)
     level_name = level_label(level)
     
@@ -135,17 +143,7 @@ def custom_word_system_prompt(lang: str, level: str = "beginner") -> str:
 
 خروجی را **دقیقاً** با این ساختار JSON بده و هیچ چیز دیگری ننویس:
 
-{{
-  "word": "واژه در زبان {lang_fa}",
-  "phonetic": "آوانگاری تلفظ یا رشته خالی",
-  "fa_meaning": "معادل کوتاه فارسی",
-  "fa_explanation": "توضیح ۱-۲ جمله‌ای به فارسی",
-  "synonyms": ["مترادف ۱", "مترادف ۲", "مترادف ۳"],
-  "antonyms": ["متضاد ۱", "متضاد ۲"],
-  "examples": ["جمله نمونه اول به زبان {lang_fa}.", "جمله نمونه دوم به زبان {lang_fa}."],
-  "example_translations": ["ترجمه فارسی جمله اول.", "ترجمه فارسی جمله دوم."],
-  "grammar_tip": "نکته گرامری کوتاه با نام فارسی و معادل انگلیسی/لاتین اصطلاح"
-}}
+{_card_schema(lang_fa, lang_fa, compact=compact)}
 
 همیشه synonyms و antonyms را با حرف کوچک شروع کن.
 {_JSON_RULES}"""

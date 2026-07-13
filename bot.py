@@ -36,6 +36,7 @@ from config import (
     SCHEDULER_BUCKET_CAPACITY,
     AI_MAX_CONCURRENCY,
     AI_MAX_REQUESTS_PER_MINUTE,
+    AI_CARD_OUTPUT_FORMAT,
     DELIVERY_MAX_ATTEMPTS,
     DELIVERY_RETRY_BASE_SECONDS,
     TELEGRAM_MAX_CONCURRENCY,
@@ -550,6 +551,7 @@ def _generate_daily_batch(
                     level,
                     remaining,
                     avoid_words=prompt_avoid_words,
+                    compact=AI_CARD_OUTPUT_FORMAT == "compact_json",
                 ),
                 expected_count=remaining,
                 used_words=batch_words,
@@ -1439,6 +1441,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     prompts.custom_word_system_prompt(
                         row["target_lang"],
                         row["level"],
+                        compact=AI_CARD_OUTPUT_FORMAT == "compact_json",
                     ),
                     user_prompt=text,
                     request_kind="custom_word",

@@ -32,6 +32,12 @@ class CatalogTests(unittest.TestCase):
         self.assertIn(LEVELS[DEFAULT_LEVEL].cefr, prompt)
         self.assertIn("Nominativ", prompt)
 
+    def test_compact_batch_prompt_declares_alias_contract(self):
+        prompt = daily_batch_system_prompt("en", "general", "beginner", 6, compact=True)
+        self.assertIn('"w":', prompt)
+        self.assertIn("w=word", prompt)
+        self.assertNotIn('"word":', prompt)
+
     def test_grammar_prompt_can_avoid_recent_topics(self):
         prompt = grammar_tip_system_prompt(
             "en",

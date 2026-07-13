@@ -294,6 +294,26 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertEqual(card["word"], "word-0")
         self.assertEqual(db.count_daily_cards(1, card_date), 6)
 
+    def test_six_card_batch_is_persisted_as_six_readable_cards(self):
+        db.create_user_if_needed(1, "learner")
+        cards = [
+            {
+                "word": f"word-{index}",
+                "fa_meaning": "معنی",
+                "fa_explanation": "توضیح",
+                "examples": [f"Example {index}."],
+                "example_translations": [f"مثال {index}."],
+            }
+            for index in range(6)
+        ]
+
+        for index, card in enumerate(cards):
+            db.add_daily_card(1, "2026-07-12", index, card)
+
+        stored = db.get_daily_cards(1, "2026-07-12")
+        self.assertEqual(len(stored), 6)
+        self.assertEqual([card["word"] for card in stored], [f"word-{i}" for i in range(6)])
+
     def test_daily_batch_retry_removes_prompt_avoid_list_after_avoid_collisions(self):
         diagnostics = {
             "accepted": 0,

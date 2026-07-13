@@ -5,15 +5,21 @@ import time
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
-import tiktoken
 from openai import OpenAI
 
 from dotenv import load_dotenv
 
+load_dotenv()
+
+try:
+    import tiktoken
+except ModuleNotFoundError:
+    tiktoken = None
+
 # تنظیمات کلاینت
 CLIENT = OpenAI(
     base_url="https://api.gapgpt.app/v1",
-    api_key= os.getenv("AI_API_KEY", "sk-sBn0J4u56LkLo3iTBLQUkYscNeW0ljAb7znCGRDqdZIuLnnE")
+    api_key=os.getenv("AI_API_KEY", ""),
 )
 MODEL = "gemini-flash-lite-latest"
 
@@ -23,10 +29,19 @@ OUTPUT_COST_PER_1M = 1.5
 OUTPUT_DIR = "test_responses"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-try:
-    ENCODING = tiktoken.encoding_for_model("gpt-4")
-except KeyError:
-    ENCODING = tiktoken.get_encoding("cl100k_base")
+if tiktoken is not None:
+    try:
+        ENCODING = tiktoken.encoding_for_model("gpt-4")
+    except KeyError:
+        ENCODING = tiktoken.get_encoding("cl100k_base")
+else:
+    ENCODING = None
+
+
+def estimate_tokens(text: str) -> int:
+    if ENCODING is not None:
+        return len(ENCODING.encode(text))
+    return max(1, len(text) // 4)
 
 
 # ------------------------------------------------------------
@@ -201,8 +216,8 @@ def send_request(system_prompt: str, format_name: str, iteration: int) -> Dict:
         latency = time.time() - start_time
         content = response.choices[0].message.content or ""
         usage = response.usage if hasattr(response, 'usage') else None
-        prompt_tokens = usage.prompt_tokens if usage else len(ENCODING.encode(system_prompt + user_prompt))
-        completion_tokens = usage.completion_tokens if usage else len(ENCODING.encode(content))
+        prompt_tokens = usage.prompt_tokens if usage else estimate_tokens(system_prompt + user_prompt)
+        completion_tokens = usage.completion_tokens if usage else estimate_tokens(content)
         total_tokens = usage.total_tokens if usage else prompt_tokens + completion_tokens
     except Exception as e:
         return {
