@@ -22,6 +22,36 @@ The project is an MVP with:
 - Owner-only administrative settings and per-user plan assignment
 - An explicit owner bypass for plan limits during development
 
+## Roadmap Board
+
+### Done
+
+- AI-generated vocabulary and grammar content
+- Daily vocabulary cards cached in SQLite
+- User language and learning-goal preferences
+- Saved words with simple spaced repetition
+- Free, Silver, and Gold plan limits
+- Owner-only administrative settings and per-user plan assignment
+- Explicit owner bypass for plan limits during development
+- Stable issue registry workflow with `issues/issues.json` as canonical data
+
+### In progress
+
+- Adaptive SRS core and real-progress scoring
+- Segment-level content pooling
+
+### Next
+
+- Mini-quiz platform, starting with weekly challenge modes and progressing toward placement and knowledge-estimate quizzes
+- Structured language/goal/level Q&A with strong guardrails against irrelevant prompts
+- Social profile surfaces for points, retained cards, quiz stats, and followable friends
+
+### Later
+
+- Additional languages only through the canonical `catalog.py` registry
+- Measurement-informed advanced learning and personalization
+- Broader social competition features if the minimal friend/follow model proves motivating
+
 ## Implementation Status
 
 Completed on the current main branch:
@@ -685,8 +715,17 @@ a separate lesson system.
 - Premium vocabulary-knowledge estimation testing so Gold users can get a
   general estimate of how many words they know, separate from bot progress
   metrics.
-- AI Mini Quizzes after the MVP above proves stable.
+- AI Mini Quizzes after the MVP above proves stable:
+  - weekly public challenge quizzes for all users or by language/level;
+  - placement quizzes to estimate current proficiency;
+  - vocabulary-knowledge estimation quizzes with their own scoring model;
+  - card-driven quizzes based on a user's saved vocabulary and grammar history.
+- Structured language/goal/level Q&A flows that return polished, structured
+  LLM answers while rejecting irrelevant or wasteful prompts early.
 - Measurement-informed advanced learning and personalization.
+- Social follow/friend features built around profile stats, retained cards,
+  and quiz progress, with lightweight Duolingo-style motivation rather than
+  a full social network.
 - Additional languages only through the canonical `catalog.py` registry.
 - Keep `issues/issues.json` as the canonical issue source, validate it with
   `issues/validate.py`; generate the Markdown report or HTML fallback only
