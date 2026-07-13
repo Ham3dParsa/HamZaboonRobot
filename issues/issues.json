@@ -631,7 +631,7 @@
     "module": "db.py / bot.py / prompts.py",
     "func": "get_recent_daily_words / _daily_avoid_words / daily_batch_system_prompt",
     "problem": "dedup کارت‌های روزانه فقط واژه‌های همان تاریخ را به مدل می‌داد. اگر همان کاربر در روزهای اخیر واژه‌ای گرفته بود، مدل هنوز ممکن بود همان واژه را در روز جدید دوباره پیشنهاد کند.",
-    "solution": "یک لیست کوتاه از واژه‌های اخیر کاربر را از daily_cards بخوانید و همراه واژه‌های همان روز به prompt و validate_batch بدهید تا تکرارهای اخیر هم رد شوند، بدون این‌که prompt بیش از حد بزرگ شود.",
+    "solution": "یک لیست کوتاه از واژه‌های اخیر کاربر را از daily_cards بخوانید و همراه واژه‌های همان روز به prompt و validate_batch بدهید تا تکرارهای اخیر هم رد شوند، بدون این‌که prompt بیش از حد بزرگ شود. اگر provider در یک batch فقط واژه‌های avoid‌شده را برگرداند، retry بعدی باید لیست را از prompt حذف کند ولی همان لیست کامل را در validation نگه دارد.",
     "priority": "medium",
     "note": "لیست avoid محدود است تا کنترل هزینه‌ی token حفظ شود.",
     "resolved": true,
@@ -643,7 +643,7 @@
       "cost-control",
       "reliability-hardening"
     ],
-    "evidence": "db.py:get_recent_daily_words returns a capped recent vocabulary list; bot.py:_daily_avoid_words combines recent and current-day words before _generate_daily_batch; prompts.py truncates avoid words before inserting them into the batch prompt.",
+    "evidence": "db.py:get_recent_daily_words returns a capped recent vocabulary list; bot.py:_daily_avoid_words combines recent and current-day words before _generate_daily_batch; prompts.py truncates avoid words before inserting them into the batch prompt; bot.py retries an avoid-only provider batch without prompt avoid words while ai.py continues rejecting all per-user duplicates.",
     "last_reviewed": "2026-07-13"
   },
   {

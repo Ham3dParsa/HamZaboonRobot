@@ -676,6 +676,9 @@ a separate lesson system.
   and wait for explicit, user-scoped remember/defer actions.
 - Recent daily words and grammar-tip topics are sent as short avoid-lists to
   reduce repetition while preserving AI-generated content.
+- If a provider batch contains only avoid-list collisions, retries preserve
+  validator-level deduplication but omit the prompt list to avoid model
+  anchoring on forbidden examples.
 - Provider calls use configurable temperature/output caps and emit structured
   latency/token logs; failed custom-word or grammar calls refund reservations.
 - Callback edits use a shared fallback that sends a replacement message when

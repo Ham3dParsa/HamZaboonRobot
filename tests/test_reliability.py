@@ -256,6 +256,45 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertEqual(card["word"], "word-0")
         self.assertEqual(db.count_daily_cards(1, card_date), 6)
 
+    def test_daily_batch_retry_removes_prompt_avoid_list_after_avoid_collisions(self):
+        diagnostics = {
+            "accepted": 0,
+            "validation_rejected": 0,
+            "duplicates_against_avoid": 6,
+            "duplicates_within_batch": 0,
+        }
+        prompts_seen: list[str] = []
+        calls = 0
+
+        def fake_ask_batch(system_prompt, **kwargs):
+            nonlocal calls
+            calls += 1
+            prompts_seen.append(system_prompt)
+            if calls == 1:
+                raise ai.BatchValidationError(
+                    "No valid cards remained after batch validation",
+                    diagnostics,
+                )
+            return [
+                {
+                    "word": "new-word",
+                    "translation": "translation",
+                }
+            ]
+
+        with patch.object(bot, "_ask_batch_limited", side_effect=fake_ask_batch):
+            cards = bot._generate_daily_batch(
+                "en",
+                "general",
+                "beginner",
+                1,
+                ["known-word"],
+            )
+
+        self.assertEqual(cards[0]["word"], "new-word")
+        self.assertIn("known-word", prompts_seen[0])
+        self.assertNotIn("known-word", prompts_seen[1])
+
     def test_daily_cards_lock_to_the_first_session_snapshot_of_the_day(self):
         db.create_user_if_needed(1, "learner")
         db.set_user_lang_goal(1, "en", "general")
