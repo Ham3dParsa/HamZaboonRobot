@@ -63,6 +63,52 @@ Completed on the current main branch:
   no usable cards, records safe rejection diagnostics, and preserves the
   retry path.
 
+## Locked Direction: Adaptive SRS Core and Real-Progress Scoring
+
+The next highest-priority product direction is adaptive spaced repetition,
+ahead of content pooling and advanced analytics. The complete implementation
+plan is in `Plan_srs_core.md`; this section is the product-level source of
+truth for its locked behavior.
+
+The following decisions are locked:
+
+- A pending SRS reminder has a 48-hour grace window. After that window,
+  unanswered delivery is counted as unanswered for the rolling completion
+  rate and must not suppress future reminders indefinitely.
+- The rolling completion rate uses the previous seven days of sent reminders
+  and explicit learner responses. Both `remembered` and `review again
+  tomorrow` count as answered; sending a reminder or touching a streak does
+  not count as learning.
+- Initial daily reminder caps equal the existing plan daily-card allowances:
+  Free 3, Silver 12, and Gold 30. The cap adjusts by one reminder per day:
+  at least 70% completion increases it, below 40% decreases it, and the
+  middle band holds it steady. The cap is always bounded between 1 and the
+  effective plan ceiling.
+- Existing users with a null cap are seeded from their current plan
+  allowance. Cap adjustment is idempotent per application day, including
+  startup catch-up replay.
+- When due reminders exceed the cap, the most overdue words are selected
+  first. Conversation-oriented goals may use multiple short windows, while
+  exam-oriented goals may use fewer consolidated windows. Travel-specific
+  frequency bias is deferred.
+- A goal change applies to the next daily planning cycle. Already-queued
+  reminders keep their current pacing shape, matching the existing daily
+  session snapshot rule.
+- Retention points are awarded only after a successful learner review action:
+  interval indexes 1, 2, 3, and 4 award 1, 3, 6, and 10 points respectively.
+  Reaching the 30-day checkpoint also awards a one-time 10-point mastery
+  bonus. Generating content, receiving reminders, and streak length award no
+  retention points.
+- `retention_events` is append-only and prevents duplicate milestone awards.
+  The displayed streak remains separate from words retained and the
+  seven-day retention rate.
+
+Implementation is phased: add the additive schema and migration coverage,
+then overdue ordering, cap calculation and idempotency, goal-shaped delivery,
+retention-event logging, and finally the user-facing progress indicators.
+The first implementation slice must not change the existing interval
+schedule or award points for delivery success alone.
+
 ## Locked Direction: Segment-Level Content Pooling
 
 The next cost-control direction is a shared, source-agnostic content pool
@@ -109,8 +155,8 @@ with the shared schema. The complete locked plan lives in
 product-level source of truth.
 
 The remaining work is tracked in the explicit ToDo section near the end of
-this document. The next user-facing feature now shifts to AI Mini Quizzes,
-but configuration and quota semantics must stay consistent with the decisions
+this document. AI Mini Quizzes remain downstream of the adaptive SRS core,
+and configuration and quota semantics must stay consistent with the decisions
 below.
 
 ## Latest Code Review
@@ -629,6 +675,13 @@ a separate lesson system.
   pending-review columns.
 - Measure review completion, deferral, and stale-pending rates before changing
   the interval policy.
+- Implement the locked adaptive SRS core in `Plan_srs_core.md`, including the
+  48-hour pending grace window, plan-bounded daily caps, overdue-first
+  selection, goal-shaped delivery, append-only retention events, and separate
+  progress indicators.
+- Resolve the five adaptive-SRS audit records in `issues/issues.json` with
+  focused migration, restart/idempotency, abuse-resistance, and backward-
+  compatibility tests before marking them resolved.
 
 ### Custom-word safety and menu ergonomics follow-ups
 

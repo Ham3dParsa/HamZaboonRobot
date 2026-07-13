@@ -769,5 +769,100 @@
     ],
     "evidence": "ai.py:ask_batch now raises BatchValidationError when zero cards survive validation and logs safe batch counts/rejection reasons, including separate collisions against the avoid-list versus duplicates within the response; bot.py:_generate_daily_batch logs retry attempt context; tests/test_ai_validation.py covers invalid, duplicate, and valid batch outcomes.",
     "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "Pending شدن یادآوری SRS می‌تواند completion rate را برای همیشه مخدوش کند",
+    "module": "db.py / bot.py",
+    "func": "mark_word_review_pending / due_words_for_user / srs_job",
+    "problem": "یادآوری ارسالی در saved_words به وضعیت pending می‌رود، اما pending فعلی timeout ندارد و due_words_for_user آن را تا پاسخ کاربر کنار می‌گذارد. در نتیجه یک یادآوری بی‌پاسخ می‌تواند برای همیشه در محاسبه‌ی completion rate مبهم بماند و رفتار pacing را سرکوب کند.",
+    "solution": "grace window یادآوری pending را ۴۸ ساعت قفل کنید. پس از آن، ردیف بی‌پاسخ در مخرج completion rate هفت‌روزه به‌عنوان unanswered حساب شود و دوباره pending دائمی نباشد؛ این تغییر باید بدون advance کردن interval و بدون تولید reminder تکراری خارج از سیاست cap انجام شود.",
+    "priority": "high",
+    "note": "تصمیم محصول قفل شد: grace window برابر ۴۸ ساعت است. پیاده‌سازی و تست آن هنوز باقی است.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 42,
+    "roadmap_refs": [
+      "adaptive-srs-core"
+    ],
+    "evidence": "db.py:due_words_for_user excludes review_status='pending' and no function currently expires pending rows; bot.py:srs_job sets review_status='pending' after successful reminder delivery.",
+    "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "تنظیم cap روزانه‌ی SRS در catch-up یا restart می‌تواند دوبار اعمال شود",
+    "module": "db.py / bot.py",
+    "func": "srs_job / startup_catch_up_job",
+    "problem": "Adaptive SRS هنوز cap یا زمان آخرین adjustment ندارد. startup catch-up عمداً srs_job را دوباره اجرا می‌کند، بنابراین adjustment روزانه بدون کلید idempotency می‌تواند در یک روز چند بار step بخورد.",
+    "solution": "ستون‌های daily_reminder_cap و reminder_cap_updated_at را additive اضافه کنید و adjustment را با همان application-day در تراکنش محافظت کنید. seed اولیه برای کاربران قدیمی برابر allowance فعلی plan باشد؛ cap با step برابر ۱، کف ۱، و سقف مؤثر plan تغییر کند.",
+    "priority": "high",
+    "note": "تصمیم محصول قفل شد: Free/Silver/Gold به‌ترتیب ۳/۱۲/۳۰، step برابر ۱، و اجرای adjustment حداکثر یک‌بار در هر روز برنامه است.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 43,
+    "roadmap_refs": [
+      "adaptive-srs-core"
+    ],
+    "evidence": "db.py:users has no reminder-cap columns; bot.py:startup_catch_up_job can invoke srs_job after downtime and the regular daily schedule can invoke it again.",
+    "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "تغییر goal وسط روز باید با pacing زمان‌بندی‌شده سازگار بماند",
+    "module": "db.py / bot.py / scheduling.py",
+    "func": "set_user_goal / srs_job / daily planning",
+    "problem": "goal کاربر در هر زمان قابل تغییر است، اما adaptive pacing هنوز قرارداد مشخصی برای reminderهای از قبل برنامه‌ریزی‌شده ندارد. اعمال فوری تغییر می‌تواند shape صف موجود را در میانه‌ی روز عوض کند.",
+    "solution": "goal جدید را از daily planning cycle بعدی در pacing اعمال کنید و reminderهای از قبل queued را با shape فعلی ارسال کنید. این قرارداد باید با snapshot فعلی daily_card_sessions هم‌راستا بماند و در تست تغییر goal وسط چرخه پوشش داده شود.",
+    "priority": "medium",
+    "note": "تصمیم محصول قفل شد: اثرگذاری از planning cycle بعدی؛ صف موجود تغییر نمی‌کند.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 44,
+    "roadmap_refs": [
+      "adaptive-srs-core"
+    ],
+    "evidence": "db.py:set_user_goal updates users.goal immediately, while current SRS delivery has no persisted pacing-shape snapshot or goal-aware session selection.",
+    "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "مسیر points جدید باید در برابر toggle سریع review مقاوم باشد",
+    "module": "db.py / bot.py",
+    "func": "advance_word_review / defer_word_review / retention_events",
+    "problem": "advance_word_review و defer_word_review فعلاً با شرط review_status='pending' از تکرار یک پاسخ جلوگیری می‌کنند، اما retention_events هنوز وجود ندارد و milestone points در هیچ تراکنش append-only ثبت نمی‌شود.",
+    "solution": "ثبت retention event و تغییر interval را در یک تراکنش اتمیک انجام دهید؛ برای هر saved_word و interval milestone فقط یک event مجاز باشد. امتیازها برای intervalهای ۱ تا ۴ برابر ۱، ۳، ۶ و ۱۰ هستند و رسیدن به interval چهار یک mastery bonus یک‌باره‌ی ۱۰ امتیازی دارد.",
+    "priority": "high",
+    "note": "تصمیم محصول قفل شد: فقط پاسخ موفق learner امتیاز می‌دهد؛ generation، delivery و streak امتیاز retention ندارند. bonus نهایی باید با unique guard دوباره‌پذیر نباشد.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 45,
+    "roadmap_refs": [
+      "adaptive-srs-core"
+    ],
+    "evidence": "db.py:advance_word_review and defer_word_review update only rows in pending state, but there is no retention_events table or points/progress read model.",
+    "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "کاربران قدیمی پس از migration نباید cap یادآوری صفر یا NULL داشته باشند",
+    "module": "db.py / config.py",
+    "func": "init_db / plan allowance helpers",
+    "problem": "users موجود پیش از adaptive SRS ستون daily_reminder_cap ندارند و migration آن باید NULL را به رفتار قابل پیش‌بینی تبدیل کند. مقداردهی اشتباه می‌تواند در روز migration reminderهای کاربر را ناگهان به صفر یا سقف نامحدود تبدیل کند.",
+    "solution": "migration را additive نگه دارید و cap اولیه‌ی NULL را از allowance فعلی plan seed کنید: Free=3، Silver=12، Gold=30، و plan ناشناخته با fallback فعلی Free. مقدار seed و هر adjustment بعدی باید با سقف مؤثر همان plan محدود بماند.",
+    "priority": "high",
+    "note": "تصمیم محصول قفل شد: seed اولیه همان allowance فعلی plan است تا رفتار قدیمی به صفر سقوط نکند و cap قابل توضیح بماند.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 46,
+    "roadmap_refs": [
+      "adaptive-srs-core"
+    ],
+    "evidence": "db.py:init_db currently has no daily_reminder_cap or reminder_cap_updated_at migration; config.py defines the authoritative Free/Silver/Gold daily card allowances.",
+    "last_reviewed": "2026-07-13"
   }
 ]
