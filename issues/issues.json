@@ -233,5 +233,68 @@
     ],
     "evidence": "There is no single minimal network-error policy covering bot requests end-to-end, even though some paths already retry.",
     "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "card presentation detail should be independent from AI output serialization",
+    "module": "bot.py / db.py / ai.py",
+    "func": "format_card / daily delivery / custom-word results / SRS reminders",
+    "problem": "The AI wire format and the learner-facing message detail are separate concerns, but the current card prompt shape can influence visible richness such as the number of examples. There is no explicit presentation layer that renders brief or detailed messages from the already validated and cached canonical card.",
+    "solution": "Add a deterministic presentation policy over the canonical stored card: detailed remains the default and renders two paired examples, while brief renders a shorter message without changing the card payload. Apply the policy to daily cards, queried cards, saved-word reminders, and pool-served cards. Rendering must not call the AI, mutate cached content, alter quota accounting, or create a second card schema.",
+    "priority": "medium",
+    "note": "Future product direction. The compact JSON format is an internal provider optimization and must remain independent from this learner-facing preference.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 51,
+    "roadmap_refs": [
+      "interactive-card-ux",
+      "cost-control",
+      "data-lifecycle"
+    ],
+    "evidence": "ai.py:validate_card normalizes compact aliases into the canonical card fields, db.py stores complete card_data in daily_cards and saved_words, and bot.py:format_card currently renders the stored payload without a brief/detailed policy.",
+    "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "brief or detailed card preference needs explicit global and premium user controls",
+    "module": "config.py / db.py / keyboards.py / bot.py",
+    "func": "presentation preference schema / settings UI / plan gating / callbacks",
+    "problem": "There is no user-visible setting for choosing brief versus detailed card messages, no documented global default for the presentation policy, and no entitlement rule for offering the preference as a premium option. A future implementation could accidentally expose an internal AI-format switch or leave stale preferences active after a plan downgrade.",
+    "solution": "Define a separate presentation preference with stable values such as brief and detailed. Keep an admin/deployment default for all users, allow an explicitly documented per-user override only for eligible premium plans if product approval confirms that policy, and fall back safely to the global default when the user is ineligible or the value is invalid. Add settings UI, plan-gated callbacks, migration coverage, and clear user-facing descriptions; do not expose AI_CARD_OUTPUT_FORMAT as the user setting.",
+    "priority": "medium",
+    "note": "Future premium/product decision. The entitlement, default mode, and whether Free users may choose both modes should be finalized before implementation.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 52,
+    "roadmap_refs": [
+      "interactive-card-ux",
+      "premium-features",
+      "runtime-configuration"
+    ],
+    "evidence": "config.py currently exposes only the internal AI_CARD_OUTPUT_FORMAT values json and compact_json; users has no presentation preference column, and keyboards.py/bot.py have no brief/detailed settings flow.",
+    "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "presentation variants need cache, pool, and regression contracts",
+    "module": "bot.py / db.py / tests",
+    "func": "format_card / daily_cards / saved_words.card_data / content_pool rendering",
+    "problem": "Brief and detailed messages must be different views of one validated card, but there is no contract proving that rendering variants preserve example/translation pairing, optional synonym and antonym absence, cached-card reuse, and segment-level pool behavior. Without focused tests, a presentation feature could silently regenerate content, drop fields in persistence, or diverge between daily, query, and SRS paths.",
+    "solution": "Add pure rendering tests for both modes, assert that two examples remain paired in detailed output, assert that missing optional fields render safely, and verify that daily_cards, saved_words.card_data, and future content_pool hits retain the same canonical payload regardless of selected mode. Add idempotency tests showing repeated rendering makes no AI request and does not alter quota, SRS state, pool identity, or stored JSON.",
+    "priority": "high",
+    "note": "Keep this as a prerequisite for shipping the user preference. It should be implemented together with the presentation layer, not by weakening AI validation or duplicating database schemas.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 53,
+    "roadmap_refs": [
+      "interactive-card-ux",
+      "data-lifecycle",
+      "measurement-and-observability"
+    ],
+    "evidence": "Current tests cover card validation and SQLite persistence, but no test selects a presentation mode or proves that rendering a cached daily, saved, or pooled card is side-effect free.",
+    "last_reviewed": "2026-07-13"
   }
 ]
