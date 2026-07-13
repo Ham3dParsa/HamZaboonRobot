@@ -63,6 +63,9 @@ AI_MAX_REQUESTS_PER_MINUTE = int(os.getenv("AI_MAX_REQUESTS_PER_MINUTE", "30"))
 AI_TIMEOUT_SECONDS = float(os.getenv("AI_TIMEOUT_SECONDS", "30"))
 AI_TEMPERATURE = float(os.getenv("AI_TEMPERATURE", "0.6"))
 AI_MAX_OUTPUT_TOKENS = int(os.getenv("AI_MAX_OUTPUT_TOKENS", "4096"))
+AI_CARD_OUTPUT_FORMAT = os.getenv("AI_CARD_OUTPUT_FORMAT", "compact_json").strip().lower()
+if AI_CARD_OUTPUT_FORMAT not in {"json", "compact_json"}:
+    raise ValueError("AI_CARD_OUTPUT_FORMAT must be 'json' or 'compact_json'")
 LLM_INPUT_COST_USD_PER_MILLION = float(
     os.getenv("LLM_INPUT_COST_USD_PER_MILLION", "0.25")
 )

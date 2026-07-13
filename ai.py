@@ -119,6 +119,27 @@ class BatchValidationError(ValueError):
         self.diagnostics = diagnostics or {}
 
 
+_COMPACT_CARD_FIELDS = {
+    "w": "word",
+    "ph": "phonetic",
+    "m": "fa_meaning",
+    "x": "fa_explanation",
+    "s": "synonyms",
+    "a": "antonyms",
+    "e": "examples",
+    "t": "example_translations",
+    "g": "grammar_tip",
+}
+
+
+def _expand_card_aliases(data: Mapping[str, object]) -> dict[str, object]:
+    expanded = dict(data)
+    for compact_name, canonical_name in _COMPACT_CARD_FIELDS.items():
+        if canonical_name not in expanded and compact_name in expanded:
+            expanded[canonical_name] = expanded[compact_name]
+    return expanded
+
+
 def _extract_json(text: str) -> object:
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
@@ -156,6 +177,7 @@ def _text_list(data: Mapping[str, object], field: str, *, required: bool = False
 def validate_card(data: object) -> dict:
     if not isinstance(data, Mapping):
         raise CardValidationError("Card output must be a JSON object")
+    data = _expand_card_aliases(data)
 
     examples = _text_list(data, "examples", required=True)
     translations = _text_list(data, "example_translations", required=True)

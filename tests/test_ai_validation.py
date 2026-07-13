@@ -19,6 +19,40 @@ def valid_card(word: str) -> dict:
 
 
 class BatchValidationTests(unittest.TestCase):
+    def test_compact_card_aliases_validate_to_the_persisted_contract(self):
+        compact = {
+            "w": "hello",
+            "ph": "",
+            "m": "سلام",
+            "x": "توضیح",
+            "s": [],
+            "a": [],
+            "e": ["Hello."],
+            "t": ["سلام."],
+            "g": "",
+        }
+
+        self.assertEqual(ai.validate_card(compact)["word"], "hello")
+        self.assertIn("example_translations", ai.validate_card(compact))
+
+    def test_six_compact_cards_validate_without_changing_batch_shape(self):
+        cards = ai.validate_batch(
+            [
+                {
+                    "w": f"word-{index}",
+                    "m": "معنی",
+                    "x": "توضیح",
+                    "e": [f"Example {index}."],
+                    "t": [f"مثال {index}."],
+                }
+                for index in range(6)
+            ],
+            expected_count=6,
+        )
+
+        self.assertEqual(len(cards), 6)
+        self.assertEqual([card["word"] for card in cards], [f"word-{i}" for i in range(6)])
+
     def test_diagnostics_explain_an_empty_batch(self):
         diagnostics: dict[str, int] = {}
         rejection_reasons: dict[str, int] = {}

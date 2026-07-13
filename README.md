@@ -52,6 +52,11 @@ python bot.py
 - `AI_MAX_CONCURRENCY`، `AI_MAX_REQUESTS_PER_MINUTE` و `AI_TIMEOUT_SECONDS`
   نرخ و زمان انتظار provider را محدود می‌کنند؛ `AI_MAX_OUTPUT_TOKENS` سقف
   خروجی و `AI_TEMPERATURE` میزان تصادفی‌بودن پاسخ JSON را کنترل می‌کند.
+- خروجی کارت و batch به‌صورت پیش‌فرض `compact_json` است: کلیدهای کوتاه در مرز AI
+  مصرف می‌شوند و `ai.py` پیش از validation آن‌ها را به قرارداد کامل کارت تبدیل می‌کند.
+  برای rollback فوری، `AI_CARD_OUTPUT_FORMAT=json` را تنظیم کنید. CSV به‌عنوان
+  قرارداد runtime انتخاب نشده، چون جداکننده‌های طبیعی متن، newline و علامت‌های
+  نقل‌قول می‌توانند داده‌ی آموزشی را بدون parser استاندارد خراب کنند.
 - هر تماس AI نوع درخواست، مدل، latency و token usage گزارش‌شده توسط provider
   را log می‌کند. سهمیه‌ی پرسش واژه یا نکته‌ی گرامری هم در خطای provider پس
   داده می‌شود تا درخواست ناموفق از سهمیه‌ی کاربر کم نشود.
