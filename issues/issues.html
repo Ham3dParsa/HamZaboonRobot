@@ -113,6 +113,9 @@
 
         /* ---------- Controls ---------- */
         .controls {
+            position: sticky;
+            top: 0;
+            z-index: 30;
             display: flex;
             flex-wrap: wrap;
             gap: 0.8rem;
@@ -161,6 +164,11 @@
             color: #fff;
         }
         .controls .filter-group button.active-low {
+            background: #047857;
+            border-color: #047857;
+            color: #fff;
+        }
+        .controls .filter-group button.active-resolved {
             background: #047857;
             border-color: #047857;
             color: #fff;
@@ -397,8 +405,8 @@
 
         /* ---------- Cards ---------- */
         .cards-grid {
-            display: flex;
-            flex-direction: column;
+            display: grid;
+            grid-template-columns: 1fr;
             gap: 1.25rem;
         }
 
@@ -841,6 +849,12 @@
         }
 
         /* ---------- Responsive ---------- */
+        @media (min-width: 900px) {
+            .cards-grid {
+                grid-template-columns: repeat(2, minmax(380px, 1fr));
+            }
+        }
+
         @media (min-width: 1440px) {
             body {
                 padding: 2.2rem 2rem;
@@ -861,6 +875,16 @@
         }
 
         @media (max-width: 700px) {
+            .controls {
+                position: sticky;
+                top: auto;
+                bottom: 0;
+                margin-bottom: 0;
+                padding: 0.9rem 1rem;
+                border-radius: 0 0 18px 18px;
+                box-shadow: 0 -10px 28px rgba(15, 43, 75, 0.08);
+            }
+
             .header {
                 padding: 1.5rem 1.2rem;
             }
@@ -2276,11 +2300,20 @@
             });
 
             document.querySelectorAll('#filterGroup button').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.filter === priorityFilter);
-                if (btn.dataset.filter === priorityFilter && priorityFilter !== 'all') {
-                    btn.classList.add('active-' + priorityFilter);
-                } else {
+                const filter = btn.dataset.filter;
+                const isResolvedButtonActive = filter === 'resolved' && statusFilter === 'resolved';
+                const isPriorityButtonActive = filter !== 'resolved' && filter !== 'all' && filter === priorityFilter;
+                const isAllButtonActive = filter === 'all' && priorityFilter === 'all' && statusFilter === 'all';
+                btn.classList.toggle('active', isResolvedButtonActive || isPriorityButtonActive || isAllButtonActive);
+                btn.classList.toggle('active-resolved', isResolvedButtonActive);
+                btn.classList.toggle('active-high', filter === 'high' && priorityFilter === 'high');
+                btn.classList.toggle('active-medium', filter === 'medium' && priorityFilter === 'medium');
+                btn.classList.toggle('active-low', filter === 'low' && priorityFilter === 'low');
+                if (!isPriorityButtonActive) {
                     btn.classList.remove('active-high', 'active-medium', 'active-low');
+                }
+                if (!isResolvedButtonActive) {
+                    btn.classList.remove('active-resolved');
                 }
             });
 
@@ -2458,7 +2491,14 @@
             // Filter buttons
             document.querySelectorAll('#filterGroup button').forEach(btn => {
                 btn.addEventListener('click', function() {
-                    priorityFilter = this.dataset.filter;
+                    const filter = this.dataset.filter;
+                    if (filter === 'resolved') {
+                        priorityFilter = 'all';
+                        statusFilter = 'resolved';
+                    } else {
+                        priorityFilter = filter;
+                        statusFilter = 'all';
+                    }
                     render();
                 });
             });
