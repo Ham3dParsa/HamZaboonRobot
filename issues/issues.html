@@ -32,6 +32,13 @@
             margin: 0 auto;
             width: 100%;
         }
+        @media (min-width: 1600px) {
+            body { padding: 2.25rem 3rem; }
+            .container { max-width: 1780px; }
+        }
+        @media (min-width: 2100px) {
+            .container { max-width: 2200px; }
+        }
 
         /* ---------- Header ---------- */
         .header {
@@ -114,17 +121,73 @@
         /* ---------- Controls ---------- */
         .controls {
             position: sticky;
-            top: 0;
+            top: 0.75rem;
             z-index: 30;
             display: flex;
+            flex-direction: column;
+            gap: 0.7rem;
+            margin-bottom: 1.5rem;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(10px);
+            padding: 1rem 1.25rem;
+            border-radius: 22px;
+            box-shadow: 0 12px 34px rgba(15, 43, 75, 0.1);
+            border: 1px solid rgba(15, 43, 75, 0.06);
+        }
+        .controls-row {
+            display: flex;
             flex-wrap: wrap;
-            gap: 0.8rem;
+            gap: 0.6rem;
             align-items: center;
-            margin-bottom: 1rem;
-            background: #ffffff;
-            padding: 1rem 1.35rem;
-            border-radius: 28px;
-            box-shadow: 0 12px 30px rgba(15, 43, 75, 0.08);
+        }
+        .controls-row-secondary {
+            padding-top: 0.7rem;
+            border-top: 1px dashed #e2e8f0;
+            display: none;
+        }
+        .controls-row-secondary.open {
+            display: flex;
+        }
+        .controls .toggle-advanced {
+            background: transparent;
+            border: 1.5px solid #e2e8f0;
+            color: #475569;
+            font-family: inherit;
+            font-size: 0.85rem;
+            font-weight: 600;
+            padding: 0.5rem 1rem;
+            border-radius: 40px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .controls .toggle-advanced:hover {
+            background: #f3f7fb;
+            border-color: #cbd5e1;
+        }
+        .controls .toggle-advanced.has-active {
+            background: #eaf2fb;
+            border-color: #1f4f70;
+            color: #1f4f70;
+        }
+        .controls .toggle-advanced .count {
+            background: #1f4f70;
+            color: #fff;
+            border-radius: 999px;
+            font-size: 0.72rem;
+            padding: 0.05rem 0.5rem;
+            min-width: 1.2rem;
+            text-align: center;
+        }
+        .controls .toggle-advanced i.fa-chevron-down {
+            transition: transform 0.2s;
+            font-size: 0.75rem;
+        }
+        .controls .toggle-advanced.open i.fa-chevron-down {
+            transform: rotate(180deg);
         }
         .controls .filter-group {
             display: flex;
@@ -175,13 +238,12 @@
         }
 
         .controls .search-box {
-            margin-right: auto;
             display: flex;
             flex-direction: column;
             align-items: stretch;
             gap: 0.35rem;
-            min-width: min(360px, 100%);
-            flex: 1 1 360px;
+            min-width: min(320px, 100%);
+            flex: 1 1 320px;
             background: #f3f7fb;
             border-radius: 20px;
             padding: 0.45rem 0.6rem 0.45rem 0.7rem;
@@ -309,6 +371,34 @@
         .controls .btn-add:hover {
             background: #184862;
         }
+        .controls-row-utility {
+            padding-top: 0.7rem;
+            border-top: 1px dashed #e2e8f0;
+        }
+        .controls .utility-spacer {
+            flex: 1 1 auto;
+        }
+        .controls .tool-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+        }
+        .controls .btn-tool {
+            background: transparent;
+            border: none;
+            color: #64748b;
+            font-size: 0.8rem;
+            font-family: inherit;
+            padding: 0.4rem 0.75rem;
+            border-radius: 40px;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .controls .btn-tool:hover {
+            background: #f1f5f9;
+            color: #1f4f70;
+        }
 
         .form-panel {
             display: none;
@@ -408,6 +498,17 @@
             display: grid;
             grid-template-columns: 1fr;
             gap: 1.25rem;
+            align-items: start;
+        }
+        @media (min-width: 1180px) {
+            .cards-grid {
+                grid-template-columns: repeat(auto-fill, minmax(540px, 1fr));
+            }
+        }
+        @media (min-width: 2000px) {
+            .cards-grid {
+                grid-template-columns: repeat(auto-fill, minmax(620px, 1fr));
+            }
         }
 
         .card {
@@ -763,6 +864,56 @@
             background: #fffbeb;
             border-color: #fcd34d;
         }
+
+        /* ---------- Status selector (full status control on each card) ---------- */
+        .status-select {
+            appearance: none;
+            -webkit-appearance: none;
+            font-family: inherit;
+            font-size: 0.8rem;
+            font-weight: 600;
+            padding: 0.4rem 2rem 0.4rem 0.9rem;
+            border-radius: 999px;
+            cursor: pointer;
+            border: 1.5px solid transparent;
+            background-repeat: no-repeat;
+            background-position: left 0.8rem center;
+            background-size: 0.6rem;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath fill='%23475569' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+            transition: all 0.2s;
+        }
+        .status-select:hover {
+            filter: brightness(0.97);
+        }
+        .status-select:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(31, 79, 112, 0.15);
+        }
+        .status-select.status-open {
+            background-color: #eef2f7;
+            color: #334155;
+            border-color: #cbd5e1;
+        }
+        .status-select.status-partial {
+            background-color: #fef3c7;
+            color: #92400e;
+            border-color: #fcd34d;
+        }
+        .status-select.status-resolved {
+            background-color: #d1fae5;
+            color: #065f46;
+            border-color: #6ee7b7;
+        }
+        .status-select.status-accepted-risk {
+            background-color: #e0e7ff;
+            color: #3730a3;
+            border-color: #a5b4fc;
+        }
+        .status-select.status-obsolete {
+            background-color: #f1f5f9;
+            color: #64748b;
+            border-color: #cbd5e1;
+        }
         .card-actions .btn-edit {
             color: #3b82f6;
         }
@@ -1049,95 +1200,112 @@
 
         <!-- CONTROLS -->
         <div class="controls">
-            <div class="filter-group" id="filterGroup">
-                <button class="active" data-filter="all">همه</button>
-                <button data-filter="high">🔴 بالا</button>
-                <button data-filter="medium">🟠 متوسط</button>
-                <button data-filter="low">🟢 پایین</button>
-                <button data-filter="resolved">✅ حل‌شده</button>
+            <div class="controls-row controls-row-primary">
+                <div class="filter-group" id="filterGroup">
+                    <button class="active" data-filter="all">همه</button>
+                    <button data-filter="high">🔴 بالا</button>
+                    <button data-filter="medium">🟠 متوسط</button>
+                    <button data-filter="low">🟢 پایین</button>
+                    <button data-filter="status:open">⚪ باز</button>
+                    <button data-filter="status:resolved">✅ حل‌شده</button>
+                </div>
+                <div class="search-box">
+                    <div class="search-input-row">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="searchInput" placeholder="جستجو یا id:12" title="جستجو در عنوان، ماژول، تابع، مشکل، راه‌حل، یادداشت و roadmap refs" />
+                        <button type="button" class="clear-search" id="clearSearchBtn" title="پاک کردن جستجو">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="search-hint">مثلاً: id:12، #12 یا چند کلمه</div>
+                </div>
+                <button type="button" class="toggle-advanced" id="toggleAdvancedBtn">
+                    <i class="fas fa-sliders-h"></i> فیلترهای پیشرفته
+                    <span class="count" id="advancedCount" style="display:none;">0</span>
+                    <i class="fas fa-chevron-down"></i>
+                </button>
             </div>
-            <div class="search-box">
-                <div class="search-input-row">
-                    <i class="fas fa-search"></i>
-                    <input type="text" id="searchInput" placeholder="جستجو یا id:12" title="جستجو در عنوان، ماژول، تابع، مشکل، راه‌حل، یادداشت و roadmap refs" />
-                    <button type="button" class="clear-search" id="clearSearchBtn" title="پاک کردن جستجو">
-                        <i class="fas fa-times"></i>
+
+            <div class="controls-row controls-row-secondary" id="advancedFilters">
+                <div class="control-pill">
+                    <i class="fas fa-flag"></i>
+                    <select id="statusFilter" title="فیلتر وضعیت">
+                        <option value="all">همه وضعیت‌ها</option>
+                        <option value="open">باز</option>
+                        <option value="partial">نسبتاً حل‌شده</option>
+                        <option value="resolved">حل‌شده</option>
+                        <option value="accepted-risk">ریسک پذیرفته‌شده</option>
+                        <option value="obsolete">منسوخ</option>
+                    </select>
+                </div>
+                <div class="control-pill">
+                    <i class="fas fa-folder-open"></i>
+                    <select id="moduleFilter" title="فیلتر ماژول">
+                        <option value="all">همه ماژول‌ها</option>
+                    </select>
+                </div>
+                <div class="control-pill">
+                    <i class="fas fa-layer-group"></i>
+                    <select id="phaseFilter" title="فیلتر فاز">
+                        <option value="all">همه فازها</option>
+                    </select>
+                </div>
+                <div class="control-pill">
+                    <i class="fas fa-diagram-project"></i>
+                    <input type="text" id="roadmapFilter" placeholder="roadmap ref" title="فیلتر roadmap refs" />
+                </div>
+                <div class="control-pill">
+                    <i class="fas fa-sort"></i>
+                    <select id="sortBy" title="مرتب‌سازی">
+                        <option value="id">ID</option>
+                        <option value="priority">اولویت</option>
+                        <option value="status">وضعیت</option>
+                        <option value="module">ماژول</option>
+                        <option value="title">عنوان</option>
+                    </select>
+                    <button type="button" id="sortDirectionBtn" title="تغییر جهت مرتب‌سازی">↑</button>
+                </div>
+                <div class="control-pill">
+                    <i class="fas fa-location-arrow"></i>
+                    <input type="number" id="jumpToIdInput" min="1" placeholder="ID" title="پرش به کارت" />
+                    <button type="button" id="jumpToIdBtn">برو</button>
+                </div>
+            </div>
+
+            <div class="controls-row controls-row-utility" id="utilityRow">
+                <div class="results-summary" id="resultsSummary">۰ مورد</div>
+                <button class="btn-add" id="addCardBtn" title="افزودن کارت جدید">
+                    <i class="fas fa-plus-circle"></i> افزودن کارت
+                </button>
+                <span class="utility-spacer"></span>
+                <div class="tool-group">
+                    <button class="btn-tool" id="copyAllMdBtn" title="کپی همه (Markdown)">
+                        <i class="fas fa-clipboard"></i> کپی همه (MD)
+                    </button>
+                    <button class="btn-tool" id="copyAllJsonBtn" title="کپی همه (JSON)">
+                        <i class="fas fa-clipboard"></i> کپی همه (JSON)
+                    </button>
+                    <label for="importFileInput" class="btn-tool" id="importBtn" title="وارد کردن فایل">
+                        <i class="fas fa-file-import"></i> وارد کردن
+                    </label>
+                    <input id="importFileInput" type="file" accept="application/json,text/markdown,.md" style="display:none" />
+                    <button class="btn-tool" id="exportAllMdBtn" title="خروجی همه (Markdown)">
+                        <i class="fas fa-file-download"></i> خروجی همه (MD)
+                    </button>
+                    <button class="btn-tool" id="exportAllJsonBtn" title="خروجی همه (JSON)">
+                        <i class="fas fa-file-download"></i> خروجی همه (JSON)
+                    </button>
+                    <button class="btn-tool" id="exportFilteredMdBtn" title="خروجی فیلتر فعلی (Markdown)">
+                        <i class="fas fa-filter"></i> خروجی فیلتر (MD)
+                    </button>
+                    <button class="btn-tool" id="exportFilteredJsonBtn" title="خروجی فیلتر فعلی (JSON)">
+                        <i class="fas fa-filter"></i> خروجی فیلتر (JSON)
+                    </button>
+                    <button class="reset-btn" id="resetStorageBtn" title="بازنشانی همه تغییرات">
+                        <i class="fas fa-undo-alt"></i>
                     </button>
                 </div>
-                <div class="search-hint">مثلاً: id:12، #12 یا چند کلمه</div>
             </div>
-            <div class="control-pill">
-                <i class="fas fa-flag"></i>
-                <select id="statusFilter" title="فیلتر وضعیت">
-                    <option value="all">همه وضعیت‌ها</option>
-                    <option value="open">باز</option>
-                    <option value="partial">نسبتاً حل‌شده</option>
-                    <option value="resolved">حل‌شده</option>
-                    <option value="accepted-risk">ریسک پذیرفته‌شده</option>
-                    <option value="obsolete">منسوخ</option>
-                </select>
-            </div>
-            <div class="control-pill">
-                <i class="fas fa-folder-open"></i>
-                <select id="moduleFilter" title="فیلتر ماژول">
-                    <option value="all">همه ماژول‌ها</option>
-                </select>
-            </div>
-            <div class="control-pill">
-                <i class="fas fa-layer-group"></i>
-                <select id="phaseFilter" title="فیلتر فاز">
-                    <option value="all">همه فازها</option>
-                </select>
-            </div>
-            <div class="control-pill">
-                <i class="fas fa-diagram-project"></i>
-                <input type="text" id="roadmapFilter" placeholder="roadmap ref" title="فیلتر roadmap refs" />
-            </div>
-            <div class="control-pill">
-                <i class="fas fa-sort"></i>
-                <select id="sortBy" title="مرتب‌سازی">
-                    <option value="id">ID</option>
-                    <option value="priority">اولویت</option>
-                    <option value="status">وضعیت</option>
-                    <option value="module">ماژول</option>
-                    <option value="title">عنوان</option>
-                </select>
-                <button type="button" id="sortDirectionBtn" title="تغییر جهت مرتب‌سازی">↑</button>
-            </div>
-            <div class="results-summary" id="resultsSummary">۰ مورد</div>
-            <div class="control-pill">
-                <i class="fas fa-location-arrow"></i>
-                <input type="number" id="jumpToIdInput" min="1" placeholder="ID" title="پرش به کارت" />
-                <button type="button" id="jumpToIdBtn">برو</button>
-            </div>
-            <button class="btn-add" id="addCardBtn" title="افزودن کارت جدید">
-                <i class="fas fa-plus-circle"></i> افزودن کارت
-            </button>
-            <button class="btn" id="copyAllMdBtn" title="کپی همه (Markdown)" style="background:transparent;border:none;color:#475569;padding:0.45rem 0.9rem;border-radius:40px;">
-                <i class="fas fa-clipboard"></i> کپی همه (MD)
-            </button>
-            <button class="btn" id="copyAllJsonBtn" title="کپی همه (JSON)" style="background:transparent;border:none;color:#475569;padding:0.45rem 0.9rem;border-radius:40px;">
-                <i class="fas fa-clipboard"></i> کپی همه (JSON)
-            </button>
-            <label for="importFileInput" class="btn" id="importBtn" title="وارد کردن فایل" style="background:transparent;border:none;color:#475569;padding:0.45rem 0.9rem;border-radius:40px;cursor:pointer;">
-                <i class="fas fa-file-import"></i> وارد کردن
-            </label>
-            <input id="importFileInput" type="file" accept="application/json,text/markdown,.md" style="display:none" />
-            <button class="btn" id="exportAllMdBtn" title="خروجی همه (Markdown)" style="background:transparent;border:none;color:#475569;padding:0.45rem 0.9rem;border-radius:40px;">
-                <i class="fas fa-file-download"></i> خروجی همه (MD)
-            </button>
-            <button class="btn" id="exportAllJsonBtn" title="خروجی همه (JSON)" style="background:transparent;border:none;color:#475569;padding:0.45rem 0.9rem;border-radius:40px;">
-                <i class="fas fa-file-download"></i> خروجی همه (JSON)
-            </button>
-            <button class="btn" id="exportFilteredMdBtn" title="خروجی فیلتر فعلی (Markdown)" style="background:transparent;border:none;color:#475569;padding:0.45rem 0.9rem;border-radius:40px;">
-                <i class="fas fa-filter"></i> خروجی فیلتر (MD)
-            </button>
-            <button class="btn" id="exportFilteredJsonBtn" title="خروجی فیلتر فعلی (JSON)" style="background:transparent;border:none;color:#475569;padding:0.45rem 0.9rem;border-radius:40px;">
-                <i class="fas fa-filter"></i> خروجی فیلتر (JSON)
-            </button>
-            <button class="reset-btn" id="resetStorageBtn" title="بازنشانی همه تغییرات">
-                <i class="fas fa-undo-alt"></i>
-            </button>
         </div>
 
         <div class="form-panel" id="addCardForm">
@@ -1578,6 +1746,13 @@
         let phaseFilter = 'all';
         let roadmapFilter = '';
         let searchQuery = '';
+        const STATUS_COLORS = {
+            open: { bg: '#eef2f7', fg: '#334155' },
+            partial: { bg: '#fef3c7', fg: '#92400e' },
+            resolved: { bg: '#d1fae5', fg: '#065f46' },
+            'accepted-risk': { bg: '#e0e7ff', fg: '#3730a3' },
+            obsolete: { bg: '#f1f5f9', fg: '#64748b' }
+        };
         let sortBy = 'id';
         let sortDirection = 'asc';
 
@@ -2013,7 +2188,7 @@
                             <span class="title">${highlightText(issue.title, highlightTerms)}</span>
                             <span class="badge ${badgeClass}">${priorityLabel}</span>
                             ${phase ? `<span class="badge badge-phase">${escapeHtml(getPhaseLabel(phase))}</span>` : ''}
-                            <span class="badge" style="background:${isResolved ? '#d1fae5;color:#065f46' : status === 'partial' ? '#fef3c7;color:#92400e' : '#e2e8f0;color:#334155'};">${escapeHtml(statusLabels[status] || status)}</span>
+                            <span class="badge" style="background:${STATUS_COLORS[status] ? STATUS_COLORS[status].bg : '#e2e8f0'};color:${STATUS_COLORS[status] ? STATUS_COLORS[status].fg : '#334155'};">${escapeHtml(statusLabels[status] || status)}</span>
                         </div>
 
                         <div class="card-meta">
@@ -2082,10 +2257,13 @@
                         </div>
 
                         <div class="card-actions">
-                            <button class="btn-resolve ${isResolved ? 'resolved' : ''}" data-id="${issue.id}">
-                                <i class="fas ${isResolved ? 'fa-undo' : 'fa-check-circle'}"></i>
-                                ${isResolved ? 'بازگشایی' : 'حل شد'}
-                            </button>
+                            <select class="status-select status-${status}" data-id="${issue.id}" title="تغییر وضعیت مشکل">
+                                <option value="open" ${status === 'open' ? 'selected' : ''}>⚪ باز</option>
+                                <option value="partial" ${status === 'partial' ? 'selected' : ''}>🟡 نسبتاً حل‌شده</option>
+                                <option value="resolved" ${status === 'resolved' ? 'selected' : ''}>✅ حل‌شده</option>
+                                <option value="accepted-risk" ${status === 'accepted-risk' ? 'selected' : ''}>🟣 ریسک پذیرفته‌شده</option>
+                                <option value="obsolete" ${status === 'obsolete' ? 'selected' : ''}>⚫ منسوخ</option>
+                            </select>
                             <button class="btn-collapse" data-id="${issue.id}">
                                 <i class="fas fa-chevron-${detailOpen ? 'up' : 'down'}"></i>
                                 ${detailOpen ? 'بستن جزئیات' : 'نمایش جزئیات بیشتر'}
@@ -2139,18 +2317,26 @@
 
             grid.innerHTML = html;
 
-            document.querySelectorAll('.btn-resolve').forEach(btn => {
-                btn.addEventListener('click', function(e) {
+            document.querySelectorAll('.status-select').forEach(sel => {
+                sel.addEventListener('click', function(e) { e.stopPropagation(); });
+                sel.addEventListener('change', function(e) {
                     e.stopPropagation();
                     const id = parseInt(this.dataset.id);
                     const issue = getIssueById(id);
                     if (!issue) return;
-                    const newVal = !issue.resolved;
+                    const newStatus = this.value;
                     updateIssue(id, {
-                        resolved: newVal,
-                        status: newVal ? 'resolved' : 'open'
+                        status: newStatus,
+                        resolved: newStatus === 'resolved'
                     });
-                    showToast(newVal ? '✅ مورد حل شد' : '🔁 مورد بازگشایی شد');
+                    const statusLabels = {
+                        open: 'باز',
+                        partial: 'نسبتاً حل‌شده',
+                        resolved: 'حل‌شده',
+                        'accepted-risk': 'ریسک پذیرفته‌شده',
+                        obsolete: 'منسوخ'
+                    };
+                    showToast(`وضعیت به «${statusLabels[newStatus] || newStatus}» تغییر کرد`);
                 });
             });
 
@@ -2301,21 +2487,36 @@
 
             document.querySelectorAll('#filterGroup button').forEach(btn => {
                 const filter = btn.dataset.filter;
-                const isResolvedButtonActive = filter === 'resolved' && statusFilter === 'resolved';
-                const isPriorityButtonActive = filter !== 'resolved' && filter !== 'all' && filter === priorityFilter;
+                const isStatusFilter = filter.startsWith('status:');
+                const statusValue = isStatusFilter ? filter.slice(7) : null;
+                const isStatusButtonActive = isStatusFilter && statusFilter === statusValue;
+                const isPriorityButtonActive = !isStatusFilter && filter !== 'all' && filter === priorityFilter;
                 const isAllButtonActive = filter === 'all' && priorityFilter === 'all' && statusFilter === 'all';
-                btn.classList.toggle('active', isResolvedButtonActive || isPriorityButtonActive || isAllButtonActive);
-                btn.classList.toggle('active-resolved', isResolvedButtonActive);
+                btn.classList.toggle('active', isStatusButtonActive || isPriorityButtonActive || isAllButtonActive);
+                btn.classList.toggle('active-resolved', isStatusButtonActive);
                 btn.classList.toggle('active-high', filter === 'high' && priorityFilter === 'high');
                 btn.classList.toggle('active-medium', filter === 'medium' && priorityFilter === 'medium');
                 btn.classList.toggle('active-low', filter === 'low' && priorityFilter === 'low');
                 if (!isPriorityButtonActive) {
                     btn.classList.remove('active-high', 'active-medium', 'active-low');
                 }
-                if (!isResolvedButtonActive) {
+                if (!isStatusButtonActive) {
                     btn.classList.remove('active-resolved');
                 }
             });
+
+            const advancedCountEl = document.getElementById('advancedCount');
+            const toggleAdvancedBtnEl = document.getElementById('toggleAdvancedBtn');
+            if (advancedCountEl && toggleAdvancedBtnEl) {
+                let advCount = 0;
+                if (statusFilter !== 'all') advCount++;
+                if (moduleFilter !== 'all') advCount++;
+                if (phaseFilter !== 'all') advCount++;
+                if (roadmapFilter.trim()) advCount++;
+                advancedCountEl.textContent = advCount;
+                advancedCountEl.style.display = advCount > 0 ? 'inline-block' : 'none';
+                toggleAdvancedBtnEl.classList.toggle('has-active', advCount > 0);
+            }
 
             const statusSelect = document.getElementById('statusFilter');
             if (statusSelect) statusSelect.value = statusFilter;
@@ -2492,9 +2693,9 @@
             document.querySelectorAll('#filterGroup button').forEach(btn => {
                 btn.addEventListener('click', function() {
                     const filter = this.dataset.filter;
-                    if (filter === 'resolved') {
+                    if (filter.startsWith('status:')) {
                         priorityFilter = 'all';
-                        statusFilter = 'resolved';
+                        statusFilter = filter.slice(7);
                     } else {
                         priorityFilter = filter;
                         statusFilter = 'all';
@@ -2502,6 +2703,16 @@
                     render();
                 });
             });
+
+            // Toggle advanced filters row
+            const toggleAdvancedBtn = document.getElementById('toggleAdvancedBtn');
+            const advancedFilters = document.getElementById('advancedFilters');
+            if (toggleAdvancedBtn && advancedFilters) {
+                toggleAdvancedBtn.addEventListener('click', function() {
+                    const isOpen = advancedFilters.classList.toggle('open');
+                    toggleAdvancedBtn.classList.toggle('open', isOpen);
+                });
+            }
 
             // Search
             const searchInput = document.getElementById('searchInput');
