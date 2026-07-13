@@ -529,11 +529,19 @@ def _generate_daily_batch(
 ) -> list[dict]:
     cards: list[dict] = []
     last_error: Exception | None = None
+    omit_prompt_avoid = False
     for attempt in range(1, 4):
         remaining = card_count - len(cards)
         if remaining <= 0:
             break
         batch_words = used_words + [card["word"] for card in cards]
+        prompt_avoid_words = [] if omit_prompt_avoid else batch_words
+        if omit_prompt_avoid:
+            log.info(
+                "daily batch retry omitting prompt avoid-list user_id=%s attempt=%s",
+                user_id,
+                attempt,
+            )
         try:
             batch = _ask_batch_limited(
                 prompts.daily_batch_system_prompt(
@@ -541,7 +549,7 @@ def _generate_daily_batch(
                     goal,
                     level,
                     remaining,
-                    avoid_words=batch_words,
+                    avoid_words=prompt_avoid_words,
                 ),
                 expected_count=remaining,
                 used_words=batch_words,
@@ -551,6 +559,14 @@ def _generate_daily_batch(
             )
         except Exception as exc:
             last_error = exc
+            if (
+                isinstance(exc, ai.BatchValidationError)
+                and exc.diagnostics.get("accepted", 0) == 0
+                and exc.diagnostics.get("validation_rejected", 0) == 0
+                and exc.diagnostics.get("duplicates_against_avoid", 0) > 0
+                and exc.diagnostics.get("duplicates_within_batch", 0) == 0
+            ):
+                omit_prompt_avoid = True
             log.warning(
                 "daily batch attempt failed user_id=%s attempt=%s requested=%s "
                 "accepted_so_far=%s error=%s",
