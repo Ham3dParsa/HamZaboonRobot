@@ -10,7 +10,7 @@ from catalog import (
     level_cefr,
     validate_catalog,
 )
-from prompts import daily_batch_system_prompt
+from prompts import daily_batch_system_prompt, grammar_tip_system_prompt
 
 
 class CatalogTests(unittest.TestCase):
@@ -31,6 +31,16 @@ class CatalogTests(unittest.TestCase):
         self.assertIn(GOALS["toefl"].name_fa, prompt)
         self.assertIn(LEVELS[DEFAULT_LEVEL].cefr, prompt)
         self.assertIn("Nominativ", prompt)
+
+    def test_grammar_prompt_can_avoid_recent_topics(self):
+        prompt = grammar_tip_system_prompt(
+            "en",
+            "general",
+            "beginner",
+            avoid_topics=["Adjectives"],
+        )
+        self.assertIn("Adjectives", prompt)
+        self.assertIn("تکرار نکن", prompt)
 
 
 if __name__ == "__main__":

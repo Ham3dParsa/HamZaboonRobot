@@ -4,7 +4,7 @@ import tempfile
 import unittest
 
 import db
-from bot import _custom_word_input_error, _is_cancel_input
+from bot import _custom_word_input_error, _is_cancel_input, escape_mdv2_code, format_card
 from keyboards import (
     BTN_ASK_WORD,
     awaiting_inline_keyboard,
@@ -13,6 +13,7 @@ from keyboards import (
     daily_review_menu_keyboard,
     main_menu,
     query_result_keyboard,
+    srs_review_keyboard,
 )
 
 
@@ -59,6 +60,18 @@ class CustomWordQueryTests(unittest.TestCase):
         button = markup.inline_keyboard[0][0]
         self.assertEqual(button.callback_data, "query:add:0123456789abcdef0123456789abcdef")
         self.assertLess(len(button.callback_data), 64)
+
+    def test_query_result_keyboard_can_include_language_label(self):
+        markup = query_result_keyboard("0123456789abcdef0123456789abcdef", "en")
+        button = markup.inline_keyboard[0][0]
+        self.assertIn("انگلیسی", button.text)
+        self.assertEqual(button.callback_data, "query:add:0123456789abcdef0123456789abcdef")
+
+    def test_srs_review_keyboard_is_user_scoped_and_short(self):
+        markup = srs_review_keyboard(123, 456)
+        callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
+        self.assertEqual(callbacks, ["srs:remember:123:456", "srs:again:123:456"])
+        self.assertTrue(all(len(callback) < 64 for callback in callbacks))
 
     def test_main_menu_no_longer_shows_manual_save_action(self):
         markup = main_menu(False)
@@ -125,6 +138,17 @@ class CustomWordQueryTests(unittest.TestCase):
         self.assertIn("flow:cancel", callbacks)
         self.assertTrue(_is_cancel_input("لغو"))
         self.assertTrue(_is_cancel_input("بازگشت"))
+
+    def test_markdown_code_escaping_does_not_escape_phonetic_punctuation(self):
+        self.assertEqual(escape_mdv2_code("hɛ.loʊ"), "hɛ.loʊ")
+        card = format_card(
+            {
+                "word": "hello",
+                "phonetic": "hɛ.loʊ",
+                "fa_meaning": "سلام",
+            }
+        )
+        self.assertIn("`hɛ.loʊ`", card)
 
 
 if __name__ == "__main__":

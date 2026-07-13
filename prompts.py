@@ -91,7 +91,7 @@ def daily_batch_system_prompt(
     example_lang = example_language_label(lang)
     avoid_hint = ""
     if avoid_words:
-        joined = "، ".join(str(word) for word in avoid_words if word)
+        joined = "، ".join(str(word)[:40] for word in avoid_words if word)
         if joined:
             avoid_hint = f"\nاین واژه‌ها را تکرار نکن: {joined}\n"
 
@@ -151,16 +151,30 @@ def custom_word_system_prompt(lang: str, level: str = "beginner") -> str:
 {_JSON_RULES}"""
 
 
-def grammar_tip_system_prompt(lang: str, goal: str, level: str = "beginner") -> str:
+def grammar_tip_system_prompt(
+    lang: str,
+    goal: str,
+    level: str = "beginner",
+    avoid_topics=None,
+) -> str:
     lang_fa = language_label(lang)
     goal_fa = goal_label(goal)
     level_name = level_label(level)
+    avoid_hint = ""
+    if avoid_topics:
+        joined = "، ".join(str(topic)[:60] for topic in avoid_topics if topic)
+        if joined:
+            avoid_hint = (
+                "\nاین عنوان‌ها/مباحث اخیراً داده شده‌اند؛ همان‌ها را تکرار نکن "
+                f"و یک نکته‌ی متفاوت انتخاب کن: {joined}\n"
+            )
     
     return f"""تو معلم گرامر زبان {lang_fa} برای زبان‌آموزان فارسی‌زبان با هدف «{goal_fa}» و سطح «{level_name}» هستی.
 
 یک نکته‌ی گرامری کوتاه، کاربردی و نسبتاً تازه (نه خیلی پایه، نه خیلی پیچیده) انتخاب کن.
 {_level_guidance(level)}
 {_language_guidance(lang)}
+{avoid_hint}
 
 خروجی را **دقیقاً** با این ساختار JSON بده و هیچ چیز دیگری ننویس:
 

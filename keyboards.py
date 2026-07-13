@@ -1,6 +1,6 @@
 from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 
-from catalog import GOALS, LANGUAGES, LEVELS
+from catalog import GOALS, LANGUAGES, LEVELS, language_label
 
 BTN_TODAY_CARD = "🃏 فلش‌کارت امروز"
 BTN_ASK_WORD = "❓ پرسیدن یک واژه"
@@ -110,14 +110,34 @@ def daily_review_dates_keyboard(
     return InlineKeyboardMarkup(buttons or [[InlineKeyboardButton("فعلاً کارتی نیست", callback_data="review:noop")]])
 
 
-def query_result_keyboard(token: str) -> InlineKeyboardMarkup:
+def query_result_keyboard(token: str, lang: str | None = None) -> InlineKeyboardMarkup:
+    label = "➕ افزودن به مرور"
+    if lang:
+        label = f"{label} ({language_label(lang)})"
     return InlineKeyboardMarkup(
         [
             [
                 InlineKeyboardButton(
-                    "➕ افزودن به مرور",
+                    label,
                     callback_data=f"query:add:{token}",
                 )
+            ]
+        ]
+    )
+
+
+def srs_review_keyboard(user_id: int, word_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "✅ یادم بود",
+                    callback_data=f"srs:remember:{user_id}:{word_id}",
+                ),
+                InlineKeyboardButton(
+                    "↩️ فردا دوباره",
+                    callback_data=f"srs:again:{user_id}:{word_id}",
+                ),
             ]
         ]
     )

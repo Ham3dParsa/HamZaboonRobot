@@ -1,9 +1,12 @@
 import datetime as dt
 import os
+import sqlite3
 import tempfile
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
+import ai
 import bot
 import db
 
@@ -23,17 +26,113 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         db.create_user_if_needed(1, "learner")
         self.assertTrue(db.reserve_word_query(1, 1))
         self.assertFalse(db.reserve_word_query(1, 1))
+        db.release_word_query(1)
+        self.assertTrue(db.reserve_word_query(1, 1))
 
     def test_grammar_tip_reservation_is_atomic_and_bounded(self):
         db.create_user_if_needed(1, "learner")
         self.assertTrue(db.reserve_grammar_tip(1, 1))
         self.assertFalse(db.reserve_grammar_tip(1, 1))
+        db.release_grammar_tip(1)
+        self.assertTrue(db.reserve_grammar_tip(1, 1))
+
+    def test_ai_requests_apply_output_controls_and_log_usage(self):
+        client = MagicMock()
+        client.chat.completions.create.return_value = SimpleNamespace(
+            usage=SimpleNamespace(
+                prompt_tokens=10,
+                completion_tokens=20,
+                total_tokens=30,
+            ),
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content='{"title": "Adjectives"}')
+                )
+            ],
+        )
+        with (
+            patch.object(ai, "_client", return_value=client),
+            patch.object(ai, "_model", return_value="test-model"),
+            self.assertLogs("hamzaban.ai", level="INFO") as logs,
+        ):
+            result = ai.ask_json(
+                "system",
+                request_kind="grammar_tip",
+                user_id=1,
+            )
+
+        kwargs = client.chat.completions.create.call_args.kwargs
+        self.assertEqual(kwargs["temperature"], ai.AI_TEMPERATURE)
+        self.assertEqual(kwargs["max_tokens"], ai.AI_MAX_OUTPUT_TOKENS)
+        self.assertEqual(result["title"], "Adjectives")
+        self.assertIn("total_tokens=30", logs.output[0])
 
     def test_saved_word_insert_is_idempotent(self):
         db.create_user_if_needed(1, "learner")
         self.assertTrue(db.add_saved_word(1, "  Hello   ", "en"))
         self.assertFalse(db.add_saved_word(1, "hello", "en"))
         self.assertEqual(len(db.due_words_for_user(1)), 0)
+
+    def test_saved_word_can_store_complete_card_and_pending_review_state(self):
+        db.create_user_if_needed(1, "learner")
+        card = {
+            "word": "hello",
+            "fa_meaning": "سلام",
+            "fa_explanation": "یک سلام ساده.",
+            "examples": ["Hello!"],
+            "example_translations": ["سلام!"],
+        }
+        self.assertTrue(db.add_saved_word(1, "hello", "en", card))
+        row = db.get_saved_word(1, user_id=1)
+        self.assertIn("سلام", row["card_data"])
+
+        with patch.object(db, "_today", return_value=dt.date.fromisoformat(row["next_review"])):
+            due = db.due_words_for_user(1)
+            self.assertEqual(len(due), 1)
+            db.mark_word_review_pending(due[0]["id"])
+            self.assertEqual(db.due_words_for_user(1), [])
+            self.assertTrue(db.defer_word_review(due[0]["id"]))
+            self.assertFalse(db.defer_word_review(due[0]["id"]))
+            self.assertEqual(db.due_words_for_user(1), [])
+            db.mark_word_review_pending(due[0]["id"])
+            self.assertTrue(db.advance_word_review(due[0]["id"]))
+            self.assertFalse(db.advance_word_review(due[0]["id"]))
+            self.assertEqual(db.due_words_for_user(1), [])
+
+    def test_saved_word_migration_preserves_legacy_rows(self):
+        os.remove(db.DB_PATH)
+        with sqlite3.connect(db.DB_PATH) as conn:
+            conn.execute(
+                "CREATE TABLE saved_words ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, word TEXT, "
+                "lang TEXT, interval_idx INTEGER DEFAULT 0, next_review TEXT, added_at TEXT)"
+            )
+            conn.execute(
+                "INSERT INTO saved_words(user_id, word, lang, interval_idx, next_review) "
+                "VALUES(1, ' Hello ', 'en', 0, '2026-07-13')"
+            )
+        db.init_db()
+
+        row = db.get_saved_word(1, user_id=1)
+        self.assertEqual(row["normalized_word"], "hello")
+        self.assertEqual(row["review_status"], "idle")
+        self.assertIsNone(row["card_data"])
+        self.assertIsNone(row["review_requested_at"])
+
+    def test_recent_daily_words_excludes_current_date(self):
+        db.create_user_if_needed(1, "learner")
+        db.add_daily_card(1, "2026-07-12", 0, {"word": "today"})
+        db.add_daily_card(1, "2026-07-11", 0, {"word": "recent"})
+        self.assertEqual(
+            db.get_recent_daily_words(1, exclude_date="2026-07-12"),
+            ["recent"],
+        )
+
+    def test_recent_grammar_tip_titles_are_language_scoped(self):
+        db.create_user_if_needed(1, "learner")
+        db.add_grammar_tip(1, "Adjectives", "en", "general", "beginner", {"title": "Adjectives"})
+        db.add_grammar_tip(1, "Artikel", "de", "general", "beginner", {"title": "Artikel"})
+        self.assertEqual(db.recent_grammar_tip_titles(1, "en"), ["Adjectives"])
 
     def test_touch_streak_is_idempotent_within_a_day(self):
         db.create_user_if_needed(1, "learner")
@@ -48,7 +147,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         card_date = dt.date(2026, 7, 12).isoformat()
         calls: list[int] = []
 
-        def fake_generate_daily_batch(lang, goal, level, card_count, used_words):
+        def fake_generate_daily_batch(lang, goal, level, card_count, used_words, user_id=None):
             calls.append(card_count)
             return [
                 {
@@ -76,7 +175,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         card_date = dt.date(2026, 7, 12).isoformat()
         calls: list[tuple[str, str, str, int]] = []
 
-        def fake_generate_daily_batch(lang, goal, level, card_count, used_words):
+        def fake_generate_daily_batch(lang, goal, level, card_count, used_words, user_id=None):
             calls.append((lang, goal, level, card_count))
             return [
                 {
