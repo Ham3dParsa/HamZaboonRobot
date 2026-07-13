@@ -89,6 +89,9 @@ Completed on the current main branch:
   bounded avoid-lists to reduce repetition without replacing AI generation.
 - AI output length and temperature are configurable and token usage is logged
   for each request.
+- Card and daily-batch provider responses support an internal `compact_json`
+  wire format with a rollback-only `json` mode; this serialization choice is
+  deliberately independent from learner-facing card detail.
 - Daily batch validation now distinguishes provider success from a batch with
   no usable cards, records safe rejection diagnostics, and preserves the
   retry path.
@@ -503,12 +506,21 @@ Add inline controls for:
 - Requesting the next card on demand
 - Showing the effective daily allowance and progress
 - Saving the current card or queried word for spaced repetition
+- Choosing a learner-facing `brief` or `detailed` presentation, without
+  changing the validated card payload or the AI output serialization
 
 Show readable progress, such as `Card 2 of 5`, where the count has a defined
 meaning: generated, delivered, and viewed state must not be conflated. Provide
 a clear completion message when the daily allowance has been consumed.
 Callback handlers must be safe against repeated clicks, stale card references,
 and callbacks issued by a different user.
+
+Presentation detail is a deterministic rendering concern. The detailed mode
+is the default and retains two paired examples; brief mode is a shorter view
+of the same cached card. Neither mode may trigger an AI request, alter quota
+usage, mutate `daily_cards`, `saved_words.card_data`, or create a second card
+schema. The same policy applies to daily cards, custom-word results, saved-word
+reminders, and future content-pool hits.
 
 **Acceptance criteria**
 
@@ -517,6 +529,13 @@ and callbacks issued by a different user.
 - Users can move through already persisted cards without another AI request.
 - Card controls remain associated with the correct stored card.
 - Repeated or stale callbacks do not corrupt progress state.
+- Detailed rendering shows two example/translation pairs by default, while
+  brief rendering remains readable and safely handles absent optional
+  synonyms, antonyms, or grammar details.
+- Rendering either mode reuses the same validated cached payload and does not
+  change AI request counts, quotas, SRS state, pool identity, or stored JSON.
+- The internal `AI_CARD_OUTPUT_FORMAT` setting is never exposed as a learner
+  preference or allowed to change visible educational detail.
 
 ### Phase 5: Custom-Word Queries and Spaced-Repetition Capture
 
@@ -708,9 +727,19 @@ a separate lesson system.
 - Keep the saved-review action label aligned with its actual behavior and
   preserve the target language on persisted query results for future
   multi-language review flows.
+- Implement issue `51`: add a deterministic brief/detailed presentation layer
+  over canonical cached cards across daily, custom-word, SRS, and pool paths.
+- Implement issue `52`: define the global default, premium entitlement,
+  user-facing settings, invalid-value fallback, and downgrade behavior for
+  presentation detail. Keep `AI_CARD_OUTPUT_FORMAT` admin/deployment-only.
+- Implement issue `53`: add regression and persistence tests for example and
+  translation pairing, optional fields, cache reuse, pool reuse, idempotent
+  rendering, and no-AI/no-quota side effects.
 
 ### Later product phases
 
+- Premium or user-configurable brief/detailed card presentation after the
+  deterministic rendering contract is implemented and tested.
 - Premium smart placement testing for Silver and Gold.
 - Premium vocabulary-knowledge estimation testing so Gold users can get a
   general estimate of how many words they know, separate from bot progress
