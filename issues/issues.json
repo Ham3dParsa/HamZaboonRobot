@@ -110,15 +110,17 @@
     "problem": "کلید API به صورت plaintext در دیتابیس ذخیره می‌شود که در صورت نفوذ به دیتابیس، لو می‌رود.",
     "solution": "از یک رمزنگاری ساده (مثلاً Fernet با کلید ثابت در env) برای ذخیره و بازیابی استفاده کنید. یا حداقل در README هشدار دهید که دیتابیس را امن نگه دارند.",
     "priority": "low",
-    "note": "",
-    "resolved": true,
-    "status": "resolved",
+    "note": "Accepted for MVP because adding encrypted secret-at-rest storage needs a dedicated secret-management decision and dependency review.",
+    "resolved": false,
+    "status": "accepted-risk",
     "detailOpen": false,
     "editing": false,
     "id": 7,
-    "roadmap_refs": [],
-    "evidence": "",
-    "last_reviewed": ""
+    "roadmap_refs": [
+      "runtime-configuration"
+    ],
+    "evidence": "README.md documents that AI API keys are bootstrap/runtime secrets and warns that the SQLite DB/settings table must be protected; no encryption layer is implemented yet.",
+    "last_reviewed": "2026-07-13"
   },
   {
     "title": "عدم استفاده از timezone در تاریخ‌گذاری",
@@ -153,8 +155,8 @@
     "editing": false,
     "id": 9,
     "roadmap_refs": [],
-    "evidence": "",
-    "last_reviewed": ""
+    "evidence": "bot.py:_edit_or_send wraps callback edit_message_text calls and falls back to sending a replacement message when Telegram rejects editing an old/deleted message.",
+    "last_reviewed": "2026-07-13"
   },
   {
     "title": "عدم محدودیت در دریافت کارت روزانه برای کاربران غیر onboarded",
@@ -219,14 +221,16 @@
     "solution": "لاگ‌های بیشتری برای رویدادهای مهم مانند ورود کاربر جدید، تغییر پلن، ارسال کارت روزانه و ... اضافه کنید تا دیباگ و تحلیل رفتار کاربر راحت‌تر شود.",
     "priority": "low",
     "note": "",
-    "resolved": false,
-    "status": "partial",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 13,
-    "roadmap_refs": [],
-    "evidence": "",
-    "last_reviewed": ""
+    "roadmap_refs": [
+      "measurement-and-observability"
+    ],
+    "evidence": "bot.py logs daily-card delivery, grammar-tip delivery, custom-word delivery, saved query results, and SRS reminder/interaction events with user and item identifiers. ai.py logs request kind, user ID, model, latency, and provider-reported prompt/completion/total tokens.",
+    "last_reviewed": "2026-07-13"
   },
   {
     "title": "format_card در صورت خالی بودن grammar_tip یک خط خالی اضافه می‌کند",
@@ -422,16 +426,16 @@
     "solution": "label را به عبارتی دقیق‌تر مثل «افزودن واژه به مرور» یا «ذخیره برای مرور» تغییر دهید و همان رفتار ذخیره‌ی فعلی را حفظ کنید؛ schema فعلی already lang را روی query_result و saved_words نگه می‌دارد.",
     "priority": "low",
     "note": "این مورد بیشتر UX است تا data-model bug؛ prerequisite داده‌ای اصلی از قبل موجود است.",
-    "resolved": false,
-    "status": "open",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 24,
     "roadmap_refs": [
       "custom-word-safety"
     ],
-    "evidence": "keyboards.py:query_result_keyboard uses '➕ افزودن به مرور'; db.py stores lang in query_results and saved_words",
-    "last_reviewed": "2026-07-12"
+    "evidence": "keyboards.py:query_result_keyboard accepts a language code and renders labels such as افزودن به مرور (انگلیسی), while preserving short query:add callback data.",
+    "last_reviewed": "2026-07-13"
   },
   {
     "title": "مرور تاریخچه‌ی کارت‌ها pagination هفتگی/ماهانه ندارد",
@@ -487,8 +491,8 @@
     "roadmap_refs": [
       "issue-tooling"
     ],
-    "evidence": "issues/issues.json currently stores status/priority/roadmap_refs only; issues/issues.html renders from that structure",
-    "last_reviewed": "2026-07-12"
+    "evidence": "issues/issues.json still has no first-class phase field and issues/issues.html has no phase filter; roadmap_refs remains the current grouping mechanism.",
+    "last_reviewed": "2026-07-13"
   },
   {
     "title": "streak فقط در مسیر ارسال زمان‌بندی‌شده touch می‌شود",
@@ -574,15 +578,15 @@
     "solution": "کارت معتبر تولیدشده برای واژه را به‌صورت JSON در saved_words ذخیره کنید، برای نصب‌های قبلی migration امن اضافه کنید، و در srs_job همان payload را با format_card نمایش دهید. مسیر افزودن واژه باید فقط پس از تولید و اعتبارسنجی کارت، entry مرور را ثبت کند.",
     "priority": "high",
     "note": "این مورد با وجود حل شدن زمان‌بندی و ارسال پایه‌ی SRS، یک gap مستقل در ارزش آموزشی reminder است.",
-    "resolved": false,
-    "status": "open",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "id": 32,
     "roadmap_refs": [
       "srs-complete-card-review"
     ],
-    "evidence": "db.py:saved_words has no card_data column; db.py:add_saved_word stores only word/lang/SRS metadata; bot.py:srs_job formats due rows as bullet-list word names instead of using format_card.",
-    "last_reviewed": "2026-07-12"
+    "evidence": "db.py:saved_words now has card_data with migration support; _handle_query_add stores the validated query card JSON; bot.py:srs_job renders each due item through format_card from stored card_data with a legacy fallback.",
+    "last_reviewed": "2026-07-13"
   },
   {
     "title": "مرور SRS کنترل تعاملی و ثبت تعامل کاربر ندارد",
@@ -592,14 +596,113 @@
     "solution": "برای هر کارت مرور keyboard و callbackهای محدود به همان کاربر اضافه کنید، advance را به تأیید کاربر وابسته کنید، و defer/review-later را با یک سیاست روشن و restart-safe ذخیره کنید. ارسال خودکار باید وضعیت pending تعامل را نگه دارد تا reminder تکراری یا advancement زودهنگام رخ ندهد.",
     "priority": "high",
     "note": "جزء «advance بعد از ارسال» فعلاً یک رفتار موجود و مستقل از issue حل‌شده‌ی استفاده از تابع است؛ مشکل جدید، وابستگی advancement به ارسال به‌جای تعامل learner است.",
-    "resolved": false,
-    "status": "open",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "id": 33,
     "roadmap_refs": [
       "srs-interaction-controls"
     ],
-    "evidence": "bot.py:srs_job sends only text with no reply_markup and calls db.advance_word_review() immediately after _send_with_retry; keyboards.py defines no SRS-specific keyboard or callbacks; callback_router has no srs:* branch.",
-    "last_reviewed": "2026-07-12"
+    "evidence": "keyboards.py:srs_review_keyboard adds user-scoped remember/defer callbacks; bot.py:srs_job marks reminders pending instead of advancing immediately; callback_router handles srs:* actions and db.advance_word_review/db.defer_word_review update state only after learner interaction.",
+    "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "نکته‌های گرامری بدون توجه به مباحث اخیر دوباره تولید می‌شوند",
+    "module": "prompts.py / db.py / bot.py",
+    "func": "grammar_tip_system_prompt / send_grammar_tip",
+    "problem": "مسیر نکته‌ی گرامری عنوان‌ها یا مباحث اخیر کاربر را به مدل نمی‌داد و هیچ تاریخچه‌ای ذخیره نمی‌کرد؛ بنابراین مدل می‌توانست برای یک کاربر چند بار نکته‌ی مشابه بسازد و سهمیه/API را روی محتوای تکراری مصرف کند.",
+    "solution": "عنوان نکته‌های تولیدشده را ذخیره کنید، هنگام درخواست بعدی چند عنوان اخیر همان زبان را به‌صورت لیست کوتاه avoid_topics به prompt بدهید، و این رفتار را با تست پوشش دهید.",
+    "priority": "medium",
+    "note": "این کنترل همچنان AI-generated content را حفظ می‌کند و فقط به مدل می‌گوید موضوعات اخیر را تکرار نکند.",
+    "resolved": true,
+    "status": "resolved",
+    "detailOpen": false,
+    "editing": false,
+    "id": 34,
+    "roadmap_refs": [
+      "measurement-and-observability",
+      "cost-control"
+    ],
+    "evidence": "db.py:grammar_tips stores generated tip titles; bot.py:send_grammar_tip passes db.recent_grammar_tip_titles(...) to prompts.grammar_tip_system_prompt(..., avoid_topics=...); tests cover the prompt and DB history.",
+    "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "تولید کارت روزانه فقط واژه‌های همان روز را برای جلوگیری از تکرار می‌داد",
+    "module": "db.py / bot.py / prompts.py",
+    "func": "get_recent_daily_words / _daily_avoid_words / daily_batch_system_prompt",
+    "problem": "dedup کارت‌های روزانه فقط واژه‌های همان تاریخ را به مدل می‌داد. اگر همان کاربر در روزهای اخیر واژه‌ای گرفته بود، مدل هنوز ممکن بود همان واژه را در روز جدید دوباره پیشنهاد کند.",
+    "solution": "یک لیست کوتاه از واژه‌های اخیر کاربر را از daily_cards بخوانید و همراه واژه‌های همان روز به prompt و validate_batch بدهید تا تکرارهای اخیر هم رد شوند، بدون این‌که prompt بیش از حد بزرگ شود.",
+    "priority": "medium",
+    "note": "لیست avoid محدود است تا کنترل هزینه‌ی token حفظ شود.",
+    "resolved": true,
+    "status": "resolved",
+    "detailOpen": false,
+    "editing": false,
+    "id": 35,
+    "roadmap_refs": [
+      "cost-control",
+      "reliability-hardening"
+    ],
+    "evidence": "db.py:get_recent_daily_words returns a capped recent vocabulary list; bot.py:_daily_avoid_words combines recent and current-day words before _generate_daily_batch; prompts.py truncates avoid words before inserting them into the batch prompt.",
+    "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "خطای provider سهمیه‌ی پرسش واژه یا نکته‌ی گرامری را مصرف می‌کند",
+    "module": "bot.py / db.py",
+    "func": "send_grammar_tip / text_router / release_word_query / release_grammar_tip",
+    "problem": "سهمیه پیش از تماس AI به‌صورت اتمی رزرو می‌شد، اما timeout، خطای شبکه یا خروجی نامعتبر آن رزرو را پس نمی‌داد؛ در نتیجه کاربر برای درخواست ناموفق سهمیه از دست می‌داد.",
+    "solution": "رزرو اتمی را برای جلوگیری از race حفظ کنید، ولی در شاخه‌ی خطای provider شمارنده‌ی همان روز را به‌صورت امن و محدود به صفر refund کنید.",
+    "priority": "medium",
+    "note": "خطای اعتبارسنجی ورودی قبل از رزرو رخ می‌دهد و نیازی به refund ندارد.",
+    "resolved": true,
+    "status": "resolved",
+    "detailOpen": false,
+    "editing": false,
+    "id": 36,
+    "roadmap_refs": [
+      "cost-control",
+      "reliability-hardening"
+    ],
+    "evidence": "db.py exposes release_word_query and release_grammar_tip with date-scoped bounded decrements; bot.py calls them when custom-word or grammar provider work raises; focused quota tests verify the released slot can be reserved again.",
+    "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "درخواست‌های LLM سقف خروجی و telemetry مصرف توکن ندارند",
+    "module": "ai.py / config.py",
+    "func": "_request_json",
+    "problem": "همه‌ی درخواست‌ها با temperature ثابت 0.9 و بدون سقف خروجی اجرا می‌شدند و resp.usage دور انداخته می‌شد؛ پاسخ پرحجم یا JSON ناپایدار می‌توانست هزینه و retry را بالا ببرد و اندازه‌گیری مصرف ممکن نبود.",
+    "solution": "temperature و سقف output token را تنظیم‌پذیر و دارای پیش‌فرض محافظه‌کارانه کنید و نوع درخواست، مدل، latency و token usage را بدون محتوای prompt یا secret ثبت کنید.",
+    "priority": "high",
+    "note": "سقف مشترک 4096 برای batchهای فعلی کافی است؛ در صورت داده‌ی عملیاتی می‌توان بعداً سقف هر نوع درخواست را جدا کرد.",
+    "resolved": true,
+    "status": "resolved",
+    "detailOpen": false,
+    "editing": false,
+    "id": 37,
+    "roadmap_refs": [
+      "cost-control",
+      "measurement-and-observability"
+    ],
+    "evidence": "config.py defines AI_TEMPERATURE and AI_MAX_OUTPUT_TOKENS; ai.py passes both to chat.completions.create and logs request kind, user ID, model, latency, and provider-reported token counts.",
+    "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "MarkdownV2 درون code span علائم تلفظ را بیش‌ازحد escape می‌کند",
+    "module": "bot.py",
+    "func": "format_card / send_grammar_tip / escape_mdv2_code",
+    "problem": "متن تلفظ و مثال گرامری داخل backtick با escape عمومی MarkdownV2 پردازش می‌شد و نقطه، خط تیره یا پرانتز به‌صورت backslashدار به کاربر نمایش داده می‌شد؛ backtick ورودی نیز می‌توانست entity را خراب کند.",
+    "solution": "برای code span فقط backslash و backtick را طبق قواعد Telegram escape کنید و escape عمومی را برای متن عادی نگه دارید.",
+    "priority": "low",
+    "note": "این اصلاح هم ظاهر phonetic را بهتر می‌کند و هم code span را در برابر backtick ایمن نگه می‌دارد.",
+    "resolved": true,
+    "status": "resolved",
+    "detailOpen": false,
+    "editing": false,
+    "id": 38,
+    "roadmap_refs": [
+      "reliability-hardening"
+    ],
+    "evidence": "bot.py:escape_mdv2_code only escapes backslash/backtick and is used for phonetic and grammar examples; tests verify punctuation remains readable inside code spans.",
+    "last_reviewed": "2026-07-13"
   }
 ]

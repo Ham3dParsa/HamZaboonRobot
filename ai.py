@@ -1,16 +1,22 @@
 import json
+import logging
 import re
+import time
 from collections.abc import Mapping
 
 from openai import OpenAI
 
 from config import (
+    AI_MAX_OUTPUT_TOKENS,
+    AI_TEMPERATURE,
     AI_TIMEOUT_SECONDS,
     DEFAULT_AI_BASE_URL,
     DEFAULT_AI_API_KEY,
     DEFAULT_AI_MODEL,
 )
 import db
+
+log = logging.getLogger("hamzaban.ai")
 
 
 def _client() -> OpenAI:
@@ -91,30 +97,75 @@ def validate_card(data: object) -> dict:
     }
 
 
-def _request_json(system_prompt: str, user_prompt: str = "بساز.") -> object:
+def _request_json(
+    system_prompt: str,
+    user_prompt: str = "بساز.",
+    *,
+    request_kind: str = "json",
+    user_id: int | None = None,
+) -> object:
     """یک تماس با مدل زبانی می‌گیرد و انتظار دارد خروجی JSON خام باشد."""
     client = _client()
+    model = _model()
+    started = time.monotonic()
     resp = client.chat.completions.create(
-        model=_model(),
+        model=model,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=0.9,
+        temperature=AI_TEMPERATURE,
+        max_tokens=AI_MAX_OUTPUT_TOKENS,
+    )
+    usage = resp.usage
+    log.info(
+        "ai request kind=%s user_id=%s model=%s latency_ms=%d "
+        "prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+        request_kind,
+        user_id,
+        model,
+        round((time.monotonic() - started) * 1000),
+        getattr(usage, "prompt_tokens", None),
+        getattr(usage, "completion_tokens", None),
+        getattr(usage, "total_tokens", None),
     )
     content = resp.choices[0].message.content or ""
     return _extract_json(content)
 
 
-def ask_json(system_prompt: str, user_prompt: str = "بساز.") -> dict:
-    value = _request_json(system_prompt, user_prompt)
+def ask_json(
+    system_prompt: str,
+    user_prompt: str = "بساز.",
+    *,
+    request_kind: str = "json",
+    user_id: int | None = None,
+) -> dict:
+    value = _request_json(
+        system_prompt,
+        user_prompt,
+        request_kind=request_kind,
+        user_id=user_id,
+    )
     if not isinstance(value, Mapping):
         raise CardValidationError("Expected a JSON object")
     return dict(value)
 
 
-def ask_card(system_prompt: str, user_prompt: str = "بساز.") -> dict:
-    return validate_card(ask_json(system_prompt, user_prompt))
+def ask_card(
+    system_prompt: str,
+    user_prompt: str = "بساز.",
+    *,
+    request_kind: str = "card",
+    user_id: int | None = None,
+) -> dict:
+    return validate_card(
+        ask_json(
+            system_prompt,
+            user_prompt,
+            request_kind=request_kind,
+            user_id=user_id,
+        )
+    )
 
 
 def validate_batch(
@@ -152,9 +203,16 @@ def ask_batch(
     system_prompt: str,
     expected_count: int,
     used_words: list[str] | None = None,
+    *,
+    request_kind: str = "batch",
+    user_id: int | None = None,
 ) -> list[dict]:
     return validate_batch(
-        _request_json(system_prompt),
+        _request_json(
+            system_prompt,
+            request_kind=request_kind,
+            user_id=user_id,
+        ),
         expected_count,
         used_words=used_words,
     )

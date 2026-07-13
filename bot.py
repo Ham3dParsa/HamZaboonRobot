@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import datetime
+import json
 import math
 import re
 import time
@@ -68,9 +69,9 @@ from keyboards import (
     daily_review_dates_keyboard,
     daily_review_menu_keyboard,
     query_result_keyboard,
+    srs_review_keyboard,
     admin_panel_keyboard,
     daily_card_keyboard,
-    awaiting_inline_keyboard,
     BTN_TODAY_CARD,
     BTN_ASK_WORD,
     BTN_STATUS,
@@ -224,11 +225,26 @@ async def _exit_awaiting_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id
     reply_markup = main_menu(is_owner(user_id))
     if via_callback:
-        await update.callback_query.edit_message_text("انصراف شد.")
+        try:
+            await update.callback_query.edit_message_text("انصراف شد.")
+        except BadRequest:
+            log.info("cancel callback edit failed; continuing with menu message")
         await update.callback_query.message.reply_text("انصراف شد.", reply_markup=reply_markup)
         await update.callback_query.answer("انصراف شد.", show_alert=False)
         return
     await update.message.reply_text("انصراف شد.", reply_markup=reply_markup)
+
+
+async def _edit_or_send(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, **kwargs):
+    try:
+        return await update.callback_query.edit_message_text(text, **kwargs)
+    except BadRequest:
+        log.info("callback edit failed; sending replacement message")
+        return await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=text,
+            **kwargs,
+        )
 
 
 async def _send_card_from_store(
@@ -272,6 +288,13 @@ def escape_mdv2(text: str) -> str:
     special = r'_*[]()~`>#+-=|{}.!'
     return re.sub(r'([' + re.escape(special) + r'])', r'\\\1', text)
 
+
+def escape_mdv2_code(text: str) -> str:
+    if not text:
+        return ""
+    return re.sub(r"([`\\])", r"\\\1", text)
+
+
 def is_owner(user_id: int) -> bool:
     return OWNER_ID != 0 and user_id == OWNER_ID
 
@@ -289,7 +312,7 @@ def _user_plan_label(row) -> str:
 
 def format_card(data: dict, footer: str = "") -> str:
     word = escape_mdv2(data.get("word", ""))
-    phon = escape_mdv2(data.get("phonetic", ""))
+    phon = escape_mdv2_code(data.get("phonetic", ""))
     fa_meaning = escape_mdv2(data.get("fa_meaning", ""))
     fa_expl = escape_mdv2(data.get("fa_explanation", ""))
     
@@ -358,7 +381,9 @@ async def on_lang_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, l
     text = f"زبان انتخابی: *{lang_name}* ✅\nحالا هدفت از یادگیری چیه؟"
     text = escape_mdv2(text)
     
-    await update.callback_query.edit_message_text(
+    await _edit_or_send(
+        update,
+        context,
         text,
         parse_mode=ParseMode.MARKDOWN_V2,
         reply_markup=goal_inline_keyboard(),
@@ -370,7 +395,9 @@ async def on_goal_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, g
     lang = context.user_data.get("pending_lang", "en")
     db.set_user_lang_goal(user_id, lang, goal)
 
-    await update.callback_query.edit_message_text(
+    await _edit_or_send(
+        update,
+        context,
         "حالا سطح فعلی زبانت را انتخاب کن:",
         reply_markup=level_inline_keyboard(),
     )
@@ -385,7 +412,9 @@ async def on_level_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     level_name = level_label(level)
     cefr = level_cefr(level)
 
-    await update.callback_query.edit_message_text(
+    await _edit_or_send(
+        update,
+        context,
         f"عالی! سطح تو *{escape_mdv2(level_name)}* \\({escape_mdv2(cefr)}\\) ثبت شد\\.",
         parse_mode=ParseMode.MARKDOWN_V2,
     )
@@ -428,7 +457,9 @@ async def on_lang_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, la
     text = f"✅ زبان با موفقیت به *{lang_name}* تغییر کرد."
     text = escape_mdv2(text)
     
-    await update.callback_query.edit_message_text(
+    await _edit_or_send(
+        update,
+        context,
         text,
         parse_mode=ParseMode.MARKDOWN_V2
     )
@@ -447,7 +478,9 @@ async def on_goal_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, go
     text = f"✅ هدف با موفقیت به *{goal_name}* تغییر کرد."
     text = escape_mdv2(text)
     
-    await update.callback_query.edit_message_text(
+    await _edit_or_send(
+        update,
+        context,
         text,
         parse_mode=ParseMode.MARKDOWN_V2
     )
@@ -464,7 +497,9 @@ async def on_level_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, l
     level_name = level_label(level)
     cefr = level_cefr(level)
     text = f"✅ سطح با موفقیت به *{level_name}* ({cefr}) تغییر کرد."
-    await update.callback_query.edit_message_text(
+    await _edit_or_send(
+        update,
+        context,
         escape_mdv2(text),
         parse_mode=ParseMode.MARKDOWN_V2,
     )
@@ -483,6 +518,7 @@ def _generate_daily_batch(
     level: str,
     card_count: int,
     used_words: list[str],
+    user_id: int | None = None,
 ) -> list[dict]:
     cards: list[dict] = []
     last_error: Exception | None = None
@@ -502,6 +538,8 @@ def _generate_daily_batch(
                 ),
                 expected_count=remaining,
                 used_words=batch_words,
+                request_kind="daily_batch",
+                user_id=user_id,
             )
         except Exception as exc:
             last_error = exc
@@ -513,6 +551,23 @@ def _generate_daily_batch(
     if not cards and last_error:
         raise last_error
     return cards
+
+
+def _daily_avoid_words(user_id: int, card_date: str, current_cards: list[dict]) -> list[str]:
+    words: list[str] = []
+    seen: set[str] = set()
+    for word in db.get_recent_daily_words(user_id, exclude_date=card_date, limit=50):
+        normalized = " ".join(str(word).split()).casefold()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            words.append(word)
+    for card in current_cards:
+        word = str(card.get("word", "")).strip()
+        normalized = " ".join(word.split()).casefold()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            words.append(word)
+    return words
 
 
 def _daily_card_session_profile(user_id: int, row, card_date: str):
@@ -540,13 +595,14 @@ def _ensure_daily_cards(user_id: int, row, card_date: str, limit: int) -> list[d
     if len(cards) >= limit:
         return cards
 
-    used_words = [str(card.get("word", "")) for card in cards]
+    used_words = _daily_avoid_words(user_id, card_date, cards)
     new_cards = _generate_daily_batch(
         session["target_lang"],
         session["goal"],
         session["level"],
         limit - len(cards),
         used_words,
+        user_id,
     )
     for offset, card in enumerate(new_cards):
         db.add_daily_card(user_id, card_date, len(cards) + offset, card)
@@ -561,7 +617,7 @@ def _ensure_scheduled_session_cards(user_id: int, row, queue_row) -> list[dict]:
     if len(existing) >= end:
         return existing[start:end]
 
-    used_words = [str(card.get("word", "")) for card in existing]
+    used_words = _daily_avoid_words(user_id, queue_row["delivery_date"], existing)
     cards: list[dict] = []
     while len(existing) + len(cards) < end:
         remaining = end - len(existing) - len(cards)
@@ -571,6 +627,7 @@ def _ensure_scheduled_session_cards(user_id: int, row, queue_row) -> list[dict]:
             session["level"],
             min(6, remaining),
             used_words + [card["word"] for card in cards],
+            user_id,
         )
         if not batch:
             raise RuntimeError("AI returned no cards for the scheduled session")
@@ -588,7 +645,7 @@ def _ensure_next_daily_card(user_id: int, row, card_date: str, limit: int) -> tu
 
     cards = db.get_daily_cards(user_id, card_date)
     if next_index >= len(cards):
-        used_words = [str(card.get("word", "")) for card in cards]
+        used_words = _daily_avoid_words(user_id, card_date, cards)
         remaining = limit - len(cards)
         new_cards = _generate_daily_batch(
             session["target_lang"],
@@ -596,6 +653,7 @@ def _ensure_next_daily_card(user_id: int, row, card_date: str, limit: int) -> tu
             session["level"],
             min(_MANUAL_DAILY_BATCH_SIZE, remaining),
             used_words,
+            user_id,
         )
         if not new_cards:
             raise RuntimeError("AI returned no card for the requested daily card")
@@ -634,6 +692,7 @@ async def _send_next_daily_card(
         return
 
     db.touch_streak(user_id)
+    log.info("daily card delivered user_id=%s date=%s index=%s", user_id, card_date, card_index)
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=format_card(
@@ -703,27 +762,51 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⏳ دارم نکته‌ی گرامری رو آماده می‌کنم…",
     )
     try:
-        data = await asyncio.to_thread(
-            _call_ai_limited,
-            ai.ask_json,
-            prompts.grammar_tip_system_prompt(
-                row["target_lang"],
-                row["goal"],
-                row["level"],
-            ),
+        recent_topics = db.recent_grammar_tip_titles(
+            user_id,
+            row["target_lang"],
         )
+        try:
+            data = await asyncio.to_thread(
+                _call_ai_limited,
+                ai.ask_json,
+                prompts.grammar_tip_system_prompt(
+                    row["target_lang"],
+                    row["goal"],
+                    row["level"],
+                    avoid_topics=recent_topics,
+                ),
+                request_kind="grammar_tip",
+                user_id=user_id,
+            )
+        except Exception:
+            db.release_grammar_tip(user_id)
+            log.exception("AI error")
+            await update.message.reply_text(
+                "مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن."
+            )
+            return
         # ساخت متن با escape مناسب برای MarkdownV2
         title = escape_mdv2(data.get('title', ''))
         explanation = escape_mdv2(data.get('explanation', ''))
-        example = escape_mdv2(data.get('example', ''))
+        example = escape_mdv2_code(data.get('example', ''))
 
         text = f"✍️ *{title}*\n\n{explanation}\n\n`{example}`\n\n{escape_mdv2(usage_text)}"
 
         db.touch_streak(user_id)
+        db.add_grammar_tip(
+            user_id,
+            data.get("title", ""),
+            row["target_lang"],
+            row["goal"],
+            row["level"],
+            data,
+        )
+        log.info("grammar tip delivered user_id=%s lang=%s", user_id, row["target_lang"])
         await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
     except Exception:
-        log.exception("AI error")
-        await update.message.reply_text("مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.")
+        log.exception("Grammar tip delivery failed")
+        await update.message.reply_text("مشکلی در ارسال نکته‌ی گرامری پیش اومد.")
     finally:
         await _finish_llm_wait_state(wait_message)
 
@@ -778,13 +861,70 @@ async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         await update.callback_query.answer("این واژه قبلاً به مرور اضافه شده است.", show_alert=True)
         return
 
-    added = db.add_saved_word(user_id, row["word"], row["lang"])
+    result_data = json.loads(row["result_json"])
+    added = db.add_saved_word(user_id, row["word"], row["lang"], result_data)
     db.mark_query_result_saved(token)
     if added:
         message = "واژه به مرور شما اضافه شد. ✅"
+        log.info("query result saved user_id=%s word_id_token=%s", user_id, token)
     else:
         message = "این واژه از قبل در مرور شما ثبت شده بود."
     await update.callback_query.answer(message, show_alert=True)
+
+
+def _saved_word_card(row) -> dict:
+    if row["card_data"]:
+        try:
+            data = json.loads(row["card_data"])
+        except (TypeError, json.JSONDecodeError):
+            data = None
+        if isinstance(data, dict):
+            return data
+    return {
+        "word": row["word"],
+        "phonetic": "",
+        "fa_meaning": "این واژه قبلاً بدون کارت کامل ذخیره شده است.",
+        "fa_explanation": "معنی و مثال کامل در داده‌های قدیمی موجود نیست؛ خودت معنی را یادآوری کن.",
+        "synonyms": [],
+        "antonyms": [],
+        "examples": [],
+        "example_translations": [],
+        "grammar_tip": "",
+    }
+
+
+async def _handle_srs_review(update: Update, action: str, target_user_id_text: str, word_id_text: str):
+    try:
+        target_user_id = int(target_user_id_text)
+        word_id = int(word_id_text)
+    except ValueError:
+        await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+        return
+    user_id = update.effective_user.id
+    if user_id != target_user_id:
+        await update.callback_query.answer("این مرور برای کاربر دیگری است.", show_alert=True)
+        return
+    row = db.get_saved_word(word_id, user_id=user_id)
+    if not row:
+        await update.callback_query.answer("این واژه در مرور شما پیدا نشد.", show_alert=True)
+        return
+    if action == "remember":
+        if not db.advance_word_review(word_id):
+            await update.callback_query.answer("این مرور قبلاً ثبت شده است.", show_alert=True)
+            return
+        db.touch_streak(user_id)
+        await update.callback_query.answer("ثبت شد؛ مرور بعدی زمان‌بندی شد.", show_alert=True)
+        log.info("srs review advanced user_id=%s word_id=%s", user_id, word_id)
+        return
+    if action == "again":
+        if not db.defer_word_review(word_id):
+            await update.callback_query.answer("این مرور قبلاً ثبت شده است.", show_alert=True)
+            return
+        db.touch_streak(user_id)
+        await update.callback_query.answer("باشه؛ فردا دوباره یادآوری می‌کنم.", show_alert=True)
+        log.info("srs review deferred user_id=%s word_id=%s", user_id, word_id)
+        return
+    await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
 
 
 async def _show_review_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
@@ -798,7 +938,9 @@ async def _show_review_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         await update.callback_query.answer("هنوز کارتی برای مرور ندارید.", show_alert=True)
         return
     page_dates, page, total_pages = _review_history_page(dates, page)
-    await update.callback_query.edit_message_text(
+    await _edit_or_send(
+        update,
+        context,
         (
             "کدوم روز رو می‌خوای مرور کنی؟"
             if total_pages == 1
@@ -840,12 +982,13 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, act
     if not is_owner(update.effective_user.id):
         await update.callback_query.answer("فقط مالک ربات دسترسی داره.", show_alert=True)
         return
-    q = update.callback_query
     if action == "stats":
-        await q.edit_message_text(f"👥 تعداد کل کاربران: {db.count_users()}")
+        await _edit_or_send(update, context, f"👥 تعداد کل کاربران: {db.count_users()}")
     elif action == "set_plan":
         context.user_data["awaiting"] = "admin_set_plan"
-        await q.edit_message_text(
+        await _edit_or_send(
+            update,
+            context,
             "فرمت را ارسال کنید:\n`user_id_or_username plan`\n\n"
             "مثال: `123456789 silver` یا `@username gold`\n"
             "پلن‌ها: free، silver، gold",
@@ -854,34 +997,44 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, act
         )
     elif action == "set_model":
         context.user_data["awaiting"] = "admin_set_model"
-        await q.edit_message_text(
+        await _edit_or_send(
+            update,
+            context,
             f"نام مدل فعلی: `{db.get_setting('ai_model')}`\nنام مدل جدید رو بفرست:",
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=awaiting_inline_keyboard(),
         )
     elif action == "set_base_url":
         context.user_data["awaiting"] = "admin_set_base_url"
-        await q.edit_message_text(
+        await _edit_or_send(
+            update,
+            context,
             f"Base URL فعلی: `{db.get_setting('ai_base_url')}`\nBase URL جدید رو بفرست:",
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=awaiting_inline_keyboard(),
         )
     elif action == "set_api_key":
         context.user_data["awaiting"] = "admin_set_api_key"
-        await q.edit_message_text(
+        await _edit_or_send(
+            update,
+            context,
             "API Key جدید رو بفرست (بعداً این پیام رو از چت پاک کن):",
             reply_markup=awaiting_inline_keyboard(),
         )
     elif action == "broadcast":
         context.user_data["awaiting"] = "admin_broadcast"
-        await q.edit_message_text(
+        await _edit_or_send(
+            update,
+            context,
             "متن پیام همگانی رو بفرست:",
             reply_markup=awaiting_inline_keyboard(),
         )
     elif action == "show_settings":
         key = db.get_setting("ai_api_key", "")
         masked = (key[:6] + "…" + key[-4:]) if len(key) > 12 else "—"
-        await q.edit_message_text(
+        await _edit_or_send(
+            update,
+            context,
             f"🤖 مدل: `{db.get_setting('ai_model')}`\n"
             f"🌐 Base URL: `{db.get_setting('ai_base_url')}`\n"
             f"🔑 API Key: `{masked}`",
@@ -940,8 +1093,11 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         row["level"],
                     ),
                     user_prompt=text,
+                    request_kind="custom_word",
+                    user_id=user_id,
                 )
             except Exception:
+                db.release_word_query(user_id)
                 log.exception("AI error")
                 await _finish_llm_wait_state(wait_message)
                 await update.message.reply_text("مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.")
@@ -957,6 +1113,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 data,
             )
             db.touch_streak(user_id)
+            log.info("custom word query delivered user_id=%s lang=%s", user_id, row["target_lang"])
             await _finish_llm_wait_state(wait_message)
             await update.message.reply_text(
                 format_card(
@@ -967,7 +1124,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     ),
                 ),
                 parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=query_result_keyboard(query_token),
+                reply_markup=query_result_keyboard(query_token, row["target_lang"] if row else "en"),
             )
             return
 
@@ -1046,7 +1203,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = update.callback_query.data
-    if not data.startswith(("query:add:", "flow:")):
+    if not data.startswith(("query:add:", "flow:", "srs:")):
         await update.callback_query.answer()
 
     if data in {"flow:cancel", "flow:back"}:
@@ -1186,6 +1343,12 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
             return
         await _handle_query_add(update, context, parts[2])
+    elif data.startswith("srs:"):
+        parts = data.split(":")
+        if len(parts) != 4:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        await _handle_srs_review(update, parts[1], parts[2], parts[3])
     elif data.startswith("admin:"):
         await admin_callback(update, context, data.split(":", 1)[1])
 
@@ -1229,6 +1392,7 @@ async def _send_with_retry(
     text: str,
     *,
     parse_mode: str | None = None,
+    reply_markup=None,
 ):
     for attempt in range(3):
         try:
@@ -1236,6 +1400,8 @@ async def _send_with_retry(
                 kwargs = {"chat_id": chat_id, "text": text}
                 if parse_mode is not None:
                     kwargs["parse_mode"] = parse_mode
+                if reply_markup is not None:
+                    kwargs["reply_markup"] = reply_markup
                 return await bot.send_message(**kwargs)
         except BadRequest:
             raise
@@ -1349,33 +1515,22 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
             due = db.due_words_for_user(user_id)
             if not due:
                 continue
-            chunks: list[list] = []
-            current: list = []
-            current_length = 0
             for word in due:
-                line = f"• {escape_mdv2(word['word'])}\n"
-                if current and current_length + len(line) > 3500:
-                    chunks.append(current)
-                    current = []
-                    current_length = 0
-                current.append(word)
-                current_length += len(line)
-            if current:
-                chunks.append(current)
-            for chunk in chunks:
-                words = "\n".join(f"• {escape_mdv2(w['word'])}" for w in chunk)
-                text = (
-                    f"⏰ *وقت مرور {len(chunk)} واژه‌ست:*\n\n{words}\n\n"
-                    "سعی کن معنی هرکدوم رو یادت بیاری، بعد چک کن\\."
-                )
                 await _send_with_retry(
                     context.bot,
                     user_id,
-                    text,
+                    format_card(
+                        _saved_word_card(word),
+                        footer=(
+                            "⏰ مرور فاصله‌دار: اول معنی، مثال و نکته را از حفظ "
+                            "یادآوری کن؛ بعد نتیجه را با دکمه‌ها ثبت کن."
+                        ),
+                    ),
                     parse_mode=ParseMode.MARKDOWN_V2,
+                    reply_markup=srs_review_keyboard(user_id, word["id"]),
                 )
-                for word in chunk:
-                    db.advance_word_review(word["id"])
+                db.mark_word_review_pending(word["id"])
+                log.info("srs review reminder sent user_id=%s word_id=%s", user_id, word["id"])
         except Exception:
             log.exception(f"srs_job failed for user {user_id}")
 

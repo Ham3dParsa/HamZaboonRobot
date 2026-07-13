@@ -1,6 +1,6 @@
 import unittest
 
-from issues.validate import load_data, render_markdown, validate_issues
+from issues.validate import VALID_STATUSES, load_data, render_markdown, validate_issues
 
 
 class IssueToolingTests(unittest.TestCase):
@@ -8,18 +8,17 @@ class IssueToolingTests(unittest.TestCase):
         issues = load_data()
         validate_issues(issues)
         self.assertEqual(len(issues), len({issue["id"] for issue in issues}))
-        self.assertEqual({issue["status"] for issue in issues}, {
-            "open",
-            "partial",
-            "resolved",
-        })
+        statuses = {issue["status"] for issue in issues}
+        self.assertLessEqual(statuses, VALID_STATUSES)
+        self.assertIn("open", statuses)
+        self.assertIn("resolved", statuses)
 
     def test_markdown_export_contains_issue_statuses(self):
         markdown = render_markdown(load_data())
         self.assertIn("> Generated from `issues/issues.json`", markdown)
         self.assertIn("- Status: Resolved", markdown)
-        self.assertIn("- Status: Partial", markdown)
         self.assertIn("- Status: Open", markdown)
+        self.assertIn("- Status: Accepted risk", markdown)
 
 
 if __name__ == "__main__":

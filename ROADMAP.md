@@ -53,12 +53,12 @@ Completed on the current main branch:
 - Custom-word query improvements: daily quota visibility, persistent
   short-lived query identity, inline `Add to review`, and removal of the
   standalone manual-save action from the primary menu
-
-The saved-word SRS backend can schedule and send reminders, but its review
-presentation is still incomplete: saved entries do not retain the validated
-card payload, reminders show only word names, and advancement is automatic
-without learner interaction controls. These gaps are tracked as
-`srs-complete-card-review` and `srs-interaction-controls`.
+- Saved-word SRS reminders now retain complete validated cards, wait for an
+  explicit learner response, and offer user-scoped remember/defer controls.
+- Recent daily vocabulary and grammar-tip titles are supplied to the model as
+  bounded avoid-lists to reduce repetition without replacing AI generation.
+- AI output length and temperature are configurable and token usage is logged
+  for each request.
 
 The remaining work is tracked in the explicit ToDo section near the end of
 this document. The next user-facing feature now shifts to AI Mini Quizzes,
@@ -75,8 +75,8 @@ current `main` branch.
 
 - Daily cards are persisted per user/date/index; manual retrieval and
   scheduled delivery reuse the same storage.
-- SRS reminders are scheduled and `advance_word_review` is called after a
-  successful reminder message.
+- SRS reminders render the stored card and remain pending until the learner
+  confirms or defers the review.
 - Language, goal, and level metadata are centralized in `catalog.py`.
 - `_extract_json` now raises a clear parsing error instead of attempting to
   decode an empty string.
@@ -86,21 +86,14 @@ current `main` branch.
 
 ### Partially resolved
 
-- Logging exists for failures and some admin actions, but important lifecycle
-  events and delivery metrics are not structured or complete.
+- Logging now covers provider latency/token usage and important learning
+  lifecycle events, but plan-level cost aggregation remains future work.
 - The issue manager is useful for local review, but browser `localStorage`
   remains local draft state and must not be treated as committed issue data.
-- SRS scheduling and delivery are implemented, but the reminder payload is
-  incomplete: `saved_words` stores no validated card JSON and `srs_job`
-  renders only word names.
-- SRS review progression is not learner-controlled: the job advances each
-  due word immediately after sending and provides no review/defer buttons.
-
 ### Open bugs and engineering risks found in this review
 
-- Several `edit_message_text` calls still lack a centralized fallback when a
-  callback refers to a deleted or outdated Telegram message.
-- API keys remain stored as plaintext in the SQLite settings table.
+- Runtime API keys remain stored as plaintext in the SQLite settings table;
+  this is an explicitly documented MVP risk.
 - The current tests cover catalog/configuration and scheduling policy, but not
   all callback authorization, provider failure, Telegram retry, SRS chunking,
   migration, or reset behavior.
@@ -212,8 +205,9 @@ The next language addition must use this contract.
 ## Locked Product Decisions
 
 - Each vocabulary card is sent as a separate Telegram message.
-- Manual card retrieval is on demand: the first request generates one card,
-  and each subsequent request asks for the next card.
+- Manual card retrieval is on demand: the first request may prime one bounded
+  2–6-card reservoir, but only the requested card is revealed and subsequent
+  requests reuse the persisted reservoir.
 - The manual flow must not generate the user's entire daily allowance before
   the user requests it.
 - Automatic daily delivery remains a separate scheduled flow and may generate
@@ -355,7 +349,8 @@ sharing assumptions from English.
 
 Support two deliberate generation modes:
 
-- **On-demand manual mode:** generate and persist only the next requested card.
+- **On-demand manual mode:** prime at most one bounded 2–6-card reservoir when
+  needed, persist it, and reveal only the next requested card.
 - **Scheduled delivery mode:** generate only the next learner-facing session,
   using the plan template and an internal LLM batch of 2–6 where appropriate.
 
@@ -365,6 +360,7 @@ The shared storage and validation layer must:
 - Split scheduled delivery into plan-specific sessions instead of generating
   the full daily allowance at the beginning of the day.
 - Avoid words already generated for that user on the same date.
+- Avoid a bounded recent cross-day vocabulary list for the same user.
 - Reject duplicates within the batch.
 - Persist cards individually in the existing `daily_cards` table.
 - Retry only the missing portion when a batch is incomplete.
@@ -374,7 +370,8 @@ The shared storage and validation layer must:
 
 **Acceptance criteria**
 
-- A manual first-card request creates at most one new card.
+- A manual first-card request creates at most one bounded reservoir and reveals
+  only one card.
 - A scheduled delivery never generates the user's entire daily allowance just
   because the day started.
 - A scheduled session respects the formula-derived session count and the
@@ -572,12 +569,10 @@ a separate lesson system.
 
 ### Saved-word SRS follow-ups
 
-- Store validated card JSON with saved words, including a backward-compatible
-  migration and a fallback policy for legacy entries without card data.
-- Replace word-name-only reminders with complete formatted cards and
-  user-scoped inline review controls.
-- Keep due-review state pending until the learner confirms or defers the item;
-  make repeated callbacks, retries, and restarts idempotent.
+- Add explicit migration tests for legacy databases without card payload or
+  pending-review columns.
+- Measure review completion, deferral, and stale-pending rates before changing
+  the interval policy.
 
 ### Custom-word safety and menu ergonomics follow-ups
 
@@ -621,6 +616,14 @@ a separate lesson system.
 - A shared LLM wait-state helper now shows a clearer “still working” signal
   for daily cards, grammar tips, and custom-word lookups instead of relying
   only on Telegram typing indicators.
+- Saved words retain validated card JSON; SRS reminders render complete cards
+  and wait for explicit, user-scoped remember/defer actions.
+- Recent daily words and grammar-tip topics are sent as short avoid-lists to
+  reduce repetition while preserving AI-generated content.
+- Provider calls use configurable temperature/output caps and emit structured
+  latency/token logs; failed custom-word or grammar calls refund reservations.
+- Callback edits use a shared fallback that sends a replacement message when
+  the original Telegram message is stale or unavailable.
 
 ## Out of Scope for the Current MVP
 

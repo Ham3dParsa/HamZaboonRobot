@@ -91,8 +91,11 @@ def init_db():
                 word TEXT,
                 lang TEXT,
                 normalized_word TEXT,
+                card_data TEXT,
                 interval_idx INTEGER DEFAULT 0,
                 next_review TEXT,
+                review_status TEXT DEFAULT 'idle',
+                review_requested_at TEXT,
                 added_at TEXT
             );
             CREATE TABLE IF NOT EXISTS settings (
@@ -152,6 +155,17 @@ def init_db():
                 saved_at TEXT,
                 saved_word_id INTEGER
             );
+            CREATE TABLE IF NOT EXISTS grammar_tips (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                tip_date TEXT NOT NULL,
+                title TEXT NOT NULL,
+                lang TEXT NOT NULL,
+                goal TEXT NOT NULL,
+                level TEXT NOT NULL,
+                tip_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             """
         )
         columns = {
@@ -202,9 +216,21 @@ def init_db():
         }
         if "normalized_word" not in saved_word_columns:
             conn.execute("ALTER TABLE saved_words ADD COLUMN normalized_word TEXT")
+        if "card_data" not in saved_word_columns:
+            conn.execute("ALTER TABLE saved_words ADD COLUMN card_data TEXT")
+        if "review_status" not in saved_word_columns:
+            conn.execute(
+                "ALTER TABLE saved_words ADD COLUMN review_status TEXT DEFAULT 'idle'"
+            )
+        if "review_requested_at" not in saved_word_columns:
+            conn.execute("ALTER TABLE saved_words ADD COLUMN review_requested_at TEXT")
         conn.execute(
             "UPDATE saved_words SET normalized_word=lower(trim(word)) "
             "WHERE normalized_word IS NULL"
+        )
+        conn.execute(
+            "UPDATE saved_words SET review_status='idle' "
+            "WHERE review_status IS NULL"
         )
         conn.execute(
             "DELETE FROM saved_words WHERE id NOT IN ("
@@ -360,6 +386,17 @@ def reserve_word_query(user_id: int, daily_limit: int, bypass_limits: bool = Fal
         return True
 
 
+def release_word_query(user_id: int):
+    today = _today().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE users SET words_asked_today=MAX(words_asked_today - 1, 0) "
+            "WHERE user_id=? AND words_asked_date=?",
+            (user_id, today),
+        )
+        conn.commit()
+
+
 def can_ask_grammar_tip(user_id: int, daily_limit: int, bypass_limits: bool = False) -> bool:
     with get_conn() as conn:
         row = conn.execute(
@@ -395,6 +432,18 @@ def reserve_grammar_tip(user_id: int, daily_limit: int, bypass_limits: bool = Fa
         )
         conn.commit()
         return True
+
+
+def release_grammar_tip(user_id: int):
+    today = _today().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE users SET grammar_tips_asked_today="
+            "MAX(grammar_tips_asked_today - 1, 0) "
+            "WHERE user_id=? AND grammar_tips_asked_date=?",
+            (user_id, today),
+        )
+        conn.commit()
 
 
 def _query_result_expired(row) -> bool:
@@ -462,6 +511,53 @@ def cleanup_expired_query_results():
             (_utc_now().isoformat(),),
         )
         conn.commit()
+
+
+def add_grammar_tip(
+    user_id: int,
+    title: str,
+    lang: str,
+    goal: str,
+    level: str,
+    tip_data: dict,
+):
+    title = " ".join(title.split())
+    if not title:
+        return
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO grammar_tips("
+            "user_id, tip_date, title, lang, goal, level, tip_json, created_at"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                user_id,
+                _today().isoformat(),
+                title,
+                lang,
+                goal,
+                level,
+                json.dumps(tip_data, ensure_ascii=False),
+                _utc_now().isoformat(),
+            ),
+        )
+        conn.commit()
+
+
+def recent_grammar_tip_titles(
+    user_id: int,
+    lang: str | None = None,
+    limit: int = 12,
+) -> list[str]:
+    query = "SELECT title FROM grammar_tips WHERE user_id=?"
+    params: list[object] = [user_id]
+    if lang is not None:
+        query += " AND lang=?"
+        params.append(lang)
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [row["title"] for row in rows]
 
 
 def all_active_users():
@@ -618,6 +714,33 @@ def get_daily_cards(user_id: int, card_date: str):
     return [json.loads(r["card_data"]) for r in rows]
 
 
+def get_recent_daily_words(
+    user_id: int,
+    *,
+    exclude_date: str | None = None,
+    limit: int = 50,
+) -> list[str]:
+    query = "SELECT card_data FROM daily_cards WHERE user_id=?"
+    params: list[object] = [user_id]
+    if exclude_date is not None:
+        query += " AND card_date<>?"
+        params.append(exclude_date)
+    query += " ORDER BY card_date DESC, card_index DESC LIMIT ?"
+    params.append(limit)
+    words: list[str] = []
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    for row in rows:
+        try:
+            data = json.loads(row["card_data"])
+        except (TypeError, json.JSONDecodeError):
+            continue
+        word = data.get("word") if isinstance(data, dict) else None
+        if isinstance(word, str) and word.strip():
+            words.append(word.strip())
+    return words
+
+
 def get_recent_daily_card_dates(user_id: int, limit: int = 7):
     with get_conn() as conn:
         rows = conn.execute(
@@ -703,19 +826,44 @@ def ensure_daily_card_session(
 
 # ---------- واژه‌های دلخواه + یادآوری فاصله‌دار ساده ----------
 
-def add_saved_word(user_id: int, word: str, lang: str) -> bool:
+def add_saved_word(
+    user_id: int,
+    word: str,
+    lang: str,
+    card_data: dict | None = None,
+) -> bool:
     normalized_word = _normalize_word(word)
     if not normalized_word:
         return False
     word = " ".join(word.split())
     next_review = (_today() + datetime.timedelta(days=INTERVALS_DAYS[0])).isoformat()
+    serialized_card = (
+        json.dumps(card_data, ensure_ascii=False)
+        if isinstance(card_data, dict)
+        else None
+    )
     with get_conn() as conn:
         cursor = conn.execute(
             "INSERT OR IGNORE INTO saved_words("
-            "user_id, word, lang, normalized_word, interval_idx, next_review, added_at) "
-            "VALUES (?, ?, ?, ?, 0, ?, ?)",
-            (user_id, word, lang, normalized_word, next_review, _utc_now().isoformat()),
+            "user_id, word, lang, normalized_word, card_data, interval_idx, "
+            "next_review, review_status, added_at) "
+            "VALUES (?, ?, ?, ?, ?, 0, ?, 'idle', ?)",
+            (
+                user_id,
+                word,
+                lang,
+                normalized_word,
+                serialized_card,
+                next_review,
+                _utc_now().isoformat(),
+            ),
         )
+        if cursor.rowcount == 0 and serialized_card is not None:
+            conn.execute(
+                "UPDATE saved_words SET card_data=COALESCE(card_data, ?) "
+                "WHERE user_id=? AND lang=? AND normalized_word=?",
+                (serialized_card, user_id, lang, normalized_word),
+            )
         conn.commit()
         return cursor.rowcount == 1
 
@@ -724,17 +872,56 @@ def due_words_for_user(user_id: int):
     today = _today().isoformat()
     with get_conn() as conn:
         return conn.execute(
-            "SELECT * FROM saved_words WHERE user_id=? AND next_review<=?", (user_id, today)
+            "SELECT * FROM saved_words WHERE user_id=? AND next_review<=? "
+            "AND COALESCE(review_status, 'idle')!='pending'",
+            (user_id, today),
         ).fetchall()
 
 
-def advance_word_review(word_id: int):
+def get_saved_word(word_id: int, user_id: int | None = None):
+    query = "SELECT * FROM saved_words WHERE id=?"
+    params: list[object] = [word_id]
+    if user_id is not None:
+        query += " AND user_id=?"
+        params.append(user_id)
+    with get_conn() as conn:
+        return conn.execute(query, params).fetchone()
+
+
+def mark_word_review_pending(word_id: int):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE saved_words SET review_status='pending', review_requested_at=? "
+            "WHERE id=?",
+            (_utc_now().isoformat(), word_id),
+        )
+        conn.commit()
+
+
+def advance_word_review(word_id: int) -> bool:
     with get_conn() as conn:
         row = conn.execute("SELECT interval_idx FROM saved_words WHERE id=?", (word_id,)).fetchone()
+        if not row:
+            return False
         idx = min((row["interval_idx"] or 0) + 1, len(INTERVALS_DAYS) - 1)
         next_review = (_today() + datetime.timedelta(days=INTERVALS_DAYS[idx])).isoformat()
-        conn.execute(
-            "UPDATE saved_words SET interval_idx=?, next_review=? WHERE id=?",
+        cursor = conn.execute(
+            "UPDATE saved_words SET interval_idx=?, next_review=?, "
+            "review_status='idle', review_requested_at=NULL "
+            "WHERE id=? AND review_status='pending'",
             (idx, next_review, word_id),
         )
         conn.commit()
+        return cursor.rowcount == 1
+
+
+def defer_word_review(word_id: int, days: int = 1) -> bool:
+    next_review = (_today() + datetime.timedelta(days=max(days, 1))).isoformat()
+    with get_conn() as conn:
+        cursor = conn.execute(
+            "UPDATE saved_words SET next_review=?, review_status='idle', "
+            "review_requested_at=NULL WHERE id=? AND review_status='pending'",
+            (next_review, word_id),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
