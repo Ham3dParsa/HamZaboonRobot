@@ -712,7 +712,7 @@
     "problem": "هزینه‌ی واقعی LLM هنوز به‌صورت per-request با break-down روزانه/هفتگی/ماهانه و فیلتر بر اساس پلن، کاربر، مدل و وضعیت خطا در پنل ادمین دیده نمی‌شود و ادمین هم جای مستقلی برای override قیمت‌های ورودی/خروجی و نرخ دلار ندارد.",
     "solution": "یک جدول durable برای درخواست‌های LLM، محاسبه‌ی هزینه‌ی خام USD و تومان، خلاصه‌سازی و drill-down قابل فیلتر، projection ماهانه، و یک بخش owner-only برای override قیمت‌ها و نرخ تبدیل اضافه کنید.",
     "priority": "medium",
-    "note": "Hybrid pricing overrides, per-request accounting, and filterable admin reporting are now implemented with focused verification.",
+    "note": "Hybrid pricing overrides, per-request accounting, filterable admin reporting, and the compact English owner dashboard UX are implemented with focused verification.",
     "resolved": true,
     "status": "resolved",
     "detailOpen": false,
@@ -723,7 +723,7 @@
       "measurement-and-observability",
       "runtime-configuration"
     ],
-    "evidence": "config.py now exposes LLM pricing defaults; db.py persists llm_requests and settings overrides; ai.py records request telemetry and outcomes; bot.py adds an owner-only cost dashboard and pricing panel.",
+    "evidence": "config.py exposes LLM pricing defaults; db.py persists llm_requests, billed-failure costs, and breakdown failure counts; ai.py records request telemetry and outcomes; bot.py renders the owner-only English dashboard with KPI hierarchy, failure alerts, projection anomaly detection, ranked breakdowns, optional recent requests, and range presets.",
     "last_reviewed": "2026-07-13"
   },
   {

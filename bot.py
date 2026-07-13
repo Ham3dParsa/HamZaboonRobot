@@ -1063,6 +1063,8 @@ def _llm_cost_range_bounds(range_name: str) -> tuple[str, str, str]:
         start = today - datetime.timedelta(days=29)
         end = today
         label = "30d"
+    elif range_name == "all":
+        return "", "", "ALL"
     else:
         start = today.replace(day=1)
         end = today
@@ -1084,10 +1086,10 @@ def _llm_cost_query_filters(state: dict[str, object]) -> dict[str, object]:
 
 
 def _llm_cost_currency_text(cost_usd: float, cost_toman: float) -> str:
-    return f"${cost_usd:,.4f} / {round(cost_toman):,} تومان"
+    return f"${cost_usd:,.4f} / {round(cost_toman):,} Toman"
 
 
-def _llm_cost_projection(filters: dict[str, object]) -> tuple[str, str] | None:
+def _llm_cost_projection(filters: dict[str, object]) -> tuple[str, str, float] | None:
     month_start = datetime.datetime.now(_app_timezone).date().replace(day=1)
     today = datetime.datetime.now(_app_timezone).date()
     projection_filters = dict(filters)
@@ -1116,9 +1118,11 @@ def _llm_cost_projection(filters: dict[str, object]) -> tuple[str, str] | None:
     else:
         rolling_toman = linear_toman
         rolling_usd = linear_usd
+    ratio = rolling_usd / linear_usd if linear_usd else 1.0
     return (
         _llm_cost_currency_text(linear_usd, linear_toman),
         _llm_cost_currency_text(rolling_usd, rolling_toman),
+        ratio,
     )
 
 
@@ -1137,7 +1141,21 @@ def _llm_cost_state_label(state: dict[str, object]) -> str:
         f"model={_llm_cost_filter_label(state.get('model'))}",
         f"status={_llm_cost_filter_label(state.get('outcome'))}",
     ]
-    return " | ".join(parts)
+    return " • ".join(parts)
+
+
+def _llm_cost_percent(numerator: int | float, denominator: int | float) -> str:
+    if not denominator:
+        return "0.0%"
+    return f"{(float(numerator) / float(denominator)) * 100:.1f}%"
+
+
+def _llm_cost_status_icon(outcome: object) -> str:
+    return {
+        "success": "🟢",
+        "failure_billed": "🔴",
+        "failure_zero_cost": "⚪",
+    }.get(str(outcome), "⚪")
 
 
 def _llm_cost_report_text(state: dict[str, object]) -> str:
@@ -1154,42 +1172,63 @@ def _llm_cost_report_text(state: dict[str, object]) -> str:
     success_count = int(summary.get("success_count") or 0)
     billed_failures = int(summary.get("billed_failure_count") or 0)
     zero_cost_failures = int(summary.get("zero_cost_failure_count") or 0)
+    billed_failure_cost_usd = float(summary.get("billed_failure_cost_usd") or 0)
+    billed_failure_cost_toman = float(summary.get("billed_failure_cost_toman") or 0)
+    success_rate = _llm_cost_percent(success_count, request_count)
+    billed_failure_rate = _llm_cost_percent(billed_failures, request_count)
     range_label = str(state.get("range") or "mtd").upper()
 
     lines = [
-        "LLM cost dashboard",
-        _llm_cost_state_label(state),
+        "📊 LLM Cost Dashboard",
+        f"Scope: {_llm_cost_state_label(state)}",
         "",
-        f"Overview for {range_label}",
-        f"- Requests: {request_count}",
-        f"- Tokens: prompt {prompt_tokens:,} | completion {completion_tokens:,} | total {total_tokens:,}",
-        f"- Spend: {_llm_cost_currency_text(cost_usd, cost_toman)}",
-        f"- Avg cost/request: {_llm_cost_currency_text(avg_cost, avg_cost * db.get_llm_cost_profile()['usd_to_toman_rate'])}",
-        f"- Success: {success_count} | billed failures: {billed_failures} | zero-cost failures: {zero_cost_failures}",
-        f"- Avg latency: {round(float(avg_latency), 1) if avg_latency is not None else 0.0} ms",
+        f"Overview — {range_label}",
+        f"📨 Requests: {request_count:,}",
+        f"💳 Spend: {_llm_cost_currency_text(cost_usd, cost_toman)}",
+        f"🪙 Avg cost/request: {_llm_cost_currency_text(avg_cost, avg_cost * db.get_llm_cost_profile()['usd_to_toman_rate'])}",
+        f"🟢 Success rate: {success_rate} ({success_count:,})",
+        f"🔴 Billed failure rate: {billed_failure_rate} ({billed_failures:,})",
+        "",
+        f"🧮 Tokens: prompt {prompt_tokens:,} • completion {completion_tokens:,} • total {total_tokens:,}",
+        f"⏱ Avg latency: {round(float(avg_latency), 1) if avg_latency is not None else 0.0} ms",
     ]
+
+    if billed_failures > 0 or (request_count and billed_failures / request_count >= 0.2):
+        lines.extend(
+            [
+                "",
+                "⚠️ Attention required",
+                f"💸 Billed failures: {billed_failures:,} "
+                f"({_llm_cost_currency_text(billed_failure_cost_usd, billed_failure_cost_toman)})",
+                f"⚪ Zero-cost failures: {zero_cost_failures:,}",
+            ]
+        )
+    else:
+        lines.extend(["", "🟢 System health: no billable failures"])
 
     projection = None
     if state.get("range") == "mtd":
         projection = _llm_cost_projection(filters)
     if projection:
-        linear, rolling = projection
+        linear, rolling, ratio = projection
         lines.extend(
             [
                 "",
-                "Month-end projection",
-                f"- Linear: {linear}",
-                f"- Rolling avg: {rolling}",
+                "📈 Month-end Projection",
+                f"- Linear: {linear} (MTD run rate)",
+                f"- Rolling 7-day: {rolling} (recent daily average)",
             ]
         )
+        if ratio >= 2:
+            lines.append(f"⚠️ Rolling projection is {ratio:.1f}× the linear projection")
 
     breakdown_specs = [
-        ("By plan", "plan"),
-        ("By request kind", "request_kind"),
-        ("By model", "model"),
+        ("📦 By plan", "plan"),
+        ("🧩 By request kind", "request_kind"),
+        ("🤖 By model", "model"),
     ]
     if state.get("user_id") is None:
-        breakdown_specs.append(("By user", "user_id"))
+        breakdown_specs.append(("👤 By user", "user_id"))
     for title, key in breakdown_specs:
         rows = db.breakdown_llm_requests(key, filters, limit=5)
         lines.append("")
@@ -1206,22 +1245,27 @@ def _llm_cost_report_text(state: dict[str, object]) -> str:
                     "gold": "gold",
                 }.get(str(bucket), str(bucket))
             lines.append(
-                f"- {bucket}: {int(row.get('request_count') or 0)} req, "
-                f"{_llm_cost_currency_text(float(row.get('cost_usd') or 0), float(row.get('cost_toman') or 0))}"
+                f"- {bucket}: {int(row.get('request_count') or 0):,} req • "
+                f"{_llm_cost_currency_text(float(row.get('cost_usd') or 0), float(row.get('cost_toman') or 0))} • "
+                f"{_llm_cost_percent(float(row.get('cost_usd') or 0), cost_usd)} spend • "
+                f"{_llm_cost_percent(int(row.get('billed_failure_count') or 0), int(row.get('request_count') or 0))} billed fail"
             )
 
     if state.get("detail"):
         rows = db.recent_llm_requests(filters, limit=10)
-        lines.extend(["", "Recent requests:"])
+        lines.extend(["", "🧾 Recent Requests"])
         if not rows:
             lines.append("- none")
         else:
             for row in rows:
                 lines.append(
-                    f"- {str(row['created_at'])[:19]} | user {row['user_id']} | plan {row['plan']} | "
-                    f"{row['request_kind']} | {row['outcome']} | "
+                    f"- {str(row['created_at'])[:19]} "
+                    f"{_llm_cost_status_icon(row['outcome'])} {row['outcome']} | "
+                    f"{row['request_kind']} | {row['model']} | "
+                    f"user {row['user_id']} / {row['plan']} | "
                     f"{int(row['total_tokens'] or 0):,} tok | "
-                    f"{_llm_cost_currency_text(float(row['cost_usd'] or 0), float(row['cost_toman'] or 0))}"
+                    f"{_llm_cost_currency_text(float(row['cost_usd'] or 0), float(row['cost_toman'] or 0))} | "
+                    f"{round(float(row['latency_ms']), 1) if row['latency_ms'] is not None else 0.0} ms"
                 )
 
     return "\n".join(lines)
@@ -1234,7 +1278,7 @@ def _llm_pricing_text() -> str:
             "LLM pricing defaults",
             f"- Input: ${profile['input_cost_usd_per_million']:,.4f} / 1M tokens",
             f"- Output: ${profile['output_cost_usd_per_million']:,.4f} / 1M tokens",
-            f"- USD→toman: {profile['usd_to_toman_rate']:,.0f}",
+            f"- USD→Toman: {profile['usd_to_toman_rate']:,.0f}",
             "",
             "These values are the active defaults used by new requests unless the admin updates them.",
         ]
@@ -1256,10 +1300,13 @@ async def _show_llm_cost_dashboard(
             update,
             context,
             text,
-            reply_markup=llm_cost_dashboard_keyboard(),
+            reply_markup=llm_cost_dashboard_keyboard(bool(state.get("detail"))),
         )
     else:
-        await update.message.reply_text(text, reply_markup=llm_cost_dashboard_keyboard())
+        await update.message.reply_text(
+            text,
+            reply_markup=llm_cost_dashboard_keyboard(bool(state.get("detail"))),
+        )
 
 
 # ---------------- پنل ادمین (فقط مالک) ----------------
@@ -1443,7 +1490,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if not target:
                     context.user_data["awaiting"] = "llm_cost_user"
                     await update.message.reply_text(
-                        "کاربر پیدا نشد. یک user_id یا @username معتبر بفرست، یا بنویس all.",
+                        "User not found. Send a valid user_id or @username, or type all.",
                         reply_markup=awaiting_inline_keyboard(),
                     )
                     return
@@ -1717,7 +1764,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await _edit_or_send(
                     update,
                     context,
-                    "Input cost per 1M tokens in USD را بفرست:",
+                    "Send input cost per 1M tokens in USD:",
                     reply_markup=awaiting_inline_keyboard(),
                 )
             elif len(parts) == 3 and parts[2] == "set_output":
@@ -1725,7 +1772,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await _edit_or_send(
                     update,
                     context,
-                    "Output cost per 1M tokens in USD را بفرست:",
+                    "Send output cost per 1M tokens in USD:",
                     reply_markup=awaiting_inline_keyboard(),
                 )
             elif len(parts) == 3 and parts[2] == "set_rate":
@@ -1733,7 +1780,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await _edit_or_send(
                     update,
                     context,
-                    "USD→تومان rate را بفرست:",
+                    "Send the USD→Toman rate:",
                     reply_markup=awaiting_inline_keyboard(),
                 )
             else:
@@ -1748,7 +1795,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await _edit_or_send(
                     update,
                     context,
-                    "یک پلن را انتخاب کن:",
+                    "Select a plan:",
                     reply_markup=llm_cost_plan_keyboard(),
                 )
             elif field == "user":
@@ -1756,14 +1803,14 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await _edit_or_send(
                     update,
                     context,
-                    "یک user_id یا @username بفرست، یا بنویس all:",
+                    "Send a user_id or @username, or type all:",
                     reply_markup=awaiting_inline_keyboard(),
                 )
             elif field == "kind":
                 await _edit_or_send(
                     update,
                     context,
-                    "نوع درخواست را انتخاب کن:",
+                    "Select a request kind:",
                     reply_markup=llm_cost_kind_keyboard(),
                 )
             elif field == "model":
@@ -1778,7 +1825,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await _edit_or_send(
                     update,
                     context,
-                    "وضعیت را انتخاب کن:",
+                    "Select a status:",
                     reply_markup=llm_cost_status_keyboard(),
                 )
             else:

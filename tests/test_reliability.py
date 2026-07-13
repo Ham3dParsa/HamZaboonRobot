@@ -142,11 +142,49 @@ class ReliabilityPersistenceTests(unittest.TestCase):
                 "outcome": "success",
             }
         )
-        self.assertIn("LLM cost dashboard", text)
+        self.assertIn("📊 LLM Cost Dashboard", text)
         self.assertIn("plan=gold", text)
         self.assertIn("user=1", text)
-        self.assertIn("Recent requests:", text)
-        self.assertIn("Month-end projection", text)
+        self.assertIn("🧾 Recent Requests", text)
+        self.assertIn("📈 Month-end Projection", text)
+        self.assertIn("Success rate: 100.0%", text)
+
+    def test_llm_dashboard_breakdowns_include_failure_rate(self):
+        db.add_llm_request(
+            user_id=1,
+            plan="silver",
+            request_kind="daily_batch",
+            model="test-model",
+            outcome="failure_billed",
+            prompt_tokens=10,
+            completion_tokens=20,
+            total_tokens=30,
+            input_cost_usd_per_million=1.0,
+            output_cost_usd_per_million=2.0,
+            usd_to_toman_rate=50000,
+            latency_ms=456,
+        )
+
+        rows = db.breakdown_llm_requests("plan")
+
+        self.assertEqual(rows[0]["bucket"], "silver")
+        self.assertEqual(rows[0]["billed_failure_count"], 1)
+        self.assertEqual(rows[0]["request_count"], 1)
+
+        text = bot._llm_cost_report_text(
+            {
+                "range": "all",
+                "detail": False,
+                "plan": None,
+                "user_id": None,
+                "request_kind": None,
+                "model": None,
+                "outcome": None,
+            }
+        )
+        self.assertIn("⚠️ Attention required", text)
+        self.assertIn("Billed failure rate: 100.0%", text)
+        self.assertIn("billed fail", text)
 
     def test_saved_word_insert_is_idempotent(self):
         db.create_user_if_needed(1, "learner")
