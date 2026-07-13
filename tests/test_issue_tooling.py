@@ -20,6 +20,11 @@ class IssueToolingTests(unittest.TestCase):
         self.assertIn("- Status: Open", markdown)
         self.assertIn("- Status: Accepted risk", markdown)
 
+    def test_issue_registry_allows_optional_phase_values(self):
+        issues = load_data()
+        phases = {issue.get("phase") for issue in issues if issue.get("phase")}
+        self.assertTrue(phases.issubset({"phase-1", "phase-2", "phase-3", "phase-4", "phase-6"}))
+
 
 if __name__ == "__main__":
     unittest.main()

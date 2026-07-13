@@ -26,6 +26,7 @@ HTML_PATH = BASE / "issues.html"
 MARKDOWN_PATH = BASE.parent / "hamzaban-issues.md"
 VALID_STATUSES = {"open", "partial", "resolved", "accepted-risk", "obsolete"}
 VALID_PRIORITIES = {"high", "medium", "low", "none"}
+VALID_PHASES = {"phase-1", "phase-2", "phase-3", "phase-4", "phase-6"}
 DATA_START = "        // BEGIN GENERATED ISSUE DATA"
 DATA_END = "        // END GENERATED ISSUE DATA"
 LEGACY_STATUS_BY_ID = {
@@ -71,6 +72,7 @@ def normalize_issue(issue: object) -> dict:
     normalized.setdefault("roadmap_refs", [])
     normalized.setdefault("evidence", "")
     normalized.setdefault("last_reviewed", "")
+    normalized.setdefault("phase", "")
     return normalized
 
 
@@ -90,6 +92,8 @@ def validate_issues(issues: list[dict]) -> None:
             raise ValueError(f"issue {issue_id} has an invalid priority")
         if issue.get("status") not in VALID_STATUSES:
             raise ValueError(f"issue {issue_id} has an invalid status")
+        if issue.get("phase") and issue.get("phase") not in VALID_PHASES:
+            raise ValueError(f"issue {issue_id} has an invalid phase")
         if not isinstance(issue.get("roadmap_refs"), list):
             raise ValueError(f"issue {issue_id} roadmap_refs must be a list")
 
@@ -119,6 +123,7 @@ def render_markdown(issues: list[dict]) -> str:
                 f"- Function: {issue.get('func') or '—'}",
                 f"- Priority: {issue['priority']}",
                 f"- Status: {status_labels[issue['status']]}",
+                f"- Phase: {issue.get('phase') or '—'}",
                 f"- Roadmap refs: {', '.join(issue['roadmap_refs']) or '—'}",
                 f"- Evidence: {issue['evidence'] or '—'}",
                 "",

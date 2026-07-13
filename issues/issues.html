@@ -591,6 +591,10 @@
             background: #e2e8f0;
             color: #475569;
         }
+        .badge-phase {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
 
         .card-meta {
             display: flex;
@@ -1053,6 +1057,12 @@
                 <i class="fas fa-folder-open"></i>
                 <select id="moduleFilter" title="فیلتر ماژول">
                     <option value="all">همه ماژول‌ها</option>
+                </select>
+            </div>
+            <div class="control-pill">
+                <i class="fas fa-layer-group"></i>
+                <select id="phaseFilter" title="فیلتر فاز">
+                    <option value="all">همه فازها</option>
                 </select>
             </div>
             <div class="control-pill">
@@ -1541,6 +1551,7 @@
         let priorityFilter = 'all';
         let statusFilter = 'all';
         let moduleFilter = 'all';
+        let phaseFilter = 'all';
         let roadmapFilter = '';
         let searchQuery = '';
         let sortBy = 'id';
@@ -1595,6 +1606,21 @@
             return Array.isArray(issue.roadmap_refs) ? issue.roadmap_refs.filter(Boolean) : [];
         }
 
+        function getPhase(issue) {
+            return String(issue.phase || '').trim();
+        }
+
+        function getPhaseLabel(phase) {
+            const labels = {
+                'phase-1': 'فاز ۱',
+                'phase-2': 'فاز ۲',
+                'phase-3': 'فاز ۳',
+                'phase-4': 'فاز ۴',
+                'phase-6': 'فاز ۶'
+            };
+            return labels[phase] || phase || 'بدون فاز';
+        }
+
         function tokenizeSearch(query) {
             const tokens = [];
             const re = /"([^"]+)"|'([^']+)'|(\S+)/g;
@@ -1633,6 +1659,7 @@
                 issue.solution,
                 issue.note,
                 getStatus(issue),
+                getPhase(issue),
                 getRoadmapRefs(issue).join(' '),
                 issue.evidence,
                 issue.last_reviewed
@@ -1716,6 +1743,7 @@
                 if (priorityFilter !== 'all' && issue.priority !== priorityFilter) return false;
                 if (statusFilter !== 'all' && getStatus(issue) !== statusFilter) return false;
                 if (moduleFilter !== 'all' && issue.module !== moduleFilter) return false;
+                if (phaseFilter !== 'all' && getPhase(issue) !== phaseFilter) return false;
                 if (roadmapFilter.trim()) {
                     const refs = getRoadmapRefs(issue);
                     const needle = roadmapFilter.trim().toLowerCase();
@@ -1739,6 +1767,18 @@
                 .join('');
             select.value = modules.includes(selected) ? selected : 'all';
             moduleFilter = select.value;
+        }
+
+        function updatePhaseFilterOptions() {
+            const select = document.getElementById('phaseFilter');
+            if (!select) return;
+            const selected = select.value || phaseFilter;
+            const phases = [...new Set(issues.map(issue => getPhase(issue)).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+            select.innerHTML = ['<option value="all">همه فازها</option>']
+                .concat(phases.map(phase => `<option value="${escapeHtml(phase)}">${escapeHtml(getPhaseLabel(phase))}</option>`))
+                .join('');
+            select.value = phases.includes(selected) ? selected : 'all';
+            phaseFilter = select.value;
         }
 
         function getNextId() {
@@ -1866,6 +1906,7 @@
             const grid = document.getElementById('cardsGrid');
             const empty = document.getElementById('emptyState');
             updateModuleFilterOptions();
+            updatePhaseFilterOptions();
 
             const parsedSearch = parseSearchQuery(searchQuery);
             const filtered = getFilteredIssues();
@@ -1903,6 +1944,7 @@
                 if (priorityFilter !== 'all') filters.push(`فیلتر: ${priorityLabels[priorityFilter] || priorityFilter}`);
                 if (statusFilter !== 'all') filters.push(`وضعیت: ${statusLabels[statusFilter] || statusFilter}`);
                 if (moduleFilter !== 'all') filters.push(`ماژول: ${moduleFilter}`);
+                if (phaseFilter !== 'all') filters.push(`فاز: ${getPhaseLabel(phaseFilter)}`);
                 if (roadmapFilter.trim()) filters.push(`roadmap: ${roadmapFilter.trim()}`);
                 if (parsedSearch.idFilters.length) filters.push(`ID: ${parsedSearch.idFilters.join(', ')}`);
                 if (parsedSearch.terms.length) filters.push(`جستجو: ${parsedSearch.terms.join(' ')}`);
@@ -1938,6 +1980,7 @@
                 const editLabel = issue.editing ? 'بستن ویرایش' : 'ویرایش کامل';
                 const highlightTerms = [...parsedSearch.terms, ...parsedSearch.idFilters];
                 const roadmapRefs = getRoadmapRefs(issue);
+                const phase = getPhase(issue);
 
                 html += `
                     <div class="card ${priorityClass} ${resolvedClass}" data-id="${issue.id}">
@@ -1945,6 +1988,7 @@
                             <span class="number">#${issue.id}</span>
                             <span class="title">${highlightText(issue.title, highlightTerms)}</span>
                             <span class="badge ${badgeClass}">${priorityLabel}</span>
+                            ${phase ? `<span class="badge badge-phase">${escapeHtml(getPhaseLabel(phase))}</span>` : ''}
                             <span class="badge" style="background:${isResolved ? '#d1fae5;color:#065f46' : status === 'partial' ? '#fef3c7;color:#92400e' : '#e2e8f0;color:#334155'};">${escapeHtml(statusLabels[status] || status)}</span>
                         </div>
 
@@ -2056,6 +2100,7 @@
                                 ${issue.func && issue.func !== '—' ? `<strong>تابع:</strong> ${escapeHtml(issue.func)}<br>` : ''}
                                 <strong>اولویت:</strong> ${priorityLabel}<br>
                                 <strong>وضعیت:</strong> ${escapeHtml(statusLabels[status] || status)}<br><br>
+                                ${phase ? `<strong>فاز:</strong> ${escapeHtml(getPhaseLabel(phase))}<br><br>` : ''}
                                 ${roadmapRefs.length ? `<strong>Roadmap refs:</strong> ${roadmapRefs.map(ref => escapeHtml(ref)).join(', ')}<br><br>` : ''}
                                 <strong>مشکل (متن کامل):</strong><br>${escapeHtml(issue.problem)}<br><br>
                                 <strong>راه‌حل (متن کامل):</strong><br>${escapeHtml(issue.solution)}
@@ -2241,6 +2286,8 @@
 
             const statusSelect = document.getElementById('statusFilter');
             if (statusSelect) statusSelect.value = statusFilter;
+            const phaseSelect = document.getElementById('phaseFilter');
+            if (phaseSelect) phaseSelect.value = phaseFilter;
             const moduleSelect = document.getElementById('moduleFilter');
             if (moduleSelect) moduleSelect.value = moduleFilter;
             const roadmapInput = document.getElementById('roadmapFilter');
@@ -2286,6 +2333,7 @@
                     if (issue.func && issue.func !== '—') lines.push(`- Function: ${issue.func}`);
                     lines.push(`- Status: ${getStatus(issue)}`);
                     lines.push(`- Priority: ${getPriorityLabel(issue.priority)}`);
+                    if (issue.phase) lines.push(`- Phase: ${getPhaseLabel(issue.phase)}`);
                     const refs = getRoadmapRefs(issue);
                     if (refs.length) lines.push(`- Roadmap refs: ${refs.join(', ')}`);
                     if (issue.evidence) lines.push(`- Evidence: ${issue.evidence}`);
@@ -2435,6 +2483,12 @@
                 render();
             });
 
+            const phaseFilterInput = document.getElementById('phaseFilter');
+            if (phaseFilterInput) phaseFilterInput.addEventListener('change', function() {
+                phaseFilter = this.value;
+                render();
+            });
+
             const moduleFilterInput = document.getElementById('moduleFilter');
             if (moduleFilterInput) moduleFilterInput.addEventListener('change', function() {
                 moduleFilter = this.value;
@@ -2474,11 +2528,13 @@
                 priorityFilter = 'all';
                 statusFilter = 'all';
                 moduleFilter = 'all';
+                phaseFilter = 'all';
                 roadmapFilter = '';
                 searchQuery = `id:${id}`;
                 document.getElementById('searchInput').value = searchQuery;
                 document.getElementById('statusFilter').value = 'all';
                 document.getElementById('moduleFilter').value = 'all';
+                document.getElementById('phaseFilter').value = 'all';
                 document.getElementById('roadmapFilter').value = '';
                 render();
                 const card = document.querySelector(`.card[data-id="${id}"]`);

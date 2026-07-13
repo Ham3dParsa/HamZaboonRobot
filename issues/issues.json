@@ -12,6 +12,7 @@
     "detailOpen": false,
     "editing": false,
     "id": 7,
+    "phase": "phase-4",
     "roadmap_refs": [
       "runtime-configuration"
     ],
@@ -26,11 +27,12 @@
     "solution": "یک فیلد اختیاری phase به schema اضافه کنید، آن را در issues.html فیلتر/badge کنید، و در validate چک کنید که phaseها با بخش‌های roadmap هم‌راستا بمانند.",
     "priority": "medium",
     "note": "این یک بهبود ساختاری است و باید بدون شکستن backward compatibility اضافه شود.",
-    "resolved": false,
-    "status": "open",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 27,
+    "phase": "phase-4",
     "roadmap_refs": [
       "issue-tooling"
     ],
@@ -50,6 +52,7 @@
     "detailOpen": false,
     "editing": false,
     "id": 40,
+    "phase": "phase-3",
     "roadmap_refs": [
       "cost-control",
       "measurement-and-observability",
@@ -72,6 +75,7 @@
     "detailOpen": false,
     "editing": false,
     "id": 42,
+    "phase": "phase-3",
     "roadmap_refs": [
       "adaptive-srs-core"
     ],
