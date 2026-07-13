@@ -767,7 +767,7 @@
       "reliability-hardening",
       "measurement-and-observability"
     ],
-    "evidence": "ai.py:ask_batch now raises BatchValidationError when zero cards survive validation and logs safe batch counts/rejection reasons; bot.py:_generate_daily_batch logs retry attempt context; tests/test_ai_validation.py covers invalid, duplicate, and valid batch outcomes.",
+    "evidence": "ai.py:ask_batch now raises BatchValidationError when zero cards survive validation and logs safe batch counts/rejection reasons, including separate collisions against the avoid-list versus duplicates within the response; bot.py:_generate_daily_batch logs retry attempt context; tests/test_ai_validation.py covers invalid, duplicate, and valid batch outcomes.",
     "last_reviewed": "2026-07-13"
   }
 ]
