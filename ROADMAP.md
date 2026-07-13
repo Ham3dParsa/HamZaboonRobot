@@ -165,25 +165,15 @@ Review scope: every Python module, all tests, `ROADMAP.md`,
 `hamzaban-issues.md`, and the static `issues/issues.html` manager on the
 current `main` branch.
 
-### Confirmed resolved from the issue export
+### Audit result
 
-- Daily cards are persisted per user/date/index; manual retrieval and
-  scheduled delivery reuse the same storage.
-- SRS reminders render the stored card and remain pending until the learner
-  confirms or defers the review.
-- Language, goal, and level metadata are centralized in `catalog.py`.
-- `_extract_json` now raises a clear parsing error instead of attempting to
-  decode an empty string.
-- Empty grammar tips are omitted from formatted cards.
-- Goal hints and fallback labels are catalog-backed.
-- The non-onboarded-card item is expected guard behavior, not a defect.
+- The canonical issue registry was pruned to the remaining open and
+  accepted-risk items after verifying the previously resolved findings in
+  code.
+- The active registry now tracks the issue-tooling phase-grouping
+  improvement, the segment-level content-pooling work, the adaptive SRS core
+  slice, and the documented plaintext-runtime-secret MVP risk.
 
-### Partially resolved
-
-- Logging now covers provider latency/token usage and important learning
-  lifecycle events.
-- The issue manager is useful for local review, but browser `localStorage`
-  remains local draft state and must not be treated as committed issue data.
 ### Open bugs and engineering risks found in this review
 
 - Runtime API keys remain stored as plaintext in the SQLite settings table;
