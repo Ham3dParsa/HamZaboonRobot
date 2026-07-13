@@ -178,28 +178,28 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def llm_cost_dashboard_keyboard() -> InlineKeyboardMarkup:
+def llm_cost_dashboard_keyboard(detail: bool = False) -> InlineKeyboardMarkup:
+    recent_label = "Hide Recent Requests" if detail else "Recent Requests"
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("امروز", callback_data="llm:range:today"),
-                InlineKeyboardButton("7d", callback_data="llm:range:7d"),
-                InlineKeyboardButton("30d", callback_data="llm:range:30d"),
                 InlineKeyboardButton("MTD", callback_data="llm:range:mtd"),
+                InlineKeyboardButton("Last 7 days", callback_data="llm:range:7d"),
+                InlineKeyboardButton("All time", callback_data="llm:range:all"),
             ],
             [
-                InlineKeyboardButton("پلن", callback_data="llm:set:plan"),
-                InlineKeyboardButton("کاربر", callback_data="llm:set:user"),
-                InlineKeyboardButton("نوع درخواست", callback_data="llm:set:kind"),
-                InlineKeyboardButton("مدل", callback_data="llm:set:model"),
+                InlineKeyboardButton("Plan", callback_data="llm:set:plan"),
+                InlineKeyboardButton("User", callback_data="llm:set:user"),
+                InlineKeyboardButton("Request kind", callback_data="llm:set:kind"),
+                InlineKeyboardButton("Model", callback_data="llm:set:model"),
             ],
             [
-                InlineKeyboardButton("وضعیت", callback_data="llm:set:status"),
-                InlineKeyboardButton("پاک‌کردن فیلترها", callback_data="llm:clear"),
-                InlineKeyboardButton("تازه‌سازی", callback_data="llm:refresh"),
+                InlineKeyboardButton("Status", callback_data="llm:set:status"),
+                InlineKeyboardButton("Clear filters", callback_data="llm:clear"),
+                InlineKeyboardButton("Refresh", callback_data="llm:refresh"),
             ],
             [
-                InlineKeyboardButton("نمای جزئی", callback_data="llm:recent"),
+                InlineKeyboardButton(recent_label, callback_data="llm:recent"),
             ],
         ]
     )
@@ -209,10 +209,10 @@ def llm_cost_plan_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("همه", callback_data="llm:plan:all"),
-                InlineKeyboardButton("رایگان", callback_data="llm:plan:free"),
-                InlineKeyboardButton("نقره‌ای", callback_data="llm:plan:silver"),
-                InlineKeyboardButton("طلایی", callback_data="llm:plan:gold"),
+                InlineKeyboardButton("All", callback_data="llm:plan:all"),
+                InlineKeyboardButton("Free", callback_data="llm:plan:free"),
+                InlineKeyboardButton("Silver", callback_data="llm:plan:silver"),
+                InlineKeyboardButton("Gold", callback_data="llm:plan:gold"),
             ]
         ]
     )
@@ -222,7 +222,7 @@ def llm_cost_kind_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("همه", callback_data="llm:kind:all"),
+                InlineKeyboardButton("All", callback_data="llm:kind:all"),
                 InlineKeyboardButton("daily_batch", callback_data="llm:kind:daily_batch"),
                 InlineKeyboardButton("custom_word", callback_data="llm:kind:custom_word"),
                 InlineKeyboardButton("grammar_tip", callback_data="llm:kind:grammar_tip"),
@@ -235,7 +235,7 @@ def llm_cost_status_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("همه", callback_data="llm:status:all"),
+                InlineKeyboardButton("All", callback_data="llm:status:all"),
                 InlineKeyboardButton("success", callback_data="llm:status:success"),
                 InlineKeyboardButton("billed fail", callback_data="llm:status:failure_billed"),
                 InlineKeyboardButton("zero-cost fail", callback_data="llm:status:failure_zero_cost"),

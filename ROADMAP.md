@@ -684,7 +684,9 @@ a separate lesson system.
 - Callback edits use a shared fallback that sends a replacement message when
   the original Telegram message is stale or unavailable.
 - The owner-only LLM cost dashboard now exposes per-request accounting,
-  plan/user/model/outcome filters, price overrides, and monthly projections.
+  plan/user/model/outcome filters, price overrides, monthly projections, and
+  a compact English overview with KPI hierarchy, failure alerts, ranked
+  breakdowns, optional recent requests, and range presets.
 
 ## Out of Scope for the Current MVP
 
