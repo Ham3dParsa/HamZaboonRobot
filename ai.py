@@ -68,13 +68,17 @@ def _log_llm_request(
     if isinstance(batch_validation, dict):
         log.info(
             "ai batch validation kind=%s user_id=%s received=%s accepted=%s "
-            "validation_rejected=%s duplicates=%s",
+            "validation_rejected=%s duplicates=%s duplicates_against_avoid=%s "
+            "duplicates_within_batch=%s avoid_words=%s",
             request_kind,
             user_id,
             batch_validation.get("received", 0),
             batch_validation.get("accepted", 0),
             batch_validation.get("validation_rejected", 0),
             batch_validation.get("duplicates", 0),
+            batch_validation.get("duplicates_against_avoid", 0),
+            batch_validation.get("duplicates_within_batch", 0),
+            batch_validation.get("avoid_words", 0),
         )
     rejection_reasons = telemetry.get("batch_validation_reasons")
     if isinstance(rejection_reasons, dict) and rejection_reasons:
@@ -294,16 +298,20 @@ def validate_batch(
     stats.setdefault("accepted", 0)
     stats.setdefault("validation_rejected", 0)
     stats.setdefault("duplicates", 0)
+    stats.setdefault("duplicates_against_avoid", 0)
+    stats.setdefault("duplicates_within_batch", 0)
     if isinstance(data, Mapping):
         data = data.get("cards")
     if not isinstance(data, list):
         raise BatchValidationError("Batch output must be a JSON array", stats)
 
-    used = {
+    avoid = {
         word.strip().casefold()
         for word in (used_words or [])
         if isinstance(word, str) and word.strip()
     }
+    used = set(avoid)
+    stats["avoid_words"] = len(avoid)
     cards: list[dict] = []
     for item in data:
         stats["received"] += 1
@@ -316,7 +324,12 @@ def validate_batch(
                 rejection_reasons[reason] = rejection_reasons.get(reason, 0) + 1
             continue
         normalized_word = card["word"].strip().casefold()
+        if normalized_word in avoid:
+            stats["duplicates_against_avoid"] += 1
+            stats["duplicates"] += 1
+            continue
         if normalized_word in used:
+            stats["duplicates_within_batch"] += 1
             stats["duplicates"] += 1
             continue
         used.add(normalized_word)

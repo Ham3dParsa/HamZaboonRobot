@@ -38,6 +38,9 @@ class BatchValidationTests(unittest.TestCase):
                 "accepted": 0,
                 "validation_rejected": 1,
                 "duplicates": 0,
+                "duplicates_against_avoid": 0,
+                "duplicates_within_batch": 0,
+                "avoid_words": 0,
             },
         )
         self.assertEqual(
@@ -60,6 +63,22 @@ class BatchValidationTests(unittest.TestCase):
 
         self.assertIn("No valid cards", str(context.exception))
         self.assertEqual(context.exception.diagnostics["duplicates"], 1)
+
+    def test_diagnostics_distinguish_avoid_list_and_batch_duplicates(self):
+        diagnostics: dict[str, int] = {}
+
+        cards = ai.validate_batch(
+            [valid_card("known"), valid_card("new"), valid_card("new")],
+            expected_count=3,
+            used_words=["known"],
+            diagnostics=diagnostics,
+        )
+
+        self.assertEqual([card["word"] for card in cards], ["new"])
+        self.assertEqual(diagnostics["duplicates_against_avoid"], 1)
+        self.assertEqual(diagnostics["duplicates_within_batch"], 1)
+        self.assertEqual(diagnostics["duplicates"], 2)
+        self.assertEqual(diagnostics["avoid_words"], 1)
 
     def test_valid_cards_are_counted(self):
         diagnostics: dict[str, int] = {}
