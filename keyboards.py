@@ -167,10 +167,93 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
         [
             [InlineKeyboardButton("📈 آمار کاربران", callback_data="admin:stats")],
             [InlineKeyboardButton("💳 تنظیم پلن کاربر", callback_data="admin:set_plan")],
+            [InlineKeyboardButton("💰 داشبورد هزینه LLM", callback_data="admin:llm_costs")],
+            [InlineKeyboardButton("💱 تنظیم قیمت LLM", callback_data="admin:llm_pricing")],
             [InlineKeyboardButton("🤖 تغییر مدل AI", callback_data="admin:set_model")],
             [InlineKeyboardButton("🌐 تغییر Base URL", callback_data="admin:set_base_url")],
             [InlineKeyboardButton("🔑 تغییر API Key", callback_data="admin:set_api_key")],
             [InlineKeyboardButton("📣 ارسال پیام همگانی", callback_data="admin:broadcast")],
             [InlineKeyboardButton("⚙️ تنظیمات فعلی", callback_data="admin:show_settings")],
+        ]
+    )
+
+
+def llm_cost_dashboard_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("امروز", callback_data="llm:range:today"),
+                InlineKeyboardButton("7d", callback_data="llm:range:7d"),
+                InlineKeyboardButton("30d", callback_data="llm:range:30d"),
+                InlineKeyboardButton("MTD", callback_data="llm:range:mtd"),
+            ],
+            [
+                InlineKeyboardButton("پلن", callback_data="llm:set:plan"),
+                InlineKeyboardButton("کاربر", callback_data="llm:set:user"),
+                InlineKeyboardButton("نوع درخواست", callback_data="llm:set:kind"),
+                InlineKeyboardButton("مدل", callback_data="llm:set:model"),
+            ],
+            [
+                InlineKeyboardButton("وضعیت", callback_data="llm:set:status"),
+                InlineKeyboardButton("پاک‌کردن فیلترها", callback_data="llm:clear"),
+                InlineKeyboardButton("تازه‌سازی", callback_data="llm:refresh"),
+            ],
+            [
+                InlineKeyboardButton("نمای جزئی", callback_data="llm:recent"),
+            ],
+        ]
+    )
+
+
+def llm_cost_plan_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("همه", callback_data="llm:plan:all"),
+                InlineKeyboardButton("رایگان", callback_data="llm:plan:free"),
+                InlineKeyboardButton("نقره‌ای", callback_data="llm:plan:silver"),
+                InlineKeyboardButton("طلایی", callback_data="llm:plan:gold"),
+            ]
+        ]
+    )
+
+
+def llm_cost_kind_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("همه", callback_data="llm:kind:all"),
+                InlineKeyboardButton("daily_batch", callback_data="llm:kind:daily_batch"),
+                InlineKeyboardButton("custom_word", callback_data="llm:kind:custom_word"),
+                InlineKeyboardButton("grammar_tip", callback_data="llm:kind:grammar_tip"),
+            ]
+        ]
+    )
+
+
+def llm_cost_status_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("همه", callback_data="llm:status:all"),
+                InlineKeyboardButton("success", callback_data="llm:status:success"),
+                InlineKeyboardButton("billed fail", callback_data="llm:status:failure_billed"),
+                InlineKeyboardButton("zero-cost fail", callback_data="llm:status:failure_zero_cost"),
+            ]
+        ]
+    )
+
+
+def llm_cost_pricing_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("input $/1M", callback_data="llm:pricing:set_input"),
+                InlineKeyboardButton("output $/1M", callback_data="llm:pricing:set_output"),
+                InlineKeyboardButton("USD→تومان", callback_data="llm:pricing:set_rate"),
+            ],
+            [
+                InlineKeyboardButton("بازگشت", callback_data="llm:pricing:back"),
+            ],
         ]
     )
