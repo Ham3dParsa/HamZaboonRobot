@@ -725,5 +725,27 @@
     ],
     "evidence": "config.py now exposes LLM pricing defaults; db.py persists llm_requests and settings overrides; ai.py records request telemetry and outcomes; bot.py adds an owner-only cost dashboard and pricing panel.",
     "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "پول مشترک محتوای آموزشی در سطح segment هنوز پیاده‌سازی نشده است",
+    "module": "db.py / bot.py / ai.py / config.py",
+    "func": "content_pool schema, daily-card generation, custom-word save, grammar recommendation",
+    "problem": "محتوای معتبر و AI-generated هر کاربر فقط در daily_cards، saved_words یا grammar_tips همان کاربر باقی می‌ماند و بین کاربران دارای target_lang، goal و level یکسان reuse نمی‌شود. با رشد کاربران، این مسیر باعث تماس‌های تکراری LLM می‌شود. در عین حال، pooling نباید avoid-list، deduplication، quota، مرزبندی segment یا اصل تولیدشدن محتوا توسط AI را تضعیف کند.",
+    "solution": "یک جدول additive به نام content_pool با کلید یکتای target_lang + goal + level + source_kind + item_key اضافه کنید و source_kindهای daily_card، saved_query_card، grammar_tip و quiz_item را از ابتدا رزرو کنید. کارت روزانه فقط پس از validation و ذخیره‌ی پذیرفته‌شده، نتیجه‌ی custom word فقط پس از Add to review، و نکته‌ی گرامری فقط پس از recommendation صریح کاربر و validation فیلدهای همراه همان پاسخ اولیه وارد pool شود؛ برای validation گرامر تماس دوم LLM مجاز نیست. Pool hit باید با همان quota محصول مصرف شود اما telemetry نوع pool_hit و هزینه‌ی صفر داشته باشد. انتخاب pool باید با تراکنش BEGIN IMMEDIATE، رعایت کلید کامل segment و حذف itemهای موجود در داده‌ی همان کاربر انجام شود. inventory floor اولیه ۱۰ آیتم distinct در هر segment/source و قابل تنظیم در deployment است.",
+    "priority": "high",
+    "note": "تصمیم‌های محصول قفل شده‌اند: pool در reset داده‌ی learner باقی می‌ماند، expiry زمانی ندارد، و retirement آینده با rating/report جامعه و حذف owner با approval اداره می‌شود. points تا زمان وجود reward ledger به تعویق افتاده است. thresholds رأی‌دهی، cron retirement و پنل review در scope بعدی هستند.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 40,
+    "roadmap_refs": [
+      "cost-control",
+      "measurement-and-observability",
+      "data-lifecycle",
+      "future-mini-quizzes"
+    ],
+    "evidence": "db.py currently has per-user saved_words, daily_cards, query_results, and grammar_tips but no content_pool table; bot.py generation paths are _generate_daily_batch, send_grammar_tip, and text_router custom-word flow; db.py:_normalize_word defines the existing whitespace-collapse + casefold contract; ROADMAP.md records the locked pooling policy.",
+    "last_reviewed": "2026-07-13"
   }
 ]

@@ -60,6 +60,51 @@ Completed on the current main branch:
 - AI output length and temperature are configurable and token usage is logged
   for each request.
 
+## Locked Direction: Segment-Level Content Pooling
+
+The next cost-control direction is a shared, source-agnostic content pool
+keyed by `(target_lang, goal, level, source_kind, item_key)`. It must reuse
+validated AI-generated content across learners in the same segment without
+replacing the existing per-user avoid-lists or duplicate guards.
+
+The following product decisions are locked:
+
+- Daily/manual cards enter the pool after the existing card validation and
+  accepted-storage path.
+- A custom-word result enters the pool only after the learner explicitly adds
+  it to SRS/review.
+- A grammar tip is always retained in the learner's personal history, but
+  enters the shared pool only after the learner explicitly recommends it.
+  Recommendation candidates use validation fields returned by the original
+  grammar-generation response; a second provider call is not allowed solely
+  for pooling.
+- Pool hits consume the normal learner-facing feature quota, but do not
+  consume provider budget. They are recorded as zero-cost `pool_hit`
+  telemetry, distinct from provider generations and failures.
+- The pool uses one deployment-configurable inventory floor, initially
+  `10` distinct eligible items per segment/source. A thin pool falls back to
+  fresh generation.
+- The additive SQLite schema reserves `source_kind` values for
+  `daily_card`, `saved_query_card`, `grammar_tip`, and `quiz_item`. Word keys
+  reuse the database normalization contract
+  (`" ".join(value.split()).casefold()`); grammar topics use the same
+  whitespace/case normalization until a dedicated topic-key contract is
+  introduced.
+- Pool entries survive learner-data resets and have no time-based expiry.
+  Quality governance is community-driven: reports and ratings can drive
+  retirement, owner removal requires approval, and automatic retirement plus
+  admin review are later implementation phases.
+- Points/rewards for recommendations are deferred until a reward ledger
+  exists; recommendation must not silently create an untracked balance.
+
+Implementation is intentionally phased: add the additive table and write
+instrumentation first, then gated reads, saved-query and grammar
+recommendation paths, pool telemetry, and inventory selection. Mini-quiz
+read/write behavior remains deferred; only its reserved source kind ships
+with the shared schema. The repository currently has no `plan_pooling.md`;
+this section and the canonical issue registry are the source of truth for
+the locked decisions.
+
 The remaining work is tracked in the explicit ToDo section near the end of
 this document. The next user-facing feature now shifts to AI Mini Quizzes,
 but configuration and quota semantics must stay consistent with the decisions
@@ -568,6 +613,12 @@ a separate lesson system.
   measurements before advanced personalization.
 - Expand tests around callback authorization, provider failures, Telegram retry
   behavior, SRS chunking, migrations, and reset safeguards.
+- Implement the locked segment-level content-pooling slices, starting with the
+  additive SQLite schema and validated daily-card write path.
+- Add explicit migration and cross-segment isolation tests for the shared pool.
+- Define and implement community rating/report thresholds, owner approval
+  workflow, and automatic retirement only after the reward/admin primitives
+  are scoped.
 
 ### Saved-word SRS follow-ups
 
