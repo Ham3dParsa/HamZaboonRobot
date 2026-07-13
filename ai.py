@@ -64,6 +64,26 @@ def _log_llm_request(
         completion_tokens,
         total_tokens,
     )
+    batch_validation = telemetry.get("batch_validation")
+    if isinstance(batch_validation, dict):
+        log.info(
+            "ai batch validation kind=%s user_id=%s received=%s accepted=%s "
+            "validation_rejected=%s duplicates=%s",
+            request_kind,
+            user_id,
+            batch_validation.get("received", 0),
+            batch_validation.get("accepted", 0),
+            batch_validation.get("validation_rejected", 0),
+            batch_validation.get("duplicates", 0),
+        )
+    rejection_reasons = telemetry.get("batch_validation_reasons")
+    if isinstance(rejection_reasons, dict) and rejection_reasons:
+        log.info(
+            "ai batch validation rejection reasons kind=%s user_id=%s reasons=%s",
+            request_kind,
+            user_id,
+            rejection_reasons,
+        )
     profile = db.get_llm_cost_profile()
     db.add_llm_request(
         user_id=user_id or 0,
@@ -88,7 +108,11 @@ class CardValidationError(ValueError):
 
 
 class BatchValidationError(ValueError):
-    """Raised when a model response cannot be interpreted as a card batch."""
+    """Raised when a model response cannot be interpreted as a usable batch."""
+
+    def __init__(self, message: str, diagnostics: dict[str, int] | None = None):
+        super().__init__(message)
+        self.diagnostics = diagnostics or {}
 
 
 def _extract_json(text: str) -> object:
@@ -262,11 +286,18 @@ def validate_batch(
     data: object,
     expected_count: int,
     used_words: list[str] | None = None,
+    diagnostics: dict[str, int] | None = None,
+    rejection_reasons: dict[str, int] | None = None,
 ) -> list[dict]:
+    stats = diagnostics if diagnostics is not None else {}
+    stats.setdefault("received", 0)
+    stats.setdefault("accepted", 0)
+    stats.setdefault("validation_rejected", 0)
+    stats.setdefault("duplicates", 0)
     if isinstance(data, Mapping):
         data = data.get("cards")
     if not isinstance(data, list):
-        raise BatchValidationError("Batch output must be a JSON array")
+        raise BatchValidationError("Batch output must be a JSON array", stats)
 
     used = {
         word.strip().casefold()
@@ -275,15 +306,22 @@ def validate_batch(
     }
     cards: list[dict] = []
     for item in data:
+        stats["received"] += 1
         try:
             card = validate_card(item)
-        except CardValidationError:
+        except CardValidationError as exc:
+            stats["validation_rejected"] += 1
+            if rejection_reasons is not None:
+                reason = str(exc)
+                rejection_reasons[reason] = rejection_reasons.get(reason, 0) + 1
             continue
         normalized_word = card["word"].strip().casefold()
         if normalized_word in used:
+            stats["duplicates"] += 1
             continue
         used.add(normalized_word)
         cards.append(card)
+        stats["accepted"] += 1
         if len(cards) >= expected_count:
             break
     return cards
@@ -300,6 +338,10 @@ def ask_batch(
 ) -> list[dict]:
     telemetry: dict[str, object] = {}
     error: Exception | None = None
+    diagnostics: dict[str, int] = {}
+    rejection_reasons: dict[str, int] = {}
+    telemetry["batch_validation"] = diagnostics
+    telemetry["batch_validation_reasons"] = rejection_reasons
     try:
         value = _request_json(
             system_prompt,
@@ -308,11 +350,19 @@ def ask_batch(
             plan=plan,
             telemetry=telemetry,
         )
-        return validate_batch(
+        cards = validate_batch(
             value,
             expected_count,
             used_words=used_words,
+            diagnostics=diagnostics,
+            rejection_reasons=rejection_reasons,
         )
+        if not cards:
+            raise BatchValidationError(
+                "No valid cards remained after batch validation",
+                diagnostics,
+            )
+        return cards
     except Exception as exc:
         error = exc
         raise

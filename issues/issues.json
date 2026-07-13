@@ -747,5 +747,27 @@
     ],
     "evidence": "db.py currently has per-user saved_words, daily_cards, query_results, and grammar_tips but no content_pool table; bot.py generation paths are _generate_daily_batch, send_grammar_tip, and text_router custom-word flow; db.py:_normalize_word defines the existing whitespace-collapse + casefold contract; plan_pooling.md and ROADMAP.md record the locked pooling policy.",
     "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "Provider success با batch خالی به خطای مبهم کارت روزانه تبدیل می‌شود",
+    "module": "ai.py / bot.py",
+    "func": "ask_batch / validate_batch / _generate_daily_batch",
+    "problem": "در صورت HTTP success و token usage معتبر، ممکن است همه‌ی آیتم‌های پاسخ مدل در validate_batch به‌دلیل schema نامعتبر یا تکراری حذف شوند. کد قبلی این وضعیت را success تلقی می‌کرد و پس از سه تلاش فقط RuntimeError عمومی «AI returned no card» می‌داد؛ بنابراین علت واقعی از لاگ قابل تشخیص نبود.",
+    "solution": "batch خالی پس از validation باید BatchValidationError مشخص ایجاد کند تا outcome هزینه‌دار در telemetry به‌عنوان failure ثبت شود. تعداد received، accepted، validation_rejected و duplicates و همچنین علت‌های ثابت validation بدون ثبت متن کارت log شوند. مسیر retry روزانه باید شماره‌ی تلاش، تعداد درخواستی و تعداد کارت پذیرفته‌شده‌ی فعلی را به‌صورت امن log کند.",
+    "priority": "high",
+    "note": "این تغییر علت دقیق پاسخ واقعی provider را از روی لاگ‌های جدید مشخص می‌کند؛ تا زمان مشاهده‌ی rejection reasonهای production، تغییر prompt یا شل‌کردن schema نباید حدس زده شود.",
+    "resolved": true,
+    "status": "resolved",
+    "detailOpen": false,
+    "editing": false,
+    "id": 41,
+    "roadmap_refs": [
+      "content-schema-and-validation",
+      "cost-control",
+      "reliability-hardening",
+      "measurement-and-observability"
+    ],
+    "evidence": "ai.py:ask_batch now raises BatchValidationError when zero cards survive validation and logs safe batch counts/rejection reasons; bot.py:_generate_daily_batch logs retry attempt context; tests/test_ai_validation.py covers invalid, duplicate, and valid batch outcomes.",
+    "last_reviewed": "2026-07-13"
   }
 ]

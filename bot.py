@@ -529,7 +529,7 @@ def _generate_daily_batch(
 ) -> list[dict]:
     cards: list[dict] = []
     last_error: Exception | None = None
-    for _ in range(3):
+    for attempt in range(1, 4):
         remaining = card_count - len(cards)
         if remaining <= 0:
             break
@@ -551,8 +551,23 @@ def _generate_daily_batch(
             )
         except Exception as exc:
             last_error = exc
+            log.warning(
+                "daily batch attempt failed user_id=%s attempt=%s requested=%s "
+                "accepted_so_far=%s error=%s",
+                user_id,
+                attempt,
+                remaining,
+                len(cards),
+                exc,
+            )
             continue
         if not batch:
+            log.warning(
+                "daily batch returned empty result user_id=%s attempt=%s requested=%s",
+                user_id,
+                attempt,
+                remaining,
+            )
             continue
         cards.extend(batch)
 

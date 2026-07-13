@@ -59,6 +59,9 @@ Completed on the current main branch:
   bounded avoid-lists to reduce repetition without replacing AI generation.
 - AI output length and temperature are configurable and token usage is logged
   for each request.
+- Daily batch validation now distinguishes provider success from a batch with
+  no usable cards, records safe rejection diagnostics, and preserves the
+  retry path.
 
 ## Locked Direction: Segment-Level Content Pooling
 
