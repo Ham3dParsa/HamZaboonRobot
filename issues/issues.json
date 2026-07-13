@@ -40,7 +40,7 @@
     "last_reviewed": "2026-07-13"
   },
   {
-    "title": "پول مشترک محتوای آموزشی در سطح segment هنوز پیاده‌سازی نشده است",
+    "title": "استخر مشترک محتوای آموزشی در سطح segment هنوز پیاده‌سازی نشده است",
     "module": "db.py / bot.py / ai.py / config.py",
     "func": "content_pool schema, daily-card generation, custom-word save, grammar recommendation",
     "problem": "محتوای معتبر و AI-generated هر کاربر فقط در daily_cards، saved_words یا grammar_tips همان کاربر باقی می‌ماند و بین کاربران دارای target_lang، goal و level یکسان reuse نمی‌شود. با رشد کاربران، این مسیر باعث تماس‌های تکراری LLM می‌شود. در عین حال، pooling نباید avoid-list، deduplication، quota، مرزبندی segment یا اصل تولیدشدن محتوا توسط AI را تضعیف کند.",
