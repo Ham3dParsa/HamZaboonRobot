@@ -745,7 +745,7 @@
       "data-lifecycle",
       "future-mini-quizzes"
     ],
-    "evidence": "db.py currently has per-user saved_words, daily_cards, query_results, and grammar_tips but no content_pool table; bot.py generation paths are _generate_daily_batch, send_grammar_tip, and text_router custom-word flow; db.py:_normalize_word defines the existing whitespace-collapse + casefold contract; ROADMAP.md records the locked pooling policy.",
+    "evidence": "db.py currently has per-user saved_words, daily_cards, query_results, and grammar_tips but no content_pool table; bot.py generation paths are _generate_daily_batch, send_grammar_tip, and text_router custom-word flow; db.py:_normalize_word defines the existing whitespace-collapse + casefold contract; plan_pooling.md and ROADMAP.md record the locked pooling policy.",
     "last_reviewed": "2026-07-13"
   }
 ]

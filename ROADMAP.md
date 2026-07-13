@@ -101,9 +101,9 @@ Implementation is intentionally phased: add the additive table and write
 instrumentation first, then gated reads, saved-query and grammar
 recommendation paths, pool telemetry, and inventory selection. Mini-quiz
 read/write behavior remains deferred; only its reserved source kind ships
-with the shared schema. The repository currently has no `plan_pooling.md`;
-this section and the canonical issue registry are the source of truth for
-the locked decisions.
+with the shared schema. The complete locked plan lives in
+`plan_pooling.md`; this section and the canonical issue registry remain the
+product-level source of truth.
 
 The remaining work is tracked in the explicit ToDo section near the end of
 this document. The next user-facing feature now shifts to AI Mini Quizzes,
