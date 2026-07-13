@@ -1,0 +1,2 @@
+word|phonetic|fa_meaning|fa_explanation|synonyms|antonyms|examples|example_translations|grammar_tip
+decide|/dɪˈsaɪd/|تصمیم گرفتن|انتخاب کردن یک گزینه از بین چند گزینه|choose;determine||I need to decide what to wear.;She decided to study English.|من باید تصمیم بگیرم چه بپوشم.;او تصمیم گرفت انگلیسی بخواند.|معمولاً بعد از این فعل از to + فعل استفاده می‌شود.

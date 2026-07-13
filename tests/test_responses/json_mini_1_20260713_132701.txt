@@ -1,0 +1,11 @@
+{
+  "w": "Essential",
+  "ph": "/ɪˈsenʃəl/",
+  "m": "ضروری، اساسی",
+  "x": "به چیزی گفته می‌شود که بسیار مهم است و نمی‌توان بدون آن کار را انجام داد.",
+  "s": ["Necessary", "Crucial", "Vital"],
+  "a": ["Optional", "Unnecessary"],
+  "e": ["Water is essential for life.", "It is essential to arrive on time."],
+  "t": ["آب برای زندگی ضروری است.", "به‌موقع رسیدن ضروری است."],
+  "g": "این صفت معمولاً قبل از اسم می‌آید (essential task) یا بعد از افعال to be قرار می‌گیرد."
+}

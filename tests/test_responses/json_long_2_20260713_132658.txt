@@ -1,0 +1,17 @@
+{
+  "word": "Essential",
+  "phonetic": "/ɪˈsenʃəl/",
+  "fa_meaning": "ضروری، حیاتی",
+  "fa_explanation": "به چیزی گفته می‌شود که بسیار مهم است و نمی‌توان بدون آن کار را انجام داد یا زندگی کرد.",
+  "synonyms": ["necessary", "crucial", "vital"],
+  "antonyms": ["optional", "unimportant"],
+  "examples": [
+    "Water is essential for life.",
+    "It is essential to arrive on time for the meeting."
+  ],
+  "example_translations": [
+    "آب برای زندگی ضروری است.",
+    "رسیدن به موقع برای جلسه ضروری است."
+  ],
+  "grammar_tip": "این کلمه معمولاً قبل از اسم (essential part) یا بعد از فعل‌های ربطی مثل be می‌آید."
+}
