@@ -716,7 +716,7 @@ a separate lesson system.
   general estimate of how many words they know, separate from bot progress
   metrics.
 - AI Mini Quizzes after the MVP above proves stable:
-  - weekly public challenge quizzes for all users or by language/level;
+  - weekly public challenge quizzes for all users or by language/level/goal;
   - placement quizzes to estimate current proficiency;
   - vocabulary-knowledge estimation quizzes with their own scoring model;
   - card-driven quizzes based on a user's saved vocabulary and grammar history.
