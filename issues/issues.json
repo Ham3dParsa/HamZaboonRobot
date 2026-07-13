@@ -191,5 +191,43 @@
     ],
     "evidence": "Card flows currently lack the proposed per-card feedback buttons and any follow-up scheduling based on those responses.",
     "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "daily card count should be user-configurable up to the plan maximum and tied to streak completion",
+    "module": "bot.py / db.py / keyboards.py / config.py",
+    "func": "daily card limits / streak tracking",
+    "problem": "Users should be able to choose how many daily cards they want to receive, as long as the number stays within their subscription plan ceiling. The streak rule should then respect that chosen target instead of a fixed allowance.",
+    "solution": "Add a per-user daily-card target bounded by the active plan maximum, persist it, and use it as the completion gate for streak updates and daily planning. Keep the exact UI and streak-trigger details open for a later phase.",
+    "priority": "medium",
+    "note": "Future customization item; the exact streak trigger is intentionally not locked yet.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 49,
+    "roadmap_refs": [
+      "adaptive-srs-core"
+    ],
+    "evidence": "Current daily-card quotas are plan-bounded but not user-configurable, and streak updates are not keyed off a per-user target card count.",
+    "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "add minimal network error handling for bot requests",
+    "module": "bot.py / ai.py / db.py",
+    "func": "network requests / Telegram delivery / AI calls",
+    "problem": "Transient network failures can bubble up as generic errors without a small, consistent recovery path or a user-friendly fallback.",
+    "solution": "Add lightweight retry or fallback handling for temporary network issues around Telegram and AI requests, keeping the scope minimal and focused on avoiding unnecessary user-visible failures.",
+    "priority": "low",
+    "note": "Keep the fix small; this is not a full reliability overhaul.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 50,
+    "roadmap_refs": [
+      "reliability-hardening"
+    ],
+    "evidence": "There is no single minimal network-error policy covering bot requests end-to-end, even though some paths already retry.",
+    "last_reviewed": "2026-07-13"
   }
 ]
