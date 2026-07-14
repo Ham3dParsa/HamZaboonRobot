@@ -713,3 +713,26 @@ Keep streak and retention metrics separate from gamification, then add a premium
 
 ## Note
 Premium-only by product choice; do not blend it with the learning score.
+
+---
+
+# card failure reasons need durable telemetry and operator reporting
+
+- ID: 70
+- Module: ai.py / bot.py / db.py / ROADMAP.md
+- Function: batch validation / Telegram rendering / delivery error reporting
+- Priority: high
+- Status: Open
+- Category: tech-debt
+- Phase: phase-6
+- Roadmap refs: adaptive-srs-core, reliability-and-data-lifecycle
+- Evidence: Current ai._log_llm_request logs batch validation reasons, bot.py logs BadRequest/parse-mode failures, and delivery_queue.last_error keeps only per-row send errors; there is no single durable report table or dashboard section that aggregates these causes.
+
+## Problem
+Validation rejections, MarkdownV2 parse errors, and delivery failures are mostly visible only in logs, so operators cannot quickly answer why cards failed or whether the root cause is generation quality, formatting, or transport.
+
+## Solution
+Persist structured failure events with stage, user, request kind, error class, and compact diagnostics; expose the top reasons in the owner dashboard; and keep raw logs as a fallback rather than the primary report source.
+
+## Note
+Urgent reliability work: the reporting surface should separate AI-quality problems from Telegram formatting/send failures.

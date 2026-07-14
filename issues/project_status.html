@@ -431,7 +431,8 @@
                 "Resolve issues 42-47, 49, 50, and 59-63",
                 "Add focused reliability and progress tests",
                 "Plan staged handler and formatting module boundaries",
-                "Design the premium reward surface"
+                "Design the premium reward surface",
+                "Add durable failure telemetry and operator reporting"
             ],
             "acceptance_criteria": [
                 "Restart does not resend completed work",
@@ -456,7 +457,8 @@
                 61,
                 62,
                 63,
-                66
+                66,
+                70
             ],
             "roadmap_anchor": "phase-6-reliable-delivery-concurrency-and-data-lifecycle"
         },
@@ -1360,6 +1362,34 @@
         "last_reviewed": "2026-07-14",
         "depends_on": [
             45
+        ]
+    },
+    {
+        "title": "card failure reasons need durable telemetry and operator reporting",
+        "category": "tech-debt",
+        "module": "ai.py / bot.py / db.py / ROADMAP.md",
+        "func": "batch validation / Telegram rendering / delivery error reporting",
+        "problem": "Validation rejections, MarkdownV2 parse errors, and delivery failures are mostly visible only in logs, so operators cannot quickly answer why cards failed or whether the root cause is generation quality, formatting, or transport.",
+        "solution": "Persist structured failure events with stage, user, request kind, error class, and compact diagnostics; expose the top reasons in the owner dashboard; and keep raw logs as a fallback rather than the primary report source.",
+        "priority": "high",
+        "note": "Urgent reliability work: the reporting surface should separate AI-quality problems from Telegram formatting/send failures.",
+        "resolved": false,
+        "status": "open",
+        "detailOpen": false,
+        "editing": false,
+        "id": 70,
+        "phase": "phase-6",
+        "roadmap_refs": [
+            "adaptive-srs-core",
+            "reliability-and-data-lifecycle"
+        ],
+        "decision_refs": [],
+        "evidence": "Current ai._log_llm_request logs batch validation reasons, bot.py logs BadRequest/parse-mode failures, and delivery_queue.last_error keeps only per-row send errors; there is no single durable report table or dashboard section that aggregates these causes.",
+        "last_reviewed": "2026-07-14",
+        "depends_on": [
+            59,
+            60,
+            61
         ]
     }
 ];
