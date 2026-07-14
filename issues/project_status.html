@@ -5,72 +5,234 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HamZaboon Project Status</title>
   <style>
-    :root { color-scheme: light; --ink:#10243f; --muted:#64748b; --line:#dbe4ee; --panel:#fff; --accent:#1f4f70; --bg:#f4f7fb; }
+    :root {
+      color-scheme: light;
+      --ink:#10243f;
+      --muted:#64748b;
+      --line:#dbe4ee;
+      --panel:#fff;
+      --accent:#1f4f70;
+      --bg:#f4f7fb;
+      --shadow:0 20px 45px rgba(15, 43, 75, 0.08);
+    }
     * { box-sizing:border-box; }
-    body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    main { max-width:1400px; margin:0 auto; padding:28px; }
-    header { background:linear-gradient(135deg,#173e5b,#2f6d8a); color:#fff; border-radius:20px; padding:28px; margin-bottom:20px; }
-    h1,h2,h3 { margin:0 0 8px; } h1 { font-size:32px; } h2 { font-size:22px; } h3 { font-size:17px; }
-    p { margin:6px 0; } .muted { color:var(--muted); } header .muted { color:#dcebf5; }
-    .legend,.filters,.grid,.phase-list,.decision-list { display:grid; gap:14px; }
-    .legend { grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); margin-top:18px; }
-    .legend div,.panel,.phase,.decision,.issue { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; }
-    .legend strong { display:block; font-size:24px; }
-    .filters { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); margin:20px 0; }
+    body {
+      margin:0;
+      background:var(--bg);
+      color:var(--ink);
+      font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    }
+    main { max-width:1800px; margin:0 auto; padding:24px; }
+    h1,h2,h3,p { margin:0; }
+    h1 { font-size:30px; }
+    h2 { font-size:21px; }
+    h3 { font-size:16px; }
+    .muted { color:var(--muted); }
+    .dashboard-shell {
+      display:grid;
+      grid-template-columns:minmax(250px, 280px) 1fr;
+      gap:24px;
+      align-items:start;
+    }
+    .sidebar {
+      position:sticky;
+      top:18px;
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+    }
+    .brand,
+    .panel,
+    .hero,
+    .phase-card,
+    .decision-card {
+      background:var(--panel);
+      border:1px solid var(--line);
+      border-radius:18px;
+      box-shadow:var(--shadow);
+    }
+    .brand {
+      padding:18px 18px 16px;
+      display:flex;
+      align-items:center;
+      gap:12px;
+    }
+    .brand-mark {
+      width:44px;
+      height:44px;
+      border-radius:14px;
+      background:linear-gradient(135deg,#173e5b,#2f6d8a);
+      color:#fff;
+      display:grid;
+      place-items:center;
+      font-weight:700;
+      font-size:18px;
+    }
+    .brand p { font-size:13px; color:var(--muted); margin-top:2px; }
+    .panel { padding:16px; }
+    .panel h2 { margin-bottom:12px; font-size:17px; }
+    .filters { display:grid; gap:10px; }
     label { display:flex; flex-direction:column; gap:5px; color:var(--muted); font-size:13px; }
-    select,input { border:1px solid var(--line); border-radius:9px; padding:10px; color:var(--ink); background:#fff; font:inherit; }
-    .phase-list { grid-template-columns:repeat(auto-fit,minmax(310px,1fr)); }
-    .phase header { background:none; color:var(--ink); padding:0; margin:0 0 12px; border-radius:0; }
-    .phase-meta,.issue-meta { display:flex; flex-wrap:wrap; gap:7px; margin:8px 0; }
-    .pill { display:inline-block; border-radius:999px; padding:3px 9px; background:#eaf2fb; color:var(--accent); font-size:12px; }
-    .status-complete { background:#dcfce7; color:#166534; } .status-in-progress { background:#fef3c7; color:#92400e; }
-    .status-planned,.status-deferred { background:#e2e8f0; color:#475569; } .status-blocked { background:#fee2e2; color:#991b1b; }
-    .bucket { margin-top:12px; } .bucket h4 { margin:0 0 4px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
-    ul { margin:6px 0 0; padding-left:20px; } .issue-list { display:grid; gap:12px; }
-    .issue h3 { margin-bottom:4px; } .issue a { color:var(--accent); text-decoration:none; }
-    .empty { padding:25px; text-align:center; color:var(--muted); }
-    footer { margin-top:22px; color:var(--muted); font-size:13px; }
+    select,input,button { font:inherit; }
+    select,input {
+      border:1px solid var(--line);
+      border-radius:10px;
+      padding:10px 12px;
+      color:var(--ink);
+      background:#fff;
+      width:100%;
+    }
+    .toggle-stack { display:grid; gap:8px; }
+    .toggle {
+      border:1px solid var(--line);
+      background:#f8fbff;
+      color:var(--ink);
+      border-radius:999px;
+      padding:10px 12px;
+      cursor:pointer;
+      text-align:left;
+      transition:all 0.2s ease;
+    }
+    .toggle:hover { border-color:#b7c8db; }
+    .toggle.active {
+      background:var(--accent);
+      color:#fff;
+      border-color:var(--accent);
+    }
+    .legend { display:grid; gap:10px; }
+    .legend-item { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--line); }
+    .legend-item:last-child { border-bottom:none; padding-bottom:0; }
+    .legend-item strong { font-size:20px; }
+    .main-content { display:flex; flex-direction:column; gap:20px; }
+    .hero { padding:22px 24px; background:linear-gradient(135deg,#173e5b,#2f6d8a); color:#fff; }
+    .hero p { color:#dcebf5; margin-top:6px; }
+    .phase-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:18px; }
+    .phase-card { overflow:hidden; }
+    .phase-header {
+      width:100%;
+      border:0;
+      background:transparent;
+      padding:16px 18px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      text-align:left;
+      cursor:pointer;
+      color:inherit;
+    }
+    .phase-header:hover { background:#f8fbff; }
+    .phase-title-wrap { display:flex; flex-direction:column; gap:3px; }
+    .phase-id { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--accent); }
+    .phase-actions { display:flex; align-items:center; gap:8px; }
+    .phase-toggle-icon { font-size:18px; color:var(--muted); }
+    .phase-body { display:none; padding:0 18px 18px; }
+    .phase-card.phase-expanded .phase-body { display:block; }
+    .phase-meta,.issue-meta { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 0; }
+    .pill {
+      display:inline-flex;
+      align-items:center;
+      border-radius:999px;
+      padding:3px 9px;
+      background:#eaf2fb;
+      color:var(--accent);
+      font-size:12px;
+      font-weight:600;
+      white-space:nowrap;
+    }
+    .status-complete { background:#dcfce7; color:#166534; }
+    .status-in-progress { background:#fef3c7; color:#92400e; }
+    .status-planned,.status-deferred { background:#e2e8f0; color:#475569; }
+    .status-blocked { background:#fee2e2; color:#991b1b; }
+    .bucket { margin-top:14px; }
+    .bucket h4 { margin:0 0 4px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+    ul { margin:6px 0 0; padding-left:20px; }
+    .issue-card {
+      background:#f8fbff;
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:12px 14px;
+      margin-top:10px;
+    }
+    .issue-card h4 { margin-bottom:4px; }
+    .issue-card p { margin-top:4px; }
+    .decision-section { display:flex; flex-direction:column; gap:12px; }
+    .decision-card { padding:16px 18px; }
+    .decision-card + .decision-card { margin-top:4px; }
+    .empty-state {
+      padding:26px;
+      text-align:center;
+      color:var(--muted);
+      background:var(--panel);
+      border:1px dashed var(--line);
+      border-radius:16px;
+    }
+    footer { max-width:1800px; margin:0 auto; padding:0 24px 24px; color:var(--muted); font-size:13px; }
+    @media (max-width:1120px) {
+      .dashboard-shell { grid-template-columns:1fr; }
+      .sidebar { position:relative; top:auto; }
+    }
   </style>
 </head>
 <body>
-<main>
-  <header>
-    <h1>HamZaboon Project Status</h1>
-    <p class="muted">Read-only view of the roadmap index and canonical engineering issue registry.</p>
-    <div class="legend">
-      <div><strong id="phaseCount">0</strong> phases</div>
-      <div><strong id="issueCount">0</strong> issues</div>
-      <div><strong id="openCount">0</strong> open or partial</div>
-      <div><strong id="decisionCount">0</strong> decisions</div>
+<main class="dashboard-shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">H</div>
+      <div>
+        <h1>HamZaboon</h1>
+        <p>Project status dashboard</p>
+      </div>
     </div>
-  </header>
 
-  <section class="panel">
-    <div class="filters">
-      <label>Phase<select id="phaseFilter"><option value="all">All phases</option></select></label>
-      <label>Category<select id="categoryFilter"><option value="all">All categories</option></select></label>
-      <label>Issue status<select id="statusFilter"><option value="all">All statuses</option></select></label>
-      <label>Priority<select id="priorityFilter"><option value="all">All priorities</option></select></label>
-      <label>Search<input id="searchFilter" type="search" placeholder="Title, module, or reference"></label>
-    </div>
-  </section>
+    <section class="panel">
+      <h2>Filters</h2>
+      <div class="filters">
+        <label>Phase<select id="phaseFilter"><option value="all">All phases</option></select></label>
+        <label>Category<select id="categoryFilter"><option value="all">All categories</option></select></label>
+        <label>Issue status<select id="statusFilter"><option value="all">All statuses</option></select></label>
+        <label>Priority<select id="priorityFilter"><option value="all">All priorities</option></select></label>
+        <label>Search<input id="searchFilter" type="search" placeholder="Title, module, or reference"></label>
+      </div>
+    </section>
 
-  <section>
-    <h2>Phase board</h2>
-    <div id="phaseBoard" class="phase-list"></div>
-  </section>
+    <section class="panel">
+      <h2>Quick actions</h2>
+      <div class="toggle-stack">
+        <button type="button" class="toggle" id="hideCompletedToggle" data-state-key="hideCompleted">Hide completed phases</button>
+        <button type="button" class="toggle" id="highPriorityToggle" data-state-key="highPriorityOnly">Show only high-priority issues</button>
+        <button type="button" class="toggle" id="focusModeToggle" data-state-key="focusMode">Focus mode</button>
+      </div>
+    </section>
 
-  <section style="margin-top:24px">
-    <h2>Decision locks</h2>
-    <div id="decisionBoard" class="decision-list"></div>
-  </section>
+    <section class="panel">
+      <h2>Summary</h2>
+      <div class="legend">
+        <div class="legend-item"><span>Phases</span><strong id="phaseCount">0</strong></div>
+        <div class="legend-item"><span>Issues</span><strong id="issueCount">0</strong></div>
+        <div class="legend-item"><span>Open/partial</span><strong id="openCount">0</strong></div>
+        <div class="legend-item"><span>Decisions</span><strong id="decisionCount">0</strong></div>
+      </div>
+    </section>
+  </aside>
 
-  <section style="margin-top:24px">
-    <h2>Engineering records</h2>
-    <div id="issueBoard" class="issue-list"></div>
+  <section class="main-content">
+    <header class="hero">
+      <h2>Roadmap and engineering backlog</h2>
+      <p>Use the sidebar controls to focus on specific phases, issue types, and high-priority work.</p>
+    </header>
+
+    <section>
+      <div id="phaseBoard" class="phase-list"></div>
+    </section>
+
+    <section class="decision-section">
+      <h2>Decision locks</h2>
+      <div id="decisionBoard"></div>
+    </section>
   </section>
-  <footer>Canonical sources: <code>project_status.json</code> for phases and decisions; <code>issues/issues.json</code> for issue state. This page has no editing or browser-persisted workflow.</footer>
 </main>
+<footer>Canonical sources: <code>project_status.json</code> for phases and decisions; <code>issues/issues.json</code> for issue state. This page has no editing or browser-persisted workflow.</footer>
 <script>
         // BEGIN GENERATED PROJECT STATUS DATA
         const PROJECT_STATUS_DATA = {
@@ -1058,27 +1220,46 @@
 ];
         // END GENERATED ISSUE DATA
 
-const state = { phase:"all", category:"all", status:"all", priority:"all", search:"" };
+const state = {
+  phase:"all",
+  category:"all",
+  status:"all",
+  priority:"all",
+  search:"",
+  hideCompleted:false,
+  highPriorityOnly:false,
+  focusMode:false,
+  expandedPhaseId:null
+};
 const label = value => value.replaceAll("-", " ");
 const esc = value => String(value ?? "").replace(/[&<>"']/g, ch => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[ch]));
 function setOptions(id, values, allLabel) {
   const select = document.getElementById(id);
   select.innerHTML = `<option value="all">${allLabel}</option>` + values.sort().map(value => `<option value="${esc(value)}">${esc(label(value))}</option>`).join("");
 }
+function applyToggleState() {
+  document.querySelectorAll(".toggle").forEach(button => {
+    const key = button.getAttribute("data-state-key");
+    const active = Boolean(state[key]);
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
 function visibleIssues() {
   const query = state.search.trim().toLowerCase();
   return ISSUES_DATA.filter(issue => {
     const text = [issue.title, issue.module, issue.problem, ...(issue.roadmap_refs || [])].join(" ").toLowerCase();
+    const highPriorityMatch = !state.highPriorityOnly || issue.priority === "high";
     return (state.phase === "all" || issue.phase === state.phase)
       && (state.category === "all" || issue.category === state.category)
       && (state.status === "all" || issue.status === state.status)
-      && (state.priority === "all" || issue.priority === state.priority)
+      && highPriorityMatch
       && (!query || text.includes(query));
   });
 }
 function issueCard(issue) {
-  return `<article class="issue">
-    <h3><a href="#issue-${issue.id}">#${issue.id}</a> ${esc(issue.title)}</h3>
+  return `<article class="issue-card">
+    <h4>#${issue.id} ${esc(issue.title)}</h4>
     <div class="issue-meta">
       <span class="pill">${esc(label(issue.category))}</span><span class="pill">${esc(label(issue.status))}</span>
       <span class="pill">${esc(label(issue.priority))}</span><span class="pill">${esc(issue.phase || "unassigned")}</span>
@@ -1092,39 +1273,91 @@ function itemList(items) {
     ? `<ul>${items.map(item => `<li>${esc(item)}</li>`).join("")}</ul>`
     : `<p class="muted">None.</p>`;
 }
+function visiblePhases(issues) {
+  return PROJECT_STATUS_DATA.phases.filter(phase => {
+    if (state.phase !== "all" && phase.id !== state.phase) {
+      return false;
+    }
+    if (state.hideCompleted && phase.status === "complete") {
+      return false;
+    }
+    return issues.some(issue => issue.phase === phase.id);
+  });
+}
 function phaseCard(phase, issues) {
   const phaseIssues = issues.filter(issue => issue.phase === phase.id);
-  const ids = new Set(phase.issue_ids || []);
-  const linked = ISSUES_DATA.filter(issue => ids.has(issue.id));
-  const issueText = linked.length ? linked.map(issue => `#${issue.id} ${esc(issue.title)}`).join("<br>") : "No engineering records linked.";
-  return `<article class="phase">
-    <header><h3>${esc(phase.id)} — ${esc(phase.name)}</h3><span class="pill status-${esc(phase.status)}">${esc(label(phase.status))}</span></header>
-    <p>${esc(phase.objective)}</p>
-    <div class="phase-meta">${(phase.depends_on || []).map(dep => `<span class="pill">depends on ${esc(dep)}</span>`).join("")}</div>
-    <div class="bucket"><h4>Done</h4>${itemList(phase.done)}</div>
-    <div class="bucket"><h4>In progress</h4>${itemList(phase.in_progress)}</div>
-    <div class="bucket"><h4>To-do</h4>${itemList(phase.todo)}</div>
-    <div class="bucket"><h4>Acceptance criteria</h4>${itemList(phase.acceptance_criteria)}</div>
-    <div class="bucket"><h4>Linked issues</h4><p>${issueText}</p></div>
-    <div class="bucket"><h4>Linked visible issues</h4><p class="muted">${phaseIssues.length} record(s) match this phase.</p></div>
+  const linkedIssues = (phase.issue_ids || [])
+    .map(id => ISSUES_DATA.find(issue => issue.id === id))
+    .filter(Boolean);
+  const isExpanded = state.expandedPhaseId === phase.id;
+  return `<article class="phase-card ${isExpanded ? "phase-expanded" : "phase-collapsed"}">
+    <button class="phase-header" type="button" data-phase-id="${phase.id}" aria-expanded="${isExpanded ? "true" : "false"}">
+      <div class="phase-title-wrap">
+        <span class="phase-id">${esc(phase.id)}</span>
+        <h3>${esc(phase.name)}</h3>
+      </div>
+      <div class="phase-actions">
+        <span class="pill status-${esc(phase.status)}">${esc(label(phase.status))}</span>
+        <span class="phase-toggle-icon">${isExpanded ? "▾" : "▸"}</span>
+      </div>
+    </button>
+    <div class="phase-body">
+      <p>${esc(phase.objective)}</p>
+      <div class="phase-meta">${(phase.depends_on || []).map(dep => `<span class="pill">depends on ${esc(dep)}</span>`).join("")}</div>
+      <div class="bucket"><h4>Done</h4>${itemList(phase.done)}</div>
+      <div class="bucket"><h4>In progress</h4>${itemList(phase.in_progress)}</div>
+      <div class="bucket"><h4>To-do</h4>${itemList(phase.todo)}</div>
+      <div class="bucket"><h4>Acceptance criteria</h4>${itemList(phase.acceptance_criteria)}</div>
+      <div class="bucket"><h4>Linked issues</h4>${linkedIssues.length ? `<div class="issue-list">${phaseIssues.map(issueCard).join("")}</div>` : `<p class="muted">No issues linked</p>`}</div>
+      ${phaseIssues.length ? "" : `<p class="muted">No issues match the current filters.</p>`}
+    </div>
   </article>`;
 }
 function render() {
   const issues = visibleIssues();
+  const phasesToRender = visiblePhases(issues);
+  if (state.focusMode && phasesToRender.length) {
+    if (!state.expandedPhaseId || !phasesToRender.some(phase => phase.id === state.expandedPhaseId)) {
+      state.expandedPhaseId = phasesToRender[0].id;
+    }
+    phasesToRender.splice(0, phasesToRender.length, ...phasesToRender.filter(phase => phase.id === state.expandedPhaseId));
+  }
   document.getElementById("phaseCount").textContent = PROJECT_STATUS_DATA.phases.length;
   document.getElementById("issueCount").textContent = ISSUES_DATA.length;
   document.getElementById("openCount").textContent = ISSUES_DATA.filter(issue => ["open","partial"].includes(issue.status)).length;
   document.getElementById("decisionCount").textContent = PROJECT_STATUS_DATA.decisions.length;
-  document.getElementById("phaseBoard").innerHTML = PROJECT_STATUS_DATA.phases
-    .filter(phase => state.phase === "all" || phase.id === state.phase)
-    .map(phase => phaseCard(phase, issues)).join("") || `<div class="empty">No phases match the filter.</div>`;
+  document.getElementById("phaseBoard").innerHTML = phasesToRender.length
+    ? phasesToRender.map(phase => phaseCard(phase, issues)).join("")
+    : `<div class="empty-state">No phases match the current filters.</div>`;
   document.getElementById("decisionBoard").innerHTML = PROJECT_STATUS_DATA.decisions.map(decision =>
-    `<article class="decision"><h3>${esc(decision.title)}</h3><div class="phase-meta"><span class="pill">${esc(label(decision.status))}</span><span class="pill">${esc(decision.phase)}</span></div><p>${esc(decision.summary)}</p></article>`
+    `<article class="decision-card"><h3>${esc(decision.title)}</h3><div class="phase-meta"><span class="pill">${esc(label(decision.status))}</span><span class="pill">${esc(decision.phase)}</span></div><p>${esc(decision.summary)}</p></article>`
   ).join("");
-  document.getElementById("issueBoard").innerHTML = issues.map(issueCard).join("") || `<div class="empty">No issues match the filters.</div>`;
+  applyToggleState();
 }
 ["phase","category","status","priority"].forEach(key => document.getElementById(`${key}Filter`).addEventListener("change", event => { state[key] = event.target.value; render(); }));
 document.getElementById("searchFilter").addEventListener("input", event => { state.search = event.target.value; render(); });
+document.querySelectorAll(".toggle").forEach(button => {
+  button.addEventListener("click", () => {
+    const key = button.getAttribute("data-state-key");
+    state[key] = !state[key];
+    render();
+  });
+});
+document.getElementById("phaseBoard").addEventListener("click", event => {
+  const header = event.target.closest(".phase-header");
+  if (!header) {
+    return;
+  }
+  const phaseId = header.getAttribute("data-phase-id");
+  if (state.focusMode) {
+    state.expandedPhaseId = phaseId;
+  } else if (state.expandedPhaseId === phaseId) {
+    state.expandedPhaseId = null;
+  } else {
+    state.expandedPhaseId = phaseId;
+  }
+  render();
+});
 setOptions("phaseFilter", PROJECT_STATUS_DATA.phases.map(phase => phase.id), "All phases");
 setOptions("categoryFilter", PROJECT_STATUS_DATA.status_model.issue_categories, "All categories");
 setOptions("statusFilter", PROJECT_STATUS_DATA.status_model.issue_statuses, "All statuses");
