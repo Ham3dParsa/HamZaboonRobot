@@ -37,6 +37,15 @@ class CatalogTests(unittest.TestCase):
         self.assertIn('"w":', prompt)
         self.assertIn("فقط همین کلیدها", prompt)
         self.assertNotIn('"word":', prompt)
+        self.assertIn("دقیقاً دو مثال", prompt)
+        self.assertIn('"e":["جمله اول', prompt)
+        self.assertIn('"t":["ترجمه فارسی جمله اول', prompt)
+
+    def test_default_batch_prompt_declares_rich_card_contract(self):
+        prompt = daily_batch_system_prompt("en", "general", "beginner", 6)
+        self.assertIn('"examples": [', prompt)
+        self.assertIn("جمله نمونه دوم", prompt)
+        self.assertIn("حداقل دو مورد متفاوت", prompt)
 
     def test_grammar_prompt_can_avoid_recent_topics(self):
         prompt = grammar_tip_system_prompt(

@@ -317,44 +317,57 @@ def _user_plan_label(row) -> str:
     return actual
 
 
-def format_card(data: dict, footer: str = "") -> str:
+def format_card(
+    data: dict,
+    footer: str = "",
+    *,
+    presentation: str = "detailed",
+) -> str:
+    if presentation not in {"brief", "detailed"}:
+        raise ValueError("presentation must be 'brief' or 'detailed'")
+
     word = escape_mdv2(data.get("word", ""))
     phon = escape_mdv2_code(data.get("phonetic", ""))
     fa_meaning = escape_mdv2(data.get("fa_meaning", ""))
     fa_expl = escape_mdv2(data.get("fa_explanation", ""))
-    
-    syn_list = [escape_mdv2(s) for s in (data.get("synonyms") or [])]
-    ant_list = [escape_mdv2(s) for s in (data.get("antonyms") or [])]
-    syn = "، ".join(syn_list) or "—"
-    ant = "، ".join(ant_list) or "—"
-    
-    examples = data.get("examples") or []
-    ex_text = "\n".join(f"• {escape_mdv2(e)}" for e in examples) if examples else ""
-    
-    grammar_tip = escape_mdv2(data.get("grammar_tip", ""))
 
-    lines = [f"*{word}*"]  # کلمه اصلی
+    lines = [f"*{word}*"]
 
     if phon:
         lines.append(f"`{phon}`")
 
     lines.append(f"\n🇮🇷 *{fa_meaning}*")
-    
+
     if fa_expl:
         lines.append(f"_{fa_expl}_")
-    
+
+    if presentation == "brief":
+        if footer:
+            lines.append(f"\n{escape_mdv2(footer)}")
+        return "\n".join(lines)
+
+    syn_list = [escape_mdv2(s) for s in (data.get("synonyms") or [])]
+    ant_list = [escape_mdv2(s) for s in (data.get("antonyms") or [])]
+    syn = "، ".join(syn_list) or "—"
+    ant = "، ".join(ant_list) or "—"
+
+    examples = (data.get("examples") or [])[:2]
+    ex_text = "\n".join(f"• {escape_mdv2(e)}" for e in examples) if examples else ""
+
+    grammar_tip = escape_mdv2(data.get("grammar_tip", ""))
+
     lines.append(f"\n🟢 *مترادف:* {syn}")
     lines.append(f"🔴 *متضاد:* {ant}")
-    
+
     if ex_text:
         lines.append(f"\n*مثال‌ها:*\n{ex_text}")
-    
+
     if grammar_tip:
         lines.append(f"\n✍️ *نکته‌ی گرامری:*\n{grammar_tip}")
-    
+
     if footer:
         lines.append(f"\n{escape_mdv2(footer)}")
-    
+
     return "\n".join(lines)
 
 

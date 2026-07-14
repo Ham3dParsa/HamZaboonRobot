@@ -108,18 +108,17 @@
       "done": [
         "Persisted next-card flow",
         "Cached-card rendering",
-        "Internal compact JSON separation"
+        "Internal compact JSON separation",
+        "Content-richness validation contract",
+        "Deterministic brief/detailed card renderer",
+        "Project-status tooling"
       ],
       "in_progress": [
-        "Project-status tooling",
-        "Brief/detailed presentation contract"
+        "Translation reveal",
+        "Rendering regression contracts"
       ],
       "todo": [
-        "Translation reveal",
-        "Content-richness restoration",
-        "Premium presentation controls",
-        "Rendering regression contracts",
-        "Local project-status editor"
+        "Premium presentation controls"
       ],
       "acceptance_criteria": [
         "Callbacks are user-scoped and restart-safe",
