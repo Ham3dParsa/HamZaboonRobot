@@ -255,9 +255,14 @@ class CustomWordQueryTests(unittest.TestCase):
             },
             translations_prepared=True,
         )
-        self.assertIn("||", text)
-        self.assertIn("Hello", text)
-        self.assertIn("سلام اول", text)
+        lines = [line for line in text.splitlines() if line]
+        self.assertIn("> Hello\\!\\.", lines)
+        self.assertIn("> Hi\\!\\.", lines)
+        self.assertIn("||سلام اول\\.||", lines)
+        self.assertIn("||سلام دوم\\.||", lines)
+        self.assertNotIn("•", text)
+        self.assertNotIn("— ||", text)
+        self.assertNotIn("Hello!. —", text)
 
     def test_format_card_rejects_unknown_presentation(self):
         with self.assertRaises(ValueError):
