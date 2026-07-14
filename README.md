@@ -33,8 +33,12 @@ python bot.py
 - `scheduling.py` — برنامه‌ریزی pure برای sessionهای روزانه و ظرفیت slotها.
 - `keyboards.py` — reply/inline keyboardها و callbackهای کوتاه.
 - `bot.py` — handlerهای تلگرام، orchestration، صف ارسال، SRS و retryهای Telegram.
-- `issues/issues.json` — منبع canonical وضعیت bug/riskها؛ برای اعتبارسنجی از
-  `issues/validate.py check` استفاده کن.
+- `issues/issues.json` — منبع canonical رکوردهای engineering شامل feature،
+  bug، risk، research و decision؛ برای اعتبارسنجی از `issues/validate.py check`
+  استفاده کن.
+- `project_status.json` — فهرست machine-readable فازها، وابستگی‌ها و
+  decision lockها؛ داشبورد read-only در `issues/project_status.html` از این
+  فایل و `issues/issues.json` ساخته می‌شود.
 
 ## کنترل هزینه و کیفیت AI
 
