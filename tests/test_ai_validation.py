@@ -12,8 +12,8 @@ def valid_card(word: str) -> dict:
         "fa_explanation": "توضیح",
         "synonyms": [],
         "antonyms": [],
-        "examples": ["Example."],
-        "example_translations": ["مثال."],
+        "examples": ["Example one.", "Example two."],
+        "example_translations": ["مثال اول.", "مثال دوم."],
         "grammar_tip": "",
     }
 
@@ -27,13 +27,40 @@ class BatchValidationTests(unittest.TestCase):
             "x": "توضیح",
             "s": [],
             "a": [],
-            "e": ["Hello."],
-            "t": ["سلام."],
+            "e": ["Hello one.", "Hello two."],
+            "t": ["سلام اول.", "سلام دوم."],
             "g": "",
         }
 
         self.assertEqual(ai.validate_card(compact)["word"], "hello")
         self.assertIn("example_translations", ai.validate_card(compact))
+
+    def test_card_validation_requires_exactly_two_paired_examples(self):
+        card = valid_card("hello")
+        card["examples"] = ["Example."]
+        card["example_translations"] = ["مثال."]
+        with self.assertRaisesRegex(ai.CardValidationError, "exactly two"):
+            ai.validate_card(card)
+
+        card = valid_card("hello")
+        card["example_translations"] = ["مثال اول."]
+        with self.assertRaisesRegex(ai.CardValidationError, "exactly two"):
+            ai.validate_card(card)
+
+    def test_populated_synonym_and_antonym_lists_need_two_distinct_items(self):
+        card = valid_card("hello")
+        card["synonyms"] = ["hi"]
+        with self.assertRaisesRegex(ai.CardValidationError, "synonyms"):
+            ai.validate_card(card)
+
+        card = valid_card("hello")
+        card["antonyms"] = ["bye", " BYE "]
+        with self.assertRaisesRegex(ai.CardValidationError, "antonyms"):
+            ai.validate_card(card)
+
+    def test_empty_optional_synonym_and_antonym_lists_remain_valid(self):
+        card = valid_card("hello")
+        self.assertEqual(ai.validate_card(card)["word"], "hello")
 
     def test_six_compact_cards_validate_without_changing_batch_shape(self):
         cards = ai.validate_batch(
@@ -42,8 +69,8 @@ class BatchValidationTests(unittest.TestCase):
                     "w": f"word-{index}",
                     "m": "معنی",
                     "x": "توضیح",
-                    "e": [f"Example {index}."],
-                    "t": [f"مثال {index}."],
+                    "e": [f"Example {index} one.", f"Example {index} two."],
+                    "t": [f"مثال {index} اول.", f"مثال {index} دوم."],
                 }
                 for index in range(6)
             ],

@@ -150,6 +150,38 @@ class CustomWordQueryTests(unittest.TestCase):
         )
         self.assertIn("`hɛ.loʊ`", card)
 
+    def test_brief_and_detailed_render_the_same_card_at_different_detail_levels(self):
+        card = {
+            "word": "hello",
+            "phonetic": "hɛ.loʊ",
+            "fa_meaning": "سلام",
+            "fa_explanation": "برای سلام کردن استفاده می‌شود.",
+            "synonyms": ["hi", "greetings"],
+            "antonyms": [],
+            "examples": ["Example one.", "Example two.", "Extra example."],
+            "example_translations": ["مثال اول.", "مثال دوم.", "مثال اضافه."],
+            "grammar_tip": "یک نکته.",
+        }
+
+        detailed = format_card(card, presentation="detailed")
+        brief = format_card(card, presentation="brief")
+
+        self.assertIn("Example one", detailed)
+        self.assertIn("Example two", detailed)
+        self.assertNotIn("Extra example", detailed)
+        self.assertIn("greetings", detailed)
+        self.assertIn("یک نکته", detailed)
+        self.assertIn("hello", brief)
+        self.assertIn("سلام", brief)
+        self.assertIn("برای سلام کردن", brief)
+        self.assertNotIn("Example one", brief)
+        self.assertNotIn("greetings", brief)
+        self.assertNotIn("یک نکته", brief)
+
+    def test_format_card_rejects_unknown_presentation(self):
+        with self.assertRaises(ValueError):
+            format_card({"word": "hello"}, presentation="compact")
+
 
 if __name__ == "__main__":
     unittest.main()

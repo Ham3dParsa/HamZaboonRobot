@@ -125,17 +125,16 @@ separate concepts and must not be conflated.
 - Persisted next-card flow
 - Cached-card rendering
 - Internal compact JSON separation
+- Content-richness validation contract
+- Deterministic brief/detailed card renderer
+- Project-status tooling
 
 **In progress**
-- Project-status tooling
-- Brief/detailed presentation contract
+- Translation reveal
+- Rendering regression contracts
 
 **To-do**
-- Translation reveal
-- Content-richness restoration
 - Premium presentation controls
-- Rendering regression contracts
-- Local project-status editor
 
 **Acceptance criteria**
 - Callbacks are user-scoped and restart-safe
@@ -321,9 +320,9 @@ Completed on the current main branch:
   wire format with a rollback-only `json` mode; this serialization choice is
   deliberately independent from learner-facing card detail.
 - The compact JSON rollout preserved the canonical storage contract, but its
-  prompt template also relaxed the prior card-richness examples; recovery of
-  examples and optional synonym/antonym counts is tracked in issues `54` and
-  `55`.
+  prompt template also relaxed the prior card-richness examples; translation
+  reveal remains tracked in issue `55` after the richness contract was restored
+  in issue `54`.
 - Daily batch validation now distinguishes provider success from a batch with
   no usable cards, records safe rejection diagnostics, and preserves the
   retry path.

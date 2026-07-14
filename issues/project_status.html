@@ -183,18 +183,17 @@
             "done": [
                 "Persisted next-card flow",
                 "Cached-card rendering",
-                "Internal compact JSON separation"
+                "Internal compact JSON separation",
+                "Content-richness validation contract",
+                "Deterministic brief/detailed card renderer",
+                "Project-status tooling"
             ],
             "in_progress": [
-                "Project-status tooling",
-                "Brief/detailed presentation contract"
+                "Translation reveal",
+                "Rendering regression contracts"
             ],
             "todo": [
-                "Translation reveal",
-                "Content-richness restoration",
-                "Premium presentation controls",
-                "Rendering regression contracts",
-                "Local project-status editor"
+                "Premium presentation controls"
             ],
             "acceptance_criteria": [
                 "Callbacks are user-scoped and restart-safe",
@@ -664,8 +663,8 @@
         "solution": "Add a deterministic presentation policy over the canonical stored card: detailed remains the default and renders two paired examples, while brief renders a shorter message without changing the card payload. Apply the policy to daily cards, queried cards, saved-word reminders, and pool-served cards. Rendering must not call the AI, mutate cached content, alter quota accounting, or create a second card schema.",
         "priority": "medium",
         "note": "Future product direction. The compact JSON format is an internal provider optimization and must remain independent from this learner-facing preference.",
-        "resolved": false,
-        "status": "open",
+        "resolved": true,
+        "status": "resolved",
         "detailOpen": false,
         "editing": false,
         "id": 51,
@@ -675,8 +674,8 @@
             "cost-control",
             "data-lifecycle"
         ],
-        "evidence": "The pre-compact prompts demonstrated two example/translation pairs and multiple optional synonym/antonym slots; the compact schema demonstrates one example pair and one optional slot. ai.py:validate_card accepts one non-empty example pair, and bot.py:format_card renders whatever counts the model returns without a brief/detailed policy.",
-        "last_reviewed": "2026-07-13",
+        "evidence": "Implemented bot.format_card(presentation='brief'|'detailed') over the existing canonical card payload. Detailed mode remains the default for daily, queried, saved/SRS, and other existing callers; brief mode renders only word, pronunciation, meaning, and explanation. The renderer performs no AI, quota, SRS, persistence, or schema work. Focused rendering tests pass.",
+        "last_reviewed": "2026-07-14",
         "decision_refs": [],
         "depends_on": []
     },
@@ -739,8 +738,8 @@
         "solution": "Keep compact aliases strictly as an internal serialization optimization, while restoring a separate content-richness contract. Generation should request two paired examples and, when synonyms or antonyms are meaningfully available, at least two distinct items for each populated list. Validation and focused tests should reject malformed pair counts and one-item populated synonym/antonym lists without rejecting genuinely unavailable optional fields. Batch and custom-word paths must share the same contract.",
         "priority": "high",
         "note": "Confirmed regression relative to commit c394115^; do not solve it by switching back to verbose JSON or by making optional educational fields mandatory when no meaningful item exists.",
-        "resolved": false,
-        "status": "open",
+        "resolved": true,
+        "status": "resolved",
         "detailOpen": false,
         "id": 54,
         "phase": "phase-4",
@@ -752,8 +751,8 @@
         "decision_refs": [
             "decision-compact-json"
         ],
-        "evidence": "c394115 changed prompts.py from two example/translation placeholders and multiple synonym/antonym placeholders to compact e/t/s/a placeholders with one example and explicit optionality. Current ai.py:validate_card requires only non-empty, equal-length examples and translations; bot.py:format_card displays all returned items without restoring the prior minimum.",
-        "last_reviewed": "2026-07-13",
+        "evidence": "prompts._card_schema now requests exactly two examples and translations in both compact and verbose formats. ai.validate_card requires exactly two paired examples and allows empty synonym/antonym lists while requiring at least two distinct items when populated. Focused compact-prompt, validation, batch, and rendering tests pass.",
+        "last_reviewed": "2026-07-14",
         "depends_on": []
     },
     {

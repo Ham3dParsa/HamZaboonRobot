@@ -174,6 +174,16 @@ def _text_list(data: Mapping[str, object], field: str, *, required: bool = False
     return result
 
 
+def _validate_optional_rich_list(field: str, values: list[str]) -> None:
+    if not values:
+        return
+    normalized = [" ".join(value.split()).casefold() for value in values]
+    if len(values) < 2 or len(set(normalized)) != len(values):
+        raise CardValidationError(
+            f"Card field '{field}' must contain at least two distinct items"
+        )
+
+
 def validate_card(data: object) -> dict:
     if not isinstance(data, Mapping):
         raise CardValidationError("Card output must be a JSON object")
@@ -181,16 +191,22 @@ def validate_card(data: object) -> dict:
 
     examples = _text_list(data, "examples", required=True)
     translations = _text_list(data, "example_translations", required=True)
+    if len(examples) != 2 or len(translations) != 2:
+        raise CardValidationError("Card must contain exactly two examples and translations")
     if len(examples) != len(translations):
         raise CardValidationError("Each example must have exactly one translation")
+    synonyms = _text_list(data, "synonyms")
+    antonyms = _text_list(data, "antonyms")
+    _validate_optional_rich_list("synonyms", synonyms)
+    _validate_optional_rich_list("antonyms", antonyms)
 
     return {
         "word": _required_text(data, "word"),
         "phonetic": str(data.get("phonetic") or "").strip(),
         "fa_meaning": _required_text(data, "fa_meaning"),
         "fa_explanation": _required_text(data, "fa_explanation"),
-        "synonyms": _text_list(data, "synonyms"),
-        "antonyms": _text_list(data, "antonyms"),
+        "synonyms": synonyms,
+        "antonyms": antonyms,
         "examples": examples,
         "example_translations": translations,
         "grammar_tip": str(data.get("grammar_tip") or "").strip(),

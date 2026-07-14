@@ -285,11 +285,11 @@ Keep the fix small; this is not a full reliability overhaul.
 - Module: bot.py / db.py / ai.py
 - Function: format_card / daily delivery / custom-word results / SRS reminders
 - Priority: medium
-- Status: Open
+- Status: Resolved
 - Category: feature
 - Phase: phase-4
 - Roadmap refs: interactive-card-ux, cost-control, data-lifecycle
-- Evidence: The pre-compact prompts demonstrated two example/translation pairs and multiple optional synonym/antonym slots; the compact schema demonstrates one example pair and one optional slot. ai.py:validate_card accepts one non-empty example pair, and bot.py:format_card renders whatever counts the model returns without a brief/detailed policy.
+- Evidence: Implemented bot.format_card(presentation='brief'|'detailed') over the existing canonical card payload. Detailed mode remains the default for daily, queried, saved/SRS, and other existing callers; brief mode renders only word, pronunciation, meaning, and explanation. The renderer performs no AI, quota, SRS, persistence, or schema work. Focused rendering tests pass.
 
 ## Problem
 The AI wire format and the learner-facing message detail are separate concerns, but the current card prompt shape has already influenced visible richness such as the number of examples and synonyms. There is no explicit presentation layer that renders brief or detailed messages from the already validated and cached canonical card.
@@ -354,11 +354,11 @@ Keep this as a prerequisite for shipping the user preference. It should be imple
 - Module: prompts.py / ai.py / tests
 - Function: _card_schema / validate_card / daily and custom-word generation
 - Priority: high
-- Status: Open
+- Status: Resolved
 - Category: bug
 - Phase: phase-4
 - Roadmap refs: interactive-card-ux, cost-control, content-quality
-- Evidence: c394115 changed prompts.py from two example/translation placeholders and multiple synonym/antonym placeholders to compact e/t/s/a placeholders with one example and explicit optionality. Current ai.py:validate_card requires only non-empty, equal-length examples and translations; bot.py:format_card displays all returned items without restoring the prior minimum.
+- Evidence: prompts._card_schema now requests exactly two examples and translations in both compact and verbose formats. ai.validate_card requires exactly two paired examples and allows empty synonym/antonym lists while requiring at least two distinct items when populated. Focused compact-prompt, validation, batch, and rendering tests pass.
 
 ## Problem
 The compact provider schema reduced more than key names: it changed the examples from two demonstrated pairs to one, made synonyms and antonyms explicitly optional without minimum counts, and shortened the grammar guidance. The validator still accepts one example/translation pair and one synonym or antonym, so structurally valid compact responses can be visibly poorer than pre-compact cards.
