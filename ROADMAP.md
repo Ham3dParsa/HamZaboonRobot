@@ -612,8 +612,8 @@ The next language addition must use this contract.
   `daily_cards`.
 - Example translations are stored with the card but remain hidden until the
   user presses an inline `Prepare translations` button. The bot edits the
-  same message, removes that preparation control, renders each example as a
-  quote block, and places the paired translations on the next line inside a
+  same message, removes that preparation control, keeps the `•` example
+  prefix, and places the paired translations on the next line inside a
   Telegram spoiler.
 - A successful custom-word query shows the user's daily usage and remaining
   allowance. The result offers an inline action to add that word to spaced

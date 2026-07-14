@@ -256,11 +256,12 @@ class CustomWordQueryTests(unittest.TestCase):
             translations_prepared=True,
         )
         lines = [line for line in text.splitlines() if line]
-        self.assertIn("> Hello\\!\\.", lines)
-        self.assertIn("> Hi\\!\\.", lines)
+        self.assertIn("📝 *مثال‌ها \\+ ترجمه:*", lines)
+        self.assertIn("_• Hello\\!\\._", lines)
+        self.assertIn("_• Hi\\!\\._", lines)
         self.assertIn("||سلام اول\\.||", lines)
         self.assertIn("||سلام دوم\\.||", lines)
-        self.assertNotIn("•", text)
+        self.assertNotIn("> ", text)
         self.assertNotIn("— ||", text)
         self.assertNotIn("Hello!. —", text)
 
