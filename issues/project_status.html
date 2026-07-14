@@ -118,6 +118,10 @@
     .legend-item:last-child { border-bottom:none; padding-bottom:0; }
     .legend-item strong { font-size:20px; }
     .main-content { display:flex; flex-direction:column; gap:20px; }
+    .filter-chips { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    .filter-chip { border:1px solid var(--color-border); background:var(--color-surface); color:var(--color-text); border-radius:999px; padding:8px 12px; cursor:pointer; font-size:13px; font-weight:600; transition:all 0.15s ease; white-space:nowrap; }
+    .filter-chip:hover { border-color:var(--color-accent-3); background: color-mix(in oklch, var(--color-surface), var(--color-accent-3) 8%); }
+    .filter-chip.active { background:var(--color-accent-3); color:#fff; border-color:var(--color-accent-3); }
     .hero { padding:22px 24px; background:linear-gradient(135deg, var(--color-surface), var(--color-background)); color:var(--color-text); }
     .hero p { color:var(--color-muted); margin-top:6px; }
     .phase-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:18px; }
@@ -140,7 +144,8 @@
     .phase-id { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--color-accent-3); }
     .phase-actions { display:flex; align-items:center; gap:8px; }
     .phase-toggle-icon { font-size:18px; color:var(--muted); }
-    .phase-body { display:none; padding:0 18px 18px; }
+    .phase-badge { font-size:13px; font-weight:600; padding:4px 8px; border-radius:999px; white-space:nowrap; background:var(--color-accent-6); color:#fff; margin-left:auto; }
+    .phase-badge.empty { background:var(--color-border); color:var(--color-muted); }
     .phase-card.phase-expanded .phase-body { display:block; }
     .phase-meta,.issue-meta { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 0; }
         .pill {
@@ -165,16 +170,38 @@
     .bucket { margin-top:14px; }
     .bucket h4 { margin:0 0 4px; font-size:13px; color:var(--color-muted); text-transform:uppercase; letter-spacing:.04em; }
     ul { margin:6px 0 0; padding-left:20px; }
+    /* Grid layout for Done, In progress, To-do inside expanded phases */
+    .phase-body { display:none; padding:0 18px 18px; }
+    .phase-body.expanded-layout { display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; }
+    .phase-body.expanded-layout .bucket:nth-child(-n+3) { grid-column:auto; }
+    .phase-body.expanded-layout .bucket:nth-child(n+4) { grid-column:1 / -1; }
+    .phase-body.expanded-layout > p:first-child { grid-column:1 / -1; }
+    .phase-body.expanded-layout > .phase-meta { grid-column:1 / -1; }
         .issue-card {
             background:var(--color-surface);
             border:1px solid var(--color-border);
+            border-left:4px solid transparent;
             border-radius:14px;
             padding:12px 14px;
             margin-top:10px;
             box-shadow:none;
+            transition:all 0.18s ease;
         }
+    /* Category-based left-border colours and subtle background tints */
+    .issue-card.category-bug { border-left-color:var(--color-accent-6); background: color-mix(in oklch, var(--color-surface), var(--color-accent-6) 3%); }
+    .issue-card.category-feature { border-left-color:var(--color-accent-3); background: color-mix(in oklch, var(--color-surface), var(--color-accent-3) 3%); }
+    .issue-card.category-risk { border-left-color:var(--color-accent-8); background: color-mix(in oklch, var(--color-surface), var(--color-accent-8) 3%); }
+    .issue-card.category-tech-debt { border-left-color:var(--color-accent-10); background: color-mix(in oklch, var(--color-surface), var(--color-accent-10) 3%); }
+    .issue-card.category-research { border-left-color:var(--color-accent-4); background: color-mix(in oklch, var(--color-surface), var(--color-accent-4) 3%); }
+    .issue-card.category-decision { border-left-color:var(--color-accent-2); background: color-mix(in oklch, var(--color-surface), var(--color-accent-2) 3%); }
     .issue-card h4 { margin-bottom:4px; }
     .issue-card p { margin-top:4px; }
+    mark {
+            background:oklch(0.850 0.100 100.0);
+            color:inherit;
+            border-radius:2px;
+            padding:1px 3px;
+    }
     .decision-section { display:flex; flex-direction:column; gap:12px; }
     .decision-card { padding:16px 18px; }
     .decision-card + .decision-card { margin-top:4px; }
@@ -200,6 +227,14 @@
     @media (max-width:1120px) {
       .dashboard-shell { grid-template-columns:1fr; }
       .sidebar { position:relative; top:auto; }
+    }
+    @media (max-width:1200px) {
+      .phase-body.expanded-layout { grid-template-columns:1fr 1fr; }
+      .phase-body.expanded-layout .bucket:nth-child(3) { grid-column:1 / -1; }
+    }
+    @media (max-width:768px) {
+      .phase-body.expanded-layout { grid-template-columns:1fr; }
+      .phase-body.expanded-layout .bucket:nth-child(n+3) { grid-column:auto; }
     }
   </style>
 </head>
@@ -250,6 +285,8 @@
       <h2>Roadmap and engineering backlog</h2>
       <p>Use the sidebar controls to focus on specific phases, issue types, and high-priority work.</p>
     </header>
+
+    <div class="filter-chips" id="filterChips"></div>
 
     <section>
       <div id="phaseBoard" class="phase-list"></div>
@@ -1462,14 +1499,20 @@ function visibleIssues() {
   });
 }
 function issueCard(issue) {
-  return `<article class="issue-card">
-    <h4>#${issue.id} ${esc(issue.title)}</h4>
+  const query = state.search.trim().toLowerCase();
+  const highlight = (text) => {
+    if (!query || !text) return esc(text);
+    const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
+    return parts.map(part => part.toLowerCase() === query ? `<mark>${esc(part)}</mark>` : esc(part)).join("");
+  };
+  return `<article class="issue-card category-${esc(issue.category)}">
+    <h4>#${issue.id} ${highlight(issue.title)}</h4>
     <div class="issue-meta">
       <span class="pill">${esc(label(issue.category))}</span><span class="pill">${esc(label(issue.status))}</span>
       <span class="pill">${esc(label(issue.priority))}</span><span class="pill">${esc(issue.phase || "unassigned")}</span>
     </div>
-    <p>${esc(issue.problem)}</p>
-    <p class="muted"><strong>Roadmap:</strong> ${esc((issue.roadmap_refs || []).join(", ") || "—")}</p>
+    <p>${highlight(issue.problem)}</p>
+    <p class="muted"><strong>Roadmap:</strong> ${(issue.roadmap_refs || []).map(ref => highlight(ref)).join(", ") || "—"}</p>
   </article>`;
 }
 function itemList(items) {
@@ -1488,12 +1531,17 @@ function visiblePhases(issues) {
     return issues.some(issue => issue.phase === phase.id);
   });
 }
+function countHighPriorityIssuesForPhase(phaseId, issues) {
+  return issues.filter(issue => issue.phase === phaseId && issue.priority === "high").length;
+}
 function phaseCard(phase, issues) {
   const phaseIssues = issues.filter(issue => issue.phase === phase.id);
   const linkedIssues = (phase.issue_ids || [])
     .map(id => ISSUES_DATA.find(issue => issue.id === id))
     .filter(Boolean);
   const isExpanded = state.expandedPhaseId === phase.id;
+  const highPriorityCount = countHighPriorityIssuesForPhase(phase.id, issues);
+  const badgeHtml = isExpanded ? "" : `<span class="phase-badge ${highPriorityCount === 0 ? "empty" : ""}">${highPriorityCount > 0 ? "⚡ " + highPriorityCount : "0"}</span>`;
   return `<article class="phase-card ${isExpanded ? "phase-expanded" : "phase-collapsed"}">
     <button class="phase-header" type="button" data-phase-id="${phase.id}" aria-expanded="${isExpanded ? "true" : "false"}">
       <div class="phase-title-wrap">
@@ -1502,10 +1550,11 @@ function phaseCard(phase, issues) {
       </div>
       <div class="phase-actions">
         <span class="pill status-${esc(phase.status)}">${esc(label(phase.status))}</span>
+        ${badgeHtml}
         <span class="phase-toggle-icon">${isExpanded ? "▾" : "▸"}</span>
       </div>
     </button>
-    <div class="phase-body">
+    <div class="phase-body ${isExpanded ? "expanded-layout" : ""}">
       <p>${esc(phase.objective)}</p>
       <div class="phase-meta">${(phase.depends_on || []).map(dep => `<span class="pill">depends on ${esc(dep)}</span>`).join("")}</div>
       <div class="bucket"><h4>Done</h4>${itemList(phase.done)}</div>
@@ -1536,7 +1585,29 @@ function render() {
   document.getElementById("decisionBoard").innerHTML = PROJECT_STATUS_DATA.decisions.map(decision =>
     `<article class="decision-card"><h3>${esc(decision.title)}</h3><div class="phase-meta"><span class="pill">${esc(label(decision.status))}</span><span class="pill">${esc(decision.phase)}</span></div><p>${esc(decision.summary)}</p></article>`
   ).join("");
+  renderFilterChips();
   applyToggleState();
+}
+function renderFilterChips() {
+  const chips = [
+    { label: "⚠ High priority", key: "highPriorityOnly" },
+    { label: "🐞 Bugs", key: "category", value: "bug" },
+    { label: "✅ Resolved", key: "status", value: "resolved" },
+    { label: "📂 Open", key: "status", value: "open_partial" },
+    { label: "🔄 Clear all", key: "clearAll" }
+  ];
+  const chipsHtml = chips.map(chip => {
+    let isActive = false;
+    if (chip.key === "highPriorityOnly") {
+      isActive = state.highPriorityOnly;
+    } else if (chip.key === "category") {
+      isActive = state.category === chip.value;
+    } else if (chip.key === "status") {
+      isActive = chip.value === "open_partial" ? (state.status === "open" || state.status === "partial") : state.status === chip.value;
+    }
+    return `<button class="filter-chip ${isActive ? "active" : ""}" data-chip-key="${chip.key}" data-chip-value="${chip.value || ""}">${chip.label}</button>`;
+  }).join("");
+  document.getElementById("filterChips").innerHTML = chipsHtml;
 }
 ["phase","category","status","priority"].forEach(key => document.getElementById(`${key}Filter`).addEventListener("change", event => { state[key] = event.target.value; render(); }));
 document.getElementById("searchFilter").addEventListener("input", event => { state.search = event.target.value; render(); });
@@ -1559,6 +1630,35 @@ document.getElementById("phaseBoard").addEventListener("click", event => {
     state.expandedPhaseId = null;
   } else {
     state.expandedPhaseId = phaseId;
+  }
+  render();
+});
+document.addEventListener("click", event => {
+  const chip = event.target.closest(".filter-chip");
+  if (!chip) return;
+  const key = chip.getAttribute("data-chip-key");
+  const value = chip.getAttribute("data-chip-value");
+  if (key === "highPriorityOnly") {
+    state.highPriorityOnly = !state.highPriorityOnly;
+  } else if (key === "category") {
+    state.category = state.category === value ? "all" : value;
+  } else if (key === "status") {
+    if (value === "open_partial") {
+      state.status = state.status === "open" || state.status === "partial" ? "all" : "open";
+    } else {
+      state.status = state.status === value ? "all" : value;
+    }
+  } else if (key === "clearAll") {
+    state.phase = "all";
+    state.category = "all";
+    state.status = "all";
+    state.priority = "all";
+    state.search = "";
+    document.getElementById("searchFilter").value = "";
+    document.getElementById("phaseFilter").value = "all";
+    document.getElementById("categoryFilter").value = "all";
+    document.getElementById("statusFilter").value = "all";
+    document.getElementById("priorityFilter").value = "all";
   }
   render();
 });
