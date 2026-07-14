@@ -4,30 +4,42 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HamZaboon Project Status</title>
-  <style>
-    :root {
-      color-scheme: light;
-      --ink:#10243f;
-      --muted:#64748b;
-      --line:#dbe4ee;
-      --panel:#fff;
-      --accent:#1f4f70;
-      --bg:#f4f7fb;
-      --shadow:0 20px 45px rgba(15, 43, 75, 0.08);
-    }
+    <style>
+        :root {
+            /* Base colours – light theme */
+            --color-background: oklch(0.970 0.015 310.4);
+            --color-surface: oklch(0.930 0.020 310.4);
+            --color-border: oklch(0.850 0.030 310.4);
+            --color-text: oklch(0.080 0.015 310.4);
+            --color-muted: oklch(0.450 0.015 310.4);
+            --color-shadow: 0 6px 18px rgba(80, 70, 120, 0.08);
+
+            /* Accent gradient – purple → magenta → blue */
+            --color-accent-1: oklch(0.585 0.115 310.4);
+            --color-accent-2: oklch(0.584 0.115 290.9);
+            --color-accent-3: oklch(0.585 0.115 270.4);
+            --color-accent-4: oklch(0.584 0.115 250.7);
+            --color-accent-5: oklch(0.584 0.114 230.1);
+            --color-accent-6: oklch(0.465 0.108 310.2);
+            --color-accent-7: oklch(0.464 0.109 290.8);
+            --color-accent-8: oklch(0.464 0.109 270.2);
+            --color-accent-9: oklch(0.465 0.108 250.1);
+            --color-accent-10: oklch(0.471 0.099 234.3);
+            color-scheme: light;
+        }
     * { box-sizing:border-box; }
-    body {
-      margin:0;
-      background:var(--bg);
-      color:var(--ink);
-      font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-    }
+        body {
+            margin:0;
+            background:var(--color-background);
+            color:var(--color-text);
+            font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+        }
     main { max-width:1800px; margin:0 auto; padding:24px; }
     h1,h2,h3,p { margin:0; }
     h1 { font-size:30px; }
     h2 { font-size:21px; }
     h3 { font-size:16px; }
-    .muted { color:var(--muted); }
+    .muted { color:var(--color-muted); }
     .dashboard-shell {
       display:grid;
       grid-template-columns:minmax(250px, 280px) 1fr;
@@ -41,71 +53,73 @@
       flex-direction:column;
       gap:16px;
     }
-    .brand,
-    .panel,
-    .hero,
-    .phase-card,
-    .decision-card {
-      background:var(--panel);
-      border:1px solid var(--line);
-      border-radius:18px;
-      box-shadow:var(--shadow);
-    }
+        .brand,
+        .panel,
+        .hero,
+        .phase-card,
+        .decision-card,
+        .issue-card {
+            background:var(--color-surface);
+            border:1px solid var(--color-border);
+            border-radius:18px;
+            box-shadow:var(--color-shadow);
+        }
     .brand {
       padding:18px 18px 16px;
       display:flex;
       align-items:center;
       gap:12px;
     }
-    .brand-mark {
-      width:44px;
-      height:44px;
-      border-radius:14px;
-      background:linear-gradient(135deg,#173e5b,#2f6d8a);
-      color:#fff;
-      display:grid;
-      place-items:center;
-      font-weight:700;
-      font-size:18px;
-    }
+        .brand-mark {
+            width:44px;
+            height:44px;
+            border-radius:14px;
+            background:linear-gradient(135deg,var(--color-accent-2),var(--color-accent-3));
+            color:#fff;
+            display:grid;
+            place-items:center;
+            font-weight:700;
+            font-size:18px;
+        }
     .brand p { font-size:13px; color:var(--muted); margin-top:2px; }
     .panel { padding:16px; }
     .panel h2 { margin-bottom:12px; font-size:17px; }
     .filters { display:grid; gap:10px; }
     label { display:flex; flex-direction:column; gap:5px; color:var(--muted); font-size:13px; }
     select,input,button { font:inherit; }
-    select,input {
-      border:1px solid var(--line);
-      border-radius:10px;
-      padding:10px 12px;
-      color:var(--ink);
-      background:#fff;
-      width:100%;
-    }
+        select,input {
+            border:1px solid var(--color-border);
+            border-radius:10px;
+            padding:10px 12px;
+            color:var(--color-text);
+            background:var(--color-surface);
+            width:100%;
+        }
     .toggle-stack { display:grid; gap:8px; }
-    .toggle {
-      border:1px solid var(--line);
-      background:#f8fbff;
-      color:var(--ink);
-      border-radius:999px;
-      padding:10px 12px;
-      cursor:pointer;
-      text-align:left;
-      transition:all 0.2s ease;
-    }
-    .toggle:hover { border-color:#b7c8db; }
-    .toggle.active {
-      background:var(--accent);
-      color:#fff;
-      border-color:var(--accent);
-    }
+        .toggle {
+            border:1px solid var(--color-border);
+            background:var(--color-surface);
+            color:var(--color-text);
+            border-radius:999px;
+            padding:10px 12px;
+            cursor:pointer;
+            text-align:left;
+            transition:all 0.18s ease;
+        }
+        .toggle:hover { border-color: color-mix(in oklch, var(--color-border), var(--color-accent-3) 18%); background: color-mix(in oklch, var(--color-surface), var(--color-accent-1) 6%); }
+        .toggle.active {
+            background:var(--color-accent-3);
+            color:#fff;
+            border-color:var(--color-accent-3);
+            outline:2px solid transparent;
+        }
     .legend { display:grid; gap:10px; }
     .legend-item { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--line); }
     .legend-item:last-child { border-bottom:none; padding-bottom:0; }
     .legend-item strong { font-size:20px; }
     .main-content { display:flex; flex-direction:column; gap:20px; }
-    .hero { padding:22px 24px; background:linear-gradient(135deg,#173e5b,#2f6d8a); color:#fff; }
-    .hero p { color:#dcebf5; margin-top:6px; }
+    .hero { padding:22px 24px; background:linear-gradient(135deg, var(--color-surface), var(--color-background)); color:var(--color-text); }
+    .hero p { color:var(--color-muted); margin-top:6px; }
     .phase-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:18px; }
     .phase-card { overflow:hidden; }
     .phase-header {
@@ -121,52 +135,67 @@
       cursor:pointer;
       color:inherit;
     }
-    .phase-header:hover { background:#f8fbff; }
+    .phase-header:hover { background: color-mix(in oklch, var(--color-surface), var(--color-accent-1) 10%); }
     .phase-title-wrap { display:flex; flex-direction:column; gap:3px; }
-    .phase-id { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--accent); }
+    .phase-id { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--color-accent-3); }
     .phase-actions { display:flex; align-items:center; gap:8px; }
     .phase-toggle-icon { font-size:18px; color:var(--muted); }
     .phase-body { display:none; padding:0 18px 18px; }
     .phase-card.phase-expanded .phase-body { display:block; }
     .phase-meta,.issue-meta { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 0; }
-    .pill {
-      display:inline-flex;
-      align-items:center;
-      border-radius:999px;
-      padding:3px 9px;
-      background:#eaf2fb;
-      color:var(--accent);
-      font-size:12px;
-      font-weight:600;
-      white-space:nowrap;
-    }
-    .status-complete { background:#dcfce7; color:#166534; }
-    .status-in-progress { background:#fef3c7; color:#92400e; }
-    .status-planned,.status-deferred { background:#e2e8f0; color:#475569; }
-    .status-blocked { background:#fee2e2; color:#991b1b; }
+        .pill {
+            display:inline-flex;
+            align-items:center;
+            border-radius:999px;
+            padding:3px 9px;
+            background: color-mix(in oklch, var(--color-surface), var(--color-accent-5) 6%);
+            color:var(--color-text);
+            font-size:12px;
+            font-weight:600;
+            white-space:nowrap;
+            transition:all 0.18s ease;
+        }
+        /* Status → accent mapping (use white text for strong contrast) */
+        .pill.status-complete, .pill.status-resolved { background:var(--color-accent-5); color:#fff; }
+        .pill.status-in-progress, .pill.status-open { background:var(--color-accent-1); color:#fff; }
+        .pill.status-planned, .pill.status-deferred { background:var(--color-accent-4); color:#fff; }
+        .pill.status-blocked, .pill.priority-high { background:var(--color-accent-6); color:#fff; }
+        .pill.status-accepted-risk, .pill.status-partial { background:var(--color-accent-7); color:#fff; }
+        .pill.status-obsolete { background:var(--color-accent-9); color:#fff; }
     .bucket { margin-top:14px; }
-    .bucket h4 { margin:0 0 4px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+    .bucket h4 { margin:0 0 4px; font-size:13px; color:var(--color-muted); text-transform:uppercase; letter-spacing:.04em; }
     ul { margin:6px 0 0; padding-left:20px; }
-    .issue-card {
-      background:#f8fbff;
-      border:1px solid var(--line);
-      border-radius:14px;
-      padding:12px 14px;
-      margin-top:10px;
-    }
+        .issue-card {
+            background:var(--color-surface);
+            border:1px solid var(--color-border);
+            border-radius:14px;
+            padding:12px 14px;
+            margin-top:10px;
+            box-shadow:none;
+        }
     .issue-card h4 { margin-bottom:4px; }
     .issue-card p { margin-top:4px; }
     .decision-section { display:flex; flex-direction:column; gap:12px; }
     .decision-card { padding:16px 18px; }
     .decision-card + .decision-card { margin-top:4px; }
-    .empty-state {
-      padding:26px;
-      text-align:center;
-      color:var(--muted);
-      background:var(--panel);
-      border:1px dashed var(--line);
-      border-radius:16px;
-    }
+        .empty-state {
+            padding:26px;
+            text-align:center;
+            color:var(--color-muted);
+            background:var(--color-surface);
+            border:1px dashed var(--color-border);
+            border-radius:16px;
+        }
+        /* Phase header left-border reflects the phase status colour when expanded */
+        .phase-card.phase-expanded .phase-header { border-left:4px solid transparent; border-radius:12px; }
+        .phase-card.phase-expanded .phase-header:has(.pill.status-complete) { border-left-color:var(--color-accent-5); }
+        .phase-card.phase-expanded .phase-header:has(.pill.status-in-progress) { border-left-color:var(--color-accent-1); }
+        .phase-card.phase-expanded .phase-header:has(.pill.status-planned),
+        .phase-card.phase-expanded .phase-header:has(.pill.status-deferred) { border-left-color:var(--color-accent-4); }
+        .phase-card.phase-expanded .phase-header:has(.pill.status-blocked) { border-left-color:var(--color-accent-6); }
+        .phase-card.phase-expanded .phase-header:has(.pill.status-accepted-risk),
+        .phase-card.phase-expanded .phase-header:has(.pill.status-partial) { border-left-color:var(--color-accent-7); }
+        .phase-card.phase-expanded .phase-header:has(.pill.status-obsolete) { border-left-color:var(--color-accent-9); }
     footer { max-width:1800px; margin:0 auto; padding:0 24px 24px; color:var(--muted); font-size:13px; }
     @media (max-width:1120px) {
       .dashboard-shell { grid-template-columns:1fr; }

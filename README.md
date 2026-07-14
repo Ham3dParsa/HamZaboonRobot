@@ -25,28 +25,27 @@ python bot.py
 
 ## ساختار
 
-- `config.py` — تنظیمات محیط، پلن‌ها، سهمیه‌ها، تایم‌زون و محدودکننده‌ها.
-- `catalog.py` — منبع واحد زبان‌ها، اهداف، سطح‌ها و برچسب‌های نمایشی.
-- `db.py` — SQLite، migrationها، کاربران، کارت‌ها، صف ارسال، SRS و cacheهای کم‌هزینه.
-- `prompts.py` — promptهای JSON-only و guardrailهای جلوگیری از تکرار.
-- `ai.py` — کلاینت OpenAI-compatible، timeout، استخراج JSON و اعتبارسنجی کارت.
-- `scheduling.py` — برنامه‌ریزی pure برای sessionهای روزانه و ظرفیت slotها.
-- `keyboards.py` — reply/inline keyboardها و callbackهای کوتاه.
-- `bot.py` — handlerهای تلگرام، orchestration، صف ارسال، SRS و retryهای Telegram.
-- `issues/issues.json` — منبع canonical رکوردهای engineering شامل feature،
-  bug، risk، research و decision؛ برای اعتبارسنجی از `issues/validate.py check`
+- ماژول `config.py` — تنظیمات محیط، پلن‌ها، سهمیه‌ها، منطقه زمانی و محدودکننده‌ها.
+- ماژول `catalog.py` — منبع واحد زبان‌ها، اهداف، سطح‌ها و برچسب‌های نمایشی.
+- ماژول `db.py` — SQLite، مهاجرت‌ها، کاربران، کارت‌ها، صف ارسال، SRS و کش‌های کم‌هزینه.
+- ماژول `prompts.py` — پرامپت‌های فقط JSON و حفاظ‌های جلوگیری از تکرار.
+- ماژول `ai.py` — کلاینت سازگار با OpenAI، مهلت زمانی، استخراج JSON و اعتبارسنجی کارت.
+- ماژول `scheduling.py` — برنامه‌ریزی خالص برای جلسه‌های روزانه و ظرفیت اسلات‌ها.
+- ماژول `keyboards.py` — کیبوردهای پاسخ و درون‌خطی و callbackهای کوتاه.
+- ماژول `bot.py` — مدیریت‌کننده‌های تلگرام، هماهنگ‌سازی، صف ارسال، SRS و تلاش‌های مجدد تلگرام.
+- فایل `issues/issues.json` — منبع اصلی رکوردهای مهندسی شامل ویژگی،
+  باگ، ریسک، پژوهش و تصمیم؛ برای اعتبارسنجی از `issues/validate.py check`
   استفاده کن.
-- `project_status.json` — فهرست machine-readable فازها، وابستگی‌ها و
-  decision lockها؛ داشبورد read-only در `issues/project_status.html` از این
+- فایل `project_status.json` — فهرست خوانا برای ماشین از فازها، وابستگی‌ها و
+  قفل تصمیم‌ها؛ داشبورد فقط خواندنی در `issues/project_status.html` از این
   فایل و `issues/issues.json` ساخته می‌شود.
-- برای تغییرات status از فایل patch استفاده کن: ابتدا
+- برای تغییرات وضعیت از فایل patch استفاده کن: ابتدا
   `python issues/status_editor.py preview changes.json` و سپس با تأیید صریح
   `python issues/status_editor.py apply changes.json --confirm`. این ابزار
-  پس از validation، JSONهای canonical، بخش generated در `ROADMAP.md` و
-  dashboard را همگام می‌کند.
-- داشبورد فعلی عمداً static و read-only است و هیچ Python HTTP server یا
-  endpoint نوشتنی ندارد. برای اجرای ویرایشگر وب محلی:
-
+  پس از اعتبارسنجی، فایل‌های JSON اصلی، بخش تولیدشده در `ROADMAP.md` و
+  داشبورد را همگام می‌کند.
+- داشبورد فعلی عمداً ایستا و فقط خواندنی است و هیچ سرور HTTP پایتون یا
+  نقطه پایانی نوشتنی ندارد. برای اجرای ویرایشگر وب محلی:
   ```bash
   python -m issues.local_editor
   ```
@@ -62,12 +61,12 @@ python bot.py
   prompt جداگانه ساخته نشود، اما کل سهمیه‌ی روز را هم بی‌دلیل پیش‌مصرف نمی‌کند.
 - مسیر زمان‌بندی‌شده فقط session لازم را تولید می‌کند و ارسال‌ها را از صف
   durable با retry و backoff انجام می‌دهد.
-- prompt کارت‌ها علاوه بر واژه‌های همان روز، یک لیست کوتاه از واژه‌های اخیر
+- پرامپت کارت‌ها علاوه بر واژه‌های همان روز، یک لیست کوتاه از واژه‌های اخیر
   کاربر را هم avoid می‌کند تا تکرار واژه در روزهای نزدیک کمتر شود.
 - نکته‌های گرامری عنوان‌های اخیر همان کاربر/زبان را در `grammar_tips` ذخیره
   می‌کنند و در prompt بعدی به‌صورت `avoid_topics` کوتاه ارسال می‌شوند؛ بنابراین
   مدل همچنان محتوا را تولید می‌کند، ولی از تکرار موضوعات اخیر منع می‌شود.
-- `AI_MAX_CONCURRENCY`، `AI_MAX_REQUESTS_PER_MINUTE` و `AI_TIMEOUT_SECONDS`
+- پارامترهای  `AI_MAX_CONCURRENCY`، `AI_MAX_REQUESTS_PER_MINUTE` و `AI_TIMEOUT_SECONDS`
   نرخ و زمان انتظار provider را محدود می‌کنند؛ `AI_MAX_OUTPUT_TOKENS` سقف
   خروجی و `AI_TEMPERATURE` میزان تصادفی‌بودن پاسخ JSON را کنترل می‌کند.
 - خروجی کارت و batch به‌صورت پیش‌فرض `compact_json` است: کلیدهای کوتاه در مرز AI
@@ -79,7 +78,7 @@ python bot.py
   را log می‌کند. سهمیه‌ی پرسش واژه یا نکته‌ی گرامری هم در خطای provider پس
   داده می‌شود تا درخواست ناموفق از سهمیه‌ی کاربر کم نشود.
 
-## SRS و مرور
+## مکانیزم SRS و مرور
 
 - نتیجه‌ی معتبر پرسش واژه با payload کامل کارت در `saved_words.card_data`
   ذخیره می‌شود؛ SRS برای نمایش reminder کامل نیازی به API call جدید ندارد.
@@ -93,9 +92,9 @@ python bot.py
 
 1. کلید API را در چت، commit، log یا issue evidence قرار نده. اگر قبلاً کلیدی
    را در چت paste کرده‌ای، آن را از پنل provider revoke/rotate کن.
-2. `AI_BASE_URL` برای GapGPT یک endpoint سازگار با OpenAI SDK است؛ به همین دلیل
+2. پارامتر `AI_BASE_URL` برای GapGPT یک endpoint سازگار با OpenAI SDK است؛ به همین دلیل
    پروژه از پکیج رسمی `openai` استفاده می‌کند.
-3. `AI_MODEL` را از مستندات لحظه‌ای provider تنظیم کن. نام مدل در admin panel
+3. پارامتر `AI_MODEL` را از مستندات لحظه‌ای provider تنظیم کن. نام مدل در admin panel
    هم قابل تغییر است و نباید در promptها hardcode شود.
 4. مقدارهای `.env` bootstrap هستند؛ owner می‌تواند base URL/model/key را از
    پنل مدیریت عوض کند. دیتابیس SQLite را مثل secret store محافظت کن، چون key
