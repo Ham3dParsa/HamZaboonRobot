@@ -45,7 +45,8 @@ findings:
 | `issues/project_status.html` | Read-only joined dashboard generated from `project_status.json` and `issues/issues.json`. | Never treat embedded data or browser state as canonical. |
 | `issues/issues.html` | Compatibility redirect to `issues/project_status.html`. | Do not use it as an editor or status source. |
 | `hamzaban-issues.md` | Optional Markdown snapshot/export for human or AI review. | Do not maintain it in normal PRs. Generate it only when a fresh snapshot is explicitly useful. |
-| `issues/validate.py` | Validation, JSON import/export, and optional view export CLI. | Use `check` in normal PR validation; use `sync` only when an export is intentionally requested. |
+| `issues/validate.py` | Validation, JSON import/export, and generated-view synchronization. | Use `check` in normal PR validation; use `sync` after intentional canonical status changes. |
+| `issues/status_editor.py` | Reviewable status/issue change application with validation and preview. | Use `preview` before `apply`; never edit generated views directly. |
 
 `issues/issues.json` is authoritative for issue status and
 `project_status.json` is authoritative for phase/decision status. HTML
@@ -70,10 +71,12 @@ For a meaningful code change:
    .venv/bin/python issues/validate.py check
    ```
 
-Do not run `issues/validate.py sync` merely to make a PR look synchronized.
-That command intentionally rewrites the optional Markdown export and the HTML
-embedded fallback. Use it only when the user asks for a new review snapshot or
-an explicit export is needed.
+Use `issues/status_editor.py preview changes.json` to review a proposed
+structured update, then `issues/status_editor.py apply changes.json --confirm`
+to validate and write the canonical JSON plus generated views. The editor
+updates only the marked generated section of `ROADMAP.md`; its narrative
+sections remain human-maintained. `issues/validate.py sync` remains available
+for refreshing views after direct canonical edits.
 
 Use these statuses consistently:
 
@@ -199,7 +202,7 @@ Use the repository virtual environment when available:
 .venv/bin/python -m unittest discover -s tests -v
 .venv/bin/python -m py_compile \
   config.py catalog.py scheduling.py db.py prompts.py ai.py keyboards.py \
-  bot.py issues/validate.py
+  bot.py issues/validate.py issues/status_editor.py
 .venv/bin/python issues/validate.py check
 git diff --check
 ```

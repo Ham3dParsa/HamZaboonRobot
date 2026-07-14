@@ -405,5 +405,32 @@
     "evidence": "bot.py:format_card reads examples but never reads example_translations; keyboards.py:daily_card_keyboard returns only the next-card button and query_result_keyboard returns only Add to review; callback_router contains no translation callback branch.",
     "last_reviewed": "2026-07-13",
     "depends_on": []
+  },
+  {
+    "title": "status changes need a validated review and synchronization workflow",
+    "category": "feature",
+    "module": "issues/status_editor.py / issues/validate.py / ROADMAP.md",
+    "func": "project status editing and generated-view synchronization",
+    "problem": "Editing issue records, phase status, and roadmap summaries manually can leave the dashboard or generated roadmap section stale or inconsistent.",
+    "solution": "Provide a reviewable JSON patch workflow that validates the complete resulting model, previews the diff, updates canonical issue and project-status records, and regenerates only marked views while preserving human-written roadmap narrative.",
+    "priority": "medium",
+    "note": "This is project-governance tooling only; it must not alter Telegram runtime behavior, AI generation, quotas, or database state.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 56,
+    "phase": "phase-4",
+    "roadmap_refs": [
+      "issue-tooling"
+    ],
+    "decision_refs": [
+      "decision-issue-registry"
+    ],
+    "evidence": "The status editor validates and previews issue, phase, and decision changes, while validate.py synchronizes the dashboard and marked generated roadmap section.",
+    "last_reviewed": "2026-07-14",
+    "depends_on": [
+      27
+    ]
   }
 ]
