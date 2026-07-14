@@ -1,7 +1,10 @@
 # Issue Explorer Improvement Plan
 
 ## Overview
-This plan is based on the current state of `issues/issues.html`, which today provides a simple issue explorer with embedded issue data, local editing, and a search/filter UI. The goal is to improve issue discovery, filtering, and data consistency while preserving the lightweight local browser-based interface.
+The project-status model keeps `issues/issues.json` canonical for engineering
+records and adds `project_status.json` as the machine-readable phase and
+decision index. `issues/project_status.html` is a lightweight, read-only
+joined dashboard generated from those sources; it is not an editor.
 
 ## Audit Summary
 ### Current strengths
@@ -18,7 +21,8 @@ This plan is based on the current state of `issues/issues.html`, which today pro
 - Filters are limited to priority/resolved and do not support open/partial, module, roadmap reference, or issue status filters
 - No sort controls or explicit current-result count for the active filter/search
 - No match highlighting for search terms inside issue cards
-- Issue data is embedded in HTML as a secondary source, creating a stale-source risk relative to canonical JSON
+- Embedded dashboard data is only a generated fallback for opening the HTML
+  file locally; it must never become a second status source
 - Export operations do not support exporting only the current filtered set
 - No quick “jump to issue ID” or issue navigation helper
 - No explicit `phase` field in the issue schema, so roadmap-stage groupings are only inferred from `roadmap_refs`
@@ -61,16 +65,19 @@ This plan is based on the current state of `issues/issues.html`, which today pro
 
 ## Implementation Plan
 1. Create or update `issues_plan.md` (this file) and document the feature scope.
-2. Audit `issues/issues.html` to identify exact insertion points for search/filter logic and UI controls.
+2. Keep phase, category, status, priority, roadmap-reference, and decision-lock
+   filters in `issues/project_status.html`.
 3. Add UI controls in the `controls` bar for status and module filters, sort order, and ID search helper.
 4. Extend the `render()` search logic to include all searchable fields and parse `id:` queries.
 5. Add filtered export support to `exportAllMD()` and `exportAllJSON()`.
 6. Change the data-loading flow so `fetch('./issues.json')` is the authoritative source and embedded fallback is explicitly secondary.
 7. Add result-count text and visible filter state summary within the controls or header.
-8. Test the explorer locally by opening `issues/issues.html` in a browser and verifying search/filter combinations.
+8. Test the dashboard locally by opening `issues/project_status.html` and
+   verifying read-only filtering and phase/decision rendering.
 9. If phase support is added, validate the explorer badge/filter behavior and ensure phase values remain backward compatible for older issue entries.
 
 ## Notes and Next Steps
 - This plan is intentionally limited to issue explorer improvements and does not alter production bot logic.
-- If the repository later adopts a build step, `issues.json` should be the canonical source and `issues.html` should be generated from it.
+- `issues/validate.py check` must reject unknown categories, phases, decision
+  references, unassigned issues, and duplicate phase assignments.
 - After implementation, a small acceptance checklist should be added to verify: search scope, filters, filtered export, and data-loading fallback.

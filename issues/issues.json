@@ -1,6 +1,7 @@
 [
   {
     "title": "ذخیره‌سازی API Key به صورت متن ساده در دیتابیس",
+    "category": "risk",
     "module": "db.py",
     "func": "جدول settings",
     "problem": "کلید API به صورت plaintext در دیتابیس ذخیره می‌شود که در صورت نفوذ به دیتابیس، لو می‌رود.",
@@ -17,14 +18,17 @@
       "runtime-configuration"
     ],
     "evidence": "README.md documents that AI API keys are bootstrap/runtime secrets and warns that the SQLite DB/settings table must be protected; no encryption layer is implemented yet.",
-    "last_reviewed": "2026-07-13"
+    "last_reviewed": "2026-07-13",
+    "decision_refs": [],
+    "depends_on": []
   },
   {
     "title": "issues.json phase-aware grouping ندارد",
-    "module": "issues/issues.json / issues/issues.html",
+    "category": "tech-debt",
+    "module": "issues/issues.json / project_status.json / issues/project_status.html",
     "func": "schema / explorer filters",
     "problem": "فقط status، priority و roadmap_refs ذخیره می‌شوند؛ برای batchهای مبتنی بر phase یا alignment دقیق‌تر با ROADMAP.md یک فیلد صریح phase وجود ندارد و UI هم آن را نشان نمی‌دهد.",
-    "solution": "یک فیلد اختیاری phase به schema اضافه کنید، آن را در issues.html فیلتر/badge کنید، و در validate چک کنید که phaseها با بخش‌های roadmap هم‌راستا بمانند.",
+    "solution": "فیلدهای category و phase را canonical کنید، phase/decision index را در project_status.json نگه دارید، و داشبورد read-only را با validate روی هر دو منبع هم‌راستا کنید.",
     "priority": "medium",
     "note": "این یک بهبود ساختاری است و باید بدون شکستن backward compatibility اضافه شود.",
     "resolved": true,
@@ -36,11 +40,14 @@
     "roadmap_refs": [
       "issue-tooling"
     ],
-    "evidence": "issues/issues.json still has no first-class phase field and issues/issues.html has no phase filter; roadmap_refs remains the current grouping mechanism.",
-    "last_reviewed": "2026-07-13"
+    "evidence": "The registry now has first-class phase data; the remaining work is to keep phase assignments and the read-only project-status dashboard synchronized through validation.",
+    "last_reviewed": "2026-07-13",
+    "decision_refs": [],
+    "depends_on": []
   },
   {
     "title": "استخر مشترک محتوای آموزشی در سطح segment هنوز پیاده‌سازی نشده است",
+    "category": "feature",
     "module": "db.py / bot.py / ai.py / config.py",
     "func": "content_pool schema, daily-card generation, custom-word save, grammar recommendation",
     "problem": "محتوای معتبر و AI-generated هر کاربر فقط در daily_cards، saved_words یا grammar_tips همان کاربر باقی می‌ماند و بین کاربران دارای target_lang، goal و level یکسان reuse نمی‌شود. با رشد کاربران، این مسیر باعث تماس‌های تکراری LLM می‌شود. در عین حال، pooling نباید avoid-list، deduplication، quota، مرزبندی segment یا اصل تولیدشدن محتوا توسط AI را تضعیف کند.",
@@ -60,10 +67,13 @@
       "future-mini-quizzes"
     ],
     "evidence": "db.py currently has per-user saved_words, daily_cards, query_results, and grammar_tips but no content_pool table; bot.py generation paths are _generate_daily_batch, send_grammar_tip, and text_router custom-word flow; db.py:_normalize_word defines the existing whitespace-collapse + casefold contract; plan_pooling.md and ROADMAP.md record the locked pooling policy.",
-    "last_reviewed": "2026-07-13"
+    "last_reviewed": "2026-07-13",
+    "decision_refs": [],
+    "depends_on": []
   },
   {
     "title": "Pending شدن یادآوری SRS می‌تواند completion rate را برای همیشه مخدوش کند",
+    "category": "bug",
     "module": "db.py / bot.py",
     "func": "mark_word_review_pending / due_words_for_user / srs_job",
     "problem": "یادآوری ارسالی در saved_words به وضعیت pending می‌رود، اما pending فعلی timeout ندارد و due_words_for_user آن را تا پاسخ کاربر کنار می‌گذارد. در نتیجه یک یادآوری بی‌پاسخ می‌تواند برای همیشه در محاسبه‌ی completion rate مبهم بماند و رفتار pacing را سرکوب کند.",
@@ -75,15 +85,18 @@
     "detailOpen": false,
     "editing": false,
     "id": 42,
-    "phase": "phase-3",
+    "phase": "phase-6",
     "roadmap_refs": [
       "adaptive-srs-core"
     ],
     "evidence": "db.py:due_words_for_user excludes review_status='pending' and no function currently expires pending rows; bot.py:srs_job sets review_status='pending' after successful reminder delivery.",
-    "last_reviewed": "2026-07-13"
+    "last_reviewed": "2026-07-13",
+    "decision_refs": [],
+    "depends_on": []
   },
   {
     "title": "تنظیم cap روزانه‌ی SRS در catch-up یا restart می‌تواند دوبار اعمال شود",
+    "category": "bug",
     "module": "db.py / bot.py",
     "func": "srs_job / startup_catch_up_job",
     "problem": "Adaptive SRS هنوز cap یا زمان آخرین adjustment ندارد. startup catch-up عمداً srs_job را دوباره اجرا می‌کند، بنابراین adjustment روزانه بدون کلید idempotency می‌تواند در یک روز چند بار step بخورد.",
@@ -95,14 +108,18 @@
     "detailOpen": false,
     "editing": false,
     "id": 43,
+    "phase": "phase-6",
     "roadmap_refs": [
       "adaptive-srs-core"
     ],
     "evidence": "db.py:users has no reminder-cap columns; bot.py:startup_catch_up_job can invoke srs_job after downtime and the regular daily schedule can invoke it again.",
-    "last_reviewed": "2026-07-13"
+    "last_reviewed": "2026-07-13",
+    "decision_refs": [],
+    "depends_on": []
   },
   {
     "title": "تغییر goal وسط روز باید با pacing زمان‌بندی‌شده سازگار بماند",
+    "category": "bug",
     "module": "db.py / bot.py / scheduling.py",
     "func": "set_user_goal / srs_job / daily planning",
     "problem": "goal کاربر در هر زمان قابل تغییر است، اما adaptive pacing هنوز قرارداد مشخصی برای reminderهای از قبل برنامه‌ریزی‌شده ندارد. اعمال فوری تغییر می‌تواند shape صف موجود را در میانه‌ی روز عوض کند.",
@@ -114,14 +131,18 @@
     "detailOpen": false,
     "editing": false,
     "id": 44,
+    "phase": "phase-6",
     "roadmap_refs": [
       "adaptive-srs-core"
     ],
     "evidence": "db.py:set_user_goal updates users.goal immediately, while current SRS delivery has no persisted pacing-shape snapshot or goal-aware session selection.",
-    "last_reviewed": "2026-07-13"
+    "last_reviewed": "2026-07-13",
+    "decision_refs": [],
+    "depends_on": []
   },
   {
     "title": "مسیر points جدید باید در برابر toggle سریع review مقاوم باشد",
+    "category": "bug",
     "module": "db.py / bot.py",
     "func": "advance_word_review / defer_word_review / retention_events",
     "problem": "advance_word_review و defer_word_review فعلاً با شرط review_status='pending' از تکرار یک پاسخ جلوگیری می‌کنند، اما retention_events هنوز وجود ندارد و milestone points در هیچ تراکنش append-only ثبت نمی‌شود.",
@@ -133,14 +154,18 @@
     "detailOpen": false,
     "editing": false,
     "id": 45,
+    "phase": "phase-6",
     "roadmap_refs": [
       "adaptive-srs-core"
     ],
     "evidence": "db.py:advance_word_review and defer_word_review update only rows in pending state, but there is no retention_events table or points/progress read model.",
-    "last_reviewed": "2026-07-13"
+    "last_reviewed": "2026-07-13",
+    "decision_refs": [],
+    "depends_on": []
   },
   {
     "title": "کاربران قدیمی پس از migration نباید cap یادآوری صفر یا NULL داشته باشند",
+    "category": "bug",
     "module": "db.py / config.py",
     "func": "init_db / plan allowance helpers",
     "problem": "users موجود پیش از adaptive SRS ستون daily_reminder_cap ندارند و migration آن باید NULL را به رفتار قابل پیش‌بینی تبدیل کند. مقداردهی اشتباه می‌تواند در روز migration reminderهای کاربر را ناگهان به صفر یا سقف نامحدود تبدیل کند.",
@@ -152,14 +177,18 @@
     "detailOpen": false,
     "editing": false,
     "id": 46,
+    "phase": "phase-6",
     "roadmap_refs": [
       "adaptive-srs-core"
     ],
     "evidence": "db.py:init_db currently has no daily_reminder_cap or reminder_cap_updated_at migration; config.py defines the authoritative Free/Silver/Gold daily card allowances.",
-    "last_reviewed": "2026-07-13"
+    "last_reviewed": "2026-07-13",
+    "decision_refs": [],
+    "depends_on": []
   },
   {
     "title": "streak should advance only after all daily cards are seen and interacted with",
+    "category": "feature",
     "module": "bot.py / db.py",
     "func": "daily card flow / streak tracking",
     "problem": "The product intent is that streak += 1 only when the user actually sees and interacts with every daily card for the day. The current flow does not yet model full-card completion as a distinct milestone.",
@@ -171,14 +200,18 @@
     "detailOpen": false,
     "editing": false,
     "id": 47,
+    "phase": "phase-6",
     "roadmap_refs": [
       "adaptive-srs-core"
     ],
     "evidence": "Current streak handling does not record a full daily-card completion gate tied to every card in the day.",
-    "last_reviewed": "2026-07-13"
+    "last_reviewed": "2026-07-13",
+    "decision_refs": [],
+    "depends_on": []
   },
   {
     "title": "daily and query cards should expose feedback buttons for future mini-quiz reminders",
+    "category": "feature",
     "module": "bot.py / keyboards.py / db.py / ai.py",
     "func": "card rendering / feedback callbacks / reminder scheduling",
     "problem": "Daily and query cards do not yet have the proposed inline actions ('I knew it', 'This is new for me', 'I'm not sure') and there is no lightweight response trail to drive later mini-quiz reminders generated by the bot from its own data pool.",
@@ -190,14 +223,18 @@
     "detailOpen": false,
     "editing": false,
     "id": 48,
+    "phase": "phase-8",
     "roadmap_refs": [
       "mini-quizzes"
     ],
     "evidence": "Card flows currently lack the proposed per-card feedback buttons and any follow-up scheduling based on those responses.",
-    "last_reviewed": "2026-07-13"
+    "last_reviewed": "2026-07-13",
+    "decision_refs": [],
+    "depends_on": []
   },
   {
     "title": "daily card count should be user-configurable up to the plan maximum and tied to streak completion",
+    "category": "feature",
     "module": "bot.py / db.py / keyboards.py / config.py",
     "func": "daily card limits / streak tracking",
     "problem": "Users should be able to choose how many daily cards they want to receive, as long as the number stays within their subscription plan ceiling. The streak rule should then respect that chosen target instead of a fixed allowance.",
@@ -209,14 +246,18 @@
     "detailOpen": false,
     "editing": false,
     "id": 49,
+    "phase": "phase-6",
     "roadmap_refs": [
       "adaptive-srs-core"
     ],
     "evidence": "Current daily-card quotas are plan-bounded but not user-configurable, and streak updates are not keyed off a per-user target card count.",
-    "last_reviewed": "2026-07-13"
+    "last_reviewed": "2026-07-13",
+    "decision_refs": [],
+    "depends_on": []
   },
   {
     "title": "add minimal network error handling for bot requests",
+    "category": "bug",
     "module": "bot.py / ai.py / db.py",
     "func": "network requests / Telegram delivery / AI calls",
     "problem": "Transient network failures can bubble up as generic errors without a small, consistent recovery path or a user-friendly fallback.",
@@ -228,14 +269,18 @@
     "detailOpen": false,
     "editing": false,
     "id": 50,
+    "phase": "phase-6",
     "roadmap_refs": [
       "reliability-hardening"
     ],
     "evidence": "There is no single minimal network-error policy covering bot requests end-to-end, even though some paths already retry.",
-    "last_reviewed": "2026-07-13"
+    "last_reviewed": "2026-07-13",
+    "decision_refs": [],
+    "depends_on": []
   },
   {
     "title": "card presentation detail should be independent from AI output serialization",
+    "category": "feature",
     "module": "bot.py / db.py / ai.py",
     "func": "format_card / daily delivery / custom-word results / SRS reminders",
     "problem": "The AI wire format and the learner-facing message detail are separate concerns, but the current card prompt shape has already influenced visible richness such as the number of examples and synonyms. There is no explicit presentation layer that renders brief or detailed messages from the already validated and cached canonical card.",
@@ -247,16 +292,20 @@
     "detailOpen": false,
     "editing": false,
     "id": 51,
+    "phase": "phase-4",
     "roadmap_refs": [
       "interactive-card-ux",
       "cost-control",
       "data-lifecycle"
     ],
     "evidence": "The pre-compact prompts demonstrated two example/translation pairs and multiple optional synonym/antonym slots; the compact schema demonstrates one example pair and one optional slot. ai.py:validate_card accepts one non-empty example pair, and bot.py:format_card renders whatever counts the model returns without a brief/detailed policy.",
-    "last_reviewed": "2026-07-13"
+    "last_reviewed": "2026-07-13",
+    "decision_refs": [],
+    "depends_on": []
   },
   {
     "title": "brief or detailed card preference needs explicit global and premium user controls",
+    "category": "feature",
     "module": "config.py / db.py / keyboards.py / bot.py",
     "func": "presentation preference schema / settings UI / plan gating / callbacks",
     "problem": "There is no user-visible setting for choosing brief versus detailed card messages, no documented global default for the presentation policy, and no entitlement rule for offering the preference as a premium option. A future implementation could accidentally expose an internal AI-format switch or leave stale preferences active after a plan downgrade.",
@@ -268,16 +317,20 @@
     "detailOpen": false,
     "editing": false,
     "id": 52,
+    "phase": "phase-4",
     "roadmap_refs": [
       "interactive-card-ux",
       "premium-features",
       "runtime-configuration"
     ],
     "evidence": "config.py currently exposes only the internal AI_CARD_OUTPUT_FORMAT values json and compact_json; users has no presentation preference column, and keyboards.py/bot.py have no brief/detailed settings flow.",
-    "last_reviewed": "2026-07-13"
+    "last_reviewed": "2026-07-13",
+    "decision_refs": [],
+    "depends_on": []
   },
   {
     "title": "presentation variants need cache, pool, and regression contracts",
+    "category": "tech-debt",
     "module": "bot.py / db.py / tests",
     "func": "format_card / daily_cards / saved_words.card_data / content_pool rendering",
     "problem": "Brief and detailed messages must be different views of one validated card, but there is no contract proving that rendering variants preserve example/translation pairing, optional synonym and antonym absence, cached-card reuse, and segment-level pool behavior. Without focused tests, a presentation feature could silently regenerate content, drop fields in persistence, or diverge between daily, query, and SRS paths.",
@@ -289,16 +342,20 @@
     "detailOpen": false,
     "editing": false,
     "id": 53,
+    "phase": "phase-4",
     "roadmap_refs": [
       "interactive-card-ux",
       "data-lifecycle",
       "measurement-and-observability"
     ],
     "evidence": "Current tests cover card validation and SQLite persistence, but no test selects a presentation mode or proves that rendering a cached daily, saved, or pooled card is side-effect free.",
-    "last_reviewed": "2026-07-13"
+    "last_reviewed": "2026-07-13",
+    "decision_refs": [],
+    "depends_on": []
   },
   {
     "title": "compact JSON rollout relaxed the card content richness contract",
+    "category": "bug",
     "module": "prompts.py / ai.py / tests",
     "func": "_card_schema / validate_card / daily and custom-word generation",
     "problem": "The compact provider schema reduced more than key names: it changed the examples from two demonstrated pairs to one, made synonyms and antonyms explicitly optional without minimum counts, and shortened the grammar guidance. The validator still accepts one example/translation pair and one synonym or antonym, so structurally valid compact responses can be visibly poorer than pre-compact cards.",
@@ -308,7 +365,6 @@
     "resolved": false,
     "status": "open",
     "detailOpen": false,
-    "editing": false,
     "id": 54,
     "phase": "phase-4",
     "roadmap_refs": [
@@ -316,11 +372,16 @@
       "cost-control",
       "content-quality"
     ],
+    "decision_refs": [
+      "decision-compact-json"
+    ],
     "evidence": "c394115 changed prompts.py from two example/translation placeholders and multiple synonym/antonym placeholders to compact e/t/s/a placeholders with one example and explicit optionality. Current ai.py:validate_card requires only non-empty, equal-length examples and translations; bot.py:format_card displays all returned items without restoring the prior minimum.",
-    "last_reviewed": "2026-07-13"
+    "last_reviewed": "2026-07-13",
+    "depends_on": []
   },
   {
     "title": "example translations are stored but not implemented as Telegram spoilers",
+    "category": "feature",
     "module": "bot.py / keyboards.py / db.py / tests",
     "func": "format_card / daily_card_keyboard / callback_router / cached card rendering",
     "problem": "ROADMAP.md says example translations remain hidden until an inline Show translations action is pressed, but the current renderer omits example_translations entirely and the card keyboards expose only Next card, Add to review, and SRS actions. callback_router has no translation-reveal action, so stored translations cannot appear as a spoiler or be added to the current card message.",
@@ -338,7 +399,11 @@
       "data-lifecycle",
       "premium-features"
     ],
+    "decision_refs": [
+      "decision-card-detail-default"
+    ],
     "evidence": "bot.py:format_card reads examples but never reads example_translations; keyboards.py:daily_card_keyboard returns only the next-card button and query_result_keyboard returns only Add to review; callback_router contains no translation callback branch.",
-    "last_reviewed": "2026-07-13"
+    "last_reviewed": "2026-07-13",
+    "depends_on": []
   }
 ]

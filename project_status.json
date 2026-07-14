@@ -1,0 +1,295 @@
+{
+  "schema_version": 1,
+  "project": "HamZaboon",
+  "status_model": {
+    "phase_statuses": [
+      "planned",
+      "in-progress",
+      "blocked",
+      "complete",
+      "deferred"
+    ],
+    "issue_statuses": [
+      "open",
+      "partial",
+      "resolved",
+      "accepted-risk",
+      "obsolete"
+    ],
+    "issue_categories": [
+      "feature",
+      "bug",
+      "risk",
+      "tech-debt",
+      "research",
+      "decision"
+    ]
+  },
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Content Schema and Validation",
+      "status": "complete",
+      "objective": "Keep every stored educational card valid, paired, and restart-safe.",
+      "done": [
+        "Versioned canonical card fields",
+        "Validation and safe malformed-output handling",
+        "Example and translation pairing"
+      ],
+      "in_progress": [],
+      "todo": [
+        "Keep migration and validation coverage current for additive fields"
+      ],
+      "acceptance_criteria": [
+        "Every stored card conforms to the validated schema",
+        "Existing cached cards remain readable"
+      ],
+      "depends_on": [],
+      "issue_ids": [],
+      "roadmap_anchor": "phase-1-content-schema-and-validation"
+    },
+    {
+      "id": "phase-2",
+      "name": "Manual Proficiency Level and German Support",
+      "status": "complete",
+      "objective": "Make proficiency and language-specific guidance explicit and extensible.",
+      "done": [
+        "Independent proficiency level",
+        "CEFR labels and German support"
+      ],
+      "in_progress": [],
+      "todo": [
+        "Add future languages only through the canonical catalog"
+      ],
+      "acceptance_criteria": [
+        "Language, goal, and level remain separate stored values",
+        "Language-specific guidance is preserved"
+      ],
+      "depends_on": [
+        "phase-1"
+      ],
+      "issue_ids": [],
+      "roadmap_anchor": "phase-2-manual-proficiency-level-and-german-support"
+    },
+    {
+      "id": "phase-3",
+      "name": "Controlled Generation and Daily Card Storage",
+      "status": "in-progress",
+      "objective": "Generate only requested content, persist it safely, and prepare validated reuse.",
+      "done": [
+        "Bounded manual and scheduled batches",
+        "Duplicate filtering, persistence, and partial retry"
+      ],
+      "in_progress": [
+        "Segment-level pooling design and validated reuse boundaries"
+      ],
+      "todo": [
+        "Add the pool table and gated validated write path",
+        "Add pool telemetry and inventory selection"
+      ],
+      "acceptance_criteria": [
+        "Partial batches preserve valid cards",
+        "Restart and duplicate triggers do not regenerate persisted cards"
+      ],
+      "depends_on": [
+        "phase-1",
+        "phase-2"
+      ],
+      "issue_ids": [
+        40
+      ],
+      "roadmap_anchor": "phase-3-controlled-generation-and-daily-card-storage"
+    },
+    {
+      "id": "phase-4",
+      "name": "Interactive Card UX and Project Status",
+      "status": "in-progress",
+      "objective": "Expose safe card interactions and make product/engineering status explicit.",
+      "done": [
+        "Persisted next-card flow",
+        "Cached-card rendering",
+        "Internal compact JSON separation"
+      ],
+      "in_progress": [
+        "Project-status tooling",
+        "Brief/detailed presentation contract"
+      ],
+      "todo": [
+        "Translation reveal",
+        "Content-richness restoration",
+        "Premium presentation controls",
+        "Rendering regression contracts"
+      ],
+      "acceptance_criteria": [
+        "Callbacks are user-scoped and restart-safe",
+        "Rendering does not change AI, quota, SRS, pool, or stored-card state"
+      ],
+      "depends_on": [
+        "phase-1",
+        "phase-3"
+      ],
+      "issue_ids": [
+        7,
+        27,
+        51,
+        52,
+        53,
+        54,
+        55
+      ],
+      "roadmap_anchor": "phase-4-interactive-card-ux"
+    },
+    {
+      "id": "phase-5",
+      "name": "Custom-Word Queries and Spaced-Repetition Capture",
+      "status": "planned",
+      "objective": "Complete query capture, saved-word integrity, and review entry points.",
+      "done": [
+        "Quota visibility",
+        "Persistent query identity",
+        "Idempotent Add to review"
+      ],
+      "in_progress": [],
+      "todo": [
+        "Finish custom-word UX and review-entry acceptance criteria"
+      ],
+      "acceptance_criteria": [
+        "Repeated Add to review actions remain idempotent",
+        "Saved review entries retain complete validated cards"
+      ],
+      "depends_on": [
+        "phase-3",
+        "phase-4"
+      ],
+      "issue_ids": [],
+      "roadmap_anchor": "phase-5-custom-word-queries-and-spaced-repetition-capture"
+    },
+    {
+      "id": "phase-6",
+      "name": "Reliable Delivery, Concurrency, and Data Lifecycle",
+      "status": "in-progress",
+      "objective": "Make delivery, SRS, migrations, and user progress durable under retries and restarts.",
+      "done": [
+        "Durable queues and bounded retries",
+        "Async-safe provider calls",
+        "Callback validation and restart recovery"
+      ],
+      "in_progress": [
+        "Adaptive SRS correctness",
+        "Migration and idempotency contracts"
+      ],
+      "todo": [
+        "Resolve issues 42-47, 49, and 50",
+        "Add focused reliability and progress tests"
+      ],
+      "acceptance_criteria": [
+        "Restart does not resend completed work",
+        "One user's failure does not stop other users"
+      ],
+      "depends_on": [
+        "phase-3",
+        "phase-5"
+      ],
+      "issue_ids": [
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        49,
+        50
+      ],
+      "roadmap_anchor": "phase-6-reliable-delivery-concurrency-and-data-lifecycle"
+    },
+    {
+      "id": "phase-7",
+      "name": "Premium Smart Placement Test",
+      "status": "planned",
+      "objective": "Add premium placement assessment only after the core learning loop is reliable.",
+      "done": [
+        "Premium boundary and product direction documented"
+      ],
+      "in_progress": [],
+      "todo": [
+        "Implement after core learning-loop and measurement contracts stabilize"
+      ],
+      "acceptance_criteria": [
+        "Premium access is enforced",
+        "Results are confirmed before being saved"
+      ],
+      "depends_on": [
+        "phase-6"
+      ],
+      "issue_ids": [],
+      "roadmap_anchor": "phase-7-premium-smart-placement-test"
+    },
+    {
+      "id": "phase-8",
+      "name": "Measurement and Advanced Learning",
+      "status": "planned",
+      "objective": "Use validated usage data to add mini-quizzes, measurement, and personalization.",
+      "done": [
+        "Measurement goals documented",
+        "Mini-quiz dependency order documented"
+      ],
+      "in_progress": [],
+      "todo": [
+        "Add feedback capture and cost/quality dashboards",
+        "Add advanced learning features"
+      ],
+      "acceptance_criteria": [
+        "Measurement precedes advanced personalization",
+        "Mini-quizzes reuse existing validated learning data"
+      ],
+      "depends_on": [
+        "phase-6",
+        "phase-7"
+      ],
+      "issue_ids": [
+        48
+      ],
+      "roadmap_anchor": "phase-8-measurement-and-advanced-learning"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "decision-ai-generated-content",
+      "status": "locked",
+      "title": "Educational content remains AI-generated",
+      "phase": "phase-1",
+      "roadmap_ref": "delivery-principles",
+      "summary": "The bot validates and renders model output; it does not replace educational generation with hard-coded lessons."
+    },
+    {
+      "id": "decision-issue-registry",
+      "status": "locked",
+      "title": "Issue records remain canonical in issues.json",
+      "phase": "phase-4",
+      "roadmap_ref": "issue-tooling",
+      "summary": "The dashboard and Markdown export are views; browser edits are never canonical."
+    },
+    {
+      "id": "decision-compact-json",
+      "status": "locked",
+      "title": "Compact JSON is an internal provider optimization",
+      "phase": "phase-3",
+      "roadmap_ref": "cost-control",
+      "summary": "Wire-format compactness must not change the canonical card schema or learner-facing content richness."
+    },
+    {
+      "id": "decision-card-detail-default",
+      "status": "proposed",
+      "title": "Default card detail and premium expansion",
+      "phase": "phase-4",
+      "roadmap_ref": "interactive-card-ux",
+      "summary": "The current roadmap keeps detailed as the global default; minimal cards with a premium More details action remain a product proposal until explicitly approved.",
+      "issue_ids": [
+        51,
+        52,
+        53,
+        55
+      ]
+    }
+  ]
+}

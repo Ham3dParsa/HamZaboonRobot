@@ -22,6 +22,28 @@ The project is an MVP with:
 - Owner-only administrative settings and per-user plan assignment
 - An explicit owner bypass for plan limits during development
 
+## Project Status Model
+
+This document remains the human-readable product narrative. Its machine
+readable companion is `project_status.json`, which owns phase status,
+dependencies, issue assignments, and decision locks. `issues/issues.json`
+remains the canonical engineering registry.
+
+The read-only dashboard at `issues/project_status.html` joins those two
+canonical sources. It is an exported review surface, not an editor: browser
+state, `localStorage`, and generated HTML data are never authoritative.
+
+Every implementation phase uses the same board:
+
+- **Done** — verified scope already delivered.
+- **In progress** — active work or partial implementation.
+- **To-do** — planned work not yet delivered.
+- **Acceptance criteria** — the evidence required before the phase is complete.
+
+Engineering records are categorized as `feature`, `bug`, `risk`, `tech-debt`,
+`research`, or `decision`. Issue status, phase status, and decision status are
+separate concepts and must not be conflated.
+
 ## Roadmap Board
 
 ### Done
@@ -77,9 +99,10 @@ Completed on the current main branch:
 - Plan access controls, owner bypass, and owner-only per-user plan assignment
 - Operational configuration contract with readable clock values, shared
   timezone support for scheduled jobs, and explicit per-plan quotas
-- Local issue-review manager (`issues/issues.html`) backed by canonical
-  structured issue data in `issues/issues.json`; `hamzaban-issues.md` is an
-  optional Markdown export for review
+- Read-only project-status dashboard (`issues/project_status.html`) joined
+  from `project_status.json` and canonical structured issue data in
+  `issues/issues.json`; `issues/issues.html` remains a compatibility redirect
+  and `hamzaban-issues.md` is an optional Markdown export for review
 - Custom-word query improvements: daily quota visibility, persistent
   short-lived query identity, inline `Add to review`, and removal of the
   standalone manual-save action from the primary menu
@@ -199,7 +222,7 @@ below.
 ## Latest Code Review
 
 Review scope: every Python module, all tests, `ROADMAP.md`,
-`hamzaban-issues.md`, and the static `issues/issues.html` manager on the
+`hamzaban-issues.md`, and the static `issues/project_status.html` dashboard on the
 current `main` branch.
 
 ### Audit result
@@ -239,13 +262,17 @@ The reliability-hardening policy is locked for this implementation: failed
 delivery sessions use bounded exponential retries and become terminal after
 the configured attempt budget.
 
-The issue-tooling ownership is locked: `issues/issues.json` is canonical,
-`issues/issues.html` reads the canonical data, and `hamzaban-issues.md` is an
-optional export generated only when a review snapshot is needed.
+The issue-tooling ownership is locked: `issues/issues.json` is canonical for
+engineering records, `project_status.json` is canonical for phase and decision
+status, and `issues/project_status.html` is a read-only joined view. The
+compatibility page `issues/issues.html` only redirects to the new dashboard.
+`hamzaban-issues.md` remains an optional export generated only when a review
+snapshot is needed.
 
-- Issue records may gain optional `phase` tags later so roadmap-stage grouping
-  stays explicit, but `roadmap_refs` remains the primary link back to the
-  roadmap text.
+Issue records carry explicit `category`, `phase`, `roadmap_refs`,
+`decision_refs`, and dependency metadata. `issues/validate.py check` verifies
+the references in both directions and rejects unassigned or multiply assigned
+issues.
 
 ## Locked Architectural Decision
 
@@ -425,6 +452,11 @@ The next language addition must use this contract.
 
 ### Phase 1: Content Schema and Validation
 
+**Status:** Complete
+**Done:** Versioned card fields, validation, paired examples/translations, and safe malformed-output handling.
+**In progress:** None.
+**To-do:** Keep migration and validation coverage current as additive fields are introduced.
+
 Define and validate a versioned vocabulary-card contract containing:
 
 - `word`
@@ -448,6 +480,11 @@ and safe fallback behavior when the model returns incomplete or malformed JSON.
 - Existing cached cards remain readable during the schema transition.
 
 ### Phase 2: Manual Proficiency Level and German Support
+
+**Status:** Complete
+**Done:** Independent proficiency level, CEFR labels, German support, and language-specific guidance.
+**In progress:** None.
+**To-do:** Add future languages only through the canonical catalog.
 
 Add an independent proficiency-level field to the user profile. Let all users
 choose a simple level label and show its CEFR equivalent.
@@ -474,6 +511,11 @@ sharing assumptions from English.
 - The selected level visibly influences generated content.
 
 ### Phase 3: Controlled Generation and Daily Card Storage
+
+**Status:** In progress
+**Done:** Bounded manual and scheduled batches, persistence, duplicate filtering, and partial retry.
+**In progress:** Segment-level pooling design and validated reuse boundaries.
+**To-do:** Implement additive pool storage, gated writes/reads, telemetry, and inventory selection (issue `40`).
 
 Support two deliberate generation modes:
 
@@ -510,6 +552,11 @@ The shared storage and validation layer must:
   forcing manual users to pre-generate their full allowance.
 
 ### Phase 4: Interactive Card UX
+
+**Status:** In progress
+**Done:** Persisted next-card flow, cached-card rendering, and internal compact JSON separation.
+**In progress:** Project-status tooling and the brief/detailed presentation contract.
+**To-do:** Translation reveal, content-richness restoration, premium presentation controls, and regression contracts (issues `27`, `51`–`55`).
 
 Add inline controls for:
 
@@ -571,6 +618,11 @@ change.
 
 ### Phase 5: Custom-Word Queries and Spaced-Repetition Capture
 
+**Status:** Planned
+**Done:** Quota visibility, persistent query identity, idempotent Add to review, and complete cached review payloads.
+**In progress:** None.
+**To-do:** Finish the remaining custom-word UX and review-entry acceptance criteria.
+
 Extend the custom-word flow so that:
 
 - Free users see `used / limit` before and after a query.
@@ -600,6 +652,11 @@ menu, but the database save and SRS functions remain internal capabilities.
 - The existing SRS job can find and deliver the saved word.
 
 ### Phase 6: Reliable Delivery, Concurrency, and Data Lifecycle
+
+**Status:** In progress
+**Done:** Durable queues, bounded retries, async-safe provider calls, callback validation, and restart recovery.
+**In progress:** Adaptive SRS correctness and migration contracts.
+**To-do:** Resolve issues `42`–`47`, `49`, and `50` with focused idempotency, migration, reliability, and progress tests.
 
 Make manual generation and scheduled delivery restart-safe and isolated per
 user. Add:
@@ -642,6 +699,11 @@ user. Add:
 
 ### Phase 7: Premium Smart Placement Test
 
+**Status:** Planned
+**Done:** Product direction and premium boundary documented.
+**In progress:** None.
+**To-do:** Implement only after the core learning loop and measurement contracts are stable.
+
 Provide Silver and Gold users with an optional adaptive placement flow.
 Free users retain manual level selection.
 
@@ -668,6 +730,11 @@ guidance, and evaluation rules.
 - The test does not expose the underlying prompt or raw model output.
 
 ### Phase 8: Measurement and Advanced Learning
+
+**Status:** Planned
+**Done:** Measurement goals and mini-quiz dependency order documented.
+**In progress:** None.
+**To-do:** Add feedback capture, cost/quality dashboards, and advanced learning features (issue `48`).
 
 After the core flow is stable, record:
 

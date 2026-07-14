@@ -40,12 +40,15 @@ findings:
 | File | Responsibility | Normal editing rule |
 | --- | --- | --- |
 | `ROADMAP.md` | Product direction, phases, locked decisions, acceptance criteria, and remaining work. | Curate it when meaningful implementation or product scope changes. |
-| `issues/issues.json` | Canonical structured registry of bugs, risks, evidence, status, and roadmap references. | This is the only issue-state file to update during normal implementation work. |
-| `issues/issues.html` | Local visual review application that reads `issues/issues.json`. | Do not manually update it as part of an implementation PR. |
+| `issues/issues.json` | Canonical structured registry of features, bugs, risks, research, decisions, evidence, status, and roadmap references. | This is the only engineering issue-state file to update during normal implementation work. |
+| `project_status.json` | Canonical machine-readable phase, dependency, and decision-lock index. | Update it when phase status, assignments, or locked decisions change. |
+| `issues/project_status.html` | Read-only joined dashboard generated from `project_status.json` and `issues/issues.json`. | Never treat embedded data or browser state as canonical. |
+| `issues/issues.html` | Compatibility redirect to `issues/project_status.html`. | Do not use it as an editor or status source. |
 | `hamzaban-issues.md` | Optional Markdown snapshot/export for human or AI review. | Do not maintain it in normal PRs. Generate it only when a fresh snapshot is explicitly useful. |
 | `issues/validate.py` | Validation, JSON import/export, and optional view export CLI. | Use `check` in normal PR validation; use `sync` only when an export is intentionally requested. |
 
-`issues/issues.json` is authoritative for issue status. HTML
+`issues/issues.json` is authoritative for issue status and
+`project_status.json` is authoritative for phase/decision status. HTML
 `localStorage`, embedded fallback data, and Markdown snapshots must never be
 treated as canonical state.
 

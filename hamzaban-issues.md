@@ -1,121 +1,7 @@
 # HamZaban — Issues Export
 
 > Generated from `issues/issues.json`; edit the JSON or use the issue app.
-> Last synchronized: 2026-07-12
-
-# عدم کش کارت روزانه – هزینه‌ی اضافی و گیج‌کننده
-
-- ID: 1
-- Module: bot.py
-- Function: send_daily_card_now
-- Priority: high
-- Status: Resolved
-- Roadmap refs: —
-- Evidence: —
-
-## Problem
-هر بار که کاربر دکمه‌ی «واژه‌ی امروز» را می‌زند، یک کارت جدید از مدل زبانی گرفته می‌شود. این هم هزینه‌ی API را افزایش می‌دهد و هم مفهوم «کارت روزانه» را نقض می‌کند (کاربر باید همان کارت را ببیند).
-
-## Solution
-یک ستون daily_card (JSON یا TEXT) و daily_card_date به جدول users اضافه کنید. در send_daily_card_now و daily_job، ابتدا چک کنید که آیا امروز کارت از قبل تولید شده است. اگر بله، همان را برگردانید؛ در غیر این صورت تولید کنید و ذخیره کنید. در db.py توابع get_daily_card(user_id) و set_daily_card(user_id, card_json) اضافه کنید.
-
-## Note
- کاربر رایگان باید 3 کارت روزانه داشته باشد که قابل مرور هستند.
-
----
-
-# عدم ارسال یادآوری واژه‌های ذخیره‌شده (SRS)
-
-- ID: 2
-- Module: bot.py
-- Function: —
-- Priority: high
-- Status: Partial
-- Roadmap refs: —
-- Evidence: —
-
-## Problem
-کاربر می‌تواند واژه‌ی دلخواه ثبت کند و due_words_for_user تعداد واژه‌های سررسید را نشان می‌دهد، ولی هیچ Jobای برای ارسال خودکار آن‌ها وجود ندارد.
-
-## Solution
-یک Job جدید (مثلاً هر روز ساعت ۱۰ صبح) اضافه کنید که برای هر کاربر، واژه‌های سررسید را گرفته و به صورت یک پیام گروهی یا جداگانه ارسال کند. پس از ارسال، تابع advance_word_review را برای هر واژه صدا بزنید تا زمان مرور بعدی محاسبه شود.
-
----
-
-# مدیریت Rate Limit تلگرام در ارسال همگانی و Job روزانه
-
-- ID: 3
-- Module: bot.py
-- Function: daily_job / admin_broadcast
-- Priority: medium
-- Status: Partial
-- Roadmap refs: —
-- Evidence: —
-
-## Problem
-ارسال همزمان پیام به تعداد زیاد ممکن است باعث خطای Too Many Requests از سمت تلگرام شود.
-
-## Solution
-از asyncio.sleep بین هر چند پیام استفاده کنید (مثلاً هر ۱۰ پیام ۰.۵ ثانیه مکث). یا از telegram.ext با Application و JobQueue به صورت تکی ارسال کنید.
-
-## Note
-این مشکل فعلا فوریت ندارد اما برای این که بعدا و با هجوم کاربران و وظایف دچار مشکل نشویم بهتر است از همین الان به فکر آن روز باشیم!
-
----
-
-# همگام‌سازی نبودن نام زبان‌ها در prompts.py و config.py
-
-- ID: 4
-- Module: prompts.py
-- Function: LANG_NAMES_FA
-- Priority: low
-- Status: Resolved
-- Roadmap refs: —
-- Evidence: —
-
-## Problem
-LANG_NAMES_FA به صورت دستی تعریف شده و اگر زبانی به SUPPORTED_LANGS اضافه شود، باید در دو جا به‌روز شود.
-
-## Solution
-در prompts.py، LANG_NAMES_FA را با from config import SUPPORTED_LANGS بسازید: LANG_NAMES_FA = {code: name for code, name in SUPPORTED_LANGS.items()} سپس در پرامپت‌ها از LANG_NAMES_FA.get(lang, lang) استفاده کنید.
-
----
-
-# خطا در _extract_json هنگام عدم وجود JSON
-
-- ID: 5
-- Module: ai.py
-- Function: _extract_json
-- Priority: medium
-- Status: Resolved
-- Roadmap refs: —
-- Evidence: —
-
-## Problem
-اگر مدل هیچ JSONای برنگرداند، re.search موفق نمی‌شود و json.loads("") خطا می‌دهد. در ask_json این خطا گرفته نمی‌شود و به بالا می‌رود.
-
-## Solution
-در _extract_json، اگر JSON پیدا نشد، یک استثنای سفارشی پرتاب کنید یا {} برگردانید. در ask_json، خطا را catch کرده و پیام مناسب به کاربر نشان دهید (در حال حاضر در bot.py catch می‌شود، ولی بهتر است خود ask_json یک None برگرداند و بالادست مدیریت کند).
-
----
-
-# عدم استفاده از advance_word_review در هیچ‌کجای کد
-
-- ID: 6
-- Module: db.py / bot.py
-- Function: advance_word_review
-- Priority: medium
-- Status: Resolved
-- Roadmap refs: —
-- Evidence: —
-
-## Problem
-تابع advance_word_review تعریف شده ولی هیچ‌گاه صدا زده نمی‌شود.
-
-## Solution
-پس از پیاده‌سازی ارسال یادآوری (مشکل شماره ۲)، پس از ارسال هر واژه، این تابع را صدا بزنید.
-
----
+> Last synchronized: 2026-07-14
 
 # ذخیره‌سازی API Key به صورت متن ساده در دیتابیس
 
@@ -123,9 +9,11 @@ LANG_NAMES_FA به صورت دستی تعریف شده و اگر زبانی به
 - Module: db.py
 - Function: جدول settings
 - Priority: low
-- Status: Open
-- Roadmap refs: —
-- Evidence: —
+- Status: Accepted risk
+- Category: risk
+- Phase: phase-4
+- Roadmap refs: runtime-configuration
+- Evidence: README.md documents that AI API keys are bootstrap/runtime secrets and warns that the SQLite DB/settings table must be protected; no encryption layer is implemented yet.
 
 ## Problem
 کلید API به صورت plaintext در دیتابیس ذخیره می‌شود که در صورت نفوذ به دیتابیس، لو می‌رود.
@@ -133,259 +21,373 @@ LANG_NAMES_FA به صورت دستی تعریف شده و اگر زبانی به
 ## Solution
 از یک رمزنگاری ساده (مثلاً Fernet با کلید ثابت در env) برای ذخیره و بازیابی استفاده کنید. یا حداقل در README هشدار دهید که دیتابیس را امن نگه دارند.
 
----
-
-# عدم استفاده از timezone در تاریخ‌گذاری
-
-- ID: 8
-- Module: db.py
-- Function: touch_streak / can_ask_word / add_saved_word
-- Priority: low
-- Status: Partial
-- Roadmap refs: —
-- Evidence: —
-
-## Problem
-استفاده از datetime.date.today() بر اساس ساعت سیستم است. اگر سرور در منطقه‌ی زمانی متفاوتی باشد، ممکن است روزها جابجا شوند.
-
-## Solution
-از pytz یا datetime.timezone.utc استفاده کنید و ساعت ارسال روزانه (DAILY_SEND_HOUR) را بر اساس UTC تنظیم کنید. یا یک تنظیمات timezone برای کاربر اضافه کنید (پیچیده‌تر).
+## Note
+Accepted for MVP because adding encrypted secret-at-rest storage needs a dedicated secret-management decision and dependency review.
 
 ---
 
-# استفاده از edit_message_text بدون مدیریت خطا هنگام ویرایش پیام قدیمی
+# issues.json phase-aware grouping ندارد
 
-- ID: 9
-- Module: bot.py
-- Function: on_lang_selected / on_goal_selected / on_lang_changed / on_goal_changed / admin_callback
+- ID: 27
+- Module: issues/issues.json / project_status.json / issues/project_status.html
+- Function: schema / explorer filters
 - Priority: medium
-- Status: Open
-- Roadmap refs: —
-- Evidence: —
-
-## Problem
-اگر کاربر روی دکمه‌ای کلیک کند که پیام قبلاً حذف شده باشد، edit_message_text خطا می‌دهد و کرش می‌کند.
-
-## Solution
-تمام edit_message_textها را در try/except با telegram.error.BadRequest بپوشانید و در صورت خطا، یک پیام جدید ارسال کنید. یا از answer_callback_query با show_alert استفاده کنید و پیام را عوض نکنید (که فعلاً این کار را نمی‌کند).
-
----
-
-# عدم محدودیت در دریافت کارت روزانه برای کاربران غیر onboarded
-
-- ID: 10
-- Module: bot.py
-- Function: send_daily_card_now
-- Priority: none
 - Status: Resolved
-- Roadmap refs: —
-- Evidence: —
+- Category: tech-debt
+- Phase: phase-4
+- Roadmap refs: issue-tooling
+- Evidence: The registry now has first-class phase data; the remaining work is to keep phase assignments and the read-only project-status dashboard synchronized through validation.
 
 ## Problem
-اگر کاربری /start را نزده باشد و مستقیم دکمه را بزند، پیام «اول باید /start رو بزنی.» نشان داده می‌شود. این درست است، ولی دکمه‌ها تا زمانی که کاربر onboarded نشده باشد نمایش داده نمی‌شوند (چون منوی اصلی را نمی‌بیند). پس خطری ندارد.
+فقط status، priority و roadmap_refs ذخیره می‌شوند؛ برای batchهای مبتنی بر phase یا alignment دقیق‌تر با ROADMAP.md یک فیلد صریح phase وجود ندارد و UI هم آن را نشان نمی‌دهد.
 
 ## Solution
-— (این مورد یک باگ واقعی نیست، فقط یک رفتار صحیح است که بررسی شد.)
-
----
-
-# ارسال پیام همگانی بدون تأخیر ممکن است با محدودیت مواجه شود
-
-- ID: 11
-- Module: bot.py
-- Function: admin_broadcast
-- Priority: medium
-- Status: Partial
-- Roadmap refs: —
-- Evidence: —
-
-## Problem
-همانند شماره ۳ — ارسال همزمان پیام به تعداد زیاد ممکن است باعث خطای Too Many Requests شود.
-
-## Solution
-مشابه راه‌حل شماره ۳: از asyncio.sleep بین هر چند پیام استفاده کنید یا از JobQueue استفاده کنید.
+فیلدهای category و phase را canonical کنید، phase/decision index را در project_status.json نگه دارید، و داشبورد read-only را با validate روی هر دو منبع هم‌راستا کنید.
 
 ## Note
-این مشکل فعلا فوریت ندارد اما برای این که بعدا و با هجوم کاربران و وظایف دچار مشکل نشویم بهتر است از همین الان به فکر آن روز باشیم!
+این یک بهبود ساختاری است و باید بدون شکستن backward compatibility اضافه شود.
 
 ---
 
-# عدم مدیریت timeout برای درخواست‌های AI
+# استخر مشترک محتوای آموزشی در سطح segment هنوز پیاده‌سازی نشده است
 
-- ID: 12
-- Module: ai.py
-- Function: client.chat.completions.create
-- Priority: low
-- Status: Open
-- Roadmap refs: —
-- Evidence: —
-
-## Problem
-پیش‌فرض timeout ندارد و ممکن است درخواست به دلیل کندی شبکه یا سرویس، مدت‌ها معلق بماند.
-
-## Solution
-در OpenAI هنگام ساخت کلاینت، timeout تنظیم کنید: OpenAI(base_url=base_url, api_key=api_key, timeout=30.0)
-
----
-
-# عدم استفاده از log در بخش‌های مهم (به جز خطاها)
-
-- ID: 13
-- Module: bot.py
-- Function: —
-- Priority: low
-- Status: Partial
-- Roadmap refs: —
-- Evidence: —
-
-## Problem
-لاگ‌های کمی برای رویدادهای مهم وجود دارد.
-
-## Solution
-لاگ‌های بیشتری برای رویدادهای مهم مانند ورود کاربر جدید، تغییر پلن، ارسال کارت روزانه و ... اضافه کنید تا دیباگ و تحلیل رفتار کاربر راحت‌تر شود.
-
----
-
-# format_card در صورت خالی بودن grammar_tip یک خط خالی اضافه می‌کند
-
-- ID: 14
-- Module: bot.py
-- Function: format_card
-- Priority: low
-- Status: Resolved
-- Roadmap refs: —
-- Evidence: —
-
-## Problem
-اگر grammar_tip خالی باشد، یک خط خالی اضافی در خروجی ایجاد می‌شود.
-
-## Solution
-قبل از اضافه کردن بخش گرامر، چک کنید که grammar_tip خالی نباشد: if grammar_tip: lines.append(f"
-✍️ *نکته‌ی گرامری:*
-{grammar_tip}")
-
----
-
-# پرامپت daily_card_system_prompt برای اهداف جدید قابل گسترش نیست
-
-- ID: 15
-- Module: prompts.py
-- Function: daily_card_system_prompt
-- Priority: low
-- Status: Resolved
-- Roadmap refs: —
-- Evidence: —
-
-## Problem
-دیکشنری goal_hint به صورت جداگانه تعریف نشده و اگر هدفی در آن نبود، از یک مقدار پیش‌فرض استفاده نمی‌شود.
-
-## Solution
-دیکشنری goal_hint را به صورت جداگانه تعریف کنید و اگر هدفی در آن نبود، از یک مقدار پیش‌فرض استفاده کنید.
-
----
-
-# Retry نامحدود برای صف delivery
-
-- ID: 16
-- Module: bot.py / db.py
-- Function: delivery queue
+- ID: 40
+- Module: db.py / bot.py / ai.py / config.py
+- Function: content_pool schema, daily-card generation, custom-word save, grammar recommendation
 - Priority: high
 - Status: Open
-- Roadmap refs: —
-- Evidence: —
+- Category: feature
+- Phase: phase-3
+- Roadmap refs: cost-control, measurement-and-observability, data-lifecycle, future-mini-quizzes
+- Evidence: db.py currently has per-user saved_words, daily_cards, query_results, and grammar_tips but no content_pool table; bot.py generation paths are _generate_daily_batch, send_grammar_tip, and text_router custom-word flow; db.py:_normalize_word defines the existing whitespace-collapse + casefold contract; plan_pooling.md and ROADMAP.md record the locked pooling policy.
 
 ## Problem
-صف‌های failed بدون سقف تلاش یا backoff در هر tick دوباره تلاش می‌شوند و خطای دائمی می‌تواند مصرف API و Telegram را بی‌نهایت تکرار کند.
+محتوای معتبر و AI-generated هر کاربر فقط در daily_cards، saved_words یا grammar_tips همان کاربر باقی می‌ماند و بین کاربران دارای target_lang، goal و level یکسان reuse نمی‌شود. با رشد کاربران، این مسیر باعث تماس‌های تکراری LLM می‌شود. در عین حال، pooling نباید avoid-list، deduplication، quota، مرزبندی segment یا اصل تولیدشدن محتوا توسط AI را تضعیف کند.
 
 ## Solution
-Retry budget، backoff و وضعیت terminal/manual-retry اضافه کنید.
+یک جدول additive به نام content_pool با کلید یکتای target_lang + goal + level + source_kind + item_key اضافه کنید و source_kindهای daily_card، saved_query_card، grammar_tip و quiz_item را از ابتدا رزرو کنید. کارت روزانه فقط پس از validation و ذخیره‌ی پذیرفته‌شده، نتیجه‌ی custom word فقط پس از Add to review، و نکته‌ی گرامری فقط پس از recommendation صریح کاربر و validation فیلدهای همراه همان پاسخ اولیه وارد pool شود؛ برای validation گرامر تماس دوم LLM مجاز نیست. Pool hit باید با همان quota محصول مصرف شود اما telemetry نوع pool_hit و هزینه‌ی صفر داشته باشد. انتخاب pool باید با تراکنش BEGIN IMMEDIATE، رعایت کلید کامل segment و حذف itemهای موجود در داده‌ی همان کاربر انجام شود. inventory floor اولیه ۱۰ آیتم distinct در هر segment/source و قابل تنظیم در deployment است.
+
+## Note
+تصمیم‌های محصول قفل شده‌اند: pool در reset داده‌ی learner باقی می‌ماند، expiry زمانی ندارد، و retirement آینده با rating/report جامعه و حذف owner با approval اداره می‌شود. points تا زمان وجود reward ledger به تعویق افتاده است. thresholds رأی‌دهی، cron retirement و پنل review در scope بعدی هستند. فکر میکنم اگر دیتابیس جداگانه ای، یعنی یک فایل جدا به عنوان دیتابیس هر زبان داشته باشیم ایده خوبی باشد اما مطمئن نیستم.
 
 ---
 
-# اجرای synchronous درخواست AI داخل handlerهای async
+# Pending شدن یادآوری SRS می‌تواند completion rate را برای همیشه مخدوش کند
 
-- ID: 17
-- Module: bot.py
-- Function: custom-word / grammar handlers
+- ID: 42
+- Module: db.py / bot.py
+- Function: mark_word_review_pending / due_words_for_user / srs_job
 - Priority: high
 - Status: Open
-- Roadmap refs: —
-- Evidence: —
+- Category: bug
+- Phase: phase-6
+- Roadmap refs: adaptive-srs-core
+- Evidence: db.py:due_words_for_user excludes review_status='pending' and no function currently expires pending rows; bot.py:srs_job sets review_status='pending' after successful reminder delivery.
 
 ## Problem
-تماس مستقیم با کلاینت synchronous در زمان کندی provider event loop تلگرام را متوقف می‌کند.
+یادآوری ارسالی در saved_words به وضعیت pending می‌رود، اما pending فعلی timeout ندارد و due_words_for_user آن را تا پاسخ کاربر کنار می‌گذارد. در نتیجه یک یادآوری بی‌پاسخ می‌تواند برای همیشه در محاسبه‌ی completion rate مبهم بماند و رفتار pacing را سرکوب کند.
 
 ## Solution
-همه‌ی تماس‌های blocking را با asyncio.to_thread یا کلاینت async اجرا و timeout صریح تنظیم کنید.
+grace window یادآوری pending را ۴۸ ساعت قفل کنید. پس از آن، ردیف بی‌پاسخ در مخرج completion rate هفت‌روزه به‌عنوان unanswered حساب شود و دوباره pending دائمی نباشد؛ این تغییر باید بدون advance کردن interval و بدون تولید reminder تکراری خارج از سیاست cap انجام شود.
+
+## Note
+تصمیم محصول قفل شد: grace window برابر ۴۸ ساعت است. پیاده‌سازی و تست آن هنوز باقی است.
 
 ---
 
-# اعتبارسنجی ناقص callbackهای زبان و هدف
+# تنظیم cap روزانه‌ی SRS در catch-up یا restart می‌تواند دوبار اعمال شود
 
-- ID: 18
-- Module: bot.py
-- Function: callback_router
+- ID: 43
+- Module: db.py / bot.py
+- Function: srs_job / startup_catch_up_job
 - Priority: high
 - Status: Open
-- Roadmap refs: —
-- Evidence: —
+- Category: bug
+- Phase: phase-6
+- Roadmap refs: adaptive-srs-core
+- Evidence: db.py:users has no reminder-cap columns; bot.py:startup_catch_up_job can invoke srs_job after downtime and the regular daily schedule can invoke it again.
 
 ## Problem
-callbackهای language و goal قبل از ذخیره‌سازی علیه catalog بررسی نمی‌شوند.
+Adaptive SRS هنوز cap یا زمان آخرین adjustment ندارد. startup catch-up عمداً srs_job را دوباره اجرا می‌کند، بنابراین adjustment روزانه بدون کلید idempotency می‌تواند در یک روز چند بار step بخورد.
 
 ## Solution
-اعتبارسنجی identifierها را قبل از هر تغییر profile متمرکز کنید.
+ستون‌های daily_reminder_cap و reminder_cap_updated_at را additive اضافه کنید و adjustment را با همان application-day در تراکنش محافظت کنید. seed اولیه برای کاربران قدیمی برابر allowance فعلی plan باشد؛ cap با step برابر ۱، کف ۱، و سقف مؤثر plan تغییر کند.
+
+## Note
+تصمیم محصول قفل شد: Free/Silver/Gold به‌ترتیب ۳/۱۲/۳۰، step برابر ۱، و اجرای adjustment حداکثر یک‌بار در هر روز برنامه است.
 
 ---
 
-# quota غیراتمی و ذخیره‌ی واژه‌ی تکراری
+# تغییر goal وسط روز باید با pacing زمان‌بندی‌شده سازگار بماند
 
-- ID: 19
-- Module: bot.py / db.py
-- Function: can_ask_word / add_saved_word
-- Priority: high
-- Status: Open
-- Roadmap refs: —
-- Evidence: —
-
-## Problem
-بررسی و increment سقف جدا هستند و saved_words نیز uniqueness ندارد.
-
-## Solution
-رزرو quota را transactionی کنید و ذخیره‌ی واژه را idempotent کنید.
-
----
-
-# SRS و broadcast بدون مسیر مشترک rate-limit
-
-- ID: 20
-- Module: bot.py
-- Function: srs_job / admin_broadcast
+- ID: 44
+- Module: db.py / bot.py / scheduling.py
+- Function: set_user_goal / srs_job / daily planning
 - Priority: medium
 - Status: Open
-- Roadmap refs: —
-- Evidence: —
+- Category: bug
+- Phase: phase-6
+- Roadmap refs: adaptive-srs-core
+- Evidence: db.py:set_user_goal updates users.goal immediately, while current SRS delivery has no persisted pacing-shape snapshot or goal-aware session selection.
 
 ## Problem
-این مسیرها مستقیماً send_message را صدا می‌زنند و retry، semaphore و chunking ندارند.
+goal کاربر در هر زمان قابل تغییر است، اما adaptive pacing هنوز قرارداد مشخصی برای reminderهای از قبل برنامه‌ریزی‌شده ندارد. اعمال فوری تغییر می‌تواند shape صف موجود را در میانه‌ی روز عوض کند.
 
 ## Solution
-یک sender مشترک مقاوم در برابر rate-limit برای همه‌ی ارسال‌های همگانی بسازید.
+goal جدید را از daily planning cycle بعدی در pacing اعمال کنید و reminderهای از قبل queued را با shape فعلی ارسال کنید. این قرارداد باید با snapshot فعلی daily_card_sessions هم‌راستا بماند و در تست تغییر goal وسط چرخه پوشش داده شود.
+
+## Note
+تصمیم محصول قفل شد: اثرگذاری از planning cycle بعدی؛ صف موجود تغییر نمی‌کند.
 
 ---
 
-# ناهماهنگی منبع issues.html و Markdown
+# مسیر points جدید باید در برابر toggle سریع review مقاوم باشد
 
-- ID: 21
-- Module: issues.html / hamzaban-issues.md
-- Function: ISSUES_DATA / localStorage
-- Priority: low
+- ID: 45
+- Module: db.py / bot.py
+- Function: advance_word_review / defer_word_review / retention_events
+- Priority: high
 - Status: Open
-- Roadmap refs: —
-- Evidence: —
+- Category: bug
+- Phase: phase-6
+- Roadmap refs: adaptive-srs-core
+- Evidence: db.py:advance_word_review and defer_word_review update only rows in pending state, but there is no retention_events table or points/progress read model.
 
 ## Problem
-HTML داده‌ی issue و یادداشت‌ها را جداگانه نگه می‌دارد و ممکن است با Markdown canonical متفاوت شود.
+advance_word_review و defer_word_review فعلاً با شرط review_status='pending' از تکرار یک پاسخ جلوگیری می‌کنند، اما retention_events هنوز وجود ندارد و milestone points در هیچ تراکنش append-only ثبت نمی‌شود.
 
 ## Solution
-Markdown را تنها منبع نگه دارید و HTML را generate/refresh کنید یا آن را فقط view محلی مستند کنید.
+ثبت retention event و تغییر interval را در یک تراکنش اتمیک انجام دهید؛ برای هر saved_word و interval milestone فقط یک event مجاز باشد. امتیازها برای intervalهای ۱ تا ۴ برابر ۱، ۳، ۶ و ۱۰ هستند و رسیدن به interval چهار یک mastery bonus یک‌باره‌ی ۱۰ امتیازی دارد.
+
+## Note
+تصمیم محصول قفل شد: فقط پاسخ موفق learner امتیاز می‌دهد؛ generation، delivery و streak امتیاز retention ندارند. bonus نهایی باید با unique guard دوباره‌پذیر نباشد.
+
+---
+
+# کاربران قدیمی پس از migration نباید cap یادآوری صفر یا NULL داشته باشند
+
+- ID: 46
+- Module: db.py / config.py
+- Function: init_db / plan allowance helpers
+- Priority: high
+- Status: Open
+- Category: bug
+- Phase: phase-6
+- Roadmap refs: adaptive-srs-core
+- Evidence: db.py:init_db currently has no daily_reminder_cap or reminder_cap_updated_at migration; config.py defines the authoritative Free/Silver/Gold daily card allowances.
+
+## Problem
+users موجود پیش از adaptive SRS ستون daily_reminder_cap ندارند و migration آن باید NULL را به رفتار قابل پیش‌بینی تبدیل کند. مقداردهی اشتباه می‌تواند در روز migration reminderهای کاربر را ناگهان به صفر یا سقف نامحدود تبدیل کند.
+
+## Solution
+migration را additive نگه دارید و cap اولیه‌ی NULL را از allowance فعلی plan seed کنید: Free=3، Silver=12، Gold=30، و plan ناشناخته با fallback فعلی Free. مقدار seed و هر adjustment بعدی باید با سقف مؤثر همان plan محدود بماند.
+
+## Note
+تصمیم محصول قفل شد: seed اولیه همان allowance فعلی plan است تا رفتار قدیمی به صفر سقوط نکند و cap قابل توضیح بماند.
+
+---
+
+# streak should advance only after all daily cards are seen and interacted with
+
+- ID: 47
+- Module: bot.py / db.py
+- Function: daily card flow / streak tracking
+- Priority: medium
+- Status: Open
+- Category: feature
+- Phase: phase-6
+- Roadmap refs: adaptive-srs-core
+- Evidence: Current streak handling does not record a full daily-card completion gate tied to every card in the day.
+
+## Problem
+The product intent is that streak += 1 only when the user actually sees and interacts with every daily card for the day. The current flow does not yet model full-card completion as a distinct milestone.
+
+## Solution
+Track per-day exposure and interaction completion for daily cards, then increment streak only after the full daily set is completed. Keep the exact interaction rule and implementation details open for a later phase.
+
+## Note
+Future product intent only; the exact completion rule is intentionally not locked yet.
+
+---
+
+# daily and query cards should expose feedback buttons for future mini-quiz reminders
+
+- ID: 48
+- Module: bot.py / keyboards.py / db.py / ai.py
+- Function: card rendering / feedback callbacks / reminder scheduling
+- Priority: medium
+- Status: Open
+- Category: feature
+- Phase: phase-8
+- Roadmap refs: mini-quizzes
+- Evidence: Card flows currently lack the proposed per-card feedback buttons and any follow-up scheduling based on those responses.
+
+## Problem
+Daily and query cards do not yet have the proposed inline actions ('I knew it', 'This is new for me', 'I'm not sure') and there is no lightweight response trail to drive later mini-quiz reminders generated by the bot from its own data pool.
+
+## Solution
+Add inline feedback controls to daily and query cards, record the user's response, and use that response history to schedule future mini-quiz-style follow-ups for the relevant language or card pool. Keep the cadence, scoring, and exact quiz logic open for later phases.
+
+## Note
+This is a future direction item; the mini-quiz logic is intentionally not locked yet.
+
+---
+
+# daily card count should be user-configurable up to the plan maximum and tied to streak completion
+
+- ID: 49
+- Module: bot.py / db.py / keyboards.py / config.py
+- Function: daily card limits / streak tracking
+- Priority: medium
+- Status: Open
+- Category: feature
+- Phase: phase-6
+- Roadmap refs: adaptive-srs-core
+- Evidence: Current daily-card quotas are plan-bounded but not user-configurable, and streak updates are not keyed off a per-user target card count.
+
+## Problem
+Users should be able to choose how many daily cards they want to receive, as long as the number stays within their subscription plan ceiling. The streak rule should then respect that chosen target instead of a fixed allowance.
+
+## Solution
+Add a per-user daily-card target bounded by the active plan maximum, persist it, and use it as the completion gate for streak updates and daily planning. Keep the exact UI and streak-trigger details open for a later phase.
+
+## Note
+Future customization item; the exact streak trigger is intentionally not locked yet.
+
+---
+
+# add minimal network error handling for bot requests
+
+- ID: 50
+- Module: bot.py / ai.py / db.py
+- Function: network requests / Telegram delivery / AI calls
+- Priority: low
+- Status: Open
+- Category: bug
+- Phase: phase-6
+- Roadmap refs: reliability-hardening
+- Evidence: There is no single minimal network-error policy covering bot requests end-to-end, even though some paths already retry.
+
+## Problem
+Transient network failures can bubble up as generic errors without a small, consistent recovery path or a user-friendly fallback.
+
+## Solution
+Add lightweight retry or fallback handling for temporary network issues around Telegram and AI requests, keeping the scope minimal and focused on avoiding unnecessary user-visible failures.
+
+## Note
+Keep the fix small; this is not a full reliability overhaul.
+
+---
+
+# card presentation detail should be independent from AI output serialization
+
+- ID: 51
+- Module: bot.py / db.py / ai.py
+- Function: format_card / daily delivery / custom-word results / SRS reminders
+- Priority: medium
+- Status: Open
+- Category: feature
+- Phase: phase-4
+- Roadmap refs: interactive-card-ux, cost-control, data-lifecycle
+- Evidence: ai.py:validate_card normalizes compact aliases into the canonical card fields, db.py stores complete card_data in daily_cards and saved_words, and bot.py:format_card currently renders the stored payload without a brief/detailed policy.
+
+## Problem
+The AI wire format and the learner-facing message detail are separate concerns, but the current card prompt shape can influence visible richness such as the number of examples. There is no explicit presentation layer that renders brief or detailed messages from the already validated and cached canonical card.
+
+## Solution
+Add a deterministic presentation policy over the canonical stored card: detailed remains the default and renders two paired examples, while brief renders a shorter message without changing the card payload. Apply the policy to daily cards, queried cards, saved-word reminders, and pool-served cards. Rendering must not call the AI, mutate cached content, alter quota accounting, or create a second card schema.
+
+## Note
+Future product direction. The compact JSON format is an internal provider optimization and must remain independent from this learner-facing preference.
+
+---
+
+# brief or detailed card preference needs explicit global and premium user controls
+
+- ID: 52
+- Module: config.py / db.py / keyboards.py / bot.py
+- Function: presentation preference schema / settings UI / plan gating / callbacks
+- Priority: medium
+- Status: Open
+- Category: feature
+- Phase: phase-4
+- Roadmap refs: interactive-card-ux, premium-features, runtime-configuration
+- Evidence: config.py currently exposes only the internal AI_CARD_OUTPUT_FORMAT values json and compact_json; users has no presentation preference column, and keyboards.py/bot.py have no brief/detailed settings flow.
+
+## Problem
+There is no user-visible setting for choosing brief versus detailed card messages, no documented global default for the presentation policy, and no entitlement rule for offering the preference as a premium option. A future implementation could accidentally expose an internal AI-format switch or leave stale preferences active after a plan downgrade.
+
+## Solution
+Define a separate presentation preference with stable values such as brief and detailed. Keep an admin/deployment default for all users, allow an explicitly documented per-user override only for eligible premium plans if product approval confirms that policy, and fall back safely to the global default when the user is ineligible or the value is invalid. Add settings UI, plan-gated callbacks, migration coverage, and clear user-facing descriptions; do not expose AI_CARD_OUTPUT_FORMAT as the user setting.
+
+## Note
+Future premium/product decision. The entitlement, default mode, and whether Free users may choose both modes should be finalized before implementation.
+
+---
+
+# presentation variants need cache, pool, and regression contracts
+
+- ID: 53
+- Module: bot.py / db.py / tests
+- Function: format_card / daily_cards / saved_words.card_data / content_pool rendering
+- Priority: high
+- Status: Open
+- Category: tech-debt
+- Phase: phase-4
+- Roadmap refs: interactive-card-ux, data-lifecycle, measurement-and-observability
+- Evidence: Current tests cover card validation and SQLite persistence, but no test selects a presentation mode or proves that rendering a cached daily, saved, or pooled card is side-effect free.
+
+## Problem
+Brief and detailed messages must be different views of one validated card, but there is no contract proving that rendering variants preserve example/translation pairing, optional synonym and antonym absence, cached-card reuse, and segment-level pool behavior. Without focused tests, a presentation feature could silently regenerate content, drop fields in persistence, or diverge between daily, query, and SRS paths.
+
+## Solution
+Add pure rendering tests for both modes, assert that two examples remain paired in detailed output, assert that missing optional fields render safely, and verify that daily_cards, saved_words.card_data, and future content_pool hits retain the same canonical payload regardless of selected mode. Add idempotency tests showing repeated rendering makes no AI request and does not alter quota, SRS state, pool identity, or stored JSON.
+
+## Note
+Keep this as a prerequisite for shipping the user preference. It should be implemented together with the presentation layer, not by weakening AI validation or duplicating database schemas.
+
+---
+
+# compact JSON rollout relaxed the card content richness contract
+
+- ID: 54
+- Module: prompts.py / ai.py / tests
+- Function: card prompt richness / card validation
+- Priority: high
+- Status: Open
+- Category: bug
+- Phase: phase-4
+- Roadmap refs: interactive-card-ux, cost-control
+- Evidence: prompts.py compact card examples show one e/t pair and one s/a slot; ai.py validates non-empty lists but does not enforce the two-example richness contract.
+
+## Problem
+The compact card prompt demonstrates one example and one optional synonym/antonym slot, while validation accepts that reduced shape. This saves provider tokens but unintentionally weakens the learner-facing richness contract.
+
+## Solution
+Keep compact_json as an internal wire format while restoring the approved content contract: two paired examples by default and multiple synonyms or antonyms when they exist, without inventing unavailable relations.
+
+## Note
+The serialization optimization and educational richness policy must remain independent.
+
+---
+
+# example translations are stored but not implemented as Telegram spoilers
+
+- ID: 55
+- Module: bot.py / keyboards.py / db.py
+- Function: card rendering / translation reveal callback
+- Priority: medium
+- Status: Open
+- Category: feature
+- Phase: phase-4
+- Roadmap refs: interactive-card-ux
+- Evidence: ai.py stores example_translations in the canonical card; bot.py format_card renders examples but not translations, and keyboards.py has no translation-reveal callback.
+
+## Problem
+Validated example_translations are stored with cards but are not rendered below examples and no authorized inline reveal action exists.
+
+## Solution
+Add a read-only translation reveal action backed by the cached card payload. It must preserve example/translation pairing and avoid AI calls, quota changes, SRS mutations, or database writes.
+
+## Note
+A minimal card with an explicit details/reveal action remains subject to the presentation decision.
