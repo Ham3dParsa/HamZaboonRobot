@@ -31,6 +31,16 @@ class CatalogTests(unittest.TestCase):
         self.assertIn(GOALS["toefl"].name_fa, prompt)
         self.assertIn(LEVELS[DEFAULT_LEVEL].cefr, prompt)
         self.assertIn("Nominativ", prompt)
+        self.assertIn("IPA", prompt)
+        self.assertIn("Latin", prompt)
+        self.assertIn("Persian", prompt)
+
+    def test_new_languages_are_available_through_the_catalog(self):
+        self.assertEqual(LANGUAGES["tr"].name_fa, "ترکی استانبولی")
+        self.assertEqual(LANGUAGES["he"].name_fa, "عبری")
+        prompt = daily_batch_system_prompt("tr", "general", "beginner", 2)
+        self.assertIn("ترکی استانبولی", prompt)
+        self.assertIn("هجا", prompt)
 
     def test_compact_batch_prompt_declares_alias_contract(self):
         prompt = daily_batch_system_prompt("en", "general", "beginner", 6, compact=True)

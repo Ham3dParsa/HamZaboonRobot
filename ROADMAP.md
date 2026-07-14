@@ -130,18 +130,20 @@ separate concepts and must not be conflated.
 - Project-status tooling
 - User-scoped same-message translation preparation with paired spoilers
 - Surgical legacy-card validation, repair, and atomic patch persistence
+- Configurable phonetic rendering, legacy-card repatching, and owner toggles
 - Rendering regression contracts
 
 **In progress**
 
 **To-do**
 - Premium presentation controls
+- Owner language lifecycle UX and rollout controls
 
 **Acceptance criteria**
 - Callbacks are user-scoped and restart-safe
 - Rendering does not change AI, quota, SRS, pool, or unrelated stored-card state; invalid legacy cards may receive one validated, repaired-field persistence update
 
-**Linked issues:** #7, #27, #51, #52, #53, #54, #55, #56, #58
+**Linked issues:** #7, #27, #51, #52, #53, #54, #55, #56, #58, #64, #65
 
 ### phase-5: Custom-Word Queries and Spaced-Repetition Capture
 
@@ -248,6 +250,9 @@ separate concepts and must not be conflated.
 - **decision-card-detail-default — Default card detail and premium expansion** (`proposed`): The current roadmap keeps detailed as the global default; minimal cards with a premium More details action remain a product proposal until explicitly approved.
   - Phase: `phase-4`
   - Related issues: #51 card presentation detail should be independent from AI output serialization, #52 brief or detailed card preference needs explicit global and premium user controls, #53 presentation variants need cache, pool, and regression contracts, #55 example translations are stored but not implemented as Telegram spoilers
+- **decision-canonical-language-registry — Language metadata lives only in catalog.py** (`locked`): New languages and language-specific guidance are added through catalog.py rather than duplicated in prompts, config, keyboards, or bot handlers.
+  - Phase: `phase-2`
+  - Related issues: None
 <!-- END GENERATED PROJECT STATUS -->
 
 ## Roadmap Board
@@ -1058,6 +1063,11 @@ a separate lesson system.
   contracts.
 - Premium or user-configurable brief/detailed card presentation after the
   deterministic rendering contract is implemented and tested.
+- Phonetic presentation controls with legacy-card repatching, so learners can
+  switch between IPA, Latin, and Persian-script views without losing stored
+  content.
+- A dedicated owner flow for adding, disabling, or removing supported
+  languages, with the canonical catalog remaining the source of truth.
 - Premium smart placement testing for Silver and Gold.
 - Premium vocabulary-knowledge estimation testing so Gold users can get a
   general estimate of how many words they know, separate from bot progress

@@ -189,11 +189,13 @@
                 "Project-status tooling",
                 "User-scoped same-message translation preparation with paired spoilers",
                 "Surgical legacy-card validation, repair, and atomic patch persistence",
+                "Configurable phonetic rendering, legacy-card repatching, and owner toggles",
                 "Rendering regression contracts"
             ],
             "in_progress": [],
             "todo": [
-                "Premium presentation controls"
+                "Premium presentation controls",
+                "Owner language lifecycle UX and rollout controls"
             ],
             "acceptance_criteria": [
                 "Callbacks are user-scoped and restart-safe",
@@ -212,7 +214,9 @@
                 54,
                 55,
                 56,
-                58
+                58,
+                64,
+                65
             ],
             "roadmap_anchor": "phase-4-interactive-card-ux"
         },
@@ -375,6 +379,14 @@
                 53,
                 55
             ]
+        },
+        {
+            "id": "decision-canonical-language-registry",
+            "status": "locked",
+            "title": "Language metadata lives only in catalog.py",
+            "phase": "phase-2",
+            "roadmap_ref": "phase-2-manual-proficiency-level-and-german-support",
+            "summary": "New languages and language-specific guidance are added through catalog.py rather than duplicated in prompts, config, keyboards, or bot handlers."
         }
     ]
 };
@@ -988,6 +1000,59 @@
         "last_reviewed": "2026-07-14",
         "depends_on": [
             61
+        ]
+    },
+    {
+        "title": "Phonetic output should expose IPA, Latin, and Persian-script variants",
+        "category": "feature",
+        "module": "prompts.py / ai.py / bot.py / config.py / db.py / keyboards.py",
+        "func": "phonetic prompt contract, legacy repair, and owner toggles",
+        "problem": "A single stored phonetic string cannot satisfy users who want IPA, simple Latin syllables, and Persian-script pronunciation forms, and legacy cards keep replaying old single-script values.",
+        "solution": "Make phonetic output a labeled multiline contract with IPA, Latin, and Persian lines; repair legacy cards when they are prepared for display; and let the owner toggle each representation from env defaults and the admin panel.",
+        "priority": "medium",
+        "note": "This stays compatible with AI generation and preserves cached cards by only repatching the phonetic field when it is legacy-formatted.",
+        "resolved": true,
+        "status": "resolved",
+        "detailOpen": false,
+        "editing": false,
+        "id": 64,
+        "phase": "phase-4",
+        "roadmap_refs": [
+            "phase-4-interactive-card-ux"
+        ],
+        "decision_refs": [
+            "decision-canonical-language-registry"
+        ],
+        "evidence": "prompts._card_schema and card_repair_system_prompt now require the three-line phonetic contract; ai.card_repair_fields marks legacy phonetics for repair; bot.format_card renders the enabled phonetic lines from db.get_phonetic_display_settings(); keyboards.admin_panel_keyboard exposes a phonetic settings submenu.",
+        "last_reviewed": "2026-07-14",
+        "depends_on": []
+    },
+    {
+        "title": "Owner needs a dedicated add/remove language flow and cleaner admin-panel UX",
+        "category": "feature",
+        "module": "bot.py / keyboards.py / project_status.json / ROADMAP.md",
+        "func": "owner language rollout controls and admin navigation",
+        "problem": "The current admin panel is flat and text-heavy, so there is no structured flow for adding, disabling, or removing supported languages during rollout.",
+        "solution": "Design a dedicated owner workflow for language lifecycle management, keep the canonical catalog as the source of truth, and refactor the admin panel into smaller discovery and action views.",
+        "priority": "medium",
+        "note": "Track this as a product/UX phase so future language rollouts can be controlled without ad hoc bot commands.",
+        "resolved": false,
+        "status": "open",
+        "detailOpen": false,
+        "editing": false,
+        "id": 65,
+        "phase": "phase-4",
+        "roadmap_refs": [
+            "phase-4-interactive-card-ux",
+            "later-product-phases"
+        ],
+        "decision_refs": [
+            "decision-canonical-language-registry"
+        ],
+        "evidence": "The owner panel is still a single inline keyboard in bot.py, and there is no language lifecycle submenu or catalog rollout workflow yet.",
+        "last_reviewed": "2026-07-14",
+        "depends_on": [
+            64
         ]
     }
 ];

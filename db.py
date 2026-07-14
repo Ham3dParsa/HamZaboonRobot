@@ -12,6 +12,9 @@ from config import (
     DEFAULT_AI_API_KEY,
     DEFAULT_AI_BASE_URL,
     DEFAULT_AI_MODEL,
+    DEFAULT_PHONETIC_SHOW_IPA,
+    DEFAULT_PHONETIC_SHOW_LATIN,
+    DEFAULT_PHONETIC_SHOW_PERSIAN,
     LLM_INPUT_COST_USD_PER_MILLION,
     LLM_OUTPUT_COST_USD_PER_MILLION,
     PLANS,
@@ -275,6 +278,9 @@ def init_db():
             "llm_input_cost_usd_per_million": str(LLM_INPUT_COST_USD_PER_MILLION),
             "llm_output_cost_usd_per_million": str(LLM_OUTPUT_COST_USD_PER_MILLION),
             "usd_to_toman_rate": str(USD_TO_TOMAN_RATE),
+            "phonetic_show_ipa": "true" if DEFAULT_PHONETIC_SHOW_IPA else "false",
+            "phonetic_show_latin": "true" if DEFAULT_PHONETIC_SHOW_LATIN else "false",
+            "phonetic_show_persian": "true" if DEFAULT_PHONETIC_SHOW_PERSIAN else "false",
         }
         for k, v in defaults.items():
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
@@ -315,6 +321,27 @@ def set_setting(key: str, value: str):
             (key, value),
         )
         conn.commit()
+
+
+def get_bool_setting(key: str, default: bool = False) -> bool:
+    return get_setting(key, "true" if default else "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def set_bool_setting(key: str, value: bool):
+    set_setting(key, "true" if value else "false")
+
+
+def get_phonetic_display_settings() -> dict[str, bool]:
+    return {
+        "ipa": get_bool_setting("phonetic_show_ipa", DEFAULT_PHONETIC_SHOW_IPA),
+        "latin": get_bool_setting("phonetic_show_latin", DEFAULT_PHONETIC_SHOW_LATIN),
+        "persian": get_bool_setting("phonetic_show_persian", DEFAULT_PHONETIC_SHOW_PERSIAN),
+    }
 
 
 def get_llm_cost_profile() -> dict[str, float]:

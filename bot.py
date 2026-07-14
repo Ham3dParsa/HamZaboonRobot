@@ -78,6 +78,7 @@ from keyboards import (
     query_result_keyboard,
     srs_review_keyboard,
     admin_panel_keyboard,
+    phonetic_settings_keyboard,
     llm_cost_dashboard_keyboard,
     llm_cost_plan_keyboard,
     llm_cost_kind_keyboard,
@@ -357,6 +358,39 @@ def _user_presentation(row) -> str:
     )
 
 
+_PHONETIC_LINE_RE = re.compile(r"^\s*(ipa|latin|persian)\s*:\s*(.+?)\s*$", re.IGNORECASE)
+
+
+def _phonetic_display_settings() -> dict[str, bool]:
+    return db.get_phonetic_display_settings()
+
+
+def _phonetic_lines(value: str) -> list[str]:
+    raw = (value or "").strip()
+    if not raw:
+        return []
+    sections: dict[str, str] = {}
+    for line in raw.splitlines():
+        match = _PHONETIC_LINE_RE.match(line)
+        if match:
+            sections[match.group(1).casefold()] = match.group(2).strip()
+    settings = _phonetic_display_settings()
+    if {"ipa", "latin", "persian"} <= set(sections):
+        labels = [
+            ("ipa", "IPA"),
+            ("latin", "Latin"),
+            ("persian", "Persian"),
+        ]
+        rendered = []
+        for key, label in labels:
+            if settings.get(key):
+                rendered.append(f"`{escape_mdv2_code(f'{label}: {sections[key]}')}`")
+        return rendered
+    if any(settings.values()):
+        return [f"`{escape_mdv2_code(raw)}`"]
+    return []
+
+
 def format_card(
     data: dict,
     footer: str = "",
@@ -368,14 +402,14 @@ def format_card(
         raise ValueError("presentation must be 'brief' or 'detailed'")
 
     word = escape_mdv2(data.get("word", ""))
-    phon = escape_mdv2_code(data.get("phonetic", ""))
     fa_meaning = escape_mdv2(data.get("fa_meaning", ""))
     fa_expl = escape_mdv2(data.get("fa_explanation", ""))
 
     lines = [f"*{word}*"]
 
-    if phon:
-        lines.append(f"`{phon}`")
+    phon_lines = _phonetic_lines(data.get("phonetic", ""))
+    if phon_lines:
+        lines.extend(phon_lines)
 
     lines.append(f"\n🇮🇷 *{fa_meaning}*")
 
@@ -1731,12 +1765,25 @@ async def open_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("پنل مدیریت ربات:", reply_markup=admin_panel_keyboard())
 
 
+def _phonetic_settings_text() -> str:
+    settings = db.get_phonetic_display_settings()
+    return (
+        "تنظیم نمایش تلفظ‌ها:\n"
+        f"IPA: {'روشن' if settings['ipa'] else 'خاموش'}\n"
+        f"Latin: {'روشن' if settings['latin'] else 'خاموش'}\n"
+        f"Persian: {'روشن' if settings['persian'] else 'خاموش'}"
+    )
+
+
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
     if not is_owner(update.effective_user.id):
         await update.callback_query.answer("فقط مالک ربات دسترسی داره.", show_alert=True)
         return
     if action == "stats":
         await _edit_or_send(update, context, f"👥 تعداد کل کاربران: {db.count_users()}")
+    elif action == "back":
+        await _edit_or_send(update, context, "پنل مدیریت ربات:", reply_markup=admin_panel_keyboard())
+        await update.callback_query.answer("بازگشت")
     elif action == "llm_costs":
         await _show_llm_cost_dashboard(update, context)
     elif action == "llm_pricing":
@@ -1757,6 +1804,34 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, act
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=awaiting_inline_keyboard(),
         )
+    elif action == "phonetics":
+        await _edit_or_send(
+            update,
+            context,
+            _phonetic_settings_text(),
+            reply_markup=phonetic_settings_keyboard(db.get_phonetic_display_settings()),
+        )
+        await update.callback_query.answer("تنظیم شد.")
+    elif action.startswith("phonetics:"):
+        _, setting = action.split(":", 1)
+        key_map = {
+            "ipa": "phonetic_show_ipa",
+            "latin": "phonetic_show_latin",
+            "persian": "phonetic_show_persian",
+        }
+        setting_key = key_map.get(setting)
+        if not setting_key:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        current = db.get_bool_setting(setting_key, True)
+        db.set_bool_setting(setting_key, not current)
+        await _edit_or_send(
+            update,
+            context,
+            _phonetic_settings_text(),
+            reply_markup=phonetic_settings_keyboard(db.get_phonetic_display_settings()),
+        )
+        await update.callback_query.answer("تنظیم شد.")
     elif action == "set_model":
         context.user_data["awaiting"] = "admin_set_model"
         await _edit_or_send(
@@ -1799,7 +1874,10 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, act
             context,
             f"🤖 مدل: `{db.get_setting('ai_model')}`\n"
             f"🌐 Base URL: `{db.get_setting('ai_base_url')}`\n"
-            f"🔑 API Key: `{masked}`",
+            f"🔑 API Key: `{masked}`\n"
+            f"🗣 IPA: {'روشن' if db.get_bool_setting('phonetic_show_ipa', True) else 'خاموش'}\n"
+            f"🗣 Latin: {'روشن' if db.get_bool_setting('phonetic_show_latin', True) else 'خاموش'}\n"
+            f"🗣 Persian: {'روشن' if db.get_bool_setting('phonetic_show_persian', True) else 'خاموش'}",
             parse_mode=ParseMode.MARKDOWN_V2,
         )
 

@@ -112,13 +112,15 @@
         "Content-richness validation contract",
         "Deterministic brief/detailed card renderer",
         "Project-status tooling",
-        "User-scoped same-message translation preparation with paired spoilers",
-        "Surgical legacy-card validation, repair, and atomic patch persistence",
-        "Rendering regression contracts"
-      ],
+      "User-scoped same-message translation preparation with paired spoilers",
+      "Surgical legacy-card validation, repair, and atomic patch persistence",
+      "Configurable phonetic rendering, legacy-card repatching, and owner toggles",
+      "Rendering regression contracts"
+    ],
       "in_progress": [],
       "todo": [
-        "Premium presentation controls"
+        "Premium presentation controls",
+        "Owner language lifecycle UX and rollout controls"
       ],
       "acceptance_criteria": [
         "Callbacks are user-scoped and restart-safe",
@@ -137,7 +139,9 @@
         54,
         55,
         56,
-        58
+        58,
+        64,
+        65
       ],
       "roadmap_anchor": "phase-4-interactive-card-ux"
     },
@@ -300,6 +304,14 @@
         53,
         55
       ]
+    },
+    {
+      "id": "decision-canonical-language-registry",
+      "status": "locked",
+      "title": "Language metadata lives only in catalog.py",
+      "phase": "phase-2",
+      "roadmap_ref": "phase-2-manual-proficiency-level-and-german-support",
+      "summary": "New languages and language-specific guidance are added through catalog.py rather than duplicated in prompts, config, keyboards, or bot handlers."
     }
   ]
 }
