@@ -111,6 +111,25 @@ hardening are out of scope unless explicitly approved. If a safe workaround
 exists, document it rather than silently converting it into a permanent
 product rule.
 
+### Owner contract-locking protocol
+
+When a requested behavior contains multiple algorithmic or product rules, do
+not ask for one blanket approval. Instead:
+
+1. Decompose the behavior into separately numbered rules.
+2. For each rule, present a recommended option plus meaningful alternatives.
+   Explain each option concretely, including its behavior, cost, UX,
+   compatibility, and regression trade-offs where relevant.
+3. Ask the project owner to choose each rule independently. A custom answer
+   must be supported; choosing the recommendation for one rule does not imply
+   approval of the others.
+4. Summarize the selected rules as a locked contract before implementation,
+   separating product decisions from ordinary implementation details and
+   explicitly listing unresolved questions.
+5. After implementation, report which locked rules changed, which were
+   deliberately not changed, and what remains uncertain. Verify each rule
+   with focused tests or other concrete evidence.
+
 ## 3. Repository Architecture
 
 Keep responsibilities aligned with the current module boundaries:
