@@ -218,6 +218,82 @@ class ReliabilityPersistenceTests(unittest.TestCase):
             self.assertFalse(db.advance_word_review(due[0]["id"]))
             self.assertEqual(db.due_words_for_user(1), [])
 
+    def test_surgical_card_patches_update_only_requested_fields(self):
+        db.create_user_if_needed(1, "learner")
+        card = {
+            "word": "hello",
+            "fa_meaning": "سلام",
+            "fa_explanation": "توضیح",
+            "examples": ["Hello one.", "Hello two."],
+            "example_translations": ["قدیمی اول.", "قدیمی دوم."],
+        }
+        db.add_daily_card(1, "2026-07-12", 0, card)
+        self.assertTrue(
+            db.update_daily_card_fields(
+                1,
+                "2026-07-12",
+                0,
+                {"example_translations": ["جدید اول.", "جدید دوم."]},
+            )
+        )
+        updated = db.get_daily_cards(1, "2026-07-12")[0]
+        self.assertEqual(updated["word"], "hello")
+        self.assertEqual(updated["examples"], card["examples"])
+        self.assertEqual(
+            updated["example_translations"],
+            ["جدید اول.", "جدید دوم."],
+        )
+
+    def test_valid_cached_card_skips_ai_and_invalid_card_uses_one_minimal_patch(self):
+        valid = {
+            "word": "hello",
+            "fa_meaning": "سلام",
+            "fa_explanation": "توضیح",
+            "examples": ["Hello one.", "Hello two."],
+            "example_translations": ["اول.", "دوم."],
+        }
+        with patch.object(bot, "_call_ai_limited") as repair_call:
+            self.assertEqual(
+                bot._prepare_cached_card(
+                    valid,
+                    lang="en",
+                    user_id=1,
+                    plan="free",
+                    source="daily",
+                    persist_patch=MagicMock(return_value=True),
+                )["word"],
+                "hello",
+            )
+            repair_call.assert_not_called()
+
+        legacy = dict(valid)
+        legacy["example_translations"] = ["اول."]
+        persisted = MagicMock(return_value=True)
+        with patch.object(
+            bot,
+            "_call_ai_limited",
+            return_value={
+                "examples": ["Hello one.", "Hello two."],
+                "example_translations": ["اول.", "دوم."],
+            },
+        ) as repair_call:
+            repaired = bot._prepare_cached_card(
+                legacy,
+                lang="en",
+                user_id=1,
+                plan="free",
+                source="daily",
+                persist_patch=persisted,
+            )
+        self.assertEqual(repaired["example_translations"], ["اول.", "دوم."])
+        repair_call.assert_called_once()
+        persisted.assert_called_once_with(
+            {
+                "examples": ["Hello one.", "Hello two."],
+                "example_translations": ["اول.", "دوم."],
+            }
+        )
+
     def test_saved_word_migration_preserves_legacy_rows(self):
         os.remove(db.DB_PATH)
         with sqlite3.connect(db.DB_PATH) as conn:

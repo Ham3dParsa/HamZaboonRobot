@@ -128,9 +128,10 @@ separate concepts and must not be conflated.
 - Content-richness validation contract
 - Deterministic brief/detailed card renderer
 - Project-status tooling
+- User-scoped same-message translation preparation with paired spoilers
+- Surgical legacy-card validation, repair, and atomic patch persistence
 
 **In progress**
-- Translation reveal
 - Rendering regression contracts
 
 **To-do**
@@ -138,7 +139,7 @@ separate concepts and must not be conflated.
 
 **Acceptance criteria**
 - Callbacks are user-scoped and restart-safe
-- Rendering does not change AI, quota, SRS, pool, or stored-card state
+- Rendering does not change AI, quota, SRS, pool, or unrelated stored-card state; invalid legacy cards may receive one validated, repaired-field persistence update
 
 **Linked issues:** #7, #27, #51, #52, #53, #54, #55, #56, #58
 
@@ -609,9 +610,9 @@ The next language addition must use this contract.
   review entry point for today’s cards and recent prior days stored in
   `daily_cards`.
 - Example translations are stored with the card but remain hidden until the
-  user presses an inline `Show translations` button. This is a locked UX
-  requirement, not a claim that the current implementation already satisfies
-  it.
+  user presses an inline `Prepare translations` button. The bot edits the
+  same message, removes that preparation control, and wraps the paired
+  translations in Telegram spoilers for the learner to tap.
 - A successful custom-word query shows the user's daily usage and remaining
   allowance. The result offers an inline action to add that word to spaced
   repetition.
@@ -806,11 +807,14 @@ change.
   examples, plus at least two distinct items for each meaningful populated
   synonym or antonym list.
 - The default card message hides example translations and exposes an
-  authorized inline `Show translations` action that reveals the paired
-  translations without sending a duplicate card.
-- Translation reveal is idempotent, rejects stale or cross-user callbacks,
-  reuses cached card JSON, and has no AI, quota, SRS, pool, or persistence side
-  effects.
+  authorized inline `Prepare translations` action that appends paired
+  translations as Telegram spoilers without sending a duplicate card.
+- Translation preparation is idempotent, rejects stale or cross-user
+  callbacks, and reuses cached card JSON. Valid cards make no AI request and
+  have no quota, SRS, pool, or persistence side effects. Invalid legacy cards
+  receive at most one targeted repair patch; only repaired fields are
+  atomically persisted, and failed repairs block delivery without changing
+  learning state.
 - If the premium presentation policy is approved, eligible users can open a
   detailed rendering from an inline action while ineligible users receive a
   safe explanation or the global default; the entitlement decision is not

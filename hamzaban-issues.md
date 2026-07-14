@@ -377,20 +377,20 @@ Confirmed regression relative to commit c394115^; do not solve it by switching b
 - Module: bot.py / keyboards.py / db.py / tests
 - Function: format_card / daily_card_keyboard / callback_router / cached card rendering
 - Priority: high
-- Status: Open
+- Status: Resolved
 - Category: feature
 - Phase: phase-4
 - Roadmap refs: interactive-card-ux, data-lifecycle, premium-features
-- Evidence: bot.py:format_card reads examples but never reads example_translations; keyboards.py:daily_card_keyboard returns only the next-card button and query_result_keyboard returns only Add to review; callback_router contains no translation callback branch.
+- Evidence: bot.py:_prepare_cached_card validates every cached display/resend, performs one minimal repair request when needed, persists repaired fields, and blocks unsafe delivery; bot.py:format_card and callback helpers implement same-message paired spoilers and idempotent stale-callback handling; keyboards.py adds source-scoped Prepare translations callbacks; db.py adds ownership-checked atomic field patches; tests cover minimal repair fields, pairing, persistence, scoped controls, and spoiler rendering.
 
 ## Problem
 ROADMAP.md says example translations remain hidden until an inline Show translations action is pressed, but the current renderer omits example_translations entirely and the card keyboards expose only Next card, Add to review, and SRS actions. callback_router has no translation-reveal action, so stored translations cannot appear as a spoiler or be added to the current card message.
 
 ## Solution
-Implement a deterministic translation-reveal interaction over the cached canonical card: render the primary card without translations, attach a user-scoped card reference, and reveal or append the correctly paired translations after an authorized callback. Repeated clicks must be idempotent, stale or cross-user references must be rejected, and the action must not call AI, change quota/SRS state, mutate card_data, or send a duplicate card. Add a separate premium-gated detailed-card action only after the default and entitlement policy is explicitly decided.
+Implemented a deterministic translation-preparation interaction over cached canonical cards across daily, review, custom-word, and SRS flows. The initial Prepare translations action edits the existing message, appends paired Telegram spoilers, removes only itself, preserves other controls, and rejects stale or cross-user references. Valid cards remain zero-call; invalid legacy cards receive one field-level repair patch, are revalidated, and have only repaired fields atomically persisted. Failed repairs block delivery, preserve state, and emit safe user/admin diagnostics.
 
 ## Note
-The roadmap statement is currently aspirational rather than implemented; this issue captures the implementation gap and the required no-side-effect contract.
+Resolved with the approved surgical legacy-card repair exception. Valid cached cards remain cached-only and incur no AI request; one targeted repair request is allowed only when local validation identifies missing or invalid fields.
 
 ---
 

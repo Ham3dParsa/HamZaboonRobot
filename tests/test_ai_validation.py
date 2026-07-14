@@ -62,6 +62,30 @@ class BatchValidationTests(unittest.TestCase):
         card = valid_card("hello")
         self.assertEqual(ai.validate_card(card)["word"], "hello")
 
+    def test_card_repair_fields_are_minimal_and_pair_aware(self):
+        card = valid_card("hello")
+        card["example_translations"] = ["مثال اول."]
+        self.assertEqual(
+            ai.card_repair_fields(card),
+            ["examples", "example_translations"],
+        )
+
+        card = valid_card("hello")
+        card["synonyms"] = ["hi"]
+        self.assertEqual(ai.card_repair_fields(card), ["synonyms"])
+
+    def test_card_repair_patch_rejects_extra_or_duplicate_fields(self):
+        with self.assertRaisesRegex(ai.CardValidationError, "exactly"):
+            ai.validate_card_patch(
+                {"examples": ["One.", "Two."]},
+                ["examples", "example_translations"],
+            )
+        with self.assertRaises(ai.CardValidationError):
+            ai.validate_card_patch(
+                {"word": "hello", "extra": "no"},
+                ["word"],
+            )
+
     def test_six_compact_cards_validate_without_changing_batch_shape(self):
         cards = ai.validate_batch(
             [

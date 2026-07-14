@@ -62,18 +62,29 @@ def daily_card_keyboard(
     card_index: int,
     has_next: bool,
     callback_prefix: str = "daily:next",
+    *,
+    show_translations: bool = False,
 ) -> InlineKeyboardMarkup | None:
-    if not has_next:
+    if not has_next and not show_translations:
         return None
+    translation_prefix = "review:prepare" if callback_prefix.startswith("review:") else "daily:prepare"
+    buttons = []
+    if show_translations:
+        buttons.append(
+            InlineKeyboardButton(
+                "📝 Prepare translations",
+                callback_data=f"{translation_prefix}:{user_id}:{card_date}:{card_index}",
+            )
+        )
+    if has_next:
+        buttons.append(
+            InlineKeyboardButton(
+                "➡️ کارت بعدی",
+                callback_data=f"{callback_prefix}:{user_id}:{card_date}:{card_index}",
+            )
+        )
     return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    "➡️ کارت بعدی",
-                    callback_data=f"{callback_prefix}:{user_id}:{card_date}:{card_index}",
-                )
-            ]
-        ]
+        [buttons]
     )
 
 
@@ -110,36 +121,62 @@ def daily_review_dates_keyboard(
     return InlineKeyboardMarkup(buttons or [[InlineKeyboardButton("فعلاً کارتی نیست", callback_data="review:noop")]])
 
 
-def query_result_keyboard(token: str, lang: str | None = None) -> InlineKeyboardMarkup:
+def query_result_keyboard(
+    token: str,
+    lang: str | None = None,
+    *,
+    show_translations: bool = False,
+) -> InlineKeyboardMarkup:
     label = "➕ افزودن به مرور"
     if lang:
         label = f"{label} ({language_label(lang)})"
+    buttons = [
+        InlineKeyboardButton(
+            label,
+            callback_data=f"query:add:{token}",
+        )
+    ]
+    if show_translations:
+        buttons.append(
+            InlineKeyboardButton(
+                "📝 Prepare translations",
+                callback_data=f"query:prepare:{token}",
+            )
+        )
     return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    label,
-                    callback_data=f"query:add:{token}",
-                )
-            ]
-        ]
+        [buttons]
     )
 
 
-def srs_review_keyboard(user_id: int, word_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [
+def srs_review_keyboard(
+    user_id: int,
+    word_id: int,
+    *,
+    show_translations: bool = False,
+) -> InlineKeyboardMarkup:
+    review_buttons = [
+        InlineKeyboardButton(
+            "✅ یادم بود",
+            callback_data=f"srs:remember:{user_id}:{word_id}",
+        ),
+        InlineKeyboardButton(
+            "↩️ فردا دوباره",
+            callback_data=f"srs:again:{user_id}:{word_id}",
+        ),
+    ]
+    rows = []
+    if show_translations:
+        rows.append(
             [
                 InlineKeyboardButton(
-                    "✅ یادم بود",
-                    callback_data=f"srs:remember:{user_id}:{word_id}",
-                ),
-                InlineKeyboardButton(
-                    "↩️ فردا دوباره",
-                    callback_data=f"srs:again:{user_id}:{word_id}",
-                ),
+                    "📝 Prepare translations",
+                    callback_data=f"srs:prepare:{user_id}:{word_id}",
+                )
             ]
-        ]
+        )
+    rows.append(review_buttons)
+    return InlineKeyboardMarkup(
+        rows
     )
 
 
