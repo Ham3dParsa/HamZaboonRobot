@@ -39,6 +39,7 @@ from config import (
     AI_CARD_OUTPUT_FORMAT,
     DELIVERY_MAX_ATTEMPTS,
     DELIVERY_RETRY_BASE_SECONDS,
+    CONNECTION_HEALTH_INTERVAL_SECONDS,
     TELEGRAM_MAX_CONCURRENCY,
     SESSION_CARD_DELAY_SECONDS,
     PLANS,
@@ -96,7 +97,12 @@ from keyboards import (
     BTN_BACK,
 )
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+for _quiet_logger_name in ("apscheduler", "httpcore", "httpx", "telegram"):
+    logging.getLogger(_quiet_logger_name).setLevel(logging.WARNING)
 log = logging.getLogger("hamzaban")
 _app_timezone = ZoneInfo(APP_TIMEZONE)
 _daily_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
@@ -2513,6 +2519,18 @@ async def delivery_dispatch_job(context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def connection_health_job(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        async with _telegram_slots:
+            await context.bot.get_me()
+    except (RetryAfter, TimedOut, NetworkError) as exc:
+        log.warning("Telegram connection check failed: %s", exc)
+    except Exception:
+        log.exception("Telegram connection check failed unexpectedly")
+    else:
+        log.info("Telegram connection healthy")
+
+
 async def srs_job(context: ContextTypes.DEFAULT_TYPE):
     """یادآوری واژه‌های ذخیره‌شده‌ی سررسیدشده (مرور فاصله‌دار)."""
     for row in db.all_active_users():
@@ -2592,6 +2610,11 @@ def main():
             time=datetime.time(hour=0, minute=1, tzinfo=_app_timezone),
         )
         app.job_queue.run_repeating(delivery_dispatch_job, interval=60, first=0)
+        app.job_queue.run_repeating(
+            connection_health_job,
+            interval=CONNECTION_HEALTH_INTERVAL_SECONDS,
+            first=CONNECTION_HEALTH_INTERVAL_SECONDS,
+        )
         app.job_queue.run_daily(
             srs_job,
             time=datetime.time(
