@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import ai
 import bot
 import db
+from telegram.error import BadRequest
 
 
 class ReliabilityPersistenceTests(unittest.TestCase):
@@ -540,6 +541,23 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertEqual(calls[1][:3], ("en", "general", "beginner"))
         self.assertEqual(db.get_daily_card_session(1, card_date)["target_lang"], "en")
         self.assertEqual(db.count_daily_cards(1, card_date), 12)
+
+
+class CallbackAnswerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stale_callback_answer_is_ignored(self):
+        class FakeQuery:
+            async def answer(self, *args, **kwargs):
+                raise BadRequest("Query is too old and response timeout expired")
+
+        await bot._answer_callback_safely(FakeQuery(), "done")
+
+    async def test_unrelated_callback_answer_error_is_reraised(self):
+        class FakeQuery:
+            async def answer(self, *args, **kwargs):
+                raise BadRequest("message is not modified")
+
+        with self.assertRaises(BadRequest):
+            await bot._answer_callback_safely(FakeQuery(), "done")
 
 
 if __name__ == "__main__":
