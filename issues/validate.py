@@ -23,6 +23,7 @@ from pathlib import Path
 BASE = Path(__file__).parent
 DATA_PATH = BASE / "issues.json"
 PROJECT_STATUS_PATH = BASE.parent / "project_status.json"
+ROADMAP_PATH = BASE.parent / "ROADMAP.md"
 HTML_PATH = BASE / "project_status.html"
 MARKDOWN_PATH = BASE.parent / "hamzaban-issues.md"
 VALID_STATUSES = {"open", "partial", "resolved", "accepted-risk", "obsolete"}
@@ -35,6 +36,8 @@ PROJECT_DATA_START = "        // BEGIN GENERATED PROJECT STATUS DATA"
 PROJECT_DATA_END = "        // END GENERATED PROJECT STATUS DATA"
 DATA_START = "        // BEGIN GENERATED ISSUE DATA"
 DATA_END = "        // END GENERATED ISSUE DATA"
+ROADMAP_DATA_START = "<!-- BEGIN GENERATED PROJECT STATUS -->"
+ROADMAP_DATA_END = "<!-- END GENERATED PROJECT STATUS -->"
 LEGACY_STATUS_BY_ID = {
     1: "resolved",
     2: "partial",
@@ -235,20 +238,110 @@ def render_html_data(issues: list[dict], project_status: dict) -> str:
     )
 
 
-def update_html(issues: list[dict], project_status: dict) -> None:
-    html = HTML_PATH.read_text(encoding="utf-8")
+def replace_generated_block(
+    document: str,
+    start_marker: str,
+    end_marker: str,
+    replacement: str,
+) -> str:
     pattern = re.compile(
-        re.escape(PROJECT_DATA_START) + r".*?" + re.escape(DATA_END),
+        re.escape(start_marker) + r".*?" + re.escape(end_marker),
         flags=re.DOTALL,
     )
-    updated, replacements = pattern.subn(
-        lambda _match: render_html_data(issues, project_status),
-        html,
-        count=1,
-    )
+    updated, replacements = pattern.subn(replacement, document, count=1)
     if replacements != 1:
-        raise ValueError("generated project-status data markers were not found")
+        raise ValueError(f"generated markers not found: {start_marker}")
+    return updated
+
+
+def update_html(issues: list[dict], project_status: dict) -> None:
+    html = HTML_PATH.read_text(encoding="utf-8")
+    updated = replace_generated_block(
+        html,
+        PROJECT_DATA_START,
+        DATA_END,
+        render_html_data(issues, project_status),
+    )
     HTML_PATH.write_text(updated, encoding="utf-8")
+
+
+def render_roadmap_status(issues: list[dict], project_status: dict) -> str:
+    issue_by_id = {issue["id"]: issue for issue in issues}
+    lines = [
+        ROADMAP_DATA_START,
+        "## Current Phase Status (Generated)",
+        "",
+        "> Generated from `project_status.json` and `issues/issues.json`; edit the canonical JSON sources.",
+        "",
+    ]
+    for phase in project_status["phases"]:
+        lines.extend(
+            [
+                f"### {phase['id']}: {phase['name']}",
+                "",
+                f"- **Status:** `{phase['status']}`",
+                f"- **Objective:** {phase['objective']}",
+                f"- **Dependencies:** {', '.join(phase.get('depends_on', [])) or 'None'}",
+                "",
+                "**Done**",
+            ]
+        )
+        lines.extend(f"- {item}" for item in phase.get("done", []))
+        lines.extend(["", "**In progress**"])
+        lines.extend(f"- {item}" for item in phase.get("in_progress", []))
+        lines.extend(["", "**To-do**"])
+        lines.extend(f"- {item}" for item in phase.get("todo", []))
+        lines.extend(["", "**Acceptance criteria**"])
+        lines.extend(f"- {item}" for item in phase.get("acceptance_criteria", []))
+        lines.extend(["", f"**Linked issues:** {', '.join(f'#{issue_id}' for issue_id in phase.get('issue_ids', [])) or 'None'}", ""])
+    lines.extend(["## Decision Locks (Generated)", ""])
+    for decision in project_status["decisions"]:
+        linked = [
+            f"#{issue_id} {issue_by_id[issue_id]['title']}"
+            for issue_id in decision.get("issue_ids", [])
+            if issue_id in issue_by_id
+        ]
+        lines.extend(
+            [
+                f"- **{decision['id']} — {decision['title']}** (`{decision['status']}`): {decision['summary']}",
+                f"  - Phase: `{decision['phase']}`",
+                f"  - Related issues: {', '.join(linked) or 'None'}",
+            ]
+        )
+    lines.append(ROADMAP_DATA_END)
+    return "\n".join(lines)
+
+
+def update_roadmap(issues: list[dict], project_status: dict) -> None:
+    roadmap = ROADMAP_PATH.read_text(encoding="utf-8")
+    updated = replace_generated_block(
+        roadmap,
+        ROADMAP_DATA_START,
+        ROADMAP_DATA_END,
+        render_roadmap_status(issues, project_status),
+    )
+    ROADMAP_PATH.write_text(updated, encoding="utf-8")
+
+
+def validate_generated_views(issues: list[dict], project_status: dict) -> None:
+    expected_html = render_html_data(issues, project_status)
+    actual_html = HTML_PATH.read_text(encoding="utf-8")
+    if replace_generated_block(
+        actual_html,
+        PROJECT_DATA_START,
+        DATA_END,
+        expected_html,
+    ) != actual_html:
+        raise ValueError("project_status.html is out of sync; run `validate.py sync`")
+    expected_roadmap = render_roadmap_status(issues, project_status)
+    actual_roadmap = ROADMAP_PATH.read_text(encoding="utf-8")
+    if replace_generated_block(
+        actual_roadmap,
+        ROADMAP_DATA_START,
+        ROADMAP_DATA_END,
+        expected_roadmap,
+    ) != actual_roadmap:
+        raise ValueError("ROADMAP.md generated status is out of sync; run `validate.py sync`")
 
 
 def write_json(issues: list[dict]) -> None:
@@ -264,11 +357,14 @@ def synchronize(issues: list[dict]) -> None:
     write_json(issues)
     MARKDOWN_PATH.write_text(render_markdown(issues), encoding="utf-8")
     update_html(issues, project_status)
+    update_roadmap(issues, project_status)
 
 
 def check() -> int:
     issues = load_data()
-    validate_issues(issues, load_project_status())
+    project_status = load_project_status()
+    validate_issues(issues, project_status)
+    validate_generated_views(issues, project_status)
     print(f"Valid: {len(issues)} issues")
     return 0
 

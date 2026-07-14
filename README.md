@@ -39,6 +39,11 @@ python bot.py
 - `project_status.json` — فهرست machine-readable فازها، وابستگی‌ها و
   decision lockها؛ داشبورد read-only در `issues/project_status.html` از این
   فایل و `issues/issues.json` ساخته می‌شود.
+- برای تغییرات status از فایل patch استفاده کن: ابتدا
+  `python issues/status_editor.py preview changes.json` و سپس با تأیید صریح
+  `python issues/status_editor.py apply changes.json --confirm`. این ابزار
+  پس از validation، JSONهای canonical، بخش generated در `ROADMAP.md` و
+  dashboard را همگام می‌کند.
 
 ## کنترل هزینه و کیفیت AI
 

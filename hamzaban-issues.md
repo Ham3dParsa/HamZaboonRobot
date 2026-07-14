@@ -289,10 +289,10 @@ Keep the fix small; this is not a full reliability overhaul.
 - Category: feature
 - Phase: phase-4
 - Roadmap refs: interactive-card-ux, cost-control, data-lifecycle
-- Evidence: ai.py:validate_card normalizes compact aliases into the canonical card fields, db.py stores complete card_data in daily_cards and saved_words, and bot.py:format_card currently renders the stored payload without a brief/detailed policy.
+- Evidence: The pre-compact prompts demonstrated two example/translation pairs and multiple optional synonym/antonym slots; the compact schema demonstrates one example pair and one optional slot. ai.py:validate_card accepts one non-empty example pair, and bot.py:format_card renders whatever counts the model returns without a brief/detailed policy.
 
 ## Problem
-The AI wire format and the learner-facing message detail are separate concerns, but the current card prompt shape can influence visible richness such as the number of examples. There is no explicit presentation layer that renders brief or detailed messages from the already validated and cached canonical card.
+The AI wire format and the learner-facing message detail are separate concerns, but the current card prompt shape has already influenced visible richness such as the number of examples and synonyms. There is no explicit presentation layer that renders brief or detailed messages from the already validated and cached canonical card.
 
 ## Solution
 Add a deterministic presentation policy over the canonical stored card: detailed remains the default and renders two paired examples, while brief renders a shorter message without changing the card payload. Apply the policy to daily cards, queried cards, saved-word reminders, and pool-served cards. Rendering must not call the AI, mutate cached content, alter quota accounting, or create a second card schema.
@@ -318,7 +318,7 @@ Future product direction. The compact JSON format is an internal provider optimi
 There is no user-visible setting for choosing brief versus detailed card messages, no documented global default for the presentation policy, and no entitlement rule for offering the preference as a premium option. A future implementation could accidentally expose an internal AI-format switch or leave stale preferences active after a plan downgrade.
 
 ## Solution
-Define a separate presentation preference with stable values such as brief and detailed. Keep an admin/deployment default for all users, allow an explicitly documented per-user override only for eligible premium plans if product approval confirms that policy, and fall back safely to the global default when the user is ineligible or the value is invalid. Add settings UI, plan-gated callbacks, migration coverage, and clear user-facing descriptions; do not expose AI_CARD_OUTPUT_FORMAT as the user setting.
+Define a separate presentation preference with stable values such as brief and detailed. Keep an admin/deployment default for all users, allow an explicitly documented per-user override only for eligible premium plans if product approval confirms that policy, and fall back safely to the global default when the user is ineligible or the value is invalid. Add settings UI plus an eligible-user inline action for opening the detailed version of an individual card, with plan-gated callbacks, migration coverage, and clear user-facing descriptions; do not expose AI_CARD_OUTPUT_FORMAT as the user setting.
 
 ## Note
 Future premium/product decision. The entitlement, default mode, and whether Free users may choose both modes should be finalized before implementation.
@@ -352,42 +352,65 @@ Keep this as a prerequisite for shipping the user preference. It should be imple
 
 - ID: 54
 - Module: prompts.py / ai.py / tests
-- Function: card prompt richness / card validation
+- Function: _card_schema / validate_card / daily and custom-word generation
 - Priority: high
 - Status: Open
 - Category: bug
 - Phase: phase-4
-- Roadmap refs: interactive-card-ux, cost-control
-- Evidence: prompts.py compact card examples show one e/t pair and one s/a slot; ai.py validates non-empty lists but does not enforce the two-example richness contract.
+- Roadmap refs: interactive-card-ux, cost-control, content-quality
+- Evidence: c394115 changed prompts.py from two example/translation placeholders and multiple synonym/antonym placeholders to compact e/t/s/a placeholders with one example and explicit optionality. Current ai.py:validate_card requires only non-empty, equal-length examples and translations; bot.py:format_card displays all returned items without restoring the prior minimum.
 
 ## Problem
-The compact card prompt demonstrates one example and one optional synonym/antonym slot, while validation accepts that reduced shape. This saves provider tokens but unintentionally weakens the learner-facing richness contract.
+The compact provider schema reduced more than key names: it changed the examples from two demonstrated pairs to one, made synonyms and antonyms explicitly optional without minimum counts, and shortened the grammar guidance. The validator still accepts one example/translation pair and one synonym or antonym, so structurally valid compact responses can be visibly poorer than pre-compact cards.
 
 ## Solution
-Keep compact_json as an internal wire format while restoring the approved content contract: two paired examples by default and multiple synonyms or antonyms when they exist, without inventing unavailable relations.
+Keep compact aliases strictly as an internal serialization optimization, while restoring a separate content-richness contract. Generation should request two paired examples and, when synonyms or antonyms are meaningfully available, at least two distinct items for each populated list. Validation and focused tests should reject malformed pair counts and one-item populated synonym/antonym lists without rejecting genuinely unavailable optional fields. Batch and custom-word paths must share the same contract.
 
 ## Note
-The serialization optimization and educational richness policy must remain independent.
+Confirmed regression relative to commit c394115^; do not solve it by switching back to verbose JSON or by making optional educational fields mandatory when no meaningful item exists.
 
 ---
 
 # example translations are stored but not implemented as Telegram spoilers
 
 - ID: 55
-- Module: bot.py / keyboards.py / db.py
-- Function: card rendering / translation reveal callback
+- Module: bot.py / keyboards.py / db.py / tests
+- Function: format_card / daily_card_keyboard / callback_router / cached card rendering
+- Priority: high
+- Status: Open
+- Category: feature
+- Phase: phase-4
+- Roadmap refs: interactive-card-ux, data-lifecycle, premium-features
+- Evidence: bot.py:format_card reads examples but never reads example_translations; keyboards.py:daily_card_keyboard returns only the next-card button and query_result_keyboard returns only Add to review; callback_router contains no translation callback branch.
+
+## Problem
+ROADMAP.md says example translations remain hidden until an inline Show translations action is pressed, but the current renderer omits example_translations entirely and the card keyboards expose only Next card, Add to review, and SRS actions. callback_router has no translation-reveal action, so stored translations cannot appear as a spoiler or be added to the current card message.
+
+## Solution
+Implement a deterministic translation-reveal interaction over the cached canonical card: render the primary card without translations, attach a user-scoped card reference, and reveal or append the correctly paired translations after an authorized callback. Repeated clicks must be idempotent, stale or cross-user references must be rejected, and the action must not call AI, change quota/SRS state, mutate card_data, or send a duplicate card. Add a separate premium-gated detailed-card action only after the default and entitlement policy is explicitly decided.
+
+## Note
+The roadmap statement is currently aspirational rather than implemented; this issue captures the implementation gap and the required no-side-effect contract.
+
+---
+
+# status changes need a validated review and synchronization workflow
+
+- ID: 56
+- Module: issues/status_editor.py / issues/validate.py / ROADMAP.md
+- Function: project status editing and generated-view synchronization
 - Priority: medium
 - Status: Open
 - Category: feature
 - Phase: phase-4
-- Roadmap refs: interactive-card-ux
-- Evidence: ai.py stores example_translations in the canonical card; bot.py format_card renders examples but not translations, and keyboards.py has no translation-reveal callback.
+- Roadmap refs: issue-tooling
+- Evidence: The status editor validates and previews issue, phase, and decision changes, while validate.py synchronizes the dashboard and marked generated roadmap section.
 
 ## Problem
-Validated example_translations are stored with cards but are not rendered below examples and no authorized inline reveal action exists.
+Editing issue records, phase status, and roadmap summaries manually can leave the dashboard or generated roadmap section stale or inconsistent.
 
 ## Solution
-Add a read-only translation reveal action backed by the cached card payload. It must preserve example/translation pairing and avoid AI calls, quota changes, SRS mutations, or database writes.
+Provide a reviewable JSON patch workflow that validates the complete resulting model, previews the diff, updates canonical issue and project-status records, and regenerates only marked views while preserving human-written roadmap narrative.
 
 ## Note
-A minimal card with an explicit details/reveal action remains subject to the presentation decision.
+This is project-governance tooling only; it must not alter Telegram runtime behavior, AI generation, quotas, or database state.

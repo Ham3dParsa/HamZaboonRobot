@@ -44,6 +44,209 @@ Engineering records are categorized as `feature`, `bug`, `risk`, `tech-debt`,
 `research`, or `decision`. Issue status, phase status, and decision status are
 separate concepts and must not be conflated.
 
+<!-- BEGIN GENERATED PROJECT STATUS -->
+## Current Phase Status (Generated)
+
+> Generated from `project_status.json` and `issues/issues.json`; edit the canonical JSON sources.
+
+### phase-1: Content Schema and Validation
+
+- **Status:** `complete`
+- **Objective:** Keep every stored educational card valid, paired, and restart-safe.
+- **Dependencies:** None
+
+**Done**
+- Versioned canonical card fields
+- Validation and safe malformed-output handling
+- Example and translation pairing
+
+**In progress**
+
+**To-do**
+- Keep migration and validation coverage current for additive fields
+
+**Acceptance criteria**
+- Every stored card conforms to the validated schema
+- Existing cached cards remain readable
+
+**Linked issues:** None
+
+### phase-2: Manual Proficiency Level and German Support
+
+- **Status:** `complete`
+- **Objective:** Make proficiency and language-specific guidance explicit and extensible.
+- **Dependencies:** phase-1
+
+**Done**
+- Independent proficiency level
+- CEFR labels and German support
+
+**In progress**
+
+**To-do**
+- Add future languages only through the canonical catalog
+
+**Acceptance criteria**
+- Language, goal, and level remain separate stored values
+- Language-specific guidance is preserved
+
+**Linked issues:** None
+
+### phase-3: Controlled Generation and Daily Card Storage
+
+- **Status:** `in-progress`
+- **Objective:** Generate only requested content, persist it safely, and prepare validated reuse.
+- **Dependencies:** phase-1, phase-2
+
+**Done**
+- Bounded manual and scheduled batches
+- Duplicate filtering, persistence, and partial retry
+
+**In progress**
+- Segment-level pooling design and validated reuse boundaries
+
+**To-do**
+- Add the pool table and gated validated write path
+- Add pool telemetry and inventory selection
+
+**Acceptance criteria**
+- Partial batches preserve valid cards
+- Restart and duplicate triggers do not regenerate persisted cards
+
+**Linked issues:** #40
+
+### phase-4: Interactive Card UX and Project Status
+
+- **Status:** `in-progress`
+- **Objective:** Expose safe card interactions and make product/engineering status explicit.
+- **Dependencies:** phase-1, phase-3
+
+**Done**
+- Persisted next-card flow
+- Cached-card rendering
+- Internal compact JSON separation
+
+**In progress**
+- Project-status tooling
+- Brief/detailed presentation contract
+
+**To-do**
+- Translation reveal
+- Content-richness restoration
+- Premium presentation controls
+- Rendering regression contracts
+
+**Acceptance criteria**
+- Callbacks are user-scoped and restart-safe
+- Rendering does not change AI, quota, SRS, pool, or stored-card state
+
+**Linked issues:** #7, #27, #51, #52, #53, #54, #55, #56
+
+### phase-5: Custom-Word Queries and Spaced-Repetition Capture
+
+- **Status:** `planned`
+- **Objective:** Complete query capture, saved-word integrity, and review entry points.
+- **Dependencies:** phase-3, phase-4
+
+**Done**
+- Quota visibility
+- Persistent query identity
+- Idempotent Add to review
+
+**In progress**
+
+**To-do**
+- Finish custom-word UX and review-entry acceptance criteria
+
+**Acceptance criteria**
+- Repeated Add to review actions remain idempotent
+- Saved review entries retain complete validated cards
+
+**Linked issues:** None
+
+### phase-6: Reliable Delivery, Concurrency, and Data Lifecycle
+
+- **Status:** `in-progress`
+- **Objective:** Make delivery, SRS, migrations, and user progress durable under retries and restarts.
+- **Dependencies:** phase-3, phase-5
+
+**Done**
+- Durable queues and bounded retries
+- Async-safe provider calls
+- Callback validation and restart recovery
+
+**In progress**
+- Adaptive SRS correctness
+- Migration and idempotency contracts
+
+**To-do**
+- Resolve issues 42-47, 49, and 50
+- Add focused reliability and progress tests
+
+**Acceptance criteria**
+- Restart does not resend completed work
+- One user's failure does not stop other users
+
+**Linked issues:** #42, #43, #44, #45, #46, #47, #49, #50
+
+### phase-7: Premium Smart Placement Test
+
+- **Status:** `planned`
+- **Objective:** Add premium placement assessment only after the core learning loop is reliable.
+- **Dependencies:** phase-6
+
+**Done**
+- Premium boundary and product direction documented
+
+**In progress**
+
+**To-do**
+- Implement after core learning-loop and measurement contracts stabilize
+
+**Acceptance criteria**
+- Premium access is enforced
+- Results are confirmed before being saved
+
+**Linked issues:** None
+
+### phase-8: Measurement and Advanced Learning
+
+- **Status:** `planned`
+- **Objective:** Use validated usage data to add mini-quizzes, measurement, and personalization.
+- **Dependencies:** phase-6, phase-7
+
+**Done**
+- Measurement goals documented
+- Mini-quiz dependency order documented
+
+**In progress**
+
+**To-do**
+- Add feedback capture and cost/quality dashboards
+- Add advanced learning features
+
+**Acceptance criteria**
+- Measurement precedes advanced personalization
+- Mini-quizzes reuse existing validated learning data
+
+**Linked issues:** #48
+
+## Decision Locks (Generated)
+
+- **decision-ai-generated-content — Educational content remains AI-generated** (`locked`): The bot validates and renders model output; it does not replace educational generation with hard-coded lessons.
+  - Phase: `phase-1`
+  - Related issues: None
+- **decision-issue-registry — Issue records remain canonical in issues.json** (`locked`): The dashboard and Markdown export are views; browser edits are never canonical.
+  - Phase: `phase-4`
+  - Related issues: None
+- **decision-compact-json — Compact JSON is an internal provider optimization** (`locked`): Wire-format compactness must not change the canonical card schema or learner-facing content richness.
+  - Phase: `phase-3`
+  - Related issues: None
+- **decision-card-detail-default — Default card detail and premium expansion** (`proposed`): The current roadmap keeps detailed as the global default; minimal cards with a premium More details action remain a product proposal until explicitly approved.
+  - Phase: `phase-4`
+  - Related issues: #51 card presentation detail should be independent from AI output serialization, #52 brief or detailed card preference needs explicit global and premium user controls, #53 presentation variants need cache, pool, and regression contracts, #55 example translations are stored but not implemented as Telegram spoilers
+<!-- END GENERATED PROJECT STATUS -->
+
 ## Roadmap Board
 
 ### Done
