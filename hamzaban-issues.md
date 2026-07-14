@@ -331,11 +331,11 @@ Future premium/product decision. The entitlement, default mode, and whether Free
 - Module: bot.py / db.py / tests
 - Function: format_card / daily_cards / saved_words.card_data / content_pool rendering
 - Priority: high
-- Status: Open
+- Status: Resolved
 - Category: tech-debt
 - Phase: phase-4
 - Roadmap refs: interactive-card-ux, data-lifecycle, measurement-and-observability
-- Evidence: Current tests cover card validation and SQLite persistence, but no test selects a presentation mode or proves that rendering a cached daily, saved, or pooled card is side-effect free.
+- Evidence: tests/test_custom_word_query.py:rendering_does_not_mutate_cached_payload verifies brief/detailed rendering leaves the input payload unchanged; tests/test_reliability.py:rendering_keeps_persisted_card_payloads_unchanged verifies daily/query/saved card JSON remains identical after rendering; existing renderer tests still prove brief/detailed separation and paired-example output.
 
 ## Problem
 Brief and detailed messages must be different views of one validated card, but there is no contract proving that rendering variants preserve example/translation pairing, optional synonym and antonym absence, cached-card reuse, and segment-level pool behavior. Without focused tests, a presentation feature could silently regenerate content, drop fields in persistence, or diverge between daily, query, and SRS paths.
@@ -344,7 +344,7 @@ Brief and detailed messages must be different views of one validated card, but t
 Add pure rendering tests for both modes, assert that two examples remain paired in detailed output, assert that missing optional fields render safely, and verify that daily_cards, saved_words.card_data, and future content_pool hits retain the same canonical payload regardless of selected mode. Add idempotency tests showing repeated rendering makes no AI request and does not alter quota, SRS state, pool identity, or stored JSON.
 
 ## Note
-Keep this as a prerequisite for shipping the user preference. It should be implemented together with the presentation layer, not by weakening AI validation or duplicating database schemas.
+Resolved with focused regression tests proving brief/detailed rendering preserves the canonical payload across daily, query, and saved-word paths. Pool behavior remains a future contract because the pool table is not yet implemented.
 
 ---
 
