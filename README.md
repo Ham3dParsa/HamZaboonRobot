@@ -44,6 +44,9 @@ python bot.py
   `python issues/status_editor.py apply changes.json --confirm`. این ابزار
   پس از validation، JSONهای canonical، بخش generated در `ROADMAP.md` و
   dashboard را همگام می‌کند.
+- داشبورد فعلی عمداً static و read-only است و هیچ Python HTTP server یا
+  endpoint نوشتنی ندارد. ویرایشگر وب محلیِ احراز هویت‌شده به‌عنوان issue
+  آینده ثبت شده است؛ تا آن زمان، patch و preview مسیر امن canonical هستند.
 
 ## کنترل هزینه و کیفیت AI
 
