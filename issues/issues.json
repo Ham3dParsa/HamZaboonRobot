@@ -336,9 +336,9 @@
     "problem": "Brief and detailed messages must be different views of one validated card, but there is no contract proving that rendering variants preserve example/translation pairing, optional synonym and antonym absence, cached-card reuse, and segment-level pool behavior. Without focused tests, a presentation feature could silently regenerate content, drop fields in persistence, or diverge between daily, query, and SRS paths.",
     "solution": "Add pure rendering tests for both modes, assert that two examples remain paired in detailed output, assert that missing optional fields render safely, and verify that daily_cards, saved_words.card_data, and future content_pool hits retain the same canonical payload regardless of selected mode. Add idempotency tests showing repeated rendering makes no AI request and does not alter quota, SRS state, pool identity, or stored JSON.",
     "priority": "high",
-    "note": "Keep this as a prerequisite for shipping the user preference. It should be implemented together with the presentation layer, not by weakening AI validation or duplicating database schemas.",
-    "resolved": false,
-    "status": "open",
+    "note": "Resolved with focused regression tests proving brief/detailed rendering preserves the canonical payload across daily, query, and saved-word paths. Pool behavior remains a future contract because the pool table is not yet implemented.",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 53,
@@ -348,8 +348,8 @@
       "data-lifecycle",
       "measurement-and-observability"
     ],
-    "evidence": "Current tests cover card validation and SQLite persistence, but no test selects a presentation mode or proves that rendering a cached daily, saved, or pooled card is side-effect free.",
-    "last_reviewed": "2026-07-13",
+    "evidence": "tests/test_custom_word_query.py:rendering_does_not_mutate_cached_payload verifies brief/detailed rendering leaves the input payload unchanged; tests/test_reliability.py:rendering_keeps_persisted_card_payloads_unchanged verifies daily/query/saved card JSON remains identical after rendering; existing renderer tests still prove brief/detailed separation and paired-example output.",
+    "last_reviewed": "2026-07-14",
     "decision_refs": [],
     "depends_on": []
   },

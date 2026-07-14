@@ -130,9 +130,9 @@ separate concepts and must not be conflated.
 - Project-status tooling
 - User-scoped same-message translation preparation with paired spoilers
 - Surgical legacy-card validation, repair, and atomic patch persistence
+- Rendering regression contracts
 
 **In progress**
-- Rendering regression contracts
 
 **To-do**
 - Premium presentation controls

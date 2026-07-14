@@ -195,6 +195,19 @@ class CustomWordQueryTests(unittest.TestCase):
         self.assertNotIn("greetings", brief)
         self.assertNotIn("یک نکته", brief)
 
+    def test_rendering_does_not_mutate_cached_payload(self):
+        card = {
+            "word": "hello",
+            "fa_meaning": "سلام",
+            "fa_explanation": "برای سلام کردن استفاده می‌شود.",
+            "examples": ["Example one.", "Example two."],
+            "example_translations": ["مثال اول.", "مثال دوم."],
+        }
+        snapshot = json.loads(json.dumps(card, ensure_ascii=False))
+        format_card(card, presentation="brief")
+        format_card(card, presentation="detailed")
+        self.assertEqual(card, snapshot)
+
     def test_translation_spoilers_pair_examples_without_leaking_translations(self):
         text = format_card(
             {

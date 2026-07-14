@@ -113,11 +113,10 @@
         "Deterministic brief/detailed card renderer",
         "Project-status tooling",
         "User-scoped same-message translation preparation with paired spoilers",
-        "Surgical legacy-card validation, repair, and atomic patch persistence"
-      ],
-      "in_progress": [
+        "Surgical legacy-card validation, repair, and atomic patch persistence",
         "Rendering regression contracts"
       ],
+      "in_progress": [],
       "todo": [
         "Premium presentation controls"
       ],

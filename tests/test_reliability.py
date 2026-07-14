@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 import os
 import sqlite3
 import tempfile
@@ -292,6 +293,38 @@ class ReliabilityPersistenceTests(unittest.TestCase):
                 "examples": ["Hello one.", "Hello two."],
                 "example_translations": ["اول.", "دوم."],
             }
+        )
+
+    def test_rendering_keeps_persisted_card_payloads_unchanged(self):
+        db.create_user_if_needed(1, "learner")
+        daily_card = {
+            "word": "hello",
+            "fa_meaning": "سلام",
+            "fa_explanation": "توضیح",
+            "examples": ["Example one.", "Example two."],
+            "example_translations": ["مثال اول.", "مثال دوم."],
+        }
+        db.add_daily_card(1, "2026-07-12", 0, daily_card)
+        query_token = db.create_query_result(1, "hello", "hello", "en", daily_card)
+        db.add_saved_word(1, "hello", "en", daily_card)
+
+        daily_before = db.get_daily_cards(1, "2026-07-12")[0]
+        query_before = json.loads(db.get_query_result(query_token, user_id=1)["result_json"])
+        saved_before = json.loads(db.get_saved_word(1, user_id=1)["card_data"])
+
+        bot.format_card(daily_before, presentation="brief")
+        bot.format_card(daily_before, presentation="detailed", translations_prepared=True)
+        bot.format_card(query_before, presentation="brief")
+        bot.format_card(saved_before, presentation="detailed")
+
+        self.assertEqual(db.get_daily_cards(1, "2026-07-12")[0], daily_before)
+        self.assertEqual(
+            json.loads(db.get_query_result(query_token, user_id=1)["result_json"]),
+            query_before,
+        )
+        self.assertEqual(
+            json.loads(db.get_saved_word(1, user_id=1)["card_data"]),
+            saved_before,
         )
 
     def test_saved_word_migration_preserves_legacy_rows(self):
