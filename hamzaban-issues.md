@@ -82,7 +82,7 @@ Accepted for MVP because adding encrypted secret-at-rest storage needs a dedicat
 - Category: bug
 - Phase: phase-6
 - Roadmap refs: adaptive-srs-core
-- Evidence: db.py:due_words_for_user excludes review_status='pending' and no function currently expires pending rows; bot.py:srs_job sets review_status='pending' after successful reminder delivery.
+- Evidence: db.py:due_words_for_user excludes review_status='pending' indefinitely and no expiry/grace-window query exists; bot.py:srs_job sets review_status='pending' after successful reminder delivery, so unanswered reminders can suppress future reminders forever.
 
 ## Problem
 یادآوری ارسالی در saved_words به وضعیت pending می‌رود، اما pending فعلی timeout ندارد و due_words_for_user آن را تا پاسخ کاربر کنار می‌گذارد. در نتیجه یک یادآوری بی‌پاسخ می‌تواند برای همیشه در محاسبه‌ی completion rate مبهم بماند و رفتار pacing را سرکوب کند.
@@ -105,10 +105,10 @@ grace window یادآوری pending را ۴۸ ساعت قفل کنید. پس ا�
 - Category: bug
 - Phase: phase-6
 - Roadmap refs: adaptive-srs-core
-- Evidence: db.py:users has no reminder-cap columns; bot.py:startup_catch_up_job can invoke srs_job after downtime and the regular daily schedule can invoke it again.
+- Evidence: db.py:users has no reminder-cap columns or application-day idempotency field; bot.py:startup_catch_up_job invokes srs_job and the regular daily schedule can invoke it again on the same application day.
 
 ## Problem
-Adaptive SRS هنوز cap یا زمان آخرین adjustment ندارد. startup catch-up عمداً srs_job را دوباره اجرا می‌کند، بنابراین adjustment روزانه بدون کلید idempotency می‌تواند در یک روز چند بار step بخورد.
+Adaptive SRS هنوز cap یا زمان آخرین adjustment ندارد. بعد از پیاده‌سازی cap، startup catch-up و اجرای معمول همان روز نباید بتوانند adjustment روزانه را دوبار انجام دهند.
 
 ## Solution
 ستون‌های daily_reminder_cap و reminder_cap_updated_at را additive اضافه کنید و adjustment را با همان application-day در تراکنش محافظت کنید. seed اولیه برای کاربران قدیمی برابر allowance فعلی plan باشد؛ cap با step برابر ۱، کف ۱، و سقف مؤثر plan تغییر کند.
@@ -128,7 +128,7 @@ Adaptive SRS هنوز cap یا زمان آخرین adjustment ندارد. startu
 - Category: bug
 - Phase: phase-6
 - Roadmap refs: adaptive-srs-core
-- Evidence: db.py:set_user_goal updates users.goal immediately, while current SRS delivery has no persisted pacing-shape snapshot or goal-aware session selection.
+- Evidence: db.py:set_user_goal updates users.goal immediately, while current SRS delivery has no goal-aware pacing selection; daily_card_sessions snapshots daily-card content but not SRS pacing shape.
 
 ## Problem
 goal کاربر در هر زمان قابل تغییر است، اما adaptive pacing هنوز قرارداد مشخصی برای reminderهای از قبل برنامه‌ریزی‌شده ندارد. اعمال فوری تغییر می‌تواند shape صف موجود را در میانه‌ی روز عوض کند.
@@ -151,7 +151,7 @@ goal جدید را از daily planning cycle بعدی در pacing اعمال ک�
 - Category: bug
 - Phase: phase-6
 - Roadmap refs: adaptive-srs-core
-- Evidence: db.py:advance_word_review and defer_word_review update only rows in pending state, but there is no retention_events table or points/progress read model.
+- Evidence: db.py:advance_word_review and defer_word_review update only rows in pending state, but there is no retention_events table or points/progress read model; defer_word_review also leaves interval_idx unchanged despite the plan's reset wording.
 
 ## Problem
 advance_word_review و defer_word_review فعلاً با شرط review_status='pending' از تکرار یک پاسخ جلوگیری می‌کنند، اما retention_events هنوز وجود ندارد و milestone points در هیچ تراکنش append-only ثبت نمی‌شود.
@@ -174,7 +174,7 @@ advance_word_review و defer_word_review فعلاً با شرط review_status='p
 - Category: bug
 - Phase: phase-6
 - Roadmap refs: adaptive-srs-core
-- Evidence: db.py:init_db currently has no daily_reminder_cap or reminder_cap_updated_at migration; config.py defines the authoritative Free/Silver/Gold daily card allowances.
+- Evidence: db.py:init_db currently has no daily_reminder_cap or reminder_cap_updated_at migration; config.py defines the authoritative Free/Silver/Gold daily card allowances, but the live SRS job currently applies none of them.
 
 ## Problem
 users موجود پیش از adaptive SRS ستون daily_reminder_cap ندارند و migration آن باید NULL را به رفتار قابل پیش‌بینی تبدیل کند. مقداردهی اشتباه می‌تواند در روز migration reminderهای کاربر را ناگهان به صفر یا سقف نامحدود تبدیل کند.
@@ -460,3 +460,118 @@ Add a local-only, authenticated editor backed by the existing validation boundar
 
 ## Note
 This is the next UX layer over issue 56, not a replacement for canonical JSON or validation. The local-server technology and authentication boundary must be agreed before implementation.
+
+---
+
+# SRS reminder delivery is not atomic across Telegram send and pending-state persistence
+
+- ID: 59
+- Module: bot.py / db.py
+- Function: srs_job / mark_word_review_pending / due_words_for_user
+- Priority: high
+- Status: Open
+- Category: bug
+- Phase: phase-6
+- Roadmap refs: adaptive-srs-core, reliability-and-data-lifecycle
+- Evidence: bot.py:srs_job sends via _send_with_retry before db.mark_word_review_pending; db.py:due_words_for_user excludes only rows already pending and mark_word_review_pending has no compare-and-set guard. No focused test covers a crash or overlap between send and persistence.
+
+## Problem
+The SRS job sends a reminder first and marks the word pending only afterward. A process crash or concurrent SRS invocation in that gap can send a duplicate reminder; there is no durable per-word claim or delivery idempotency record.
+
+## Solution
+Add a transactional per-word claim/state transition with a durable reminder attempt identity and recovery semantics. Make concurrent jobs unable to claim the same due word, persist enough state to resume after restart, and document the bounded duplicate risk inherent in Telegram's non-transactional external send.
+
+## Note
+This is a confirmed reliability gap in the current fixed SRS baseline and must be resolved before adaptive caps or completion-rate metrics are trusted.
+
+---
+
+# One SRS delivery error aborts the remaining due words for that user
+
+- ID: 60
+- Module: bot.py
+- Function: srs_job
+- Priority: medium
+- Status: Open
+- Category: bug
+- Phase: phase-6
+- Roadmap refs: adaptive-srs-core, reliability-and-data-lifecycle
+- Evidence: bot.py:srs_job opens one try block per active user and catches exceptions only after the for word in due loop, so one failure exits the remaining words for that user.
+
+## Problem
+The exception handler surrounds the entire due-word loop for one user. If card preparation or Telegram delivery fails for one word, later due words for that same user are skipped until a later SRS invocation, while other users continue.
+
+## Solution
+Handle failures per due word, record bounded retry/backoff state, and continue the user's batch. Preserve cap accounting and avoid marking a word pending unless its delivery attempt reaches the defined success boundary.
+
+## Note
+A three-user deployment is small, but a user with multiple due words can still receive an incomplete reminder set without a same-run retry path.
+
+---
+
+# A short restart can leave scheduled delivery permanently processing
+
+- ID: 61
+- Module: bot.py / db.py
+- Function: requeue_stale_deliveries / daily_job / delivery_dispatch_job
+- Priority: high
+- Status: Open
+- Category: bug
+- Phase: phase-6
+- Roadmap refs: reliability-and-data-lifecycle
+- Evidence: bot.py:daily_job calls db.requeue_stale_deliveries once, while delivery_dispatch_job only calls _dispatch_queue; db.py:get_delivery_queue filters out processing rows and requeue_stale_deliveries requires a 15-minute age.
+
+## Problem
+Startup requeues processing rows only when processing_started_at is older than 15 minutes. A crash followed by a restart within that window leaves the row in processing; dispatch reads only pending or retryable failed rows, and no repeating job requeues the row.
+
+## Solution
+Run stale-worker recovery from the repeating dispatcher as well as daily planning, or use a lease/heartbeat with a retryable deadline. Make recovery idempotent and preserve sent_count when resuming.
+
+## Note
+This can strand a user's current daily session after the exact restart scenario this audit was requested to assess.
+
+---
+
+# Scheduled delivery ignores the configured preferred delivery time
+
+- ID: 62
+- Module: bot.py / scheduling.py
+- Function: _plan_daily_queue / plan_sessions / choose_load_aware_minute
+- Priority: medium
+- Status: Open
+- Category: bug
+- Phase: phase-6
+- Roadmap refs: reliability-and-data-lifecycle
+- Evidence: bot.py:_plan_daily_queue reads preferred_delivery_minute; scheduling.py:plan_sessions computes ideal from candidates and passes ideal, not preferred_minute, to choose_load_aware_minute. Focused probe produced identical slots for preferred 08:00, 09:00, 15:00, and 20:00.
+
+## Problem
+_plan_daily_queue passes each user's preferred minute, but plan_sessions uses the evenly distributed active-window ideal as the preferred argument to choose_load_aware_minute. Different preferred times therefore produce the same default slot pattern.
+
+## Solution
+Use the user's preferred minute as the primary soft target for the first session and derive subsequent session ideals around it, while retaining active-window bounds, load-aware shifting, and deterministic behavior under saturation.
+
+## Note
+Messages remain inside the active window, so this is a scheduling-contract defect rather than an immediate data-loss risk.
+
+---
+
+# Scheduled delivery does not replay queue rows from previous offline dates
+
+- ID: 63
+- Module: bot.py / db.py
+- Function: startup_catch_up_job / daily_job / delivery_dispatch_job
+- Priority: medium
+- Status: Open
+- Category: bug
+- Phase: phase-6
+- Roadmap refs: reliability-and-data-lifecycle
+- Evidence: bot.py:daily_job and delivery_dispatch_job pass only today's date to planning/dispatch; startup_catch_up_job invokes those same current-date jobs. No query or policy handles older delivery_date values.
+
+## Problem
+Startup catch-up plans and dispatches only the current application date. Pending or retryable rows for older dates are never selected, so downtime can permanently strand previously scheduled daily sessions.
+
+## Solution
+Define and implement a bounded replay policy for past delivery dates: select eligible non-terminal rows in order, preserve their original session/card ranges, enforce burst and per-user limits, and make replay idempotent. If product policy intentionally drops old sessions, mark them explicitly expired instead of leaving them ambiguous.
+
+## Note
+Current behavior is safe from duplicate queue creation but not complete from a learner-delivery perspective.

@@ -179,9 +179,10 @@ separate concepts and must not be conflated.
 **In progress**
 - Adaptive SRS correctness
 - Migration and idempotency contracts
+- SRS reminder delivery idempotency and scheduled queue recovery
 
 **To-do**
-- Resolve issues 42-47, 49, and 50
+- Resolve issues 42-47, 49, 50, and 59-63
 - Add focused reliability and progress tests
 - Plan staged handler and formatting module boundaries
 
@@ -189,7 +190,7 @@ separate concepts and must not be conflated.
 - Restart does not resend completed work
 - One user's failure does not stop other users
 
-**Linked issues:** #42, #43, #44, #45, #46, #47, #49, #50, #57
+**Linked issues:** #42, #43, #44, #45, #46, #47, #49, #50, #57, #59, #60, #61, #62, #63
 
 ### phase-7: Premium Smart Placement Test
 

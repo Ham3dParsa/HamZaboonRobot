@@ -14,6 +14,12 @@ supersedes the current static SRS behavior described under "Locked
 Operational Configuration Decisions"; `ROADMAP.md` contains the concise
 product-level summary and `issues/issues.json` contains the audit records.
 
+> **Implementation status (2026-07-14):** This document is a locked future
+> plan, not the behavior currently running in `bot.py` and `db.py`. The live
+> baseline still uses fixed intervals, sends every due non-pending word, has
+> no SRS cap, and has no pending grace-window, claim, or retention-event
+> implementation. Issues 42-46 and 59-60 track the resulting SRS gaps.
+
 ## Why this is the priority
 
 Every other improvement discussed so far (content pooling, cost dashboards,
@@ -50,6 +56,13 @@ without that volume translating into retained vocabulary.
   to start.
 - There is currently no daily cap, no priority ordering beyond due-date
   order, and no points/progress table of any kind.
+- `srs_job` catches errors around the whole per-user due-word loop, so one
+  failed word can prevent later due words for that user from being attempted
+  in the same run.
+- Reminder delivery is not atomic with the transition to `pending`: Telegram
+  acceptance can be followed by a process crash before SQLite persistence,
+  allowing a duplicate on restart. A compare-and-set claim and explicit
+  recovery policy are required before completion metrics are trusted.
 
 ## Part 1 — Adaptive reminder pacing
 
@@ -255,6 +268,21 @@ append-only log keyed against the existing `saved_words.id`.
    This prevents a migration-day drop to zero while keeping the new behavior
    bounded and explainable.
 
+6. **Reminder delivery idempotency**: a reminder must have a durable claim and
+   attempt identity. The state machine must prevent concurrent claims, preserve
+   enough progress to recover after restart, and explicitly bound the
+   unavoidable Telegram-send/SQLite-commit duplicate window.
+
+7. **Per-word failure isolation**: one failed due-word preparation or send
+   must not abort the remaining due words for the same user. Retry state must
+   be bounded and must not consume a cap slot as a successful reminder unless
+   the configured delivery success boundary is reached.
+
+8. **Deferral semantics**: the implementation must resolve the existing
+   mismatch between the plan's “reset on defer” wording and
+   `defer_word_review()` currently preserving `interval_idx`. The chosen reset
+   rule must be locked before changing interval behavior.
+
 ## Suggested implementation slices
 
 1. Add `daily_reminder_cap`/`reminder_cap_updated_at` columns and
@@ -273,6 +301,28 @@ append-only log keyed against the existing `saved_words.id`.
    not required for pacing to function.
 6. Revisit travel-goal pacing and quiz-linked scoring once the quiz
    feature is scoped.
+
+## Baseline scheduled-delivery risks adjacent to SRS
+
+The daily-card queue is separate from the future adaptive SRS cap, but its
+restart behavior affects the same learner-facing reliability contract:
+
+- A processing queue row can remain stranded when a worker restarts before
+  the 15-minute stale threshold; recovery currently runs from `daily_job`,
+  not from the repeating dispatcher.
+- The current slot planner reads a preferred delivery time but passes the
+  evenly distributed window ideal to the load-aware chooser, so preference is
+  not actually used as a soft target.
+- Startup catch-up operates on today's date only. Older pending/failed dates
+  need an explicit replay-or-expire policy; silently leaving them in the
+  queue is not restart-complete.
+- A crash after Telegram accepts a card but before `sent_count` is persisted
+  can resend part of a session. Exact-once external delivery is impossible,
+  so the design must make the duplicate window explicit and observable.
+
+These are tracked as issues 61-63 and must be covered by focused crash,
+lease/recovery, scheduling-preference, and past-date replay tests before
+phase-6 delivery reliability is considered complete.
 
 ## Definition of done
 
