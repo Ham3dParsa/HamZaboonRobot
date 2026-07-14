@@ -225,6 +225,7 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
         [
             [InlineKeyboardButton("📈 آمار کاربران", callback_data="admin:stats")],
             [InlineKeyboardButton("💳 تنظیم پلن کاربر", callback_data="admin:set_plan")],
+            [InlineKeyboardButton("🗣 تنظیم تلفظ", callback_data="admin:phonetics")],
             [InlineKeyboardButton("💰 داشبورد هزینه LLM", callback_data="admin:llm_costs")],
             [InlineKeyboardButton("💱 تنظیم قیمت LLM", callback_data="admin:llm_pricing")],
             [InlineKeyboardButton("🤖 تغییر مدل AI", callback_data="admin:set_model")],
@@ -232,6 +233,30 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton("🔑 تغییر API Key", callback_data="admin:set_api_key")],
             [InlineKeyboardButton("📣 ارسال پیام همگانی", callback_data="admin:broadcast")],
             [InlineKeyboardButton("⚙️ تنظیمات فعلی", callback_data="admin:show_settings")],
+        ]
+    )
+
+
+def phonetic_settings_keyboard(current: dict[str, bool]) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    f"{'✅ ' if current.get('ipa') else ''}IPA",
+                    callback_data="admin:phonetics:ipa",
+                ),
+                InlineKeyboardButton(
+                    f"{'✅ ' if current.get('latin') else ''}Latin",
+                    callback_data="admin:phonetics:latin",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    f"{'✅ ' if current.get('persian') else ''}Persian",
+                    callback_data="admin:phonetics:persian",
+                )
+            ],
+            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
         ]
     )
 

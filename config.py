@@ -69,6 +69,21 @@ if AI_CARD_OUTPUT_FORMAT not in {"json", "compact_json"}:
 DEFAULT_PRESENTATION = os.getenv("DEFAULT_PRESENTATION", "detailed").strip().lower()
 if DEFAULT_PRESENTATION not in {"brief", "detailed"}:
     raise ValueError("DEFAULT_PRESENTATION must be 'brief' or 'detailed'")
+DEFAULT_PHONETIC_SHOW_IPA = os.getenv("PHONETIC_SHOW_IPA", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+DEFAULT_PHONETIC_SHOW_LATIN = os.getenv("PHONETIC_SHOW_LATIN", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+DEFAULT_PHONETIC_SHOW_PERSIAN = os.getenv("PHONETIC_SHOW_PERSIAN", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 LLM_INPUT_COST_USD_PER_MILLION = float(
     os.getenv("LLM_INPUT_COST_USD_PER_MILLION", "0.25")
 )

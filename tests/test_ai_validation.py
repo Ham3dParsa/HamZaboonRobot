@@ -74,6 +74,11 @@ class BatchValidationTests(unittest.TestCase):
         card["synonyms"] = ["hi"]
         self.assertEqual(ai.card_repair_fields(card), ["synonyms"])
 
+    def test_legacy_phonetic_values_are_marked_for_repair(self):
+        card = valid_card("hello")
+        card["phonetic"] = "کومپلِکسیِرت"
+        self.assertEqual(ai.card_repair_fields(card), ["phonetic"])
+
     def test_card_repair_patch_rejects_extra_or_duplicate_fields(self):
         with self.assertRaisesRegex(ai.CardValidationError, "exactly"):
             ai.validate_card_patch(

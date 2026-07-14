@@ -132,6 +132,21 @@ _COMPACT_CARD_FIELDS = {
     "g": "grammar_tip",
 }
 
+_PHONETIC_LINE_RE = re.compile(r"^\s*(ipa|latin|persian)\s*:\s*(.+?)\s*$", re.IGNORECASE)
+
+
+def _phonetic_sections(value: object) -> dict[str, str] | None:
+    if not isinstance(value, str):
+        return None
+    sections: dict[str, str] = {}
+    for line in value.splitlines():
+        match = _PHONETIC_LINE_RE.match(line)
+        if match:
+            sections[match.group(1).casefold()] = match.group(2).strip()
+    if {"ipa", "latin", "persian"} <= set(sections):
+        return sections
+    return None
+
 
 def _expand_card_aliases(data: Mapping[str, object]) -> dict[str, object]:
     expanded = dict(data)
@@ -246,6 +261,12 @@ def card_repair_fields(data: object) -> list[str]:
     if not examples_valid or not translations_valid:
         fields.extend(["examples", "example_translations"])
 
+    phonetic_value = data.get("phonetic")
+    if phonetic_value is None:
+        phonetic_value = data.get("ph")
+    if isinstance(phonetic_value, str) and phonetic_value.strip() and _phonetic_sections(phonetic_value) is None:
+        fields.append("phonetic")
+
     for field in ("synonyms", "antonyms"):
         value = data.get(field)
         if value is None:
@@ -283,6 +304,8 @@ def validate_card_patch(data: object, fields: list[str]) -> dict:
             values = _text_list(expanded, field)
             _validate_optional_rich_list(field, values)
             patch[field] = values
+        elif field == "phonetic":
+            patch[field] = _required_text(expanded, field)
         else:
             raise CardValidationError(f"Unsupported card repair field '{field}'")
     if {"examples", "example_translations"} & requested:

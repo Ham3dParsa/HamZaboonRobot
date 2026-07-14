@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import db
 from bot import (
@@ -203,6 +204,27 @@ class CustomWordQueryTests(unittest.TestCase):
         )
         self.assertIn("`hɛ.loʊ`", card)
 
+    def test_phonetic_rendering_can_toggle_representations(self):
+        card = {
+            "word": "kompliziert",
+            "phonetic": (
+                "IPA: /kɔm.pliˈtsiːʁt/\n"
+                "Latin: kom·pli·tsiirt\n"
+                "Persian: کُم-پلی-تسی-رت"
+            ),
+            "fa_meaning": "پیچیده",
+            "fa_explanation": "به چیزی گفته می‌شود که درک کردن یا انجام دادن آن آسان نیست.",
+        }
+        with patch.object(
+            db,
+            "get_phonetic_display_settings",
+            return_value={"ipa": True, "latin": False, "persian": True},
+        ):
+            rendered = format_card(card)
+        self.assertIn("`IPA: /kɔm.pliˈtsiːʁt/`", rendered)
+        self.assertNotIn("Latin:", rendered)
+        self.assertIn("`Persian: کُم-پلی-تسی-رت`", rendered)
+
     def test_brief_and_detailed_render_the_same_card_at_different_detail_levels(self):
         card = {
             "word": "hello",
@@ -257,8 +279,8 @@ class CustomWordQueryTests(unittest.TestCase):
         )
         lines = [line for line in text.splitlines() if line]
         self.assertIn("📝 *مثال‌ها \\+ ترجمه:*", lines)
-        self.assertIn("_• Hello\\!\\._", lines)
-        self.assertIn("_• Hi\\!\\._", lines)
+        self.assertIn("• Hello\\!\\.", lines)
+        self.assertIn("• Hi\\!\\.", lines)
         self.assertIn("||سلام اول\\.||", lines)
         self.assertIn("||سلام دوم\\.||", lines)
         self.assertNotIn("> ", text)
