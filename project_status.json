@@ -178,10 +178,11 @@
       ],
       "in_progress": [
         "Adaptive SRS correctness",
-        "Migration and idempotency contracts"
+        "Migration and idempotency contracts",
+        "SRS reminder delivery idempotency and scheduled queue recovery"
       ],
       "todo": [
-        "Resolve issues 42-47, 49, and 50",
+        "Resolve issues 42-47, 49, 50, and 59-63",
         "Add focused reliability and progress tests",
         "Plan staged handler and formatting module boundaries"
       ],
@@ -202,7 +203,12 @@
         47,
         49,
         50,
-        57
+        57,
+        59,
+        60,
+        61,
+        62,
+        63
       ],
       "roadmap_anchor": "phase-6-reliable-delivery-concurrency-and-data-lifecycle"
     },
