@@ -380,7 +380,7 @@ def format_card(
     lines.append(f"\n🇮🇷 *{fa_meaning}*")
 
     if fa_expl:
-        lines.append(f"_{fa_expl}_")
+        lines.append(f"{fa_expl}")
 
     if presentation == "brief":
         if footer:
@@ -403,7 +403,7 @@ def format_card(
     if examples:
         lines.append(f"\n📝 *{'مثال‌ها + ترجمه' if translations_prepared else 'مثال‌ها'}:*")
         for index, example in enumerate(examples):
-            lines.append(f"> {escape_mdv2(example)}")
+            lines.append(f"_• {escape_mdv2(example)}_")
             if translations_prepared and index < len(translations):
                 lines.append(f"||{escape_mdv2(translations[index])}||")
 
