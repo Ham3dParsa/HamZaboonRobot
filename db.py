@@ -583,6 +583,34 @@ def mark_query_result_saved(token: str, saved_word_id: int | None = None):
         conn.commit()
 
 
+def update_query_result_fields(
+    token: str,
+    user_id: int,
+    patch: dict,
+) -> bool:
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT result_json FROM query_results WHERE token=? AND user_id=?",
+            (token, user_id),
+        ).fetchone()
+        if not row:
+            return False
+        try:
+            result_data = json.loads(row["result_json"])
+        except (TypeError, json.JSONDecodeError):
+            return False
+        if not isinstance(result_data, dict):
+            return False
+        result_data.update(patch)
+        conn.execute(
+            "UPDATE query_results SET result_json=? WHERE token=? AND user_id=?",
+            (json.dumps(result_data, ensure_ascii=False), token, user_id),
+        )
+        conn.commit()
+        return True
+
+
 def cleanup_expired_query_results():
     with get_conn() as conn:
         conn.execute(
@@ -1006,6 +1034,42 @@ def add_daily_card(user_id: int, card_date: str, card_index: int, card_data: dic
         conn.commit()
 
 
+def update_daily_card_fields(
+    user_id: int,
+    card_date: str,
+    card_index: int,
+    patch: dict,
+) -> bool:
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT card_data FROM daily_cards "
+            "WHERE user_id=? AND card_date=? AND card_index=?",
+            (user_id, card_date, card_index),
+        ).fetchone()
+        if not row:
+            return False
+        try:
+            card_data = json.loads(row["card_data"])
+        except (TypeError, json.JSONDecodeError):
+            return False
+        if not isinstance(card_data, dict):
+            return False
+        card_data.update(patch)
+        conn.execute(
+            "UPDATE daily_cards SET card_data=? "
+            "WHERE user_id=? AND card_date=? AND card_index=?",
+            (
+                json.dumps(card_data, ensure_ascii=False),
+                user_id,
+                card_date,
+                card_index,
+            ),
+        )
+        conn.commit()
+        return True
+
+
 def get_daily_progress(user_id: int, card_date: str) -> int:
     with get_conn() as conn:
         row = conn.execute(
@@ -1103,6 +1167,41 @@ def add_saved_word(
             )
         conn.commit()
         return cursor.rowcount == 1
+
+
+def update_saved_word_fields(
+    word_id: int,
+    user_id: int,
+    patch: dict,
+) -> bool:
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT word, card_data FROM saved_words WHERE id=? AND user_id=?",
+            (word_id, user_id),
+        ).fetchone()
+        if not row:
+            return False
+        if row["card_data"]:
+            try:
+                card_data = json.loads(row["card_data"])
+            except (TypeError, json.JSONDecodeError):
+                return False
+            if not isinstance(card_data, dict):
+                return False
+        else:
+            card_data = {"word": row["word"]}
+        card_data.update(patch)
+        conn.execute(
+            "UPDATE saved_words SET card_data=? WHERE id=? AND user_id=?",
+            (
+                json.dumps(card_data, ensure_ascii=False),
+                word_id,
+                user_id,
+            ),
+        )
+        conn.commit()
+        return True
 
 
 def due_words_for_user(user_id: int):

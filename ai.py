@@ -15,6 +15,7 @@ from config import (
     DEFAULT_AI_MODEL,
 )
 import db
+import prompts
 
 log = logging.getLogger("hamzaban.ai")
 
@@ -211,6 +212,122 @@ def validate_card(data: object) -> dict:
         "example_translations": translations,
         "grammar_tip": str(data.get("grammar_tip") or "").strip(),
     }
+
+
+def card_repair_fields(data: object) -> list[str]:
+    if not isinstance(data, Mapping):
+        return [
+            "word",
+            "fa_meaning",
+            "fa_explanation",
+            "examples",
+            "example_translations",
+        ]
+
+    data = _expand_card_aliases(data)
+    fields: list[str] = []
+    for field in ("word", "fa_meaning", "fa_explanation"):
+        value = data.get(field)
+        if not isinstance(value, str) or not value.strip():
+            fields.append(field)
+
+    examples = data.get("examples")
+    translations = data.get("example_translations")
+    examples_valid = (
+        isinstance(examples, list)
+        and len(examples) == 2
+        and all(isinstance(item, str) and item.strip() for item in examples)
+    )
+    translations_valid = (
+        isinstance(translations, list)
+        and len(translations) == 2
+        and all(isinstance(item, str) and item.strip() for item in translations)
+    )
+    if not examples_valid or not translations_valid:
+        fields.extend(["examples", "example_translations"])
+
+    for field in ("synonyms", "antonyms"):
+        value = data.get(field)
+        if value is None:
+            continue
+        try:
+            values = _text_list(data, field)
+            _validate_optional_rich_list(field, values)
+        except CardValidationError:
+            fields.append(field)
+    return list(dict.fromkeys(fields))
+
+
+def validate_card_patch(data: object, fields: list[str]) -> dict:
+    if not isinstance(data, Mapping):
+        raise CardValidationError("Card repair output must be a JSON object")
+    expanded = _expand_card_aliases(data)
+    requested = set(fields)
+    if set(expanded) != requested:
+        raise CardValidationError(
+            "Card repair output must contain exactly the requested fields"
+        )
+
+    patch: dict[str, object] = {}
+    for field in fields:
+        if field in {"word", "fa_meaning", "fa_explanation"}:
+            patch[field] = _required_text(expanded, field)
+        elif field in {"examples", "example_translations"}:
+            values = _text_list(expanded, field, required=True)
+            if len(values) != 2:
+                raise CardValidationError(
+                    f"Card repair field '{field}' must contain exactly two items"
+                )
+            patch[field] = values
+        elif field in {"synonyms", "antonyms"}:
+            values = _text_list(expanded, field)
+            _validate_optional_rich_list(field, values)
+            patch[field] = values
+        else:
+            raise CardValidationError(f"Unsupported card repair field '{field}'")
+    if {"examples", "example_translations"} & requested:
+        if not {"examples", "example_translations"} <= requested:
+            raise CardValidationError(
+                "Examples and translations must be repaired together"
+            )
+    return patch
+
+
+def repair_card(
+    card: object,
+    fields: list[str],
+    lang: str,
+    *,
+    user_id: int | None = None,
+    plan: str | None = None,
+) -> dict:
+    telemetry: dict[str, object] = {}
+    error: Exception | None = None
+    try:
+        value = _request_json(
+            prompts.card_repair_system_prompt(lang, card, fields),
+            user_prompt="فقط patch حداقلی فیلدهای درخواست‌شده را بساز.",
+            request_kind="card_repair",
+            user_id=user_id,
+            plan=plan,
+            telemetry=telemetry,
+        )
+        return validate_card_patch(value, fields)
+    except Exception as exc:
+        error = exc
+        raise
+    finally:
+        _log_llm_request(
+            request_kind="card_repair",
+            user_id=user_id,
+            plan=plan,
+            model=str(telemetry.get("model") or _model()),
+            telemetry=telemetry,
+            outcome="success" if error is None else (
+                "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"
+            ),
+            error=error,
+        )
 
 
 def _request_json(

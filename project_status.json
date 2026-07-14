@@ -111,10 +111,11 @@
         "Internal compact JSON separation",
         "Content-richness validation contract",
         "Deterministic brief/detailed card renderer",
-        "Project-status tooling"
+        "Project-status tooling",
+        "User-scoped same-message translation preparation with paired spoilers",
+        "Surgical legacy-card validation, repair, and atomic patch persistence"
       ],
       "in_progress": [
-        "Translation reveal",
         "Rendering regression contracts"
       ],
       "todo": [
@@ -122,7 +123,7 @@
       ],
       "acceptance_criteria": [
         "Callbacks are user-scoped and restart-safe",
-        "Rendering does not change AI, quota, SRS, pool, or stored-card state"
+        "Rendering does not change AI, quota, SRS, pool, or unrelated stored-card state; invalid legacy cards may receive one validated, repaired-field persistence update"
       ],
       "depends_on": [
         "phase-1",

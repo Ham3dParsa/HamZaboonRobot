@@ -267,6 +267,24 @@ async def _send_card_from_store(
     if card_index >= len(cards):
         return None, len(cards)
     card = cards[card_index]
+    row = db.get_user(user_id)
+    session = db.get_daily_card_session(user_id, card_date)
+    if not row:
+        raise CardPreparationError("daily card owner no longer exists")
+    card = await asyncio.to_thread(
+        _prepare_cached_card,
+        card,
+        lang=(session["target_lang"] if session else row["target_lang"]),
+        user_id=user_id,
+        plan=row["plan"] or "free",
+        source="daily_review" if review_mode else "daily",
+        persist_patch=lambda patch: db.update_daily_card_fields(
+            user_id,
+            card_date,
+            card_index,
+            patch,
+        ),
+    )
     footer = f"📖 کارت {card_index + 1} از {len(cards)} برای {card_date}"
     if review_mode:
         footer = f"📚 مرور کارت {card_index + 1} از {len(cards)} برای {card_date}"
@@ -283,6 +301,7 @@ async def _send_card_from_store(
             card_index,
             card_index + 1 < len(cards),
             callback_prefix="review:next" if review_mode else "daily:next",
+            show_translations=True,
         ),
     )
     return card, len(cards)
@@ -322,6 +341,7 @@ def format_card(
     footer: str = "",
     *,
     presentation: str = "detailed",
+    translations_prepared: bool = False,
 ) -> str:
     if presentation not in {"brief", "detailed"}:
         raise ValueError("presentation must be 'brief' or 'detailed'")
@@ -362,6 +382,15 @@ def format_card(
     if ex_text:
         lines.append(f"\n*مثال‌ها:*\n{ex_text}")
 
+    if translations_prepared:
+        translations = (data.get("example_translations") or [])[:2]
+        translation_lines = "\n".join(
+            f"• {escape_mdv2(example)} — ||{escape_mdv2(translation)}||"
+            for example, translation in zip(examples, translations)
+        )
+        if translation_lines:
+            lines.append(f"\n📝 *ترجمه‌ی مثال‌ها:*\n{translation_lines}")
+
     if grammar_tip:
         lines.append(f"\n✍️ *نکته‌ی گرامری:*\n{grammar_tip}")
 
@@ -369,6 +398,62 @@ def format_card(
         lines.append(f"\n{escape_mdv2(footer)}")
 
     return "\n".join(lines)
+
+
+class CardPreparationError(RuntimeError):
+    pass
+
+
+def _prepare_cached_card(
+    card: object,
+    *,
+    lang: str,
+    user_id: int,
+    plan: str,
+    source: str,
+    persist_patch,
+) -> dict:
+    try:
+        return ai.validate_card(card)
+    except ai.CardValidationError as validation_error:
+        fields = ai.card_repair_fields(card)
+        if not fields:
+            raise CardPreparationError(
+                f"{source} card has no repairable fields"
+            ) from validation_error
+        try:
+            patch = _call_ai_limited(
+                ai.repair_card,
+                card,
+                fields,
+                lang,
+                user_id=user_id,
+                plan=plan,
+            )
+            merged = dict(card) if isinstance(card, dict) else {}
+            merged.update(patch)
+            repaired = ai.validate_card(merged)
+            if not persist_patch(patch):
+                raise CardPreparationError(
+                    f"{source} card repair could not be persisted"
+                )
+            log.info(
+                "cached card repaired source=%s user_id=%s fields=%s",
+                source,
+                user_id,
+                fields,
+            )
+            return repaired
+        except Exception as repair_error:
+            log.exception(
+                "cached card repair failed source=%s user_id=%s fields=%s",
+                source,
+                user_id,
+                fields,
+            )
+            raise CardPreparationError(
+                f"{source} card could not be repaired safely"
+            ) from repair_error
 
 
 # ---------------- /start و onboarding ----------------
@@ -719,7 +804,6 @@ def _ensure_next_daily_card(user_id: int, row, card_date: str, limit: int) -> tu
         cards = db.get_daily_cards(user_id, card_date)
 
     card = cards[next_index]
-    db.set_daily_progress(user_id, card_date, next_index + 1)
     return card, next_index
 
 
@@ -739,6 +823,22 @@ async def _send_next_daily_card(
             card_date,
             limit,
         )
+        if card is not None:
+            card = await asyncio.to_thread(
+                _prepare_cached_card,
+                card,
+                lang=row["target_lang"],
+                user_id=user_id,
+                plan=row["plan"] or "free",
+                source="daily",
+                persist_patch=lambda patch: db.update_daily_card_fields(
+                    user_id,
+                    card_date,
+                    card_index,
+                    patch,
+                ),
+            )
+            db.set_daily_progress(user_id, card_date, card_index + 1)
 
     if card is None:
         await context.bot.send_message(
@@ -762,6 +862,7 @@ async def _send_next_daily_card(
             card_date,
             card_index,
             card_index + 1 < limit,
+            show_translations=True,
         ),
     )
 
@@ -983,6 +1084,227 @@ async def _handle_srs_review(update: Update, action: str, target_user_id_text: s
         log.info("srs review deferred user_id=%s word_id=%s", user_id, word_id)
         return
     await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+
+
+def _message_has_prepared_translations(update: Update) -> bool:
+    message = update.callback_query.message
+    return bool(message and "ترجمه‌ی مثال‌ها" in (message.text or ""))
+
+
+async def _handle_daily_prepare(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    data: str,
+    *,
+    review_mode: bool,
+):
+    parts = data.split(":")
+    if len(parts) != 5:
+        await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+        return
+    try:
+        target_user_id = int(parts[2])
+        card_index = int(parts[4])
+    except ValueError:
+        await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+        return
+    user_id = update.effective_user.id
+    if user_id != target_user_id:
+        await update.callback_query.answer("این کارت برای کاربر دیگری است.", show_alert=True)
+        return
+    if _message_has_prepared_translations(update):
+        await update.callback_query.answer("ترجمه‌ها آماده شده‌اند.")
+        return
+    row = db.get_user(user_id)
+    if not row or not row["onboarded"]:
+        await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
+        return
+    card_date = parts[3]
+    cards = db.get_daily_cards(user_id, card_date)
+    if card_index < 0 or card_index >= len(cards):
+        await update.callback_query.answer("این کارت دیگر در دسترس نیست.", show_alert=True)
+        return
+    session = db.get_daily_card_session(user_id, card_date)
+    try:
+        card = await asyncio.to_thread(
+            _prepare_cached_card,
+            cards[card_index],
+            lang=(session["target_lang"] if session else row["target_lang"]),
+            user_id=user_id,
+            plan=row["plan"] or "free",
+            source="daily_review" if review_mode else "daily",
+            persist_patch=lambda patch: db.update_daily_card_fields(
+                user_id,
+                card_date,
+                card_index,
+                patch,
+            ),
+        )
+    except CardPreparationError:
+        await update.callback_query.answer(
+            "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.",
+            show_alert=True,
+        )
+        return
+    footer = f"📖 کارت {card_index + 1} از {len(cards)} برای {card_date}"
+    if review_mode:
+        footer = f"📚 مرور کارت {card_index + 1} از {len(cards)} برای {card_date}"
+    markup = daily_card_keyboard(
+        user_id,
+        card_date,
+        card_index,
+        card_index + 1 < len(cards),
+        callback_prefix="review:next" if review_mode else "daily:next",
+        show_translations=False,
+    )
+    try:
+        await update.callback_query.edit_message_text(
+            format_card(card, footer=footer, translations_prepared=True),
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=markup,
+        )
+    except BadRequest as exc:
+        if "not modified" in str(exc).casefold():
+            await update.callback_query.answer("ترجمه‌ها قبلاً آماده شده‌اند.")
+        else:
+            log.exception("failed to edit prepared daily card")
+            await update.callback_query.answer(
+                "نمایش ترجمه‌ها انجام نشد؛ لطفاً دوباره امتحان کنید.",
+                show_alert=True,
+            )
+        return
+    await update.callback_query.answer("ترجمه‌ها آماده شدند.")
+
+
+async def _handle_query_prepare(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    token: str,
+):
+    user_id = update.effective_user.id
+    if _message_has_prepared_translations(update):
+        await update.callback_query.answer("ترجمه‌ها آماده شده‌اند.")
+        return
+    row = db.get_query_result(token, user_id=user_id)
+    if not row:
+        await update.callback_query.answer("این نتیجه منقضی شده یا در دسترس نیست.", show_alert=True)
+        return
+    try:
+        card = json.loads(row["result_json"])
+    except (TypeError, json.JSONDecodeError):
+        card = None
+    user_row = db.get_user(user_id)
+    if not user_row:
+        await update.callback_query.answer("کاربر پیدا نشد.", show_alert=True)
+        return
+    try:
+        card = await asyncio.to_thread(
+            _prepare_cached_card,
+            card,
+            lang=row["lang"],
+            user_id=user_id,
+            plan=user_row["plan"] or "free",
+            source="custom_word",
+            persist_patch=lambda patch: db.update_query_result_fields(
+                token,
+                user_id,
+                patch,
+            ),
+        )
+    except CardPreparationError:
+        await update.callback_query.answer(
+            "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.",
+            show_alert=True,
+        )
+        return
+    footer = (
+        f"{_word_query_usage_text(user_row)}\n\n"
+        "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
+    )
+    try:
+        await update.callback_query.edit_message_text(
+            format_card(card, footer=footer, translations_prepared=True),
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=query_result_keyboard(row["token"], row["lang"], show_translations=False),
+        )
+    except BadRequest as exc:
+        if "not modified" in str(exc).casefold():
+            await update.callback_query.answer("ترجمه‌ها قبلاً آماده شده‌اند.")
+        else:
+            log.exception("failed to edit prepared query card")
+            await update.callback_query.answer(
+                "نمایش ترجمه‌ها انجام نشد؛ لطفاً دوباره امتحان کنید.",
+                show_alert=True,
+            )
+        return
+    await update.callback_query.answer("ترجمه‌ها آماده شدند.")
+
+
+async def _handle_srs_prepare(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    target_user_id_text: str,
+    word_id_text: str,
+):
+    try:
+        target_user_id = int(target_user_id_text)
+        word_id = int(word_id_text)
+    except ValueError:
+        await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+        return
+    user_id = update.effective_user.id
+    if user_id != target_user_id:
+        await update.callback_query.answer("این مرور برای کاربر دیگری است.", show_alert=True)
+        return
+    if _message_has_prepared_translations(update):
+        await update.callback_query.answer("ترجمه‌ها آماده شده‌اند.")
+        return
+    row = db.get_saved_word(word_id, user_id=user_id)
+    if not row:
+        await update.callback_query.answer("این واژه در مرور شما پیدا نشد.", show_alert=True)
+        return
+    user_row = db.get_user(user_id)
+    try:
+        card = await asyncio.to_thread(
+            _prepare_cached_card,
+            _saved_word_card(row),
+            lang=row["lang"],
+            user_id=user_id,
+            plan=(user_row["plan"] if user_row else "free") or "free",
+            source="srs",
+            persist_patch=lambda patch: db.update_saved_word_fields(
+                word_id,
+                user_id,
+                patch,
+            ),
+        )
+    except CardPreparationError:
+        await update.callback_query.answer(
+            "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.",
+            show_alert=True,
+        )
+        return
+    footer = (
+        "⏰ مرور فاصله‌دار: اول معنی، مثال و نکته را از حفظ "
+        "یادآوری کن؛ بعد نتیجه را با دکمه‌ها ثبت کن."
+    )
+    try:
+        await update.callback_query.edit_message_text(
+            format_card(card, footer=footer, translations_prepared=True),
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=srs_review_keyboard(user_id, word_id, show_translations=False),
+        )
+    except BadRequest as exc:
+        if "not modified" in str(exc).casefold():
+            await update.callback_query.answer("ترجمه‌ها قبلاً آماده شده‌اند.")
+        else:
+            log.exception("failed to edit prepared SRS card")
+            await update.callback_query.answer(
+                "نمایش ترجمه‌ها انجام نشد؛ لطفاً دوباره امتحان کنید.",
+                show_alert=True,
+            )
+        return
+    await update.callback_query.answer("ترجمه‌ها آماده شدند.")
 
 
 async def _show_review_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
@@ -1467,6 +1789,23 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await _finish_llm_wait_state(wait_message)
                 await update.message.reply_text("مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.")
                 return
+            try:
+                data = await asyncio.to_thread(
+                    _prepare_cached_card,
+                    data,
+                    lang=row["target_lang"],
+                    user_id=user_id,
+                    plan=row["plan"] or "free",
+                    source="custom_word",
+                    persist_patch=lambda patch: True,
+                )
+            except CardPreparationError:
+                db.release_word_query(user_id)
+                await _finish_llm_wait_state(wait_message)
+                await update.message.reply_text(
+                    "این کارت نتونست با اطمینان آماده بشه؛ لطفاً بعداً دوباره امتحان کن."
+                )
+                return
             row_after = db.get_user(user_id)
             usage_row = row_after or row
             usage_text = _word_query_usage_text(usage_row) if usage_row else f"📊 استفاده امروز: 1/{limit}"
@@ -1489,7 +1828,11 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     ),
                 ),
                 parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=query_result_keyboard(query_token, row["target_lang"] if row else "en"),
+                reply_markup=query_result_keyboard(
+                    query_token,
+                    row["target_lang"] if row else "en",
+                    show_translations=True,
+                ),
             )
             return
 
@@ -1626,7 +1969,16 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = update.callback_query.data
-    if not data.startswith(("query:add:", "flow:", "srs:")):
+    if not data.startswith(
+        (
+            "query:add:",
+            "query:prepare:",
+            "daily:prepare:",
+            "review:prepare:",
+            "flow:",
+            "srs:",
+        )
+    ):
         await update.callback_query.answer()
 
     if data in {"flow:cancel", "flow:back"}:
@@ -1666,6 +2018,12 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await on_level_changed(update, context, level)
         else:
             await on_level_selected(update, context, level)
+    elif data.startswith("daily:prepare:"):
+        await _handle_daily_prepare(update, context, data, review_mode=False)
+    elif data.startswith("review:prepare:"):
+        await _handle_daily_prepare(update, context, data, review_mode=True)
+    elif data.startswith("query:prepare:"):
+        await _handle_query_prepare(update, context, data.split(":", 2)[2])
     elif data.startswith("daily:next:"):
         parts = data.split(":")
         if len(parts) != 5:
@@ -1750,14 +2108,20 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.answer("کارت دیگری برای این روز وجود ندارد.", show_alert=True)
             return
         await update.callback_query.answer()
-        await _send_card_from_store(
-            context,
-            update.effective_chat.id,
-            user_id,
-            card_date,
-            current_index + 1,
-            review_mode=True,
-        )
+        try:
+            await _send_card_from_store(
+                context,
+                update.effective_chat.id,
+                user_id,
+                card_date,
+                current_index + 1,
+                review_mode=True,
+            )
+        except CardPreparationError:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="این کارت فعلاً با اطمینان آماده نشد؛ لطفاً بعداً دوباره امتحان کنید.",
+            )
     elif data == "review:noop":
         await update.callback_query.answer("هنوز کارتی برای مرور ندارید.", show_alert=True)
     elif data.startswith("query:add:"):
@@ -1865,6 +2229,12 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _show_llm_cost_dashboard(update, context)
         else:
             await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+    elif data.startswith("srs:prepare:"):
+        parts = data.split(":")
+        if len(parts) != 4:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        await _handle_srs_prepare(update, context, parts[2], parts[3])
     elif data.startswith("srs:"):
         parts = data.split(":")
         if len(parts) != 4:
@@ -1964,6 +2334,22 @@ async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str
             )
             streak = row["streak"] or 0
             for offset, card in enumerate(cards[claimed["sent_count"] :], start=claimed["sent_count"]):
+                card = await asyncio.to_thread(
+                    _prepare_cached_card,
+                    card,
+                    lang=row["target_lang"],
+                    user_id=user_id,
+                    plan=row["plan"] or "free",
+                    source="scheduled_daily",
+                    persist_patch=lambda patch, card_index=claimed["card_start_index"] + offset: (
+                        db.update_daily_card_fields(
+                            user_id,
+                            claimed["delivery_date"],
+                            card_index,
+                            patch,
+                        )
+                    ),
+                )
                 await _send_with_retry(
                     context.bot,
                     user_id,
@@ -1976,12 +2362,29 @@ async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str
                         ),
                     ),
                     parse_mode=ParseMode.MARKDOWN_V2,
+                    reply_markup=daily_card_keyboard(
+                        user_id,
+                        claimed["delivery_date"],
+                        claimed["card_start_index"] + offset,
+                        False,
+                        show_translations=True,
+                    ),
                 )
                 db.advance_delivery_progress(claimed["id"], offset + 1)
                 if offset + 1 < len(cards):
                     await asyncio.sleep(SESSION_CARD_DELAY_SECONDS)
             db.mark_delivery_sent(claimed["id"])
         except Exception as exc:
+            if isinstance(exc, CardPreparationError):
+                try:
+                    await _send_with_retry(
+                        context.bot,
+                        user_id,
+                        "یکی از کارت‌ها نتونست با اطمینان آماده بشه؛ لطفاً بعداً دوباره امتحان کن.",
+                        parse_mode=ParseMode.MARKDOWN_V2,
+                    )
+                except Exception:
+                    log.exception("failed to report card preparation error to user %s", user_id)
             attempts = claimed["attempts"]
             if attempts >= DELIVERY_MAX_ATTEMPTS:
                 db.mark_delivery_failed(
@@ -2038,21 +2441,48 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
             if not due:
                 continue
             for word in due:
+                card = await asyncio.to_thread(
+                    _prepare_cached_card,
+                    _saved_word_card(word),
+                    lang=word["lang"],
+                    user_id=user_id,
+                    plan=row["plan"] or "free",
+                    source="srs",
+                    persist_patch=lambda patch, word_id=word["id"]: db.update_saved_word_fields(
+                        word_id,
+                        user_id,
+                        patch,
+                    ),
+                )
                 await _send_with_retry(
                     context.bot,
                     user_id,
                     format_card(
-                        _saved_word_card(word),
+                        card,
                         footer=(
                             "⏰ مرور فاصله‌دار: اول معنی، مثال و نکته را از حفظ "
                             "یادآوری کن؛ بعد نتیجه را با دکمه‌ها ثبت کن."
                         ),
                     ),
                     parse_mode=ParseMode.MARKDOWN_V2,
-                    reply_markup=srs_review_keyboard(user_id, word["id"]),
+                    reply_markup=srs_review_keyboard(
+                        user_id,
+                        word["id"],
+                        show_translations=True,
+                    ),
                 )
                 db.mark_word_review_pending(word["id"])
                 log.info("srs review reminder sent user_id=%s word_id=%s", user_id, word["id"])
+        except CardPreparationError:
+            try:
+                await _send_with_retry(
+                    context.bot,
+                    user_id,
+                    "یکی از کارت‌های مرور نتونست با اطمینان آماده بشه؛ لطفاً بعداً دوباره امتحان کن.",
+                )
+            except Exception:
+                log.exception("failed to report SRS card preparation error for %s", user_id)
+            log.exception("SRS card preparation failed for user %s", user_id)
         except Exception:
             log.exception(f"srs_job failed for user {user_id}")
 

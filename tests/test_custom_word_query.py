@@ -73,6 +73,23 @@ class CustomWordQueryTests(unittest.TestCase):
         self.assertEqual(callbacks, ["srs:remember:123:456", "srs:again:123:456"])
         self.assertTrue(all(len(callback) < 64 for callback in callbacks))
 
+    def test_translation_prepare_controls_are_scoped(self):
+        daily = daily_card_keyboard(123, "2026-07-12", 2, False, show_translations=True)
+        self.assertEqual(
+            daily.inline_keyboard[0][0].callback_data,
+            "daily:prepare:123:2026-07-12:2",
+        )
+        query = query_result_keyboard("a" * 32, show_translations=True)
+        self.assertEqual(
+            query.inline_keyboard[0][1].callback_data,
+            f"query:prepare:{'a' * 32}",
+        )
+        srs = srs_review_keyboard(123, 456, show_translations=True)
+        self.assertEqual(
+            srs.inline_keyboard[0][0].callback_data,
+            "srs:prepare:123:456",
+        )
+
     def test_main_menu_no_longer_shows_manual_save_action(self):
         markup = main_menu(False)
         labels = [button.text for row in markup.keyboard for button in row]
@@ -177,6 +194,21 @@ class CustomWordQueryTests(unittest.TestCase):
         self.assertNotIn("Example one", brief)
         self.assertNotIn("greetings", brief)
         self.assertNotIn("یک نکته", brief)
+
+    def test_translation_spoilers_pair_examples_without_leaking_translations(self):
+        text = format_card(
+            {
+                "word": "hello",
+                "fa_meaning": "سلام",
+                "fa_explanation": "توضیح",
+                "examples": ["Hello!.", "Hi!."],
+                "example_translations": ["سلام اول.", "سلام دوم."],
+            },
+            translations_prepared=True,
+        )
+        self.assertIn("||", text)
+        self.assertIn("Hello", text)
+        self.assertIn("سلام اول", text)
 
     def test_format_card_rejects_unknown_presentation(self):
         with self.assertRaises(ValueError):

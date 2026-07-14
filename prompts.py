@@ -5,6 +5,8 @@
 هر زبان باید علاوه بر نام نمایشی، راهنمای گرامری و آموزشی مخصوص خودش را داشته باشد.
 """
 
+import json
+
 from catalog import (
     example_language_label,
     goal_hint,
@@ -57,6 +59,29 @@ def _card_schema(lang_fa: str, example_lang: str, *, compact: bool) -> str:
 }}
 دقیقاً دو مثال و دو ترجمه متناظر بده. اگر مترادف یا متضاد معنادار وجود داشت،
 حداقل دو مورد متفاوت بده وگرنه آن فهرست را خالی بگذار."""
+
+
+def card_repair_system_prompt(
+    lang: str,
+    card: object,
+    fields: list[str],
+) -> str:
+    requested_fields = ", ".join(fields)
+    card_json = json.dumps(card, ensure_ascii=False, separators=(",", ":"))
+    return f"""تو یک ترمیم‌کننده‌ی دقیق کارت واژه برای زبان {language_label(lang)} هستی.
+کارت موجود زیر ممکن است فقط در بعضی فیلدها ناقص یا نامعتبر باشد:
+{card_json}
+
+فقط فیلدهای زیر را تعمیر کن: {requested_fields}
+خروجی باید دقیقاً یک شیء JSON خام باشد که دقیقاً همین کلیدها را داشته باشد؛
+هیچ کلید اضافه‌ای، کارت کامل، توضیح، یا مقدار تکراری برنگردان.
+فیلدهای سالم کارت را تغییر نده.
+اگر examples یا example_translations در فهرست درخواست هستند، دقیقاً دو مثال
+و دو ترجمه‌ی متناظر برگردان.
+اگر synonyms یا antonyms در فهرست درخواست هستند، فهرست را خالی بگذار یا
+حداقل دو مورد متفاوت و غیرخالی بده.
+محتوای مثال‌ها به زبان هدف و ترجمه‌ها به فارسی باشد.
+فقط JSON خام برگردان."""
 
 
 def daily_card_system_prompt(
