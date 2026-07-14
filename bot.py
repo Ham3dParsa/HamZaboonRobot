@@ -401,7 +401,8 @@ def format_card(
     lines.append(f"🔴 *متضاد:* {ant}")
 
     if examples:
-        lines.append(f"\n📝 *{'مثال‌ها + ترجمه' if translations_prepared else 'مثال‌ها'}:*")
+        example_label = escape_mdv2("مثال‌ها + ترجمه" if translations_prepared else "مثال‌ها")
+        lines.append(f"\n📝 *{example_label}:*")
         for index, example in enumerate(examples):
             lines.append(f"_• {escape_mdv2(example)}_")
             if translations_prepared and index < len(translations):
