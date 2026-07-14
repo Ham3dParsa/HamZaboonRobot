@@ -193,7 +193,8 @@
                 "Translation reveal",
                 "Content-richness restoration",
                 "Premium presentation controls",
-                "Rendering regression contracts"
+                "Rendering regression contracts",
+                "Local project-status editor"
             ],
             "acceptance_criteria": [
                 "Callbacks are user-scoped and restart-safe",
@@ -211,7 +212,8 @@
                 53,
                 54,
                 55,
-                56
+                56,
+                58
             ],
             "roadmap_anchor": "phase-4-interactive-card-ux"
         },
@@ -256,7 +258,8 @@
             ],
             "todo": [
                 "Resolve issues 42-47, 49, and 50",
-                "Add focused reliability and progress tests"
+                "Add focused reliability and progress tests",
+                "Plan staged handler and formatting module boundaries"
             ],
             "acceptance_criteria": [
                 "Restart does not resend completed work",
@@ -274,7 +277,8 @@
                 46,
                 47,
                 49,
-                50
+                50,
+                57
             ],
             "roadmap_anchor": "phase-6-reliable-delivery-concurrency-and-data-lifecycle"
         },
@@ -788,8 +792,8 @@
         "solution": "Provide a reviewable JSON patch workflow that validates the complete resulting model, previews the diff, updates canonical issue and project-status records, and regenerates only marked views while preserving human-written roadmap narrative.",
         "priority": "medium",
         "note": "This is project-governance tooling only; it must not alter Telegram runtime behavior, AI generation, quotas, or database state.",
-        "resolved": false,
-        "status": "open",
+        "resolved": true,
+        "status": "resolved",
         "detailOpen": false,
         "editing": false,
         "id": 56,
@@ -800,10 +804,64 @@
         "decision_refs": [
             "decision-issue-registry"
         ],
-        "evidence": "The status editor validates and previews issue, phase, and decision changes, while validate.py synchronizes the dashboard and marked generated roadmap section.",
+        "evidence": "PR #53 delivered status_editor.py preview/apply commands, full-model validation, and validate.py synchronization for the dashboard and marked generated roadmap section.",
         "last_reviewed": "2026-07-14",
         "depends_on": [
             27
+        ]
+    },
+    {
+        "title": "bot.py needs staged handler and presentation boundaries for maintainability",
+        "category": "tech-debt",
+        "module": "bot.py / keyboards.py / future admin.py / future user.py / future formatting.py",
+        "func": "handler registration, role-specific commands, callbacks, message formatting",
+        "problem": "bot.py currently contains more than 2,000 lines spanning user onboarding, daily delivery, SRS, custom-word queries, admin controls, callbacks, jobs, retry orchestration, MarkdownV2 escaping, and card rendering. As new features land, this increases the risk of accidental cross-flow changes and makes a future Telegram parse-mode migration unnecessarily broad.",
+        "solution": "Plan a staged extraction: preserve handler and callback contracts while moving admin-only handlers to admin.py, user-facing command/state handlers to user.py, and formatting/escaping/rendering to formatting.py. Keep domain operations in existing services, avoid circular imports, add import-level and behavior regression tests, and migrate one boundary at a time rather than splitting files mechanically.",
+        "priority": "medium",
+        "note": "This is an architectural risk, not permission to refactor immediately. The module boundaries and extraction order require explicit agreement before runtime changes.",
+        "resolved": false,
+        "status": "open",
+        "detailOpen": false,
+        "editing": false,
+        "id": 57,
+        "phase": "phase-6",
+        "roadmap_refs": [
+            "reliability-and-data-lifecycle",
+            "issue-tooling"
+        ],
+        "decision_refs": [
+            "decision-issue-registry"
+        ],
+        "evidence": "bot.py is 2,084 lines; admin handlers start at open_admin_panel/admin_callback, user flows include cmd_start/text_router/callback_router, and formatting/MarkdownV2 helpers include escape_mdv2, escape_mdv2_code, and format_card.",
+        "last_reviewed": "2026-07-14",
+        "depends_on": []
+    },
+    {
+        "title": "project status needs an optional local web editor over the validated patch workflow",
+        "category": "feature",
+        "module": "issues/project_status.html / issues/status_editor.py / future local API",
+        "func": "human-friendly issue and phase editing",
+        "problem": "The current dashboard is read-only and the safe editor is command-line based, so a project owner must prepare and run a JSON patch manually instead of editing status cards through a controlled local web interface.",
+        "solution": "Add a local-only, authenticated editor backed by the existing validation boundary: load canonical state, edit issue/phase/decision fields, preview a diff, require explicit confirmation, write canonical JSON atomically, and regenerate marked views. The server must never accept arbitrary Markdown writes, browser-local state, or unauthenticated remote edits.",
+        "priority": "medium",
+        "note": "This is the next UX layer over issue 56, not a replacement for canonical JSON or validation. The local-server technology and authentication boundary must be agreed before implementation.",
+        "resolved": false,
+        "status": "open",
+        "detailOpen": false,
+        "editing": false,
+        "id": 58,
+        "phase": "phase-4",
+        "roadmap_refs": [
+            "issue-tooling",
+            "interactive-card-ux"
+        ],
+        "decision_refs": [
+            "decision-issue-registry"
+        ],
+        "evidence": "issues/project_status.html is read-only and issues/status_editor.py currently requires a reviewable changes.json file; no Python HTTP server or authenticated write endpoint exists in the repository.",
+        "last_reviewed": "2026-07-14",
+        "depends_on": [
+            56
         ]
     }
 ];

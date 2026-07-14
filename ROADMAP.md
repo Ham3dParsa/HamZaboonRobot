@@ -135,12 +135,13 @@ separate concepts and must not be conflated.
 - Content-richness restoration
 - Premium presentation controls
 - Rendering regression contracts
+- Local project-status editor
 
 **Acceptance criteria**
 - Callbacks are user-scoped and restart-safe
 - Rendering does not change AI, quota, SRS, pool, or stored-card state
 
-**Linked issues:** #7, #27, #51, #52, #53, #54, #55, #56
+**Linked issues:** #7, #27, #51, #52, #53, #54, #55, #56, #58
 
 ### phase-5: Custom-Word Queries and Spaced-Repetition Capture
 
@@ -182,12 +183,13 @@ separate concepts and must not be conflated.
 **To-do**
 - Resolve issues 42-47, 49, and 50
 - Add focused reliability and progress tests
+- Plan staged handler and formatting module boundaries
 
 **Acceptance criteria**
 - Restart does not resend completed work
 - One user's failure does not stop other users
 
-**Linked issues:** #42, #43, #44, #45, #46, #47, #49, #50
+**Linked issues:** #42, #43, #44, #45, #46, #47, #49, #50, #57
 
 ### phase-7: Premium Smart Placement Test
 

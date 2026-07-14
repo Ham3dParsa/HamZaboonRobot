@@ -118,7 +118,8 @@
         "Translation reveal",
         "Content-richness restoration",
         "Premium presentation controls",
-        "Rendering regression contracts"
+        "Rendering regression contracts",
+        "Local project-status editor"
       ],
       "acceptance_criteria": [
         "Callbacks are user-scoped and restart-safe",
@@ -136,7 +137,8 @@
         53,
         54,
         55,
-        56
+        56,
+        58
       ],
       "roadmap_anchor": "phase-4-interactive-card-ux"
     },
@@ -181,7 +183,8 @@
       ],
       "todo": [
         "Resolve issues 42-47, 49, and 50",
-        "Add focused reliability and progress tests"
+        "Add focused reliability and progress tests",
+        "Plan staged handler and formatting module boundaries"
       ],
       "acceptance_criteria": [
         "Restart does not resend completed work",
@@ -199,7 +202,8 @@
         46,
         47,
         49,
-        50
+        50,
+        57
       ],
       "roadmap_anchor": "phase-6-reliable-delivery-concurrency-and-data-lifecycle"
     },

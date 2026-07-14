@@ -400,11 +400,11 @@ The roadmap statement is currently aspirational rather than implemented; this is
 - Module: issues/status_editor.py / issues/validate.py / ROADMAP.md
 - Function: project status editing and generated-view synchronization
 - Priority: medium
-- Status: Open
+- Status: Resolved
 - Category: feature
 - Phase: phase-4
 - Roadmap refs: issue-tooling
-- Evidence: The status editor validates and previews issue, phase, and decision changes, while validate.py synchronizes the dashboard and marked generated roadmap section.
+- Evidence: PR #53 delivered status_editor.py preview/apply commands, full-model validation, and validate.py synchronization for the dashboard and marked generated roadmap section.
 
 ## Problem
 Editing issue records, phase status, and roadmap summaries manually can leave the dashboard or generated roadmap section stale or inconsistent.
@@ -414,3 +414,49 @@ Provide a reviewable JSON patch workflow that validates the complete resulting m
 
 ## Note
 This is project-governance tooling only; it must not alter Telegram runtime behavior, AI generation, quotas, or database state.
+
+---
+
+# bot.py needs staged handler and presentation boundaries for maintainability
+
+- ID: 57
+- Module: bot.py / keyboards.py / future admin.py / future user.py / future formatting.py
+- Function: handler registration, role-specific commands, callbacks, message formatting
+- Priority: medium
+- Status: Open
+- Category: tech-debt
+- Phase: phase-6
+- Roadmap refs: reliability-and-data-lifecycle, issue-tooling
+- Evidence: bot.py is 2,084 lines; admin handlers start at open_admin_panel/admin_callback, user flows include cmd_start/text_router/callback_router, and formatting/MarkdownV2 helpers include escape_mdv2, escape_mdv2_code, and format_card.
+
+## Problem
+bot.py currently contains more than 2,000 lines spanning user onboarding, daily delivery, SRS, custom-word queries, admin controls, callbacks, jobs, retry orchestration, MarkdownV2 escaping, and card rendering. As new features land, this increases the risk of accidental cross-flow changes and makes a future Telegram parse-mode migration unnecessarily broad.
+
+## Solution
+Plan a staged extraction: preserve handler and callback contracts while moving admin-only handlers to admin.py, user-facing command/state handlers to user.py, and formatting/escaping/rendering to formatting.py. Keep domain operations in existing services, avoid circular imports, add import-level and behavior regression tests, and migrate one boundary at a time rather than splitting files mechanically.
+
+## Note
+This is an architectural risk, not permission to refactor immediately. The module boundaries and extraction order require explicit agreement before runtime changes.
+
+---
+
+# project status needs an optional local web editor over the validated patch workflow
+
+- ID: 58
+- Module: issues/project_status.html / issues/status_editor.py / future local API
+- Function: human-friendly issue and phase editing
+- Priority: medium
+- Status: Open
+- Category: feature
+- Phase: phase-4
+- Roadmap refs: issue-tooling, interactive-card-ux
+- Evidence: issues/project_status.html is read-only and issues/status_editor.py currently requires a reviewable changes.json file; no Python HTTP server or authenticated write endpoint exists in the repository.
+
+## Problem
+The current dashboard is read-only and the safe editor is command-line based, so a project owner must prepare and run a JSON patch manually instead of editing status cards through a controlled local web interface.
+
+## Solution
+Add a local-only, authenticated editor backed by the existing validation boundary: load canonical state, edit issue/phase/decision fields, preview a diff, require explicit confirmation, write canonical JSON atomically, and regenerate marked views. The server must never accept arbitrary Markdown writes, browser-local state, or unauthenticated remote edits.
+
+## Note
+This is the next UX layer over issue 56, not a replacement for canonical JSON or validation. The local-server technology and authentication boundary must be agreed before implementation.

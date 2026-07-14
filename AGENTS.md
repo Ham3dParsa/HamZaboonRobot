@@ -89,6 +89,28 @@ Use these statuses consistently:
 Never mark an issue resolved based only on intention, a roadmap statement, or
 an unverified code edit.
 
+### Logic-lock and bilateral-approval rule
+
+The agent must not invent missing algorithmic behavior, silently widen scope,
+or lock a product/architecture decision to close an inferred gap. Before
+changing learner-facing behavior, persistence semantics, quotas, scheduling,
+callbacks, AI contracts, or module boundaries, the agent must:
+
+1. State the observed invariant and the exact uncertainty.
+2. Separate the smallest requested fix from optional cleanup or redesign.
+3. Present assumptions, alternatives, side effects, and regression risks.
+4. Ask the project owner for focused guidance when the intended behavior is
+   not explicit.
+5. Record the agreed rule as a proposed or locked decision before relying on
+   it in implementation.
+
+After implementation, the agent must report what changed, what was
+deliberately not changed, and what remains uncertain. Debugging must target
+the demonstrated root cause; opportunistic “extra fixes” or speculative
+hardening are out of scope unless explicitly approved. If a safe workaround
+exists, document it rather than silently converting it into a permanent
+product rule.
+
 ## 3. Repository Architecture
 
 Keep responsibilities aligned with the current module boundaries:
@@ -107,6 +129,11 @@ Keep responsibilities aligned with the current module boundaries:
 - `config.py`: environment and deployment settings only; it must not become a
   second learner-option registry.
 - `issues/validate.py`: issue registry validation and optional exports.
+- `admin.py` and `user.py` (when introduced): role-specific Telegram handlers
+  only; shared domain behavior remains in focused services.
+- `formatting.py` (when introduced): learner-facing message formatting and
+  escaping behind a stable interface, so a future Telegram parse-mode change
+  does not require rewriting handlers or domain logic.
 
 Prefer extending an existing module and convention over introducing a new
 abstraction. Keep runtime behavior separate from issue-review tooling.
