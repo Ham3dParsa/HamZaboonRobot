@@ -9,6 +9,7 @@ BTN_GRAMMAR = "✍️ نکته‌ی گرامری"
 BTN_CHANGE_LANG = "🌐 تغییر زبان"
 BTN_CHANGE_GOAL = "🎯 تغییر هدف"
 BTN_CHANGE_LEVEL = "📚 تنظیم سطح زبان"
+BTN_CHANGE_PRESENTATION = "📝 تنظیم نمایش کارت"
 BTN_ADMIN = "🛠 مدیریت ربات"
 BTN_CANCEL = "❌ لغو"
 BTN_BACK = "↩️ بازگشت"
@@ -21,6 +22,7 @@ def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
         [BTN_ASK_WORD],
         [BTN_STATUS, BTN_CHANGE_LEVEL],
         [BTN_CHANGE_LANG, BTN_CHANGE_GOAL],
+        [BTN_CHANGE_PRESENTATION],
     ]
     if is_owner:
         rows.append([BTN_ADMIN])
@@ -54,6 +56,25 @@ def level_inline_keyboard() -> InlineKeyboardMarkup:
         for option in LEVELS.values()
     ]
     return InlineKeyboardMarkup(buttons)
+
+
+def presentation_settings_keyboard(
+    current: str,
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    f"{'✅ ' if current == 'brief' else ''}خلاصه",
+                    callback_data="presentation:set:brief",
+                ),
+                InlineKeyboardButton(
+                    f"{'✅ ' if current == 'detailed' else ''}کامل",
+                    callback_data="presentation:set:detailed",
+                ),
+            ]
+        ]
+    )
 
 
 def daily_card_keyboard(

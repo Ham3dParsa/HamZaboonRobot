@@ -347,6 +347,45 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertIsNone(row["card_data"])
         self.assertIsNone(row["review_requested_at"])
 
+    def test_user_presentation_preference_migrates_from_legacy_schema(self):
+        os.remove(db.DB_PATH)
+        with sqlite3.connect(db.DB_PATH) as conn:
+            conn.execute(
+                """
+                CREATE TABLE users (
+                    user_id INTEGER PRIMARY KEY,
+                    username TEXT,
+                    target_lang TEXT,
+                    goal TEXT,
+                    level TEXT NOT NULL DEFAULT 'beginner',
+                    plan TEXT DEFAULT 'free',
+                    streak INTEGER DEFAULT 0,
+                    last_active_date TEXT,
+                    words_asked_today INTEGER DEFAULT 0,
+                    words_asked_date TEXT,
+                    grammar_tips_asked_today INTEGER DEFAULT 0,
+                    grammar_tips_asked_date TEXT,
+                    optional_daily_limit INTEGER,
+                    preferred_delivery_minute INTEGER,
+                    active_window_start_minute INTEGER,
+                    active_window_end_minute INTEGER,
+                    onboarded INTEGER DEFAULT 0,
+                    created_at TEXT
+                )
+                """
+            )
+        db.init_db()
+        with db.get_conn() as conn:
+            columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(users)").fetchall()
+            }
+        self.assertIn("presentation_preference", columns)
+        db.create_user_if_needed(1, "learner")
+        db.set_plan(1, "silver")
+        db.set_presentation_preference(1, "brief")
+        self.assertEqual(db.get_user(1)["presentation_preference"], "brief")
+
     def test_recent_daily_words_excludes_current_date(self):
         db.create_user_if_needed(1, "learner")
         db.add_daily_card(1, "2026-07-12", 0, {"word": "today"})
