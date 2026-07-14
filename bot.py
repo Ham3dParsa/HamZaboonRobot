@@ -393,24 +393,19 @@ def format_card(
     ant = "، ".join(ant_list) or "—"
 
     examples = (data.get("examples") or [])[:2]
-    ex_text = "\n".join(f"• {escape_mdv2(e)}" for e in examples) if examples else ""
+    translations = (data.get("example_translations") or [])[:2]
 
     grammar_tip = escape_mdv2(data.get("grammar_tip", ""))
 
     lines.append(f"\n🟢 *مترادف:* {syn}")
     lines.append(f"🔴 *متضاد:* {ant}")
 
-    if ex_text:
-        lines.append(f"\n*مثال‌ها:*\n{ex_text}")
-
-    if translations_prepared:
-        translations = (data.get("example_translations") or [])[:2]
-        translation_lines = "\n".join(
-            f"• {escape_mdv2(example)} — ||{escape_mdv2(translation)}||"
-            for example, translation in zip(examples, translations)
-        )
-        if translation_lines:
-            lines.append(f"\n📝 *ترجمه‌ی مثال‌ها:*\n{translation_lines}")
+    if examples:
+        lines.append(f"\n📝 *{'مثال‌ها + ترجمه' if translations_prepared else 'مثال‌ها'}:*")
+        for index, example in enumerate(examples):
+            lines.append(f"> {escape_mdv2(example)}")
+            if translations_prepared and index < len(translations):
+                lines.append(f"||{escape_mdv2(translations[index])}||")
 
     if grammar_tip:
         lines.append(f"\n✍️ *نکته‌ی گرامری:*\n{grammar_tip}")

@@ -784,7 +784,7 @@
         "decision_refs": [
             "decision-card-detail-default"
         ],
-        "evidence": "bot.py:_prepare_cached_card validates every cached display/resend, performs one minimal repair request when needed, persists repaired fields, and blocks unsafe delivery; bot.py:format_card and callback helpers implement same-message paired spoilers and idempotent stale-callback handling; keyboards.py adds source-scoped Prepare translations callbacks; db.py adds ownership-checked atomic field patches; tests cover minimal repair fields, pairing, persistence, scoped controls, and spoiler rendering.",
+        "evidence": "bot.py:format_card now renders each example as a MarkdownV2 quote block and places the paired translation on the next line inside a spoiler; bot.py:_prepare_cached_card still validates every cached display/resend, performs one minimal repair request when needed, persists repaired fields, and blocks unsafe delivery; callback helpers keep same-message paired spoilers and idempotent stale-callback handling; keyboards.py adds source-scoped Prepare translations callbacks; db.py adds ownership-checked atomic field patches; tests cover quote layout, spoiler pairing, persistence, scoped controls, and rendering safety.",
         "last_reviewed": "2026-07-14",
         "depends_on": []
     },
