@@ -381,7 +381,7 @@ Confirmed regression relative to commit c394115^; do not solve it by switching b
 - Category: feature
 - Phase: phase-4
 - Roadmap refs: interactive-card-ux, data-lifecycle, premium-features
-- Evidence: bot.py:_prepare_cached_card validates every cached display/resend, performs one minimal repair request when needed, persists repaired fields, and blocks unsafe delivery; bot.py:format_card and callback helpers implement same-message paired spoilers and idempotent stale-callback handling; keyboards.py adds source-scoped Prepare translations callbacks; db.py adds ownership-checked atomic field patches; tests cover minimal repair fields, pairing, persistence, scoped controls, and spoiler rendering.
+- Evidence: bot.py:format_card keeps the bullet example prefix and places the paired translation on the next line inside a spoiler while escaping the prepared label for MarkdownV2; bot.py:_prepare_cached_card still validates every cached display/resend, performs one minimal repair request when needed, persists repaired fields, and blocks unsafe delivery; callback helpers keep same-message paired spoilers and idempotent stale-callback handling; keyboards.py adds source-scoped Prepare translations callbacks; db.py adds ownership-checked atomic field patches; tests cover bullet layout, spoiler pairing, persistence, scoped controls, and rendering safety.
 
 ## Problem
 ROADMAP.md says example translations remain hidden until an inline Show translations action is pressed, but the current renderer omits example_translations entirely and the card keyboards expose only Next card, Add to review, and SRS actions. callback_router has no translation-reveal action, so stored translations cannot appear as a spoiler or be added to the current card message.
@@ -575,3 +575,141 @@ Define and implement a bounded replay policy for past delivery dates: select eli
 
 ## Note
 Current behavior is safe from duplicate queue creation but not complete from a learner-delivery perspective.
+
+---
+
+# Phonetic output should expose IPA, Latin, and Persian-script variants
+
+- ID: 64
+- Module: prompts.py / ai.py / bot.py / config.py / db.py / keyboards.py
+- Function: phonetic prompt contract, legacy repair, and owner toggles
+- Priority: medium
+- Status: Resolved
+- Category: feature
+- Phase: phase-4
+- Roadmap refs: phase-4-interactive-card-ux
+- Evidence: prompts._card_schema and card_repair_system_prompt now require the three-line phonetic contract; ai.card_repair_fields marks legacy phonetics for repair; bot.format_card renders the enabled phonetic lines from db.get_phonetic_display_settings(); keyboards.admin_panel_keyboard exposes a phonetic settings submenu.
+
+## Problem
+A single stored phonetic string cannot satisfy users who want IPA, simple Latin syllables, and Persian-script pronunciation forms, and legacy cards keep replaying old single-script values.
+
+## Solution
+Make phonetic output a labeled multiline contract with IPA, Latin, and Persian lines; repair legacy cards when they are prepared for display; and let the owner toggle each representation from env defaults and the admin panel.
+
+## Note
+This stays compatible with AI generation and preserves cached cards by only repatching the phonetic field when it is legacy-formatted.
+
+---
+
+# Owner needs a dedicated add/remove language flow and cleaner admin-panel UX
+
+- ID: 65
+- Module: bot.py / keyboards.py / project_status.json / ROADMAP.md
+- Function: owner language rollout controls and admin navigation
+- Priority: medium
+- Status: Open
+- Category: feature
+- Phase: phase-4
+- Roadmap refs: phase-4-interactive-card-ux, later-product-phases
+- Evidence: The owner panel is still a single inline keyboard in bot.py, and there is no language lifecycle submenu or catalog rollout workflow yet.
+
+## Problem
+The current admin panel is flat and text-heavy, so there is no structured flow for adding, disabling, or removing supported languages during rollout.
+
+## Solution
+Design a dedicated owner workflow for language lifecycle management, keep the canonical catalog as the source of truth, and refactor the admin panel into smaller discovery and action views.
+
+## Note
+Track this as a product/UX phase so future language rollouts can be controlled without ad hoc bot commands.
+
+---
+
+# learner reminders should sound friendly, progress-aware, and action-oriented
+
+- ID: 66
+- Module: bot.py / scheduling.py / db.py
+- Function: daily_job / srs_job / delivery copy
+- Priority: medium
+- Status: Open
+- Category: feature
+- Phase: phase-6
+- Roadmap refs: adaptive-srs-core
+- Evidence: Current delivery copy is mostly status-oriented and does not yet have a dedicated progress-aware reminder template or CTA layer.
+
+## Problem
+Scheduled reminders are functionally correct but sound like plain notifications instead of a learning coach that references progress, streak, and the learner's current workload.
+
+## Solution
+Use templated reminder copy that stays separate from cadence logic but can reference today's remaining cards, due reviews, streak status, and a short question such as whether the learner has time right now.
+
+## Note
+Core UX for all users; no new reward model is implied.
+
+---
+
+# review cards need a dedicated review center with same-message prev/next and translation controls
+
+- ID: 67
+- Module: bot.py / keyboards.py / ROADMAP.md
+- Function: review menu / card navigation / translation reveal
+- Priority: medium
+- Status: Open
+- Category: feature
+- Phase: phase-4
+- Roadmap refs: phase-4-interactive-card-ux
+- Evidence: The code already has review-related keyboards and prepare-translation flows, but there is no dedicated review hub in the main menu and some edits still fall back to sending a new message when Telegram refuses an edit.
+
+## Problem
+Review entry points are still buried inside today's card flow, and the current inline controls are not exposed as a dedicated review surface that keeps navigation and translation reveal on the same message.
+
+## Solution
+Add a top-level review hub that can open today's due cards and prior review dates, then keep previous, next, and translation actions as same-message edits instead of sending replacement messages whenever possible.
+
+## Note
+Core UX for all users; the review hub is not a premium upsell.
+
+---
+
+# goal-specific advanced options should be language-aware and premium-gated
+
+- ID: 68
+- Module: catalog.py / keyboards.py / prompts.py / bot.py
+- Function: goal menu / prompt guidance / premium gating
+- Priority: medium
+- Status: Open
+- Category: feature
+- Phase: phase-4
+- Roadmap refs: phase-4-interactive-card-ux, phase-2-manual-proficiency-level-and-german-support
+- Evidence: GOALS is still a single flat registry and the existing goal picker does not vary by language or subscription tier.
+
+## Problem
+The current goal menu is too coarse for real learner intent, and some goals only make sense for specific languages. Users need richer choices such as travel, immigration, conversation, flirting, and domain-specific study paths.
+
+## Solution
+Split the goal catalog into a core set for everyone and an advanced layer for eligible premium users. Filter goals by target language where appropriate, keep the canonical registry as the source of truth, and avoid exposing language-inappropriate goals such as TOEFL/IELTS outside English.
+
+## Note
+Premium product choice; this is not just a localization tweak.
+
+---
+
+# extra gamification beyond streak should be a premium reward surface
+
+- ID: 69
+- Module: db.py / bot.py / ROADMAP.md
+- Function: reward ledger / progress surfaces / profile views
+- Priority: medium
+- Status: Open
+- Category: feature
+- Phase: phase-8
+- Roadmap refs: mini-quizzes, later-product-phases
+- Evidence: The roadmap already separates streak from retention points, and the codebase does not yet have a reward ledger or badge surface.
+
+## Problem
+The live product only exposes streak as a progress indicator. There is no reward ledger, badge surface, or premium progress model distinct from learning retention.
+
+## Solution
+Keep streak and retention metrics separate from gamification, then add a premium reward layer for points, badges, or similar motivational surfaces only after the reward ledger and profile model are explicitly designed.
+
+## Note
+Premium-only by product choice; do not blend it with the learning score.
