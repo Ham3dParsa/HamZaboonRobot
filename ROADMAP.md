@@ -92,6 +92,10 @@ Completed on the current main branch:
 - Card and daily-batch provider responses support an internal `compact_json`
   wire format with a rollback-only `json` mode; this serialization choice is
   deliberately independent from learner-facing card detail.
+- The compact JSON rollout preserved the canonical storage contract, but its
+  prompt template also relaxed the prior card-richness examples; recovery of
+  examples and optional synonym/antonym counts is tracked in issues `54` and
+  `55`.
 - Daily batch validation now distinguishes provider success from a batch with
   no usable cards, records safe rejection diagnostics, and preserves the
   retry path.
@@ -338,6 +342,11 @@ The next language addition must use this contract.
 - LLM generation batches and learner-facing delivery sessions are separate
   concepts. LLM batches are usually 2–6 cards for efficiency; delivery
   sessions are derived from the effective allowance and active delivery window.
+- Serialization compactness must never define educational richness. Daily,
+  batch, and custom-word generation share the same content-quality contract:
+  two paired examples by default, and at least two distinct synonyms or
+  antonyms whenever the model identifies a meaningful populated list; an
+  unavailable optional field may remain empty.
 - Session sizing uses a plan-agnostic formula rather than a plan-name lookup:
   - Let `L` be the effective daily allowance.
   - Target roughly 3 cards per learner-facing session.
@@ -369,7 +378,9 @@ The next language addition must use this contract.
   review entry point for today’s cards and recent prior days stored in
   `daily_cards`.
 - Example translations are stored with the card but remain hidden until the
-  user presses an inline `Show translations` button.
+  user presses an inline `Show translations` button. This is a locked UX
+  requirement, not a claim that the current implementation already satisfies
+  it.
 - A successful custom-word query shows the user's daily usage and remaining
   allowance. The result offers an inline action to add that word to spaced
   repetition.
@@ -522,6 +533,13 @@ usage, mutate `daily_cards`, `saved_words.card_data`, or create a second card
 schema. The same policy applies to daily cards, custom-word results, saved-word
 reminders, and future content-pool hits.
 
+The current product decision remains **detailed as the global default** until
+the alternative proposal—minimal cards by default with a premium inline
+`More details` action—is explicitly approved. The alternative must not be
+implemented implicitly through compact JSON. If approved, it becomes a
+presentation-policy change over cached cards, not an AI or database-schema
+change.
+
 **Acceptance criteria**
 
 - Users can reveal translations without receiving a duplicate card.
@@ -532,6 +550,20 @@ reminders, and future content-pool hits.
 - Detailed rendering shows two example/translation pairs by default, while
   brief rendering remains readable and safely handles absent optional
   synonyms, antonyms, or grammar details.
+- Generation and validation preserve the content-quality contract across
+  compact daily cards, six-card batches, and custom-word cards: two paired
+  examples, plus at least two distinct items for each meaningful populated
+  synonym or antonym list.
+- The default card message hides example translations and exposes an
+  authorized inline `Show translations` action that reveals the paired
+  translations without sending a duplicate card.
+- Translation reveal is idempotent, rejects stale or cross-user callbacks,
+  reuses cached card JSON, and has no AI, quota, SRS, pool, or persistence side
+  effects.
+- If the premium presentation policy is approved, eligible users can open a
+  detailed rendering from an inline action while ineligible users receive a
+  safe explanation or the global default; the entitlement decision is not
+  inferred from `AI_CARD_OUTPUT_FORMAT`.
 - Rendering either mode reuses the same validated cached payload and does not
   change AI request counts, quotas, SRS state, pool identity, or stored JSON.
 - The internal `AI_CARD_OUTPUT_FORMAT` setting is never exposed as a learner
@@ -735,9 +767,18 @@ a separate lesson system.
 - Implement issue `53`: add regression and persistence tests for example and
   translation pairing, optional fields, cache reuse, pool reuse, idempotent
   rendering, and no-AI/no-quota side effects.
+- Implement issue `54`: restore the pre-compact card content-richness contract
+  without abandoning compact JSON or making genuinely unavailable optional
+  fields mandatory.
+- Implement issue `55`: implement the stored-translation spoiler/reveal flow
+  and its authorized, idempotent, no-side-effect callbacks.
 
 ### Later product phases
 
+- Decide whether the global default remains detailed or changes to minimal
+  cards with a premium inline `More details` action; implement the approved
+  policy only after issues `51`–`55` pass their rendering and persistence
+  contracts.
 - Premium or user-configurable brief/detailed card presentation after the
   deterministic rendering contract is implemented and tested.
 - Premium smart placement testing for Silver and Gold.

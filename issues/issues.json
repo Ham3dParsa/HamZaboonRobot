@@ -238,7 +238,7 @@
     "title": "card presentation detail should be independent from AI output serialization",
     "module": "bot.py / db.py / ai.py",
     "func": "format_card / daily delivery / custom-word results / SRS reminders",
-    "problem": "The AI wire format and the learner-facing message detail are separate concerns, but the current card prompt shape can influence visible richness such as the number of examples. There is no explicit presentation layer that renders brief or detailed messages from the already validated and cached canonical card.",
+    "problem": "The AI wire format and the learner-facing message detail are separate concerns, but the current card prompt shape has already influenced visible richness such as the number of examples and synonyms. There is no explicit presentation layer that renders brief or detailed messages from the already validated and cached canonical card.",
     "solution": "Add a deterministic presentation policy over the canonical stored card: detailed remains the default and renders two paired examples, while brief renders a shorter message without changing the card payload. Apply the policy to daily cards, queried cards, saved-word reminders, and pool-served cards. Rendering must not call the AI, mutate cached content, alter quota accounting, or create a second card schema.",
     "priority": "medium",
     "note": "Future product direction. The compact JSON format is an internal provider optimization and must remain independent from this learner-facing preference.",
@@ -252,7 +252,7 @@
       "cost-control",
       "data-lifecycle"
     ],
-    "evidence": "ai.py:validate_card normalizes compact aliases into the canonical card fields, db.py stores complete card_data in daily_cards and saved_words, and bot.py:format_card currently renders the stored payload without a brief/detailed policy.",
+    "evidence": "The pre-compact prompts demonstrated two example/translation pairs and multiple optional synonym/antonym slots; the compact schema demonstrates one example pair and one optional slot. ai.py:validate_card accepts one non-empty example pair, and bot.py:format_card renders whatever counts the model returns without a brief/detailed policy.",
     "last_reviewed": "2026-07-13"
   },
   {
@@ -260,7 +260,7 @@
     "module": "config.py / db.py / keyboards.py / bot.py",
     "func": "presentation preference schema / settings UI / plan gating / callbacks",
     "problem": "There is no user-visible setting for choosing brief versus detailed card messages, no documented global default for the presentation policy, and no entitlement rule for offering the preference as a premium option. A future implementation could accidentally expose an internal AI-format switch or leave stale preferences active after a plan downgrade.",
-    "solution": "Define a separate presentation preference with stable values such as brief and detailed. Keep an admin/deployment default for all users, allow an explicitly documented per-user override only for eligible premium plans if product approval confirms that policy, and fall back safely to the global default when the user is ineligible or the value is invalid. Add settings UI, plan-gated callbacks, migration coverage, and clear user-facing descriptions; do not expose AI_CARD_OUTPUT_FORMAT as the user setting.",
+    "solution": "Define a separate presentation preference with stable values such as brief and detailed. Keep an admin/deployment default for all users, allow an explicitly documented per-user override only for eligible premium plans if product approval confirms that policy, and fall back safely to the global default when the user is ineligible or the value is invalid. Add settings UI plus an eligible-user inline action for opening the detailed version of an individual card, with plan-gated callbacks, migration coverage, and clear user-facing descriptions; do not expose AI_CARD_OUTPUT_FORMAT as the user setting.",
     "priority": "medium",
     "note": "Future premium/product decision. The entitlement, default mode, and whether Free users may choose both modes should be finalized before implementation.",
     "resolved": false,
@@ -295,6 +295,50 @@
       "measurement-and-observability"
     ],
     "evidence": "Current tests cover card validation and SQLite persistence, but no test selects a presentation mode or proves that rendering a cached daily, saved, or pooled card is side-effect free.",
+    "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "compact JSON rollout relaxed the card content richness contract",
+    "module": "prompts.py / ai.py / tests",
+    "func": "_card_schema / validate_card / daily and custom-word generation",
+    "problem": "The compact provider schema reduced more than key names: it changed the examples from two demonstrated pairs to one, made synonyms and antonyms explicitly optional without minimum counts, and shortened the grammar guidance. The validator still accepts one example/translation pair and one synonym or antonym, so structurally valid compact responses can be visibly poorer than pre-compact cards.",
+    "solution": "Keep compact aliases strictly as an internal serialization optimization, while restoring a separate content-richness contract. Generation should request two paired examples and, when synonyms or antonyms are meaningfully available, at least two distinct items for each populated list. Validation and focused tests should reject malformed pair counts and one-item populated synonym/antonym lists without rejecting genuinely unavailable optional fields. Batch and custom-word paths must share the same contract.",
+    "priority": "high",
+    "note": "Confirmed regression relative to commit c394115^; do not solve it by switching back to verbose JSON or by making optional educational fields mandatory when no meaningful item exists.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 54,
+    "phase": "phase-4",
+    "roadmap_refs": [
+      "interactive-card-ux",
+      "cost-control",
+      "content-quality"
+    ],
+    "evidence": "c394115 changed prompts.py from two example/translation placeholders and multiple synonym/antonym placeholders to compact e/t/s/a placeholders with one example and explicit optionality. Current ai.py:validate_card requires only non-empty, equal-length examples and translations; bot.py:format_card displays all returned items without restoring the prior minimum.",
+    "last_reviewed": "2026-07-13"
+  },
+  {
+    "title": "example translations are stored but not implemented as Telegram spoilers",
+    "module": "bot.py / keyboards.py / db.py / tests",
+    "func": "format_card / daily_card_keyboard / callback_router / cached card rendering",
+    "problem": "ROADMAP.md says example translations remain hidden until an inline Show translations action is pressed, but the current renderer omits example_translations entirely and the card keyboards expose only Next card, Add to review, and SRS actions. callback_router has no translation-reveal action, so stored translations cannot appear as a spoiler or be added to the current card message.",
+    "solution": "Implement a deterministic translation-reveal interaction over the cached canonical card: render the primary card without translations, attach a user-scoped card reference, and reveal or append the correctly paired translations after an authorized callback. Repeated clicks must be idempotent, stale or cross-user references must be rejected, and the action must not call AI, change quota/SRS state, mutate card_data, or send a duplicate card. Add a separate premium-gated detailed-card action only after the default and entitlement policy is explicitly decided.",
+    "priority": "high",
+    "note": "The roadmap statement is currently aspirational rather than implemented; this issue captures the implementation gap and the required no-side-effect contract.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 55,
+    "phase": "phase-4",
+    "roadmap_refs": [
+      "interactive-card-ux",
+      "data-lifecycle",
+      "premium-features"
+    ],
+    "evidence": "bot.py:format_card reads examples but never reads example_translations; keyboards.py:daily_card_keyboard returns only the next-card button and query_result_keyboard returns only Add to review; callback_router contains no translation callback branch.",
     "last_reviewed": "2026-07-13"
   }
 ]
