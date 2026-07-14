@@ -4,14 +4,22 @@ import tempfile
 import unittest
 
 import db
-from bot import _custom_word_input_error, _is_cancel_input, escape_mdv2_code, format_card
+from bot import (
+    _custom_word_input_error,
+    _is_cancel_input,
+    _user_presentation,
+    escape_mdv2_code,
+    format_card,
+)
 from keyboards import (
     BTN_ASK_WORD,
+    BTN_CHANGE_PRESENTATION,
     awaiting_inline_keyboard,
     daily_card_keyboard,
     daily_review_dates_keyboard,
     daily_review_menu_keyboard,
     main_menu,
+    presentation_settings_keyboard,
     query_result_keyboard,
     srs_review_keyboard,
 )
@@ -95,6 +103,34 @@ class CustomWordQueryTests(unittest.TestCase):
         labels = [button.text for row in markup.keyboard for button in row]
         self.assertNotIn("➕ ثبت واژه‌ی دلخواه", labels)
         self.assertIn(BTN_ASK_WORD, labels)
+        self.assertIn(BTN_CHANGE_PRESENTATION, labels)
+
+    def test_presentation_settings_keyboard_marks_current_mode(self):
+        markup = presentation_settings_keyboard("brief")
+        self.assertEqual(
+            [button.callback_data for button in markup.inline_keyboard[0]],
+            ["presentation:set:brief", "presentation:set:detailed"],
+        )
+        self.assertTrue(markup.inline_keyboard[0][0].text.startswith("✅ "))
+
+    def test_premium_presentation_preference_is_persisted(self):
+        db.create_user_if_needed(1, "learner")
+        self.assertIsNone(db.get_user(1)["presentation_preference"])
+        db.set_plan(1, "silver")
+        db.set_presentation_preference(1, "brief")
+        self.assertEqual(db.get_user(1)["presentation_preference"], "brief")
+        with self.assertRaises(ValueError):
+            db.set_presentation_preference(1, "compact")
+
+    def test_user_presentation_falls_back_after_downgrade(self):
+        db.create_user_if_needed(1, "learner")
+        premium_row = db.get_user(1)
+        self.assertEqual(_user_presentation(premium_row), "detailed")
+        db.set_plan(1, "silver")
+        db.set_presentation_preference(1, "brief")
+        self.assertEqual(_user_presentation(db.get_user(1)), "brief")
+        db.set_plan(1, "free")
+        self.assertEqual(_user_presentation(db.get_user(1)), "detailed")
 
     def test_recent_daily_card_dates_are_sorted_descending(self):
         db.create_user_if_needed(1, "learner")

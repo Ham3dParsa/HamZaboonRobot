@@ -66,6 +66,9 @@ AI_MAX_OUTPUT_TOKENS = int(os.getenv("AI_MAX_OUTPUT_TOKENS", "4096"))
 AI_CARD_OUTPUT_FORMAT = os.getenv("AI_CARD_OUTPUT_FORMAT", "compact_json").strip().lower()
 if AI_CARD_OUTPUT_FORMAT not in {"json", "compact_json"}:
     raise ValueError("AI_CARD_OUTPUT_FORMAT must be 'json' or 'compact_json'")
+DEFAULT_PRESENTATION = os.getenv("DEFAULT_PRESENTATION", "detailed").strip().lower()
+if DEFAULT_PRESENTATION not in {"brief", "detailed"}:
+    raise ValueError("DEFAULT_PRESENTATION must be 'brief' or 'detailed'")
 LLM_INPUT_COST_USD_PER_MILLION = float(
     os.getenv("LLM_INPUT_COST_USD_PER_MILLION", "0.25")
 )
@@ -105,6 +108,7 @@ PLANS = {
     "silver": "نقره‌ای",
     "gold": "طلایی",
 }
+PREMIUM_PLANS = frozenset({"silver", "gold"})
 
 
 def daily_card_count_for_plan(plan: str) -> int:
@@ -127,6 +131,14 @@ def effective_plan(plan: str, bypass_limits: bool = False) -> str:
     if bypass_limits:
         return "gold"
     return plan if plan in PLANS else "free"
+
+
+def presentation_for_user(plan: str, preference: str | None) -> str:
+    if plan not in PREMIUM_PLANS:
+        return DEFAULT_PRESENTATION
+    if preference not in {"brief", "detailed"}:
+        return DEFAULT_PRESENTATION
+    return preference
 
 
 def effective_daily_allowance(

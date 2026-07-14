@@ -308,11 +308,11 @@ Future product direction. The compact JSON format is an internal provider optimi
 - Module: config.py / db.py / keyboards.py / bot.py
 - Function: presentation preference schema / settings UI / plan gating / callbacks
 - Priority: medium
-- Status: Open
+- Status: Resolved
 - Category: feature
 - Phase: phase-4
 - Roadmap refs: interactive-card-ux, premium-features, runtime-configuration
-- Evidence: config.py currently exposes only the internal AI_CARD_OUTPUT_FORMAT values json and compact_json; users has no presentation preference column, and keyboards.py/bot.py have no brief/detailed settings flow.
+- Evidence: config.py:DEFAULT_PRESENTATION and presentation_for_user define the global fallback and premium eligibility; db.py migrates and persists users.presentation_preference; keyboards.py exposes settings-menu choices only; bot.py applies the effective presentation to daily, scheduled, query, review, and SRS rendering and rejects ineligible callbacks; focused config, persistence, migration, menu, and downgrade tests pass.
 
 ## Problem
 There is no user-visible setting for choosing brief versus detailed card messages, no documented global default for the presentation policy, and no entitlement rule for offering the preference as a premium option. A future implementation could accidentally expose an internal AI-format switch or leave stale preferences active after a plan downgrade.
@@ -321,7 +321,7 @@ There is no user-visible setting for choosing brief versus detailed card message
 Define a separate presentation preference with stable values such as brief and detailed. Keep an admin/deployment default for all users, allow an explicitly documented per-user override only for eligible premium plans if product approval confirms that policy, and fall back safely to the global default when the user is ineligible or the value is invalid. Add settings UI plus an eligible-user inline action for opening the detailed version of an individual card, with plan-gated callbacks, migration coverage, and clear user-facing descriptions; do not expose AI_CARD_OUTPUT_FORMAT as the user setting.
 
 ## Note
-Future premium/product decision. The entitlement, default mode, and whether Free users may choose both modes should be finalized before implementation.
+Resolved with a separate learner-facing presentation preference. Users without an eligible stored preference use the deployment global default; premium users can persist brief or detailed from the settings menu. Invalid values and downgraded users safely fall back to the global default. AI_CARD_OUTPUT_FORMAT remains internal.
 
 ---
 

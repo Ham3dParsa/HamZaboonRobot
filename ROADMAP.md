@@ -785,12 +785,13 @@ usage, mutate `daily_cards`, `saved_words.card_data`, or create a second card
 schema. The same policy applies to daily cards, custom-word results, saved-word
 reminders, and future content-pool hits.
 
-The current product decision remains **detailed as the global default** until
-the alternative proposal—minimal cards by default with a premium inline
-`More details` action—is explicitly approved. The alternative must not be
-implemented implicitly through compact JSON. If approved, it becomes a
-presentation-policy change over cached cards, not an AI or database-schema
-change.
+The locked product policy is: users use the deployment global default until an
+eligible premium user chooses a presentation in the settings menu; the
+default is `detailed` unless `DEFAULT_PRESENTATION` changes. Only Silver and
+Gold users may persist `brief` or `detailed`. Invalid values and downgraded
+users fall back to the global default. This is a presentation-policy change
+over cached cards, not an AI or database-schema format change, and
+`AI_CARD_OUTPUT_FORMAT` remains internal.
 
 **Acceptance criteria**
 
@@ -815,10 +816,9 @@ change.
   receive at most one targeted repair patch; only repaired fields are
   atomically persisted, and failed repairs block delivery without changing
   learning state.
-- If the premium presentation policy is approved, eligible users can open a
-  detailed rendering from an inline action while ineligible users receive a
-  safe explanation or the global default; the entitlement decision is not
-  inferred from `AI_CARD_OUTPUT_FORMAT`.
+- Eligible premium users can choose brief or detailed rendering from the
+  settings menu; ineligible users receive the global default and a safe
+  explanation. No per-card presentation action is exposed.
 - Rendering either mode reuses the same validated cached payload and does not
   change AI request counts, quotas, SRS state, pool identity, or stored JSON.
 - The internal `AI_CARD_OUTPUT_FORMAT` setting is never exposed as a learner
@@ -1036,9 +1036,9 @@ a separate lesson system.
   multi-language review flows.
 - Implement issue `51`: add a deterministic brief/detailed presentation layer
   over canonical cached cards across daily, custom-word, SRS, and pool paths.
-- Implement issue `52`: define the global default, premium entitlement,
-  user-facing settings, invalid-value fallback, and downgrade behavior for
-  presentation detail. Keep `AI_CARD_OUTPUT_FORMAT` admin/deployment-only.
+- Issue `52` is resolved: the global fallback, premium-only persistent
+  preference, settings-menu control, invalid/downgrade fallback, and hidden
+  `AI_CARD_OUTPUT_FORMAT` boundary are implemented and tested.
 - Implement issue `53`: add regression and persistence tests for example and
   translation pairing, optional fields, cache reuse, pool reuse, idempotent
   rendering, and no-AI/no-quota side effects.

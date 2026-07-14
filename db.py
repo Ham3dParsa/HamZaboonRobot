@@ -85,6 +85,7 @@ def init_db():
                 preferred_delivery_minute INTEGER,
                 active_window_start_minute INTEGER,
                 active_window_end_minute INTEGER,
+                presentation_preference TEXT,
                 onboarded INTEGER DEFAULT 0,
                 created_at TEXT
             );
@@ -209,6 +210,7 @@ def init_db():
             "active_window_end_minute": "INTEGER",
             "grammar_tips_asked_today": "INTEGER DEFAULT 0",
             "grammar_tips_asked_date": "TEXT",
+            "presentation_preference": "TEXT",
         }
         for name, definition in user_columns.items():
             if name not in columns:
@@ -382,6 +384,17 @@ def set_user_level(user_id: int, level: str):
         conn.execute(
             "UPDATE users SET level=?, onboarded=1 WHERE user_id=?",
             (level, user_id),
+        )
+        conn.commit()
+
+
+def set_presentation_preference(user_id: int, preference: str):
+    if preference not in {"brief", "detailed"}:
+        raise ValueError(f"Unknown presentation preference: {preference}")
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE users SET presentation_preference=? WHERE user_id=?",
+            (preference, user_id),
         )
         conn.commit()
 

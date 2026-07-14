@@ -42,10 +42,13 @@ from config import (
     TELEGRAM_MAX_CONCURRENCY,
     SESSION_CARD_DELAY_SECONDS,
     PLANS,
+    PREMIUM_PLANS,
+    DEFAULT_PRESENTATION,
     OWNER_BYPASS_LIMITS,
     daily_word_query_limit_for_plan,
     effective_daily_allowance,
     effective_plan,
+    presentation_for_user,
 )
 import db
 import ai
@@ -66,6 +69,7 @@ from keyboards import (
     lang_inline_keyboard,
     goal_inline_keyboard,
     level_inline_keyboard,
+    presentation_settings_keyboard,
     awaiting_reply_keyboard,
     awaiting_inline_keyboard,
     daily_review_dates_keyboard,
@@ -87,6 +91,7 @@ from keyboards import (
     BTN_CHANGE_LANG,
     BTN_CHANGE_GOAL,
     BTN_CHANGE_LEVEL,
+    BTN_CHANGE_PRESENTATION,
     BTN_CANCEL,
     BTN_BACK,
 )
@@ -293,6 +298,7 @@ async def _send_card_from_store(
         text=format_card(
             card,
             footer=footer,
+            presentation=_user_presentation(row),
         ),
         parse_mode=ParseMode.MARKDOWN_V2,
         reply_markup=daily_card_keyboard(
@@ -334,6 +340,15 @@ def _user_plan_label(row) -> str:
     if OWNER_BYPASS_LIMITS and is_owner(row["user_id"]):
         return f"{actual} (دسترسی مالک)"
     return actual
+
+
+def _user_presentation(row) -> str:
+    if not row:
+        return DEFAULT_PRESENTATION
+    return presentation_for_user(
+        row["plan"] or "free",
+        row["presentation_preference"],
+    )
 
 
 def format_card(
@@ -550,6 +565,26 @@ async def change_level_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(
         "سطح جدید خود را انتخاب کنید:",
         reply_markup=level_inline_keyboard(),
+    )
+
+
+async def change_presentation_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    row = db.get_user(user_id)
+    if not row or not row["onboarded"]:
+        await update.message.reply_text("اول باید /start رو بزنی.")
+        return
+    current = _user_presentation(row)
+    if (row["plan"] or "free") not in PREMIUM_PLANS:
+        await update.message.reply_text(
+            f"نمایش فعلی کارت‌ها: {'خلاصه' if current == 'brief' else 'کامل'}.\n"
+            "انتخاب دائمی نمایش کارت فقط برای کاربران پریمیوم فعال است."
+        )
+        return
+    await update.message.reply_text(
+        f"نمایش فعلی کارت‌ها: {'خلاصه' if current == 'brief' else 'کامل'}.\n"
+        "نمایش موردنظر را انتخاب کنید:",
+        reply_markup=presentation_settings_keyboard(current),
     )
 
 
@@ -855,6 +890,7 @@ async def _send_next_daily_card(
         text=format_card(
             card,
             footer=f"📖 کارت {card_index + 1} از {limit} امروز",
+            presentation=_user_presentation(row),
         ),
         parse_mode=ParseMode.MARKDOWN_V2,
         reply_markup=daily_card_keyboard(
@@ -1159,7 +1195,12 @@ async def _handle_daily_prepare(
     )
     try:
         await update.callback_query.edit_message_text(
-            format_card(card, footer=footer, translations_prepared=True),
+            format_card(
+                card,
+                footer=footer,
+                presentation=_user_presentation(row),
+                translations_prepared=True,
+            ),
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=markup,
         )
@@ -1223,7 +1264,12 @@ async def _handle_query_prepare(
     )
     try:
         await update.callback_query.edit_message_text(
-            format_card(card, footer=footer, translations_prepared=True),
+            format_card(
+                card,
+                footer=footer,
+                presentation=_user_presentation(user_row),
+                translations_prepared=True,
+            ),
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=query_result_keyboard(row["token"], row["lang"], show_translations=False),
         )
@@ -1290,7 +1336,12 @@ async def _handle_srs_prepare(
     )
     try:
         await update.callback_query.edit_message_text(
-            format_card(card, footer=footer, translations_prepared=True),
+            format_card(
+                card,
+                footer=footer,
+                presentation=_user_presentation(user_row),
+                translations_prepared=True,
+            ),
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=srs_review_keyboard(user_id, word_id, show_translations=False),
         )
@@ -1826,6 +1877,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         f"{usage_text}\n\n"
                         "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
                     ),
+                    presentation=_user_presentation(row),
                 ),
                 parse_mode=ParseMode.MARKDOWN_V2,
                 reply_markup=query_result_keyboard(
@@ -1961,6 +2013,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await change_goal_start(update, context)
     elif text == BTN_CHANGE_LEVEL:
         await change_level_start(update, context)
+    elif text == BTN_CHANGE_PRESENTATION:
+        await change_presentation_start(update, context)
     else:
         await update.message.reply_text("از دکمه‌های پایین استفاده کن 🙂", reply_markup=main_menu(is_owner(user_id)))
 
@@ -1975,6 +2029,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "query:prepare:",
             "daily:prepare:",
             "review:prepare:",
+            "presentation:",
             "flow:",
             "srs:",
         )
@@ -1986,6 +2041,31 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _exit_awaiting_flow(update, context, via_callback=True)
         else:
             await update.callback_query.answer("فعلاً چیزی برای لغو نیست.", show_alert=True)
+        return
+
+    if data.startswith("presentation:set:"):
+        preference = data.split(":", 2)[2]
+        if preference not in {"brief", "detailed"}:
+            await update.callback_query.answer("انتخاب نامعتبر است.", show_alert=True)
+            return
+        user_id = update.effective_user.id
+        row = db.get_user(user_id)
+        if not row or not row["onboarded"]:
+            await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
+            return
+        if (row["plan"] or "free") not in PREMIUM_PLANS:
+            await update.callback_query.answer(
+                "این تنظیم فقط برای کاربران پریمیوم فعال است.",
+                show_alert=True,
+            )
+            return
+        db.set_presentation_preference(user_id, preference)
+        label = "خلاصه" if preference == "brief" else "کامل"
+        await update.callback_query.edit_message_text(
+            f"نمایش کارت‌ها روی «{label}» تنظیم شد.",
+            reply_markup=presentation_settings_keyboard(preference),
+        )
+        await update.callback_query.answer("تنظیمات ذخیره شد.")
         return
 
     if data.startswith("lang:"):
@@ -2360,6 +2440,7 @@ async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str
                             f"{claimed['session_index'] + 1} · کارت "
                             f"{claimed['card_start_index'] + offset + 1} از {limit}"
                         ),
+                        presentation=_user_presentation(row),
                     ),
                     parse_mode=ParseMode.MARKDOWN_V2,
                     reply_markup=daily_card_keyboard(
@@ -2463,6 +2544,7 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
                             "⏰ مرور فاصله‌دار: اول معنی، مثال و نکته را از حفظ "
                             "یادآوری کن؛ بعد نتیجه را با دکمه‌ها ثبت کن."
                         ),
+                        presentation=_user_presentation(row),
                     ),
                     parse_mode=ParseMode.MARKDOWN_V2,
                     reply_markup=srs_review_keyboard(
