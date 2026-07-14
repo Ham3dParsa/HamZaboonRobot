@@ -845,8 +845,8 @@
         "solution": "Add a local-only, authenticated editor backed by the existing validation boundary: load canonical state, edit issue/phase/decision fields, preview a diff, require explicit confirmation, write canonical JSON atomically, and regenerate marked views. The server must never accept arbitrary Markdown writes, browser-local state, or unauthenticated remote edits.",
         "priority": "medium",
         "note": "This is the next UX layer over issue 56, not a replacement for canonical JSON or validation. The local-server technology and authentication boundary must be agreed before implementation.",
-        "resolved": false,
-        "status": "open",
+        "resolved": true,
+        "status": "resolved",
         "detailOpen": false,
         "editing": false,
         "id": 58,
@@ -858,7 +858,7 @@
         "decision_refs": [
             "decision-issue-registry"
         ],
-        "evidence": "issues/project_status.html is read-only and issues/status_editor.py currently requires a reviewable changes.json file; no Python HTTP server or authenticated write endpoint exists in the repository.",
+        "evidence": "PR implementation adds issues/local_editor.py: a loopback-only standard-library server with one-time startup token, session cookie authentication, validated preview-before-apply flow, atomic generated-document writes, and a browser form for issue/phase/decision fields. Focused tests, full unittest discovery, py_compile, validate.py check, and a live login/root smoke test pass.",
         "last_reviewed": "2026-07-14",
         "depends_on": [
             56

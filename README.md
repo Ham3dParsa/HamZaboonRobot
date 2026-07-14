@@ -45,8 +45,14 @@ python bot.py
   پس از validation، JSONهای canonical، بخش generated در `ROADMAP.md` و
   dashboard را همگام می‌کند.
 - داشبورد فعلی عمداً static و read-only است و هیچ Python HTTP server یا
-  endpoint نوشتنی ندارد. ویرایشگر وب محلیِ احراز هویت‌شده به‌عنوان issue
-  آینده ثبت شده است؛ تا آن زمان، patch و preview مسیر امن canonical هستند.
+  endpoint نوشتنی ندارد. برای اجرای ویرایشگر وب محلی:
+
+  ```bash
+  python -m issues.local_editor
+  ```
+
+  این ابزار فقط روی `127.0.0.1` گوش می‌دهد، یک login URL تصادفی چاپ می‌کند،
+  و همه‌ی تغییرات را از همان مسیر patch/preview/validation عبور می‌دهد.
 
 ## کنترل هزینه و کیفیت AI
 

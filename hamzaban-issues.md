@@ -446,11 +446,11 @@ This is an architectural risk, not permission to refactor immediately. The modul
 - Module: issues/project_status.html / issues/status_editor.py / future local API
 - Function: human-friendly issue and phase editing
 - Priority: medium
-- Status: Open
+- Status: Resolved
 - Category: feature
 - Phase: phase-4
 - Roadmap refs: issue-tooling, interactive-card-ux
-- Evidence: issues/project_status.html is read-only and issues/status_editor.py currently requires a reviewable changes.json file; no Python HTTP server or authenticated write endpoint exists in the repository.
+- Evidence: PR implementation adds issues/local_editor.py: a loopback-only standard-library server with one-time startup token, session cookie authentication, validated preview-before-apply flow, atomic generated-document writes, and a browser form for issue/phase/decision fields. Focused tests, full unittest discovery, py_compile, validate.py check, and a live login/root smoke test pass.
 
 ## Problem
 The current dashboard is read-only and the safe editor is command-line based, so a project owner must prepare and run a JSON patch manually instead of editing status cards through a controlled local web interface.

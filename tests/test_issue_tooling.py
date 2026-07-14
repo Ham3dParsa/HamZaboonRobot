@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 
+from issues.local_editor import EditorServer, changes_from_form
 from issues.status_editor import apply_changes
 from issues.validate import (
     VALID_CATEGORIES,
@@ -81,6 +82,32 @@ class IssueToolingTests(unittest.TestCase):
                     "decisions": [],
                 },
             )
+
+    def test_local_editor_builds_validated_changes_from_form(self):
+        issues = load_data()
+        project_status = load_project_status()
+        changes = changes_from_form(
+            {
+                "issues:54:status": ["partial"],
+                "issues:54:roadmap_refs": ['["interactive-card-ux"]'],
+                "phases:phase-4:status": ["in-progress"],
+            },
+            {
+                "issues": issues,
+                "phases": project_status["phases"],
+                "decisions": project_status["decisions"],
+            },
+        )
+        self.assertEqual(changes["issues"][0]["id"], 54)
+        self.assertEqual(changes["issues"][0]["roadmap_refs"], ["interactive-card-ux"])
+        self.assertEqual(changes["phases"][0]["id"], "phase-4")
+
+    def test_local_editor_uses_one_time_login_token(self):
+        editor = EditorServer()
+        login_token = editor.login_token
+        session = editor.authenticate(login_token)
+        self.assertIsNotNone(session)
+        self.assertIsNone(editor.authenticate(login_token))
 
 
 if __name__ == "__main__":
