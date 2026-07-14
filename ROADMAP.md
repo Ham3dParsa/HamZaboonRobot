@@ -138,12 +138,14 @@ separate concepts and must not be conflated.
 **To-do**
 - Premium presentation controls
 - Owner language lifecycle UX and rollout controls
+- Dedicated review hub and same-message navigation
+- Language-aware advanced goal options
 
 **Acceptance criteria**
 - Callbacks are user-scoped and restart-safe
 - Rendering does not change AI, quota, SRS, pool, or unrelated stored-card state; invalid legacy cards may receive one validated, repaired-field persistence update
 
-**Linked issues:** #7, #27, #51, #52, #53, #54, #55, #56, #58, #64, #65
+**Linked issues:** #7, #27, #51, #52, #53, #54, #55, #56, #58, #64, #65, #67, #68
 
 ### phase-5: Custom-Word Queries and Spaced-Repetition Capture
 
@@ -182,17 +184,19 @@ separate concepts and must not be conflated.
 - Adaptive SRS correctness
 - Migration and idempotency contracts
 - SRS reminder delivery idempotency and scheduled queue recovery
+- Friendly reminder copy and progress-aware CTA wording
 
 **To-do**
 - Resolve issues 42-47, 49, 50, and 59-63
 - Add focused reliability and progress tests
 - Plan staged handler and formatting module boundaries
+- Design the premium reward surface
 
 **Acceptance criteria**
 - Restart does not resend completed work
 - One user's failure does not stop other users
 
-**Linked issues:** #42, #43, #44, #45, #46, #47, #49, #50, #57, #59, #60, #61, #62, #63
+**Linked issues:** #42, #43, #44, #45, #46, #47, #49, #50, #57, #59, #60, #61, #62, #63, #66
 
 ### phase-7: Premium Smart Placement Test
 
@@ -229,12 +233,13 @@ separate concepts and must not be conflated.
 **To-do**
 - Add feedback capture and cost/quality dashboards
 - Add advanced learning features
+- Design premium reward surfaces and badges
 
 **Acceptance criteria**
 - Measurement precedes advanced personalization
 - Mini-quizzes reuse existing validated learning data
 
-**Linked issues:** #48
+**Linked issues:** #48, #69
 
 ## Decision Locks (Generated)
 
@@ -252,6 +257,18 @@ separate concepts and must not be conflated.
   - Related issues: #51 card presentation detail should be independent from AI output serialization, #52 brief or detailed card preference needs explicit global and premium user controls, #53 presentation variants need cache, pool, and regression contracts, #55 example translations are stored but not implemented as Telegram spoilers
 - **decision-canonical-language-registry — Language metadata lives only in catalog.py** (`locked`): New languages and language-specific guidance are added through catalog.py rather than duplicated in prompts, config, keyboards, or bot handlers.
   - Phase: `phase-2`
+  - Related issues: None
+- **decision-motivational-reminders-core — Learner reminders should be friendly and progress-aware** (`locked`): Reminder copy can reference streak, remaining cards, and due reviews to encourage interaction, but cadence and scoring remain separate from the wording.
+  - Phase: `phase-6`
+  - Related issues: None
+- **decision-review-center-core — Review navigation belongs in a dedicated core review hub** (`locked`): Review cards, previous/next navigation, and translation reveal are core UX flows and should remain available to all users through same-message edits when possible.
+  - Phase: `phase-4`
+  - Related issues: None
+- **decision-premium-goal-advanced — Advanced goal options are language-aware and premium-gated** (`locked`): The core goal list stays simple for everyone; richer language-scoped goals are added as an eligible premium layer using the canonical catalog.
+  - Phase: `phase-4`
+  - Related issues: None
+- **decision-premium-gamification — Extra gamification beyond streak is premium-only** (`locked`): Points, badges, or similar reward surfaces remain separate from streak and retention, and should be introduced only as an explicit premium feature.
+  - Phase: `phase-8`
   - Related issues: None
 <!-- END GENERATED PROJECT STATUS -->
 
@@ -615,6 +632,12 @@ The next language addition must use this contract.
 - When the daily allowance is complete, the completion message should expose a
   review entry point for today’s cards and recent prior days stored in
   `daily_cards`.
+- Review navigation should include a dedicated hub plus same-message
+  previous/next controls for already persisted cards; this is core UX, not a
+  premium upsell.
+- Reminder copy should be friendly, progress-aware, and action-oriented. It
+  may mention streaks, due reviews, or remaining workload, but it must stay
+  separate from cadence and scoring rules.
 - Example translations are stored with the card but remain hidden until the
   user presses an inline `Prepare translations` button. The bot edits the
   same message, removes that preparation control, keeps the `•` example
@@ -638,6 +661,9 @@ The next language addition must use this contract.
   - Beginner — A1/A2
   - Intermediate — B1/B2
   - Advanced — C1/C2
+- Advanced goal options are language-aware. Language-specific options such as
+  TOEFL / IELTS remain English-only, while richer goal groups are a premium
+  layer rather than a core-flow requirement.
 - Smart placement testing is available only to Silver and Gold users.
 - Language, learning goal, and proficiency level are independent user
   attributes.
@@ -823,6 +849,12 @@ over cached cards, not an AI or database-schema format change, and
   receive at most one targeted repair patch; only repaired fields are
   atomically persisted, and failed repairs block delivery without changing
   learning state.
+- Review entry points should be available as a dedicated hub for all users,
+  and previous/next controls should edit the active message rather than
+  forcing a replacement card whenever Telegram allows it.
+- Reminder copy should be friendly, progress-aware, and action-oriented. It
+  may mention streaks, due cards, or today's remaining workload, but cadence
+  and scoring stay separate from the wording.
 - Eligible premium users can choose brief or detailed rendering from the
   settings menu; ineligible users receive the global default and a safe
   explanation. No per-card presentation action is exposed.
@@ -830,6 +862,8 @@ over cached cards, not an AI or database-schema format change, and
   change AI request counts, quotas, SRS state, pool identity, or stored JSON.
 - The internal `AI_CARD_OUTPUT_FORMAT` setting is never exposed as a learner
   preference or allowed to change visible educational detail.
+- Advanced goal options are language-aware and premium-gated. The core goal
+  list stays simple for everyone; richer goals are a later premium layer.
 
 ### Phase 5: Custom-Word Queries and Spaced-Repetition Capture
 
@@ -871,7 +905,7 @@ menu, but the database save and SRS functions remain internal capabilities.
 **Status:** In progress
 **Done:** Durable queues, bounded retries, async-safe provider calls, callback validation, and restart recovery.
 **In progress:** Adaptive SRS correctness and migration contracts.
-**To-do:** Resolve issues `42`–`47`, `49`, and `50` with focused idempotency, migration, reliability, and progress tests.
+**To-do:** Resolve issues `42`–`47`, `49`, `50`, and `66` with focused idempotency, migration, reliability, and progress tests.
 
 Make manual generation and scheduled delivery restart-safe and isolated per
 user. Add:
@@ -891,6 +925,8 @@ user. Add:
 - Per-user locks or equivalent coordination for manual and scheduled work
 - Async-safe provider calls that do not block the Telegram event loop
 - A clear user-facing fallback when content generation fails
+- Friendly reminder copy that can mention streak, due reviews, or remaining
+  workload without changing cadence or scoring
 - Session-size limits that prevent a missed schedule from becoming a burst
 - Fair scheduling across users when preferred time buckets are saturated
 - An owner-only learning-data reset with two-step confirmation
@@ -1072,6 +1108,7 @@ a separate lesson system.
 - Premium vocabulary-knowledge estimation testing so Gold users can get a
   general estimate of how many words they know, separate from bot progress
   metrics.
+- Premium reward surfaces, badges, and extra gamification beyond streak.
 - AI Mini Quizzes after the MVP above proves stable:
   - weekly public challenge quizzes for all users or by language/level/goal;
   - placement quizzes to estimate current proficiency;
@@ -1079,6 +1116,8 @@ a separate lesson system.
   - card-driven quizzes based on a user's saved vocabulary and grammar history.
 - Structured language/goal/level Q&A flows that return polished, structured
   LLM answers while rejecting irrelevant or wasteful prompts early.
+- Premium language- and goal-specific expansion packs beyond the core goal
+  selector.
 - Measurement-informed advanced learning and personalization.
 - Social follow/friend features built around profile stats, retained cards,
   and quiz progress, with lightweight Duolingo-style motivation rather than

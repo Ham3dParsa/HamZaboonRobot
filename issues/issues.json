@@ -660,5 +660,109 @@
     "depends_on": [
       64
     ]
+  },
+  {
+    "title": "learner reminders should sound friendly, progress-aware, and action-oriented",
+    "category": "feature",
+    "module": "bot.py / scheduling.py / db.py",
+    "func": "daily_job / srs_job / delivery copy",
+    "problem": "Scheduled reminders are functionally correct but sound like plain notifications instead of a learning coach that references progress, streak, and the learner's current workload.",
+    "solution": "Use templated reminder copy that stays separate from cadence logic but can reference today's remaining cards, due reviews, streak status, and a short question such as whether the learner has time right now.",
+    "priority": "medium",
+    "note": "Core UX for all users; no new reward model is implied.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 66,
+    "phase": "phase-6",
+    "roadmap_refs": [
+      "adaptive-srs-core"
+    ],
+    "decision_refs": [
+      "decision-motivational-reminders-core"
+    ],
+    "evidence": "Current delivery copy is mostly status-oriented and does not yet have a dedicated progress-aware reminder template or CTA layer.",
+    "last_reviewed": "2026-07-14",
+    "depends_on": []
+  },
+  {
+    "title": "review cards need a dedicated review center with same-message prev/next and translation controls",
+    "category": "feature",
+    "module": "bot.py / keyboards.py / ROADMAP.md",
+    "func": "review menu / card navigation / translation reveal",
+    "problem": "Review entry points are still buried inside today's card flow, and the current inline controls are not exposed as a dedicated review surface that keeps navigation and translation reveal on the same message.",
+    "solution": "Add a top-level review hub that can open today's due cards and prior review dates, then keep previous, next, and translation actions as same-message edits instead of sending replacement messages whenever possible.",
+    "priority": "medium",
+    "note": "Core UX for all users; the review hub is not a premium upsell.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 67,
+    "phase": "phase-4",
+    "roadmap_refs": [
+      "phase-4-interactive-card-ux"
+    ],
+    "decision_refs": [
+      "decision-review-center-core"
+    ],
+    "evidence": "The code already has review-related keyboards and prepare-translation flows, but there is no dedicated review hub in the main menu and some edits still fall back to sending a new message when Telegram refuses an edit.",
+    "last_reviewed": "2026-07-14",
+    "depends_on": []
+  },
+  {
+    "title": "goal-specific advanced options should be language-aware and premium-gated",
+    "category": "feature",
+    "module": "catalog.py / keyboards.py / prompts.py / bot.py",
+    "func": "goal menu / prompt guidance / premium gating",
+    "problem": "The current goal menu is too coarse for real learner intent, and some goals only make sense for specific languages. Users need richer choices such as travel, immigration, conversation, flirting, and domain-specific study paths.",
+    "solution": "Split the goal catalog into a core set for everyone and an advanced layer for eligible premium users. Filter goals by target language where appropriate, keep the canonical registry as the source of truth, and avoid exposing language-inappropriate goals such as TOEFL/IELTS outside English.",
+    "priority": "medium",
+    "note": "Premium product choice; this is not just a localization tweak.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 68,
+    "phase": "phase-4",
+    "roadmap_refs": [
+      "phase-4-interactive-card-ux",
+      "phase-2-manual-proficiency-level-and-german-support"
+    ],
+    "decision_refs": [
+      "decision-premium-goal-advanced"
+    ],
+    "evidence": "GOALS is still a single flat registry and the existing goal picker does not vary by language or subscription tier.",
+    "last_reviewed": "2026-07-14",
+    "depends_on": []
+  },
+  {
+    "title": "extra gamification beyond streak should be a premium reward surface",
+    "category": "feature",
+    "module": "db.py / bot.py / ROADMAP.md",
+    "func": "reward ledger / progress surfaces / profile views",
+    "problem": "The live product only exposes streak as a progress indicator. There is no reward ledger, badge surface, or premium progress model distinct from learning retention.",
+    "solution": "Keep streak and retention metrics separate from gamification, then add a premium reward layer for points, badges, or similar motivational surfaces only after the reward ledger and profile model are explicitly designed.",
+    "priority": "medium",
+    "note": "Premium-only by product choice; do not blend it with the learning score.",
+    "resolved": false,
+    "status": "open",
+    "detailOpen": false,
+    "editing": false,
+    "id": 69,
+    "phase": "phase-8",
+    "roadmap_refs": [
+      "mini-quizzes",
+      "later-product-phases"
+    ],
+    "decision_refs": [
+      "decision-premium-gamification"
+    ],
+    "evidence": "The roadmap already separates streak from retention points, and the codebase does not yet have a reward ledger or badge surface.",
+    "last_reviewed": "2026-07-14",
+    "depends_on": [
+      45
+    ]
   }
 ]
