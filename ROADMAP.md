@@ -191,12 +191,13 @@ separate concepts and must not be conflated.
 - Add focused reliability and progress tests
 - Plan staged handler and formatting module boundaries
 - Design the premium reward surface
+- Add durable failure telemetry and operator reporting
 
 **Acceptance criteria**
 - Restart does not resend completed work
 - One user's failure does not stop other users
 
-**Linked issues:** #42, #43, #44, #45, #46, #47, #49, #50, #57, #59, #60, #61, #62, #63, #66
+**Linked issues:** #42, #43, #44, #45, #46, #47, #49, #50, #57, #59, #60, #61, #62, #63, #66, #70
 
 ### phase-7: Premium Smart Placement Test
 

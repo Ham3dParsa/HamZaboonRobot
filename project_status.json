@@ -194,7 +194,8 @@
         "Resolve issues 42-47, 49, 50, and 59-63",
         "Add focused reliability and progress tests",
         "Plan staged handler and formatting module boundaries",
-        "Design the premium reward surface"
+        "Design the premium reward surface",
+        "Add durable failure telemetry and operator reporting"
       ],
       "acceptance_criteria": [
         "Restart does not resend completed work",
@@ -219,7 +220,8 @@
         61,
         62,
         63,
-        66
+        66,
+        70
       ],
       "roadmap_anchor": "phase-6-reliable-delivery-concurrency-and-data-lifecycle"
     },
