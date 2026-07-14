@@ -1129,6 +1129,18 @@ def _message_has_prepared_translations(update: Update) -> bool:
     return bool(message and "ترجمه‌ی مثال‌ها" in (message.text or ""))
 
 
+async def _answer_callback_safely(query, *args, **kwargs) -> None:
+    """Answer a callback query, ignoring expiry after slow preparation work."""
+    try:
+        await query.answer(*args, **kwargs)
+    except BadRequest as exc:
+        message = str(exc).casefold()
+        if "query is too old" in message or "query id is invalid" in message:
+            log.debug("skipped stale callback answer: %s", exc)
+        else:
+            raise
+
+
 async def _handle_daily_prepare(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -1208,15 +1220,19 @@ async def _handle_daily_prepare(
         )
     except BadRequest as exc:
         if "not modified" in str(exc).casefold():
-            await update.callback_query.answer("ترجمه‌ها قبلاً آماده شده‌اند.")
+            await _answer_callback_safely(
+                update.callback_query,
+                "ترجمه‌ها قبلاً آماده شده‌اند.",
+            )
         else:
             log.exception("failed to edit prepared daily card")
-            await update.callback_query.answer(
+            await _answer_callback_safely(
+                update.callback_query,
                 "نمایش ترجمه‌ها انجام نشد؛ لطفاً دوباره امتحان کنید.",
                 show_alert=True,
             )
         return
-    await update.callback_query.answer("ترجمه‌ها آماده شدند.")
+    await _answer_callback_safely(update.callback_query, "ترجمه‌ها آماده شدند.")
 
 
 async def _handle_query_prepare(
@@ -1277,15 +1293,19 @@ async def _handle_query_prepare(
         )
     except BadRequest as exc:
         if "not modified" in str(exc).casefold():
-            await update.callback_query.answer("ترجمه‌ها قبلاً آماده شده‌اند.")
+            await _answer_callback_safely(
+                update.callback_query,
+                "ترجمه‌ها قبلاً آماده شده‌اند.",
+            )
         else:
             log.exception("failed to edit prepared query card")
-            await update.callback_query.answer(
+            await _answer_callback_safely(
+                update.callback_query,
                 "نمایش ترجمه‌ها انجام نشد؛ لطفاً دوباره امتحان کنید.",
                 show_alert=True,
             )
         return
-    await update.callback_query.answer("ترجمه‌ها آماده شدند.")
+    await _answer_callback_safely(update.callback_query, "ترجمه‌ها آماده شدند.")
 
 
 async def _handle_srs_prepare(
@@ -1349,15 +1369,19 @@ async def _handle_srs_prepare(
         )
     except BadRequest as exc:
         if "not modified" in str(exc).casefold():
-            await update.callback_query.answer("ترجمه‌ها قبلاً آماده شده‌اند.")
+            await _answer_callback_safely(
+                update.callback_query,
+                "ترجمه‌ها قبلاً آماده شده‌اند.",
+            )
         else:
             log.exception("failed to edit prepared SRS card")
-            await update.callback_query.answer(
+            await _answer_callback_safely(
+                update.callback_query,
                 "نمایش ترجمه‌ها انجام نشد؛ لطفاً دوباره امتحان کنید.",
                 show_alert=True,
             )
         return
-    await update.callback_query.answer("ترجمه‌ها آماده شدند.")
+    await _answer_callback_safely(update.callback_query, "ترجمه‌ها آماده شدند.")
 
 
 async def _show_review_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
