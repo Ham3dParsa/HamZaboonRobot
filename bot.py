@@ -111,8 +111,8 @@ _ai_slots = threading.BoundedSemaphore(AI_MAX_CONCURRENCY)
 _ai_request_times: deque[float] = deque()
 _ai_request_lock = threading.Lock()
 _telegram_slots = asyncio.Semaphore(TELEGRAM_MAX_CONCURRENCY)
-_CUSTOM_WORD_MAX_CHARS = 42
-_CUSTOM_WORD_MAX_WORDS = 3
+_CUSTOM_WORD_MAX_CHARS = 50
+_CUSTOM_WORD_MAX_WORDS = 4
 _MANUAL_DAILY_BATCH_SIZE = 6
 _CANCEL_INPUTS = {
     "cancel",
@@ -181,36 +181,51 @@ def _grammar_tip_usage_text(row) -> str:
 
 
 def _normalize_custom_word_input(text: str) -> str:
-    return " ".join(text.split())
+    # پاک کردن علائم اضافی اما نگه داشتن برخی مفید
+    text = re.sub(r'[\s\u200c\u200b]+', ' ', text.strip())  # نیم‌فاصله و فضاهای مختلف
+    text = re.sub(r' +', ' ', text)                        # چند فاصله
+    return text.strip()
 
 
 def _custom_word_input_error(text: str, target_lang: str) -> str | None:
     normalized = _normalize_custom_word_input(text)
     if not normalized:
         return "یک واژه یا عبارت کوتاه بفرست."
+
     if len(normalized) > _CUSTOM_WORD_MAX_CHARS:
-        return f"فقط یک واژه یا عبارت کوتاهِ حداکثر {_CUSTOM_WORD_MAX_WORDS} کلمه‌ای بفرست."
+        return f"حداکثر {_CUSTOM_WORD_MAX_CHARS} کاراکتر مجاز است."
 
     words = normalized.split()
     if len(words) > _CUSTOM_WORD_MAX_WORDS:
         return f"فقط یک واژه یا عبارت کوتاهِ حداکثر {_CUSTOM_WORD_MAX_WORDS} کلمه‌ای بفرست."
-    if any(len(word) > 20 for word in words):
+
+    if any(len(word) > 25 for word in words):   # 20 → 25
         return "واژه یا عبارتت خیلی بلند است؛ کوتاه‌تر بفرست."
-    if any(char.isdigit() for char in normalized):
-        return "لطفاً فقط واژه یا عبارت بفرست، نه عدد و نشانه‌های اضافی."
-    if not re.fullmatch(r"[\w\s\u0600-\u06FF'’\-]+", normalized):
-        return "لطفاً فقط واژه یا عبارت ساده بفرست."
+
+    # اجازه عدد در برخی موارد (مثل "قرن ۲۱")
+    # اگر کاملاً نخواهی: این شرط را حذف کن
+    # if any(char.isdigit() for char in normalized) and not any(c.isalpha() for c in normalized):
+    #     return "لطفاً فقط واژه یا عبارت بفرست..."
+
+    # regex宽تر (بهتر)
+    if not re.fullmatch(r"[\w\s\u0600-\u06FF'’\-ـ.,?!«»؛،؟]+", normalized):
+        return "لطفاً فقط واژه یا عبارت ساده بفرست (علائم محدود مجاز است)."
 
     has_persian = bool(re.search(r"[\u0600-\u06FF]", normalized))
     has_latin = bool(re.search(r"[A-Za-z]", normalized))
+
     if not has_persian and not has_latin:
         return "یک واژه یا عبارت واقعی بفرست."
 
     latin_target = target_lang in {"en", "es", "fr", "de"}
-    if latin_target and has_persian and len(words) >= 3:
-        return "برای این زبان، یک واژه یا عبارت کوتاه‌تر و مرتبط‌تر بفرست."
-    if latin_target and not has_latin and len(words) > 2:
-        return "برای این زبان، یک واژه یا عبارت کوتاه‌تر و مرتبط‌تر بفرست."
+
+    # شل‌تر کردن شرط‌های زبان لاتین
+    if latin_target and has_persian and len(words) >= 4:          # 3 → 4
+        return "برای این زبان، عبارت کوتاه‌تری بفرست (حداکثر ۳-۴ کلمه)."
+
+    if latin_target and not has_latin and len(words) > 3:         # 2 → 3
+        return "برای این زبان، عبارت کوتاه‌تری بفرست (حداکثر ۳ کلمه)."
+
     return None
 
 
@@ -245,13 +260,13 @@ async def _exit_awaiting_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
     reply_markup = main_menu(is_owner(user_id))
     if via_callback:
         try:
-            await update.callback_query.edit_message_text("انصراف شد.")
+            await update.callback_query.edit_message_text("لغو شد.")
         except BadRequest:
             log.info("cancel callback edit failed; continuing with menu message")
-        await update.callback_query.message.reply_text("انصراف شد.", reply_markup=reply_markup)
-        await update.callback_query.answer("انصراف شد.", show_alert=False)
+        await update.callback_query.message.reply_text("لغو شد.", reply_markup=reply_markup)
+        await update.callback_query.answer("لغو شد.", show_alert=False)
         return
-    await update.message.reply_text("انصراف شد.", reply_markup=reply_markup)
+    await update.message.reply_text("لغو شد.", reply_markup=reply_markup)
 
 
 async def _edit_or_send(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, **kwargs):
@@ -438,7 +453,7 @@ def format_card(
         example_label = escape_mdv2("مثال‌ها + ترجمه" if translations_prepared else "مثال‌ها")
         lines.append(f"\n📝 *{example_label}:*")
         for index, example in enumerate(examples):
-            lines.append(f"• {escape_mdv2(example)}")
+            lines.append(f"✦ {escape_mdv2(example)}")
             if translations_prepared and index < len(translations):
                 lines.append(f"||{escape_mdv2(translations[index])}||")
 
@@ -567,11 +582,19 @@ async def on_level_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     goal_name = goal_label(row["goal"])
     level_name = level_label(level)
     cefr = level_cefr(level)
+    
+    # Robust escaping for MarkdownV2
+    text = f"عالی! سطح تو *{level_name}* ({cefr}) ثبت شد."
+    text_to_send = text.replace("*", "@@@")
+    text_to_send = escape_mdv2(text_to_send)
+    text_to_send = text_to_send.replace("@@@", "*")
+    
+    log.debug(f"Sending message: {text_to_send}")
 
     await _edit_or_send(
         update,
         context,
-        f"عالی! سطح تو *{escape_mdv2(level_name)}* \\({escape_mdv2(cefr)}\\) ثبت شد\\.",
+        text_to_send,
         parse_mode=ParseMode.MARKDOWN_V2,
     )
     await context.bot.send_message(
@@ -2722,7 +2745,7 @@ def main():
             ),
         )
 
-    log.info("ربات هم‌زبان استارت شد.")
+    log.info("The bot is starting...")
     app.run_polling()
 
 
