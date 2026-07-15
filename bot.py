@@ -401,6 +401,11 @@ def _phonetic_lines(value: str) -> list[str]:
             if settings.get(key):
                 rendered.append(f"`{escape_mdv2_code(f'{label}: {sections[key]}')}`")
         return rendered
+    
+    # Fallback for unlabeled/legacy cards:
+    # Treat them as 'Latin' pronunciation if labels are missing.
+    if settings.get("latin"):
+        return [f"`{escape_mdv2_code(raw)}`"]
     return []
 
 
