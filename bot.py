@@ -390,21 +390,35 @@ def _phonetic_lines(value: str | dict) -> list[str]:
         raw = (value or "").strip()
         if not raw:
             return []
-        lines = raw.splitlines()
-        # Fallback for old cards that didn't follow the IPA\nLatin\nPersian format
-        if len(lines) >= 3:
-            sections = {"ipa": lines[0].strip(), "latin": lines[1].strip(), "persian": lines[2].strip()}
+            
+        # Try to parse as JSON string representation
+        if raw.startswith("{") and raw.endswith("}"):
+            try:
+                # Replace single quotes with double for valid JSON
+                sections = json.loads(raw.replace("'", '"'))
+            except (json.JSONDecodeError, Exception):
+                # Fallback to legacy parsing if JSON parsing fails
+                lines = raw.splitlines()
+                if len(lines) >= 3:
+                    sections = {"ipa": lines[0].strip(), "latin": lines[1].strip(), "persian": lines[2].strip()}
+                else:
+                    sections = {"ipa": raw, "latin": "", "persian": ""}
         else:
-            sections = {"ipa": raw, "latin": "", "persian": ""}
+            # Original legacy logic
+            lines = raw.splitlines()
+            if len(lines) >= 3:
+                sections = {"ipa": lines[0].strip(), "latin": lines[1].strip(), "persian": lines[2].strip()}
+            else:
+                sections = {"ipa": raw, "latin": "", "persian": ""}
             
     # Now render
     rendered = []
-    if settings.get("ipa") and sections.get("ipa"):
-        rendered.append(f"`{escape_mdv2_code(f'IPA: {sections.get('ipa')}')}`")
-    if settings.get("latin") and sections.get("latin"):
-        rendered.append(f"`{escape_mdv2_code(f'Latin: {sections.get('latin')}')}`")
-    if settings.get("persian") and sections.get("persian"):
-        rendered.append(f"`{escape_mdv2_code(f'Persian: {sections.get('persian')}')}`")
+    # Fixed order: IPA, Latin, Persian
+    for key in ['ipa', 'latin', 'persian']:
+        val = sections.get(key)
+        if settings.get(key) and val:
+            # Just the value, no label, wrapped in backticks
+            rendered.append(f"`{escape_mdv2_code(str(val))}`")
         
     return rendered
 
