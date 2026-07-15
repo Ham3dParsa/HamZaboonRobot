@@ -401,8 +401,6 @@ def _phonetic_lines(value: str) -> list[str]:
             if settings.get(key):
                 rendered.append(f"`{escape_mdv2_code(f'{label}: {sections[key]}')}`")
         return rendered
-    if any(settings.values()):
-        return [f"`{escape_mdv2_code(raw)}`"]
     return []
 
 
@@ -426,7 +424,7 @@ def format_card(
     if phon_lines:
         lines.extend(phon_lines)
 
-    lines.append(f"\n🇮🇷 *{fa_meaning}*")
+    lines.append(f"\n*{fa_meaning}* ✤")
 
     if fa_expl:
         lines.append(f"{fa_expl}")

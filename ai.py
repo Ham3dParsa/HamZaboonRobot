@@ -194,9 +194,9 @@ def _validate_optional_rich_list(field: str, values: list[str]) -> None:
     if not values:
         return
     normalized = [" ".join(value.split()).casefold() for value in values]
-    if len(values) < 2 or len(set(normalized)) != len(values):
+    if len(set(normalized)) != len(values):
         raise CardValidationError(
-            f"Card field '{field}' must contain at least two distinct items"
+            f"Card field '{field}' must contain distinct items"
         )
 
 
