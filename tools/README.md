@@ -44,4 +44,13 @@ python tools/inspect_outputs.py --filter "Beautiful"
 *Note: Currently, it is not possible to filter by language, goal, or level, as this metadata is not stored in the database alongside the card content.*
 
 ---
+
+## Important Update: Phonetic Normalization
+
+As of July 2026, the phonetic validation logic has been unified and strengthened. 
+- LLM-generated phonetic data is now strictly normalized into a structured `{"ipa": ..., "latin": ..., "persian": ...}` format.
+- Unstructured, malformed, or legacy pipe-separated phonetic strings that do not conform to this structure will be rejected during card generation or validation.
+- When generating cards using `generate_cards.py`, ensure the LLM prompt or output adheres to the expected 3-line labeled format (e.g., `IPA:`, `Latin:`, `Persian:`) or the strictly supported pipe-separated legacy format (`IPA | Latin | Persian`).
+
+---
 *Note: Always ensure you have a backup of `hamzaban.db` before performing operations that modify the database.*

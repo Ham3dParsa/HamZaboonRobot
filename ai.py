@@ -135,16 +135,34 @@ _COMPACT_CARD_FIELDS = {
 _PHONETIC_LINE_RE = re.compile(r"^\s*(ipa|latin|persian)\s*:\s*(.+?)\s*$", re.IGNORECASE)
 
 
-def _phonetic_sections(value: object) -> dict[str, str] | None:
-    if not isinstance(value, str):
+def normalize_phonetic(raw: str) -> dict[str, str] | None:
+    raw = raw.strip()
+    if not raw:
         return None
+
+    # Strategy 1: Label-based parsing
     sections: dict[str, str] = {}
-    for line in value.splitlines():
+    for line in raw.splitlines():
         match = _PHONETIC_LINE_RE.match(line)
         if match:
             sections[match.group(1).casefold()] = match.group(2).strip()
+    
     if {"ipa", "latin", "persian"} <= set(sections):
-        return sections
+        return {
+            "ipa": sections["ipa"],
+            "latin": sections["latin"],
+            "persian": sections["persian"],
+        }
+
+    # Strategy 2: Legacy pipe-separated parsing
+    parts = [p.strip() for p in raw.split("|")]
+    if len(parts) == 3 and all(parts):
+        return {
+            "ipa": parts[0],
+            "latin": parts[1],
+            "persian": parts[2],
+        }
+
     return None
 
 
@@ -218,17 +236,12 @@ def validate_card(data: object) -> dict:
 
     # Normalize phonetic field to structured format
     phonetic_raw = str(data.get("phonetic") or "").strip()
-    phonetic_normalized = phonetic_raw
-    if phonetic_raw and "\n" in phonetic_raw:
-        lines = phonetic_raw.splitlines()
-        if len(lines) >= 3:
-            phonetic_normalized = {
-                "ipa": lines[0].strip(),
-                "latin": lines[1].strip(),
-                "persian": lines[2].strip()
-            }
-        else:
-            phonetic_normalized = {"ipa": phonetic_raw, "latin": "", "persian": ""}
+    if not phonetic_raw:
+        phonetic_normalized = {"ipa": "", "latin": "", "persian": ""}
+    else:
+        phonetic_normalized = normalize_phonetic(phonetic_raw)
+        if phonetic_normalized is None:
+            raise CardValidationError("Card field 'phonetic' is malformed")
 
     return {
         "word": _required_text(data, "word"),
@@ -278,7 +291,7 @@ def card_repair_fields(data: object) -> list[str]:
     phonetic_value = data.get("phonetic")
     if phonetic_value is None:
         phonetic_value = data.get("ph")
-    if isinstance(phonetic_value, str) and phonetic_value.strip() and _phonetic_sections(phonetic_value) is None:
+    if isinstance(phonetic_value, str) and phonetic_value.strip() and normalize_phonetic(phonetic_value) is None:
         fields.append("phonetic")
 
     for field in ("synonyms", "antonyms"):
