@@ -28,7 +28,7 @@ A diagnostic tool to inspect and validate existing vocabulary cards stored in th
 **Features:**
 - Configurable output limits.
 - Supports randomization of results.
-- Keyword filtering within the raw card JSON.
+- Keyword filtering within the raw card JSON (searches across all content).
 
 **Usage:**
 ```bash
@@ -41,6 +41,7 @@ python tools/inspect_outputs.py --limit 3 --random
 # Search for cards containing a specific keyword
 python tools/inspect_outputs.py --filter "Beautiful"
 ```
+*Note: Currently, it is not possible to filter by language, goal, or level, as this metadata is not stored in the database alongside the card content.*
 
 ---
 *Note: Always ensure you have a backup of `hamzaban.db` before performing operations that modify the database.*
