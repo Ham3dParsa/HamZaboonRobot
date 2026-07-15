@@ -380,33 +380,33 @@ def _phonetic_display_settings() -> dict[str, bool]:
     return db.get_phonetic_display_settings()
 
 
-def _phonetic_lines(value: str) -> list[str]:
-    raw = (value or "").strip()
-    if not raw:
-        return []
-    sections: dict[str, str] = {}
-    for line in raw.splitlines():
-        match = _PHONETIC_LINE_RE.match(line)
-        if match:
-            sections[match.group(1).casefold()] = match.group(2).strip()
+def _phonetic_lines(value: str | dict) -> list[str]:
     settings = _phonetic_display_settings()
-    if {"ipa", "latin", "persian"} <= set(sections):
-        labels = [
-            ("ipa", "IPA"),
-            ("latin", "Latin"),
-            ("persian", "Persian"),
-        ]
-        rendered = []
-        for key, label in labels:
-            if settings.get(key):
-                rendered.append(f"`{escape_mdv2_code(f'{label}: {sections[key]}')}`")
-        return rendered
     
-    # Fallback for unlabeled/legacy cards:
-    # Treat them as 'Latin' pronunciation if labels are missing.
-    if settings.get("latin"):
-        return [f"`{escape_mdv2_code(raw)}`"]
-    return []
+    if isinstance(value, dict):
+        sections = value
+    else:
+        # Legacy: parse the old string format (IPA \n Latin \n Persian)
+        raw = (value or "").strip()
+        if not raw:
+            return []
+        lines = raw.splitlines()
+        # Fallback for old cards that didn't follow the IPA\nLatin\nPersian format
+        if len(lines) >= 3:
+            sections = {"ipa": lines[0].strip(), "latin": lines[1].strip(), "persian": lines[2].strip()}
+        else:
+            sections = {"ipa": raw, "latin": "", "persian": ""}
+            
+    # Now render
+    rendered = []
+    if settings.get("ipa") and sections.get("ipa"):
+        rendered.append(f"`{escape_mdv2_code(f'IPA: {sections.get('ipa')}')}`")
+    if settings.get("latin") and sections.get("latin"):
+        rendered.append(f"`{escape_mdv2_code(f'Latin: {sections.get('latin')}')}`")
+    if settings.get("persian") and sections.get("persian"):
+        rendered.append(f"`{escape_mdv2_code(f'Persian: {sections.get('persian')}')}`")
+        
+    return rendered
 
 
 def format_card(

@@ -216,9 +216,23 @@ def validate_card(data: object) -> dict:
     _validate_optional_rich_list("synonyms", synonyms)
     _validate_optional_rich_list("antonyms", antonyms)
 
+    # Normalize phonetic field to structured format
+    phonetic_raw = str(data.get("phonetic") or "").strip()
+    phonetic_normalized = phonetic_raw
+    if phonetic_raw and "\n" in phonetic_raw:
+        lines = phonetic_raw.splitlines()
+        if len(lines) >= 3:
+            phonetic_normalized = {
+                "ipa": lines[0].strip(),
+                "latin": lines[1].strip(),
+                "persian": lines[2].strip()
+            }
+        else:
+            phonetic_normalized = {"ipa": phonetic_raw, "latin": "", "persian": ""}
+
     return {
         "word": _required_text(data, "word"),
-        "phonetic": str(data.get("phonetic") or "").strip(),
+        "phonetic": phonetic_normalized,
         "fa_meaning": _required_text(data, "fa_meaning"),
         "fa_explanation": _required_text(data, "fa_explanation"),
         "synonyms": synonyms,

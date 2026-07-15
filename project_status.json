@@ -182,7 +182,8 @@
       "done": [
         "Durable queues and bounded retries",
         "Async-safe provider calls",
-        "Callback validation and restart recovery"
+        "Callback validation and restart recovery",
+        "Phonetic data normalization"
       ],
       "in_progress": [
         "Adaptive SRS correctness",
