@@ -91,10 +91,11 @@ an unverified code edit.
 
 ### Logic-lock and bilateral-approval rule
 
-The agent must not invent missing algorithmic behavior, silently widen scope,
-or lock a product/architecture decision to close an inferred gap. Before
-changing learner-facing behavior, persistence semantics, quotas, scheduling,
-callbacks, AI contracts, or module boundaries, the agent must:
+The agent **IS FORBIDDEN FROM** inventing missing algorithmic behavior,
+silently widening scope, or locking a product/architecture decision to close
+an inferred gap. This applies to **ANY behavioral change including bug fixes**.
+Before changing learner-facing behavior, persistence semantics, quotas,
+scheduling, callbacks, AI contracts, or module boundaries, the agent must:
 
 1. State the observed invariant and the exact uncertainty.
 2. Separate the smallest requested fix from optional cleanup or redesign.
@@ -106,7 +107,7 @@ callbacks, AI contracts, or module boundaries, the agent must:
 
 After implementation, the agent must report what changed, what was
 deliberately not changed, and what remains uncertain. Debugging must target
-the demonstrated root cause; opportunistic “extra fixes” or speculative
+the demonstrated root cause; opportunistic "extra fixes" or speculative
 hardening are out of scope unless explicitly approved. If a safe workaround
 exists, document it rather than silently converting it into a permanent
 product rule.
@@ -119,7 +120,7 @@ not ask for one blanket approval. Instead:
 1. Decompose the behavior into separately numbered rules.
 2. For each rule, present a recommended option plus meaningful alternatives.
    Explain each option concretely, including its behavior, cost, UX,
-   compatibility, and regression trade-offs where relevant.
+   compatibility, and regression trade-offs where relevant. **Present alternatives in a comparison table format.**
 3. Ask the project owner to choose each rule independently. A custom answer
    must be supported; choosing the recommendation for one rule does not imply
    approval of the others.
@@ -129,6 +130,34 @@ not ask for one blanket approval. Instead:
 5. After implementation, report which locked rules changed, which were
    deliberately not changed, and what remains uncertain. Verify each rule
    with focused tests or other concrete evidence.
+
+### Mandatory Pre-Implementation Contract Lock Gate
+
+**BEFORE ANY CODE CHANGE—exploratory, trivial, bug fix, or major—the agent MUST:**
+
+1. **STOP** and identify all logical gaps, uncertainties, and decision points.
+2. **PRESENT** each as a numbered rule with: recommended option + ≥1 alternative + concrete trade-offs in a comparison table.
+3. **OBTAIN** explicit owner choice per rule (no blanket approvals).
+4. **SUMMARIZE** the locked contract in writing using the template below.
+5. **CONFIRM** owner says "proceed" or "locked" before touching code.
+
+**VIOLATION CONSEQUENCE**: If the agent implements without a LOCKED gate, the owner may discard all uncommitted changes, require full rework from the gate, and/or terminate the session. No exceptions.
+
+**GATE KEYWORD**: The agent must include **`GATE: Contract lock required before proceeding`** in its response before any implementation.
+
+#### Contract Lock Template (agent must fill completely)
+
+```
+## CONTRACT LOCK TEMPLATE (agent must fill completely)
+
+Rule #: [N]
+Decision: [one-line description]
+Option Chosen: [A/B/C...]
+Alternatives Rejected: [list with one-line reason each]
+Trade-offs: [cost/UX/compatibility/regression per alternative]
+Owner Confirmation: [quote owner's "proceed" or "locked"]
+GATE STATUS: [LOCKED / PENDING]
+```
 
 ## 3. Repository Architecture
 
@@ -222,19 +251,17 @@ limits, cost exposure, or stored learning data.
 
 For a non-trivial task:
 
-1. Create a fresh feature branch from the latest `origin/main`.
-2. Read the relevant source, tests, roadmap section, and issue records before
-   editing.
-3. Make the smallest coherent implementation.
-4. Add or update focused tests for changed behavior. Never weaken or rewrite
-   tests solely to make them pass.
-5. Update `issues/issues.json` and `ROADMAP.md` as required by Section 2.
-6. Run the validation commands below.
-7. Review the diff against `origin/main`, including generated/unintended
-   files and secrets.
-8. Fetch the repository PR template, commit functional changes, push the
-   branch, and open one focused PR.
-9. Check CI and address review feedback before declaring the work complete.
+0. **Contract lock confirmed per Section 2.5 (Mandatory Pre-Implementation Contract Lock Gate).**
+1. Implement on current branch (or stash changes); run full validation (Section 6).
+2. **Create a fresh feature branch from the latest `origin/main`** using convention: `type/short-desc` (e.g., `feat/custom-words`, `fix/collision-retry`).
+3. Stage modified files explicitly: `git add file1.py file2.py` (never `git add .`).
+4. Commit with Conventional Commits format: `type(scope): subject` (e.g., `fix(bot): handle collision retry`).
+5. Push branch and create PR via `gh pr create --fill --base main`.
+6. Owner reviews and merges on GitHub using **Squash and merge**.
+7. Delete branch after merge (GitHub "Delete branch" button or `git branch -d`).
+8. Update `issues/issues.json` and `ROADMAP.md` as required by Section 2.
+9. Run the validation commands below.
+10. Check CI and address review feedback before declaring the work complete.
 
 Do not combine unrelated user-facing features, broad refactors, and issue
 cleanup in one PR. If a discovered issue is outside the requested scope,
@@ -271,26 +298,83 @@ checks after the PR is opened.
 
 ## 7. Git and Security Discipline
 
-- Keep edits focused and reviewable.
+### Mandatory Pre-Commit Validation Gate
+
+**BEFORE ANY COMMIT, the agent MUST:**
+
+1. Run the full validation suite (Section 6).
+2. Run `git diff --check` and `git diff --staged --check` — no whitespace errors.
+3. Verify no secrets, credentials, tokens, API keys, or generated secrets in staged changes.
+4. Confirm single logical change per commit (Section 5 Steps 3–4).
+5. Verify branch naming convention: `type/short-desc` with type in `feat|fix|docs|refactor|test|chore`.
+
+**VIOLATION CONSEQUENCE**: If the agent commits without passing the validation gate, the owner may discard the commit, require rework from a clean state, and/or terminate the session. No exceptions.
+
+**GATE KEYWORD**: The agent must include **`GATE: Git validation required before commit`** in its response before any commit.
+
+### Commit Rules
+
+- **Single logical commit per PR** — one coherent change (feature, fix, docs, refactor, test, chore).
+- **Conventional Commits format**: `type(scope): subject`
+  - Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
+  - Scope: module or subsystem (e.g., `bot`, `db`, `ai`, `catalog`, `scheduling`)
+  - Subject: imperative, lowercase, no trailing period
+  - Example: `fix(bot): handle collision retry on network error`
+- **Explicit staging only**: `git add file1.py file2.py` — never `git add .` or `git add -A`.
+- **No commit amending** — add corrective commit if needed.
+- **No destructive Git commands**: `reset --hard`, `clean -fd`, force-push protected branches.
+- **Never skip hooks** unless owner explicitly requests.
+
+### Branch & PR Rules
+
+- **Branch naming**: `type/short-desc` (e.g., `feat/custom-words`, `fix/collision-retry`, `docs/git-workflow`).
+- **Branch creation**: After validation passes (Section 5 Step 2), not before implementation.
+- **PR creation**: Agent runs `gh pr create --fill --base main` — owner merges on GitHub UI.
+- **Merge method**: **Squash and merge** on GitHub (single commit on `main`).
+- **Post-merge**: Delete branch (GitHub button or `git branch -d branch-name`).
+- **Local merge fallback only** with explicit owner instruction: `git checkout main && git pull && git merge --ff-only branch-name`.
+
+### Security Rules
+
 - Do not commit `.env`, credentials, tokens, API keys, or generated secrets.
-- Do not use destructive Git commands such as `reset --hard`, `clean -fd`,
-  or force-push protected branches.
-- Never skip hooks unless the user explicitly requests it.
-- Stage intended files explicitly; do not use `git add .`.
-- Do not amend commits; add a corrective commit when needed.
-- Do not modify security policies or dependency protections to bypass a
-  failing check.
 - Prefer established dependencies and standard-library solutions.
-- Treat database migrations as production code: preserve existing data,
-  handle old schemas, and test both fresh and upgraded databases.
+- Treat database migrations as production code: preserve existing data, handle old schemas, test both fresh and upgraded databases.
 
 ## 8. Product Scope Guardrails
 
 The current next user-facing direction is custom-word query improvement:
-visible quota, idempotent “Add to review”, and removal of the separate manual
+visible quota, idempotent "Add to review", and removal of the separate manual
 save action from the primary flow. Reliability and data correctness take
 priority over additional premium features.
 
 Do not introduce payment automation, groups, leaderboards, AI images, broad
 analytics, or advanced placement testing unless the user explicitly moves
 them into scope through `ROADMAP.md`.
+
+## Appendix A: Agent Self-Check Checklist
+
+Before every implementation message, the agent MUST verify:
+
+- [ ] All logical gaps identified and presented as numbered rules
+- [ ] Each rule has: recommended option + ≥1 alternative in comparison table
+- [ ] Owner has explicitly chosen each rule independently
+- [ ] Contract lock template filled completely
+- [ ] Owner confirmation quoted ("proceed" or "locked")
+- [ ] GATE STATUS = LOCKED
+- [ ] `GATE: Contract lock required before proceeding` keyword present in response
+- [ ] No code changes proposed or implemented before gate lock
+- [ ] Section 2.3 (Logic-lock) compliance: no invented behavior, no silent scope widening
+- [ ] Section 2.4 (Contract-locking) compliance: decomposition, alternatives, independent choices
+- [ ] Step 0 of Section 5 satisfied (contract lock confirmed)
+
+Before every commit, the agent MUST verify:
+
+- [ ] Full validation suite passed (Section 6)
+- [ ] `git diff --check` and `git diff --staged --check` clean
+- [ ] No secrets in staged changes
+- [ ] Single logical commit (Conventional Commits format)
+- [ ] Explicit `git add file1.py file2.py` only
+- [ ] Branch name follows `type/short-desc` convention
+- [ ] `GATE: Git validation required before commit` keyword present in response
+
+(End of file)
