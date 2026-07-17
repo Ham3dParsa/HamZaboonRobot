@@ -1018,16 +1018,24 @@ def get_daily_cards(user_id: int, card_date: str):
 
 def get_recent_daily_words(
     user_id: int,
+    target_lang: str | None = None,
     *,
     exclude_date: str | None = None,
     limit: int = 50,
 ) -> list[str]:
-    query = "SELECT card_data FROM daily_cards WHERE user_id=?"
+    query = (
+        "SELECT d.card_data FROM daily_cards d"
+        " LEFT JOIN daily_card_sessions s ON d.user_id = s.user_id AND d.card_date = s.card_date"
+        " WHERE d.user_id=?"
+    )
     params: list[object] = [user_id]
+    if target_lang is not None:
+        query += " AND (s.target_lang = ? OR s.target_lang IS NULL)"
+        params.append(target_lang)
     if exclude_date is not None:
-        query += " AND card_date<>?"
+        query += " AND d.card_date<>?"
         params.append(exclude_date)
-    query += " ORDER BY card_date DESC, card_index DESC LIMIT ?"
+    query += " ORDER BY d.card_date DESC, d.card_index DESC LIMIT ?"
     params.append(limit)
     words: list[str] = []
     with get_conn() as conn:

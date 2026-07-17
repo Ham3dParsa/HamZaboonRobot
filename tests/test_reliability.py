@@ -396,6 +396,23 @@ class ReliabilityPersistenceTests(unittest.TestCase):
             ["recent"],
         )
 
+    def test_recent_daily_words_filters_by_language(self):
+        db.create_user_if_needed(2, "learner")
+        db.ensure_daily_card_session(2, "2026-07-10", "en", "general", "beginner")
+        db.ensure_daily_card_session(2, "2026-07-11", "de", "general", "beginner")
+        db.add_daily_card(2, "2026-07-10", 0, {"word": "hello"})
+        db.add_daily_card(2, "2026-07-10", 1, {"word": "world"})
+        db.add_daily_card(2, "2026-07-11", 0, {"word": "hallo"})
+        db.add_daily_card(2, "2026-07-11", 1, {"word": "welt"})
+        en_words = db.get_recent_daily_words(2, "en")
+        de_words = db.get_recent_daily_words(2, "de")
+        self.assertIn("hello", en_words)
+        self.assertIn("world", en_words)
+        self.assertNotIn("hallo", en_words)
+        self.assertIn("hallo", de_words)
+        self.assertIn("welt", de_words)
+        self.assertNotIn("hello", de_words)
+
     def test_recent_grammar_tip_titles_are_language_scoped(self):
         db.create_user_if_needed(1, "learner")
         db.add_grammar_tip(1, "Adjectives", "en", "general", "beginner", {"title": "Adjectives"})
