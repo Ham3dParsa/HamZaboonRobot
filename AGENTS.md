@@ -101,14 +101,14 @@ The canonical schema for issue records is defined in
 `issues/issues.schema.json`. Use it for IDE autocompletion and CI validation;
 it stays synchronized with the programmatic rules in `issues/validate.py`.
 
-### 2.3 Logic-lock and bilateral-approval rule
+### 2.2 Logic-lock and bilateral-approval rule
 
 The agent **IS FORBIDDEN FROM** inventing missing algorithmic behavior,
 silently widening scope, or locking a product/architecture decision to close
 an inferred gap. This applies to **ANY behavioral change including bug fixes**.
 Before changing learner-facing behavior, persistence semantics, quotas,
 scheduling, callbacks, AI contracts, or module boundaries, the agent must
-follow the gate protocol in Section 2.5.
+follow the gate protocol in Section 2.4.
 
 After implementation, the agent must report what changed, what was
 deliberately not changed, and what remains uncertain. Debugging must target
@@ -117,11 +117,11 @@ hardening are out of scope unless explicitly approved. If a safe workaround
 exists, document it rather than silently converting it into a permanent
 product rule.
 
-### 2.4 Owner contract-locking protocol
+### 2.3 Owner contract-locking protocol
 
 When a requested behavior contains multiple algorithmic or product rules, do
 not ask for one blanket approval. Instead, apply the gate protocol in
-Section 2.5 with this additional requirement: decompose the behavior into
+Section 2.4 with this additional requirement: decompose the behavior into
 separately numbered rules, each presented with a recommended option plus
 meaningful alternatives in a comparison table. The owner must choose each
 rule independently; choosing the recommendation for one rule does not imply
@@ -131,7 +131,7 @@ After implementation, report which locked rules changed, which were
 deliberately not changed, and what remains uncertain. Verify each rule with
 focused tests or other concrete evidence.
 
-### 2.5 Mandatory Pre-Implementation Contract Lock Gate
+### 2.4 Mandatory Pre-Implementation Contract Lock Gate
 
 **BEFORE ANY CODE CHANGE—exploratory, trivial, bug fix, or major—the agent MUST:**
 
@@ -160,7 +160,7 @@ Owner Confirmation: [quote owner's "proceed" or "locked"]
 GATE STATUS: [LOCKED / PENDING]
 ```
 
-#### 2.5.1 Fast-track exception for non-behavioral changes
+#### 2.4.1 Fast-track exception for non-behavioral changes
 
 Changes that are strictly non-behavioral MAY skip the full comparison-table
 gate. The following qualify:
@@ -319,7 +319,7 @@ limits, cost exposure, or stored learning data.
 
 For a non-trivial task:
 
-0. **Contract lock confirmed per Section 2.5 (Mandatory Pre-Implementation Contract Lock Gate).**
+0. **Contract lock confirmed per Section 2.4 (Mandatory Pre-Implementation Contract Lock Gate).**
 1. Implement on current branch (or stash changes); run full validation (Section 6).
 2. **Create a fresh feature branch from the latest `origin/main`** using convention: `type/short-desc` (e.g., `feat/custom-words`, `fix/collision-retry`).
 3. **Write focused unit tests** in `tests/` for any new logic, edge cases, or database schema changes introduced by the implementation.
@@ -372,7 +372,7 @@ If a test fails because the underlying product logic was intentionally changed o
 a) The agent **MUST NOT** silently delete, disable, or ignore the test.
 b) The agent **MUST NOT** revert correct code modifications just to make an outdated test pass.
 c) The agent **MUST** determine if the failure is due to a bug or an intentional logic change. If intentional, the agent must update or rewrite the unit test to reflect the new canonical behavior, ensuring test coverage remains intact.
-d) If the agent is uncertain whether a test failure represents a regression or an obsolete expectation, it **MUST halt and ask the project owner** per the fallback protocol in Section 2.5.
+d) If the agent is uncertain whether a test failure represents a regression or an obsolete expectation, it **MUST halt and ask the project owner** per the fallback protocol in Section 2.4.
 
 ## 7. Git and Security Discipline
 
@@ -459,8 +459,8 @@ Before every implementation message, the agent MUST verify:
 - [ ] GATE STATUS = LOCKED
 - [ ] `<SYSTEM_GATE> Contract lock required before proceeding </SYSTEM_GATE>` keyword present in response
 - [ ] No code changes proposed or implemented before gate lock
-- [ ] Section 2.3 (Logic-lock) compliance: no invented behavior, no silent scope widening
-- [ ] Section 2.4 (Contract-locking) compliance: decomposition, alternatives, independent choices
+- [ ] Section 2.2 (Logic-lock) compliance: no invented behavior, no silent scope widening
+- [ ] Section 2.3 (Contract-locking) compliance: decomposition, alternatives, independent choices
 - [ ] Step 0 of Section 5 satisfied (contract lock confirmed)
 - [ ] Owner inquiries for logical gaps/uncertainties made via `question` tool (multiple: true for decisions, custom: true for clarifications)
 
@@ -473,6 +473,6 @@ Before every commit, the agent MUST verify:
 - [ ] Explicit `git add file1.py file2.py` only
 - [ ] Branch name follows `type/short-desc` convention
 - [ ] `<SYSTEM_GATE> Git validation required before commit </SYSTEM_GATE>` keyword present in response
-- [ ] Test failures classified (bug vs. intentional change); uncertain cases resolved via `question` tool with `custom: true` per fallback protocol in Section 2.5
+- [ ] Test failures classified (bug vs. intentional change); uncertain cases resolved via `question` tool with `custom: true` per fallback protocol in Section 2.4
 
 (End of file)
