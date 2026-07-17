@@ -1469,8 +1469,8 @@
         "solution": "Either (A) revert line 879 to 3-argument call _daily_avoid_words(user_id, queue_row[\"delivery_date\"], existing), or (B) update the function signature to accept lang parameter and update all 3 call sites consistently (lines 856, 879, 908).",
         "priority": "high",
         "note": "Blocks all scheduled delivery for every user. The function signature and call sites are out of sync due to incomplete refactor.",
-        "resolved": false,
-        "status": "open",
+        "resolved": true,
+        "status": "resolved",
         "detailOpen": false,
         "editing": false,
         "id": 71,
@@ -1479,8 +1479,8 @@
             "reliability-and-data-lifecycle"
         ],
         "decision_refs": [],
-        "evidence": "bot.py:879 calls _daily_avoid_words with 4 args but signature at bot.py:814 only accepts 3: (user_id, card_date, current_cards). Line 856 and 908 correctly pass 3 args. Working tree shows partial refactor: the call site was updated to add session[\"target_lang\"] but the function signature was not.",
-        "last_reviewed": "2026-07-18",
+        "evidence": "Merge commit 96ebe0f: ai.py normalize_phonetic/validate_card drop latin; catalog.py phonetic_guidance updated; prompts.py schema 2 lines; bot.py _phonetic_lines 2-line parse; db.py/config.py/keyboards.py Latin toggle removed; tools/migrate_phonetics.py strips latin; tests updated",
+        "last_reviewed": "2026-07-17",
         "depends_on": []
     }
 ];
