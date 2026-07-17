@@ -104,8 +104,8 @@ scheduling, callbacks, AI contracts, or module boundaries, the agent must:
 1. State the observed invariant and the exact uncertainty.
 2. Separate the smallest requested fix from optional cleanup or redesign.
 3. Present assumptions, alternatives, side effects, and regression risks.
-4. Ask the project owner for focused guidance when the intended behavior is
-   not explicit.
+4. Ask the project owner for focused guidance **using the `question` tool** when the intended behavior is
+   not explicit. Use `multiple: true` for decision options (comparison tables) and `custom: true` for open-ended clarifications. The agent **MUST halt implementation** and present findings as a clear, focused inquiry via the `question` tool. The agent is strictly forbidden from proceeding with code edits until the owner explicitly answers or chooses a decision option.
 5. Record the agreed rule as a proposed or locked decision before relying on
    it in implementation.
 
@@ -124,8 +124,8 @@ not ask for one blanket approval. Instead:
 1. Decompose the behavior into separately numbered rules.
 2. For each rule, present a recommended option plus meaningful alternatives.
    Explain each option concretely, including its behavior, cost, UX,
-   compatibility, and regression trade-offs where relevant. **Present alternatives in a comparison table format.**
-3. Ask the project owner to choose each rule independently. A custom answer
+   compatibility, and regression trade-offs where relevant. **Present alternatives in a comparison table format using the `question` tool with `multiple: true` to harvest its UX benefits for the project owner.**
+3. Ask the project owner to choose each rule independently **via the `question` tool**. A custom answer
    must be supported; choosing the recommendation for one rule does not imply
    approval of the others.
 4. Summarize the selected rules as a locked contract before implementation,
@@ -142,8 +142,9 @@ not ask for one blanket approval. Instead:
 1. **STOP** and identify all logical gaps, uncertainties, and decision points.
 2. **PRESENT** each as a numbered rule with: recommended option + ≥1 alternative + concrete trade-offs in a comparison table.
 3. **OBTAIN** explicit owner choice per rule (no blanket approvals).
-4. **SUMMARIZE** the locked contract in writing using the template below.
-5. **CONFIRM** owner says "proceed" or "locked" before touching code.
+4. If any logical gap, ambiguous test failure, or architectural uncertainty arises during gate preparation, the agent **MUST halt** and present its findings as a clear, focused inquiry to the project owner **using the `question` tool**. The agent is strictly forbidden from proceeding with code edits until the owner explicitly answers or chooses a decision option.
+5. **SUMMARIZE** the locked contract in writing using the template below.
+6. **CONFIRM** owner says "proceed" or "locked" before touching code.
 
 **VIOLATION CONSEQUENCE**: If the agent implements without a LOCKED gate, the owner may discard all uncommitted changes, require full rework from the gate, and/or terminate the session. No exceptions.
 
@@ -319,6 +320,15 @@ full suite:
 Do not claim CI success from local tests. Report CI based on the repository
 checks after the PR is opened.
 
+### Handling Broken or Outdated Tests
+
+If a test fails because the underlying product logic was intentionally changed or deprecated:
+
+a) The agent **MUST NOT** silently delete, disable, or ignore the test.
+b) The agent **MUST NOT** revert correct code modifications just to make an outdated test pass.
+c) The agent **MUST** determine if the failure is due to a bug or an intentional logic change. If intentional, the agent must update or rewrite the unit test to reflect the new canonical behavior, ensuring test coverage remains intact.
+d) If the agent is uncertain whether a test failure represents a regression or an obsolete expectation, it **MUST halt and ask the project owner using the `question` tool** with `custom: true`.
+
 ## 7. Git and Security Discipline
 
 ### Mandatory Pre-Commit Validation Gate
@@ -405,6 +415,7 @@ Before every implementation message, the agent MUST verify:
 - [ ] Section 2.3 (Logic-lock) compliance: no invented behavior, no silent scope widening
 - [ ] Section 2.4 (Contract-locking) compliance: decomposition, alternatives, independent choices
 - [ ] Step 0 of Section 5 satisfied (contract lock confirmed)
+- [ ] Owner inquiries for logical gaps/uncertainties made via `question` tool (multiple: true for decisions, custom: true for clarifications)
 
 Before every commit, the agent MUST verify:
 
@@ -415,5 +426,6 @@ Before every commit, the agent MUST verify:
 - [ ] Explicit `git add file1.py file2.py` only
 - [ ] Branch name follows `type/short-desc` convention
 - [ ] `<SYSTEM_GATE> Git validation required before commit </SYSTEM_GATE>` keyword present in response
+- [ ] Test failures classified (bug vs. intentional change); uncertain cases resolved via `question` tool with `custom: true`
 
 (End of file)
