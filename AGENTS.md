@@ -10,6 +10,9 @@ instruction.
 the agent SHOULD silently verify or explicitly output the **Appendix A** checklist
 to refresh context-window constraints before proceeding.
 
+_Last updated: 2026-07-17. See git history of this file for prior versions
+and rationale for major protocol changes._
+
 ## 1. Product Context
 
 HamZaboon is a Telegram-based language-learning assistant for Persian-speaking
@@ -51,13 +54,14 @@ findings:
 | `hamzaban-issues.md` | Optional Markdown snapshot/export for human or AI review. | Do not maintain it in normal PRs. Generate it only when a fresh snapshot is explicitly useful. |
 | `issues/validate.py` | Validation, JSON import/export, and generated-view synchronization. | Use `check` in normal PR validation; use `sync` after intentional canonical status changes. |
 | `issues/status_editor.py` | Reviewable status/issue change application with validation and preview. | Use `preview` before `apply`; never edit generated views directly. |
+| `issues/issues.schema.json` | Machine-readable JSON Schema for issue records. | Auto-validate with any JSON Schema-aware editor; update when the programmatic schema in `validate.py` changes. |
 
 `issues/issues.json` is authoritative for issue status and
 `project_status.json` is authoritative for phase/decision status. HTML
 `localStorage`, embedded fallback data, and Markdown snapshots must never be
 treated as canonical state.
 
-### Issue update policy
+### 2.1 Issue update policy
 
 For a meaningful code change:
 
@@ -93,21 +97,18 @@ Use these statuses consistently:
 Never mark an issue resolved based only on intention, a roadmap statement, or
 an unverified code edit.
 
-### Logic-lock and bilateral-approval rule
+The canonical schema for issue records is defined in
+`issues/issues.schema.json`. Use it for IDE autocompletion and CI validation;
+it stays synchronized with the programmatic rules in `issues/validate.py`.
+
+### 2.3 Logic-lock and bilateral-approval rule
 
 The agent **IS FORBIDDEN FROM** inventing missing algorithmic behavior,
 silently widening scope, or locking a product/architecture decision to close
 an inferred gap. This applies to **ANY behavioral change including bug fixes**.
 Before changing learner-facing behavior, persistence semantics, quotas,
-scheduling, callbacks, AI contracts, or module boundaries, the agent must:
-
-1. State the observed invariant and the exact uncertainty.
-2. Separate the smallest requested fix from optional cleanup or redesign.
-3. Present assumptions, alternatives, side effects, and regression risks.
-4. Ask the project owner for focused guidance **using the `question` tool** when the intended behavior is
-   not explicit. Use `multiple: true` for decision options (comparison tables) and `custom: true` for open-ended clarifications. The agent **MUST halt implementation** and present findings as a clear, focused inquiry via the `question` tool. The agent is strictly forbidden from proceeding with code edits until the owner explicitly answers or chooses a decision option.
-5. Record the agreed rule as a proposed or locked decision before relying on
-   it in implementation.
+scheduling, callbacks, AI contracts, or module boundaries, the agent must
+follow the gate protocol in Section 2.5.
 
 After implementation, the agent must report what changed, what was
 deliberately not changed, and what remains uncertain. Debugging must target
@@ -116,33 +117,28 @@ hardening are out of scope unless explicitly approved. If a safe workaround
 exists, document it rather than silently converting it into a permanent
 product rule.
 
-### Owner contract-locking protocol
+### 2.4 Owner contract-locking protocol
 
 When a requested behavior contains multiple algorithmic or product rules, do
-not ask for one blanket approval. Instead:
+not ask for one blanket approval. Instead, apply the gate protocol in
+Section 2.5 with this additional requirement: decompose the behavior into
+separately numbered rules, each presented with a recommended option plus
+meaningful alternatives in a comparison table. The owner must choose each
+rule independently; choosing the recommendation for one rule does not imply
+approval of the others.
 
-1. Decompose the behavior into separately numbered rules.
-2. For each rule, present a recommended option plus meaningful alternatives.
-   Explain each option concretely, including its behavior, cost, UX,
-   compatibility, and regression trade-offs where relevant. **Present alternatives in a comparison table format using the `question` tool with `multiple: true` to harvest its UX benefits for the project owner.**
-3. Ask the project owner to choose each rule independently **via the `question` tool**. A custom answer
-   must be supported; choosing the recommendation for one rule does not imply
-   approval of the others.
-4. Summarize the selected rules as a locked contract before implementation,
-   separating product decisions from ordinary implementation details and
-   explicitly listing unresolved questions.
-5. After implementation, report which locked rules changed, which were
-   deliberately not changed, and what remains uncertain. Verify each rule
-   with focused tests or other concrete evidence.
+After implementation, report which locked rules changed, which were
+deliberately not changed, and what remains uncertain. Verify each rule with
+focused tests or other concrete evidence.
 
-### Mandatory Pre-Implementation Contract Lock Gate
+### 2.5 Mandatory Pre-Implementation Contract Lock Gate
 
 **BEFORE ANY CODE CHANGE—exploratory, trivial, bug fix, or major—the agent MUST:**
 
 1. **STOP** and identify all logical gaps, uncertainties, and decision points.
 2. **PRESENT** each as a numbered rule with: recommended option + ≥1 alternative + concrete trade-offs in a comparison table.
 3. **OBTAIN** explicit owner choice per rule (no blanket approvals).
-4. If any logical gap, ambiguous test failure, or architectural uncertainty arises during gate preparation, the agent **MUST halt** and present its findings as a clear, focused inquiry to the project owner **using the `question` tool**. The agent is strictly forbidden from proceeding with code edits until the owner explicitly answers or chooses a decision option.
+4. If any logical gap, ambiguous test failure, or architectural uncertainty arises during gate preparation, the agent **MUST halt** and present its findings as a clear, focused inquiry to the project owner. **If an interactive question/decision tool is available in the current environment, use it** (with `multiple: true` for decision options, `custom: true` for open-ended clarification). **If no such tool is available, present the same structured inquiry as plain text in the response and explicitly halt, waiting for the owner's reply before proceeding.** The agent is strictly forbidden from proceeding with code edits until the owner explicitly answers or chooses a decision option.
 5. **SUMMARIZE** the locked contract in writing using the template below.
 6. **CONFIRM** owner says "proceed" or "locked" before touching code.
 
@@ -163,6 +159,23 @@ Trade-offs: [cost/UX/compatibility/regression per alternative]
 Owner Confirmation: [quote owner's "proceed" or "locked"]
 GATE STATUS: [LOCKED / PENDING]
 ```
+
+#### 2.5.1 Fast-track exception for non-behavioral changes
+
+Changes that are strictly non-behavioral MAY skip the full comparison-table
+gate. The following qualify:
+
+- Typo or copy fixes in strings or documentation.
+- Comment-only edits (no production code change).
+- Adding tests that do not change production logic.
+- Formatting or whitespace-only diffs.
+
+To use this exception, the agent states in one line under the
+`<SYSTEM_GATE>` keyword: what the change is, why it is non-behavioral, and
+that it will proceed without a locked contract. This exception does NOT
+apply if there is ANY ambiguity about whether the change affects
+learner-facing behavior, persistence, quotas, scheduling, or module
+boundaries — when in doubt, use the full gate.
 
 ## 3. Repository Architecture
 
@@ -222,6 +235,25 @@ Preserve these established contracts when changing runtime code:
   requests whenever the existing state model supports it.
 - Do not expose API keys, bot tokens, or other secrets in code, logs, tests,
   commits, issue evidence, or PR descriptions.
+- SQLite concurrency: all write operations must use context managers with
+  immediate/exclusive transactions where write contention is possible, to
+  avoid `database is locked` errors during concurrent Telegram callback
+  bursts. Do not hold an open database transaction across an awaited async
+  call (e.g., an AI request or Telegram API call) — commit or roll back
+  before awaiting, and reacquire the transaction after if further writes are
+  needed.
+
+### AI Cost Discipline
+
+When adding or modifying AI-calling code paths, the agent must state the
+expected token/cost impact (e.g., new call added per user action, expected
+frequency, rough token count) as part of the contract lock summary for that
+change. Prefer reusing cached or pooled content over issuing a new AI call
+when existing project infrastructure (see cost-tracking, pooling, and SRS
+planning docs) already covers the case. Flag any change that measurably
+increases per-user or per-day AI call volume as requiring explicit owner
+approval, even if it would otherwise qualify for the fast-track exception in
+Section 2.5.1.
 
 ### Localization & Escaping Rules
 
@@ -240,6 +272,14 @@ formatting.
 - Never concatenate raw user input, AI output, or dynamic values directly into
   MarkdownV2 templates without escaping.
 - Test Persian + English mixed strings explicitly in unit tests.
+
+**Escaping contract:** every dynamic value that originates from the AI, the
+database, or user input MUST be passed through the centralized escaping
+function in `formatting.py` before being interpolated into any MarkdownV2
+template string in `bot.py`. Never concatenate a raw dynamic value directly
+into a reply string. If a value is already known to be pre-escaped or is a
+static, hardcoded literal, that must be stated explicitly in a code comment
+at the call site.
 
 ## 4. Audit and Code-Review Workflow
 
@@ -263,6 +303,11 @@ When asked to audit or review the project:
 6. Record findings in `issues/issues.json` with stable IDs and evidence.
 7. Reconcile the product-level consequences in `ROADMAP.md`.
 8. Run the focused tests plus the repository-wide checks before reporting.
+9. **Context economy:** when investigating a bug or making a targeted change,
+   read the specific function/handler and its direct dependencies first rather
+   than the entire module or repository, unless the reported behavior requires
+   tracing broader data/control flow (per item 3 above). Expand scope only as
+   evidence demands it.
 
 Classify findings by impact and confidence. Separate confirmed bugs from
 accepted product decisions, intentional guards, speculative concerns, and
@@ -327,7 +372,7 @@ If a test fails because the underlying product logic was intentionally changed o
 a) The agent **MUST NOT** silently delete, disable, or ignore the test.
 b) The agent **MUST NOT** revert correct code modifications just to make an outdated test pass.
 c) The agent **MUST** determine if the failure is due to a bug or an intentional logic change. If intentional, the agent must update or rewrite the unit test to reflect the new canonical behavior, ensuring test coverage remains intact.
-d) If the agent is uncertain whether a test failure represents a regression or an obsolete expectation, it **MUST halt and ask the project owner using the `question` tool** with `custom: true`.
+d) If the agent is uncertain whether a test failure represents a regression or an obsolete expectation, it **MUST halt and ask the project owner** per the fallback protocol in Section 2.5.
 
 ## 7. Git and Security Discipline
 
@@ -387,6 +432,8 @@ This protocol prioritizes autonomous recovery over escalation.
 - Prefer established dependencies and standard-library solutions.
 - Treat database migrations as production code: preserve existing data, handle old schemas, test both fresh and upgraded databases.
 
+<!-- TODO: Owner to decide on a convention for preventing concurrent agent edits on the same branch/files (see AGENTS.md #10). -->
+
 ## 8. Product Scope Guardrails
 
 The current next user-facing direction is custom-word query improvement:
@@ -426,6 +473,6 @@ Before every commit, the agent MUST verify:
 - [ ] Explicit `git add file1.py file2.py` only
 - [ ] Branch name follows `type/short-desc` convention
 - [ ] `<SYSTEM_GATE> Git validation required before commit </SYSTEM_GATE>` keyword present in response
-- [ ] Test failures classified (bug vs. intentional change); uncertain cases resolved via `question` tool with `custom: true`
+- [ ] Test failures classified (bug vs. intentional change); uncertain cases resolved via `question` tool with `custom: true` per fallback protocol in Section 2.5
 
 (End of file)
