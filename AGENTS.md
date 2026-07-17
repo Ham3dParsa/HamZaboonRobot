@@ -253,7 +253,7 @@ when existing project infrastructure (see cost-tracking, pooling, and SRS
 planning docs) already covers the case. Flag any change that measurably
 increases per-user or per-day AI call volume as requiring explicit owner
 approval, even if it would otherwise qualify for the fast-track exception in
-Section 2.5.1.
+Section 2.4.1.
 
 ### Localization & Escaping Rules
 
