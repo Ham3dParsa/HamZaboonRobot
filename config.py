@@ -74,11 +74,6 @@ DEFAULT_PHONETIC_SHOW_IPA = os.getenv("PHONETIC_SHOW_IPA", "true").lower() in {
     "true",
     "yes",
 }
-DEFAULT_PHONETIC_SHOW_LATIN = os.getenv("PHONETIC_SHOW_LATIN", "true").lower() in {
-    "1",
-    "true",
-    "yes",
-}
 DEFAULT_PHONETIC_SHOW_PERSIAN = os.getenv("PHONETIC_SHOW_PERSIAN", "true").lower() in {
     "1",
     "true",

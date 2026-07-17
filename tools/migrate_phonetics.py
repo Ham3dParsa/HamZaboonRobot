@@ -6,12 +6,18 @@ import shutil
 def normalize_phonetic_str(phonetic_str: str) -> dict:
     lines = phonetic_str.strip().splitlines()
     if len(lines) >= 3:
+        # Old 3-line format: IPA, Latin, Persian -> keep IPA and Persian
         return {
             "ipa": lines[0].strip(),
-            "latin": lines[1].strip(),
             "persian": lines[2].strip()
         }
-    return {"ipa": phonetic_str, "latin": "", "persian": ""}
+    elif len(lines) == 2:
+        # New 2-line format: IPA, Persian
+        return {
+            "ipa": lines[0].strip(),
+            "persian": lines[1].strip()
+        }
+    return {"ipa": phonetic_str, "persian": ""}
 
 def migrate():
     db_path = 'hamzaban.db'
@@ -40,6 +46,17 @@ def migrate():
             # Skip if already normalized
             phonetic = data.get("phonetic")
             if isinstance(phonetic, dict):
+                # If it has latin, strip it
+                if "latin" in phonetic:
+                    data["phonetic"] = {
+                        "ipa": phonetic.get("ipa", ""),
+                        "persian": phonetic.get("persian", "")
+                    }
+                    conn.execute(
+                        f"UPDATE {table} SET card_data=? WHERE id=?",
+                        (json.dumps(data, ensure_ascii=False), card_id)
+                    )
+                    count += 1
                 continue
             
             # Normalize

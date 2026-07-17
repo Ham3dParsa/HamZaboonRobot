@@ -373,7 +373,7 @@ def _user_presentation(row) -> str:
     )
 
 
-_PHONETIC_LINE_RE = re.compile(r"^\s*(ipa|latin|persian)\s*:\s*(.+?)\s*$", re.IGNORECASE)
+_PHONETIC_LINE_RE = re.compile(r"^\s*(ipa|persian)\s*:\s*(.+?)\s*$", re.IGNORECASE)
 
 
 def _phonetic_display_settings() -> dict[str, bool]:
@@ -382,15 +382,15 @@ def _phonetic_display_settings() -> dict[str, bool]:
 
 def _phonetic_lines(value: str | dict) -> list[str]:
     settings = _phonetic_display_settings()
-    
+
     if isinstance(value, dict):
         sections = value
     else:
-        # Legacy: parse the old string format (IPA \n Latin \n Persian)
+        # Legacy: parse the old string format (IPA \n Persian) or 3-line (IPA \n Latin \n Persian)
         raw = (value or "").strip()
         if not raw:
             return []
-            
+
         # Try to parse as JSON string representation
         if raw.startswith("{") and raw.endswith("}"):
             try:
@@ -400,26 +400,34 @@ def _phonetic_lines(value: str | dict) -> list[str]:
                 # Fallback to legacy parsing if JSON parsing fails
                 lines = raw.splitlines()
                 if len(lines) >= 3:
-                    sections = {"ipa": lines[0].strip(), "latin": lines[1].strip(), "persian": lines[2].strip()}
+                    # Old 3-line format: IPA, Latin, Persian
+                    sections = {"ipa": lines[0].strip(), "persian": lines[2].strip()}
+                elif len(lines) == 2:
+                    # New 2-line format: IPA, Persian
+                    sections = {"ipa": lines[0].strip(), "persian": lines[1].strip()}
                 else:
-                    sections = {"ipa": raw, "latin": "", "persian": ""}
+                    sections = {"ipa": raw, "persian": ""}
         else:
             # Original legacy logic
             lines = raw.splitlines()
             if len(lines) >= 3:
-                sections = {"ipa": lines[0].strip(), "latin": lines[1].strip(), "persian": lines[2].strip()}
+                # Old 3-line format: IPA, Latin, Persian
+                sections = {"ipa": lines[0].strip(), "persian": lines[2].strip()}
+            elif len(lines) == 2:
+                # New 2-line format: IPA, Persian
+                sections = {"ipa": lines[0].strip(), "persian": lines[1].strip()}
             else:
-                sections = {"ipa": raw, "latin": "", "persian": ""}
-            
-    # Now render
+                sections = {"ipa": raw, "persian": ""}
+
+    # Now render - only IPA and Persian (no Latin)
     rendered = []
-    # Fixed order: IPA, Latin, Persian
-    for key in ['ipa', 'latin', 'persian']:
+    # Fixed order: IPA, Persian
+    for key in ['ipa', 'persian']:
         val = sections.get(key)
         if settings.get(key) and val:
             # Just the value, no label, wrapped in backticks
             rendered.append(f"`{escape_mdv2_code(str(val))}`")
-        
+
     return rendered
 
 
@@ -868,7 +876,7 @@ def _ensure_scheduled_session_cards(user_id: int, row, queue_row) -> list[dict]:
     if len(existing) >= end:
         return existing[start:end]
 
-    used_words = _daily_avoid_words(user_id, queue_row["delivery_date"], existing)
+    used_words = _daily_avoid_words(user_id, session["target_lang"], queue_row["delivery_date"], existing)
     cards: list[dict] = []
     while len(existing) + len(cards) < end:
         remaining = end - len(existing) - len(cards)
@@ -1810,7 +1818,6 @@ def _phonetic_settings_text() -> str:
     return (
         "تنظیم نمایش تلفظ‌ها:\n"
         f"IPA: {'روشن' if settings['ipa'] else 'خاموش'}\n"
-        f"Latin: {'روشن' if settings['latin'] else 'خاموش'}\n"
         f"Persian: {'روشن' if settings['persian'] else 'خاموش'}"
     )
 
@@ -1856,7 +1863,6 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, act
         _, setting = action.split(":", 1)
         key_map = {
             "ipa": "phonetic_show_ipa",
-            "latin": "phonetic_show_latin",
             "persian": "phonetic_show_persian",
         }
         setting_key = key_map.get(setting)
@@ -1916,7 +1922,6 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, act
             f"🌐 Base URL: `{db.get_setting('ai_base_url')}`\n"
             f"🔑 API Key: `{masked}`\n"
             f"🗣 IPA: {'روشن' if db.get_bool_setting('phonetic_show_ipa', True) else 'خاموش'}\n"
-            f"🗣 Latin: {'روشن' if db.get_bool_setting('phonetic_show_latin', True) else 'خاموش'}\n"
             f"🗣 Persian: {'روشن' if db.get_bool_setting('phonetic_show_persian', True) else 'خاموش'}",
             parse_mode=ParseMode.MARKDOWN_V2,
         )

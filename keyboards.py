@@ -246,15 +246,9 @@ def phonetic_settings_keyboard(current: dict[str, bool]) -> InlineKeyboardMarkup
                     callback_data="admin:phonetics:ipa",
                 ),
                 InlineKeyboardButton(
-                    f"{'✅ ' if current.get('latin') else ''}Latin",
-                    callback_data="admin:phonetics:latin",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
                     f"{'✅ ' if current.get('persian') else ''}Persian",
                     callback_data="admin:phonetics:persian",
-                )
+                ),
             ],
             [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
         ]

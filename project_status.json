@@ -222,7 +222,8 @@
         62,
         63,
         66,
-        70
+        70,
+        71
       ],
       "roadmap_anchor": "phase-6-reliable-delivery-concurrency-and-data-lifecycle"
     },
