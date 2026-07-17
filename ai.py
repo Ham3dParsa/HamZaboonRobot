@@ -132,7 +132,7 @@ _COMPACT_CARD_FIELDS = {
     "g": "grammar_tip",
 }
 
-_PHONETIC_LINE_RE = re.compile(r"^\s*(ipa|latin|persian)\s*:\s*(.+?)\s*$", re.IGNORECASE)
+_PHONETIC_LINE_RE = re.compile(r"^\s*(ipa|persian)\s*:\s*(.+?)\s*$", re.IGNORECASE)
 
 
 def normalize_phonetic(raw: str) -> dict[str, str] | None:
@@ -140,27 +140,25 @@ def normalize_phonetic(raw: str) -> dict[str, str] | None:
     if not raw:
         return None
 
-    # Strategy 1: Label-based parsing
+    # Strategy 1: Label-based parsing (IPA + Persian only)
     sections: dict[str, str] = {}
     for line in raw.splitlines():
         match = _PHONETIC_LINE_RE.match(line)
         if match:
             sections[match.group(1).casefold()] = match.group(2).strip()
-    
-    if {"ipa", "latin", "persian"} <= set(sections):
+
+    if {"ipa", "persian"} <= set(sections):
         return {
             "ipa": sections["ipa"],
-            "latin": sections["latin"],
             "persian": sections["persian"],
         }
 
-    # Strategy 2: Legacy pipe-separated parsing
+    # Strategy 2: Legacy pipe-separated parsing (2 parts: IPA|Persian)
     parts = [p.strip() for p in raw.split("|")]
-    if len(parts) == 3 and all(parts):
+    if len(parts) == 2 and all(parts):
         return {
             "ipa": parts[0],
-            "latin": parts[1],
-            "persian": parts[2],
+            "persian": parts[1],
         }
 
     return None
@@ -235,13 +233,21 @@ def validate_card(data: object) -> dict:
     _validate_optional_rich_list("antonyms", antonyms)
 
     # Normalize phonetic field to structured format
-    phonetic_raw = str(data.get("phonetic") or "").strip()
-    if not phonetic_raw:
-        phonetic_normalized = {"ipa": "", "latin": "", "persian": ""}
-    else:
-        phonetic_normalized = normalize_phonetic(phonetic_raw)
+    phonetic_raw = data.get("phonetic")
+    if phonetic_raw is None:
+        phonetic_normalized = {"ipa": "", "persian": ""}
+    elif isinstance(phonetic_raw, dict):
+        # Accept 2-field or 3-field dict (backward compat), drop latin
+        phonetic_normalized = {
+            "ipa": phonetic_raw.get("ipa", ""),
+            "persian": phonetic_raw.get("persian", ""),
+        }
+    elif isinstance(phonetic_raw, str) and phonetic_raw.strip():
+        phonetic_normalized = normalize_phonetic(phonetic_raw.strip())
         if phonetic_normalized is None:
             raise CardValidationError("Card field 'phonetic' is malformed")
+    else:
+        phonetic_normalized = {"ipa": "", "persian": ""}
 
     return {
         "word": _required_text(data, "word"),
@@ -293,6 +299,13 @@ def card_repair_fields(data: object) -> list[str]:
         phonetic_value = data.get("ph")
     if isinstance(phonetic_value, str) and phonetic_value.strip() and normalize_phonetic(phonetic_value) is None:
         fields.append("phonetic")
+    elif isinstance(phonetic_value, dict):
+        # Check if dict has required ipa/persian fields
+        if not phonetic_value.get("ipa") and not phonetic_value.get("persian"):
+            fields.append("phonetic")
+        # Flag legacy 3-field dict (with latin) for repair
+        elif "latin" in phonetic_value:
+            fields.append("phonetic")
 
     for field in ("synonyms", "antonyms"):
         value = data.get(field)

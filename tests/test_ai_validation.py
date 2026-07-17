@@ -47,12 +47,13 @@ class BatchValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ai.CardValidationError, "exactly two"):
             ai.validate_card(card)
 
-    def test_populated_synonym_and_antonym_lists_need_two_distinct_items(self):
+    def test_populated_synonym_and_antonym_lists_need_distinct_items(self):
+        # Single item is now valid (no minimum count requirement)
         card = valid_card("hello")
         card["synonyms"] = ["hi"]
-        with self.assertRaisesRegex(ai.CardValidationError, "synonyms"):
-            ai.validate_card(card)
+        self.assertEqual(ai.validate_card(card)["synonyms"], ["hi"])
 
+        # But duplicates (case-insensitive) should still fail
         card = valid_card("hello")
         card["antonyms"] = ["bye", " BYE "]
         with self.assertRaisesRegex(ai.CardValidationError, "antonyms"):
@@ -70,9 +71,10 @@ class BatchValidationTests(unittest.TestCase):
             ["examples", "example_translations"],
         )
 
+        # Phonetic dict with latin field should be flagged for repair
         card = valid_card("hello")
-        card["synonyms"] = ["hi"]
-        self.assertEqual(ai.card_repair_fields(card), ["synonyms"])
+        card["phonetic"] = {"ipa": "/h/", "latin": "h", "persian": "اچ"}
+        self.assertEqual(ai.card_repair_fields(card), ["phonetic"])
 
     def test_legacy_phonetic_values_are_marked_for_repair(self):
         card = valid_card("hello")

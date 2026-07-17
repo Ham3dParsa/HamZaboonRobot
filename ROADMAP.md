@@ -179,6 +179,7 @@ separate concepts and must not be conflated.
 - Durable queues and bounded retries
 - Async-safe provider calls
 - Callback validation and restart recovery
+- Phonetic data normalization
 
 **In progress**
 - Adaptive SRS correctness
@@ -197,7 +198,7 @@ separate concepts and must not be conflated.
 - Restart does not resend completed work
 - One user's failure does not stop other users
 
-**Linked issues:** #42, #43, #44, #45, #46, #47, #49, #50, #57, #59, #60, #61, #62, #63, #66, #70
+**Linked issues:** #42, #43, #44, #45, #46, #47, #49, #50, #57, #59, #60, #61, #62, #63, #66, #70, #71
 
 ### phase-7: Premium Smart Placement Test
 

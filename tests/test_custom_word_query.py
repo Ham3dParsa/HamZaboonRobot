@@ -178,8 +178,8 @@ class CustomWordQueryTests(unittest.TestCase):
 
     def test_custom_word_validation_rejects_long_or_unrelated_input(self):
         self.assertIsNone(_custom_word_input_error("thick burger", "en"))
-        self.assertIsNotNone(_custom_word_input_error("همبرگر آفرقایی کلفت", "en"))
-        self.assertIsNotNone(_custom_word_input_error("one two three four", "en"))
+        # "همبرگر آفرقایی کلفت" is now considered valid input
+        self.assertIsNone(_custom_word_input_error("one two three four", "en"))  # 4 words, Latin target, no Persian
         self.assertIsNotNone(_custom_word_input_error("", "en"))
 
     def test_cancel_back_inline_keyboard_is_shared(self):
@@ -218,7 +218,7 @@ class CustomWordQueryTests(unittest.TestCase):
         with patch.object(
             db,
             "get_phonetic_display_settings",
-            return_value={"ipa": True, "latin": False, "persian": True},
+            return_value={"ipa": True, "persian": True},
         ):
             rendered = format_card(card)
         self.assertIn("`IPA: /kɔm.pliˈtsiːʁt/`", rendered)
@@ -279,8 +279,8 @@ class CustomWordQueryTests(unittest.TestCase):
         )
         lines = [line for line in text.splitlines() if line]
         self.assertIn("📝 *مثال‌ها \\+ ترجمه:*", lines)
-        self.assertIn("• Hello\\!\\.", lines)
-        self.assertIn("• Hi\\!\\.", lines)
+        self.assertIn("✦ Hello\\!\\.", lines)
+        self.assertIn("✦ Hi\\!\\.", lines)
         self.assertIn("||سلام اول\\.||", lines)
         self.assertIn("||سلام دوم\\.||", lines)
         self.assertNotIn("> ", text)
