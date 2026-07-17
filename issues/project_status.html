@@ -1463,12 +1463,12 @@
     {
         "title": "_daily_avoid_words call mismatch causes TypeError in scheduled delivery",
         "category": "bug",
-        "module": "bot.py",
-        "func": "_ensure_scheduled_session_cards,_daily_avoid_words",
+        "module": "bot.py / db.py",
+        "func": "_ensure_scheduled_session_cards,_daily_avoid_words,get_recent_daily_words",
         "problem": "Line 879 passes 4 arguments to _daily_avoid_words(user_id, session[\"target_lang\"], queue_row[\"delivery_date\"], existing) but the function signature (line 814) only accepts 3 arguments: (user_id, card_date, current_cards). This incomplete refactor causes TypeError on every scheduled delivery.",
-        "solution": "Either (A) revert line 879 to 3-argument call _daily_avoid_words(user_id, queue_row[\"delivery_date\"], existing), or (B) update the function signature to accept lang parameter and update all 3 call sites consistently (lines 856, 879, 908).",
+        "solution": "Option B implemented: updated _daily_avoid_words signature to (user_id, target_lang, card_date, current_cards), updated get_recent_daily_words with LEFT JOIN on daily_card_sessions for language filtering, and updated all 3 call sites (lines 856, 879, 908) to pass session[\"target_lang\"] consistently.",
         "priority": "high",
-        "note": "Blocks all scheduled delivery for every user. The function signature and call sites are out of sync due to incomplete refactor.",
+        "note": "Now includes language-scoped word avoidance to prevent cross-language false collisions in the avoid-list. Blocks all scheduled delivery for every user until fixed.",
         "resolved": true,
         "status": "resolved",
         "detailOpen": false,
@@ -1479,8 +1479,8 @@
             "reliability-and-data-lifecycle"
         ],
         "decision_refs": [],
-        "evidence": "Merge commit 96ebe0f: ai.py normalize_phonetic/validate_card drop latin; catalog.py phonetic_guidance updated; prompts.py schema 2 lines; bot.py _phonetic_lines 2-line parse; db.py/config.py/keyboards.py Latin toggle removed; tools/migrate_phonetics.py strips latin; tests updated",
-        "last_reviewed": "2026-07-17",
+        "evidence": "bot.py:_daily_avoid_words signature updated to accept target_lang (2nd param); db.py:get_recent_daily_words accepts optional target_lang and LEFT JOINs daily_card_sessions for language filtering; all 3 call sites (lines 856, 879, 908) pass session[\"target_lang\"]; tests/test_reliability.py:test_recent_daily_words_filters_by_language passes. Existing test_recent_daily_words_excludes_current_date (no lang filter) still passes. Fix verified on 2026-07-18.",
+        "last_reviewed": "2026-07-18",
         "depends_on": []
     }
 ];

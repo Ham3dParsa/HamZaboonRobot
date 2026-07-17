@@ -811,10 +811,10 @@ def _generate_daily_batch(
     return cards
 
 
-def _daily_avoid_words(user_id: int, card_date: str, current_cards: list[dict]) -> list[str]:
+def _daily_avoid_words(user_id: int, target_lang: str, card_date: str, current_cards: list[dict]) -> list[str]:
     words: list[str] = []
     seen: set[str] = set()
-    for word in db.get_recent_daily_words(user_id, exclude_date=card_date, limit=50):
+    for word in db.get_recent_daily_words(user_id, target_lang, exclude_date=card_date, limit=50):
         normalized = " ".join(str(word).split()).casefold()
         if normalized and normalized not in seen:
             seen.add(normalized)
@@ -853,7 +853,7 @@ def _ensure_daily_cards(user_id: int, row, card_date: str, limit: int) -> list[d
     if len(cards) >= limit:
         return cards
 
-    used_words = _daily_avoid_words(user_id, card_date, cards)
+    used_words = _daily_avoid_words(user_id, session["target_lang"], card_date, cards)
     new_cards = _generate_daily_batch(
         session["target_lang"],
         session["goal"],
@@ -905,7 +905,7 @@ def _ensure_next_daily_card(user_id: int, row, card_date: str, limit: int) -> tu
 
     cards = db.get_daily_cards(user_id, card_date)
     if next_index >= len(cards):
-        used_words = _daily_avoid_words(user_id, card_date, cards)
+        used_words = _daily_avoid_words(user_id, session["target_lang"], card_date, cards)
         remaining = limit - len(cards)
         new_cards = _generate_daily_batch(
             session["target_lang"],
