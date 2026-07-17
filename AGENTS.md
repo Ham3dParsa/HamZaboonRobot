@@ -6,6 +6,10 @@ alongside the repository README, `ROADMAP.md`, and the user's explicit request.
 If those sources conflict, follow the more specific and more recent
 instruction.
 
+**SESSION START PROTOCOL**: At the start of every new session or major task,
+the agent SHOULD silently verify or explicitly output the **Appendix A** checklist
+to refresh context-window constraints before proceeding.
+
 ## 1. Product Context
 
 HamZaboon is a Telegram-based language-learning assistant for Persian-speaking
@@ -143,7 +147,7 @@ not ask for one blanket approval. Instead:
 
 **VIOLATION CONSEQUENCE**: If the agent implements without a LOCKED gate, the owner may discard all uncommitted changes, require full rework from the gate, and/or terminate the session. No exceptions.
 
-**GATE KEYWORD**: The agent must include **`GATE: Contract lock required before proceeding`** in its response before any implementation.
+**GATE KEYWORD**: The agent must include **`<SYSTEM_GATE> Contract lock required before proceeding </SYSTEM_GATE>`** in its response before any implementation.
 
 #### Contract Lock Template (agent must fill completely)
 
@@ -218,6 +222,24 @@ Preserve these established contracts when changing runtime code:
 - Do not expose API keys, bot tokens, or other secrets in code, logs, tests,
   commits, issue evidence, or PR descriptions.
 
+### Localization & Escaping Rules
+
+All learner-facing text must be in correct, natural Persian. Do not mix
+machine-translated or placeholder English strings into user-visible messages.
+
+Telegram uses `MarkdownV2` parsing which is brittle when mixing RTL (Persian)
+and LTR (English, code, variables, numbers). Special characters
+(`_`, `*`, `[`, `]`, `(`, `)`, `~`, `` ` ``, `>`, `#`, `+`, `-`, `=`, `|`,
+`{`, `}`, `.`, `!`) **must be rigorously escaped** in `bot.py` and
+`formatting.py` before interpolation into MarkdownV2 strings. Failure to
+escape causes `Bad Request: can't parse entities` API errors and broken
+formatting.
+
+- Centralize escaping logic in `formatting.py` behind a stable interface.
+- Never concatenate raw user input, AI output, or dynamic values directly into
+  MarkdownV2 templates without escaping.
+- Test Persian + English mixed strings explicitly in unit tests.
+
 ## 4. Audit and Code-Review Workflow
 
 When asked to audit or review the project:
@@ -254,14 +276,15 @@ For a non-trivial task:
 0. **Contract lock confirmed per Section 2.5 (Mandatory Pre-Implementation Contract Lock Gate).**
 1. Implement on current branch (or stash changes); run full validation (Section 6).
 2. **Create a fresh feature branch from the latest `origin/main`** using convention: `type/short-desc` (e.g., `feat/custom-words`, `fix/collision-retry`).
-3. Stage modified files explicitly: `git add file1.py file2.py` (never `git add .`).
-4. Commit with Conventional Commits format: `type(scope): subject` (e.g., `fix(bot): handle collision retry`).
-5. Push branch and create PR via `gh pr create --fill --base main`.
-6. Owner reviews and merges on GitHub using **Squash and merge**.
-7. Delete branch after merge (GitHub "Delete branch" button or `git branch -d`).
-8. Update `issues/issues.json` and `ROADMAP.md` as required by Section 2.
-9. Run the validation commands below.
-10. Check CI and address review feedback before declaring the work complete.
+3. **Write focused unit tests** in `tests/` for any new logic, edge cases, or database schema changes introduced by the implementation.
+4. Stage modified files explicitly: `git add file1.py file2.py` (never `git add .`).
+5. Commit with Conventional Commits format: `type(scope): subject` (e.g., `fix(bot): handle collision retry`).
+6. Push branch and create PR via `gh pr create --fill --base main`.
+7. Owner reviews and merges on GitHub using **Squash and merge**.
+8. Delete branch after merge (GitHub "Delete branch" button or `git branch -d`).
+9. Update `issues/issues.json` and `ROADMAP.md` as required by Section 2.
+10. Run the validation commands below.
+11. Check CI and address review feedback before declaring the work complete.
 
 Do not combine unrelated user-facing features, broad refactors, and issue
 cleanup in one PR. If a discovered issue is outside the requested scope,
@@ -310,7 +333,21 @@ checks after the PR is opened.
 
 **VIOLATION CONSEQUENCE**: If the agent commits without passing the validation gate, the owner may discard the commit, require rework from a clean state, and/or terminate the session. No exceptions.
 
-**GATE KEYWORD**: The agent must include **`GATE: Git validation required before commit`** in its response before any commit.
+**GATE KEYWORD**: The agent must include **`<SYSTEM_GATE> Git validation required before commit </SYSTEM_GATE>`** in its response before any commit.
+
+### Error Recovery Protocol
+
+If validation fails (tests, `git diff --check`, or other checks), the agent MUST NOT immediately ask for human help. Instead:
+
+1. **Analyze** the stack trace or diff output to identify the root cause.
+2. **Attempt a fix** targeting the specific failure.
+3. **Retry** the full validation suite (Section 6).
+4. Only after **2 consecutive failed attempts** should the agent:
+   - Reset state (e.g., `git reset HEAD~1` or discard staged changes).
+   - Report the exact error and context.
+   - Halt for human input.
+
+This protocol prioritizes autonomous recovery over escalation.
 
 ### Commit Rules
 
@@ -353,6 +390,8 @@ them into scope through `ROADMAP.md`.
 
 ## Appendix A: Agent Self-Check Checklist
 
+**Context Refresh Protocol**: At the start of every new session or major task, the agent SHOULD silently verify or explicitly output this checklist to refresh context-window constraints before proceeding.
+
 Before every implementation message, the agent MUST verify:
 
 - [ ] All logical gaps identified and presented as numbered rules
@@ -361,7 +400,7 @@ Before every implementation message, the agent MUST verify:
 - [ ] Contract lock template filled completely
 - [ ] Owner confirmation quoted ("proceed" or "locked")
 - [ ] GATE STATUS = LOCKED
-- [ ] `GATE: Contract lock required before proceeding` keyword present in response
+- [ ] `<SYSTEM_GATE> Contract lock required before proceeding </SYSTEM_GATE>` keyword present in response
 - [ ] No code changes proposed or implemented before gate lock
 - [ ] Section 2.3 (Logic-lock) compliance: no invented behavior, no silent scope widening
 - [ ] Section 2.4 (Contract-locking) compliance: decomposition, alternatives, independent choices
@@ -375,6 +414,6 @@ Before every commit, the agent MUST verify:
 - [ ] Single logical commit (Conventional Commits format)
 - [ ] Explicit `git add file1.py file2.py` only
 - [ ] Branch name follows `type/short-desc` convention
-- [ ] `GATE: Git validation required before commit` keyword present in response
+- [ ] `<SYSTEM_GATE> Git validation required before commit </SYSTEM_GATE>` keyword present in response
 
 (End of file)
