@@ -183,7 +183,8 @@
         "Durable queues and bounded retries",
         "Async-safe provider calls",
         "Callback validation and restart recovery",
-        "Phonetic data normalization"
+        "Phonetic data normalization",
+        "Staged bot.py module extraction plan (docs/plan_bot_extraction.md)"
       ],
       "in_progress": [
         "Adaptive SRS correctness",
@@ -194,7 +195,6 @@
       "todo": [
         "Resolve issues 42-47, 49, 50, and 59-63",
         "Add focused reliability and progress tests",
-        "Plan staged handler and formatting module boundaries",
         "Design the premium reward surface",
         "Add durable failure telemetry and operator reporting"
       ],
