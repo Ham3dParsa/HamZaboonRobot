@@ -291,10 +291,10 @@
     {
       "id": "decision-issue-registry",
       "status": "locked",
-      "title": "Issue records remain canonical in issues.json",
+      "title": "GitHub Issues are the canonical issue registry",
       "phase": "phase-4",
       "roadmap_ref": "issue-tooling",
-      "summary": "The dashboard and Markdown export are views; browser edits are never canonical."
+      "summary": "Issues live natively on GitHub Issues with labels for category, priority, and phase. project_status.json remains canonical for phase/decision tracking. The dashboard is a generated view."
     },
     {
       "id": "decision-compact-json",

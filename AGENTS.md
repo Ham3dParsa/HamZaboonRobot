@@ -47,44 +47,34 @@ findings:
 | File | Responsibility | Normal editing rule |
 | --- | --- | --- |
 | `ROADMAP.md` | Product direction, phases, locked decisions, acceptance criteria, and remaining work. | Curate it when meaningful implementation or product scope changes. |
-| `issues/issues.json` | Canonical structured registry of features, bugs, risks, research, decisions, evidence, status, and roadmap references. | This is the only engineering issue-state file to update during normal implementation work. |
+| [GitHub Issues](https://github.com/Ham3dParsa/HamZaboonRobot/issues) | Canonical structured issue registry (features, bugs, risks, tech-debt, research, decisions). | Create and update via `gh issue create`/`edit`/`close`. Labels encode category, priority, and phase. |
 | `project_status.json` | Canonical machine-readable phase, dependency, and decision-lock index. | Update it when phase status, assignments, or locked decisions change. |
-| `issues/project_status.html` | Read-only joined dashboard generated from `project_status.json` and `issues/issues.json`. | Never treat embedded data or browser state as canonical. |
+| `issues/project_status.html` | Read-only dashboard generated from `project_status.json`. Links to GitHub Issues for detail. | Regenerate with `python scripts/generate_dashboard.py`. Never edit directly. |
 | `issues/issues.html` | Compatibility redirect to `issues/project_status.html`. | Do not use it as an editor or status source. |
-| `hamzaban-issues.md` | Optional Markdown snapshot/export for human or AI review. | Do not maintain it in normal PRs. Generate it only when a fresh snapshot is explicitly useful. |
-| `issues/validate.py` | Validation, JSON import/export, and generated-view synchronization. | Use `check` in normal PR validation; use `sync` after intentional canonical status changes. |
-| `issues/status_editor.py` | Reviewable status/issue change application with validation and preview. | Use `preview` before `apply`; never edit generated views directly. |
-| `issues/issues.schema.json` | Machine-readable JSON Schema for issue records. | Auto-validate with any JSON Schema-aware editor; update when the programmatic schema in `validate.py` changes. |
+| `scripts/generate_dashboard.py` | Lightweight HTML dashboard generator from `project_status.json`. | Use after intentional phase/decision changes. |
 
-`issues/issues.json` is authoritative for issue status and
-`project_status.json` is authoritative for phase/decision status. HTML
-`localStorage`, embedded fallback data, and Markdown snapshots must never be
-treated as canonical state.
+`project_status.json` is authoritative for phase/decision status. GitHub Issues
+are authoritative for individual issue state. HTML `localStorage`, embedded
+fallback data, and generated views must never be treated as canonical state.
 
 ### 2.1 Issue update policy
 
 For a meaningful code change:
 
 1. Identify the relevant issue IDs before implementation.
-2. Update those records in `issues/issues.json` with:
+2. Update the corresponding GitHub Issue with:
    - an accurate `status`;
    - `roadmap_refs`;
    - concise evidence pointing to symbols or behavior;
    - `last_reviewed` in `YYYY-MM-DD` format.
 3. Update `ROADMAP.md` when the work changes completed scope, remaining work,
    a locked decision, or the next planned step.
-4. Run:
+4. Update `project_status.json` if phase status, assignments, or decision locks
+   changed. Then regenerate the dashboard:
 
    ```bash
-   .venv/bin/python issues/validate.py check
+   python scripts/generate_dashboard.py
    ```
-
-Use `issues/status_editor.py preview changes.json` to review a proposed
-structured update, then `issues/status_editor.py apply changes.json --confirm`
-to validate and write the canonical JSON plus generated views. The editor
-updates only the marked generated section of `ROADMAP.md`; its narrative
-sections remain human-maintained. `issues/validate.py sync` remains available
-for refreshing views after direct canonical edits.
 
 Use these statuses consistently:
 
@@ -96,10 +86,6 @@ Use these statuses consistently:
 
 Never mark an issue resolved based only on intention, a roadmap statement, or
 an unverified code edit.
-
-The canonical schema for issue records is defined in
-`issues/issues.schema.json`. Use it for IDE autocompletion and CI validation;
-it stays synchronized with the programmatic rules in `issues/validate.py`.
 
 ### 2.2 Logic-lock and bilateral-approval rule
 
@@ -334,7 +320,7 @@ For a non-trivial task:
    CI passes via `gh pr checks` before merging.
 8. After merge, clean up locally:
    `git checkout main && git pull && git branch -d branch-name`
-9. Update `issues/issues.json` and `ROADMAP.md` as required by Section 2.
+9. Update GitHub Issues and `ROADMAP.md` as required by Section 2.
 10. Run the validation commands below.
 11. After PR creation, run `gh pr checks` to monitor CI. If checks fail,
     apply the Error Recovery Protocol (Section 7): analyze, fix, push,
@@ -352,8 +338,8 @@ Use the repository virtual environment when available:
 .venv/bin/python -m unittest discover -s tests -v
 .venv/bin/python -m py_compile \
   config.py catalog.py scheduling.py db.py prompts.py ai.py keyboards.py \
-  bot.py issues/validate.py issues/status_editor.py
-.venv/bin/python issues/validate.py check
+  bot.py
+python scripts/generate_dashboard.py
 git diff --check
 ```
 
