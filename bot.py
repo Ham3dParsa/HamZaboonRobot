@@ -1961,7 +1961,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 bypass_limits=OWNER_BYPASS_LIMITS and is_owner(user_id),
             ):
                 await update.message.reply_text(
-                    f"سقف روزانه‌ی پرسش واژه‌ی پلن شما ({limit} بار) تموم شده."
+                    f"سقف روزانه‌ی پرسش واژه‌ی پلن شما ({limit} بار) تموم شده.",
+                    reply_markup=main_menu(is_owner(user_id)),
                 )
                 return
             wait_message = await _start_llm_wait_state(
@@ -1987,7 +1988,10 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 db.release_word_query(user_id)
                 log.exception("AI error")
                 await _finish_llm_wait_state(wait_message)
-                await update.message.reply_text("مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.")
+                await update.message.reply_text(
+                    "مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.",
+                    reply_markup=main_menu(is_owner(user_id)),
+                )
                 return
             try:
                 data = await asyncio.to_thread(
@@ -2003,7 +2007,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 db.release_word_query(user_id)
                 await _finish_llm_wait_state(wait_message)
                 await update.message.reply_text(
-                    "این کارت نتونست با اطمینان آماده بشه؛ لطفاً بعداً دوباره امتحان کن."
+                    "این کارت نتونست با اطمینان آماده بشه؛ لطفاً بعداً دوباره امتحان کن.",
+                    reply_markup=main_menu(is_owner(user_id)),
                 )
                 return
             row_after = db.get_user(user_id)
@@ -2034,6 +2039,10 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     row["target_lang"] if row else "en",
                     show_translations=True,
                 ),
+            )
+            await update.message.reply_text(
+                "به منوی اصلی برگشتی 🙂",
+                reply_markup=main_menu(is_owner(user_id)),
             )
             return
 

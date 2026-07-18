@@ -1,9 +1,11 @@
+import asyncio
 import json
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import bot
 import db
 from bot import (
     _custom_word_input_error,
@@ -290,6 +292,97 @@ class CustomWordQueryTests(unittest.TestCase):
     def test_format_card_rejects_unknown_presentation(self):
         with self.assertRaises(ValueError):
             format_card({"word": "hello"}, presentation="compact")
+
+
+class AskWordKeyboardRestoreTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.previous_db_path = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        db.init_db()
+        db.create_user_if_needed(1, "learner")
+        db.set_user_lang_goal(1, "en", "general")
+        db.set_user_level(1, "beginner")
+
+    def tearDown(self):
+        db.DB_PATH = self.previous_db_path
+        self.tempdir.cleanup()
+
+    def _make_update(self):
+        message = MagicMock()
+        message.text = "hello"
+        message.reply_text = AsyncMock()
+        chat = MagicMock()
+        chat.id = 1
+        chat.send_action = AsyncMock()
+        update = MagicMock()
+        update.effective_user.id = 1
+        update.message = message
+        update.effective_chat = chat
+        return update, message
+
+    def _make_context(self):
+        context = MagicMock()
+        context.user_data = {"awaiting": "ask_word"}
+        context.bot.send_message = AsyncMock(return_value=MagicMock())
+        return context
+
+    def test_ask_word_completion_restores_main_menu_keyboard(self):
+        update, message = self._make_update()
+        context = self._make_context()
+        card = {
+            "word": "hello",
+            "fa_meaning": "سلام",
+            "fa_explanation": "برای سلام کردن.",
+            "examples": ["Hello!"],
+            "example_translations": ["سلام!"],
+        }
+        with patch.object(bot, "is_owner", return_value=False), \
+             patch.object(bot, "_call_ai_limited", return_value=card), \
+             patch.object(bot, "_prepare_cached_card", return_value=card), \
+             patch.object(bot, "_start_llm_wait_state", new=AsyncMock(return_value=None)), \
+             patch.object(bot, "_finish_llm_wait_state", new=AsyncMock()):
+            asyncio.run(bot.text_router(update, context))
+
+        reply_markups = [
+            call.kwargs.get("reply_markup")
+            for call in message.reply_text.call_args_list
+            if call.kwargs.get("reply_markup") is not None
+        ]
+        self.assertTrue(reply_markups, "expected at least one reply with a keyboard")
+        from telegram import ReplyKeyboardMarkup
+
+        restored = [m for m in reply_markups if isinstance(m, ReplyKeyboardMarkup)]
+        self.assertTrue(
+            restored,
+            "ask_word completion must restore the main-menu ReplyKeyboardMarkup",
+        )
+        labels = [
+            button.text
+            for markup in restored
+            for row in markup.keyboard
+            for button in row
+        ]
+        self.assertIn(BTN_ASK_WORD, labels)
+
+    def test_ask_word_limit_exhausted_restores_main_menu_keyboard(self):
+        update, message = self._make_update()
+        context = self._make_context()
+        with patch.object(bot, "is_owner", return_value=False), \
+             patch.object(db, "reserve_word_query", return_value=False):
+            asyncio.run(bot.text_router(update, context))
+
+        from telegram import ReplyKeyboardMarkup
+
+        restored = [
+            call.kwargs.get("reply_markup")
+            for call in message.reply_text.call_args_list
+            if isinstance(call.kwargs.get("reply_markup"), ReplyKeyboardMarkup)
+        ]
+        self.assertTrue(
+            restored,
+            "quota-exhausted exit must restore the main-menu ReplyKeyboardMarkup",
+        )
 
 
 if __name__ == "__main__":
