@@ -7,12 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import bot
 import db
+from formatting import escape_mdv2_code, format_card
 from bot import (
     _custom_word_input_error,
     _is_cancel_input,
     _user_presentation,
-    escape_mdv2_code,
-    format_card,
 )
 from keyboards import (
     BTN_ASK_WORD,
@@ -200,29 +199,20 @@ class CustomWordQueryTests(unittest.TestCase):
         card = format_card(
             {
                 "word": "hello",
-                "phonetic": "hɛ.loʊ",
                 "fa_meaning": "سلام",
-            }
+            },
+            phonetic_lines=["`hɛ.loʊ`"],
         )
         self.assertIn("`hɛ.loʊ`", card)
 
     def test_phonetic_rendering_can_toggle_representations(self):
         card = {
             "word": "kompliziert",
-            "phonetic": (
-                "IPA: /kɔm.pliˈtsiːʁt/\n"
-                "Latin: kom·pli·tsiirt\n"
-                "Persian: کُم-پلی-تسی-رت"
-            ),
             "fa_meaning": "پیچیده",
             "fa_explanation": "به چیزی گفته می‌شود که درک کردن یا انجام دادن آن آسان نیست.",
         }
-        with patch.object(
-            db,
-            "get_phonetic_display_settings",
-            return_value={"ipa": True, "persian": True},
-        ):
-            rendered = format_card(card)
+        phon_lines = ["`IPA: /kɔm.pliˈtsiːʁt/`", "`Persian: کُم-پلی-تسی-رت`"]
+        rendered = format_card(card, phonetic_lines=phon_lines)
         self.assertIn("`IPA: /kɔm.pliˈtsiːʁt/`", rendered)
         self.assertNotIn("Latin:", rendered)
         self.assertIn("`Persian: کُم-پلی-تسی-رت`", rendered)

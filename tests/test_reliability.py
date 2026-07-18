@@ -10,6 +10,7 @@ import ai
 import bot
 import config
 import db
+import formatting
 from telegram.error import BadRequest
 
 
@@ -316,10 +317,10 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         query_before = json.loads(db.get_query_result(query_token, user_id=1)["result_json"])
         saved_before = json.loads(db.get_saved_word(1, user_id=1)["card_data"])
 
-        bot.format_card(daily_before, presentation="brief")
-        bot.format_card(daily_before, presentation="detailed", translations_prepared=True)
-        bot.format_card(query_before, presentation="brief")
-        bot.format_card(saved_before, presentation="detailed")
+        formatting.format_card(daily_before, presentation="brief")
+        formatting.format_card(daily_before, presentation="detailed", translations_prepared=True)
+        formatting.format_card(query_before, presentation="brief")
+        formatting.format_card(saved_before, presentation="detailed")
 
         self.assertEqual(db.get_daily_cards(1, "2026-07-12")[0], daily_before)
         self.assertEqual(

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import bot
 import db
-from bot import format_card, format_srs_prompt
+from formatting import format_card, format_srs_prompt
 from keyboards import srs_hidden_keyboard, srs_revealed_keyboard
 
 
