@@ -1,4 +1,7 @@
+import json
 import re
+
+import db
 
 SRS_HIDDEN_INSTRUCTION = (
     "⏰ مرور فاصله‌دار: معنی، مثال و نکته را از حفظ به یاد بیاور. "
@@ -98,3 +101,42 @@ def format_srs_prompt(data: dict, *, phonetic_lines: list[str] | None = None) ->
         lines.extend(phonetic_lines)
     lines.append(f"\n{escape_mdv2(SRS_HIDDEN_INSTRUCTION)}")
     return "\n".join(lines)
+
+
+def _phonetic_lines(value: str | dict) -> list[str]:
+    settings = db.get_phonetic_display_settings()
+
+    if isinstance(value, dict):
+        sections = value
+    else:
+        raw = (value or "").strip()
+        if not raw:
+            return []
+
+        if raw.startswith("{") and raw.endswith("}"):
+            try:
+                sections = json.loads(raw.replace("'", '"'))
+            except (json.JSONDecodeError, Exception):
+                lines = raw.splitlines()
+                if len(lines) >= 3:
+                    sections = {"ipa": lines[0].strip(), "persian": lines[2].strip()}
+                elif len(lines) == 2:
+                    sections = {"ipa": lines[0].strip(), "persian": lines[1].strip()}
+                else:
+                    sections = {"ipa": raw, "persian": ""}
+        else:
+            lines = raw.splitlines()
+            if len(lines) >= 3:
+                sections = {"ipa": lines[0].strip(), "persian": lines[2].strip()}
+            elif len(lines) == 2:
+                sections = {"ipa": lines[0].strip(), "persian": lines[1].strip()}
+            else:
+                sections = {"ipa": raw, "persian": ""}
+
+    rendered = []
+    for key in ('ipa', 'persian'):
+        val = sections.get(key)
+        if settings.get(key) and val:
+            rendered.append(f"`{escape_mdv2_code(str(val))}`")
+
+    return rendered

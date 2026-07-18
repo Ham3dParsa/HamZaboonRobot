@@ -1,8 +1,8 @@
 # Plan: Staged `bot.py` Module Extraction
 
-**Status:** Locked implementation plan; Stage 1 (`formatting.py`) completed; Stage 2 (`helpers.py`) completed; Stage 3 (`user.py`) requires contract lock
+**Status:** Locked implementation plan; Stages 1–3 completed; Stage 4 (`srs_handler.py`) requires contract lock
 **Canonical references:** this file, issue #96
-**Last updated:** 2026-07-18 (updated after Stage 2 implementation)
+**Last updated:** 2026-07-19 (updated after Stage 3 implementation)
 
 ## Problem
 
@@ -191,60 +191,86 @@ All 140 tests pass, `py_compile` clean.
 
 ---
 
-## Stage 3 — `user.py`
+## Stage 3 — `user.py` (expanded scope)
 
-**Status:** Requires contract lock before implementation
+**Status:** Completed (2026-07-19)
 
-### What moves
+### What moved — `user.py` (new, 759 lines)
 
-| Function | Group | Called from |
-|----------|-------|-------------|
-| `cmd_start` | Onboarding | `main()` handler registration |
-| `on_lang_selected` | Onboarding | `callback_router` |
-| `on_goal_selected` | Onboarding | `callback_router` |
-| `on_level_selected` | Onboarding | `callback_router` |
-| `change_lang_start` | Settings | `text_router` |
-| `change_goal_start` | Settings | `text_router` |
-| `change_level_start` | Settings | `text_router` |
-| `change_presentation_start` | Settings | `text_router` |
-| `on_lang_changed` | Settings | `callback_router` |
-| `on_goal_changed` | Settings | `callback_router` |
-| `on_level_changed` | Settings | `callback_router` |
-| `send_daily_card_now` | Daily action | `text_router` |
-| `send_grammar_tip` | Daily action | `text_router` |
-| `ask_for_ask_word` | User action | `text_router` |
-| `show_status` | User action | `text_router` |
-| `_handle_query_prepare` | Translation reveal | `callback_router` |
-| `_handle_daily_prepare` | Translation reveal | `callback_router` |
-| `_handle_srs_prepare` | Translation reveal | `callback_router` |
-| `_show_review_menu` | Review | `callback_router` |
-| `_show_review_date` | Review | `callback_router` |
-| `_custom_word_input_error` | Validation | `text_router` |
+25 functions moved from `bot.py` to `user.py`:
 
-### Router delegation pattern
+| Function | Notes |
+|----------|-------|
+| `cmd_start` | Onboarding handler |
+| `on_lang_selected` | Onboarding callback |
+| `on_goal_selected` | Onboarding callback |
+| `on_level_selected` | Onboarding callback |
+| `change_lang_start` | Settings text handler |
+| `change_goal_start` | Settings text handler |
+| `change_level_start` | Settings text handler |
+| `change_presentation_start` | Settings text handler |
+| `on_lang_changed` | Settings callback |
+| `on_goal_changed` | Settings callback |
+| `on_level_changed` | Settings callback |
+| `send_grammar_tip` | Daily action text handler |
+| `ask_for_ask_word` | User action text handler |
+| `show_status` | User action text handler |
+| `_handle_query_prepare` | Translation reveal callback |
+| `_handle_daily_prepare` | Translation reveal callback |
+| `_handle_srs_prepare` | Translation reveal callback |
+| `_show_review_menu` | Review callback |
+| `_custom_word_input_error` | Custom word validation |
+| `_word_query_usage` | Usage helper |
+| `_word_query_usage_text` | Usage helper |
+| `_grammar_tip_usage` | Usage helper |
+| `_grammar_tip_usage_text` | Usage helper |
+| `_review_history_page` | Review pagination helper |
+| `_saved_word_card` | SRS card reconstruction (moves to srs_handler.py in Stage 4) |
 
-In `bot.py`'s `text_router`:
-```python
-# Before
-if text == BTN_TODAY_CARD:
-    await send_daily_card_now(update, context)
-elif text == BTN_CHANGE_LANG:
-    await change_lang_start(update, context)
-# After
-from user import send_daily_card_now, change_lang_start, ...
-if text == BTN_TODAY_CARD:
-    await send_daily_card_now(update, context)
-```
+**Kept in `bot.py`** (contracted scope):
+- `send_daily_card_now` — still calls `_send_next_daily_card` (stays in bot.py)
+- `_show_review_date` — thin wrapper calling `_send_card_from_store`
 
-In `bot.py`'s `callback_router`:
-```python
-from user import on_lang_changed, on_lang_selected, _show_review_menu, ...
-# existing routing logic unchanged, only the function location changes
-```
+### Infrastructure extracted to other modules
+
+| Module | Functions moved | Reason |
+|--------|----------------|--------|
+| `config.py` (+30 lines) | `is_owner`, `_app_today`, `_user_presentation`, `_user_plan`, `_user_plan_label` | Pure config-derived helpers; zero new imports |
+| `formatting.py` (+42 lines) | `_phonetic_lines` (and `db` import) | Rendering logic belongs with formatting module |
+| `llm_services.py` **(new, 79 lines)** | AI rate limiter globals (`_ai_slots`, `_ai_request_times`, `_ai_request_lock`), `_call_ai_limited`, `_ask_batch_limited`, `_prepare_cached_card` | Card preparation + AI rate limiting extracted to avoid circular import between user.py and bot.py. Ruled by contract lock Rule #4. |
+
+### Circular dependency resolution
+
+`user.py` cannot import `bot.py`. The following dependencies were resolved:
+
+- `is_owner(user_id)` → `config.py` (only depends on `OWNER_ID`)
+- `_app_today()` → `config.py` (only depends on `APP_TIMEZONE`)
+- `_user_presentation(row)` → `config.py` (calls `presentation_for_user` from config)
+- `_user_plan(row)`, `_user_plan_label(row)` → `config.py` (use `effective_plan`, `PLANS`)
+- `_phonetic_lines(value)` → `formatting.py` (adds `db` import; pure rendering)
+- `_prepare_cached_card(card, ...)` → `llm_services.py` (extracted with AI rate limiter)
+- `_call_ai_limited(...)`, `_ask_batch_limited(...)` → `llm_services.py`
 
 ### Dependencies
 
-`helpers`, `formatting`, `db`, `ai`, `prompts`, `keyboards`, `config`
+`user.py` imports from: `helpers`, `formatting`, `llm_services`, `db`, `ai`, `prompts`, `keyboards`, `config`, `catalog`
+
+### Verification
+
+```bash
+python -m py_compile llm_services.py config.py formatting.py user.py bot.py
+python -m unittest discover -s tests -v
+```
+139/140 tests pass (1 pre-existing env-dependent failure). `py_compile` clean, no whitespace errors.
+
+### Stage 3 completion summary
+
+- `bot.py`: ~2,757 → ~1,964 lines (-793)
+- `user.py`: 759 lines (25 functions)
+- `llm_services.py`: 79 lines (new module, 6 symbols)
+- `config.py`: 175 → 205 lines (+5 helpers)
+- `formatting.py`: 100 → 142 lines (+1 function + `db` import)
+- 6 test files updated: patch targets moved from `bot` to `llm_services`
 
 ---
 
