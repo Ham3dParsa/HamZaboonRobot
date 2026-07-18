@@ -1,7 +1,6 @@
 import datetime as dt
 import json
 import os
-import sqlite3
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -334,7 +333,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
 
     def test_saved_word_migration_preserves_legacy_rows(self):
         os.remove(db.DB_PATH)
-        with sqlite3.connect(db.DB_PATH) as conn:
+        with db.get_conn() as conn:
             conn.execute(
                 "CREATE TABLE saved_words ("
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, word TEXT, "
@@ -344,6 +343,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
                 "INSERT INTO saved_words(user_id, word, lang, interval_idx, next_review) "
                 "VALUES(1, ' Hello ', 'en', 0, '2026-07-13')"
             )
+            conn.commit()
         db.init_db()
 
         row = db.get_saved_word(1, user_id=1)
@@ -354,7 +354,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
 
     def test_user_presentation_preference_migrates_from_legacy_schema(self):
         os.remove(db.DB_PATH)
-        with sqlite3.connect(db.DB_PATH) as conn:
+        with db.get_conn() as conn:
             conn.execute(
                 """
                 CREATE TABLE users (
@@ -379,6 +379,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
                 )
                 """
             )
+            conn.commit()
         db.init_db()
         with db.get_conn() as conn:
             columns = {
