@@ -169,6 +169,50 @@ def query_result_keyboard(
     )
 
 
+def srs_hidden_keyboard(user_id: int, word_id: int) -> InlineKeyboardMarkup:
+    """Keyboard for the first (hidden) SRS reminder screen.
+
+    Offers a pure-recall action and a reveal action. Recalling without revealing
+    is a strong signal; revealing marks the review as "peeked" before the
+    follow-up confirmation.
+    """
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "✅ یادم بود",
+                    callback_data=f"srs:remember:{user_id}:{word_id}",
+                ),
+                InlineKeyboardButton(
+                    "👁 افشای کارت کامل",
+                    callback_data=f"srs:reveal:{user_id}:{word_id}",
+                ),
+            ]
+        ]
+    )
+
+
+def srs_revealed_keyboard(user_id: int, word_id: int) -> InlineKeyboardMarkup:
+    """Keyboard shown after the learner reveals the full card.
+
+    Re-asks whether they truly recalled it before seeing the answer.
+    """
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "✅ بله، درست بود",
+                    callback_data=f"srs:confirm:{user_id}:{word_id}",
+                ),
+                InlineKeyboardButton(
+                    "🔁 نه، باز هم یادآوری کن",
+                    callback_data=f"srs:again:{user_id}:{word_id}",
+                ),
+            ]
+        ]
+    )
+
+
 def srs_review_keyboard(
     user_id: int,
     word_id: int,

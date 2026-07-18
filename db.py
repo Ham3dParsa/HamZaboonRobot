@@ -197,6 +197,14 @@ def init_db():
                 error_class TEXT,
                 error_message TEXT
             );
+            CREATE TABLE IF NOT EXISTS review_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                word_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                revealed_before_answer INTEGER NOT NULL DEFAULT 0,
+                outcome TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             """
         )
         columns = {
@@ -1353,3 +1361,37 @@ def defer_word_review(word_id: int, days: int = 1) -> bool:
         )
         conn.commit()
         return cursor.rowcount == 1
+
+
+REVIEW_OUTCOMES = ("recalled", "recalled_after_peek", "again")
+
+
+def record_review_event(
+    word_id: int,
+    user_id: int,
+    *,
+    revealed_before_answer: bool,
+    outcome: str,
+) -> None:
+    """Persist a spaced-repetition interaction event for later retention analysis.
+
+    Records whether the learner revealed the full card before answering and the
+    final outcome, so recall confidence can be estimated without changing the
+    scheduling intervals.
+    """
+    if outcome not in REVIEW_OUTCOMES:
+        raise ValueError(f"unknown review outcome: {outcome}")
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO review_events "
+            "(word_id, user_id, revealed_before_answer, outcome, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                word_id,
+                user_id,
+                1 if revealed_before_answer else 0,
+                outcome,
+                _utc_now().isoformat(),
+            ),
+        )
+        conn.commit()
