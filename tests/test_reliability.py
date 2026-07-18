@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import ai
+import admin
 import bot
 import config
 import db
@@ -136,7 +137,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
             usd_to_toman_rate=50000,
             latency_ms=123,
         )
-        text = bot._llm_cost_report_text(
+        text = admin._llm_cost_report_text(
             {
                 "range": "mtd",
                 "detail": True,
@@ -176,7 +177,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertEqual(rows[0]["billed_failure_count"], 1)
         self.assertEqual(rows[0]["request_count"], 1)
 
-        text = bot._llm_cost_report_text(
+        text = admin._llm_cost_report_text(
             {
                 "range": "all",
                 "detail": False,

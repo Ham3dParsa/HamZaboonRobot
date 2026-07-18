@@ -74,15 +74,13 @@
     {
       "id": "phase-3",
       "name": "Controlled Generation and Daily Card Storage",
-      "status": "in-progress",
+      "status": "complete",
       "objective": "Generate only requested content, persist it safely, and prepare validated reuse.",
       "done": [
         "Bounded manual and scheduled batches",
         "Duplicate filtering, persistence, and partial retry"
       ],
-      "in_progress": [
-        "Segment-level pooling design and validated reuse boundaries"
-      ],
+      "in_progress": [],
       "todo": [
         "Add the pool table and gated validated write path",
         "Add pool telemetry and inventory selection"
@@ -103,7 +101,7 @@
     {
       "id": "phase-4",
       "name": "Interactive Card UX and Project Status",
-      "status": "in-progress",
+      "status": "complete",
       "objective": "Expose safe card interactions and make product/engineering status explicit.",
       "done": [
         "Persisted next-card flow",
@@ -152,7 +150,7 @@
     {
       "id": "phase-5",
       "name": "Custom-Word Queries and Spaced-Repetition Capture",
-      "status": "planned",
+      "status": "in-progress",
       "objective": "Complete query capture, saved-word integrity, and review entry points.",
       "done": [
         "Quota visibility",
@@ -184,7 +182,8 @@
         "Async-safe provider calls",
         "Callback validation and restart recovery",
         "Phonetic data normalization",
-        "Staged bot.py module extraction plan (docs/plan_bot_extraction.md)"
+        "Staged bot.py module extraction plan (docs/plan_bot_extraction.md)",
+        "Bot.py module extraction Stages 1-5 complete (formatting.py, helpers.py, user.py, srs_handler.py, admin.py)"
       ],
       "in_progress": [
         "Adaptive SRS correctness",
@@ -357,6 +356,14 @@
       "phase": "phase-8",
       "roadmap_ref": "mini-quizzes",
       "summary": "Points, badges, or similar reward surfaces remain separate from streak and retention, and should be introduced only as an explicit premium feature."
+    },
+    {
+      "id": "decision-bot-extraction-stages",
+      "status": "locked",
+      "title": "Bot.py extraction via staged modules",
+      "phase": "phase-6",
+      "roadmap_ref": "phase-6-reliable-delivery-concurrency-and-data-lifecycle",
+      "summary": "Completed 5-stage extraction: Stage 1 (formatting.py, 2026-07-18), Stage 2 (helpers.py, 2026-07-18), Stage 3 (user.py + llm_services.py, 2026-07-19), Stage 4 (srs_handler.py, 2026-07-19), Stage 5 (admin.py, 2026-07-19). Each stage independently verified with full test suite."
     }
   ]
 }

@@ -1,15 +1,17 @@
+import asyncio
 import logging
 import re
 
 from telegram import Update
 from telegram.ext import ContextTypes
-from telegram.error import BadRequest
+from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
-from config import OWNER_ID
+from config import OWNER_ID, TELEGRAM_MAX_CONCURRENCY
 from keyboards import main_menu, awaiting_inline_keyboard, BTN_CANCEL, BTN_BACK
 
 logger = logging.getLogger(__name__)
 
+_telegram_slots = asyncio.Semaphore(TELEGRAM_MAX_CONCURRENCY)
 _CUSTOM_WORD_MAX_CHARS = 50
 _CUSTOM_WORD_MAX_WORDS = 4
 _CANCEL_INPUTS = {
@@ -95,3 +97,32 @@ async def _answer_callback_safely(query, *args, **kwargs) -> None:
             logger.debug("skipped stale callback answer: %s", exc)
         else:
             raise
+
+
+async def _send_with_retry(
+    bot,
+    chat_id: int,
+    text: str,
+    *,
+    parse_mode: str | None = None,
+    reply_markup=None,
+):
+    for attempt in range(3):
+        try:
+            async with _telegram_slots:
+                kwargs = {"chat_id": chat_id, "text": text}
+                if parse_mode is not None:
+                    kwargs["parse_mode"] = parse_mode
+                if reply_markup is not None:
+                    kwargs["reply_markup"] = reply_markup
+                return await bot.send_message(**kwargs)
+        except BadRequest:
+            raise
+        except RetryAfter as exc:
+            if attempt == 2:
+                raise
+            await asyncio.sleep(min(float(exc.retry_after), 30))
+        except (TimedOut, NetworkError):
+            if attempt == 2:
+                raise
+            await asyncio.sleep(2**attempt)

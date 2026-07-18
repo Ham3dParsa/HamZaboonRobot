@@ -1,8 +1,8 @@
 # Plan: Staged `bot.py` Module Extraction
 
-**Status:** Locked implementation plan; Stages 1–4 completed; Stage 5 (`admin.py`) requires contract lock
+**Status:** Locked implementation plan; Stages 1–5 completed
 **Canonical references:** this file, issue #96
-**Last updated:** 2026-07-19 (updated after Stage 4 implementation)
+**Last updated:** 2026-07-19 (updated after Stage 5 implementation)
 
 ## Problem
 
@@ -325,9 +325,9 @@ elif data.startswith("query:add:"):
 
 ## Stage 5 — `admin.py`
 
-**Status:** Requires contract lock before implementation
+**Status:** Completed (2026-07-19)
 
-### What moves
+### What moved
 
 | Function | Group |
 |----------|-------|
@@ -363,7 +363,7 @@ if awaiting.startswith("admin_") or awaiting.startswith("llm_cost_") or awaiting
 
 `callback_router` admin branches become:
 ```python
-from admin import _handle_admin_callback
+from admin import _handle_admin_callback, _handle_llm_callback
 elif data.startswith("admin:"):
     await _handle_admin_callback(update, context, data.split(":", 1)[1])
 elif data.startswith("llm:"):
@@ -373,6 +373,19 @@ elif data.startswith("llm:"):
 ### Dependencies
 
 `helpers`, `formatting`, `db`, `keyboards`, `config`
+
+### Circular dependency resolution
+
+`admin_broadcast` requires `_send_with_retry`, which uses `_telegram_slots` (both were in `bot.py`). Both moved to `helpers.py` where they are now shared by `_dispatch_queue` (bot.py), `srs_job` (bot.py), and `admin_broadcast` (admin.py).
+
+### Stage 5 completion summary
+
+- `admin.py`: 570 lines created (new module, 27 functions)
+- `helpers.py`: +20 lines (`_telegram_slots`, `_send_with_retry`)
+- `bot.py`: 1,831 → ~1,260 lines (-571)
+- `test_reliability.py`: patch targets updated from `bot` to `admin`
+- `py_compile` clean, 139/140 tests pass (1 pre-existing env-config failure), no whitespace errors
+- Contract lock: 3 rules locked by owner (Rule 1: retry+semaphore to helpers; Rule 2: two callback handlers; Rule 3: single text handler)
 
 ---
 
