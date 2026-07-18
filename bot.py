@@ -77,6 +77,8 @@ from keyboards import (
     daily_review_menu_keyboard,
     query_result_keyboard,
     srs_review_keyboard,
+    srs_hidden_keyboard,
+    srs_revealed_keyboard,
     admin_panel_keyboard,
     phonetic_settings_keyboard,
     llm_cost_dashboard_keyboard,
@@ -488,6 +490,29 @@ def format_card(
     if footer:
         lines.append(f"\n{escape_mdv2(footer)}")
 
+    return "\n".join(lines)
+
+
+SRS_HIDDEN_INSTRUCTION = (
+    "⏰ مرور فاصله‌دار: معنی، مثال و نکته را از حفظ به یاد بیاور. "
+    "اگر یادت بود «✅ یادم بود» را بزن؛ اگر شک داشتی، «👁 افشای کارت کامل» را بزن."
+)
+
+SRS_REVEAL_QUESTION = "🧠 آیا واقعاً درست به یادش آوردی، یا می‌خواهی باز هم یادآوری شود؟"
+
+
+def format_srs_prompt(data: dict) -> str:
+    """Render the first (hidden) SRS reminder screen.
+
+    Shows only the prompt word and phonetic so the learner can self-test before
+    revealing the meaning, examples, and grammar tip.
+    """
+    word = escape_mdv2(data.get("word", ""))
+    lines = [f"*{word}*"]
+    phon_lines = _phonetic_lines(data.get("phonetic", ""))
+    if phon_lines:
+        lines.extend(phon_lines)
+    lines.append(f"\n{escape_mdv2(SRS_HIDDEN_INSTRUCTION)}")
     return "\n".join(lines)
 
 
@@ -1187,23 +1212,107 @@ async def _handle_srs_review(update: Update, action: str, target_user_id_text: s
     if not row:
         await update.callback_query.answer("این واژه در مرور شما پیدا نشد.", show_alert=True)
         return
-    if action == "remember":
+    # "remember" is a pure recall from the hidden screen (not revealed first).
+    # "confirm" is a positive recall after the learner revealed the full card.
+    if action in {"remember", "confirm"}:
         if not db.advance_word_review(word_id):
             await update.callback_query.answer("این مرور قبلاً ثبت شده است.", show_alert=True)
             return
         db.touch_streak(user_id)
+        revealed = action == "confirm"
+        db.record_review_event(
+            word_id,
+            user_id,
+            revealed_before_answer=revealed,
+            outcome="recalled_after_peek" if revealed else "recalled",
+        )
         await update.callback_query.answer("ثبت شد؛ مرور بعدی زمان‌بندی شد.", show_alert=True)
-        log.info("srs review advanced user_id=%s word_id=%s", user_id, word_id)
+        log.info(
+            "srs review advanced user_id=%s word_id=%s revealed=%s",
+            user_id,
+            word_id,
+            revealed,
+        )
         return
     if action == "again":
         if not db.defer_word_review(word_id):
             await update.callback_query.answer("این مرور قبلاً ثبت شده است.", show_alert=True)
             return
         db.touch_streak(user_id)
+        # "again" is only offered on the revealed screen, so the card was seen.
+        db.record_review_event(
+            word_id,
+            user_id,
+            revealed_before_answer=True,
+            outcome="again",
+        )
         await update.callback_query.answer("باشه؛ فردا دوباره یادآوری می‌کنم.", show_alert=True)
         log.info("srs review deferred user_id=%s word_id=%s", user_id, word_id)
         return
     await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+
+
+async def _handle_srs_reveal(update: Update, context: ContextTypes.DEFAULT_TYPE, target_user_id_text: str, word_id_text: str):
+    try:
+        target_user_id = int(target_user_id_text)
+        word_id = int(word_id_text)
+    except ValueError:
+        await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+        return
+    user_id = update.effective_user.id
+    if user_id != target_user_id:
+        await update.callback_query.answer("این مرور برای کاربر دیگری است.", show_alert=True)
+        return
+    row = db.get_saved_word(word_id, user_id=user_id)
+    if not row:
+        await update.callback_query.answer("این واژه در مرور شما پیدا نشد.", show_alert=True)
+        return
+    if row["review_status"] != "pending":
+        await update.callback_query.answer("این مرور دیگر باز نیست.", show_alert=True)
+        return
+    user_row = db.get_user(user_id)
+    try:
+        card = await asyncio.to_thread(
+            _prepare_cached_card,
+            _saved_word_card(row),
+            lang=row["lang"],
+            user_id=user_id,
+            plan=(user_row["plan"] if user_row else "free") or "free",
+            source="srs",
+            persist_patch=lambda patch: db.update_saved_word_fields(
+                word_id,
+                user_id,
+                patch,
+            ),
+        )
+    except CardPreparationError:
+        await update.callback_query.answer(
+            "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.",
+            show_alert=True,
+        )
+        return
+    try:
+        await update.callback_query.edit_message_text(
+            format_card(
+                card,
+                footer=SRS_REVEAL_QUESTION,
+                presentation=_user_presentation(user_row),
+            ),
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=srs_revealed_keyboard(user_id, word_id),
+        )
+    except BadRequest as exc:
+        if "not modified" in str(exc).casefold():
+            await _answer_callback_safely(update.callback_query, "کارت قبلاً افشا شده است.")
+        else:
+            log.exception("failed to reveal SRS card")
+            await _answer_callback_safely(
+                update.callback_query,
+                "افشای کارت انجام نشد؛ لطفاً دوباره امتحان کنید.",
+                show_alert=True,
+            )
+        return
+    await _answer_callback_safely(update.callback_query, "کارت افشا شد.")
 
 
 def _message_has_prepared_translations(update: Update) -> bool:
@@ -2473,6 +2582,12 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
             return
         await _handle_srs_prepare(update, context, parts[2], parts[3])
+    elif data.startswith("srs:reveal:"):
+        parts = data.split(":")
+        if len(parts) != 4:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        await _handle_srs_reveal(update, context, parts[2], parts[3])
     elif data.startswith("srs:"):
         parts = data.split(":")
         if len(parts) != 4:
@@ -2717,20 +2832,9 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
                     await _send_with_retry(
                         context.bot,
                         user_id,
-                        format_card(
-                            card,
-                            footer=(
-                                "⏰ مرور فاصله‌دار: اول معنی، مثال و نکته را از حفظ "
-                                "یادآوری کن؛ بعد نتیجه را با دکمه‌ها ثبت کن."
-                            ),
-                            presentation=_user_presentation(row),
-                        ),
+                        format_srs_prompt(card),
                         parse_mode=ParseMode.MARKDOWN_V2,
-                        reply_markup=srs_review_keyboard(
-                            user_id,
-                            word_id,
-                            show_translations=True,
-                        ),
+                        reply_markup=srs_hidden_keyboard(user_id, word_id),
                     )
                     if not db.mark_word_review_pending(word_id):
                         db.release_srs_claim(word_id)
