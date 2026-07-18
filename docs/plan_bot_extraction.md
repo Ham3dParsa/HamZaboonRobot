@@ -1,8 +1,8 @@
 # Plan: Staged `bot.py` Module Extraction
 
-**Status:** Locked implementation plan; Stage 1 (`formatting.py`) completed; Stage 2 (`helpers.py`) requires contract lock
+**Status:** Locked implementation plan; Stage 1 (`formatting.py`) completed; Stage 2 (`helpers.py`) completed; Stage 3 (`user.py`) requires contract lock
 **Canonical references:** this file, issue #96
-**Last updated:** 2026-07-18 (updated after Stage 1 implementation)
+**Last updated:** 2026-07-18 (updated after Stage 2 implementation)
 
 ## Problem
 
@@ -136,47 +136,58 @@ Every call site (`_send_card_from_store`, `_send_next_daily_card`,
 
 ## Stage 2 — `helpers.py`
 
-**Status:** Requires contract lock before implementation
+**Status:** Completed (2026-07-18)
 
-### What moves
+### What moved
 
-| Function | Notes |
-|----------|-------|
-| `_start_llm_wait_state(update, context, text)` | |
-| `_finish_llm_wait_state(wait_message)` | |
-| `_exit_awaiting_flow(update, context, *, via_callback)` | |
-| `_edit_or_send(update, context, text, **kwargs)` | |
-| `_answer_callback_safely(query, *args, **kwargs)` | |
-| `_message_has_prepared_translations(update) -> bool` | |
-| `_is_cancel_input(text) -> bool` | |
-| `_normalize_custom_word_input(text) -> str` | |
-
-### What moves as constants
-
-| Constant | Value |
-|----------|-------|
-| `_CANCEL_INPUTS` | `{"cancel", "back", "لغو", "بازگشت", "انصراف", ...}` |
-| `_CUSTOM_WORD_MAX_CHARS` | `50` |
-| `_CUSTOM_WORD_MAX_WORDS` | `4` |
+| Function/Constant | Notes |
+|-------------------|-------|
+| `_start_llm_wait_state` | Underscore kept; uses `logger` instead of `log` |
+| `_finish_llm_wait_state` | Underscore kept; uses `logger` instead of `log` |
+| `_exit_awaiting_flow` | **Refactored**: inline `OWNER_ID` check (`user_id == OWNER_ID`) instead of calling `is_owner()` from `bot.py` |
+| `_edit_or_send` | Underscore kept; uses `logger` instead of `log` |
+| `_answer_callback_safely` | Underscore kept; uses `logger` instead of `log` |
+| `_message_has_prepared_translations` | Unchanged |
+| `_is_cancel_input` | Unchanged |
+| `_normalize_custom_word_input` | Unchanged |
+| `_CANCEL_INPUTS` | Unchanged |
+| `_CUSTOM_WORD_MAX_CHARS` | Unchanged |
+| `_CUSTOM_WORD_MAX_WORDS` | Unchanged |
 
 ### Dependencies
 
-- `telegram` (Update, constants)
-- `logging`
-- `from keyboards import main_menu, awaiting_inline_keyboard`
+- `re` (stdlib)
+- `logging.getLogger(__name__)` (own logger named `helpers`)
+- `telegram.Update`, `telegram.ext.ContextTypes`
+- `telegram.error.BadRequest`
+- `config.OWNER_ID`
+- `keyboards.main_menu`, `keyboards.awaiting_inline_keyboard`, `BTN_CANCEL`, `BTN_BACK`
 
-### Caller migration
+### Refactoring detail
 
-All modules that currently use these functions change from:
+`_exit_awaiting_flow` originally called `main_menu(is_owner(user_id))` where `is_owner` was in `bot.py`. To avoid a circular import (helpers importing bot), the check was inlined:
 ```python
-# local in bot.py
-await _edit_or_send(update, context, text)
+reply_markup = main_menu(user_id == OWNER_ID)
 ```
-to:
-```python
-from helpers import _edit_or_send
-await _edit_or_send(update, context, text)
+
+Module-level logger was changed from `log` (shared bot.py logger) to `logger` (module-scoped to helpers).
+
+### Verification
+
+```bash
+python -m py_compile helpers.py bot.py
+python -m unittest discover -s tests -v
 ```
+All 140 tests pass, `py_compile` clean.
+
+### Stage 2 completion summary
+
+- `helpers.py`: 81 lines created with 11 exported symbols
+- `bot.py`: ~2,829 → ~2,743 lines (removed ~86 lines of shared Telegram plumbing)
+- All call sites updated in `bot.py` — 0 behavioural changes
+- Tests updated: `test_custom_word_query.py` (import from helpers), `test_reliability.py` (import helpers, call through `helpers._answer_callback_safely`)
+- Validation: 140/140 tests pass, `py_compile` clean, no whitespace errors
+- All imports satisfy the circularity guard: `helpers.py` imports only `re`, `logging`, `telegram.*`, `config`, `keyboards` (no `bot`)
 
 ---
 

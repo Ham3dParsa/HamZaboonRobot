@@ -109,6 +109,20 @@ from formatting import (
     format_srs_prompt,
 )
 
+from helpers import (
+    _answer_callback_safely,
+    _edit_or_send,
+    _exit_awaiting_flow,
+    _finish_llm_wait_state,
+    _is_cancel_input,
+    _message_has_prepared_translations,
+    _normalize_custom_word_input,
+    _start_llm_wait_state,
+    _CANCEL_INPUTS,
+    _CUSTOM_WORD_MAX_CHARS,
+    _CUSTOM_WORD_MAX_WORDS,
+)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -122,18 +136,7 @@ _ai_slots = threading.BoundedSemaphore(AI_MAX_CONCURRENCY)
 _ai_request_times: deque[float] = deque()
 _ai_request_lock = threading.Lock()
 _telegram_slots = asyncio.Semaphore(TELEGRAM_MAX_CONCURRENCY)
-_CUSTOM_WORD_MAX_CHARS = 50
-_CUSTOM_WORD_MAX_WORDS = 4
 _MANUAL_DAILY_BATCH_SIZE = 6
-_CANCEL_INPUTS = {
-    "cancel",
-    "back",
-    "لغو",
-    "بازگشت",
-    "انصراف",
-    BTN_CANCEL.casefold(),
-    BTN_BACK.casefold(),
-}
 
 
 def _call_ai_limited(function, *args, **kwargs):
@@ -191,13 +194,6 @@ def _grammar_tip_usage_text(row) -> str:
     return f"📊 استفاده امروز از نکات گرامری: {used}/{limit} · باقی‌مانده: {remaining}"
 
 
-def _normalize_custom_word_input(text: str) -> str:
-    # پاک کردن علائم اضافی اما نگه داشتن برخی مفید
-    text = re.sub(r'[\s\u200c\u200b]+', ' ', text.strip())  # نیم‌فاصله و فضاهای مختلف
-    text = re.sub(r' +', ' ', text)                        # چند فاصله
-    return text.strip()
-
-
 def _custom_word_input_error(text: str, target_lang: str) -> str | None:
     normalized = _normalize_custom_word_input(text)
     if not normalized:
@@ -238,58 +234,6 @@ def _custom_word_input_error(text: str, target_lang: str) -> str | None:
         return "برای این زبان، عبارت کوتاه‌تری بفرست (حداکثر ۳ کلمه)."
 
     return None
-
-
-def _is_cancel_input(text: str) -> bool:
-    return _normalize_custom_word_input(text).casefold() in _CANCEL_INPUTS
-
-
-async def _start_llm_wait_state(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    chat = update.effective_chat
-    if not chat:
-        return None
-    await chat.send_action("typing")
-    try:
-        return await context.bot.send_message(chat_id=chat.id, text=text)
-    except Exception:
-        log.exception("Failed to send LLM wait-state message")
-        return None
-
-
-async def _finish_llm_wait_state(wait_message):
-    if not wait_message:
-        return
-    try:
-        await wait_message.delete()
-    except Exception:
-        log.exception("Failed to delete LLM wait-state message")
-
-
-async def _exit_awaiting_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, *, via_callback: bool = False):
-    context.user_data.pop("awaiting", None)
-    user_id = update.effective_user.id
-    reply_markup = main_menu(is_owner(user_id))
-    if via_callback:
-        try:
-            await update.callback_query.edit_message_text("لغو شد.")
-        except BadRequest:
-            log.info("cancel callback edit failed; continuing with menu message")
-        await update.callback_query.message.reply_text("لغو شد.", reply_markup=reply_markup)
-        await update.callback_query.answer("لغو شد.", show_alert=False)
-        return
-    await update.message.reply_text("لغو شد.", reply_markup=reply_markup)
-
-
-async def _edit_or_send(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, **kwargs):
-    try:
-        return await update.callback_query.edit_message_text(text, **kwargs)
-    except BadRequest:
-        log.info("callback edit failed; sending replacement message")
-        return await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=text,
-            **kwargs,
-        )
 
 
 async def _send_card_from_store(
@@ -1227,23 +1171,6 @@ async def _handle_srs_reveal(update: Update, context: ContextTypes.DEFAULT_TYPE,
             )
         return
     await _answer_callback_safely(update.callback_query, "کارت افشا شد.")
-
-
-def _message_has_prepared_translations(update: Update) -> bool:
-    message = update.callback_query.message
-    return bool(message and "ترجمه‌ی مثال‌ها" in (message.text or ""))
-
-
-async def _answer_callback_safely(query, *args, **kwargs) -> None:
-    """Answer a callback query, ignoring expiry after slow preparation work."""
-    try:
-        await query.answer(*args, **kwargs)
-    except BadRequest as exc:
-        message = str(exc).casefold()
-        if "query is too old" in message or "query id is invalid" in message:
-            log.debug("skipped stale callback answer: %s", exc)
-        else:
-            raise
 
 
 async def _handle_daily_prepare(
