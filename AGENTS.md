@@ -326,11 +326,19 @@ For a non-trivial task:
 4. Stage modified files explicitly: `git add file1.py file2.py` (never `git add .`).
 5. Commit with Conventional Commits format: `type(scope): subject` (e.g., `fix(bot): handle collision retry`).
 6. Push branch and create PR via `gh pr create --fill --base main`.
+   If the PR resolves tracked issues, link them in the body (e.g., "Resolves #N").
+   If `gh` is unavailable, provide the GitHub PR creation URL as a fallback.
 7. Owner reviews and merges on GitHub using **Squash and merge**.
-8. Delete branch after merge (GitHub "Delete branch" button or `git branch -d`).
+   If the owner explicitly instructs "merge it" (or equivalent), the agent may
+   run `gh pr merge --squash` on the owner's behalf. The agent MUST confirm
+   CI passes via `gh pr checks` before merging.
+8. After merge, clean up locally:
+   `git checkout main && git pull && git branch -d branch-name`
 9. Update `issues/issues.json` and `ROADMAP.md` as required by Section 2.
 10. Run the validation commands below.
-11. Check CI and address review feedback before declaring the work complete.
+11. After PR creation, run `gh pr checks` to monitor CI. If checks fail,
+    apply the Error Recovery Protocol (Section 7): analyze, fix, push,
+    re-check. Report final CI status to the owner before declaring done.
 
 Do not combine unrelated user-facing features, broad refactors, and issue
 cleanup in one PR. If a discovered issue is outside the requested scope,
@@ -421,14 +429,46 @@ This protocol prioritizes autonomous recovery over escalation.
 
 - **Branch naming**: `type/short-desc` (e.g., `feat/custom-words`, `fix/collision-retry`, `docs/git-workflow`).
 - **Branch creation**: After validation passes (Section 5 Step 2), not before implementation.
-- **PR creation**: Agent runs `gh pr create --fill --base main` — owner merges on GitHub UI.
+- **PR creation**: Agent runs `gh pr create --fill --base main` — owner reviews on GitHub UI.
+  If the PR resolves tracked issues, link them in the body (e.g., "Resolves #N").
+  If `gh` is unavailable, provide the GitHub PR creation URL as a fallback.
+- **CI monitoring**: Agent runs `gh pr checks` after PR creation and reports results.
+- **Agent-initiated merge**: Only when the owner explicitly instructs "merge it"
+  (or equivalent). The agent MUST run `gh pr checks` and confirm all required
+  checks pass before `gh pr merge --squash`.
 - **Merge method**: **Squash and merge** on GitHub (single commit on `main`).
-- **Post-merge**: Delete branch (GitHub button or `git branch -d branch-name`).
-- **Local merge fallback only** with explicit owner instruction: `git checkout main && git pull && git merge --ff-only branch-name`.
+- **Post-merge**: Clean up locally:
+  `git checkout main && git pull && git branch -d branch-name`
+- **Local merge fallback only**: With explicit owner instruction:
+  `git checkout main && git pull && git merge --ff-only branch-name`.
+- **Remote branch deletion**: Owner may delete via GitHub UI after merge.
+
+### GitHub CLI Integration
+
+The agent may use the `gh` CLI for the following operations. Commands outside
+this list require explicit prior approval.
+
+**Pull requests:**
+- `gh pr create --fill --base main` — create a PR
+- `gh pr checks` — monitor CI/CD status
+- `gh pr merge --squash` — merge a PR (only on explicit owner instruction)
+- `gh pr view` — review PR status and comments
+
+**Issues (read-only):**
+- `gh issue list [--label <label>] [--state <state>]` — list issues
+- `gh issue view <N>` — read issue details and comments
+
+**Security & bounds:**
+- The agent MUST NOT expose the `gh` auth token in logs, commits, or PR descriptions.
+- The agent MUST NOT close, reopen, or create GitHub Issues ad hoc
+  (these operations are governed by the issue update policy in Section 2).
+- The agent MUST NOT merge a PR with failing CI checks.
 
 ### Security Rules
 
 - Do not commit `.env`, credentials, tokens, API keys, or generated secrets.
+- Do not expose `gh` auth tokens or session credentials in code, logs, tests,
+  commits, issue evidence, or PR descriptions.
 - Prefer established dependencies and standard-library solutions.
 - Treat database migrations as production code: preserve existing data, handle old schemas, test both fresh and upgraded databases.
 
@@ -474,5 +514,6 @@ Before every commit, the agent MUST verify:
 - [ ] Branch name follows `type/short-desc` convention
 - [ ] `<SYSTEM_GATE> Git validation required before commit </SYSTEM_GATE>` keyword present in response
 - [ ] Test failures classified (bug vs. intentional change); uncertain cases resolved via `question` tool with `custom: true` per fallback protocol in Section 2.4
+- [ ] CI checks passed (`gh pr checks`) or owner accepted failure before merge
 
 (End of file)
