@@ -142,6 +142,14 @@ def daily_word_query_limit_for_plan(plan: str) -> int:
     }.get(plan, FREE_DAILY_WORD_QUERY_LIMIT)
 
 
+def daily_reminder_cap_for_plan(plan: str) -> int:
+    return {
+        "free": FREE_DAILY_CARD_LIMIT,
+        "silver": SILVER_DAILY_CARD_LIMIT,
+        "gold": GOLD_DAILY_CARD_LIMIT,
+    }.get(plan, FREE_DAILY_CARD_LIMIT)
+
+
 def effective_plan(plan: str, bypass_limits: bool = False) -> str:
     if bypass_limits:
         return "gold"

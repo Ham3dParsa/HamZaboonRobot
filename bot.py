@@ -2656,6 +2656,11 @@ async def startup_catch_up_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def delivery_dispatch_job(context: ContextTypes.DEFAULT_TYPE):
+    stale_before = (
+        datetime.datetime.now(datetime.timezone.utc)
+        - datetime.timedelta(minutes=15)
+    ).isoformat()
+    db.requeue_stale_deliveries(stale_before, DELIVERY_MAX_ATTEMPTS)
     await _dispatch_queue(
         context,
         _app_today(),
@@ -2683,39 +2688,51 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
             if not due:
                 continue
             for word in due:
-                card = await asyncio.to_thread(
-                    _prepare_cached_card,
-                    _saved_word_card(word),
-                    lang=word["lang"],
-                    user_id=user_id,
-                    plan=row["plan"] or "free",
-                    source="srs",
-                    persist_patch=lambda patch, word_id=word["id"]: db.update_saved_word_fields(
-                        word_id,
-                        user_id,
-                        patch,
-                    ),
-                )
-                await _send_with_retry(
-                    context.bot,
-                    user_id,
-                    format_card(
-                        card,
-                        footer=(
-                            "⏰ مرور فاصله‌دار: اول معنی، مثال و نکته را از حفظ "
-                            "یادآوری کن؛ بعد نتیجه را با دکمه‌ها ثبت کن."
+                word_id = word["id"]
+                if not db.claim_srs_reminder(word_id):
+                    continue
+                try:
+                    card = await asyncio.to_thread(
+                        _prepare_cached_card,
+                        _saved_word_card(word),
+                        lang=word["lang"],
+                        user_id=user_id,
+                        plan=row["plan"] or "free",
+                        source="srs",
+                        persist_patch=lambda patch, word_id_=word_id: db.update_saved_word_fields(
+                            word_id_,
+                            user_id,
+                            patch,
                         ),
-                        presentation=_user_presentation(row),
-                    ),
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                    reply_markup=srs_review_keyboard(
+                    )
+                    await _send_with_retry(
+                        context.bot,
                         user_id,
-                        word["id"],
-                        show_translations=True,
-                    ),
-                )
-                db.mark_word_review_pending(word["id"])
-                log.info("srs review reminder sent user_id=%s word_id=%s", user_id, word["id"])
+                        format_card(
+                            card,
+                            footer=(
+                                "⏰ مرور فاصله‌دار: اول معنی، مثال و نکته را از حفظ "
+                                "یادآوری کن؛ بعد نتیجه را با دکمه‌ها ثبت کن."
+                            ),
+                            presentation=_user_presentation(row),
+                        ),
+                        parse_mode=ParseMode.MARKDOWN_V2,
+                        reply_markup=srs_review_keyboard(
+                            user_id,
+                            word_id,
+                            show_translations=True,
+                        ),
+                    )
+                    if not db.mark_word_review_pending(word_id):
+                        db.release_srs_claim(word_id)
+                        continue
+                    log.info("srs review reminder sent user_id=%s word_id=%s", user_id, word_id)
+                except CardPreparationError:
+                    db.release_srs_claim(word_id)
+                    log.warning("SRS card preparation failed for user %s word_id=%s", user_id, word_id)
+                except Exception:
+                    db.release_srs_claim(word_id)
+                    raise
         except CardPreparationError:
             try:
                 await _send_with_retry(

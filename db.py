@@ -14,6 +14,9 @@ from config import (
     DEFAULT_AI_MODEL,
     DEFAULT_PHONETIC_SHOW_IPA,
     DEFAULT_PHONETIC_SHOW_PERSIAN,
+    FREE_DAILY_CARD_LIMIT,
+    SILVER_DAILY_CARD_LIMIT,
+    GOLD_DAILY_CARD_LIMIT,
     LLM_INPUT_COST_USD_PER_MILLION,
     LLM_OUTPUT_COST_USD_PER_MILLION,
     PLANS,
@@ -217,6 +220,17 @@ def init_db():
         for name, definition in user_columns.items():
             if name not in columns:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {name} {definition}")
+        if "daily_reminder_cap" not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN daily_reminder_cap INTEGER")
+        if "reminder_cap_updated_at" not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN reminder_cap_updated_at TEXT")
+        conn.execute(
+            "UPDATE users SET daily_reminder_cap = CASE plan "
+            "WHEN 'silver' THEN ? WHEN 'gold' THEN ? ELSE ? END "
+            "WHERE daily_reminder_cap IS NULL",
+            (SILVER_DAILY_CARD_LIMIT, GOLD_DAILY_CARD_LIMIT, FREE_DAILY_CARD_LIMIT),
+        )
+        conn.commit()
         delivery_columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(delivery_queue)").fetchall()
@@ -1251,7 +1265,17 @@ def update_saved_word_fields(
 
 def due_words_for_user(user_id: int):
     today = _today().isoformat()
+    grace_deadline = (
+        _utc_now() - datetime.timedelta(hours=48)
+    ).isoformat()
     with get_conn() as conn:
+        conn.execute(
+            "UPDATE saved_words SET review_status='idle', review_requested_at=NULL "
+            "WHERE user_id=? AND review_status='pending' "
+            "AND review_requested_at IS NOT NULL AND review_requested_at<=?",
+            (user_id, grace_deadline),
+        )
+        conn.commit()
         return conn.execute(
             "SELECT * FROM saved_words WHERE user_id=? AND next_review<=? "
             "AND COALESCE(review_status, 'idle')!='pending'",
@@ -1269,14 +1293,37 @@ def get_saved_word(word_id: int, user_id: int | None = None):
         return conn.execute(query, params).fetchone()
 
 
-def mark_word_review_pending(word_id: int):
+def claim_srs_reminder(word_id: int) -> bool:
     with get_conn() as conn:
-        conn.execute(
-            "UPDATE saved_words SET review_status='pending', review_requested_at=? "
-            "WHERE id=?",
+        cursor = conn.execute(
+            "UPDATE saved_words SET review_status='claiming', review_requested_at=? "
+            "WHERE id=? AND review_status='idle'",
             (_utc_now().isoformat(), word_id),
         )
         conn.commit()
+        return cursor.rowcount == 1
+
+
+def release_srs_claim(word_id: int) -> bool:
+    with get_conn() as conn:
+        cursor = conn.execute(
+            "UPDATE saved_words SET review_status='idle', review_requested_at=NULL "
+            "WHERE id=? AND review_status='claiming'",
+            (word_id,),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+
+
+def mark_word_review_pending(word_id: int) -> bool:
+    with get_conn() as conn:
+        cursor = conn.execute(
+            "UPDATE saved_words SET review_status='pending', review_requested_at=? "
+            "WHERE id=? AND review_status='claiming'",
+            (_utc_now().isoformat(), word_id),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
 
 
 def advance_word_review(word_id: int) -> bool:
