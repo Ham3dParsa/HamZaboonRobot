@@ -66,7 +66,6 @@ from keyboards import (
     daily_review_dates_keyboard,
     daily_review_menu_keyboard,
     query_result_keyboard,
-    srs_review_keyboard,
     daily_card_keyboard,
     BTN_TODAY_CARD,
     BTN_ASK_WORD,
@@ -431,27 +430,6 @@ def _review_history_page(dates: list[str], page: int, page_size: int = 7) -> tup
     return dates[start:end], page, total_pages
 
 
-def _saved_word_card(row) -> dict:
-    if row["card_data"]:
-        try:
-            data = json.loads(row["card_data"])
-        except (TypeError, json.JSONDecodeError):
-            data = None
-        if isinstance(data, dict):
-            return data
-    return {
-        "word": row["word"],
-        "phonetic": "",
-        "fa_meaning": "این واژه قبلاً بدون کارت کامل ذخیره شده است.",
-        "fa_explanation": "معنی و مثال کامل در داده‌های قدیمی موجود نیست؛ خودت معنی را یادآوری کن.",
-        "synonyms": [],
-        "antonyms": [],
-        "examples": [],
-        "example_translations": [],
-        "grammar_tip": "",
-    }
-
-
 def _custom_word_input_error(text: str, target_lang: str) -> str | None:
     normalized = _normalize_custom_word_input(text)
     if not normalized:
@@ -649,84 +627,6 @@ async def _handle_query_prepare(
             )
         else:
             logger.exception("failed to edit prepared query card")
-            await _answer_callback_safely(
-                update.callback_query,
-                "نمایش ترجمه‌ها انجام نشد؛ لطفاً دوباره امتحان کنید.",
-                show_alert=True,
-            )
-        return
-    await _answer_callback_safely(update.callback_query, "ترجمه‌ها آماده شدند.")
-
-
-async def _handle_srs_prepare(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    target_user_id_text: str,
-    word_id_text: str,
-):
-    try:
-        target_user_id = int(target_user_id_text)
-        word_id = int(word_id_text)
-    except ValueError:
-        await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-        return
-    user_id = update.effective_user.id
-    if user_id != target_user_id:
-        await update.callback_query.answer("این مرور برای کاربر دیگری است.", show_alert=True)
-        return
-    if _message_has_prepared_translations(update):
-        await update.callback_query.answer("ترجمه‌ها آماده شده‌اند.")
-        return
-    row = db.get_saved_word(word_id, user_id=user_id)
-    if not row:
-        await update.callback_query.answer("این واژه در مرور شما پیدا نشد.", show_alert=True)
-        return
-    user_row = db.get_user(user_id)
-    try:
-        card = await asyncio.to_thread(
-            _prepare_cached_card,
-            _saved_word_card(row),
-            lang=row["lang"],
-            user_id=user_id,
-            plan=(user_row["plan"] if user_row else "free") or "free",
-            source="srs",
-            persist_patch=lambda patch: db.update_saved_word_fields(
-                word_id,
-                user_id,
-                patch,
-            ),
-        )
-    except CardPreparationError:
-        await update.callback_query.answer(
-            "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.",
-            show_alert=True,
-        )
-        return
-    footer = (
-        "⏰ مرور فاصله‌دار: اول معنی، مثال و نکته را از حفظ "
-        "یادآوری کن؛ بعد نتیجه را با دکمه‌ها ثبت کن."
-    )
-    phon_lines = _phonetic_lines(card.get("phonetic", ""))
-    try:
-        await update.callback_query.edit_message_text(
-            format_card(
-                card,
-                footer=footer,
-                presentation=_user_presentation(user_row),
-                translations_prepared=True,
-                phonetic_lines=phon_lines,
-            ),
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=srs_review_keyboard(user_id, word_id, show_translations=False),
-        )
-    except BadRequest as exc:
-        if "not modified" in str(exc).casefold():
-            await _answer_callback_safely(
-                update.callback_query,
-                "ترجمه‌ها قبلاً آماده شده‌اند.",
-            )
-        else:
-            logger.exception("failed to edit prepared SRS card")
             await _answer_callback_safely(
                 update.callback_query,
                 "نمایش ترجمه‌ها انجام نشد؛ لطفاً دوباره امتحان کنید.",

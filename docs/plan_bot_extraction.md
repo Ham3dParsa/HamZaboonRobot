@@ -1,8 +1,8 @@
 # Plan: Staged `bot.py` Module Extraction
 
-**Status:** Locked implementation plan; Stages 1–3 completed; Stage 4 (`srs_handler.py`) requires contract lock
+**Status:** Locked implementation plan; Stages 1–4 completed; Stage 5 (`admin.py`) requires contract lock
 **Canonical references:** this file, issue #96
-**Last updated:** 2026-07-19 (updated after Stage 3 implementation)
+**Last updated:** 2026-07-19 (updated after Stage 4 implementation)
 
 ## Problem
 
@@ -276,7 +276,7 @@ python -m unittest discover -s tests -v
 
 ## Stage 4 — `srs_handler.py`
 
-**Status:** Requires contract lock before implementation
+**Status:** Completed (2026-07-19)
 
 ### What moves
 
@@ -285,14 +285,21 @@ python -m unittest discover -s tests -v
 | `_handle_srs_review(update, action, target_user_id_text, word_id_text)` | Called from `callback_router` for `srs:remember`, `srs:confirm`, `srs:again` |
 | `_handle_srs_reveal(update, context, target_user_id_text, word_id_text)` | Called from `callback_router` for `srs:reveal:` |
 | `_handle_query_add(update, context, token)` | Called from `callback_router` for `query:add:` |
-| `_saved_word_card(row) -> dict` | Helper used by all three above |
+| `_saved_word_card(row) -> dict` | Helper (also used by `_handle_srs_prepare` and `bot.srs_job`) |
+| `_handle_srs_prepare(update, context, target_user_id_text, word_id_text)` | Moved from `user.py` as part of expanded scope (owner decision) |
+
+### Scope change
+
+Per contract lock Rule #3, `_handle_srs_prepare` was moved from `user.py` to `srs_handler.py` to consolidate all SRS-related handlers in one module.
 
 ### Router delegation pattern
 
 ```python
 # In bot.py's callback_router
-from srs_handler import _handle_srs_review, _handle_srs_reveal, _handle_query_add
+from srs_handler import _handle_srs_review, _handle_srs_reveal, _handle_query_add, _handle_srs_prepare
 
+elif data.startswith("srs:prepare:"):
+    await _handle_srs_prepare(update, context, parts[2], parts[3])
 elif data.startswith("srs:reveal:"):
     await _handle_srs_reveal(update, context, parts[2], parts[3])
 elif data.startswith("srs:"):
@@ -303,7 +310,16 @@ elif data.startswith("query:add:"):
 
 ### Dependencies
 
-`helpers`, `formatting`, `db`, `config`
+`helpers`, `formatting`, `db`, `config`, `keyboards`, `llm_services`
+
+### Stage 4 completion summary
+
+- `srs_handler.py`: 259 lines (new module, 5 functions)
+- `bot.py`: ~1,964 → ~1,831 lines (-133)
+- `user.py`: 759 → 659 lines (-100, removed `_saved_word_card`, `_handle_srs_prepare`)
+- Imports updated in `bot.py`, `user.py`, and `tests/test_srs_staged_reveal.py`
+- `py_compile` clean, 139/140 tests pass (1 pre-existing env-config failure), no whitespace errors
+- Contract lock: 3 rules locked by owner (Rule 1: `_saved_word_card` to `srs_handler.py`; Rule 2: top-level imports; Rule 3: move `_handle_srs_prepare` now)
 
 ---
 
@@ -366,18 +382,13 @@ After all 5 stages, `bot.py` retains:
 
 | Category | Functions/Globals |
 |----------|------------------|
-| **Globals** | `_app_timezone`, `_daily_locks`, `_ai_slots`, `_ai_request_times`, `_ai_request_lock`, `_telegram_slots`, `_MANUAL_DAILY_BATCH_SIZE`, logging config |
-| **AI limiter** | `_call_ai_limited`, `_ask_batch_limited` |
-| **Date/usage helpers** | `_app_today`, `_word_query_usage`, `_word_query_usage_text`, `_grammar_tip_usage`, `_grammar_tip_usage_text` |
-| **Owner helpers** | `is_owner`, `_user_plan`, `_user_plan_label`, `_user_presentation` |
-| **Phonetic helpers** | `_phonetic_display_settings`, `_phonetic_lines` (needs `db`) |
+| **Globals** | `_app_timezone`, `_daily_locks`, `_telegram_slots`, `_MANUAL_DAILY_BATCH_SIZE`, logging config |
 | **Card sending** | `_send_card_from_store`, `_send_next_daily_card` |
 | **Generation** | `_generate_daily_batch`, `_daily_avoid_words`, `_daily_card_session_profile`, `_ensure_daily_cards`, `_ensure_scheduled_session_cards`, `_ensure_next_daily_card` |
-| **Card preparation** | `_prepare_cached_card` |
-| **Review history** | `_review_history_page` |
 | **Queue/jobs** | `_plan_daily_queue`, `_send_with_retry`, `_dispatch_queue`, `daily_job`, `startup_catch_up_job`, `delivery_dispatch_job`, `connection_health_job`, `srs_job` |
 | **Routers** | `text_router` (delegates), `callback_router` (delegates) |
 | **Entry points** | `error_handler`, `main()` |
+| **Extracted to other modules** | See Stage completion sections for full inventory |
 
 ---
 

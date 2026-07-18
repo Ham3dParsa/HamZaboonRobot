@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import bot
 import db
+import srs_handler
 from formatting import format_card, format_srs_prompt
 from keyboards import srs_hidden_keyboard, srs_revealed_keyboard
 
@@ -162,7 +162,7 @@ class SrsHandlerFlowTests(unittest.TestCase):
     def test_remember_from_hidden_screen_records_pure_recall(self):
         query = self._query()
         update = self._update(query)
-        asyncio.run(bot._handle_srs_review(update, "remember", "1", str(self.word_id)))
+        asyncio.run(srs_handler._handle_srs_review(update, "remember", "1", str(self.word_id)))
         self.assertEqual(
             self._events(),
             [{"revealed_before_answer": 0, "outcome": "recalled"}],
@@ -173,10 +173,10 @@ class SrsHandlerFlowTests(unittest.TestCase):
         update = self._update(query)
         card = {"word": "hello", "fa_meaning": "سلام", "fa_explanation": "x"}
         context = MagicMock()
-        with patch.object(bot, "_prepare_cached_card", return_value=card):
-            asyncio.run(bot._handle_srs_reveal(update, context, "1", str(self.word_id)))
+        with patch.object(srs_handler, "_prepare_cached_card", return_value=card):
+            asyncio.run(srs_handler._handle_srs_reveal(update, context, "1", str(self.word_id)))
         query.edit_message_text.assert_awaited()
-        asyncio.run(bot._handle_srs_review(update, "confirm", "1", str(self.word_id)))
+        asyncio.run(srs_handler._handle_srs_review(update, "confirm", "1", str(self.word_id)))
         self.assertEqual(
             self._events(),
             [{"revealed_before_answer": 1, "outcome": "recalled_after_peek"}],
@@ -185,7 +185,7 @@ class SrsHandlerFlowTests(unittest.TestCase):
     def test_again_after_reveal_records_failure(self):
         query = self._query()
         update = self._update(query)
-        asyncio.run(bot._handle_srs_review(update, "again", "1", str(self.word_id)))
+        asyncio.run(srs_handler._handle_srs_review(update, "again", "1", str(self.word_id)))
         self.assertEqual(
             self._events(),
             [{"revealed_before_answer": 1, "outcome": "again"}],
