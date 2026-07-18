@@ -34,8 +34,6 @@ from config import (
     TARGET_CARDS_PER_SESSION,
     SCHEDULER_SLOT_MINUTES,
     SCHEDULER_BUCKET_CAPACITY,
-    AI_MAX_CONCURRENCY,
-    AI_MAX_REQUESTS_PER_MINUTE,
     AI_CARD_OUTPUT_FORMAT,
     DELIVERY_MAX_ATTEMPTS,
     DELIVERY_RETRY_BASE_SECONDS,
@@ -50,6 +48,11 @@ from config import (
     effective_daily_allowance,
     effective_plan,
     presentation_for_user,
+    _app_today,
+    _user_presentation,
+    _user_plan,
+    _user_plan_label,
+    is_owner,
 )
 import db
 import ai
@@ -107,6 +110,7 @@ from formatting import (
     escape_mdv2_code,
     format_card,
     format_srs_prompt,
+    _phonetic_lines,
 )
 
 from helpers import (
@@ -123,6 +127,37 @@ from helpers import (
     _CUSTOM_WORD_MAX_WORDS,
 )
 
+from llm_services import (
+    _call_ai_limited,
+    _ask_batch_limited,
+    _prepare_cached_card,
+)
+
+from user import (
+    cmd_start,
+    on_lang_selected,
+    on_goal_selected,
+    on_level_selected,
+    change_lang_start,
+    change_goal_start,
+    change_level_start,
+    change_presentation_start,
+    on_lang_changed,
+    on_goal_changed,
+    on_level_changed,
+    send_grammar_tip,
+    ask_for_ask_word,
+    show_status,
+    _handle_daily_prepare,
+    _handle_query_prepare,
+    _handle_srs_prepare,
+    _show_review_menu,
+    _custom_word_input_error,
+    _saved_word_card,
+    _word_query_usage_text,
+    _grammar_tip_usage_text,
+)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -132,108 +167,8 @@ for _quiet_logger_name in ("apscheduler", "httpcore", "httpx", "telegram"):
 log = logging.getLogger("hamzaban")
 _app_timezone = ZoneInfo(APP_TIMEZONE)
 _daily_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
-_ai_slots = threading.BoundedSemaphore(AI_MAX_CONCURRENCY)
-_ai_request_times: deque[float] = deque()
-_ai_request_lock = threading.Lock()
 _telegram_slots = asyncio.Semaphore(TELEGRAM_MAX_CONCURRENCY)
 _MANUAL_DAILY_BATCH_SIZE = 6
-
-
-def _call_ai_limited(function, *args, **kwargs):
-    _ai_slots.acquire()
-    try:
-        while True:
-            now = time.monotonic()
-            with _ai_request_lock:
-                while _ai_request_times and now - _ai_request_times[0] >= 60:
-                    _ai_request_times.popleft()
-                if len(_ai_request_times) < AI_MAX_REQUESTS_PER_MINUTE:
-                    _ai_request_times.append(now)
-                    break
-            time.sleep(0.25)
-        return function(*args, **kwargs)
-    finally:
-        _ai_slots.release()
-
-
-def _ask_batch_limited(*args, **kwargs):
-    return _call_ai_limited(ai.ask_batch, *args, **kwargs)
-
-
-def _app_today() -> str:
-    return datetime.datetime.now(_app_timezone).date().isoformat()
-
-
-def _word_query_usage(row) -> tuple[int, int]:
-    used = row["words_asked_today"] or 0
-    if row["words_asked_date"] != _app_today():
-        used = 0
-    return used, daily_word_query_limit_for_plan(row["plan"] or "free")
-
-
-def _word_query_usage_text(row) -> str:
-    used, limit = _word_query_usage(row)
-    if limit < 0:
-        return f"📊 استفاده امروز: {used} / نامحدود"
-    remaining = max(limit - used, 0)
-    return f"📊 استفاده امروز: {used}/{limit} · باقی‌مانده: {remaining}"
-
-
-def _grammar_tip_usage(row) -> tuple[int, int]:
-    used = row["grammar_tips_asked_today"] or 0
-    if row["grammar_tips_asked_date"] != _app_today():
-        used = 0
-    return used, daily_word_query_limit_for_plan(row["plan"] or "free")
-
-
-def _grammar_tip_usage_text(row) -> str:
-    used, limit = _grammar_tip_usage(row)
-    if limit < 0:
-        return f"📊 استفاده امروز از نکات گرامری: {used} / نامحدود"
-    remaining = max(limit - used, 0)
-    return f"📊 استفاده امروز از نکات گرامری: {used}/{limit} · باقی‌مانده: {remaining}"
-
-
-def _custom_word_input_error(text: str, target_lang: str) -> str | None:
-    normalized = _normalize_custom_word_input(text)
-    if not normalized:
-        return "یک واژه یا عبارت کوتاه بفرست."
-
-    if len(normalized) > _CUSTOM_WORD_MAX_CHARS:
-        return f"حداکثر {_CUSTOM_WORD_MAX_CHARS} کاراکتر مجاز است."
-
-    words = normalized.split()
-    if len(words) > _CUSTOM_WORD_MAX_WORDS:
-        return f"فقط یک واژه یا عبارت کوتاهِ حداکثر {_CUSTOM_WORD_MAX_WORDS} کلمه‌ای بفرست."
-
-    if any(len(word) > 25 for word in words):   # 20 → 25
-        return "واژه یا عبارتت خیلی بلند است؛ کوتاه‌تر بفرست."
-
-    # اجازه عدد در برخی موارد (مثل "قرن ۲۱")
-    # اگر کاملاً نخواهی: این شرط را حذف کن
-    # if any(char.isdigit() for char in normalized) and not any(c.isalpha() for c in normalized):
-    #     return "لطفاً فقط واژه یا عبارت بفرست..."
-
-    # regex宽تر (بهتر)
-    if not re.fullmatch(r"[\w\s\u0600-\u06FF'’\-ـ.,?!«»؛،؟]+", normalized):
-        return "لطفاً فقط واژه یا عبارت ساده بفرست (علائم محدود مجاز است)."
-
-    has_persian = bool(re.search(r"[\u0600-\u06FF]", normalized))
-    has_latin = bool(re.search(r"[A-Za-z]", normalized))
-
-    if not has_persian and not has_latin:
-        return "یک واژه یا عبارت واقعی بفرست."
-
-    latin_target = target_lang in {"en", "es", "fr", "de"}
-
-    # شل‌تر کردن شرط‌های زبان لاتین
-    if latin_target and has_persian and len(words) >= 4:          # 3 → 4
-        return "برای این زبان، عبارت کوتاه‌تری بفرست (حداکثر ۳-۴ کلمه)."
-
-    if latin_target and not has_latin and len(words) > 3:         # 2 → 3
-        return "برای این زبان، عبارت کوتاه‌تری بفرست (حداکثر ۳ کلمه)."
-
-    return None
 
 
 async def _send_card_from_store(
@@ -290,327 +225,6 @@ async def _send_card_from_store(
         ),
     )
     return card, len(cards)
-
-
-def is_owner(user_id: int) -> bool:
-    return OWNER_ID != 0 and user_id == OWNER_ID
-
-
-def _user_plan(row) -> str:
-    return effective_plan(row["plan"] or "free", OWNER_BYPASS_LIMITS and is_owner(row["user_id"]))
-
-
-def _user_plan_label(row) -> str:
-    actual = PLANS.get(row["plan"] or "free", row["plan"] or "free")
-    if OWNER_BYPASS_LIMITS and is_owner(row["user_id"]):
-        return f"{actual} (دسترسی مالک)"
-    return actual
-
-
-def _user_presentation(row) -> str:
-    if not row:
-        return DEFAULT_PRESENTATION
-    return presentation_for_user(
-        row["plan"] or "free",
-        row["presentation_preference"],
-    )
-
-
-_PHONETIC_LINE_RE = re.compile(r"^\s*(ipa|persian)\s*:\s*(.+?)\s*$", re.IGNORECASE)
-
-
-def _phonetic_display_settings() -> dict[str, bool]:
-    return db.get_phonetic_display_settings()
-
-
-def _phonetic_lines(value: str | dict) -> list[str]:
-    settings = _phonetic_display_settings()
-
-    if isinstance(value, dict):
-        sections = value
-    else:
-        # Legacy: parse the old string format (IPA \n Persian) or 3-line (IPA \n Latin \n Persian)
-        raw = (value or "").strip()
-        if not raw:
-            return []
-
-        # Try to parse as JSON string representation
-        if raw.startswith("{") and raw.endswith("}"):
-            try:
-                # Replace single quotes with double for valid JSON
-                sections = json.loads(raw.replace("'", '"'))
-            except (json.JSONDecodeError, Exception):
-                # Fallback to legacy parsing if JSON parsing fails
-                lines = raw.splitlines()
-                if len(lines) >= 3:
-                    # Old 3-line format: IPA, Latin, Persian
-                    sections = {"ipa": lines[0].strip(), "persian": lines[2].strip()}
-                elif len(lines) == 2:
-                    # New 2-line format: IPA, Persian
-                    sections = {"ipa": lines[0].strip(), "persian": lines[1].strip()}
-                else:
-                    sections = {"ipa": raw, "persian": ""}
-        else:
-            # Original legacy logic
-            lines = raw.splitlines()
-            if len(lines) >= 3:
-                # Old 3-line format: IPA, Latin, Persian
-                sections = {"ipa": lines[0].strip(), "persian": lines[2].strip()}
-            elif len(lines) == 2:
-                # New 2-line format: IPA, Persian
-                sections = {"ipa": lines[0].strip(), "persian": lines[1].strip()}
-            else:
-                sections = {"ipa": raw, "persian": ""}
-
-    # Now render - only IPA and Persian (no Latin)
-    rendered = []
-    # Fixed order: IPA, Persian
-    for key in ['ipa', 'persian']:
-        val = sections.get(key)
-        if settings.get(key) and val:
-            # Just the value, no label, wrapped in backticks
-            rendered.append(f"`{escape_mdv2_code(str(val))}`")
-
-    return rendered
-
-
-def _prepare_cached_card(
-    card: object,
-    *,
-    lang: str,
-    user_id: int,
-    plan: str,
-    source: str,
-    persist_patch,
-) -> dict:
-    try:
-        return ai.validate_card(card)
-    except ai.CardValidationError as validation_error:
-        fields = ai.card_repair_fields(card)
-        if not fields:
-            raise CardPreparationError(
-                f"{source} card has no repairable fields"
-            ) from validation_error
-        try:
-            patch = _call_ai_limited(
-                ai.repair_card,
-                card,
-                fields,
-                lang,
-                user_id=user_id,
-                plan=plan,
-            )
-            merged = dict(card) if isinstance(card, dict) else {}
-            merged.update(patch)
-            repaired = ai.validate_card(merged)
-            if not persist_patch(patch):
-                raise CardPreparationError(
-                    f"{source} card repair could not be persisted"
-                )
-            log.info(
-                "cached card repaired source=%s user_id=%s fields=%s",
-                source,
-                user_id,
-                fields,
-            )
-            return repaired
-        except Exception as repair_error:
-            log.exception(
-                "cached card repair failed source=%s user_id=%s fields=%s",
-                source,
-                user_id,
-                fields,
-            )
-            raise CardPreparationError(
-                f"{source} card could not be repaired safely"
-            ) from repair_error
-
-
-# ---------------- /start و onboarding ----------------
-
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    db.create_user_if_needed(user.id, user.username or user.first_name or "")
-    row = db.get_user(user.id)
-    
-    if row and row["onboarded"]:
-        await update.message.reply_text(
-            "خوش برگشتی به هم‌زبان 👋",
-            reply_markup=main_menu(is_owner(user.id))
-        )
-        return
-    
-    welcome_text = "سلام! 👋 به *هم‌زبان* خوش اومدی.\nاول بگو داری چه زبونی یاد می‌گیری؟"
-    welcome_text = escape_mdv2(welcome_text)   # ← حتما escape شود
-    
-    await update.message.reply_text(
-        welcome_text,
-        parse_mode=ParseMode.MARKDOWN_V2,
-        reply_markup=lang_inline_keyboard(),
-    )
-
-
-async def on_lang_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str):
-    context.user_data["pending_lang"] = lang
-    lang_name = language_label(lang)
-    text = f"زبان انتخابی: *{lang_name}* ✅\nحالا هدفت از یادگیری چیه؟"
-    text = escape_mdv2(text)
-    
-    await _edit_or_send(
-        update,
-        context,
-        text,
-        parse_mode=ParseMode.MARKDOWN_V2,
-        reply_markup=goal_inline_keyboard(),
-    )
-
-
-async def on_goal_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, goal: str):
-    user_id = update.effective_user.id
-    lang = context.user_data.get("pending_lang", "en")
-    db.set_user_lang_goal(user_id, lang, goal)
-
-    await _edit_or_send(
-        update,
-        context,
-        "حالا سطح فعلی زبانت را انتخاب کن:",
-        reply_markup=level_inline_keyboard(),
-    )
-
-
-async def on_level_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, level: str):
-    user_id = update.effective_user.id
-    db.set_user_level(user_id, level)
-    row = db.get_user(user_id)
-    lang_name = language_label(row["target_lang"])
-    goal_name = goal_label(row["goal"])
-    level_name = level_label(level)
-    cefr = level_cefr(level)
-    
-    # Robust escaping for MarkdownV2
-    text = f"عالی! سطح تو *{level_name}* ({cefr}) ثبت شد."
-    text_to_send = text.replace("*", "@@@")
-    text_to_send = escape_mdv2(text_to_send)
-    text_to_send = text_to_send.replace("@@@", "*")
-    
-    log.debug(f"Sending message: {text_to_send}")
-
-    await _edit_or_send(
-        update,
-        context,
-        text_to_send,
-        parse_mode=ParseMode.MARKDOWN_V2,
-    )
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=(
-            f"زبان: {lang_name} · هدف: {goal_name}\n"
-            "از منوی پایین استفاده کن:"
-        ),
-        reply_markup=main_menu(is_owner(user_id)),
-    )
-
-
-async def change_lang_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "زبان جدید خود را انتخاب کنید:",
-        reply_markup=lang_inline_keyboard()
-    )
-
-async def change_goal_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "هدف جدید خود را انتخاب کنید:",
-        reply_markup=goal_inline_keyboard()
-    )
-
-
-async def change_level_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "سطح جدید خود را انتخاب کنید:",
-        reply_markup=level_inline_keyboard(),
-    )
-
-
-async def change_presentation_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    row = db.get_user(user_id)
-    if not row or not row["onboarded"]:
-        await update.message.reply_text("اول باید /start رو بزنی.")
-        return
-    current = _user_presentation(row)
-    if (row["plan"] or "free") not in PREMIUM_PLANS:
-        await update.message.reply_text(
-            f"نمایش فعلی کارت‌ها: {'خلاصه' if current == 'brief' else 'کامل'}.\n"
-            "انتخاب دائمی نمایش کارت فقط برای کاربران پریمیوم فعال است."
-        )
-        return
-    await update.message.reply_text(
-        f"نمایش فعلی کارت‌ها: {'خلاصه' if current == 'brief' else 'کامل'}.\n"
-        "نمایش موردنظر را انتخاب کنید:",
-        reply_markup=presentation_settings_keyboard(current),
-    )
-
-
-async def on_lang_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str):
-    user_id = update.effective_user.id
-    db.set_user_lang(user_id, lang)
-    
-    lang_name = language_label(lang)
-    # متن کامل را اول بسازیم سپس escape کنیم
-    text = f"✅ زبان با موفقیت به *{lang_name}* تغییر کرد."
-    text = escape_mdv2(text)
-    
-    await _edit_or_send(
-        update,
-        context,
-        text,
-        parse_mode=ParseMode.MARKDOWN_V2
-    )
-    await context.bot.send_message(
-        chat_id=user_id,
-        text="از منوی پایین استفاده کنید:",
-        reply_markup=main_menu(is_owner(user_id))
-    )
-
-
-async def on_goal_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, goal: str):
-    user_id = update.effective_user.id
-    db.set_user_goal(user_id, goal)
-    
-    goal_name = goal_label(goal)
-    text = f"✅ هدف با موفقیت به *{goal_name}* تغییر کرد."
-    text = escape_mdv2(text)
-    
-    await _edit_or_send(
-        update,
-        context,
-        text,
-        parse_mode=ParseMode.MARKDOWN_V2
-    )
-    await context.bot.send_message(
-        chat_id=user_id,
-        text="از منوی پایین استفاده کنید:",
-        reply_markup=main_menu(is_owner(user_id))
-    )
-
-
-async def on_level_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, level: str):
-    user_id = update.effective_user.id
-    db.set_user_level(user_id, level)
-    level_name = level_label(level)
-    cefr = level_cefr(level)
-    text = f"✅ سطح با موفقیت به *{level_name}* ({cefr}) تغییر کرد."
-    await _edit_or_send(
-        update,
-        context,
-        escape_mdv2(text),
-        parse_mode=ParseMode.MARKDOWN_V2,
-    )
-    await context.bot.send_message(
-        chat_id=user_id,
-        text="از منوی پایین استفاده کنید:",
-        reply_markup=main_menu(is_owner(user_id)),
-    )
 
 
 # ---------------- دکمه‌های اصلی ----------------
@@ -716,14 +330,6 @@ def _daily_card_session_profile(user_id: int, row, card_date: str):
         row["level"],
     )
     return session
-
-
-def _review_history_page(dates: list[str], page: int, page_size: int = 7) -> tuple[list[str], int, int]:
-    total_pages = max(1, math.ceil(len(dates) / page_size))
-    page = max(0, min(page, total_pages - 1))
-    start = page * page_size
-    end = start + page_size
-    return dates[start:end], page, total_pages
 
 
 def _ensure_daily_cards(user_id: int, row, card_date: str, limit: int) -> list[dict]:
@@ -896,119 +502,7 @@ async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE
     finally:
         await _finish_llm_wait_state(wait_message)
 
-async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    row = db.get_user(user_id)
-    if not row or not row["onboarded"]:
-        await update.message.reply_text("اول باید /start رو بزنی.")
-        return
 
-    limit = daily_word_query_limit_for_plan(row["plan"] or "free")
-    usage_before_text = _grammar_tip_usage_text(row)
-    if not db.reserve_grammar_tip(
-        user_id,
-        limit,
-        bypass_limits=OWNER_BYPASS_LIMITS and is_owner(user_id),
-    ):
-        await update.message.reply_text(
-            f"{usage_before_text}\n\nسقف روزانه‌ی نکته‌ی گرامری تموم شده."
-        )
-        return
-    usage_text = _grammar_tip_usage_text(db.get_user(user_id) or row)
-    wait_message = await _start_llm_wait_state(
-        update,
-        context,
-        "⏳ دارم نکته‌ی گرامری رو آماده می‌کنم…",
-    )
-    try:
-        recent_topics = db.recent_grammar_tip_titles(
-            user_id,
-            row["target_lang"],
-        )
-        try:
-            data = await asyncio.to_thread(
-                _call_ai_limited,
-                ai.ask_json,
-                prompts.grammar_tip_system_prompt(
-                    row["target_lang"],
-                    row["goal"],
-                    row["level"],
-                    avoid_topics=recent_topics,
-                ),
-                request_kind="grammar_tip",
-                user_id=user_id,
-                plan=row["plan"] or "free",
-            )
-        except Exception:
-            db.release_grammar_tip(user_id)
-            log.exception("AI error")
-            await update.message.reply_text(
-                "مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن."
-            )
-            return
-        # ساخت متن با escape مناسب برای MarkdownV2
-        title = escape_mdv2(data.get('title', ''))
-        explanation = escape_mdv2(data.get('explanation', ''))
-        example = escape_mdv2_code(data.get('example', ''))
-
-        text = f"✍️ *{title}*\n\n{explanation}\n\n`{example}`\n\n{escape_mdv2(usage_text)}"
-
-        db.touch_streak(user_id)
-        db.add_grammar_tip(
-            user_id,
-            data.get("title", ""),
-            row["target_lang"],
-            row["goal"],
-            row["level"],
-            data,
-        )
-        log.info("grammar tip delivered user_id=%s lang=%s", user_id, row["target_lang"])
-        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
-    except Exception:
-        log.exception("Grammar tip delivery failed")
-        await update.message.reply_text("مشکلی در ارسال نکته‌ی گرامری پیش اومد.")
-    finally:
-        await _finish_llm_wait_state(wait_message)
-
-
-async def ask_for_ask_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    row = db.get_user(user_id)
-    plan = row["plan"] if row else "free"
-    limit = daily_word_query_limit_for_plan(plan)
-    usage_text = _word_query_usage_text(row) if row else f"📊 استفاده امروز: 0/{limit}"
-    if not db.can_ask_word(
-        user_id,
-        limit,
-        bypass_limits=OWNER_BYPASS_LIMITS and is_owner(user_id),
-    ):
-        await update.message.reply_text(
-            f"{usage_text}\n\nسقف روزانه‌ی پرسش واژه‌ی پلن شما تموم شده."
-        )
-        return
-    context.user_data["awaiting"] = "ask_word"
-    await update.message.reply_text(
-        f"{usage_text}\n\nچه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟",
-        reply_markup=awaiting_reply_keyboard(),
-    )
-
-
-async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    row = db.get_user(user_id)
-    if not row or not row["onboarded"]:
-        await update.message.reply_text("اول باید /start رو بزنی.")
-        return
-    due = db.due_words_for_user(user_id)
-    text = (
-        f"🌐 زبان: {language_label(row['target_lang'])}\n"
-        f"🎯 هدف: {goal_label(row['goal'])}\n"
-        f"📚 سطح: {level_label(row['level'])}\n"
-        f"💳 پلن: {_user_plan_label(row)}\n"
-        f"🔥 استریک: {row['streak'] or 0} روز\n"
-        f"⏰ واژه‌های آماده‌ی مرور: {len(due)}"
-    )
-    await update.message.reply_text(text)
 
 
 async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str):
@@ -1032,25 +526,7 @@ async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     await update.callback_query.answer(message, show_alert=True)
 
 
-def _saved_word_card(row) -> dict:
-    if row["card_data"]:
-        try:
-            data = json.loads(row["card_data"])
-        except (TypeError, json.JSONDecodeError):
-            data = None
-        if isinstance(data, dict):
-            return data
-    return {
-        "word": row["word"],
-        "phonetic": "",
-        "fa_meaning": "این واژه قبلاً بدون کارت کامل ذخیره شده است.",
-        "fa_explanation": "معنی و مثال کامل در داده‌های قدیمی موجود نیست؛ خودت معنی را یادآوری کن.",
-        "synonyms": [],
-        "antonyms": [],
-        "examples": [],
-        "example_translations": [],
-        "grammar_tip": "",
-    }
+
 
 
 async def _handle_srs_review(update: Update, action: str, target_user_id_text: str, word_id_text: str):
@@ -1173,276 +649,7 @@ async def _handle_srs_reveal(update: Update, context: ContextTypes.DEFAULT_TYPE,
     await _answer_callback_safely(update.callback_query, "کارت افشا شد.")
 
 
-async def _handle_daily_prepare(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    data: str,
-    *,
-    review_mode: bool,
-):
-    parts = data.split(":")
-    if len(parts) != 5:
-        await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-        return
-    try:
-        target_user_id = int(parts[2])
-        card_index = int(parts[4])
-    except ValueError:
-        await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-        return
-    user_id = update.effective_user.id
-    if user_id != target_user_id:
-        await update.callback_query.answer("این کارت برای کاربر دیگری است.", show_alert=True)
-        return
-    if _message_has_prepared_translations(update):
-        await update.callback_query.answer("ترجمه‌ها آماده شده‌اند.")
-        return
-    row = db.get_user(user_id)
-    if not row or not row["onboarded"]:
-        await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
-        return
-    card_date = parts[3]
-    cards = db.get_daily_cards(user_id, card_date)
-    if card_index < 0 or card_index >= len(cards):
-        await update.callback_query.answer("این کارت دیگر در دسترس نیست.", show_alert=True)
-        return
-    session = db.get_daily_card_session(user_id, card_date)
-    try:
-        card = await asyncio.to_thread(
-            _prepare_cached_card,
-            cards[card_index],
-            lang=(session["target_lang"] if session else row["target_lang"]),
-            user_id=user_id,
-            plan=row["plan"] or "free",
-            source="daily_review" if review_mode else "daily",
-            persist_patch=lambda patch: db.update_daily_card_fields(
-                user_id,
-                card_date,
-                card_index,
-                patch,
-            ),
-        )
-    except CardPreparationError:
-        await update.callback_query.answer(
-            "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.",
-            show_alert=True,
-        )
-        return
-    footer = f"📖 کارت {card_index + 1} از {len(cards)} برای {card_date}"
-    if review_mode:
-        footer = f"📚 مرور کارت {card_index + 1} از {len(cards)} برای {card_date}"
-    markup = daily_card_keyboard(
-        user_id,
-        card_date,
-        card_index,
-        card_index + 1 < len(cards),
-        callback_prefix="review:next" if review_mode else "daily:next",
-        show_translations=False,
-    )
-    phon_lines = _phonetic_lines(card.get("phonetic", ""))
-    try:
-        await update.callback_query.edit_message_text(
-            format_card(
-                card,
-                footer=footer,
-                presentation=_user_presentation(row),
-                translations_prepared=True,
-                phonetic_lines=phon_lines,
-            ),
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=markup,
-        )
-    except BadRequest as exc:
-        if "not modified" in str(exc).casefold():
-            await _answer_callback_safely(
-                update.callback_query,
-                "ترجمه‌ها قبلاً آماده شده‌اند.",
-            )
-        else:
-            log.exception("failed to edit prepared daily card")
-            await _answer_callback_safely(
-                update.callback_query,
-                "نمایش ترجمه‌ها انجام نشد؛ لطفاً دوباره امتحان کنید.",
-                show_alert=True,
-            )
-        return
-    await _answer_callback_safely(update.callback_query, "ترجمه‌ها آماده شدند.")
 
-
-async def _handle_query_prepare(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    token: str,
-):
-    user_id = update.effective_user.id
-    if _message_has_prepared_translations(update):
-        await update.callback_query.answer("ترجمه‌ها آماده شده‌اند.")
-        return
-    row = db.get_query_result(token, user_id=user_id)
-    if not row:
-        await update.callback_query.answer("این نتیجه منقضی شده یا در دسترس نیست.", show_alert=True)
-        return
-    try:
-        card = json.loads(row["result_json"])
-    except (TypeError, json.JSONDecodeError):
-        card = None
-    user_row = db.get_user(user_id)
-    if not user_row:
-        await update.callback_query.answer("کاربر پیدا نشد.", show_alert=True)
-        return
-    try:
-        card = await asyncio.to_thread(
-            _prepare_cached_card,
-            card,
-            lang=row["lang"],
-            user_id=user_id,
-            plan=user_row["plan"] or "free",
-            source="custom_word",
-            persist_patch=lambda patch: db.update_query_result_fields(
-                token,
-                user_id,
-                patch,
-            ),
-        )
-    except CardPreparationError:
-        await update.callback_query.answer(
-            "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.",
-            show_alert=True,
-        )
-        return
-    footer = (
-        f"{_word_query_usage_text(user_row)}\n\n"
-        "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
-    )
-    phon_lines = _phonetic_lines(card.get("phonetic", ""))
-    try:
-        await update.callback_query.edit_message_text(
-            format_card(
-                card,
-                footer=footer,
-                presentation=_user_presentation(user_row),
-                translations_prepared=True,
-                phonetic_lines=phon_lines,
-            ),
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=query_result_keyboard(row["token"], row["lang"], show_translations=False),
-        )
-    except BadRequest as exc:
-        if "not modified" in str(exc).casefold():
-            await _answer_callback_safely(
-                update.callback_query,
-                "ترجمه‌ها قبلاً آماده شده‌اند.",
-            )
-        else:
-            log.exception("failed to edit prepared query card")
-            await _answer_callback_safely(
-                update.callback_query,
-                "نمایش ترجمه‌ها انجام نشد؛ لطفاً دوباره امتحان کنید.",
-                show_alert=True,
-            )
-        return
-    await _answer_callback_safely(update.callback_query, "ترجمه‌ها آماده شدند.")
-
-
-async def _handle_srs_prepare(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    target_user_id_text: str,
-    word_id_text: str,
-):
-    try:
-        target_user_id = int(target_user_id_text)
-        word_id = int(word_id_text)
-    except ValueError:
-        await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-        return
-    user_id = update.effective_user.id
-    if user_id != target_user_id:
-        await update.callback_query.answer("این مرور برای کاربر دیگری است.", show_alert=True)
-        return
-    if _message_has_prepared_translations(update):
-        await update.callback_query.answer("ترجمه‌ها آماده شده‌اند.")
-        return
-    row = db.get_saved_word(word_id, user_id=user_id)
-    if not row:
-        await update.callback_query.answer("این واژه در مرور شما پیدا نشد.", show_alert=True)
-        return
-    user_row = db.get_user(user_id)
-    try:
-        card = await asyncio.to_thread(
-            _prepare_cached_card,
-            _saved_word_card(row),
-            lang=row["lang"],
-            user_id=user_id,
-            plan=(user_row["plan"] if user_row else "free") or "free",
-            source="srs",
-            persist_patch=lambda patch: db.update_saved_word_fields(
-                word_id,
-                user_id,
-                patch,
-            ),
-        )
-    except CardPreparationError:
-        await update.callback_query.answer(
-            "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.",
-            show_alert=True,
-        )
-        return
-    footer = (
-        "⏰ مرور فاصله‌دار: اول معنی، مثال و نکته را از حفظ "
-        "یادآوری کن؛ بعد نتیجه را با دکمه‌ها ثبت کن."
-    )
-    phon_lines = _phonetic_lines(card.get("phonetic", ""))
-    try:
-        await update.callback_query.edit_message_text(
-            format_card(
-                card,
-                footer=footer,
-                presentation=_user_presentation(user_row),
-                translations_prepared=True,
-                phonetic_lines=phon_lines,
-            ),
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=srs_review_keyboard(user_id, word_id, show_translations=False),
-        )
-    except BadRequest as exc:
-        if "not modified" in str(exc).casefold():
-            await _answer_callback_safely(
-                update.callback_query,
-                "ترجمه‌ها قبلاً آماده شده‌اند.",
-            )
-        else:
-            log.exception("failed to edit prepared SRS card")
-            await _answer_callback_safely(
-                update.callback_query,
-                "نمایش ترجمه‌ها انجام نشد؛ لطفاً دوباره امتحان کنید.",
-                show_alert=True,
-            )
-        return
-    await _answer_callback_safely(update.callback_query, "ترجمه‌ها آماده شدند.")
-
-
-async def _show_review_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
-    user_id = update.effective_user.id
-    row = db.get_user(user_id)
-    if not row or not row["onboarded"]:
-        await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
-        return
-    dates = db.get_recent_daily_card_dates(user_id, limit=90)
-    if not dates:
-        await update.callback_query.answer("هنوز کارتی برای مرور ندارید.", show_alert=True)
-        return
-    page_dates, page, total_pages = _review_history_page(dates, page)
-    await _edit_or_send(
-        update,
-        context,
-        (
-            "کدوم روز رو می‌خوای مرور کنی؟"
-            if total_pages == 1
-            else f"کدوم روز رو می‌خوای مرور کنی؟\nصفحه {page + 1} از {total_pages}"
-        ),
-        reply_markup=daily_review_dates_keyboard(page_dates, page=page, total_pages=total_pages),
-    )
 
 
 async def _show_review_date(update: Update, context: ContextTypes.DEFAULT_TYPE, card_date: str):

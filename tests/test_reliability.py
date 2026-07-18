@@ -12,6 +12,7 @@ import config
 import db
 import formatting
 import helpers
+import llm_services
 from telegram.error import BadRequest
 
 
@@ -259,9 +260,9 @@ class ReliabilityPersistenceTests(unittest.TestCase):
             "examples": ["Hello one.", "Hello two."],
             "example_translations": ["اول.", "دوم."],
         }
-        with patch.object(bot, "_call_ai_limited") as repair_call:
+        with patch.object(llm_services, "_call_ai_limited") as repair_call:
             self.assertEqual(
-                bot._prepare_cached_card(
+                llm_services._prepare_cached_card(
                     valid,
                     lang="en",
                     user_id=1,
@@ -277,14 +278,14 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         legacy["example_translations"] = ["اول."]
         persisted = MagicMock(return_value=True)
         with patch.object(
-            bot,
+            llm_services,
             "_call_ai_limited",
             return_value={
                 "examples": ["Hello one.", "Hello two."],
                 "example_translations": ["اول.", "دوم."],
             },
         ) as repair_call:
-            repaired = bot._prepare_cached_card(
+            repaired = llm_services._prepare_cached_card(
                 legacy,
                 lang="en",
                 user_id=1,

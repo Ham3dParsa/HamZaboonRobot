@@ -164,6 +164,36 @@ def presentation_for_user(plan: str, preference: str | None) -> str:
     return preference
 
 
+def is_owner(user_id: int) -> bool:
+    return OWNER_ID != 0 and user_id == OWNER_ID
+
+
+def _app_today() -> str:
+    from zoneinfo import ZoneInfo
+    import datetime
+    return datetime.datetime.now(ZoneInfo(APP_TIMEZONE)).date().isoformat()
+
+
+def _user_presentation(row) -> str:
+    if not row:
+        return DEFAULT_PRESENTATION
+    return presentation_for_user(
+        row["plan"] or "free",
+        row["presentation_preference"],
+    )
+
+
+def _user_plan(row) -> str:
+    return effective_plan(row["plan"] or "free", OWNER_BYPASS_LIMITS and is_owner(row["user_id"]))
+
+
+def _user_plan_label(row) -> str:
+    actual = PLANS.get(row["plan"] or "free", row["plan"] or "free")
+    if OWNER_BYPASS_LIMITS and is_owner(row["user_id"]):
+        return f"{actual} (دسترسی مالک)"
+    return actual
+
+
 def effective_daily_allowance(
     plan: str,
     optional_user_limit: int | None = None,
