@@ -25,7 +25,6 @@ DATA_PATH = BASE / "issues.json"
 PROJECT_STATUS_PATH = BASE.parent / "project_status.json"
 ROADMAP_PATH = BASE.parent / "ROADMAP.md"
 HTML_PATH = BASE / "project_status.html"
-MARKDOWN_PATH = BASE.parent / "hamzaban-issues.md"
 VALID_STATUSES = {"open", "partial", "resolved", "accepted-risk", "obsolete"}
 VALID_PRIORITIES = {"high", "medium", "low", "none"}
 VALID_CATEGORIES = {"feature", "bug", "risk", "tech-debt", "research", "decision"}
@@ -355,7 +354,6 @@ def synchronize(issues: list[dict]) -> None:
     project_status = load_project_status()
     validate_issues(issues, project_status)
     write_json(issues)
-    MARKDOWN_PATH.write_text(render_markdown(issues), encoding="utf-8")
     update_html(issues, project_status)
     update_roadmap(issues, project_status)
 

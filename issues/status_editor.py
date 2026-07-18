@@ -145,7 +145,6 @@ def generated_documents(issues: list[dict], project_status: dict) -> dict[Path, 
     return {
         validate.DATA_PATH: json.dumps(issues, ensure_ascii=False, indent=2) + "\n",
         validate.PROJECT_STATUS_PATH: json.dumps(project_status, ensure_ascii=False, indent=2) + "\n",
-        validate.MARKDOWN_PATH: validate.render_markdown(issues),
         validate.HTML_PATH: validate.replace_generated_block(
             current_html,
             validate.PROJECT_DATA_START,

@@ -80,8 +80,8 @@
     "solution": "grace window یادآوری pending را ۴۸ ساعت قفل کنید. پس از آن، ردیف بی‌پاسخ در مخرج completion rate هفت‌روزه به‌عنوان unanswered حساب شود و دوباره pending دائمی نباشد؛ این تغییر باید بدون advance کردن interval و بدون تولید reminder تکراری خارج از سیاست cap انجام شود.",
     "priority": "high",
     "note": "تصمیم محصول قفل شد: grace window برابر ۴۸ ساعت است. پیاده‌سازی و تست آن هنوز باقی است.",
-    "resolved": false,
-    "status": "open",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 42,
@@ -89,8 +89,8 @@
     "roadmap_refs": [
       "adaptive-srs-core"
     ],
-    "evidence": "db.py:due_words_for_user excludes review_status='pending' indefinitely and no expiry/grace-window query exists; bot.py:srs_job sets review_status='pending' after successful reminder delivery, so unanswered reminders can suppress future reminders forever.",
-    "last_reviewed": "2026-07-14",
+    "evidence": "due_words_for_user in db.py:1265 now expires pending reminders after 48h by resetting review_status to idle and clearing review_requested_at. Tests: test_grace_window_resets_expired_pending_reminders, test_grace_window_keeps_recent_pending_reminders.",
+    "last_reviewed": "2026-07-18",
     "decision_refs": [],
     "depends_on": []
   },
@@ -172,8 +172,8 @@
     "solution": "migration را additive نگه دارید و cap اولیه‌ی NULL را از allowance فعلی plan seed کنید: Free=3، Silver=12، Gold=30، و plan ناشناخته با fallback فعلی Free. مقدار seed و هر adjustment بعدی باید با سقف مؤثر همان plan محدود بماند.",
     "priority": "high",
     "note": "تصمیم محصول قفل شد: seed اولیه همان allowance فعلی plan است تا رفتار قدیمی به صفر سقوط نکند و cap قابل توضیح بماند.",
-    "resolved": false,
-    "status": "open",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 46,
@@ -181,8 +181,8 @@
     "roadmap_refs": [
       "adaptive-srs-core"
     ],
-    "evidence": "db.py:init_db currently has no daily_reminder_cap or reminder_cap_updated_at migration; config.py defines the authoritative Free/Silver/Gold daily card allowances, but the live SRS job currently applies none of them.",
-    "last_reviewed": "2026-07-14",
+    "evidence": "init_db in db.py:223-233 adds daily_reminder_cap and reminder_cap_updated_at columns with NULL seed from plan allowance. Helper daily_reminder_cap_for_plan in config.py:145. Tests: test_migration_seeds_daily_reminder_cap_from_plan, test_migration_does_not_overwrite_existing_cap.",
+    "last_reviewed": "2026-07-18",
     "decision_refs": [],
     "depends_on": []
   },
@@ -496,8 +496,8 @@
     "solution": "Add a transactional per-word claim/state transition with a durable reminder attempt identity and recovery semantics. Make concurrent jobs unable to claim the same due word, persist enough state to resume after restart, and document the bounded duplicate risk inherent in Telegram's non-transactional external send.",
     "priority": "high",
     "note": "This is a confirmed reliability gap in the current fixed SRS baseline and must be resolved before adaptive caps or completion-rate metrics are trusted.",
-    "resolved": false,
-    "status": "open",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 59,
@@ -507,8 +507,8 @@
       "reliability-and-data-lifecycle"
     ],
     "decision_refs": [],
-    "evidence": "bot.py:srs_job sends via _send_with_retry before db.mark_word_review_pending; db.py:due_words_for_user excludes only rows already pending and mark_word_review_pending has no compare-and-set guard. No focused test covers a crash or overlap between send and persistence.",
-    "last_reviewed": "2026-07-14",
+    "evidence": "claim-before-send pattern: claim_srs_reminder in db.py:1295 atomically sets review_status='claiming' with CAS guard; mark_word_review_pending in db.py:1313 updated to require claiming state; srs_job in bot.py:2694 uses try/claim/send/mark/release pattern. Tests: test_claim_srs_reminder_*, test_mark_word_review_pending_*, test_release_srs_claim_resets_to_idle.",
+    "last_reviewed": "2026-07-18",
     "depends_on": [
       42
     ]
@@ -548,8 +548,8 @@
     "solution": "Run stale-worker recovery from the repeating dispatcher as well as daily planning, or use a lease/heartbeat with a retryable deadline. Make recovery idempotent and preserve sent_count when resuming.",
     "priority": "high",
     "note": "This can strand a user's current daily session after the exact restart scenario this audit was requested to assess.",
-    "resolved": false,
-    "status": "open",
+    "resolved": true,
+    "status": "resolved",
     "detailOpen": false,
     "editing": false,
     "id": 61,
@@ -558,8 +558,8 @@
       "reliability-and-data-lifecycle"
     ],
     "decision_refs": [],
-    "evidence": "bot.py:daily_job calls db.requeue_stale_deliveries once, while delivery_dispatch_job only calls _dispatch_queue; db.py:get_delivery_queue filters out processing rows and requeue_stale_deliveries requires a 15-minute age.",
-    "last_reviewed": "2026-07-14",
+    "evidence": "delivery_dispatch_job in bot.py:2658 calls requeue_stale_deliveries every 60s, eliminating the 15-min blind spot. Tests: test_stale_delivery_recovery_requeues_processing_rows, test_stale_delivery_respects_recent_processing_rows.",
+    "last_reviewed": "2026-07-18",
     "depends_on": []
   },
   {
