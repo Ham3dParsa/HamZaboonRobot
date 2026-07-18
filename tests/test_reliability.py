@@ -11,6 +11,7 @@ import bot
 import config
 import db
 import formatting
+import helpers
 from telegram.error import BadRequest
 
 
@@ -735,7 +736,7 @@ class CallbackAnswerTests(unittest.IsolatedAsyncioTestCase):
             async def answer(self, *args, **kwargs):
                 raise BadRequest("Query is too old and response timeout expired")
 
-        await bot._answer_callback_safely(FakeQuery(), "done")
+        await helpers._answer_callback_safely(FakeQuery(), "done")
 
     async def test_unrelated_callback_answer_error_is_reraised(self):
         class FakeQuery:
@@ -743,7 +744,7 @@ class CallbackAnswerTests(unittest.IsolatedAsyncioTestCase):
                 raise BadRequest("message is not modified")
 
         with self.assertRaises(BadRequest):
-            await bot._answer_callback_safely(FakeQuery(), "done")
+            await helpers._answer_callback_safely(FakeQuery(), "done")
 
 
 if __name__ == "__main__":

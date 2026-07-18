@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import bot
 import db
 from formatting import escape_mdv2_code, format_card
+from helpers import _is_cancel_input
 from bot import (
     _custom_word_input_error,
-    _is_cancel_input,
     _user_presentation,
 )
 from keyboards import (
