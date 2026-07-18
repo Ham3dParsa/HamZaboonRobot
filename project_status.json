@@ -96,7 +96,7 @@
         "phase-2"
       ],
       "issue_ids": [
-        40
+        80
       ],
       "roadmap_anchor": "phase-3-controlled-generation-and-daily-card-storage"
     },
@@ -112,11 +112,11 @@
         "Content-richness validation contract",
         "Deterministic brief/detailed card renderer",
         "Project-status tooling",
-      "User-scoped same-message translation preparation with paired spoilers",
-      "Surgical legacy-card validation, repair, and atomic patch persistence",
-      "Configurable phonetic rendering, legacy-card repatching, and owner toggles",
-      "Rendering regression contracts"
-    ],
+        "User-scoped same-message translation preparation with paired spoilers",
+        "Surgical legacy-card validation, repair, and atomic patch persistence",
+        "Configurable phonetic rendering, legacy-card repatching, and owner toggles",
+        "Rendering regression contracts"
+      ],
       "in_progress": [],
       "todo": [
         "Premium presentation controls",
@@ -133,19 +133,19 @@
         "phase-3"
       ],
       "issue_ids": [
-        7,
-        27,
-        51,
-        52,
-        53,
-        54,
-        55,
-        56,
-        58,
-        64,
-        65,
-        67,
-        68
+        78,
+        79,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        97,
+        103,
+        104,
+        106,
+        107
       ],
       "roadmap_anchor": "phase-4-interactive-card-ux"
     },
@@ -207,23 +207,23 @@
         "phase-5"
       ],
       "issue_ids": [
-        42,
-        43,
-        44,
-        45,
-        46,
-        47,
-        49,
-        50,
-        57,
-        59,
-        60,
-        61,
-        62,
-        63,
-        66,
-        70,
-        71
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        88,
+        89,
+        96,
+        98,
+        99,
+        100,
+        101,
+        102,
+        105,
+        109,
+        110
       ],
       "roadmap_anchor": "phase-6-reliable-delivery-concurrency-and-data-lifecycle"
     },
@@ -273,8 +273,8 @@
         "phase-7"
       ],
       "issue_ids": [
-        48,
-        69
+        87,
+        108
       ],
       "roadmap_anchor": "phase-8-measurement-and-advanced-learning"
     }
@@ -312,10 +312,10 @@
       "roadmap_ref": "interactive-card-ux",
       "summary": "The current roadmap keeps detailed as the global default; minimal cards with a premium More details action remain a product proposal until explicitly approved.",
       "issue_ids": [
-        51,
-        52,
-        53,
-        55
+        90,
+        91,
+        92,
+        94
       ]
     },
     {

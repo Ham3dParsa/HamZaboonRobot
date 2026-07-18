@@ -1,1697 +1,250 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HamZaboon Project Status</title>
-    <style>
-        :root {
-            /* Base colours – light theme */
-            --color-background: oklch(0.970 0.015 310.4);
-            --color-surface: oklch(0.930 0.020 310.4);
-            --color-border: oklch(0.850 0.030 310.4);
-            --color-text: oklch(0.080 0.015 310.4);
-            --color-muted: oklch(0.450 0.015 310.4);
-            --color-shadow: 0 6px 18px rgba(80, 70, 120, 0.08);
-
-            /* Accent gradient – purple → magenta → blue */
-            --color-accent-1: oklch(0.585 0.115 310.4);
-            --color-accent-2: oklch(0.584 0.115 290.9);
-            --color-accent-3: oklch(0.585 0.115 270.4);
-            --color-accent-4: oklch(0.584 0.115 250.7);
-            --color-accent-5: oklch(0.584 0.114 230.1);
-            --color-accent-6: oklch(0.465 0.108 310.2);
-            --color-accent-7: oklch(0.464 0.109 290.8);
-            --color-accent-8: oklch(0.464 0.109 270.2);
-            --color-accent-9: oklch(0.465 0.108 250.1);
-            --color-accent-10: oklch(0.471 0.099 234.3);
-            color-scheme: light;
-        }
-    * { box-sizing:border-box; }
-        body {
-            margin:0;
-            background:var(--color-background);
-            color:var(--color-text);
-            font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-        }
-    main { max-width:1800px; margin:0 auto; padding:24px; }
-    h1,h2,h3,p { margin:0; }
-    h1 { font-size:30px; }
-    h2 { font-size:21px; }
-    h3 { font-size:16px; }
-    .muted { color:var(--color-muted); }
-    .dashboard-shell {
-      display:grid;
-      grid-template-columns:minmax(250px, 280px) 1fr;
-      gap:24px;
-      align-items:start;
-    }
-    .sidebar {
-      position:sticky;
-      top:18px;
-      display:flex;
-      flex-direction:column;
-      gap:16px;
-    }
-        .brand,
-        .panel,
-        .hero,
-        .phase-card,
-        .decision-card,
-        .issue-card {
-            background:var(--color-surface);
-            border:1px solid var(--color-border);
-            border-radius:18px;
-            box-shadow:var(--color-shadow);
-        }
-    .brand {
-      padding:18px 18px 16px;
-      display:flex;
-      align-items:center;
-      gap:12px;
-    }
-        .brand-mark {
-            width:44px;
-            height:44px;
-            border-radius:14px;
-            background:linear-gradient(135deg,var(--color-accent-2),var(--color-accent-3));
-            color:#fff;
-            display:grid;
-            place-items:center;
-            font-weight:700;
-            font-size:18px;
-        }
-    .brand p { font-size:13px; color:var(--muted); margin-top:2px; }
-    .panel { padding:16px; }
-    .panel h2 { margin-bottom:12px; font-size:17px; }
-    .filters { display:grid; gap:10px; }
-    label { display:flex; flex-direction:column; gap:5px; color:var(--muted); font-size:13px; }
-    select,input,button { font:inherit; }
-        select,input {
-            border:1px solid var(--color-border);
-            border-radius:10px;
-            padding:10px 12px;
-            color:var(--color-text);
-            background:var(--color-surface);
-            width:100%;
-        }
-    .toggle-stack { display:grid; gap:8px; }
-        .toggle {
-            border:1px solid var(--color-border);
-            background:var(--color-surface);
-            color:var(--color-text);
-            border-radius:999px;
-            padding:10px 12px;
-            cursor:pointer;
-            text-align:left;
-            transition:all 0.18s ease;
-        }
-        .toggle:hover { border-color: color-mix(in oklch, var(--color-border), var(--color-accent-3) 18%); background: color-mix(in oklch, var(--color-surface), var(--color-accent-1) 6%); }
-        .toggle.active {
-            background:var(--color-accent-3);
-            color:#fff;
-            border-color:var(--color-accent-3);
-            outline:2px solid transparent;
-        }
-    .legend { display:grid; gap:10px; }
-    .legend-item { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--line); }
-    .legend-item:last-child { border-bottom:none; padding-bottom:0; }
-    .legend-item strong { font-size:20px; }
-    .main-content { display:flex; flex-direction:column; gap:20px; }
-    .filter-chips { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-    .filter-chip { border:1px solid var(--color-border); background:var(--color-surface); color:var(--color-text); border-radius:999px; padding:8px 12px; cursor:pointer; font-size:13px; font-weight:600; transition:all 0.15s ease; white-space:nowrap; }
-    .filter-chip:hover { border-color:var(--color-accent-3); background: color-mix(in oklch, var(--color-surface), var(--color-accent-3) 8%); }
-    .filter-chip.active { background:var(--color-accent-3); color:#fff; border-color:var(--color-accent-3); }
-    .hero { padding:22px 24px; background:linear-gradient(135deg, var(--color-surface), var(--color-background)); color:var(--color-text); }
-    .hero p { color:var(--color-muted); margin-top:6px; }
-    .phase-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:18px; }
-    .phase-card { overflow:hidden; }
-    .phase-header {
-      width:100%;
-      border:0;
-      background:transparent;
-      padding:16px 18px;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
-      text-align:left;
-      cursor:pointer;
-      color:inherit;
-    }
-    .phase-header:hover { background: color-mix(in oklch, var(--color-surface), var(--color-accent-1) 10%); }
-    .phase-title-wrap { display:flex; flex-direction:column; gap:3px; }
-    .phase-id { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--color-accent-3); }
-    .phase-actions { display:flex; align-items:center; gap:8px; }
-    .phase-toggle-icon { font-size:18px; color:var(--muted); }
-    .phase-badge { font-size:13px; font-weight:600; padding:4px 8px; border-radius:999px; white-space:nowrap; background:var(--color-accent-6); color:#fff; margin-left:auto; }
-    .phase-badge.empty { background:var(--color-border); color:var(--color-muted); }
-    .phase-card.phase-expanded .phase-body { display:block; }
-    .phase-meta,.issue-meta { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 0; }
-        .pill {
-            display:inline-flex;
-            align-items:center;
-            border-radius:999px;
-            padding:3px 9px;
-            background: color-mix(in oklch, var(--color-surface), var(--color-accent-5) 6%);
-            color:var(--color-text);
-            font-size:12px;
-            font-weight:600;
-            white-space:nowrap;
-            transition:all 0.18s ease;
-        }
-        /* Status → accent mapping (use white text for strong contrast) */
-        .pill.status-complete, .pill.status-resolved { background:var(--color-accent-5); color:#fff; }
-        .pill.status-in-progress, .pill.status-open { background:var(--color-accent-1); color:#fff; }
-        .pill.status-planned, .pill.status-deferred { background:var(--color-accent-4); color:#fff; }
-        .pill.status-blocked, .pill.priority-high { background:var(--color-accent-6); color:#fff; }
-        .pill.status-accepted-risk, .pill.status-partial { background:var(--color-accent-7); color:#fff; }
-        .pill.status-obsolete { background:var(--color-accent-9); color:#fff; }
-    .bucket { margin-top:14px; }
-    .bucket h4 { margin:0 0 4px; font-size:13px; color:var(--color-muted); text-transform:uppercase; letter-spacing:.04em; }
-    ul { margin:6px 0 0; padding-left:20px; }
-    /* Grid layout for Done, In progress, To-do inside expanded phases */
-    .phase-body { display:none; padding:0 18px 18px; }
-    .phase-body.expanded-layout { display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; }
-    .phase-body.expanded-layout .bucket:nth-child(-n+3) { grid-column:auto; }
-    .phase-body.expanded-layout .bucket:nth-child(n+4) { grid-column:1 / -1; }
-    .phase-body.expanded-layout > p:first-child { grid-column:1 / -1; }
-    .phase-body.expanded-layout > .phase-meta { grid-column:1 / -1; }
-        .issue-card {
-            background:var(--color-surface);
-            border:1px solid var(--color-border);
-            border-left:4px solid transparent;
-            border-radius:14px;
-            padding:12px 14px;
-            margin-top:10px;
-            box-shadow:none;
-            transition:all 0.18s ease;
-        }
-    /* Category-based left-border colours and subtle background tints */
-    .issue-card.category-bug { border-left-color:var(--color-accent-6); background: color-mix(in oklch, var(--color-surface), var(--color-accent-6) 3%); }
-    .issue-card.category-feature { border-left-color:var(--color-accent-3); background: color-mix(in oklch, var(--color-surface), var(--color-accent-3) 3%); }
-    .issue-card.category-risk { border-left-color:var(--color-accent-8); background: color-mix(in oklch, var(--color-surface), var(--color-accent-8) 3%); }
-    .issue-card.category-tech-debt { border-left-color:var(--color-accent-10); background: color-mix(in oklch, var(--color-surface), var(--color-accent-10) 3%); }
-    .issue-card.category-research { border-left-color:var(--color-accent-4); background: color-mix(in oklch, var(--color-surface), var(--color-accent-4) 3%); }
-    .issue-card.category-decision { border-left-color:var(--color-accent-2); background: color-mix(in oklch, var(--color-surface), var(--color-accent-2) 3%); }
-    .issue-card h4 { margin-bottom:4px; }
-    .issue-card p { margin-top:4px; }
-    mark {
-            background:oklch(0.850 0.100 100.0);
-            color:inherit;
-            border-radius:2px;
-            padding:1px 3px;
-    }
-    .decision-section { display:flex; flex-direction:column; gap:12px; }
-    .decision-card { padding:16px 18px; }
-    .decision-card + .decision-card { margin-top:4px; }
-        .empty-state {
-            padding:26px;
-            text-align:center;
-            color:var(--color-muted);
-            background:var(--color-surface);
-            border:1px dashed var(--color-border);
-            border-radius:16px;
-        }
-        /* Phase header left-border reflects the phase status colour when expanded */
-        .phase-card.phase-expanded .phase-header { border-left:4px solid transparent; border-radius:12px; }
-        .phase-card.phase-expanded .phase-header:has(.pill.status-complete) { border-left-color:var(--color-accent-5); }
-        .phase-card.phase-expanded .phase-header:has(.pill.status-in-progress) { border-left-color:var(--color-accent-1); }
-        .phase-card.phase-expanded .phase-header:has(.pill.status-planned),
-        .phase-card.phase-expanded .phase-header:has(.pill.status-deferred) { border-left-color:var(--color-accent-4); }
-        .phase-card.phase-expanded .phase-header:has(.pill.status-blocked) { border-left-color:var(--color-accent-6); }
-        .phase-card.phase-expanded .phase-header:has(.pill.status-accepted-risk),
-        .phase-card.phase-expanded .phase-header:has(.pill.status-partial) { border-left-color:var(--color-accent-7); }
-        .phase-card.phase-expanded .phase-header:has(.pill.status-obsolete) { border-left-color:var(--color-accent-9); }
-    footer { max-width:1800px; margin:0 auto; padding:0 24px 24px; color:var(--muted); font-size:13px; }
-    @media (max-width:1120px) {
-      .dashboard-shell { grid-template-columns:1fr; }
-      .sidebar { position:relative; top:auto; }
-    }
-    @media (max-width:1200px) {
-      .phase-body.expanded-layout { grid-template-columns:1fr 1fr; }
-      .phase-body.expanded-layout .bucket:nth-child(3) { grid-column:1 / -1; }
-    }
-    @media (max-width:768px) {
-      .phase-body.expanded-layout { grid-template-columns:1fr; }
-      .phase-body.expanded-layout .bucket:nth-child(n+3) { grid-column:auto; }
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HamZaboon — Project Status</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 960px; margin: 0 auto; padding: 1em; }
+h1, h2, h3 { margin: 0.5em 0; }
+.phase { border: 1px solid #ddd; border-radius: 8px; padding: 1em; margin: 1em 0; }
+.phase h3 { margin-top: 0; display: flex; align-items: center; gap: 0.5em; }
+.phase .badge { font-size: 1.2em; }
+.section { margin: 0.5em 0; }
+.section-title { font-weight: 600; color: #555; font-size: 0.9em; text-transform: uppercase; letter-spacing: 0.05em; }
+ul { margin: 0.25em 0; padding-left: 1.5em; }
+li { margin: 0.15em 0; }
+.decision { border-left: 3px solid #0366d6; padding: 0.5em 1em; margin: 0.5em 0; background: #f6f8fa; border-radius: 0 4px 4px 0; }
+.decision .meta { font-size: 0.85em; color: #666; }
+.footer { margin-top: 2em; font-size: 0.85em; color: #888; text-align: center; }
+a { color: #0366d6; text-decoration: none; }
+a:hover { text-decoration: underline; }
+</style>
 </head>
 <body>
-<main class="dashboard-shell">
-  <aside class="sidebar">
-    <div class="brand">
-      <div class="brand-mark">H</div>
-      <div>
-        <h1>HamZaboon</h1>
-        <p>Project status dashboard</p>
-      </div>
-    </div>
-
-    <section class="panel">
-      <h2>Filters</h2>
-      <div class="filters">
-        <label>Phase<select id="phaseFilter"><option value="all">All phases</option></select></label>
-        <label>Category<select id="categoryFilter"><option value="all">All categories</option></select></label>
-        <label>Issue status<select id="statusFilter"><option value="all">All statuses</option></select></label>
-        <label>Priority<select id="priorityFilter"><option value="all">All priorities</option></select></label>
-        <label>Search<input id="searchFilter" type="search" placeholder="Title, module, or reference"></label>
-      </div>
-    </section>
-
-    <section class="panel">
-      <h2>Quick actions</h2>
-      <div class="toggle-stack">
-        <button type="button" class="toggle" id="hideCompletedToggle" data-state-key="hideCompleted">Hide completed phases</button>
-        <button type="button" class="toggle" id="highPriorityToggle" data-state-key="highPriorityOnly">Show only high-priority issues</button>
-        <button type="button" class="toggle" id="focusModeToggle" data-state-key="focusMode">Focus mode</button>
-      </div>
-    </section>
-
-    <section class="panel">
-      <h2>Summary</h2>
-      <div class="legend">
-        <div class="legend-item"><span>Phases</span><strong id="phaseCount">0</strong></div>
-        <div class="legend-item"><span>Issues</span><strong id="issueCount">0</strong></div>
-        <div class="legend-item"><span>Open/partial</span><strong id="openCount">0</strong></div>
-        <div class="legend-item"><span>Decisions</span><strong id="decisionCount">0</strong></div>
-      </div>
-    </section>
-  </aside>
-
-  <section class="main-content">
-    <header class="hero">
-      <h2>Roadmap and engineering backlog</h2>
-      <p>Use the sidebar controls to focus on specific phases, issue types, and high-priority work.</p>
-    </header>
-
-    <div class="filter-chips" id="filterChips"></div>
-
-    <section>
-      <div id="phaseBoard" class="phase-list"></div>
-    </section>
-
-    <section class="decision-section">
-      <h2>Decision locks</h2>
-      <div id="decisionBoard"></div>
-    </section>
-  </section>
-</main>
-<footer>Canonical sources: <code>project_status.json</code> for phases and decisions; <code>issues/issues.json</code> for issue state. This page has no editing or browser-persisted workflow.</footer>
-<script>
-        // BEGIN GENERATED PROJECT STATUS DATA
-        const PROJECT_STATUS_DATA = {
-    "schema_version": 1,
-    "project": "HamZaboon",
-    "status_model": {
-        "phase_statuses": [
-            "planned",
-            "in-progress",
-            "blocked",
-            "complete",
-            "deferred"
-        ],
-        "issue_statuses": [
-            "open",
-            "partial",
-            "resolved",
-            "accepted-risk",
-            "obsolete"
-        ],
-        "issue_categories": [
-            "feature",
-            "bug",
-            "risk",
-            "tech-debt",
-            "research",
-            "decision"
-        ]
-    },
-    "phases": [
-        {
-            "id": "phase-1",
-            "name": "Content Schema and Validation",
-            "status": "complete",
-            "objective": "Keep every stored educational card valid, paired, and restart-safe.",
-            "done": [
-                "Versioned canonical card fields",
-                "Validation and safe malformed-output handling",
-                "Example and translation pairing"
-            ],
-            "in_progress": [],
-            "todo": [
-                "Keep migration and validation coverage current for additive fields"
-            ],
-            "acceptance_criteria": [
-                "Every stored card conforms to the validated schema",
-                "Existing cached cards remain readable"
-            ],
-            "depends_on": [],
-            "issue_ids": [],
-            "roadmap_anchor": "phase-1-content-schema-and-validation"
-        },
-        {
-            "id": "phase-2",
-            "name": "Manual Proficiency Level and German Support",
-            "status": "complete",
-            "objective": "Make proficiency and language-specific guidance explicit and extensible.",
-            "done": [
-                "Independent proficiency level",
-                "CEFR labels and German support"
-            ],
-            "in_progress": [],
-            "todo": [
-                "Add future languages only through the canonical catalog"
-            ],
-            "acceptance_criteria": [
-                "Language, goal, and level remain separate stored values",
-                "Language-specific guidance is preserved"
-            ],
-            "depends_on": [
-                "phase-1"
-            ],
-            "issue_ids": [],
-            "roadmap_anchor": "phase-2-manual-proficiency-level-and-german-support"
-        },
-        {
-            "id": "phase-3",
-            "name": "Controlled Generation and Daily Card Storage",
-            "status": "in-progress",
-            "objective": "Generate only requested content, persist it safely, and prepare validated reuse.",
-            "done": [
-                "Bounded manual and scheduled batches",
-                "Duplicate filtering, persistence, and partial retry"
-            ],
-            "in_progress": [
-                "Segment-level pooling design and validated reuse boundaries"
-            ],
-            "todo": [
-                "Add the pool table and gated validated write path",
-                "Add pool telemetry and inventory selection"
-            ],
-            "acceptance_criteria": [
-                "Partial batches preserve valid cards",
-                "Restart and duplicate triggers do not regenerate persisted cards"
-            ],
-            "depends_on": [
-                "phase-1",
-                "phase-2"
-            ],
-            "issue_ids": [
-                40
-            ],
-            "roadmap_anchor": "phase-3-controlled-generation-and-daily-card-storage"
-        },
-        {
-            "id": "phase-4",
-            "name": "Interactive Card UX and Project Status",
-            "status": "in-progress",
-            "objective": "Expose safe card interactions and make product/engineering status explicit.",
-            "done": [
-                "Persisted next-card flow",
-                "Cached-card rendering",
-                "Internal compact JSON separation",
-                "Content-richness validation contract",
-                "Deterministic brief/detailed card renderer",
-                "Project-status tooling",
-                "User-scoped same-message translation preparation with paired spoilers",
-                "Surgical legacy-card validation, repair, and atomic patch persistence",
-                "Configurable phonetic rendering, legacy-card repatching, and owner toggles",
-                "Rendering regression contracts"
-            ],
-            "in_progress": [],
-            "todo": [
-                "Premium presentation controls",
-                "Owner language lifecycle UX and rollout controls",
-                "Dedicated review hub and same-message navigation",
-                "Language-aware advanced goal options"
-            ],
-            "acceptance_criteria": [
-                "Callbacks are user-scoped and restart-safe",
-                "Rendering does not change AI, quota, SRS, pool, or unrelated stored-card state; invalid legacy cards may receive one validated, repaired-field persistence update"
-            ],
-            "depends_on": [
-                "phase-1",
-                "phase-3"
-            ],
-            "issue_ids": [
-                7,
-                27,
-                51,
-                52,
-                53,
-                54,
-                55,
-                56,
-                58,
-                64,
-                65,
-                67,
-                68
-            ],
-            "roadmap_anchor": "phase-4-interactive-card-ux"
-        },
-        {
-            "id": "phase-5",
-            "name": "Custom-Word Queries and Spaced-Repetition Capture",
-            "status": "planned",
-            "objective": "Complete query capture, saved-word integrity, and review entry points.",
-            "done": [
-                "Quota visibility",
-                "Persistent query identity",
-                "Idempotent Add to review"
-            ],
-            "in_progress": [],
-            "todo": [
-                "Finish custom-word UX and review-entry acceptance criteria"
-            ],
-            "acceptance_criteria": [
-                "Repeated Add to review actions remain idempotent",
-                "Saved review entries retain complete validated cards"
-            ],
-            "depends_on": [
-                "phase-3",
-                "phase-4"
-            ],
-            "issue_ids": [],
-            "roadmap_anchor": "phase-5-custom-word-queries-and-spaced-repetition-capture"
-        },
-        {
-            "id": "phase-6",
-            "name": "Reliable Delivery, Concurrency, and Data Lifecycle",
-            "status": "in-progress",
-            "objective": "Make delivery, SRS, migrations, and user progress durable under retries and restarts.",
-            "done": [
-                "Durable queues and bounded retries",
-                "Async-safe provider calls",
-                "Callback validation and restart recovery",
-                "Phonetic data normalization"
-            ],
-            "in_progress": [
-                "Adaptive SRS correctness",
-                "Migration and idempotency contracts",
-                "SRS reminder delivery idempotency and scheduled queue recovery",
-                "Friendly reminder copy and progress-aware CTA wording"
-            ],
-            "todo": [
-                "Resolve issues 42-47, 49, 50, and 59-63",
-                "Add focused reliability and progress tests",
-                "Plan staged handler and formatting module boundaries",
-                "Design the premium reward surface",
-                "Add durable failure telemetry and operator reporting"
-            ],
-            "acceptance_criteria": [
-                "Restart does not resend completed work",
-                "One user's failure does not stop other users"
-            ],
-            "depends_on": [
-                "phase-3",
-                "phase-5"
-            ],
-            "issue_ids": [
-                42,
-                43,
-                44,
-                45,
-                46,
-                47,
-                49,
-                50,
-                57,
-                59,
-                60,
-                61,
-                62,
-                63,
-                66,
-                70,
-                71
-            ],
-            "roadmap_anchor": "phase-6-reliable-delivery-concurrency-and-data-lifecycle"
-        },
-        {
-            "id": "phase-7",
-            "name": "Premium Smart Placement Test",
-            "status": "planned",
-            "objective": "Add premium placement assessment only after the core learning loop is reliable.",
-            "done": [
-                "Premium boundary and product direction documented"
-            ],
-            "in_progress": [],
-            "todo": [
-                "Implement after core learning-loop and measurement contracts stabilize"
-            ],
-            "acceptance_criteria": [
-                "Premium access is enforced",
-                "Results are confirmed before being saved"
-            ],
-            "depends_on": [
-                "phase-6"
-            ],
-            "issue_ids": [],
-            "roadmap_anchor": "phase-7-premium-smart-placement-test"
-        },
-        {
-            "id": "phase-8",
-            "name": "Measurement and Advanced Learning",
-            "status": "planned",
-            "objective": "Use validated usage data to add mini-quizzes, measurement, and personalization.",
-            "done": [
-                "Measurement goals documented",
-                "Mini-quiz dependency order documented"
-            ],
-            "in_progress": [],
-            "todo": [
-                "Add feedback capture and cost/quality dashboards",
-                "Add advanced learning features",
-                "Design premium reward surfaces and badges"
-            ],
-            "acceptance_criteria": [
-                "Measurement precedes advanced personalization",
-                "Mini-quizzes reuse existing validated learning data"
-            ],
-            "depends_on": [
-                "phase-6",
-                "phase-7"
-            ],
-            "issue_ids": [
-                48,
-                69
-            ],
-            "roadmap_anchor": "phase-8-measurement-and-advanced-learning"
-        }
-    ],
-    "decisions": [
-        {
-            "id": "decision-ai-generated-content",
-            "status": "locked",
-            "title": "Educational content remains AI-generated",
-            "phase": "phase-1",
-            "roadmap_ref": "delivery-principles",
-            "summary": "The bot validates and renders model output; it does not replace educational generation with hard-coded lessons."
-        },
-        {
-            "id": "decision-issue-registry",
-            "status": "locked",
-            "title": "Issue records remain canonical in issues.json",
-            "phase": "phase-4",
-            "roadmap_ref": "issue-tooling",
-            "summary": "The dashboard and Markdown export are views; browser edits are never canonical."
-        },
-        {
-            "id": "decision-compact-json",
-            "status": "locked",
-            "title": "Compact JSON is an internal provider optimization",
-            "phase": "phase-3",
-            "roadmap_ref": "cost-control",
-            "summary": "Wire-format compactness must not change the canonical card schema or learner-facing content richness."
-        },
-        {
-            "id": "decision-card-detail-default",
-            "status": "proposed",
-            "title": "Default card detail and premium expansion",
-            "phase": "phase-4",
-            "roadmap_ref": "interactive-card-ux",
-            "summary": "The current roadmap keeps detailed as the global default; minimal cards with a premium More details action remain a product proposal until explicitly approved.",
-            "issue_ids": [
-                51,
-                52,
-                53,
-                55
-            ]
-        },
-        {
-            "id": "decision-canonical-language-registry",
-            "status": "locked",
-            "title": "Language metadata lives only in catalog.py",
-            "phase": "phase-2",
-            "roadmap_ref": "phase-2-manual-proficiency-level-and-german-support",
-            "summary": "New languages and language-specific guidance are added through catalog.py rather than duplicated in prompts, config, keyboards, or bot handlers."
-        },
-        {
-            "id": "decision-motivational-reminders-core",
-            "status": "locked",
-            "title": "Learner reminders should be friendly and progress-aware",
-            "phase": "phase-6",
-            "roadmap_ref": "adaptive-srs-core",
-            "summary": "Reminder copy can reference streak, remaining cards, and due reviews to encourage interaction, but cadence and scoring remain separate from the wording."
-        },
-        {
-            "id": "decision-review-center-core",
-            "status": "locked",
-            "title": "Review navigation belongs in a dedicated core review hub",
-            "phase": "phase-4",
-            "roadmap_ref": "interactive-card-ux",
-            "summary": "Review cards, previous/next navigation, and translation reveal are core UX flows and should remain available to all users through same-message edits when possible."
-        },
-        {
-            "id": "decision-premium-goal-advanced",
-            "status": "locked",
-            "title": "Advanced goal options are language-aware and premium-gated",
-            "phase": "phase-4",
-            "roadmap_ref": "interactive-card-ux",
-            "summary": "The core goal list stays simple for everyone; richer language-scoped goals are added as an eligible premium layer using the canonical catalog."
-        },
-        {
-            "id": "decision-premium-gamification",
-            "status": "locked",
-            "title": "Extra gamification beyond streak is premium-only",
-            "phase": "phase-8",
-            "roadmap_ref": "mini-quizzes",
-            "summary": "Points, badges, or similar reward surfaces remain separate from streak and retention, and should be introduced only as an explicit premium feature."
-        }
-    ]
-};
-        // END GENERATED PROJECT STATUS DATA
-        // BEGIN GENERATED ISSUE DATA
-        const ISSUES_DATA = [
-    {
-        "title": "ذخیره‌سازی API Key به صورت متن ساده در دیتابیس",
-        "category": "risk",
-        "module": "db.py",
-        "func": "جدول settings",
-        "problem": "کلید API به صورت plaintext در دیتابیس ذخیره می‌شود که در صورت نفوذ به دیتابیس، لو می‌رود.",
-        "solution": "از یک رمزنگاری ساده (مثلاً Fernet با کلید ثابت در env) برای ذخیره و بازیابی استفاده کنید. یا حداقل در README هشدار دهید که دیتابیس را امن نگه دارند.",
-        "priority": "low",
-        "note": "Accepted for MVP because adding encrypted secret-at-rest storage needs a dedicated secret-management decision and dependency review.",
-        "resolved": false,
-        "status": "accepted-risk",
-        "detailOpen": false,
-        "editing": false,
-        "id": 7,
-        "phase": "phase-4",
-        "roadmap_refs": [
-            "runtime-configuration"
-        ],
-        "evidence": "README.md documents that AI API keys are bootstrap/runtime secrets and warns that the SQLite DB/settings table must be protected; no encryption layer is implemented yet.",
-        "last_reviewed": "2026-07-13",
-        "decision_refs": [],
-        "depends_on": []
-    },
-    {
-        "title": "issues.json phase-aware grouping ندارد",
-        "category": "tech-debt",
-        "module": "issues/issues.json / project_status.json / issues/project_status.html",
-        "func": "schema / explorer filters",
-        "problem": "فقط status، priority و roadmap_refs ذخیره می‌شوند؛ برای batchهای مبتنی بر phase یا alignment دقیق‌تر با ROADMAP.md یک فیلد صریح phase وجود ندارد و UI هم آن را نشان نمی‌دهد.",
-        "solution": "فیلدهای category و phase را canonical کنید، phase/decision index را در project_status.json نگه دارید، و داشبورد read-only را با validate روی هر دو منبع هم‌راستا کنید.",
-        "priority": "medium",
-        "note": "این یک بهبود ساختاری است و باید بدون شکستن backward compatibility اضافه شود.",
-        "resolved": true,
-        "status": "resolved",
-        "detailOpen": false,
-        "editing": false,
-        "id": 27,
-        "phase": "phase-4",
-        "roadmap_refs": [
-            "issue-tooling"
-        ],
-        "evidence": "The registry now has first-class phase data; the remaining work is to keep phase assignments and the read-only project-status dashboard synchronized through validation.",
-        "last_reviewed": "2026-07-13",
-        "decision_refs": [],
-        "depends_on": []
-    },
-    {
-        "title": "استخر مشترک محتوای آموزشی در سطح segment هنوز پیاده‌سازی نشده است",
-        "category": "feature",
-        "module": "db.py / bot.py / ai.py / config.py",
-        "func": "content_pool schema, daily-card generation, custom-word save, grammar recommendation",
-        "problem": "محتوای معتبر و AI-generated هر کاربر فقط در daily_cards، saved_words یا grammar_tips همان کاربر باقی می‌ماند و بین کاربران دارای target_lang، goal و level یکسان reuse نمی‌شود. با رشد کاربران، این مسیر باعث تماس‌های تکراری LLM می‌شود. در عین حال، pooling نباید avoid-list، deduplication، quota، مرزبندی segment یا اصل تولیدشدن محتوا توسط AI را تضعیف کند.",
-        "solution": "یک جدول additive به نام content_pool با کلید یکتای target_lang + goal + level + source_kind + item_key اضافه کنید و source_kindهای daily_card، saved_query_card، grammar_tip و quiz_item را از ابتدا رزرو کنید. کارت روزانه فقط پس از validation و ذخیره‌ی پذیرفته‌شده، نتیجه‌ی custom word فقط پس از Add to review، و نکته‌ی گرامری فقط پس از recommendation صریح کاربر و validation فیلدهای همراه همان پاسخ اولیه وارد pool شود؛ برای validation گرامر تماس دوم LLM مجاز نیست. Pool hit باید با همان quota محصول مصرف شود اما telemetry نوع pool_hit و هزینه‌ی صفر داشته باشد. انتخاب pool باید با تراکنش BEGIN IMMEDIATE، رعایت کلید کامل segment و حذف itemهای موجود در داده‌ی همان کاربر انجام شود. inventory floor اولیه ۱۰ آیتم distinct در هر segment/source و قابل تنظیم در deployment است.",
-        "priority": "high",
-        "note": "تصمیم‌های محصول قفل شده‌اند: pool در reset داده‌ی learner باقی می‌ماند، expiry زمانی ندارد، و retirement آینده با rating/report جامعه و حذف owner با approval اداره می‌شود. points تا زمان وجود reward ledger به تعویق افتاده است. thresholds رأی‌دهی، cron retirement و پنل review در scope بعدی هستند. فکر میکنم اگر دیتابیس جداگانه ای، یعنی یک فایل جدا به عنوان دیتابیس هر زبان داشته باشیم ایده خوبی باشد اما مطمئن نیستم.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "editing": false,
-        "id": 40,
-        "phase": "phase-3",
-        "roadmap_refs": [
-            "cost-control",
-            "measurement-and-observability",
-            "data-lifecycle",
-            "future-mini-quizzes"
-        ],
-        "evidence": "db.py currently has per-user saved_words, daily_cards, query_results, and grammar_tips but no content_pool table; bot.py generation paths are _generate_daily_batch, send_grammar_tip, and text_router custom-word flow; db.py:_normalize_word defines the existing whitespace-collapse + casefold contract; plan_pooling.md and ROADMAP.md record the locked pooling policy.",
-        "last_reviewed": "2026-07-13",
-        "decision_refs": [],
-        "depends_on": []
-    },
-    {
-        "title": "Pending شدن یادآوری SRS می‌تواند completion rate را برای همیشه مخدوش کند",
-        "category": "bug",
-        "module": "db.py / bot.py",
-        "func": "mark_word_review_pending / due_words_for_user / srs_job",
-        "problem": "یادآوری ارسالی در saved_words به وضعیت pending می‌رود، اما pending فعلی timeout ندارد و due_words_for_user آن را تا پاسخ کاربر کنار می‌گذارد. در نتیجه یک یادآوری بی‌پاسخ می‌تواند برای همیشه در محاسبه‌ی completion rate مبهم بماند و رفتار pacing را سرکوب کند.",
-        "solution": "grace window یادآوری pending را ۴۸ ساعت قفل کنید. پس از آن، ردیف بی‌پاسخ در مخرج completion rate هفت‌روزه به‌عنوان unanswered حساب شود و دوباره pending دائمی نباشد؛ این تغییر باید بدون advance کردن interval و بدون تولید reminder تکراری خارج از سیاست cap انجام شود.",
-        "priority": "high",
-        "note": "تصمیم محصول قفل شد: grace window برابر ۴۸ ساعت است. پیاده‌سازی و تست آن هنوز باقی است.",
-        "resolved": true,
-        "status": "resolved",
-        "detailOpen": false,
-        "editing": false,
-        "id": 42,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "adaptive-srs-core"
-        ],
-        "evidence": "due_words_for_user in db.py:1265 now expires pending reminders after 48h by resetting review_status to idle and clearing review_requested_at. Tests: test_grace_window_resets_expired_pending_reminders, test_grace_window_keeps_recent_pending_reminders.",
-        "last_reviewed": "2026-07-18",
-        "decision_refs": [],
-        "depends_on": []
-    },
-    {
-        "title": "تنظیم cap روزانه‌ی SRS در catch-up یا restart می‌تواند دوبار اعمال شود",
-        "category": "bug",
-        "module": "db.py / bot.py",
-        "func": "srs_job / startup_catch_up_job",
-        "problem": "Adaptive SRS هنوز cap یا زمان آخرین adjustment ندارد. بعد از پیاده‌سازی cap، startup catch-up و اجرای معمول همان روز نباید بتوانند adjustment روزانه را دوبار انجام دهند.",
-        "solution": "ستون‌های daily_reminder_cap و reminder_cap_updated_at را additive اضافه کنید و adjustment را با همان application-day در تراکنش محافظت کنید. seed اولیه برای کاربران قدیمی برابر allowance فعلی plan باشد؛ cap با step برابر ۱، کف ۱، و سقف مؤثر plan تغییر کند.",
-        "priority": "high",
-        "note": "تصمیم محصول قفل شد: Free/Silver/Gold به‌ترتیب ۳/۱۲/۳۰، step برابر ۱، و اجرای adjustment حداکثر یک‌بار در هر روز برنامه است.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "editing": false,
-        "id": 43,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "adaptive-srs-core"
-        ],
-        "evidence": "db.py:users has no reminder-cap columns or application-day idempotency field; bot.py:startup_catch_up_job invokes srs_job and the regular daily schedule can invoke it again on the same application day.",
-        "last_reviewed": "2026-07-14",
-        "decision_refs": [],
-        "depends_on": []
-    },
-    {
-        "title": "تغییر goal وسط روز باید با pacing زمان‌بندی‌شده سازگار بماند",
-        "category": "bug",
-        "module": "db.py / bot.py / scheduling.py",
-        "func": "set_user_goal / srs_job / daily planning",
-        "problem": "goal کاربر در هر زمان قابل تغییر است، اما adaptive pacing هنوز قرارداد مشخصی برای reminderهای از قبل برنامه‌ریزی‌شده ندارد. اعمال فوری تغییر می‌تواند shape صف موجود را در میانه‌ی روز عوض کند.",
-        "solution": "goal جدید را از daily planning cycle بعدی در pacing اعمال کنید و reminderهای از قبل queued را با shape فعلی ارسال کنید. این قرارداد باید با snapshot فعلی daily_card_sessions هم‌راستا بماند و در تست تغییر goal وسط چرخه پوشش داده شود.",
-        "priority": "medium",
-        "note": "تصمیم محصول قفل شد: اثرگذاری از planning cycle بعدی؛ صف موجود تغییر نمی‌کند.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "editing": false,
-        "id": 44,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "adaptive-srs-core"
-        ],
-        "evidence": "db.py:set_user_goal updates users.goal immediately, while current SRS delivery has no goal-aware pacing selection; daily_card_sessions snapshots daily-card content but not SRS pacing shape.",
-        "last_reviewed": "2026-07-14",
-        "decision_refs": [],
-        "depends_on": []
-    },
-    {
-        "title": "مسیر points جدید باید در برابر toggle سریع review مقاوم باشد",
-        "category": "bug",
-        "module": "db.py / bot.py",
-        "func": "advance_word_review / defer_word_review / retention_events",
-        "problem": "advance_word_review و defer_word_review فعلاً با شرط review_status='pending' از تکرار یک پاسخ جلوگیری می‌کنند، اما retention_events هنوز وجود ندارد و milestone points در هیچ تراکنش append-only ثبت نمی‌شود.",
-        "solution": "ثبت retention event و تغییر interval را در یک تراکنش اتمیک انجام دهید؛ برای هر saved_word و interval milestone فقط یک event مجاز باشد. امتیازها برای intervalهای ۱ تا ۴ برابر ۱، ۳، ۶ و ۱۰ هستند و رسیدن به interval چهار یک mastery bonus یک‌باره‌ی ۱۰ امتیازی دارد.",
-        "priority": "high",
-        "note": "تصمیم محصول قفل شد: فقط پاسخ موفق learner امتیاز می‌دهد؛ generation، delivery و streak امتیاز retention ندارند. bonus نهایی باید با unique guard دوباره‌پذیر نباشد.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "editing": false,
-        "id": 45,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "adaptive-srs-core"
-        ],
-        "evidence": "db.py:advance_word_review and defer_word_review update only rows in pending state, but there is no retention_events table or points/progress read model; defer_word_review also leaves interval_idx unchanged despite the plan's reset wording.",
-        "last_reviewed": "2026-07-14",
-        "decision_refs": [],
-        "depends_on": []
-    },
-    {
-        "title": "کاربران قدیمی پس از migration نباید cap یادآوری صفر یا NULL داشته باشند",
-        "category": "bug",
-        "module": "db.py / config.py",
-        "func": "init_db / plan allowance helpers",
-        "problem": "users موجود پیش از adaptive SRS ستون daily_reminder_cap ندارند و migration آن باید NULL را به رفتار قابل پیش‌بینی تبدیل کند. مقداردهی اشتباه می‌تواند در روز migration reminderهای کاربر را ناگهان به صفر یا سقف نامحدود تبدیل کند.",
-        "solution": "migration را additive نگه دارید و cap اولیه‌ی NULL را از allowance فعلی plan seed کنید: Free=3، Silver=12، Gold=30، و plan ناشناخته با fallback فعلی Free. مقدار seed و هر adjustment بعدی باید با سقف مؤثر همان plan محدود بماند.",
-        "priority": "high",
-        "note": "تصمیم محصول قفل شد: seed اولیه همان allowance فعلی plan است تا رفتار قدیمی به صفر سقوط نکند و cap قابل توضیح بماند.",
-        "resolved": true,
-        "status": "resolved",
-        "detailOpen": false,
-        "editing": false,
-        "id": 46,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "adaptive-srs-core"
-        ],
-        "evidence": "init_db in db.py:223-233 adds daily_reminder_cap and reminder_cap_updated_at columns with NULL seed from plan allowance. Helper daily_reminder_cap_for_plan in config.py:145. Tests: test_migration_seeds_daily_reminder_cap_from_plan, test_migration_does_not_overwrite_existing_cap.",
-        "last_reviewed": "2026-07-18",
-        "decision_refs": [],
-        "depends_on": []
-    },
-    {
-        "title": "streak should advance only after all daily cards are seen and interacted with",
-        "category": "feature",
-        "module": "bot.py / db.py",
-        "func": "daily card flow / streak tracking",
-        "problem": "The product intent is that streak += 1 only when the user actually sees and interacts with every daily card for the day. The current flow does not yet model full-card completion as a distinct milestone.",
-        "solution": "Track per-day exposure and interaction completion for daily cards, then increment streak only after the full daily set is completed. Keep the exact interaction rule and implementation details open for a later phase.",
-        "priority": "medium",
-        "note": "Future product intent only; the exact completion rule is intentionally not locked yet.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "editing": false,
-        "id": 47,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "adaptive-srs-core"
-        ],
-        "evidence": "Current streak handling does not record a full daily-card completion gate tied to every card in the day.",
-        "last_reviewed": "2026-07-13",
-        "decision_refs": [],
-        "depends_on": []
-    },
-    {
-        "title": "daily and query cards should expose feedback buttons for future mini-quiz reminders",
-        "category": "feature",
-        "module": "bot.py / keyboards.py / db.py / ai.py",
-        "func": "card rendering / feedback callbacks / reminder scheduling",
-        "problem": "Daily and query cards do not yet have the proposed inline actions ('I knew it', 'This is new for me', 'I'm not sure') and there is no lightweight response trail to drive later mini-quiz reminders generated by the bot from its own data pool.",
-        "solution": "Add inline feedback controls to daily and query cards, record the user's response, and use that response history to schedule future mini-quiz-style follow-ups for the relevant language or card pool. Keep the cadence, scoring, and exact quiz logic open for later phases.",
-        "priority": "medium",
-        "note": "This is a future direction item; the mini-quiz logic is intentionally not locked yet.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "editing": false,
-        "id": 48,
-        "phase": "phase-8",
-        "roadmap_refs": [
-            "mini-quizzes"
-        ],
-        "evidence": "Card flows currently lack the proposed per-card feedback buttons and any follow-up scheduling based on those responses.",
-        "last_reviewed": "2026-07-13",
-        "decision_refs": [],
-        "depends_on": []
-    },
-    {
-        "title": "daily card count should be user-configurable up to the plan maximum and tied to streak completion",
-        "category": "feature",
-        "module": "bot.py / db.py / keyboards.py / config.py",
-        "func": "daily card limits / streak tracking",
-        "problem": "Users should be able to choose how many daily cards they want to receive, as long as the number stays within their subscription plan ceiling. The streak rule should then respect that chosen target instead of a fixed allowance.",
-        "solution": "Add a per-user daily-card target bounded by the active plan maximum, persist it, and use it as the completion gate for streak updates and daily planning. Keep the exact UI and streak-trigger details open for a later phase.",
-        "priority": "medium",
-        "note": "Future customization item; the exact streak trigger is intentionally not locked yet.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "editing": false,
-        "id": 49,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "adaptive-srs-core"
-        ],
-        "evidence": "Current daily-card quotas are plan-bounded but not user-configurable, and streak updates are not keyed off a per-user target card count.",
-        "last_reviewed": "2026-07-13",
-        "decision_refs": [],
-        "depends_on": []
-    },
-    {
-        "title": "add minimal network error handling for bot requests",
-        "category": "bug",
-        "module": "bot.py / ai.py / db.py",
-        "func": "network requests / Telegram delivery / AI calls",
-        "problem": "Transient network failures can bubble up as generic errors without a small, consistent recovery path or a user-friendly fallback.",
-        "solution": "Add lightweight retry or fallback handling for temporary network issues around Telegram and AI requests, keeping the scope minimal and focused on avoiding unnecessary user-visible failures.",
-        "priority": "low",
-        "note": "Keep the fix small; this is not a full reliability overhaul.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "editing": false,
-        "id": 50,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "reliability-hardening"
-        ],
-        "evidence": "There is no single minimal network-error policy covering bot requests end-to-end, even though some paths already retry.",
-        "last_reviewed": "2026-07-13",
-        "decision_refs": [],
-        "depends_on": []
-    },
-    {
-        "title": "card presentation detail should be independent from AI output serialization",
-        "category": "feature",
-        "module": "bot.py / db.py / ai.py",
-        "func": "format_card / daily delivery / custom-word results / SRS reminders",
-        "problem": "The AI wire format and the learner-facing message detail are separate concerns, but the current card prompt shape has already influenced visible richness such as the number of examples and synonyms. There is no explicit presentation layer that renders brief or detailed messages from the already validated and cached canonical card.",
-        "solution": "Add a deterministic presentation policy over the canonical stored card: detailed remains the default and renders two paired examples, while brief renders a shorter message without changing the card payload. Apply the policy to daily cards, queried cards, saved-word reminders, and pool-served cards. Rendering must not call the AI, mutate cached content, alter quota accounting, or create a second card schema.",
-        "priority": "medium",
-        "note": "Future product direction. The compact JSON format is an internal provider optimization and must remain independent from this learner-facing preference.",
-        "resolved": true,
-        "status": "resolved",
-        "detailOpen": false,
-        "editing": false,
-        "id": 51,
-        "phase": "phase-4",
-        "roadmap_refs": [
-            "interactive-card-ux",
-            "cost-control",
-            "data-lifecycle"
-        ],
-        "evidence": "Implemented bot.format_card(presentation='brief'|'detailed') over the existing canonical card payload. Detailed mode remains the default for daily, queried, saved/SRS, and other existing callers; brief mode renders only word, pronunciation, meaning, and explanation. The renderer performs no AI, quota, SRS, persistence, or schema work. Focused rendering tests pass.",
-        "last_reviewed": "2026-07-14",
-        "decision_refs": [],
-        "depends_on": []
-    },
-    {
-        "title": "brief or detailed card preference needs explicit global and premium user controls",
-        "category": "feature",
-        "module": "config.py / db.py / keyboards.py / bot.py",
-        "func": "presentation preference schema / settings UI / plan gating / callbacks",
-        "problem": "There is no user-visible setting for choosing brief versus detailed card messages, no documented global default for the presentation policy, and no entitlement rule for offering the preference as a premium option. A future implementation could accidentally expose an internal AI-format switch or leave stale preferences active after a plan downgrade.",
-        "solution": "Define a separate presentation preference with stable values such as brief and detailed. Keep an admin/deployment default for all users, allow an explicitly documented per-user override only for eligible premium plans if product approval confirms that policy, and fall back safely to the global default when the user is ineligible or the value is invalid. Add settings UI plus an eligible-user inline action for opening the detailed version of an individual card, with plan-gated callbacks, migration coverage, and clear user-facing descriptions; do not expose AI_CARD_OUTPUT_FORMAT as the user setting.",
-        "priority": "medium",
-        "note": "Resolved with a separate learner-facing presentation preference. Users without an eligible stored preference use the deployment global default; premium users can persist brief or detailed from the settings menu. Invalid values and downgraded users safely fall back to the global default. AI_CARD_OUTPUT_FORMAT remains internal.",
-        "resolved": true,
-        "status": "resolved",
-        "detailOpen": false,
-        "editing": false,
-        "id": 52,
-        "phase": "phase-4",
-        "roadmap_refs": [
-            "interactive-card-ux",
-            "premium-features",
-            "runtime-configuration"
-        ],
-        "evidence": "config.py:DEFAULT_PRESENTATION and presentation_for_user define the global fallback and premium eligibility; db.py migrates and persists users.presentation_preference; keyboards.py exposes settings-menu choices only; bot.py applies the effective presentation to daily, scheduled, query, review, and SRS rendering and rejects ineligible callbacks; focused config, persistence, migration, menu, and downgrade tests pass.",
-        "last_reviewed": "2026-07-14",
-        "decision_refs": [],
-        "depends_on": []
-    },
-    {
-        "title": "presentation variants need cache, pool, and regression contracts",
-        "category": "tech-debt",
-        "module": "bot.py / db.py / tests",
-        "func": "format_card / daily_cards / saved_words.card_data / content_pool rendering",
-        "problem": "Brief and detailed messages must be different views of one validated card, but there is no contract proving that rendering variants preserve example/translation pairing, optional synonym and antonym absence, cached-card reuse, and segment-level pool behavior. Without focused tests, a presentation feature could silently regenerate content, drop fields in persistence, or diverge between daily, query, and SRS paths.",
-        "solution": "Add pure rendering tests for both modes, assert that two examples remain paired in detailed output, assert that missing optional fields render safely, and verify that daily_cards, saved_words.card_data, and future content_pool hits retain the same canonical payload regardless of selected mode. Add idempotency tests showing repeated rendering makes no AI request and does not alter quota, SRS state, pool identity, or stored JSON.",
-        "priority": "high",
-        "note": "Resolved with focused regression tests proving brief/detailed rendering preserves the canonical payload across daily, query, and saved-word paths. Pool behavior remains a future contract because the pool table is not yet implemented.",
-        "resolved": true,
-        "status": "resolved",
-        "detailOpen": false,
-        "editing": false,
-        "id": 53,
-        "phase": "phase-4",
-        "roadmap_refs": [
-            "interactive-card-ux",
-            "data-lifecycle",
-            "measurement-and-observability"
-        ],
-        "evidence": "tests/test_custom_word_query.py:rendering_does_not_mutate_cached_payload verifies brief/detailed rendering leaves the input payload unchanged; tests/test_reliability.py:rendering_keeps_persisted_card_payloads_unchanged verifies daily/query/saved card JSON remains identical after rendering; existing renderer tests still prove brief/detailed separation and paired-example output.",
-        "last_reviewed": "2026-07-14",
-        "decision_refs": [],
-        "depends_on": []
-    },
-    {
-        "title": "compact JSON rollout relaxed the card content richness contract",
-        "category": "bug",
-        "module": "prompts.py / ai.py / tests",
-        "func": "_card_schema / validate_card / daily and custom-word generation",
-        "problem": "The compact provider schema reduced more than key names: it changed the examples from two demonstrated pairs to one, made synonyms and antonyms explicitly optional without minimum counts, and shortened the grammar guidance. The validator still accepts one example/translation pair and one synonym or antonym, so structurally valid compact responses can be visibly poorer than pre-compact cards.",
-        "solution": "Keep compact aliases strictly as an internal serialization optimization, while restoring a separate content-richness contract. Generation should request two paired examples and, when synonyms or antonyms are meaningfully available, at least two distinct items for each populated list. Validation and focused tests should reject malformed pair counts and one-item populated synonym/antonym lists without rejecting genuinely unavailable optional fields. Batch and custom-word paths must share the same contract.",
-        "priority": "high",
-        "note": "Confirmed regression relative to commit c394115^; do not solve it by switching back to verbose JSON or by making optional educational fields mandatory when no meaningful item exists.",
-        "resolved": true,
-        "status": "resolved",
-        "detailOpen": false,
-        "id": 54,
-        "phase": "phase-4",
-        "roadmap_refs": [
-            "interactive-card-ux",
-            "cost-control",
-            "content-quality"
-        ],
-        "decision_refs": [
-            "decision-compact-json"
-        ],
-        "evidence": "prompts._card_schema now requests exactly two examples and translations in both compact and verbose formats. ai.validate_card requires exactly two paired examples and allows empty synonym/antonym lists while requiring at least two distinct items when populated. Focused compact-prompt, validation, batch, and rendering tests pass.",
-        "last_reviewed": "2026-07-14",
-        "depends_on": []
-    },
-    {
-        "title": "example translations are stored but not implemented as Telegram spoilers",
-        "category": "feature",
-        "module": "bot.py / keyboards.py / db.py / tests",
-        "func": "format_card / daily_card_keyboard / callback_router / cached card rendering",
-        "problem": "ROADMAP.md says example translations remain hidden until an inline Show translations action is pressed, but the current renderer omits example_translations entirely and the card keyboards expose only Next card, Add to review, and SRS actions. callback_router has no translation-reveal action, so stored translations cannot appear as a spoiler or be added to the current card message.",
-        "solution": "Implemented a deterministic translation-preparation interaction over cached canonical cards across daily, review, custom-word, and SRS flows. The initial Prepare translations action edits the existing message, appends paired Telegram spoilers, removes only itself, preserves other controls, and rejects stale or cross-user references. Valid cards remain zero-call; invalid legacy cards receive one field-level repair patch, are revalidated, and have only repaired fields atomically persisted. Failed repairs block delivery, preserve state, and emit safe user/admin diagnostics.",
-        "priority": "high",
-        "note": "Resolved with the approved surgical legacy-card repair exception. Valid cached cards remain cached-only and incur no AI request; one targeted repair request is allowed only when local validation identifies missing or invalid fields.",
-        "resolved": true,
-        "status": "resolved",
-        "detailOpen": false,
-        "editing": false,
-        "id": 55,
-        "phase": "phase-4",
-        "roadmap_refs": [
-            "interactive-card-ux",
-            "data-lifecycle",
-            "premium-features"
-        ],
-        "decision_refs": [
-            "decision-card-detail-default"
-        ],
-        "evidence": "bot.py:format_card keeps the bullet example prefix and places the paired translation on the next line inside a spoiler while escaping the prepared label for MarkdownV2; bot.py:_prepare_cached_card still validates every cached display/resend, performs one minimal repair request when needed, persists repaired fields, and blocks unsafe delivery; callback helpers keep same-message paired spoilers and idempotent stale-callback handling; keyboards.py adds source-scoped Prepare translations callbacks; db.py adds ownership-checked atomic field patches; tests cover bullet layout, spoiler pairing, persistence, scoped controls, and rendering safety.",
-        "last_reviewed": "2026-07-14",
-        "depends_on": []
-    },
-    {
-        "title": "status changes need a validated review and synchronization workflow",
-        "category": "feature",
-        "module": "issues/status_editor.py / issues/validate.py / ROADMAP.md",
-        "func": "project status editing and generated-view synchronization",
-        "problem": "Editing issue records, phase status, and roadmap summaries manually can leave the dashboard or generated roadmap section stale or inconsistent.",
-        "solution": "Provide a reviewable JSON patch workflow that validates the complete resulting model, previews the diff, updates canonical issue and project-status records, and regenerates only marked views while preserving human-written roadmap narrative.",
-        "priority": "medium",
-        "note": "This is project-governance tooling only; it must not alter Telegram runtime behavior, AI generation, quotas, or database state.",
-        "resolved": true,
-        "status": "resolved",
-        "detailOpen": false,
-        "editing": false,
-        "id": 56,
-        "phase": "phase-4",
-        "roadmap_refs": [
-            "issue-tooling"
-        ],
-        "decision_refs": [
-            "decision-issue-registry"
-        ],
-        "evidence": "PR #53 delivered status_editor.py preview/apply commands, full-model validation, and validate.py synchronization for the dashboard and marked generated roadmap section.",
-        "last_reviewed": "2026-07-14",
-        "depends_on": [
-            27
-        ]
-    },
-    {
-        "title": "bot.py needs staged handler and presentation boundaries for maintainability",
-        "category": "tech-debt",
-        "module": "bot.py / keyboards.py / future admin.py / future user.py / future formatting.py",
-        "func": "handler registration, role-specific commands, callbacks, message formatting",
-        "problem": "bot.py currently contains more than 2,000 lines spanning user onboarding, daily delivery, SRS, custom-word queries, admin controls, callbacks, jobs, retry orchestration, MarkdownV2 escaping, and card rendering. As new features land, this increases the risk of accidental cross-flow changes and makes a future Telegram parse-mode migration unnecessarily broad.",
-        "solution": "Plan a staged extraction: preserve handler and callback contracts while moving admin-only handlers to admin.py, user-facing command/state handlers to user.py, and formatting/escaping/rendering to formatting.py. Keep domain operations in existing services, avoid circular imports, add import-level and behavior regression tests, and migrate one boundary at a time rather than splitting files mechanically.",
-        "priority": "medium",
-        "note": "This is an architectural risk, not permission to refactor immediately. The module boundaries and extraction order require explicit agreement before runtime changes.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "editing": false,
-        "id": 57,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "reliability-and-data-lifecycle",
-            "issue-tooling"
-        ],
-        "decision_refs": [
-            "decision-issue-registry"
-        ],
-        "evidence": "bot.py is 2,084 lines; admin handlers start at open_admin_panel/admin_callback, user flows include cmd_start/text_router/callback_router, and formatting/MarkdownV2 helpers include escape_mdv2, escape_mdv2_code, and format_card.",
-        "last_reviewed": "2026-07-14",
-        "depends_on": []
-    },
-    {
-        "title": "project status needs an optional local web editor over the validated patch workflow",
-        "category": "feature",
-        "module": "issues/project_status.html / issues/status_editor.py / future local API",
-        "func": "human-friendly issue and phase editing",
-        "problem": "The current dashboard is read-only and the safe editor is command-line based, so a project owner must prepare and run a JSON patch manually instead of editing status cards through a controlled local web interface.",
-        "solution": "Add a local-only, authenticated editor backed by the existing validation boundary: load canonical state, edit issue/phase/decision fields, preview a diff, require explicit confirmation, write canonical JSON atomically, and regenerate marked views. The server must never accept arbitrary Markdown writes, browser-local state, or unauthenticated remote edits.",
-        "priority": "medium",
-        "note": "This is the next UX layer over issue 56, not a replacement for canonical JSON or validation. The local-server technology and authentication boundary must be agreed before implementation.",
-        "resolved": true,
-        "status": "resolved",
-        "detailOpen": false,
-        "editing": false,
-        "id": 58,
-        "phase": "phase-4",
-        "roadmap_refs": [
-            "issue-tooling",
-            "interactive-card-ux"
-        ],
-        "decision_refs": [
-            "decision-issue-registry"
-        ],
-        "evidence": "PR implementation adds issues/local_editor.py: a loopback-only standard-library server with one-time startup token, session cookie authentication, validated preview-before-apply flow, atomic generated-document writes, and a browser form for issue/phase/decision fields. Focused tests, full unittest discovery, py_compile, validate.py check, and a live login/root smoke test pass.",
-        "last_reviewed": "2026-07-14",
-        "depends_on": [
-            56
-        ]
-    },
-    {
-        "title": "SRS reminder delivery is not atomic across Telegram send and pending-state persistence",
-        "category": "bug",
-        "module": "bot.py / db.py",
-        "func": "srs_job / mark_word_review_pending / due_words_for_user",
-        "problem": "The SRS job sends a reminder first and marks the word pending only afterward. A process crash or concurrent SRS invocation in that gap can send a duplicate reminder; there is no durable per-word claim or delivery idempotency record.",
-        "solution": "Add a transactional per-word claim/state transition with a durable reminder attempt identity and recovery semantics. Make concurrent jobs unable to claim the same due word, persist enough state to resume after restart, and document the bounded duplicate risk inherent in Telegram's non-transactional external send.",
-        "priority": "high",
-        "note": "This is a confirmed reliability gap in the current fixed SRS baseline and must be resolved before adaptive caps or completion-rate metrics are trusted.",
-        "resolved": true,
-        "status": "resolved",
-        "detailOpen": false,
-        "editing": false,
-        "id": 59,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "adaptive-srs-core",
-            "reliability-and-data-lifecycle"
-        ],
-        "decision_refs": [],
-        "evidence": "claim-before-send pattern: claim_srs_reminder in db.py:1295 atomically sets review_status='claiming' with CAS guard; mark_word_review_pending in db.py:1313 updated to require claiming state; srs_job in bot.py:2694 uses try/claim/send/mark/release pattern. Tests: test_claim_srs_reminder_*, test_mark_word_review_pending_*, test_release_srs_claim_resets_to_idle.",
-        "last_reviewed": "2026-07-18",
-        "depends_on": [
-            42
-        ]
-    },
-    {
-        "title": "One SRS delivery error aborts the remaining due words for that user",
-        "category": "bug",
-        "module": "bot.py",
-        "func": "srs_job",
-        "problem": "The exception handler surrounds the entire due-word loop for one user. If card preparation or Telegram delivery fails for one word, later due words for that same user are skipped until a later SRS invocation, while other users continue.",
-        "solution": "Handle failures per due word, record bounded retry/backoff state, and continue the user's batch. Preserve cap accounting and avoid marking a word pending unless its delivery attempt reaches the defined success boundary.",
-        "priority": "medium",
-        "note": "A three-user deployment is small, but a user with multiple due words can still receive an incomplete reminder set without a same-run retry path.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "editing": false,
-        "id": 60,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "adaptive-srs-core",
-            "reliability-and-data-lifecycle"
-        ],
-        "decision_refs": [],
-        "evidence": "bot.py:srs_job opens one try block per active user and catches exceptions only after the for word in due loop, so one failure exits the remaining words for that user.",
-        "last_reviewed": "2026-07-14",
-        "depends_on": [
-            59
-        ]
-    },
-    {
-        "title": "A short restart can leave scheduled delivery permanently processing",
-        "category": "bug",
-        "module": "bot.py / db.py",
-        "func": "requeue_stale_deliveries / daily_job / delivery_dispatch_job",
-        "problem": "Startup requeues processing rows only when processing_started_at is older than 15 minutes. A crash followed by a restart within that window leaves the row in processing; dispatch reads only pending or retryable failed rows, and no repeating job requeues the row.",
-        "solution": "Run stale-worker recovery from the repeating dispatcher as well as daily planning, or use a lease/heartbeat with a retryable deadline. Make recovery idempotent and preserve sent_count when resuming.",
-        "priority": "high",
-        "note": "This can strand a user's current daily session after the exact restart scenario this audit was requested to assess.",
-        "resolved": true,
-        "status": "resolved",
-        "detailOpen": false,
-        "editing": false,
-        "id": 61,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "reliability-and-data-lifecycle"
-        ],
-        "decision_refs": [],
-        "evidence": "delivery_dispatch_job in bot.py:2658 calls requeue_stale_deliveries every 60s, eliminating the 15-min blind spot. Tests: test_stale_delivery_recovery_requeues_processing_rows, test_stale_delivery_respects_recent_processing_rows.",
-        "last_reviewed": "2026-07-18",
-        "depends_on": []
-    },
-    {
-        "title": "Scheduled delivery ignores the configured preferred delivery time",
-        "category": "bug",
-        "module": "bot.py / scheduling.py",
-        "func": "_plan_daily_queue / plan_sessions / choose_load_aware_minute",
-        "problem": "_plan_daily_queue passes each user's preferred minute, but plan_sessions uses the evenly distributed active-window ideal as the preferred argument to choose_load_aware_minute. Different preferred times therefore produce the same default slot pattern.",
-        "solution": "Use the user's preferred minute as the primary soft target for the first session and derive subsequent session ideals around it, while retaining active-window bounds, load-aware shifting, and deterministic behavior under saturation.",
-        "priority": "medium",
-        "note": "Messages remain inside the active window, so this is a scheduling-contract defect rather than an immediate data-loss risk.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "id": 62,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "reliability-and-data-lifecycle"
-        ],
-        "decision_refs": [],
-        "evidence": "bot.py:_plan_daily_queue reads preferred_delivery_minute; scheduling.py:plan_sessions computes ideal from candidates and passes ideal, not preferred_minute, to choose_load_aware_minute. Focused probe produced identical slots for preferred 08:00, 09:00, 15:00, and 20:00.",
-        "last_reviewed": "2026-07-14",
-        "depends_on": []
-    },
-    {
-        "title": "Scheduled delivery does not replay queue rows from previous offline dates",
-        "category": "bug",
-        "module": "bot.py / db.py",
-        "func": "startup_catch_up_job / daily_job / delivery_dispatch_job",
-        "problem": "Startup catch-up plans and dispatches only the current application date. Pending or retryable rows for older dates are never selected, so downtime can permanently strand previously scheduled daily sessions.",
-        "solution": "Define and implement a bounded replay policy for past delivery dates: select eligible non-terminal rows in order, preserve their original session/card ranges, enforce burst and per-user limits, and make replay idempotent. If product policy intentionally drops old sessions, mark them explicitly expired instead of leaving them ambiguous.",
-        "priority": "medium",
-        "note": "Current behavior is safe from duplicate queue creation but not complete from a learner-delivery perspective.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "id": 63,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "reliability-and-data-lifecycle"
-        ],
-        "decision_refs": [],
-        "evidence": "bot.py:daily_job and delivery_dispatch_job pass only today's date to planning/dispatch; startup_catch_up_job invokes those same current-date jobs. No query or policy handles older delivery_date values.",
-        "last_reviewed": "2026-07-14",
-        "depends_on": [
-            61
-        ]
-    },
-    {
-        "title": "Phonetic output should expose IPA, Latin, and Persian-script variants",
-        "category": "feature",
-        "module": "prompts.py / ai.py / bot.py / config.py / db.py / keyboards.py",
-        "func": "phonetic prompt contract, legacy repair, and owner toggles",
-        "problem": "A single stored phonetic string cannot satisfy users who want IPA, simple Latin syllables, and Persian-script pronunciation forms, and legacy cards keep replaying old single-script values.",
-        "solution": "Make phonetic output a labeled multiline contract with IPA, Latin, and Persian lines; repair legacy cards when they are prepared for display; and let the owner toggle each representation from env defaults and the admin panel.",
-        "priority": "medium",
-        "note": "This stays compatible with AI generation and preserves cached cards by only repatching the phonetic field when it is legacy-formatted.",
-        "resolved": true,
-        "status": "resolved",
-        "detailOpen": false,
-        "editing": false,
-        "id": 64,
-        "phase": "phase-4",
-        "roadmap_refs": [
-            "phase-4-interactive-card-ux"
-        ],
-        "decision_refs": [
-            "decision-canonical-language-registry"
-        ],
-        "evidence": "prompts._card_schema and card_repair_system_prompt now require the three-line phonetic contract; ai.card_repair_fields marks legacy phonetics for repair; bot.format_card renders the enabled phonetic lines from db.get_phonetic_display_settings(); keyboards.admin_panel_keyboard exposes a phonetic settings submenu.",
-        "last_reviewed": "2026-07-14",
-        "depends_on": []
-    },
-    {
-        "title": "Owner needs a dedicated add/remove language flow and cleaner admin-panel UX",
-        "category": "feature",
-        "module": "bot.py / keyboards.py / project_status.json / ROADMAP.md",
-        "func": "owner language rollout controls and admin navigation",
-        "problem": "The current admin panel is flat and text-heavy, so there is no structured flow for adding, disabling, or removing supported languages during rollout.",
-        "solution": "Design a dedicated owner workflow for language lifecycle management, keep the canonical catalog as the source of truth, and refactor the admin panel into smaller discovery and action views.",
-        "priority": "medium",
-        "note": "Track this as a product/UX phase so future language rollouts can be controlled without ad hoc bot commands.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "editing": false,
-        "id": 65,
-        "phase": "phase-4",
-        "roadmap_refs": [
-            "phase-4-interactive-card-ux",
-            "later-product-phases"
-        ],
-        "decision_refs": [
-            "decision-canonical-language-registry"
-        ],
-        "evidence": "The owner panel is still a single inline keyboard in bot.py, and there is no language lifecycle submenu or catalog rollout workflow yet.",
-        "last_reviewed": "2026-07-14",
-        "depends_on": [
-            64
-        ]
-    },
-    {
-        "title": "learner reminders should sound friendly, progress-aware, and action-oriented",
-        "category": "feature",
-        "module": "bot.py / scheduling.py / db.py",
-        "func": "daily_job / srs_job / delivery copy",
-        "problem": "Scheduled reminders are functionally correct but sound like plain notifications instead of a learning coach that references progress, streak, and the learner's current workload.",
-        "solution": "Use templated reminder copy that stays separate from cadence logic but can reference today's remaining cards, due reviews, streak status, and a short question such as whether the learner has time right now.",
-        "priority": "medium",
-        "note": "Core UX for all users; no new reward model is implied.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "editing": false,
-        "id": 66,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "adaptive-srs-core"
-        ],
-        "decision_refs": [
-            "decision-motivational-reminders-core"
-        ],
-        "evidence": "Current delivery copy is mostly status-oriented and does not yet have a dedicated progress-aware reminder template or CTA layer.",
-        "last_reviewed": "2026-07-14",
-        "depends_on": []
-    },
-    {
-        "title": "review cards need a dedicated review center with same-message prev/next and translation controls",
-        "category": "feature",
-        "module": "bot.py / keyboards.py / ROADMAP.md",
-        "func": "review menu / card navigation / translation reveal",
-        "problem": "Review entry points are still buried inside today's card flow, and the current inline controls are not exposed as a dedicated review surface that keeps navigation and translation reveal on the same message.",
-        "solution": "Add a top-level review hub that can open today's due cards and prior review dates, then keep previous, next, and translation actions as same-message edits instead of sending replacement messages whenever possible.",
-        "priority": "medium",
-        "note": "Core UX for all users; the review hub is not a premium upsell.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "editing": false,
-        "id": 67,
-        "phase": "phase-4",
-        "roadmap_refs": [
-            "phase-4-interactive-card-ux"
-        ],
-        "decision_refs": [
-            "decision-review-center-core"
-        ],
-        "evidence": "The code already has review-related keyboards and prepare-translation flows, but there is no dedicated review hub in the main menu and some edits still fall back to sending a new message when Telegram refuses an edit.",
-        "last_reviewed": "2026-07-14",
-        "depends_on": []
-    },
-    {
-        "title": "goal-specific advanced options should be language-aware and premium-gated",
-        "category": "feature",
-        "module": "catalog.py / keyboards.py / prompts.py / bot.py",
-        "func": "goal menu / prompt guidance / premium gating",
-        "problem": "The current goal menu is too coarse for real learner intent, and some goals only make sense for specific languages. Users need richer choices such as travel, immigration, conversation, flirting, and domain-specific study paths.",
-        "solution": "Split the goal catalog into a core set for everyone and an advanced layer for eligible premium users. Filter goals by target language where appropriate, keep the canonical registry as the source of truth, and avoid exposing language-inappropriate goals such as TOEFL/IELTS outside English.",
-        "priority": "medium",
-        "note": "Premium product choice; this is not just a localization tweak.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "editing": false,
-        "id": 68,
-        "phase": "phase-4",
-        "roadmap_refs": [
-            "phase-4-interactive-card-ux",
-            "phase-2-manual-proficiency-level-and-german-support"
-        ],
-        "decision_refs": [
-            "decision-premium-goal-advanced"
-        ],
-        "evidence": "GOALS is still a single flat registry and the existing goal picker does not vary by language or subscription tier.",
-        "last_reviewed": "2026-07-14",
-        "depends_on": []
-    },
-    {
-        "title": "extra gamification beyond streak should be a premium reward surface",
-        "category": "feature",
-        "module": "db.py / bot.py / ROADMAP.md",
-        "func": "reward ledger / progress surfaces / profile views",
-        "problem": "The live product only exposes streak as a progress indicator. There is no reward ledger, badge surface, or premium progress model distinct from learning retention.",
-        "solution": "Keep streak and retention metrics separate from gamification, then add a premium reward layer for points, badges, or similar motivational surfaces only after the reward ledger and profile model are explicitly designed.",
-        "priority": "medium",
-        "note": "Premium-only by product choice; do not blend it with the learning score.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "editing": false,
-        "id": 69,
-        "phase": "phase-8",
-        "roadmap_refs": [
-            "mini-quizzes",
-            "later-product-phases"
-        ],
-        "decision_refs": [
-            "decision-premium-gamification"
-        ],
-        "evidence": "The roadmap already separates streak from retention points, and the codebase does not yet have a reward ledger or badge surface.",
-        "last_reviewed": "2026-07-14",
-        "depends_on": [
-            45
-        ]
-    },
-    {
-        "title": "card failure reasons need durable telemetry and operator reporting",
-        "category": "tech-debt",
-        "module": "ai.py / bot.py / db.py / ROADMAP.md",
-        "func": "batch validation / Telegram rendering / delivery error reporting",
-        "problem": "Validation rejections, MarkdownV2 parse errors, and delivery failures are mostly visible only in logs, so operators cannot quickly answer why cards failed or whether the root cause is generation quality, formatting, or transport.",
-        "solution": "Persist structured failure events with stage, user, request kind, error class, and compact diagnostics; expose the top reasons in the owner dashboard; and keep raw logs as a fallback rather than the primary report source.",
-        "priority": "high",
-        "note": "Urgent reliability work: the reporting surface should separate AI-quality problems from Telegram formatting/send failures.",
-        "resolved": false,
-        "status": "open",
-        "detailOpen": false,
-        "editing": false,
-        "id": 70,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "adaptive-srs-core",
-            "reliability-and-data-lifecycle"
-        ],
-        "decision_refs": [],
-        "evidence": "Current ai._log_llm_request logs batch validation reasons, bot.py logs BadRequest/parse-mode failures, and delivery_queue.last_error keeps only per-row send errors; there is no single durable report table or dashboard section that aggregates these causes.",
-        "last_reviewed": "2026-07-14",
-        "depends_on": [
-            59,
-            60,
-            61
-        ]
-    },
-    {
-        "title": "_daily_avoid_words call mismatch causes TypeError in scheduled delivery",
-        "category": "bug",
-        "module": "bot.py / db.py",
-        "func": "_ensure_scheduled_session_cards,_daily_avoid_words,get_recent_daily_words",
-        "problem": "Line 879 passes 4 arguments to _daily_avoid_words(user_id, session[\"target_lang\"], queue_row[\"delivery_date\"], existing) but the function signature (line 814) only accepts 3 arguments: (user_id, card_date, current_cards). This incomplete refactor causes TypeError on every scheduled delivery.",
-        "solution": "Option B implemented: updated _daily_avoid_words signature to (user_id, target_lang, card_date, current_cards), updated get_recent_daily_words with LEFT JOIN on daily_card_sessions for language filtering, and updated all 3 call sites (lines 856, 879, 908) to pass session[\"target_lang\"] consistently.",
-        "priority": "high",
-        "note": "Now includes language-scoped word avoidance to prevent cross-language false collisions in the avoid-list. Blocks all scheduled delivery for every user until fixed.",
-        "resolved": true,
-        "status": "resolved",
-        "detailOpen": false,
-        "editing": false,
-        "id": 71,
-        "phase": "phase-6",
-        "roadmap_refs": [
-            "reliability-and-data-lifecycle"
-        ],
-        "decision_refs": [],
-        "evidence": "bot.py:_daily_avoid_words signature updated to accept target_lang (2nd param); db.py:get_recent_daily_words accepts optional target_lang and LEFT JOINs daily_card_sessions for language filtering; all 3 call sites (lines 856, 879, 908) pass session[\"target_lang\"]; tests/test_reliability.py:test_recent_daily_words_filters_by_language passes. Existing test_recent_daily_words_excludes_current_date (no lang filter) still passes. Fix verified on 2026-07-18.",
-        "last_reviewed": "2026-07-18",
-        "depends_on": []
-    }
-];
-        // END GENERATED ISSUE DATA
-
-const state = {
-  phase:"all",
-  category:"all",
-  status:"all",
-  priority:"all",
-  search:"",
-  hideCompleted:false,
-  highPriorityOnly:false,
-  focusMode:false,
-  expandedPhaseId:null
-};
-const label = value => value.replaceAll("-", " ");
-const esc = value => String(value ?? "").replace(/[&<>"']/g, ch => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[ch]));
-function setOptions(id, values, allLabel) {
-  const select = document.getElementById(id);
-  select.innerHTML = `<option value="all">${allLabel}</option>` + values.sort().map(value => `<option value="${esc(value)}">${esc(label(value))}</option>`).join("");
-}
-function applyToggleState() {
-  document.querySelectorAll(".toggle").forEach(button => {
-    const key = button.getAttribute("data-state-key");
-    const active = Boolean(state[key]);
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-pressed", active ? "true" : "false");
-  });
-}
-function visibleIssues() {
-  const query = state.search.trim().toLowerCase();
-  return ISSUES_DATA.filter(issue => {
-    const text = [issue.title, issue.module, issue.problem, ...(issue.roadmap_refs || [])].join(" ").toLowerCase();
-    const highPriorityMatch = !state.highPriorityOnly || issue.priority === "high";
-    return (state.phase === "all" || issue.phase === state.phase)
-      && (state.category === "all" || issue.category === state.category)
-      && (state.status === "all" || issue.status === state.status)
-      && highPriorityMatch
-      && (!query || text.includes(query));
-  });
-}
-function issueCard(issue) {
-  const query = state.search.trim().toLowerCase();
-  const highlight = (text) => {
-    if (!query || !text) return esc(text);
-    const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
-    return parts.map(part => part.toLowerCase() === query ? `<mark>${esc(part)}</mark>` : esc(part)).join("");
-  };
-  return `<article class="issue-card category-${esc(issue.category)}">
-    <h4>#${issue.id} ${highlight(issue.title)}</h4>
-    <div class="issue-meta">
-      <span class="pill">${esc(label(issue.category))}</span><span class="pill">${esc(label(issue.status))}</span>
-      <span class="pill">${esc(label(issue.priority))}</span><span class="pill">${esc(issue.phase || "unassigned")}</span>
-    </div>
-    <p>${highlight(issue.problem)}</p>
-    <p class="muted"><strong>Roadmap:</strong> ${(issue.roadmap_refs || []).map(ref => highlight(ref)).join(", ") || "—"}</p>
-  </article>`;
-}
-function itemList(items) {
-  return items && items.length
-    ? `<ul>${items.map(item => `<li>${esc(item)}</li>`).join("")}</ul>`
-    : `<p class="muted">None.</p>`;
-}
-function visiblePhases(issues) {
-  return PROJECT_STATUS_DATA.phases.filter(phase => {
-    if (state.phase !== "all" && phase.id !== state.phase) {
-      return false;
-    }
-    if (state.hideCompleted && phase.status === "complete") {
-      return false;
-    }
-    return issues.some(issue => issue.phase === phase.id);
-  });
-}
-function countHighPriorityIssuesForPhase(phaseId, issues) {
-  return issues.filter(issue => issue.phase === phaseId && issue.priority === "high").length;
-}
-function phaseCard(phase, issues) {
-  const phaseIssues = issues.filter(issue => issue.phase === phase.id);
-  const linkedIssues = (phase.issue_ids || [])
-    .map(id => ISSUES_DATA.find(issue => issue.id === id))
-    .filter(Boolean);
-  const isExpanded = state.expandedPhaseId === phase.id;
-  const highPriorityCount = countHighPriorityIssuesForPhase(phase.id, issues);
-  const badgeHtml = isExpanded ? "" : `<span class="phase-badge ${highPriorityCount === 0 ? "empty" : ""}">${highPriorityCount > 0 ? "⚡ " + highPriorityCount : "0"}</span>`;
-  return `<article class="phase-card ${isExpanded ? "phase-expanded" : "phase-collapsed"}">
-    <button class="phase-header" type="button" data-phase-id="${phase.id}" aria-expanded="${isExpanded ? "true" : "false"}">
-      <div class="phase-title-wrap">
-        <span class="phase-id">${esc(phase.id)}</span>
-        <h3>${esc(phase.name)}</h3>
-      </div>
-      <div class="phase-actions">
-        <span class="pill status-${esc(phase.status)}">${esc(label(phase.status))}</span>
-        ${badgeHtml}
-        <span class="phase-toggle-icon">${isExpanded ? "▾" : "▸"}</span>
-      </div>
-    </button>
-    <div class="phase-body ${isExpanded ? "expanded-layout" : ""}">
-      <p>${esc(phase.objective)}</p>
-      <div class="phase-meta">${(phase.depends_on || []).map(dep => `<span class="pill">depends on ${esc(dep)}</span>`).join("")}</div>
-      <div class="bucket"><h4>Done</h4>${itemList(phase.done)}</div>
-      <div class="bucket"><h4>In progress</h4>${itemList(phase.in_progress)}</div>
-      <div class="bucket"><h4>To-do</h4>${itemList(phase.todo)}</div>
-      <div class="bucket"><h4>Acceptance criteria</h4>${itemList(phase.acceptance_criteria)}</div>
-      <div class="bucket"><h4>Linked issues</h4>${linkedIssues.length ? `<div class="issue-list">${phaseIssues.map(issueCard).join("")}</div>` : `<p class="muted">No issues linked</p>`}</div>
-      ${phaseIssues.length ? "" : `<p class="muted">No issues match the current filters.</p>`}
-    </div>
-  </article>`;
-}
-function render() {
-  const issues = visibleIssues();
-  const phasesToRender = visiblePhases(issues);
-  if (state.focusMode && phasesToRender.length) {
-    if (!state.expandedPhaseId || !phasesToRender.some(phase => phase.id === state.expandedPhaseId)) {
-      state.expandedPhaseId = phasesToRender[0].id;
-    }
-    phasesToRender.splice(0, phasesToRender.length, ...phasesToRender.filter(phase => phase.id === state.expandedPhaseId));
-  }
-  document.getElementById("phaseCount").textContent = PROJECT_STATUS_DATA.phases.length;
-  document.getElementById("issueCount").textContent = ISSUES_DATA.length;
-  document.getElementById("openCount").textContent = ISSUES_DATA.filter(issue => ["open","partial"].includes(issue.status)).length;
-  document.getElementById("decisionCount").textContent = PROJECT_STATUS_DATA.decisions.length;
-  document.getElementById("phaseBoard").innerHTML = phasesToRender.length
-    ? phasesToRender.map(phase => phaseCard(phase, issues)).join("")
-    : `<div class="empty-state">No phases match the current filters.</div>`;
-  document.getElementById("decisionBoard").innerHTML = PROJECT_STATUS_DATA.decisions.map(decision =>
-    `<article class="decision-card"><h3>${esc(decision.title)}</h3><div class="phase-meta"><span class="pill">${esc(label(decision.status))}</span><span class="pill">${esc(decision.phase)}</span></div><p>${esc(decision.summary)}</p></article>`
-  ).join("");
-  renderFilterChips();
-  applyToggleState();
-}
-function renderFilterChips() {
-  const chips = [
-    { label: "⚠ High priority", key: "highPriorityOnly" },
-    { label: "🐞 Bugs", key: "category", value: "bug" },
-    { label: "✅ Resolved", key: "status", value: "resolved" },
-    { label: "📂 Open", key: "status", value: "open_partial" },
-    { label: "🔄 Clear all", key: "clearAll" }
-  ];
-  const chipsHtml = chips.map(chip => {
-    let isActive = false;
-    if (chip.key === "highPriorityOnly") {
-      isActive = state.highPriorityOnly;
-    } else if (chip.key === "category") {
-      isActive = state.category === chip.value;
-    } else if (chip.key === "status") {
-      isActive = chip.value === "open_partial" ? (state.status === "open" || state.status === "partial") : state.status === chip.value;
-    }
-    return `<button class="filter-chip ${isActive ? "active" : ""}" data-chip-key="${chip.key}" data-chip-value="${chip.value || ""}">${chip.label}</button>`;
-  }).join("");
-  document.getElementById("filterChips").innerHTML = chipsHtml;
-}
-["phase","category","status","priority"].forEach(key => document.getElementById(`${key}Filter`).addEventListener("change", event => { state[key] = event.target.value; render(); }));
-document.getElementById("searchFilter").addEventListener("input", event => { state.search = event.target.value; render(); });
-document.querySelectorAll(".toggle").forEach(button => {
-  button.addEventListener("click", () => {
-    const key = button.getAttribute("data-state-key");
-    state[key] = !state[key];
-    render();
-  });
-});
-document.getElementById("phaseBoard").addEventListener("click", event => {
-  const header = event.target.closest(".phase-header");
-  if (!header) {
-    return;
-  }
-  const phaseId = header.getAttribute("data-phase-id");
-  if (state.focusMode) {
-    state.expandedPhaseId = phaseId;
-  } else if (state.expandedPhaseId === phaseId) {
-    state.expandedPhaseId = null;
-  } else {
-    state.expandedPhaseId = phaseId;
-  }
-  render();
-});
-document.addEventListener("click", event => {
-  const chip = event.target.closest(".filter-chip");
-  if (!chip) return;
-  const key = chip.getAttribute("data-chip-key");
-  const value = chip.getAttribute("data-chip-value");
-  if (key === "highPriorityOnly") {
-    state.highPriorityOnly = !state.highPriorityOnly;
-  } else if (key === "category") {
-    state.category = state.category === value ? "all" : value;
-  } else if (key === "status") {
-    if (value === "open_partial") {
-      state.status = state.status === "open" || state.status === "partial" ? "all" : "open";
-    } else {
-      state.status = state.status === value ? "all" : value;
-    }
-  } else if (key === "clearAll") {
-    state.phase = "all";
-    state.category = "all";
-    state.status = "all";
-    state.priority = "all";
-    state.search = "";
-    document.getElementById("searchFilter").value = "";
-    document.getElementById("phaseFilter").value = "all";
-    document.getElementById("categoryFilter").value = "all";
-    document.getElementById("statusFilter").value = "all";
-    document.getElementById("priorityFilter").value = "all";
-  }
-  render();
-});
-setOptions("phaseFilter", PROJECT_STATUS_DATA.phases.map(phase => phase.id), "All phases");
-setOptions("categoryFilter", PROJECT_STATUS_DATA.status_model.issue_categories, "All categories");
-setOptions("statusFilter", PROJECT_STATUS_DATA.status_model.issue_statuses, "All statuses");
-setOptions("priorityFilter", [...new Set(ISSUES_DATA.map(issue => issue.priority))], "All priorities");
-render();
-</script>
+<h1>HamZaboon — Project Status</h1>
+<p>Generated from <code>project_status.json</code> on 2026-07-18. Issue detail lives on <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues'>GitHub Issues</a>.</p>
+<h2>Phases</h2>
+<div class="phase" id="phase-1">
+<h3><span class='badge'>🟢</span> phase-1: Content Schema and Validation <small>(complete)</small></h3>
+<p><em>Keep every stored educational card valid, paired, and restart-safe.</em></p>
+<div class='section'><span class='section-title'>Done</span><ul>
+<li>Versioned canonical card fields</li>
+<li>Validation and safe malformed-output handling</li>
+<li>Example and translation pairing</li>
+</ul></div>
+<div class='section'><span class='section-title'>To-do</span><ul>
+<li>Keep migration and validation coverage current for additive fields</li>
+</ul></div>
+<div class='section'><span class='section-title'>Acceptance criteria</span><ul>
+<li>Every stored card conforms to the validated schema</li>
+<li>Existing cached cards remain readable</li>
+</ul></div>
+</div>
+<div class="phase" id="phase-2">
+<h3><span class='badge'>🟢</span> phase-2: Manual Proficiency Level and German Support <small>(complete)</small></h3>
+<p><em>Make proficiency and language-specific guidance explicit and extensible.</em></p>
+<p><strong>Dependencies:</strong> phase-1</p>
+<div class='section'><span class='section-title'>Done</span><ul>
+<li>Independent proficiency level</li>
+<li>CEFR labels and German support</li>
+</ul></div>
+<div class='section'><span class='section-title'>To-do</span><ul>
+<li>Add future languages only through the canonical catalog</li>
+</ul></div>
+<div class='section'><span class='section-title'>Acceptance criteria</span><ul>
+<li>Language, goal, and level remain separate stored values</li>
+<li>Language-specific guidance is preserved</li>
+</ul></div>
+</div>
+<div class="phase" id="phase-3">
+<h3><span class='badge'>🟡</span> phase-3: Controlled Generation and Daily Card Storage <small>(in-progress)</small></h3>
+<p><em>Generate only requested content, persist it safely, and prepare validated reuse.</em></p>
+<p><strong>Dependencies:</strong> phase-1, phase-2</p>
+<div class='section'><span class='section-title'>Done</span><ul>
+<li>Bounded manual and scheduled batches</li>
+<li>Duplicate filtering, persistence, and partial retry</li>
+</ul></div>
+<div class='section'><span class='section-title'>In progress</span><ul>
+<li>Segment-level pooling design and validated reuse boundaries</li>
+</ul></div>
+<div class='section'><span class='section-title'>To-do</span><ul>
+<li>Add the pool table and gated validated write path</li>
+<li>Add pool telemetry and inventory selection</li>
+</ul></div>
+<div class='section'><span class='section-title'>Acceptance criteria</span><ul>
+<li>Partial batches preserve valid cards</li>
+<li>Restart and duplicate triggers do not regenerate persisted cards</li>
+</ul></div>
+<p><strong>Issues:</strong> <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/80'>#80</a></p>
+</div>
+<div class="phase" id="phase-4">
+<h3><span class='badge'>🟡</span> phase-4: Interactive Card UX and Project Status <small>(in-progress)</small></h3>
+<p><em>Expose safe card interactions and make product/engineering status explicit.</em></p>
+<p><strong>Dependencies:</strong> phase-1, phase-3</p>
+<div class='section'><span class='section-title'>Done</span><ul>
+<li>Persisted next-card flow</li>
+<li>Cached-card rendering</li>
+<li>Internal compact JSON separation</li>
+<li>Content-richness validation contract</li>
+<li>Deterministic brief/detailed card renderer</li>
+<li>Project-status tooling</li>
+<li>User-scoped same-message translation preparation with paired spoilers</li>
+<li>Surgical legacy-card validation, repair, and atomic patch persistence</li>
+<li>Configurable phonetic rendering, legacy-card repatching, and owner toggles</li>
+<li>Rendering regression contracts</li>
+</ul></div>
+<div class='section'><span class='section-title'>To-do</span><ul>
+<li>Premium presentation controls</li>
+<li>Owner language lifecycle UX and rollout controls</li>
+<li>Dedicated review hub and same-message navigation</li>
+<li>Language-aware advanced goal options</li>
+</ul></div>
+<div class='section'><span class='section-title'>Acceptance criteria</span><ul>
+<li>Callbacks are user-scoped and restart-safe</li>
+<li>Rendering does not change AI, quota, SRS, pool, or unrelated stored-card state; invalid legacy cards may receive one validated, repaired-field persistence update</li>
+</ul></div>
+<p><strong>Issues:</strong> <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/78'>#78</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/79'>#79</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/90'>#90</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/91'>#91</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/92'>#92</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/93'>#93</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/94'>#94</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/95'>#95</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/97'>#97</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/103'>#103</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/104'>#104</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/106'>#106</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/107'>#107</a></p>
+</div>
+<div class="phase" id="phase-5">
+<h3><span class='badge'>🔵</span> phase-5: Custom-Word Queries and Spaced-Repetition Capture <small>(planned)</small></h3>
+<p><em>Complete query capture, saved-word integrity, and review entry points.</em></p>
+<p><strong>Dependencies:</strong> phase-3, phase-4</p>
+<div class='section'><span class='section-title'>Done</span><ul>
+<li>Quota visibility</li>
+<li>Persistent query identity</li>
+<li>Idempotent Add to review</li>
+</ul></div>
+<div class='section'><span class='section-title'>To-do</span><ul>
+<li>Finish custom-word UX and review-entry acceptance criteria</li>
+</ul></div>
+<div class='section'><span class='section-title'>Acceptance criteria</span><ul>
+<li>Repeated Add to review actions remain idempotent</li>
+<li>Saved review entries retain complete validated cards</li>
+</ul></div>
+</div>
+<div class="phase" id="phase-6">
+<h3><span class='badge'>🟡</span> phase-6: Reliable Delivery, Concurrency, and Data Lifecycle <small>(in-progress)</small></h3>
+<p><em>Make delivery, SRS, migrations, and user progress durable under retries and restarts.</em></p>
+<p><strong>Dependencies:</strong> phase-3, phase-5</p>
+<div class='section'><span class='section-title'>Done</span><ul>
+<li>Durable queues and bounded retries</li>
+<li>Async-safe provider calls</li>
+<li>Callback validation and restart recovery</li>
+<li>Phonetic data normalization</li>
+</ul></div>
+<div class='section'><span class='section-title'>In progress</span><ul>
+<li>Adaptive SRS correctness</li>
+<li>Migration and idempotency contracts</li>
+<li>SRS reminder delivery idempotency and scheduled queue recovery</li>
+<li>Friendly reminder copy and progress-aware CTA wording</li>
+</ul></div>
+<div class='section'><span class='section-title'>To-do</span><ul>
+<li>Resolve issues 42-47, 49, 50, and 59-63</li>
+<li>Add focused reliability and progress tests</li>
+<li>Plan staged handler and formatting module boundaries</li>
+<li>Design the premium reward surface</li>
+<li>Add durable failure telemetry and operator reporting</li>
+</ul></div>
+<div class='section'><span class='section-title'>Acceptance criteria</span><ul>
+<li>Restart does not resend completed work</li>
+<li>One user's failure does not stop other users</li>
+</ul></div>
+<p><strong>Issues:</strong> <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/81'>#81</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/82'>#82</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/83'>#83</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/84'>#84</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/85'>#85</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/86'>#86</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/88'>#88</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/89'>#89</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/96'>#96</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/98'>#98</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/99'>#99</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/100'>#100</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/101'>#101</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/102'>#102</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/105'>#105</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/109'>#109</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/110'>#110</a></p>
+</div>
+<div class="phase" id="phase-7">
+<h3><span class='badge'>🔵</span> phase-7: Premium Smart Placement Test <small>(planned)</small></h3>
+<p><em>Add premium placement assessment only after the core learning loop is reliable.</em></p>
+<p><strong>Dependencies:</strong> phase-6</p>
+<div class='section'><span class='section-title'>Done</span><ul>
+<li>Premium boundary and product direction documented</li>
+</ul></div>
+<div class='section'><span class='section-title'>To-do</span><ul>
+<li>Implement after core learning-loop and measurement contracts stabilize</li>
+</ul></div>
+<div class='section'><span class='section-title'>Acceptance criteria</span><ul>
+<li>Premium access is enforced</li>
+<li>Results are confirmed before being saved</li>
+</ul></div>
+</div>
+<div class="phase" id="phase-8">
+<h3><span class='badge'>🔵</span> phase-8: Measurement and Advanced Learning <small>(planned)</small></h3>
+<p><em>Use validated usage data to add mini-quizzes, measurement, and personalization.</em></p>
+<p><strong>Dependencies:</strong> phase-6, phase-7</p>
+<div class='section'><span class='section-title'>Done</span><ul>
+<li>Measurement goals documented</li>
+<li>Mini-quiz dependency order documented</li>
+</ul></div>
+<div class='section'><span class='section-title'>To-do</span><ul>
+<li>Add feedback capture and cost/quality dashboards</li>
+<li>Add advanced learning features</li>
+<li>Design premium reward surfaces and badges</li>
+</ul></div>
+<div class='section'><span class='section-title'>Acceptance criteria</span><ul>
+<li>Measurement precedes advanced personalization</li>
+<li>Mini-quizzes reuse existing validated learning data</li>
+</ul></div>
+<p><strong>Issues:</strong> <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/87'>#87</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/108'>#108</a></p>
+</div>
+<h2>Decision Locks</h2>
+<div class="decision">
+<strong>🔒 Educational content remains AI-generated</strong> (locked)
+<div class='meta'>ID: decision-ai-generated-content | Phase: phase-1
+</div>
+<p>The bot validates and renders model output; it does not replace educational generation with hard-coded lessons.</p>
+</div>
+<div class="decision">
+<strong>🔒 Issue records remain canonical in issues.json</strong> (locked)
+<div class='meta'>ID: decision-issue-registry | Phase: phase-4
+</div>
+<p>The dashboard and Markdown export are views; browser edits are never canonical.</p>
+</div>
+<div class="decision">
+<strong>🔒 Compact JSON is an internal provider optimization</strong> (locked)
+<div class='meta'>ID: decision-compact-json | Phase: phase-3
+</div>
+<p>Wire-format compactness must not change the canonical card schema or learner-facing content richness.</p>
+</div>
+<div class="decision">
+<strong>💡 Default card detail and premium expansion</strong> (proposed)
+<div class='meta'>ID: decision-card-detail-default | Phase: phase-4
+ | Issues: <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/90'>#90</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/91'>#91</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/92'>#92</a>, <a href='https://github.com/Ham3dParsa/HamZaboonRobot/issues/94'>#94</a>
+</div>
+<p>The current roadmap keeps detailed as the global default; minimal cards with a premium More details action remain a product proposal until explicitly approved.</p>
+</div>
+<div class="decision">
+<strong>🔒 Language metadata lives only in catalog.py</strong> (locked)
+<div class='meta'>ID: decision-canonical-language-registry | Phase: phase-2
+</div>
+<p>New languages and language-specific guidance are added through catalog.py rather than duplicated in prompts, config, keyboards, or bot handlers.</p>
+</div>
+<div class="decision">
+<strong>🔒 Learner reminders should be friendly and progress-aware</strong> (locked)
+<div class='meta'>ID: decision-motivational-reminders-core | Phase: phase-6
+</div>
+<p>Reminder copy can reference streak, remaining cards, and due reviews to encourage interaction, but cadence and scoring remain separate from the wording.</p>
+</div>
+<div class="decision">
+<strong>🔒 Review navigation belongs in a dedicated core review hub</strong> (locked)
+<div class='meta'>ID: decision-review-center-core | Phase: phase-4
+</div>
+<p>Review cards, previous/next navigation, and translation reveal are core UX flows and should remain available to all users through same-message edits when possible.</p>
+</div>
+<div class="decision">
+<strong>🔒 Advanced goal options are language-aware and premium-gated</strong> (locked)
+<div class='meta'>ID: decision-premium-goal-advanced | Phase: phase-4
+</div>
+<p>The core goal list stays simple for everyone; richer language-scoped goals are added as an eligible premium layer using the canonical catalog.</p>
+</div>
+<div class="decision">
+<strong>🔒 Extra gamification beyond streak is premium-only</strong> (locked)
+<div class='meta'>ID: decision-premium-gamification | Phase: phase-8
+</div>
+<p>Points, badges, or similar reward surfaces remain separate from streak and retention, and should be introduced only as an explicit premium feature.</p>
+</div>
+<div class="footer">
+<p>Last generated: 2026-07-18</p>
+<p>Edit <code>project_status.json</code> and re-run <code>python scripts/generate_dashboard.py</code> to refresh.</p>
+</div>
 </body>
 </html>
