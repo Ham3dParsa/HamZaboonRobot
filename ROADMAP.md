@@ -332,7 +332,8 @@ Completed on the current main branch:
 - Read-only project-status dashboard (`issues/project_status.html`) joined
   from `project_status.json` and canonical structured issue data in
   `issues/issues.json`; `issues/issues.html` remains a compatibility redirect
-  and `hamzaban-issues.md` is an optional Markdown export for review
+   and `hamzaban-issues.md` is an optional Markdown export for review
+- Dashboard UX overhaul: responsive 1440p grid layout, clickable cross-tab stat cards, fixed progress bars for complete phases, corrected decision action links (phase anchors + issue links), and `--watch`/`--serve` CLI for live editing
 - Custom-word query improvements: daily quota visibility, persistent
   short-lived query identity, inline `Add to review`, and removal of the
   standalone manual-save action from the primary menu
