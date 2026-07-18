@@ -100,6 +100,15 @@ from keyboards import (
     BTN_BACK,
 )
 
+from formatting import (
+    CardPreparationError,
+    SRS_REVEAL_QUESTION,
+    escape_mdv2,
+    escape_mdv2_code,
+    format_card,
+    format_srs_prompt,
+)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -317,12 +326,14 @@ async def _send_card_from_store(
     footer = f"📖 کارت {card_index + 1} از {len(cards)} برای {card_date}"
     if review_mode:
         footer = f"📚 مرور کارت {card_index + 1} از {len(cards)} برای {card_date}"
+    phon_lines = _phonetic_lines(card.get("phonetic", ""))
     await context.bot.send_message(
         chat_id=chat_id,
         text=format_card(
             card,
             footer=footer,
             presentation=_user_presentation(row),
+            phonetic_lines=phon_lines,
         ),
         parse_mode=ParseMode.MARKDOWN_V2,
         reply_markup=daily_card_keyboard(
@@ -335,20 +346,6 @@ async def _send_card_from_store(
         ),
     )
     return card, len(cards)
-
-
-def escape_mdv2(text: str) -> str:
-    """Escape کامل‌تر برای MarkdownV2"""
-    if not text:
-        return ""
-    special = r'_*[]()~`>#+-=|{}.!'
-    return re.sub(r'([' + re.escape(special) + r'])', r'\\\1', text)
-
-
-def escape_mdv2_code(text: str) -> str:
-    if not text:
-        return ""
-    return re.sub(r"([`\\])", r"\\\1", text)
 
 
 def is_owner(user_id: int) -> bool:
@@ -431,93 +428,6 @@ def _phonetic_lines(value: str | dict) -> list[str]:
             rendered.append(f"`{escape_mdv2_code(str(val))}`")
 
     return rendered
-
-
-def format_card(
-    data: dict,
-    footer: str = "",
-    *,
-    presentation: str = "detailed",
-    translations_prepared: bool = False,
-) -> str:
-    if presentation not in {"brief", "detailed"}:
-        raise ValueError("presentation must be 'brief' or 'detailed'")
-
-    word = escape_mdv2(data.get("word", ""))
-    fa_meaning = escape_mdv2(data.get("fa_meaning", ""))
-    fa_expl = escape_mdv2(data.get("fa_explanation", ""))
-
-    lines = [f"*{word}*"]
-
-    phon_lines = _phonetic_lines(data.get("phonetic", ""))
-    if phon_lines:
-        lines.extend(phon_lines)
-
-    lines.append(f"\n*{fa_meaning}* ✤")
-
-    if fa_expl:
-        lines.append(f"{fa_expl}")
-
-    if presentation == "brief":
-        if footer:
-            lines.append(f"\n{escape_mdv2(footer)}")
-        return "\n".join(lines)
-
-    syn_list = [escape_mdv2(s) for s in (data.get("synonyms") or [])]
-    ant_list = [escape_mdv2(s) for s in (data.get("antonyms") or [])]
-    syn = "، ".join(syn_list) or "—"
-    ant = "، ".join(ant_list) or "—"
-
-    examples = (data.get("examples") or [])[:2]
-    translations = (data.get("example_translations") or [])[:2]
-
-    grammar_tip = escape_mdv2(data.get("grammar_tip", ""))
-
-    lines.append(f"\n🟢 *مترادف:* {syn}")
-    lines.append(f"🔴 *متضاد:* {ant}")
-
-    if examples:
-        example_label = escape_mdv2("مثال‌ها + ترجمه" if translations_prepared else "مثال‌ها")
-        lines.append(f"\n📝 *{example_label}:*")
-        for index, example in enumerate(examples):
-            lines.append(f"✦ {escape_mdv2(example)}")
-            if translations_prepared and index < len(translations):
-                lines.append(f"||{escape_mdv2(translations[index])}||")
-
-    if grammar_tip:
-        lines.append(f"\n✍️ *نکته‌ی گرامری:*\n{grammar_tip}")
-
-    if footer:
-        lines.append(f"\n{escape_mdv2(footer)}")
-
-    return "\n".join(lines)
-
-
-SRS_HIDDEN_INSTRUCTION = (
-    "⏰ مرور فاصله‌دار: معنی، مثال و نکته را از حفظ به یاد بیاور. "
-    "اگر یادت بود «✅ یادم بود» را بزن؛ اگر شک داشتی، «👁 افشای کارت کامل» را بزن."
-)
-
-SRS_REVEAL_QUESTION = "🧠 آیا واقعاً درست به یادش آوردی، یا می‌خواهی باز هم یادآوری شود؟"
-
-
-def format_srs_prompt(data: dict) -> str:
-    """Render the first (hidden) SRS reminder screen.
-
-    Shows only the prompt word and phonetic so the learner can self-test before
-    revealing the meaning, examples, and grammar tip.
-    """
-    word = escape_mdv2(data.get("word", ""))
-    lines = [f"*{word}*"]
-    phon_lines = _phonetic_lines(data.get("phonetic", ""))
-    if phon_lines:
-        lines.extend(phon_lines)
-    lines.append(f"\n{escape_mdv2(SRS_HIDDEN_INSTRUCTION)}")
-    return "\n".join(lines)
-
-
-class CardPreparationError(RuntimeError):
-    pass
 
 
 def _prepare_cached_card(
@@ -994,12 +904,14 @@ async def _send_next_daily_card(
 
     db.touch_streak(user_id)
     log.info("daily card delivered user_id=%s date=%s index=%s", user_id, card_date, card_index)
+    phon_lines = _phonetic_lines(card.get("phonetic", ""))
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=format_card(
             card,
             footer=f"📖 کارت {card_index + 1} از {limit} امروز",
             presentation=_user_presentation(row),
+            phonetic_lines=phon_lines,
         ),
         parse_mode=ParseMode.MARKDOWN_V2,
         reply_markup=daily_card_keyboard(
@@ -1291,12 +1203,14 @@ async def _handle_srs_reveal(update: Update, context: ContextTypes.DEFAULT_TYPE,
             show_alert=True,
         )
         return
+    phon_lines = _phonetic_lines(card.get("phonetic", ""))
     try:
         await update.callback_query.edit_message_text(
             format_card(
                 card,
                 footer=SRS_REVEAL_QUESTION,
                 presentation=_user_presentation(user_row),
+                phonetic_lines=phon_lines,
             ),
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=srs_revealed_keyboard(user_id, word_id),
@@ -1398,6 +1312,7 @@ async def _handle_daily_prepare(
         callback_prefix="review:next" if review_mode else "daily:next",
         show_translations=False,
     )
+    phon_lines = _phonetic_lines(card.get("phonetic", ""))
     try:
         await update.callback_query.edit_message_text(
             format_card(
@@ -1405,6 +1320,7 @@ async def _handle_daily_prepare(
                 footer=footer,
                 presentation=_user_presentation(row),
                 translations_prepared=True,
+                phonetic_lines=phon_lines,
             ),
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=markup,
@@ -1471,6 +1387,7 @@ async def _handle_query_prepare(
         f"{_word_query_usage_text(user_row)}\n\n"
         "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
     )
+    phon_lines = _phonetic_lines(card.get("phonetic", ""))
     try:
         await update.callback_query.edit_message_text(
             format_card(
@@ -1478,6 +1395,7 @@ async def _handle_query_prepare(
                 footer=footer,
                 presentation=_user_presentation(user_row),
                 translations_prepared=True,
+                phonetic_lines=phon_lines,
             ),
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=query_result_keyboard(row["token"], row["lang"], show_translations=False),
@@ -1547,6 +1465,7 @@ async def _handle_srs_prepare(
         "⏰ مرور فاصله‌دار: اول معنی، مثال و نکته را از حفظ "
         "یادآوری کن؛ بعد نتیجه را با دکمه‌ها ثبت کن."
     )
+    phon_lines = _phonetic_lines(card.get("phonetic", ""))
     try:
         await update.callback_query.edit_message_text(
             format_card(
@@ -1554,6 +1473,7 @@ async def _handle_srs_prepare(
                 footer=footer,
                 presentation=_user_presentation(user_row),
                 translations_prepared=True,
+                phonetic_lines=phon_lines,
             ),
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=srs_review_keyboard(user_id, word_id, show_translations=False),
@@ -2133,6 +2053,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db.touch_streak(user_id)
             log.info("custom word query delivered user_id=%s lang=%s", user_id, row["target_lang"])
             await _finish_llm_wait_state(wait_message)
+            phon_lines = _phonetic_lines(data.get("phonetic", ""))
             await update.message.reply_text(
                 format_card(
                     data,
@@ -2141,6 +2062,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
                     ),
                     presentation=_user_presentation(row),
+                    phonetic_lines=phon_lines,
                 ),
                 parse_mode=ParseMode.MARKDOWN_V2,
                 reply_markup=query_result_keyboard(
@@ -2703,6 +2625,7 @@ async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str
                         )
                     ),
                 )
+                phon_lines = _phonetic_lines(card.get("phonetic", ""))
                 await _send_with_retry(
                     context.bot,
                     user_id,
@@ -2714,6 +2637,7 @@ async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str
                             f"{claimed['card_start_index'] + offset + 1} از {limit}"
                         ),
                         presentation=_user_presentation(row),
+                        phonetic_lines=phon_lines,
                     ),
                     parse_mode=ParseMode.MARKDOWN_V2,
                     reply_markup=daily_card_keyboard(
@@ -2829,10 +2753,11 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
                             patch,
                         ),
                     )
+                    phon_lines = _phonetic_lines(card.get("phonetic", ""))
                     await _send_with_retry(
                         context.bot,
                         user_id,
-                        format_srs_prompt(card),
+                        format_srs_prompt(card, phonetic_lines=phon_lines),
                         parse_mode=ParseMode.MARKDOWN_V2,
                         reply_markup=srs_hidden_keyboard(user_id, word_id),
                     )

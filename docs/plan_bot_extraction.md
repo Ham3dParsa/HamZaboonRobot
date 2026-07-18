@@ -1,12 +1,12 @@
 # Plan: Staged `bot.py` Module Extraction
 
-**Status:** Locked implementation plan; Stage 1 (`formatting.py`) may proceed  
-**Canonical references:** this file, issue #96  
-**Last updated:** 2026-07-18
+**Status:** Locked implementation plan; Stage 1 (`formatting.py`) completed; Stage 2 (`helpers.py`) requires contract lock
+**Canonical references:** this file, issue #96
+**Last updated:** 2026-07-18 (updated after Stage 1 implementation)
 
 ## Problem
 
-`bot.py` has grown to 2,905 lines spanning 14 responsibility areas: onboarding,
+`bot.py` has grown to 2,905 lines (currently ~2,829 post-Stage-1 extraction) spanning 14 responsibility areas: onboarding,
 daily card generation, scheduled delivery, custom-word queries, grammar tips,
 SRS reminders with staged self-test reveal, translation-prep callbacks, review
 history navigation, the LLM cost dashboard, admin controls, MarkdownV2 escaping,
@@ -60,19 +60,19 @@ formatting.py       helpers.py
 
 ## Stage 1 — `formatting.py`
 
-**Status:** Locked; qualifies for fast-track per AGENTS.md §2.4.1 (non-behavioral)
+**Status:** Completed (2026-07-18)
 
-### What moves
+### What moved
 
-| Function/Constant | Signature (after extraction) |
-|-------------------|------------------------------|
-| `escape_mdv2(text: str) -> str` | Unchanged |
-| `escape_mdv2_code(text: str) -> str` | Unchanged |
-| `format_card(data: dict, footer: str = "", *, presentation: str = "detailed", translations_prepared: bool = False, phonetic_lines: list[str] | None = None) -> str` | **Refactored**: accepts `phonetic_lines` parameter instead of calling `_phonetic_lines()` → `db.get_phonetic_display_settings()` |
-| `format_srs_prompt(data: dict) -> str` | Unchanged |
-| `CardPreparationError` | Exception class, unchanged |
-| `SRS_HIDDEN_INSTRUCTION` | String constant |
-| `SRS_REVEAL_QUESTION` | String constant |
+| Function/Constant | Signature (after extraction) | Notes |
+|-------------------|------------------------------|-------|
+| `escape_mdv2(text: str) -> str` | Unchanged | |
+| `escape_mdv2_code(text: str) -> str` | Unchanged | |
+| `format_card(data: dict, footer: str = "", *, presentation: str = "detailed", translations_prepared: bool = False, phonetic_lines: list[str] | None = None) -> str` | **Refactored**: accepts `phonetic_lines` parameter instead of calling `_phonetic_lines()` → `db.get_phonetic_display_settings()` | |
+| `format_srs_prompt(data: dict, *, phonetic_lines: list[str] | None = None) -> str` | **Refactored**: same pattern — accepts `phonetic_lines` parameter | Also refactored (original plan said "Unchanged", but it had the same `db` dependency) |
+| `CardPreparationError` | Exception class, unchanged | |
+| `SRS_HIDDEN_INSTRUCTION` | String constant | |
+| `SRS_REVEAL_QUESTION` | String constant | |
 
 ### Refactoring detail
 
@@ -122,6 +122,15 @@ Every call site (`_send_card_from_store`, `_send_next_daily_card`,
 1. Render `_phonetic_lines(data.get("phonetic", ""))` before calling `format_card`.
 2. Pass the result as `phonetic_lines=phon_lines`.
 3. Update the import from the local definition to `from formatting import format_card, format_srs_prompt, escape_mdv2, escape_mdv2_code, CardPreparationError`.
+
+### Stage 1 completion summary
+
+- `formatting.py`: 115 lines created with 7 exported symbols
+- `bot.py`: 2,905 → ~2,829 lines (removed ~120 lines of escaping/rendering)
+- 9 `format_card` call sites + 1 `format_srs_prompt` call site updated with `phonetic_lines` parameter
+- Tests updated: `test_custom_word_query.py`, `test_srs_staged_reveal.py`, `test_reliability.py`
+- Validation: 140/140 tests pass, `py_compile` clean, no whitespace errors
+- All imports satisfy the circularity guard: `formatting.py` imports only `re` (stdlib)
 
 ---
 
