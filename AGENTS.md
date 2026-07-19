@@ -128,6 +128,8 @@ focused tests or other concrete evidence.
 5. **SUMMARIZE** the locked contract in writing using the template below.
 6. **CONFIRM** owner says "proceed" or "locked" before touching code.
 
+> **Owner experience note:** The project owner is not a professional developer. When presenting rules, options, and trade-offs during this gate, the agent MUST explain each option in plain, non-jargon language. Define technical terms if they are unavoidable. State clearly what each option does in practice, what it costs (time, complexity, money if applicable), and why the recommended option is preferred. Do not assume familiarity with Python tooling, testing patterns, or deployment concepts.
+
 **VIOLATION CONSEQUENCE**: If the agent implements without a LOCKED gate, the owner may discard all uncommitted changes, require full rework from the gate, and/or terminate the session. No exceptions.
 
 **GATE KEYWORD**: The agent must include **`<SYSTEM_GATE> Contract lock required before proceeding </SYSTEM_GATE>`** in its response before any implementation.
@@ -189,6 +191,31 @@ Keep responsibilities aligned with the current module boundaries:
 
 Prefer extending an existing module and convention over introducing a new
 abstraction. Keep runtime behavior separate from issue-review tooling.
+
+### Module change guard
+
+If the module structure changes (add, rename, split, or remove), the agent
+MUST update the responsibilities table above AND the scan-target paths in
+`tests/test_wiring.py`.
+
+### Callback Routing Map
+
+This table maps Telegram callback prefixes to their handler modules and entry
+functions, so agents can quickly find the right file when tracing a callback
+or adding a new one.
+
+| Callback Prefix | Handler File | Key Functions |
+|----------------|--------------|---------------|
+| `lang:`, `goal:`, `level:` | `user.py` | `on_lang_selected`, `on_goal_selected`, `on_level_selected`, `on_lang_changed`, `on_goal_changed`, `on_level_changed` |
+| `presentation:set:` | `bot.py` | `callback_router` (inline) |
+| `daily:prepare:`, `daily:next:` | `bot.py` | `_handle_daily_prepare`, `_send_next_daily_card` |
+| `review:prepare:`, `review:menu`, `review:page:`, `review:date:`, `review:next:`, `review:noop` | `bot.py` | `_handle_daily_prepare`, `_show_review_menu`, `_show_review_date`, `_send_card_from_store` |
+| `query:prepare:`, `query:add:` | `bot.py` | `_handle_query_prepare`, `_handle_query_add` |
+| `tts:pronounce:` | `bot.py` | `_handle_tts_pronounce` |
+| `srs:prepare:`, `srs:reveal:`, `srs:` | `srs_handler.py` | `_handle_srs_prepare`, `_handle_srs_reveal`, `_handle_srs_review` |
+| `admin:` | `admin.py` | `_handle_admin_callback` |
+| `llm:` | `admin.py` | `_handle_llm_callback` |
+| `flow:` | `keyboards.py` (handled via `_handle_admin_callback`, `_exit_awaiting_flow`) | `_exit_awaiting_flow` |
 
 ### Catalog rule
 
@@ -336,9 +363,17 @@ Use the repository virtual environment when available:
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python -m py_compile \
-  config.py catalog.py scheduling.py db.py prompts.py ai.py keyboards.py \
-  bot.py
+.venv/bin/python -m py_compile $(git ls-files '*.py' | grep -v 'tests/')
+.venv/bin/python -m ruff check --select F821,F811
+python scripts/generate_dashboard.py
+git diff --check
+```
+
+Or on Windows PowerShell, use the equivalent:
+```powershell
+python -m unittest discover -s tests -v
+python scripts/compile_all.py
+python -m ruff check --select F821,F811
 python scripts/generate_dashboard.py
 git diff --check
 ```
@@ -379,6 +414,12 @@ d) If the agent is uncertain whether a test failure represents a regression or a
 3. Verify no secrets, credentials, tokens, API keys, or generated secrets in staged changes.
 4. Confirm single logical change per commit (Section 5 Steps 3–4).
 5. Verify branch naming convention: `type/short-desc` with type in `feat|fix|docs|refactor|test|chore`.
+6. While `tests/test_wiring.py` and `tests/test_formatting.py` are recommended locally, any CI failure in these tests triggers the Error Recovery Protocol — fix and re-push immediately.
+
+> **Phase 2 — F401 (unused imports):** When the codebase is ready for a stricter rule
+> budget, run `ruff check --fix --select F401` to auto-clean unused imports, review
+> the changes manually, then add `F401` to `ruff.toml`'s `select` list and update this
+> gate accordingly. Do not add F401 before the cleanup pass is done and reviewed.
 
 **VIOLATION CONSEQUENCE**: If the agent commits without passing the validation gate, the owner may discard the commit, require rework from a clean state, and/or terminate the session. No exceptions.
 
@@ -489,6 +530,7 @@ Before every implementation message, the agent MUST verify:
 - [ ] Section 2.3 (Contract-locking) compliance: decomposition, alternatives, independent choices
 - [ ] Step 0 of Section 5 satisfied (contract lock confirmed)
 - [ ] Owner inquiries for logical gaps/uncertainties made via `question` tool (multiple: true for decisions, custom: true for clarifications)
+- [ ] Options and trade-offs explained in plain language per §2.4 owner experience note (no jargon, define terms, state practical impact)
 
 Before every commit, the agent MUST verify:
 
