@@ -113,6 +113,18 @@ from llm_services import (
     _call_ai_limited,
     _ask_batch_limited,
     _prepare_cached_card,
+    _retry_primary_preset,
+)
+
+from admin import (
+    open_admin_panel,
+    _handle_admin_callback,
+    _handle_admin_text_input,
+    _handle_llm_callback,
+    cmd_backup,
+    cmd_restore,
+    handle_restore_doc,
+    auto_backup_job,
 )
 
 from user import (
@@ -1239,6 +1251,14 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
 
+async def primary_retry_job(context: ContextTypes.DEFAULT_TYPE):
+    """Periodically try to restore primary AI preset if fallback is active."""
+    try:
+        await asyncio.to_thread(_retry_primary_preset)
+    except Exception:
+        log.exception("Primary retry job failed")
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     log.exception("Unhandled exception while processing update", exc_info=context.error)
 
@@ -1283,6 +1303,11 @@ def main():
                 auto_backup_job,
                 interval=21600,  # 6 hours
                 first=21600,
+            )
+            app.job_queue.run_repeating(
+                primary_retry_job,
+                interval=1800,  # 30 minutes
+                first=1800,
             )
 
     log.info("The bot is starting...")

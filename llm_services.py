@@ -157,3 +157,30 @@ def _prepare_cached_card(card, *, lang, user_id, plan, source, persist_patch):
             raise CardPreparationError(
                 f"{source} card could not be repaired safely"
             ) from repair_error
+
+
+def _retry_primary_preset():
+    """Try primary preset connection and restore if it succeeds while fallback is active."""
+    if not db.get_bool_setting("ai_fallback_active", False):
+        return
+    primary_name = db.get_setting("ai_primary_preset", "gapgpt")
+    preset = db.get_preset(primary_name)
+    if not preset:
+        logger.warning("Primary preset %s not found for retry", primary_name)
+        return
+    api_key = ai_presets.resolve_api_key(preset)
+    if not api_key:
+        logger.warning("No API key for primary preset %s, skipping retry", primary_name)
+        return
+    result = ai.test_connection(
+        base_url=preset.get("base_url", ""),
+        api_key=api_key,
+        model=preset.get("model", ""),
+        timeout=preset.get("timeout_seconds", 30.0),
+    )
+    if result["success"]:
+        db.set_bool_setting("ai_fallback_active", False)
+        db.set_setting("ai_fallback_since", "")
+        logger.info("Primary preset %s restored via periodic retry", primary_name)
+    else:
+        logger.info("Primary preset %s retry failed: %s", primary_name, result.get("error_message", "unknown"))
