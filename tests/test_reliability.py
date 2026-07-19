@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import ai
 import admin
@@ -14,7 +14,7 @@ import db
 import formatting
 import helpers
 import llm_services
-from telegram.error import BadRequest
+from telegram.error import BadRequest, NetworkError, TimedOut
 
 
 class ReliabilityPersistenceTests(unittest.TestCase):
@@ -747,6 +747,87 @@ class CallbackAnswerTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(BadRequest):
             await helpers._answer_callback_safely(FakeQuery(), "done")
+
+
+class NetworkResilienceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_edit_with_retry_succeeds_on_third_attempt(self):
+        query = MagicMock()
+        query.edit_message_text = AsyncMock()
+        query.edit_message_text.side_effect = [
+            TimedOut("timeout"),
+            TimedOut("timeout"),
+            "success",
+        ]
+        result = await helpers._edit_with_retry(query, "hello")
+        self.assertEqual(result, "success")
+        self.assertEqual(query.edit_message_text.call_count, 3)
+
+    async def test_edit_with_retry_re_raises_bad_request(self):
+        query = MagicMock()
+        query.edit_message_text = AsyncMock(
+            side_effect=BadRequest("message is not modified")
+        )
+        with self.assertRaises(BadRequest):
+            await helpers._edit_with_retry(query, "hello")
+        self.assertEqual(query.edit_message_text.call_count, 1)
+
+    async def test_delete_with_retry_succeeds_on_retry(self):
+        bot_mock = MagicMock()
+        bot_mock.delete_message = AsyncMock()
+        bot_mock.delete_message.side_effect = [
+            TimedOut("timeout"),
+            TimedOut("timeout"),
+            True,
+        ]
+        result = await helpers._delete_with_retry(bot_mock, 123, 456)
+        self.assertTrue(result)
+        self.assertEqual(bot_mock.delete_message.call_count, 3)
+
+    async def test_delete_with_retry_re_raises_bad_request(self):
+        bot_mock = MagicMock()
+        bot_mock.delete_message = AsyncMock(
+            side_effect=BadRequest("message can't be deleted")
+        )
+        with self.assertRaises(BadRequest):
+            await helpers._delete_with_retry(bot_mock, 123, 456)
+        self.assertEqual(bot_mock.delete_message.call_count, 1)
+
+    async def test_telegram_offline_set_after_two_consecutive_failures(self):
+        bot._telegram_offline = False
+        bot._consecutive_health_failures = 0
+        context = MagicMock()
+        context.bot.get_me = AsyncMock()
+        context.bot.get_me.side_effect = [
+            TimedOut("timeout"),
+            TimedOut("timeout"),
+        ]
+        await bot.connection_health_job(context)
+        self.assertFalse(bot._telegram_offline)
+        self.assertEqual(bot._consecutive_health_failures, 1)
+        await bot.connection_health_job(context)
+        self.assertTrue(bot._telegram_offline)
+        self.assertEqual(bot._consecutive_health_failures, 2)
+
+    async def test_telegram_offline_not_set_on_single_failure(self):
+        bot._telegram_offline = False
+        bot._consecutive_health_failures = 0
+        context = MagicMock()
+        context.bot.get_me = AsyncMock()
+        context.bot.get_me.side_effect = [
+            TimedOut("timeout"),
+        ]
+        await bot.connection_health_job(context)
+        self.assertFalse(bot._telegram_offline)
+        self.assertEqual(bot._consecutive_health_failures, 1)
+
+    async def test_telegram_offline_resets_on_health_success(self):
+        bot._telegram_offline = True
+        bot._consecutive_health_failures = 5
+        context = MagicMock()
+        context.bot.get_me = AsyncMock(return_value=True)
+        await bot.connection_health_job(context)
+        self.assertFalse(bot._telegram_offline)
+        self.assertEqual(bot._consecutive_health_failures, 0)
 
 
 if __name__ == "__main__":

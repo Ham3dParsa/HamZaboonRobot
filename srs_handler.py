@@ -5,7 +5,7 @@ import logging
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
-from telegram.error import BadRequest
+from telegram.error import BadRequest, NetworkError, TimedOut
 
 import db
 from config import _user_presentation, _user_plan, PREMIUM_PLANS
@@ -15,7 +15,7 @@ from formatting import (
     format_card,
     _phonetic_lines,
 )
-from helpers import _answer_callback_safely, _message_has_prepared_translations
+from helpers import _answer_callback_safely, _edit_with_retry, _message_has_prepared_translations
 from keyboards import srs_revealed_keyboard, srs_review_keyboard
 from llm_services import _prepare_cached_card
 
@@ -158,7 +158,8 @@ async def _handle_srs_reveal(update: Update, context: ContextTypes.DEFAULT_TYPE,
     phon_lines = _phonetic_lines(card.get("phonetic", ""))
     try:
         is_premium = _user_plan(user_row) in PREMIUM_PLANS if user_row else False
-        await update.callback_query.edit_message_text(
+        await _edit_with_retry(
+            update.callback_query,
             format_card(
                 card,
                 footer=SRS_REVEAL_QUESTION,
@@ -232,7 +233,8 @@ async def _handle_srs_prepare(
     )
     phon_lines = _phonetic_lines(card.get("phonetic", ""))
     try:
-        await update.callback_query.edit_message_text(
+        await _edit_with_retry(
+            update.callback_query,
             format_card(
                 card,
                 footer=footer,

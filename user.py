@@ -45,11 +45,13 @@ from formatting import (
 from helpers import (
     _answer_callback_safely,
     _edit_or_send,
+    _edit_with_retry,
     _exit_awaiting_flow,
     _finish_llm_wait_state,
     _is_cancel_input,
     _message_has_prepared_translations,
     _normalize_custom_word_input,
+    _send_with_retry,
     _start_llm_wait_state,
     _CANCEL_INPUTS,
     _CUSTOM_WORD_MAX_CHARS,
@@ -123,16 +125,20 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     row = db.get_user(user.id)
 
     if row and row["onboarded"]:
-        await update.message.reply_text(
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
             "خوش برگشتی به هم‌زبان 👋",
-            reply_markup=main_menu(is_owner(user.id))
+            reply_markup=main_menu(is_owner(user.id)),
         )
         return
 
     welcome_text = "سلام! 👋 به *هم‌زبان* خوش اومدی.\nاول بگو داری چه زبونی یاد می‌گیری؟"
     welcome_text = escape_mdv2(welcome_text)
 
-    await update.message.reply_text(
+    await _send_with_retry(
+        context.bot,
+        update.effective_chat.id,
         welcome_text,
         parse_mode=ParseMode.MARKDOWN_V2,
         reply_markup=lang_inline_keyboard(),
@@ -189,32 +195,37 @@ async def on_level_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         text_to_send,
         parse_mode=ParseMode.MARKDOWN_V2,
     )
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=(
-            f"زبان: {lang_name} · هدف: {goal_name}\n"
-            "از منوی پایین استفاده کن:"
-        ),
+    await _send_with_retry(
+        context.bot,
+        user_id,
+        f"زبان: {lang_name} · هدف: {goal_name}\n"
+        "از منوی پایین استفاده کن:",
         reply_markup=main_menu(is_owner(user_id)),
     )
 
 
 async def change_lang_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+    await _send_with_retry(
+        context.bot,
+        update.effective_chat.id,
         "زبان جدید خود را انتخاب کنید:",
-        reply_markup=lang_inline_keyboard()
+        reply_markup=lang_inline_keyboard(),
     )
 
 
 async def change_goal_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+    await _send_with_retry(
+        context.bot,
+        update.effective_chat.id,
         "هدف جدید خود را انتخاب کنید:",
-        reply_markup=goal_inline_keyboard()
+        reply_markup=goal_inline_keyboard(),
     )
 
 
 async def change_level_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+    await _send_with_retry(
+        context.bot,
+        update.effective_chat.id,
         "سطح جدید خود را انتخاب کنید:",
         reply_markup=level_inline_keyboard(),
     )
@@ -224,16 +235,20 @@ async def change_presentation_start(update: Update, context: ContextTypes.DEFAUL
     user_id = update.effective_user.id
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
-        await update.message.reply_text("اول باید /start رو بزنی.")
+        await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
         return
     current = _user_presentation(row)
     if (row["plan"] or "free") not in PREMIUM_PLANS:
-        await update.message.reply_text(
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
             f"نمایش فعلی کارت‌ها: {'خلاصه' if current == 'brief' else 'کامل'}.\n"
-            "انتخاب دائمی نمایش کارت فقط برای کاربران پریمیوم فعال است."
+            "انتخاب دائمی نمایش کارت فقط برای کاربران پریمیوم فعال است.",
         )
         return
-    await update.message.reply_text(
+    await _send_with_retry(
+        context.bot,
+        update.effective_chat.id,
         f"نمایش فعلی کارت‌ها: {'خلاصه' if current == 'brief' else 'کامل'}.\n"
         "نمایش موردنظر را انتخاب کنید:",
         reply_markup=presentation_settings_keyboard(current),
@@ -254,10 +269,11 @@ async def on_lang_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, la
         text,
         parse_mode=ParseMode.MARKDOWN_V2
     )
-    await context.bot.send_message(
-        chat_id=user_id,
-        text="از منوی پایین استفاده کنید:",
-        reply_markup=main_menu(is_owner(user_id))
+    await _send_with_retry(
+        context.bot,
+        user_id,
+        "از منوی پایین استفاده کنید:",
+        reply_markup=main_menu(is_owner(user_id)),
     )
 
 
@@ -275,10 +291,11 @@ async def on_goal_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, go
         text,
         parse_mode=ParseMode.MARKDOWN_V2
     )
-    await context.bot.send_message(
-        chat_id=user_id,
-        text="از منوی پایین استفاده کنید:",
-        reply_markup=main_menu(is_owner(user_id))
+    await _send_with_retry(
+        context.bot,
+        user_id,
+        "از منوی پایین استفاده کنید:",
+        reply_markup=main_menu(is_owner(user_id)),
     )
 
 
@@ -294,9 +311,10 @@ async def on_level_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, l
         escape_mdv2(text),
         parse_mode=ParseMode.MARKDOWN_V2,
     )
-    await context.bot.send_message(
-        chat_id=user_id,
-        text="از منوی پایین استفاده کنید:",
+    await _send_with_retry(
+        context.bot,
+        user_id,
+        "از منوی پایین استفاده کنید:",
         reply_markup=main_menu(is_owner(user_id)),
     )
 
@@ -308,7 +326,7 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
-        await update.message.reply_text("اول باید /start رو بزنی.")
+        await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
         return
 
     limit = daily_word_query_limit_for_plan(row["plan"] or "free")
@@ -318,8 +336,10 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         limit,
         bypass_limits=OWNER_BYPASS_LIMITS and is_owner(user_id),
     ):
-        await update.message.reply_text(
-            f"{usage_before_text}\n\nسقف روزانه‌ی نکته‌ی گرامری تموم شده."
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            f"{usage_before_text}\n\nسقف روزانه‌ی نکته‌ی گرامری تموم شده.",
         )
         return
     usage_text = _grammar_tip_usage_text(db.get_user(user_id) or row)
@@ -350,8 +370,10 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             db.release_grammar_tip(user_id)
             logger.exception("AI error")
-            await update.message.reply_text(
-                "مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن."
+            await _send_with_retry(
+                context.bot,
+                update.effective_chat.id,
+                "مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.",
             )
             return
         title = escape_mdv2(data.get('title', ''))
@@ -370,12 +392,21 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
             data,
         )
         logger.info("grammar tip delivered user_id=%s lang=%s", user_id, row["target_lang"])
-        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            text,
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
     except Exception:
         logger.exception("Grammar tip delivery failed")
-        await update.message.reply_text("مشکلی در ارسال نکته‌ی گرامری پیش اومد.")
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            "مشکلی در ارسال نکته‌ی گرامری پیش اومد.",
+        )
     finally:
-        await _finish_llm_wait_state(wait_message)
+        await _finish_llm_wait_state(wait_message, bot=context.bot)
 
 
 async def ask_for_ask_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -389,12 +420,16 @@ async def ask_for_ask_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
         limit,
         bypass_limits=OWNER_BYPASS_LIMITS and is_owner(user_id),
     ):
-        await update.message.reply_text(
-            f"{usage_text}\n\nسقف روزانه‌ی پرسش واژه‌ی پلن شما تموم شده."
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            f"{usage_text}\n\nسقف روزانه‌ی پرسش واژه‌ی پلن شما تموم شده.",
         )
         return
     context.user_data["awaiting"] = "ask_word"
-    await update.message.reply_text(
+    await _send_with_retry(
+        context.bot,
+        update.effective_chat.id,
         f"{usage_text}\n\nچه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟",
         reply_markup=awaiting_reply_keyboard(),
     )
@@ -404,7 +439,7 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
-        await update.message.reply_text("اول باید /start رو بزنی.")
+        await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
         return
     due = db.due_words_for_user(user_id)
     text = (
@@ -415,7 +450,7 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔥 استریک: {row['streak'] or 0} روز\n"
         f"⏰ واژه‌های آماده‌ی مرور: {len(due)}"
     )
-    await update.message.reply_text(text)
+    await _send_with_retry(context.bot, update.effective_chat.id, text)
 
 
 # ---------------- Callback handlers ----------------
@@ -535,7 +570,8 @@ async def _handle_daily_prepare(
     )
     phon_lines = _phonetic_lines(card.get("phonetic", ""))
     try:
-        await update.callback_query.edit_message_text(
+        await _edit_with_retry(
+            update.callback_query,
             format_card(
                 card,
                 footer=footer,
@@ -610,7 +646,8 @@ async def _handle_query_prepare(
     )
     phon_lines = _phonetic_lines(card.get("phonetic", ""))
     try:
-        await update.callback_query.edit_message_text(
+        await _edit_with_retry(
+            update.callback_query,
             format_card(
                 card,
                 footer=footer,

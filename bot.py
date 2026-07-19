@@ -100,11 +100,14 @@ from formatting import (
 
 from helpers import (
     _answer_callback_safely,
+    _delete_with_retry,
+    _edit_with_retry,
     _exit_awaiting_flow,
     _finish_llm_wait_state,
     _is_cancel_input,
     _normalize_custom_word_input,
     _send_with_retry,
+    _send_voice_with_retry,
     _start_llm_wait_state,
     _telegram_slots,
     _CANCEL_INPUTS,
@@ -171,6 +174,10 @@ log = logging.getLogger("hamzaban")
 _app_timezone = ZoneInfo(APP_TIMEZONE)
 _daily_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 _MANUAL_DAILY_BATCH_SIZE = 6
+_telegram_offline: bool = False
+_consecutive_health_failures: int = 0
+_OFFLINE_THRESHOLD: int = 2
+_OFFLINE_MESSAGE = "⚠️ اتصال ربات به اینترنت قطع شده. به محض وصل شدن، دوباره تلاش کن."
 
 
 async def _send_card_from_store(
@@ -208,9 +215,10 @@ async def _send_card_from_store(
     if review_mode:
         footer = f"📚 مرور کارت {card_index + 1} از {len(cards)} برای {card_date}"
     phon_lines = _phonetic_lines(card.get("phonetic", ""))
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=format_card(
+    await _send_with_retry(
+        context.bot,
+        chat_id,
+        format_card(
             card,
             footer=footer,
             presentation=_user_presentation(row),
@@ -448,9 +456,10 @@ async def _send_next_daily_card(
             db.set_daily_progress(user_id, card_date, card_index + 1)
 
     if card is None:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f"✅ سهمیه‌ی امروزت ({limit} کارت) کامل شده است.",
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            f"✅ سهمیه‌ی امروزت ({limit} کارت) کامل شده است.",
             reply_markup=daily_review_menu_keyboard(),
         )
         return
@@ -458,9 +467,10 @@ async def _send_next_daily_card(
     db.touch_streak(user_id)
     log.info("daily card delivered user_id=%s date=%s index=%s", user_id, card_date, card_index)
     phon_lines = _phonetic_lines(card.get("phonetic", ""))
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=format_card(
+    await _send_with_retry(
+        context.bot,
+        update.effective_chat.id,
+        format_card(
             card,
             footer=f"📖 کارت {card_index + 1} از {limit} امروز",
             presentation=_user_presentation(row),
@@ -482,7 +492,7 @@ async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
-        await update.message.reply_text("اول باید /start رو بزنی.")
+        await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
         return
 
     today = _app_today()
@@ -502,9 +512,9 @@ async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE
         await _send_next_daily_card(update, context, row, today, limit)
     except Exception:
         log.exception("Daily card generation failed")
-        await update.message.reply_text("مشکلی در ساخت کارت‌های امروز پیش اومد.")
+        await _send_with_retry(context.bot, update.effective_chat.id, "مشکلی در ساخت کارت‌های امروز پیش اومد.")
     finally:
-        await _finish_llm_wait_state(wait_message)
+        await _finish_llm_wait_state(wait_message, bot=context.bot)
 
 
 
@@ -544,6 +554,16 @@ async def _show_review_date(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 # ---------------- روتر پیام‌های متنی (منو + حالت‌های در انتظار ورودی) ----------------
 
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if _telegram_offline:
+        try:
+            await _send_with_retry(
+                context.bot,
+                update.effective_chat.id,
+                _OFFLINE_MESSAGE,
+            )
+        except Exception:
+            log.debug("offline notification send failed (expected)")
+        return
     user_id = update.effective_user.id
     text = update.message.text.strip()
     awaiting = context.user_data.get("awaiting")
@@ -719,6 +739,21 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------- روتر callback query ها ----------------
 
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if _telegram_offline:
+        await _answer_callback_safely(
+            update.callback_query,
+            "ربات به اینترنت دسترسی ندارد.",
+            show_alert=True,
+        )
+        try:
+            await _send_with_retry(
+                context.bot,
+                update.effective_chat.id,
+                _OFFLINE_MESSAGE,
+            )
+        except Exception:
+            log.debug("offline notification send failed (expected)")
+        return
     data = update.callback_query.data
     if not data.startswith(
         (
@@ -759,7 +794,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         db.set_presentation_preference(user_id, preference)
         label = "خلاصه" if preference == "brief" else "کامل"
-        await update.callback_query.edit_message_text(
+        await _edit_with_retry(
+            update.callback_query,
             f"نمایش کارت‌ها روی «{label}» تنظیم شد.",
             reply_markup=presentation_settings_keyboard(preference),
         )
@@ -841,9 +877,10 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _send_next_daily_card(update, context, row, today, limit)
         except Exception:
             log.exception("Next daily card generation failed")
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="مشکلی در ساخت کارت بعدی پیش اومد.",
+            await _send_with_retry(
+                context.bot,
+                update.effective_chat.id,
+                "مشکلی در ساخت کارت بعدی پیش اومد.",
             )
     elif data == "review:menu":
         await _show_review_menu(update, context)
@@ -896,9 +933,10 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 review_mode=True,
             )
         except CardPreparationError:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="این کارت فعلاً با اطمینان آماده نشد؛ لطفاً بعداً دوباره امتحان کنید.",
+            await _send_with_retry(
+                context.bot,
+                update.effective_chat.id,
+                "این کارت فعلاً با اطمینان آماده نشد؛ لطفاً بعداً دوباره امتحان کنید.",
             )
     elif data == "review:noop":
         await update.callback_query.answer("هنوز کارتی برای مرور ندارید.", show_alert=True)
@@ -1102,15 +1140,37 @@ async def delivery_dispatch_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def connection_health_job(context: ContextTypes.DEFAULT_TYPE):
+    global _telegram_offline, _consecutive_health_failures
     try:
         async with _telegram_slots:
             await context.bot.get_me()
     except (RetryAfter, TimedOut, NetworkError) as exc:
-        log.warning("Telegram connection check failed: %s", exc)
+        _consecutive_health_failures += 1
+        if _consecutive_health_failures >= _OFFLINE_THRESHOLD:
+            was_offline = _telegram_offline
+            _telegram_offline = True
+            if not was_offline:
+                log.warning(
+                    "Telegram marked offline after %s consecutive failures",
+                    _consecutive_health_failures,
+                )
+        log.warning(
+            "Telegram connection check failed (%s/%s): %s",
+            _consecutive_health_failures,
+            _OFFLINE_THRESHOLD,
+            exc,
+        )
     except Exception:
+        _consecutive_health_failures += 1
         log.exception("Telegram connection check failed unexpectedly")
     else:
-        log.info("Telegram connection healthy")
+        was_offline = _telegram_offline
+        _telegram_offline = False
+        _consecutive_health_failures = 0
+        if was_offline:
+            log.info("Telegram connection restored")
+        else:
+            log.info("Telegram connection healthy")
 
 
 async def srs_job(context: ContextTypes.DEFAULT_TYPE):
@@ -1268,15 +1328,18 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         path = await tts.pronounce(word, lang)
         voice_bytes = await asyncio.to_thread(path.read_bytes)
-        await context.bot.send_voice(
-            chat_id=update.effective_chat.id,
-            voice=voice_bytes,
+        await _send_voice_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            voice_bytes,
+            reply_to_message_id=update.callback_query.message.message_id,
         )
     except Exception:
         log.exception("TTS pronunciation failed")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="متأسفانه تولید تلفظ با خطا مواجه شد.",
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            "متأسفانه تولید تلفظ با خطا مواجه شد. لطفاً کمی بعد دوباره تلاش کنید.",
         )
 
 
