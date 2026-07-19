@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 from telegram.error import BadRequest
 
 import db
-from config import _user_presentation
+from config import _user_presentation, _user_plan, PREMIUM_PLANS
 from formatting import (
     CardPreparationError,
     SRS_REVEAL_QUESTION,
@@ -157,6 +157,7 @@ async def _handle_srs_reveal(update: Update, context: ContextTypes.DEFAULT_TYPE,
         return
     phon_lines = _phonetic_lines(card.get("phonetic", ""))
     try:
+        is_premium = _user_plan(user_row) in PREMIUM_PLANS if user_row else False
         await update.callback_query.edit_message_text(
             format_card(
                 card,
@@ -165,7 +166,7 @@ async def _handle_srs_reveal(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 phonetic_lines=phon_lines,
             ),
             parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=srs_revealed_keyboard(user_id, word_id),
+            reply_markup=srs_revealed_keyboard(user_id, word_id, show_pronounce=is_premium),
         )
     except BadRequest as exc:
         if "not modified" in str(exc).casefold():
@@ -240,7 +241,11 @@ async def _handle_srs_prepare(
                 phonetic_lines=phon_lines,
             ),
             parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=srs_review_keyboard(user_id, word_id, show_translations=False),
+            reply_markup=srs_review_keyboard(
+                user_id, word_id,
+                show_translations=False,
+                show_pronounce=_user_plan(user_row) in PREMIUM_PLANS if user_row else False,
+            ),
         )
     except BadRequest as exc:
         if "not modified" in str(exc).casefold():

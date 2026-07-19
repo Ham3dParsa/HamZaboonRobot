@@ -343,6 +343,9 @@ Completed on the current main branch:
   bounded avoid-lists to reduce repetition without replacing AI generation.
 - AI output length and temperature are configurable and token usage is logged
   for each request.
+- TTS pronunciation via Edge TTS (free): on-demand 🔊 تلفظ button on all card
+  types, premium-only (Silver/Gold), filesystem caching, send_voice() output.
+  New tts.py module with no provider abstraction layer.
 - Card and daily-batch provider responses support an internal `compact_json`
   wire format with a rollback-only `json` mode; this serialization choice is
   deliberately independent from learner-facing card detail.

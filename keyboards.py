@@ -85,8 +85,9 @@ def daily_card_keyboard(
     callback_prefix: str = "daily:next",
     *,
     show_translations: bool = False,
+    show_pronounce: bool = False,
 ) -> InlineKeyboardMarkup | None:
-    if not has_next and not show_translations:
+    if not has_next and not show_translations and not show_pronounce:
         return None
     translation_prefix = "review:prepare" if callback_prefix.startswith("review:") else "daily:prepare"
     buttons = []
@@ -104,9 +105,15 @@ def daily_card_keyboard(
                 callback_data=f"{callback_prefix}:{user_id}:{card_date}:{card_index}",
             )
         )
-    return InlineKeyboardMarkup(
-        [buttons]
-    )
+    rows = [buttons] if buttons else []
+    if show_pronounce:
+        rows.append([
+            InlineKeyboardButton(
+                "🔊 تلفظ",
+                callback_data=f"tts:pronounce:d:{user_id}:{card_date}:{card_index}",
+            )
+        ])
+    return InlineKeyboardMarkup(rows)
 
 
 def daily_review_menu_keyboard() -> InlineKeyboardMarkup:
@@ -147,6 +154,7 @@ def query_result_keyboard(
     lang: str | None = None,
     *,
     show_translations: bool = False,
+    show_pronounce: bool = False,
 ) -> InlineKeyboardMarkup:
     label = "➕ افزودن به مرور"
     if lang:
@@ -164,53 +172,79 @@ def query_result_keyboard(
                 callback_data=f"query:prepare:{token}",
             )
         )
-    return InlineKeyboardMarkup(
-        [buttons]
-    )
+    rows = [buttons]
+    if show_pronounce:
+        rows.append([
+            InlineKeyboardButton(
+                "🔊 تلفظ",
+                callback_data=f"tts:pronounce:q:{token}",
+            )
+        ])
+    return InlineKeyboardMarkup(rows)
 
 
-def srs_hidden_keyboard(user_id: int, word_id: int) -> InlineKeyboardMarkup:
+def srs_hidden_keyboard(
+    user_id: int,
+    word_id: int,
+    *,
+    show_pronounce: bool = False,
+) -> InlineKeyboardMarkup:
     """Keyboard for the first (hidden) SRS reminder screen.
 
     Offers a pure-recall action and a reveal action. Recalling without revealing
     is a strong signal; revealing marks the review as "peeked" before the
     follow-up confirmation.
     """
-    return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    "✅ یادم بود",
-                    callback_data=f"srs:remember:{user_id}:{word_id}",
-                ),
-                InlineKeyboardButton(
-                    "👁 افشای کارت کامل",
-                    callback_data=f"srs:reveal:{user_id}:{word_id}",
-                ),
-            ]
-        ]
-    )
+    rows = []
+    if show_pronounce:
+        rows.append([
+            InlineKeyboardButton(
+                "🔊 تلفظ",
+                callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
+            )
+        ])
+    rows.append([
+        InlineKeyboardButton(
+            "✅ یادم بود",
+            callback_data=f"srs:remember:{user_id}:{word_id}",
+        ),
+        InlineKeyboardButton(
+            "👁 افشای کارت کامل",
+            callback_data=f"srs:reveal:{user_id}:{word_id}",
+        ),
+    ])
+    return InlineKeyboardMarkup(rows)
 
 
-def srs_revealed_keyboard(user_id: int, word_id: int) -> InlineKeyboardMarkup:
+def srs_revealed_keyboard(
+    user_id: int,
+    word_id: int,
+    *,
+    show_pronounce: bool = False,
+) -> InlineKeyboardMarkup:
     """Keyboard shown after the learner reveals the full card.
 
     Re-asks whether they truly recalled it before seeing the answer.
     """
-    return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    "✅ بله، درست بود",
-                    callback_data=f"srs:confirm:{user_id}:{word_id}",
-                ),
-                InlineKeyboardButton(
-                    "🔁 نه، باز هم یادآوری کن",
-                    callback_data=f"srs:again:{user_id}:{word_id}",
-                ),
-            ]
-        ]
-    )
+    rows = []
+    if show_pronounce:
+        rows.append([
+            InlineKeyboardButton(
+                "🔊 تلفظ",
+                callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
+            )
+        ])
+    rows.append([
+        InlineKeyboardButton(
+            "✅ بله، درست بود",
+            callback_data=f"srs:confirm:{user_id}:{word_id}",
+        ),
+        InlineKeyboardButton(
+            "🔁 نه، باز هم یادآوری کن",
+            callback_data=f"srs:again:{user_id}:{word_id}",
+        ),
+    ])
+    return InlineKeyboardMarkup(rows)
 
 
 def srs_review_keyboard(
@@ -218,6 +252,7 @@ def srs_review_keyboard(
     word_id: int,
     *,
     show_translations: bool = False,
+    show_pronounce: bool = False,
 ) -> InlineKeyboardMarkup:
     review_buttons = [
         InlineKeyboardButton(
@@ -239,10 +274,15 @@ def srs_review_keyboard(
                 )
             ]
         )
+    if show_pronounce:
+        rows.append([
+            InlineKeyboardButton(
+                "🔊 تلفظ",
+                callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
+            )
+        ])
     rows.append(review_buttons)
-    return InlineKeyboardMarkup(
-        rows
-    )
+    return InlineKeyboardMarkup(rows)
 
 
 def awaiting_reply_keyboard() -> ReplyKeyboardMarkup:

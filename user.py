@@ -523,6 +523,7 @@ async def _handle_daily_prepare(
     footer = f"📖 کارت {card_index + 1} از {len(cards)} برای {card_date}"
     if review_mode:
         footer = f"📚 مرور کارت {card_index + 1} از {len(cards)} برای {card_date}"
+    is_premium = _user_plan(row) in PREMIUM_PLANS
     markup = daily_card_keyboard(
         user_id,
         card_date,
@@ -530,6 +531,7 @@ async def _handle_daily_prepare(
         card_index + 1 < len(cards),
         callback_prefix="review:next" if review_mode else "daily:next",
         show_translations=False,
+        show_pronounce=is_premium,
     )
     phon_lines = _phonetic_lines(card.get("phonetic", ""))
     try:
@@ -617,7 +619,11 @@ async def _handle_query_prepare(
                 phonetic_lines=phon_lines,
             ),
             parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=query_result_keyboard(row["token"], row["lang"], show_translations=False),
+            reply_markup=query_result_keyboard(
+                row["token"], row["lang"],
+                show_translations=False,
+                show_pronounce=_user_plan(user_row) in PREMIUM_PLANS,
+            ),
         )
     except BadRequest as exc:
         if "not modified" in str(exc).casefold():

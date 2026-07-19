@@ -364,6 +364,15 @@
       "phase": "phase-6",
       "roadmap_ref": "phase-6-reliable-delivery-concurrency-and-data-lifecycle",
       "summary": "Completed 5-stage extraction: Stage 1 (formatting.py, 2026-07-18), Stage 2 (helpers.py, 2026-07-18), Stage 3 (user.py + llm_services.py, 2026-07-19), Stage 4 (srs_handler.py, 2026-07-19), Stage 5 (admin.py, 2026-07-19). Each stage independently verified with full test suite."
+    },
+    {
+      "id": "decision-tts-pronunciation",
+      "status": "locked",
+      "title": "TTS pronunciation via Edge TTS, premium-gated",
+      "phase": "phase-8",
+      "roadmap_ref": "tts-pronunciation",
+      "issue_ids": [125],
+      "summary": "Edge TTS (free) integrated for vocabulary card pronunciation. Premium-only (Silver/Gold), on-demand button (🔊 تلفظ), filesystem caching, send_voice(). tts.py module with no provider abstraction."
     }
   ]
 }

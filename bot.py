@@ -48,6 +48,7 @@ from config import (
 import db
 import ai
 import prompts
+import tts
 from catalog import (
     GOALS,
     LANGUAGES,
@@ -71,6 +72,8 @@ from keyboards import (
     daily_review_menu_keyboard,
     query_result_keyboard,
     srs_hidden_keyboard,
+    srs_revealed_keyboard,
+    srs_review_keyboard,
     daily_card_keyboard,
     BTN_TODAY_CARD,
     BTN_ASK_WORD,
@@ -112,14 +115,6 @@ from llm_services import (
     _prepare_cached_card,
 )
 
-# Import admin handlers
-from admin import (
-    open_admin_panel,
-    _handle_admin_callback,
-    _handle_admin_text_input,
-    _handle_llm_callback,
-)
-
 from user import (
     cmd_start,
     on_lang_selected,
@@ -149,13 +144,6 @@ from srs_handler import (
     _handle_srs_reveal,
     _handle_srs_prepare,
     _saved_word_card,
-)
-
-from admin import (
-    _handle_admin_callback,
-    _handle_admin_text_input,
-    _handle_llm_callback,
-    open_admin_panel,
 )
 
 logging.basicConfig(
@@ -221,6 +209,7 @@ async def _send_card_from_store(
             card_index + 1 < len(cards),
             callback_prefix="review:next" if review_mode else "daily:next",
             show_translations=True,
+            show_pronounce=_user_plan(row) in PREMIUM_PLANS,
         ),
     )
     return card, len(cards)
@@ -469,6 +458,7 @@ async def _send_next_daily_card(
             card_index,
             card_index + 1 < limit,
             show_translations=True,
+            show_pronounce=_user_plan(row) in PREMIUM_PLANS,
         ),
     )
 
@@ -649,6 +639,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     query_token,
                     row["target_lang"] if row else "en",
                     show_translations=True,
+                    show_pronounce=_user_plan(row) in PREMIUM_PLANS,
                 ),
             )
             await update.message.reply_text(
@@ -697,6 +688,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "presentation:",
             "flow:",
             "srs:",
+            "tts:pronounce:",
         )
     ):
         await update.callback_query.answer()
@@ -895,6 +887,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
             return
         await _handle_srs_review(update, parts[1], parts[2], parts[3])
+    elif data.startswith("tts:pronounce:"):
+        await _handle_tts_pronounce(update, context, data.split(":", 2)[2])
     elif data.startswith("admin:"):
         await _handle_admin_callback(update, context, data.split(":", 1)[1])
 
@@ -996,6 +990,7 @@ async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str
                         claimed["card_start_index"] + offset,
                         False,
                         show_translations=True,
+                        show_pronounce=_user_plan(row) in PREMIUM_PLANS,
                     ),
                 )
                 db.advance_delivery_progress(claimed["id"], offset + 1)
@@ -1104,12 +1099,13 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
                         ),
                     )
                     phon_lines = _phonetic_lines(card.get("phonetic", ""))
+                    show_pronounce = (row["plan"] or "free") in PREMIUM_PLANS
                     await _send_with_retry(
                         context.bot,
                         user_id,
                         format_srs_prompt(card, phonetic_lines=phon_lines),
                         parse_mode=ParseMode.MARKDOWN_V2,
-                        reply_markup=srs_hidden_keyboard(user_id, word_id),
+                        reply_markup=srs_hidden_keyboard(user_id, word_id, show_pronounce=show_pronounce),
                     )
                     if not db.mark_word_review_pending(word_id):
                         db.release_srs_claim(word_id)
@@ -1133,6 +1129,114 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
             log.exception("SRS card preparation failed for user %s", user_id)
         except Exception:
             log.exception(f"srs_job failed for user {user_id}")
+
+
+async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
+    parts = data.split(":")
+    if len(parts) < 3:
+        await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
+        return
+
+    source = parts[1]
+    user_id = update.effective_user.id
+    row = db.get_user(user_id)
+    if not row or not row["onboarded"]:
+        await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
+        return
+
+    if _user_plan(row) not in PREMIUM_PLANS:
+        await update.callback_query.answer("این قابلیت فقط برای کاربران نقره‌ای و طلایی فعال است.", show_alert=True)
+        return
+
+    word = None
+    lang = None
+
+    if source == "d":
+        if len(parts) != 5:
+            await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
+            return
+        try:
+            target_user_id = int(parts[2])
+            card_date = parts[3]
+            card_index = int(parts[4])
+        except ValueError:
+            await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
+            return
+        if user_id != target_user_id:
+            await update.callback_query.answer("این کارت برای کاربر دیگری است.", show_alert=True)
+            return
+        cards = db.get_daily_cards(user_id, card_date)
+        if card_index < 0 or card_index >= len(cards):
+            await update.callback_query.answer("کارت پیدا نشد.", show_alert=True)
+            return
+        card_data = cards[card_index]
+        if isinstance(card_data, dict):
+            word = card_data.get("word", "")
+        elif isinstance(card_data, str):
+            try:
+                import json
+                card_data = json.loads(card_data)
+                word = card_data.get("word", "")
+            except (json.JSONDecodeError, TypeError):
+                pass
+        session = db.get_daily_card_session(user_id, card_date)
+        lang = session["target_lang"] if session else row["target_lang"]
+
+    elif source == "q":
+        if len(parts) != 3:
+            await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
+            return
+        token = parts[2]
+        qr = db.get_query_result(token, user_id=user_id)
+        if not qr:
+            await update.callback_query.answer("این نتیجه منقضی شده است.", show_alert=True)
+            return
+        word = qr["word"]
+        lang = qr["lang"]
+
+    elif source == "s":
+        if len(parts) != 4:
+            await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
+            return
+        try:
+            target_user_id = int(parts[2])
+            word_id = int(parts[3])
+        except ValueError:
+            await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
+            return
+        if user_id != target_user_id:
+            await update.callback_query.answer("این مرور برای کاربر دیگری است.", show_alert=True)
+            return
+        sw = db.get_saved_word(word_id, user_id=user_id)
+        if not sw:
+            await update.callback_query.answer("واژه در مرور شما پیدا نشد.", show_alert=True)
+            return
+        word = sw["word"]
+        lang = sw["lang"]
+
+    else:
+        await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
+        return
+
+    if not word or not lang:
+        await update.callback_query.answer("واژه یا زبان نامعتبر است.", show_alert=True)
+        return
+
+    await update.callback_query.answer("🎧 در حال آماده‌سازی تلفظ…")
+
+    try:
+        path = await tts.pronounce(word, lang)
+        voice_bytes = await asyncio.to_thread(path.read_bytes)
+        await context.bot.send_voice(
+            chat_id=update.effective_chat.id,
+            voice=voice_bytes,
+        )
+    except Exception:
+        log.exception("TTS pronunciation failed")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="متأسفانه تولید تلفظ با خطا مواجه شد.",
+        )
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
