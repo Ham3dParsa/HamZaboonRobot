@@ -33,6 +33,7 @@ from keyboards import (
     ai_fallback_keyboard,
     ai_custom_test_wizard_keyboard,
     ai_pending_keyboard,
+    admin_cost_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -72,12 +73,20 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             _llm_pricing_text(),
             reply_markup=llm_cost_pricing_keyboard(),
         )
-    elif action == "set_plan":
-        context.user_data["awaiting"] = "admin_set_plan"
+    elif action == "cost_dashboard":
         await _edit_or_send(
             update,
             context,
-            "فرمت را ارسال کنید:\n`user_id_or_username plan`\n\n"
+            "💰 مدیریت هزینه‌های LLM:",
+            reply_markup=admin_cost_keyboard(),
+        )
+        await update.callback_query.answer()
+    elif action == "set_plan":
+        context.user_data["awaiting"] = "admin_set_plan"
+        await update.callback_query.answer()
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="فرمت را ارسال کنید:\n`user_id_or_username plan`\n\n"
             "مثال: `123456789 silver` یا `@username gold`\n"
             "پلن‌ها: free، silver، gold",
             parse_mode=ParseMode.MARKDOWN_V2,
@@ -138,10 +147,10 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         )
     elif action == "broadcast":
         context.user_data["awaiting"] = "admin_broadcast"
-        await _edit_or_send(
-            update,
-            context,
-            "متن پیام همگانی رو بفرست:",
+        await update.callback_query.answer()
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="متن پیام همگانی رو بفرست:",
             reply_markup=awaiting_inline_keyboard(),
         )
     elif action == "show_settings":

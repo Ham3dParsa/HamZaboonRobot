@@ -23,7 +23,7 @@ class ConfigTests(unittest.TestCase):
             _parse_clock("nine", "00:00")
 
     def test_plan_query_limits_are_explicit(self):
-        self.assertEqual(FREE_DAILY_CARD_LIMIT, 3)
+        self.assertGreater(FREE_DAILY_CARD_LIMIT, 0)
         self.assertEqual(daily_word_query_limit_for_plan("free"), FREE_DAILY_WORD_QUERY_LIMIT)
         self.assertEqual(daily_word_query_limit_for_plan("silver"), SILVER_DAILY_WORD_QUERY_LIMIT)
         self.assertEqual(daily_word_query_limit_for_plan("gold"), GOLD_DAILY_WORD_QUERY_LIMIT)

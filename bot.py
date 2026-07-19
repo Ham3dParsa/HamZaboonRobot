@@ -80,6 +80,9 @@ from keyboards import (
     BTN_STATUS,
     BTN_GRAMMAR,
     BTN_ADMIN,
+    BTN_ADMIN_STATS,
+    BTN_ADMIN_BROADCAST,
+    BTN_ADMIN_SET_PLAN,
     BTN_CHANGE_LANG,
     BTN_CHANGE_GOAL,
     BTN_CHANGE_LEVEL,
@@ -673,6 +676,32 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await ask_for_ask_word(update, context)
     elif text == BTN_STATUS:
         await show_status(update, context)
+    elif text == BTN_ADMIN_STATS:
+        user_id = update.effective_user.id
+        if not is_owner(user_id):
+            return
+        await update.message.reply_text(f"👥 تعداد کل کاربران: {db.count_users()}")
+    elif text == BTN_ADMIN_SET_PLAN:
+        user_id = update.effective_user.id
+        if not is_owner(user_id):
+            return
+        context.user_data["awaiting"] = "admin_set_plan"
+        await update.message.reply_text(
+            "فرمت را ارسال کنید:\n`user_id_or_username plan`\n\n"
+            "مثال: `123456789 silver` یا `@username gold`\n"
+            "پلن‌ها: free، silver، gold",
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=awaiting_inline_keyboard(),
+        )
+    elif text == BTN_ADMIN_BROADCAST:
+        user_id = update.effective_user.id
+        if not is_owner(user_id):
+            return
+        context.user_data["awaiting"] = "admin_broadcast"
+        await update.message.reply_text(
+            "متن پیام همگانی رو بفرست:",
+            reply_markup=awaiting_inline_keyboard(),
+        )
     elif text == BTN_ADMIN:
         await open_admin_panel(update, context)
     elif text == BTN_CHANGE_LANG:
@@ -1145,11 +1174,11 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
 
 async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
     parts = data.split(":")
-    if len(parts) < 3:
+    if len(parts) < 2:
         await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
         return
 
-    source = parts[1]
+    source = parts[0]
     user_id = update.effective_user.id
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
@@ -1164,13 +1193,13 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
     lang = None
 
     if source == "d":
-        if len(parts) != 5:
+        if len(parts) != 4:
             await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
             return
         try:
-            target_user_id = int(parts[2])
-            card_date = parts[3]
-            card_index = int(parts[4])
+            target_user_id = int(parts[1])
+            card_date = parts[2]
+            card_index = int(parts[3])
         except ValueError:
             await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
             return
@@ -1195,10 +1224,10 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
         lang = session["target_lang"] if session else row["target_lang"]
 
     elif source == "q":
-        if len(parts) != 3:
+        if len(parts) != 2:
             await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
             return
-        token = parts[2]
+        token = parts[1]
         qr = db.get_query_result(token, user_id=user_id)
         if not qr:
             await update.callback_query.answer("این نتیجه منقضی شده است.", show_alert=True)
@@ -1207,12 +1236,12 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
         lang = qr["lang"]
 
     elif source == "s":
-        if len(parts) != 4:
+        if len(parts) != 3:
             await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
             return
         try:
-            target_user_id = int(parts[2])
-            word_id = int(parts[3])
+            target_user_id = int(parts[1])
+            word_id = int(parts[2])
         except ValueError:
             await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
             return
