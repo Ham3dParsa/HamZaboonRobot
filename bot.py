@@ -80,9 +80,6 @@ from config.keyboards import (
     BTN_STATUS,
     BTN_GRAMMAR,
     BTN_ADMIN,
-    BTN_ADMIN_STATS,
-    BTN_ADMIN_BROADCAST,
-    BTN_ADMIN_SET_PLAN,
     BTN_CHANGE_LANG,
     BTN_CHANGE_GOAL,
     BTN_CHANGE_LEVEL,
@@ -726,36 +723,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await ask_for_ask_word(update, context)
     elif text == BTN_STATUS:
         await show_status(update, context)
-    elif text == BTN_ADMIN_STATS:
-        user_id = update.effective_user.id
-        if not is_owner(user_id):
-            return
-        await _send_with_retry(context.bot, update.effective_chat.id, f"👥 تعداد کل کاربران: {db.count_users()}")
-    elif text == BTN_ADMIN_SET_PLAN:
-        user_id = update.effective_user.id
-        if not is_owner(user_id):
-            return
-        context.user_data["awaiting"] = "admin_set_plan"
-        await _send_with_retry(
-            context.bot,
-            update.effective_chat.id,
-            "فرمت را ارسال کنید:\n`user_id_or_username plan`\n\n"
-            "مثال: `123456789 silver` یا `@username gold`\n"
-            "پلن‌ها: free، silver، gold",
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=awaiting_inline_keyboard(),
-        )
-    elif text == BTN_ADMIN_BROADCAST:
-        user_id = update.effective_user.id
-        if not is_owner(user_id):
-            return
-        context.user_data["awaiting"] = "admin_broadcast"
-        await _send_with_retry(
-            context.bot,
-            update.effective_chat.id,
-            "متن پیام همگانی رو بفرست:",
-            reply_markup=awaiting_inline_keyboard(),
-        )
+
     elif text == BTN_ADMIN:
         await open_admin_panel(update, context)
     elif text == BTN_CHANGE_LANG:
