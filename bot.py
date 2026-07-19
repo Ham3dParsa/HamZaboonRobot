@@ -242,7 +242,7 @@ async def _send_card_from_store(
             card_index + 1 < len(cards),
             callback_prefix="review:next" if review_mode else "daily:next",
             show_translations=True,
-            show_pronounce=_user_plan(row) in PREMIUM_PLANS,
+            show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
         ),
     )
     return card, len(cards)
@@ -501,7 +501,7 @@ async def _send_next_daily_card(
             card_index,
             card_index + 1 < limit,
             show_translations=True,
-            show_pronounce=_user_plan(row) in PREMIUM_PLANS,
+            show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
         ),
     )
 
@@ -702,7 +702,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     query_token,
                     row["target_lang"] if row else "en",
                     show_translations=True,
-                    show_pronounce=_user_plan(row) in PREMIUM_PLANS,
+                    show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
                 ),
             )
             await _send_with_retry(
@@ -1122,7 +1122,7 @@ async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str
                         claimed["card_start_index"] + offset,
                         False,
                         show_translations=True,
-                        show_pronounce=_user_plan(row) in PREMIUM_PLANS,
+                        show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
                     ),
                 )
                 db.advance_delivery_progress(claimed["id"], offset + 1)
@@ -1265,7 +1265,7 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
                         ),
                     )
                     phon_lines = _phonetic_lines(card.get("phonetic", ""))
-                    show_pronounce = (row["plan"] or "free") in PREMIUM_PLANS
+                    show_pronounce = db.get_setting("tts_access", "premium") != "none" and ((row["plan"] or "free") in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all")
                     await _send_with_retry(
                         context.bot,
                         user_id,
@@ -1356,7 +1356,11 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
         await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
         return
 
-    if _user_plan(row) not in PREMIUM_PLANS:
+    tts_access = db.get_setting("tts_access", "premium")
+    if tts_access == "none":
+        await update.callback_query.answer("تلفظ غیرفعال است.", show_alert=True)
+        return
+    if tts_access == "premium" and _user_plan(row) not in PREMIUM_PLANS:
         await update.callback_query.answer("این قابلیت فقط برای کاربران نقره‌ای و طلایی فعال است.", show_alert=True)
         return
 
