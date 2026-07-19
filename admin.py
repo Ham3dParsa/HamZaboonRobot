@@ -1,19 +1,25 @@
 import calendar
 import datetime
 import logging
+import os
 from collections import defaultdict
 from zoneinfo import ZoneInfo
 
-from telegram import Update
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from config import APP_TIMEZONE, OWNER_ID, PLANS, is_owner
+from config import APP_TIMEZONE, DB_PATH, OWNER_ID, PLANS, is_owner
 import db
+import ai
+import ai_presets
+import prompts
 from helpers import _edit_or_send, _send_with_retry
+from catalog import GOALS, LANGUAGES, LEVELS
 from keyboards import (
     admin_panel_keyboard,
     awaiting_inline_keyboard,
+    main_menu,
     llm_cost_dashboard_keyboard,
     llm_cost_kind_keyboard,
     llm_cost_plan_keyboard,
@@ -717,6 +723,14 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
         await _custom_test_step_lang(update, context)
         return
 
+    if awaiting == "admin_restore":
+        context.user_data["awaiting"] = None
+        await update.message.reply_text(
+            "لطفاً یک فایل دیتابیس (.db) آپلود کنید.\n"
+            "دوباره /restore را بزنید.",
+        )
+        return
+
 
 # ======== AI Settings Panel Handlers ========
 
@@ -1166,7 +1180,7 @@ async def _custom_test_step_target(update: Update, context: ContextTypes.DEFAULT
         "🧪 <b>تست سفارشی - مرحله ۵/۵</b>\n\n"
         "هدف تست را انتخاب کنید:\n"
         f"- فعلی: {active_preset.get('name', 'gapgpt')}\n"
-        f"- کاندیدا: (پیش‌تنظیم در حال ویرایش)",
+        f"- کاندیدا: پیش‌تنظیم دیگری را انتخاب کنید",
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup(buttons)
     )
@@ -1182,9 +1196,7 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
 
     await update.callback_query.answer("در حال اجرای تست...")
 
-    # Build system prompt
-    from prompts import daily_batch_system_prompt
-    system_prompt = daily_batch_system_prompt(lang, goal, level, compact=False)
+    system_prompt = prompts.daily_batch_system_prompt(lang, goal, level, compact=False)
 
     results = []
 
@@ -1200,14 +1212,8 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         results.append(("Current Config", result))
 
     if target in ("candidate", "ab"):
-        # Use the preset being edited (from pending)
-        pending = db.get_pending_ai()
-        # Build a preset dict from pending
-        candidate = db.get_active_preset().copy()
-        for k, v in pending.items():
-            if k.startswith("ai_preset_"):
-                # Apply pending changes
-                pass
+        candidate_name = state.get("candidate_preset", "gapgpt")
+        candidate = db.get_preset(candidate_name) or db.get_preset("gapgpt") or {}
         result = ai.custom_test_card(
             system_prompt=system_prompt,
             user_prompt=prompt,
@@ -1216,7 +1222,7 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
             level=level,
             preset=candidate,
         )
-        results.append(("Candidate Preset", result))
+        results.append((f"Candidate ({candidate_name})", result))
 
     # Format results
     lines = ["🧪 <b>نتیجه تست سفارشی</b>\n"]
@@ -1242,7 +1248,6 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
 async def _handle_custom_test_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
     """Route wizard callbacks."""
     if action == "ai_custom_test:lang":
-        # This is handled by the callback data parsing
         pass
     elif action.startswith("ai_custom_test:lang:"):
         await _custom_test_step_goal(update, context, action.split(":")[2])
@@ -1251,7 +1256,36 @@ async def _handle_custom_test_wizard(update: Update, context: ContextTypes.DEFAU
     elif action.startswith("ai_custom_test:level:"):
         await _custom_test_step_target(update, context, action.split(":")[2])
     elif action.startswith("ai_custom_test:target:"):
-        await _run_custom_test(update, context, action.split(":")[2])
+        target = action.split(":")[2]
+        if target in ("candidate", "ab"):
+            state = context.user_data.get("custom_test_state", {})
+            state["target"] = target
+            context.user_data["custom_test_state"] = state
+            await _custom_test_step_preset(update, context)
+        else:
+            await _run_custom_test(update, context, target)
+    elif action.startswith("ai_custom_test:preset:"):
+        state = context.user_data.get("custom_test_state", {})
+        state["candidate_preset"] = action.split(":")[2]
+        context.user_data["custom_test_state"] = state
+        await _run_custom_test(update, context, state.get("target", "candidate"))
+
+
+async def _custom_test_step_preset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show preset picker for custom test."""
+    presets = db.get_presets()
+    buttons = [
+        [InlineKeyboardButton(p["name"], callback_data=f"ai_custom_test:preset:{p['name']}")]
+        for p in presets
+    ]
+    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_custom_test")])
+    await _edit_or_send(
+        update, context,
+        "🧪 <b>تست سفارشی - انتخاب پیش‌تنظیم</b>\n\n"
+        "پیش‌تنظیم کاندیدا را انتخاب کنید:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
 
 
 # ======== Pending AI Settings ========
@@ -1471,3 +1505,89 @@ async def _show_fallback_preset_picker(update: Update, context: ContextTypes.DEF
         f"پیش‌تنظیم {which.upper()} را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(buttons)
     )
+
+
+# ======== Backup / Restore ========
+
+async def cmd_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send the current database file to the admin."""
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("فقط مالک ربات دسترسی داره.")
+        return
+    try:
+        with open(DB_PATH, "rb") as f:
+            await update.message.reply_document(
+                document=f,
+                filename=f"hamzaban_backup_{datetime.datetime.now(_app_timezone).strftime('%Y%m%d_%H%M%S')}.db",
+                caption="📦 پشتیبان دیتابیس",
+            )
+    except Exception as exc:
+        logger.exception("Backup failed")
+        await update.message.reply_text(f"خطا در تهیه پشتیبان: {exc}")
+
+
+async def cmd_restore(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start restore flow — expect a .db file upload."""
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("فقط مالک ربات دسترسی داره.")
+        return
+    context.user_data["awaiting"] = "admin_restore"
+    await update.message.reply_text(
+        "فایل دیتابیس (.db) را آپلود کنید.\n"
+        "⚠️ این کار دیتابیس فعلی را کاملاً جایگزین می‌کند.",
+        reply_markup=awaiting_inline_keyboard(),
+    )
+
+
+async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle uploaded database file for restore."""
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("فقط مالک ربات دسترسی داره.")
+        return
+    if context.user_data.get("awaiting") != "admin_restore":
+        await update.message.reply_text("ابتدا /restore را بزنید.")
+        return
+    context.user_data.pop("awaiting", None)
+
+    try:
+        file = await update.effective_message.document.get_file()
+        data = await file.download_as_bytearray()
+        if len(data) < 100 or data[:16] != b"SQLite format 3\x00":
+            raise ValueError("فایل معتبر SQLite نیست.")
+        backup_path = f"{DB_PATH}.pre_restore"
+        import shutil
+        shutil.copy2(DB_PATH, backup_path)
+        db.import_db_bytes(bytes(data))
+        await update.message.reply_text(
+            "✅ دیتابیس با موفقیت بازگردانی شد.\n"
+            f"یک نسخه پشتیبان از دیتابیس قبلی در {backup_path} ذخیره شد.",
+            reply_markup=main_menu(True),
+        )
+    except Exception as exc:
+        logger.exception("Restore failed")
+        await update.message.reply_text(f"❌ خطا در بازگردانی: {exc}")
+
+
+async def auto_backup_job(context: ContextTypes.DEFAULT_TYPE):
+    """Periodic auto-backup: save a timestamped copy locally."""
+    if not db.get_bool_setting("auto_backup_enabled", True):
+        return
+    try:
+        backup_dir = os.path.join(os.path.dirname(DB_PATH) or ".", "backups")
+        os.makedirs(backup_dir, exist_ok=True)
+        timestamp = datetime.datetime.now(_app_timezone).strftime("%Y%m%d_%H%M%S")
+        backup_path = os.path.join(backup_dir, f"hamzaban_auto_{timestamp}.db")
+        import shutil
+        shutil.copy2(DB_PATH, backup_path)
+        cutoff = datetime.datetime.now(_app_timezone).timestamp() - 30 * 86400
+        for fname in os.listdir(backup_dir):
+            fpath = os.path.join(backup_dir, fname)
+            if fname.startswith("hamzaban_auto_") and fname.endswith(".db"):
+                try:
+                    if os.path.getmtime(fpath) < cutoff:
+                        os.remove(fpath)
+                except OSError:
+                    pass
+        logger.info("Auto-backup saved: %s", backup_path)
+    except Exception as exc:
+        logger.exception("Auto-backup failed: %s", exc)
