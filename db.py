@@ -205,6 +205,30 @@ def init_db():
                 outcome TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS ai_presets (
+                name TEXT PRIMARY KEY,
+                base_url TEXT,
+                model TEXT,
+                daily_batch_size INTEGER DEFAULT 6,
+                max_concurrency INTEGER DEFAULT 2,
+                max_rpm INTEGER DEFAULT 30,
+                timeout_seconds REAL DEFAULT 30.0,
+                temperature REAL DEFAULT 0.6,
+                max_output_tokens INTEGER DEFAULT 4096,
+                is_custom INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS pending_ai_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
+            CREATE TABLE IF NOT EXISTS config_tests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                test_type TEXT,
+                preset_name TEXT,
+                prompt TEXT,
+                result TEXT,
+                created_at TEXT
+            );
             """
         )
         columns = {
@@ -304,6 +328,28 @@ def init_db():
         }
         for k, v in defaults.items():
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
+
+        # Initialize ai_presets table with built-in presets
+        _init_ai_presets_table(conn)
+
+        # Initialize pending_ai_settings table for staging
+        _init_pending_ai_settings_table(conn)
+
+        # Initialize config_tests table for audit logging
+        _init_config_tests_table(conn)
+
+        # Initialize fallback-related settings
+        fallback_defaults = {
+            "ai_primary_preset": "gapgpt",
+            "ai_fallback_preset": "gapgpt",
+            "ai_fallback_active": "false",
+            "ai_fallback_since": "",
+            "ai_consecutive_failures": "0",
+            "auto_backup_enabled": "true",
+        }
+        for k, v in fallback_defaults.items():
+            conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
+
         llm_request_columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(llm_requests)").fetchall()
@@ -1395,3 +1441,349 @@ def record_review_event(
             ),
         )
         conn.commit()
+
+
+# ---------- AI Presets (provider profiles with batch/RPM limits) ----------
+
+def _init_ai_presets_table(conn):
+    """Create ai_presets table and seed built-in presets."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ai_presets (
+            name TEXT PRIMARY KEY,
+            base_url TEXT,
+            model TEXT,
+            daily_batch_size INTEGER DEFAULT 6,
+            max_concurrency INTEGER DEFAULT 2,
+            max_rpm INTEGER DEFAULT 30,
+            timeout_seconds REAL DEFAULT 30.0,
+            temperature REAL DEFAULT 0.6,
+            max_output_tokens INTEGER DEFAULT 4096,
+            is_custom INTEGER DEFAULT 0
+        );
+        """
+    )
+    # Seed built-in presets only if table is empty
+    count = conn.execute("SELECT COUNT(*) c FROM ai_presets").fetchone()["c"]
+    if count == 0:
+        builtins = [
+            ("gapgpt", "https://api.gapgpt.app/v1", "gapgpt-qwen-3.6", 6, 2, 30, 30.0, 0.6, 4096, 0),
+            ("openai", "https://api.openai.com/v1", "gpt-4o-mini", 6, 2, 60, 30.0, 0.6, 4096, 0),
+            ("anthropic", "https://api.anthropic.com/v1", "claude-3-haiku-20240307", 6, 2, 50, 30.0, 0.6, 4096, 0),
+            ("custom", "", "", 6, 2, 30, 30.0, 0.6, 4096, 0),
+        ]
+        for p in builtins:
+            conn.execute(
+                "INSERT INTO ai_presets(name, base_url, model, daily_batch_size, max_concurrency, max_rpm, timeout_seconds, temperature, max_output_tokens, is_custom) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                p,
+            )
+
+
+def _init_pending_ai_settings_table(conn):
+    """Create pending_ai_settings table for staging."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pending_ai_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
+        """
+    )
+
+
+def _init_config_tests_table(conn):
+    """Create config_tests table for audit logging."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS config_tests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            test_type TEXT,
+            preset_name TEXT,
+            prompt TEXT,
+            result TEXT,
+            created_at TEXT
+        );
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS config_tests_created_at_idx ON config_tests(created_at)"
+    )
+
+
+# Add table initializations to init_db (called after existing tables)
+# We'll append these calls to the existing init_db function's conn block
+
+
+def get_presets() -> list[dict]:
+    """Return all presets as list of dicts."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM ai_presets ORDER BY is_custom, name").fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_preset(name: str) -> dict | None:
+    """Return a single preset by name."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM ai_presets WHERE name=?", (name,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_active_preset_name() -> str:
+    """Get the currently active preset name (considers fallback)."""
+    if get_bool_setting("ai_fallback_active", False):
+        return get_setting("ai_fallback_preset", "gapgpt")
+    return get_setting("ai_primary_preset", "gapgpt")
+
+
+def get_active_preset() -> dict:
+    """Get the active preset dict (with fallback logic)."""
+    name = get_active_preset_name()
+    preset = get_preset(name)
+    if not preset:
+        # fallback to gapgpt
+        preset = get_preset("gapgpt")
+    return preset or {}
+
+
+def set_preset(
+    name: str,
+    base_url: str = "",
+    model: str = "",
+    daily_batch_size: int = 6,
+    max_concurrency: int = 2,
+    max_rpm: int = 30,
+    timeout_seconds: float = 30.0,
+    temperature: float = 0.6,
+    max_output_tokens: int = 4096,
+    is_custom: int = 1,
+):
+    """Upsert a preset (custom presets only)."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO ai_presets(name, base_url, model, daily_batch_size, max_concurrency, max_rpm, timeout_seconds, temperature, max_output_tokens, is_custom) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET "
+            "base_url=excluded.base_url, model=excluded.model, daily_batch_size=excluded.daily_batch_size, "
+            "max_concurrency=excluded.max_concurrency, max_rpm=excluded.max_rpm, "
+            "timeout_seconds=excluded.timeout_seconds, temperature=excluded.temperature, "
+            "max_output_tokens=excluded.max_output_tokens, is_custom=excluded.is_custom",
+            (
+                name,
+                base_url,
+                model,
+                daily_batch_size,
+                max_concurrency,
+                max_rpm,
+                timeout_seconds,
+                temperature,
+                max_output_tokens,
+                is_custom,
+            ),
+        )
+        conn.commit()
+
+
+def delete_preset(name: str) -> bool:
+    """Delete a custom preset (built-ins have is_custom=0 and cannot be deleted)."""
+    with get_conn() as conn:
+        cursor = conn.execute(
+            "DELETE FROM ai_presets WHERE name=? AND is_custom=1", (name,)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def activate_preset(name: str) -> bool:
+    """Set the active primary preset."""
+    preset = get_preset(name)
+    if not preset:
+        return False
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            ("ai_primary_preset", name),
+        )
+        # Also sync to legacy settings for backward compatibility
+        if preset.get("base_url"):
+            conn.execute(
+                "INSERT INTO settings(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ("ai_base_url", preset["base_url"]),
+            )
+        if preset.get("model"):
+            conn.execute(
+                "INSERT INTO settings(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ("ai_model", preset["model"]),
+            )
+        conn.commit()
+    return True
+
+
+# ---------- Fallback State Management ----------
+
+def set_fallback_active(active: bool, fallback_preset: str | None = None):
+    """Activate or deactivate fallback mode."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            ("ai_fallback_active", "true" if active else "false"),
+        )
+        if active:
+            conn.execute(
+                "INSERT INTO settings(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ("ai_fallback_since", _utc_now().isoformat()),
+            )
+            if fallback_preset:
+                conn.execute(
+                    "INSERT INTO settings(key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    ("ai_fallback_preset", fallback_preset),
+                )
+        else:
+            conn.execute(
+                "INSERT INTO settings(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ("ai_fallback_since", ""),
+            )
+            conn.execute(
+                "INSERT INTO settings(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ("ai_consecutive_failures", "0"),
+            )
+        conn.commit()
+
+
+def increment_consecutive_failures() -> int:
+    """Increment and return the consecutive failures counter."""
+    with get_conn() as conn:
+        current = int(get_setting("ai_consecutive_failures", "0")) + 1
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            ("ai_consecutive_failures", str(current)),
+        )
+        conn.commit()
+        return current
+
+
+def reset_consecutive_failures():
+    """Reset the consecutive failures counter."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            ("ai_consecutive_failures", "0"),
+        )
+        conn.commit()
+
+
+def get_fallback_status() -> dict:
+    """Get current fallback status info."""
+    return {
+        "fallback_active": get_bool_setting("ai_fallback_active", False),
+        "primary_preset": get_setting("ai_primary_preset", "gapgpt"),
+        "fallback_preset": get_setting("ai_fallback_preset", "gapgpt"),
+        "fallback_since": get_setting("ai_fallback_since", ""),
+        "consecutive_failures": int(get_setting("ai_consecutive_failures", "0")),
+    }
+
+
+# ---------- Staging / Pending AI Settings ----------
+
+def get_pending_ai() -> dict:
+    """Return all pending AI settings as a dict."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT key, value FROM pending_ai_settings").fetchall()
+    return {row["key"]: row["value"] for row in rows}
+
+
+def set_pending_ai(key: str, value: str):
+    """Set a single pending AI setting."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO pending_ai_settings(key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+        conn.commit()
+
+
+def clear_pending_ai():
+    """Clear all pending AI settings."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM pending_ai_settings")
+        conn.commit()
+
+
+def apply_pending_ai() -> dict:
+    """Atomically apply all pending AI settings to the main settings table."""
+    pending = get_pending_ai()
+    if not pending:
+        return {"applied": 0, "keys": []}
+    with get_conn() as conn:
+        for key, value in pending.items():
+            conn.execute(
+                "INSERT INTO settings(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, value),
+            )
+        conn.execute("DELETE FROM pending_ai_settings")
+        conn.commit()
+    return {"applied": len(pending), "keys": list(pending.keys())}
+
+
+def diff_pending_vs_active() -> dict:
+    """Return a diff of pending vs active settings."""
+    pending = get_pending_ai()
+    active = {}
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT key, value FROM settings WHERE key LIKE 'ai_%' OR key LIKE 'llm_%' OR key LIKE 'phonetic_%' OR key LIKE 'usd_%'"
+        ).fetchall()
+        active = {row["key"]: row["value"] for row in rows}
+
+    all_keys = set(pending.keys()) | set(active.keys())
+    diff = {}
+    for key in sorted(all_keys):
+        p = pending.get(key)
+        a = active.get(key)
+        if p != a:
+            diff[key] = {"pending": p, "active": a}
+    return diff
+
+
+# ---------- Config Tests Audit ----------
+
+def log_config_test(test_type: str, preset_name: str, prompt: str, result: dict):
+    """Log a config test result."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO config_tests(test_type, preset_name, prompt, result, created_at) VALUES (?, ?, ?, ?, ?)",
+            (
+                test_type,
+                preset_name,
+                prompt,
+                json.dumps(result, ensure_ascii=False),
+                _utc_now().isoformat(),
+            ),
+        )
+        conn.commit()
+
+
+# ---------- Backup / Restore ----------
+
+def export_db_bytes() -> bytes:
+    """Read the entire SQLite database file as bytes."""
+    with open(DB_PATH, "rb") as f:
+        return f.read()
+
+
+def import_db_bytes(data: bytes) -> None:
+    """Replace the current database file with the provided bytes, then re-initialize."""
+    with open(DB_PATH, "wb") as f:
+        f.write(data)
+    init_db()

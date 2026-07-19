@@ -378,3 +378,145 @@ def llm_cost_pricing_keyboard() -> InlineKeyboardMarkup:
             ],
         ]
     )
+
+
+# ---------- AI Settings / Presets Keyboards ----------
+
+def ai_settings_keyboard() -> InlineKeyboardMarkup:
+    """Main AI settings panel."""
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🤖 پیش‌تنظیم‌های AI", callback_data="admin:ai_presets")],
+            [InlineKeyboardButton("🧪 تست اتصال", callback_data="admin:ai_test_connection")],
+            [InlineKeyboardButton("🔬 تست سفارشی (Wizard)", callback_data="admin:ai_custom_test")],
+            [InlineKeyboardButton("📝 تنظیمات در حال انتظار (Staging)", callback_data="admin:ai_pending")],
+            [InlineKeyboardButton("✅ اعمال تغییرات", callback_data="admin:ai_apply")],
+            [InlineKeyboardButton("↩️ انصراف / بازنشانی", callback_data="admin:ai_rollback")],
+            [InlineKeyboardButton("🔄 پیش‌تنظیم پشتیبان (Fallback)", callback_data="admin:ai_fallback")],
+            [InlineKeyboardButton("↩️ بازگشت به پنل اصلی", callback_data="admin:back")],
+        ]
+    )
+
+
+def ai_presets_list_keyboard(presets: list[dict], active_name: str) -> InlineKeyboardMarkup:
+    """List presets with activate/edit/delete buttons."""
+    rows = []
+    for p in presets:
+        name = p["name"]
+        is_active = "✅ " if name == active_name else ""
+        is_custom = p.get("is_custom", 0)
+        label = f"{is_active}{name}"
+        if is_custom:
+            label += " (custom)"
+        rows.append([
+            InlineKeyboardButton(label, callback_data=f"admin:ai_preset:view:{name}"),
+        ])
+        # Action buttons row
+        action_row = []
+        if name != active_name:
+            action_row.append(InlineKeyboardButton("✅ فعال کردن", callback_data=f"admin:ai_preset:activate:{name}"))
+        if is_custom:
+            action_row.append(InlineKeyboardButton("✏️ ویرایش", callback_data=f"admin:ai_preset:edit:{name}"))
+            action_row.append(InlineKeyboardButton("🗑 حذف", callback_data=f"admin:ai_preset:delete:{name}"))
+        else:
+            action_row.append(InlineKeyboardButton("✏️ ویرایش (fork)", callback_data=f"admin:ai_preset:edit:{name}"))
+        if action_row:
+            rows.append(action_row)
+    rows.append([InlineKeyboardButton("➕ افزودن پیش‌تنظیم سفارشی", callback_data="admin:ai_preset:add")])
+    rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")])
+    return InlineKeyboardMarkup(rows)
+
+
+def ai_preset_view_keyboard(preset: dict, active_name: str) -> InlineKeyboardMarkup:
+    """View/edit a specific preset."""
+    name = preset["name"]
+    is_custom = preset.get("is_custom", 0)
+    rows = []
+    if name != active_name:
+        rows.append([InlineKeyboardButton("✅ فعال کردن این پیش‌تنظیم", callback_data=f"admin:ai_preset:activate:{name}")])
+    if is_custom:
+        rows.append([InlineKeyboardButton("✏️ ویرایش", callback_data=f"admin:ai_preset:edit:{name}")])
+        rows.append([InlineKeyboardButton("🗑 حذف", callback_data=f"admin:ai_preset:delete:{name}")])
+    else:
+        rows.append([InlineKeyboardButton("✏️ ویرایش (ایجاد کپی سفارشی)", callback_data=f"admin:ai_preset:edit:{name}")])
+    rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_presets")])
+    return InlineKeyboardMarkup(rows)
+
+
+def ai_preset_edit_keyboard(preset_name: str, field: str | None = None) -> InlineKeyboardMarkup:
+    """Keyboard for editing a preset field-by-field."""
+    fields = [
+        ("base_url", "🌐 Base URL"),
+        ("model", "🤖 Model"),
+        ("daily_batch_size", "📦 Batch Size"),
+        ("max_concurrency", "⚡ Concurrency"),
+        ("max_rpm", "🚀 RPM Limit"),
+        ("timeout_seconds", "⏱ Timeout (s)"),
+        ("temperature", "🌡 Temperature"),
+        ("max_output_tokens", "📝 Max Tokens"),
+    ]
+    rows = []
+    for key, label in fields:
+        rows.append([
+            InlineKeyboardButton(f"{label}: تنظیم", callback_data=f"admin:ai_preset:edit_field:{preset_name}:{key}"),
+        ])
+    rows.append([InlineKeyboardButton("✅ ذخیره پیش‌تنظیم", callback_data=f"admin:ai_preset:save:{preset_name}")])
+    rows.append([InlineKeyboardButton("↩️ انصراف", callback_data=f"admin:ai_preset:view:{preset_name}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def ai_fallback_keyboard(primary: str, fallback: str, active: str) -> InlineKeyboardMarkup:
+    """Fallback configuration panel."""
+    status_text = "🔴 Fallback ACTIVE" if active == fallback else "🟢 Primary active"
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(f"Primary: {primary}", callback_data="admin:ai_fallback:set_primary")],
+            [InlineKeyboardButton(f"Fallback: {fallback}", callback_data="admin:ai_fallback:set_fallback")],
+            [InlineKeyboardButton(f"Status: {status_text}", callback_data="admin:ai_fallback:status")],
+            [InlineKeyboardButton("🔄 بازنشانی به Primary (Manual)", callback_data="admin:ai_fallback:reset")],
+            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
+        ]
+    )
+
+
+def ai_custom_test_wizard_keyboard(step: str, lang: str | None = None, goal: str | None = None, level: str | None = None, target: str | None = None) -> InlineKeyboardMarkup:
+    """Keyboard for the custom test wizard."""
+    rows = []
+    if step == "lang":
+        from catalog import LANGUAGES
+        for code, opt in LANGUAGES.items():
+            rows.append([InlineKeyboardButton(opt.name_fa, callback_data=f"admin:ai_custom_test:lang:{code}")])
+    elif step == "goal":
+        from catalog import GOALS
+        for code, opt in GOALS.items():
+            rows.append([InlineKeyboardButton(opt.name_fa, callback_data=f"admin:ai_custom_test:goal:{code}")])
+    elif step == "level":
+        from catalog import LEVELS
+        for code, opt in LEVELS.items():
+            rows.append([InlineKeyboardButton(f"{opt.name_fa} ({opt.cefr})", callback_data=f"admin:ai_custom_test:level:{code}")])
+    elif step == "target":
+        rows.append([InlineKeyboardButton("🎯 Current Config", callback_data="admin:ai_custom_test:target:current")])
+        rows.append([InlineKeyboardButton("🧪 Candidate Preset", callback_data="admin:ai_custom_test:target:candidate")])
+        rows.append([InlineKeyboardButton("⚖️ Compare A/B", callback_data="admin:ai_custom_test:target:ab")])
+    if step != "prompt":
+        rows.append([InlineKeyboardButton("↩️ انصراف", callback_data="admin:ai_settings")])
+    return InlineKeyboardMarkup(rows)
+
+
+def ai_pending_keyboard(diff: dict) -> InlineKeyboardMarkup:
+    """Staging area: show diff with apply/rollback."""
+    rows = []
+    if not diff:
+        rows.append([InlineKeyboardButton("No pending changes", callback_data="admin:ai_settings")])
+    else:
+        for key, change in list(diff.items())[:8]:
+            p = change.get("pending")
+            a = change.get("active")
+            p_short = (p[:30] + "…") if p and len(p) > 30 else p
+            a_short = (a[:30] + "…") if a and len(a) > 30 else a
+            label = f"{key}: {a_short} → {p_short}"
+            rows.append([InlineKeyboardButton(label, callback_data="admin:noop")])
+        rows.append([InlineKeyboardButton("✅ Apply All", callback_data="admin:ai_apply")])
+        rows.append([InlineKeyboardButton("↩️ Rollback All", callback_data="admin:ai_rollback")])
+    rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")])
+    return InlineKeyboardMarkup(rows)

@@ -4,31 +4,111 @@ import time
 from collections import deque
 
 import ai
-from config import AI_MAX_CONCURRENCY, AI_MAX_REQUESTS_PER_MINUTE
+import ai_presets
+import db
 from formatting import CardPreparationError
 
 logger = logging.getLogger(__name__)
 
-_ai_slots = threading.BoundedSemaphore(AI_MAX_CONCURRENCY)
-_ai_request_times: deque[float] = deque()
-_ai_request_lock = threading.Lock()
+
+def _get_active_preset() -> dict:
+    """Get the currently active AI preset (considers fallback)."""
+    return db.get_active_preset()
+
+
+def _get_limiter_for_preset(preset: dict):
+    """Create or reuse limiter state for a preset."""
+    key = preset.get("name", "default")
+    # Module-level storage keyed by preset name
+    if not hasattr(_get_limiter_for_preset, "_states"):
+        _get_limiter_for_preset._states = {}
+    if key not in _get_limiter_for_preset._states:
+        _get_limiter_for_preset._states[key] = {
+            "slots": threading.BoundedSemaphore(preset.get("max_concurrency", 2)),
+            "request_times": deque(),
+            "request_lock": threading.Lock(),
+            "consecutive_failures": 0,
+        }
+    return _get_limiter_for_preset._states[key]
+
+
+def _check_fallback_switch(preset: dict) -> bool:
+    """Check if we should switch to fallback preset.
+
+    Returns True if switched to fallback, False otherwise.
+    """
+    state = _get_limiter_for_preset(preset)
+    if state["consecutive_failures"] >= 2:
+        # Switch to fallback
+        if not db.get_bool_setting("ai_fallback_active", False):
+            fallback_name = db.get_setting("ai_fallback_preset", "gapgpt")
+            db.set_bool_setting("ai_fallback_active", True)
+            db.set_setting("ai_fallback_since", db._utc_now().isoformat())
+            db.set_setting("ai_consecutive_failures", "0")
+            logger.warning(
+                "AI fallback activated: primary=%s -> fallback=%s",
+                preset.get("name"),
+                fallback_name,
+            )
+            return True
+    return False
+
+
+def _record_success(preset: dict):
+    """Record a successful request, reset failure counter."""
+    state = _get_limiter_for_preset(preset)
+    state["consecutive_failures"] = 0
+    # If fallback was active and primary succeeds, restore primary
+    if db.get_bool_setting("ai_fallback_active", False):
+        # Only restore if this IS the primary preset
+        primary_name = db.get_setting("ai_primary_preset", "gapgpt")
+        if preset.get("name") == primary_name:
+            db.set_bool_setting("ai_fallback_active", False)
+            db.set_setting("ai_fallback_since", "")
+            logger.info("AI primary restored: %s", primary_name)
+
+
+def _record_failure(preset: dict):
+    """Record a failed request, increment failure counter."""
+    state = _get_limiter_for_preset(preset)
+    state["consecutive_failures"] += 1
+    db.set_setting("ai_consecutive_failures", str(state["consecutive_failures"]))
 
 
 def _call_ai_limited(function, *args, **kwargs):
-    _ai_slots.acquire()
+    """Execute an AI function with dynamic rate limiting based on active preset."""
+    preset = _get_active_preset()
+    limiter = _get_limiter_for_preset(preset)
+
+    # Acquire concurrency slot
+    limiter["slots"].acquire()
     try:
+        # Rate limit (RPM)
         while True:
             now = time.monotonic()
-            with _ai_request_lock:
-                while _ai_request_times and now - _ai_request_times[0] >= 60:
-                    _ai_request_times.popleft()
-                if len(_ai_request_times) < AI_MAX_REQUESTS_PER_MINUTE:
-                    _ai_request_times.append(now)
+            with limiter["request_lock"]:
+                # Remove timestamps older than 60 seconds
+                while limiter["request_times"] and now - limiter["request_times"][0] >= 60:
+                    limiter["request_times"].popleft()
+                if len(limiter["request_times"]) < preset.get("max_rpm", 30):
+                    limiter["request_times"].append(now)
                     break
             time.sleep(0.25)
-        return function(*args, **kwargs)
+
+        # Execute the AI call
+        result = function(*args, **kwargs)
+
+        # Record success
+        _record_success(preset)
+        return result
+
+    except Exception as exc:
+        # Record failure and check for fallback switch
+        _record_failure(preset)
+        _check_fallback_switch(preset)
+        raise
     finally:
-        _ai_slots.release()
+        limiter["slots"].release()
 
 
 def _ask_batch_limited(*args, **kwargs):

@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 import time
 from collections.abc import Mapping
@@ -16,22 +17,123 @@ from config import (
 )
 import db
 import prompts
+import ai_presets
 
 log = logging.getLogger("hamzaban.ai")
 
 
-def _client() -> OpenAI:
-    base_url = db.get_setting("ai_base_url", DEFAULT_AI_BASE_URL)
-    api_key = db.get_setting("ai_api_key", DEFAULT_AI_API_KEY)
+def _client(preset: dict | None = None) -> OpenAI:
+    """Create an OpenAI client using the given preset or active settings."""
+    if preset:
+        base_url = preset.get("base_url", "")
+        api_key = ai_presets.resolve_api_key(preset)
+        timeout = preset.get("timeout_seconds", AI_TIMEOUT_SECONDS)
+    else:
+        base_url = db.get_setting("ai_base_url", DEFAULT_AI_BASE_URL)
+        api_key = db.get_setting("ai_api_key", DEFAULT_AI_API_KEY)
+        timeout = AI_TIMEOUT_SECONDS
     return OpenAI(
         base_url=base_url,
         api_key=api_key,
-        timeout=AI_TIMEOUT_SECONDS,
+        timeout=timeout,
     )
 
 
-def _model() -> str:
+def _model(preset: dict | None = None) -> str:
+    if preset and preset.get("model"):
+        return preset["model"]
     return db.get_setting("ai_model", DEFAULT_AI_MODEL)
+
+
+def test_connection(
+    base_url: str,
+    api_key: str,
+    model: str,
+    timeout: float = AI_TIMEOUT_SECONDS,
+) -> dict:
+    """Lightweight connection test (not tracked in llm_requests)."""
+    client = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
+    started = time.monotonic()
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=5,
+        )
+        latency_ms = (time.monotonic() - started) * 1000
+        return {
+            "success": True,
+            "latency_ms": round(latency_ms),
+            "model": resp.model,
+            "usage": {
+                "prompt_tokens": resp.usage.prompt_tokens if resp.usage else 0,
+                "completion_tokens": resp.usage.completion_tokens if resp.usage else 0,
+                "total_tokens": resp.usage.total_tokens if resp.usage else 0,
+            },
+        }
+    except Exception as exc:
+        latency_ms = (time.monotonic() - started) * 1000
+        return {
+            "success": False,
+            "latency_ms": round(latency_ms),
+            "error_class": type(exc).__name__,
+            "error_message": str(exc)[:500],
+        }
+
+
+def custom_test_card(
+    system_prompt: str,
+    user_prompt: str,
+    lang: str,
+    goal: str,
+    level: str,
+    preset: dict | None = None,
+    *,
+    request_kind: str = "custom_test",
+    user_id: int | None = None,
+    plan: str | None = None,
+) -> dict:
+    """Run a real ask_card call for preview/testing.
+
+    Goes through the full validation pipeline. Not tracked in cost dashboard.
+    """
+    telemetry: dict[str, object] = {}
+    error: Exception | None = None
+    try:
+        client = _client(preset)
+        model = _model(preset)
+        started = time.monotonic()
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=preset.get("temperature", AI_TEMPERATURE) if preset else AI_TEMPERATURE,
+            max_tokens=preset.get("max_output_tokens", AI_MAX_OUTPUT_TOKENS) if preset else AI_MAX_OUTPUT_TOKENS,
+        )
+        telemetry["usage"] = resp.usage
+        telemetry["latency_ms"] = (time.monotonic() - started) * 1000
+        telemetry["model"] = model
+        telemetry["request_kind"] = request_kind
+        content = resp.choices[0].message.content or ""
+        value = _extract_json(content)
+        return validate_card(value)
+    except Exception as exc:
+        error = exc
+        raise
+    finally:
+        # Log to config_tests table instead of llm_requests
+        db.log_config_test(
+            test_type="custom",
+            preset_name=preset.get("name") if preset else db.get_active_preset_name(),
+            prompt=user_prompt,
+            result={
+                "success": error is None,
+                "error_class": type(error).__name__ if error else None,
+                "error_message": str(error)[:500] if error else None,
+            },
+        )
 
 
 def _log_llm_request(

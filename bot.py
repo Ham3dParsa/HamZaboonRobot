@@ -112,6 +112,14 @@ from llm_services import (
     _prepare_cached_card,
 )
 
+# Import admin handlers
+from admin import (
+    open_admin_panel,
+    _handle_admin_callback,
+    _handle_admin_text_input,
+    _handle_llm_callback,
+)
+
 from user import (
     cmd_start,
     on_lang_selected,
@@ -1139,7 +1147,10 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("backup", cmd_backup))
+    app.add_handler(CommandHandler("restore", cmd_restore))
     app.add_handler(CallbackQueryHandler(callback_router))
+    app.add_handler(MessageHandler(filters.Document.FileExtension("db") & ~filters.COMMAND, handle_restore_doc))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
     app.add_error_handler(error_handler)
 
@@ -1163,6 +1174,12 @@ def main():
                 tzinfo=_app_timezone,
             ),
         )
+        if OWNER_ID != 0:
+            app.job_queue.run_repeating(
+                auto_backup_job,
+                interval=21600,  # 6 hours
+                first=21600,
+            )
 
     log.info("The bot is starting...")
     app.run_polling()
