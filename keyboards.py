@@ -11,6 +11,9 @@ BTN_CHANGE_GOAL = "🎯 تغییر هدف"
 BTN_CHANGE_LEVEL = "📚 تنظیم سطح زبان"
 BTN_CHANGE_PRESENTATION = "📝 تنظیم نمایش کارت"
 BTN_ADMIN = "🛠 مدیریت ربات"
+BTN_ADMIN_STATS = "📈 آمار کاربران"
+BTN_ADMIN_BROADCAST = "📣 ارسال پیام همگانی"
+BTN_ADMIN_SET_PLAN = "💳 تنظیم پلن کاربر"
 BTN_CANCEL = "❌ لغو"
 BTN_BACK = "↩️ بازگشت"
 
@@ -25,6 +28,8 @@ def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
         [BTN_CHANGE_PRESENTATION],
     ]
     if is_owner:
+        rows.append([BTN_ADMIN_STATS, BTN_ADMIN_SET_PLAN])
+        rows.append([BTN_ADMIN_BROADCAST])
         rows.append([BTN_ADMIN])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
@@ -307,16 +312,23 @@ def awaiting_inline_keyboard() -> InlineKeyboardMarkup:
 def admin_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("📈 آمار کاربران", callback_data="admin:stats")],
-            [InlineKeyboardButton("💳 تنظیم پلن کاربر", callback_data="admin:set_plan")],
-            [InlineKeyboardButton("🗣 تنظیم تلفظ", callback_data="admin:phonetics")],
+            [InlineKeyboardButton("📈 آمار کاربران", callback_data="admin:stats"),
+             InlineKeyboardButton("💳 تنظیم پلن", callback_data="admin:set_plan")],
+            [InlineKeyboardButton("🤖 تنظیمات AI", callback_data="admin:ai_settings"),
+             InlineKeyboardButton("🗣 تنظیم تلفظ", callback_data="admin:phonetics")],
+            [InlineKeyboardButton("💰 مدیریت هزینه‌ها", callback_data="admin:cost_dashboard"),
+             InlineKeyboardButton("⚙️ تنظیمات فعلی", callback_data="admin:show_settings")],
+            [InlineKeyboardButton("📣 ارسال پیام همگانی", callback_data="admin:broadcast")],
+        ]
+    )
+
+
+def admin_cost_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
             [InlineKeyboardButton("💰 داشبورد هزینه LLM", callback_data="admin:llm_costs")],
             [InlineKeyboardButton("💱 تنظیم قیمت LLM", callback_data="admin:llm_pricing")],
-            [InlineKeyboardButton("🤖 تغییر مدل AI", callback_data="admin:set_model")],
-            [InlineKeyboardButton("🌐 تغییر Base URL", callback_data="admin:set_base_url")],
-            [InlineKeyboardButton("🔑 تغییر API Key", callback_data="admin:set_api_key")],
-            [InlineKeyboardButton("📣 ارسال پیام همگانی", callback_data="admin:broadcast")],
-            [InlineKeyboardButton("⚙️ تنظیمات فعلی", callback_data="admin:show_settings")],
+            [InlineKeyboardButton("↩️ بازگشت به پنل اصلی", callback_data="admin:back")],
         ]
     )
 

@@ -2,7 +2,7 @@ import re
 import unittest
 
 
-ALLOWLIST = {"tts:pronounce:", "srs:"}
+ALLOWLIST = {"srs:"}
 
 
 def _collect_keyboard_prefixes():
