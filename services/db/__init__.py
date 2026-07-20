@@ -1335,7 +1335,8 @@ def due_words_for_user(user_id: int):
         return conn.execute(
             "SELECT * FROM saved_words WHERE user_id=? AND next_review<=? "
             "AND COALESCE(review_status, 'idle')!='pending' "
-            "AND retry_at IS NULL",
+            "AND retry_at IS NULL "
+            "ORDER BY (julianday('now') - julianday(next_review)) DESC",
             (user_id, today),
         ).fetchall()
 
