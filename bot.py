@@ -127,6 +127,7 @@ from handlers.admin import (
     _handle_admin_callback,
     _handle_admin_text_input,
     _handle_llm_callback,
+    _edit_ai_preset,
     cmd_backup,
     cmd_restore,
     handle_restore_doc,
@@ -695,7 +696,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        if awaiting.startswith("admin_") or awaiting.startswith("llm_cost_") or awaiting.startswith("llm_price_"):
+        if awaiting.startswith("admin_") or awaiting.startswith("llm_cost_") or awaiting.startswith("llm_price_") or awaiting.startswith("ai_preset_") or awaiting.startswith("ai_custom_test_"):
             await _handle_admin_text_input(update, context, awaiting, text)
             return
 
@@ -785,8 +786,24 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ):
         await update.callback_query.answer()
 
-    if data in {"flow:cancel", "flow:back"}:
-        if context.user_data.get("awaiting"):
+    if data == "flow:back":
+        awaiting = context.user_data.get("awaiting", "")
+        if awaiting.startswith("ai_preset_edit:"):
+            preset_name = awaiting.split(":", 1)[1].rsplit(":", 1)[0]
+            context.user_data.pop("awaiting", None)
+            await _edit_ai_preset(update, context, preset_name)
+        elif awaiting:
+            await _exit_awaiting_flow(update, context, via_callback=True)
+        else:
+            await update.callback_query.answer("فعلاً چیزی برای لغو نیست.", show_alert=True)
+        return
+
+    if data == "flow:cancel":
+        awaiting = context.user_data.get("awaiting", "")
+        if awaiting:
+            if awaiting.startswith("ai_preset_edit:"):
+                preset_name = awaiting.split(":", 1)[1].rsplit(":", 1)[0]
+                context.user_data.setdefault("preset_edits", {}).pop(preset_name, None)
             await _exit_awaiting_flow(update, context, via_callback=True)
         else:
             await update.callback_query.answer("فعلاً چیزی برای لغو نیست.", show_alert=True)
