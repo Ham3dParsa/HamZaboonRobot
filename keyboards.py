@@ -18,6 +18,136 @@ BTN_CANCEL = "❌ لغو"
 BTN_BACK = "↩️ بازگشت"
 
 
+# =============================================================================
+# Inline Button Labels (IBTN_*)
+# -----------------------------------------------------------------------------
+# Central registry for all inline keyboard label strings.  Change a label
+# once here and every key that uses it stays in sync automatically.
+# Organised by functional area; prefix is IBTN_ (Inline ButtoN).
+# =============================================================================
+
+# --- Navigation / Generic ---
+IBTN_BACK = "↩️ بازگشت"
+IBTN_CANCEL = "❌ لغو"
+IBTN_CANCEL_EDIT = "↩️ انصراف"
+IBTN_BACK_TO_PANEL = "↩️ بازگشت به پنل اصلی"
+
+# --- Presentation ---
+IBTN_BRIEF = "خلاصه"
+IBTN_DETAILED = "کامل"
+
+# --- Daily Cards & Review ---
+IBTN_TRANSLATIONS = "✦ ترجمه مثال‌ها"
+IBTN_NEXT_CARD = "➡️ کارت بعدی"
+IBTN_REVIEW_CARDS = "📚 مرور کارت‌ها"
+IBTN_REVIEW_MENU = "📚 منوی مرور"
+IBTN_NEWER = "⬅️ جدیدتر"
+IBTN_OLDER = "قدیمی‌تر ➡️"
+IBTN_NO_CARDS = "فعلاً کارتی نیست"
+
+# --- SRS (Spaced Repetition) ---
+IBTN_REMEMBERED = "✅ یادم بود"
+IBTN_REVEAL = "👁 افشای کارت کامل"
+IBTN_CONFIRM_CORRECT = "✅ بله، درست بود"
+IBTN_REMIND_AGAIN = "🔁 نه، باز هم یادآوری کن"
+IBTN_TOMORROW_AGAIN = "↩️ فردا دوباره"
+
+# --- Query / Word Lookup ---
+IBTN_ADD_TO_REVIEW = "➕ افزودن به مرور"
+
+# --- Pronunciation ---
+IBTN_PRONOUNCE = "🔊 تلفظ"
+
+# --- Admin – General ---
+IBTN_ADMIN_AI = "🤖 تنظیمات AI"
+IBTN_ADMIN_PHONETICS = "🗣 تنظیم تلفظ"
+IBTN_ADMIN_COST = "💰 مدیریت هزینه‌ها"
+IBTN_ADMIN_SETTINGS = "⚙️ تنظیمات فعلی"
+IBTN_PLAN = "💳 تنظیم پلن"
+
+# --- Admin – Cost Dashboard ---
+IBTN_LLM_COST = "💰 داشبورد هزینه LLM"
+IBTN_LLM_PRICING = "💱 تنظیم قیمت LLM"
+
+# --- Admin – LLM Dashboard Filters ---
+IBTN_RECENT = "Recent Requests"
+IBTN_HIDE_RECENT = "Hide Recent Requests"
+IBTN_MTD = "MTD"
+IBTN_LAST_7 = "Last 7 days"
+IBTN_ALL_TIME = "All time"
+IBTN_FILTER_PLAN = "Plan"
+IBTN_FILTER_USER = "User"
+IBTN_FILTER_KIND = "Request kind"
+IBTN_FILTER_MODEL = "Model"
+IBTN_FILTER_STATUS = "Status"
+IBTN_CLEAR_FILTERS = "Clear filters"
+IBTN_REFRESH = "Refresh"
+IBTN_ALL = "All"
+IBTN_FREE = "Free"
+IBTN_SILVER = "Silver"
+IBTN_GOLD = "Gold"
+
+# --- Admin – LLM Kind / Status Values ---
+IBTN_KIND_DAILY = "daily_batch"
+IBTN_KIND_CUSTOM = "custom_word"
+IBTN_KIND_GRAMMAR = "grammar_tip"
+IBTN_STATUS_SUCCESS = "success"
+IBTN_STATUS_FAIL_BILLED = "billed fail"
+IBTN_STATUS_FAIL_ZERO = "zero-cost fail"
+
+# --- Admin – LLM Pricing ---
+IBTN_INPUT_PRICE = "input $/1M"
+IBTN_OUTPUT_PRICE = "output $/1M"
+IBTN_USD_TOMAN = "USD→تومان"
+IBTN_PRICE_BACK = "بازگشت"
+
+# --- Admin – Phonetic Settings ---
+IBTN_IPA = "IPA"
+IBTN_PERSIAN = "Persian"
+
+# --- Admin – AI Settings ---
+IBTN_AI_PRESETS = "🤖 پیش‌تنظیم‌های AI"
+IBTN_AI_TEST = "🧪 تست اتصال"
+IBTN_AI_CUSTOM_TEST = "🔬 تست سفارشی (Wizard)"
+IBTN_AI_PENDING = "📝 تنظیمات در حال انتظار (Staging)"
+IBTN_AI_APPLY = "✅ اعمال تغییرات"
+IBTN_AI_ROLLBACK = "↩️ انصراف / بازنشانی"
+IBTN_AI_FALLBACK = "🔄 پیش‌تنظیم پشتیبان (Fallback)"
+
+# --- Admin – AI Presets ---
+IBTN_ACTIVATE = "✅ فعال کردن"
+IBTN_ACTIVATE_THIS = "✅ فعال کردن این پیش‌تنظیم"
+IBTN_EDIT = "✏️ ویرایش"
+IBTN_DELETE = "🗑 حذف"
+IBTN_EDIT_FORK = "✏️ ویرایش (fork)"
+IBTN_EDIT_COPY = "✏️ ویرایش (ایجاد کپی سفارشی)"
+IBTN_ADD_CUSTOM = "➕ افزودن پیش‌تنظیم سفارشی"
+IBTN_SAVE_PRESET = "✅ ذخیره پیش‌تنظیم"
+
+# --- Admin – AI Fallback ---
+IBTN_RESET_PRIMARY = "🔄 بازنشانی به Primary (Manual)"
+
+# --- Admin – Custom Test Wizard ---
+IBTN_CURRENT_CONFIG = "🎯 Current Config"
+IBTN_CANDIDATE = "🧪 Candidate Preset"
+IBTN_COMPARE_AB = "⚖️ Compare A/B"
+IBTN_CANCEL_WIZARD = "↩️ انصراف"
+
+# --- Admin – Pending Changes ---
+IBTN_NO_PENDING = "No pending changes"
+IBTN_APPLY_ALL = "✅ Apply All"
+IBTN_ROLLBACK_ALL = "↩️ Rollback All"
+
+# --- Admin – Preset Edit Fields ---
+IBTN_FIELD_BASE_URL = "🌐 Base URL"
+IBTN_FIELD_MODEL = "🤖 Model"
+IBTN_FIELD_BATCH_SIZE = "📦 Batch Size"
+IBTN_FIELD_CONCURRENCY = "⚡ Concurrency"
+IBTN_FIELD_RPM = "🚀 RPM Limit"
+IBTN_FIELD_TIMEOUT = "⏱ Timeout (s)"
+IBTN_FIELD_TEMPERATURE = "🌡 Temperature"
+IBTN_FIELD_MAX_TOKENS = "📝 Max Tokens"
+
 
 def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
     rows = [
@@ -70,11 +200,11 @@ def presentation_settings_keyboard(
         [
             [
                 InlineKeyboardButton(
-                    f"{'✅ ' if current == 'brief' else ''}خلاصه",
+                    f"{'✅ ' if current == 'brief' else ''}{IBTN_BRIEF}",
                     callback_data="presentation:set:brief",
                 ),
                 InlineKeyboardButton(
-                    f"{'✅ ' if current == 'detailed' else ''}کامل",
+                    f"{'✅ ' if current == 'detailed' else ''}{IBTN_DETAILED}",
                     callback_data="presentation:set:detailed",
                 ),
             ]
@@ -99,14 +229,14 @@ def daily_card_keyboard(
     if show_translations:
         buttons.append(
             InlineKeyboardButton(
-                "📝 Prepare translations",
+                IBTN_TRANSLATIONS,
                 callback_data=f"{translation_prefix}:{user_id}:{card_date}:{card_index}",
             )
         )
     if has_next:
         buttons.append(
             InlineKeyboardButton(
-                "➡️ کارت بعدی",
+                IBTN_NEXT_CARD,
                 callback_data=f"{callback_prefix}:{user_id}:{card_date}:{card_index}",
             )
         )
@@ -114,7 +244,7 @@ def daily_card_keyboard(
     if show_pronounce:
         rows.append([
             InlineKeyboardButton(
-                "🔊 تلفظ",
+                IBTN_PRONOUNCE,
                 callback_data=f"tts:pronounce:d:{user_id}:{card_date}:{card_index}",
             )
         ])
@@ -124,7 +254,7 @@ def daily_card_keyboard(
 def daily_review_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("📚 مرور کارت‌ها", callback_data="review:menu")],
+            [InlineKeyboardButton(IBTN_REVIEW_CARDS, callback_data="review:menu")],
         ]
     )
 
@@ -143,15 +273,15 @@ def daily_review_dates_keyboard(
     if total_pages > 1:
         if page > 0:
             nav_buttons.append(
-                InlineKeyboardButton("⬅️ جدیدتر", callback_data=f"review:page:{page - 1}")
+                InlineKeyboardButton(IBTN_NEWER, callback_data=f"review:page:{page - 1}")
             )
-        nav_buttons.append(InlineKeyboardButton("📚 منوی مرور", callback_data="review:menu"))
+        nav_buttons.append(InlineKeyboardButton(IBTN_REVIEW_MENU, callback_data="review:menu"))
         if page + 1 < total_pages:
             nav_buttons.append(
-                InlineKeyboardButton("قدیمی‌تر ➡️", callback_data=f"review:page:{page + 1}")
+                InlineKeyboardButton(IBTN_OLDER, callback_data=f"review:page:{page + 1}")
             )
         buttons.append(nav_buttons)
-    return InlineKeyboardMarkup(buttons or [[InlineKeyboardButton("فعلاً کارتی نیست", callback_data="review:noop")]])
+    return InlineKeyboardMarkup(buttons or [[InlineKeyboardButton(IBTN_NO_CARDS, callback_data="review:noop")]])
 
 
 def query_result_keyboard(
@@ -161,7 +291,7 @@ def query_result_keyboard(
     show_translations: bool = False,
     show_pronounce: bool = False,
 ) -> InlineKeyboardMarkup:
-    label = "➕ افزودن به مرور"
+    label = IBTN_ADD_TO_REVIEW
     if lang:
         label = f"{label} ({language_label(lang)})"
     buttons = [
@@ -173,7 +303,7 @@ def query_result_keyboard(
     if show_translations:
         buttons.append(
             InlineKeyboardButton(
-                "📝 Prepare translations",
+                IBTN_TRANSLATIONS,
                 callback_data=f"query:prepare:{token}",
             )
         )
@@ -181,7 +311,7 @@ def query_result_keyboard(
     if show_pronounce:
         rows.append([
             InlineKeyboardButton(
-                "🔊 تلفظ",
+                IBTN_PRONOUNCE,
                 callback_data=f"tts:pronounce:q:{token}",
             )
         ])
@@ -204,17 +334,17 @@ def srs_hidden_keyboard(
     if show_pronounce:
         rows.append([
             InlineKeyboardButton(
-                "🔊 تلفظ",
+                IBTN_PRONOUNCE,
                 callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
             )
         ])
     rows.append([
         InlineKeyboardButton(
-            "✅ یادم بود",
+            IBTN_REMEMBERED,
             callback_data=f"srs:remember:{user_id}:{word_id}",
         ),
         InlineKeyboardButton(
-            "👁 افشای کارت کامل",
+            IBTN_REVEAL,
             callback_data=f"srs:reveal:{user_id}:{word_id}",
         ),
     ])
@@ -235,17 +365,17 @@ def srs_revealed_keyboard(
     if show_pronounce:
         rows.append([
             InlineKeyboardButton(
-                "🔊 تلفظ",
+                IBTN_PRONOUNCE,
                 callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
             )
         ])
     rows.append([
         InlineKeyboardButton(
-            "✅ بله، درست بود",
+            IBTN_CONFIRM_CORRECT,
             callback_data=f"srs:confirm:{user_id}:{word_id}",
         ),
         InlineKeyboardButton(
-            "🔁 نه، باز هم یادآوری کن",
+            IBTN_REMIND_AGAIN,
             callback_data=f"srs:again:{user_id}:{word_id}",
         ),
     ])
@@ -261,11 +391,11 @@ def srs_review_keyboard(
 ) -> InlineKeyboardMarkup:
     review_buttons = [
         InlineKeyboardButton(
-            "✅ یادم بود",
+            IBTN_REMEMBERED,
             callback_data=f"srs:remember:{user_id}:{word_id}",
         ),
         InlineKeyboardButton(
-            "↩️ فردا دوباره",
+            IBTN_TOMORROW_AGAIN,
             callback_data=f"srs:again:{user_id}:{word_id}",
         ),
     ]
@@ -274,7 +404,7 @@ def srs_review_keyboard(
         rows.append(
             [
                 InlineKeyboardButton(
-                    "📝 Prepare translations",
+                    IBTN_TRANSLATIONS,
                     callback_data=f"srs:prepare:{user_id}:{word_id}",
                 )
             ]
@@ -282,7 +412,7 @@ def srs_review_keyboard(
     if show_pronounce:
         rows.append([
             InlineKeyboardButton(
-                "🔊 تلفظ",
+                IBTN_PRONOUNCE,
                 callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
             )
         ])
@@ -302,8 +432,8 @@ def awaiting_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("↩️ بازگشت", callback_data="flow:back"),
-                InlineKeyboardButton("❌ لغو", callback_data="flow:cancel"),
+                InlineKeyboardButton(BTN_BACK, callback_data="flow:back"),
+                InlineKeyboardButton(BTN_CANCEL, callback_data="flow:cancel"),
             ]
         ]
     )
@@ -312,13 +442,13 @@ def awaiting_inline_keyboard() -> InlineKeyboardMarkup:
 def admin_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("📈 آمار کاربران", callback_data="admin:stats"),
-             InlineKeyboardButton("💳 تنظیم پلن", callback_data="admin:set_plan")],
-            [InlineKeyboardButton("🤖 تنظیمات AI", callback_data="admin:ai_settings"),
-             InlineKeyboardButton("🗣 تنظیم تلفظ", callback_data="admin:phonetics")],
-            [InlineKeyboardButton("💰 مدیریت هزینه‌ها", callback_data="admin:cost_dashboard"),
-             InlineKeyboardButton("⚙️ تنظیمات فعلی", callback_data="admin:show_settings")],
-            [InlineKeyboardButton("📣 ارسال پیام همگانی", callback_data="admin:broadcast")],
+            [InlineKeyboardButton(BTN_ADMIN_STATS, callback_data="admin:stats"),
+             InlineKeyboardButton(IBTN_PLAN, callback_data="admin:set_plan")],
+            [InlineKeyboardButton(IBTN_ADMIN_AI, callback_data="admin:ai_settings"),
+             InlineKeyboardButton(IBTN_ADMIN_PHONETICS, callback_data="admin:phonetics")],
+            [InlineKeyboardButton(IBTN_ADMIN_COST, callback_data="admin:cost_dashboard"),
+             InlineKeyboardButton(IBTN_ADMIN_SETTINGS, callback_data="admin:show_settings")],
+            [InlineKeyboardButton(BTN_ADMIN_BROADCAST, callback_data="admin:broadcast")],
         ]
     )
 
@@ -326,9 +456,9 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
 def admin_cost_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("💰 داشبورد هزینه LLM", callback_data="admin:llm_costs")],
-            [InlineKeyboardButton("💱 تنظیم قیمت LLM", callback_data="admin:llm_pricing")],
-            [InlineKeyboardButton("↩️ بازگشت به پنل اصلی", callback_data="admin:back")],
+            [InlineKeyboardButton(IBTN_LLM_COST, callback_data="admin:llm_costs")],
+            [InlineKeyboardButton(IBTN_LLM_PRICING, callback_data="admin:llm_pricing")],
+            [InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:back")],
         ]
     )
 
@@ -338,38 +468,38 @@ def phonetic_settings_keyboard(current: dict[str, bool]) -> InlineKeyboardMarkup
         [
             [
                 InlineKeyboardButton(
-                    f"{'✅ ' if current.get('ipa') else ''}IPA",
+                    f"{'✅ ' if current.get('ipa') else ''}{IBTN_IPA}",
                     callback_data="admin:phonetics:ipa",
                 ),
                 InlineKeyboardButton(
-                    f"{'✅ ' if current.get('persian') else ''}Persian",
+                    f"{'✅ ' if current.get('persian') else ''}{IBTN_PERSIAN}",
                     callback_data="admin:phonetics:persian",
                 ),
             ],
-            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
+            [InlineKeyboardButton(BTN_BACK, callback_data="admin:back")],
         ]
     )
 
 
 def llm_cost_dashboard_keyboard(detail: bool = False) -> InlineKeyboardMarkup:
-    recent_label = "Hide Recent Requests" if detail else "Recent Requests"
+    recent_label = IBTN_HIDE_RECENT if detail else IBTN_RECENT
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("MTD", callback_data="llm:range:mtd"),
-                InlineKeyboardButton("Last 7 days", callback_data="llm:range:7d"),
-                InlineKeyboardButton("All time", callback_data="llm:range:all"),
+                InlineKeyboardButton(IBTN_MTD, callback_data="llm:range:mtd"),
+                InlineKeyboardButton(IBTN_LAST_7, callback_data="llm:range:7d"),
+                InlineKeyboardButton(IBTN_ALL_TIME, callback_data="llm:range:all"),
             ],
             [
-                InlineKeyboardButton("Plan", callback_data="llm:set:plan"),
-                InlineKeyboardButton("User", callback_data="llm:set:user"),
-                InlineKeyboardButton("Request kind", callback_data="llm:set:kind"),
-                InlineKeyboardButton("Model", callback_data="llm:set:model"),
+                InlineKeyboardButton(IBTN_FILTER_PLAN, callback_data="llm:set:plan"),
+                InlineKeyboardButton(IBTN_FILTER_USER, callback_data="llm:set:user"),
+                InlineKeyboardButton(IBTN_FILTER_KIND, callback_data="llm:set:kind"),
+                InlineKeyboardButton(IBTN_FILTER_MODEL, callback_data="llm:set:model"),
             ],
             [
-                InlineKeyboardButton("Status", callback_data="llm:set:status"),
-                InlineKeyboardButton("Clear filters", callback_data="llm:clear"),
-                InlineKeyboardButton("Refresh", callback_data="llm:refresh"),
+                InlineKeyboardButton(IBTN_FILTER_STATUS, callback_data="llm:set:status"),
+                InlineKeyboardButton(IBTN_CLEAR_FILTERS, callback_data="llm:clear"),
+                InlineKeyboardButton(IBTN_REFRESH, callback_data="llm:refresh"),
             ],
             [
                 InlineKeyboardButton(recent_label, callback_data="llm:recent"),
@@ -382,10 +512,10 @@ def llm_cost_plan_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("All", callback_data="llm:plan:all"),
-                InlineKeyboardButton("Free", callback_data="llm:plan:free"),
-                InlineKeyboardButton("Silver", callback_data="llm:plan:silver"),
-                InlineKeyboardButton("Gold", callback_data="llm:plan:gold"),
+                InlineKeyboardButton(IBTN_ALL, callback_data="llm:plan:all"),
+                InlineKeyboardButton(IBTN_FREE, callback_data="llm:plan:free"),
+                InlineKeyboardButton(IBTN_SILVER, callback_data="llm:plan:silver"),
+                InlineKeyboardButton(IBTN_GOLD, callback_data="llm:plan:gold"),
             ]
         ]
     )
@@ -395,10 +525,10 @@ def llm_cost_kind_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("All", callback_data="llm:kind:all"),
-                InlineKeyboardButton("daily_batch", callback_data="llm:kind:daily_batch"),
-                InlineKeyboardButton("custom_word", callback_data="llm:kind:custom_word"),
-                InlineKeyboardButton("grammar_tip", callback_data="llm:kind:grammar_tip"),
+                InlineKeyboardButton(IBTN_ALL, callback_data="llm:kind:all"),
+                InlineKeyboardButton(IBTN_KIND_DAILY, callback_data="llm:kind:daily_batch"),
+                InlineKeyboardButton(IBTN_KIND_CUSTOM, callback_data="llm:kind:custom_word"),
+                InlineKeyboardButton(IBTN_KIND_GRAMMAR, callback_data="llm:kind:grammar_tip"),
             ]
         ]
     )
@@ -408,10 +538,10 @@ def llm_cost_status_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("All", callback_data="llm:status:all"),
-                InlineKeyboardButton("success", callback_data="llm:status:success"),
-                InlineKeyboardButton("billed fail", callback_data="llm:status:failure_billed"),
-                InlineKeyboardButton("zero-cost fail", callback_data="llm:status:failure_zero_cost"),
+                InlineKeyboardButton(IBTN_ALL, callback_data="llm:status:all"),
+                InlineKeyboardButton(IBTN_STATUS_SUCCESS, callback_data="llm:status:success"),
+                InlineKeyboardButton(IBTN_STATUS_FAIL_BILLED, callback_data="llm:status:failure_billed"),
+                InlineKeyboardButton(IBTN_STATUS_FAIL_ZERO, callback_data="llm:status:failure_zero_cost"),
             ]
         ]
     )
@@ -421,12 +551,12 @@ def llm_cost_pricing_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("input $/1M", callback_data="llm:pricing:set_input"),
-                InlineKeyboardButton("output $/1M", callback_data="llm:pricing:set_output"),
-                InlineKeyboardButton("USD→تومان", callback_data="llm:pricing:set_rate"),
+                InlineKeyboardButton(IBTN_INPUT_PRICE, callback_data="llm:pricing:set_input"),
+                InlineKeyboardButton(IBTN_OUTPUT_PRICE, callback_data="llm:pricing:set_output"),
+                InlineKeyboardButton(IBTN_USD_TOMAN, callback_data="llm:pricing:set_rate"),
             ],
             [
-                InlineKeyboardButton("بازگشت", callback_data="llm:pricing:back"),
+                InlineKeyboardButton(IBTN_PRICE_BACK, callback_data="llm:pricing:back"),
             ],
         ]
     )
@@ -438,14 +568,14 @@ def ai_settings_keyboard() -> InlineKeyboardMarkup:
     """Main AI settings panel."""
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("🤖 پیش‌تنظیم‌های AI", callback_data="admin:ai_presets")],
-            [InlineKeyboardButton("🧪 تست اتصال", callback_data="admin:ai_test_connection")],
-            [InlineKeyboardButton("🔬 تست سفارشی (Wizard)", callback_data="admin:ai_custom_test")],
-            [InlineKeyboardButton("📝 تنظیمات در حال انتظار (Staging)", callback_data="admin:ai_pending")],
-            [InlineKeyboardButton("✅ اعمال تغییرات", callback_data="admin:ai_apply")],
-            [InlineKeyboardButton("↩️ انصراف / بازنشانی", callback_data="admin:ai_rollback")],
-            [InlineKeyboardButton("🔄 پیش‌تنظیم پشتیبان (Fallback)", callback_data="admin:ai_fallback")],
-            [InlineKeyboardButton("↩️ بازگشت به پنل اصلی", callback_data="admin:back")],
+            [InlineKeyboardButton(IBTN_AI_PRESETS, callback_data="admin:ai_presets")],
+            [InlineKeyboardButton(IBTN_AI_TEST, callback_data="admin:ai_test_connection")],
+            [InlineKeyboardButton(IBTN_AI_CUSTOM_TEST, callback_data="admin:ai_custom_test")],
+            [InlineKeyboardButton(IBTN_AI_PENDING, callback_data="admin:ai_pending")],
+            [InlineKeyboardButton(IBTN_AI_APPLY, callback_data="admin:ai_apply")],
+            [InlineKeyboardButton(IBTN_AI_ROLLBACK, callback_data="admin:ai_rollback")],
+            [InlineKeyboardButton(IBTN_AI_FALLBACK, callback_data="admin:ai_fallback")],
+            [InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:back")],
         ]
     )
 
@@ -466,16 +596,16 @@ def ai_presets_list_keyboard(presets: list[dict], active_name: str) -> InlineKey
         # Action buttons row
         action_row = []
         if name != active_name:
-            action_row.append(InlineKeyboardButton("✅ فعال کردن", callback_data=f"admin:ai_preset:activate:{name}"))
+            action_row.append(InlineKeyboardButton(IBTN_ACTIVATE, callback_data=f"admin:ai_preset:activate:{name}"))
         if is_custom:
-            action_row.append(InlineKeyboardButton("✏️ ویرایش", callback_data=f"admin:ai_preset:edit:{name}"))
-            action_row.append(InlineKeyboardButton("🗑 حذف", callback_data=f"admin:ai_preset:delete:{name}"))
+            action_row.append(InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:ai_preset:edit:{name}"))
+            action_row.append(InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{name}"))
         else:
-            action_row.append(InlineKeyboardButton("✏️ ویرایش (fork)", callback_data=f"admin:ai_preset:edit:{name}"))
+            action_row.append(InlineKeyboardButton(IBTN_EDIT_FORK, callback_data=f"admin:ai_preset:edit:{name}"))
         if action_row:
             rows.append(action_row)
-    rows.append([InlineKeyboardButton("➕ افزودن پیش‌تنظیم سفارشی", callback_data="admin:ai_preset:add")])
-    rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")])
+    rows.append([InlineKeyboardButton(IBTN_ADD_CUSTOM, callback_data="admin:ai_preset:add")])
+    rows.append([InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_settings")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -485,35 +615,35 @@ def ai_preset_view_keyboard(preset: dict, active_name: str) -> InlineKeyboardMar
     is_custom = preset.get("is_custom", 0)
     rows = []
     if name != active_name:
-        rows.append([InlineKeyboardButton("✅ فعال کردن این پیش‌تنظیم", callback_data=f"admin:ai_preset:activate:{name}")])
+        rows.append([InlineKeyboardButton(IBTN_ACTIVATE_THIS, callback_data=f"admin:ai_preset:activate:{name}")])
     if is_custom:
-        rows.append([InlineKeyboardButton("✏️ ویرایش", callback_data=f"admin:ai_preset:edit:{name}")])
-        rows.append([InlineKeyboardButton("🗑 حذف", callback_data=f"admin:ai_preset:delete:{name}")])
+        rows.append([InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:ai_preset:edit:{name}")])
+        rows.append([InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{name}")])
     else:
-        rows.append([InlineKeyboardButton("✏️ ویرایش (ایجاد کپی سفارشی)", callback_data=f"admin:ai_preset:edit:{name}")])
-    rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_presets")])
+        rows.append([InlineKeyboardButton(IBTN_EDIT_COPY, callback_data=f"admin:ai_preset:edit:{name}")])
+    rows.append([InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_presets")])
     return InlineKeyboardMarkup(rows)
 
 
 def ai_preset_edit_keyboard(preset_name: str, field: str | None = None) -> InlineKeyboardMarkup:
     """Keyboard for editing a preset field-by-field."""
     fields = [
-        ("base_url", "🌐 Base URL"),
-        ("model", "🤖 Model"),
-        ("daily_batch_size", "📦 Batch Size"),
-        ("max_concurrency", "⚡ Concurrency"),
-        ("max_rpm", "🚀 RPM Limit"),
-        ("timeout_seconds", "⏱ Timeout (s)"),
-        ("temperature", "🌡 Temperature"),
-        ("max_output_tokens", "📝 Max Tokens"),
+        ("base_url", IBTN_FIELD_BASE_URL),
+        ("model", IBTN_FIELD_MODEL),
+        ("daily_batch_size", IBTN_FIELD_BATCH_SIZE),
+        ("max_concurrency", IBTN_FIELD_CONCURRENCY),
+        ("max_rpm", IBTN_FIELD_RPM),
+        ("timeout_seconds", IBTN_FIELD_TIMEOUT),
+        ("temperature", IBTN_FIELD_TEMPERATURE),
+        ("max_output_tokens", IBTN_FIELD_MAX_TOKENS),
     ]
     rows = []
     for key, label in fields:
         rows.append([
             InlineKeyboardButton(f"{label}: تنظیم", callback_data=f"admin:ai_preset:edit_field:{preset_name}:{key}"),
         ])
-    rows.append([InlineKeyboardButton("✅ ذخیره پیش‌تنظیم", callback_data=f"admin:ai_preset:save:{preset_name}")])
-    rows.append([InlineKeyboardButton("↩️ انصراف", callback_data=f"admin:ai_preset:view:{preset_name}")])
+    rows.append([InlineKeyboardButton(IBTN_SAVE_PRESET, callback_data=f"admin:ai_preset:save:{preset_name}")])
+    rows.append([InlineKeyboardButton(IBTN_CANCEL_EDIT, callback_data=f"admin:ai_preset:view:{preset_name}")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -525,8 +655,8 @@ def ai_fallback_keyboard(primary: str, fallback: str, active: str) -> InlineKeyb
             [InlineKeyboardButton(f"Primary: {primary}", callback_data="admin:ai_fallback:set_primary")],
             [InlineKeyboardButton(f"Fallback: {fallback}", callback_data="admin:ai_fallback:set_fallback")],
             [InlineKeyboardButton(f"Status: {status_text}", callback_data="admin:ai_fallback:status")],
-            [InlineKeyboardButton("🔄 بازنشانی به Primary (Manual)", callback_data="admin:ai_fallback:reset")],
-            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
+            [InlineKeyboardButton(IBTN_RESET_PRIMARY, callback_data="admin:ai_fallback:reset")],
+            [InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_settings")],
         ]
     )
 
@@ -547,11 +677,11 @@ def ai_custom_test_wizard_keyboard(step: str, lang: str | None = None, goal: str
         for code, opt in LEVELS.items():
             rows.append([InlineKeyboardButton(f"{opt.name_fa} ({opt.cefr})", callback_data=f"admin:ai_custom_test:level:{code}")])
     elif step == "target":
-        rows.append([InlineKeyboardButton("🎯 Current Config", callback_data="admin:ai_custom_test:target:current")])
-        rows.append([InlineKeyboardButton("🧪 Candidate Preset", callback_data="admin:ai_custom_test:target:candidate")])
-        rows.append([InlineKeyboardButton("⚖️ Compare A/B", callback_data="admin:ai_custom_test:target:ab")])
+        rows.append([InlineKeyboardButton(IBTN_CURRENT_CONFIG, callback_data="admin:ai_custom_test:target:current")])
+        rows.append([InlineKeyboardButton(IBTN_CANDIDATE, callback_data="admin:ai_custom_test:target:candidate")])
+        rows.append([InlineKeyboardButton(IBTN_COMPARE_AB, callback_data="admin:ai_custom_test:target:ab")])
     if step != "prompt":
-        rows.append([InlineKeyboardButton("↩️ انصراف", callback_data="admin:ai_settings")])
+        rows.append([InlineKeyboardButton(IBTN_CANCEL_WIZARD, callback_data="admin:ai_settings")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -559,7 +689,7 @@ def ai_pending_keyboard(diff: dict) -> InlineKeyboardMarkup:
     """Staging area: show diff with apply/rollback."""
     rows = []
     if not diff:
-        rows.append([InlineKeyboardButton("No pending changes", callback_data="admin:ai_settings")])
+        rows.append([InlineKeyboardButton(IBTN_NO_PENDING, callback_data="admin:ai_settings")])
     else:
         for key, change in list(diff.items())[:8]:
             p = change.get("pending")
@@ -568,7 +698,7 @@ def ai_pending_keyboard(diff: dict) -> InlineKeyboardMarkup:
             a_short = (a[:30] + "…") if a and len(a) > 30 else a
             label = f"{key}: {a_short} → {p_short}"
             rows.append([InlineKeyboardButton(label, callback_data="admin:noop")])
-        rows.append([InlineKeyboardButton("✅ Apply All", callback_data="admin:ai_apply")])
-        rows.append([InlineKeyboardButton("↩️ Rollback All", callback_data="admin:ai_rollback")])
-    rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")])
+        rows.append([InlineKeyboardButton(IBTN_APPLY_ALL, callback_data="admin:ai_apply")])
+        rows.append([InlineKeyboardButton(IBTN_ROLLBACK_ALL, callback_data="admin:ai_rollback")])
+    rows.append([InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_settings")])
     return InlineKeyboardMarkup(rows)
