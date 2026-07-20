@@ -336,7 +336,7 @@ class AskWordKeyboardRestoreTests(unittest.TestCase):
 
         reply_markups = [
             call.kwargs.get("reply_markup")
-            for call in message.reply_text.call_args_list
+            for call in context.bot.send_message.call_args_list
             if call.kwargs.get("reply_markup") is not None
         ]
         self.assertTrue(reply_markups, "expected at least one reply with a keyboard")
@@ -366,7 +366,7 @@ class AskWordKeyboardRestoreTests(unittest.TestCase):
 
         restored = [
             call.kwargs.get("reply_markup")
-            for call in message.reply_text.call_args_list
+            for call in context.bot.send_message.call_args_list
             if isinstance(call.kwargs.get("reply_markup"), ReplyKeyboardMarkup)
         ]
         self.assertTrue(

@@ -104,6 +104,12 @@ async def _answer_callback_safely(query, *args, **kwargs) -> None:
         logger.warning("callback answer failed due to network error")
 
 
+def _reset_telegram_cb():
+    import bot
+    bot._telegram_offline = False
+    bot._consecutive_health_failures = 0
+
+
 async def _send_with_retry(
     bot,
     chat_id: int,
@@ -114,7 +120,9 @@ async def _send_with_retry(
         try:
             async with _telegram_slots:
                 send_kwargs = {"chat_id": chat_id, "text": text, **kwargs}
-                return await bot.send_message(**send_kwargs)
+                result = await bot.send_message(**send_kwargs)
+                _reset_telegram_cb()
+                return result
         except BadRequest:
             raise
         except RetryAfter as exc:
@@ -131,7 +139,9 @@ async def _edit_with_retry(query, text, **kwargs):
     for attempt in range(3):
         try:
             async with _telegram_slots:
-                return await query.edit_message_text(text, **kwargs)
+                result = await query.edit_message_text(text, **kwargs)
+                _reset_telegram_cb()
+                return result
         except BadRequest:
             raise
         except RetryAfter as exc:
@@ -148,7 +158,9 @@ async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
     for attempt in range(3):
         try:
             async with _telegram_slots:
-                return await bot.delete_message(chat_id=chat_id, message_id=message_id, **kwargs)
+                result = await bot.delete_message(chat_id=chat_id, message_id=message_id, **kwargs)
+                _reset_telegram_cb()
+                return result
         except BadRequest:
             raise
         except RetryAfter as exc:
@@ -165,7 +177,9 @@ async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
     for attempt in range(3):
         try:
             async with _telegram_slots:
-                return await bot.send_voice(chat_id=chat_id, voice=voice, **kwargs)
+                result = await bot.send_voice(chat_id=chat_id, voice=voice, **kwargs)
+                _reset_telegram_cb()
+                return result
         except BadRequest:
             raise
         except RetryAfter as exc:

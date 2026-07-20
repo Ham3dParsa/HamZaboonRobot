@@ -731,6 +731,81 @@ class SrsReliabilityTests(unittest.TestCase):
         self.assertTrue(db.release_srs_claim(word["id"]))
         self.assertTrue(db.claim_srs_reminder(word["id"]))
 
+    def test_mark_srs_send_failed_sets_retry_at_with_backoff(self):
+        db.create_user_if_needed(1, "learner")
+        db.add_saved_word(1, "hello", "en")
+        word = db.get_saved_word(1, user_id=1)
+        db.mark_srs_send_failed(word["id"], 0)
+        row = db.get_saved_word(word["id"])
+        self.assertIsNotNone(row["retry_at"])
+        self.assertAlmostEqual(row["srs_retry_attempts"], 0)
+
+    def test_mark_srs_send_failed_gives_up_after_max_attempts(self):
+        db.create_user_if_needed(1, "learner")
+        db.add_saved_word(1, "hello", "en")
+        word = db.get_saved_word(1, user_id=1)
+        db.mark_srs_send_failed(word["id"], 5)
+        row = db.get_saved_word(word["id"])
+        self.assertIsNone(row["retry_at"])
+
+    def test_get_due_srs_failed_returns_only_expired_retries(self):
+        db.create_user_if_needed(1, "learner")
+        db.add_saved_word(1, "word1", "en")
+        db.add_saved_word(1, "word2", "en")
+        w1 = db.get_saved_word(1, user_id=1)
+        w2 = db.get_saved_word(2, user_id=1)
+        past = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)).isoformat()
+        future = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)).isoformat()
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE saved_words SET retry_at=? WHERE id=?", (past, w1["id"])
+            )
+            conn.execute(
+                "UPDATE saved_words SET retry_at=? WHERE id=?", (future, w2["id"])
+            )
+            conn.commit()
+        due = db.get_due_srs_failed()
+        ids = [r["id"] for r in due]
+        self.assertIn(w1["id"], ids)
+        self.assertNotIn(w2["id"], ids)
+
+    def test_clear_srs_retry_resets_columns(self):
+        db.create_user_if_needed(1, "learner")
+        db.add_saved_word(1, "hello", "en")
+        word = db.get_saved_word(1, user_id=1)
+        db.mark_srs_send_failed(word["id"], 2)
+        db.clear_srs_retry(word["id"])
+        row = db.get_saved_word(word["id"])
+        self.assertIsNone(row["retry_at"])
+        self.assertEqual(row["srs_retry_attempts"], 0)
+
+    def test_due_words_for_user_excludes_retry_at_words(self):
+        db.create_user_if_needed(1, "learner")
+        db.add_saved_word(1, "active", "en")
+        db.add_saved_word(1, "stuck", "en")
+        w2 = db.get_saved_word(2, user_id=1)
+        # Set both words' next_review to past so they are due
+        past_review = (dt.date(2020, 1, 1)).isoformat()
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE saved_words SET next_review=? WHERE user_id=?",
+                (past_review, 1),
+            )
+            conn.commit()
+        # Set stuck word with retry_at (future)
+        w = db.get_saved_word(2, user_id=1)
+        past = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)).isoformat()
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE saved_words SET retry_at=? WHERE id=?", (past, w["id"])
+            )
+            conn.commit()
+        with patch.object(db, "_today", return_value=dt.date(2026, 7, 20)):
+            due = db.due_words_for_user(1)
+        ids = [r["id"] for r in due]
+        self.assertIn(1, ids)
+        self.assertNotIn(2, ids)
+
 
 class CallbackAnswerTests(unittest.IsolatedAsyncioTestCase):
     async def test_stale_callback_answer_is_ignored(self):
@@ -792,32 +867,14 @@ class NetworkResilienceTests(unittest.IsolatedAsyncioTestCase):
             await helpers._delete_with_retry(bot_mock, 123, 456)
         self.assertEqual(bot_mock.delete_message.call_count, 1)
 
-    async def test_telegram_offline_set_after_two_consecutive_failures(self):
+    async def test_telegram_offline_set_after_single_failure_with_threshold_one(self):
         bot._telegram_offline = False
         bot._consecutive_health_failures = 0
         context = MagicMock()
         context.bot.get_me = AsyncMock()
-        context.bot.get_me.side_effect = [
-            TimedOut("timeout"),
-            TimedOut("timeout"),
-        ]
-        await bot.connection_health_job(context)
-        self.assertFalse(bot._telegram_offline)
-        self.assertEqual(bot._consecutive_health_failures, 1)
+        context.bot.get_me.side_effect = TimedOut("timeout")
         await bot.connection_health_job(context)
         self.assertTrue(bot._telegram_offline)
-        self.assertEqual(bot._consecutive_health_failures, 2)
-
-    async def test_telegram_offline_not_set_on_single_failure(self):
-        bot._telegram_offline = False
-        bot._consecutive_health_failures = 0
-        context = MagicMock()
-        context.bot.get_me = AsyncMock()
-        context.bot.get_me.side_effect = [
-            TimedOut("timeout"),
-        ]
-        await bot.connection_health_job(context)
-        self.assertFalse(bot._telegram_offline)
         self.assertEqual(bot._consecutive_health_failures, 1)
 
     async def test_telegram_offline_resets_on_health_success(self):
@@ -828,6 +885,61 @@ class NetworkResilienceTests(unittest.IsolatedAsyncioTestCase):
         await bot.connection_health_job(context)
         self.assertFalse(bot._telegram_offline)
         self.assertEqual(bot._consecutive_health_failures, 0)
+
+    async def test_reset_telegram_cb_resets_globals(self):
+        bot._telegram_offline = True
+        bot._consecutive_health_failures = 3
+        helpers._reset_telegram_cb()
+        self.assertFalse(bot._telegram_offline)
+        self.assertEqual(bot._consecutive_health_failures, 0)
+
+    async def test_send_with_retry_calls_reset_on_success(self):
+        bot_mock = MagicMock()
+        bot_mock.send_message = AsyncMock(return_value="ok")
+        with patch.object(helpers, "_reset_telegram_cb") as reset_mock:
+            result = await helpers._send_with_retry(bot_mock, 123, "hello")
+        self.assertEqual(result, "ok")
+        reset_mock.assert_called_once()
+
+    async def test_edit_with_retry_calls_reset_on_success(self):
+        query = MagicMock()
+        query.edit_message_text = AsyncMock(return_value="ok")
+        with patch.object(helpers, "_reset_telegram_cb") as reset_mock:
+            result = await helpers._edit_with_retry(query, "hello")
+        self.assertEqual(result, "ok")
+        reset_mock.assert_called_once()
+
+    async def test_delete_with_retry_calls_reset_on_success(self):
+        bot_mock = MagicMock()
+        bot_mock.delete_message = AsyncMock(return_value=True)
+        with patch.object(helpers, "_reset_telegram_cb") as reset_mock:
+            result = await helpers._delete_with_retry(bot_mock, 123, 456)
+        self.assertTrue(result)
+        reset_mock.assert_called_once()
+
+    async def test_send_voice_with_retry_calls_reset_on_success(self):
+        bot_mock = MagicMock()
+        bot_mock.send_voice = AsyncMock(return_value="ok")
+        with patch.object(helpers, "_reset_telegram_cb") as reset_mock:
+            result = await helpers._send_voice_with_retry(bot_mock, 123, b"audio")
+        self.assertEqual(result, "ok")
+        reset_mock.assert_called_once()
+
+    async def test_reset_not_called_on_send_failure(self):
+        bot_mock = MagicMock()
+        bot_mock.send_message = AsyncMock(side_effect=BadRequest("bad"))
+        with patch.object(helpers, "_reset_telegram_cb") as reset_mock:
+            with self.assertRaises(BadRequest):
+                await helpers._send_with_retry(bot_mock, 123, "hello")
+        reset_mock.assert_not_called()
+
+    async def test_dispatch_queue_skips_when_offline(self):
+        bot._telegram_offline = True
+        context = MagicMock()
+        with patch.object(db, "get_delivery_queue") as mock_q:
+            await bot._dispatch_queue(context, "2026-07-20")
+        mock_q.assert_not_called()
+        bot._telegram_offline = False
 
 
 if __name__ == "__main__":

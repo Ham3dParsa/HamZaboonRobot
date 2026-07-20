@@ -176,7 +176,7 @@ _daily_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 _MANUAL_DAILY_BATCH_SIZE = 6
 _telegram_offline: bool = False
 _consecutive_health_failures: int = 0
-_OFFLINE_THRESHOLD: int = 2
+_OFFLINE_THRESHOLD: int = 1
 _OFFLINE_MESSAGE = "⚠️ اتصال ربات به اینترنت قطع شده. به محض وصل شدن، دوباره تلاش کن."
 
 
@@ -584,7 +584,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             error = _custom_word_input_error(text, row["target_lang"] if row else "en")
             if error:
                 context.user_data["awaiting"] = "ask_word"
-                await update.message.reply_text(
+                await _send_with_retry(
+                    context.bot,
+                    update.effective_chat.id,
                     f"{error}\n\nچه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟",
                     reply_markup=awaiting_inline_keyboard(),
                 )
@@ -594,7 +596,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 limit,
                 bypass_limits=OWNER_BYPASS_LIMITS and is_owner(user_id),
             ):
-                await update.message.reply_text(
+                await _send_with_retry(
+                    context.bot,
+                    update.effective_chat.id,
                     f"سقف روزانه‌ی پرسش واژه‌ی پلن شما ({limit} بار) تموم شده.",
                     reply_markup=main_menu(is_owner(user_id)),
                 )
@@ -622,7 +626,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 db.release_word_query(user_id)
                 log.exception("AI error")
                 await _finish_llm_wait_state(wait_message)
-                await update.message.reply_text(
+                await _send_with_retry(
+                    context.bot,
+                    update.effective_chat.id,
                     "مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.",
                     reply_markup=main_menu(is_owner(user_id)),
                 )
@@ -640,7 +646,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except CardPreparationError:
                 db.release_word_query(user_id)
                 await _finish_llm_wait_state(wait_message)
-                await update.message.reply_text(
+                await _send_with_retry(
+                    context.bot,
+                    update.effective_chat.id,
                     "این کارت نتونست با اطمینان آماده بشه؛ لطفاً بعداً دوباره امتحان کن.",
                     reply_markup=main_menu(is_owner(user_id)),
                 )
@@ -659,7 +667,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log.info("custom word query delivered user_id=%s lang=%s", user_id, row["target_lang"])
             await _finish_llm_wait_state(wait_message)
             phon_lines = _phonetic_lines(data.get("phonetic", ""))
-            await update.message.reply_text(
+            await _send_with_retry(
+                context.bot,
+                update.effective_chat.id,
                 format_card(
                     data,
                     footer=(
@@ -677,7 +687,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     show_pronounce=_user_plan(row) in PREMIUM_PLANS,
                 ),
             )
-            await update.message.reply_text(
+            await _send_with_retry(
+                context.bot,
+                update.effective_chat.id,
                 "به منوی اصلی برگشتی 🙂",
                 reply_markup=main_menu(is_owner(user_id)),
             )
@@ -700,13 +712,15 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         if not is_owner(user_id):
             return
-        await update.message.reply_text(f"👥 تعداد کل کاربران: {db.count_users()}")
+        await _send_with_retry(context.bot, update.effective_chat.id, f"👥 تعداد کل کاربران: {db.count_users()}")
     elif text == BTN_ADMIN_SET_PLAN:
         user_id = update.effective_user.id
         if not is_owner(user_id):
             return
         context.user_data["awaiting"] = "admin_set_plan"
-        await update.message.reply_text(
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
             "فرمت را ارسال کنید:\n`user_id_or_username plan`\n\n"
             "مثال: `123456789 silver` یا `@username gold`\n"
             "پلن‌ها: free، silver، gold",
@@ -718,7 +732,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not is_owner(user_id):
             return
         context.user_data["awaiting"] = "admin_broadcast"
-        await update.message.reply_text(
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
             "متن پیام همگانی رو بفرست:",
             reply_markup=awaiting_inline_keyboard(),
         )
@@ -733,7 +749,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == BTN_CHANGE_PRESENTATION:
         await change_presentation_start(update, context)
     else:
-        await update.message.reply_text("از دکمه‌های پایین استفاده کن 🙂", reply_markup=main_menu(is_owner(user_id)))
+        await _send_with_retry(context.bot, update.effective_chat.id, "از دکمه‌های پایین استفاده کن 🙂", reply_markup=main_menu(is_owner(user_id)))
 
 
 # ---------------- روتر callback query ها ----------------
@@ -1006,6 +1022,9 @@ def _plan_daily_queue(delivery_date: str):
 
 
 async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str):
+    if _telegram_offline:
+        log.warning("dispatch_queue skipped: telegram offline")
+        return
     now = datetime.datetime.now(_app_timezone).isoformat()
     for queue_row in db.get_delivery_queue(delivery_date):
         if queue_row["planned_for"] > now:
@@ -1109,6 +1128,9 @@ async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str
 
 
 async def daily_job(context: ContextTypes.DEFAULT_TYPE):
+    if _telegram_offline:
+        log.warning("daily_job skipped: telegram offline")
+        return
     today = datetime.datetime.now(_app_timezone).date().isoformat()
     stale_before = (
         datetime.datetime.now(datetime.timezone.utc)
@@ -1120,6 +1142,12 @@ async def daily_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def startup_catch_up_job(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        async with _telegram_slots:
+            await context.bot.get_me()
+    except Exception:
+        log.warning("startup catch-up skipped: telegram connection check failed")
+        return
     for job in (daily_job, delivery_dispatch_job, srs_job):
         try:
             await job(context)
@@ -1175,6 +1203,9 @@ async def connection_health_job(context: ContextTypes.DEFAULT_TYPE):
 
 async def srs_job(context: ContextTypes.DEFAULT_TYPE):
     """یادآوری واژه‌های ذخیره‌شده‌ی سررسیدشده (مرور فاصله‌دار)."""
+    if _telegram_offline:
+        log.warning("srs_job skipped: telegram offline")
+        return
     for row in db.all_active_users():
         user_id = row["user_id"]
         try:
@@ -1213,10 +1244,10 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
                         continue
                     log.info("srs review reminder sent user_id=%s word_id=%s", user_id, word_id)
                 except CardPreparationError:
-                    db.release_srs_claim(word_id)
+                    db.mark_srs_send_failed(word_id, word.get("srs_retry_attempts", 0))
                     log.warning("SRS card preparation failed for user %s word_id=%s", user_id, word_id)
                 except Exception:
-                    db.release_srs_claim(word_id)
+                    db.mark_srs_send_failed(word_id, word.get("srs_retry_attempts", 0))
                     raise
         except CardPreparationError:
             try:
@@ -1230,6 +1261,47 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
             log.exception("SRS card preparation failed for user %s", user_id)
         except Exception:
             log.exception(f"srs_job failed for user {user_id}")
+
+
+async def srs_retry_job(context: ContextTypes.DEFAULT_TYPE):
+    if _telegram_offline:
+        log.warning("srs_retry_job skipped: telegram offline")
+        return
+    for word in db.get_due_srs_failed():
+        word_id = word["id"]
+        user_id = word["user_id"]
+        user_row = db.get_user(user_id)
+        if not user_row or not user_row["onboarded"]:
+            continue
+        try:
+            card = await asyncio.to_thread(
+                _prepare_cached_card,
+                _saved_word_card(word),
+                lang=word["lang"],
+                user_id=user_id,
+                plan=user_row["plan"] or "free",
+                source="srs",
+                persist_patch=lambda patch, word_id_=word_id: db.update_saved_word_fields(
+                    word_id_, user_id, patch,
+                ),
+            )
+            phon_lines = _phonetic_lines(card.get("phonetic", ""))
+            show_pronounce = (user_row["plan"] or "free") in PREMIUM_PLANS
+            await _send_with_retry(
+                context.bot, user_id,
+                format_srs_prompt(card, phonetic_lines=phon_lines),
+                parse_mode=ParseMode.MARKDOWN_V2,
+                reply_markup=srs_hidden_keyboard(user_id, word_id, show_pronounce=show_pronounce),
+            )
+            db.clear_srs_retry(word_id)
+            db.mark_word_review_pending(word_id)
+            log.info("srs retry succeeded word_id=%s user_id=%s", word_id, user_id)
+        except CardPreparationError:
+            db.mark_srs_send_failed(word_id, word["srs_retry_attempts"] + 1)
+            log.warning("srs retry card prep failed word_id=%s user_id=%s", word_id, user_id)
+        except Exception:
+            db.mark_srs_send_failed(word_id, word["srs_retry_attempts"] + 1)
+            log.exception("srs retry failed word_id=%s user_id=%s", word_id, user_id)
 
 
 async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
@@ -1389,6 +1461,11 @@ def main():
                 minute=SRS_REMINDER_MINUTE % 60,
                 tzinfo=_app_timezone,
             ),
+        )
+        app.job_queue.run_repeating(
+            srs_retry_job,
+            interval=900,  # 15 minutes
+            first=900,
         )
         if OWNER_ID != 0:
             app.job_queue.run_repeating(

@@ -297,6 +297,10 @@ def init_db():
             )
         if "review_requested_at" not in saved_word_columns:
             conn.execute("ALTER TABLE saved_words ADD COLUMN review_requested_at TEXT")
+        if "retry_at" not in saved_word_columns:
+            conn.execute("ALTER TABLE saved_words ADD COLUMN retry_at TEXT")
+        if "srs_retry_attempts" not in saved_word_columns:
+            conn.execute("ALTER TABLE saved_words ADD COLUMN srs_retry_attempts INTEGER NOT NULL DEFAULT 0")
         conn.execute(
             "UPDATE saved_words SET normalized_word=lower(trim(word)) "
             "WHERE normalized_word IS NULL"
@@ -1330,7 +1334,8 @@ def due_words_for_user(user_id: int):
         conn.commit()
         return conn.execute(
             "SELECT * FROM saved_words WHERE user_id=? AND next_review<=? "
-            "AND COALESCE(review_status, 'idle')!='pending'",
+            "AND COALESCE(review_status, 'idle')!='pending' "
+            "AND retry_at IS NULL",
             (user_id, today),
         ).fetchall()
 
@@ -1437,6 +1442,46 @@ def record_review_event(
                 outcome,
                 _utc_now().isoformat(),
             ),
+        )
+        conn.commit()
+
+
+# ---------- SRS Retry Queue ----------
+
+def mark_srs_send_failed(word_id: int, current_attempts: int, max_attempts: int = 5):
+    if current_attempts >= max_attempts:
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE saved_words SET retry_at=NULL, srs_retry_attempts=? WHERE id=?",
+                (current_attempts, word_id),
+            )
+            conn.commit()
+        return
+    delay = min(300 * (2 ** current_attempts), 3600)
+    retry_at = (_utc_now() + datetime.timedelta(seconds=delay)).isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE saved_words SET retry_at=?, review_status='idle', srs_retry_attempts=? WHERE id=?",
+            (retry_at, current_attempts, word_id),
+        )
+        conn.commit()
+
+
+def get_due_srs_failed(max_words: int = 50):
+    now = _utc_now().isoformat()
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM saved_words WHERE retry_at IS NOT NULL AND retry_at<=? "
+            "AND review_status='idle' ORDER BY retry_at LIMIT ?",
+            (now, max_words),
+        ).fetchall()
+
+
+def clear_srs_retry(word_id: int):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE saved_words SET retry_at=NULL, srs_retry_attempts=0 WHERE id=?",
+            (word_id,),
         )
         conn.commit()
 
