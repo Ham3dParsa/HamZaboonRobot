@@ -10,7 +10,7 @@ instruction.
 the agent SHOULD silently verify or explicitly output the **Appendix A** checklist
 to refresh context-window constraints before proceeding.
 
-_Last updated: 2026-07-17. See git history of this file for prior versions
+_Last updated: 2026-07-20. See git history of this file for prior versions
 and rationale for major protocol changes._
 
 ## 1. Product Context
@@ -209,22 +209,22 @@ or adding a new one.
 
 | Callback Prefix | Handler File | Key Functions |
 |----------------|--------------|---------------|
-| `lang:`, `goal:`, `level:` | `user.py` | `on_lang_selected`, `on_goal_selected`, `on_level_selected`, `on_lang_changed`, `on_goal_changed`, `on_level_changed` |
+| `lang:`, `goal:`, `level:` | `handlers/user.py` | `on_lang_selected`, `on_goal_selected`, `on_level_selected`, `on_lang_changed`, `on_goal_changed`, `on_level_changed` |
 | `presentation:set:` | `bot.py` | `callback_router` (inline) |
 | `daily:prepare:`, `daily:next:` | `bot.py` | `_handle_daily_prepare`, `_send_next_daily_card` |
 | `review:prepare:`, `review:menu`, `review:page:`, `review:date:`, `review:next:`, `review:noop` | `bot.py` | `_handle_daily_prepare`, `_show_review_menu`, `_show_review_date`, `_send_card_from_store` |
 | `query:prepare:`, `query:add:` | `bot.py` | `_handle_query_prepare`, `_handle_query_add` |
 | `tts:pronounce:` | `bot.py` | `_handle_tts_pronounce` |
-| `srs:prepare:`, `srs:reveal:`, `srs:` | `srs_handler.py` | `_handle_srs_prepare`, `_handle_srs_reveal`, `_handle_srs_review` |
-| `admin:` | `admin.py` | `_handle_admin_callback` |
-| `llm:` | `admin.py` | `_handle_llm_callback` |
-| `flow:` | `keyboards.py` (handled via `_handle_admin_callback`, `_exit_awaiting_flow`) | `_exit_awaiting_flow` |
+| `srs:prepare:`, `srs:reveal:`, `srs:` | `handlers/srs_handler.py` | `_handle_srs_prepare`, `_handle_srs_reveal`, `_handle_srs_review` |
+| `admin:` | `handlers/admin.py` | `_handle_admin_callback` |
+| `llm:` | `handlers/admin.py` | `_handle_llm_callback` |
+| `flow:` | `config/keyboards.py` (handled via `_handle_admin_callback`, `_exit_awaiting_flow`) | `_exit_awaiting_flow` |
 
 ### Catalog rule
 
 Language, goal, and level identifiers and learner-facing metadata belong in
-`catalog.py`. Do not create parallel dictionaries in `config.py`, `prompts.py`,
-`bot.py`, or `keyboards.py`. New options must:
+`config/catalog.py`. Do not create parallel dictionaries in `config/__init__.py`, `services/ai/prompts.py`,
+`bot.py`, or `config/keyboards.py`. New options must:
 
 - use stable identifiers;
 - be represented in the canonical catalog;
@@ -280,18 +280,18 @@ Telegram uses `MarkdownV2` parsing which is brittle when mixing RTL (Persian)
 and LTR (English, code, variables, numbers). Special characters
 (`_`, `*`, `[`, `]`, `(`, `)`, `~`, `` ` ``, `>`, `#`, `+`, `-`, `=`, `|`,
 `{`, `}`, `.`, `!`) **must be rigorously escaped** in `bot.py` and
-`formatting.py` before interpolation into MarkdownV2 strings. Failure to
+`services/utils/formatting.py` before interpolation into MarkdownV2 strings. Failure to
 escape causes `Bad Request: can't parse entities` API errors and broken
 formatting.
 
-- Centralize escaping logic in `formatting.py` behind a stable interface.
+- Centralize escaping logic in `services/utils/formatting.py` behind a stable interface.
 - Never concatenate raw user input, AI output, or dynamic values directly into
   MarkdownV2 templates without escaping.
 - Test Persian + English mixed strings explicitly in unit tests.
 
 **Escaping contract:** every dynamic value that originates from the AI, the
 database, or user input MUST be passed through the centralized escaping
-function in `formatting.py` before being interpolated into any MarkdownV2
+function in `services/utils/formatting.py` before being interpolated into any MarkdownV2
 template string in `bot.py`. Never concatenate a raw dynamic value directly
 into a reply string. If a value is already known to be pre-escaped or is a
 static, hardcoded literal, that must be stated explicitly in a code comment
