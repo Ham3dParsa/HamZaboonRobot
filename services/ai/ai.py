@@ -15,9 +15,9 @@ from config import (
     DEFAULT_AI_API_KEY,
     DEFAULT_AI_MODEL,
 )
-import db
-import prompts
-import ai_presets
+from services import db
+from services.ai import prompts
+from services.ai import ai_presets
 
 log = logging.getLogger("hamzaban.ai")
 

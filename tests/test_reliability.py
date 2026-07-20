@@ -6,14 +6,14 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import ai
-import admin
+from services.ai import ai
+from handlers import admin
 import bot
 import config
-import db
-import formatting
-import helpers
-import llm_services
+from services import db
+from services.utils import formatting
+from services.utils import helpers
+from services.ai import llm_services
 from telegram.error import BadRequest, NetworkError, TimedOut
 
 

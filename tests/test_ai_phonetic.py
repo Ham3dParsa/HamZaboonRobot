@@ -1,5 +1,5 @@
 import pytest
-from ai import normalize_phonetic
+from services.ai.ai import normalize_phonetic
 
 def test_normalize_phonetic_labeled():
     # Correct 2-line labeled input (any order, any case)

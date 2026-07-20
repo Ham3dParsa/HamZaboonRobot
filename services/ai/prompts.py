@@ -7,7 +7,7 @@
 
 import json
 
-from catalog import (
+from config.catalog import (
     example_language_label,
     goal_hint,
     goal_label,

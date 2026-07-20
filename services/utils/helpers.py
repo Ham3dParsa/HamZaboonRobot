@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
 from config import OWNER_ID, TELEGRAM_MAX_CONCURRENCY
-from keyboards import main_menu, awaiting_inline_keyboard, BTN_CANCEL, BTN_BACK
+from config.keyboards import main_menu, awaiting_inline_keyboard, BTN_CANCEL, BTN_BACK
 
 logger = logging.getLogger(__name__)
 

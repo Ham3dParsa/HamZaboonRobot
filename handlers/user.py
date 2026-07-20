@@ -8,10 +8,10 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest
 
-import ai
-import db
-import prompts
-from catalog import (
+from services.ai import ai
+from services import db
+from services.ai import prompts
+from config.catalog import (
     GOALS,
     LANGUAGES,
     LEVELS,
@@ -35,14 +35,14 @@ from config import (
     effective_daily_allowance,
     is_owner,
 )
-from formatting import (
+from services.utils.formatting import (
     CardPreparationError,
     escape_mdv2,
     escape_mdv2_code,
     format_card,
     _phonetic_lines,
 )
-from helpers import (
+from services.utils.helpers import (
     _answer_callback_safely,
     _edit_or_send,
     _edit_with_retry,
@@ -57,7 +57,7 @@ from helpers import (
     _CUSTOM_WORD_MAX_CHARS,
     _CUSTOM_WORD_MAX_WORDS,
 )
-from keyboards import (
+from config.keyboards import (
     main_menu,
     lang_inline_keyboard,
     goal_inline_keyboard,
@@ -81,7 +81,7 @@ from keyboards import (
     BTN_CANCEL,
     BTN_BACK,
 )
-from llm_services import _call_ai_limited, _prepare_cached_card
+from services.ai.llm_services import _call_ai_limited, _prepare_cached_card
 
 logger = logging.getLogger(__name__)
 

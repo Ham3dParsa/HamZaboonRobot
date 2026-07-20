@@ -4,8 +4,8 @@ import datetime
 import secrets
 from contextlib import contextmanager
 from zoneinfo import ZoneInfo
-from scheduling import planned_datetime
-from catalog import DEFAULT_LEVEL
+from services.scheduling import planned_datetime
+from config.catalog import DEFAULT_LEVEL
 
 from config import (
     DB_PATH,
@@ -26,8 +26,6 @@ from config import (
 
 INTERVALS_DAYS = [1, 3, 7, 16, 30]
 _app_timezone = ZoneInfo(APP_TIMEZONE)
-
-
 def _today() -> datetime.date:
     return datetime.datetime.now(_app_timezone).date()
 
@@ -115,7 +113,7 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
                 card_date TEXT,                -- تاریخ به فرمت YYYY-MM-DD
-                card_index INTEGER,            -- شماره کارت در همان روز (از ۰ شروع)
+                card_index INTEGER,            -- card index for that day (0-based)
                 card_data TEXT,                -- محتوای JSON کارت
                 UNIQUE(user_id, card_date, card_index)
             );

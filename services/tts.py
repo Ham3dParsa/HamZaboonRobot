@@ -5,7 +5,7 @@ from pathlib import Path
 
 import edge_tts
 
-from catalog import LANGUAGES
+from config.catalog import LANGUAGES
 
 _TTS_CACHE_DIR = Path("tts_cache")
 

@@ -1,6 +1,6 @@
 from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 
-from catalog import GOALS, LANGUAGES, LEVELS, language_label
+from .catalog import GOALS, LANGUAGES, LEVELS, language_label
 
 BTN_TODAY_CARD = "🃏 فلش‌کارت امروز"
 BTN_ASK_WORD = "❓ پرسیدن یک واژه"

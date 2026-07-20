@@ -5,8 +5,8 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 import bot
-import db
-from scheduling import plan_sessions, planned_datetime, session_sizes
+from services import db
+from services.scheduling import plan_sessions, planned_datetime, session_sizes
 
 
 class SchedulingPolicyTests(unittest.TestCase):

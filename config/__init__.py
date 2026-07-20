@@ -6,9 +6,6 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 
-# این‌ها فقط مقادیر پیش‌فرضِ اولیه‌اند؛ بعد از اجرای اول، مالک می‌تواند
-# از داخل خود ربات (پنل مدیریت) مدل/آدرس/کلید را عوض کند و آن مقادیر
-# در دیتابیس ذخیره و جایگزین این پیش‌فرض‌ها می‌شوند.
 DEFAULT_AI_BASE_URL = os.getenv("AI_BASE_URL", "https://api.gapgpt.app/v1")
 DEFAULT_AI_API_KEY = os.getenv("AI_API_KEY", "")
 DEFAULT_AI_MODEL = os.getenv("AI_MODEL", "gapgpt-qwen-3.6")

@@ -3,10 +3,10 @@ import threading
 import time
 from collections import deque
 
-import ai
-import ai_presets
-import db
-from formatting import CardPreparationError
+from services.ai import ai
+from services.ai import ai_presets
+from services import db
+from services.utils.formatting import CardPreparationError
 
 logger = logging.getLogger(__name__)
 

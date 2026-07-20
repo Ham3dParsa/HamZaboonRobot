@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import tts
+from services import tts
 
 
 class TtsCachePathTests(unittest.TestCase):

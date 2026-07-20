@@ -1,7 +1,7 @@
 import json
 import re
 
-import db
+from services import db
 
 SRS_HIDDEN_INSTRUCTION = (
     "⏰ مرور فاصله‌دار: معنی، مثال و نکته را از حفظ به یاد بیاور. "
