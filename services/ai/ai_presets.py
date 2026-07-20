@@ -11,6 +11,7 @@ BUILTIN_PRESETS = {
         "name": "gapgpt",
         "base_url": "https://api.gapgpt.app/v1",
         "default_model": "gapgpt-qwen-3.6",
+        "api_key": "$GAPGPT_API_KEY",
         "daily_batch_size": 6,
         "max_concurrency": 2,
         "max_rpm": 30,
@@ -23,6 +24,7 @@ BUILTIN_PRESETS = {
         "name": "openai",
         "base_url": "https://api.openai.com/v1",
         "default_model": "gpt-4o-mini",
+        "api_key": "$OPENAI_API_KEY",
         "daily_batch_size": 6,
         "max_concurrency": 2,
         "max_rpm": 60,
@@ -35,6 +37,7 @@ BUILTIN_PRESETS = {
         "name": "anthropic",
         "base_url": "https://api.anthropic.com/v1",
         "default_model": "claude-3-haiku-20240307",
+        "api_key": "$ANTHROPIC_API_KEY",
         "daily_batch_size": 6,
         "max_concurrency": 2,
         "max_rpm": 50,
@@ -47,6 +50,7 @@ BUILTIN_PRESETS = {
         "name": "custom",
         "base_url": "",
         "default_model": "",
+        "api_key": "",
         "daily_batch_size": 6,
         "max_concurrency": 2,
         "max_rpm": 30,
@@ -87,7 +91,7 @@ def seed_presets():
     """Return list of built-in preset tuples for DB seeding.
 
     Returns list of tuples matching ai_presets table columns:
-    (name, base_url, model, daily_batch_size, max_concurrency, max_rpm,
+    (name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm,
      timeout_seconds, temperature, max_output_tokens, is_custom)
     """
     return [
@@ -95,6 +99,7 @@ def seed_presets():
             p["name"],
             p["base_url"],
             p["default_model"],
+            p.get("api_key", ""),
             p["daily_batch_size"],
             p["max_concurrency"],
             p["max_rpm"],

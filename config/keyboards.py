@@ -141,6 +141,7 @@ IBTN_ROLLBACK_ALL = "↩️ Rollback All"
 # --- Admin – Preset Edit Fields ---
 IBTN_FIELD_BASE_URL = "🌐 Base URL"
 IBTN_FIELD_MODEL = "🤖 Model"
+IBTN_FIELD_API_KEY = "🔑 API Key"
 IBTN_FIELD_BATCH_SIZE = "📦 Batch Size"
 IBTN_FIELD_CONCURRENCY = "⚡ Concurrency"
 IBTN_FIELD_RPM = "🚀 RPM Limit"
@@ -625,11 +626,12 @@ def ai_preset_view_keyboard(preset: dict, active_name: str) -> InlineKeyboardMar
     return InlineKeyboardMarkup(rows)
 
 
-def ai_preset_edit_keyboard(preset_name: str, field: str | None = None) -> InlineKeyboardMarkup:
+def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None) -> InlineKeyboardMarkup:
     """Keyboard for editing a preset field-by-field."""
     fields = [
         ("base_url", IBTN_FIELD_BASE_URL),
         ("model", IBTN_FIELD_MODEL),
+        ("api_key", IBTN_FIELD_API_KEY),
         ("daily_batch_size", IBTN_FIELD_BATCH_SIZE),
         ("max_concurrency", IBTN_FIELD_CONCURRENCY),
         ("max_rpm", IBTN_FIELD_RPM),
@@ -639,8 +641,13 @@ def ai_preset_edit_keyboard(preset_name: str, field: str | None = None) -> Inlin
     ]
     rows = []
     for key, label in fields:
+        current = preset.get(key, "") if preset else ""
+        display = current
+        if key == "api_key" and current:
+            display = (current[:6] + "…" + current[-4:]) if len(current) > 12 else "***"
+        suffix = f": {display}" if display else ""
         rows.append([
-            InlineKeyboardButton(f"{label}: تنظیم", callback_data=f"admin:ai_preset:edit_field:{preset_name}:{key}"),
+            InlineKeyboardButton(f"{label}{suffix}", callback_data=f"admin:ai_preset:edit_field:{preset_name}:{key}"),
         ])
     rows.append([InlineKeyboardButton(IBTN_SAVE_PRESET, callback_data=f"admin:ai_preset:save:{preset_name}")])
     rows.append([InlineKeyboardButton(IBTN_CANCEL_EDIT, callback_data=f"admin:ai_preset:view:{preset_name}")])

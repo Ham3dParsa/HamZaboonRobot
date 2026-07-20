@@ -207,6 +207,7 @@ def init_db():
                 name TEXT PRIMARY KEY,
                 base_url TEXT,
                 model TEXT,
+                api_key TEXT NOT NULL DEFAULT '',
                 daily_batch_size INTEGER DEFAULT 6,
                 max_concurrency INTEGER DEFAULT 2,
                 max_rpm INTEGER DEFAULT 30,
@@ -370,6 +371,55 @@ def init_db():
             "DELETE FROM query_results WHERE expires_at<?",
             (_utc_now().isoformat(),),
         )
+
+        # Reconcile preset system with legacy settings
+        legacy_url = conn.execute(
+            "SELECT value FROM settings WHERE key='ai_base_url'"
+        ).fetchone()
+        active_name = conn.execute(
+            "SELECT value FROM settings WHERE key='ai_primary_preset'"
+        ).fetchone()
+        if legacy_url and active_name:
+            legacy_url_val = legacy_url["value"]
+            active_name_val = active_name["value"]
+            if legacy_url_val:
+                preset_row = conn.execute(
+                    "SELECT base_url, model FROM ai_presets WHERE name=?",
+                    (active_name_val,),
+                ).fetchone()
+                if preset_row and preset_row["base_url"] != legacy_url_val:
+                    model_val = conn.execute(
+                        "SELECT value FROM settings WHERE key='ai_model'"
+                    ).fetchone()
+                    conn.execute(
+                        "UPDATE ai_presets SET base_url=?, model=? WHERE name=?",
+                        (legacy_url_val, (model_val["value"] if model_val else ""), active_name_val),
+                    )
+                    conn.execute(
+                        "INSERT INTO settings(key, value) VALUES (?, ?) "
+                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                        ("_migration_preset_synced", legacy_url_val),
+                    )
+            # Migrate legacy api_key to active preset's api_key if preset has none
+            preset_api = conn.execute(
+                "SELECT api_key FROM ai_presets WHERE name=?",
+                (active_name_val,),
+            ).fetchone()
+            if preset_api and not preset_api["api_key"]:
+                legacy_api_key = conn.execute(
+                    "SELECT value FROM settings WHERE key='ai_api_key'"
+                ).fetchone()
+                if legacy_api_key and legacy_api_key["value"]:
+                    conn.execute(
+                        "UPDATE ai_presets SET api_key=? WHERE name=?",
+                        (legacy_api_key["value"], active_name_val),
+                    )
+
+        # Cleanup orphaned ai_preset_* keys from pending_ai_settings
+        conn.execute(
+            "DELETE FROM pending_ai_settings WHERE key LIKE 'ai_preset_%'"
+        )
+
         conn.commit()
 
 
@@ -1497,6 +1547,7 @@ def _init_ai_presets_table(conn):
             name TEXT PRIMARY KEY,
             base_url TEXT,
             model TEXT,
+            api_key TEXT NOT NULL DEFAULT '',
             daily_batch_size INTEGER DEFAULT 6,
             max_concurrency INTEGER DEFAULT 2,
             max_rpm INTEGER DEFAULT 30,
@@ -1507,18 +1558,25 @@ def _init_ai_presets_table(conn):
         );
         """
     )
+    # Add api_key column if missing (migration for existing databases)
+    preset_columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(ai_presets)").fetchall()
+    }
+    if "api_key" not in preset_columns:
+        conn.execute("ALTER TABLE ai_presets ADD COLUMN api_key TEXT NOT NULL DEFAULT ''")
     # Seed built-in presets only if table is empty
     count = conn.execute("SELECT COUNT(*) c FROM ai_presets").fetchone()["c"]
     if count == 0:
         builtins = [
-            ("gapgpt", "https://api.gapgpt.app/v1", "gapgpt-qwen-3.6", 6, 2, 30, 30.0, 0.6, 4096, 0),
-            ("openai", "https://api.openai.com/v1", "gpt-4o-mini", 6, 2, 60, 30.0, 0.6, 4096, 0),
-            ("anthropic", "https://api.anthropic.com/v1", "claude-3-haiku-20240307", 6, 2, 50, 30.0, 0.6, 4096, 0),
-            ("custom", "", "", 6, 2, 30, 30.0, 0.6, 4096, 0),
+            ("gapgpt", "https://api.gapgpt.app/v1", "gapgpt-qwen-3.6", "$GAPGPT_API_KEY", 6, 2, 30, 30.0, 0.6, 4096, 0),
+            ("openai", "https://api.openai.com/v1", "gpt-4o-mini", "$OPENAI_API_KEY", 6, 2, 60, 30.0, 0.6, 4096, 0),
+            ("anthropic", "https://api.anthropic.com/v1", "claude-3-haiku-20240307", "$ANTHROPIC_API_KEY", 6, 2, 50, 30.0, 0.6, 4096, 0),
+            ("custom", "", "", "", 6, 2, 30, 30.0, 0.6, 4096, 0),
         ]
         for p in builtins:
             conn.execute(
-                "INSERT INTO ai_presets(name, base_url, model, daily_batch_size, max_concurrency, max_rpm, timeout_seconds, temperature, max_output_tokens, is_custom) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, timeout_seconds, temperature, max_output_tokens, is_custom) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 p,
             )
 
@@ -1593,6 +1651,7 @@ def set_preset(
     name: str,
     base_url: str = "",
     model: str = "",
+    api_key: str = "",
     daily_batch_size: int = 6,
     max_concurrency: int = 2,
     max_rpm: int = 30,
@@ -1604,10 +1663,11 @@ def set_preset(
     """Upsert a preset (custom presets only)."""
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO ai_presets(name, base_url, model, daily_batch_size, max_concurrency, max_rpm, timeout_seconds, temperature, max_output_tokens, is_custom) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, timeout_seconds, temperature, max_output_tokens, is_custom) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(name) DO UPDATE SET "
-            "base_url=excluded.base_url, model=excluded.model, daily_batch_size=excluded.daily_batch_size, "
+            "base_url=excluded.base_url, model=excluded.model, api_key=excluded.api_key, "
+            "daily_batch_size=excluded.daily_batch_size, "
             "max_concurrency=excluded.max_concurrency, max_rpm=excluded.max_rpm, "
             "timeout_seconds=excluded.timeout_seconds, temperature=excluded.temperature, "
             "max_output_tokens=excluded.max_output_tokens, is_custom=excluded.is_custom",
@@ -1615,6 +1675,7 @@ def set_preset(
                 name,
                 base_url,
                 model,
+                api_key,
                 daily_batch_size,
                 max_concurrency,
                 max_rpm,
@@ -1660,6 +1721,12 @@ def activate_preset(name: str) -> bool:
                 "INSERT INTO settings(key, value) VALUES (?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 ("ai_model", preset["model"]),
+            )
+        if preset.get("api_key"):
+            conn.execute(
+                "INSERT INTO settings(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ("ai_api_key", preset["api_key"]),
             )
         conn.commit()
     return True
