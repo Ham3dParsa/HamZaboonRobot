@@ -2,7 +2,7 @@ import datetime as dt
 import os
 import tempfile
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import bot
 from services import db
@@ -92,7 +92,8 @@ class DurableQueueTests(unittest.TestCase):
 
 class StartupCatchUpTests(unittest.IsolatedAsyncioTestCase):
     async def test_startup_catch_up_runs_scheduled_jobs_in_order(self):
-        context = object()
+        context = MagicMock()
+        context.bot.get_me = AsyncMock(return_value=True)
         with (
             patch.object(bot, "daily_job", new=AsyncMock()) as daily_job,
             patch.object(bot, "delivery_dispatch_job", new=AsyncMock()) as delivery_dispatch_job,
