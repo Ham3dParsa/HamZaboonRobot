@@ -122,11 +122,12 @@ focused tests or other concrete evidence.
 **BEFORE ANY CODE CHANGE—exploratory, trivial, bug fix, or major—the agent MUST:**
 
 1. **STOP** and identify all logical gaps, uncertainties, and decision points.
-2. **PRESENT** each as a numbered rule with: recommended option + ≥1 alternative + concrete trade-offs in a comparison table.
-3. **OBTAIN** explicit owner choice per rule (no blanket approvals).
-4. If any logical gap, ambiguous test failure, or architectural uncertainty arises during gate preparation, the agent **MUST halt** and present its findings as a clear, focused inquiry to the project owner. **If an interactive question/decision tool is available in the current environment, use it** (with `multiple: true` for decision options, `custom: true` for open-ended clarification). **If no such tool is available, present the same structured inquiry as plain text in the response and explicitly halt, waiting for the owner's reply before proceeding.** The agent is strictly forbidden from proceeding with code edits until the owner explicitly answers or chooses a decision option.
-5. **SUMMARIZE** the locked contract in writing using the template below.
-6. **CONFIRM** owner says "proceed" or "locked" before touching code.
+2. **ASSESS** whether the change affects callback routing (`callback_data` strings, `callback_router` dispatch, sub-router actions) or keyboard construction. If yes, the test plan section of the locked contract MUST specify a wiring integrity test covering the new or affected routes.
+3. **PRESENT** each as a numbered rule with: recommended option + ≥1 alternative + concrete trade-offs in a comparison table.
+4. **OBTAIN** explicit owner choice per rule (no blanket approvals).
+5. If any logical gap, ambiguous test failure, or architectural uncertainty arises during gate preparation, the agent **MUST halt** and present its findings as a clear, focused inquiry to the project owner. **If an interactive question/decision tool is available in the current environment, use it** (with `multiple: true` for decision options, `custom: true` for open-ended clarification). **If no such tool is available, present the same structured inquiry as plain text in the response and explicitly halt, waiting for the owner's reply before proceeding.** The agent is strictly forbidden from proceeding with code edits until the owner explicitly answers or chooses a decision option.
+6. **SUMMARIZE** the locked contract in writing using the template below.
+7. **CONFIRM** owner says "proceed" or "locked" before touching code.
 
 > **Owner experience note:** The project owner is not a professional developer. When presenting rules, options, and trade-offs during this gate, the agent MUST explain each option in plain, non-jargon language. Define technical terms if they are unavoidable. State clearly what each option does in practice, what it costs (time, complexity, money if applicable), and why the recommended option is preferred. Do not assume familiarity with Python tooling, testing patterns, or deployment concepts.
 
@@ -338,7 +339,7 @@ For a non-trivial task:
 0. **Contract lock confirmed per Section 2.4 (Mandatory Pre-Implementation Contract Lock Gate).**
 1. Implement on current branch (or stash changes); run full validation (Section 6).
 2. **Create a fresh feature branch from the latest `origin/main`** using convention: `type/short-desc` (e.g., `feat/custom-words`, `fix/collision-retry`).
-3. **Write focused unit tests** in `tests/` for any new logic, edge cases, or database schema changes introduced by the implementation.
+3. **Write focused unit tests** in `tests/` for any new logic, edge cases, database schema changes, or callback routing changes introduced by the implementation. For any change that touches `callback_data` strings, `callback_router` dispatch conditions, or sub-router action patterns, a cross-module callback wiring integrity test MUST be added or updated to verify all callback prefixes have matching router and sub-router handlers (see `tests/test_wiring.py`).
 4. Stage modified files explicitly: `git add file1.py file2.py` (never `git add .`).
 5. Commit with Conventional Commits format: `type(scope): subject` (e.g., `fix(bot): handle collision retry`).
 6. Push branch and create PR via `gh pr create --fill --base main`.
@@ -387,7 +388,7 @@ full suite:
 - scheduling or delivery: queue state, retry budget, backoff, restart safety,
   and shared-slot behavior;
 - AI: timeout, JSON validation, limiter usage, and async offloading;
-- callbacks: authorization and catalog identifier validation;
+- callbacks: authorization, catalog identifier validation, and wiring integrity (all callback_data prefixes from all modules have matching handlers in callback_router and relevant sub-routers);
 - quotas and saved words: transaction races, date boundaries, normalization,
   and duplicate insertion;
 - SRS or broadcasts: Telegram retry behavior, message-size chunking, and
@@ -417,7 +418,7 @@ d) If the agent is uncertain whether a test failure represents a regression or a
 3. Verify no secrets, credentials, tokens, API keys, or generated secrets in staged changes.
 4. Confirm single logical change per commit (Section 5 Steps 3–4).
 5. Verify branch naming convention: `type/short-desc` with type in `feat|fix|docs|refactor|test|chore`.
-6. While `tests/test_wiring.py` and `tests/test_formatting.py` are recommended locally, any CI failure in these tests triggers the Error Recovery Protocol — fix and re-push immediately.
+6. While `tests/test_wiring.py` and `tests/test_formatting.py` are recommended locally, any CI failure in these tests triggers the Error Recovery Protocol — fix and re-push immediately. Unlike other tests, `tests/test_wiring.py` performs cross-module introspection and cannot be faked or satisfied by local-only changes.
 
 > **Phase 2 — F401 (unused imports):** When the codebase is ready for a stricter rule
 > budget, run `ruff check --fix --select F401` to auto-clean unused imports, review
@@ -529,6 +530,7 @@ Before every implementation message, the agent MUST verify:
 - [ ] GATE STATUS = LOCKED
 - [ ] `<SYSTEM_GATE> Contract lock required before proceeding </SYSTEM_GATE>` keyword present in response
 - [ ] No code changes proposed or implemented before gate lock
+- [ ] Callback routing impact assessed: change affects callback_data / callback_router / keyboard construction? (yes/no); if yes, wiring integrity test specified in contract
 - [ ] Section 2.2 (Logic-lock) compliance: no invented behavior, no silent scope widening
 - [ ] Section 2.3 (Contract-locking) compliance: decomposition, alternatives, independent choices
 - [ ] Step 0 of Section 5 satisfied (contract lock confirmed)

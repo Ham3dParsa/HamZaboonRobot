@@ -66,24 +66,28 @@ async def _exit_awaiting_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
     if via_callback:
         try:
             await update.callback_query.edit_message_text("لغو شد.")
+            await update.callback_query.answer("لغو شد.", show_alert=False)
+            return
         except BadRequest:
-            logger.info("cancel callback edit failed; continuing with menu message")
+            logger.info("cancel callback edit failed; sending new message")
+            await update.callback_query.answer()
         await update.callback_query.message.reply_text("لغو شد.", reply_markup=reply_markup)
-        await update.callback_query.answer("لغو شد.", show_alert=False)
         return
     await update.message.reply_text("لغو شد.", reply_markup=reply_markup)
 
 
 async def _edit_or_send(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, **kwargs):
-    try:
-        return await update.callback_query.edit_message_text(text, **kwargs)
-    except BadRequest:
-        logger.info("callback edit failed; sending replacement message")
-        return await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=text,
-            **kwargs,
-        )
+    if update.callback_query:
+        try:
+            return await update.callback_query.edit_message_text(text, **kwargs)
+        except BadRequest:
+            logger.info("callback edit failed; sending replacement message")
+            return await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=text,
+                **kwargs,
+            )
+    return await update.message.reply_text(text, **kwargs)
 
 
 def _message_has_prepared_translations(update: Update) -> bool:

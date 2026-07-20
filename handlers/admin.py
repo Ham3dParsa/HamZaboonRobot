@@ -119,32 +119,6 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             reply_markup=phonetic_settings_keyboard(db.get_phonetic_display_settings()),
         )
         await update.callback_query.answer("تنظیم شد.")
-    elif action == "set_model":
-        context.user_data["awaiting"] = "admin_set_model"
-        await _edit_or_send(
-            update,
-            context,
-            f"نام مدل فعلی: `{db.get_setting('ai_model')}`\nنام مدل جدید رو بفرست:",
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=awaiting_inline_keyboard(),
-        )
-    elif action == "set_base_url":
-        context.user_data["awaiting"] = "admin_set_base_url"
-        await _edit_or_send(
-            update,
-            context,
-            f"Base URL فعلی: `{db.get_setting('ai_base_url')}`\nBase URL جدید رو بفرست:",
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=awaiting_inline_keyboard(),
-        )
-    elif action == "set_api_key":
-        context.user_data["awaiting"] = "admin_set_api_key"
-        await _edit_or_send(
-            update,
-            context,
-            "API Key جدید رو بفرست (بعداً این پیام رو از چت پاک کن):",
-            reply_markup=awaiting_inline_keyboard(),
-        )
     elif action == "broadcast":
         context.user_data["awaiting"] = "admin_broadcast"
         await update.callback_query.answer()
@@ -154,13 +128,15 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             reply_markup=awaiting_inline_keyboard(),
         )
     elif action == "show_settings":
-        key = db.get_setting("ai_api_key", "")
-        masked = (key[:6] + "…" + key[-4:]) if len(key) > 12 else "—"
+        preset = db.get_active_preset()
+        raw_key = ai_presets.resolve_api_key(preset)
+        masked = (raw_key[:6] + "…" + raw_key[-4:]) if len(raw_key) > 12 else ("—" if not raw_key else raw_key)
         await _edit_or_send(
             update,
             context,
-            f"🤖 مدل: `{db.get_setting('ai_model')}`\n"
-            f"🌐 Base URL: `{db.get_setting('ai_base_url')}`\n"
+            f"🤖 پیش‌تنظیم فعال: `{preset.get('name', 'gapgpt')}`\n"
+            f"📋 مدل: `{preset.get('model', '—')}`\n"
+            f"🌐 Base URL: `{preset.get('base_url', '—')}`\n"
             f"🔑 API Key: `{masked}`\n"
             f"🗣 IPA: {'روشن' if db.get_bool_setting('phonetic_show_ipa', True) else 'خاموش'}\n"
             f"🗣 Persian: {'روشن' if db.get_bool_setting('phonetic_show_persian', True) else 'خاموش'}",
@@ -611,11 +587,6 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE, awaiting: str, text: str):
-    if awaiting == "admin_set_model":
-        db.set_setting("ai_model", text)
-        await update.message.reply_text(f"مدل جدید ثبت شد: `{text}`", parse_mode=ParseMode.MARKDOWN_V2)
-        return
-
     if awaiting == "llm_cost_user":
         if text.casefold() in {"all", "همه", "none", "null"}:
             _llm_cost_set_state(context, user_id=None)
@@ -697,16 +668,6 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
         )
         return
 
-    if awaiting == "admin_set_base_url":
-        db.set_setting("ai_base_url", text)
-        await update.message.reply_text(f"Base URL جدید ثبت شد: `{text}`", parse_mode=ParseMode.MARKDOWN_V2)
-        return
-
-    if awaiting == "admin_set_api_key":
-        db.set_setting("ai_api_key", text)
-        await update.message.reply_text("API Key جدید ثبت شد. ✅")
-        return
-
     if awaiting == "admin_broadcast":
         users = db.all_active_users()
         sent = 0
@@ -720,6 +681,10 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
         return
 
     # ======== AI Settings awaiting handlers ========
+    if awaiting == "ai_preset_new_name":
+        await _handle_ai_preset_new_name(update, context, text)
+        return
+
     if awaiting.startswith("ai_preset_edit:"):
         # format: ai_preset_edit:preset_name:field_name
         parts = awaiting.split(":", 2)
@@ -759,6 +724,12 @@ async def _show_ai_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>RPM Limit:</b> {active_preset.get('max_rpm', 30)}\n\n"
     )
 
+    migration_key = "_migration_preset_synced"
+    migration_val = db.get_setting(migration_key, "")
+    if migration_val:
+        text += "ℹ️ تنظیمات پیش‌تنظیم شما بر اساس مقادیر فعال ربات هنگام ارتقا به‌روزرسانی شد.\n\n"
+        db.set_setting(migration_key, "")
+
     if fallback_status.get("fallback_active"):
         text += (
             f"⚠️ <b>Fallback ACTIVE</b> since {fallback_status.get('fallback_since', '?')}\n"
@@ -769,15 +740,7 @@ async def _show_ai_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if pending:
         text += f"⏳ <b>{len(pending)} pending changes</b> awaiting apply\n\n"
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 پیش‌تنظیم‌ها", callback_data="admin:ai_presets")],
-        [InlineKeyboardButton("🔍 تست اتصال", callback_data="admin:ai_test_connection")],
-        [InlineKeyboardButton("🧪 تست سفارشی (Wizard)", callback_data="admin:ai_custom_test")],
-        [InlineKeyboardButton("⏳ تغییرات در انتظار", callback_data="admin:ai_pending")],
-        [InlineKeyboardButton("🔄 مدیریت Fallback", callback_data="admin:ai_fallback")],
-        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
-    ])
-
+    keyboard = ai_settings_keyboard()
     if update.callback_query:
         await _edit_or_send(update, context, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
     else:
@@ -802,22 +765,10 @@ async def _show_ai_presets(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = "\n\n".join(lines)
 
-    # Build keyboard
-    buttons = []
-    for p in presets:
-        buttons.append([
-            InlineKeyboardButton(
-                f"{'✅ ' if p['name'] == active_name else ''}{p['name']}",
-                callback_data=f"admin:ai_preset:view:{p['name']}"
-            )
-        ])
-    buttons.append([InlineKeyboardButton("➕ افزودن پیش‌تنظیم جدید", callback_data="admin:ai_preset:add")])
-    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")])
-
     await _edit_or_send(
         update, context, text,
         parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
+        reply_markup=ai_presets_list_keyboard(presets, active_name)
     )
 
 
@@ -832,10 +783,14 @@ async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYP
     is_active = preset_name == active_name
     is_custom = preset.get("is_custom", 0)
 
+    raw_key = preset.get("api_key", "")
+    masked_key = (raw_key[:6] + "…" + raw_key[-4:]) if len(raw_key) > 12 else ("—" if not raw_key else "***")
+
     text = (
         f"📋 <b>پیش‌تنظیم: {preset_name}</b>\n\n"
         f"Model: {preset.get('model', '—')}\n"
         f"Base URL: {preset.get('base_url', '—')}\n"
+        f"API Key: {masked_key}\n"
         f"Daily Batch Size: {preset.get('daily_batch_size', 6)}\n"
         f"Max Concurrency: {preset.get('max_concurrency', 2)}\n"
         f"Max RPM: {preset.get('max_rpm', 30)}\n"
@@ -844,18 +799,10 @@ async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYP
         f"Max Output Tokens: {preset.get('max_output_tokens', 4096)}\n"
     )
 
-    buttons = []
-    if not is_active:
-        buttons.append([InlineKeyboardButton("✅ فعال کردن", callback_data=f"admin:ai_preset:activate:{preset_name}")])
-    if is_custom:
-        buttons.append([InlineKeyboardButton("✏️ ویرایش", callback_data=f"admin:ai_preset:edit:{preset_name}")])
-        buttons.append([InlineKeyboardButton("🗑 حذف", callback_data=f"admin:ai_preset:delete:{preset_name}")])
-    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_presets")])
-
     await _edit_or_send(
         update, context, text,
         parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
+        reply_markup=ai_preset_view_keyboard(preset, active_name)
     )
 
 
@@ -876,35 +823,12 @@ async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
         await update.callback_query.answer("فقط پیش‌تنظیم‌های custom قابل ویرایش‌اند", show_alert=True)
         return
 
-    fields = [
-        ("base_url", "Base URL"),
-        ("model", "Model"),
-        ("daily_batch_size", "Batch Size"),
-        ("max_concurrency", "Concurrency"),
-        ("max_rpm", "RPM Limit"),
-        ("timeout_seconds", "Timeout (s)"),
-        ("temperature", "Temperature"),
-        ("max_output_tokens", "Max Tokens"),
-    ]
-
     text = f"✏️ <b>ویرایش پیش‌تنظیم: {preset_name}</b>\nانتخاب فیلد برای تغییر:"
-
-    buttons = []
-    for field_key, field_label in fields:
-        current = preset.get(field_key, "")
-        buttons.append([
-            InlineKeyboardButton(
-                f"{field_label}: {current}",
-                callback_data=f"admin:ai_preset:edit_field:{preset_name}:{field_key}"
-            )
-        ])
-    buttons.append([InlineKeyboardButton("💾 ذخیره پیش‌تنظیم", callback_data=f"admin:ai_preset:save:{preset_name}")])
-    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data=f"admin:ai_preset:view:{preset_name}")])
 
     await _edit_or_send(
         update, context, text,
         parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
+        reply_markup=ai_preset_edit_keyboard(preset_name, preset)
     )
 
 
@@ -921,6 +845,7 @@ async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TY
     field_labels = {
         "base_url": "Base URL",
         "model": "Model Name",
+        "api_key": "API Key (env: $VAR_NAME or literal)",
         "daily_batch_size": "Batch Size (integer)",
         "max_concurrency": "Concurrency (integer)",
         "max_rpm": "RPM Limit (integer)",
@@ -955,16 +880,25 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
         else:
             value = text.strip()
     except ValueError:
+        context.user_data["awaiting"] = f"ai_preset_edit:{preset_name}:{field_name}"
         await update.message.reply_text("فرمت نامعتبر. عدد صحیح یا اعشاری بفرستید.", reply_markup=awaiting_inline_keyboard())
         return
 
-    # Store in pending_ai_settings
-    db.set_pending_ai(f"ai_preset_{preset_name}_{field_name}", str(value))
+    # Store in-memory (per preset)
+    edits = context.user_data.setdefault("preset_edits", {})
+    edits.setdefault(preset_name, {})[field_name] = value
+
+    # Auto-delete user message containing plaintext API key
+    if field_name == "api_key":
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
     context.user_data.pop("awaiting", None)
 
     await update.message.reply_text(
-        f"✅ مقدار فیلد <b>{field_name}</b> برای پیش‌تنظیم <b>{preset_name}</b> در staging ذخیره شد.\n"
-        f"از منوی ویرایش پیش‌تنظیم برای ذخیره نهایی استفاده کنید.",
+        f"✅ <b>{field_name}</b> برای پیش‌تنظیم <b>{preset_name}</b> ثبت شد.",
         parse_mode=ParseMode.HTML
     )
     await _edit_ai_preset(update, context, preset_name)
@@ -977,43 +911,29 @@ async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
         await update.callback_query.answer("پیش‌تنظیم یافت نشد", show_alert=True)
         return
 
-    # Read all pending fields for this preset
-    pending = db.get_pending_ai()
-    preset_pending = {k.replace(f"ai_preset_{preset_name}_", ""): v for k, v in pending.items() if k.startswith(f"ai_preset_{preset_name}_")}
-
-    if not preset_pending:
+    # Read in-memory edits for this preset
+    edits = context.user_data.get("preset_edits", {}).get(preset_name, {})
+    if not edits:
         await update.callback_query.answer("تغییری برای ذخیره وجود ندارد")
         return
 
-    # Apply to preset
+    # Apply to preset from in-memory edits + existing values as fallback
     db.set_preset(
         name=preset_name,
-        base_url=preset_pending.get("base_url", preset.get("base_url", "")),
-        model=preset_pending.get("model", preset.get("model", "")),
-        daily_batch_size=int(preset_pending.get("daily_batch_size", preset.get("daily_batch_size", 6))),
-        max_concurrency=int(preset_pending.get("max_concurrency", preset.get("max_concurrency", 2))),
-        max_rpm=int(preset_pending.get("max_rpm", preset.get("max_rpm", 30))),
-        timeout_seconds=float(preset_pending.get("timeout_seconds", preset.get("timeout_seconds", 30.0))),
-        temperature=float(preset_pending.get("temperature", preset.get("temperature", 0.6))),
-        max_output_tokens=int(preset_pending.get("max_output_tokens", preset.get("max_output_tokens", 4096))),
+        base_url=edits.get("base_url", preset.get("base_url", "")),
+        model=edits.get("model", preset.get("model", "")),
+        api_key=edits.get("api_key", preset.get("api_key", "")),
+        daily_batch_size=int(edits.get("daily_batch_size", preset.get("daily_batch_size", 6))),
+        max_concurrency=int(edits.get("max_concurrency", preset.get("max_concurrency", 2))),
+        max_rpm=int(edits.get("max_rpm", preset.get("max_rpm", 30))),
+        timeout_seconds=float(edits.get("timeout_seconds", preset.get("timeout_seconds", 30.0))),
+        temperature=float(edits.get("temperature", preset.get("temperature", 0.6))),
+        max_output_tokens=int(edits.get("max_output_tokens", preset.get("max_output_tokens", 4096))),
         is_custom=1,
     )
 
-    # Clear pending for this preset
-    for key in preset_pending:
-        db.set_pending_ai(key, "")  # This won't work - need to delete
-
-    # Actually clear by direct SQL
-    import sqlite3
-    from contextlib import contextmanager
-    from config import DB_PATH
-    with sqlite3.connect(DB_PATH) as conn:
-        placeholders = ",".join("?" for _ in preset_pending)
-        conn.execute(
-            f"DELETE FROM pending_ai_settings WHERE key IN ({placeholders})",
-            list(preset_pending.keys())
-        )
-        conn.commit()
+    # Clear in-memory edits for this preset
+    context.user_data.setdefault("preset_edits", {}).pop(preset_name, None)
 
     await update.callback_query.answer(f"پیش‌تنظیم {preset_name} ذخیره شد")
     await _show_ai_preset_view(update, context, preset_name)
@@ -1047,11 +967,13 @@ async def _handle_ai_preset_new_name(update: Update, context: ContextTypes.DEFAU
     """Handle new preset name input."""
     name = text.strip().lower().replace(" ", "_")
     if not name or not name.isalnum() and "_" not in name:
+        context.user_data["awaiting"] = "ai_preset_new_name"
         await update.message.reply_text("نام نامعتبر. فقط حروف، اعداد و زیرخط مجاز است.", reply_markup=awaiting_inline_keyboard())
         return
 
     existing = db.get_preset(name)
     if existing:
+        context.user_data["awaiting"] = "ai_preset_new_name"
         await update.message.reply_text("این نام از قبل وجود دارد.", reply_markup=awaiting_inline_keyboard())
         return
 
@@ -1121,7 +1043,7 @@ async def _custom_test_step_lang(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data.pop("awaiting", None)
 
     buttons = [
-        [InlineKeyboardButton(opt.name_fa, callback_data=f"ai_custom_test:lang:{opt.code}")]
+        [InlineKeyboardButton(opt.name_fa, callback_data=f"admin:ai_custom_test:lang:{opt.code}")]
         for opt in LANGUAGES.values()
     ]
     await _edit_or_send(
@@ -1140,7 +1062,7 @@ async def _custom_test_step_goal(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data["custom_test_state"] = state
 
     buttons = [
-        [InlineKeyboardButton(opt.name_fa, callback_data=f"ai_custom_test:goal:{opt.code}")]
+        [InlineKeyboardButton(opt.name_fa, callback_data=f"admin:ai_custom_test:goal:{opt.code}")]
         for opt in GOALS.values()
     ]
     await _edit_or_send(
@@ -1159,7 +1081,7 @@ async def _custom_test_step_level(update: Update, context: ContextTypes.DEFAULT_
     context.user_data["custom_test_state"] = state
 
     buttons = [
-        [InlineKeyboardButton(f"{opt.name_fa} ({opt.cefr})", callback_data=f"ai_custom_test:level:{opt.code}")]
+        [InlineKeyboardButton(f"{opt.name_fa} ({opt.cefr})", callback_data=f"admin:ai_custom_test:level:{opt.code}")]
         for opt in LEVELS.values()
     ]
     await _edit_or_send(
@@ -1179,9 +1101,9 @@ async def _custom_test_step_target(update: Update, context: ContextTypes.DEFAULT
 
     active_preset = db.get_active_preset()
     buttons = [
-        [InlineKeyboardButton("🔹 پیکربندی فعلی", callback_data="ai_custom_test:target:current")],
-        [InlineKeyboardButton("🔸 پیش‌تنظیم کاندیدا", callback_data="ai_custom_test:target:candidate")],
-        [InlineKeyboardButton("⚖️ مقایسه A/B", callback_data="ai_custom_test:target:ab")],
+        [InlineKeyboardButton("🔹 پیکربندی فعلی", callback_data="admin:ai_custom_test:target:current")],
+        [InlineKeyboardButton("🔸 پیش‌تنظیم کاندیدا", callback_data="admin:ai_custom_test:target:candidate")],
+        [InlineKeyboardButton("⚖️ مقایسه A/B", callback_data="admin:ai_custom_test:target:ab")],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
     ]
     await _edit_or_send(
@@ -1242,6 +1164,8 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         lines.append(f"Examples: {card.get('examples', [])}")
         lines.append("")
 
+    lines.append("🧪 این تست روی پیکربندی پیش‌تنظیم اجرا شد، نه مسیر تولید.")
+
     await _edit_or_send(
         update, context,
         "\n".join(lines),
@@ -1284,7 +1208,7 @@ async def _custom_test_step_preset(update: Update, context: ContextTypes.DEFAULT
     """Show preset picker for custom test."""
     presets = db.get_presets()
     buttons = [
-        [InlineKeyboardButton(p["name"], callback_data=f"ai_custom_test:preset:{p['name']}")]
+        [InlineKeyboardButton(p["name"], callback_data=f"admin:ai_custom_test:preset:{p['name']}")]
         for p in presets
     ]
     buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_custom_test")])
@@ -1293,126 +1217,6 @@ async def _custom_test_step_preset(update: Update, context: ContextTypes.DEFAULT
         "🧪 <b>تست سفارشی - انتخاب پیش‌تنظیم</b>\n\n"
         "پیش‌تنظیم کاندیدا را انتخاب کنید:",
         parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
-
-
-# ======== Pending AI Settings ========
-
-async def _show_ai_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show pending changes diff."""
-    diff = db.diff_pending_vs_active()
-    if not diff:
-        text = "⏳ <b>تغییرات در انتظار</b>\n\nهیچ تغییری در staging وجود ندارد."
-    else:
-        lines = ["⏳ <b>تغییرات در انتظار (Diff)</b>\n"]
-        for key, vals in diff.items():
-            active = vals.get("active") or "—"
-            pending = vals.get("pending") or "—"
-            lines.append(f"<b>{key}</b>")
-            lines.append(f"  Active: <code>{active}</code>")
-            lines.append(f"  Pending: <code>{pending}</code>")
-            lines.append("")
-        text = "\n".join(lines)
-
-    buttons = []
-    if diff:
-        buttons.append([InlineKeyboardButton("✅ اعمال همه (Apply)", callback_data="admin:ai_apply")])
-        buttons.append([InlineKeyboardButton("🗑 لغو همه (Rollback)", callback_data="admin:ai_rollback")])
-    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")])
-
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
-
-
-async def _apply_ai_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Apply pending changes."""
-    result = db.apply_pending_ai()
-    if result["applied"] > 0:
-        await update.callback_query.answer(f"{result['applied']} تنظیمات اعمال شد")
-    else:
-        await update.callback_query.answer("هیچ تغییری برای اعمال وجود ندارد")
-    await _show_ai_pending(update, context)
-
-
-async def _rollback_ai_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Rollback pending changes."""
-    db.clear_pending_ai()
-    await update.callback_query.answer("تغییرات در انتظار لغو شدند")
-    await _show_ai_pending(update, context)
-
-
-# ======== Fallback Management ========
-
-async def _show_ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show fallback configuration."""
-    status = db.get_fallback_status()
-    presets = db.get_presets()
-    preset_names = [p["name"] for p in presets]
-
-    text = (
-        "🔄 <b>مدیریت Fallback</b>\n\n"
-        f"وضعیت: {'⚠️ <b>Fallback فعال</b>' if status['fallback_active'] else '✅ <b>Primary فعال</b>'}\n"
-        f"Primary: {status['primary_preset']}\n"
-        f"Fallback: {status['fallback_preset']}\n"
-    )
-    if status["fallback_active"]:
-        text += f"از: {status['fallback_since']}\n"
-    text += f"\nFailures متوالی: {status['consecutive_failures']}/2"
-
-    buttons = [
-        [InlineKeyboardButton("Primary Preset", callback_data="ai_fallback:set_primary")],
-        [InlineKeyboardButton("Fallback Preset", callback_data="ai_fallback:set_fallback")],
-    ]
-    if status["fallback_active"]:
-        buttons.append([InlineKeyboardButton("🔄 بازگشت به Primary (Manual Reset)", callback_data="ai_fallback:reset")])
-    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")])
-
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
-
-
-async def _handle_ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
-    """Handle fallback callbacks."""
-    if action == "ai_fallback:set_primary":
-        await _show_fallback_preset_picker(update, context, "primary")
-    elif action == "ai_fallback:set_fallback":
-        await _show_fallback_preset_picker(update, context, "fallback")
-    elif action.startswith("ai_fallback:pick_primary:"):
-        name = action.split(":")[2]
-        db.set_setting("ai_primary_preset", name)
-        await update.callback_query.answer(f"Primary preset: {name}")
-        await _show_ai_fallback(update, context)
-    elif action.startswith("ai_fallback:pick_fallback:"):
-        name = action.split(":")[2]
-        db.set_setting("ai_fallback_preset", name)
-        await update.callback_query.answer(f"Fallback preset: {name}")
-        await _show_ai_fallback(update, context)
-    elif action == "ai_fallback:reset":
-        db.set_fallback_active(False)
-        db.set_setting("ai_consecutive_failures", "0")
-        await update.callback_query.answer("بازگشت به Primary")
-        await _show_ai_fallback(update, context)
-
-
-async def _show_fallback_preset_picker(update: Update, context: ContextTypes.DEFAULT_TYPE, which: str):
-    """Show preset picker for primary/fallback."""
-    presets = db.get_presets()
-    buttons = [
-        [InlineKeyboardButton(p["name"], callback_data=f"ai_fallback:pick_{which}:{p['name']}")]
-        for p in presets
-    ]
-    buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_fallback")])
-
-    await _edit_or_send(
-        update, context,
-        f"پیش‌تنظیم {which.upper()} را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 

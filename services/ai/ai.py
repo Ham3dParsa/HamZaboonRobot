@@ -24,14 +24,13 @@ log = logging.getLogger("hamzaban.ai")
 
 def _client(preset: dict | None = None) -> OpenAI:
     """Create an OpenAI client using the given preset or active settings."""
-    if preset:
-        base_url = preset.get("base_url", "")
-        api_key = ai_presets.resolve_api_key(preset)
-        timeout = preset.get("timeout_seconds", AI_TIMEOUT_SECONDS)
-    else:
-        base_url = db.get_setting("ai_base_url", DEFAULT_AI_BASE_URL)
+    if preset is None:
+        preset = db.get_active_preset() or {}
+    base_url = preset.get("base_url", "") or DEFAULT_AI_BASE_URL
+    api_key = ai_presets.resolve_api_key(preset)
+    if not api_key:
         api_key = db.get_setting("ai_api_key", DEFAULT_AI_API_KEY)
-        timeout = AI_TIMEOUT_SECONDS
+    timeout = preset.get("timeout_seconds", AI_TIMEOUT_SECONDS)
     return OpenAI(
         base_url=base_url,
         api_key=api_key,
@@ -40,7 +39,9 @@ def _client(preset: dict | None = None) -> OpenAI:
 
 
 def _model(preset: dict | None = None) -> str:
-    if preset and preset.get("model"):
+    if preset is None:
+        preset = db.get_active_preset() or {}
+    if preset.get("model"):
         return preset["model"]
     return db.get_setting("ai_model", DEFAULT_AI_MODEL)
 
