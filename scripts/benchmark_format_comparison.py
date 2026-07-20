@@ -1,4 +1,12 @@
-# test_format_comparison.py
+#!/usr/bin/env python3
+"""Benchmark comparing JSON-long, JSON-mini, and CSV prompt formats.
+
+Usage:
+    python scripts/benchmark_format_comparison.py
+
+Requires: openai, python-dotenv, tiktoken (optional)
+Set AI_API_KEY in .env or environment.
+"""
 import json
 import os
 import time
@@ -16,7 +24,6 @@ try:
 except ModuleNotFoundError:
     tiktoken = None
 
-# تنظیمات کلاینت
 CLIENT = OpenAI(
     base_url="https://api.gapgpt.app/v1",
     api_key=os.getenv("AI_API_KEY", ""),
@@ -26,7 +33,8 @@ MODEL = "gemini-flash-lite-latest"
 INPUT_COST_PER_1M = 0.25
 OUTPUT_COST_PER_1M = 1.5
 
-OUTPUT_DIR = "test_responses"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(SCRIPT_DIR, "benchmark_output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 if tiktoken is not None:
@@ -44,9 +52,6 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
-# ------------------------------------------------------------
-# 1. پرامپت‌های سیستمی (با فیلدهای اختیاری)
-# ------------------------------------------------------------
 def get_system_prompt_json_long(lang="en", goal="general", level="beginner") -> str:
     return f"""تو معلم خصوصی زبان {lang} برای فارسی‌زبانان هستی.
 هدف کاربر: {goal}. سطح کاربر: {level}.
@@ -104,9 +109,6 @@ apple|/ˈæp.əl/|سیب|میوه‌ای گرد و شیرین|fruit;snack| |I ea
 """
 
 
-# ------------------------------------------------------------
-# 2. توابع Parse و اعتبارسنجی (پشتیبانی از فیلدهای اختیاری)
-# ------------------------------------------------------------
 def extract_json(text: str) -> Any:
     import re
     text = text.strip()
@@ -132,7 +134,6 @@ def parse_csv(text: str) -> List[Dict[str, Any]]:
         if len(values) < len(header):
             values += [''] * (len(header) - len(values))
         row = dict(zip(header, values))
-        # تبدیل فیلدهای لیستی (جداکننده ;)
         for field in ['synonyms', 'antonyms', 'examples', 'example_translations']:
             if field in row and row[field]:
                 row[field] = [item.strip() for item in row[field].split(';') if item.strip()]
@@ -142,13 +143,11 @@ def parse_csv(text: str) -> List[Dict[str, Any]]:
     return rows
 
 def validate_card_from_dict(card_data: Dict) -> bool:
-    # فیلدهای متنی اجباری
     text_fields = ['word', 'fa_meaning', 'fa_explanation']
     for f in text_fields:
         if f not in card_data or not isinstance(card_data[f], str) or not card_data[f].strip():
             return False
 
-    # فیلدهای لیستی اجباری
     list_fields = ['examples', 'example_translations']
     for f in list_fields:
         if f not in card_data or not isinstance(card_data[f], list) or len(card_data[f]) == 0:
@@ -159,7 +158,6 @@ def validate_card_from_dict(card_data: Dict) -> bool:
     if len(card_data['examples']) != len(card_data['example_translations']):
         return False
 
-    # فیلدهای اختیاری (با نوع‌شناسی درست)
     optional_fields = {
         'synonyms': list,
         'antonyms': list,
@@ -175,7 +173,6 @@ def validate_card_from_dict(card_data: Dict) -> bool:
     return True
 
 def validate_card_mini(card_data: Dict) -> bool:
-    """تبدیل کلیدهای کوتاه به بلند و اعتبارسنجی"""
     mapping = {
         'w': 'word', 'ph': 'phonetic', 'm': 'fa_meaning', 'x': 'fa_explanation',
         's': 'synonyms', 'a': 'antonyms', 'e': 'examples', 't': 'example_translations',
@@ -188,7 +185,6 @@ def validate_card_mini(card_data: Dict) -> bool:
         elif long in card_data:
             converted[long] = card_data[long]
         else:
-            # اگر فیلد اجباری نباشد، مقدار پیش‌فرض می‌دهیم
             if long in ['word', 'fa_meaning', 'fa_explanation', 'examples', 'example_translations']:
                 return False
     return validate_card_from_dict(converted)
@@ -197,9 +193,6 @@ def validate_csv_row(row: Dict) -> bool:
     return validate_card_from_dict(row)
 
 
-# ------------------------------------------------------------
-# 3. تابع ارسال درخواست و ثبت نتیجه
-# ------------------------------------------------------------
 def send_request(system_prompt: str, format_name: str, iteration: int) -> Dict:
     user_prompt = "یک واژهٔ جدید به من آموزش بده."
     start_time = time.time()
@@ -234,13 +227,11 @@ def send_request(system_prompt: str, format_name: str, iteration: int) -> Dict:
             "validation_passed": False
         }
 
-    # ذخیره پاسخ
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{OUTPUT_DIR}/{format_name}_{iteration}_{timestamp}.txt"
+    filename = os.path.join(OUTPUT_DIR, f"{format_name}_{iteration}_{timestamp}.txt")
     with open(filename, "w", encoding="utf-8") as f:
         f.write(content)
 
-    # Parse کردن
     parsed = False
     validation_passed = False
     parse_error = None
@@ -286,9 +277,6 @@ def send_request(system_prompt: str, format_name: str, iteration: int) -> Dict:
     }
 
 
-# ------------------------------------------------------------
-# 4. اجرای تست
-# ------------------------------------------------------------
 def run_tests(iterations_per_format=3):
     formats = [
         ("json_long", get_system_prompt_json_long()),
@@ -310,12 +298,10 @@ def run_tests(iterations_per_format=3):
                     result['completion_tokens']*OUTPUT_COST_PER_1M/1e6)
             print(f"    {status} | Parse:{parsed} | Valid:{valid} | Tokens: {result['total_tokens']} | Cost: ${cost:.6f}")
 
-    # ذخیره خلاصه
     summary_file = os.path.join(OUTPUT_DIR, "summary.json")
     with open(summary_file, "w", encoding="utf-8") as f:
         json.dump(all_results, f, indent=2, ensure_ascii=False)
 
-    # نمایش جدول نهایی
     print("\n" + "="*80)
     print("SUMMARY REPORT")
     print("="*80)
