@@ -169,25 +169,28 @@ boundaries — when in doubt, use the full gate.
 
 Keep responsibilities aligned with the current module boundaries:
 
-- `bot.py`: Telegram handlers, callback routing, jobs, delivery orchestration,
-  and user-facing formatting.
-- `ai.py`: OpenAI-compatible client construction, provider settings, JSON
-  extraction, and AI response validation.
-- `db.py`: SQLite schema, migrations, transactions, persistence, quotas,
-  daily-card state, delivery queue state, and saved-word state.
-- `prompts.py`: system prompts and content-generation instructions.
-- `catalog.py`: canonical language, goal, and level metadata.
-- `keyboards.py`: Telegram menus and callback identifiers.
-- `scheduling.py`: pure session sizing, slot planning, and timezone-aware
-  planned timestamps.
-- `config.py`: environment and deployment settings only; it must not become a
-  second learner-option registry.
-- `issues/validate.py`: issue registry validation and optional exports.
-- `admin.py` and `user.py` (when introduced): role-specific Telegram handlers
-  only; shared domain behavior remains in focused services.
-- `formatting.py` (when introduced): learner-facing message formatting and
-  escaping behind a stable interface, so a future Telegram parse-mode change
-  does not require rewriting handlers or domain logic.
+- `bot.py`: Thin entry point; Telegram handlers, callback routing, jobs, delivery orchestration, and user-facing formatting.
+- `handlers/`: Telegram handler modules.
+  - `handlers/admin.py`: Admin panel handlers.
+  - `handlers/user.py`: User settings handlers (language, goal, level).
+  - `handlers/srs_handler.py`: SRS review handlers.
+- `services/`: Domain services.
+  - `services/db/`: SQLite schema, migrations, transactions, persistence, quotas, daily-card state, delivery queue state, and saved-word state.
+  - `services/ai/`: OpenAI-compatible client, provider settings, JSON extraction, AI response validation, system prompts, AI content generation, and provider presets.
+    - `services/ai/ai.py`: Client construction, validation.
+    - `services/ai/llm_services.py`: Cached content generation.
+    - `services/ai/prompts.py`: System prompts and content-generation instructions.
+    - `services/ai/ai_presets.py`: Hardcoded AI provider presets.
+  - `services/utils/`: Utility modules.
+    - `services/utils/formatting.py`: Learner-facing message formatting and escaping behind a stable interface.
+    - `services/utils/helpers.py`: Shared helper functions (retry, cancel detection, etc.).
+  - `services/scheduling.py`: Pure session sizing, slot planning, and timezone-aware planned timestamps.
+  - `services/tts.py`: Text-to-Speech generation using Edge TTS.
+- `config/`: Configuration and metadata.
+  - `config/__init__.py`: Environment and deployment settings; it must not become a second learner-option registry.
+  - `config/catalog.py`: Canonical language, goal, and level metadata.
+  - `config/keyboards.py`: Telegram menus and callback identifiers.
+- `issues/validate.py`: Issue registry validation and optional exports.
 
 Prefer extending an existing module and convention over introducing a new
 abstraction. Keep runtime behavior separate from issue-review tooling.

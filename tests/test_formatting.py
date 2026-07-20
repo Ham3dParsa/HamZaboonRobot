@@ -1,5 +1,5 @@
 import unittest
-from formatting import escape_mdv2, escape_mdv2_code
+from services.utils.formatting import escape_mdv2, escape_mdv2_code
 
 
 PERSIAN_ENGLISH_MIXED = (

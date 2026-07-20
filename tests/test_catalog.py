@@ -1,6 +1,6 @@
 import unittest
 
-from catalog import (
+from config.catalog import (
     DEFAULT_LEVEL,
     GOALS,
     LANGUAGES,
@@ -10,7 +10,7 @@ from catalog import (
     level_cefr,
     validate_catalog,
 )
-from prompts import daily_batch_system_prompt, grammar_tip_system_prompt
+from services.ai.prompts import daily_batch_system_prompt, grammar_tip_system_prompt
 
 
 class CatalogTests(unittest.TestCase):

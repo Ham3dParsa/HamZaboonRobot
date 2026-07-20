@@ -10,13 +10,13 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from config import APP_TIMEZONE, DB_PATH, OWNER_ID, PLANS, is_owner
-import db
-import ai
-import ai_presets
-import prompts
-from helpers import _edit_or_send, _send_with_retry
-from catalog import GOALS, LANGUAGES, LEVELS
-from keyboards import (
+from services import db
+from services.ai import ai
+from services.ai import ai_presets
+from services.ai import prompts
+from services.utils.helpers import _edit_or_send, _send_with_retry
+from config.catalog import GOALS, LANGUAGES, LEVELS
+from config.keyboards import (
     admin_panel_keyboard,
     awaiting_inline_keyboard,
     main_menu,

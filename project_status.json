@@ -183,7 +183,8 @@
         "Callback validation and restart recovery",
         "Phonetic data normalization",
         "Staged bot.py module extraction plan (docs/plan_bot_extraction.md)",
-        "Bot.py module extraction Stages 1-5 complete (formatting.py, helpers.py, user.py, srs_handler.py, admin.py)"
+        "Bot.py module extraction Stages 1-5 complete (formatting.py, helpers.py, user.py, srs_handler.py, admin.py)",
+        "Package restructuring: flat modules moved to config/, handlers/, services/ packages"
       ],
       "in_progress": [
         "Adaptive SRS correctness",
@@ -363,7 +364,7 @@
       "title": "Bot.py extraction via staged modules",
       "phase": "phase-6",
       "roadmap_ref": "phase-6-reliable-delivery-concurrency-and-data-lifecycle",
-      "summary": "Completed 5-stage extraction: Stage 1 (formatting.py, 2026-07-18), Stage 2 (helpers.py, 2026-07-18), Stage 3 (user.py + llm_services.py, 2026-07-19), Stage 4 (srs_handler.py, 2026-07-19), Stage 5 (admin.py, 2026-07-19). Each stage independently verified with full test suite."
+      "summary": "Completed 5-stage extraction (2026-07-18/19) plus final package restructuring (2026-07-20): flat modules moved to config/, handlers/, services/ packages. All imports rewritten to absolute style. AGENTS.md responsibilities table updated. Each stage independently verified with full test suite."
     },
     {
       "id": "decision-tts-pronunciation",

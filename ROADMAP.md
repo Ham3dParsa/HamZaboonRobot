@@ -180,6 +180,7 @@ separate concepts and must not be conflated.
 - Async-safe provider calls
 - Callback validation and restart recovery
 - Phonetic data normalization
+- Package restructuring: flat modules to config/, handlers/, services/ packages
 
 **In progress**
 - Adaptive SRS correctness
@@ -345,7 +346,11 @@ Completed on the current main branch:
   for each request.
 - TTS pronunciation via Edge TTS (free): on-demand 🔊 تلفظ button on all card
   types, premium-only (Silver/Gold), filesystem caching, send_voice() output.
-  New tts.py module with no provider abstraction layer.
+  New tts.py module (now services/tts.py) with no provider abstraction layer.
+- Package restructuring: all flat Python modules moved into config/,
+  handlers/, services/ai/, services/utils/, services/db/ packages. Absolute
+  imports throughout. AGENTS.md responsibilities table updated. Stale audit
+  and plan markdown files removed or archived. All 172 tests pass.
 - Card and daily-batch provider responses support an internal `compact_json`
   wire format with a rollback-only `json` mode; this serialization choice is
   deliberately independent from learner-facing card detail.

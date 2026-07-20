@@ -7,17 +7,17 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest, NetworkError, TimedOut
 
-import db
+from services import db
 from config import _user_presentation, _user_plan, PREMIUM_PLANS
-from formatting import (
+from services.utils.formatting import (
     CardPreparationError,
     SRS_REVEAL_QUESTION,
     format_card,
     _phonetic_lines,
 )
-from helpers import _answer_callback_safely, _edit_with_retry, _message_has_prepared_translations
-from keyboards import srs_revealed_keyboard, srs_review_keyboard
-from llm_services import _prepare_cached_card
+from services.utils.helpers import _answer_callback_safely, _edit_with_retry, _message_has_prepared_translations
+from config.keyboards import srs_revealed_keyboard, srs_review_keyboard
+from services.ai.llm_services import _prepare_cached_card
 
 logger = logging.getLogger("hamzaban")
 

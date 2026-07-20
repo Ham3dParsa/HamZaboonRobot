@@ -45,11 +45,11 @@ from config import (
     _user_plan,
     is_owner,
 )
-import db
-import ai
-import prompts
-import tts
-from catalog import (
+from services import db
+from services.ai import ai
+from services.ai import prompts
+from services import tts
+from config.catalog import (
     GOALS,
     LANGUAGES,
     LEVELS,
@@ -58,9 +58,9 @@ from catalog import (
     level_cefr,
     level_label,
 )
-from scheduling import plan_sessions
+from services.scheduling import plan_sessions
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
-from keyboards import (
+from config.keyboards import (
     main_menu,
     lang_inline_keyboard,
     goal_inline_keyboard,
@@ -91,14 +91,14 @@ from keyboards import (
     BTN_BACK,
 )
 
-from formatting import (
+from services.utils.formatting import (
     CardPreparationError,
     format_card,
     format_srs_prompt,
     _phonetic_lines,
 )
 
-from helpers import (
+from services.utils.helpers import (
     _answer_callback_safely,
     _delete_with_retry,
     _edit_with_retry,
@@ -115,14 +115,14 @@ from helpers import (
     _CUSTOM_WORD_MAX_WORDS,
 )
 
-from llm_services import (
+from services.ai.llm_services import (
     _call_ai_limited,
     _ask_batch_limited,
     _prepare_cached_card,
     _retry_primary_preset,
 )
 
-from admin import (
+from handlers.admin import (
     open_admin_panel,
     _handle_admin_callback,
     _handle_admin_text_input,
@@ -133,7 +133,7 @@ from admin import (
     auto_backup_job,
 )
 
-from user import (
+from handlers.user import (
     cmd_start,
     on_lang_selected,
     on_goal_selected,
@@ -156,7 +156,7 @@ from user import (
     _grammar_tip_usage_text,
 )
 
-from srs_handler import (
+from handlers.srs_handler import (
     _handle_query_add,
     _handle_srs_review,
     _handle_srs_reveal,

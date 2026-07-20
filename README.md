@@ -19,7 +19,7 @@ python bot.py
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python -m py_compile config.py catalog.py scheduling.py db.py prompts.py ai.py keyboards.py bot.py issues/validate.py
+.venv/bin/python -m py_compile config.py catalog.py scheduling.py db.py prompts.py ai.py keyboards.py bot.py admin.py user.py formatting.py helpers.py srs_handler.py llm_services.py ai_presets.py tts.py issues/validate.py
 .venv/bin/python issues/validate.py check
 ```
 
@@ -32,7 +32,15 @@ python bot.py
 - ماژول `ai.py` — کلاینت سازگار با OpenAI، مهلت زمانی، استخراج JSON و اعتبارسنجی کارت.
 - ماژول `scheduling.py` — برنامه‌ریزی خالص برای جلسه‌های روزانه و ظرفیت اسلات‌ها.
 - ماژول `keyboards.py` — کیبوردهای پاسخ و درون‌خطی و callbackهای کوتاه.
-- ماژول `bot.py` — مدیریت‌کننده‌های تلگرام، هماهنگ‌سازی، صف ارسال، SRS و تلاش‌های مجدد تلگرام.
+- ماژول `user.py` — هندلرهای تنظیمات کاربر: انتخاب زبان، هدف و سطح.
+- ماژول `admin.py` — پنل مدیریت: آمار، سهمیه، تنظیمات AI، هزینه‌ها و دستورات owner.
+- ماژول `formatting.py` — قالب‌بندی و escaping پیام‌های MarkdownV2 با پشتیبانی از متن فارسی.
+- ماژول `helpers.py` — توابع کمکی برای ورود کاربران، trivia و عملیات‌های متداول.
+- ماژول `srs_handler.py` — هندلرهای مرور فاصله‌دار (SRS) شامل نمایش کارت، ثبت نتیجه و ذخیره.
+- ماژول `llm_services.py` — سرویس‌های AI شامل تولید کارت روزانه، نکته گرامری و trivia.
+- ماژول `ai_presets.py` — تنظیمات از پیش‌تعریف‌شده برای providerهای مختلف AI.
+- ماژول `tts.py` — تولید گفتار (Text-to-Speech) با Edge TTS.
+- ماژول `bot.py` — مدیریت‌کننده‌های تلگرام، هماهنگ‌سازی، صف ارسال و تلاش‌های مجدد.
 - فایل `issues/issues.json` — منبع اصلی رکوردهای مهندسی شامل ویژگی،
   باگ، ریسک، پژوهش و تصمیم؛ برای اعتبارسنجی از `issues/validate.py check`
   استفاده کن.

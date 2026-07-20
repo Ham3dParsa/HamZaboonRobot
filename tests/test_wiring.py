@@ -12,7 +12,7 @@ def _collect_keyboard_prefixes():
     static prefix before the first runtime variable ({...}).
     """
     prefixes = set()
-    with open("keyboards.py", encoding="utf-8") as f:
+    with open("config/keyboards.py", encoding="utf-8") as f:
         text = f.read()
 
     for match in re.finditer(
@@ -104,7 +104,7 @@ class TestCallbackWiring(unittest.TestCase):
             self.fail(msg)
 
     def test_allowlist_prefixes_exist_in_keyboards(self):
-        with open("keyboards.py", encoding="utf-8") as f:
+        with open("config/keyboards.py", encoding="utf-8") as f:
             kbd_text = f.read()
         for allowed in ALLOWLIST:
             if allowed not in kbd_text:

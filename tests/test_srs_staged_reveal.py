@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import db
-import srs_handler
-from formatting import format_card, format_srs_prompt
-from keyboards import srs_hidden_keyboard, srs_revealed_keyboard
+from services import db
+from handlers import srs_handler
+from services.utils.formatting import format_card, format_srs_prompt
+from config.keyboards import srs_hidden_keyboard, srs_revealed_keyboard
 
 
 class SrsKeyboardTests(unittest.TestCase):
