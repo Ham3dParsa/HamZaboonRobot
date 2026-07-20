@@ -47,11 +47,14 @@ async def _start_llm_wait_state(update: Update, context: ContextTypes.DEFAULT_TY
         return None
 
 
-async def _finish_llm_wait_state(wait_message):
+async def _finish_llm_wait_state(wait_message, bot=None):
     if not wait_message:
         return
     try:
-        await wait_message.delete()
+        if bot is not None:
+            await _delete_with_retry(bot, wait_message.chat_id, wait_message.message_id)
+        else:
+            await wait_message.delete()
     except Exception:
         logger.exception("Failed to delete LLM wait-state message")
 
@@ -97,25 +100,72 @@ async def _answer_callback_safely(query, *args, **kwargs) -> None:
             logger.debug("skipped stale callback answer: %s", exc)
         else:
             raise
+    except (TimedOut, NetworkError):
+        logger.warning("callback answer failed due to network error")
 
 
 async def _send_with_retry(
     bot,
     chat_id: int,
     text: str,
-    *,
-    parse_mode: str | None = None,
-    reply_markup=None,
+    **kwargs,
 ):
     for attempt in range(3):
         try:
             async with _telegram_slots:
-                kwargs = {"chat_id": chat_id, "text": text}
-                if parse_mode is not None:
-                    kwargs["parse_mode"] = parse_mode
-                if reply_markup is not None:
-                    kwargs["reply_markup"] = reply_markup
-                return await bot.send_message(**kwargs)
+                send_kwargs = {"chat_id": chat_id, "text": text, **kwargs}
+                return await bot.send_message(**send_kwargs)
+        except BadRequest:
+            raise
+        except RetryAfter as exc:
+            if attempt == 2:
+                raise
+            await asyncio.sleep(min(float(exc.retry_after), 30))
+        except (TimedOut, NetworkError):
+            if attempt == 2:
+                raise
+            await asyncio.sleep(2**attempt)
+
+
+async def _edit_with_retry(query, text, **kwargs):
+    for attempt in range(3):
+        try:
+            async with _telegram_slots:
+                return await query.edit_message_text(text, **kwargs)
+        except BadRequest:
+            raise
+        except RetryAfter as exc:
+            if attempt == 2:
+                raise
+            await asyncio.sleep(min(float(exc.retry_after), 30))
+        except (TimedOut, NetworkError):
+            if attempt == 2:
+                raise
+            await asyncio.sleep(2**attempt)
+
+
+async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
+    for attempt in range(3):
+        try:
+            async with _telegram_slots:
+                return await bot.delete_message(chat_id=chat_id, message_id=message_id, **kwargs)
+        except BadRequest:
+            raise
+        except RetryAfter as exc:
+            if attempt == 2:
+                raise
+            await asyncio.sleep(min(float(exc.retry_after), 30))
+        except (TimedOut, NetworkError):
+            if attempt == 2:
+                raise
+            await asyncio.sleep(2**attempt)
+
+
+async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
+    for attempt in range(3):
+        try:
+            async with _telegram_slots:
+                return await bot.send_voice(chat_id=chat_id, voice=voice, **kwargs)
         except BadRequest:
             raise
         except RetryAfter as exc:
