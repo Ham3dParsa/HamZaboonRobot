@@ -10,7 +10,7 @@ instruction.
 the agent SHOULD silently verify or explicitly output the **Appendix A** checklist
 to refresh context-window constraints before proceeding.
 
-_Last updated: 2026-07-20. See git history of this file for prior versions
+_Last updated: 2026-07-21. See git history of this file for prior versions
 and rationale for major protocol changes._
 
 ## 1. Product Context
@@ -192,6 +192,7 @@ Keep responsibilities aligned with the current module boundaries:
   - `config/catalog.py`: Canonical language, goal, and level metadata.
   - `config/keyboards.py`: Telegram menus and callback identifiers.
 - `issues/validate.py`: Issue registry validation and optional exports.
+- `.github/workflows/ci.yml`: GitHub Actions CI — runs lint, compile, tests, dashboard generation, and whitespace checks on push/PR to `main`.
 
 Prefer extending an existing module and convention over introducing a new
 abstraction. Keep runtime behavior separate from issue-review tooling.
@@ -396,7 +397,7 @@ full suite:
 - schema changes: fresh-database creation and migration from the prior schema.
 
 Do not claim CI success from local tests. Report CI based on the repository
-checks after the PR is opened.
+checks (GitHub Actions, `.github/workflows/ci.yml`) after the PR is opened.
 
 ### Handling Broken or Outdated Tests
 
