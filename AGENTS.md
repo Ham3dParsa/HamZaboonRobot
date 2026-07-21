@@ -192,7 +192,9 @@ Keep responsibilities aligned with the current module boundaries:
   - `config/catalog.py`: Canonical language, goal, and level metadata.
   - `config/keyboards.py`: Telegram menus and callback identifiers.
 - `issues/validate.py`: Issue registry validation and optional exports.
-- `.github/workflows/ci.yml`: GitHub Actions CI — runs lint, compile, tests, dashboard generation, and whitespace checks on push/PR to `main`.
+- `tests/test_integration/`: Handler-level integration tests simulating real user flows (see Integration Test Protocol).
+  - `tests/test_integration/helpers.py`: Shared helpers for update/context construction and DB snapshot management.
+- `.github/workflows/ci.yml`: GitHub Actions CI — runs lint, compile, tests, dashboard generation, and whitespace checks on push/PR to `main`. — runs lint, compile, tests, dashboard generation, and whitespace checks on push/PR to `main`.
 
 Prefer extending an existing module and convention over introducing a new
 abstraction. Keep runtime behavior separate from issue-review tooling.
@@ -340,7 +342,7 @@ For a non-trivial task:
 0. **Contract lock confirmed per Section 2.4 (Mandatory Pre-Implementation Contract Lock Gate).**
 1. Implement on current branch (or stash changes); run full validation (Section 6).
 2. **Create a fresh feature branch from the latest `origin/main`** using convention: `type/short-desc` (e.g., `feat/custom-words`, `fix/collision-retry`).
-3. **Write focused unit tests** in `tests/` for any new logic, edge cases, database schema changes, or callback routing changes introduced by the implementation. For any change that touches `callback_data` strings, `callback_router` dispatch conditions, or sub-router action patterns, a cross-module callback wiring integrity test MUST be added or updated to verify all callback prefixes have matching router and sub-router handlers (see `tests/test_wiring.py`).
+3. **Write focused unit tests** in `tests/` for any new logic, edge cases, database schema changes, or callback routing changes introduced by the implementation. For any change that touches `callback_data` strings, `callback_router` dispatch conditions, or sub-router action patterns, a cross-module callback wiring integrity test MUST be added or updated to verify all callback prefixes have matching router and sub-router handlers (see `tests/test_wiring.py`). For behavioral changes (handler logic, keyboard construction, database writes, quota enforcement, or AI interaction), add handler-level integration tests in `tests/test_integration/` following the Integration Test Protocol (Section 6).
 4. Stage modified files explicitly: `git add file1.py file2.py` (never `git add .`).
 5. Commit with Conventional Commits format: `type(scope): subject` (e.g., `fix(bot): handle collision retry`).
 6. Push branch and create PR via `gh pr create --fill --base main`.
@@ -398,6 +400,61 @@ full suite:
 
 Do not claim CI success from local tests. Report CI based on the repository
 checks (GitHub Actions, `.github/workflows/ci.yml`) after the PR is opened.
+
+### Integration Test Protocol
+
+When a behavioral change (callback routing, handler logic, keyboard construction,
+database writes, quota enforcement, or AI interaction) is made, the agent MUST
+add or update handler-level integration tests in `tests/test_integration/` to
+verify the change end-to-end. These tests simulate real user actions through
+the routing layer and check the full response, not just isolated function
+outputs.
+
+**Scope and coverage.** Each integration test follows a user-facing flow:
+1. Construct a realistic `Update` (text message or callback query) and `Context`.
+2. Call the appropriate router (`text_router`, `callback_router`, or sub-router).
+3. Assert on the handler's Telegram output (`reply_text`, `edit_message_text`,
+   `answer`) and on any resulting database state change.
+4. Assert that the returned keyboard (if any) contains the expected
+   `callback_data` prefixes and labels.
+
+**Database isolation.**
+- Before the test session runs, the agent backs up the real SQLite database
+  (`db.DB_PATH`) to a timestamped snapshot file. The backup is created once per
+  session and is never modified.
+- Each test class creates a fresh copy of the snapshot in a temp directory and
+  sets `db.DB_PATH` to the copy. This ensures every class starts from the same
+  realistic data without affecting the production database.
+- After the test session, all temp copies and the session snapshot are removed.
+  No production data is ever read or written through a production `db.DB_PATH`.
+
+**AI interaction in tests.**
+- By default, all AI calls are mocked with controlled, pre-defined responses.
+- When `AI_TEST_REAL=true` is set in the environment, real AI calls are made
+  using a dedicated test preset (set `_is_test_preset=True` in the preset
+  config). The agent MUST enforce a maximum budget of **1000 tokens per test
+  session** when real AI is enabled, and MUST skip or abort any test that would
+  exceed this budget. Track cumulative token usage via `db.log_llm_request`
+  and abort the test session at 1000 tokens.
+- Real AI mode is intended for targeted verification of prompt changes or new
+  content schemas, not for every test run.
+
+**Telegram interface.** Tests MUST NOT use a real bot token. All Telegram
+interactions are mocked via `AsyncMock` on the `Context.bot` object. The
+agent verifies the handler's response by inspecting the mock's call arguments
+(`reply_text.call_args`, `edit_message_text.call_args`, etc.).
+
+**Test file conventions.** Integration test files live in
+`tests/test_integration/` and follow the naming pattern
+`test_<feature>_flow.py`. Each file contains one or more
+`unittest.IsolatedAsyncioTestCase` classes. Common helpers (update factory,
+context factory, DB snapshot management) live in
+`tests/test_integration/helpers.py`.
+
+**Contract lock gate for new tests.** Before writing an integration test, the
+agent must include the AI cost impact and the database safety plan in the
+contract lock summary (Section 2.4). If the test calls real AI, the expected
+token count and purpose must be stated.
 
 ### Handling Broken or Outdated Tests
 
