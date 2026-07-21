@@ -125,12 +125,10 @@ class SrsHandlerFlowTests(unittest.TestCase):
             "grammar_tip": "نکته",
         }
         db.add_saved_word(1, "hello", "en", card)
-        self.word_id = db.get_saved_word_id_for(1, "hello", "en") if hasattr(db, "get_saved_word_id_for") else None
-        if self.word_id is None:
-            with db.get_conn() as conn:
-                self.word_id = conn.execute(
-                    "SELECT id FROM saved_words WHERE user_id=1"
-                ).fetchone()["id"]
+        with db.get_conn() as conn:
+            self.word_id = conn.execute(
+                "SELECT id FROM saved_words WHERE user_id=1"
+            ).fetchone()["id"]
         # Move the word into the pending-review state the reveal handler requires.
         db.claim_srs_reminder(self.word_id)
         db.mark_word_review_pending(self.word_id)

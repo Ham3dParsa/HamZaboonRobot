@@ -1,2 +1,0 @@
-word|phonetic|fa_meaning|fa_explanation|synonyms|antonyms|examples|example_translations|grammar_tip
-achieve|/əˈtʃiːv/|دست یافتن؛ رسیدن|به موفقیت رسیدن در کاری که برایش تلاش کرده‌اید|accomplish;attain;succeed|fail|Hard work helps you achieve your goals.;She achieved great success.|تلاش زیاد به شما کمک می‌کند به اهداف‌تان برسید.;او به موفقیت بزرگی دست یافت.|فعل است و معمولاً با اسم‌هایی مثل goal یا success می‌آید.

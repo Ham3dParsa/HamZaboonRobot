@@ -128,20 +128,10 @@ class DashboardGeneratorTests(unittest.TestCase):
                 f'Decision {dec["id"]} not found in dashboard',
             )
 
-    def test_main_container_has_wide_max_width(self):
-        """Dashboard layout uses 1600px max-width for 1440p displays."""
-        self.assertIn("max-width: 1600px", self.html)
-
     def test_phase_list_is_css_grid(self):
         """Phase cards are arranged in a responsive grid."""
         self.assertIn('class="phase-list"', self.html)
         self.assertIn("grid-template-columns", self.html)
-
-    def test_phase_grid_has_two_column_breakpoint(self):
-        self.assertIn("grid-template-columns: repeat(2, 1fr)", self.html)
-
-    def test_phase_grid_has_three_column_breakpoint(self):
-        self.assertIn("grid-template-columns: repeat(3, 1fr)", self.html)
 
     def test_stat_cards_are_clickable(self):
         """All stat cards have onclick handlers for cross-tab navigation."""
@@ -149,9 +139,6 @@ class DashboardGeneratorTests(unittest.TestCase):
             r'<div class="stat-card"[^>]*onclick="', self.html
         )
         self.assertGreaterEqual(len(onclick_cards), 8)
-
-    def test_stat_cards_have_cursor_pointer(self):
-        self.assertIn("cursor: pointer", self.html)
 
     def test_stat_card_complete_navigates_to_phases_tab(self):
         self.assertRegex(

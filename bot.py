@@ -1265,7 +1265,12 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
                     log.warning("SRS card preparation failed for user %s word_id=%s", user_id, word_id)
                 except Exception:
                     db.mark_srs_send_failed(word_id, word.get("srs_retry_attempts", 0))
-                    raise
+                    log.exception(
+                        "SRS word %s failed for user %s — continuing with next word",
+                        word_id, user_id,
+                    )
+                    db.release_srs_claim(word_id)
+                    continue
         except CardPreparationError:
             try:
                 await _send_with_retry(
