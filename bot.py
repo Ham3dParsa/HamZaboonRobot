@@ -178,7 +178,7 @@ _MANUAL_DAILY_BATCH_SIZE = 6
 _telegram_offline: bool = False
 _consecutive_health_failures: int = 0
 _OFFLINE_THRESHOLD: int = 1
-_OFFLINE_MESSAGE = "⚠️ اتصال ربات به اینترنت قطع شده. به محض وصل شدن، دوباره تلاش کن."
+
 
 
 async def _send_card_from_store(
@@ -556,14 +556,6 @@ async def _show_review_date(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if _telegram_offline:
-        try:
-            await _send_with_retry(
-                context.bot,
-                update.effective_chat.id,
-                _OFFLINE_MESSAGE,
-            )
-        except Exception:
-            log.debug("offline notification send failed (expected)")
         return
     user_id = update.effective_user.id
     text = update.message.text.strip()
@@ -757,19 +749,6 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if _telegram_offline:
-        await _answer_callback_safely(
-            update.callback_query,
-            "ربات به اینترنت دسترسی ندارد.",
-            show_alert=True,
-        )
-        try:
-            await _send_with_retry(
-                context.bot,
-                update.effective_chat.id,
-                _OFFLINE_MESSAGE,
-            )
-        except Exception:
-            log.debug("offline notification send failed (expected)")
         return
     data = update.callback_query.data
     if not data.startswith(
