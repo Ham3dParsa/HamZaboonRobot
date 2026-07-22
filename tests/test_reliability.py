@@ -975,5 +975,56 @@ class UserLockThreadSafetyTests(unittest.TestCase):
             self.assertIs(lock, results[0])
 
 
+class BeginImmediateConcurrencyTests(unittest.TestCase):
+    """Finding C1: BEGIN IMMEDIATE prevents database is locked under concurrent writes."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.previous_db_path = db.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        db.init_db()
+
+    def tearDown(self):
+        db.DB_PATH = self.previous_db_path
+        self.tempdir.cleanup()
+
+    def test_concurrent_increment_consecutive_failures_is_serialized(self):
+        NUM_THREADS = 10
+        errors = []
+
+        def increment():
+            try:
+                db.increment_consecutive_failures()
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=increment) for _ in range(NUM_THREADS)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(errors, [])
+        self.assertEqual(db.get_setting("ai_consecutive_failures", "0"), str(NUM_THREADS))
+
+    def test_concurrent_set_setting_is_serialized(self):
+        NUM_THREADS = 10
+        errors = []
+
+        def writer():
+            try:
+                db.set_setting("concurrent_test", "42")
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=writer) for _ in range(NUM_THREADS)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(errors, [])
+
+
 if __name__ == "__main__":
     unittest.main()

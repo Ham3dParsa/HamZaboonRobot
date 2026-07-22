@@ -433,6 +433,7 @@ def get_setting(key: str, default: str = "") -> str:
 
 def set_setting(key: str, value: str):
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT INTO settings(key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -480,6 +481,7 @@ def set_llm_cost_profile(
     usd_to_toman_rate: float,
 ):
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT INTO settings(key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -507,6 +509,7 @@ def get_user(user_id: int):
 
 def create_user_if_needed(user_id: int, username: str):
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT OR IGNORE INTO users(user_id, username, created_at) VALUES (?, ?, ?)",
             (user_id, username, _utc_now().isoformat()),
@@ -516,6 +519,7 @@ def create_user_if_needed(user_id: int, username: str):
 
 def set_user_lang_goal(user_id: int, lang: str, goal: str):
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "UPDATE users SET target_lang=?, goal=? WHERE user_id=?",
             (lang, goal, user_id),
@@ -525,6 +529,7 @@ def set_user_lang_goal(user_id: int, lang: str, goal: str):
 
 def set_user_level(user_id: int, level: str):
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "UPDATE users SET level=?, onboarded=1 WHERE user_id=?",
             (level, user_id),
@@ -536,6 +541,7 @@ def set_presentation_preference(user_id: int, preference: str):
     if preference not in {"brief", "detailed"}:
         raise ValueError(f"Unknown presentation preference: {preference}")
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "UPDATE users SET presentation_preference=? WHERE user_id=?",
             (preference, user_id),
@@ -546,6 +552,7 @@ def set_presentation_preference(user_id: int, preference: str):
 def set_user_lang(user_id: int, lang: str):
     """تغییر فقط زبان"""
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "UPDATE users SET target_lang=? WHERE user_id=?",
             (lang, user_id),
@@ -556,6 +563,7 @@ def set_user_lang(user_id: int, lang: str):
 def set_user_goal(user_id: int, goal: str):
     """تغییر فقط هدف"""
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "UPDATE users SET goal=? WHERE user_id=?",
             (goal, user_id),
@@ -566,6 +574,7 @@ def set_user_goal(user_id: int, goal: str):
 def touch_streak(user_id: int) -> int:
     today = _today().isoformat()
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT streak, last_active_date FROM users WHERE user_id=?", (user_id,)
         ).fetchone()
@@ -625,6 +634,7 @@ def reserve_word_query(user_id: int, daily_limit: int, bypass_limits: bool = Fal
 def release_word_query(user_id: int):
     today = _today().isoformat()
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "UPDATE users SET words_asked_today=MAX(words_asked_today - 1, 0) "
             "WHERE user_id=? AND words_asked_date=?",
@@ -673,6 +683,7 @@ def reserve_grammar_tip(user_id: int, daily_limit: int, bypass_limits: bool = Fa
 def release_grammar_tip(user_id: int):
     today = _today().isoformat()
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "UPDATE users SET grammar_tips_asked_today="
             "MAX(grammar_tips_asked_today - 1, 0) "
@@ -698,6 +709,7 @@ def create_query_result(
     now = _utc_now()
     expires_at = now + datetime.timedelta(seconds=ttl_seconds)
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT INTO query_results("
             "token, user_id, query_text, word, lang, result_json, created_at, expires_at"
@@ -732,6 +744,7 @@ def get_query_result(token: str, user_id: int | None = None, include_expired: bo
 
 def mark_query_result_saved(token: str, saved_word_id: int | None = None):
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "UPDATE query_results SET saved_at=COALESCE(saved_at, ?), "
             "saved_word_id=COALESCE(saved_word_id, ?) WHERE token=?",
@@ -770,6 +783,7 @@ def update_query_result_fields(
 
 def cleanup_expired_query_results():
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "DELETE FROM query_results WHERE expires_at<?",
             (_utc_now().isoformat(),),
@@ -789,6 +803,7 @@ def add_grammar_tip(
     if not title:
         return
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT INTO grammar_tips("
             "user_id, tip_date, title, lang, goal, level, tip_json, created_at"
@@ -852,6 +867,7 @@ def add_llm_request(
     request_id = secrets.token_hex(16)
     now = _utc_now()
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT INTO llm_requests("
             "request_id, created_at, request_date, user_id, plan, request_kind, model, "
@@ -1013,6 +1029,7 @@ def delivery_queue_for_user(user_id: int, delivery_date: str):
 
 def enqueue_delivery_sessions(user_id: int, delivery_date: str, sessions):
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         for session in sessions:
             key = f"{user_id}:{delivery_date}:{session.session_index}"
             conn.execute(
@@ -1039,6 +1056,7 @@ def enqueue_delivery_sessions(user_id: int, delivery_date: str, sessions):
 def claim_delivery_queue(queue_id: int):
     now = _utc_now().isoformat()
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "UPDATE delivery_queue SET status='processing', attempts=attempts+1, "
             "processing_started_at=?, retry_at=NULL "
@@ -1054,6 +1072,7 @@ def claim_delivery_queue(queue_id: int):
 
 def mark_delivery_sent(queue_id: int):
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "UPDATE delivery_queue SET status='sent', sent_at=?, last_error=NULL WHERE id=?",
             (_utc_now().isoformat(), queue_id),
@@ -1063,6 +1082,7 @@ def mark_delivery_sent(queue_id: int):
 
 def advance_delivery_progress(queue_id: int, sent_count: int):
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "UPDATE delivery_queue SET sent_count=? WHERE id=? AND status='processing'",
             (sent_count, queue_id),
@@ -1080,6 +1100,7 @@ def mark_delivery_failed(
     if retry_at is None and not terminal:
         retry_at = _utc_now().isoformat()
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "UPDATE delivery_queue SET status='failed', last_error=?, retry_at=? WHERE id=?",
             (error[:1000], retry_at, queue_id),
@@ -1089,6 +1110,7 @@ def mark_delivery_failed(
 
 def requeue_stale_deliveries(stale_before: str, max_attempts: int = 5):
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "UPDATE delivery_queue SET status='failed', last_error='worker restarted', "
             "retry_at=CASE WHEN attempts<? THEN ? ELSE NULL END "
@@ -1107,6 +1129,7 @@ def set_plan(user_id: int, plan: str):
     if plan not in PLANS:
         raise ValueError(f"Unknown plan: {plan}")
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute("UPDATE users SET plan=? WHERE user_id=?", (plan, user_id))
         conn.commit()
 
@@ -1191,6 +1214,7 @@ def count_daily_cards(user_id: int, card_date: str) -> int:
 
 def add_daily_card(user_id: int, card_date: str, card_index: int, card_data: dict):
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT OR IGNORE INTO daily_cards(user_id, card_date, card_index, card_data) "
             "VALUES (?, ?, ?, ?)",
@@ -1246,6 +1270,7 @@ def get_daily_progress(user_id: int, card_date: str) -> int:
 
 def set_daily_progress(user_id: int, card_date: str, next_index: int):
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT INTO daily_progress(user_id, card_date, next_index) VALUES (?, ?, ?) "
             "ON CONFLICT(user_id, card_date) DO UPDATE SET next_index=excluded.next_index",
@@ -1309,6 +1334,7 @@ def add_saved_word(
         else None
     )
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         cursor = conn.execute(
             "INSERT OR IGNORE INTO saved_words("
             "user_id, word, lang, normalized_word, card_data, interval_idx, "
@@ -1375,6 +1401,7 @@ def due_words_for_user(user_id: int):
         _utc_now() - datetime.timedelta(hours=48)
     ).isoformat()
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "UPDATE saved_words SET review_status='idle', review_requested_at=NULL "
             "WHERE user_id=? AND review_status='pending' "
@@ -1403,6 +1430,7 @@ def get_saved_word(word_id: int, user_id: int | None = None):
 
 def claim_srs_reminder(word_id: int) -> bool:
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         cursor = conn.execute(
             "UPDATE saved_words SET review_status='claiming', review_requested_at=? "
             "WHERE id=? AND review_status='idle'",
@@ -1414,6 +1442,7 @@ def claim_srs_reminder(word_id: int) -> bool:
 
 def release_srs_claim(word_id: int) -> bool:
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         cursor = conn.execute(
             "UPDATE saved_words SET review_status='idle', review_requested_at=NULL "
             "WHERE id=? AND review_status='claiming'",
@@ -1425,6 +1454,7 @@ def release_srs_claim(word_id: int) -> bool:
 
 def mark_word_review_pending(word_id: int) -> bool:
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         cursor = conn.execute(
             "UPDATE saved_words SET review_status='pending', review_requested_at=? "
             "WHERE id=? AND review_status='claiming'",
@@ -1436,6 +1466,7 @@ def mark_word_review_pending(word_id: int) -> bool:
 
 def advance_word_review(word_id: int) -> bool:
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT interval_idx FROM saved_words WHERE id=?", (word_id,)).fetchone()
         if not row:
             return False
@@ -1454,6 +1485,7 @@ def advance_word_review(word_id: int) -> bool:
 def defer_word_review(word_id: int, days: int = 1) -> bool:
     next_review = (_today() + datetime.timedelta(days=max(days, 1))).isoformat()
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         cursor = conn.execute(
             "UPDATE saved_words SET next_review=?, review_status='idle', "
             "review_requested_at=NULL WHERE id=? AND review_status='pending'",
@@ -1482,6 +1514,7 @@ def record_review_event(
     if outcome not in REVIEW_OUTCOMES:
         raise ValueError(f"unknown review outcome: {outcome}")
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT INTO review_events "
             "(word_id, user_id, revealed_before_answer, outcome, created_at) "
@@ -1502,6 +1535,7 @@ def record_review_event(
 def mark_srs_send_failed(word_id: int, current_attempts: int, max_attempts: int = 5):
     if current_attempts >= max_attempts:
         with get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute(
                 "UPDATE saved_words SET retry_at=NULL, srs_retry_attempts=? WHERE id=?",
                 (current_attempts, word_id),
@@ -1511,6 +1545,7 @@ def mark_srs_send_failed(word_id: int, current_attempts: int, max_attempts: int 
     delay = min(300 * (2 ** current_attempts), 3600)
     retry_at = (_utc_now() + datetime.timedelta(seconds=delay)).isoformat()
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "UPDATE saved_words SET retry_at=?, review_status='idle', srs_retry_attempts=? WHERE id=?",
             (retry_at, current_attempts, word_id),
@@ -1530,6 +1565,7 @@ def get_due_srs_failed(max_words: int = 50):
 
 def clear_srs_retry(word_id: int):
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "UPDATE saved_words SET retry_at=NULL, srs_retry_attempts=0 WHERE id=?",
             (word_id,),
@@ -1662,6 +1698,7 @@ def set_preset(
 ):
     """Upsert a preset (custom presets only)."""
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, timeout_seconds, temperature, max_output_tokens, is_custom) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
@@ -1691,6 +1728,7 @@ def set_preset(
 def delete_preset(name: str) -> bool:
     """Delete a custom preset (built-ins have is_custom=0 and cannot be deleted)."""
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         cursor = conn.execute(
             "DELETE FROM ai_presets WHERE name=? AND is_custom=1", (name,)
         )
@@ -1704,6 +1742,7 @@ def activate_preset(name: str) -> bool:
     if not preset:
         return False
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT INTO settings(key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -1737,6 +1776,7 @@ def activate_preset(name: str) -> bool:
 def set_fallback_active(active: bool, fallback_preset: str | None = None):
     """Activate or deactivate fallback mode."""
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT INTO settings(key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -1771,6 +1811,7 @@ def set_fallback_active(active: bool, fallback_preset: str | None = None):
 def increment_consecutive_failures() -> int:
     """Increment and return the consecutive failures counter."""
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         current = int(get_setting("ai_consecutive_failures", "0")) + 1
         conn.execute(
             "INSERT INTO settings(key, value) VALUES (?, ?) "
@@ -1784,6 +1825,7 @@ def increment_consecutive_failures() -> int:
 def reset_consecutive_failures():
     """Reset the consecutive failures counter."""
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT INTO settings(key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -1815,6 +1857,7 @@ def get_pending_ai() -> dict:
 def set_pending_ai(key: str, value: str):
     """Set a single pending AI setting."""
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT INTO pending_ai_settings(key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -1826,6 +1869,7 @@ def set_pending_ai(key: str, value: str):
 def clear_pending_ai():
     """Clear all pending AI settings."""
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute("DELETE FROM pending_ai_settings")
         conn.commit()
 
@@ -1836,6 +1880,7 @@ def apply_pending_ai() -> dict:
     if not pending:
         return {"applied": 0, "keys": []}
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         for key, value in pending.items():
             conn.execute(
                 "INSERT INTO settings(key, value) VALUES (?, ?) "
@@ -1872,6 +1917,7 @@ def diff_pending_vs_active() -> dict:
 def log_config_test(test_type: str, preset_name: str, prompt: str, result: dict):
     """Log a config test result."""
     with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT INTO config_tests(test_type, preset_name, prompt, result, created_at) VALUES (?, ?, ?, ?, ?)",
             (
