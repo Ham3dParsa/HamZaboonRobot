@@ -211,14 +211,22 @@ def init_db():
                 daily_batch_size INTEGER DEFAULT 6,
                 max_concurrency INTEGER DEFAULT 2,
                 max_rpm INTEGER DEFAULT 30,
+                max_tpm INTEGER DEFAULT 0,
+                max_daily_req INTEGER DEFAULT 0,
                 timeout_seconds REAL DEFAULT 30.0,
                 temperature REAL DEFAULT 0.6,
                 max_output_tokens INTEGER DEFAULT 4096,
-                is_custom INTEGER DEFAULT 0
+                is_custom INTEGER DEFAULT 0,
+                priority INTEGER DEFAULT 0,
+                enabled INTEGER DEFAULT 1,
+                is_emergency INTEGER DEFAULT 0
             );
-            CREATE TABLE IF NOT EXISTS pending_ai_settings (
-                key TEXT PRIMARY KEY,
-                value TEXT
+            CREATE TABLE IF NOT EXISTS preset_hourly_usage (
+                preset_name TEXT NOT NULL,
+                hour_bucket TEXT NOT NULL,
+                request_count INTEGER DEFAULT 0,
+                token_count INTEGER DEFAULT 0,
+                PRIMARY KEY (preset_name, hour_bucket)
             );
             CREATE TABLE IF NOT EXISTS config_tests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -331,20 +339,25 @@ def init_db():
         }
         for k, v in defaults.items():
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
+        for tbl, col, col_def in (
+            ("daily_cards", "provenance", "TEXT DEFAULT ''"),
+            ("grammar_tips", "provenance", "TEXT DEFAULT ''"),
+        ):
+            existing = {
+                row["name"]
+                for row in conn.execute(f"PRAGMA table_info({tbl})").fetchall()
+            }
+            if col not in existing:
+                conn.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {col_def}")
 
         # Initialize ai_presets table with built-in presets
         _init_ai_presets_table(conn)
-
-        # Initialize pending_ai_settings table for staging
-        _init_pending_ai_settings_table(conn)
 
         # Initialize config_tests table for audit logging
         _init_config_tests_table(conn)
 
         # Initialize fallback-related settings
         fallback_defaults = {
-            "ai_primary_preset": "gapgpt",
-            "ai_fallback_preset": "gapgpt",
             "ai_fallback_active": "false",
             "ai_fallback_since": "",
             "ai_consecutive_failures": "0",
@@ -352,6 +365,16 @@ def init_db():
         }
         for k, v in fallback_defaults.items():
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
+        existing_primary = conn.execute("SELECT value FROM settings WHERE key='ai_primary_preset'").fetchone()
+        if not existing_primary:
+            first = conn.execute(
+                "SELECT name FROM ai_presets WHERE enabled=1 AND is_emergency=0 ORDER BY priority ASC, name ASC LIMIT 1"
+            ).fetchone()
+            if first:
+                conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('ai_primary_preset', ?)", (first["name"],))
+        existing_fallback = conn.execute("SELECT value FROM settings WHERE key='ai_fallback_preset'").fetchone()
+        if not existing_fallback:
+            conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('ai_fallback_preset', 'gapgpt_gemini_lite')")
 
         llm_request_columns = {
             row["name"]
@@ -414,11 +437,6 @@ def init_db():
                         "UPDATE ai_presets SET api_key=? WHERE name=?",
                         (legacy_api_key["value"], active_name_val),
                     )
-
-        # Cleanup orphaned ai_preset_* keys from pending_ai_settings
-        conn.execute(
-            "DELETE FROM pending_ai_settings WHERE key LIKE 'ai_preset_%'"
-        )
 
         conn.commit()
 
@@ -798,6 +816,7 @@ def add_grammar_tip(
     goal: str,
     level: str,
     tip_data: dict,
+    provenance: str = "",
 ):
     title = " ".join(title.split())
     if not title:
@@ -806,8 +825,8 @@ def add_grammar_tip(
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT INTO grammar_tips("
-            "user_id, tip_date, title, lang, goal, level, tip_json, created_at"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "user_id, tip_date, title, lang, goal, level, tip_json, created_at, provenance"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 user_id,
                 _today().isoformat(),
@@ -817,6 +836,7 @@ def add_grammar_tip(
                 level,
                 json.dumps(tip_data, ensure_ascii=False),
                 _utc_now().isoformat(),
+                provenance,
             ),
         )
         conn.commit()
@@ -1212,13 +1232,13 @@ def count_daily_cards(user_id: int, card_date: str) -> int:
         ).fetchone()["c"]
 
 
-def add_daily_card(user_id: int, card_date: str, card_index: int, card_data: dict):
+def add_daily_card(user_id: int, card_date: str, card_index: int, card_data: dict, provenance: str = ""):
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(
-            "INSERT OR IGNORE INTO daily_cards(user_id, card_date, card_index, card_data) "
-            "VALUES (?, ?, ?, ?)",
-            (user_id, card_date, card_index, json.dumps(card_data, ensure_ascii=False)),
+            "INSERT OR IGNORE INTO daily_cards(user_id, card_date, card_index, card_data, provenance) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (user_id, card_date, card_index, json.dumps(card_data, ensure_ascii=False), provenance),
         )
         conn.commit()
 
@@ -1587,46 +1607,67 @@ def _init_ai_presets_table(conn):
             daily_batch_size INTEGER DEFAULT 6,
             max_concurrency INTEGER DEFAULT 2,
             max_rpm INTEGER DEFAULT 30,
+            max_tpm INTEGER DEFAULT 0,
+            max_daily_req INTEGER DEFAULT 0,
             timeout_seconds REAL DEFAULT 30.0,
             temperature REAL DEFAULT 0.6,
             max_output_tokens INTEGER DEFAULT 4096,
-            is_custom INTEGER DEFAULT 0
+            is_custom INTEGER DEFAULT 0,
+            priority INTEGER DEFAULT 0,
+            enabled INTEGER DEFAULT 1,
+            is_emergency INTEGER DEFAULT 0
         );
         """
     )
-    # Add api_key column if missing (migration for existing databases)
+    # Migrate missing columns for existing databases
     preset_columns = {
         row["name"]
         for row in conn.execute("PRAGMA table_info(ai_presets)").fetchall()
     }
-    if "api_key" not in preset_columns:
-        conn.execute("ALTER TABLE ai_presets ADD COLUMN api_key TEXT NOT NULL DEFAULT ''")
-    # Seed built-in presets only if table is empty
-    count = conn.execute("SELECT COUNT(*) c FROM ai_presets").fetchone()["c"]
-    if count == 0:
-        builtins = [
-            ("gapgpt", "https://api.gapgpt.app/v1", "gapgpt-qwen-3.6", "$GAPGPT_API_KEY", 6, 2, 30, 30.0, 0.6, 4096, 0),
-            ("openai", "https://api.openai.com/v1", "gpt-4o-mini", "$OPENAI_API_KEY", 6, 2, 60, 30.0, 0.6, 4096, 0),
-            ("anthropic", "https://api.anthropic.com/v1", "claude-3-haiku-20240307", "$ANTHROPIC_API_KEY", 6, 2, 50, 30.0, 0.6, 4096, 0),
-            ("custom", "", "", "", 6, 2, 30, 30.0, 0.6, 4096, 0),
-        ]
-        for p in builtins:
-            conn.execute(
-                "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, timeout_seconds, temperature, max_output_tokens, is_custom) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                p,
-            )
-
-
-def _init_pending_ai_settings_table(conn):
-    """Create pending_ai_settings table for staging."""
+    for col_name, col_def in {
+        "api_key": "TEXT NOT NULL DEFAULT ''",
+        "max_tpm": "INTEGER DEFAULT 0",
+        "max_daily_req": "INTEGER DEFAULT 0",
+        "priority": "INTEGER DEFAULT 0",
+        "enabled": "INTEGER DEFAULT 1",
+        "is_emergency": "INTEGER DEFAULT 0",
+    }.items():
+        if col_name not in preset_columns:
+            conn.execute(f"ALTER TABLE ai_presets ADD COLUMN {col_name} {col_def}")
+    # Create preset_hourly_usage table
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS pending_ai_settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
+        CREATE TABLE IF NOT EXISTS preset_hourly_usage (
+            preset_name TEXT NOT NULL,
+            hour_bucket TEXT NOT NULL,
+            request_count INTEGER DEFAULT 0,
+            token_count INTEGER DEFAULT 0,
+            PRIMARY KEY (preset_name, hour_bucket)
         );
         """
     )
+    # Replace all presets with current BUILTIN_PRESETS
+    from services.ai.ai_presets import seed_presets as get_builtins
+    builtin_names = {p[0] for p in get_builtins()}
+    conn.execute("DELETE FROM ai_presets WHERE name NOT IN ({})".format(
+        ",".join("?" for _ in builtin_names)
+    ), list(builtin_names))
+    for p in get_builtins():
+        conn.execute(
+            "INSERT OR REPLACE INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, priority, enabled, is_emergency) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            p,
+        )
+    # Reset old fallback settings that may point to deleted presets
+    first = conn.execute(
+        "SELECT name FROM ai_presets WHERE enabled=1 AND is_emergency=0 ORDER BY priority ASC, name ASC LIMIT 1"
+    ).fetchone()
+    if first:
+        conn.execute(
+            "UPDATE settings SET value=? WHERE key='ai_primary_preset'",
+            (first["name"],),
+        )
+    conn.execute("DELETE FROM settings WHERE key IN ('ai_fallback_preset', 'ai_fallback_active', 'ai_fallback_threshold')")
+    conn.commit()
 
 
 def _init_config_tests_table(conn):
@@ -1669,8 +1710,8 @@ def get_preset(name: str) -> dict | None:
 def get_active_preset_name() -> str:
     """Get the currently active preset name (considers fallback)."""
     if get_bool_setting("ai_fallback_active", False):
-        return get_setting("ai_fallback_preset", "gapgpt")
-    return get_setting("ai_primary_preset", "gapgpt")
+        return get_setting("ai_fallback_preset", "gapgpt_gemini_lite")
+    return get_setting("ai_primary_preset", _first_enabled_name())
 
 
 def get_active_preset() -> dict:
@@ -1678,8 +1719,7 @@ def get_active_preset() -> dict:
     name = get_active_preset_name()
     preset = get_preset(name)
     if not preset:
-        # fallback to gapgpt
-        preset = get_preset("gapgpt")
+        preset = get_preset(_first_enabled_name())
     return preset or {}
 
 
@@ -1834,82 +1874,86 @@ def reset_consecutive_failures():
         conn.commit()
 
 
+def _first_enabled_name() -> str:
+    """Get the first enabled non-emergency preset name (chain-based default)."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT name FROM ai_presets WHERE enabled=1 AND is_emergency=0 ORDER BY priority ASC, name ASC LIMIT 1"
+        ).fetchone()
+    return row["name"] if row else "google_35_flash_hpof"
+
+
 def get_fallback_status() -> dict:
     """Get current fallback status info."""
     return {
         "fallback_active": get_bool_setting("ai_fallback_active", False),
-        "primary_preset": get_setting("ai_primary_preset", "gapgpt"),
-        "fallback_preset": get_setting("ai_fallback_preset", "gapgpt"),
+        "primary_preset": get_setting("ai_primary_preset", _first_enabled_name()),
+        "fallback_preset": get_setting("ai_fallback_preset", "gapgpt_gemini_lite"),
         "fallback_since": get_setting("ai_fallback_since", ""),
         "consecutive_failures": int(get_setting("ai_consecutive_failures", "0")),
     }
 
 
-# ---------- Staging / Pending AI Settings ----------
+# ---------- Preset Hourly Usage ----------
 
-def get_pending_ai() -> dict:
-    """Return all pending AI settings as a dict."""
+def get_hourly_usage(preset_name: str, hours_back: int = 24) -> tuple[int, int]:
+    """Return (request_count, token_count) for a preset over the last N hours."""
+    import datetime as dt
+    cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=hours_back)).isoformat()
     with get_conn() as conn:
-        rows = conn.execute("SELECT key, value FROM pending_ai_settings").fetchall()
-    return {row["key"]: row["value"] for row in rows}
+        row = conn.execute(
+            "SELECT COALESCE(SUM(request_count), 0) req, COALESCE(SUM(token_count), 0) tok "
+            "FROM preset_hourly_usage WHERE preset_name=? AND hour_bucket >= ?",
+            (preset_name, cutoff[:13]),
+        ).fetchone()
+    return (row["req"], row["tok"])
 
 
-def set_pending_ai(key: str, value: str):
-    """Set a single pending AI setting."""
+def increment_hourly_usage(preset_name: str, hour_bucket: str, req_count: int = 1, token_count: int = 0):
+    """Increment usage counters for a preset in a given hour bucket."""
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(
-            "INSERT INTO pending_ai_settings(key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (key, value),
+            "INSERT INTO preset_hourly_usage(preset_name, hour_bucket, request_count, token_count) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(preset_name, hour_bucket) DO UPDATE SET "
+            "request_count=request_count+excluded.request_count, "
+            "token_count=token_count+excluded.token_count",
+            (preset_name, hour_bucket, req_count, token_count),
         )
         conn.commit()
 
 
-def clear_pending_ai():
-    """Clear all pending AI settings."""
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        conn.execute("DELETE FROM pending_ai_settings")
-        conn.commit()
+# ---------- Preset Management ----------
 
-
-def apply_pending_ai() -> dict:
-    """Atomically apply all pending AI settings to the main settings table."""
-    pending = get_pending_ai()
-    if not pending:
-        return {"applied": 0, "keys": []}
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        for key, value in pending.items():
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (key, value),
-            )
-        conn.execute("DELETE FROM pending_ai_settings")
-        conn.commit()
-    return {"applied": len(pending), "keys": list(pending.keys())}
-
-
-def diff_pending_vs_active() -> dict:
-    """Return a diff of pending vs active settings."""
-    pending = get_pending_ai()
-    active = {}
+def get_enabled_presets_ordered() -> list[dict]:
+    """Return enabled presets ordered by is_emergency, priority, name."""
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT key, value FROM settings WHERE key LIKE 'ai_%' OR key LIKE 'llm_%' OR key LIKE 'phonetic_%' OR key LIKE 'usd_%'"
+            "SELECT * FROM ai_presets WHERE enabled=1 ORDER BY is_emergency ASC, priority ASC, name ASC"
         ).fetchall()
-        active = {row["key"]: row["value"] for row in rows}
+    return [dict(row) for row in rows]
 
-    all_keys = set(pending.keys()) | set(active.keys())
-    diff = {}
-    for key in sorted(all_keys):
-        p = pending.get(key)
-        a = active.get(key)
-        if p != a:
-            diff[key] = {"pending": p, "active": a}
-    return diff
+
+def set_preset_priority(name: str, priority: int):
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("UPDATE ai_presets SET priority=? WHERE name=?", (priority, name))
+        conn.commit()
+
+
+def set_preset_enabled(name: str, enabled: bool):
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("UPDATE ai_presets SET enabled=? WHERE name=?", (1 if enabled else 0, name))
+        conn.commit()
+
+
+def set_preset_emergency(name: str, is_emergency: bool):
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("UPDATE ai_presets SET is_emergency=? WHERE name=?", (1 if is_emergency else 0, name))
+        conn.commit()
 
 
 # ---------- Config Tests Audit ----------

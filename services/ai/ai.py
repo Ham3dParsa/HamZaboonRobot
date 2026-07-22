@@ -211,6 +211,10 @@ def _log_llm_request(
     )
 
 
+class RateLimitError(Exception):
+    """Raised when an AI provider returns HTTP 429 (rate limited)."""
+
+
 class CardValidationError(ValueError):
     """Raised when the model output cannot be stored as a vocabulary card."""
 
@@ -466,6 +470,7 @@ def repair_card(
     *,
     user_id: int | None = None,
     plan: str | None = None,
+    preset: dict | None = None,
 ) -> dict:
     telemetry: dict[str, object] = {}
     error: Exception | None = None
@@ -477,6 +482,7 @@ def repair_card(
             user_id=user_id,
             plan=plan,
             telemetry=telemetry,
+            preset=preset,
         )
         return validate_card_patch(value, fields)
     except Exception as exc:
@@ -487,7 +493,7 @@ def repair_card(
             request_kind="card_repair",
             user_id=user_id,
             plan=plan,
-            model=str(telemetry.get("model") or _model()),
+            model=str(telemetry.get("model") or _model(preset)),
             telemetry=telemetry,
             outcome="success" if error is None else (
                 "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"
@@ -504,23 +510,31 @@ def _request_json(
     user_id: int | None = None,
     plan: str | None = None,
     telemetry: dict[str, object] | None = None,
+    preset: dict | None = None,
 ) -> object:
     """یک تماس با مدل زبانی می‌گیرد و انتظار دارد خروجی JSON خام باشد."""
-    client = _client()
-    model = _model()
+    client = _client(preset)
+    model = _model(preset)
+    temp = preset.get("temperature", AI_TEMPERATURE) if preset else AI_TEMPERATURE
+    mtokens = preset.get("max_output_tokens", AI_MAX_OUTPUT_TOKENS) if preset else AI_MAX_OUTPUT_TOKENS
     started = time.monotonic()
     telemetry = telemetry if telemetry is not None else {}
     telemetry["model"] = model
     telemetry["request_kind"] = request_kind
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=AI_TEMPERATURE,
-        max_tokens=AI_MAX_OUTPUT_TOKENS,
-    )
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=temp,
+            max_tokens=mtokens,
+        )
+    except Exception as exc:
+        if getattr(exc, "status_code", None) == 429 or "RateLimitError" in type(exc).__name__:
+            raise RateLimitError(str(exc)) from exc
+        raise
     telemetry["usage"] = resp.usage
     telemetry["latency_ms"] = (time.monotonic() - started) * 1000
     content = resp.choices[0].message.content or ""
@@ -538,6 +552,7 @@ def ask_json(
     request_kind: str = "json",
     user_id: int | None = None,
     plan: str | None = None,
+    preset: dict | None = None,
 ) -> dict:
     telemetry: dict[str, object] = {}
     error: Exception | None = None
@@ -549,6 +564,7 @@ def ask_json(
             user_id=user_id,
             plan=plan,
             telemetry=telemetry,
+            preset=preset,
         )
         if not isinstance(value, Mapping):
             raise CardValidationError("Expected a JSON object")
@@ -561,7 +577,7 @@ def ask_json(
             request_kind=request_kind,
             user_id=user_id,
             plan=plan,
-            model=str(telemetry.get("model") or _model()),
+            model=str(telemetry.get("model") or _model(preset)),
             telemetry=telemetry,
             outcome="success" if error is None else (
                 "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"
@@ -577,6 +593,7 @@ def ask_card(
     request_kind: str = "card",
     user_id: int | None = None,
     plan: str | None = None,
+    preset: dict | None = None,
 ) -> dict:
     telemetry: dict[str, object] = {}
     error: Exception | None = None
@@ -588,6 +605,7 @@ def ask_card(
             user_id=user_id,
             plan=plan,
             telemetry=telemetry,
+            preset=preset,
         )
         return validate_card(value)
     except Exception as exc:
@@ -598,7 +616,7 @@ def ask_card(
             request_kind=request_kind,
             user_id=user_id,
             plan=plan,
-            model=str(telemetry.get("model") or _model()),
+            model=str(telemetry.get("model") or _model(preset)),
             telemetry=telemetry,
             outcome="success" if error is None else (
                 "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"
@@ -669,6 +687,7 @@ def ask_batch(
     request_kind: str = "batch",
     user_id: int | None = None,
     plan: str | None = None,
+    preset: dict | None = None,
 ) -> list[dict]:
     telemetry: dict[str, object] = {}
     error: Exception | None = None
@@ -683,6 +702,7 @@ def ask_batch(
             user_id=user_id,
             plan=plan,
             telemetry=telemetry,
+            preset=preset,
         )
         cards = validate_batch(
             value,
@@ -705,7 +725,7 @@ def ask_batch(
             request_kind=request_kind,
             user_id=user_id,
             plan=plan,
-            model=str(telemetry.get("model") or _model()),
+            model=str(telemetry.get("model") or _model(preset)),
             telemetry=telemetry,
             outcome="success" if error is None else (
                 "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"

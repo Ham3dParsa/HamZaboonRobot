@@ -184,7 +184,6 @@ def _get_user_lock(user_id: int) -> asyncio.Lock:
         return _daily_locks[user_id]
 
 
-_MANUAL_DAILY_BATCH_SIZE = 6
 _telegram_offline: bool = False
 _consecutive_health_failures: int = 0
 _OFFLINE_THRESHOLD: int = 1
@@ -360,6 +359,8 @@ def _ensure_daily_cards(user_id: int, row, card_date: str, limit: int) -> list[d
     if len(cards) >= limit:
         return cards
 
+    active_preset = db.get_active_preset()
+    provenance = active_preset.get("name", "unknown") if active_preset else "unknown"
     used_words = _daily_avoid_words(user_id, session["target_lang"], card_date, cards)
     new_cards = _generate_daily_batch(
         session["target_lang"],
@@ -371,7 +372,7 @@ def _ensure_daily_cards(user_id: int, row, card_date: str, limit: int) -> list[d
         row["plan"] or "free",
     )
     for offset, card in enumerate(new_cards):
-        db.add_daily_card(user_id, card_date, len(cards) + offset, card)
+        db.add_daily_card(user_id, card_date, len(cards) + offset, card, provenance=provenance)
     return db.get_daily_cards(user_id, card_date)
 
 
@@ -383,6 +384,9 @@ def _ensure_scheduled_session_cards(user_id: int, row, queue_row) -> list[dict]:
     if len(existing) >= end:
         return existing[start:end]
 
+    active_preset = db.get_active_preset()
+    provenance = active_preset.get("name", "unknown") if active_preset else "unknown"
+    batch_size = active_preset.get("daily_batch_size", 6) if active_preset else 6
     used_words = _daily_avoid_words(user_id, session["target_lang"], queue_row["delivery_date"], existing)
     cards: list[dict] = []
     while len(existing) + len(cards) < end:
@@ -391,7 +395,7 @@ def _ensure_scheduled_session_cards(user_id: int, row, queue_row) -> list[dict]:
             session["target_lang"],
             session["goal"],
             session["level"],
-            min(6, remaining),
+            min(batch_size, remaining),
             used_words + [card["word"] for card in cards],
             user_id,
             row["plan"] or "free",
@@ -400,7 +404,7 @@ def _ensure_scheduled_session_cards(user_id: int, row, queue_row) -> list[dict]:
             raise RuntimeError("AI returned no cards for the scheduled session")
         cards.extend(batch)
     for offset, card in enumerate(cards):
-        db.add_daily_card(user_id, queue_row["delivery_date"], len(existing) + offset, card)
+        db.add_daily_card(user_id, queue_row["delivery_date"], len(existing) + offset, card, provenance=provenance)
     return db.get_daily_cards(user_id, queue_row["delivery_date"])[start:end]
 
 
@@ -412,13 +416,16 @@ def _ensure_next_daily_card(user_id: int, row, card_date: str, limit: int) -> tu
 
     cards = db.get_daily_cards(user_id, card_date)
     if next_index >= len(cards):
+        active_preset = db.get_active_preset()
+        provenance = active_preset.get("name", "unknown") if active_preset else "unknown"
+        batch_size = active_preset.get("daily_batch_size", 6) if active_preset else 6
         used_words = _daily_avoid_words(user_id, session["target_lang"], card_date, cards)
         remaining = limit - len(cards)
         new_cards = _generate_daily_batch(
             session["target_lang"],
             session["goal"],
             session["level"],
-            min(_MANUAL_DAILY_BATCH_SIZE, remaining),
+            min(batch_size, remaining),
             used_words,
             user_id,
             row["plan"] or "free",
@@ -426,7 +433,7 @@ def _ensure_next_daily_card(user_id: int, row, card_date: str, limit: int) -> tu
         if not new_cards:
             raise RuntimeError("AI returned no card for the requested daily card")
         for offset, card in enumerate(new_cards):
-            db.add_daily_card(user_id, card_date, len(cards) + offset, card)
+            db.add_daily_card(user_id, card_date, len(cards) + offset, card, provenance=provenance)
         cards = db.get_daily_cards(user_id, card_date)
 
     card = cards[next_index]
