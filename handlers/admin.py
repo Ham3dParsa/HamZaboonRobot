@@ -184,15 +184,23 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         await _show_fallback_chain(update, context)
     elif action.startswith("fallback:move_up:"):
         name = action.split(":", 2)[2]
-        preset = db.get_preset(name)
-        if preset:
-            db.set_preset_priority(name, preset.get("priority", 0) - 1)
+        chain = db.get_enabled_presets_ordered()
+        idx = next((i for i, p in enumerate(chain) if p["name"] == name), None)
+        if idx and idx > 0:
+            above = chain[idx - 1]
+            tmp = above["priority"]
+            db.set_preset_priority(above["name"], chain[idx]["priority"])
+            db.set_preset_priority(name, tmp)
         await _show_fallback_chain(update, context)
     elif action.startswith("fallback:move_down:"):
         name = action.split(":", 2)[2]
-        preset = db.get_preset(name)
-        if preset:
-            db.set_preset_priority(name, preset.get("priority", 0) + 1)
+        chain = db.get_enabled_presets_ordered()
+        idx = next((i for i, p in enumerate(chain) if p["name"] == name), None)
+        if idx is not None and idx < len(chain) - 1:
+            below = chain[idx + 1]
+            tmp = below["priority"]
+            db.set_preset_priority(below["name"], chain[idx]["priority"])
+            db.set_preset_priority(name, tmp)
         await _show_fallback_chain(update, context)
     elif action.startswith("fallback:toggle:"):
         name = action.split(":", 2)[2]

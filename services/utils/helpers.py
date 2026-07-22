@@ -80,7 +80,9 @@ async def _edit_or_send(update: Update, context: ContextTypes.DEFAULT_TYPE, text
     if update.callback_query:
         try:
             return await update.callback_query.edit_message_text(text, **kwargs)
-        except BadRequest:
+        except BadRequest as e:
+            if "message is not modified" in str(e).lower():
+                return await update.callback_query.answer()
             logger.info("callback edit failed; sending replacement message")
             return await context.bot.send_message(
                 chat_id=update.effective_chat.id,
