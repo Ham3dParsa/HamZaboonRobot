@@ -33,8 +33,8 @@ from config.keyboards import (
     ai_preset_edit_keyboard,
     ai_fallback_keyboard,
     ai_custom_test_wizard_keyboard,
-    ai_pending_keyboard,
     admin_cost_keyboard,
+    fallback_chain_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -176,16 +176,36 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         await _start_custom_test_wizard(update, context)
     elif action.startswith("ai_custom_test:"):
         await _handle_custom_test_wizard(update, context, action)
-    elif action == "ai_pending":
-        await _show_ai_pending(update, context)
-    elif action == "ai_apply":
-        await _apply_ai_pending(update, context)
-    elif action == "ai_rollback":
-        await _rollback_ai_pending(update, context)
     elif action == "ai_fallback":
         await _show_ai_fallback(update, context)
     elif action.startswith("ai_fallback:"):
         await _handle_ai_fallback(update, context, action)
+    elif action == "fallback_chain":
+        await _show_fallback_chain(update, context)
+    elif action.startswith("fallback:move_up:"):
+        name = action.split(":", 2)[2]
+        preset = db.get_preset(name)
+        if preset:
+            db.set_preset_priority(name, preset.get("priority", 0) - 1)
+        await _show_fallback_chain(update, context)
+    elif action.startswith("fallback:move_down:"):
+        name = action.split(":", 2)[2]
+        preset = db.get_preset(name)
+        if preset:
+            db.set_preset_priority(name, preset.get("priority", 0) + 1)
+        await _show_fallback_chain(update, context)
+    elif action.startswith("fallback:toggle:"):
+        name = action.split(":", 2)[2]
+        preset = db.get_preset(name)
+        if preset:
+            db.set_preset_enabled(name, not preset.get("enabled", 1))
+        await _show_fallback_chain(update, context)
+    elif action.startswith("fallback:set_emergency:"):
+        name = action.split(":", 2)[2]
+        chain = db.get_enabled_presets_ordered()
+        for p in chain:
+            db.set_preset_emergency(p["name"], p["name"] == name)
+        await _show_fallback_chain(update, context)
     elif action == "noop":
         await update.callback_query.answer()
 
@@ -713,7 +733,6 @@ async def _show_ai_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Main AI settings panel."""
     active_preset = db.get_active_preset()
     fallback_status = db.get_fallback_status()
-    pending = db.get_pending_ai()
 
     text = (
         "🤖 <b>تنظیمات هوش مصنوعی</b>\n\n"
@@ -725,21 +744,12 @@ async def _show_ai_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>RPM Limit:</b> {active_preset.get('max_rpm', 30)}\n\n"
     )
 
-    migration_key = "_migration_preset_synced"
-    migration_val = db.get_setting(migration_key, "")
-    if migration_val:
-        text += "ℹ️ تنظیمات پیش‌تنظیم شما بر اساس مقادیر فعال ربات هنگام ارتقا به‌روزرسانی شد.\n\n"
-        db.set_setting(migration_key, "")
-
     if fallback_status.get("fallback_active"):
         text += (
             f"⚠️ <b>Fallback ACTIVE</b> since {fallback_status.get('fallback_since', '?')}\n"
             f"Primary: {fallback_status.get('primary_preset')} → "
             f"Fallback: {fallback_status.get('fallback_preset')}\n\n"
         )
-
-    if pending:
-        text += f"⏳ <b>{len(pending)} pending changes</b> awaiting apply\n\n"
 
     keyboard = ai_settings_keyboard()
     if update.callback_query:
@@ -1225,42 +1235,6 @@ async def _custom_test_step_preset(update: Update, context: ContextTypes.DEFAULT
     )
 
 
-async def _show_ai_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show pending AI settings with diff."""
-    diff = db.diff_pending_vs_active()
-    text = "⏳ <b>تغییرات در انتظار (Staging)</b>\n\n"
-    if not diff:
-        text += "هیچ تغییری در انتظار نیست."
-    else:
-        for key, change in diff.items():
-            p = change.get("pending", "—")
-            a = change.get("active", "—")
-            text += f"<b>{key}</b>\n  Active: <code>{a}</code>\n  Pending: <code>{p}</code>\n\n"
-
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=ai_pending_keyboard(diff)
-    )
-
-
-async def _apply_ai_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Apply all pending AI settings."""
-    result = db.apply_pending_ai()
-    if result["applied"] > 0:
-        await update.callback_query.answer(f"✅ {result['applied']} تنظیمات اعمال شدند")
-    else:
-        await update.callback_query.answer("تغییری برای اعمال وجود ندارد")
-    await _show_ai_settings(update, context)
-
-
-async def _rollback_ai_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Rollback all pending AI settings."""
-    db.clear_pending_ai()
-    await update.callback_query.answer("↩️ تغییرات در انتظار لغو شدند")
-    await _show_ai_settings(update, context)
-
-
 async def _show_ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show fallback configuration panel."""
     status = db.get_fallback_status()
@@ -1321,6 +1295,26 @@ async def _show_fallback_preset_picker(update: Update, context: ContextTypes.DEF
         update, context,
         f"پیش‌تنظیم {which.upper()} را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+
+async def _show_fallback_chain(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show and manage the fallback chain order."""
+    chain = db.get_enabled_presets_ordered()
+    text = "⛓️ <b>زنجیره فال‌بک</b>\n\n"
+    for i, preset in enumerate(chain):
+        name = preset.get("name", "?")
+        is_emergency = preset.get("is_emergency", 0)
+        status = "🚨 اضطراری" if is_emergency else "✅ فعال"
+        req_count, _ = db.get_hourly_usage(name, hours_back=24)
+        max_daily = preset.get("max_daily_req", 0)
+        daily_str = f"{req_count} req امروز (از {max_daily})" if max_daily > 0 else ""
+        text += f"{i+1}. <b>{name}</b> — {status}\n  {daily_str}\n"
+
+    await _edit_or_send(
+        update, context, text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=fallback_chain_keyboard(chain)
     )
 
 

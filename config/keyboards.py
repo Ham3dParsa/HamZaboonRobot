@@ -109,10 +109,8 @@ IBTN_PERSIAN = "Persian"
 IBTN_AI_PRESETS = "🤖 پیش‌تنظیم‌های AI"
 IBTN_AI_TEST = "🧪 تست اتصال"
 IBTN_AI_CUSTOM_TEST = "🔬 تست سفارشی (Wizard)"
-IBTN_AI_PENDING = "📝 تنظیمات در حال انتظار (Staging)"
-IBTN_AI_APPLY = "✅ اعمال تغییرات"
-IBTN_AI_ROLLBACK = "↩️ انصراف / بازنشانی"
 IBTN_AI_FALLBACK = "🔄 پیش‌تنظیم پشتیبان (Fallback)"
+IBTN_FALLBACK_CHAIN = "⛓️ زنجیره فال‌بک"
 
 # --- Admin – AI Presets ---
 IBTN_ACTIVATE = "✅ فعال کردن"
@@ -134,9 +132,6 @@ IBTN_COMPARE_AB = "⚖️ Compare A/B"
 IBTN_CANCEL_WIZARD = "↩️ انصراف"
 
 # --- Admin – Pending Changes ---
-IBTN_NO_PENDING = "No pending changes"
-IBTN_APPLY_ALL = "✅ Apply All"
-IBTN_ROLLBACK_ALL = "↩️ Rollback All"
 
 # --- Admin – Preset Edit Fields ---
 IBTN_FIELD_BASE_URL = "🌐 Base URL"
@@ -572,10 +567,8 @@ def ai_settings_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(IBTN_AI_PRESETS, callback_data="admin:ai_presets")],
             [InlineKeyboardButton(IBTN_AI_TEST, callback_data="admin:ai_test_connection")],
             [InlineKeyboardButton(IBTN_AI_CUSTOM_TEST, callback_data="admin:ai_custom_test")],
-            [InlineKeyboardButton(IBTN_AI_PENDING, callback_data="admin:ai_pending")],
-            [InlineKeyboardButton(IBTN_AI_APPLY, callback_data="admin:ai_apply")],
-            [InlineKeyboardButton(IBTN_AI_ROLLBACK, callback_data="admin:ai_rollback")],
             [InlineKeyboardButton(IBTN_AI_FALLBACK, callback_data="admin:ai_fallback")],
+            [InlineKeyboardButton(IBTN_FALLBACK_CHAIN, callback_data="admin:fallback_chain")],
             [InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:back")],
         ]
     )
@@ -656,12 +649,10 @@ def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None) -> Inl
 
 def ai_fallback_keyboard(primary: str, fallback: str, active: str) -> InlineKeyboardMarkup:
     """Fallback configuration panel."""
-    status_text = "🔴 Fallback ACTIVE" if active == fallback else "🟢 Primary active"
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton(f"Primary: {primary}", callback_data="admin:ai_fallback:set_primary")],
             [InlineKeyboardButton(f"Fallback: {fallback}", callback_data="admin:ai_fallback:set_fallback")],
-            [InlineKeyboardButton(f"Status: {status_text}", callback_data="admin:ai_fallback:status")],
             [InlineKeyboardButton(IBTN_RESET_PRIMARY, callback_data="admin:ai_fallback:reset")],
             [InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_settings")],
         ]
@@ -692,20 +683,22 @@ def ai_custom_test_wizard_keyboard(step: str, lang: str | None = None, goal: str
     return InlineKeyboardMarkup(rows)
 
 
-def ai_pending_keyboard(diff: dict) -> InlineKeyboardMarkup:
-    """Staging area: show diff with apply/rollback."""
+def fallback_chain_keyboard(chain: list[dict]) -> InlineKeyboardMarkup:
     rows = []
-    if not diff:
-        rows.append([InlineKeyboardButton(IBTN_NO_PENDING, callback_data="admin:ai_settings")])
-    else:
-        for key, change in list(diff.items())[:8]:
-            p = change.get("pending")
-            a = change.get("active")
-            p_short = (p[:30] + "…") if p and len(p) > 30 else p
-            a_short = (a[:30] + "…") if a and len(a) > 30 else a
-            label = f"{key}: {a_short} → {p_short}"
-            rows.append([InlineKeyboardButton(label, callback_data="admin:noop")])
-        rows.append([InlineKeyboardButton(IBTN_APPLY_ALL, callback_data="admin:ai_apply")])
-        rows.append([InlineKeyboardButton(IBTN_ROLLBACK_ALL, callback_data="admin:ai_rollback")])
-    rows.append([InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_settings")])
+    for preset in chain:
+        name = preset.get("name", "?")
+        label = f"{'🚨 ' if preset.get('is_emergency') else '📊 '}{name}"
+        if not preset.get("enabled", 1):
+            label = f"🔴 {name} (غیرفعال)"
+        cols = [
+            InlineKeyboardButton("⬆", callback_data=f"admin:fallback:move_up:{name}"),
+            InlineKeyboardButton("⬇", callback_data=f"admin:fallback:move_down:{name}"),
+        ]
+        toggle_label = "🟢 فعال" if preset.get("enabled", 1) else "🔴 غیرفعال"
+        cols.append(InlineKeyboardButton(toggle_label, callback_data=f"admin:fallback:toggle:{name}"))
+        if not preset.get("is_emergency"):
+            cols.append(InlineKeyboardButton("🚨 اضطراری", callback_data=f"admin:fallback:set_emergency:{name}"))
+        rows.append([InlineKeyboardButton(label, callback_data="admin:noop")])
+        rows.append(cols)
+    rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")])
     return InlineKeyboardMarkup(rows)
