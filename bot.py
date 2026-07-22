@@ -173,7 +173,17 @@ for _quiet_logger_name in ("apscheduler", "httpcore", "httpx", "telegram"):
     logging.getLogger(_quiet_logger_name).setLevel(logging.WARNING)
 log = logging.getLogger("hamzaban")
 _app_timezone = ZoneInfo(APP_TIMEZONE)
-_daily_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+_daily_locks: dict[int, asyncio.Lock] = {}
+_daily_locks_guard: threading.Lock = threading.Lock()
+
+
+def _get_user_lock(user_id: int) -> asyncio.Lock:
+    with _daily_locks_guard:
+        if user_id not in _daily_locks:
+            _daily_locks[user_id] = asyncio.Lock()
+        return _daily_locks[user_id]
+
+
 _MANUAL_DAILY_BATCH_SIZE = 6
 _telegram_offline: bool = False
 _consecutive_health_failures: int = 0
@@ -431,7 +441,7 @@ async def _send_next_daily_card(
     limit: int,
 ):
     user_id = row["user_id"]
-    async with _daily_locks[user_id]:
+    async with _get_user_lock(user_id):
         card, card_index = await asyncio.to_thread(
             _ensure_next_daily_card,
             user_id,
@@ -1054,7 +1064,7 @@ async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str
             row = db.get_user(user_id)
             if not row:
                 raise RuntimeError("user no longer exists")
-            async with _daily_locks[user_id]:
+            async with _get_user_lock(user_id):
                 cards = await asyncio.to_thread(
                     _ensure_scheduled_session_cards,
                     user_id,
