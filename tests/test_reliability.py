@@ -2,6 +2,7 @@ import datetime as dt
 import json
 import os
 import tempfile
+import threading
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -940,6 +941,38 @@ class NetworkResilienceTests(unittest.IsolatedAsyncioTestCase):
             await bot._dispatch_queue(context, "2026-07-20")
         mock_q.assert_not_called()
         bot._telegram_offline = False
+
+
+
+
+class UserLockThreadSafetyTests(unittest.TestCase):
+    """Finding #2: _get_user_lock must return same Lock for same user_id under concurrent access."""
+
+    def test_get_user_lock_returns_same_object(self):
+        lock1 = bot._get_user_lock(42)
+        lock2 = bot._get_user_lock(42)
+        self.assertIs(lock1, lock2)
+
+    def test_get_user_lock_returns_different_for_different_users(self):
+        lock_a = bot._get_user_lock(100)
+        lock_b = bot._get_user_lock(200)
+        self.assertIsNot(lock_a, lock_b)
+
+    def test_concurrent_get_user_lock_returns_same_object(self):
+        results = []
+
+        def fetch():
+            results.append(bot._get_user_lock(42))
+
+        threads = [threading.Thread(target=fetch) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(len(results), 10)
+        for lock in results:
+            self.assertIs(lock, results[0])
 
 
 if __name__ == "__main__":

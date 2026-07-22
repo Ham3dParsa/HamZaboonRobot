@@ -1,3 +1,4 @@
+import asyncio
 import calendar
 import datetime
 import logging
@@ -988,7 +989,8 @@ async def _test_ai_connection(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Test current AI connection."""
     await update.callback_query.answer("در حال تست اتصال...")
     active = db.get_active_preset()
-    result = ai.test_connection(
+    result = await asyncio.to_thread(
+        ai.test_connection,
         base_url=active.get("base_url", ""),
         api_key=ai_presets.resolve_api_key(active),
         model=active.get("model", ""),
@@ -1132,7 +1134,8 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     results = []
 
     if target in ("current", "ab"):
-        result = ai.custom_test_card(
+        result = await asyncio.to_thread(
+            ai.custom_test_card,
             system_prompt=system_prompt,
             user_prompt=prompt,
             lang=lang,
@@ -1145,7 +1148,8 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     if target in ("candidate", "ab"):
         candidate_name = state.get("candidate_preset", "gapgpt")
         candidate = db.get_preset(candidate_name) or db.get_preset("gapgpt") or {}
-        result = ai.custom_test_card(
+        result = await asyncio.to_thread(
+            ai.custom_test_card,
             system_prompt=system_prompt,
             user_prompt=prompt,
             lang=lang,
