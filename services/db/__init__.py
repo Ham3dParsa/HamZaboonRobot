@@ -1760,23 +1760,36 @@ def set_preset(
     daily_batch_size: int = 6,
     max_concurrency: int = 2,
     max_rpm: int = 30,
+    max_tpm: int = 0,
+    max_daily_req: int = 0,
     timeout_seconds: float = 30.0,
     temperature: float = 0.6,
     max_output_tokens: int = 4096,
     is_custom: int = 1,
+    is_emergency: int = 0,
+    input_cost_per_million: float | None = None,
+    output_cost_per_million: float | None = None,
+    in_fallback_chain: int = 1,
+    group_label: str = "",
 ):
     """Upsert a preset (custom presets only)."""
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(
-            "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, timeout_seconds, temperature, max_output_tokens, is_custom) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, is_emergency, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(name) DO UPDATE SET "
             "base_url=excluded.base_url, model=excluded.model, api_key=excluded.api_key, "
             "daily_batch_size=excluded.daily_batch_size, "
             "max_concurrency=excluded.max_concurrency, max_rpm=excluded.max_rpm, "
+            "max_tpm=excluded.max_tpm, max_daily_req=excluded.max_daily_req, "
             "timeout_seconds=excluded.timeout_seconds, temperature=excluded.temperature, "
-            "max_output_tokens=excluded.max_output_tokens, is_custom=excluded.is_custom",
+            "max_output_tokens=excluded.max_output_tokens, is_custom=excluded.is_custom, "
+            "is_emergency=excluded.is_emergency, "
+            "input_cost_per_million=excluded.input_cost_per_million, "
+            "output_cost_per_million=excluded.output_cost_per_million, "
+            "in_fallback_chain=excluded.in_fallback_chain, "
+            "group_label=excluded.group_label",
             (
                 name,
                 base_url,
@@ -1785,10 +1798,17 @@ def set_preset(
                 daily_batch_size,
                 max_concurrency,
                 max_rpm,
+                max_tpm,
+                max_daily_req,
                 timeout_seconds,
                 temperature,
                 max_output_tokens,
                 is_custom,
+                is_emergency,
+                input_cost_per_million,
+                output_cost_per_million,
+                in_fallback_chain,
+                group_label,
             ),
         )
         conn.commit()
