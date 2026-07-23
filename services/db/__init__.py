@@ -1647,9 +1647,20 @@ def _init_ai_presets_table(conn):
         "priority": "INTEGER DEFAULT 0",
         "enabled": "INTEGER DEFAULT 1",
         "is_emergency": "INTEGER DEFAULT 0",
+        "input_cost_per_million": "REAL",
+        "output_cost_per_million": "REAL",
+        "group_label": "TEXT DEFAULT ''",
+        "in_fallback_chain": "INTEGER DEFAULT 1",
     }.items():
         if col_name not in preset_columns:
             conn.execute(f"ALTER TABLE ai_presets ADD COLUMN {col_name} {col_def}")
+    # Migrate preset_name column on llm_requests
+    llm_request_columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(llm_requests)").fetchall()
+    }
+    if "preset_name" not in llm_request_columns:
+        conn.execute("ALTER TABLE llm_requests ADD COLUMN preset_name TEXT")
     # Create preset_hourly_usage table
     conn.execute(
         """
