@@ -169,7 +169,7 @@ from handlers.srs_handler import (
 )
 
 logging.addLevelName(COST, "COST")
-logging.addLevelName(USER_ACTIVITY, "👤 USER")
+logging.addLevelName(USER_ACTIVITY, "USER")
 
 _LEVEL_EMOJI = {
     logging.DEBUG: "",
@@ -202,7 +202,7 @@ _handler.setFormatter(_LogFormatter(
         "✕ ERROR": "bold_red",
         "⊗ CRITICAL": "bold_red,bg_white",
         "💰 COST": "bold_purple",
-        "👤 USER": "bold_cyan",
+        "USER": "bold_cyan",
     },
 ))
 _log_level = getattr(logging, LOG_LEVEL, logging.INFO)
