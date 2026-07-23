@@ -64,6 +64,7 @@ IBTN_ADMIN_PHONETICS = "🗣 تنظیم تلفظ"
 IBTN_ADMIN_COST = "💰 مدیریت هزینه‌ها"
 IBTN_ADMIN_SETTINGS = "⚙️ تنظیمات فعلی"
 IBTN_PLAN = "💳 تنظیم پلن"
+IBTN_USER_ACTIVITY_LOG = "👤 لاگ فعالیت کاربر"
 
 # --- Admin – Cost Dashboard ---
 IBTN_LLM_COST = "💰 داشبورد هزینه LLM"
@@ -457,8 +458,19 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
              InlineKeyboardButton(IBTN_ADMIN_SETTINGS, callback_data="admin:show_settings")],
             [InlineKeyboardButton("📋 سطح لاگ", callback_data="admin:log_level"),
              InlineKeyboardButton(BTN_ADMIN_BROADCAST, callback_data="admin:broadcast")],
+            [InlineKeyboardButton(IBTN_USER_ACTIVITY_LOG, callback_data="admin:user_activity_log")],
         ]
     )
+
+
+def user_activity_keyboard(current_status: str) -> InlineKeyboardMarkup:
+    """Inline keyboard showing USER_ACTIVITY log toggle with current status."""
+    marker = "✅" if current_status == "on" else "☑️"
+    status_fa = "روشن" if current_status == "on" else "خاموش"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"{marker} لاگ فعالیت کاربر: {status_fa}", callback_data="admin:user_activity:toggle")],
+        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
+    ])
 
 
 def log_level_keyboard(current_level: str) -> InlineKeyboardMarkup:

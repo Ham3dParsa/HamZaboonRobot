@@ -37,6 +37,7 @@ from config.keyboards import (
     admin_cost_keyboard,
     fallback_chain_keyboard,
     log_level_keyboard,
+    user_activity_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,24 @@ async def open_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_owner(update.effective_user.id):
         return
     await update.message.reply_text("پنل مدیریت ربات:", reply_markup=admin_panel_keyboard())
+
+
+async def _show_user_activity_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show the USER_ACTIVITY log toggle with current on/off status."""
+    current = db.get_setting("user_activity_log", "off")
+    status = "روشن" if current == "on" else "خاموش"
+    text = (
+        "👤 <b>لاگ فعالیت کاربر</b>\n\n"
+        f"وضعیت فعلی: <b>{status}</b>\n\n"
+        "این لاگ تمام درخواست‌های کاربران را ثبت می‌کند:\n"
+        "• درخواست فلش‌کارت روزانه\n"
+        "• پرسیدن واژه\n"
+        "• مرور SRS\n"
+        "• تغییر تنظیمات\n"
+        "• و سایر فعالیت‌ها\n\n"
+        "این لاگ در سطح <b>👤 USER</b> ثبت می‌شود و برای عیب‌یابی و بررسی رفتار کاربران مفید است."
+    )
+    await _edit_or_send(update, context, text, reply_markup=user_activity_keyboard(current))
 
 
 async def _show_log_level_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -254,6 +273,13 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         from bot import _apply_log_level
         _apply_log_level(level_name)
         await _show_log_level_settings(update, context)
+    elif action == "user_activity_log":
+        await _show_user_activity_settings(update, context)
+    elif action == "user_activity:toggle":
+        current = db.get_setting("user_activity_log", "off")
+        new_value = "off" if current == "on" else "on"
+        db.set_setting("user_activity_log", new_value)
+        await _show_user_activity_settings(update, context)
 
 
 def _llm_cost_default_state() -> dict[str, object]:

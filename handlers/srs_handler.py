@@ -8,7 +8,8 @@ from telegram.ext import ContextTypes
 from telegram.error import BadRequest, NetworkError, TimedOut
 
 from services import db
-from config import _user_presentation, _user_plan, PREMIUM_PLANS
+from config import _user_presentation, _user_plan, PREMIUM_PLANS, USER_ACTIVITY
+from services.utils.helpers import _user_activity_line
 from services.utils.formatting import (
     CardPreparationError,
     SRS_REVEAL_QUESTION,
@@ -20,6 +21,23 @@ from config.keyboards import srs_revealed_keyboard, srs_review_keyboard
 from services.ai.llm_services import _prepare_cached_card
 
 logger = logging.getLogger(__name__)
+
+
+def _log_ua(update: Update, action: str, outcome: str):
+    user = update.effective_user
+    if not user:
+        return
+    row = db.get_user(user.id) if user else None
+    line = _user_activity_line(
+        user_id=user.id, full_name=user.full_name, username=user.username,
+        action=action, outcome=outcome,
+        plan=row["plan"] if row else None,
+        lang=row["target_lang"] if row else None,
+        goal=row["goal"] if row else None,
+        level=row["level"] if row else None,
+    )
+    if line:
+        logger.log(USER_ACTIVITY, "%s", line)
 
 
 def _saved_word_card(row) -> dict:
@@ -45,6 +63,7 @@ def _saved_word_card(row) -> dict:
 
 async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str):
     user_id = update.effective_user.id
+    _log_ua(update, action="query_add", outcome="started")
     row = db.get_query_result(token, user_id=user_id)
     if not row:
         await update.callback_query.answer("این نتیجه منقضی شده یا در دسترس نیست.", show_alert=True)
@@ -199,6 +218,7 @@ async def _handle_srs_prepare(
     if user_id != target_user_id:
         await update.callback_query.answer("این مرور برای کاربر دیگری است.", show_alert=True)
         return
+    _log_ua(update, action="srs_review", outcome="started")
     if _message_has_prepared_translations(update):
         await update.callback_query.answer("ترجمه‌ها آماده شده‌اند.")
         return
