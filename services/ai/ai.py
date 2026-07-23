@@ -14,12 +14,13 @@ from config import (
     DEFAULT_AI_BASE_URL,
     DEFAULT_AI_API_KEY,
     DEFAULT_AI_MODEL,
+    COST,
 )
 from services import db
 from services.ai import prompts
 from services.ai import ai_presets
 
-log = logging.getLogger("hamzaban.ai")
+log = logging.getLogger(__name__)
 
 
 def _client(preset: dict | None = None) -> OpenAI:
@@ -156,7 +157,8 @@ def _log_llm_request(
         prompt_tokens = getattr(usage, "prompt_tokens", None)
         completion_tokens = getattr(usage, "completion_tokens", None)
         total_tokens = getattr(usage, "total_tokens", None)
-    log.info(
+    log.log(
+        COST,
         "ai request kind=%s user_id=%s model=%s outcome=%s latency_ms=%s "
         "prompt_tokens=%s completion_tokens=%s total_tokens=%s",
         request_kind,
@@ -170,7 +172,8 @@ def _log_llm_request(
     )
     batch_validation = telemetry.get("batch_validation")
     if isinstance(batch_validation, dict):
-        log.info(
+        log.log(
+            COST,
             "ai batch validation kind=%s user_id=%s received=%s accepted=%s "
             "validation_rejected=%s duplicates=%s duplicates_against_avoid=%s "
             "duplicates_within_batch=%s avoid_words=%s",
@@ -186,7 +189,8 @@ def _log_llm_request(
         )
     rejection_reasons = telemetry.get("batch_validation_reasons")
     if isinstance(rejection_reasons, dict) and rejection_reasons:
-        log.info(
+        log.log(
+            COST,
             "ai batch validation rejection reasons kind=%s user_id=%s reasons=%s",
             request_kind,
             user_id,

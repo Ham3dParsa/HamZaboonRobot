@@ -19,7 +19,7 @@ from services.utils.helpers import _answer_callback_safely, _edit_with_retry, _m
 from config.keyboards import srs_revealed_keyboard, srs_review_keyboard
 from services.ai.llm_services import _prepare_cached_card
 
-logger = logging.getLogger("hamzaban")
+logger = logging.getLogger(__name__)
 
 
 def _saved_word_card(row) -> dict:
