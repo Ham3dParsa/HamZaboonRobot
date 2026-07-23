@@ -873,6 +873,11 @@ async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYP
     raw_key = preset.get("api_key", "")
     masked_key = (raw_key[:6] + "…" + raw_key[-4:]) if len(raw_key) > 12 else ("—" if not raw_key else "***")
 
+    from services.db import get_preset_cost as _get_preset_cost
+    cost = _get_preset_cost(preset_name)
+    input_cost_str = f"{cost['input_cost_per_million']}" if cost['input_cost_per_million'] is not None else "— (global)"
+    output_cost_str = f"{cost['output_cost_per_million']}" if cost['output_cost_per_million'] is not None else "— (global)"
+
     text = (
         f"📋 <b>پیش‌تنظیم: {preset_name}</b>\n\n"
         f"Model: {preset.get('model', '—')}\n"
@@ -884,6 +889,8 @@ async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYP
         f"Timeout: {preset.get('timeout_seconds', 30)}s\n"
         f"Temperature: {preset.get('temperature', 0.6)}\n"
         f"Max Output Tokens: {preset.get('max_output_tokens', 4096)}\n"
+        f"Input Cost: {input_cost_str} $/1M\n"
+        f"Output Cost: {output_cost_str} $/1M\n"
     )
 
     await _edit_or_send(
