@@ -6,6 +6,8 @@ import threading
 from collections import defaultdict, deque
 from zoneinfo import ZoneInfo
 
+import colorlog
+
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -44,6 +46,8 @@ from config import (
     _user_presentation,
     _user_plan,
     is_owner,
+    LOG_LEVEL,
+    COST,
 )
 from services import db
 from services.ai import ai
@@ -162,13 +166,53 @@ from handlers.srs_handler import (
     _saved_word_card,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
+logging.addLevelName(COST, "💰 COST")
+
+_LEVEL_EMOJI = {
+    logging.DEBUG: "",
+    logging.INFO: "",
+    logging.WARNING: "⚠ ",
+    logging.ERROR: "✕ ",
+    logging.CRITICAL: "⊗ ",
+    COST: "💰 ",
+}
+
+class _LogFormatter(colorlog.ColoredFormatter):
+    """ColourFormattter that prefixes level name with a severity emoji."""
+    def format(self, record):
+        emoji = _LEVEL_EMOJI.get(record.levelno, "")
+        if emoji:
+            record.levelname = f"{emoji}{record.levelname}"
+        return super().format(record)
+
+_handler = colorlog.StreamHandler()
+_handler.setFormatter(_LogFormatter(
+    "%(green)s%(asctime)s%(reset)s │ %(log_color)s%(levelname)-10s%(reset)s │ %(cyan)s%(name)-24s%(reset)s │ %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    log_colors={
+        "DEBUG": "thin_cyan",
+        "INFO": "green",
+        "WARNING": "yellow",
+        "ERROR": "bold_red",
+        "CRITICAL": "bold_red,bg_white",
+        "💰 COST": "bold_purple",
+    },
+))
+_log_level = getattr(logging, LOG_LEVEL, logging.INFO)
+logging.basicConfig(level=_log_level, handlers=[_handler], force=True)
 for _quiet_logger_name in ("apscheduler", "httpcore", "httpx", "telegram"):
     logging.getLogger(_quiet_logger_name).setLevel(logging.WARNING)
-log = logging.getLogger("hamzaban")
+log = logging.getLogger(__name__)
+
+def _apply_log_level(level_name: str) -> None:
+    """Set root logger level and quieter external loggers accordingly."""
+    level = getattr(logging, level_name.upper(), None)
+    if level is None:
+        return
+    logging.getLogger().setLevel(level)
+    for name in ("apscheduler", "httpcore", "httpx", "telegram"):
+        logging.getLogger(name).setLevel(max(level, logging.WARNING))
+    log.info("log level set to %s", level_name.upper())
 _app_timezone = ZoneInfo(APP_TIMEZONE)
 _daily_locks: dict[int, asyncio.Lock] = {}
 _daily_locks_guard: threading.Lock = threading.Lock()
@@ -1440,6 +1484,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     db.init_db()
+    db_level = db.get_setting("log_level", "")
+    if db_level:
+        _apply_log_level(db_level)
     if not BOT_TOKEN:
         raise SystemExit("BOT_TOKEN در .env تنظیم نشده.")
 

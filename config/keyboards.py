@@ -455,9 +455,21 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
              InlineKeyboardButton(IBTN_ADMIN_PHONETICS, callback_data="admin:phonetics")],
             [InlineKeyboardButton(IBTN_ADMIN_COST, callback_data="admin:cost_dashboard"),
              InlineKeyboardButton(IBTN_ADMIN_SETTINGS, callback_data="admin:show_settings")],
-            [InlineKeyboardButton(BTN_ADMIN_BROADCAST, callback_data="admin:broadcast")],
+            [InlineKeyboardButton("📋 سطح لاگ", callback_data="admin:log_level"),
+             InlineKeyboardButton(BTN_ADMIN_BROADCAST, callback_data="admin:broadcast")],
         ]
     )
+
+
+def log_level_keyboard(current_level: str) -> InlineKeyboardMarkup:
+    """Inline keyboard with one button per log level; marks the active one."""
+    levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    rows = []
+    for level in levels:
+        marker = "✅ " if level == current_level else ""
+        rows.append([InlineKeyboardButton(f"{marker}{level}", callback_data=f"admin:log_level:set:{level}")])
+    rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")])
+    return InlineKeyboardMarkup(rows)
 
 
 def admin_cost_keyboard() -> InlineKeyboardMarkup:

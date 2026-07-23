@@ -36,6 +36,7 @@ from config.keyboards import (
     ai_custom_test_wizard_keyboard,
     admin_cost_keyboard,
     fallback_chain_keyboard,
+    log_level_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,22 @@ async def open_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_owner(update.effective_user.id):
         return
     await update.message.reply_text("پنل مدیریت ربات:", reply_markup=admin_panel_keyboard())
+
+
+async def _show_log_level_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show the log-level picker with current level pre-selected."""
+    current = db.get_setting("log_level", "") or logging.getLevelName(logging.getLogger().getEffectiveLevel())
+    text = (
+        "📋 <b>تنظیم سطح لاگ</b>\n\n"
+        f"سطح فعلی: <b>{current}</b>\n\n"
+        "سطوح پایین‌تر جزئیات بیشتر و سطوح بالاتر جزئیات کمتر:\n"
+        "• DEBUG (10) — جزئیات فنی کامل\n"
+        "• INFO (20) — وضعیت عادی\n"
+        "• WARNING (30) — فقط هشدارها\n"
+        "• ERROR (40) — فقط خطاها\n"
+        "• CRITICAL (50) — فقط خطاهای بحرانی"
+    )
+    await _edit_or_send(update, context, text, reply_markup=log_level_keyboard(current))
 
 
 def _phonetic_settings_text() -> str:
@@ -229,6 +246,14 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         await _show_fallback_chain(update, context)
     elif action == "noop":
         await update.callback_query.answer()
+    elif action == "log_level":
+        await _show_log_level_settings(update, context)
+    elif action.startswith("log_level:set:"):
+        level_name = action.split(":", 2)[2]
+        db.set_setting("log_level", level_name)
+        from bot import _apply_log_level
+        _apply_log_level(level_name)
+        await _show_log_level_settings(update, context)
 
 
 def _llm_cost_default_state() -> dict[str, object]:

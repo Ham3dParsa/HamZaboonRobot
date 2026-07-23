@@ -18,7 +18,7 @@ class LoggingTests(unittest.IsolatedAsyncioTestCase):
         bot._consecutive_health_failures = 0
         context = SimpleNamespace(bot=SimpleNamespace(get_me=AsyncMock()))
 
-        with self.assertLogs("hamzaban", level=logging.INFO) as captured:
+        with self.assertLogs("bot", level=logging.INFO) as captured:
             await bot.connection_health_job(context)
 
         context.bot.get_me.assert_awaited_once()
@@ -31,7 +31,7 @@ class LoggingTests(unittest.IsolatedAsyncioTestCase):
             bot=SimpleNamespace(get_me=AsyncMock(side_effect=NetworkError("offline")))
         )
 
-        with self.assertLogs("hamzaban", level=logging.WARNING) as captured:
+        with self.assertLogs("bot", level=logging.WARNING) as captured:
             await bot.connection_health_job(context)
 
         any_record_has_check_failed = any(
