@@ -48,6 +48,7 @@ from config import (
     is_owner,
     LOG_LEVEL,
     COST,
+    USER_ACTIVITY,
 )
 from services import db
 from services.ai import ai
@@ -111,6 +112,7 @@ from services.utils.helpers import (
     _send_voice_with_retry,
     _start_llm_wait_state,
     _telegram_slots,
+    _user_activity_line,
     _CANCEL_INPUTS,
     _CUSTOM_WORD_MAX_CHARS,
     _CUSTOM_WORD_MAX_WORDS,
@@ -166,7 +168,8 @@ from handlers.srs_handler import (
     _saved_word_card,
 )
 
-logging.addLevelName(COST, "💰 COST")
+logging.addLevelName(COST, "COST")
+logging.addLevelName(USER_ACTIVITY, "👤 USER")
 
 _LEVEL_EMOJI = {
     logging.DEBUG: "",
@@ -175,10 +178,13 @@ _LEVEL_EMOJI = {
     logging.ERROR: "✕ ",
     logging.CRITICAL: "⊗ ",
     COST: "💰 ",
+    USER_ACTIVITY: "👤 ",
 }
 
 class _LogFormatter(colorlog.ColoredFormatter):
-    """ColourFormattter that prefixes level name with a severity emoji."""
+    """ColourFormattter that prefixes level name with a severity emoji.
+    Prepends the emoji from _LEVEL_EMOJI to the levelname so that
+    colorlog.ColoredFormatter can match it in log_colors."""
     def format(self, record):
         emoji = _LEVEL_EMOJI.get(record.levelno, "")
         if emoji:
@@ -187,15 +193,16 @@ class _LogFormatter(colorlog.ColoredFormatter):
 
 _handler = colorlog.StreamHandler()
 _handler.setFormatter(_LogFormatter(
-    "%(green)s%(asctime)s%(reset)s │ %(log_color)s%(levelname)-10s%(reset)s │ %(cyan)s%(name)-24s%(reset)s │ %(message)s",
+    "%(log_color)s%(asctime)s%(reset)s │ %(log_color)s%(levelname)-10s%(reset)s │ %(log_color)s%(name)-24s%(reset)s │ %(log_color)s%(message)s%(reset)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     log_colors={
         "DEBUG": "thin_cyan",
         "INFO": "green",
-        "WARNING": "yellow",
-        "ERROR": "bold_red",
-        "CRITICAL": "bold_red,bg_white",
+        "⚠ WARNING": "yellow",
+        "✕ ERROR": "bold_red",
+        "⊗ CRITICAL": "bold_red,bg_white",
         "💰 COST": "bold_purple",
+        "👤 USER": "bold_cyan",
     },
 ))
 _log_level = getattr(logging, LOG_LEVEL, logging.INFO)
@@ -213,6 +220,8 @@ def _apply_log_level(level_name: str) -> None:
     for name in ("apscheduler", "httpcore", "httpx", "telegram"):
         logging.getLogger(name).setLevel(max(level, logging.WARNING))
     log.info("log level set to %s", level_name.upper())
+
+
 _app_timezone = ZoneInfo(APP_TIMEZONE)
 _daily_locks: dict[int, asyncio.Lock] = {}
 _daily_locks_guard: threading.Lock = threading.Lock()
@@ -562,18 +571,36 @@ async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE
         OWNER_BYPASS_LIMITS and is_owner(user_id),
     )
 
+    user = update.effective_user
+    _ua_line = _user_activity_line(
+        user_id=user_id, full_name=user.full_name, username=user.username,
+        action="daily_card", outcome="started",
+        plan=row["plan"], lang=row["target_lang"], goal=row["goal"], level=row["level"],
+    )
+    if _ua_line:
+        log.log(USER_ACTIVITY, "%s", _ua_line)
+
     wait_message = await _start_llm_wait_state(
         update,
         context,
         "⏳ دارم کارت امروز رو می‌سازم…",
     )
+    success = True
     try:
         await _send_next_daily_card(update, context, row, today, limit)
     except Exception:
+        success = False
         log.exception("Daily card generation failed")
         await _send_with_retry(context.bot, update.effective_chat.id, "مشکلی در ساخت کارت‌های امروز پیش اومد.")
     finally:
         await _finish_llm_wait_state(wait_message, bot=context.bot)
+        _ua_line2 = _user_activity_line(
+            user_id=user_id, full_name=user.full_name, username=user.username,
+            action="daily_card", outcome="success" if success else "error",
+            plan=row["plan"], lang=row["target_lang"], goal=row["goal"], level=row["level"],
+        )
+        if _ua_line2:
+            log.log(USER_ACTIVITY, "%s", _ua_line2)
 
 
 

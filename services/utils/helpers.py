@@ -6,10 +6,37 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
-from config import OWNER_ID, TELEGRAM_MAX_CONCURRENCY
+from config import OWNER_ID, TELEGRAM_MAX_CONCURRENCY, USER_ACTIVITY
 from config.keyboards import main_menu, awaiting_inline_keyboard, BTN_CANCEL, BTN_BACK
+from services import db
 
 logger = logging.getLogger(__name__)
+
+
+def _user_activity_line(
+    *,
+    user_id: int,
+    full_name: str | None = None,
+    username: str | None = None,
+    action: str,
+    outcome: str,
+    plan: str | None = None,
+    lang: str | None = None,
+    goal: str | None = None,
+    level: str | None = None,
+    cost_usd: float | None = None,
+) -> str | None:
+    """Build a USER_ACTIVITY log line if the feature is enabled; return None otherwise."""
+    if db.get_setting("user_activity_log", "off") != "on":
+        return None
+    uname = f"@{username}" if username else "—"
+    cost_str = f"${cost_usd:.6f}" if cost_usd is not None and cost_usd > 0 else "—"
+    return (
+        f"{action:<18s} │ {str(user_id):<14s} │ {uname:<16s} │ "
+        f"{(full_name or '—'):<22s} │ {(plan or '—'):<8s} │ "
+        f"{(lang or '—'):<6s} │ {(goal or '—'):<12s} │ "
+        f"{(level or '—'):<8s} │ {outcome:<22s} │ {cost_str:>12s}"
+    )
 
 _telegram_slots = asyncio.Semaphore(TELEGRAM_MAX_CONCURRENCY)
 _CUSTOM_WORD_MAX_CHARS = 50

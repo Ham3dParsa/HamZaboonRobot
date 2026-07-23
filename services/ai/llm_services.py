@@ -100,20 +100,32 @@ def _call_ai_limited(function, *args, **kwargs):
       5. On RateLimitError: skip to next preset
       6. On other error: increment failures; skip if threshold reached
       7. On success: record usage, return result
+
+    Logs preset-to-preset switches at WARNING level with the reason.
     """
     chain = db.get_enabled_presets_ordered()
     if not chain:
         raise AllPresetsExhausted("No enabled presets available")
 
+    def _log_switch(from_name: str, to_name: str, reason: str):
+        logger.warning("Preset switch: %s → %s (reason: %s)", from_name, to_name, reason)
+
     last_error: Exception | None = None
-    for preset in chain:
+    for i, preset in enumerate(chain):
+        current_name = preset.get("name", "?")
+
         if _is_preset_rate_limited(preset):
-            logger.info("Skipping rate-limited preset: %s", preset.get("name"))
+            if i + 1 < len(chain):
+                _log_switch(current_name, chain[i + 1].get("name", "?"), "rate-limited")
+            logger.info("Skipping rate-limited preset: %s", current_name)
             continue
 
         limiter = _get_limiter_for_preset(preset)
         if not limiter["slots"].acquire(timeout=30):
+            if i + 1 < len(chain):
+                _log_switch(current_name, chain[i + 1].get("name", "?"), "concurrency slot timeout (30s)")
             continue
+
         try:
             while True:
                 now = time.monotonic()
@@ -132,15 +144,19 @@ def _call_ai_limited(function, *args, **kwargs):
             return result
 
         except ai.RateLimitError as exc:
-            logger.warning("Preset %s rate-limited (429), skipping: %s", preset.get("name"), exc)
+            logger.warning("Preset %s rate-limited (429), skipping: %s", current_name, exc)
             last_error = exc
+            if i + 1 < len(chain):
+                _log_switch(current_name, chain[i + 1].get("name", "?"), f"rate-limited (429): {exc}")
             continue
 
         except Exception as exc:
             limiter["consecutive_failures"] += 1
             last_error = exc
             if limiter["consecutive_failures"] >= 2:
-                logger.warning("Preset %s failed consecutively, skipping: %s", preset.get("name"), exc)
+                logger.warning("Preset %s failed consecutively, skipping: %s", current_name, exc)
+                if i + 1 < len(chain):
+                    _log_switch(current_name, chain[i + 1].get("name", "?"), f"consecutive failure: {exc}")
                 continue
             raise
 

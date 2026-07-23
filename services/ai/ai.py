@@ -138,6 +138,12 @@ def custom_test_card(
         )
 
 
+_COST_OUTCOME_ICON = {
+    "success": "✓",
+    "failure_billed": "✕",
+    "failure_zero_cost": "⚪",
+}
+
 def _log_llm_request(
     *,
     request_kind: str,
@@ -146,6 +152,7 @@ def _log_llm_request(
     model: str,
     telemetry: dict[str, object],
     outcome: str,
+    preset: dict | None = None,
     error: Exception | None = None,
 ):
     usage = telemetry.get("usage")
@@ -157,28 +164,41 @@ def _log_llm_request(
         prompt_tokens = getattr(usage, "prompt_tokens", None)
         completion_tokens = getattr(usage, "completion_tokens", None)
         total_tokens = getattr(usage, "total_tokens", None)
+
+    profile = db.get_llm_cost_profile()
+    if prompt_tokens and completion_tokens:
+        cost_usd = (
+            prompt_tokens * profile["input_cost_usd_per_million"]
+            + completion_tokens * profile["output_cost_usd_per_million"]
+        ) / 1_000_000
+    else:
+        cost_usd = 0.0
+
+    preset_name = preset.get("name", "?") if preset else "?"
+    outcome_icon = _COST_OUTCOME_ICON.get(outcome, "?")
+    outcome_label = f"{outcome_icon} {outcome.removeprefix('failure_').removeprefix('billed_') if outcome.startswith('failure') else outcome}"
+    tokens_str = f"{total_tokens} tok" if total_tokens is not None else "———"
+    latency_str = f"{latency_value} ms" if latency_value is not None else "———"
+    cost_str = f"${cost_usd:.6f}" if cost_usd > 0 else "———"
+
     log.log(
         COST,
-        "ai request kind=%s user_id=%s model=%s outcome=%s latency_ms=%s "
-        "prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+        "%-18s │ %-14s │ %-30s │ %-22s │ %10s │ %9s │ %12s",
         request_kind,
-        user_id,
-        model,
-        outcome,
-        latency_value,
-        prompt_tokens,
-        completion_tokens,
-        total_tokens,
+        str(user_id or "?"),
+        preset_name,
+        outcome_label,
+        tokens_str,
+        latency_str,
+        cost_str,
     )
+
     batch_validation = telemetry.get("batch_validation")
     if isinstance(batch_validation, dict):
         log.log(
             COST,
-            "ai batch validation kind=%s user_id=%s received=%s accepted=%s "
-            "validation_rejected=%s duplicates=%s duplicates_against_avoid=%s "
-            "duplicates_within_batch=%s avoid_words=%s",
-            request_kind,
-            user_id,
+            "batch validation: received=%-4s accepted=%-4s rejected=%-4s "
+            "duplicates=%-3s avoid_dup=%-3s batch_dup=%-3s avoid_words=%-3s",
             batch_validation.get("received", 0),
             batch_validation.get("accepted", 0),
             batch_validation.get("validation_rejected", 0),
@@ -191,12 +211,11 @@ def _log_llm_request(
     if isinstance(rejection_reasons, dict) and rejection_reasons:
         log.log(
             COST,
-            "ai batch validation rejection reasons kind=%s user_id=%s reasons=%s",
+            "rejection reasons: kind=%s reasons=%s",
             request_kind,
-            user_id,
             rejection_reasons,
         )
-    profile = db.get_llm_cost_profile()
+
     db.add_llm_request(
         user_id=user_id or 0,
         plan=plan or "unknown",
@@ -502,6 +521,7 @@ def repair_card(
             outcome="success" if error is None else (
                 "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"
             ),
+            preset=preset,
             error=error,
         )
 
@@ -586,6 +606,7 @@ def ask_json(
             outcome="success" if error is None else (
                 "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"
             ),
+            preset=preset,
             error=error,
         )
 
@@ -625,6 +646,7 @@ def ask_card(
             outcome="success" if error is None else (
                 "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"
             ),
+            preset=preset,
             error=error,
         )
 
@@ -734,5 +756,6 @@ def ask_batch(
             outcome="success" if error is None else (
                 "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"
             ),
+            preset=preset,
             error=error,
         )

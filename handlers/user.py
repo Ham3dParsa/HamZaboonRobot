@@ -27,6 +27,7 @@ from config import (
     OWNER_BYPASS_LIMITS,
     PLANS,
     PREMIUM_PLANS,
+    USER_ACTIVITY,
     _app_today,
     _user_presentation,
     _user_plan,
@@ -53,6 +54,7 @@ from services.utils.helpers import (
     _normalize_custom_word_input,
     _send_with_retry,
     _start_llm_wait_state,
+    _user_activity_line,
     _CANCEL_INPUTS,
     _CUSTOM_WORD_MAX_CHARS,
     _CUSTOM_WORD_MAX_WORDS,
@@ -84,6 +86,24 @@ from config.keyboards import (
 from services.ai.llm_services import _call_ai_limited, _prepare_cached_card
 
 logger = logging.getLogger(__name__)
+
+
+def _log_user_activity(update: Update, *, action: str, outcome: str):
+    """Log a USER_ACTIVITY line if the feature is enabled."""
+    user = update.effective_user
+    if not user:
+        return
+    row = db.get_user(user.id) if user else None
+    line = _user_activity_line(
+        user_id=user.id, full_name=user.full_name, username=user.username,
+        action=action, outcome=outcome,
+        plan=row["plan"] if row else None,
+        lang=row["target_lang"] if row else None,
+        goal=row["goal"] if row else None,
+        level=row["level"] if row else None,
+    )
+    if line:
+        logger.log(USER_ACTIVITY, "%s", line)
 
 
 def _word_query_usage(row) -> tuple[int, int]:
@@ -124,6 +144,14 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.create_user_if_needed(user.id, user.username or user.first_name or "")
     row = db.get_user(user.id)
 
+    _ua_line = _user_activity_line(
+        user_id=user.id, full_name=user.full_name, username=user.username,
+        action="start", outcome="onboarded" if row and row["onboarded"] else "new",
+        plan=row["plan"] if row else None,
+    )
+    if _ua_line:
+        logger.log(USER_ACTIVITY, "%s", _ua_line)
+
     if row and row["onboarded"]:
         await _send_with_retry(
             context.bot,
@@ -146,6 +174,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_lang_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str):
+    _log_user_activity(update, action="onboard_lang", outcome=f"lang={lang}")
     context.user_data["pending_lang"] = lang
     lang_name = language_label(lang)
     text = f"زبان انتخابی: *{lang_name}* ✅\nحالا هدفت از یادگیری چیه؟"
@@ -161,6 +190,7 @@ async def on_lang_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, l
 
 
 async def on_goal_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, goal: str):
+    _log_user_activity(update, action="onboard_goal", outcome=f"goal={goal}")
     user_id = update.effective_user.id
     lang = context.user_data.get("pending_lang", "en")
     db.set_user_lang_goal(user_id, lang, goal)
@@ -174,6 +204,7 @@ async def on_goal_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, g
 
 
 async def on_level_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, level: str):
+    _log_user_activity(update, action="onboard_level", outcome=f"level={level}")
     user_id = update.effective_user.id
     db.set_user_level(user_id, level)
     row = db.get_user(user_id)
@@ -205,6 +236,7 @@ async def on_level_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 
 async def change_lang_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    _log_user_activity(update, action="lang_change", outcome="started")
     await _send_with_retry(
         context.bot,
         update.effective_chat.id,
@@ -214,6 +246,7 @@ async def change_lang_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def change_goal_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    _log_user_activity(update, action="goal_change", outcome="started")
     await _send_with_retry(
         context.bot,
         update.effective_chat.id,
@@ -223,6 +256,7 @@ async def change_goal_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def change_level_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    _log_user_activity(update, action="level_change", outcome="started")
     await _send_with_retry(
         context.bot,
         update.effective_chat.id,
@@ -257,6 +291,7 @@ async def change_presentation_start(update: Update, context: ContextTypes.DEFAUL
 
 async def on_lang_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str):
     user_id = update.effective_user.id
+    _log_user_activity(update, action="lang_change", outcome=f"saved: {lang}")
     db.set_user_lang(user_id, lang)
 
     lang_name = language_label(lang)
@@ -279,6 +314,7 @@ async def on_lang_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, la
 
 async def on_goal_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, goal: str):
     user_id = update.effective_user.id
+    _log_user_activity(update, action="goal_change", outcome=f"saved: {goal}")
     db.set_user_goal(user_id, goal)
 
     goal_name = goal_label(goal)
@@ -301,6 +337,7 @@ async def on_goal_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, go
 
 async def on_level_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, level: str):
     user_id = update.effective_user.id
+    _log_user_activity(update, action="level_change", outcome=f"saved: {level}")
     db.set_user_level(user_id, level)
     level_name = level_label(level)
     cefr = level_cefr(level)
@@ -324,6 +361,7 @@ async def on_level_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, l
 
 async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    _log_user_activity(update, action="grammar_tip", outcome="requested")
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
         await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
@@ -391,6 +429,7 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
             row["level"],
             data,
         )
+        _log_user_activity(update, action="grammar_tip", outcome="success")
         logger.info("grammar tip delivered user_id=%s lang=%s", user_id, row["target_lang"])
         await _send_with_retry(
             context.bot,
@@ -399,6 +438,7 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN_V2,
         )
     except Exception:
+        _log_user_activity(update, action="grammar_tip", outcome="error")
         logger.exception("Grammar tip delivery failed")
         await _send_with_retry(
             context.bot,
@@ -411,6 +451,7 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ask_for_ask_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    _log_user_activity(update, action="word_query", outcome="requested")
     row = db.get_user(user_id)
     plan = row["plan"] if row else "free"
     limit = daily_word_query_limit_for_plan(plan)
@@ -605,6 +646,7 @@ async def _handle_query_prepare(
     token: str,
 ):
     user_id = update.effective_user.id
+    _log_user_activity(update, action="query_translate", outcome="requested")
     if _message_has_prepared_translations(update):
         await update.callback_query.answer("ترجمه‌ها آماده شده‌اند.")
         return
