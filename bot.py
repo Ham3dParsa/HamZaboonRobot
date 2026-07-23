@@ -209,11 +209,11 @@ _handler.setFormatter(_LogFormatter(
     datefmt="%Y-%m-%d %H:%M:%S",
     log_colors={
         "DEBUG": "thin_cyan",
-        "INFO": "green",
+        "INFO": "grey",
         "⚠ WARNING": "yellow",
         "✕ ERROR": "bold_red",
         "⊗ CRITICAL": "bold_red,bg_white",
-        "💰 COST": "bold_purple",
+        "💰 COST": "bold_blue",
         "👤 USER": "bold_cyan",
     },
 ))
