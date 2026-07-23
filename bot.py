@@ -181,19 +181,31 @@ _LEVEL_EMOJI = {
     USER_ACTIVITY: "👤 ",
 }
 
+_LEVEL_COL_WIDTH = 10
+
 class _LogFormatter(colorlog.ColoredFormatter):
     """ColourFormattter that prefixes level name with a severity emoji.
-    Prepends the emoji from _LEVEL_EMOJI to the levelname so that
-    colorlog.ColoredFormatter can match it in log_colors."""
+    Uses a custom %(leveldisplay)s attribute so the column aligns even when the
+    level-name contains double-width (emoji) characters."""
     def format(self, record):
         emoji = _LEVEL_EMOJI.get(record.levelno, "")
+        raw = record.levelname
         if emoji:
-            record.levelname = f"{emoji}{record.levelname}"
+            display = f"{emoji}{raw}"
+            record.levelname = display
+        else:
+            display = raw
+            record.levelname = raw
+        visual = sum(2 if ord(c) >= 0x1F000 else 1 for c in display)
+        pad = _LEVEL_COL_WIDTH - visual
+        if pad > 0:
+            display += " " * pad
+        record.leveldisplay = display
         return super().format(record)
 
 _handler = colorlog.StreamHandler()
 _handler.setFormatter(_LogFormatter(
-    "%(log_color)s%(asctime)s%(reset)s │ %(log_color)s%(levelname)-10s%(reset)s │ %(log_color)s%(name)-24s%(reset)s │ %(log_color)s%(message)s%(reset)s",
+    "%(log_color)s%(asctime)s%(reset)s │ %(log_color)s%(leveldisplay)s%(reset)s │ %(log_color)s%(name)-24s%(reset)s │ %(log_color)s%(message)s%(reset)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     log_colors={
         "DEBUG": "thin_cyan",

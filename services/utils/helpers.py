@@ -31,12 +31,13 @@ def _user_activity_line(
         return None
     uname = f"@{username}" if username else "—"
     cost_str = f"${cost_usd:.6f}" if cost_usd is not None and cost_usd > 0 else "—"
-    return (
-        f"{action:<18s} │ {str(user_id):<14s} │ {uname:<16s} │ "
-        f"{(full_name or '—'):<22s} │ {(plan or '—'):<8s} │ "
-        f"{(lang or '—'):<6s} │ {(goal or '—'):<12s} │ "
-        f"{(level or '—'):<8s} │ {outcome:<22s} │ {cost_str:>12s}"
+    line1 = f"{action:<18s} │ {str(user_id):<12s} │ {uname:<18s} │ {full_name or '—'}"
+    line2 = (
+        f"    ╰ plan={(plan or '—'):<8s}  lang={(lang or '—'):<6s}  "
+        f"goal={(goal or '—'):<12s}  level={(level or '—'):<8s}  "
+        f"outcome={outcome:<22s}  cost={cost_str}"
     )
+    return line1 + "\n" + line2
 
 _telegram_slots = asyncio.Semaphore(TELEGRAM_MAX_CONCURRENCY)
 _CUSTOM_WORD_MAX_CHARS = 50
