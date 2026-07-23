@@ -435,6 +435,17 @@ def awaiting_inline_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def admin_awaiting_inline_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("↩️ Back", callback_data="admin:back"),
+                InlineKeyboardButton("❌ Cancel", callback_data="admin:cancel"),
+            ]
+        ]
+    )
+
+
 def admin_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [

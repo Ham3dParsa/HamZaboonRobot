@@ -1766,11 +1766,11 @@ def set_preset(
 
 
 def delete_preset(name: str) -> bool:
-    """Delete a custom preset (built-ins have is_custom=0 and cannot be deleted)."""
+    """Delete a preset (built-in or custom)."""
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
         cursor = conn.execute(
-            "DELETE FROM ai_presets WHERE name=? AND is_custom=1", (name,)
+            "DELETE FROM ai_presets WHERE name=?", (name,)
         )
         conn.commit()
         return cursor.rowcount > 0

@@ -19,8 +19,9 @@ from services.utils.helpers import _edit_or_send, _send_with_retry
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
     admin_panel_keyboard,
-    awaiting_inline_keyboard,
     main_menu,
+    awaiting_inline_keyboard,
+    admin_awaiting_inline_keyboard,
     llm_cost_dashboard_keyboard,
     llm_cost_kind_keyboard,
     llm_cost_plan_keyboard,
@@ -49,10 +50,13 @@ async def open_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def _phonetic_settings_text() -> str:
     settings = db.get_phonetic_display_settings()
+    tts_access = db.get_setting("tts_access", "premium")
+    tts_labels = {"none": "❌ غیرفعال", "premium": "🥈 نقره‌ای و طلایی", "all": "✅ همه"}
     return (
         "تنظیم نمایش تلفظ‌ها:\n"
         f"IPA: {'روشن' if settings['ipa'] else 'خاموش'}\n"
-        f"Persian: {'روشن' if settings['persian'] else 'خاموش'}"
+        f"Persian: {'روشن' if settings['persian'] else 'خاموش'}\n"
+        f"🔊 تلفظ صوتی: {tts_labels.get(tts_access, tts_access)}"
     )
 
 
@@ -61,10 +65,18 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         await update.callback_query.answer("فقط مالک ربات دسترسی داره.", show_alert=True)
         return
     if action == "stats":
-        await _edit_or_send(update, context, f"👥 تعداد کل کاربران: {db.count_users()}")
+        await _edit_or_send(
+            update, context,
+            f"👥 تعداد کل کاربران: {db.count_users()}",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data="admin:back")]]),
+        )
     elif action == "back":
         await _edit_or_send(update, context, "پنل مدیریت ربات:", reply_markup=admin_panel_keyboard())
         await update.callback_query.answer("بازگشت")
+    elif action == "cancel":
+        context.user_data.pop("awaiting", None)
+        await _edit_or_send(update, context, "عملیات لغو شد.", reply_markup=admin_panel_keyboard())
+        await update.callback_query.answer("لغو شد")
     elif action == "llm_costs":
         await _show_llm_cost_dashboard(update, context)
     elif action == "llm_pricing":
@@ -91,7 +103,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             "مثال: `123456789 silver` یا `@username gold`\n"
             "پلن‌ها: free، silver، gold",
             parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=awaiting_inline_keyboard(),
+            reply_markup=admin_awaiting_inline_keyboard(),
         )
     elif action == "phonetics":
         await _edit_or_send(
@@ -126,7 +138,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="متن پیام همگانی رو بفرست:",
-            reply_markup=awaiting_inline_keyboard(),
+            reply_markup=admin_awaiting_inline_keyboard(),
         )
     elif action == "show_settings":
         preset = db.get_active_preset()
@@ -142,6 +154,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             f"🗣 IPA: {'روشن' if db.get_bool_setting('phonetic_show_ipa', True) else 'خاموش'}\n"
             f"🗣 Persian: {'روشن' if db.get_bool_setting('phonetic_show_persian', True) else 'خاموش'}",
             parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data="admin:back")]]),
         )
     # ======== AI Settings / Presets ========
     elif action == "ai_settings":
@@ -529,7 +542,7 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 update,
                 context,
                 "Send input cost per 1M tokens in USD:",
-                reply_markup=awaiting_inline_keyboard(),
+                reply_markup=admin_awaiting_inline_keyboard(),
             )
         elif len(parts) == 3 and parts[2] == "set_output":
             context.user_data["awaiting"] = "llm_price_output"
@@ -537,7 +550,7 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 update,
                 context,
                 "Send output cost per 1M tokens in USD:",
-                reply_markup=awaiting_inline_keyboard(),
+                reply_markup=admin_awaiting_inline_keyboard(),
             )
         elif len(parts) == 3 and parts[2] == "set_rate":
             context.user_data["awaiting"] = "llm_price_rate"
@@ -545,7 +558,7 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 update,
                 context,
                 "Send the USD→Toman rate:",
-                reply_markup=awaiting_inline_keyboard(),
+                reply_markup=admin_awaiting_inline_keyboard(),
             )
         else:
             await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
@@ -568,7 +581,7 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 update,
                 context,
                 "Send a user_id or @username, or type all:",
-                reply_markup=awaiting_inline_keyboard(),
+                reply_markup=admin_awaiting_inline_keyboard(),
             )
         elif field == "kind":
             await _edit_or_send(
@@ -583,7 +596,7 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 update,
                 context,
                 "نام مدل را بفرست، یا بنویس all:",
-                reply_markup=awaiting_inline_keyboard(),
+                reply_markup=admin_awaiting_inline_keyboard(),
             )
         elif field == "status":
             await _edit_or_send(
@@ -625,7 +638,7 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
                 context.user_data["awaiting"] = "llm_cost_user"
                 await update.message.reply_text(
                     "User not found. Send a valid user_id or @username, or type all.",
-                    reply_markup=awaiting_inline_keyboard(),
+                    reply_markup=admin_awaiting_inline_keyboard(),
                 )
                 return
             _llm_cost_set_state(context, user_id=target["user_id"])
@@ -649,7 +662,7 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
             context.user_data["awaiting"] = awaiting
             await update.message.reply_text(
                 "عدد معتبر بفرست، مثلاً 0.12 یا 65000.",
-                reply_markup=awaiting_inline_keyboard(),
+                reply_markup=admin_awaiting_inline_keyboard(),
             )
             return
         profile = db.get_llm_cost_profile()
@@ -732,6 +745,10 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
             "لطفاً یک فایل دیتابیس (.db) آپلود کنید.\n"
             "دوباره /restore را بزنید.",
         )
+        return
+
+    if awaiting == "admin_ai_preset_new_name":
+        await _handle_ai_preset_new_name(update, context, text)
         return
 
 
@@ -879,7 +896,7 @@ async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TY
         f"مقدار فعلی: <code>{current}</code>\n\n"
         f"مقدار جدید را ارسال کنید:",
         parse_mode=ParseMode.HTML,
-        reply_markup=awaiting_inline_keyboard()
+        reply_markup=admin_awaiting_inline_keyboard()
     )
 
 
@@ -959,10 +976,15 @@ async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
 
 
 async def _delete_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
-    """Delete a custom preset."""
+    """Delete a preset (forbidden for the currently active one)."""
     preset = db.get_preset(preset_name)
-    if not preset or not preset.get("is_custom"):
-        await update.callback_query.answer("فقط پیش‌تنظیم‌های custom قابل حذف‌اند", show_alert=True)
+    if not preset:
+        await update.callback_query.answer("پیش‌تنظیم یافت نشد", show_alert=True)
+        return
+
+    active_name = db.get_active_preset_name()
+    if preset_name == active_name:
+        await update.callback_query.answer("نمی‌توان پیش‌تنظیم فعال را حذف کرد", show_alert=True)
         return
 
     db.delete_preset(preset_name)
@@ -972,13 +994,13 @@ async def _delete_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 async def _add_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Create a new custom preset - start with name input."""
-    context.user_data["awaiting"] = "ai_preset_new_name"
+    context.user_data["awaiting"] = "admin_ai_preset_new_name"
     await _edit_or_send(
         update, context,
         "➕ <b>ایجاد پیش‌تنظیم جدید</b>\n\n"
         "نام پیش‌تنظیم را وارد کنید (مثال: my_openai):",
         parse_mode=ParseMode.HTML,
-        reply_markup=awaiting_inline_keyboard()
+        reply_markup=admin_awaiting_inline_keyboard()
     )
 
 
@@ -1052,7 +1074,7 @@ async def _start_custom_test_wizard(update: Update, context: ContextTypes.DEFAUL
         "مرحله ۱/۵: پرامپت سیستم (یا متن تست) را وارد کنید:\n"
         "<i>مثال: یک کارت واژگان برای سطح مبتدی بساز</i>",
         parse_mode=ParseMode.HTML,
-        reply_markup=awaiting_inline_keyboard()
+        reply_markup=admin_awaiting_inline_keyboard()
     )
 
 
@@ -1242,7 +1264,6 @@ async def _custom_test_step_preset(update: Update, context: ContextTypes.DEFAULT
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-
 async def _show_ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show fallback configuration panel."""
     status = db.get_fallback_status()
@@ -1354,7 +1375,7 @@ async def cmd_restore(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "فایل دیتابیس (.db) را آپلود کنید.\n"
         "⚠️ این کار دیتابیس فعلی را کاملاً جایگزین می‌کند.",
-        reply_markup=awaiting_inline_keyboard(),
+        reply_markup=admin_awaiting_inline_keyboard(),
     )
 
 

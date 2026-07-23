@@ -80,9 +80,6 @@ from config.keyboards import (
     BTN_STATUS,
     BTN_GRAMMAR,
     BTN_ADMIN,
-    BTN_ADMIN_STATS,
-    BTN_ADMIN_BROADCAST,
-    BTN_ADMIN_SET_PLAN,
     BTN_CHANGE_LANG,
     BTN_CHANGE_GOAL,
     BTN_CHANGE_LEVEL,
@@ -242,7 +239,7 @@ async def _send_card_from_store(
             card_index + 1 < len(cards),
             callback_prefix="review:next" if review_mode else "daily:next",
             show_translations=True,
-            show_pronounce=_user_plan(row) in PREMIUM_PLANS,
+            show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
         ),
     )
     return card, len(cards)
@@ -501,7 +498,7 @@ async def _send_next_daily_card(
             card_index,
             card_index + 1 < limit,
             show_translations=True,
-            show_pronounce=_user_plan(row) in PREMIUM_PLANS,
+            show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
         ),
     )
 
@@ -702,7 +699,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     query_token,
                     row["target_lang"] if row else "en",
                     show_translations=True,
-                    show_pronounce=_user_plan(row) in PREMIUM_PLANS,
+                    show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
                 ),
             )
             await _send_with_retry(
@@ -726,36 +723,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await ask_for_ask_word(update, context)
     elif text == BTN_STATUS:
         await show_status(update, context)
-    elif text == BTN_ADMIN_STATS:
-        user_id = update.effective_user.id
-        if not is_owner(user_id):
-            return
-        await _send_with_retry(context.bot, update.effective_chat.id, f"👥 تعداد کل کاربران: {db.count_users()}")
-    elif text == BTN_ADMIN_SET_PLAN:
-        user_id = update.effective_user.id
-        if not is_owner(user_id):
-            return
-        context.user_data["awaiting"] = "admin_set_plan"
-        await _send_with_retry(
-            context.bot,
-            update.effective_chat.id,
-            "فرمت را ارسال کنید:\n`user_id_or_username plan`\n\n"
-            "مثال: `123456789 silver` یا `@username gold`\n"
-            "پلن‌ها: free، silver، gold",
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=awaiting_inline_keyboard(),
-        )
-    elif text == BTN_ADMIN_BROADCAST:
-        user_id = update.effective_user.id
-        if not is_owner(user_id):
-            return
-        context.user_data["awaiting"] = "admin_broadcast"
-        await _send_with_retry(
-            context.bot,
-            update.effective_chat.id,
-            "متن پیام همگانی رو بفرست:",
-            reply_markup=awaiting_inline_keyboard(),
-        )
+
     elif text == BTN_ADMIN:
         await open_admin_panel(update, context)
     elif text == BTN_CHANGE_LANG:
@@ -1122,7 +1090,7 @@ async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str
                         claimed["card_start_index"] + offset,
                         False,
                         show_translations=True,
-                        show_pronounce=_user_plan(row) in PREMIUM_PLANS,
+                        show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
                     ),
                 )
                 db.advance_delivery_progress(claimed["id"], offset + 1)
@@ -1265,7 +1233,7 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
                         ),
                     )
                     phon_lines = _phonetic_lines(card.get("phonetic", ""))
-                    show_pronounce = (row["plan"] or "free") in PREMIUM_PLANS
+                    show_pronounce = db.get_setting("tts_access", "premium") != "none" and ((row["plan"] or "free") in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all")
                     await _send_with_retry(
                         context.bot,
                         user_id,
@@ -1356,7 +1324,11 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
         await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
         return
 
-    if _user_plan(row) not in PREMIUM_PLANS:
+    tts_access = db.get_setting("tts_access", "premium")
+    if tts_access == "none":
+        await update.callback_query.answer("تلفظ غیرفعال است.", show_alert=True)
+        return
+    if tts_access == "premium" and _user_plan(row) not in PREMIUM_PLANS:
         await update.callback_query.answer("این قابلیت فقط برای کاربران نقره‌ای و طلایی فعال است.", show_alert=True)
         return
 
