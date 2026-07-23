@@ -921,6 +921,22 @@ def add_llm_request(
     return request_id
 
 
+def delete_llm_requests(filters: dict[str, object] | None = None) -> int:
+    """Delete llm_requests matching the given filters.
+
+    Supports the same filter keys as _llm_request_filters_where:
+    start_date, end_date, user_id, plan, request_kind, model, outcome.
+
+    Returns the number of deleted rows.
+    """
+    where, params = _llm_request_filters_where(filters or {})
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        cursor = conn.execute(f"DELETE FROM llm_requests{where}", params)
+        conn.commit()
+    return cursor.rowcount
+
+
 def _llm_request_filters_where(filters: dict[str, object]) -> tuple[str, list[object]]:
     clauses: list[str] = []
     params: list[object] = []
