@@ -251,6 +251,12 @@ BUILTIN_PRESETS = {
 }
 
 
+# Apply default cost fields to all presets (None → use global fallback).
+for _p in BUILTIN_PRESETS.values():
+    _p.setdefault("input_cost_per_million", None)
+    _p.setdefault("output_cost_per_million", None)
+
+
 def resolve_api_key(preset_or_raw: dict | str) -> str:
     """Resolve API key from preset dict or raw string.
 
@@ -282,7 +288,8 @@ def seed_presets():
     Returns list of tuples matching ai_presets table columns:
     (name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm,
      max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens,
-     is_custom, priority, enabled, is_emergency)
+     is_custom, priority, enabled, is_emergency,
+     input_cost_per_million, output_cost_per_million, group_label, in_fallback_chain)
     """
     return [
         (
@@ -302,6 +309,10 @@ def seed_presets():
             p.get("priority", 0),
             p.get("enabled", 1),
             p.get("is_emergency", 0),
+            p.get("input_cost_per_million"),
+            p.get("output_cost_per_million"),
+            p.get("group_label", ""),
+            p.get("in_fallback_chain", 1),
         )
         for p in BUILTIN_PRESETS.values()
     ]

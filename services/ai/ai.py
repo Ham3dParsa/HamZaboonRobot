@@ -165,16 +165,28 @@ def _log_llm_request(
         completion_tokens = getattr(usage, "completion_tokens", None)
         total_tokens = getattr(usage, "total_tokens", None)
 
+    preset_name = preset.get("name", "?") if preset else "?"
+
+    # Resolve cost per-million from preset first, fallback to global profile
+    if preset:
+        per_preset = db.get_preset_cost(preset["name"])
+        input_cost = per_preset["input_cost_per_million"]
+        output_cost = per_preset["output_cost_per_million"]
+    else:
+        input_cost = None
+        output_cost = None
+
     profile = db.get_llm_cost_profile()
+    input_cost_per_million = input_cost if input_cost is not None else profile["input_cost_usd_per_million"]
+    output_cost_per_million = output_cost if output_cost is not None else profile["output_cost_usd_per_million"]
+
     if prompt_tokens and completion_tokens:
         cost_usd = (
-            prompt_tokens * profile["input_cost_usd_per_million"]
-            + completion_tokens * profile["output_cost_usd_per_million"]
+            prompt_tokens * input_cost_per_million
+            + completion_tokens * output_cost_per_million
         ) / 1_000_000
     else:
         cost_usd = 0.0
-
-    preset_name = preset.get("name", "?") if preset else "?"
     outcome_icon = _COST_OUTCOME_ICON.get(outcome, "?")
     outcome_label = f"{outcome_icon} {outcome.removeprefix('failure_').removeprefix('billed_') if outcome.startswith('failure') else outcome}"
     tokens_str = f"{total_tokens} tok" if total_tokens is not None else "———"
@@ -225,12 +237,13 @@ def _log_llm_request(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         total_tokens=total_tokens,
-        input_cost_usd_per_million=profile["input_cost_usd_per_million"],
-        output_cost_usd_per_million=profile["output_cost_usd_per_million"],
+        input_cost_usd_per_million=input_cost_per_million,
+        output_cost_usd_per_million=output_cost_per_million,
         usd_to_toman_rate=profile["usd_to_toman_rate"],
         latency_ms=latency_value,
         error_class=type(error).__name__ if error else None,
         error_message=str(error) if error else None,
+        preset_name=preset_name,
     )
 
 

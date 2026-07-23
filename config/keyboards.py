@@ -144,6 +144,17 @@ IBTN_FIELD_RPM = "🚀 RPM Limit"
 IBTN_FIELD_TIMEOUT = "⏱ Timeout (s)"
 IBTN_FIELD_TEMPERATURE = "🌡 Temperature"
 IBTN_FIELD_MAX_TOKENS = "📝 Max Tokens"
+IBTN_FIELD_MAX_TPM = "🔢 حد توکن در دقیقه (TPM)"
+IBTN_FIELD_DAILY_REQ = "📊 سقف درخواست روزانه"
+IBTN_FIELD_IS_EMERGENCY = "🚨 پریست اضطراری"
+IBTN_FIELD_NAME = "✏️ نام پریست"
+IBTN_FIELD_INPUT_COST = "💵 هزینه ورودی ($/1M توکن)"
+IBTN_FIELD_OUTPUT_COST = "💵 هزینه خروجی ($/1M توکن)"
+IBTN_FIELD_IN_FALLBACK_CHAIN = "⛓️ حضور در زنجیره فال‌بک"
+IBTN_FIELD_GROUP_LABEL = "🏷️ برچسب گروه"
+IBTN_DISCARD_ALL = "🗑️ دور ریختن همه تغییرات"
+IBTN_SAVE_CONFIRM = "✅ بله، ذخیره کن"
+IBTN_SAVE_CANCEL = "❌ لغو ذخیره"
 
 
 def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
@@ -666,6 +677,14 @@ def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None) -> Inl
         ("timeout_seconds", IBTN_FIELD_TIMEOUT),
         ("temperature", IBTN_FIELD_TEMPERATURE),
         ("max_output_tokens", IBTN_FIELD_MAX_TOKENS),
+        ("max_tpm", IBTN_FIELD_MAX_TPM),
+        ("max_daily_req", IBTN_FIELD_DAILY_REQ),
+        ("is_emergency", IBTN_FIELD_IS_EMERGENCY),
+        ("name", IBTN_FIELD_NAME),
+        ("input_cost_per_million", IBTN_FIELD_INPUT_COST),
+        ("output_cost_per_million", IBTN_FIELD_OUTPUT_COST),
+        ("in_fallback_chain", IBTN_FIELD_IN_FALLBACK_CHAIN),
+        ("group_label", IBTN_FIELD_GROUP_LABEL),
     ]
     rows = []
     for key, label in fields:
@@ -677,6 +696,7 @@ def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None) -> Inl
         rows.append([
             InlineKeyboardButton(f"{label}{suffix}", callback_data=f"admin:ai_preset:edit_field:{preset_name}:{key}"),
         ])
+    rows.append([InlineKeyboardButton(IBTN_DISCARD_ALL, callback_data=f"admin:ai_preset:discard_all:{preset_name}")])
     rows.append([InlineKeyboardButton(IBTN_SAVE_PRESET, callback_data=f"admin:ai_preset:save:{preset_name}")])
     rows.append([InlineKeyboardButton(IBTN_CANCEL_EDIT, callback_data=f"admin:ai_preset:view:{preset_name}")])
     return InlineKeyboardMarkup(rows)

@@ -875,6 +875,7 @@ def add_llm_request(
     latency_ms: int | None,
     error_class: str | None = None,
     error_message: str | None = None,
+    preset_name: str | None = None,
 ):
     prompt_tokens = int(prompt_tokens or 0)
     completion_tokens = int(completion_tokens or 0)
@@ -893,8 +894,8 @@ def add_llm_request(
             "request_id, created_at, request_date, user_id, plan, request_kind, model, "
             "outcome, prompt_tokens, completion_tokens, total_tokens, "
             "input_cost_usd_per_million, output_cost_usd_per_million, usd_to_toman_rate, "
-            "cost_usd, cost_toman, latency_ms, error_class, error_message"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "cost_usd, cost_toman, latency_ms, error_class, error_message, preset_name"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 request_id,
                 now.isoformat(),
@@ -915,6 +916,7 @@ def add_llm_request(
                 latency_ms,
                 error_class,
                 (error_message or "")[:1000] or None,
+                preset_name,
             ),
         )
         conn.commit()
@@ -1681,7 +1683,7 @@ def _init_ai_presets_table(conn):
     ), list(builtin_names))
     for p in get_builtins():
         conn.execute(
-            "INSERT OR REPLACE INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, priority, enabled, is_emergency) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, priority, enabled, is_emergency, input_cost_per_million, output_cost_per_million, group_label, in_fallback_chain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             p,
         )
     # Reset old fallback settings that may point to deleted presets
@@ -1758,23 +1760,36 @@ def set_preset(
     daily_batch_size: int = 6,
     max_concurrency: int = 2,
     max_rpm: int = 30,
+    max_tpm: int = 0,
+    max_daily_req: int = 0,
     timeout_seconds: float = 30.0,
     temperature: float = 0.6,
     max_output_tokens: int = 4096,
     is_custom: int = 1,
+    is_emergency: int = 0,
+    input_cost_per_million: float | None = None,
+    output_cost_per_million: float | None = None,
+    in_fallback_chain: int = 1,
+    group_label: str = "",
 ):
     """Upsert a preset (custom presets only)."""
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(
-            "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, timeout_seconds, temperature, max_output_tokens, is_custom) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, is_emergency, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(name) DO UPDATE SET "
             "base_url=excluded.base_url, model=excluded.model, api_key=excluded.api_key, "
             "daily_batch_size=excluded.daily_batch_size, "
             "max_concurrency=excluded.max_concurrency, max_rpm=excluded.max_rpm, "
+            "max_tpm=excluded.max_tpm, max_daily_req=excluded.max_daily_req, "
             "timeout_seconds=excluded.timeout_seconds, temperature=excluded.temperature, "
-            "max_output_tokens=excluded.max_output_tokens, is_custom=excluded.is_custom",
+            "max_output_tokens=excluded.max_output_tokens, is_custom=excluded.is_custom, "
+            "is_emergency=excluded.is_emergency, "
+            "input_cost_per_million=excluded.input_cost_per_million, "
+            "output_cost_per_million=excluded.output_cost_per_million, "
+            "in_fallback_chain=excluded.in_fallback_chain, "
+            "group_label=excluded.group_label",
             (
                 name,
                 base_url,
@@ -1783,10 +1798,17 @@ def set_preset(
                 daily_batch_size,
                 max_concurrency,
                 max_rpm,
+                max_tpm,
+                max_daily_req,
                 timeout_seconds,
                 temperature,
                 max_output_tokens,
                 is_custom,
+                is_emergency,
+                input_cost_per_million,
+                output_cost_per_million,
+                in_fallback_chain,
+                group_label,
             ),
         )
         conn.commit()
@@ -1836,6 +1858,24 @@ def activate_preset(name: str) -> bool:
             )
         conn.commit()
     return True
+
+
+# ---------- Preset Cost ----------
+
+def get_preset_cost(preset_name: str) -> dict:
+    """Return per-preset cost settings with fallback to global.
+
+    Returns dict with input_cost_per_million and output_cost_per_million.
+    If the preset has NULL/None values, they will be None — caller should
+    fall back to the global LLM cost profile.
+    """
+    preset = get_preset(preset_name)
+    if not preset:
+        return {"input_cost_per_million": None, "output_cost_per_million": None}
+    return {
+        "input_cost_per_million": preset.get("input_cost_per_million"),
+        "output_cost_per_million": preset.get("output_cost_per_million"),
+    }
 
 
 # ---------- Fallback State Management ----------
