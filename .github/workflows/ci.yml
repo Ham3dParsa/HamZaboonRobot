@@ -31,10 +31,13 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/labeler@v5
+        with:
+          dot: true
 
   test:
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       checks: write
     strategy:
       matrix:

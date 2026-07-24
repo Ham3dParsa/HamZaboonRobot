@@ -1,28 +1,23 @@
 bot:
-  - bot.py
-  - handlers/**/*
-  - config/keyboards.py
+  - any: ['bot.py', 'handlers/**/*', 'config/keyboards.py']
 
 db:
-  - services/db/**/*
+  - any: ['services/db/**/*']
 
 ai:
-  - services/ai/**/*
+  - any: ['services/ai/**/*']
 
 tests:
-  - tests/**/*
+  - any: ['tests/**/*']
 
 documentation:
-  - docs/**/*
-  - '**/*.md'
+  - any: ['docs/**/*', '**/*.md']
 
 ci:
-  - .github/**/*
-  - scripts/**/*
-  - requirements.txt
+  - any: ['.github/**/*', 'scripts/**/*', 'requirements.txt']
 
 admin:
-  - handlers/admin.py
+  - any: ['handlers/admin.py']
 
 srs:
-  - handlers/srs_handler.py
+  - any: ['handlers/srs_handler.py']
