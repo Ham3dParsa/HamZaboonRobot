@@ -176,6 +176,10 @@ IBTN_PAGE_NEXT = "▶️ صفحه بعد"
 IBTN_RANK_JUMP = "🎯 رتبه دلخواه"
 IBTN_CONSUMPTION_DETAILS = "📊 جزئیات مصرف همه"
 
+# --- Admin – Help ---
+IBTN_HELP_PRESETS = "❓ راهنمای پریست‌ها"
+IBTN_HELP_FALLBACK = "❓ راهنمای زنجیره فال‌بک"
+
 
 def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
     rows = [
@@ -635,6 +639,7 @@ def ai_settings_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(IBTN_AI_CUSTOM_TEST, callback_data="admin:ai_custom_test")],
             [InlineKeyboardButton(IBTN_AI_FALLBACK, callback_data="admin:ai_fallback")],
             [InlineKeyboardButton(IBTN_FALLBACK_CHAIN, callback_data="admin:fallback_chain")],
+            [InlineKeyboardButton(IBTN_HELP_PRESETS, callback_data="admin:help:presets")],
             [InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:back")],
         ]
     )
@@ -814,5 +819,6 @@ def fallback_chain_keyboard(chain: list[dict]) -> InlineKeyboardMarkup:
             row.append(InlineKeyboardButton("🚨", callback_data=f"admin:fallback:set_emergency:{name}"))
         rows.append(row)
     rows.append([InlineKeyboardButton(IBTN_CONSUMPTION_DETAILS, callback_data="admin:fallback:usage_details")])
+    rows.append([InlineKeyboardButton(IBTN_HELP_FALLBACK, callback_data="admin:help:fallback_chain")])
     rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")])
     return InlineKeyboardMarkup(rows)

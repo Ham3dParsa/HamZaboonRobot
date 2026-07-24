@@ -54,6 +54,8 @@ from config.keyboards import (
     IBTN_PAGE_NEXT,
     IBTN_RANK_JUMP,
     IBTN_CONSUMPTION_DETAILS,
+    IBTN_HELP_PRESETS,
+    IBTN_HELP_FALLBACK,
 )
 
 logger = logging.getLogger(__name__)
@@ -348,6 +350,10 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         await _handle_fallback_rank(update, context, name)
     elif action == "fallback:usage_details":
         await _show_fallback_usage_details(update, context)
+    elif action == "help:presets":
+        await _show_help_presets(update, context)
+    elif action == "help:fallback_chain":
+        await _show_help_fallback_chain(update, context)
     elif action == "noop":
         await update.callback_query.answer()
     elif action == "log_level":
@@ -969,6 +975,24 @@ async def _show_ai_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Primary: {fallback_status.get('primary_preset')} → "
             f"Fallback: {fallback_status.get('fallback_preset')}\n\n"
         )
+
+    # Last successful preset per request kind (Rule #2)
+    try:
+        with db.get_conn() as conn:
+            last_rows = conn.execute(
+                "SELECT preset_name, request_kind FROM llm_requests "
+                "WHERE request_kind IN ('daily_batch', 'grammar_tip', 'custom_word') "
+                "AND outcome = 'success' "
+                "AND created_at >= datetime('now', '-7 days') "
+                "GROUP BY request_kind HAVING created_at = MAX(created_at)"
+            ).fetchall()
+        tracking = {row["request_kind"]: row["preset_name"] or "—" for row in last_rows}
+        text += "📇 <b>آخرین درخواست‌ها:</b>\n"
+        text += f"  Daily: {tracking.get('daily_batch', '—')}\n"
+        text += f"  Grammar: {tracking.get('grammar_tip', '—')}\n"
+        text += f"  Word: {tracking.get('custom_word', '—')}\n"
+    except Exception:
+        pass
 
     keyboard = ai_settings_keyboard()
     if update.callback_query:
@@ -2036,6 +2060,62 @@ async def _show_fallback_preset_picker(update: Update, context: ContextTypes.DEF
         update, context,
         f"پیش‌تنظیم {which.upper()} را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+
+async def _show_help_presets(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show help overview for presets."""
+    text = (
+        "❓ <b>راهنمای پریست‌های AI</b>\n\n"
+        "هر پریست یک تنظیمات کامل برای اتصال به یک سرویس‌دهنده AI است.\n\n"
+        "<b>فیلدهای اصلی:</b>\n"
+        "• name: نام یکتای پریست (فقط حروف انگلیسی، اعداد، زیرخط)\n"
+        "• api_key: کلید API (مقدار ثابت یا متغیر محیطی $VAR)\n"
+        "• base_url: آدرس سرور (سازگار با OpenAI)\n"
+        "• model: نام دقیق مدل\n\n"
+        "<b>محدودیت‌ها:</b>\n"
+        "• max_concurrency: تعداد درخواست هم‌زمان\n"
+        "• max_rpm: سقف درخواست در دقیقه (0 = بی‌محدودیت)\n"
+        "• max_tpm: سقف توکن در دقیقه (0 = بی‌محدودیت)\n"
+        "• max_daily_req: سقف درخواست روزانه (0 = بی‌محدودیت)\n\n"
+        "<b>زنجیره فال‌بک:</b>\n"
+        "پریست‌ها بر اساس priority (کم→زیاد) و is_emergency مرتب می‌شوند.\n"
+        "پریست‌های عادی اول امتحان می‌شوند، سپس اضطراری.\n"
+        "in_fallback_chain=0 یعنی پریست در زنجیره شرکت نمی‌کند.\n\n"
+        "<b>گروه‌بندی:</b>\n"
+        "پریست‌هایی که کلید API مشترک دارند در یک گروه قرار می‌گیرند.\n"
+        "group_label برای نام‌گذاری گروه‌ها استفاده می‌شود."
+    )
+    await _edit_or_send(
+        update, context, text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")]
+        ])
+    )
+
+
+async def _show_help_fallback_chain(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show help for fallback chain."""
+    text = (
+        "❓ <b>راهنمای زنجیره فال‌بک</b>\n\n"
+        "ترتیب زنجیره:\n"
+        "۱. پریست‌های عادی (is_emergency=0) بر اساس priority (از کم به زیاد)\n"
+        "۲. پریست‌های اضطراری (is_emergency=1) بر اساس priority\n\n"
+        "پریست‌های با in_fallback_chain=0 در زنجیره نمایش داده نمی‌شوند.\n\n"
+        "<b>دکمه‌ها:</b>\n"
+        "• ⬆/⬇: جابه‌جایی دستی (تغییر priority)\n"
+        "• 🟢/🔴: فعال/غیرفعال کردن پریست\n"
+        "• 🚨: تبدیل به پریست اضطراری\n"
+        "• 🎯: پرش به رتبه دلخواه در گروه\n\n"
+        "پریست اضطراری همیشه بعد از همه پریست‌های عادی امتحان می‌شود."
+    )
+    await _edit_or_send(
+        update, context, text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("↩️ بازگشت به زنجیره", callback_data="admin:fallback_chain")]
+        ])
     )
 
 
