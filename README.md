@@ -19,47 +19,35 @@ python bot.py
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python -m py_compile config.py catalog.py scheduling.py db.py prompts.py ai.py keyboards.py bot.py admin.py user.py formatting.py helpers.py srs_handler.py llm_services.py ai_presets.py tts.py issues/validate.py
-.venv/bin/python issues/validate.py check
+.venv/bin/python scripts/compile_all.py
+.venv/bin/python -m ruff check --select F821,F811
+.venv/bin/python scripts/generate_dashboard.py
+git diff --check
 ```
 
 ## ساختار
 
-- ماژول `config.py` — تنظیمات محیط، پلن‌ها، سهمیه‌ها، منطقه زمانی و محدودکننده‌ها.
-- ماژول `catalog.py` — منبع واحد زبان‌ها، اهداف، سطح‌ها و برچسب‌های نمایشی.
-- ماژول `db.py` — SQLite، مهاجرت‌ها، کاربران، کارت‌ها، صف ارسال، SRS و کش‌های کم‌هزینه.
-- ماژول `prompts.py` — پرامپت‌های فقط JSON و حفاظ‌های جلوگیری از تکرار.
-- ماژول `ai.py` — کلاینت سازگار با OpenAI، مهلت زمانی، استخراج JSON و اعتبارسنجی کارت.
-- ماژول `scheduling.py` — برنامه‌ریزی خالص برای جلسه‌های روزانه و ظرفیت اسلات‌ها.
-- ماژول `keyboards.py` — کیبوردهای پاسخ و درون‌خطی و callbackهای کوتاه.
-- ماژول `user.py` — هندلرهای تنظیمات کاربر: انتخاب زبان، هدف و سطح.
-- ماژول `admin.py` — پنل مدیریت: آمار، سهمیه، تنظیمات AI، هزینه‌ها و دستورات owner.
-- ماژول `formatting.py` — قالب‌بندی و escaping پیام‌های MarkdownV2 با پشتیبانی از متن فارسی.
-- ماژول `helpers.py` — توابع کمکی برای ورود کاربران، trivia و عملیات‌های متداول.
-- ماژول `srs_handler.py` — هندلرهای مرور فاصله‌دار (SRS) شامل نمایش کارت، ثبت نتیجه و ذخیره.
-- ماژول `llm_services.py` — سرویس‌های AI شامل تولید کارت روزانه، نکته گرامری و trivia.
-- ماژول `ai_presets.py` — تنظیمات از پیش‌تعریف‌شده برای providerهای مختلف AI.
-- ماژول `tts.py` — تولید گفتار (Text-to-Speech) با Edge TTS.
-- ماژول `bot.py` — مدیریت‌کننده‌های تلگرام، هماهنگ‌سازی، صف ارسال و تلاش‌های مجدد.
-- فایل `issues/issues.json` — منبع اصلی رکوردهای مهندسی شامل ویژگی،
-  باگ، ریسک، پژوهش و تصمیم؛ برای اعتبارسنجی از `issues/validate.py check`
-  استفاده کن.
-- فایل `project_status.json` — فهرست خوانا برای ماشین از فازها، وابستگی‌ها و
-  قفل تصمیم‌ها؛ داشبورد فقط خواندنی در `issues/project_status.html` از این
-  فایل و `issues/issues.json` ساخته می‌شود.
-- برای تغییرات وضعیت از فایل patch استفاده کن: ابتدا
-  `python issues/status_editor.py preview changes.json` و سپس با تأیید صریح
-  `python issues/status_editor.py apply changes.json --confirm`. این ابزار
-  پس از اعتبارسنجی، فایل‌های JSON اصلی، بخش تولیدشده در `ROADMAP.md` و
-  داشبورد را همگام می‌کند.
-- داشبورد فعلی عمداً ایستا و فقط خواندنی است و هیچ سرور HTTP پایتون یا
-  نقطه پایانی نوشتنی ندارد. برای اجرای ویرایشگر وب محلی:
-  ```bash
-  python -m issues.local_editor
-  ```
-
-  این ابزار فقط روی `127.0.0.1` گوش می‌دهد، یک login URL تصادفی چاپ می‌کند،
-  و همه‌ی تغییرات را از همان مسیر patch/preview/validation عبور می‌دهد.
+- `config/` — تنظیمات محیط، پلن‌ها، سهمیه‌ها، منطقه زمانی، کاتالوگ زبان‌ها و کیبوردها.
+  - `config/__init__.py` — تنظیمات و محدودکننده‌ها.
+  - `config/catalog.py` — منبع واحد زبان‌ها، اهداف، سطح‌ها و برچسب‌های نمایشی.
+  - `config/keyboards.py` — کیبوردهای پاسخ و درون‌خطی و callbackهای کوتاه.
+- `services/` — لاجیک اصلی دامنه.
+  - `services/db/` — SQLite، مهاجرت‌ها، کاربران، کارت‌ها، صف ارسال، SRS و کش‌ها.
+  - `services/ai/` — کلاینت OpenAI، اعتبارسنجی JSON، پرامپت‌ها، تولید محتوا و presets.
+  - `services/utils/` — قالب‌بندی MarkdownV2 و توابع کمکی.
+  - `services/scheduling.py` — برنامه‌ریزی جلسه‌های روزانه و ظرفیت اسلات‌ها.
+  - `services/tts.py` — تولید گفتار با Edge TTS.
+- `handlers/` — هندلرهای تلگرام.
+  - `handlers/user.py` — تنظیمات کاربر: زبان، هدف، سطح.
+  - `handlers/admin.py` — پنل مدیریت و تنظیمات AI.
+  - `handlers/srs_handler.py` — مرور فاصله‌دار (SRS).
+- `bot.py` — نقطه ورود، مدیریت‌کننده‌های تلگرام، هماهنگ‌سازی و صف ارسال.
+- `project_status.json` — فهرست ماشین‌خوان از فازها، وابستگی‌ها و
+  قفل تصمیم‌ها. داشبورد فقط‌خواندنی در `issues/project_status.html` از این
+  فایل ساخته می‌شود.
+- `scripts/generate_dashboard.py` — تولیدکننده‌ی داشبورد HTML.
+- [GitHub Issues](https://github.com/Ham3dParsa/HamZaboonRobot/issues) —
+  مخزن اصلی رکوردهای مهندسی (ویژگی، باگ، ریسک، پژوهش، تصمیم).
 
 ## کنترل هزینه و کیفیت AI
 
@@ -72,19 +60,11 @@ python bot.py
 - پرامپت کارت‌ها علاوه بر واژه‌های همان روز، یک لیست کوتاه از واژه‌های اخیر
   کاربر را هم avoid می‌کند تا تکرار واژه در روزهای نزدیک کمتر شود.
 - نکته‌های گرامری عنوان‌های اخیر همان کاربر/زبان را در `grammar_tips` ذخیره
-  می‌کنند و در prompt بعدی به‌صورت `avoid_topics` کوتاه ارسال می‌شوند؛ بنابراین
-  مدل همچنان محتوا را تولید می‌کند، ولی از تکرار موضوعات اخیر منع می‌شود.
-- پارامترهای  `AI_MAX_CONCURRENCY`، `AI_MAX_REQUESTS_PER_MINUTE` و `AI_TIMEOUT_SECONDS`
-  نرخ و زمان انتظار provider را محدود می‌کنند؛ `AI_MAX_OUTPUT_TOKENS` سقف
-  خروجی و `AI_TEMPERATURE` میزان تصادفی‌بودن پاسخ JSON را کنترل می‌کند.
-- خروجی کارت و batch به‌صورت پیش‌فرض `compact_json` است: کلیدهای کوتاه در مرز AI
-  مصرف می‌شوند و `ai.py` پیش از validation آن‌ها را به قرارداد کامل کارت تبدیل می‌کند.
-  برای rollback فوری، `AI_CARD_OUTPUT_FORMAT=json` را تنظیم کنید. CSV به‌عنوان
-  قرارداد runtime انتخاب نشده، چون جداکننده‌های طبیعی متن، newline و علامت‌های
-  نقل‌قول می‌توانند داده‌ی آموزشی را بدون parser استاندارد خراب کنند.
-- هر تماس AI نوع درخواست، مدل، latency و token usage گزارش‌شده توسط provider
-  را log می‌کند. سهمیه‌ی پرسش واژه یا نکته‌ی گرامری هم در خطای provider پس
-  داده می‌شود تا درخواست ناموفق از سهمیه‌ی کاربر کم نشود.
+  می‌کنند و در prompt بعدی به‌صورت `avoid_topics` کوتاه ارسال می‌شوند.
+- پارامترهای `AI_MAX_CONCURRENCY`، `AI_MAX_REQUESTS_PER_MINUTE` و `AI_TIMEOUT_SECONDS`
+  نرخ و زمان انتظار provider را محدود می‌کنند.
+- خروجی کارت و batch به‌صورت پیش‌فرض `compact_json` است.
+- هر تماس AI نوع درخواست، مدل، latency و token usage را log می‌کند.
 
 ## مکانیزم SRS و مرور
 
@@ -92,29 +72,10 @@ python bot.py
   ذخیره می‌شود؛ SRS برای نمایش reminder کامل نیازی به API call جدید ندارد.
 - reminderهای SRS کارت کامل را نمایش می‌دهند و با دکمه‌های کاربرمحور
   «یادم بود» و «فردا دوباره» جلو می‌روند.
-- فاصله‌ی مرور فقط بعد از تعامل کاربر advance می‌شود، نه صرفاً بعد از این‌که
-  Telegram پیام reminder را قبول کرد. reminderهای ارسال‌شده تا زمان پاسخ کاربر
-  در وضعیت pending می‌مانند تا تکرار ناخواسته رخ ندهد.
-
-## نکات ادغام با AI API و GapGPT
-
-1. کلید API را در چت، commit، log یا issue evidence قرار نده. اگر قبلاً کلیدی
-   را در چت paste کرده‌ای، آن را از پنل provider revoke/rotate کن.
-2. پارامتر `AI_BASE_URL` برای GapGPT یک endpoint سازگار با OpenAI SDK است؛ به همین دلیل
-   پروژه از پکیج رسمی `openai` استفاده می‌کند.
-3. پارامتر `AI_MODEL` را از مستندات لحظه‌ای provider تنظیم کن. نام مدل در admin panel
-   هم قابل تغییر است و نباید در promptها hardcode شود.
-4. مقدارهای `.env` bootstrap هستند؛ owner می‌تواند base URL/model/key را از
-   پنل مدیریت عوض کند. دیتابیس SQLite را مثل secret store محافظت کن، چون key
-   runtime در جدول settings ذخیره می‌شود.
-5. log فعلی latency، token usage و cost telemetry خام را ثبت می‌کند. owner
-   می‌تواند از پنل مدیریت، قیمت ورودی/خروجی به ازای یک میلیون توکن و نرخ
-   USD→تومان را override کند و داشبورد هزینه‌ی LLM را بر اساس پلن، کاربر،
-   مدل، نوع درخواست و وضعیت خطا فیلتر کند.
+- فاصله‌ی مرور فقط بعد از تعامل کاربر advance می‌شود.
 
 ## محدودیت‌های عمدی MVP
 
 - بدون تصویر AI، گروه/leaderboard، پرداخت خودکار و placement test رایگان.
 - ارتقای پلن فعلاً دستی و owner-only است.
-- محتوای آموزشی learner-facing باید AI-generated بماند؛ cache و avoid-list فقط
-  برای کنترل هزینه و جلوگیری از تکرار استفاده می‌شوند، نه جایگزینی محتوای ثابت.
+- محتوای آموزشی learner-facing باید AI-generated بماند.

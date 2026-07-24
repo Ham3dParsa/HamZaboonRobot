@@ -1,0 +1,28 @@
+bot:
+  - bot.py
+  - handlers/**/*
+  - config/keyboards.py
+
+db:
+  - services/db/**/*
+
+ai:
+  - services/ai/**/*
+
+tests:
+  - tests/**/*
+
+documentation:
+  - docs/**/*
+  - '**/*.md'
+
+ci:
+  - .github/**/*
+  - scripts/**/*
+  - requirements.txt
+
+admin:
+  - handlers/admin.py
+
+srs:
+  - handlers/srs_handler.py
