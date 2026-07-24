@@ -263,6 +263,8 @@ def init_db():
             conn.execute("ALTER TABLE users ADD COLUMN daily_reminder_cap INTEGER")
         if "reminder_cap_updated_at" not in columns:
             conn.execute("ALTER TABLE users ADD COLUMN reminder_cap_updated_at TEXT")
+        if "bot_blocked" not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN bot_blocked INTEGER DEFAULT 0")
         conn.execute(
             "UPDATE users SET daily_reminder_cap = CASE plan "
             "WHEN 'silver' THEN ? WHEN 'gold' THEN ? ELSE ? END "
@@ -1038,7 +1040,9 @@ def recent_llm_requests(
 
 def all_active_users():
     with get_conn() as conn:
-        return conn.execute("SELECT * FROM users WHERE onboarded=1").fetchall()
+        return conn.execute(
+            "SELECT * FROM users WHERE onboarded=1 AND (bot_blocked IS NULL OR bot_blocked=0)"
+        ).fetchall()
 
 
 def get_delivery_queue(
@@ -1608,6 +1612,20 @@ def clear_srs_retry(word_id: int):
             "UPDATE saved_words SET retry_at=NULL, srs_retry_attempts=0 WHERE id=?",
             (word_id,),
         )
+        conn.commit()
+
+
+def set_user_blocked(user_id: int):
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("UPDATE users SET bot_blocked=1 WHERE user_id=?", (user_id,))
+        conn.commit()
+
+
+def reset_user_blocked(user_id: int):
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("UPDATE users SET bot_blocked=0 WHERE user_id=?", (user_id,))
         conn.commit()
 
 

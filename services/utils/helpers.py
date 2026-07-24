@@ -4,7 +4,7 @@ import re
 
 from telegram import Update
 from telegram.ext import ContextTypes
-from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
+from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
 
 from config import OWNER_ID, TELEGRAM_MAX_CONCURRENCY, USER_ACTIVITY
 from config.keyboards import main_menu, awaiting_inline_keyboard, BTN_CANCEL, BTN_BACK
@@ -157,6 +157,9 @@ async def _send_with_retry(
                 result = await bot.send_message(**send_kwargs)
                 _reset_telegram_cb()
                 return result
+        except Forbidden:
+            db.set_user_blocked(chat_id)
+            raise
         except BadRequest:
             raise
         except RetryAfter as exc:
@@ -214,6 +217,9 @@ async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
                 result = await bot.send_voice(chat_id=chat_id, voice=voice, **kwargs)
                 _reset_telegram_cb()
                 return result
+        except Forbidden:
+            db.set_user_blocked(chat_id)
+            raise
         except BadRequest:
             raise
         except RetryAfter as exc:

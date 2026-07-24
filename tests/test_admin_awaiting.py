@@ -98,32 +98,35 @@ class TestTextRouterPrefixDispatch(unittest.IsolatedAsyncioTestCase):
         update = _make_update(user_id=1, text="my_preset")
         context = _make_context()
         context.user_data["awaiting"] = "ai_preset_new_name"
-        with patch("handlers.admin._handle_ai_preset_new_name", new=AsyncMock()) as mock_fn:
-            with patch("handlers.admin.db") as mock_db:
-                mock_db.get_preset.return_value = None
-                await text_router(update, context)
-            mock_fn.assert_called_once()
+        with patch("bot.db.reset_user_blocked"):
+            with patch("handlers.admin._handle_ai_preset_new_name", new=AsyncMock()) as mock_fn:
+                with patch("handlers.admin.db") as mock_db:
+                    mock_db.get_preset.return_value = None
+                    await text_router(update, context)
+                mock_fn.assert_called_once()
 
     async def test_router_dispatches_ai_preset_edit(self):
         from bot import text_router
         update = _make_update(user_id=1, text="gpt-4")
         context = _make_context()
         context.user_data["awaiting"] = "ai_preset_edit:test:model"
-        with patch("handlers.admin._handle_ai_preset_field_input", new=AsyncMock()) as mock_fn:
-            with patch("handlers.admin.db") as mock_db:
-                mock_db.get_preset.return_value = {"name": "test"}
-                await text_router(update, context)
-            mock_fn.assert_called_once()
+        with patch("bot.db.reset_user_blocked"):
+            with patch("handlers.admin._handle_ai_preset_field_input", new=AsyncMock()) as mock_fn:
+                with patch("handlers.admin.db") as mock_db:
+                    mock_db.get_preset.return_value = {"name": "test"}
+                    await text_router(update, context)
+                mock_fn.assert_called_once()
 
     async def test_router_dispatches_ai_custom_test_prompt(self):
         from bot import text_router
         update = _make_update(user_id=1, text="my prompt")
         context = _make_context()
         context.user_data["awaiting"] = "ai_custom_test_prompt"
-        with patch("handlers.admin._custom_test_step_lang", new=AsyncMock()) as mock_fn:
-            with patch("handlers.admin.db") as mock_db:
-                await text_router(update, context)
-            mock_fn.assert_called_once()
+        with patch("bot.db.reset_user_blocked"):
+            with patch("handlers.admin._custom_test_step_lang", new=AsyncMock()) as mock_fn:
+                with patch("handlers.admin.db") as mock_db:
+                    await text_router(update, context)
+                mock_fn.assert_called_once()
 
     async def test_router_rejects_nonowner_admin_flows(self):
         """Non-owner with admin_ awaiting must be rejected."""
@@ -131,10 +134,11 @@ class TestTextRouterPrefixDispatch(unittest.IsolatedAsyncioTestCase):
         update = _make_update(user_id=999, text="some value")
         context = _make_context()
         context.user_data["awaiting"] = "admin_set_plan"
-        with patch("handlers.admin._handle_admin_text_input", new=AsyncMock()) as mock_fn:
-            with patch("handlers.admin.is_owner", return_value=False):
-                await text_router(update, context)
-            mock_fn.assert_not_called()
+        with patch("bot.db.reset_user_blocked"):
+            with patch("handlers.admin._handle_admin_text_input", new=AsyncMock()) as mock_fn:
+                with patch("handlers.admin.is_owner", return_value=False):
+                    await text_router(update, context)
+                mock_fn.assert_not_called()
 
 
 
