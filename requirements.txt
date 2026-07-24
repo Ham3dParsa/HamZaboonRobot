@@ -4,5 +4,5 @@ python-dotenv==1.0.1
 httpx==0.27.2
 ruff>=0.9,<1
 edge-tts>=7.2.8,<8
-colorlog>=6.8,<7
+colorlog>=6.12.0,<7
 pytest>=8.0,<9
