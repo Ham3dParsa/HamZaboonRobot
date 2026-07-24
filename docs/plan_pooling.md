@@ -1,8 +1,7 @@
 # Plan: Segment-Level Content Pooling
 
-**Status:** Locked product direction; implementation not started  
-**Canonical references:** this file, `ROADMAP.md`, and issue #40 in
-`issues/issues.json`
+> **STATUS:** active (locked, not implemented)
+> **Canonical references:** this file, `ROADMAP.md`, [GitHub Issues #40](https://github.com/Ham3dParsa/HamZaboonRobot/issues/40)
 
 ## Goal
 

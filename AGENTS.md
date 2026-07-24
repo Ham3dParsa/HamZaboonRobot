@@ -52,6 +52,7 @@ findings:
 | `issues/project_status.html` | Read-only dashboard generated from `project_status.json`. Links to GitHub Issues for detail. | Regenerate with `python scripts/generate_dashboard.py`. Never edit directly. |
 | `issues/issues.html` | Compatibility redirect to `issues/project_status.html`. | Do not use it as an editor or status source. |
 | `scripts/generate_dashboard.py` | Lightweight HTML dashboard generator from `project_status.json`. | Use after intentional phase/decision changes. |
+| `docs/vision_and_product_goals.md` | Product vision, strategic goals, and target audience. | Curate when strategic direction or goals change. |
 
 `project_status.json` is authoritative for phase/decision status. GitHub Issues
 are authoritative for individual issue state. HTML `localStorage`, embedded
@@ -191,7 +192,6 @@ Keep responsibilities aligned with the current module boundaries:
   - `config/__init__.py`: Environment and deployment settings; it must not become a second learner-option registry.
   - `config/catalog.py`: Canonical language, goal, and level metadata.
   - `config/keyboards.py`: Telegram menus and callback identifiers.
-- `issues/validate.py`: Issue registry validation and optional exports.
 - `tests/test_integration/`: Handler-level integration tests simulating real user flows (see Integration Test Protocol).
   - `tests/test_integration/helpers.py`: Shared helpers for update/context construction and DB snapshot management.
 - `.github/workflows/ci.yml`: GitHub Actions CI — runs lint, compile, tests, dashboard generation, and whitespace checks on push/PR to `main`. — runs lint, compile, tests, dashboard generation, and whitespace checks on push/PR to `main`.
@@ -305,8 +305,8 @@ at the call site.
 
 When asked to audit or review the project:
 
-1. Read `AGENTS.md`, `README.md`, `ROADMAP.md`, and
-   `issues/issues.json`.
+1. Read `AGENTS.md`, `README.md`, `ROADMAP.md`, `docs/vision_and_product_goals.md`,
+   and related [GitHub Issues](https://github.com/Ham3dParsa/HamZaboonRobot/issues).
 2. Inspect all relevant Python modules and tests, not only the file named in
    the request.
 3. Trace data and control flow across:
@@ -320,7 +320,7 @@ When asked to audit or review the project:
    statuses forward without verification.
 5. Look for correctness, security, reliability, cost, concurrency, migration,
    and UX risks—not only syntax errors.
-6. Record findings in `issues/issues.json` with stable IDs and evidence.
+6. Record findings as GitHub Issues with stable IDs and evidence.
 7. Reconcile the product-level consequences in `ROADMAP.md`.
 8. Run the focused tests plus the repository-wide checks before reporting.
 9. **Context economy:** when investigating a bug or making a targeted change,
@@ -563,7 +563,36 @@ this list require explicit prior approval.
 
 <!-- TODO: Owner to decide on a convention for preventing concurrent agent edits on the same branch/files (see AGENTS.md #10). -->
 
-## 8. Product Scope Guardrails
+## 8. Documentation Update Protocol
+
+Keep the documentation ecosystem coherent by applying these rules after every
+meaningful code or product change. Each type of information has exactly one
+canonical source; generated views are never edited directly.
+
+### What to update and when
+
+| What changed | Update this | Then |
+|---|---|---|
+| Phase status, decisions, dependencies, or progress items | `project_status.json` | Run `python scripts/generate_dashboard.py` |
+| Product narrative, scope, or roadmap direction | `ROADMAP.md` (narrative sections only) | — |
+| Module structure (add/rename/split/remove) | `AGENTS.md` Section 3 table + `tests/test_wiring.py` scan paths | — |
+| Tooling, validation commands, or setup | `README.md` | — |
+| Bug discovered, feature requested, or risk identified | [GitHub Issue](https://github.com/Ham3dParsa/HamZaboonRobot/issues/new) | Link issue ID in `project_status.json` if phase-relevant |
+| New architectural plan written | `docs/plan_<topic>.md` (status line: `> STATUS: active`) | Archive superseded plan to `docs/archive/` |
+| Implementation completes a phase or renders a plan obsolete | Move plan doc to `docs/archive/`; update its status line to `implemented` | Update `project_status.json` |
+| Vision or strategic goals change | `docs/vision_and_product_goals.md` | — |
+| Agent operating agreement changes | `AGENTS.md` | — |
+
+### Staleness prevention
+
+- The CI pipeline verifies that `issues/project_status.html` is in sync with
+  `project_status.json` (see `.github/workflows/ci.yml`).
+- Every code review or audit must start by checking that the documents listed
+  in Section 2 match the actual project state.
+- If a stale reference is found (a file or tool that no longer exists), file a
+  GitHub Issue and update the referring document immediately.
+
+## 9. Product Scope Guardrails
 
 The current next user-facing direction is custom-word query improvement:
 visible quota, idempotent "Add to review", and removal of the separate manual

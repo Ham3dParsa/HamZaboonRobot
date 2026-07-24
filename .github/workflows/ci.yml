@@ -3,12 +3,42 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - '**.py'
+      - requirements.txt
+      - .github/workflows/*
+      - project_status.json
+      - scripts/*.py
   pull_request:
     branches: [main]
+    paths:
+      - '**.py'
+      - requirements.txt
+      - .github/workflows/*
+      - project_status.json
+      - scripts/*.py
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  label:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/labeler@v5
+        with:
+          dot: true
+
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
     strategy:
       matrix:
         python-version: ["3.10", "3.13"]
@@ -33,11 +63,28 @@ jobs:
       - name: Check syntax with py_compile
         run: python scripts/compile_all.py
 
-      - name: Test with unittest
-        run: python -m unittest discover -s tests -v
+      - name: Test with pytest
+        id: test
+        continue-on-error: true
+        run: python -m pytest tests/ --junitxml=junit/test-results.xml -v
 
       - name: Generate dashboard
         run: python scripts/generate_dashboard.py
 
+      - name: Verify dashboard is in sync with project_status.json
+        run: git diff --exit-code issues/project_status.html
+
       - name: Check whitespace errors
         run: git diff --check
+
+      - name: Test Report
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Test Results (${{ matrix.python-version }})
+          path: junit/test-results.xml
+          reporter: java-junit
+
+      - name: Fail on test failure
+        if: steps.test.outcome == 'failure'
+        run: exit 1

@@ -1,5 +1,7 @@
 # Plan: LLM Cost Metrics and Admin Dashboard
 
+> **STATUS:** active
+
 ## Goal
 
 Add a robust admin-facing cost analytics layer that turns raw LLM usage logs into:

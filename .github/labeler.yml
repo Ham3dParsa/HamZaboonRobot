@@ -1,0 +1,23 @@
+bot:
+  - any: ['bot.py', 'handlers/**/*', 'config/keyboards.py']
+
+db:
+  - any: ['services/db/**/*']
+
+ai:
+  - any: ['services/ai/**/*']
+
+tests:
+  - any: ['tests/**/*']
+
+documentation:
+  - any: ['docs/**/*', '**/*.md']
+
+ci:
+  - any: ['.github/**/*', 'scripts/**/*', 'requirements.txt']
+
+admin:
+  - any: ['handlers/admin.py']
+
+srs:
+  - any: ['handlers/srs_handler.py']
