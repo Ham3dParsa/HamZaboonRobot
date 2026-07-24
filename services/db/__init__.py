@@ -1814,6 +1814,30 @@ def set_preset(
         conn.commit()
 
 
+def set_preset_api_key_batch(names: list[str], new_key: str):
+    """Update API key for multiple presets in one transaction."""
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        placeholders = ",".join("?" for _ in names)
+        conn.execute(
+            f"UPDATE ai_presets SET api_key=? WHERE name IN ({placeholders})",
+            (new_key, *names),
+        )
+        conn.commit()
+
+
+def set_preset_group_label_batch(names: list[str], label: str):
+    """Update group_label for multiple presets in one transaction."""
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        placeholders = ",".join("?" for _ in names)
+        conn.execute(
+            f"UPDATE ai_presets SET group_label=? WHERE name IN ({placeholders})",
+            (label, *names),
+        )
+        conn.commit()
+
+
 def delete_preset(name: str) -> bool:
     """Delete a preset (built-in or custom)."""
     with get_conn() as conn:

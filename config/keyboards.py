@@ -156,6 +156,22 @@ IBTN_DISCARD_ALL = "🗑️ دور ریختن همه تغییرات"
 IBTN_SAVE_CONFIRM = "✅ بله، ذخیره کن"
 IBTN_SAVE_CANCEL = "❌ لغو ذخیره"
 
+# --- Admin – Full Edit Wizard ---
+IBTN_FULL_EDIT_WIZARD = "✏️ ویرایش کامل"
+IBTN_FULL_EDIT_NEXT = "▶️ بعدی"
+IBTN_FULL_EDIT_SKIP = "⏭️ رد کردن"
+IBTN_FULL_EDIT_CANCEL_WIZARD = "❌ انصراف از ویرایش"
+IBTN_FULL_EDIT_SAVE_ALL = "✅ ذخیره همه تغییرات"
+
+# --- Admin – Preset Group / Pagination ---
+IBTN_VIEW_MODE_LINEAR = "📋 نمایش خطی"
+IBTN_VIEW_MODE_GROUPED = "📁 نمایش گروهی"
+IBTN_GROUP_BATCH_KEY = "🔑 آپدیت کلید این گروه"
+IBTN_GROUP_SET_LABEL = "🏷️ نام‌گذاری گروه"
+IBTN_GROUP_OPEN = "▶️ باز کردن گروه"
+IBTN_PAGE_PREV = "◀️ صفحه قبل"
+IBTN_PAGE_NEXT = "▶️ صفحه بعد"
+
 
 def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
     rows = [
@@ -620,30 +636,68 @@ def ai_settings_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def ai_presets_list_keyboard(presets: list[dict], active_name: str) -> InlineKeyboardMarkup:
-    """List presets with activate/edit/delete buttons."""
+def ai_presets_list_keyboard(
+    presets: list[dict],
+    active_name: str,
+    page: int = 0,
+    total_pages: int = 1,
+    view_mode: str = "linear",
+    groups: list[dict] | None = None,
+) -> InlineKeyboardMarkup:
+    """List presets with activate/edit/delete buttons and view-mode toggle."""
     rows = []
-    for p in presets:
-        name = p["name"]
-        is_active = "✅ " if name == active_name else ""
-        is_custom = p.get("is_custom", 0)
-        label = f"{is_active}{name}"
-        if is_custom:
-            label += " (custom)"
-        rows.append([
-            InlineKeyboardButton(label, callback_data=f"admin:ai_preset:view:{name}"),
-        ])
-        # Action buttons row
-        action_row = []
-        if name != active_name:
-            action_row.append(InlineKeyboardButton(IBTN_ACTIVATE, callback_data=f"admin:ai_preset:activate:{name}"))
-        if is_custom:
-            action_row.append(InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:ai_preset:edit:{name}"))
-            action_row.append(InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{name}"))
-        else:
-            action_row.append(InlineKeyboardButton(IBTN_EDIT_FORK, callback_data=f"admin:ai_preset:edit:{name}"))
-        if action_row:
+    if view_mode == "grouped" and groups:
+        for g in groups:
+            label = g.get("label") or g.get("masked_key", "—")
+            masked = g.get("masked_key", "")
+            if g.get("label"):
+                label = f"🏷️ {g['label']} ({masked})"
+            group_row = [
+                InlineKeyboardButton(
+                    f"📁 {label} ({g['count']} preset)",
+                    callback_data=f"admin:ai_preset:group:{g['key_hash']}",
+                ),
+            ]
+            rows.append(group_row)
+            action_row = [
+                InlineKeyboardButton(IBTN_GROUP_BATCH_KEY, callback_data=f"admin:ai_preset:group_batch_key:{g['key_hash']}"),
+                InlineKeyboardButton(IBTN_GROUP_SET_LABEL, callback_data=f"admin:ai_preset:group_set_label:{g['key_hash']}"),
+            ]
             rows.append(action_row)
+    else:
+        for p in presets:
+            name = p["name"]
+            is_active = "✅ " if name == active_name else ""
+            is_custom = p.get("is_custom", 0)
+            label = f"{is_active}{name}"
+            if is_custom:
+                label += " (custom)"
+            rows.append([
+                InlineKeyboardButton(label, callback_data=f"admin:ai_preset:view:{name}"),
+            ])
+            action_row = []
+            if name != active_name:
+                action_row.append(InlineKeyboardButton(IBTN_ACTIVATE, callback_data=f"admin:ai_preset:activate:{name}"))
+            if is_custom:
+                action_row.append(InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:ai_preset:edit:{name}"))
+                action_row.append(InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{name}"))
+            else:
+                action_row.append(InlineKeyboardButton(IBTN_EDIT_FORK, callback_data=f"admin:ai_preset:edit:{name}"))
+            if action_row:
+                rows.append(action_row)
+        # Pagination
+        if total_pages > 1:
+            nav_row = []
+            if page > 0:
+                nav_row.append(InlineKeyboardButton(IBTN_PAGE_PREV, callback_data=f"admin:ai_preset:page:{page - 1}"))
+            if page + 1 < total_pages:
+                nav_row.append(InlineKeyboardButton(IBTN_PAGE_NEXT, callback_data=f"admin:ai_preset:page:{page + 1}"))
+            if nav_row:
+                rows.append(nav_row)
+    # View mode toggle
+    toggle_label = IBTN_VIEW_MODE_GROUPED if view_mode == "linear" else IBTN_VIEW_MODE_LINEAR
+    toggle_mode = "grouped" if view_mode == "linear" else "linear"
+    rows.append([InlineKeyboardButton(toggle_label, callback_data=f"admin:ai_preset:view_mode:{toggle_mode}")])
     rows.append([InlineKeyboardButton(IBTN_ADD_CUSTOM, callback_data="admin:ai_preset:add")])
     rows.append([InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_settings")])
     return InlineKeyboardMarkup(rows)
@@ -696,6 +750,7 @@ def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None) -> Inl
         rows.append([
             InlineKeyboardButton(f"{label}{suffix}", callback_data=f"admin:ai_preset:edit_field:{preset_name}:{key}"),
         ])
+    rows.append([InlineKeyboardButton(IBTN_FULL_EDIT_WIZARD, callback_data=f"admin:ai_preset:full_edit:{preset_name}")])
     rows.append([InlineKeyboardButton(IBTN_DISCARD_ALL, callback_data=f"admin:ai_preset:discard_all:{preset_name}")])
     rows.append([InlineKeyboardButton(IBTN_SAVE_PRESET, callback_data=f"admin:ai_preset:save:{preset_name}")])
     rows.append([InlineKeyboardButton(IBTN_CANCEL_EDIT, callback_data=f"admin:ai_preset:view:{preset_name}")])

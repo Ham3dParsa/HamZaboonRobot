@@ -1,6 +1,7 @@
 import asyncio
 import calendar
 import datetime
+import hashlib
 import logging
 import os
 from collections import defaultdict
@@ -18,6 +19,7 @@ from services.ai import prompts
 from services.utils.helpers import _edit_or_send, _send_with_retry
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
+    BTN_BACK,
     admin_panel_keyboard,
     main_menu,
     awaiting_inline_keyboard,
@@ -38,6 +40,18 @@ from config.keyboards import (
     fallback_chain_keyboard,
     log_level_keyboard,
     user_activity_keyboard,
+    IBTN_FULL_EDIT_WIZARD,
+    IBTN_FULL_EDIT_NEXT,
+    IBTN_FULL_EDIT_SKIP,
+    IBTN_FULL_EDIT_CANCEL_WIZARD,
+    IBTN_FULL_EDIT_SAVE_ALL,
+    IBTN_VIEW_MODE_LINEAR,
+    IBTN_VIEW_MODE_GROUPED,
+    IBTN_GROUP_BATCH_KEY,
+    IBTN_GROUP_SET_LABEL,
+    IBTN_GROUP_OPEN,
+    IBTN_PAGE_PREV,
+    IBTN_PAGE_NEXT,
 )
 
 logger = logging.getLogger(__name__)
@@ -232,6 +246,25 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         parts = action.split(":", 3)
         if len(parts) == 4:
             await _edit_ai_preset_field(update, context, parts[2], parts[3])
+    elif action.startswith("ai_preset:full_edit:"):
+        preset_name = action.split(":", 2)[2]
+        await _start_full_edit_wizard(update, context, preset_name)
+    elif action.startswith("ai_preset:full_edit_next:"):
+        parts = action.split(":", 3)
+        if len(parts) == 4:
+            preset_name = parts[2]
+            await _handle_full_edit_next(update, context, preset_name)
+    elif action.startswith("ai_preset:full_edit_skip:"):
+        parts = action.split(":", 3)
+        if len(parts) == 4:
+            preset_name = parts[2]
+            await _handle_full_edit_skip(update, context, preset_name)
+    elif action.startswith("ai_preset:full_edit_cancel:"):
+        preset_name = action.split(":", 2)[2]
+        await _handle_full_edit_cancel(update, context, preset_name)
+    elif action.startswith("ai_preset:full_edit_save:"):
+        preset_name = action.split(":", 2)[2]
+        await _handle_full_edit_save(update, context, preset_name)
     elif action.startswith("ai_preset:save:"):
         preset_name = action.split(":", 2)[2]
         await _confirm_save_preset(update, context, preset_name)
@@ -249,6 +282,21 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         await _delete_ai_preset(update, context, preset_name)
     elif action == "ai_preset:add":
         await _add_ai_preset(update, context)
+    elif action.startswith("ai_preset:page:"):
+        page = int(action.split(":", 2)[2])
+        await _show_linear_presets(update, context, page)
+    elif action.startswith("ai_preset:view_mode:"):
+        mode = action.split(":", 2)[2]
+        await _toggle_preset_view_mode(update, context)
+    elif action.startswith("ai_preset:group:"):
+        key_hash = action.split(":", 2)[2]
+        await _handle_group_view(update, context, key_hash)
+    elif action.startswith("ai_preset:group_batch_key:"):
+        key_hash = action.split(":", 2)[2]
+        await _handle_group_batch_key(update, context, key_hash)
+    elif action.startswith("ai_preset:group_set_label:"):
+        key_hash = action.split(":", 2)[2]
+        await _handle_group_set_label(update, context, key_hash)
     elif action == "ai_test_connection":
         await _test_ai_connection(update, context)
     elif action == "ai_custom_test":
@@ -804,6 +852,29 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
         return
 
     # ======== AI Settings awaiting handlers ========
+
+    if awaiting.startswith("admin_group_batch_key:"):
+        key_hash = awaiting.split(":", 1)[1]
+        groups = _detect_key_groups()
+        target = next((g for g in groups if g["key_hash"] == key_hash), None)
+        if target:
+            db.set_preset_api_key_batch(target["names"], text.strip())
+        context.user_data.pop("awaiting", None)
+        await update.message.reply_text("✅ کلید API برای همه اعضای گروه به‌روز شد.")
+        await _show_grouped_presets(update, context)
+        return
+
+    if awaiting.startswith("admin_group_set_label:"):
+        key_hash = awaiting.split(":", 1)[1]
+        groups = _detect_key_groups()
+        target = next((g for g in groups if g["key_hash"] == key_hash), None)
+        if target:
+            db.set_preset_group_label_batch(target["names"], text.strip())
+        context.user_data.pop("awaiting", None)
+        await update.message.reply_text("✅ برچسب گروه برای همه اعضا تنظیم شد.")
+        await _show_grouped_presets(update, context)
+        return
+
     if awaiting == "ai_preset_new_name":
         await _handle_ai_preset_new_name(update, context, text)
         return
@@ -813,6 +884,16 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
         parts = awaiting.split(":", 2)
         if len(parts) == 3:
             await _handle_ai_preset_field_input(update, context, parts[1], parts[2], text)
+        return
+
+    if awaiting.startswith("ai_preset_full_edit:"):
+        # format: ai_preset_full_edit:preset_name:field_idx
+        parts = awaiting.split(":", 2)
+        if len(parts) == 3:
+            sub_parts = parts[2].rsplit(":", 1)
+            if len(sub_parts) == 2:
+                preset_name, field_idx = sub_parts
+                await _handle_full_edit_input(update, context, preset_name, int(field_idx), text)
         return
 
     if awaiting == "ai_custom_test_prompt":
@@ -865,12 +946,60 @@ async def _show_ai_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _show_ai_presets(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """List all presets."""
+    """List all presets with pagination and view-mode toggle."""
+    view_mode = context.user_data.get("preset_view_mode", "linear")
+    if view_mode == "grouped":
+        await _show_grouped_presets(update, context)
+    else:
+        await _show_linear_presets(update, context)
+
+
+def _key_hash(api_key: str) -> str:
+    """Short hash of an API key for callback_data."""
+    return hashlib.sha256(api_key.encode()).hexdigest()[:12]
+
+
+def _detect_key_groups() -> list[dict]:
+    """Group all presets by resolved API key. Returns list sorted by count desc."""
+    from services.ai.ai_presets import resolve_api_key
     presets = db.get_presets()
+    groups_map: dict[str, dict] = {}
+    for p in presets:
+        resolved = resolve_api_key(p)
+        if not resolved:
+            resolved = "__no_key__"
+        if resolved not in groups_map:
+            masked = (resolved[:6] + "…" + resolved[-4:]) if len(resolved) > 12 else resolved
+            groups_map[resolved] = {
+                "resolved_key": resolved,
+                "masked_key": masked,
+                "key_hash": _key_hash(resolved),
+                "label": p.get("group_label", "") or "",
+                "count": 0,
+                "names": [],
+            }
+        groups_map[resolved]["count"] += 1
+        groups_map[resolved]["names"].append(p["name"])
+        if p.get("group_label") and not groups_map[resolved]["label"]:
+            groups_map[resolved]["label"] = p["group_label"]
+
+    groups = sorted(groups_map.values(), key=lambda g: -g["count"])
+    return groups
+
+
+async def _show_linear_presets(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
+    """Show paginated linear preset list."""
+    all_presets = db.get_presets()
     active_name = db.get_active_preset_name()
+    per_page = 5
+    total_pages = max(1, (len(all_presets) + per_page - 1) // per_page)
+    page = max(0, min(page, total_pages - 1))
+    start = page * per_page
+    end = start + per_page
+    page_presets = all_presets[start:end]
 
     lines = ["📋 <b>لیست پیش‌تنظیم‌ها</b>\n"]
-    for p in presets:
+    for p in page_presets:
         marker = " ✅" if p["name"] == active_name else ""
         custom = " (custom)" if p.get("is_custom") else ""
         lines.append(
@@ -880,12 +1009,45 @@ async def _show_ai_presets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"   Batch: {p.get('daily_batch_size', 6)} | Concurrency: {p.get('max_concurrency', 2)} | RPM: {p.get('max_rpm', 30)}"
         )
 
+    if total_pages > 1:
+        lines.append(f"\n📄 صفحه {page + 1} از {total_pages}")
+
     text = "\n\n".join(lines)
 
     await _edit_or_send(
         update, context, text,
         parse_mode=ParseMode.HTML,
-        reply_markup=ai_presets_list_keyboard(presets, active_name)
+        reply_markup=ai_presets_list_keyboard(
+            all_presets, active_name,
+            page=page, total_pages=total_pages,
+            view_mode="linear",
+        )
+    )
+
+
+async def _show_grouped_presets(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show presets grouped by API key."""
+    groups = _detect_key_groups()
+    active_name = db.get_active_preset_name()
+
+    lines = ["📁 <b>پیش‌تنظیم‌ها بر اساس کلید API</b>\n"]
+    for g in groups:
+        label = g.get("label") or g.get("masked_key", "—")
+        lines.append(
+            f"📁 <b>{label}</b> ({g['count']} preset)\n"
+            f"   🔑 {g['masked_key']}"
+        )
+
+    text = "\n\n".join(lines) if groups else "هیچ گروهی یافت نشد."
+
+    await _edit_or_send(
+        update, context, text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=ai_presets_list_keyboard(
+            [], active_name,
+            view_mode="grouped",
+            groups=groups,
+        )
     )
 
 
@@ -1072,6 +1234,344 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
         parse_mode=ParseMode.HTML
     )
     await _edit_ai_preset(update, context, preset_name)
+
+
+WIZARD_FIELDS = [
+    "name", "api_key", "base_url", "model",
+    "max_concurrency", "max_rpm", "max_tpm", "daily_batch_size",
+    "max_daily_req", "timeout_seconds", "temperature", "max_output_tokens",
+    "priority", "is_emergency", "in_fallback_chain",
+    "input_cost_per_million", "output_cost_per_million", "group_label",
+]
+
+WIZARD_GROUP_HEADERS = {
+    0: "🆔 — گروه هویت (Identity):",
+    4: "🔒 — گروه محدودیت‌ها (Limits):",
+    12: "⛓️ — گروه فال‌بک (Fallback):",
+    15: "💰 — گروه هزینه و برچسب (Cost & Label):",
+}
+
+WIZARD_FIELD_LABELS = {
+    "name": "نام پریست",
+    "api_key": "API Key",
+    "base_url": "Base URL",
+    "model": "Model",
+    "max_concurrency": "Concurrency",
+    "max_rpm": "RPM Limit",
+    "max_tpm": "حد توکن در دقیقه (TPM)",
+    "daily_batch_size": "Batch Size",
+    "max_daily_req": "سقف درخواست روزانه",
+    "timeout_seconds": "Timeout (s)",
+    "temperature": "Temperature",
+    "max_output_tokens": "Max Output Tokens",
+    "priority": "اولویت (Priority)",
+    "is_emergency": "پریست اضطراری",
+    "in_fallback_chain": "حضور در زنجیره فال‌بک",
+    "input_cost_per_million": "هزینه ورودی ($/1M)",
+    "output_cost_per_million": "هزینه خروجی ($/1M)",
+    "group_label": "برچسب گروه",
+}
+
+TOTAL_WIZARD_FIELDS = len(WIZARD_FIELDS)
+
+
+async def _start_full_edit_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+    """Start the full preset edit wizard."""
+    preset = db.get_preset(preset_name)
+    if not preset or not preset.get("is_custom"):
+        await update.callback_query.answer("فقط پیش‌تنظیم‌های custom قابل ویرایش‌اند", show_alert=True)
+        return
+
+    context.user_data["full_edit"] = {"preset": preset_name, "field_idx": 0, "values": {}}
+    context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:0"
+    await _show_wizard_field(update, context, preset_name, 0, preset)
+
+
+async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, field_idx: int, preset: dict):
+    """Display a wizard field with prompt and navigation."""
+    field_name = WIZARD_FIELDS[field_idx]
+    current = preset.get(field_name, "")
+    if current is None:
+        current = ""
+
+    group_header = WIZARD_GROUP_HEADERS.get(field_idx, "")
+    label = WIZARD_FIELD_LABELS.get(field_name, field_name)
+    help_text = _FIELD_HELP.get(field_name, "")
+
+    message = f"✏️ <b>ویرایش کامل — گام {field_idx + 1} از {TOTAL_WIZARD_FIELDS}</b>\n"
+    if group_header:
+        message += f"\n{group_header}\n"
+    message += f"\n<b>{label}</b>"
+    if current:
+        message += f"\nمقدار فعلی: <code>{current}</code>"
+    if help_text:
+        message += f"\n\n💡 {help_text}"
+    message += "\n\nمقدار جدید را ارسال کنید (یا خالی = رد کردن):"
+
+    buttons = []
+    if field_idx < TOTAL_WIZARD_FIELDS - 1:
+        buttons.append(InlineKeyboardButton(IBTN_FULL_EDIT_NEXT, callback_data=f"admin:ai_preset:full_edit_next:{preset_name}"))
+    buttons.append(InlineKeyboardButton(IBTN_FULL_EDIT_SKIP, callback_data=f"admin:ai_preset:full_edit_skip:{preset_name}"))
+    buttons.append(InlineKeyboardButton(IBTN_FULL_EDIT_CANCEL_WIZARD, callback_data=f"admin:ai_preset:full_edit_cancel:{preset_name}"))
+
+    keyboard = InlineKeyboardMarkup([buttons])
+
+    context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:{field_idx}"
+
+    await _edit_or_send(update, context, message, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
+def _validate_wizard_value(field_name: str, raw: str, preset_name: str) -> tuple | None:
+    """Validate a wizard field value. Returns (value,) or None on invalid."""
+    try:
+        if field_name in ("daily_batch_size", "max_concurrency", "max_rpm", "max_tpm", "max_daily_req", "max_output_tokens"):
+            v = int(raw)
+            if v < 0:
+                return None
+            return (v,)
+        elif field_name in ("timeout_seconds", "temperature"):
+            return (float(raw),)
+        elif field_name == "is_emergency":
+            v = int(raw)
+            if v not in (0, 1):
+                return None
+            return (v,)
+        elif field_name == "name":
+            v = raw.lower().replace(" ", "_")
+            if not v or not all(c.isalnum() or c == "_" for c in v):
+                return None
+            if v != preset_name and db.get_preset(v):
+                return None
+            return (v,)
+        elif field_name in ("input_cost_per_million", "output_cost_per_million"):
+            if raw == "":
+                return (None,)
+            v = float(raw)
+            if v < 0:
+                return None
+            return (v,)
+        elif field_name == "in_fallback_chain":
+            v = int(raw)
+            if v not in (0, 1):
+                return None
+            return (v,)
+        elif field_name == "priority":
+            v = int(raw)
+            if v < 0:
+                return None
+            return (v,)
+        elif field_name == "group_label":
+            return (raw,)
+        else:
+            return (raw,)
+    except (ValueError, TypeError):
+        return None
+
+
+async def _handle_full_edit_input(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, field_idx: int, text: str):
+    """Handle text input during full edit wizard."""
+    preset = db.get_preset(preset_name)
+    if not preset:
+        await update.message.reply_text("پیش‌تنظیم یافت نشد")
+        return
+
+    field_name = WIZARD_FIELDS[field_idx]
+    raw = text.strip()
+
+    wizard = context.user_data.get("full_edit", {})
+    if wizard.get("preset") != preset_name:
+        await update.message.reply_text("ویزارد منقضی شده. دوباره شروع کنید.")
+        return
+
+    if raw:
+        result = _validate_wizard_value(field_name, raw, preset_name)
+        if result is None:
+            context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:{field_idx}"
+            await update.message.reply_text("فرمت نامعتبر. لطفاً مقدار معتبر بفرستید.", reply_markup=awaiting_inline_keyboard())
+            return
+        wizard["values"][field_name] = result[0]
+
+    next_idx = field_idx + 1
+    wizard["field_idx"] = next_idx
+
+    if next_idx >= TOTAL_WIZARD_FIELDS:
+        await _show_wizard_summary(update, context, preset_name)
+    else:
+        context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:{next_idx}"
+        await _show_wizard_field(update, context, preset_name, next_idx, preset)
+
+
+async def _handle_full_edit_next(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+    """Advance to next field without saving current."""
+    wizard = context.user_data.get("full_edit", {})
+    if wizard.get("preset") != preset_name:
+        await update.callback_query.answer("ویزارد منقضی شده")
+        return
+
+    current_idx = wizard.get("field_idx", 0)
+    next_idx = current_idx + 1
+    wizard["field_idx"] = next_idx
+
+    preset = db.get_preset(preset_name)
+    if next_idx >= TOTAL_WIZARD_FIELDS:
+        await _show_wizard_summary(update, context, preset_name)
+    else:
+        context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:{next_idx}"
+        await _show_wizard_field(update, context, preset_name, next_idx, preset or {})
+
+
+async def _handle_full_edit_skip(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+    """Skip current field and advance."""
+    await _handle_full_edit_next(update, context, preset_name)
+
+
+async def _handle_full_edit_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+    """Cancel the full edit wizard."""
+    context.user_data.pop("full_edit", None)
+    context.user_data.pop("awaiting", None)
+    await update.callback_query.answer("ویرایش کامل لغو شد")
+    await _edit_ai_preset(update, context, preset_name)
+
+
+async def _show_wizard_summary(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+    """Show summary of wizard changes and ask for confirmation."""
+    wizard = context.user_data.get("full_edit", {})
+    values = wizard.get("values", {})
+    preset = db.get_preset(preset_name) or {}
+
+    lines = [f"📋 <b>خلاصه تغییرات برای {preset_name}</b>\n"]
+    changed = 0
+    for field_name in WIZARD_FIELDS:
+        if field_name in values:
+            new_val = values[field_name]
+            old_val = preset.get(field_name, "—")
+            label = WIZARD_FIELD_LABELS.get(field_name, field_name)
+            lines.append(f"• <b>{label}</b>: {old_val} → {new_val}")
+            changed += 1
+
+    if not changed:
+        lines.append("هیچ تغییری اعمال نشد.")
+
+    lines.append(f"\nتعداد تغییرات: {changed}")
+    text = "\n".join(lines)
+
+    buttons = [
+        InlineKeyboardButton(IBTN_FULL_EDIT_SAVE_ALL, callback_data=f"admin:ai_preset:full_edit_save:{preset_name}"),
+        InlineKeyboardButton(IBTN_FULL_EDIT_CANCEL_WIZARD, callback_data=f"admin:ai_preset:full_edit_cancel:{preset_name}"),
+    ]
+    keyboard = InlineKeyboardMarkup([buttons])
+
+    context.user_data.pop("awaiting", None)
+
+    await _edit_or_send(update, context, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
+async def _handle_full_edit_save(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+    """Save all wizard changes."""
+    wizard = context.user_data.get("full_edit", {})
+    if wizard.get("preset") != preset_name:
+        await update.callback_query.answer("ویزارد منقضی شده")
+        return
+
+    values = wizard.get("values", {})
+    preset = db.get_preset(preset_name)
+    if not preset:
+        await update.callback_query.answer("پیش‌تنظیم یافت نشد", show_alert=True)
+        return
+
+    new_name = values.get("name", preset_name)
+    rename = new_name != preset_name
+
+    db.set_preset(
+        name=new_name,
+        base_url=values.get("base_url", preset.get("base_url", "")),
+        model=values.get("model", preset.get("model", "")),
+        api_key=values.get("api_key", preset.get("api_key", "")),
+        daily_batch_size=int(values.get("daily_batch_size", preset.get("daily_batch_size", 6))),
+        max_concurrency=int(values.get("max_concurrency", preset.get("max_concurrency", 2))),
+        max_rpm=int(values.get("max_rpm", preset.get("max_rpm", 30))),
+        max_tpm=int(values.get("max_tpm", preset.get("max_tpm", 0))),
+        max_daily_req=int(values.get("max_daily_req", preset.get("max_daily_req", 0))),
+        timeout_seconds=float(values.get("timeout_seconds", preset.get("timeout_seconds", 30.0))),
+        temperature=float(values.get("temperature", preset.get("temperature", 0.6))),
+        max_output_tokens=int(values.get("max_output_tokens", preset.get("max_output_tokens", 4096))),
+        is_custom=1,
+        is_emergency=int(values.get("is_emergency", preset.get("is_emergency", 0))),
+        input_cost_per_million=values.get("input_cost_per_million", preset.get("input_cost_per_million")),
+        output_cost_per_million=values.get("output_cost_per_million", preset.get("output_cost_per_million")),
+        in_fallback_chain=int(values.get("in_fallback_chain", preset.get("in_fallback_chain", 1))),
+        group_label=values.get("group_label", preset.get("group_label", "")),
+    )
+
+    if rename:
+        db.delete_preset(preset_name)
+
+    context.user_data.pop("full_edit", None)
+    context.user_data.pop("awaiting", None)
+
+    await update.callback_query.answer(f"پیش‌تنظیم {new_name} ذخیره شد")
+    await _show_ai_preset_view(update, context, new_name)
+
+
+async def _toggle_preset_view_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Toggle between linear and grouped preset view."""
+    current = context.user_data.get("preset_view_mode", "linear")
+    new_mode = "grouped" if current == "linear" else "linear"
+    context.user_data["preset_view_mode"] = new_mode
+    await update.callback_query.answer(f"حالت نمایش: {'گروهی' if new_mode == 'grouped' else 'خطی'}")
+    await _show_ai_presets(update, context)
+
+
+async def _handle_group_view(update: Update, context: ContextTypes.DEFAULT_TYPE, key_hash: str):
+    """Show details for a specific group."""
+    groups = _detect_key_groups()
+    target = next((g for g in groups if g["key_hash"] == key_hash), None)
+    if not target:
+        await update.callback_query.answer("گروه یافت نشد", show_alert=True)
+        return
+
+    names = target["names"]
+    presets = [db.get_preset(n) for n in names if db.get_preset(n)]
+    active_name = db.get_active_preset_name()
+
+    lines = [f"📁 <b>گروه: {target.get('label') or target['masked_key']}</b>\n"]
+    lines.append(f"🔑 کلید: {target['masked_key']}")
+    lines.append(f"تعداد: {target['count']} preset\n")
+    for p in presets:
+        marker = " ✅" if p["name"] == active_name else ""
+        lines.append(f"{marker} <b>{p['name']}</b> — {p.get('model', '—')}")
+
+    text = "\n".join(lines)
+
+    buttons = [
+        [
+            InlineKeyboardButton(IBTN_GROUP_BATCH_KEY, callback_data=f"admin:ai_preset:group_batch_key:{key_hash}"),
+            InlineKeyboardButton(IBTN_GROUP_SET_LABEL, callback_data=f"admin:ai_preset:group_set_label:{key_hash}"),
+        ],
+        [InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_presets")],
+    ]
+    keyboard = InlineKeyboardMarkup(buttons)
+    await _edit_or_send(update, context, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
+async def _handle_group_batch_key(update: Update, context: ContextTypes.DEFAULT_TYPE, key_hash: str):
+    """Start awaiting flow for batch API key update."""
+    context.user_data["awaiting"] = f"admin_group_batch_key:{key_hash}"
+    await _edit_or_send(
+        update, context,
+        "🔑 کلید API جدید را برای همه اعضای این گروه ارسال کنید:",
+        reply_markup=admin_awaiting_inline_keyboard(),
+    )
+
+
+async def _handle_group_set_label(update: Update, context: ContextTypes.DEFAULT_TYPE, key_hash: str):
+    """Start awaiting flow for group label update."""
+    context.user_data["awaiting"] = f"admin_group_set_label:{key_hash}"
+    await _edit_or_send(
+        update, context,
+        "🏷️ برچسب جدید گروه را ارسال کنید:",
+        reply_markup=admin_awaiting_inline_keyboard(),
+    )
 
 
 async def _confirm_save_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
