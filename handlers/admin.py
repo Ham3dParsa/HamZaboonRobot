@@ -5,6 +5,7 @@ import hashlib
 import logging
 import os
 from collections import defaultdict
+from urllib.parse import quote, unquote
 from zoneinfo import ZoneInfo
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
@@ -20,6 +21,7 @@ from services.utils.helpers import _edit_or_send, _send_with_retry
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
     BTN_BACK,
+    IBTN_BACK,
     admin_panel_keyboard,
     main_menu,
     awaiting_inline_keyboard,
@@ -56,6 +58,8 @@ from config.keyboards import (
     IBTN_CONSUMPTION_DETAILS,
     IBTN_HELP_PRESETS,
     IBTN_HELP_FALLBACK,
+    stats_menu_keyboard,
+    stats_back_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -142,9 +146,60 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
     if action == "stats":
         await _edit_or_send(
             update, context,
-            f"👥 تعداد کل کاربران: {db.count_users()}",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data="admin:back")]]),
+            "📊 آمار کاربران\n\nیکی از بخش‌ها را انتخاب کن:",
+            reply_markup=stats_menu_keyboard(),
         )
+    elif action.startswith("stats:"):
+        sub = action.split(":", 1)[1]
+        if sub == "overview":
+            data = db.count_users_overview()
+            await _edit_or_send(
+                update, context,
+                f"👥 نمای کلی کاربران\n\n"
+                f"• کل کاربران: {data['total']}\n"
+                f"• ثبت‌نام کامل: {data['onboarded']}\n"
+                f"• بلاک کرده: {data['blocked']}",
+                reply_markup=stats_back_keyboard(),
+            )
+        elif sub == "distribution":
+            lines = ["📊 توزیع کاربران\n"]
+            for label, field in [("پلن", "plan"), ("زبان مقصد", "target_lang"), ("هدف", "goal"), ("سطح", "level")]:
+                rows = db.count_users_grouped(field)
+                if not rows:
+                    continue
+                lines.append(f"{label}:")
+                for r in rows:
+                    val = r["val"] or "ناشناخته"
+                    lines.append(f"  {val}: {r['cnt']}")
+                lines.append("")
+            await _edit_or_send(
+                update, context,
+                "\n".join(lines).strip(),
+                reply_markup=stats_back_keyboard(),
+            )
+        elif sub == "activity":
+            from datetime import timedelta, date
+            today = date.today()
+            today_str = today.isoformat()
+            week_ago = (today - timedelta(days=7)).isoformat()
+            month_ago = (today - timedelta(days=30)).isoformat()
+            active_today = db.count_active_users_since(today_str)
+            active_week = db.count_active_users_since(week_ago)
+            active_month = db.count_active_users_since(month_ago)
+            total_words = db.count_saved_words_total()
+            today_llm = db.count_llm_requests_since(today_str)
+            await _edit_or_send(
+                update, context,
+                f"📈 فعالیت کاربران\n\n"
+                f"• فعال امروز: {active_today}\n"
+                f"• فعال این هفته: {active_week}\n"
+                f"• فعال این ماه: {active_month}\n\n"
+                f"• کل لغات ذخیره‌شده: {total_words:,}\n"
+                f"• درخواست‌های AI امروز: {today_llm}",
+                reply_markup=stats_back_keyboard(),
+            )
+        else:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
     elif action == "back":
         await _edit_or_send(update, context, "پنل مدیریت ربات:", reply_markup=admin_panel_keyboard())
         await update.callback_query.answer("بازگشت")
@@ -266,6 +321,13 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif action.startswith("ai_preset:full_edit_cancel:"):
         preset_name = action.split(":", 2)[2]
         await _handle_full_edit_cancel(update, context, preset_name)
+    elif action.startswith("ai_preset:full_edit_pick_group:"):
+        # format: ai_preset:full_edit_pick_group:preset_name:encoded_label
+        parts = action.split(":", 3)
+        if len(parts) == 4:
+            preset_name = parts[2]
+            label = unquote(parts[3])
+            await _handle_full_edit_pick_group(update, context, preset_name, label)
     elif action.startswith("ai_preset:full_edit_save:"):
         preset_name = action.split(":", 2)[2]
         await _handle_full_edit_save(update, context, preset_name)
@@ -301,6 +363,18 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif action.startswith("ai_preset:group_set_label:"):
         key_hash = action.split(":", 2)[2]
         await _handle_group_set_label(update, context, key_hash)
+    elif action == "ai_preset:group_manager":
+        await _show_group_manager(update, context)
+    elif action.startswith("ai_preset:group_manager_rename:"):
+        parts = action.split(":", 2)
+        if len(parts) == 3:
+            label = unquote(parts[2])
+            await _handle_group_manager_rename(update, context, label)
+    elif action.startswith("ai_preset:group_manager_clear:"):
+        parts = action.split(":", 2)
+        if len(parts) == 3:
+            label = unquote(parts[2])
+            await _handle_group_manager_clear(update, context, label)
     elif action == "ai_test_connection":
         await _test_ai_connection(update, context)
     elif action == "ai_custom_test":
@@ -888,6 +962,19 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
         await _show_grouped_presets(update, context)
         return
 
+    if awaiting.startswith("admin_group_manager_rename:"):
+        old_label = unquote(awaiting.split(":", 1)[1])
+        new_label = text.strip()
+        if new_label:
+            db.rename_group_label(old_label, new_label)
+            context.user_data.pop("awaiting", None)
+            await update.message.reply_text(f"✅ برچسب «{old_label}» به «{new_label}» تغییر نام یافت.")
+        else:
+            context.user_data.pop("awaiting", None)
+            await update.message.reply_text("انصراف از تغییر نام.")
+        await _show_group_manager(update, context)
+        return
+
     if awaiting == "ai_preset_new_name":
         await _handle_ai_preset_new_name(update, context, text)
         return
@@ -1370,7 +1457,29 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
     buttons.append(InlineKeyboardButton(IBTN_FULL_EDIT_SKIP, callback_data=f"admin:ai_preset:full_edit_skip:{preset_name}"))
     buttons.append(InlineKeyboardButton(IBTN_FULL_EDIT_CANCEL_WIZARD, callback_data=f"admin:ai_preset:full_edit_cancel:{preset_name}"))
 
-    keyboard = InlineKeyboardMarkup([buttons])
+    # Add group label picker buttons when editing group_label
+    if field_name == "group_label":
+        existing_groups = db.get_group_labels()
+        if existing_groups:
+            # Add group picker buttons in rows of 2
+            group_rows = []
+            for g in existing_groups:
+                g_label = g["label"]
+                g_count = g["count"]
+                encoded = quote(g_label)
+                group_rows.append(InlineKeyboardButton(
+                    f"🏷️ {g_label} ({g_count})",
+                    callback_data=f"admin:ai_preset:full_edit_pick_group:{preset_name}:{encoded}"
+                ))
+            # Split into rows of 2
+            keyboard_rows = [[group_rows[i], group_rows[i + 1]] if i + 1 < len(group_rows) else [group_rows[i]]
+                             for i in range(0, len(group_rows), 2)]
+            keyboard_rows.append(buttons)
+            keyboard = InlineKeyboardMarkup(keyboard_rows)
+        else:
+            keyboard = InlineKeyboardMarkup([buttons])
+    else:
+        keyboard = InlineKeyboardMarkup([buttons])
 
     context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:{field_idx}"
 
@@ -1473,6 +1582,27 @@ async def _handle_full_edit_next(update: Update, context: ContextTypes.DEFAULT_T
         await _show_wizard_summary(update, context, preset_name)
     else:
         context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:{next_idx}"
+        await _show_wizard_field(update, context, preset_name, next_idx, preset or {})
+
+
+async def _handle_full_edit_pick_group(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, label: str):
+    """Handle group label picker selection in wizard."""
+    wizard = context.user_data.get("full_edit", {})
+    if wizard.get("preset") != preset_name:
+        await update.callback_query.answer("ویزارد منقضی شده")
+        return
+
+    wizard["values"]["group_label"] = label
+    current_idx = wizard.get("field_idx", 0)
+    next_idx = current_idx + 1
+    wizard["field_idx"] = next_idx
+
+    preset = db.get_preset(preset_name)
+    if next_idx >= TOTAL_WIZARD_FIELDS:
+        await _show_wizard_summary(update, context, preset_name)
+    else:
+        context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:{next_idx}"
+        await update.callback_query.answer(f"✅ {label}")
         await _show_wizard_field(update, context, preset_name, next_idx, preset or {})
 
 
@@ -1628,6 +1758,48 @@ async def _handle_group_set_label(update: Update, context: ContextTypes.DEFAULT_
         "🏷️ برچسب جدید گروه را ارسال کنید:",
         reply_markup=admin_awaiting_inline_keyboard(),
     )
+
+
+async def _show_group_manager(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show group manager — list all group_labels with preset counts."""
+    groups = db.get_group_labels()
+    lines = ["🏷️ <b>مدیریت گروه‌ها</b>\n\n"]
+    if not groups:
+        lines.append("هیچ گروهی تعریف نشده است.\nبرای گروه‌بندی، از فیلد group_label استفاده کنید.")
+    else:
+        for g in groups:
+            lines.append(f"• <b>{g['label']}</b> — {g['count']} پریست")
+    lines.append("")
+
+    buttons = []
+    for g in groups:
+        encoded = quote(g["label"])
+        buttons.append([
+            InlineKeyboardButton(f"✏️ {g['label']}", callback_data=f"admin:ai_preset:group_manager_rename:{encoded}"),
+            InlineKeyboardButton(f"🗑️ حذف برچسب", callback_data=f"admin:ai_preset:group_manager_clear:{encoded}"),
+        ])
+    buttons.append([InlineKeyboardButton(IBTN_BACK, callback_data="admin:ai_settings")])
+
+    await _edit_or_send(update, context, "".join(lines), parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def _handle_group_manager_rename(update: Update, context: ContextTypes.DEFAULT_TYPE, label: str):
+    """Start rename flow for a group label."""
+    context.user_data["awaiting"] = f"admin_group_manager_rename:{quote(label)}"
+    await _edit_or_send(
+        update, context,
+        f"✏️ نام جدید برای گروه <b>{label}</b> را ارسال کنید:\n"
+        "(خالی = انصراف)",
+        parse_mode=ParseMode.HTML,
+        reply_markup=admin_awaiting_inline_keyboard(),
+    )
+
+
+async def _handle_group_manager_clear(update: Update, context: ContextTypes.DEFAULT_TYPE, label: str):
+    """Clear a group label from all presets."""
+    db.clear_group_label(label)
+    await update.callback_query.answer(f"✅ برچسب «{label}» از همه پریست‌ها حذف شد")
+    await _show_group_manager(update, context)
 
 
 async def _confirm_save_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
