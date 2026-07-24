@@ -2026,6 +2026,51 @@ def get_enabled_presets_ordered() -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def get_fallback_chain_presets() -> list[dict]:
+    """Return enabled presets that are in the fallback chain, ordered."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM ai_presets WHERE enabled=1 AND in_fallback_chain=1 "
+            "ORDER BY is_emergency ASC, priority ASC, name ASC"
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def reindex_preset_priority(name: str, target_rank: int, group_is_emergency: bool):
+    """Move a preset to target_rank (1-based) within its emergency group."""
+    target_idx = target_rank - 1
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        rows = conn.execute(
+            "SELECT name, priority FROM ai_presets "
+            "WHERE enabled=1 AND is_emergency=? AND in_fallback_chain=1 "
+            "ORDER BY priority ASC, name ASC",
+            (1 if group_is_emergency else 0,),
+        ).fetchall()
+
+        count = len(rows)
+        if not (1 <= target_rank <= count):
+            raise ValueError(f"target_rank {target_rank} out of range [1, {count}]")
+
+        names = [r["name"] for r in rows]
+        current_idx = names.index(name) if name in names else -1
+        if current_idx == -1:
+            raise ValueError(f"preset {name} not found in group")
+        if current_idx == target_idx:
+            conn.commit()
+            return
+
+        item = rows.pop(current_idx)
+        rows.insert(target_idx, item)
+
+        for i, row in enumerate(rows):
+            conn.execute(
+                "UPDATE ai_presets SET priority=? WHERE name=?",
+                (i, row["name"]),
+            )
+        conn.commit()
+
+
 def set_preset_priority(name: str, priority: int):
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")

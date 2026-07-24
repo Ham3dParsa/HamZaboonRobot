@@ -52,6 +52,8 @@ from config.keyboards import (
     IBTN_GROUP_OPEN,
     IBTN_PAGE_PREV,
     IBTN_PAGE_NEXT,
+    IBTN_RANK_JUMP,
+    IBTN_CONSUMPTION_DETAILS,
 )
 
 logger = logging.getLogger(__name__)
@@ -341,6 +343,11 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         for p in chain:
             db.set_preset_emergency(p["name"], p["name"] == name)
         await _show_fallback_chain(update, context)
+    elif action.startswith("fallback:rank:"):
+        name = action.split(":", 2)[2]
+        await _handle_fallback_rank(update, context, name)
+    elif action == "fallback:usage_details":
+        await _show_fallback_usage_details(update, context)
     elif action == "noop":
         await update.callback_query.answer()
     elif action == "log_level":
@@ -884,6 +891,31 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
         parts = awaiting.split(":", 2)
         if len(parts) == 3:
             await _handle_ai_preset_field_input(update, context, parts[1], parts[2], text)
+        return
+
+    if awaiting.startswith("ai_fallback_rank:"):
+        preset_name = awaiting.split(":", 1)[1]
+        try:
+            target_rank = int(text.strip())
+        except ValueError:
+            context.user_data["awaiting"] = awaiting
+            await update.message.reply_text("لطفاً یک عدد معتبر وارد کنید.")
+            return
+        preset = db.get_preset(preset_name)
+        if not preset:
+            await update.message.reply_text("پیش‌تنظیم یافت نشد")
+            return
+        group_is_emergency = bool(preset.get("is_emergency", 0))
+        chain = db.get_fallback_chain_presets()
+        count = len(chain)
+        try:
+            db.reindex_preset_priority(preset_name, target_rank, group_is_emergency)
+        except ValueError as e:
+            await update.message.reply_text(str(e))
+            return
+        context.user_data.pop("awaiting", None)
+        await update.message.reply_text(f"✅ رتبه {preset_name} به {target_rank} تغییر یافت.")
+        await _show_fallback_chain(update, context)
         return
 
     if awaiting.startswith("ai_preset_full_edit:"):
@@ -2009,21 +2041,67 @@ async def _show_fallback_preset_picker(update: Update, context: ContextTypes.DEF
 
 async def _show_fallback_chain(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show and manage the fallback chain order."""
-    chain = db.get_enabled_presets_ordered()
-    text = "⛓️ <b>زنجیره فال‌بک</b>\n\n"
+    chain = db.get_fallback_chain_presets()
+    text = (
+        "⛓️ <b>زنجیره فال‌بک</b>\n\n"
+        "ترتیب: پریست‌های عادی (is_emergency=0) بر اساس priority (از کم به زیاد)، "
+        "سپس پریست‌های اضطراری (is_emergency=1).\n"
+        "پریست‌های با in_fallback_chain=0 در این زنجیره نمایش داده نمی‌شوند.\n\n"
+    )
     for i, preset in enumerate(chain):
         name = preset.get("name", "?")
         is_emergency = preset.get("is_emergency", 0)
         status = "🚨 اضطراری" if is_emergency else "✅ فعال"
-        req_count, _ = db.get_hourly_usage(name, hours_back=24)
-        max_daily = preset.get("max_daily_req", 0)
-        daily_str = f"{req_count} req امروز (از {max_daily})" if max_daily > 0 else ""
-        text += f"{i+1}. <b>{name}</b> — {status}\n  {daily_str}\n"
+        text += f"{i+1}. <b>{name}</b> — {status}\n"
 
     await _edit_or_send(
         update, context, text,
         parse_mode=ParseMode.HTML,
         reply_markup=fallback_chain_keyboard(chain)
+    )
+
+
+async def _show_fallback_usage_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show daily consumption for all presets."""
+    presets = db.get_presets()
+    lines = ["📊 <b>مصرف روزانه پریست‌ها</b>\n\n"]
+    for p in presets:
+        name = p["name"]
+        req_count, token_count = db.get_hourly_usage(name, hours_back=24)
+        max_daily = p.get("max_daily_req", 0)
+        status = "🟢" if req_count < max_daily or max_daily == 0 else "🔴"
+        daily_str = f"{req_count}/{max_daily}" if max_daily > 0 else f"{req_count}/∞"
+        lines.append(f"{status} <b>{name}</b>: {daily_str} req, {token_count} توکن")
+
+    text = "\n".join(lines) if len(lines) > 1 else "هیچ داده‌ای یافت نشد."
+
+    await _edit_or_send(
+        update, context, text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("↩️ بازگشت به زنجیره", callback_data="admin:fallback_chain")]
+        ])
+    )
+
+
+async def _handle_fallback_rank(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+    """Start awaiting flow for rank jump input."""
+    preset = db.get_preset(preset_name)
+    if not preset:
+        await update.callback_query.answer("پیش‌تنظیم یافت نشد", show_alert=True)
+        return
+
+    group_is_emergency = bool(preset.get("is_emergency", 0))
+    group_label = "اضطراری" if group_is_emergency else "عادی"
+    chain = db.get_fallback_chain_presets()
+    group_chain = [p for p in chain if bool(p.get("is_emergency", 0)) == group_is_emergency]
+    max_rank = len(group_chain)
+
+    context.user_data["awaiting"] = f"ai_fallback_rank:{preset_name}"
+    await _edit_or_send(
+        update, context,
+        f"🎯 رتبه جدید در گروه «{group_label}» را وارد کنید (۱ تا {max_rank}):",
+        reply_markup=admin_awaiting_inline_keyboard(),
     )
 
 

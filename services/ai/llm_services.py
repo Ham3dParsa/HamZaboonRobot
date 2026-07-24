@@ -103,7 +103,7 @@ def _call_ai_limited(function, *args, **kwargs):
 
     Logs preset-to-preset switches at WARNING level with the reason.
     """
-    chain = db.get_enabled_presets_ordered()
+    chain = db.get_fallback_chain_presets()
     if not chain:
         raise AllPresetsExhausted("No enabled presets available")
 

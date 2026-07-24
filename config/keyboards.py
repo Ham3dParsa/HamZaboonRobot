@@ -172,6 +172,10 @@ IBTN_GROUP_OPEN = "▶️ باز کردن گروه"
 IBTN_PAGE_PREV = "◀️ صفحه قبل"
 IBTN_PAGE_NEXT = "▶️ صفحه بعد"
 
+# --- Admin – Fallback Chain ---
+IBTN_RANK_JUMP = "🎯 رتبه دلخواه"
+IBTN_CONSUMPTION_DETAILS = "📊 جزئیات مصرف همه"
+
 
 def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
     rows = [
@@ -795,20 +799,20 @@ def ai_custom_test_wizard_keyboard(step: str, lang: str | None = None, goal: str
 
 def fallback_chain_keyboard(chain: list[dict]) -> InlineKeyboardMarkup:
     rows = []
-    for preset in chain:
+    for rank, preset in enumerate(chain, 1):
         name = preset.get("name", "?")
-        label = f"{'🚨 ' if preset.get('is_emergency') else '📊 '}{name}"
-        if not preset.get("enabled", 1):
-            label = f"🔴 {name} (غیرفعال)"
-        cols = [
+        emoji = "🚨" if preset.get("is_emergency") else "📊"
+        status_icon = "🟢" if preset.get("enabled", 1) else "🔴"
+        row = [
+            InlineKeyboardButton(f"{rank}. {emoji} {name} {status_icon}", callback_data="admin:noop"),
             InlineKeyboardButton("⬆", callback_data=f"admin:fallback:move_up:{name}"),
             InlineKeyboardButton("⬇", callback_data=f"admin:fallback:move_down:{name}"),
+            InlineKeyboardButton(status_icon, callback_data=f"admin:fallback:toggle:{name}"),
+            InlineKeyboardButton("🎯", callback_data=f"admin:fallback:rank:{name}"),
         ]
-        toggle_label = "🟢 فعال" if preset.get("enabled", 1) else "🔴 غیرفعال"
-        cols.append(InlineKeyboardButton(toggle_label, callback_data=f"admin:fallback:toggle:{name}"))
         if not preset.get("is_emergency"):
-            cols.append(InlineKeyboardButton("🚨 اضطراری", callback_data=f"admin:fallback:set_emergency:{name}"))
-        rows.append([InlineKeyboardButton(label, callback_data="admin:noop")])
-        rows.append(cols)
+            row.append(InlineKeyboardButton("🚨", callback_data=f"admin:fallback:set_emergency:{name}"))
+        rows.append(row)
+    rows.append([InlineKeyboardButton(IBTN_CONSUMPTION_DETAILS, callback_data="admin:fallback:usage_details")])
     rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")])
     return InlineKeyboardMarkup(rows)
