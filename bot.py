@@ -64,7 +64,7 @@ from config.catalog import (
     level_label,
 )
 from services.scheduling import plan_sessions
-from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
+from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
 from config.keyboards import (
     main_menu,
     lang_inline_keyboard,
@@ -663,6 +663,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log.debug("offline notification send failed (expected)")
         return
     user_id = update.effective_user.id
+    db.reset_user_blocked(user_id)
     text = update.message.text.strip()
     awaiting = context.user_data.get("awaiting")
 
@@ -839,6 +840,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             log.debug("offline notification send failed (expected)")
         return
+    db.reset_user_blocked(update.effective_user.id)
     data = update.callback_query.data
     if not data.startswith(
         (
@@ -1188,6 +1190,9 @@ async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str
                     await asyncio.sleep(SESSION_CARD_DELAY_SECONDS)
             db.mark_delivery_sent(claimed["id"])
         except Exception as exc:
+            if isinstance(exc, Forbidden):
+                db.mark_delivery_failed(claimed["id"], repr(exc), terminal=True)
+                continue
             if isinstance(exc, CardPreparationError):
                 try:
                     await _send_with_retry(
@@ -1338,6 +1343,11 @@ async def srs_job(context: ContextTypes.DEFAULT_TYPE):
                 except CardPreparationError:
                     db.mark_srs_send_failed(word_id, word.get("srs_retry_attempts", 0))
                     log.warning("SRS card preparation failed for user %s word_id=%s", user_id, word_id)
+                except Forbidden:
+                    db.set_user_blocked(user_id)
+                    db.release_srs_claim(word_id)
+                    log.warning("user %s blocked the bot, skipping SRS reminders", user_id)
+                    break
                 except Exception:
                     db.mark_srs_send_failed(word_id, word.get("srs_retry_attempts", 0))
                     log.exception(
@@ -1396,6 +1406,10 @@ async def srs_retry_job(context: ContextTypes.DEFAULT_TYPE):
         except CardPreparationError:
             db.mark_srs_send_failed(word_id, word["srs_retry_attempts"] + 1)
             log.warning("srs retry card prep failed word_id=%s user_id=%s", word_id, user_id)
+        except Forbidden:
+            db.set_user_blocked(user_id)
+            log.warning("user %s blocked the bot, skipping SRS retry", user_id)
+            continue
         except Exception:
             db.mark_srs_send_failed(word_id, word["srs_retry_attempts"] + 1)
             log.exception("srs retry failed word_id=%s user_id=%s", word_id, user_id)
