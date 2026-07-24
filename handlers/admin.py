@@ -43,6 +43,27 @@ from config.keyboards import (
 logger = logging.getLogger(__name__)
 _app_timezone = ZoneInfo(APP_TIMEZONE)
 
+_FIELD_HELP = {
+    "name": "نام یکتای پریست. فقط حروف انگلیسی (a-z)، اعداد (0-9) و زیرخط (_) مجاز است. بعد از ذخیره قابل تغییر نیست.",
+    "api_key": "کلید API سرویس‌دهنده. می‌توانید مقدار ثابت (sk-...) یا متغیر محیطی (مثلاً $MY_KEY) وارد کنید.",
+    "base_url": "آدرس سرور سازگار با OpenAI. نمونه: https://api.example.com/v1",
+    "model": "نام دقیق مدل. نمونه: gpt-4o-mini یا gemini-2.0-flash-lite",
+    "max_concurrency": "تعداد درخواست‌هایی که هم‌زمان به این سرویس‌دهنده فرستاده می‌شود. عدد ۲ یا ۳ معمول است.",
+    "max_rpm": "بیشترین تعداد درخواست در هر دقیقه. صفر = بدون محدودیت.",
+    "max_tpm": "بیشترین تعداد توکن ورودی و خروجی در هر دقیقه. صفر = بدون محدودیت.",
+    "daily_batch_size": "تعداد کارت واژگان در هر دسته که یک‌جا از AI درخواست می‌شود. بین ۳ تا ۱۲.",
+    "max_daily_req": "سقف تعداد درخواست به این پریست در هر روز. صفر = بدون محدودیت.",
+    "timeout_seconds": "مدت زمان انتظار برای پاسخ از سرویس‌دهنده (به ثانیه). عدد اعشاری مجاز است.",
+    "temperature": "میزان خلاقیت مدل. بین ۰.۰ (دقیق) تا ۲.۰ (خلاق). پیش‌فرض: ۰.۶",
+    "max_output_tokens": "حداکثر تعداد توکن در هر پاسخ. پیش‌فرض: ۴۰۹۶",
+    "priority": "اولویت در زنجیره فال‌بک. عدد کمتر = اولویت بیشتر. پریست با priority=۰ اولین نفری است که امتحان می‌شود.",
+    "is_emergency": "آیا این پریست فقط برای مواقع اضطراری است؟ پریست‌های اضطراری همیشه بعد از پریست‌های عادی امتحان می‌شوند.",
+    "in_fallback_chain": "آیا این پریست به‌صورت خودکار در زنجیره فال‌بک شرکت کند؟ اگر خاموش شود، فقط با انتخاب دستی قابل استفاده است.",
+    "input_cost_per_million": "هزینه هر یک میلیون توکن ورودی (درخواست) به دلار. خالی = استفاده از مقدار سراسری تنظیم شده در داشبورد هزینه.",
+    "output_cost_per_million": "هزینه هر یک میلیون توکن خروجی (پاسخ) به دلار. خالی = استفاده از مقدار سراسری.",
+    "group_label": "برچسب دلخواه برای گروه‌بندی پریست‌هایی که کلید API مشترک دارند. نمونه: «سرویس‌دهنده اصلی» یا «پشتیبان رایگان»",
+}
+
 
 async def open_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_owner(update.effective_user.id):
@@ -213,7 +234,16 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             await _edit_ai_preset_field(update, context, parts[2], parts[3])
     elif action.startswith("ai_preset:save:"):
         preset_name = action.split(":", 2)[2]
+        await _confirm_save_preset(update, context, preset_name)
+    elif action.startswith("ai_preset:confirm_save_yes:"):
+        preset_name = action.split(":", 2)[2]
         await _save_ai_preset(update, context, preset_name)
+    elif action.startswith("ai_preset:confirm_save_no:"):
+        preset_name = action.split(":", 2)[2]
+        await _edit_ai_preset(update, context, preset_name)
+    elif action.startswith("ai_preset:discard_all:"):
+        preset_name = action.split(":", 2)[2]
+        await _discard_all_preset_changes(update, context, preset_name)
     elif action.startswith("ai_preset:delete:"):
         preset_name = action.split(":", 2)[2]
         await _delete_ai_preset(update, context, preset_name)
@@ -934,6 +964,8 @@ async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     current = preset.get(field_name, "")
+    if current is None:
+        current = ""
     context.user_data["awaiting"] = f"ai_preset_edit:{preset_name}:{field_name}"
 
     field_labels = {
@@ -943,16 +975,30 @@ async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TY
         "daily_batch_size": "Batch Size (integer)",
         "max_concurrency": "Concurrency (integer)",
         "max_rpm": "RPM Limit (integer)",
+        "max_tpm": "Max TPM (integer, 0 = unlimited)",
+        "max_daily_req": "Max Daily Requests (integer, 0 = unlimited)",
         "timeout_seconds": "Timeout in seconds (float)",
         "temperature": "Temperature (0.0-2.0)",
         "max_output_tokens": "Max Output Tokens (integer)",
+        "is_emergency": "Is Emergency (0 or 1)",
+        "name": "Preset Name (a-z, 0-9, _)",
+        "input_cost_per_million": "Input Cost $/1M tokens (empty = global)",
+        "output_cost_per_million": "Output Cost $/1M tokens (empty = global)",
+        "in_fallback_chain": "In Fallback Chain (0 or 1)",
+        "group_label": "Group Label (any text)",
     }
 
-    await _edit_or_send(
-        update, context,
+    help_text = _FIELD_HELP.get(field_name, "")
+    message = (
         f"✏️ <b>{field_labels.get(field_name, field_name)}</b>\n"
         f"مقدار فعلی: <code>{current}</code>\n\n"
-        f"مقدار جدید را ارسال کنید:",
+        f"مقدار جدید را ارسال کنید:"
+    )
+    if help_text:
+        message += f"\n\n💡 {help_text}"
+
+    await _edit_or_send(
+        update, context, message,
         parse_mode=ParseMode.HTML,
         reply_markup=admin_awaiting_inline_keyboard()
     )
@@ -965,17 +1011,47 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
         await update.message.reply_text("پیش‌تنظیم یافت نشد")
         return
 
+    raw = text.strip()
+
     # Parse and validate based on field type
     try:
-        if field_name in ("daily_batch_size", "max_concurrency", "max_rpm", "max_output_tokens"):
-            value = int(text.strip())
+        if field_name in ("daily_batch_size", "max_concurrency", "max_rpm", "max_tpm", "max_daily_req", "max_output_tokens"):
+            value = int(raw)
+            if value < 0:
+                raise ValueError
         elif field_name in ("timeout_seconds", "temperature"):
-            value = float(text.strip())
+            value = float(raw)
+        elif field_name == "is_emergency":
+            value = int(raw)
+            if value not in (0, 1):
+                raise ValueError
+        elif field_name == "name":
+            value = raw.lower().replace(" ", "_")
+            if not value or not all(c.isalnum() or c == "_" for c in value):
+                raise ValueError
+            # Check uniqueness (skip if same as current)
+            if value != preset_name and db.get_preset(value):
+                context.user_data["awaiting"] = f"ai_preset_edit:{preset_name}:{field_name}"
+                await update.message.reply_text("این نام از قبل وجود دارد. نام دیگری انتخاب کنید.", reply_markup=awaiting_inline_keyboard())
+                return
+        elif field_name in ("input_cost_per_million", "output_cost_per_million"):
+            if raw == "":
+                value = None
+            else:
+                value = float(raw)
+                if value < 0:
+                    raise ValueError
+        elif field_name == "in_fallback_chain":
+            value = int(raw)
+            if value not in (0, 1):
+                raise ValueError
+        elif field_name == "group_label":
+            value = raw
         else:
-            value = text.strip()
+            value = raw
     except ValueError:
         context.user_data["awaiting"] = f"ai_preset_edit:{preset_name}:{field_name}"
-        await update.message.reply_text("فرمت نامعتبر. عدد صحیح یا اعشاری بفرستید.", reply_markup=awaiting_inline_keyboard())
+        await update.message.reply_text("فرمت نامعتبر. لطفاً مقدار معتبر بفرستید.", reply_markup=awaiting_inline_keyboard())
         return
 
     # Store in-memory (per preset)
@@ -998,6 +1074,35 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
     await _edit_ai_preset(update, context, preset_name)
 
 
+async def _confirm_save_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+    """Show confirmation dialog before saving."""
+    edits = context.user_data.get("preset_edits", {}).get(preset_name, {})
+    if not edits:
+        await update.callback_query.answer("تغییری برای ذخیره وجود ندارد")
+        return
+
+    from config.keyboards import IBTN_SAVE_CONFIRM, IBTN_SAVE_CANCEL
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(IBTN_SAVE_CONFIRM, callback_data=f"admin:ai_preset:confirm_save_yes:{preset_name}"),
+            InlineKeyboardButton(IBTN_SAVE_CANCEL, callback_data=f"admin:ai_preset:confirm_save_no:{preset_name}"),
+        ]
+    ])
+    await _edit_or_send(
+        update, context,
+        f"⚠️ <b>آیا از ذخیره تغییرات برای «{preset_name}» مطمئنید؟</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboard,
+    )
+
+
+async def _discard_all_preset_changes(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+    """Discard all pending edits for a preset."""
+    context.user_data.setdefault("preset_edits", {}).pop(preset_name, None)
+    await update.callback_query.answer("همه تغییرات دور ریخته شد")
+    await _show_ai_preset_view(update, context, preset_name)
+
+
 async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
     """Save all pending changes for a preset to the database."""
     preset = db.get_preset(preset_name)
@@ -1011,26 +1116,43 @@ async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
         await update.callback_query.answer("تغییری برای ذخیره وجود ندارد")
         return
 
+    # Handle rename: if name changed, use new name as key
+    new_name = edits.get("name", preset_name)
+    rename = new_name != preset_name
+
     # Apply to preset from in-memory edits + existing values as fallback
     db.set_preset(
-        name=preset_name,
+        name=new_name,
         base_url=edits.get("base_url", preset.get("base_url", "")),
         model=edits.get("model", preset.get("model", "")),
         api_key=edits.get("api_key", preset.get("api_key", "")),
         daily_batch_size=int(edits.get("daily_batch_size", preset.get("daily_batch_size", 6))),
         max_concurrency=int(edits.get("max_concurrency", preset.get("max_concurrency", 2))),
         max_rpm=int(edits.get("max_rpm", preset.get("max_rpm", 30))),
+        max_tpm=int(edits.get("max_tpm", preset.get("max_tpm", 0))),
+        max_daily_req=int(edits.get("max_daily_req", preset.get("max_daily_req", 0))),
         timeout_seconds=float(edits.get("timeout_seconds", preset.get("timeout_seconds", 30.0))),
         temperature=float(edits.get("temperature", preset.get("temperature", 0.6))),
         max_output_tokens=int(edits.get("max_output_tokens", preset.get("max_output_tokens", 4096))),
         is_custom=1,
+        is_emergency=int(edits.get("is_emergency", preset.get("is_emergency", 0))),
+        input_cost_per_million=edits.get("input_cost_per_million", preset.get("input_cost_per_million")),
+        output_cost_per_million=edits.get("output_cost_per_million", preset.get("output_cost_per_million")),
+        in_fallback_chain=int(edits.get("in_fallback_chain", preset.get("in_fallback_chain", 1))),
+        group_label=edits.get("group_label", preset.get("group_label", "")),
     )
 
-    # Clear in-memory edits for this preset
-    context.user_data.setdefault("preset_edits", {}).pop(preset_name, None)
+    # If renamed, delete old preset row
+    if rename:
+        db.delete_preset(preset_name)
+        # Move pending edits to new name key
+        context.user_data.setdefault("preset_edits", {}).pop(preset_name, None)
 
-    await update.callback_query.answer(f"پیش‌تنظیم {preset_name} ذخیره شد")
-    await _show_ai_preset_view(update, context, preset_name)
+    # Clear in-memory edits for this preset
+    context.user_data.setdefault("preset_edits", {}).pop(new_name, None)
+
+    await update.callback_query.answer(f"پیش‌تنظیم {new_name} ذخیره شد")
+    await _show_ai_preset_view(update, context, new_name)
 
 
 async def _delete_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
