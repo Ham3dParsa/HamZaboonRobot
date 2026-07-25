@@ -28,6 +28,8 @@ IBTN_BACK = "↩️ بازگشت"
 IBTN_CANCEL = "❌ لغو"
 IBTN_CANCEL_EDIT = "↩️ انصراف"
 IBTN_BACK_TO_PANEL = "↩️ بازگشت به پنل اصلی"
+IBTN_CLOSE = "❌ بستن"
+IBTN_BACK_TO_SETTINGS = "↩️ بازگشت به تنظیمات"
 
 # --- Presentation ---
 IBTN_BRIEF = "خلاصه"
@@ -189,23 +191,27 @@ def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
-def lang_inline_keyboard() -> InlineKeyboardMarkup:
+def lang_inline_keyboard(*, back_to_settings: bool = False) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(option.name_fa, callback_data=f"lang:{option.code}")]
         for option in LANGUAGES.values()
     ]
+    if back_to_settings:
+        buttons.append([InlineKeyboardButton(IBTN_BACK_TO_SETTINGS, callback_data="settings:back")])
     return InlineKeyboardMarkup(buttons)
 
 
-def goal_inline_keyboard() -> InlineKeyboardMarkup:
+def goal_inline_keyboard(*, back_to_settings: bool = False) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(option.name_fa, callback_data=f"goal:{option.code}")]
         for option in GOALS.values()
     ]
+    if back_to_settings:
+        buttons.append([InlineKeyboardButton(IBTN_BACK_TO_SETTINGS, callback_data="settings:back")])
     return InlineKeyboardMarkup(buttons)
 
 
-def level_inline_keyboard() -> InlineKeyboardMarkup:
+def level_inline_keyboard(*, back_to_settings: bool = False) -> InlineKeyboardMarkup:
     buttons = [
         [
             InlineKeyboardButton(
@@ -215,26 +221,31 @@ def level_inline_keyboard() -> InlineKeyboardMarkup:
         ]
         for option in LEVELS.values()
     ]
+    if back_to_settings:
+        buttons.append([InlineKeyboardButton(IBTN_BACK_TO_SETTINGS, callback_data="settings:back")])
     return InlineKeyboardMarkup(buttons)
 
 
 def presentation_settings_keyboard(
     current: str,
+    *,
+    back_to_settings: bool = False,
 ) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
+    rows = [
         [
-            [
-                InlineKeyboardButton(
-                    f"{'✅ ' if current == 'brief' else ''}{IBTN_BRIEF}",
-                    callback_data="presentation:set:brief",
-                ),
-                InlineKeyboardButton(
-                    f"{'✅ ' if current == 'detailed' else ''}{IBTN_DETAILED}",
-                    callback_data="presentation:set:detailed",
-                ),
-            ]
+            InlineKeyboardButton(
+                f"{'✅ ' if current == 'brief' else ''}{IBTN_BRIEF}",
+                callback_data="presentation:set:brief",
+            ),
+            InlineKeyboardButton(
+                f"{'✅ ' if current == 'detailed' else ''}{IBTN_DETAILED}",
+                callback_data="presentation:set:detailed",
+            ),
         ]
-    )
+    ]
+    if back_to_settings:
+        rows.append([InlineKeyboardButton(IBTN_BACK_TO_SETTINGS, callback_data="settings:back")])
+    return InlineKeyboardMarkup(rows)
 
 
 def settings_inline_keyboard(lang: str, goal: str, level: str) -> InlineKeyboardMarkup:
@@ -250,6 +261,15 @@ def settings_inline_keyboard(lang: str, goal: str, level: str) -> InlineKeyboard
         [
             InlineKeyboardButton("👤 وضعیت اشتراک و آمار", callback_data="settings:status"),
         ],
+        [
+            InlineKeyboardButton(IBTN_CLOSE, callback_data="settings:close"),
+        ],
+    ])
+
+
+def settings_back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(IBTN_BACK_TO_SETTINGS, callback_data="settings:back")]
     ])
 
 

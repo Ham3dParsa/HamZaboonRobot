@@ -912,7 +912,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _edit_with_retry(
             update.callback_query,
             f"نمایش کارت‌ها روی «{label}» تنظیم شد.",
-            reply_markup=presentation_settings_keyboard(preference),
+            reply_markup=presentation_settings_keyboard(preference, back_to_settings=True),
         )
         await update.callback_query.answer("تنظیمات ذخیره شد.")
         return
@@ -1097,6 +1097,14 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await change_presentation_start(update, context)
     elif data == "settings:status":
         await show_status(update, context)
+    elif data == "settings:back":
+        await _show_settings_menu(update, context)
+    elif data == "settings:close":
+        try:
+            await update.callback_query.message.delete()
+            await _answer_callback_safely(update.callback_query, "بسته شد.")
+        except BadRequest:
+            await _answer_callback_safely(update.callback_query)
     elif data.startswith("llm:"):
         await _handle_llm_callback(update, context, data)
     elif data.startswith("srs:prepare:"):

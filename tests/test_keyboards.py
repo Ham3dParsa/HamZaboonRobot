@@ -2,11 +2,16 @@ import unittest
 from config.keyboards import (
     main_menu,
     settings_inline_keyboard,
+    settings_back_keyboard,
     admin_awaiting_inline_keyboard,
     srs_hidden_keyboard,
     srs_revealed_keyboard,
     srs_review_keyboard,
     daily_card_keyboard,
+    lang_inline_keyboard,
+    goal_inline_keyboard,
+    level_inline_keyboard,
+    presentation_settings_keyboard,
     BTN_TODAY_CARD,
     BTN_GRAMMAR,
     BTN_SRS_REVIEW,
@@ -21,6 +26,8 @@ from config.keyboards import (
     IBTN_PRONOUNCE,
     IBTN_PREV_CARD,
     IBTN_NEXT_CARD,
+    IBTN_CLOSE,
+    IBTN_BACK_TO_SETTINGS,
 )
 
 
@@ -58,7 +65,7 @@ class TestSettingsInlineKeyboard(unittest.TestCase):
     def test_layout_and_callback_data(self):
         markup = settings_inline_keyboard("English", "General", "B2")
         rows = markup.inline_keyboard
-        self.assertEqual(len(rows), 3)
+        self.assertEqual(len(rows), 4)
         self.assertEqual(rows[0][0].text, "🌐 زبان: English")
         self.assertEqual(rows[0][0].callback_data, "settings:lang")
         self.assertEqual(rows[0][1].text, "🎯 هدف: General")
@@ -69,6 +76,81 @@ class TestSettingsInlineKeyboard(unittest.TestCase):
         self.assertEqual(rows[1][1].callback_data, "settings:presentation")
         self.assertEqual(rows[2][0].text, "👤 وضعیت اشتراک و آمار")
         self.assertEqual(rows[2][0].callback_data, "settings:status")
+
+    def test_close_button_exists(self):
+        markup = settings_inline_keyboard("English", "General", "B2")
+        rows = markup.inline_keyboard
+        self.assertEqual(rows[3][0].text, IBTN_CLOSE)
+        self.assertEqual(rows[3][0].callback_data, "settings:close")
+
+
+class TestSettingsBackKeyboard(unittest.TestCase):
+    def test_single_back_button(self):
+        markup = settings_back_keyboard()
+        rows = markup.inline_keyboard
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][0].text, IBTN_BACK_TO_SETTINGS)
+        self.assertEqual(rows[0][0].callback_data, "settings:back")
+
+
+class TestLangInlineKeyboard(unittest.TestCase):
+    def test_back_to_settings_appended(self):
+        markup = lang_inline_keyboard(back_to_settings=True)
+        rows = markup.inline_keyboard
+        last_row = rows[-1]
+        self.assertEqual(last_row[0].text, IBTN_BACK_TO_SETTINGS)
+        self.assertEqual(last_row[0].callback_data, "settings:back")
+
+    def test_no_back_by_default(self):
+        markup = lang_inline_keyboard()
+        rows = markup.inline_keyboard
+        labels = [b.text for row in rows for b in row]
+        self.assertNotIn(IBTN_BACK_TO_SETTINGS, labels)
+
+
+class TestGoalInlineKeyboard(unittest.TestCase):
+    def test_back_to_settings_appended(self):
+        markup = goal_inline_keyboard(back_to_settings=True)
+        rows = markup.inline_keyboard
+        last_row = rows[-1]
+        self.assertEqual(last_row[0].text, IBTN_BACK_TO_SETTINGS)
+        self.assertEqual(last_row[0].callback_data, "settings:back")
+
+    def test_no_back_by_default(self):
+        markup = goal_inline_keyboard()
+        rows = markup.inline_keyboard
+        labels = [b.text for row in rows for b in row]
+        self.assertNotIn(IBTN_BACK_TO_SETTINGS, labels)
+
+
+class TestLevelInlineKeyboard(unittest.TestCase):
+    def test_back_to_settings_appended(self):
+        markup = level_inline_keyboard(back_to_settings=True)
+        rows = markup.inline_keyboard
+        last_row = rows[-1]
+        self.assertEqual(last_row[0].text, IBTN_BACK_TO_SETTINGS)
+        self.assertEqual(last_row[0].callback_data, "settings:back")
+
+    def test_no_back_by_default(self):
+        markup = level_inline_keyboard()
+        rows = markup.inline_keyboard
+        labels = [b.text for row in rows for b in row]
+        self.assertNotIn(IBTN_BACK_TO_SETTINGS, labels)
+
+
+class TestPresentationKeyboard(unittest.TestCase):
+    def test_back_to_settings_appended(self):
+        markup = presentation_settings_keyboard("brief", back_to_settings=True)
+        rows = markup.inline_keyboard
+        last_row = rows[-1]
+        self.assertEqual(last_row[0].text, IBTN_BACK_TO_SETTINGS)
+        self.assertEqual(last_row[0].callback_data, "settings:back")
+
+    def test_no_back_by_default(self):
+        markup = presentation_settings_keyboard("brief")
+        rows = markup.inline_keyboard
+        labels = [b.text for row in rows for b in row]
+        self.assertNotIn(IBTN_BACK_TO_SETTINGS, labels)
 
 
 class TestAdminAwaitingInlineKeyboard(unittest.TestCase):

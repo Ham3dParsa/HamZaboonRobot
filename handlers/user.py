@@ -67,6 +67,7 @@ from config.keyboards import (
     level_inline_keyboard,
     presentation_settings_keyboard,
     settings_inline_keyboard,
+    settings_back_keyboard,
     awaiting_reply_keyboard,
     awaiting_inline_keyboard,
     daily_review_dates_keyboard,
@@ -239,31 +240,31 @@ async def on_level_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 async def change_lang_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _log_user_activity(update, action="lang_change", outcome="started")
-    await _send_with_retry(
-        context.bot,
-        update.effective_chat.id,
+    await _edit_or_send(
+        update,
+        context,
         "زبان جدید خود را انتخاب کنید:",
-        reply_markup=lang_inline_keyboard(),
+        reply_markup=lang_inline_keyboard(back_to_settings=True),
     )
 
 
 async def change_goal_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _log_user_activity(update, action="goal_change", outcome="started")
-    await _send_with_retry(
-        context.bot,
-        update.effective_chat.id,
+    await _edit_or_send(
+        update,
+        context,
         "هدف جدید خود را انتخاب کنید:",
-        reply_markup=goal_inline_keyboard(),
+        reply_markup=goal_inline_keyboard(back_to_settings=True),
     )
 
 
 async def change_level_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _log_user_activity(update, action="level_change", outcome="started")
-    await _send_with_retry(
-        context.bot,
-        update.effective_chat.id,
+    await _edit_or_send(
+        update,
+        context,
         "سطح جدید خود را انتخاب کنید:",
-        reply_markup=level_inline_keyboard(),
+        reply_markup=level_inline_keyboard(back_to_settings=True),
     )
 
 
@@ -275,19 +276,19 @@ async def change_presentation_start(update: Update, context: ContextTypes.DEFAUL
         return
     current = _user_presentation(row)
     if (row["plan"] or "free") not in PREMIUM_PLANS:
-        await _send_with_retry(
-            context.bot,
-            update.effective_chat.id,
+        await _edit_or_send(
+            update,
+            context,
             f"نمایش فعلی کارت‌ها: {'خلاصه' if current == 'brief' else 'کامل'}.\n"
             "انتخاب دائمی نمایش کارت فقط برای کاربران پریمیوم فعال است.",
         )
         return
-    await _send_with_retry(
-        context.bot,
-        update.effective_chat.id,
+    await _edit_or_send(
+        update,
+        context,
         f"نمایش فعلی کارت‌ها: {'خلاصه' if current == 'brief' else 'کامل'}.\n"
         "نمایش موردنظر را انتخاب کنید:",
-        reply_markup=presentation_settings_keyboard(current),
+        reply_markup=presentation_settings_keyboard(current, back_to_settings=True),
     )
 
 
@@ -304,13 +305,8 @@ async def on_lang_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, la
         update,
         context,
         text,
-        parse_mode=ParseMode.MARKDOWN_V2
-    )
-    await _send_with_retry(
-        context.bot,
-        user_id,
-        "از منوی پایین استفاده کنید:",
-        reply_markup=main_menu(is_owner(user_id)),
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=settings_back_keyboard(),
     )
 
 
@@ -327,13 +323,8 @@ async def on_goal_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, go
         update,
         context,
         text,
-        parse_mode=ParseMode.MARKDOWN_V2
-    )
-    await _send_with_retry(
-        context.bot,
-        user_id,
-        "از منوی پایین استفاده کنید:",
-        reply_markup=main_menu(is_owner(user_id)),
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=settings_back_keyboard(),
     )
 
 
@@ -349,12 +340,7 @@ async def on_level_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, l
         context,
         escape_mdv2(text),
         parse_mode=ParseMode.MARKDOWN_V2,
-    )
-    await _send_with_retry(
-        context.bot,
-        user_id,
-        "از منوی پایین استفاده کنید:",
-        reply_markup=main_menu(is_owner(user_id)),
+        reply_markup=settings_back_keyboard(),
     )
 
 
@@ -482,7 +468,7 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
-        await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
+        await _edit_or_send(update, context, "اول باید /start رو بزنی.")
         return
     due = db.due_words_for_user(user_id)
     text = (
@@ -493,7 +479,7 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔥 استریک: {row['streak'] or 0} روز\n"
         f"⏰ واژه‌های آماده‌ی مرور: {len(due)}"
     )
-    await _send_with_retry(context.bot, update.effective_chat.id, text)
+    await _edit_or_send(update, context, text, reply_markup=settings_back_keyboard())
 
 
 async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -505,9 +491,9 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     lang_name = language_label(row["target_lang"])
     goal_name = goal_label(row["goal"])
     level_name = level_label(row["level"])
-    await _send_with_retry(
-        context.bot,
-        update.effective_chat.id,
+    await _edit_or_send(
+        update,
+        context,
         "⚙️ تنظیمات و پروفایل من:\nاز دکمه‌های زیر یکی را انتخاب کن.",
         reply_markup=settings_inline_keyboard(lang_name, goal_name, level_name),
     )
