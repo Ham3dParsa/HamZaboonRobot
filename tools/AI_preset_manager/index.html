@@ -95,6 +95,8 @@
   th .sort-arrow{color:var(--text-dim);font-size:.7rem;margin-right:3px}
   td{padding:7px;border-bottom:1px solid var(--border);vertical-align:middle}
   tr:hover{background:rgba(122,162,247,.04)}
+  tr.row-active{background:rgba(158,206,106,.06);border-right:3px solid var(--green)}
+  tr.row-disabled{opacity:.45}
   tr.deleted{opacity:.4;transition:opacity .3s}
   th:first-child, td:first-child{width:32px;text-align:center}
   input[type=checkbox]{accent-color:var(--accent);cursor:pointer;width:15px;height:15px}
@@ -162,9 +164,9 @@
   .panel-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100}
   .panel-overlay.open{display:block}
   .side-panel{
-    position:fixed;top:0;left:0;bottom:0;width:460px;max-width:90vw;
-    background:var(--surface);border-right:1px solid var(--border);
-    z-index:101;transform:translateX(-100%);transition:transform .25s ease;
+    position:fixed;top:0;right:0;bottom:0;width:460px;max-width:90vw;
+    background:var(--surface);border-left:1px solid var(--border);
+    z-index:101;transform:translateX(100%);transition:transform .25s ease;
     overflow-y:auto;padding:20px;direction:rtl;
   }
   .side-panel.open{transform:translateX(0)}
@@ -215,12 +217,20 @@
   .toast.show{opacity:1}
   .toast.err{border-color:var(--red);color:var(--red)}
 
-  .chain-list{display:flex;flex-direction:column;gap:6px}
+  .chain-list{display:flex;flex-direction:column;gap:0}
   .chain-item{
     display:flex;align-items:center;gap:10px;padding:10px 14px;
     background:var(--surface);border:1px solid var(--border);
-    border-radius:var(--radius);
+    border-radius:var(--radius);position:relative;
   }
+  .chain-item + .chain-item{border-radius:0 0 var(--radius) var(--radius);border-top:none}
+  .chain-item:first-child{border-radius:var(--radius) var(--radius) 0 0}
+  .chain-item:last-child{border-radius:0 0 var(--radius) var(--radius)}
+  .chain-arrow{
+    text-align:center;color:var(--accent);font-size:.7rem;line-height:1;
+    padding:2px 0;position:relative;
+  }
+  .chain-arrow::before{content:'⬇';display:block;transform:scaleX(-1)}
   .chain-item .rank{color:var(--accent);font-weight:700;min-width:30px}
   .chain-item .name{flex:1;font-weight:600}
   .chain-item .detail{color:var(--text-dim);font-size:.78rem}
@@ -266,6 +276,20 @@
 
   .modal-input{margin-bottom:10px}
   .modal-input label{display:block;font-size:.78rem;color:var(--text-dim);margin-bottom:3px}
+  .bulk-field-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)}
+  .bulk-field-row:last-child{border:none}
+  .bulk-field-row label{flex:1;font-size:.8rem;cursor:pointer}
+  .bulk-field-row input[type=checkbox]{accent-color:var(--accent);cursor:pointer;width:16px;height:16px}
+  .bulk-field-row .field-input{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 8px;font-size:.8rem;direction:ltr;text-align:left}
+  .bulk-field-row .field-input:disabled{opacity:.4;cursor:not-allowed}
+  .bulk-field-row .field-input:focus{outline:none;border-color:var(--accent)}
+  .bulk-edit-scroll{max-height:55vh;overflow-y:auto;padding:4px 6px;margin:10px 0}
+  .edit-group{border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;overflow:hidden}
+  .edit-group summary{padding:8px 12px;cursor:pointer;font-size:.82rem;font-weight:600;background:var(--surface2);user-select:none;display:flex;align-items:center;gap:6px}
+  .edit-group summary:hover{background:var(--border)}
+  .edit-group[open] summary{border-bottom:1px solid var(--border)}
+  .edit-group .group-body{padding:6px 12px 10px}
+  .edit-group .panel-field{margin-bottom:6px}
   .modal-input input{width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:6px 10px;font-size:.85rem}
   .modal-input input:focus{outline:none;border-color:var(--accent)}
 
@@ -326,6 +350,7 @@
       <button class="btn btn-sm batch-chain" data-val="0" title="حذف از زنجیره فال‌بک">➖ از زنجیره</button>
       <button class="btn btn-sm batch-group-btn" title="تنظیم برچسب گروه برای انتخاب شده‌ها">🏷️ گروه</button>
       <button class="btn btn-sm batch-key-btn" title="تنظیم API Key برای انتخاب شده‌ها">🔑 کلید</button>
+      <button class="btn btn-sm btn-primary batch-edit-btn" title="ویرایش فیلدهای انتخابی برای پریست‌های مشخص شده">✏️ ویرایش دسته‌ای</button>
     </div>
 
     <div class="table-wrap">
@@ -341,7 +366,6 @@
             <th data-key="is_emergency" title="اضطراری یا عادی">اضطراری</th>
             <th data-key="group_label" title="ترتیب بر اساس گروه">گروه <span class="sort-arrow"></span></th>
             <th data-key="base_url" title="ترتیب بر اساس آدرس">Base URL <span class="sort-arrow"></span></th>
-            <th data-key="cost_per_req" title="هزینه به ازای هر درخواست">💰/req</th>
             <th>API Key</th>
             <th>عملیات</th>
           </tr>
@@ -395,6 +419,18 @@
     <div class="confirm-actions">
       <button class="btn" id="input-cancel" title="انصراف">انصراف</button>
       <button class="btn btn-primary" id="input-ok" title="تأیید">تأیید</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Bulk Edit Modal ─── -->
+<div class="confirm-overlay" id="bulk-edit-overlay">
+  <div class="confirm-box" style="max-width:520px">
+    <h3 id="bulk-edit-title">✏️ ویرایش دسته‌ای</h3>
+    <div id="bulk-edit-body"></div>
+    <div class="confirm-actions" style="margin-top:12px">
+      <button class="btn" id="bulk-edit-cancel">انصراف</button>
+      <button class="btn btn-primary" id="bulk-edit-ok">✅ اعمال روی <span id="bulk-edit-count">0</span> پریست</button>
     </div>
   </div>
 </div>
@@ -603,7 +639,6 @@ function renderTable() {
     const actB = p.is_active ? '<span class="badge badge-blue">اکتیو</span>' : '';
     const grp = p.group_label || '\u2014';
     const urlS = p.base_url ? p.base_url.replace(/^https?:\/\//,'').replace(/\/+$/,'') : '\u2014';
-    const cr = fmtCost(p.cost_per_req);
     const realKey = p.api_key_resolved || p.api_key || '';
     const keyLabel = p.api_key && p.api_key.startsWith('$')
       ? `<span class="mono" style="font-size:.65rem;color:var(--orange);direction:ltr;display:inline-block" title="متغیر محیطی: ${esc(p.api_key)}">${esc(p.api_key)}</span>`
@@ -616,7 +651,8 @@ function renderTable() {
         ? `<span class="mono" style="cursor:pointer;font-size:.7rem" data-reveal="${p.name}" title="کلیک برای نمایش کلید">${esc(p.api_key_masked)} <span style="font-size:.75rem">👁️</span></span>`
         : keyLabel;
 
-    return `<tr data-name="${p.name}">
+    const rowClass = p.is_active ? 'row-active' : (!p.enabled ? 'row-disabled' : '');
+    return `<tr data-name="${p.name}" class="${rowClass}">
       <td><input type="checkbox" class="row-check" data-name="${p.name}" ${checked} title="انتخاب ${esc(p.name)}"></td>
       <td><div class="cell-flex">${actB} <b class="editable" data-field="name" data-name="${p.name}" title="کلیک برای ویرایش نام">${esc(p.name)}</b></div></td>
       <td class="mono"><span class="editable" data-field="model" data-name="${p.name}" title="کلیک برای ویرایش مدل">${p.model || '\u2014'}</span></td>
@@ -626,7 +662,6 @@ function renderTable() {
       <td><span class="editable-toggle" data-field="is_emergency" data-name="${p.name}" data-value="${p.is_emergency}" title="کلیک برای تغییر وضعیت اضطراری">${emL}</span></td>
       <td><span class="editable" data-field="group_label" data-name="${p.name}" title="کلیک برای ویرایش گروه">${grp}</span></td>
       <td class="mono"><span class="editable truncate" data-field="base_url" data-name="${p.name}" title="کلیک برای ویرایش آدرس">${urlS}</span></td>
-      <td class="mono">${cr}</td>
       <td class="mono">${keyDisplay}</td>
       <td class="actions">
         <button class="btn btn-sm" data-edit="${realIdx}" title="ویرایش این پریست">✏️</button>
@@ -829,8 +864,6 @@ function showDetailPanel(idx, startInEdit) {
   let editing = false;
 
   function renderView() {
-    const costReq = fmtCost(p.cost_per_req);
-    const costTok = fmtCost(p.cost_per_1k_tokens);
     const costIn = p.input_cost_per_million != null ? '$' + p.input_cost_per_million + '/1M' : '\u2014 (global)';
     const costOut = p.output_cost_per_million != null ? '$' + p.output_cost_per_million + '/1M' : '\u2014 (global)';
 
@@ -860,8 +893,6 @@ function showDetailPanel(idx, startInEdit) {
       <hr style="border-color:var(--border);margin:12px 0">
       <div class="panel-field"><label>input_cost_per_million</label><div class="value mono">${costIn}</div></div>
       <div class="panel-field"><label>output_cost_per_million</label><div class="value mono">${costOut}</div></div>
-      <div class="panel-field"><label>cost_per_req (static)</label><div class="value mono">${costReq}</div></div>
-      <div class="panel-field"><label>cost_per_1k_tokens (static)</label><div class="value mono">${costTok}</div></div>
     `;
     document.getElementById('panel-body').innerHTML = html;
 
@@ -904,25 +935,38 @@ function showDetailPanel(idx, startInEdit) {
 
     const html = `
       <h2>✏️ ${esc(p.name)}</h2>
-      <div class="panel-field"><label>name</label>${i('name','text',p.name)}</div>
-      <div class="panel-field"><label>base_url</label>${i('base_url','url',p.base_url)}</div>
-      <div class="panel-field"><label>model</label>${i('model','model',p.model)}</div>
-      <div class="panel-field"><label>api_key</label>${i('api_key','key',p.api_key)}</div>
-      <div class="panel-field"><label>enabled</label>${i('enabled','bool',p.enabled)}</div>
-      <div class="panel-field"><label>priority</label>${i('priority','number',p.priority,1)}</div>
-      <div class="panel-field"><label>in_fallback_chain</label>${i('in_fallback_chain','bool',p.in_fallback_chain)}</div>
-      <div class="panel-field"><label>is_emergency</label>${i('is_emergency','bool',p.is_emergency)}</div>
-      <div class="panel-field"><label>group_label</label>${i('group_label','text',p.group_label)}</div>
-      <div class="panel-field"><label>is_custom</label>${i('is_custom','bool',p.is_custom)}</div>
-      <hr style="border-color:var(--border);margin:12px 0">
-      <div class="panel-field"><label>max_concurrency</label>${i('max_concurrency','number',p.max_concurrency,1)}</div>
-      <div class="panel-field"><label>max_rpm</label>${i('max_rpm','number',p.max_rpm,1)}</div>
-      <div class="panel-field"><label>max_tpm</label>${i('max_tpm','number',p.max_tpm,1)}</div>
-      <div class="panel-field"><label>daily_batch_size</label>${i('daily_batch_size','number',p.daily_batch_size,1)}</div>
-      <div class="panel-field"><label>temperature</label>${i('temperature','number',p.temperature,'0.01')}</div>
-      <hr style="border-color:var(--border);margin:12px 0">
-      <div class="panel-field"><label>input_cost_per_million ($/1M input)</label>${i('input_cost_per_million','number',p.input_cost_per_million,'0.01')}</div>
-      <div class="panel-field"><label>output_cost_per_million ($/1M output)</label>${i('output_cost_per_million','number',p.output_cost_per_million,'0.01')}</div>
+      <details class="edit-group" open>
+        <summary>⚙️ اصلی</summary>
+        <div class="group-body">
+          <div class="panel-field"><label>name</label>${i('name','text',p.name)}</div>
+          <div class="panel-field"><label>base_url</label>${i('base_url','url',p.base_url)}</div>
+          <div class="panel-field"><label>model</label>${i('model','model',p.model)}</div>
+          <div class="panel-field"><label>api_key</label>${i('api_key','key',p.api_key)}</div>
+          <div class="panel-field"><label>group_label</label>${i('group_label','text',p.group_label)}</div>
+        </div>
+      </details>
+      <details class="edit-group" open>
+        <summary>🚥 وضعیت و اولویت</summary>
+        <div class="group-body">
+          <div class="panel-field"><label>enabled</label>${i('enabled','bool',p.enabled)}</div>
+          <div class="panel-field"><label>priority</label>${i('priority','number',p.priority,1)}</div>
+          <div class="panel-field"><label>in_fallback_chain</label>${i('in_fallback_chain','bool',p.in_fallback_chain)}</div>
+          <div class="panel-field"><label>is_emergency</label>${i('is_emergency','bool',p.is_emergency)}</div>
+          <div class="panel-field"><label>is_custom</label>${i('is_custom','bool',p.is_custom)}</div>
+        </div>
+      </details>
+      <details class="edit-group" open>
+        <summary>⏱ محدودیت‌ها و هزینه</summary>
+        <div class="group-body">
+          <div class="panel-field"><label>max_concurrency</label>${i('max_concurrency','number',p.max_concurrency,1)}</div>
+          <div class="panel-field"><label>max_rpm</label>${i('max_rpm','number',p.max_rpm,1)}</div>
+          <div class="panel-field"><label>max_tpm</label>${i('max_tpm','number',p.max_tpm,1)}</div>
+          <div class="panel-field"><label>daily_batch_size</label>${i('daily_batch_size','number',p.daily_batch_size,1)}</div>
+          <div class="panel-field"><label>temperature</label>${i('temperature','number',p.temperature,'0.01')}</div>
+          <div class="panel-field"><label>input_cost_per_million ($/1M input)</label>${i('input_cost_per_million','number',p.input_cost_per_million,'0.01')}</div>
+          <div class="panel-field"><label>output_cost_per_million ($/1M output)</label>${i('output_cost_per_million','number',p.output_cost_per_million,'0.01')}</div>
+        </div>
+      </details>
       <div style="display:flex;gap:8px;margin-top:16px">
         <button class="btn btn-primary" id="panel-save-btn" title="ذخیره تغییرات" style="flex:1">💾 Save</button>
         <button class="btn" id="panel-cancel-btn" title="انصراف" style="flex:1">✕ Cancel</button>
@@ -1027,6 +1071,7 @@ async function renderChainTab() {
       html += '<div class="chain-list">';
       chain.forEach((p, i) => {
         const emer = p.is_emergency ? ' <span class="badge badge-orange" title="پریست اضطراری">اضطراری</span>' : '';
+        if (i > 0) html += '<div class="chain-arrow"></div>';
         html += `<div class="chain-item">
           <div class="rank">#${i + 1}</div>
           <div class="name">${esc(p.name)}</div>
@@ -1188,6 +1233,86 @@ async function loadAll() {
   }
 }
 
+// ─── Bulk Edit Modal ─────────────────────────────────
+
+function openBulkEditModal() {
+  const names = getSelectedNames();
+  if (!names.length) { toast('هیچ پریستی انتخاب نشده', true); return; }
+
+  const FIELDS = [
+    { key: 'input_cost_per_million', label: 'هزینه ورودی ($/1M)', type: 'number', step: '0.001' },
+    { key: 'output_cost_per_million', label: 'هزینه خروجی ($/1M)', type: 'number', step: '0.001' },
+    { key: 'priority', label: 'اولویت', type: 'number', step: '1' },
+    { key: 'model', label: 'مدل', type: 'text' },
+    { key: 'base_url', label: 'Base URL', type: 'text' },
+    { key: 'group_label', label: 'گروه', type: 'text' },
+    { key: 'temperature', label: 'Temperature', type: 'number', step: '0.01' },
+    { key: 'max_rpm', label: 'RPM', type: 'number', step: '1' },
+    { key: 'max_tpm', label: 'TPM', type: 'number', step: '1' },
+    { key: 'max_concurrency', label: 'Concurrency', type: 'number', step: '1' },
+    { key: 'daily_batch_size', label: 'Batch Size', type: 'number', step: '1' },
+  ];
+
+  let bodyHtml = `<p style="font-size:.8rem;color:var(--text-dim);margin-bottom:8px">فقط فیلدهایی که تیک می‌زنید تغییر می‌کنند. بقیه دست‌نخورده می‌مانند.</p><div class="bulk-edit-scroll">`;
+  FIELDS.forEach(f => {
+    const inputId = 'bulk-' + f.key;
+    const inputAttrs = `class="field-input" id="${inputId}" disabled style="width:${f.type === 'text' ? '180px' : '100px'}"`;
+    const inputHtml = f.type === 'number'
+      ? `<input type="number" step="${f.step || 'any'}" ${inputAttrs}>`
+      : `<input type="text" ${inputAttrs}>`;
+    bodyHtml += `<div class="bulk-field-row">
+      <input type="checkbox" class="bulk-field-chk" data-target="${f.key}">
+      <label for="${inputId}">${f.label}</label>
+      ${inputHtml}
+    </div>`;
+  });
+  bodyHtml += '</div>';
+
+  document.getElementById('bulk-edit-count').textContent = names.length;
+  document.getElementById('bulk-edit-title').textContent = `✏️ ویرایش دسته‌ای (${names.length} پریست)`;
+  document.getElementById('bulk-edit-body').innerHTML = bodyHtml;
+  document.getElementById('bulk-edit-overlay').classList.add('open');
+
+  document.querySelectorAll('.bulk-field-chk').forEach(chk => {
+    chk.addEventListener('change', () => {
+      const input = document.getElementById('bulk-' + chk.dataset.target);
+      if (input) input.disabled = !chk.checked;
+    });
+  });
+}
+
+document.getElementById('bulk-edit-cancel').addEventListener('click', () => {
+  document.getElementById('bulk-edit-overlay').classList.remove('open');
+});
+
+document.getElementById('bulk-edit-ok').addEventListener('click', async () => {
+  const names = getSelectedNames();
+  const updates = {};
+  document.querySelectorAll('.bulk-field-chk:checked').forEach(chk => {
+    const input = document.getElementById('bulk-' + chk.dataset.target);
+    if (input && input.value.trim() !== '') {
+      let val = input.value.trim();
+      if (input.type === 'number') val = parseFloat(val);
+      updates[chk.dataset.target] = val;
+    }
+  });
+  if (Object.keys(updates).length === 0) {
+    toast('هیچ فیلدی انتخاب یا مقداردهی نشده', true);
+    return;
+  }
+  try {
+    await api('/presets/batch/update', { method: 'PUT', body: JSON.stringify({ names, updates }) });
+    toast(`✅ ${Object.keys(updates).length} فیلد برای ${names.length} پریست بروز شد`);
+    document.getElementById('bulk-edit-overlay').classList.remove('open');
+    selectedNames.clear();
+    await loadAll();
+  } catch(e) { toast(e.message, true); }
+});
+
+document.getElementById('bulk-edit-overlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) document.getElementById('bulk-edit-overlay').classList.remove('open');
+});
+
 // ─── Event bindings ──────────────────────────────────
 
 document.getElementById('search-input').addEventListener('input', () => {
@@ -1300,6 +1425,9 @@ document.querySelector('.batch-key-btn').addEventListener('click', async () => {
     await loadAll();
   } catch(e) { toast(e.message, true); }
 });
+
+// Bulk edit button
+document.querySelector('.batch-edit-btn').addEventListener('click', openBulkEditModal);
 
 // Refresh
 document.getElementById('refresh-btn').addEventListener('click', loadAll);

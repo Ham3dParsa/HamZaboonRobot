@@ -342,6 +342,40 @@ def batch_api_key():
     return jsonify({"ok": True})
 
 
+@app.route("/api/presets/batch/update", methods=["PUT"])
+def batch_update_presets():
+    """Update specific fields on multiple presets atomically.
+
+    Body: { "names": [...], "updates": { "field1": val1, ... } }
+    Only sends updates for the supplied fields; other fields are untouched.
+    """
+    data = request.get_json()
+    names = data.get("names", [])
+    updates = data.get("updates", {})
+
+    if not names or not updates:
+        return jsonify({"error": "نام پریست یا فیلدهای مورد نظر ارسال نشده"}), 400
+
+    # Validate field names
+    for key in updates:
+        if key not in _ALLOWED_FIELDS or key == "name":
+            return jsonify({"error": f"فیلد نامعتبر: {key}"}), 400
+
+    set_clause = ", ".join(f"{k}=?" for k in updates)
+    values = list(updates.values())
+    placeholders = ", ".join("?" for _ in names)
+
+    with db.get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            f"UPDATE ai_presets SET {set_clause} WHERE name IN ({placeholders})",
+            values + names,
+        )
+        conn.commit()
+
+    return jsonify({"ok": True, "updated_count": len(names)})
+
+
 # ─── Activation ──────────────────────────────────────────
 
 @app.route("/api/activate/<name>", methods=["POST"])
