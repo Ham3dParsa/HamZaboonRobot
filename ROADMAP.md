@@ -131,6 +131,21 @@ Completed on the current main branch:
 - Daily batch validation now distinguishes provider success from a batch with
   no usable cards, records safe rejection diagnostics, and preserves the
   retry path.
+- Colored structured logging with COST log level, USER_ACTIVITY level,
+  runtime log level control, preset-switch audit logs, and colored severity
+  pipe format (#204, #205).
+- AI model benchmark tool with cost/retry/report pipeline (#206).
+- Fallback chain schema and UX: per-preset cost fields, group_label,
+  in_fallback_chain, and preset_name columns (#207); per-preset cost fields
+  with global fallback (#208); preset group/pagination, full edit wizard with
+  confirm dialog (#208); compact fallback chain UX with rank jump and
+  consumption view (#208); help pages and last-successful-preset tracking
+  (#208); extended preset edit wizard (#209).
+- Integration tests for fallback chain behavior.
+- Blocked-user detection to prevent wasted AI and Telegram API calls on
+  users who have blocked the bot (#210).
+- Documentation ecosystem overhaul: README, AGENTS.md, ROADMAP.md, and
+  CI/CD pipeline improvements (#211).
 
 ## Locked Direction: Adaptive SRS Core and Real-Progress Scoring
 
