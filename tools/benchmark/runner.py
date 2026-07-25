@@ -20,20 +20,20 @@ DEFAULT_LANG = "en"
 DEFAULT_GOAL = "general"
 DEFAULT_LEVEL = "intermediate"
 
-# Approximate per-model pricing (USD per 1M tokens).
-# Source: Google AI published pricing (July 2026). Verify with your provider.
+# Per-model pricing (USD per 1M tokens).
+# Sources: ai.google.dev (Gemini), cloud.google.com (Gemma Vertex), gapgpt.app, AvalAI.ir.
 MODEL_COST_MAP = {
     "gemini-3.6-flash":         {"in": 1.50,  "out": 7.50},
-    "gemini-3.5-flash":         {"in": 0.15,  "out": 0.60},
-    "gemini-3.5-flash-lite":    {"in": 0.075, "out": 0.30},
+    "gemini-3.5-flash":         {"in": 1.50,  "out": 9.00},
+    "gemini-3.5-flash-lite":    {"in": 0.30,  "out": 2.50},
     "gemini-flash-lite-latest": {"in": 0.25,  "out": 1.50},
     "gemini-3.1-flash-lite":    {"in": 0.25,  "out": 1.50},
-    "gemma-4-31b-it":           {"in": 0.50,  "out": 2.00},
-    "gemma-4-26b-a4b-it":       {"in": 0.30,  "out": 1.50},
+    "gemma-4-31b-it":           {"in": 0.15,  "out": 0.60},
+    "gemma-4-26b-a4b-it":       {"in": 0.15,  "out": 0.60},
 }
 DEFAULT_MODEL_COST = {"in": 0.25, "out": 1.50}
 
-USD_TO_IRR = 2_000_000
+USD_TO_IRR = 1_900_000
 
 DEFAULT_WORDS = [
     "run", "break a leg", "actually", "get up", "however", "cozy",
