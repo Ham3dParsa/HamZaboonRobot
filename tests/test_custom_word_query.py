@@ -15,7 +15,7 @@ from bot import (
 )
 from config.keyboards import (
     BTN_ASK_WORD,
-    BTN_CHANGE_PRESENTATION,
+    BTN_SETTINGS,
     awaiting_inline_keyboard,
     daily_card_keyboard,
     daily_review_dates_keyboard,
@@ -105,7 +105,8 @@ class CustomWordQueryTests(unittest.TestCase):
         labels = [button.text for row in markup.keyboard for button in row]
         self.assertNotIn("➕ ثبت واژه‌ی دلخواه", labels)
         self.assertIn(BTN_ASK_WORD, labels)
-        self.assertIn(BTN_CHANGE_PRESENTATION, labels)
+        self.assertNotIn("📝 تنظیم نمایش کارت", labels)
+        self.assertIn(BTN_SETTINGS, labels)
 
     def test_presentation_settings_keyboard_marks_current_mode(self):
         markup = presentation_settings_keyboard("brief")

@@ -41,6 +41,7 @@ from services.utils.formatting import (
     escape_mdv2,
     escape_mdv2_code,
     format_card,
+    format_srs_prompt,
     _phonetic_lines,
 )
 from services.utils.helpers import (
@@ -65,25 +66,25 @@ from config.keyboards import (
     goal_inline_keyboard,
     level_inline_keyboard,
     presentation_settings_keyboard,
+    settings_inline_keyboard,
     awaiting_reply_keyboard,
     awaiting_inline_keyboard,
     daily_review_dates_keyboard,
     daily_review_menu_keyboard,
     query_result_keyboard,
     daily_card_keyboard,
+    srs_hidden_keyboard,
     BTN_TODAY_CARD,
     BTN_ASK_WORD,
-    BTN_STATUS,
     BTN_GRAMMAR,
     BTN_ADMIN,
-    BTN_CHANGE_LANG,
-    BTN_CHANGE_GOAL,
-    BTN_CHANGE_LEVEL,
-    BTN_CHANGE_PRESENTATION,
+    BTN_SRS_REVIEW,
+    BTN_SETTINGS,
     BTN_CANCEL,
     BTN_BACK,
 )
 from services.ai.llm_services import _call_ai_limited, _prepare_cached_card
+from handlers.srs_handler import _saved_word_card
 
 logger = logging.getLogger(__name__)
 
@@ -493,6 +494,66 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⏰ واژه‌های آماده‌ی مرور: {len(due)}"
     )
     await _send_with_retry(context.bot, update.effective_chat.id, text)
+
+
+async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    row = db.get_user(user_id)
+    if not row or not row["onboarded"]:
+        await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
+        return
+    lang_name = language_label(row["target_lang"])
+    goal_name = goal_label(row["goal"])
+    level_name = level_label(row["level"])
+    await _send_with_retry(
+        context.bot,
+        update.effective_chat.id,
+        "⚙️ تنظیمات و پروفایل من:\nاز دکمه‌های زیر یکی را انتخاب کن.",
+        reply_markup=settings_inline_keyboard(lang_name, goal_name, level_name),
+    )
+
+
+async def start_srs_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    row = db.get_user(user_id)
+    if not row or not row["onboarded"]:
+        await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
+        return
+    due = db.due_words_for_user(user_id)
+    if not due:
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            "🎉 واژه‌ای برای مرور نداری! هر روز فلش‌کارت بگیر و واژه‌های جدید را به مرور اضافه کن.",
+        )
+        return
+    word = due[0]
+    try:
+        card = await asyncio.to_thread(
+            _prepare_cached_card,
+            _saved_word_card(word),
+            lang=word["lang"],
+            user_id=user_id,
+            plan=row["plan"] or "free",
+            source="srs",
+            persist_patch=lambda patch, word_id=word["id"]: db.update_saved_word_fields(word_id, user_id, patch),
+        )
+    except CardPreparationError:
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کن.",
+        )
+        return
+    phon_lines = _phonetic_lines(card.get("phonetic", ""))
+    show_pronounce = db.get_setting("tts_access", "premium") != "none" and ((row["plan"] or "free") in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all")
+    await _send_with_retry(
+        context.bot,
+        update.effective_chat.id,
+        format_srs_prompt(card, phonetic_lines=phon_lines),
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=srs_hidden_keyboard(user_id, word["id"], show_pronounce=show_pronounce),
+    )
 
 
 # ---------------- Callback handlers ----------------
