@@ -190,7 +190,7 @@ def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
         [BTN_CHANGE_PRESENTATION],
     ]
     if is_owner:
-        rows.append([BTN_ADMIN_STATS, BTN_ADMIN_SET_PLAN])
+        rows.append([BTN_ADMIN_SET_PLAN])
         rows.append([BTN_ADMIN_BROADCAST])
         rows.append([BTN_ADMIN])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
@@ -498,6 +498,21 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def stats_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("👥 نمای کلی", callback_data="admin:stats:overview"),
+         InlineKeyboardButton("📊 پراکندگی", callback_data="admin:stats:distribution")],
+        [InlineKeyboardButton("📈 فعالیت", callback_data="admin:stats:activity")],
+        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
+    ])
+
+
+def stats_back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔙 بازگشت به آمار", callback_data="admin:stats")],
+    ])
+
+
 def user_activity_keyboard(current_status: str) -> InlineKeyboardMarkup:
     """Inline keyboard showing USER_ACTIVITY log toggle with current status."""
     marker = "✅" if current_status == "on" else "☑️"
@@ -639,6 +654,7 @@ def ai_settings_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(IBTN_AI_CUSTOM_TEST, callback_data="admin:ai_custom_test")],
             [InlineKeyboardButton(IBTN_AI_FALLBACK, callback_data="admin:ai_fallback")],
             [InlineKeyboardButton(IBTN_FALLBACK_CHAIN, callback_data="admin:fallback_chain")],
+            [InlineKeyboardButton("🏷️ مدیریت گروه‌ها", callback_data="admin:ai_preset:group_manager")],
             [InlineKeyboardButton(IBTN_HELP_PRESETS, callback_data="admin:help:presets")],
             [InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:back")],
         ]

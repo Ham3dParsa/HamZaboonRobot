@@ -1167,6 +1167,50 @@ def count_users():
         return conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
 
 
+def count_users_overview() -> dict:
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN onboarded=1 THEN 1 ELSE 0 END) AS onboarded,
+                SUM(CASE WHEN bot_blocked=1 THEN 1 ELSE 0 END) AS blocked
+            FROM users
+        """).fetchone()
+        return dict(row)
+
+
+def count_users_grouped(field: str) -> list[dict]:
+    allowed = {"plan", "target_lang", "goal", "level"}
+    if field not in allowed:
+        return []
+    with get_conn() as conn:
+        return conn.execute(
+            f"SELECT {field} AS val, COUNT(*) AS cnt FROM users GROUP BY {field} ORDER BY cnt DESC"
+        ).fetchall()
+
+
+def count_active_users_since(date: str) -> int:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM users WHERE last_active_date >= ?", (date,)
+        ).fetchone()
+        return row["cnt"] if row else 0
+
+
+def count_saved_words_total() -> int:
+    with get_conn() as conn:
+        row = conn.execute("SELECT COUNT(*) AS cnt FROM saved_words").fetchone()
+        return row["cnt"] if row else 0
+
+
+def count_llm_requests_since(date: str) -> int:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM llm_requests WHERE request_date >= ?", (date,)
+        ).fetchone()
+        return row["cnt"] if row else 0
+
+
 def set_plan(user_id: int, plan: str):
     if plan not in PLANS:
         raise ValueError(f"Unknown plan: {plan}")
@@ -1852,6 +1896,39 @@ def set_preset_group_label_batch(names: list[str], label: str):
         conn.execute(
             f"UPDATE ai_presets SET group_label=? WHERE name IN ({placeholders})",
             (label, *names),
+        )
+        conn.commit()
+
+
+def get_group_labels() -> list[dict]:
+    """Return all unique group_labels with preset count, sorted by count desc."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT group_label, COUNT(*) as count FROM ai_presets "
+            "WHERE group_label != '' AND group_label IS NOT NULL "
+            "GROUP BY group_label ORDER BY count DESC"
+        ).fetchall()
+        return [{"label": r["group_label"], "count": r["count"]} for r in rows]
+
+
+def rename_group_label(old_label: str, new_label: str):
+    """Change group_label for all presets with old_label to new_label."""
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "UPDATE ai_presets SET group_label=? WHERE group_label=?",
+            (new_label, old_label),
+        )
+        conn.commit()
+
+
+def clear_group_label(label: str):
+    """Clear group_label for all presets with the given label."""
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "UPDATE ai_presets SET group_label='' WHERE group_label=?",
+            (label,),
         )
         conn.commit()
 
