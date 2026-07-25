@@ -1,0 +1,1318 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Preset Manager</title>
+<style>
+  :root {
+    --bg: #1a1b26; --surface: #24253a; --surface2: #2f3049;
+    --border: #3b3d5e; --text: #c9d1d9; --text-dim: #8b8fa3;
+    --accent: #7aa2f7; --green: #9ece6a; --red: #f7768e;
+    --orange: #e0af68; --cyan: #7dcfff;
+    --radius: 8px; --shadow: 0 4px 20px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+    background:var(--bg);color:var(--text);padding:0;line-height:1.5;
+    overflow-y:scroll;min-height:100vh;
+  }
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-track{background:var(--bg)}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+  .app{max-width:1400px;margin:0 auto;padding:20px}
+
+  .header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+  .header h1{font-size:1.3rem;display:flex;align-items:center;gap:8px}
+  .subtitle{color:var(--text-dim);font-size:.82rem;margin-right:auto}
+  .db-badge{
+    font-size:.72rem;background:var(--surface2);border:1px solid var(--border);
+    border-radius:20px;padding:4px 12px;color:var(--text-dim);max-width:350px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+
+  .tabs{display:flex;gap:4px;margin-bottom:14px;border-bottom:2px solid var(--border)}
+  .tab{
+    padding:10px 18px;cursor:pointer;border-radius:var(--radius) var(--radius) 0 0;
+    font-size:.85rem;color:var(--text-dim);border:1px solid transparent;
+    border-bottom:none;transition:all .15s;user-select:none;background:transparent;
+  }
+  .tab:hover{color:var(--text);background:var(--surface)}
+  .tab.active{color:var(--accent);background:var(--surface);border-color:var(--border)}
+  .tab .badge-count{
+    display:inline-block;background:var(--surface2);color:var(--text-dim);
+    border-radius:10px;padding:0 8px;font-size:.72rem;margin-right:4px;
+  }
+  .tab.active .badge-count{background:rgba(122,162,247,.15);color:var(--accent)}
+  .tab-content{display:none}
+  .tab-content.active{display:block}
+
+  .stats-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .stat{
+    background:var(--surface);border:1px solid var(--border);
+    border-radius:var(--radius);padding:8px 14px;font-size:.8rem;
+  }
+  .stat strong{color:var(--accent)}
+
+  .toolbar{
+    display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;
+  }
+  .toolbar input[type=search]{
+    background:var(--surface2);border:1px solid var(--border);
+    color:var(--text);border-radius:var(--radius);padding:7px 12px;
+    font-size:.82rem;flex:1;min-width:160px;
+  }
+  .toolbar input[type=search]:focus{outline:none;border-color:var(--accent)}
+  .filter-chips{display:flex;gap:4px;flex-wrap:wrap}
+  .chip{
+    padding:4px 10px;border-radius:14px;font-size:.75rem;cursor:pointer;
+    border:1px solid var(--border);background:var(--surface2);color:var(--text-dim);
+    transition:all .12s;user-select:none;
+  }
+  .chip:hover{border-color:var(--accent);color:var(--text)}
+  .chip.active{background:rgba(122,162,247,.15);border-color:var(--accent);color:var(--accent)}
+
+  .batch-bar{
+    display:none;align-items:center;gap:6px;flex-wrap:wrap;
+    padding:8px 12px;background:var(--surface);border:1px solid var(--accent);
+    border-radius:var(--radius);margin-bottom:8px;font-size:.8rem;
+  }
+  .batch-bar.visible{display:flex}
+  .batch-bar .count{color:var(--accent);font-weight:600;margin-left:8px}
+
+  .table-wrap{
+    border:1px solid var(--border);border-radius:var(--radius);
+    background:var(--surface);overflow:hidden;
+  }
+  table{width:100%;border-collapse:collapse;font-size:.8rem}
+  th{
+    background:var(--surface2);padding:9px 7px;text-align:right;
+    font-weight:600;white-space:nowrap;cursor:pointer;position:sticky;top:0;
+    border-bottom:2px solid var(--border);user-select:none;
+  }
+  th:hover{color:var(--accent)}
+  th .sort-arrow{color:var(--text-dim);font-size:.7rem;margin-right:3px}
+  td{padding:7px;border-bottom:1px solid var(--border);vertical-align:middle}
+  tr:hover{background:rgba(122,162,247,.04)}
+  tr.deleted{opacity:.4;transition:opacity .3s}
+  th:first-child, td:first-child{width:32px;text-align:center}
+  input[type=checkbox]{accent-color:var(--accent);cursor:pointer;width:15px;height:15px}
+
+  .badge{
+    display:inline-block;padding:2px 7px;border-radius:4px;
+    font-size:.7rem;font-weight:600;white-space:nowrap;
+  }
+  .badge-green{background:rgba(158,206,106,.15);color:var(--green)}
+  .badge-red{background:rgba(247,118,142,.15);color:var(--red)}
+  .badge-blue{background:rgba(122,162,247,.15);color:var(--accent)}
+  .badge-orange{background:rgba(224,175,104,.15);color:var(--orange)}
+  .badge-cyan{background:rgba(125,207,255,.15);color:var(--cyan)}
+  .badge-purple{background:rgba(187,154,247,.15);color:#bb9af7}
+
+  .mono{font-family:'Cascadia Code','Fira Code','JetBrains Mono',monospace;font-size:.75rem}
+  .truncate{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle}
+  .cell-flex{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+  .text-left{direction:ltr;text-align:left}
+
+  .editable{
+    cursor:pointer;border-bottom:1px dashed var(--text-dim);
+    padding:1px 4px;border-radius:3px;min-width:30px;display:inline-block;
+    transition:background .1s;
+  }
+  .editable:hover{background:var(--surface2);border-color:var(--accent)}
+  .editable-input{
+    background:var(--surface2);color:var(--text);border:1px solid var(--accent);
+    border-radius:4px;padding:2px 5px;font-size:.78rem;outline:none;
+  }
+  .editable-input:focus{border-color:var(--cyan)}
+  input.editable-input[type=number]{width:60px}
+  input.editable-input.url-input{width:260px}
+  input.editable-input.model-input{width:150px}
+  input.editable-input.key-input{width:240px;direction:ltr;text-align:left;font-family:monospace}
+
+  .btn{
+    background:var(--surface2);border:1px solid var(--border);color:var(--text);
+    padding:4px 10px;border-radius:4px;cursor:pointer;font-size:.75rem;
+    transition:all .12s;display:inline-flex;align-items:center;gap:4px;
+  }
+  .btn:hover{background:var(--border)}
+  .btn-primary{background:rgba(122,162,247,.15);border-color:var(--accent);color:var(--accent)}
+  .btn-primary:hover{background:rgba(122,162,247,.25)}
+  .btn-danger{background:rgba(247,118,142,.1);border-color:var(--red);color:var(--red)}
+  .btn-danger:hover{background:rgba(247,118,142,.2)}
+  .btn-sm{padding:2px 7px;font-size:.7rem}
+  .btn-icon{background:none;border:none;color:var(--text-dim);cursor:pointer;padding:2px 4px;font-size:.9rem}
+  .btn-icon:hover{color:var(--text)}
+
+  .actions{display:flex;gap:3px;flex-wrap:wrap}
+
+  .pagination{
+    display:flex;align-items:center;gap:6px;justify-content:center;
+    padding:10px;border-top:1px solid var(--border);
+  }
+  .page-btn{
+    background:var(--surface2);border:1px solid var(--border);
+    color:var(--text);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:.78rem;
+  }
+  .page-btn:hover{background:var(--border)}
+  .page-btn.active{background:rgba(122,162,247,.15);border-color:var(--accent);color:var(--accent)}
+  .page-btn:disabled{opacity:.4;cursor:default}
+
+  .panel-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100}
+  .panel-overlay.open{display:block}
+  .side-panel{
+    position:fixed;top:0;left:0;bottom:0;width:460px;max-width:90vw;
+    background:var(--surface);border-right:1px solid var(--border);
+    z-index:101;transform:translateX(-100%);transition:transform .25s ease;
+    overflow-y:auto;padding:20px;direction:rtl;
+  }
+  .side-panel.open{transform:translateX(0)}
+  .side-panel h2{font-size:1.1rem;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+  .side-panel .close-panel{
+    position:absolute;top:12px;left:12px;background:none;border:none;
+    color:var(--text-dim);font-size:1.3rem;cursor:pointer;
+  }
+  .side-panel .close-panel:hover{color:var(--text)}
+  .panel-field{margin-bottom:10px}
+  .panel-field label{
+    display:block;font-size:.7rem;color:var(--text-dim);
+    text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px;
+  }
+  .panel-field .value{font-size:.85rem;word-break:break-all}
+  .toggle-wrap{display:inline-flex;align-items:center;cursor:pointer}
+  .toggle-slider{width:36px;height:20px;background:var(--border);border-radius:10px;position:relative;transition:background .2s;display:inline-block}
+  .toggle-slider::after{content:'';position:absolute;width:16px;height:16px;border-radius:50%;background:var(--text);top:2px;right:2px;transition:transform .2s}
+  .toggle-wrap input[type=checkbox]{display:none}
+  .toggle-wrap input[type=checkbox]:checked + .toggle-slider{background:var(--green)}
+  .toggle-wrap input[type=checkbox]:checked + .toggle-slider::after{transform:translateX(-16px)}
+  .panel-field .input-wrap{
+    display:block;font-size:.82rem;padding:4px 8px;
+    border:1px solid var(--border);border-radius:4px;
+    background:var(--bg);color:var(--text);width:100%;
+    min-width:0;direction:ltr;text-align:left;
+  }
+  .panel-field .input-wrap:focus{outline:none;border-color:var(--accent)}
+  .panel-field .input-wrap.rtl{direction:rtl;text-align:right}
+  .panel-field .input-wrap.num{width:80px}
+
+  .confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;justify-content:center;align-items:center}
+  .confirm-overlay.open{display:flex}
+  .confirm-box{
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:24px;max-width:420px;width:90%;box-shadow:var(--shadow);
+  }
+  .confirm-box h3{margin-bottom:8px}
+  .confirm-box p{color:var(--text-dim);font-size:.82rem;margin-bottom:16px}
+  .confirm-box .confirm-actions{display:flex;gap:8px;justify-content:flex-end}
+
+  .toast{
+    position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+    background:var(--surface2);border:1px solid var(--green);color:var(--green);
+    padding:10px 22px;border-radius:var(--radius);font-size:.85rem;
+    opacity:0;transition:opacity .3s;pointer-events:none;z-index:300;
+  }
+  .toast.show{opacity:1}
+  .toast.err{border-color:var(--red);color:var(--red)}
+
+  .chain-list{display:flex;flex-direction:column;gap:6px}
+  .chain-item{
+    display:flex;align-items:center;gap:10px;padding:10px 14px;
+    background:var(--surface);border:1px solid var(--border);
+    border-radius:var(--radius);
+  }
+  .chain-item .rank{color:var(--accent);font-weight:700;min-width:30px}
+  .chain-item .name{flex:1;font-weight:600}
+  .chain-item .detail{color:var(--text-dim);font-size:.78rem}
+  .chain-item .badge{margin-right:auto}
+
+  .usage-summary{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-bottom:16px;
+  }
+  .usage-summary .stat{padding:10px 14px}
+  .usage-summary .stat .num{font-size:1.1rem;font-weight:700;color:var(--accent)}
+  .usage-summary .stat .num.green{color:var(--green)}
+  .usage-summary .stat .num.orange{color:var(--orange)}
+  .usage-summary .stat .num.red{color:var(--red)}
+  .usage-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:10px}
+  .usage-card{
+    background:var(--surface);border:1px solid var(--border);
+    border-radius:var(--radius);padding:14px;
+  }
+  .usage-card h3{font-size:.85rem;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .usage-card .row{display:flex;justify-content:space-between;font-size:.8rem;padding:3px 0;border-bottom:1px solid var(--border)}
+  .usage-card .row:last-child{border:none}
+  .usage-card .row .label{color:var(--text-dim)}
+  .usage-card .row .val{font-family:monospace}
+
+  .settings-section{margin-bottom:22px}
+  .settings-section h3{font-size:.9rem;margin-bottom:8px;color:var(--accent)}
+  .settings-field{margin-bottom:10px}
+  .settings-field label{display:block;font-size:.78rem;color:var(--text-dim);margin-bottom:3px}
+  .settings-field .input-group{display:flex;gap:6px}
+  .settings-field input[type=text],.settings-field input[type=number]{
+    flex:1;background:var(--surface2);border:1px solid var(--border);
+    color:var(--text);border-radius:4px;padding:6px 10px;font-size:.82rem;
+  }
+  .settings-field input:focus{outline:none;border-color:var(--accent)}
+  .settings-field .hint{font-size:.72rem;color:var(--text-dim);margin-top:3px}
+
+  .loading{
+    display:flex;align-items:center;justify-content:center;padding:40px;
+    color:var(--text-dim);gap:8px;
+  }
+  .spinner{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .modal-input{margin-bottom:10px}
+  .modal-input label{display:block;font-size:.78rem;color:var(--text-dim);margin-bottom:3px}
+  .modal-input input{width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:6px 10px;font-size:.85rem}
+  .modal-input input:focus{outline:none;border-color:var(--accent)}
+
+  @media(max-width:800px){
+    .header .subtitle,.db-badge{display:none}
+    .side-panel{width:100%;max-width:100vw}
+    .tabs{overflow-x:auto;flex-wrap:nowrap}
+    .tab{white-space:nowrap;padding:8px 12px;font-size:.8rem}
+    .toolbar{flex-direction:column}
+    .toolbar input[type=search]{width:100%}
+    .stats-bar .stat,.usage-summary .stat{font-size:.75rem;padding:6px 10px}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ─── HEADER ─── -->
+  <div class="header">
+    <h1>🤖 AI Preset Manager</h1>
+    <span class="subtitle">مدیریت پیش‌تنظیم‌های هوش مصنوعی</span>
+    <span class="db-badge" id="db-badge" title="مسیر دیتابیس فعلی">📁 بارگذاری...</span>
+    <button class="btn btn-sm" id="refresh-btn" title="بروزرسانی همه داده‌ها">🔄</button>
+  </div>
+
+  <!-- ─── STATS ─── -->
+  <div class="stats-bar" id="stats-bar"></div>
+
+  <!-- ─── TABS ─── -->
+  <div class="tabs">
+    <div class="tab active" data-tab="presets" title="مشاهده و ویرایش همه پریست‌ها">📋 همه پریست‌ها <span class="badge-count" id="count-presets"></span></div>
+    <div class="tab" data-tab="chain" title="مشاهده زنجیره فال‌بک">🔗 زنجیره Fallback <span class="badge-count" id="count-chain"></span></div>
+    <div class="tab" data-tab="usage" title="آمار مصرف و هزینه‌ها">📊 مصرف و هزینه</div>
+    <div class="tab" data-tab="settings" title="تنظیمات ابزار">⚙️ تنظیمات</div>
+  </div>
+
+  <!-- ═══════════════ TAB: ALL PRESETS ════════════════ -->
+  <div class="tab-content active" id="tab-presets">
+    <div class="toolbar">
+      <input type="search" id="search-input" placeholder="🔍 جستجو در نام، مدل، گروه، URL..." title="فیلتر کردن پریست‌ها">
+      <div class="filter-chips">
+        <span class="chip active" data-filter="all" title="نمایش همه">همه</span>
+        <span class="chip" data-filter="active" title="فقط پریست فعال">فعال</span>
+        <span class="chip" data-filter="enabled" title="فقط پریست‌های روشن">روشن</span>
+        <span class="chip" data-filter="chain" title="فقط پریست‌های داخل زنجیره فال‌بک">در زنجیره</span>
+        <span class="chip" data-filter="emergency" title="فقط پریست‌های اضطراری">اضطراری</span>
+        <span class="chip" data-filter="custom" title="فقط پریست‌های سفارشی">سفارشی</span>
+      </div>
+      <button class="btn btn-sm" id="reveal-all-btn" title="نمایش یا مخفی‌سازی کلید API همه پریست‌ها">👁️ کلیدها</button>
+      <button class="btn btn-primary btn-sm" id="add-preset-btn" title="ایجاد پریست جدید">+ جدید</button>
+    </div>
+
+    <div class="batch-bar" id="batch-bar">
+      <span class="count" id="batch-count">0 انتخاب</span>
+      <button class="btn btn-sm btn-primary batch-enable" data-val="1" title="فعال‌سازی پریست‌های انتخاب شده">✅ فعال</button>
+      <button class="btn btn-sm batch-enable" data-val="0" title="غیرفعال‌سازی پریست‌های انتخاب شده">⛔ غیرفعال</button>
+      <button class="btn btn-sm btn-primary batch-chain" data-val="1" title="افزودن به زنجیره فال‌بک">🔗 به زنجیره</button>
+      <button class="btn btn-sm batch-chain" data-val="0" title="حذف از زنجیره فال‌بک">➖ از زنجیره</button>
+      <button class="btn btn-sm batch-group-btn" title="تنظیم برچسب گروه برای انتخاب شده‌ها">🏷️ گروه</button>
+      <button class="btn btn-sm batch-key-btn" title="تنظیم API Key برای انتخاب شده‌ها">🔑 کلید</button>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th title="انتخاب همه"><input type="checkbox" id="select-all" title="انتخاب همه"></th>
+            <th data-key="name" title="ترتیب بر اساس نام">نام <span class="sort-arrow"></span></th>
+            <th data-key="model" title="ترتیب بر اساس مدل">مدل <span class="sort-arrow"></span></th>
+            <th data-key="enabled" title="فعال یا غیرفعال">وضعیت</th>
+            <th data-key="priority" title="ترتیب بر اساس اولویت">اولویت <span class="sort-arrow"></span></th>
+            <th data-key="in_fallback_chain" title="عضویت در زنجیره فال‌بک">زنجیره</th>
+            <th data-key="is_emergency" title="اضطراری یا عادی">اضطراری</th>
+            <th data-key="group_label" title="ترتیب بر اساس گروه">گروه <span class="sort-arrow"></span></th>
+            <th data-key="base_url" title="ترتیب بر اساس آدرس">Base URL <span class="sort-arrow"></span></th>
+            <th data-key="cost_per_req" title="هزینه به ازای هر درخواست">💰/req</th>
+            <th>API Key</th>
+            <th>عملیات</th>
+          </tr>
+        </thead>
+        <tbody id="preset-tbody"></tbody>
+      </table>
+      <div class="pagination" id="pagination"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ TAB: FALLBACK CHAIN ════════════════ -->
+  <div class="tab-content" id="tab-chain">
+    <div id="chain-content"><div class="loading"><div class="spinner"></div> بارگذاری...</div></div>
+  </div>
+
+  <!-- ═══════════════ TAB: USAGE ════════════════════════ -->
+  <div class="tab-content" id="tab-usage">
+    <div id="usage-content"><div class="loading"><div class="spinner"></div> بارگذاری...</div></div>
+  </div>
+
+  <!-- ═══════════════ TAB: SETTINGS ═════════════════════ -->
+  <div class="tab-content" id="tab-settings">
+    <div id="settings-content"></div>
+  </div>
+</div>
+
+<!-- ─── SIDE PANEL ─── -->
+<div class="panel-overlay" id="panel-overlay"></div>
+<div class="side-panel" id="side-panel">
+  <button class="close-panel" id="close-panel" title="بستن">✕</button>
+  <div id="panel-body"><div class="loading"><div class="spinner"></div></div></div>
+</div>
+
+<!-- ─── CONFIRM DIALOG ─── -->
+<div class="confirm-overlay" id="confirm-overlay">
+  <div class="confirm-box">
+    <h3 id="confirm-title">تأیید</h3>
+    <p id="confirm-msg">آیا مطمئن هستید؟</p>
+    <div class="confirm-actions">
+      <button class="btn" id="confirm-cancel" title="انصراف">انصراف</button>
+      <button class="btn btn-danger" id="confirm-ok" title="تأیید">تأیید</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── INPUT DIALOG ─── -->
+<div class="confirm-overlay" id="input-overlay">
+  <div class="confirm-box">
+    <h3 id="input-title">ورود</h3>
+    <div id="input-body"></div>
+    <div class="confirm-actions">
+      <button class="btn" id="input-cancel" title="انصراف">انصراف</button>
+      <button class="btn btn-primary" id="input-ok" title="تأیید">تأیید</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── TOAST ─── -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+//  AI Preset Manager — SPA frontend
+// ════════════════════════════════════════════════════════════
+
+const API = '/api';
+let presetsData = [], filteredData = [];
+let sortKey = 'priority', sortDir = 1;
+let activeFilter = 'all', searchQuery = '', selectedNames = new Set();
+let pageSize = 50, page = 1;
+let allKeysRevealed = false;
+let confirmResolve = null, inputResolve = null;
+
+// ─── API ──────────────────────────────────────────────
+
+async function api(url, opts = {}) {
+  const r = await fetch(API + url, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({ error: r.statusText }));
+    throw new Error(err.error || r.statusText);
+  }
+  return r.json();
+}
+
+// ─── Toast ────────────────────────────────────────────
+
+function toast(msg, isErr = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (isErr ? ' err' : '');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+// ─── Confirm ──────────────────────────────────────────
+
+function confirmAction(title, msg) {
+  return new Promise(resolve => {
+    confirmResolve = resolve;
+    document.getElementById('confirm-title').textContent = title;
+    document.getElementById('confirm-msg').textContent = msg;
+    document.getElementById('confirm-overlay').classList.add('open');
+  });
+}
+document.getElementById('confirm-ok').addEventListener('click', () => {
+  document.getElementById('confirm-overlay').classList.remove('open');
+  if (confirmResolve) { confirmResolve(true); confirmResolve = null; }
+});
+document.getElementById('confirm-cancel').addEventListener('click', () => {
+  document.getElementById('confirm-overlay').classList.remove('open');
+  if (confirmResolve) { confirmResolve(false); confirmResolve = null; }
+});
+document.getElementById('confirm-overlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) {
+    document.getElementById('confirm-overlay').classList.remove('open');
+    if (confirmResolve) { confirmResolve(false); confirmResolve = null; }
+  }
+});
+
+// ─── Input dialog ─────────────────────────────────────
+
+function inputDialog(title, fields) {
+  return new Promise(resolve => {
+    inputResolve = resolve;
+    document.getElementById('input-title').textContent = title;
+    document.getElementById('input-body').innerHTML = fields.map((f, i) =>
+      `<div class="modal-input"><label>${f.label}</label><input type="${f.type || 'text'}" id="input-f-${i}" value="${f.value || ''}" placeholder="${f.placeholder || ''}" ${f.autofocus ? 'autofocus' : ''}></div>`
+    ).join('');
+    document.getElementById('input-overlay').classList.add('open');
+    const firstInput = document.querySelector('#input-body input');
+    if (firstInput) setTimeout(() => firstInput.focus(), 100);
+  });
+}
+document.getElementById('input-ok').addEventListener('click', () => {
+  document.getElementById('input-overlay').classList.remove('open');
+  if (inputResolve) {
+    const inputs = document.querySelectorAll('#input-body input');
+    const values = Array.from(inputs).map(inp => inp.value);
+    inputResolve(values);
+    inputResolve = null;
+  }
+});
+document.getElementById('input-cancel').addEventListener('click', () => {
+  document.getElementById('input-overlay').classList.remove('open');
+  if (inputResolve) { inputResolve(null); inputResolve = null; }
+});
+document.getElementById('input-overlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) {
+    document.getElementById('input-overlay').classList.remove('open');
+    if (inputResolve) { inputResolve(null); inputResolve = null; }
+  }
+});
+
+// ─── Side panel ───────────────────────────────────────
+
+function openPanel(html) {
+  document.getElementById('panel-body').innerHTML = html;
+  document.getElementById('panel-overlay').classList.add('open');
+  document.getElementById('side-panel').classList.add('open');
+}
+function closePanel() {
+  document.getElementById('panel-overlay').classList.remove('open');
+  document.getElementById('side-panel').classList.remove('open');
+}
+document.getElementById('close-panel').addEventListener('click', closePanel);
+document.getElementById('panel-overlay').addEventListener('click', closePanel);
+
+// ─── Tabs ─────────────────────────────────────────────
+
+document.querySelectorAll('.tab').forEach(el => {
+  el.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('tab-' + el.dataset.tab).classList.add('active');
+    if (el.dataset.tab === 'chain') renderChainTab();
+    if (el.dataset.tab === 'usage') renderUsageTab();
+    if (el.dataset.tab === 'settings') renderSettingsTab();
+  });
+});
+
+// ─── Formatting ───────────────────────────────────────
+
+function fmtCost(v) {
+  if (v == null || v === 0 || v === '\u2014') return '\u2014';
+  if (Math.abs(v) < 0.001) return '$' + Number(v).toExponential(4);
+  return '$' + Number(v).toFixed(6);
+}
+function fmtToman(v) {
+  if (v == null || v === 0) return '\u2014';
+  return Number(v).toLocaleString('fa-IR') + ' تومان';
+}
+function fmtBool(v) { return v ? 'بله' : 'خیر' }
+function esc(s) {
+  if (s == null) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+function fmtNum(n) {
+  if (n == null) return '0';
+  return Number(n).toLocaleString('fa-IR');
+}
+
+// ─── Sort & Filter ───────────────────────────────────
+
+function applyFilters() {
+  let data = presetsData;
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    data = data.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      p.model.toLowerCase().includes(q) ||
+      (p.group_label || '').toLowerCase().includes(q) ||
+      p.base_url.toLowerCase().includes(q)
+    );
+  }
+  if (activeFilter === 'active') data = data.filter(p => p.is_active);
+  else if (activeFilter === 'enabled') data = data.filter(p => p.enabled);
+  else if (activeFilter === 'chain') data = data.filter(p => p.in_fallback_chain);
+  else if (activeFilter === 'emergency') data = data.filter(p => p.is_emergency);
+  else if (activeFilter === 'custom') data = data.filter(p => p.is_custom);
+  data.sort((a, b) => {
+    let va = a[sortKey] ?? '', vb = b[sortKey] ?? '';
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    if (va < vb) return -1 * sortDir;
+    if (va > vb) return 1 * sortDir;
+    return 0;
+  });
+  filteredData = data;
+  page = 1;
+  renderTable();
+  renderPagination();
+}
+
+// ─── Render table ─────────────────────────────────────
+
+function renderTable() {
+  const tbody = document.getElementById('preset-tbody');
+  const start = (page - 1) * pageSize;
+  const items = filteredData.slice(start, start + pageSize);
+
+  tbody.innerHTML = items.map((p, idx) => {
+    const realIdx = presetsData.indexOf(p);
+    const checked = selectedNames.has(p.name) ? 'checked' : '';
+    const chainL = p.in_fallback_chain
+      ? '<span class="badge badge-green">بله</span>'
+      : '<span class="badge badge-red">خیر</span>';
+    const enL = p.enabled
+      ? '<span class="badge badge-green">فعال</span>'
+      : '<span class="badge badge-red">غیرفعال</span>';
+    const emL = p.is_emergency
+      ? '<span class="badge badge-orange">اضطراری</span>'
+      : '\u2014';
+    const actB = p.is_active ? '<span class="badge badge-blue">اکتیو</span>' : '';
+    const grp = p.group_label || '\u2014';
+    const urlS = p.base_url ? p.base_url.replace(/^https?:\/\//,'').replace(/\/+$/,'') : '\u2014';
+    const cr = fmtCost(p.cost_per_req);
+    const realKey = p.api_key_resolved || p.api_key || '';
+    const keyLabel = p.api_key && p.api_key.startsWith('$')
+      ? `<span class="mono" style="font-size:.65rem;color:var(--orange);direction:ltr;display:inline-block" title="متغیر محیطی: ${esc(p.api_key)}">${esc(p.api_key)}</span>`
+      : esc(p.api_key || '\u2014');
+    const keyDisplay = allKeysRevealed
+      ? (realKey
+        ? `<span class="mono text-left" style="font-size:.7rem;direction:ltr;display:inline-block" title="مقدار واقعی">${esc(realKey)}</span>`
+        : keyLabel)
+      : p.api_key_masked && p.api_key_masked !== '\u2014'
+        ? `<span class="mono" style="cursor:pointer;font-size:.7rem" data-reveal="${p.name}" title="کلیک برای نمایش کلید">${esc(p.api_key_masked)} <span style="font-size:.75rem">👁️</span></span>`
+        : keyLabel;
+
+    return `<tr data-name="${p.name}">
+      <td><input type="checkbox" class="row-check" data-name="${p.name}" ${checked} title="انتخاب ${esc(p.name)}"></td>
+      <td><div class="cell-flex">${actB} <b class="editable" data-field="name" data-name="${p.name}" title="کلیک برای ویرایش نام">${esc(p.name)}</b></div></td>
+      <td class="mono"><span class="editable" data-field="model" data-name="${p.name}" title="کلیک برای ویرایش مدل">${p.model || '\u2014'}</span></td>
+      <td><span class="editable-toggle" data-field="enabled" data-name="${p.name}" data-value="${p.enabled}" title="کلیک برای تغییر وضعیت">${enL}</span></td>
+      <td><span class="editable" data-field="priority" data-name="${p.name}" data-type="number" title="کلیک برای ویرایش اولویت">${p.priority}</span></td>
+      <td><span class="editable-toggle" data-field="in_fallback_chain" data-name="${p.name}" data-value="${p.in_fallback_chain}" title="کلیک برای تغییر عضویت در زنجیره">${chainL}</span></td>
+      <td><span class="editable-toggle" data-field="is_emergency" data-name="${p.name}" data-value="${p.is_emergency}" title="کلیک برای تغییر وضعیت اضطراری">${emL}</span></td>
+      <td><span class="editable" data-field="group_label" data-name="${p.name}" title="کلیک برای ویرایش گروه">${grp}</span></td>
+      <td class="mono"><span class="editable truncate" data-field="base_url" data-name="${p.name}" title="کلیک برای ویرایش آدرس">${urlS}</span></td>
+      <td class="mono">${cr}</td>
+      <td class="mono">${keyDisplay}</td>
+      <td class="actions">
+        <button class="btn btn-sm" data-edit="${realIdx}" title="ویرایش این پریست">✏️</button>
+        <button class="btn btn-sm" data-detail="${realIdx}" title="نمایش جزئیات کامل">📋</button>
+        ${p.is_active ? '' : `<button class="btn btn-sm btn-primary" data-activate="${p.name}" title="فعال کردن این پریست">فعال</button>`}
+        <button class="btn btn-sm" data-clone="${p.name}" title="ایجاد کپی از این پریست">Clone</button>
+        <button class="btn btn-sm btn-danger" data-delete="${p.name}" title="حذف این پریست">🗑️</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // Bind editable
+  tbody.querySelectorAll('.editable').forEach(el => {
+    el.addEventListener('click', e => { if (!el.querySelector('input')) startEdit(el); });
+  });
+  // Toggle fields
+  tbody.querySelectorAll('.editable-toggle').forEach(el => {
+    el.addEventListener('click', async () => {
+      const field = el.dataset.field, name = el.dataset.name;
+      const cur = el.dataset.value === 'true';
+      try {
+        await api(`/presets/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify({ [field]: !cur }) });
+        toast(`${field}: ${cur ? 'خاموش' : 'روشن'}`);
+        await loadAll();
+      } catch(e) { toast(e.message, true); }
+    });
+  });
+  // Activate
+  tbody.querySelectorAll('[data-activate]').forEach(el => {
+    el.addEventListener('click', async () => {
+      try {
+        await api(`/activate/${encodeURIComponent(el.dataset.activate)}`, { method: 'POST' });
+        toast(`✅ فعال شد: ${el.dataset.activate}`);
+        await loadAll();
+      } catch(e) { toast(e.message, true); }
+    });
+  });
+  // Delete
+  tbody.querySelectorAll('[data-delete]').forEach(el => {
+    el.addEventListener('click', async () => {
+      const ok = await confirmAction('🗑️ حذف پریست', `آیا پریست "${el.dataset.delete}" حذف شود؟`);
+      if (!ok) return;
+      try {
+        await api(`/presets/${encodeURIComponent(el.dataset.delete)}`, { method: 'DELETE' });
+        toast(`🗑️ حذف شد: ${el.dataset.delete}`);
+        selectedNames.delete(el.dataset.delete);
+        await loadAll();
+      } catch(e) { toast(e.message, true); }
+    });
+  });
+  // Clone
+  tbody.querySelectorAll('[data-clone]').forEach(el => {
+    el.addEventListener('click', async () => {
+      const name = el.dataset.clone;
+      const vals = await inputDialog(`📋 Clone "${name}"`, [
+        { label: 'نام پریست جدید', value: name + '_copy', autofocus: true }
+      ]);
+      if (!vals || !vals[0].trim()) return;
+      try {
+        const res = await api(`/presets/${encodeURIComponent(name)}/clone`, { method: 'POST', body: JSON.stringify({ name: vals[0].trim() }) });
+        toast(`✅ Clone شد: ${res.name}`);
+        await loadAll();
+      } catch(e) { toast(e.message, true); }
+    });
+  });
+  // Edit button → opens side panel in edit mode
+  tbody.querySelectorAll('[data-edit]').forEach(el => {
+    el.addEventListener('click', () => showDetailPanel(parseInt(el.dataset.edit), true));
+  });
+  // Details
+  tbody.querySelectorAll('[data-detail]').forEach(el => {
+    el.addEventListener('click', () => showDetailPanel(parseInt(el.dataset.detail), false));
+  });
+  // API Key reveal (per preset)
+  tbody.querySelectorAll('[data-reveal]').forEach(el => {
+    el.addEventListener('click', async () => {
+      const name = el.dataset.reveal;
+      try {
+        const p = presetsData.find(x => x.name === name);
+        if (p) {
+          const resolved = p.api_key_resolved || p.api_key || '';
+          el.outerHTML = `<span class="mono text-left" style="font-size:.7rem;direction:ltr;display:inline-block" title="${p.api_key && p.api_key.startsWith('$') ? 'متغیر محیطی: ' + esc(p.api_key) : ''}">${esc(resolved)}</span>`;
+        }
+      } catch(e) { toast(e.message, true); }
+    });
+  });
+  // Row checkboxes
+  tbody.querySelectorAll('.row-check').forEach(el => {
+    el.addEventListener('change', () => {
+      if (el.checked) selectedNames.add(el.dataset.name);
+      else selectedNames.delete(el.dataset.name);
+      updateBatchBar();
+    });
+  });
+}
+
+function renderPagination() {
+  const pages = Math.ceil(filteredData.length / pageSize);
+  const el = document.getElementById('pagination');
+  if (pages <= 1) { el.innerHTML = ''; return; }
+  let html = `<button class="page-btn" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''} title="صفحه قبل">‹ قبلی</button>`;
+  for (let i = 1; i <= pages; i++) {
+    html += `<button class="page-btn ${i === page ? 'active' : ''}" data-page="${i}" title="صفحه ${i}">${i}</button>`;
+  }
+  html += `<button class="page-btn" data-page="${page + 1}" ${page >= pages ? 'disabled' : ''} title="صفحه بعد">بعدی ›</button>`;
+  el.innerHTML = html;
+  el.querySelectorAll('.page-btn:not([disabled])').forEach(b => {
+    b.addEventListener('click', () => {
+      const p = parseInt(b.dataset.page);
+      if (p >= 1 && p <= pages) { page = p; renderTable(); renderPagination(); }
+    });
+  });
+}
+
+// ─── Batch bar ────────────────────────────────────────
+
+function updateBatchBar() {
+  const bar = document.getElementById('batch-bar');
+  const count = selectedNames.size;
+  document.getElementById('batch-count').textContent = count + ' انتخاب';
+  bar.classList.toggle('visible', count > 0);
+  document.getElementById('select-all').checked = count === filteredData.length && filteredData.length > 0;
+}
+
+function getSelectedNames() {
+  return Array.from(selectedNames);
+}
+
+// ─── Inline editing ──────────────────────────────────
+
+function startEdit(el) {
+  const field = el.dataset.field, name = el.dataset.name, type = el.dataset.type || 'text';
+  const isUrl = field === 'base_url';
+  const isModel = field === 'model';
+  const isName = field === 'name';
+  const isKey = field === 'api_key';
+  const current = el.textContent.trim() === '\u2014' ? '' : el.textContent.trim();
+
+  const input = document.createElement('input');
+  input.type = type === 'number' ? 'number' : 'text';
+  if (type === 'number') {
+    input.step = field === 'temperature' ? '0.01' : '1';
+    input.value = current;
+    input.style.width = '60px';
+  } else if (isUrl) {
+    input.className = 'editable-input url-input';
+    input.value = current;
+    input.style.direction = 'ltr';
+  } else if (isModel) {
+    input.className = 'editable-input model-input';
+    input.value = current;
+    input.style.direction = 'ltr';
+  } else if (isKey) {
+    input.className = 'editable-input key-input';
+    input.value = current;
+    input.style.direction = 'ltr';
+  } else if (isName) {
+    input.style.width = '140px';
+    input.value = current;
+    input.style.direction = 'ltr';
+  } else {
+    input.className = 'editable-input';
+    input.value = current;
+    input.style.direction = 'ltr';
+  }
+  input.classList.add('editable-input');
+
+  el.textContent = '';
+  el.appendChild(input);
+  input.focus();
+  input.select();
+
+  const save = async () => {
+    let val = input.value.trim();
+    if (type === 'number') {
+      const num = parseFloat(val);
+      if (isNaN(num)) { toast('مقدار نامعتبر', true); await loadAll(); return; }
+      val = num;
+    }
+    try {
+      await api(`/presets/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify({ [field]: val }) });
+      toast(`✅ ${field} بروز شد`);
+      await loadAll();
+    } catch(e) { toast(e.message, true); await loadAll(); }
+  };
+
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+    if (ev.key === 'Escape') { loadAll(); }
+  });
+}
+
+// ─── Detail panel ─────────────────────────────────────
+
+function showDetailPanel(idx, startInEdit) {
+  const p = presetsData[idx];
+  if (!p) return;
+  const orig = JSON.parse(JSON.stringify(p));
+  let editing = false;
+
+  function renderView() {
+    const costReq = fmtCost(p.cost_per_req);
+    const costTok = fmtCost(p.cost_per_1k_tokens);
+    const costIn = p.input_cost_per_million != null ? '$' + p.input_cost_per_million + '/1M' : '\u2014 (global)';
+    const costOut = p.output_cost_per_million != null ? '$' + p.output_cost_per_million + '/1M' : '\u2014 (global)';
+
+    const html = `
+      <h2>${p.is_active ? '<span class="badge badge-blue">ACTIVE</span>' : ''} ${esc(p.name)}
+        <button class="btn btn-sm" id="panel-edit-btn" title="ویرایش این پریست" style="margin-right:auto">✏️ Edit</button>
+      </h2>
+      <div class="panel-field"><label>base_url</label><div class="value mono text-left">${esc(p.base_url || '\u2014')}</div></div>
+      <div class="panel-field"><label>model</label><div class="value mono text-left">${p.model || '\u2014'}</div></div>
+      <div class="panel-field">
+        <label>api_key <button class="btn-icon" id="panel-key-reveal" title="نمایش/مخفی‌سازی کلید" style="font-size:.8rem">👁️</button>
+        ${p.api_key && p.api_key.startsWith('$') ? `<span class="mono" style="font-size:.65rem;color:var(--orange);display:inline-block;margin-right:6px" title="متغیر محیطی">${esc(p.api_key)}</span>` : ''}</label>
+        <div class="value mono text-left" id="panel-key-value">${p.api_key_masked}</div>
+      </div>
+      <div class="panel-field"><label>enabled</label><div class="value">${p.enabled ? '✅ فعال' : '⛔ غیرفعال'}</div></div>
+      <div class="panel-field"><label>priority</label><div class="value">${p.priority}</div></div>
+      <div class="panel-field"><label>in_fallback_chain</label><div class="value">${fmtBool(p.in_fallback_chain)}</div></div>
+      <div class="panel-field"><label>is_emergency</label><div class="value">${fmtBool(p.is_emergency)}</div></div>
+      <div class="panel-field"><label>group_label</label><div class="value">${p.group_label || '\u2014'}</div></div>
+      <div class="panel-field"><label>is_custom</label><div class="value">${fmtBool(p.is_custom)}</div></div>
+      <hr style="border-color:var(--border);margin:12px 0">
+      <div class="panel-field"><label>max_concurrency</label><div class="value">${p.max_concurrency}</div></div>
+      <div class="panel-field"><label>max_rpm</label><div class="value">${p.max_rpm}</div></div>
+      <div class="panel-field"><label>max_tpm</label><div class="value">${p.max_tpm}</div></div>
+      <div class="panel-field"><label>daily_batch_size</label><div class="value">${p.daily_batch_size}</div></div>
+      <div class="panel-field"><label>temperature</label><div class="value">${p.temperature}</div></div>
+      <hr style="border-color:var(--border);margin:12px 0">
+      <div class="panel-field"><label>input_cost_per_million</label><div class="value mono">${costIn}</div></div>
+      <div class="panel-field"><label>output_cost_per_million</label><div class="value mono">${costOut}</div></div>
+      <div class="panel-field"><label>cost_per_req (static)</label><div class="value mono">${costReq}</div></div>
+      <div class="panel-field"><label>cost_per_1k_tokens (static)</label><div class="value mono">${costTok}</div></div>
+    `;
+    document.getElementById('panel-body').innerHTML = html;
+
+    const editBtn = document.getElementById('panel-edit-btn');
+    if (editBtn) {
+      editBtn.addEventListener('click', () => { editing = true; renderEdit(); });
+    }
+    const revealBtn = document.getElementById('panel-key-reveal');
+    if (revealBtn) {
+      revealBtn.addEventListener('click', () => {
+        const kv = document.getElementById('panel-key-value');
+        const resolved = p.api_key_resolved || '';
+        if (kv.textContent === resolved || kv.textContent === (p.api_key_masked || '')) {
+          kv.textContent = resolved || (p.api_key_masked || '\u2014');
+        } else {
+          kv.textContent = p.api_key_masked;
+        }
+      });
+    }
+  }
+
+  function renderEdit() {
+    function i(name, type, val, extra) {
+      const id = 'edit-' + name;
+      const v = val == null ? '' : val;
+      if (type === 'bool') {
+        const checked = v ? 'checked' : '';
+        return `<label class="toggle-wrap"><input type="checkbox" id="${id}" ${checked}> <span class="toggle-slider"></span></label>`;
+      } else if (type === 'number') {
+        return `<input type="number" id="${id}" class="input-wrap num" value="${v}" step="${extra || 'any'}">`;
+      } else if (type === 'url') {
+        return `<input type="text" id="${id}" class="input-wrap" value="${esc(v)}">`;
+      } else if (type === 'model') {
+        return `<input type="text" id="${id}" class="input-wrap" value="${esc(v)}">`;
+      } else if (type === 'key') {
+        return `<input type="text" id="${id}" class="input-wrap" value="${esc(v)}">`;
+      }
+      return `<input type="text" id="${id}" class="input-wrap rtl" value="${esc(v)}">`;
+    }
+
+    const html = `
+      <h2>✏️ ${esc(p.name)}</h2>
+      <div class="panel-field"><label>name</label>${i('name','text',p.name)}</div>
+      <div class="panel-field"><label>base_url</label>${i('base_url','url',p.base_url)}</div>
+      <div class="panel-field"><label>model</label>${i('model','model',p.model)}</div>
+      <div class="panel-field"><label>api_key</label>${i('api_key','key',p.api_key)}</div>
+      <div class="panel-field"><label>enabled</label>${i('enabled','bool',p.enabled)}</div>
+      <div class="panel-field"><label>priority</label>${i('priority','number',p.priority,1)}</div>
+      <div class="panel-field"><label>in_fallback_chain</label>${i('in_fallback_chain','bool',p.in_fallback_chain)}</div>
+      <div class="panel-field"><label>is_emergency</label>${i('is_emergency','bool',p.is_emergency)}</div>
+      <div class="panel-field"><label>group_label</label>${i('group_label','text',p.group_label)}</div>
+      <div class="panel-field"><label>is_custom</label>${i('is_custom','bool',p.is_custom)}</div>
+      <hr style="border-color:var(--border);margin:12px 0">
+      <div class="panel-field"><label>max_concurrency</label>${i('max_concurrency','number',p.max_concurrency,1)}</div>
+      <div class="panel-field"><label>max_rpm</label>${i('max_rpm','number',p.max_rpm,1)}</div>
+      <div class="panel-field"><label>max_tpm</label>${i('max_tpm','number',p.max_tpm,1)}</div>
+      <div class="panel-field"><label>daily_batch_size</label>${i('daily_batch_size','number',p.daily_batch_size,1)}</div>
+      <div class="panel-field"><label>temperature</label>${i('temperature','number',p.temperature,'0.01')}</div>
+      <hr style="border-color:var(--border);margin:12px 0">
+      <div class="panel-field"><label>cost_per_req</label>${i('cost_per_req','number',p.cost_per_req,'0.01')}</div>
+      <div class="panel-field"><label>input_cost_per_million ($/1M input)</label>${i('input_cost_per_million','number',p.input_cost_per_million,'0.01')}</div>
+      <div class="panel-field"><label>output_cost_per_million ($/1M output)</label>${i('output_cost_per_million','number',p.output_cost_per_million,'0.01')}</div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn btn-primary" id="panel-save-btn" title="ذخیره تغییرات" style="flex:1">💾 Save</button>
+        <button class="btn" id="panel-cancel-btn" title="انصراف" style="flex:1">✕ Cancel</button>
+      </div>
+    `;
+    document.getElementById('panel-body').innerHTML = html;
+
+    document.getElementById('panel-cancel-btn').addEventListener('click', () => {
+      Object.assign(p, JSON.parse(JSON.stringify(orig)));
+      editing = false;
+      renderView();
+    });
+    document.getElementById('panel-save-btn').addEventListener('click', async () => {
+      const update = {};
+      const boolFields = ['enabled','in_fallback_chain','is_emergency','is_custom'];
+      const numFields = ['priority','max_concurrency','max_rpm','max_tpm','daily_batch_size','temperature','cost_per_req','input_cost_per_million','output_cost_per_million'];
+      const strFields = ['name','model','base_url','api_key','group_label'];
+
+      strFields.forEach(f => {
+        const el = document.getElementById('edit-' + f);
+        if (el) {
+          const v = el.value.trim();
+          if (v !== (orig[f] == null ? '' : String(orig[f]))) update[f] = v || null;
+        }
+      });
+      boolFields.forEach(f => {
+        const el = document.getElementById('edit-' + f);
+        if (el) {
+          const v = el.checked;
+          if (v !== !!orig[f]) update[f] = v;
+        }
+      });
+      numFields.forEach(f => {
+        const el = document.getElementById('edit-' + f);
+        if (el) {
+          const v = parseFloat(el.value);
+          if (!isNaN(v) && v !== orig[f]) update[f] = v;
+        }
+      });
+      if (update.name && update.name === p.name) delete update.name;
+
+      if (Object.keys(update).length === 0) {
+        editing = false;
+        renderView();
+        toast('No changes');
+        return;
+      }
+      try {
+        const res = await api('/presets/' + encodeURIComponent(p.name), { method: 'PUT', body: JSON.stringify(update) });
+        toast('✅ Saved');
+        Object.assign(p, res.preset || update);
+        if (res.preset) Object.assign(p, res.preset);
+        editing = false;
+        await loadAll();
+        const newIdx = presetsData.findIndex(x => x.name === p.name);
+        if (newIdx >= 0) showDetailPanel(newIdx);
+        else renderView();
+      } catch(e) { toast(e.message, true); }
+    });
+  }
+
+  openPanel('');
+  if (startInEdit) { editing = true; renderEdit(); }
+  else renderView();
+}
+
+// ─── Stats ───────────────────────────────────────────
+
+function renderStats(stats) {
+  document.getElementById('stats-bar').innerHTML = `
+    <div class="stat" title="تعداد کل پریست‌ها"><strong>${stats.total}</strong> پریست</div>
+    <div class="stat" title="پریست‌های فعال"><strong>${stats.enabled}</strong> فعال</div>
+    <div class="stat" title="پریست‌های داخل زنجیره فال‌بک"><strong>${stats.in_chain}</strong> در زنجیره</div>
+    <div class="stat" title="پریست فعال فعلی"><strong style="color:var(--cyan)">${stats.active}</strong> پریست فعال</div>
+    <div class="stat" title="تعداد گروه‌های مختلف"><strong>${stats.groups}</strong> گروه</div>
+  `;
+  document.getElementById('count-presets').textContent = stats.total;
+}
+
+// ─── Fallback Chain tab ──────────────────────────────
+
+async function renderChainTab() {
+  const el = document.getElementById('chain-content');
+  try {
+    const data = await api('/fallback');
+    const chain = data.chain || [];
+    const status = data.status || {};
+    document.getElementById('count-chain').textContent = chain.length;
+
+    let html = '<div style="margin-bottom:12px">';
+    if (status.fallback_active) {
+      html += `<span class="badge badge-orange" title="فال‌بک فعال است">⚠️ Fallback ACTIVE</span> از ${status.fallback_since || '?'} — `;
+      html += `<span class="badge badge-red" title="تعداد شکست‌های متوالی">${status.consecutive_failures || 0} شکست متوالی</span>`;
+    } else {
+      html += `<span class="badge badge-green">✅ Fallback غیرفعال</span>`;
+    }
+    html += '</div>';
+
+    if (chain.length === 0) {
+      html += '<div class="stat" style="text-align:center;padding:30px;color:var(--text-dim)">هیچ پریستی در زنجیره fallback نیست</div>';
+    } else {
+      html += '<div class="chain-list">';
+      chain.forEach((p, i) => {
+        const emer = p.is_emergency ? ' <span class="badge badge-orange" title="پریست اضطراری">اضطراری</span>' : '';
+        html += `<div class="chain-item">
+          <div class="rank">#${i + 1}</div>
+          <div class="name">${esc(p.name)}</div>
+          <div class="detail">${esc(p.model)}</div>
+          ${emer}
+          <button class="btn btn-sm btn-primary" data-activate="${p.name}" title="فعال کردن این پریست">فعال</button>
+        </div>`;
+      });
+      html += '</div>';
+    }
+    el.innerHTML = html;
+    el.querySelectorAll('[data-activate]').forEach(b => {
+      b.addEventListener('click', async () => {
+        try {
+          await api(`/activate/${encodeURIComponent(b.dataset.activate)}`, { method: 'POST' });
+          toast(`✅ فعال شد: ${b.dataset.activate}`);
+          renderChainTab(); await loadAll();
+        } catch(e) { toast(e.message, true); }
+      });
+    });
+  } catch(e) {
+    el.innerHTML = `<div class="stat" style="text-align:center;padding:30px;color:var(--red)">❌ ${esc(e.message)}</div>`;
+  }
+}
+
+// ─── Usage tab ───────────────────────────────────────
+
+async function renderUsageTab() {
+  const el = document.getElementById('usage-content');
+  try {
+    const data = await api('/costs');
+    const models = data.models || [];
+    const t = data;
+
+    let html = `<div class="usage-summary">
+      <div class="stat" title="مجموع درخواست‌ها"><span class="num">${fmtNum(t.total_request_count)}</span> درخواست کل</div>
+      <div class="stat" title="مجموع توکن‌های ورودی"><span class="num green">${fmtNum(t.total_prompt_tokens)}</span> توکن ورودی</div>
+      <div class="stat" title="مجموع توکن‌های خروجی"><span class="num green">${fmtNum(t.total_completion_tokens)}</span> توکن خروجی</div>
+      <div class="stat" title="مجموع توکن‌ها"><span class="num">${fmtNum(t.total_tokens)}</span> توکن کل</div>
+      <div class="stat" title="هزینه کل به دلار"><span class="num orange">${fmtCost(t.total_cost_usd)}</span> هزینه USD</div>
+      <div class="stat" title="هزینه کل به تومان"><span class="num red">${fmtToman(t.total_cost_toman)}</span> هزینه تومان</div>
+      <div class="stat" title="هزینه درخواست‌های خطا خورده (صورتحساب شده)"><span class="num red">${fmtCost(t.billed_failure_cost_usd)}</span> سوخته USD</div>
+      <div class="stat" title="هزینه خطا به تومان"><span class="num red">${fmtToman(t.billed_failure_cost_toman)}</span> سوخته تومان</div>
+      <div class="stat" title="نرخ تبدیل دلار به تومان">💰 نرخ: <span class="num">${fmtNum(t.usd_to_toman_rate)}</span> تومان</div>
+    </div>`;
+
+    if (models.length === 0) {
+      html += '<div class="stat" style="text-align:center;padding:30px;color:var(--text-dim)">هیچ داده مصرفی یافت نشد</div>';
+    } else {
+      html += '<div class="usage-grid">';
+      models.forEach(m => {
+        const presetsStr = (m.presets || []).join(', ') || '\u2014';
+        const failBilled = m.billed_failure_count || 0;
+        const failZero = m.zero_cost_failure_count || 0;
+        html += `<div class="usage-card" title="مدل: ${esc(m.model)}">
+          <h3><span class="badge badge-purple" style="font-size:.65rem">مدل</span> ${esc(m.model)}</h3>
+          <div class="row"><span class="label">پریست‌های مرتبط</span><span class="val" style="font-size:.72rem">${esc(presetsStr)}</span></div>
+          <div class="row"><span class="label">درخواست‌ها</span><span class="val">${fmtNum(m.request_count)}</span></div>
+          <div class="row"><span class="label">توکن ورودی (موفق)</span><span class="val">${fmtNum(m.prompt_tokens)}</span></div>
+          <div class="row"><span class="label">توکن خروجی (موفق)</span><span class="val">${fmtNum(m.completion_tokens)}</span></div>
+          <div class="row"><span class="label">مجموع توکن‌ها</span><span class="val">${fmtNum(m.total_tokens)}</span></div>
+          <div class="row"><span class="label">هزینه USD</span><span class="val">${fmtCost(m.cost_usd)}</span></div>
+          <div class="row"><span class="label">هزینه تومان</span><span class="val">${fmtToman(m.cost_toman)}</span></div>
+          ${failBilled > 0 ? `<div class="row" title="تعداد خطاهای صورت‌حساب شده"><span class="label" style="color:var(--red)">🔴 خطای صورت‌حساب شده</span><span class="val" style="color:var(--red)">${fmtNum(failBilled)}</span></div>` : ''}
+          ${failZero > 0 ? `<div class="row"><span class="label" style="color:var(--text-dim)">⚪ خطای بدون هزینه</span><span class="val" style="color:var(--text-dim)">${fmtNum(failZero)}</span></div>` : ''}
+        </div>`;
+      });
+      html += '</div>';
+    }
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = `<div class="stat" style="text-align:center;padding:30px;color:var(--red)">❌ ${esc(e.message)}</div>`;
+  }
+}
+
+// ─── Settings tab ────────────────────────────────────
+
+async function renderSettingsTab() {
+  const el = document.getElementById('settings-content');
+  try {
+    const [dbInfo, stats, settings] = await Promise.all([
+      api('/db/current'),
+      api('/stats'),
+      api('/settings'),
+    ]);
+    el.innerHTML = `
+      <div class="settings-section">
+        <h3>📁 دیتابیس</h3>
+        <div class="settings-field">
+          <label>مسیر فایل دیتابیس</label>
+          <div class="input-group">
+            <input type="text" id="db-path-input" value="${esc(dbInfo.path)}" style="direction:ltr;text-align:left;font-family:monospace;font-size:.78rem" title="مسیر کامل فایل SQLite">
+            <button class="btn btn-primary" id="db-connect-btn" title="بارگذاری دیتابیس جدید">📂 بارگذاری</button>
+          </div>
+          <div class="hint">${dbInfo.exists ? '✅ فایل وجود دارد' : '❌ فایل وجود ندارد'} — ${stats.total} پریست, ${stats.enabled} فعال</div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <h3>💰 نرخ تبدیل ارز</h3>
+        <div class="settings-field">
+          <label>نرخ دلار به تومان</label>
+          <div class="input-group">
+            <input type="number" id="toman-rate-input" value="${settings.usd_to_toman_rate}" step="1000" min="1" title="نرخ تبدیل دلار به تومان برای محاسبه هزینه‌ها">
+            <button class="btn btn-primary" id="toman-rate-btn" title="ذخیره نرخ جدید">💾 ذخیره</button>
+          </div>
+          <div class="hint">پیش‌فرض: ۱۹۰,۰۰۰ تومان. این نرخ برای محاسبه cost_toman در llm_requests استفاده می‌شود.</div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <h3>📊 خلاصه سیستم</h3>
+        <div class="usage-card" style="padding:14px">
+          <div class="row"><span class="label">مجموع پریست‌ها</span><span class="val">${stats.total}</span></div>
+          <div class="row"><span class="label">فعال</span><span class="val">${stats.enabled}</span></div>
+          <div class="row"><span class="label">در زنجیره fallback</span><span class="val">${stats.in_chain}</span></div>
+          <div class="row"><span class="label">پریست فعال</span><span class="val" style="color:var(--cyan)">${stats.active}</span></div>
+          <div class="row"><span class="label">گروه‌ها</span><span class="val">${stats.groups}</span></div>
+        </div>
+      </div>
+    `;
+    document.getElementById('db-connect-btn').addEventListener('click', async () => {
+      const path = document.getElementById('db-path-input').value.trim();
+      if (!path) { toast('مسیر را وارد کنید', true); return; }
+      try {
+        const res = await api('/db/connect', { method: 'POST', body: JSON.stringify({ path }) });
+        toast(`📂 دیتابیس جدید: ${res.path}`);
+        document.getElementById('db-badge').textContent = '📁 ' + res.path;
+        await loadAll();
+        renderSettingsTab();
+      } catch(e) { toast(e.message, true); }
+    });
+    document.getElementById('toman-rate-btn').addEventListener('click', async () => {
+      const rate = document.getElementById('toman-rate-input').value;
+      if (!rate || parseFloat(rate) <= 0) { toast('نرخ نامعتبر', true); return; }
+      try {
+        await api('/settings/toman_rate', { method: 'PUT', body: JSON.stringify({ rate: parseFloat(rate) }) });
+        toast(`✅ نرخ ذخیره شد: ${fmtNum(parseFloat(rate))} تومان`);
+      } catch(e) { toast(e.message, true); }
+    });
+  } catch(e) {
+    el.innerHTML = `<div class="stat" style="text-align:center;padding:30px;color:var(--red)">❌ ${esc(e.message)}</div>`;
+  }
+}
+
+// ─── Load all data ───────────────────────────────────
+
+async function loadAll() {
+  try {
+    const [presets, stats, dbInfo] = await Promise.all([
+      api('/presets'),
+      api('/stats'),
+      api('/db/current'),
+    ]);
+    presetsData = presets;
+    renderStats(stats);
+    document.getElementById('db-badge').textContent = '📁 ' + dbInfo.path;
+    applyFilters();
+  } catch(e) {
+    toast('❌ خطا در بارگذاری: ' + e.message, true);
+  }
+}
+
+// ─── Event bindings ──────────────────────────────────
+
+document.getElementById('search-input').addEventListener('input', () => {
+  searchQuery = document.getElementById('search-input').value;
+  applyFilters();
+});
+
+document.querySelectorAll('.chip').forEach(el => {
+  el.addEventListener('click', () => {
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    activeFilter = el.dataset.filter;
+    applyFilters();
+  });
+});
+
+document.querySelectorAll('th[data-key]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.key;
+    if (sortKey === key) sortDir *= -1;
+    else { sortKey = key; sortDir = 1; }
+    applyFilters();
+  });
+});
+
+// Select all
+document.getElementById('select-all').addEventListener('change', function() {
+  const start = (page - 1) * pageSize;
+  const items = filteredData.slice(start, start + pageSize);
+  items.forEach(p => {
+    if (this.checked) selectedNames.add(p.name);
+    else selectedNames.delete(p.name);
+  });
+  renderTable();
+  updateBatchBar();
+});
+
+// Reveal all keys
+document.getElementById('reveal-all-btn').addEventListener('click', () => {
+  allKeysRevealed = !allKeysRevealed;
+  document.getElementById('reveal-all-btn').textContent = allKeysRevealed ? '🙈 مخفی‌سازی' : '👁️ کلیدها';
+  renderTable();
+});
+
+// Add preset
+document.getElementById('add-preset-btn').addEventListener('click', async () => {
+  const vals = await inputDialog('➕ پریست جدید', [
+    { label: 'نام پریست (فقط حروف, اعداد, زیرخط)', placeholder: 'my_custom_preset', autofocus: true }
+  ]);
+  if (!vals || !vals[0].trim()) return;
+  try {
+    await api('/presets', { method: 'POST', body: JSON.stringify({ name: vals[0].trim() }) });
+    toast(`✅ پریست "${vals[0].trim()}" ساخته شد`);
+    await loadAll();
+  } catch(e) { toast(e.message, true); }
+});
+
+// Batch operations
+document.querySelectorAll('.batch-enable').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const names = getSelectedNames();
+    if (!names.length) return;
+    const val = btn.dataset.val === '1';
+    try {
+      await api('/presets/batch/enable', { method: 'PUT', body: JSON.stringify({ names, enabled: val }) });
+      toast(`✅ ${names.length} پریست ${val ? 'فعال' : 'غیرفعال'} شدند`);
+      selectedNames.clear();
+      await loadAll();
+    } catch(e) { toast(e.message, true); }
+  });
+});
+document.querySelectorAll('.batch-chain').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const names = getSelectedNames();
+    if (!names.length) return;
+    const val = btn.dataset.val === '1';
+    try {
+      await api('/presets/batch/chain', { method: 'PUT', body: JSON.stringify({ names, in_fallback_chain: val }) });
+      toast(`✅ ${names.length} پریست ${val ? 'به زنجیره اضافه' : 'از زنجیره حذف'} شدند`);
+      selectedNames.clear();
+      await loadAll();
+    } catch(e) { toast(e.message, true); }
+  });
+});
+document.querySelector('.batch-group-btn').addEventListener('click', async () => {
+  const names = getSelectedNames();
+  if (!names.length) return;
+  const vals = await inputDialog('🏷️ تنظیم گروه', [
+    { label: 'نام گروه', placeholder: 'my-group', autofocus: true }
+  ]);
+  if (!vals || !vals[0].trim()) return;
+  try {
+    await api('/presets/batch/group', { method: 'PUT', body: JSON.stringify({ names, group_label: vals[0].trim() }) });
+    toast(`✅ گروه "${vals[0].trim()}" برای ${names.length} پریست تنظیم شد`);
+    selectedNames.clear();
+    await loadAll();
+  } catch(e) { toast(e.message, true); }
+});
+document.querySelector('.batch-key-btn').addEventListener('click', async () => {
+  const names = getSelectedNames();
+  if (!names.length) return;
+  const vals = await inputDialog('🔑 تنظیم API Key', [
+    { label: 'API Key (برای همه انتخاب شده‌ها)', placeholder: 'sk-...', autofocus: true }
+  ]);
+  if (!vals || !vals[0].trim()) return;
+  try {
+    await api('/presets/batch/key', { method: 'PUT', body: JSON.stringify({ names, api_key: vals[0].trim() }) });
+    toast(`✅ API Key برای ${names.length} پریست تنظیم شد`);
+    selectedNames.clear();
+    await loadAll();
+  } catch(e) { toast(e.message, true); }
+});
+
+// Refresh
+document.getElementById('refresh-btn').addEventListener('click', loadAll);
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closePanel();
+});
+
+// ─── Init ────────────────────────────────────────────
+
+loadAll();
+</script>
+</body>
+</html>
