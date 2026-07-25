@@ -921,7 +921,6 @@ function showDetailPanel(idx, startInEdit) {
       <div class="panel-field"><label>daily_batch_size</label>${i('daily_batch_size','number',p.daily_batch_size,1)}</div>
       <div class="panel-field"><label>temperature</label>${i('temperature','number',p.temperature,'0.01')}</div>
       <hr style="border-color:var(--border);margin:12px 0">
-      <div class="panel-field"><label>cost_per_req</label>${i('cost_per_req','number',p.cost_per_req,'0.01')}</div>
       <div class="panel-field"><label>input_cost_per_million ($/1M input)</label>${i('input_cost_per_million','number',p.input_cost_per_million,'0.01')}</div>
       <div class="panel-field"><label>output_cost_per_million ($/1M output)</label>${i('output_cost_per_million','number',p.output_cost_per_million,'0.01')}</div>
       <div style="display:flex;gap:8px;margin-top:16px">
@@ -939,7 +938,7 @@ function showDetailPanel(idx, startInEdit) {
     document.getElementById('panel-save-btn').addEventListener('click', async () => {
       const update = {};
       const boolFields = ['enabled','in_fallback_chain','is_emergency','is_custom'];
-      const numFields = ['priority','max_concurrency','max_rpm','max_tpm','daily_batch_size','temperature','cost_per_req','input_cost_per_million','output_cost_per_million'];
+      const numFields = ['priority','max_concurrency','max_rpm','max_tpm','daily_batch_size','temperature','input_cost_per_million','output_cost_per_million'];
       const strFields = ['name','model','base_url','api_key','group_label'];
 
       strFields.forEach(f => {
