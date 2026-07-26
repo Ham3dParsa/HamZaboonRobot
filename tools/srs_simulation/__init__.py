@@ -188,7 +188,8 @@ def _interactive_run() -> None:
     print("--- CSV EXPORT ---")
     print("Save the results to a CSV file for Excel/Google Sheets analysis.")
     csv_path = _prompt("CSV file path (or empty to skip)", default="")
-    csv_path = None if csv_path.strip() == "" else csv_path
+    csv_path = csv_path.strip().strip('"').strip("'")
+    csv_path = None if csv_path == "" else csv_path
 
     cfg = SimConfig(
         plan=plan, days=days,
