@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+import datetime
 import json
 import logging
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from config import get_user_session_size
+from config import APP_TIMEZONE, get_user_session_size, daily_card_count_for_plan
 from services import db
+from services.ai import ai
+from services.ai.llm_services import _call_ai_limited
+from services.ai.prompts import daily_batch_system_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +79,7 @@ async def generate_v3_session(
 
     remaining = session_size - len(nodes)
     if remaining > 0:
-        logger.info(
-            "generate_v3_session Tier 3 stub: would generate %d cards for user_id=%s",
-            remaining,
-            user_id,
-        )
+        await _fill_tier3(nodes, remaining, user_id, target_lang, goal, level, plan)
 
     logger.info(
         "generate_v3_session complete user_id=%s session_size=%d filled=%d",
@@ -85,7 +87,6 @@ async def generate_v3_session(
         session_size,
         len(nodes),
     )
-
     return {
         "user_id": user_id,
         "target_lang": target_lang,
@@ -94,6 +95,72 @@ async def generate_v3_session(
         "slot_count": len(nodes),
         "activity_types": list({n.activity_type for n in nodes}),
     }
+
+
+async def _fill_tier3(
+    nodes: list[SessionNode],
+    remaining: int,
+    user_id: int,
+    target_lang: str,
+    goal: str,
+    level: str,
+    plan: str,
+) -> None:
+    today = datetime.datetime.now(ZoneInfo(APP_TIMEZONE)).date().isoformat()
+    cap = daily_card_count_for_plan(plan)
+    used = db.count_daily_cards(user_id, today)
+    ai_budget = max(0, cap - used)
+    gen_count = min(remaining, ai_budget)
+    if gen_count < 1:
+        logger.info("Tier 3 skipped: no AI budget (cap=%d used=%d)", cap, used)
+        return
+
+    prompt = daily_batch_system_prompt(target_lang, goal, level, gen_count)
+    try:
+        new_cards = await asyncio.to_thread(
+            _call_ai_limited,
+            ai.ask_batch,
+            prompt,
+            gen_count,
+            user_id=user_id,
+            plan=plan,
+            request_kind="session_batch",
+        )
+    except Exception as exc:
+        logger.warning("Tier 3 AI generation failed for user_id=%s: %s", user_id, exc)
+        return
+
+    today_cards_used = 0
+    for card_dict in new_cards:
+        if len(nodes) >= remaining:
+            break
+        try:
+            validated = ai.validate_card(card_dict)
+        except Exception:
+            logger.warning("Tier 3 card validation skipped for user_id=%s", user_id)
+            continue
+        if not isinstance(validated, dict):
+            continue
+        word = (validated.get("word") or "").strip()
+        if not word:
+            continue
+        db.add_saved_word(user_id, word, target_lang, validated)
+        card_index = today_cards_used
+        db.add_daily_card(user_id, today, card_index, validated, provenance="session_batch")
+        today_cards_used += 1
+        nodes.append(SessionNode(
+            activity_type="vocab_card",
+            source_tier=3,
+            card_data=validated,
+            source_id=None,
+        ))
+
+    logger.info(
+        "Tier 3 generated %d cards for user_id=%s (budget=%d)",
+        today_cards_used,
+        user_id,
+        gen_count,
+    )
 
 
 def _parse_card_data(row) -> dict | None:

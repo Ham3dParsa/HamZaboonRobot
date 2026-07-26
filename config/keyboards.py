@@ -197,6 +197,36 @@ def study_start_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def study_session_keyboard(
+    word_id: int,
+    index: int,
+    total: int,
+    show_pronounce: bool = False,
+) -> InlineKeyboardMarkup:
+    rows = []
+    action_buttons = []
+    action_buttons.append(InlineKeyboardButton(
+        IBTN_REMEMBERED,
+        callback_data=f"study:remember:{word_id}:{index}:{total}",
+    ))
+    action_buttons.append(InlineKeyboardButton(
+        IBTN_REMIND_AGAIN,
+        callback_data=f"study:again:{word_id}:{index}:{total}",
+    ))
+    if show_pronounce:
+        action_buttons.append(InlineKeyboardButton(
+            IBTN_PRONOUNCE,
+            callback_data=f"tts:pronounce:s:{word_id}",
+        ))
+    rows.append(action_buttons)
+    if index + 1 < total:
+        rows.append([InlineKeyboardButton(
+            IBTN_NEXT_CARD,
+            callback_data=f"study:next:{index}:{total}",
+        )])
+    return InlineKeyboardMarkup(rows)
+
+
 def lang_inline_keyboard(*, back_to_settings: bool = False) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(option.name_fa, callback_data=f"lang:{option.code}")]

@@ -143,7 +143,12 @@ from handlers.user import (
     _word_query_usage_text,
 )
 
-from handlers.study_handler import handle_study_start
+from handlers.study_handler import (
+    handle_study_start,
+    _handle_study_remember,
+    _handle_study_again,
+    _handle_study_next,
+)
 
 from handlers.srs_handler import (
     _handle_query_add,
@@ -811,6 +816,9 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not data.startswith(
         (
             "study:start",
+            "study:remember:",
+            "study:again:",
+            "study:next:",
             "query:add:",
             "query:prepare:",
             "daily:prepare:",
@@ -1103,6 +1111,24 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _handle_srs_review(update, parts[1], parts[2], parts[3])
     elif data == "study:start":
         await handle_study_start(update, context)
+    elif data.startswith("study:remember:"):
+        parts = data.split(":")
+        if len(parts) != 5:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        await _handle_study_remember(update, context, parts[2], parts[3], parts[4])
+    elif data.startswith("study:again:"):
+        parts = data.split(":")
+        if len(parts) != 5:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        await _handle_study_again(update, context, parts[2], parts[3], parts[4])
+    elif data.startswith("study:next:"):
+        parts = data.split(":")
+        if len(parts) != 4:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        await _handle_study_next(update, context, parts[2], parts[3])
     elif data.startswith("tts:pronounce:"):
         await _handle_tts_pronounce(update, context, data.split(":", 2)[2])
     elif data.startswith("admin:"):
