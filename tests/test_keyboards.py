@@ -12,9 +12,7 @@ from config.keyboards import (
     goal_inline_keyboard,
     level_inline_keyboard,
     presentation_settings_keyboard,
-    BTN_TODAY_CARD,
-    BTN_GRAMMAR,
-    BTN_SRS_REVIEW,
+    BTN_STUDY_SESSION,
     BTN_ASK_WORD,
     BTN_SETTINGS,
     BTN_ADMIN,
@@ -26,6 +24,7 @@ from config.keyboards import (
     IBTN_PRONOUNCE,
     IBTN_PREV_CARD,
     IBTN_NEXT_CARD,
+    IBTN_NEXT_CARD_NEW,
     IBTN_CLOSE,
     IBTN_BACK_TO_SETTINGS,
 )
@@ -36,8 +35,8 @@ class TestMainMenuKeyboard(unittest.TestCase):
         markup = main_menu(False)
         rows = markup.keyboard
         self.assertEqual(len(rows), 3)
-        self.assertEqual([b.text for b in rows[0]], [BTN_TODAY_CARD, BTN_GRAMMAR])
-        self.assertEqual([b.text for b in rows[1]], [BTN_SRS_REVIEW, BTN_ASK_WORD])
+        self.assertEqual([b.text for b in rows[0]], [BTN_STUDY_SESSION])
+        self.assertEqual([b.text for b in rows[1]], [BTN_ASK_WORD])
         self.assertEqual([b.text for b in rows[2]], [BTN_SETTINGS])
 
     def test_admin_appends_extra_row(self):
@@ -223,8 +222,8 @@ class TestSRSReviewKeyboard(unittest.TestCase):
 
 
 class TestDailyCardKeyboard(unittest.TestCase):
-    def test_prev_next_navigation(self):
-        markup = daily_card_keyboard(1, "2026-07-25", 1, has_next=True, has_prev=True)
+    def test_prev_next_navigation_seen(self):
+        markup = daily_card_keyboard(1, "2026-07-25", 1, has_next=True, has_prev=True, next_card_is_new=False)
         rows = markup.inline_keyboard
         nav_row = rows[-1]
         self.assertEqual(nav_row[0].text, IBTN_PREV_CARD)
@@ -232,12 +231,26 @@ class TestDailyCardKeyboard(unittest.TestCase):
         self.assertEqual(nav_row[1].text, IBTN_NEXT_CARD)
         self.assertEqual(nav_row[1].callback_data, "daily:next:1:2026-07-25:1")
 
+    def test_prev_next_navigation_new(self):
+        markup = daily_card_keyboard(1, "2026-07-25", 0, has_next=True, has_prev=True, next_card_is_new=True)
+        rows = markup.inline_keyboard
+        nav_row = rows[-1]
+        self.assertEqual(nav_row[0].text, IBTN_PREV_CARD)
+        self.assertEqual(nav_row[1].text, IBTN_NEXT_CARD_NEW)
+        self.assertEqual(nav_row[1].callback_data, "daily:next:1:2026-07-25:0")
+
+    def test_default_next_card_is_new(self):
+        markup = daily_card_keyboard(1, "2026-07-25", 0, has_next=True)
+        rows = markup.inline_keyboard
+        nav_row = rows[-1]
+        self.assertEqual(nav_row[0].text, IBTN_NEXT_CARD_NEW)
+
     def test_first_card_no_prev(self):
         markup = daily_card_keyboard(1, "2026-07-25", 0, has_next=True, has_prev=False)
         rows = markup.inline_keyboard
         nav_row = rows[-1]
         self.assertEqual(len(nav_row), 1)
-        self.assertEqual(nav_row[0].text, IBTN_NEXT_CARD)
+        self.assertEqual(nav_row[0].text, IBTN_NEXT_CARD_NEW)
 
     def test_last_card_no_next(self):
         markup = daily_card_keyboard(1, "2026-07-25", 2, has_next=False, has_prev=True)
@@ -258,7 +271,8 @@ class TestDailyCardKeyboard(unittest.TestCase):
         self.assertEqual(top_row[1].text, IBTN_PRONOUNCE)
 
     def test_review_prefix_for_next(self):
-        markup = daily_card_keyboard(1, "2026-07-25", 0, has_next=True, callback_prefix="review:next", has_prev=True)
+        markup = daily_card_keyboard(1, "2026-07-25", 0, has_next=True, callback_prefix="review:next", has_prev=True, next_card_is_new=False)
         rows = markup.inline_keyboard
         nav_row = rows[-1]
+        self.assertEqual(nav_row[1].text, IBTN_NEXT_CARD)
         self.assertEqual(nav_row[1].callback_data, "review:next:1:2026-07-25:0")

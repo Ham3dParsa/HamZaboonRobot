@@ -4,7 +4,6 @@ import datetime
 import secrets
 from contextlib import contextmanager
 from zoneinfo import ZoneInfo
-from services.scheduling import planned_datetime
 from config.catalog import DEFAULT_LEVEL
 
 from config import (
@@ -132,24 +131,7 @@ def init_db():
                 created_at TEXT,
                 PRIMARY KEY(user_id, card_date)
             );
-            CREATE TABLE IF NOT EXISTS delivery_queue (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                delivery_date TEXT NOT NULL,
-                session_index INTEGER NOT NULL,
-                card_start_index INTEGER NOT NULL,
-                card_count INTEGER NOT NULL,
-                planned_for TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                attempts INTEGER NOT NULL DEFAULT 0,
-                last_error TEXT,
-                idempotency_key TEXT NOT NULL UNIQUE,
-                processing_started_at TEXT,
-                sent_count INTEGER NOT NULL DEFAULT 0,
-                sent_at TEXT,
-                retry_at TEXT,
-                UNIQUE(user_id, delivery_date, session_index)
-            );
+
             CREATE TABLE IF NOT EXISTS query_results (
                 token TEXT PRIMARY KEY,
                 user_id INTEGER NOT NULL,
@@ -259,29 +241,9 @@ def init_db():
         for name, definition in user_columns.items():
             if name not in columns:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {name} {definition}")
-        if "daily_reminder_cap" not in columns:
-            conn.execute("ALTER TABLE users ADD COLUMN daily_reminder_cap INTEGER")
-        if "reminder_cap_updated_at" not in columns:
-            conn.execute("ALTER TABLE users ADD COLUMN reminder_cap_updated_at TEXT")
         if "bot_blocked" not in columns:
             conn.execute("ALTER TABLE users ADD COLUMN bot_blocked INTEGER DEFAULT 0")
-        conn.execute(
-            "UPDATE users SET daily_reminder_cap = CASE plan "
-            "WHEN 'silver' THEN ? WHEN 'gold' THEN ? ELSE ? END "
-            "WHERE daily_reminder_cap IS NULL",
-            (SILVER_DAILY_CARD_LIMIT, GOLD_DAILY_CARD_LIMIT, FREE_DAILY_CARD_LIMIT),
-        )
         conn.commit()
-        delivery_columns = {
-            row["name"]
-            for row in conn.execute("PRAGMA table_info(delivery_queue)").fetchall()
-        }
-        if "sent_count" not in delivery_columns:
-            conn.execute(
-                "ALTER TABLE delivery_queue ADD COLUMN sent_count INTEGER NOT NULL DEFAULT 0"
-            )
-        if "retry_at" not in delivery_columns:
-            conn.execute("ALTER TABLE delivery_queue ADD COLUMN retry_at TEXT")
         session_columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(daily_card_sessions)").fetchall()
@@ -1045,123 +1007,6 @@ def all_active_users():
         ).fetchall()
 
 
-def get_delivery_queue(
-    delivery_date: str,
-    statuses=("pending", "failed"),
-    now: str | None = None,
-):
-    placeholders = ",".join("?" for _ in statuses)
-    now = now or _utc_now().isoformat()
-    retry_filter = " AND (status='pending' OR (status='failed' AND retry_at IS NOT NULL AND retry_at<=?))"
-    with get_conn() as conn:
-        return conn.execute(
-            f"SELECT * FROM delivery_queue WHERE delivery_date=? AND status IN ({placeholders}) "
-            f"{retry_filter} ORDER BY planned_for, id",
-            (delivery_date, *statuses, now),
-        ).fetchall()
-
-
-def delivery_queue_for_user(user_id: int, delivery_date: str):
-    with get_conn() as conn:
-        return conn.execute(
-            "SELECT * FROM delivery_queue WHERE user_id=? AND delivery_date=? ORDER BY session_index",
-            (user_id, delivery_date),
-        ).fetchall()
-
-
-def enqueue_delivery_sessions(user_id: int, delivery_date: str, sessions):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        for session in sessions:
-            key = f"{user_id}:{delivery_date}:{session.session_index}"
-            conn.execute(
-                "INSERT OR IGNORE INTO delivery_queue("
-                "user_id, delivery_date, session_index, card_start_index, card_count, "
-                "planned_for, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    user_id,
-                    delivery_date,
-                    session.session_index,
-                    sum(item.card_count for item in sessions[:session.session_index]),
-                    session.card_count,
-                    planned_datetime(
-                        datetime.date.fromisoformat(delivery_date),
-                        session.planned_minute,
-                        APP_TIMEZONE,
-                    ),
-                    key,
-                ),
-            )
-        conn.commit()
-
-
-def claim_delivery_queue(queue_id: int):
-    now = _utc_now().isoformat()
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute(
-            "UPDATE delivery_queue SET status='processing', attempts=attempts+1, "
-            "processing_started_at=?, retry_at=NULL "
-            "WHERE id=? AND (status='pending' OR "
-            "(status='failed' AND retry_at IS NOT NULL AND retry_at<=?))",
-            (now, queue_id, now),
-        )
-        conn.commit()
-        if row.rowcount != 1:
-            return None
-        return conn.execute("SELECT * FROM delivery_queue WHERE id=?", (queue_id,)).fetchone()
-
-
-def mark_delivery_sent(queue_id: int):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        conn.execute(
-            "UPDATE delivery_queue SET status='sent', sent_at=?, last_error=NULL WHERE id=?",
-            (_utc_now().isoformat(), queue_id),
-        )
-        conn.commit()
-
-
-def advance_delivery_progress(queue_id: int, sent_count: int):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        conn.execute(
-            "UPDATE delivery_queue SET sent_count=? WHERE id=? AND status='processing'",
-            (sent_count, queue_id),
-        )
-        conn.commit()
-
-
-def mark_delivery_failed(
-    queue_id: int,
-    error: str,
-    retry_at: str | None = None,
-    *,
-    terminal: bool = False,
-):
-    if retry_at is None and not terminal:
-        retry_at = _utc_now().isoformat()
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        conn.execute(
-            "UPDATE delivery_queue SET status='failed', last_error=?, retry_at=? WHERE id=?",
-            (error[:1000], retry_at, queue_id),
-        )
-        conn.commit()
-
-
-def requeue_stale_deliveries(stale_before: str, max_attempts: int = 5):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        conn.execute(
-            "UPDATE delivery_queue SET status='failed', last_error='worker restarted', "
-            "retry_at=CASE WHEN attempts<? THEN ? ELSE NULL END "
-            "WHERE status='processing' AND processing_started_at<?",
-            (max_attempts, _utc_now().isoformat(), stale_before),
-        )
-        conn.commit()
-
-
 def count_users():
     with get_conn() as conn:
         return conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
@@ -1514,42 +1359,6 @@ def get_saved_word(word_id: int, user_id: int | None = None):
         return conn.execute(query, params).fetchone()
 
 
-def claim_srs_reminder(word_id: int) -> bool:
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        cursor = conn.execute(
-            "UPDATE saved_words SET review_status='claiming', review_requested_at=? "
-            "WHERE id=? AND review_status='idle'",
-            (_utc_now().isoformat(), word_id),
-        )
-        conn.commit()
-        return cursor.rowcount == 1
-
-
-def release_srs_claim(word_id: int) -> bool:
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        cursor = conn.execute(
-            "UPDATE saved_words SET review_status='idle', review_requested_at=NULL "
-            "WHERE id=? AND review_status='claiming'",
-            (word_id,),
-        )
-        conn.commit()
-        return cursor.rowcount == 1
-
-
-def mark_word_review_pending(word_id: int) -> bool:
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        cursor = conn.execute(
-            "UPDATE saved_words SET review_status='pending', review_requested_at=? "
-            "WHERE id=? AND review_status='claiming'",
-            (_utc_now().isoformat(), word_id),
-        )
-        conn.commit()
-        return cursor.rowcount == 1
-
-
 def advance_word_review(word_id: int) -> bool:
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -1612,49 +1421,6 @@ def record_review_event(
                 outcome,
                 _utc_now().isoformat(),
             ),
-        )
-        conn.commit()
-
-
-# ---------- SRS Retry Queue ----------
-
-def mark_srs_send_failed(word_id: int, current_attempts: int, max_attempts: int = 5):
-    if current_attempts >= max_attempts:
-        with get_conn() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            conn.execute(
-                "UPDATE saved_words SET retry_at=NULL, srs_retry_attempts=? WHERE id=?",
-                (current_attempts, word_id),
-            )
-            conn.commit()
-        return
-    delay = min(300 * (2 ** current_attempts), 3600)
-    retry_at = (_utc_now() + datetime.timedelta(seconds=delay)).isoformat()
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        conn.execute(
-            "UPDATE saved_words SET retry_at=?, review_status='idle', srs_retry_attempts=? WHERE id=?",
-            (retry_at, current_attempts, word_id),
-        )
-        conn.commit()
-
-
-def get_due_srs_failed(max_words: int = 50):
-    now = _utc_now().isoformat()
-    with get_conn() as conn:
-        return conn.execute(
-            "SELECT * FROM saved_words WHERE retry_at IS NOT NULL AND retry_at<=? "
-            "AND review_status='idle' ORDER BY retry_at LIMIT ?",
-            (now, max_words),
-        ).fetchall()
-
-
-def clear_srs_retry(word_id: int):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        conn.execute(
-            "UPDATE saved_words SET retry_at=NULL, srs_retry_attempts=0 WHERE id=?",
-            (word_id,),
         )
         conn.commit()
 

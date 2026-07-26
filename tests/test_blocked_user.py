@@ -110,28 +110,3 @@ class BotBlockedFlagOnForbiddenTests(unittest.TestCase):
         ids = {u["user_id"] for u in active}
         self.assertIn(1, ids)
         self.assertNotIn(2, ids)
-
-    def test_srs_job_forbidden_does_not_mark_word_failed(self):
-        db.create_user_if_needed(1, "learner")
-        with db.get_conn() as conn:
-            conn.execute("UPDATE users SET onboarded=1, target_lang='en', goal='conversation', level='beginner'")
-            conn.commit()
-        db.add_saved_word(1, "hello", "en", card_data='{"word":"hello"}')
-
-        bot = AsyncMock()
-        bot.send_message = AsyncMock(side_effect=Forbidden("bot was blocked by the user"))
-
-        from services.utils.helpers import _send_with_retry
-
-        import asyncio
-        with self.assertRaises(Forbidden):
-            asyncio.run(_send_with_retry(bot, 1, "test"))
-
-        user = dict(db.get_user(1))
-        self.assertEqual(user.get("bot_blocked"), 1)
-
-        with db.get_conn() as conn:
-            retry_words = conn.execute(
-                "SELECT COUNT(*) as cnt FROM saved_words WHERE retry_at IS NOT NULL"
-            ).fetchone()["cnt"]
-            self.assertEqual(retry_words, 0)

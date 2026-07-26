@@ -133,8 +133,12 @@ class SrsHandlerFlowTests(unittest.TestCase):
                 "SELECT id FROM saved_words WHERE user_id=1"
             ).fetchone()["id"]
         # Move the word into the pending-review state the reveal handler requires.
-        db.claim_srs_reminder(self.word_id)
-        db.mark_word_review_pending(self.word_id)
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE saved_words SET review_status='pending' WHERE id=?",
+                (self.word_id,),
+            )
+            conn.commit()
 
     def tearDown(self):
         db.DB_PATH = self.previous_db_path
