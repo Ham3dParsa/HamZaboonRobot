@@ -35,7 +35,7 @@ class SimulateSrsV2SmokeTest(unittest.TestCase):
 
     def test_output_has_headers(self):
         r = self._run("--plan", "free", "--days", "10", "--seed", "42")
-        for h in ("Day", "DueProc", "DueRem", "QBacklog", "AIGen", "Active"):
+        for h in ("Day", "DueProc", "DueRem", "QSaved", "AIGen", "AICalls", "Active"):
             self.assertIn(h, r.stdout)
 
     def test_deterministic_output(self):
@@ -66,6 +66,10 @@ class SimulateSrsV2SmokeTest(unittest.TestCase):
         r = self._run("--plan", "free", "--days", "30", "--seed", "42")
         self.assertIn("AI cost savings", r.stdout)
 
+    def test_summary_shows_ai_calls(self):
+        r = self._run("--plan", "free", "--days", "30", "--seed", "42")
+        self.assertIn("Avg Total AI Calls per day", r.stdout)
+
     def test_summary_shows_max_due_remaining(self):
         r = self._run("--plan", "free", "--days", "30", "--seed", "42")
         self.assertIn("Max Due Remaining", r.stdout)
@@ -73,6 +77,22 @@ class SimulateSrsV2SmokeTest(unittest.TestCase):
     def test_summary_shows_max_query_backlog(self):
         r = self._run("--plan", "free", "--days", "30", "--seed", "42")
         self.assertIn("Max Query Backlog", r.stdout)
+
+    def test_csv_column_order(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
+            path = f.name
+        try:
+            r = self._run("--plan", "free", "--days", "5", "--seed", "42", "--csv", path)
+            self.assertEqual(r.returncode, 0)
+            with open(path, encoding="utf-8") as fh:
+                header = fh.readline().strip()
+            cols = header.split(",")
+            for col in ("day", "query_saved", "ai_calls"):
+                self.assertIn(col, cols)
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
 
     def test_simulate_function_repeatable(self):
         from tools.srs_simulation_v2.simulator import SimConfig, simulate
