@@ -4,19 +4,23 @@ Verifies the tool runs without crash, produces expected output headers,
 and produces byte-identical output when run twice with the same seed.
 """
 
+import os
 import subprocess
 import sys
 import unittest
 
 
+ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+
+
 class SimulateSrsSmokeTest(unittest.TestCase):
-    MODULE = ["python", "-m", "tools.srs_simulation"]
+    MODULE = [sys.executable, "-m", "tools.srs_simulation"]
 
     def _run(self, *extra_args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
             [*self.MODULE, *extra_args],
             capture_output=True, text=True,
-            cwd=sys.path[0] if sys.path[0] else None,
+            cwd=ROOT,
         )
 
     def test_runs_without_crash_free_plan(self):
