@@ -1,6 +1,6 @@
-"""Smoke test for scripts/simulate_srs.py.
+"""Smoke test for tools/srs_simulation — SRS v2.8 simulation tool.
 
-Verifies the script runs without crash, produces expected output headers,
+Verifies the tool runs without crash, produces expected output headers,
 and produces byte-identical output when run twice with the same seed.
 """
 
@@ -10,11 +10,11 @@ import unittest
 
 
 class SimulateSrsSmokeTest(unittest.TestCase):
-    SCRIPT = ["python", "scripts/simulate_srs.py"]
+    MODULE = ["python", "-m", "tools.srs_simulation"]
 
     def _run(self, *extra_args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [*self.SCRIPT, *extra_args],
+            [*self.MODULE, *extra_args],
             capture_output=True, text=True,
             cwd=sys.path[0] if sys.path[0] else None,
         )
@@ -93,11 +93,11 @@ class SimulateSrsSmokeTest(unittest.TestCase):
         self.assertIn("7", result.stdout.lower())
 
     def test_simulate_function_repeatable(self):
-        from scripts.simulate_srs import parse_args, simulate
-        args1 = parse_args(["--plan", "free", "--days", "10", "--seed", "42"])
-        args2 = parse_args(["--plan", "free", "--days", "10", "--seed", "42"])
-        rows1, sum1, _ = simulate(args1)
-        rows2, sum2, _ = simulate(args2)
+        from tools.srs_simulation.simulator import SimConfig, simulate
+        cfg1 = SimConfig(plan="free", days=10, seed=42)
+        cfg2 = SimConfig(plan="free", days=10, seed=42)
+        rows1, sum1, _ = simulate(cfg1)
+        rows2, sum2, _ = simulate(cfg2)
         self.assertEqual(rows1, rows2)
         self.assertEqual(sum1, sum2)
 
