@@ -23,20 +23,8 @@ from config import (
     BOT_TOKEN,
     OWNER_ID,
     APP_TIMEZONE,
-    SRS_REMINDER_MINUTE,
-    DEFAULT_ACTIVE_START_MINUTE,
-    DEFAULT_ACTIVE_END_MINUTE,
-    DEFAULT_PREFERRED_DELIVERY_MINUTE,
-    MIN_SESSIONS,
-    MAX_SESSIONS,
-    TARGET_CARDS_PER_SESSION,
-    SCHEDULER_SLOT_MINUTES,
-    SCHEDULER_BUCKET_CAPACITY,
     AI_CARD_OUTPUT_FORMAT,
-    DELIVERY_MAX_ATTEMPTS,
-    DELIVERY_RETRY_BASE_SECONDS,
     CONNECTION_HEALTH_INTERVAL_SECONDS,
-    SESSION_CARD_DELAY_SECONDS,
     PREMIUM_PLANS,
     OWNER_BYPASS_LIMITS,
     daily_word_query_limit_for_plan,
@@ -63,7 +51,6 @@ from config.catalog import (
     level_cefr,
     level_label,
 )
-from services.scheduling import plan_sessions
 from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
 from config.keyboards import (
     main_menu,
@@ -81,11 +68,10 @@ from config.keyboards import (
     srs_revealed_keyboard,
     srs_review_keyboard,
     daily_card_keyboard,
-    BTN_TODAY_CARD,
+    study_start_keyboard,
+    BTN_STUDY_SESSION,
     BTN_ASK_WORD,
-    BTN_GRAMMAR,
     BTN_ADMIN,
-    BTN_SRS_REVIEW,
     BTN_SETTINGS,
     BTN_CANCEL,
     BTN_BACK,
@@ -147,18 +133,17 @@ from handlers.user import (
     on_lang_changed,
     on_goal_changed,
     on_level_changed,
-    send_grammar_tip,
     ask_for_ask_word,
     show_status,
     _handle_daily_prepare,
     _handle_query_prepare,
     _show_review_menu,
-    start_srs_review,
     _show_settings_menu,
     _custom_word_input_error,
     _word_query_usage_text,
-    _grammar_tip_usage_text,
 )
+
+from handlers.study_handler import handle_study_start
 
 from handlers.srs_handler import (
     _handle_query_add,
@@ -288,15 +273,29 @@ async def _send_card_from_store(
     if review_mode:
         footer = f"📚 مرور کارت {card_index + 1} از {len(cards)} برای {card_date}"
     phon_lines = _phonetic_lines(card.get("phonetic", ""))
+    progress = db.get_daily_progress(user_id, card_date)
+    if not review_mode:
+        limit = effective_daily_allowance(
+            row["plan"] or "free",
+            row["optional_daily_limit"],
+            OWNER_BYPASS_LIMITS and is_owner(user_id),
+        )
+        next_index = card_index + 1
+        has_next = next_index < limit
+        next_card_is_new = next_index >= progress
+    else:
+        has_next = card_index + 1 < len(cards)
+        next_card_is_new = False
     markup = daily_card_keyboard(
         user_id,
         card_date,
         card_index,
-        card_index + 1 < len(cards),
+        has_next,
         callback_prefix="review:next" if review_mode else "daily:next",
         show_translations=True,
         show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
         has_prev=card_index > 0,
+        next_card_is_new=next_card_is_new,
     )
     text = format_card(
         card,
@@ -440,38 +439,6 @@ def _ensure_daily_cards(user_id: int, row, card_date: str, limit: int) -> list[d
     for offset, card in enumerate(new_cards):
         db.add_daily_card(user_id, card_date, len(cards) + offset, card, provenance=provenance)
     return db.get_daily_cards(user_id, card_date)
-
-
-def _ensure_scheduled_session_cards(user_id: int, row, queue_row) -> list[dict]:
-    session = _daily_card_session_profile(user_id, row, queue_row["delivery_date"])
-    existing = db.get_daily_cards(user_id, queue_row["delivery_date"])
-    start = queue_row["card_start_index"]
-    end = start + queue_row["card_count"]
-    if len(existing) >= end:
-        return existing[start:end]
-
-    active_preset = db.get_active_preset()
-    provenance = active_preset.get("name", "unknown") if active_preset else "unknown"
-    batch_size = active_preset.get("daily_batch_size", 6) if active_preset else 6
-    used_words = _daily_avoid_words(user_id, session["target_lang"], queue_row["delivery_date"], existing)
-    cards: list[dict] = []
-    while len(existing) + len(cards) < end:
-        remaining = end - len(existing) - len(cards)
-        batch = _generate_daily_batch(
-            session["target_lang"],
-            session["goal"],
-            session["level"],
-            min(batch_size, remaining),
-            used_words + [card["word"] for card in cards],
-            user_id,
-            row["plan"] or "free",
-        )
-        if not batch:
-            raise RuntimeError("AI returned no cards for the scheduled session")
-        cards.extend(batch)
-    for offset, card in enumerate(cards):
-        db.add_daily_card(user_id, queue_row["delivery_date"], len(existing) + offset, card, provenance=provenance)
-    return db.get_daily_cards(user_id, queue_row["delivery_date"])[start:end]
 
 
 def _ensure_next_daily_card(user_id: int, row, card_date: str, limit: int) -> tuple[dict | None, int]:
@@ -809,12 +776,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # مسیر دکمه‌های منوی اصلی
-    if text == BTN_TODAY_CARD:
-        await send_daily_card_now(update, context)
-    elif text == BTN_GRAMMAR:
-        await send_grammar_tip(update, context)
-    elif text == BTN_SRS_REVIEW:
-        await start_srs_review(update, context)
+    if text == BTN_STUDY_SESSION:
+        await handle_study_start(update, context)
     elif text == BTN_ASK_WORD:
         await ask_for_ask_word(update, context)
     elif text == BTN_SETTINGS:
@@ -847,6 +810,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = update.callback_query.data
     if not data.startswith(
         (
+            "study:start",
             "query:add:",
             "query:prepare:",
             "daily:prepare:",
@@ -978,8 +942,20 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not row or not row["onboarded"]:
             await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
             return
-        if db.get_daily_progress(user_id, today) != current_index + 1:
-            await update.callback_query.answer("این دکمه قبلاً استفاده شده است.", show_alert=True)
+
+        progress = db.get_daily_progress(user_id, today)
+        next_index = current_index + 1
+
+        if next_index < progress:
+            await update.callback_query.answer()
+            try:
+                await _send_card_from_store(context, update.effective_chat.id, user_id, today, next_index, callback_query=update.callback_query)
+            except CardPreparationError:
+                await _send_with_retry(context.bot, update.effective_chat.id, "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.")
+            return
+
+        if next_index > progress:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
             return
 
         limit = effective_daily_allowance(
@@ -989,7 +965,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.callback_query.answer()
         try:
-            await _send_next_daily_card(update, context, row, today, limit, callback_query=update.callback_query)
+            await _send_next_daily_card(update, context, row, today, limit)
         except Exception:
             log.exception("Next daily card generation failed")
             await _send_with_retry(
@@ -1125,192 +1101,12 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
             return
         await _handle_srs_review(update, parts[1], parts[2], parts[3])
+    elif data == "study:start":
+        await handle_study_start(update, context)
     elif data.startswith("tts:pronounce:"):
         await _handle_tts_pronounce(update, context, data.split(":", 2)[2])
     elif data.startswith("admin:"):
         await _handle_admin_callback(update, context, data.split(":", 1)[1])
-
-
-# ---------------- ارسال روزانه‌ی خودکار ----------------
-
-def _plan_daily_queue(delivery_date: str):
-    loads: dict[int, int] = defaultdict(int)
-    for row in db.all_active_users():
-        user_id = row["user_id"]
-        if db.delivery_queue_for_user(user_id, delivery_date):
-            continue
-        limit = effective_daily_allowance(
-            row["plan"] or "free",
-            row["optional_daily_limit"],
-            OWNER_BYPASS_LIMITS and is_owner(user_id),
-        )
-        preferred = row["preferred_delivery_minute"] or DEFAULT_PREFERRED_DELIVERY_MINUTE
-        start = row["active_window_start_minute"]
-        end = row["active_window_end_minute"]
-        sessions = plan_sessions(
-            limit,
-            preferred,
-            DEFAULT_ACTIVE_START_MINUTE if start is None else start,
-            DEFAULT_ACTIVE_END_MINUTE if end is None else end,
-            slot_minutes=SCHEDULER_SLOT_MINUTES,
-            bucket_capacity=SCHEDULER_BUCKET_CAPACITY,
-            min_sessions=MIN_SESSIONS,
-            max_sessions=MAX_SESSIONS,
-            target_cards_per_session=TARGET_CARDS_PER_SESSION,
-            bucket_loads=loads,
-        )
-        for session in sessions:
-            loads[session.planned_minute] += 1
-        db.enqueue_delivery_sessions(user_id, delivery_date, sessions)
-
-
-async def _dispatch_queue(context: ContextTypes.DEFAULT_TYPE, delivery_date: str):
-    if _telegram_offline:
-        log.warning("dispatch_queue skipped: telegram offline")
-        return
-    now = datetime.datetime.now(_app_timezone).isoformat()
-    for queue_row in db.get_delivery_queue(delivery_date):
-        if queue_row["planned_for"] > now:
-            continue
-        claimed = db.claim_delivery_queue(queue_row["id"])
-        if not claimed:
-            continue
-        user_id = claimed["user_id"]
-        try:
-            row = db.get_user(user_id)
-            if not row:
-                raise RuntimeError("user no longer exists")
-            async with _get_user_lock(user_id):
-                cards = await asyncio.to_thread(
-                    _ensure_scheduled_session_cards,
-                    user_id,
-                    row,
-                    claimed,
-                )
-            limit = effective_daily_allowance(
-                row["plan"] or "free",
-                row["optional_daily_limit"],
-                OWNER_BYPASS_LIMITS and is_owner(user_id),
-            )
-            streak = row["streak"] or 0
-            for offset, card in enumerate(cards[claimed["sent_count"] :], start=claimed["sent_count"]):
-                card = await asyncio.to_thread(
-                    _prepare_cached_card,
-                    card,
-                    lang=row["target_lang"],
-                    user_id=user_id,
-                    plan=row["plan"] or "free",
-                    source="scheduled_daily",
-                    persist_patch=lambda patch, card_index=claimed["card_start_index"] + offset: (
-                        db.update_daily_card_fields(
-                            user_id,
-                            claimed["delivery_date"],
-                            card_index,
-                            patch,
-                        )
-                    ),
-                )
-                phon_lines = _phonetic_lines(card.get("phonetic", ""))
-                await _send_with_retry(
-                    context.bot,
-                    user_id,
-                    format_card(
-                        card,
-                        footer=(
-                            f"🔥 استریک: {streak} روز  · جلسه "
-                            f"{claimed['session_index'] + 1} · کارت "
-                            f"{claimed['card_start_index'] + offset + 1} از {limit}"
-                        ),
-                        presentation=_user_presentation(row),
-                        phonetic_lines=phon_lines,
-                    ),
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                    reply_markup=daily_card_keyboard(
-                        user_id,
-                        claimed["delivery_date"],
-                        claimed["card_start_index"] + offset,
-                        False,
-                        show_translations=True,
-                        show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
-                    ),
-                )
-                db.advance_delivery_progress(claimed["id"], offset + 1)
-                if offset + 1 < len(cards):
-                    await asyncio.sleep(SESSION_CARD_DELAY_SECONDS)
-            db.mark_delivery_sent(claimed["id"])
-        except Exception as exc:
-            if isinstance(exc, Forbidden):
-                db.mark_delivery_failed(claimed["id"], repr(exc), terminal=True)
-                continue
-            if isinstance(exc, CardPreparationError):
-                try:
-                    await _send_with_retry(
-                        context.bot,
-                        user_id,
-                        "یکی از کارت‌ها نتونست با اطمینان آماده بشه؛ لطفاً بعداً دوباره امتحان کن.",
-                        parse_mode=ParseMode.MARKDOWN_V2,
-                    )
-                except Exception:
-                    log.exception("failed to report card preparation error to user %s", user_id)
-            attempts = claimed["attempts"]
-            if attempts >= DELIVERY_MAX_ATTEMPTS:
-                db.mark_delivery_failed(
-                    claimed["id"],
-                    repr(exc),
-                    terminal=True,
-                )
-            else:
-                delay = DELIVERY_RETRY_BASE_SECONDS * (2 ** (attempts - 1))
-                retry_at = (
-                    datetime.datetime.now(datetime.timezone.utc)
-                    + datetime.timedelta(seconds=delay)
-                ).isoformat()
-                db.mark_delivery_failed(
-                    claimed["id"],
-                    repr(exc),
-                    retry_at=retry_at,
-                )
-            log.exception("scheduled delivery failed for user %s", user_id)
-
-
-async def daily_job(context: ContextTypes.DEFAULT_TYPE):
-    if _telegram_offline:
-        log.warning("daily_job skipped: telegram offline")
-        return
-    today = datetime.datetime.now(_app_timezone).date().isoformat()
-    stale_before = (
-        datetime.datetime.now(datetime.timezone.utc)
-        - datetime.timedelta(minutes=15)
-    ).isoformat()
-    db.requeue_stale_deliveries(stale_before, DELIVERY_MAX_ATTEMPTS)
-    await asyncio.to_thread(_plan_daily_queue, today)
-    await _dispatch_queue(context, today)
-
-
-async def startup_catch_up_job(context: ContextTypes.DEFAULT_TYPE):
-    try:
-        async with _telegram_slots:
-            await context.bot.get_me()
-    except Exception:
-        log.warning("startup catch-up skipped: telegram connection check failed")
-        return
-    for job in (daily_job, delivery_dispatch_job, srs_job):
-        try:
-            await job(context)
-        except Exception:
-            log.exception("startup catch-up job failed for %s", job.__name__)
-
-
-async def delivery_dispatch_job(context: ContextTypes.DEFAULT_TYPE):
-    stale_before = (
-        datetime.datetime.now(datetime.timezone.utc)
-        - datetime.timedelta(minutes=15)
-    ).isoformat()
-    db.requeue_stale_deliveries(stale_before, DELIVERY_MAX_ATTEMPTS)
-    await _dispatch_queue(
-        context,
-        _app_today(),
-    )
 
 
 async def connection_health_job(context: ContextTypes.DEFAULT_TYPE):
@@ -1345,123 +1141,6 @@ async def connection_health_job(context: ContextTypes.DEFAULT_TYPE):
             log.info("Telegram connection restored")
         else:
             log.info("Telegram connection healthy")
-
-
-async def srs_job(context: ContextTypes.DEFAULT_TYPE):
-    """یادآوری واژه‌های ذخیره‌شده‌ی سررسیدشده (مرور فاصله‌دار)."""
-    if _telegram_offline:
-        log.warning("srs_job skipped: telegram offline")
-        return
-    for row in db.all_active_users():
-        user_id = row["user_id"]
-        try:
-            due = db.due_words_for_user(user_id)
-            if not due:
-                continue
-            for word in due:
-                word_id = word["id"]
-                if not db.claim_srs_reminder(word_id):
-                    continue
-                try:
-                    card = await asyncio.to_thread(
-                        _prepare_cached_card,
-                        _saved_word_card(word),
-                        lang=word["lang"],
-                        user_id=user_id,
-                        plan=row["plan"] or "free",
-                        source="srs",
-                        persist_patch=lambda patch, word_id_=word_id: db.update_saved_word_fields(
-                            word_id_,
-                            user_id,
-                            patch,
-                        ),
-                    )
-                    phon_lines = _phonetic_lines(card.get("phonetic", ""))
-                    show_pronounce = db.get_setting("tts_access", "premium") != "none" and ((row["plan"] or "free") in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all")
-                    await _send_with_retry(
-                        context.bot,
-                        user_id,
-                        format_srs_prompt(card, phonetic_lines=phon_lines),
-                        parse_mode=ParseMode.MARKDOWN_V2,
-                        reply_markup=srs_hidden_keyboard(user_id, word_id, show_pronounce=show_pronounce),
-                    )
-                    if not db.mark_word_review_pending(word_id):
-                        db.release_srs_claim(word_id)
-                        continue
-                    log.info("srs review reminder sent user_id=%s word_id=%s", user_id, word_id)
-                except CardPreparationError:
-                    db.mark_srs_send_failed(word_id, word.get("srs_retry_attempts", 0))
-                    log.warning("SRS card preparation failed for user %s word_id=%s", user_id, word_id)
-                except Forbidden:
-                    db.set_user_blocked(user_id)
-                    db.release_srs_claim(word_id)
-                    log.warning("user %s blocked the bot, skipping SRS reminders", user_id)
-                    break
-                except Exception:
-                    db.mark_srs_send_failed(word_id, word.get("srs_retry_attempts", 0))
-                    log.exception(
-                        "SRS word %s failed for user %s — continuing with next word",
-                        word_id, user_id,
-                    )
-                    db.release_srs_claim(word_id)
-                    continue
-        except CardPreparationError:
-            try:
-                await _send_with_retry(
-                    context.bot,
-                    user_id,
-                    "یکی از کارت‌های مرور نتونست با اطمینان آماده بشه؛ لطفاً بعداً دوباره امتحان کن.",
-                )
-            except Exception:
-                log.exception("failed to report SRS card preparation error for %s", user_id)
-            log.exception("SRS card preparation failed for user %s", user_id)
-        except Exception:
-            log.exception(f"srs_job failed for user {user_id}")
-
-
-async def srs_retry_job(context: ContextTypes.DEFAULT_TYPE):
-    if _telegram_offline:
-        log.warning("srs_retry_job skipped: telegram offline")
-        return
-    for word in db.get_due_srs_failed():
-        word_id = word["id"]
-        user_id = word["user_id"]
-        user_row = db.get_user(user_id)
-        if not user_row or not user_row["onboarded"]:
-            continue
-        try:
-            card = await asyncio.to_thread(
-                _prepare_cached_card,
-                _saved_word_card(word),
-                lang=word["lang"],
-                user_id=user_id,
-                plan=user_row["plan"] or "free",
-                source="srs",
-                persist_patch=lambda patch, word_id_=word_id: db.update_saved_word_fields(
-                    word_id_, user_id, patch,
-                ),
-            )
-            phon_lines = _phonetic_lines(card.get("phonetic", ""))
-            show_pronounce = (user_row["plan"] or "free") in PREMIUM_PLANS
-            await _send_with_retry(
-                context.bot, user_id,
-                format_srs_prompt(card, phonetic_lines=phon_lines),
-                parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=srs_hidden_keyboard(user_id, word_id, show_pronounce=show_pronounce),
-            )
-            db.clear_srs_retry(word_id)
-            db.mark_word_review_pending(word_id)
-            log.info("srs retry succeeded word_id=%s user_id=%s", word_id, user_id)
-        except CardPreparationError:
-            db.mark_srs_send_failed(word_id, word["srs_retry_attempts"] + 1)
-            log.warning("srs retry card prep failed word_id=%s user_id=%s", word_id, user_id)
-        except Forbidden:
-            db.set_user_blocked(user_id)
-            log.warning("user %s blocked the bot, skipping SRS retry", user_id)
-            continue
-        except Exception:
-            db.mark_srs_send_failed(word_id, word["srs_retry_attempts"] + 1)
-            log.exception("srs retry failed word_id=%s user_id=%s", word_id, user_id)
 
 
 async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
@@ -1610,39 +1289,20 @@ def main():
     app.add_error_handler(error_handler)
 
     if app.job_queue:
-        app.job_queue.run_once(startup_catch_up_job, when=1)
-        app.job_queue.run_daily(
-            daily_job,
-            time=datetime.time(hour=0, minute=1, tzinfo=_app_timezone),
-        )
-        app.job_queue.run_repeating(delivery_dispatch_job, interval=60, first=0)
         app.job_queue.run_repeating(
             connection_health_job,
             interval=CONNECTION_HEALTH_INTERVAL_SECONDS,
             first=CONNECTION_HEALTH_INTERVAL_SECONDS,
         )
-        app.job_queue.run_daily(
-            srs_job,
-            time=datetime.time(
-                hour=SRS_REMINDER_MINUTE // 60,
-                minute=SRS_REMINDER_MINUTE % 60,
-                tzinfo=_app_timezone,
-            ),
-        )
-        app.job_queue.run_repeating(
-            srs_retry_job,
-            interval=900,  # 15 minutes
-            first=900,
-        )
         if OWNER_ID != 0:
             app.job_queue.run_repeating(
                 auto_backup_job,
-                interval=21600,  # 6 hours
+                interval=21600,
                 first=21600,
             )
             app.job_queue.run_repeating(
                 primary_retry_job,
-                interval=1800,  # 30 minutes
+                interval=1800,
                 first=1800,
             )
 

@@ -14,47 +14,7 @@ DB_PATH = os.getenv("DB_PATH", "hamzaban.db")
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Tehran")
 
 
-def _parse_clock(value: str, default: str) -> int:
-    raw = value or default
-    try:
-        hour_text, minute_text = raw.split(":", 1)
-        hour, minute = int(hour_text), int(minute_text)
-    except (AttributeError, ValueError):
-        raise ValueError(f"invalid clock value {raw!r}; expected HH:MM") from None
-    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
-        raise ValueError(f"invalid clock value {raw!r}; expected HH:MM")
-    return hour * 60 + minute
 
-
-def _clock_setting(name: str, default: str, legacy_name: str) -> int:
-    value = os.getenv(name)
-    if value is not None:
-        return _parse_clock(value, default)
-    legacy_value = os.getenv(legacy_name)
-    if legacy_value is not None:
-        return int(legacy_value)
-    return _parse_clock(default, default)
-
-
-DEFAULT_ACTIVE_START_MINUTE = _clock_setting(
-    "ACTIVE_WINDOW_START", "08:00", "ACTIVE_START_MINUTE"
-)
-DEFAULT_ACTIVE_END_MINUTE = _clock_setting(
-    "ACTIVE_WINDOW_END", "21:00", "ACTIVE_END_MINUTE"
-)
-DEFAULT_PREFERRED_DELIVERY_MINUTE = _clock_setting(
-    "PREFERRED_DELIVERY_TIME", "09:00", "PREFERRED_DELIVERY_MINUTE"
-)
-SRS_REMINDER_MINUTE = (
-    _parse_clock(os.getenv("SRS_REMINDER_TIME", "10:00"), "10:00")
-    if os.getenv("SRS_REMINDER_TIME") is not None
-    else int(os.getenv("SRS_SEND_HOUR", "10")) * 60
-)
-MIN_SESSIONS = int(os.getenv("MIN_SESSIONS", "3"))
-MAX_SESSIONS = int(os.getenv("MAX_SESSIONS", "6"))
-TARGET_CARDS_PER_SESSION = int(os.getenv("TARGET_CARDS_PER_SESSION", "3"))
-SCHEDULER_SLOT_MINUTES = int(os.getenv("SCHEDULER_SLOT_MINUTES", "30"))
-SCHEDULER_BUCKET_CAPACITY = int(os.getenv("SCHEDULER_BUCKET_CAPACITY", "4"))
 AI_MAX_CONCURRENCY = int(os.getenv("AI_MAX_CONCURRENCY", "2"))
 AI_MAX_REQUESTS_PER_MINUTE = int(os.getenv("AI_MAX_REQUESTS_PER_MINUTE", "30"))
 AI_TIMEOUT_SECONDS = float(os.getenv("AI_TIMEOUT_SECONDS", "30"))
@@ -84,11 +44,7 @@ LLM_OUTPUT_COST_USD_PER_MILLION = float(
 )
 USD_TO_TOMAN_RATE = float(os.getenv("USD_TO_TOMAN_RATE", "180000"))
 TELEGRAM_MAX_CONCURRENCY = int(os.getenv("TELEGRAM_MAX_CONCURRENCY", "4"))
-SESSION_CARD_DELAY_SECONDS = float(os.getenv("SESSION_CARD_DELAY_SECONDS", "0.3"))
-DELIVERY_MAX_ATTEMPTS = int(os.getenv("DELIVERY_MAX_ATTEMPTS", "5"))
-DELIVERY_RETRY_BASE_SECONDS = float(
-    os.getenv("DELIVERY_RETRY_BASE_SECONDS", "60")
-)
+
 CONNECTION_HEALTH_INTERVAL_SECONDS = float(
     os.getenv("CONNECTION_HEALTH_INTERVAL_SECONDS", "30")
 )
@@ -142,14 +98,6 @@ def daily_word_query_limit_for_plan(plan: str) -> int:
         "silver": SILVER_DAILY_WORD_QUERY_LIMIT,
         "gold": GOLD_DAILY_WORD_QUERY_LIMIT,
     }.get(plan, FREE_DAILY_WORD_QUERY_LIMIT)
-
-
-def daily_reminder_cap_for_plan(plan: str) -> int:
-    return {
-        "free": FREE_DAILY_CARD_LIMIT,
-        "silver": SILVER_DAILY_CARD_LIMIT,
-        "gold": GOLD_DAILY_CARD_LIMIT,
-    }.get(plan, FREE_DAILY_CARD_LIMIT)
 
 
 def effective_plan(plan: str, bypass_limits: bool = False) -> str:

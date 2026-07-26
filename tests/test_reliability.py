@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from services.ai import ai
 from handlers import admin
 import bot
-import config
 from services import db
 from services.utils import formatting
 from services.utils import helpers
@@ -216,14 +215,22 @@ class ReliabilityPersistenceTests(unittest.TestCase):
             due = db.due_words_for_user(1)
             self.assertEqual(len(due), 1)
             word_id = due[0]["id"]
-            self.assertTrue(db.claim_srs_reminder(word_id))
-            self.assertTrue(db.mark_word_review_pending(word_id))
+            with db.get_conn() as conn:
+                conn.execute(
+                    "UPDATE saved_words SET review_status='pending' WHERE id=?",
+                    (word_id,),
+                )
+                conn.commit()
             self.assertEqual(db.due_words_for_user(1), [])
             self.assertTrue(db.defer_word_review(word_id))
             self.assertFalse(db.defer_word_review(word_id))
             self.assertEqual(db.due_words_for_user(1), [])
-            self.assertTrue(db.claim_srs_reminder(word_id))
-            self.assertTrue(db.mark_word_review_pending(word_id))
+            with db.get_conn() as conn:
+                conn.execute(
+                    "UPDATE saved_words SET review_status='pending' WHERE id=?",
+                    (word_id,),
+                )
+                conn.commit()
             self.assertTrue(db.advance_word_review(word_id))
             self.assertFalse(db.advance_word_review(word_id))
             self.assertEqual(db.due_words_for_user(1), [])
@@ -570,242 +577,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertEqual(db.count_daily_cards(1, card_date), 12)
 
 
-class SrsReliabilityTests(unittest.TestCase):
-    def setUp(self):
-        self.tempdir = tempfile.TemporaryDirectory()
-        self.previous_db_path = db.DB_PATH
-        db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
-        db.init_db()
 
-    def tearDown(self):
-        db.DB_PATH = self.previous_db_path
-        self.tempdir.cleanup()
-
-    def test_migration_seeds_daily_reminder_cap_from_plan(self):
-        db.create_user_if_needed(1, "user1")
-        db.create_user_if_needed(2, "user2")
-        db.create_user_if_needed(3, "user3")
-        db.set_plan(1, "free")
-        db.set_plan(2, "silver")
-        db.set_plan(3, "gold")
-        with db.get_conn() as conn:
-            conn.execute("UPDATE users SET daily_reminder_cap=NULL, reminder_cap_updated_at=NULL")
-            conn.commit()
-        db.init_db()
-        self.assertEqual(
-            db.get_user(1)["daily_reminder_cap"],
-            config.daily_reminder_cap_for_plan("free"),
-        )
-        self.assertEqual(
-            db.get_user(2)["daily_reminder_cap"],
-            config.daily_reminder_cap_for_plan("silver"),
-        )
-        self.assertEqual(
-            db.get_user(3)["daily_reminder_cap"],
-            config.daily_reminder_cap_for_plan("gold"),
-        )
-
-    def test_migration_does_not_overwrite_existing_cap(self):
-        db.create_user_if_needed(1, "user1")
-        with db.get_conn() as conn:
-            conn.execute(
-                "UPDATE users SET daily_reminder_cap=5, reminder_cap_updated_at='2026-07-01'"
-            )
-            conn.commit()
-        db.init_db()
-        self.assertEqual(db.get_user(1)["daily_reminder_cap"], 5)
-
-    def test_stale_delivery_recovery_requeues_processing_rows(self):
-        db.create_user_if_needed(1, "learner")
-        with db.get_conn() as conn:
-            conn.execute(
-                "INSERT INTO delivery_queue(user_id, delivery_date, session_index, "
-                "card_start_index, card_count, planned_for, idempotency_key, "
-                "status, processing_started_at) "
-                "VALUES(1, '2026-07-18', 0, 0, 1, '2026-07-18T08:00:00', "
-                "'stale-test-1', 'processing', '2026-07-18T06:00:00')"
-            )
-            conn.commit()
-            row_id = conn.execute(
-                "SELECT id FROM delivery_queue WHERE idempotency_key='stale-test-1'"
-            ).fetchone()["id"]
-        db.requeue_stale_deliveries("2026-07-18T06:10:00", 5)
-        with db.get_conn() as conn:
-            updated = conn.execute(
-                "SELECT status FROM delivery_queue WHERE id=?", (row_id,)
-            ).fetchone()
-        self.assertEqual(updated["status"], "failed")
-
-    def test_stale_delivery_respects_recent_processing_rows(self):
-        db.create_user_if_needed(1, "learner")
-        with db.get_conn() as conn:
-            conn.execute(
-                "INSERT INTO delivery_queue(user_id, delivery_date, session_index, "
-                "card_start_index, card_count, planned_for, idempotency_key, "
-                "status, processing_started_at) "
-                "VALUES(1, '2026-07-18', 0, 0, 1, '2026-07-18T08:00:00', "
-                "'stale-test-2', 'processing', '2026-07-18T06:55:00')"
-            )
-            conn.commit()
-            row_id = conn.execute(
-                "SELECT id FROM delivery_queue WHERE idempotency_key='stale-test-2'"
-            ).fetchone()["id"]
-        db.requeue_stale_deliveries("2026-07-18T06:50:00", 5)
-        with db.get_conn() as conn:
-            updated = conn.execute(
-                "SELECT status FROM delivery_queue WHERE id=?", (row_id,)
-            ).fetchone()
-        self.assertEqual(updated["status"], "processing")
-
-    def test_grace_window_resets_expired_pending_reminders(self):
-        db.create_user_if_needed(1, "learner")
-        db.add_saved_word(1, "hello", "en")
-        word = db.get_saved_word(1, user_id=1)
-        past = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=49)
-        with db.get_conn() as conn:
-            conn.execute(
-                "UPDATE saved_words SET next_review='2026-07-17', "
-                "review_status='pending', review_requested_at=? WHERE id=?",
-                (past.isoformat(), word["id"]),
-            )
-            conn.commit()
-        due = db.due_words_for_user(1)
-        self.assertEqual(len(due), 1)
-        self.assertEqual(due[0]["review_status"], "idle")
-
-    def test_grace_window_keeps_recent_pending_reminders(self):
-        db.create_user_if_needed(1, "learner")
-        db.add_saved_word(1, "hello", "en")
-        word = db.get_saved_word(1, user_id=1)
-        recent = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
-        with db.get_conn() as conn:
-            conn.execute(
-                "UPDATE saved_words SET next_review='2026-07-17', "
-                "review_status='pending', review_requested_at=? WHERE id=?",
-                (recent.isoformat(), word["id"]),
-            )
-            conn.commit()
-        due = db.due_words_for_user(1)
-        self.assertEqual(due, [])
-
-    def test_claim_srs_reminder_returns_true_on_first_claim(self):
-        db.create_user_if_needed(1, "learner")
-        db.add_saved_word(1, "hello", "en")
-        word = db.get_saved_word(1, user_id=1)
-        with db.get_conn() as conn:
-            conn.execute(
-                "UPDATE saved_words SET next_review='2026-07-17' WHERE id=?",
-                (word["id"],),
-            )
-        self.assertTrue(db.claim_srs_reminder(word["id"]))
-
-    def test_claim_srs_reminder_returns_false_on_second_claim(self):
-        db.create_user_if_needed(1, "learner")
-        db.add_saved_word(1, "hello", "en")
-        word = db.get_saved_word(1, user_id=1)
-        with db.get_conn() as conn:
-            conn.execute(
-                "UPDATE saved_words SET next_review='2026-07-17' WHERE id=?",
-                (word["id"],),
-            )
-        self.assertTrue(db.claim_srs_reminder(word["id"]))
-        self.assertFalse(db.claim_srs_reminder(word["id"]))
-
-    def test_mark_word_review_pending_succeeds_from_claiming(self):
-        db.create_user_if_needed(1, "learner")
-        db.add_saved_word(1, "hello", "en")
-        word = db.get_saved_word(1, user_id=1)
-        db.claim_srs_reminder(word["id"])
-        self.assertTrue(db.mark_word_review_pending(word["id"]))
-
-    def test_mark_word_review_pending_fails_from_idle(self):
-        db.create_user_if_needed(1, "learner")
-        db.add_saved_word(1, "hello", "en")
-        word = db.get_saved_word(1, user_id=1)
-        self.assertFalse(db.mark_word_review_pending(word["id"]))
-
-    def test_release_srs_claim_resets_to_idle(self):
-        db.create_user_if_needed(1, "learner")
-        db.add_saved_word(1, "hello", "en")
-        word = db.get_saved_word(1, user_id=1)
-        db.claim_srs_reminder(word["id"])
-        self.assertTrue(db.release_srs_claim(word["id"]))
-        self.assertTrue(db.claim_srs_reminder(word["id"]))
-
-    def test_mark_srs_send_failed_sets_retry_at_with_backoff(self):
-        db.create_user_if_needed(1, "learner")
-        db.add_saved_word(1, "hello", "en")
-        word = db.get_saved_word(1, user_id=1)
-        db.mark_srs_send_failed(word["id"], 0)
-        row = db.get_saved_word(word["id"])
-        self.assertIsNotNone(row["retry_at"])
-        self.assertAlmostEqual(row["srs_retry_attempts"], 0)
-
-    def test_mark_srs_send_failed_gives_up_after_max_attempts(self):
-        db.create_user_if_needed(1, "learner")
-        db.add_saved_word(1, "hello", "en")
-        word = db.get_saved_word(1, user_id=1)
-        db.mark_srs_send_failed(word["id"], 5)
-        row = db.get_saved_word(word["id"])
-        self.assertIsNone(row["retry_at"])
-
-    def test_get_due_srs_failed_returns_only_expired_retries(self):
-        db.create_user_if_needed(1, "learner")
-        db.add_saved_word(1, "word1", "en")
-        db.add_saved_word(1, "word2", "en")
-        w1 = db.get_saved_word(1, user_id=1)
-        w2 = db.get_saved_word(2, user_id=1)
-        past = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)).isoformat()
-        future = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)).isoformat()
-        with db.get_conn() as conn:
-            conn.execute(
-                "UPDATE saved_words SET retry_at=? WHERE id=?", (past, w1["id"])
-            )
-            conn.execute(
-                "UPDATE saved_words SET retry_at=? WHERE id=?", (future, w2["id"])
-            )
-            conn.commit()
-        due = db.get_due_srs_failed()
-        ids = [r["id"] for r in due]
-        self.assertIn(w1["id"], ids)
-        self.assertNotIn(w2["id"], ids)
-
-    def test_clear_srs_retry_resets_columns(self):
-        db.create_user_if_needed(1, "learner")
-        db.add_saved_word(1, "hello", "en")
-        word = db.get_saved_word(1, user_id=1)
-        db.mark_srs_send_failed(word["id"], 2)
-        db.clear_srs_retry(word["id"])
-        row = db.get_saved_word(word["id"])
-        self.assertIsNone(row["retry_at"])
-        self.assertEqual(row["srs_retry_attempts"], 0)
-
-    def test_due_words_for_user_excludes_retry_at_words(self):
-        db.create_user_if_needed(1, "learner")
-        db.add_saved_word(1, "active", "en")
-        db.add_saved_word(1, "stuck", "en")
-        w2 = db.get_saved_word(2, user_id=1)
-        # Set both words' next_review to past so they are due
-        past_review = (dt.date(2020, 1, 1)).isoformat()
-        with db.get_conn() as conn:
-            conn.execute(
-                "UPDATE saved_words SET next_review=? WHERE user_id=?",
-                (past_review, 1),
-            )
-            conn.commit()
-        # Set stuck word with retry_at (future)
-        w = db.get_saved_word(2, user_id=1)
-        past = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)).isoformat()
-        with db.get_conn() as conn:
-            conn.execute(
-                "UPDATE saved_words SET retry_at=? WHERE id=?", (past, w["id"])
-            )
-            conn.commit()
-        with patch.object(db, "_today", return_value=dt.date(2026, 7, 20)):
-            due = db.due_words_for_user(1)
-        ids = [r["id"] for r in due]
-        self.assertIn(1, ids)
-        self.assertNotIn(2, ids)
 
 
 class CallbackAnswerTests(unittest.IsolatedAsyncioTestCase):
@@ -933,15 +705,6 @@ class NetworkResilienceTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(BadRequest):
                 await helpers._send_with_retry(bot_mock, 123, "hello")
         reset_mock.assert_not_called()
-
-    async def test_dispatch_queue_skips_when_offline(self):
-        bot._telegram_offline = True
-        context = MagicMock()
-        with patch.object(db, "get_delivery_queue") as mock_q:
-            await bot._dispatch_queue(context, "2026-07-20")
-        mock_q.assert_not_called()
-        bot._telegram_offline = False
-
 
 
 

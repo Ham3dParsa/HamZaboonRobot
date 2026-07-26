@@ -2,10 +2,8 @@ from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardBu
 
 from .catalog import GOALS, LANGUAGES, LEVELS, language_label
 
-BTN_TODAY_CARD = "🃏 فلش‌کارت امروز"
+BTN_STUDY_SESSION = "📚 شروع مطالعه امروز"
 BTN_ASK_WORD = "❓ پرسیدن یک واژه"
-BTN_GRAMMAR = "✍️ نکته‌ی گرامری"
-BTN_SRS_REVIEW = "🧠 شروع مرور SRS"
 BTN_SETTINGS = "⚙️ تنظیمات و پروفایل من"
 BTN_ADMIN = "🛠 مدیریت ربات"
 BTN_ADMIN_STATS = "📈 آمار کاربران"
@@ -37,7 +35,8 @@ IBTN_DETAILED = "کامل"
 
 # --- Daily Cards & Review ---
 IBTN_TRANSLATIONS = "✦ ترجمه مثال‌ها"
-IBTN_NEXT_CARD = "➡️ کارت بعدی"
+IBTN_NEXT_CARD = "▶️ بعدی"
+IBTN_NEXT_CARD_NEW = "▶️ بعدی 🆕"
 IBTN_PREV_CARD = "⬅️ کارت قبلی"
 IBTN_REVIEW_CARDS = "📚 مرور کارت‌ها"
 IBTN_REVIEW_MENU = "📚 منوی مرور"
@@ -182,13 +181,20 @@ IBTN_HELP_FALLBACK = "❓ راهنمای زنجیره فال‌بک"
 
 def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
     rows = [
-        [BTN_TODAY_CARD, BTN_GRAMMAR],
-        [BTN_SRS_REVIEW, BTN_ASK_WORD],
+        [BTN_STUDY_SESSION],
+        [BTN_ASK_WORD],
         [BTN_SETTINGS],
     ]
     if is_owner:
         rows.append([BTN_ADMIN])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+
+
+def study_start_keyboard() -> InlineKeyboardMarkup:
+    """Single '📚 شروع مطالعه امروز' inline button for the nudge / menu."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(BTN_STUDY_SESSION, callback_data="study:start")],
+    ])
 
 
 def lang_inline_keyboard(*, back_to_settings: bool = False) -> InlineKeyboardMarkup:
@@ -283,6 +289,7 @@ def daily_card_keyboard(
     show_translations: bool = False,
     show_pronounce: bool = False,
     has_prev: bool = False,
+    next_card_is_new: bool = True,
 ) -> InlineKeyboardMarkup | None:
     if not has_next and not show_translations and not show_pronounce and not has_prev:
         return None
@@ -313,9 +320,10 @@ def daily_card_keyboard(
         )
     if has_next:
         next_prefix = callback_prefix
+        next_label = IBTN_NEXT_CARD_NEW if next_card_is_new else IBTN_NEXT_CARD
         nav_buttons.append(
             InlineKeyboardButton(
-                IBTN_NEXT_CARD,
+                next_label,
                 callback_data=f"{next_prefix}:{user_id}:{card_date}:{card_index}",
             )
         )
