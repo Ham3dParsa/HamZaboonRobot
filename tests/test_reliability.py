@@ -210,30 +210,31 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertTrue(db.add_saved_word(1, "hello", "en", card))
         row = db.get_saved_word(1, user_id=1)
         self.assertIn("سلام", row["card_data"])
+        self.assertEqual(row["interval_idx"], -1)
 
-        with patch.object(db, "_today", return_value=dt.date.fromisoformat(row["next_review"])):
-            due = db.due_words_for_user(1)
-            self.assertEqual(len(due), 1)
-            word_id = due[0]["id"]
-            with db.get_conn() as conn:
-                conn.execute(
-                    "UPDATE saved_words SET review_status='pending' WHERE id=?",
-                    (word_id,),
-                )
-                conn.commit()
-            self.assertEqual(db.due_words_for_user(1), [])
-            self.assertTrue(db.defer_word_review(word_id))
-            self.assertFalse(db.defer_word_review(word_id))
-            self.assertEqual(db.due_words_for_user(1), [])
-            with db.get_conn() as conn:
-                conn.execute(
-                    "UPDATE saved_words SET review_status='pending' WHERE id=?",
-                    (word_id,),
-                )
-                conn.commit()
-            self.assertTrue(db.advance_word_review(word_id))
-            self.assertFalse(db.advance_word_review(word_id))
-            self.assertEqual(db.due_words_for_user(1), [])
+        backlog = db.get_queried_backlog_words(1)
+        self.assertEqual(len(backlog), 1)
+        word_id = backlog[0]["id"]
+
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE saved_words SET review_status='pending' WHERE id=?",
+                (word_id,),
+            )
+            conn.commit()
+        self.assertEqual(db.due_words_for_user(1), [])
+        self.assertTrue(db.defer_word_review(word_id))
+        self.assertFalse(db.defer_word_review(word_id))
+        self.assertEqual(db.due_words_for_user(1), [])
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE saved_words SET review_status='pending' WHERE id=?",
+                (word_id,),
+            )
+            conn.commit()
+        self.assertTrue(db.advance_word_review(word_id))
+        self.assertFalse(db.advance_word_review(word_id))
+        self.assertEqual(db.due_words_for_user(1), [])
 
     def test_surgical_card_patches_update_only_requested_fields(self):
         db.create_user_if_needed(1, "learner")

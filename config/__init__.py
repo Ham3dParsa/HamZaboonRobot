@@ -76,6 +76,10 @@ OWNER_BYPASS_LIMITS = os.getenv("OWNER_BYPASS_LIMITS", "false").lower() in {
     "yes",
 }
 
+SESSION_SIZE_FREE = int(os.getenv("SESSION_SIZE_FREE", "5"))
+SESSION_SIZE_SILVER = int(os.getenv("SESSION_SIZE_SILVER", "6"))
+SESSION_SIZE_GOLD = int(os.getenv("SESSION_SIZE_GOLD", "7"))
+
 PLANS = {
     "free": "رایگان",
     "silver": "نقره‌ای",
@@ -112,6 +116,14 @@ def presentation_for_user(plan: str, preference: str | None) -> str:
     if preference not in {"brief", "detailed"}:
         return DEFAULT_PRESENTATION
     return preference
+
+
+def get_user_session_size(plan: str) -> int:
+    return {
+        "free": SESSION_SIZE_FREE,
+        "silver": SESSION_SIZE_SILVER,
+        "gold": SESSION_SIZE_GOLD,
+    }.get(plan, SESSION_SIZE_FREE)
 
 
 def is_owner(user_id: int) -> bool:

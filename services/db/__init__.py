@@ -1258,7 +1258,8 @@ def add_saved_word(
     if not normalized_word:
         return False
     word = " ".join(word.split())
-    next_review = (_today() + datetime.timedelta(days=INTERVALS_DAYS[0])).isoformat()
+    next_review = None
+    interval_idx = -1
     serialized_card = (
         json.dumps(card_data, ensure_ascii=False)
         if isinstance(card_data, dict)
@@ -1270,13 +1271,14 @@ def add_saved_word(
             "INSERT OR IGNORE INTO saved_words("
             "user_id, word, lang, normalized_word, card_data, interval_idx, "
             "next_review, review_status, added_at) "
-            "VALUES (?, ?, ?, ?, ?, 0, ?, 'idle', ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?)",
             (
                 user_id,
                 word,
                 lang,
                 normalized_word,
                 serialized_card,
+                interval_idx,
                 next_review,
                 _utc_now().isoformat(),
             ),
@@ -1357,6 +1359,16 @@ def get_saved_word(word_id: int, user_id: int | None = None):
         params.append(user_id)
     with get_conn() as conn:
         return conn.execute(query, params).fetchone()
+
+
+def get_queried_backlog_words(user_id: int) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM saved_words "
+            "WHERE user_id=? AND interval_idx=-1 AND review_status='idle' "
+            "ORDER BY added_at ASC",
+            (user_id,),
+        ).fetchall()
 
 
 def advance_word_review(word_id: int) -> bool:

@@ -186,16 +186,18 @@
         "Bot.py module extraction Stages 1-5 complete (formatting.py, helpers.py, user.py, srs_handler.py, admin.py)",
         "Package restructuring: flat modules moved to config/, handlers/, services/ packages",
         "v3 Engine migration Phase 2: purged v2.8 push-based SRS (delivery_queue, scheduler, push jobs)",
-        "v3 Engine migration Phase 2: scaffolded v3 pull-based engine skeleton (srs_engine.py, study_handler.py, golden button)"
+        "v3 Engine migration Phase 2: scaffolded v3 pull-based engine skeleton (srs_engine.py, study_handler.py, golden button)",
+        "v3 Engine migration Phase 3: 3-Tier Priority Queue core implementation",
+        "v3 Engine migration Phase 3: hybrid entry point (text + callback routing)"
       ],
       "in_progress": [
-        "v3 Engine migration Phase 3: 3-Tier Priority Queue core implementation"
+        "v3 Engine migration Phase 3: session card interaction flow (Remembered/Again buttons)"
       ],
       "todo": [
-        "Implement 3-Tier Priority Queue (due, new, failed)",
-        "Wire study session start -> queue -> handler flow",
-        "Remove migration SQL v3_cleanup.sql after Phase 6 is released",
-        "Design the premium reward surface"
+        "Implement Tier 3 AI generation pipeline",
+        "Wire Remembered/Again button callbacks to advance_word_review / defer_word_review",
+        "Add user-facing session size settings UI",
+        "Remove migration SQL v3_cleanup.sql after Phase 6 is released"
       ],
       "acceptance_criteria": [
         "Restart does not resend completed work",

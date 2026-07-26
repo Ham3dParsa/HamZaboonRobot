@@ -1,40 +1,22 @@
-"""v3 Pull-Based Smart Session Engine.
-
-Core scaffolding for the 3-Tier Priority Queue session generator.
-Phase 2 implementation — currently a scaffold with TODO stubs.
-"""
-
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from config import get_user_session_size
+from services import db
 
-# ---------------------------------------------------------------------------
-# Activity Registry (future extensibility)
-# ---------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
 
 ACTIVITY_REGISTRY: dict[str, Any] = {}
 
 
 def register_activity(activity_type: str, handler: Any) -> None:
-    """Register a handler for a polymorphic activity type."""
     ACTIVITY_REGISTRY[activity_type] = handler
 
 
-# ---------------------------------------------------------------------------
-# Session Node
-# ---------------------------------------------------------------------------
-
-
 class SessionNode:
-    """A single node in a study session.
-
-    Each node represents one activity unit (flashcard, quiz, etc.).
-    The scheduling engine is agnostic to activity_type.
-    """
-
     def __init__(
         self,
         activity_type: str,
@@ -50,11 +32,6 @@ class SessionNode:
         self.source_id = source_id
 
 
-# ---------------------------------------------------------------------------
-# 3-Tier Priority Queue
-# ---------------------------------------------------------------------------
-
-
 async def generate_v3_session(
     user_id: int,
     target_lang: str,
@@ -62,30 +39,69 @@ async def generate_v3_session(
     level: str,
     plan: str,
 ) -> dict:
-    """Generate a pull-based study session (up to 5 nodes).
+    session_size = get_user_session_size(plan)
+    nodes: list[SessionNode] = []
 
-    Fills slots via 3-Tier Priority:
-        Tier 1: Overdue SRS cards (interval_idx >= 0, next_review <= today)
-        Tier 2: Pre-graduation saved words (interval_idx = -1)
-        Tier 3: New AI-generated cards
+    tier1 = db.due_words_for_user(user_id)
+    for row in tier1:
+        if len(nodes) >= session_size:
+            break
+        card_data = _parse_card_data(row)
+        if card_data is None:
+            continue
+        nodes.append(SessionNode(
+            activity_type="vocab_card",
+            source_tier=1,
+            card_data=card_data,
+            source_id=row["id"],
+        ))
 
-    Returns a session dict with 'nodes' (list of SessionNode) and metadata.
-    """
-    # TODO: Implement Tier 1 — fetch overdue SRS cards scoped by (user_id, target_lang)
-    # TODO: Implement Tier 2 — fetch pre-graduation saved words
-    # TODO: Implement Tier 3 — generate new AI cards for remaining slots
-    # TODO: Persist session and nodes to smart_study_sessions + session_nodes tables
-    # TODO: Consume one session quota slot
+    if len(nodes) < session_size:
+        tier2 = db.get_queried_backlog_words(user_id)
+        for row in tier2:
+            if len(nodes) >= session_size:
+                break
+            card_data = _parse_card_data(row)
+            if card_data is None:
+                continue
+            nodes.append(SessionNode(
+                activity_type="vocab_card",
+                source_tier=2,
+                card_data=card_data,
+                source_id=row["id"],
+            ))
+
+    remaining = session_size - len(nodes)
+    if remaining > 0:
+        logger.info(
+            "generate_v3_session Tier 3 stub: would generate %d cards for user_id=%s",
+            remaining,
+            user_id,
+        )
 
     logger.info(
-        "generate_v3_session called (stub) user_id=%s target_lang=%s",
+        "generate_v3_session complete user_id=%s session_size=%d filled=%d",
         user_id,
-        target_lang,
+        session_size,
+        len(nodes),
     )
+
     return {
         "user_id": user_id,
         "target_lang": target_lang,
-        "nodes": [],
-        "slot_count": 0,
-        "activity_types": [],
+        "session_size": session_size,
+        "nodes": nodes,
+        "slot_count": len(nodes),
+        "activity_types": list({n.activity_type for n in nodes}),
     }
+
+
+def _parse_card_data(row) -> dict | None:
+    raw = row["card_data"]
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else None
+    except (TypeError, json.JSONDecodeError):
+        return None
