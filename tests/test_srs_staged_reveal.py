@@ -17,10 +17,13 @@ class SrsKeyboardTests(unittest.TestCase):
         self.assertEqual(callbacks, ["srs:remember:123:456", "srs:reveal:123:456"])
         self.assertTrue(all(len(c) < 64 for c in callbacks))
 
-    def test_revealed_keyboard_reasks_recall(self):
+    def test_revealed_keyboard_has_translations_and_actions(self):
         markup = srs_revealed_keyboard(123, 456)
-        callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
-        self.assertEqual(callbacks, ["srs:confirm:123:456", "srs:again:123:456"])
+        rows = markup.inline_keyboard
+        self.assertEqual(rows[0][0].callback_data, "srs:prepare:123:456")
+        self.assertEqual(rows[1][0].callback_data, "srs:confirm:123:456")
+        self.assertEqual(rows[1][1].callback_data, "srs:again:123:456")
+        callbacks = [b.callback_data for row in rows for b in row]
         self.assertTrue(all(len(c) < 64 for c in callbacks))
 
 

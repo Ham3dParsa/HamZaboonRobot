@@ -71,6 +71,7 @@ from config.keyboards import (
     goal_inline_keyboard,
     level_inline_keyboard,
     presentation_settings_keyboard,
+    settings_inline_keyboard,
     awaiting_reply_keyboard,
     awaiting_inline_keyboard,
     daily_review_dates_keyboard,
@@ -82,13 +83,10 @@ from config.keyboards import (
     daily_card_keyboard,
     BTN_TODAY_CARD,
     BTN_ASK_WORD,
-    BTN_STATUS,
     BTN_GRAMMAR,
     BTN_ADMIN,
-    BTN_CHANGE_LANG,
-    BTN_CHANGE_GOAL,
-    BTN_CHANGE_LEVEL,
-    BTN_CHANGE_PRESENTATION,
+    BTN_SRS_REVIEW,
+    BTN_SETTINGS,
     BTN_CANCEL,
     BTN_BACK,
 )
@@ -155,6 +153,8 @@ from handlers.user import (
     _handle_daily_prepare,
     _handle_query_prepare,
     _show_review_menu,
+    start_srs_review,
+    _show_settings_menu,
     _custom_word_input_error,
     _word_query_usage_text,
     _grammar_tip_usage_text,
@@ -260,6 +260,7 @@ async def _send_card_from_store(
     card_index: int,
     *,
     review_mode: bool = False,
+    callback_query=None,
 ):
     cards = db.get_daily_cards(user_id, card_date)
     if card_index >= len(cards):
@@ -287,26 +288,29 @@ async def _send_card_from_store(
     if review_mode:
         footer = f"📚 مرور کارت {card_index + 1} از {len(cards)} برای {card_date}"
     phon_lines = _phonetic_lines(card.get("phonetic", ""))
-    await _send_with_retry(
-        context.bot,
-        chat_id,
-        format_card(
-            card,
-            footer=footer,
-            presentation=_user_presentation(row),
-            phonetic_lines=phon_lines,
-        ),
-        parse_mode=ParseMode.MARKDOWN_V2,
-        reply_markup=daily_card_keyboard(
-            user_id,
-            card_date,
-            card_index,
-            card_index + 1 < len(cards),
-            callback_prefix="review:next" if review_mode else "daily:next",
-            show_translations=True,
-            show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
-        ),
+    markup = daily_card_keyboard(
+        user_id,
+        card_date,
+        card_index,
+        card_index + 1 < len(cards),
+        callback_prefix="review:next" if review_mode else "daily:next",
+        show_translations=True,
+        show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
+        has_prev=card_index > 0,
     )
+    text = format_card(
+        card,
+        footer=footer,
+        presentation=_user_presentation(row),
+        phonetic_lines=phon_lines,
+    )
+    if callback_query:
+        try:
+            await _edit_with_retry(callback_query, text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=markup)
+            return card, len(cards)
+        except BadRequest:
+            pass
+    await _send_with_retry(context.bot, chat_id, text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=markup)
     return card, len(cards)
 
 
@@ -508,6 +512,8 @@ async def _send_next_daily_card(
     row,
     card_date: str,
     limit: int,
+    *,
+    callback_query=None,
 ):
     user_id = row["user_id"]
     async with _get_user_lock(user_id):
@@ -547,25 +553,28 @@ async def _send_next_daily_card(
     db.touch_streak(user_id)
     log.info("daily card delivered user_id=%s date=%s index=%s", user_id, card_date, card_index)
     phon_lines = _phonetic_lines(card.get("phonetic", ""))
-    await _send_with_retry(
-        context.bot,
-        update.effective_chat.id,
-        format_card(
-            card,
-            footer=f"📖 کارت {card_index + 1} از {limit} امروز",
-            presentation=_user_presentation(row),
-            phonetic_lines=phon_lines,
-        ),
-        parse_mode=ParseMode.MARKDOWN_V2,
-        reply_markup=daily_card_keyboard(
-            user_id,
-            card_date,
-            card_index,
-            card_index + 1 < limit,
-            show_translations=True,
-            show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
-        ),
+    markup = daily_card_keyboard(
+        user_id,
+        card_date,
+        card_index,
+        card_index + 1 < limit,
+        show_translations=True,
+        show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
+        has_prev=card_index > 0,
     )
+    text = format_card(
+        card,
+        footer=f"📖 کارت {card_index + 1} از {limit} امروز",
+        presentation=_user_presentation(row),
+        phonetic_lines=phon_lines,
+    )
+    if callback_query:
+        try:
+            await _edit_with_retry(callback_query, text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=markup)
+            return
+        except BadRequest:
+            pass
+    await _send_with_retry(context.bot, update.effective_chat.id, text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=markup)
 
 
 async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -646,6 +655,7 @@ async def _show_review_date(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         card_date,
         0,
         review_mode=True,
+        callback_query=update.callback_query,
     )
 
 
@@ -803,21 +813,14 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_daily_card_now(update, context)
     elif text == BTN_GRAMMAR:
         await send_grammar_tip(update, context)
+    elif text == BTN_SRS_REVIEW:
+        await start_srs_review(update, context)
     elif text == BTN_ASK_WORD:
         await ask_for_ask_word(update, context)
-    elif text == BTN_STATUS:
-        await show_status(update, context)
-
+    elif text == BTN_SETTINGS:
+        await _show_settings_menu(update, context)
     elif text == BTN_ADMIN:
         await open_admin_panel(update, context)
-    elif text == BTN_CHANGE_LANG:
-        await change_lang_start(update, context)
-    elif text == BTN_CHANGE_GOAL:
-        await change_goal_start(update, context)
-    elif text == BTN_CHANGE_LEVEL:
-        await change_level_start(update, context)
-    elif text == BTN_CHANGE_PRESENTATION:
-        await change_presentation_start(update, context)
     else:
         await _send_with_retry(context.bot, update.effective_chat.id, "از دکمه‌های پایین استفاده کن 🙂", reply_markup=main_menu(is_owner(user_id)))
 
@@ -847,11 +850,13 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "query:add:",
             "query:prepare:",
             "daily:prepare:",
+            "daily:prev:",
             "review:prepare:",
             "presentation:",
             "flow:",
             "srs:",
             "tts:pronounce:",
+            "settings:",
         )
     ):
         await update.callback_query.answer()
@@ -907,7 +912,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _edit_with_retry(
             update.callback_query,
             f"نمایش کارت‌ها روی «{label}» تنظیم شد.",
-            reply_markup=presentation_settings_keyboard(preference),
+            reply_markup=presentation_settings_keyboard(preference, back_to_settings=True),
         )
         await update.callback_query.answer("تنظیمات ذخیره شد.")
         return
@@ -984,7 +989,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.callback_query.answer()
         try:
-            await _send_next_daily_card(update, context, row, today, limit)
+            await _send_next_daily_card(update, context, row, today, limit, callback_query=update.callback_query)
         except Exception:
             log.exception("Next daily card generation failed")
             await _send_with_retry(
@@ -992,6 +997,31 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 update.effective_chat.id,
                 "مشکلی در ساخت کارت بعدی پیش اومد.",
             )
+    elif data.startswith("daily:prev:"):
+        parts = data.split(":")
+        if len(parts) != 5:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        target_user_id_text, card_date, current_index_text = parts[2], parts[3], parts[4]
+        try:
+            target_user_id = int(target_user_id_text)
+            current_index = int(current_index_text)
+        except ValueError:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        user_id = update.effective_user.id
+        if user_id != target_user_id:
+            await update.callback_query.answer("این کارت برای کاربر دیگری است.", show_alert=True)
+            return
+        prev_index = current_index - 1
+        if prev_index < 0:
+            await update.callback_query.answer("این اولین کارت است.", show_alert=True)
+            return
+        await update.callback_query.answer()
+        try:
+            await _send_card_from_store(context, update.effective_chat.id, user_id, card_date, prev_index, callback_query=update.callback_query)
+        except CardPreparationError:
+            await _send_with_retry(context.bot, update.effective_chat.id, "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.")
     elif data == "review:menu":
         await _show_review_menu(update, context)
     elif data.startswith("review:page:"):
@@ -1041,6 +1071,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 card_date,
                 current_index + 1,
                 review_mode=True,
+                callback_query=update.callback_query,
             )
         except CardPreparationError:
             await _send_with_retry(
@@ -1056,6 +1087,24 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
             return
         await _handle_query_add(update, context, parts[2])
+    elif data == "settings:lang":
+        await change_lang_start(update, context)
+    elif data == "settings:goal":
+        await change_goal_start(update, context)
+    elif data == "settings:level":
+        await change_level_start(update, context)
+    elif data == "settings:presentation":
+        await change_presentation_start(update, context)
+    elif data == "settings:status":
+        await show_status(update, context)
+    elif data == "settings:back":
+        await _show_settings_menu(update, context)
+    elif data == "settings:close":
+        try:
+            await update.callback_query.message.delete()
+            await _answer_callback_safely(update.callback_query, "بسته شد.")
+        except BadRequest:
+            await _answer_callback_safely(update.callback_query)
     elif data.startswith("llm:"):
         await _handle_llm_callback(update, context, data)
     elif data.startswith("srs:prepare:"):

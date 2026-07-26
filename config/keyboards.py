@@ -4,12 +4,9 @@ from .catalog import GOALS, LANGUAGES, LEVELS, language_label
 
 BTN_TODAY_CARD = "🃏 فلش‌کارت امروز"
 BTN_ASK_WORD = "❓ پرسیدن یک واژه"
-BTN_STATUS = "📊 وضعیت من"
 BTN_GRAMMAR = "✍️ نکته‌ی گرامری"
-BTN_CHANGE_LANG = "🌐 تغییر زبان"
-BTN_CHANGE_GOAL = "🎯 تغییر هدف"
-BTN_CHANGE_LEVEL = "📚 تنظیم سطح زبان"
-BTN_CHANGE_PRESENTATION = "📝 تنظیم نمایش کارت"
+BTN_SRS_REVIEW = "🧠 شروع مرور SRS"
+BTN_SETTINGS = "⚙️ تنظیمات و پروفایل من"
 BTN_ADMIN = "🛠 مدیریت ربات"
 BTN_ADMIN_STATS = "📈 آمار کاربران"
 BTN_ADMIN_BROADCAST = "📣 ارسال پیام همگانی"
@@ -31,6 +28,8 @@ IBTN_BACK = "↩️ بازگشت"
 IBTN_CANCEL = "❌ لغو"
 IBTN_CANCEL_EDIT = "↩️ انصراف"
 IBTN_BACK_TO_PANEL = "↩️ بازگشت به پنل اصلی"
+IBTN_CLOSE = "❌ بستن"
+IBTN_BACK_TO_SETTINGS = "↩️ بازگشت به تنظیمات"
 
 # --- Presentation ---
 IBTN_BRIEF = "خلاصه"
@@ -39,6 +38,7 @@ IBTN_DETAILED = "کامل"
 # --- Daily Cards & Review ---
 IBTN_TRANSLATIONS = "✦ ترجمه مثال‌ها"
 IBTN_NEXT_CARD = "➡️ کارت بعدی"
+IBTN_PREV_CARD = "⬅️ کارت قبلی"
 IBTN_REVIEW_CARDS = "📚 مرور کارت‌ها"
 IBTN_REVIEW_MENU = "📚 منوی مرور"
 IBTN_NEWER = "⬅️ جدیدتر"
@@ -47,10 +47,9 @@ IBTN_NO_CARDS = "فعلاً کارتی نیست"
 
 # --- SRS (Spaced Repetition) ---
 IBTN_REMEMBERED = "✅ یادم بود"
-IBTN_REVEAL = "👁 افشای کارت کامل"
-IBTN_CONFIRM_CORRECT = "✅ بله، درست بود"
-IBTN_REMIND_AGAIN = "🔁 نه، باز هم یادآوری کن"
-IBTN_TOMORROW_AGAIN = "↩️ فردا دوباره"
+IBTN_REVEAL = "👁 افشای کارت"
+IBTN_CONFIRM_CORRECT = "✅ یادم بود"
+IBTN_REMIND_AGAIN = "🔁 بازم یادم بیار"
 
 # --- Query / Word Lookup ---
 IBTN_ADD_TO_REVIEW = "➕ افزودن به مرور"
@@ -184,35 +183,35 @@ IBTN_HELP_FALLBACK = "❓ راهنمای زنجیره فال‌بک"
 def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
     rows = [
         [BTN_TODAY_CARD, BTN_GRAMMAR],
-        [BTN_ASK_WORD],
-        [BTN_STATUS, BTN_CHANGE_LEVEL],
-        [BTN_CHANGE_LANG, BTN_CHANGE_GOAL],
-        [BTN_CHANGE_PRESENTATION],
+        [BTN_SRS_REVIEW, BTN_ASK_WORD],
+        [BTN_SETTINGS],
     ]
     if is_owner:
-        rows.append([BTN_ADMIN_SET_PLAN])
-        rows.append([BTN_ADMIN_BROADCAST])
         rows.append([BTN_ADMIN])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
-def lang_inline_keyboard() -> InlineKeyboardMarkup:
+def lang_inline_keyboard(*, back_to_settings: bool = False) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(option.name_fa, callback_data=f"lang:{option.code}")]
         for option in LANGUAGES.values()
     ]
+    if back_to_settings:
+        buttons.append([InlineKeyboardButton(IBTN_BACK_TO_SETTINGS, callback_data="settings:back")])
     return InlineKeyboardMarkup(buttons)
 
 
-def goal_inline_keyboard() -> InlineKeyboardMarkup:
+def goal_inline_keyboard(*, back_to_settings: bool = False) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(option.name_fa, callback_data=f"goal:{option.code}")]
         for option in GOALS.values()
     ]
+    if back_to_settings:
+        buttons.append([InlineKeyboardButton(IBTN_BACK_TO_SETTINGS, callback_data="settings:back")])
     return InlineKeyboardMarkup(buttons)
 
 
-def level_inline_keyboard() -> InlineKeyboardMarkup:
+def level_inline_keyboard(*, back_to_settings: bool = False) -> InlineKeyboardMarkup:
     buttons = [
         [
             InlineKeyboardButton(
@@ -222,26 +221,56 @@ def level_inline_keyboard() -> InlineKeyboardMarkup:
         ]
         for option in LEVELS.values()
     ]
+    if back_to_settings:
+        buttons.append([InlineKeyboardButton(IBTN_BACK_TO_SETTINGS, callback_data="settings:back")])
     return InlineKeyboardMarkup(buttons)
 
 
 def presentation_settings_keyboard(
     current: str,
+    *,
+    back_to_settings: bool = False,
 ) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
+    rows = [
         [
-            [
-                InlineKeyboardButton(
-                    f"{'✅ ' if current == 'brief' else ''}{IBTN_BRIEF}",
-                    callback_data="presentation:set:brief",
-                ),
-                InlineKeyboardButton(
-                    f"{'✅ ' if current == 'detailed' else ''}{IBTN_DETAILED}",
-                    callback_data="presentation:set:detailed",
-                ),
-            ]
+            InlineKeyboardButton(
+                f"{'✅ ' if current == 'brief' else ''}{IBTN_BRIEF}",
+                callback_data="presentation:set:brief",
+            ),
+            InlineKeyboardButton(
+                f"{'✅ ' if current == 'detailed' else ''}{IBTN_DETAILED}",
+                callback_data="presentation:set:detailed",
+            ),
         ]
-    )
+    ]
+    if back_to_settings:
+        rows.append([InlineKeyboardButton(IBTN_BACK_TO_SETTINGS, callback_data="settings:back")])
+    return InlineKeyboardMarkup(rows)
+
+
+def settings_inline_keyboard(lang: str, goal: str, level: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(f"🌐 زبان: {lang}", callback_data="settings:lang"),
+            InlineKeyboardButton(f"🎯 هدف: {goal}", callback_data="settings:goal"),
+        ],
+        [
+            InlineKeyboardButton(f"📚 سطح: {level}", callback_data="settings:level"),
+            InlineKeyboardButton("📝 نوع نمایش کارت", callback_data="settings:presentation"),
+        ],
+        [
+            InlineKeyboardButton("👤 وضعیت اشتراک و آمار", callback_data="settings:status"),
+        ],
+        [
+            InlineKeyboardButton(IBTN_CLOSE, callback_data="settings:close"),
+        ],
+    ])
+
+
+def settings_back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(IBTN_BACK_TO_SETTINGS, callback_data="settings:back")]
+    ])
 
 
 def daily_card_keyboard(
@@ -253,34 +282,46 @@ def daily_card_keyboard(
     *,
     show_translations: bool = False,
     show_pronounce: bool = False,
+    has_prev: bool = False,
 ) -> InlineKeyboardMarkup | None:
-    if not has_next and not show_translations and not show_pronounce:
+    if not has_next and not show_translations and not show_pronounce and not has_prev:
         return None
     translation_prefix = "review:prepare" if callback_prefix.startswith("review:") else "daily:prepare"
-    buttons = []
+    top_buttons = []
     if show_translations:
-        buttons.append(
+        top_buttons.append(
             InlineKeyboardButton(
                 IBTN_TRANSLATIONS,
                 callback_data=f"{translation_prefix}:{user_id}:{card_date}:{card_index}",
             )
         )
-    if has_next:
-        buttons.append(
-            InlineKeyboardButton(
-                IBTN_NEXT_CARD,
-                callback_data=f"{callback_prefix}:{user_id}:{card_date}:{card_index}",
-            )
-        )
-    rows = [buttons] if buttons else []
     if show_pronounce:
-        rows.append([
+        top_buttons.append(
             InlineKeyboardButton(
                 IBTN_PRONOUNCE,
                 callback_data=f"tts:pronounce:d:{user_id}:{card_date}:{card_index}",
             )
-        ])
-    return InlineKeyboardMarkup(rows)
+        )
+    rows = [top_buttons] if top_buttons else []
+    nav_buttons = []
+    if has_prev:
+        nav_buttons.append(
+            InlineKeyboardButton(
+                IBTN_PREV_CARD,
+                callback_data=f"daily:prev:{user_id}:{card_date}:{card_index}",
+            )
+        )
+    if has_next:
+        next_prefix = callback_prefix
+        nav_buttons.append(
+            InlineKeyboardButton(
+                IBTN_NEXT_CARD,
+                callback_data=f"{next_prefix}:{user_id}:{card_date}:{card_index}",
+            )
+        )
+    if nav_buttons:
+        rows.append(nav_buttons)
+    return InlineKeyboardMarkup(rows) if rows else None
 
 
 def daily_review_menu_keyboard() -> InlineKeyboardMarkup:
@@ -356,13 +397,18 @@ def srs_hidden_keyboard(
     *,
     show_pronounce: bool = False,
 ) -> InlineKeyboardMarkup:
-    """Keyboard for the first (hidden) SRS reminder screen.
-
-    Offers a pure-recall action and a reveal action. Recalling without revealing
-    is a strong signal; revealing marks the review as "peeked" before the
-    follow-up confirmation.
-    """
-    rows = []
+    rows = [
+        [
+            InlineKeyboardButton(
+                IBTN_REMEMBERED,
+                callback_data=f"srs:remember:{user_id}:{word_id}",
+            ),
+            InlineKeyboardButton(
+                IBTN_REVEAL,
+                callback_data=f"srs:reveal:{user_id}:{word_id}",
+            ),
+        ],
+    ]
     if show_pronounce:
         rows.append([
             InlineKeyboardButton(
@@ -370,16 +416,6 @@ def srs_hidden_keyboard(
                 callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
             )
         ])
-    rows.append([
-        InlineKeyboardButton(
-            IBTN_REMEMBERED,
-            callback_data=f"srs:remember:{user_id}:{word_id}",
-        ),
-        InlineKeyboardButton(
-            IBTN_REVEAL,
-            callback_data=f"srs:reveal:{user_id}:{word_id}",
-        ),
-    ])
     return InlineKeyboardMarkup(rows)
 
 
@@ -389,18 +425,22 @@ def srs_revealed_keyboard(
     *,
     show_pronounce: bool = False,
 ) -> InlineKeyboardMarkup:
-    """Keyboard shown after the learner reveals the full card.
-
-    Re-asks whether they truly recalled it before seeing the answer.
-    """
     rows = []
+    top_buttons = []
+    top_buttons.append(
+        InlineKeyboardButton(
+            IBTN_TRANSLATIONS,
+            callback_data=f"srs:prepare:{user_id}:{word_id}",
+        )
+    )
     if show_pronounce:
-        rows.append([
+        top_buttons.append(
             InlineKeyboardButton(
                 IBTN_PRONOUNCE,
                 callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
             )
-        ])
+        )
+    rows.append(top_buttons)
     rows.append([
         InlineKeyboardButton(
             IBTN_CONFIRM_CORRECT,
@@ -421,34 +461,34 @@ def srs_review_keyboard(
     show_translations: bool = False,
     show_pronounce: bool = False,
 ) -> InlineKeyboardMarkup:
-    review_buttons = [
+    rows = []
+    top_buttons = []
+    if show_translations:
+        top_buttons.append(
+            InlineKeyboardButton(
+                IBTN_TRANSLATIONS,
+                callback_data=f"srs:prepare:{user_id}:{word_id}",
+            )
+        )
+    if show_pronounce:
+        top_buttons.append(
+            InlineKeyboardButton(
+                IBTN_PRONOUNCE,
+                callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
+            )
+        )
+    if top_buttons:
+        rows.append(top_buttons)
+    rows.append([
         InlineKeyboardButton(
             IBTN_REMEMBERED,
             callback_data=f"srs:remember:{user_id}:{word_id}",
         ),
         InlineKeyboardButton(
-            IBTN_TOMORROW_AGAIN,
+            IBTN_REMIND_AGAIN,
             callback_data=f"srs:again:{user_id}:{word_id}",
         ),
-    ]
-    rows = []
-    if show_translations:
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    IBTN_TRANSLATIONS,
-                    callback_data=f"srs:prepare:{user_id}:{word_id}",
-                )
-            ]
-        )
-    if show_pronounce:
-        rows.append([
-            InlineKeyboardButton(
-                IBTN_PRONOUNCE,
-                callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
-            )
-        ])
-    rows.append(review_buttons)
+    ])
     return InlineKeyboardMarkup(rows)
 
 
@@ -475,8 +515,8 @@ def admin_awaiting_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("↩️ Back", callback_data="admin:back"),
-                InlineKeyboardButton("❌ Cancel", callback_data="admin:cancel"),
+                InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back"),
+                InlineKeyboardButton("❌ لغو", callback_data="admin:cancel"),
             ]
         ]
     )
@@ -557,7 +597,7 @@ def phonetic_settings_keyboard(current: dict[str, bool]) -> InlineKeyboardMarkup
                     callback_data="admin:phonetics:persian",
                 ),
             ],
-            [InlineKeyboardButton(BTN_BACK, callback_data="admin:back")],
+            [InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:back")],
         ]
     )
 
@@ -724,7 +764,7 @@ def ai_presets_list_keyboard(
     toggle_mode = "grouped" if view_mode == "linear" else "linear"
     rows.append([InlineKeyboardButton(toggle_label, callback_data=f"admin:ai_preset:view_mode:{toggle_mode}")])
     rows.append([InlineKeyboardButton(IBTN_ADD_CUSTOM, callback_data="admin:ai_preset:add")])
-    rows.append([InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_settings")])
+    rows.append([InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:ai_settings")])
     return InlineKeyboardMarkup(rows)
 
 
