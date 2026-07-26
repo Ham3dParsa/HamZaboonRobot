@@ -16,7 +16,6 @@ import os
 import sys
 import threading
 import time
-from datetime import date
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
@@ -1349,7 +1348,6 @@ def render() -> str:
     ps = json.loads(PROJECT_STATUS_PATH.read_text(encoding="utf-8"))
     phases: list[dict] = ps.get("phases", [])
     decisions: list[dict] = ps.get("decisions", [])
-    today = date.today().isoformat()
     json_data = json.dumps(ps, ensure_ascii=False)
 
     parts = [
@@ -1371,7 +1369,7 @@ def render() -> str:
         _render_phases_section(phases),
         _render_decisions_section(decisions),
         "</main>",
-        _render_footer(today),
+        _render_footer(),
         "<script>",
         JS.strip(),
         "</script>",
@@ -1617,10 +1615,10 @@ def _render_decision_row(decision: dict) -> str:
     )
 
 
-def _render_footer(today: str) -> str:
+def _render_footer() -> str:
     return (
         '<div class="footer">'
-        f"<p>Generated on {today} from <code>project_status.json</code></p>"
+        "<p>Generated from <code>project_status.json</code></p>"
         "<p>Issue detail lives on "
         '<a href="https://github.com/Ham3dParsa/HamZaboonRobot/issues">GitHub Issues</a>. '
         'Edit <code>project_status.json</code> and re-run <code>python scripts/generate_dashboard.py</code>.</p>'
