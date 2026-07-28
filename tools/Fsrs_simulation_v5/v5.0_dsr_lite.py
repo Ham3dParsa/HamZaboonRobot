@@ -1,135 +1,41 @@
 """SRS v5 "DSR-lite" Session Simulation — unified pipeline, FSRS-inspired
 mastery model, cost-aware AI.
 
-This is the successor to v4_sweet. v4 fixed seven original bugs plus three
-rounds of realism refinements (diminishing-returns score, query-first
-priority, three-button ease model). v5's one big change: it replaces v4's
-hand-built idx+score+ease bookkeeping with a simplified version of FSRS
-(Free Spaced Repetition Scheduler) — the DSR (Difficulty/Stability/
-Retrievability) memory model used by modern Anki. See "V5: DSR-LITE
-MASTERY MODEL" below for why and how.
+Successor to v4_sweet. Main change: replaces v4's hand-built idx+score+ease
+with DSR-lite (FSRS simplified): Stability (S, days to 90% recall) /
+Difficulty (D, 1=easy..10=hard) / Retrievability (R, computed on demand
+via FSRS forgetting curve R=(1+F*t/S)^C). "Learned" = S≥30d OR reviews≥4.
 
-WHAT CHANGED VS V3 (bug -> fix):
+Bug fixes from v3 (unconditional unless noted):
+  1. AI rejection recycled slot immediately (slot-by-slot loop: retry→query backlog→leave open).
+  2. Unified pending pool; total_active_words counted at first exposure, not creation.
+  3. Continuous mastery (toggle `enable_continuous_mastery`, default True): draws
+     performance from base rate + R + noise; False → v3 binary model.
+  4. Premium override: `sessions_override`/`session_size_override` clamped ±30%.
+  5. O(1) active membership via `active_ids: set[int]`.
+  6. Real AI cost tracking: AI_COST_PER_CALL=0.0006$; queries cost 1 call.
+     Soft per-session cap via `enable_session_rate_limit` (default True).
+  7. CSV exports queries/q_saved.
 
-  1. Rejected AI slots were discarded, not recycled.
-     -> Fixed unconditionally (this is a correctness fix, not a toggle):
-        AI generation now runs in a slot-by-slot loop. Each rejected card
-        immediately frees its slot for another attempt (AI retry, then
-        query backlog, then simply left open if truly nothing is available).
+Feature flags (SimConfig, default True): enable_rejection, enable_catchup,
+enable_continuous_mastery, enable_session_rate_limit.
 
-  2. query_backlog and AI cards were tracked as separate populations with
-     different accounting, causing a bad total_vocab_exposure metric.
-     -> Fixed unconditionally: every new card (whatever its origin) is a
-        `Card` with `origin` in {"query", "ai"}, pending (next_review=None)
-        until its first exposure. A single `pending` pool holds all
-        not-yet-reviewed cards. The "entered the system" metric
-        (`total_active_words`) is counted at first exposure, not at creation.
+QUERY-FIRST PRIORITY (always active): query-origin cards seated before AI
+generation. Hard cap zeros ai_cap_today if backlog > HARD_MULT×daily_slots;
+soft cap throttles inflow at SOFT_MULT×daily_slots. Origin = birth tag.
 
-  3. Score was a binary proxy (success/forget) tightly coupled to idx, so
-     the "learned = idx>=2 OR score>=4" condition never exercised the OR.
-     -> Toggle: `enable_continuous_mastery` (default True). When on, each
-        review draws a continuous performance value in [0, 1] from the
-        persona's base success rate blended with the card's actual
-        retrievability (see V5 model below) plus noise. When off, v5 falls
-        back to a v3-equivalent binary model for direct comparison.
+DSR-lite model details (see constants below): S growth on success has
+floor (GROWTH_BASE_*) + bonus scaled by low R ("desirable difficulty"),
+damped by D. S loss on lapse depends on D. D nudged per outcome with
+mean reversion (DIFFICULTY_MEAN_REVERSION=0.05). Not implemented: full
+FSRS 19-21 params, Easy rating, same-day reviews, per-user optimization.
 
-  4. No relative override for premium sessions/session_size configuration.
-     -> Optional: `SimConfig.sessions_override` / `session_size_override`,
-        clamped to +/-30% of the plan default.
-
-  5. O(n^2) membership check (`c not in active`) on every reviewed card.
-     -> Fixed unconditionally: an `active_ids: set[int]` tracks membership
-        in O(1).
-
-  6. AI daily cap wasn't tied to real per-call cost or rate-limited within
-     a day (a user could burn the whole day's cap in a single session).
-     -> `AI_COST_PER_CALL = 0.0006` (USD) is tracked and reported every day
-        and cumulatively. Every "Ask a Word" query also costs one AI call
-        (v4.2 behavior fix: looking up the word costs money whether or not
-        the user saves it). Toggle: `enable_session_rate_limit` (default
-        True) adds a soft per-session AI ceiling.
-
-  7. write_csv did not export `queries`/`q_saved`.
-     -> Fixed unconditionally.
-
-FEATURE FLAGS (all in SimConfig, all default True/on unless noted):
-  enable_rejection            proficiency-based AI card rejection (v3 feature, kept)
-  enable_catchup               catch-up bonus sessions (v3 feature, kept)
-  enable_continuous_mastery    bug-3 fix; set False to use a v3-equivalent binary model
-  enable_session_rate_limit    bug-6 fix; set False to allow full-day AI burst in one session
-
-QUERY-FIRST SLOT PRIORITY (locked in from v4, always active):
-  Query-origin cards (user explicitly asked for that word) are seated into
-  today's session FIRST, in full (oldest first), before any AI generation.
-  A hard cap forces ai_cap_today to 0 if the query backlog grows past
-  QUERY_BACKLOG_HARD_CAP_MULT x daily_slots (guarantees a full-priority
-  drain day); a soft cap tightens new-query inflow once the backlog crosses
-  QUERY_BACKLOG_SOFT_CAP_MULT x daily_slots. A card's origin is a
-  birth-record tag, not a priority tier.
-
-V5: DSR-LITE MASTERY MODEL (replaces v4's idx + score + ease)
-  v4's model had a real, measured problem: after tuning the score formula
-  to stop it saturating near 5.0, the OPPOSITE broke — score essentially
-  never reached the 4.5 "learned" threshold either (max observed ~4.1
-  across every persona tested), so the "idx>=3 OR score>=4.5" criterion
-  was, once again, not really an OR. The root cause: a hand-tuned 0-5
-  score has no principled way to say how hard a threshold "should" be.
-
-  v5 replaces it with a simplified version of FSRS's DSR model, used by
-  modern Anki:
-    stability (S):    days for recall probability to fall to ~90%. A real,
-                       physically interpretable number, not an arbitrary
-                       0-5 scale. Grows on success (more when the card was
-                       genuinely close to being forgotten — the "desirable
-                       difficulty" effect), shrinks on a lapse.
-    difficulty (D):    1 (easy) to 10 (hard), per-card. Dampens stability
-                       growth/loss. Nudged by outcome, with gentle mean
-                       reversion toward the default so a couple of unlucky
-                       reviews can't permanently brand a card "hard".
-    retrievability (R): NOT stored — computed on demand from elapsed time
-                       since last review and current stability, using
-                       FSRS's own forgetting-curve formula
-                       R = (1 + F*t/S)^C (a power-law fit to real human
-                       forgetting data, found to fit better than the plain
-                       exponential decay v4's refinement A used).
-  "Learned" is now a physically meaningful claim instead of a tuned number:
-  stability >= LEARNED_MIN_STABILITY_DAYS (30 days) means "the model
-  predicts this word would likely still be recalled a month from now
-  without review" — OR reviews >= LEARNED_MIN_REVIEWS as an early-progress
-  fallback before 30 days of stability has accumulated.
-
-  Not implemented (intentionally, to avoid over-engineering a simulator):
-  full FSRS's 19-21 gradient-descent-fit parameters, a fourth "Easy"
-  rating, same-day review handling, or per-user parameter optimization.
-  This is a *lite* DSR model sized for what the simulator needs to answer
-  (queue/AI-quota balance questions), not a drop-in FSRS implementation.
-
-GLOSSARY OF OUTPUT FIELDS:
-  total_active_words       - distinct cards that actually entered the SRS cycle,
-                            regardless of origin (bug 2 fix).
-  created_by_query          - cards created via user "Ask a Word" queries
-  created_by_ai              - cards created via AI generation (accepted only)
-  total_ai_calls             - AI calls: AI-card generations (incl. rejected) +
-                            every word query (v4.2 cost fix)
-  total_rejected_ai          - cards discarded via proficiency-based rejection
-  total_bonus_due            - extra due cards processed through catch-up bonus
-  final_active_cards         - cards in the active review pool at run end
-  learned_words              - stability>=30d OR reviews>=4 (see V5 model above)
-  avg/median/p90_stability_days - distribution of card stability (see mean-
-                            vs-median note below — median is usually the
-                            more honest summary)
-  avg/median_retrievability  - predicted recall probability of active cards
-                            right now, 0-1 (higher = more of the deck is
-                            "fresh" in memory at this moment)
-  avg_difficulty              - mean per-card difficulty, 1 (easy) - 10 (hard)
-  max/median/p90_due_backlog - due-card overflow distribution, not just the
-                            worst day
-  max_query_backlog          - worst single-day saved-but-unreviewed pileup
-  avg/median/p90_lateness_days - how many days late a due card was reviewed
-  max_lateness_days          - worst-case single delay any card experienced
-  archived_lost_words        - always 0 (archiving/deletion is out of scope by design)
-  total_ai_cost_usd          - total AI $ spent this run
-  learned_words_per_dollar   - learned_words / total_ai_cost_usd (efficiency KPI)
+OUTPUT FIELDS: total_active_words, created_by_query, created_by_ai,
+total_ai_calls, total_rejected_ai, total_bonus_due, final_active_cards,
+learned_words, avg/median/p90_stability_days, avg/median_retrievability,
+avg_difficulty, max/median/p90_due_backlog, max_query_backlog,
+avg/median/p90_lateness_days, max_lateness_days, archived_lost_words(=0),
+total_ai_cost_usd, learned_words_per_dollar.
 """
 
 import math
@@ -137,14 +43,14 @@ import random
 from dataclasses import dataclass, field
 from typing import Optional, Literal
 
-# ---------------------------------------------------------------------------
+# -----
 # SRS Intervals (10 rungs): 1 day up to ~32 months.
-# ---------------------------------------------------------------------------
+# -----
 INTERVALS = [1, 3, 7, 15, 30, 60, 120, 240, 480, 960]
 
-# ---------------------------------------------------------------------------
+# -----
 # Plan Defaults
-# ---------------------------------------------------------------------------
+# -----
 PLAN_DEFAULTS = {
     "free":     {"sessions": 1, "session_size": 4,  "ai_daily_cap": 3,  "query_daily_cap": 3,  "queue_cap_days": 2},
     "silver":   {"sessions": 3, "session_size": 5,  "ai_daily_cap": 5,  "query_daily_cap": 7,  "queue_cap_days": 3},
@@ -157,9 +63,9 @@ PLAN_DEFAULTS = {
     "platinum": {"sessions": 5, "session_size": 10, "ai_daily_cap": 20, "query_daily_cap": 16, "queue_cap_days": 6},
 }
 
-# ---------------------------------------------------------------------------
+# -----
 # User Personas
-# ---------------------------------------------------------------------------
+# -----
 PERSONAS = {
     "lazy":        {"attend": 0.35, "q_lo": 0, "q_hi": 1, "save_prob": 0.30, "forget": 0.35},
     "average":     {"attend": 0.70, "q_lo": 0, "q_hi": 3, "save_prob": 0.50, "forget": 0.20},
@@ -167,22 +73,22 @@ PERSONAS = {
     "fluctuating": {"attend": None, "q_lo": 0, "q_hi": 3, "save_prob": 0.50, "forget": 0.20},
 }
 
-# ---------------------------------------------------------------------------
+# -----
 # Proficiency Levels (vocabulary mastery & AI rejection)
 # Rejection formula: reject_prob = (known_vocab / target_pool) x ai_efficiency + noise
-# ---------------------------------------------------------------------------
+# -----
 PROFICIENCY = {
     "beginner":     {"known_vocab": 500,  "target_pool": 2000, "ai_efficiency": 0.70, "reject_noise": 0.10},
     "intermediate": {"known_vocab": 2000, "target_pool": 4000, "ai_efficiency": 0.65, "reject_noise": 0.15},
     "advanced":     {"known_vocab": 4000, "target_pool": 7000, "ai_efficiency": 0.60, "reject_noise": 0.20},
 }
 
-# ---------------------------------------------------------------------------
+# -----
 # AI cost model (bug 6): real per-call cost, padded slightly for safety margin.
-# ---------------------------------------------------------------------------
+# -----
 AI_COST_PER_CALL = 0.0006  # USD per AI generation attempt (accepted or rejected)
 
-# ---------------------------------------------------------------------------
+# -----
 # DSR-lite mastery model (v5): Stability / Difficulty / Retrievability,
 # a simplified version of the FSRS memory model (Difficulty, Stability,
 # Retrievability — see https://github.com/open-spaced-repetition/fsrs4anki).
@@ -197,7 +103,7 @@ AI_COST_PER_CALL = 0.0006  # USD per AI generation attempt (accepted or rejected
 # (days since last review, S) via FSRS's own forgetting-curve formula,
 # which research found fits real human forgetting curves better than a
 # plain exponential (Ebbinghaus) decay.
-# ---------------------------------------------------------------------------
+# -----
 FSRS_F = 19.0 / 81.0       # forgetting-curve shape constant (from FSRS)
 FSRS_C = -0.5               # forgetting-curve shape constant (from FSRS)
 
@@ -265,32 +171,12 @@ Origin = Literal["query", "ai"]
 
 @dataclass
 class Card:
-    """A single vocabulary card in the SRS system (v5: DSR-lite model).
+    """A vocabulary card in the SRS system (v5: DSR-lite model).
 
-    Attributes:
-        id: Unique card identifier (monotonic across the simulation).
-        origin: How this card was created — "query" (user asked for the word)
-            or "ai" (AI-suggested during a review session). Cards of both
-            origins are otherwise identical citizens of the same pipeline
-            (bug 2 fix): same start, same review mechanics.
-        stability: Days for recall probability to fall to ~90% — the
-            physically meaningful replacement for v4's 0-5 "score". Grows
-            on successful reviews (more when retrievability was low at
-            review time — the desirable-difficulty effect), shrinks on a
-            lapse. next_review is scheduled at (roughly) `stability` days
-            out, so by definition the card stays near ~90% retrievability.
-        difficulty: 1 (easy) to 10 (hard) for THIS card/user. Dampens how
-            fast stability grows on success and how much it's lost on a
-            lapse. Nudged by outcome each review, with gentle mean
-            reversion toward DIFFICULTY_DEFAULT so it doesn't drift to an
-            extreme from a couple of unlucky reviews.
-        reviews: Count of real (rated) reviews — excludes the first,
-            unrated "card enters the system" exposure.
-        next_review: Simulation day this card is next due for review.
-            None while the card hasn't entered the system yet (pending).
-        due_since: Day it first became overdue (for lateness tracking).
-        last_review: Simulation day of the most recent review (or first
-            exposure). Used to compute elapsed time for retrievability.
+    Fields: id, origin ("query"|"ai"), stability (days to 90% recall),
+    difficulty (1=easy..10=hard), reviews (rated count), next_review (day, None=pending),
+    due_since, last_review. Origin is a birth tag only — both origins share
+    identical pipeline (bug 2 fix).
     """
     id: int
     origin: Origin = "ai"
@@ -303,12 +189,11 @@ class Card:
 
 
 def _retrievability(elapsed_days: float, stability: float) -> float:
-    """FSRS forgetting-curve formula: predicted recall probability.
+    """FSRS forgetting-curve: predicted recall probability.
 
-    R = (1 + F * t/S) ^ C, with F=19/81 and C=-0.5 — a power-law decay
-    found (by the FSRS research) to fit real human forgetting data better
-    than a plain exponential curve. R=1.0 at t=0, and R=0.9 exactly when
-    t=stability (that's the definition of stability itself).
+    R = (1 + F * t/S) ^ C, with F=19/81, C=-0.5 — power-law decay
+    fitting human forgetting data better than exponential. R=1 at t=0;
+    R=0.9 exactly at t=stability (definition of stability).
     """
     stability = max(STABILITY_MIN, stability)
     return (1.0 + FSRS_F * max(0.0, elapsed_days) / stability) ** FSRS_C
@@ -320,25 +205,18 @@ def _retrievability(elapsed_days: float, stability: float) -> float:
 class SimConfig:
     """Configuration for a single simulation run.
 
-    Args:
-        plan: Subscription tier ("free", "silver", "gold").
-        persona: User behavior profile ("lazy", "average", "eager", "fluctuating").
-        proficiency: Language proficiency ("beginner", "intermediate", "advanced").
-        days: Number of simulation days to run.
-        seed: RNG seed for reproducible comparisons (None = random).
-        jitter: +/- fraction applied to SRS intervals (0.15 = 15%).
-        enable_rejection: If True, apply proficiency-based AI card rejection.
-        enable_catchup: If True, offer bonus sessions when due backlog is high.
-        enable_continuous_mastery: If True, use the streak/noise-based
-            continuous performance model for scoring (bug 3 fix). If False,
-            fall back to v3's binary success/forget model for comparison.
-        enable_session_rate_limit: If True, spread the daily AI cap across
-            the day's sessions instead of allowing it to be burst-spent in a
-            single session (bug 6 fix).
-        sessions_override: Optional absolute sessions/day override, clamped
-            to +/-30% of the plan default (bug 4). None = use plan default.
-        session_size_override: Optional absolute cards/session override,
-            clamped to +/-30% of the plan default. None = use plan default.
+    plan: "free"|"silver"|"gold"|"platinum"
+    persona: "lazy"|"average"|"eager"|"fluctuating"
+    proficiency: "beginner"|"intermediate"|"advanced"
+    days: simulation length
+    seed: RNG seed (None=random)
+    jitter: ±fraction on SRS intervals (0.15=15%)
+    enable_rejection: proficiency-based AI card rejection (default True)
+    enable_catchup: bonus sessions when due backlog high (default True)
+    enable_continuous_mastery: DSR-lite continuous model (True) vs v3 binary (False)
+    enable_session_rate_limit: spread daily AI cap across sessions (default True)
+    sessions_override: absolute sessions/day, clamped ±30% of plan default
+    session_size_override: absolute cards/session, clamped ±30%
     """
     plan: str = "free"
     persona: str = "average"
@@ -355,11 +233,7 @@ class SimConfig:
 
 
 def _clamp_override(default: int, requested: Optional[int]) -> int:
-    """Clamp a requested plan-parameter override to +/-30% of the default.
-
-    Used for premium "manage your own sessions/session_size" configuration
-    (bug 4). Always returns at least 1.
-    """
+    """Clamp requested plan-parameter override to +/-30% of default (min 1)."""
     if requested is None:
         return default
     lo = max(1, math.floor(default * (1 - PLAN_OVERRIDE_BAND)))
@@ -368,7 +242,7 @@ def _clamp_override(default: int, requested: Optional[int]) -> int:
 
 
 def _resolve_plan(cfg: SimConfig) -> dict:
-    """Resolve effective plan parameters, applying any clamped overrides."""
+    """Resolve effective plan parameters, applying clamped overrides."""
     base = PLAN_DEFAULTS[cfg.plan]
     return {
         **base,
@@ -378,10 +252,9 @@ def _resolve_plan(cfg: SimConfig) -> dict:
 
 
 def _attend_prob(persona: str, day: int, rng: random.Random) -> bool:
-    """Determine if the simulated user studies on a given day.
+    """Determine if simulated user studies today.
 
-    "fluctuating" follows a 21-day sine wave (60% +- 30%) modeling
-    motivation cycles; all others use a flat probability.
+    "fluctuating" follows 21-day sine wave (60% ± 30%); others use flat probability.
     """
     p = PERSONAS[persona]
     if persona == "fluctuating":
@@ -392,54 +265,19 @@ def _attend_prob(persona: str, day: int, rng: random.Random) -> bool:
 
 
 def _review_outcome(card: Card, persona: dict, cfg: SimConfig, day: int, rng: random.Random) -> str:
-    """Apply one review's outcome to `card` in place and return the outcome label.
+    """Apply one review outcome to `card` in place; return "forget"|"hold"|"advance".
 
-    The three outcomes ("forget" / "hold" / "advance") map 1:1 onto the
-    همزبان bot's three review buttons:
-        🔴 "یادم نبود"   -> forget  (lapse)
-        🟡 "سخت بود"     -> hold    (recalled, but with difficulty — FSRS "Hard")
-        🟢 "خوب یادمه"   -> advance (recalled comfortably — FSRS "Good")
+    Maps to همزبان buttons: 🔴 یادم نبود → forget, 🟡 سخت بود → hold, 🟢 خوب یادمه → advance.
 
-    v5 DSR-lite model (replaces v4's idx+score+ease):
-        Retrievability R is computed from elapsed time since the card's
-        last review and its current stability (see `_retrievability`).
-        Performance is drawn from a blend of the persona's base skill and
-        the card's actual R at this moment — a card that's very overdue is
-        objectively harder to recall regardless of how good the user is:
+    DSR-lite model (enable_continuous_mastery=True):
+      performance = 0.5*(1 - persona_forget) + 0.5*R + noise(±PERFORMANCE_NOISE=0.15)
+        advance (≥0.75): S *= GROWTH_BASE_ADVANCE(1.5) + GROWTH_SENSITIVITY_ADVANCE(2.0)*(1-R)*(10-D)/9
+        hold    (0.40≤x<0.75): S *= GROWTH_BASE_HOLD(1.15) + GROWTH_SENSITIVITY_HOLD(0.8)*(1-R)*(10-D)/9
+        forget  (<0.40): S = max(STABILITY_MIN, S * (LAPSE_STABILITY_BASE(0.5) + LAPSE_DIFF_SPAN(0.3)*(1-D/10)))
+      D nudged per outcome (△advance=-0.2, △hold=+0.3, △forget=+1.2) then mean-reverted 5%.
 
-            performance = 0.5*(1 - persona_forget_rate) + 0.5*R + noise
-
-        Outcome buckets (same thresholds as v4, now performance-driven):
-          performance >= 0.75 -> 🟢 advance:
-              growth = GROWTH_BASE_ADVANCE + GROWTH_SENSITIVITY_ADVANCE * (1-R) * (10-D)/9
-              stability *= growth   [bigger gain the lower R was — the
-                                      "desirable difficulty" effect: reviewing
-                                      right before you'd forget strengthens
-                                      memory far more than reviewing something
-                                      you just saw]
-              difficulty += DIFFICULTY_DELTA_ADVANCE, then mean-reverts
-              next_review = day + max(1, round(stability * jitter))
-
-          0.40 <= performance < 0.75 -> 🟡 hold:
-              same growth formula but with the smaller GROWTH_BASE_HOLD —
-              still counts as a successful recall, just a smaller stability
-              gain (no separate "half interval" hack needed anymore: the
-              differential growth rate alone makes hold's next interval
-              naturally shorter than advance's).
-              difficulty += DIFFICULTY_DELTA_HOLD, then mean-reverts
-              next_review = day + max(1, round(stability * jitter))
-
-          performance < 0.40 -> 🔴 forget:
-              lapse_factor = LAPSE_STABILITY_BASE + LAPSE_STABILITY_DIFF_SPAN*(1-D/10)
-              stability = max(STABILITY_MIN, stability * lapse_factor)
-                [harder cards (high D) lose more of their stability on a lapse]
-              difficulty += DIFFICULTY_DELTA_FORGET, then mean-reverts
-              next_review = day + 1 (always tomorrow)
-
-    Legacy binary model (v3-equivalent, for comparison — ignores D/R):
-        A single roll against persona forget rate: success doubles
-        stability; failure resets it to STABILITY_MIN. No difficulty or
-        retrievability weighting.
+    Legacy binary (enable_continuous_mastery=False):
+      Single roll vs forget rate: success doubles S, failure resets to STABILITY_MIN. No D/R.
     """
     elapsed = day - (card.last_review if card.last_review is not None else day)
     R = _retrievability(elapsed, card.stability)
@@ -497,24 +335,16 @@ def _review_outcome(card: Card, persona: dict, cfg: SimConfig, day: int, rng: ra
 
 
 def simulate(cfg: SimConfig, debug: bool = False):
-    """Run one simulation scenario and return (daily_rows, summary).
+    """Run simulation, return (daily_rows, summary).
 
-    Daily processing order:
-      1. User queries (capped by plan + smart cap if debt is high)
-      2. Collect due cards (sorted oldest-first)
-      3. Tier 1 — due reviews (fill daily sessions)
-      4. Throttle AI cap by remaining due pressure (+ optional session
-         rate-limiting so it can't be burst-spent in one sitting)
-      5. Self-correcting split of remaining slots (query backlog vs AI)
-      6. Tier 3 — new AI cards, generated + reviewed slot-by-slot so a
-         rejected card's slot is immediately recycled (bug 1 fix)
-      7. Review all candidates (mastery model advances/holds/forgets)
-      8. Catch-up bonus (optional) — extra due processing when backlog > 25%
+    Daily pipeline: user queries → collect due → Tier 1 (due reviews)
+    → throttle AI cap + session rate-limit → query-first slot fill
+    → Tier 3 (AI cards, reject→recycle) → review all candidates
+    → catch-up bonus if backlog > 25%.
 
     Returns:
-        daily_rows: List of dicts, one per day, with per-day metrics.
-        summary: Dict of end-of-run aggregate statistics (see module
-                 docstring for field glossary).
+        daily_rows: List[dict], one per day.
+        summary: aggregate stats (see module docstring).
     """
     plan = _resolve_plan(cfg)
     persona = PERSONAS[cfg.persona]
@@ -557,9 +387,9 @@ def simulate(cfg: SimConfig, debug: bool = False):
 
         pending_debt = sum(1 for c in active if c.next_review is not None and c.next_review <= day)
 
-        # =====================================================================
+        # =====
         # STEP 1 — USER QUERIES ("Ask a Word")
-        # =====================================================================
+        # =====
         queries_today = 0
         saved_today = 0
         if attended:
@@ -598,9 +428,9 @@ def simulate(cfg: SimConfig, debug: bool = False):
                     created_by_query += 1
                     saved_today += 1
 
-        # =====================================================================
+        # =====
         # STEP 2 — DUE CARDS
-        # =====================================================================
+        # =====
         # v5: no manual score-decay bookkeeping needed here. Retrievability
         # is a derived quantity computed on demand (in _review_outcome, and
         # in the final summary for reporting) directly from elapsed time
@@ -621,18 +451,18 @@ def simulate(cfg: SimConfig, debug: bool = False):
         query_slots_used = 0
 
         if attended:
-            # =================================================================
+            # =====
             # STEP 3 — TIER 1: DUE REVIEWS FIRST
-            # =================================================================
+            # =====
             remaining = daily_slots
             tier1 = due[:remaining]
             due_slots_used = len(tier1)
             remaining -= due_slots_used
 
-            # =================================================================
+            # =====
             # STEP 4 — THROTTLE AI CAP BY DUE DEBT + SESSION RATE-LIMIT
             #          + QUERY-BACKLOG HARD CAP (refinement B)
-            # =================================================================
+            # =====
             due_pressure = due_before - due_slots_used
             if due_pressure >= queue_cap_due:
                 ai_cap_today = 0
@@ -661,7 +491,7 @@ def simulate(cfg: SimConfig, debug: bool = False):
             if len(query_backlog_now) > hard_cap:
                 ai_cap_today = 0
 
-            # =================================================================
+            # =====
             # STEP 5 — QUERY-FIRST SLOT PRIORITY (refinement B)
             # A card's origin (AI-suggested vs. user-asked) is just a
             # birth-record tag, not a priority tier: pending query cards no
@@ -669,20 +499,20 @@ def simulate(cfg: SimConfig, debug: bool = False):
             # AI. They are seated FIRST, in full (oldest first), up to
             # whatever fits in the remaining slots; AI only gets whatever
             # is left over.
-            # =================================================================
+            # =====
             tier2 = query_backlog_now[:remaining]
             for c in tier2:
                 pending.remove(c)
             query_slots_used = len(tier2)
             remaining -= query_slots_used
 
-            # =================================================================
+            # =====
             # STEP 6 — TIER 3: NEW AI CARDS, slot-by-slot with recycling (bug 1)
             # Each slot is attempted individually: if a card is rejected, the
             # freed slot immediately tries again (another AI attempt, up to
             # the remaining cap) instead of being lost. If AI cap is
             # exhausted mid-loop, leftover slots fall back to query backlog.
-            # =================================================================
+            # =====
             # Each slot is attempted individually against the *remaining* AI
             # cap. A rejection consumes one cap unit (it still cost an AI
             # call) but does NOT consume a slot permanently: the loop keeps
@@ -724,9 +554,7 @@ def simulate(cfg: SimConfig, debug: bool = False):
                 query_slots_used += len(extra)
                 remaining -= len(extra)
 
-            # =================================================================
             # STEP 7 — REVIEW ALL CANDIDATES
-            # =================================================================
             # User's current average difficulty across active cards — new
             # cards' starting difficulty is drawn from this (not a fixed
             # DIFFICULTY_DEFAULT), so a user whose cards tend to run hard
@@ -756,9 +584,7 @@ def simulate(cfg: SimConfig, debug: bool = False):
                 else:
                     _review_outcome(c, persona, cfg, day, rng)
 
-            # =================================================================
             # STEP 8 — CATCH-UP BONUS (optional)
-            # =================================================================
             due_remaining = due_before - due_slots_used
             if cfg.enable_catchup and due_remaining > queue_cap_due * 0.25:
                 bonus_factor = 0.75 + enthusiasm * 0.50

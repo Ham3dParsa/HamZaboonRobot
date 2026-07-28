@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>v5.x SRS Comparison Report — DSR-lite vs DSR-mid vs FSRS-6 Full</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8f9fa; color: #212529; line-height: 1.6; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+  h1 { font-size: 1.8em; margin-bottom: 0.2em; color: #1a1a2e; border-bottom: 3px solid #4361ee; padding-bottom: 6px; }
+  h2 { font-size: 1.4em; margin: 1.4em 0 0.5em; color: #16213e; border-bottom: 2px solid #e0e0e0; padding-bottom: 4px; }
+  h3 { font-size: 1.15em; margin: 1em 0 0.4em; color: #0f3460; }
+  h4 { font-size: 1em; margin: 0.8em 0 0.3em; color: #533483; }
+  p, li { margin: 0.3em 0; }
+  .meta { color: #6c757d; font-size: 0.9em; margin-bottom: 1em; }
+  table { border-collapse: collapse; width: 100%; margin: 0.5em 0 1em; font-size: 0.85em; }
+  th, td { border: 1px solid #dee2e6; padding: 4px 8px; text-align: right; white-space: nowrap; }
+  th { background: #4361ee; color: white; position: sticky; top: 0; }
+  th:first-child, td:first-child { text-align: left; }
+  tr:nth-child(even) { background: #f1f3f5; }
+  .highlight { background: #fff3cd !important; font-weight: bold; }
+  .best { background: #d4edda !important; }
+  .worst { background: #f8d7da !important; }
+  .badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 0.8em; font-weight: bold; }
+  .badge-green { background: #d4edda; color: #155724; }
+  .badge-yellow { background: #fff3cd; color: #856404; }
+  .badge-red { background: #f8d7da; color: #721c24; }
+  .badge-blue { background: #d1ecf1; color: #0c5460; }
+  .card { background: white; border-radius: 8px; padding: 16px; margin: 12px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.08); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin: 12px 0; }
+  .stat-box { text-align: center; padding: 12px; border-radius: 6px; }
+  .stat-box .value { font-size: 1.6em; font-weight: bold; }
+  .stat-box .label { font-size: 0.8em; color: #6c757d; margin-top: 2px; }
+  .version-v50 { border-left: 4px solid #6c757d; }
+  .version-v51 { border-left: 4px solid #4361ee; }
+  .version-v52 { border-left: 4px solid #e63946; }
+  .note { font-size: 0.85em; color: #6c757d; font-style: italic; }
+  code { background: #f1f3f5; padding: 1px 4px; border-radius: 3px; font-size: 0.9em; }
+  .toc { margin: 1em 0; padding: 12px; background: white; border-radius: 6px; }
+  .toc a { color: #4361ee; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .footer { margin-top: 2em; padding-top: 1em; border-top: 1px solid #dee2e6; font-size: 0.8em; color: #6c757d; }
+  .scroll-table { overflow-x: auto; }
+  .pill { display: inline-block; padding: 1px 6px; border-radius: 10px; font-size: 0.75em; margin-right: 2px; }
+  .pill-silver { background: #e2e3e5; color: #383d41; }
+  .pill-gold { background: #ffc107; color: #333; }
+  .pill-eager { background: #17a2b8; color: white; }
+  .pill-average { background: #6c757d; color: white; }
+  .pill-fluctuating { background: #fd7e14; color: white; }
+  .pill-lazy { background: #dc3545; color: white; }
+</style>
+</head>
+<body>
+<div class="container">
+
+
+<h1>📊 SRS v5.x Three-Version Comparison Report</h1>
+<p class="meta">Generated: 2026-07-28 19:27 &nbsp;|&nbsp; Seed: 42 &nbsp;|&nbsp; 40 scenarios per version &nbsp;|&nbsp; Plan coverage: Silver + Gold</p>
+
+<div class="toc">
+<strong>Contents:</strong>
+<a href="#s1">1. Scenario Matrix</a> &nbsp;|&nbsp;
+<a href="#s2">2. Summary Dashboard</a> &nbsp;|&nbsp;
+<a href="#s3">3. Detailed Comparison Tables</a> &nbsp;|&nbsp;
+<a href="#s4">4. Learning Curves</a> &nbsp;|&nbsp;
+<a href="#s5">5. Gap Analysis</a> &nbsp;|&nbsp;
+<a href="#s6">6. Quality Gates</a> &nbsp;|&nbsp;
+<a href="#s7">7. Version Notes</a>
+</div>
+
+<div class="card"><h2 id="s1">1. Scenario Matrix</h2>
+<p>Each row is one simulation run. Plans (Silver/Gold) × Personas (4) × Time Buckets (5) = 20 scenarios × 3 versions = 60 total runs.</p>
+<div class="scroll-table"><table>
+<tr><th>Plan</th><th>Persona</th><th>Days</th><th>v5.0 Learned</th><th>v5.1 Learned</th><th>v5.2 Learned</th><th>v5.1/v5.0</th><th>v5.2/v5.0</th><th>v5.1/v5.2</th></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-average">average</span></td><td>90</td>
+<td>217</td><td>390</td><td>435</td>
+<td>1.80</td><td>2.00</td><td>0.90</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-average">average</span></td><td>180</td>
+<td>400</td><td>792</td><td>923</td>
+<td>1.98</td><td>2.31</td><td>0.86</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-average">average</span></td><td>360</td>
+<td>694</td><td>1614</td><td>1747</td>
+<td>2.33</td><td>2.52</td><td>0.92</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-average">average</span></td><td>540</td>
+<td>977</td><td>2351</td><td>2419</td>
+<td>2.41</td><td>2.48</td><td>0.97</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-average">average</span></td><td>720</td>
+<td>1240</td><td>3054</td><td>3155</td>
+<td>2.46</td><td>2.54</td><td>0.97</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-eager">eager</span></td><td>90</td>
+<td>300</td><td>575</td><td>557</td>
+<td>1.92</td><td>1.86</td><td>1.03</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-eager">eager</span></td><td>180</td>
+<td>528</td><td>1190</td><td>1285</td>
+<td>2.25</td><td>2.43</td><td>0.93</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-eager">eager</span></td><td>360</td>
+<td>960</td><td>2243</td><td>2375</td>
+<td>2.34</td><td>2.47</td><td>0.94</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-eager">eager</span></td><td>540</td>
+<td>1371</td><td>3347</td><td>3457</td>
+<td>2.44</td><td>2.52</td><td>0.97</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-eager">eager</span></td><td>720</td>
+<td>1713</td><td>4300</td><td>4505</td>
+<td>2.51</td><td>2.63</td><td>0.95</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-fluctuating">fluctuating</span></td><td>90</td>
+<td>209</td><td>400</td><td>404</td>
+<td>1.91</td><td>1.93</td><td>0.99</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-fluctuating">fluctuating</span></td><td>180</td>
+<td>346</td><td>755</td><td>710</td>
+<td>2.18</td><td>2.05</td><td>1.06</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-fluctuating">fluctuating</span></td><td>360</td>
+<td>606</td><td>1397</td><td>1474</td>
+<td>2.31</td><td>2.43</td><td>0.95</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-fluctuating">fluctuating</span></td><td>540</td>
+<td>830</td><td>2067</td><td>2091</td>
+<td>2.49</td><td>2.52</td><td>0.99</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-fluctuating">fluctuating</span></td><td>720</td>
+<td>1083</td><td>2773</td><td>2659</td>
+<td>2.56</td><td>2.46</td><td>1.04</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-lazy">lazy</span></td><td>90</td>
+<td>86</td><td>195</td><td>208</td>
+<td>2.27</td><td>2.42</td><td>0.94</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-lazy">lazy</span></td><td>180</td>
+<td>166</td><td>493</td><td>471</td>
+<td>2.97</td><td>2.84</td><td>1.05</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-lazy">lazy</span></td><td>360</td>
+<td>291</td><td>837</td><td>731</td>
+<td>2.88</td><td>2.51</td><td>1.15</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-lazy">lazy</span></td><td>540</td>
+<td>379</td><td>1123</td><td>1045</td>
+<td>2.96</td><td>2.76</td><td>1.07</td></tr>
+<tr><td><span class="pill pill-gold">gold</span></td><td><span class="pill pill-lazy">lazy</span></td><td>720</td>
+<td>489</td><td>1452</td><td>1301</td>
+<td>2.97</td><td>2.66</td><td>1.12</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-average">average</span></td><td>90</td>
+<td>109</td><td>207</td><td>234</td>
+<td>1.90</td><td>2.15</td><td>0.88</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-average">average</span></td><td>180</td>
+<td>204</td><td>433</td><td>433</td>
+<td>2.12</td><td>2.12</td><td>1.00</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-average">average</span></td><td>360</td>
+<td>372</td><td>893</td><td>858</td>
+<td>2.40</td><td>2.31</td><td>1.04</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-average">average</span></td><td>540</td>
+<td>531</td><td>1306</td><td>1232</td>
+<td>2.46</td><td>2.32</td><td>1.06</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-average">average</span></td><td>720</td>
+<td>677</td><td>1679</td><td>1603</td>
+<td>2.48</td><td>2.37</td><td>1.05</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-eager">eager</span></td><td>90</td>
+<td>162</td><td>306</td><td>279</td>
+<td>1.89</td><td>1.72</td><td>1.10</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-eager">eager</span></td><td>180</td>
+<td>298</td><td>673</td><td>657</td>
+<td>2.26</td><td>2.20</td><td>1.02</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-eager">eager</span></td><td>360</td>
+<td>519</td><td>1265</td><td>1235</td>
+<td>2.44</td><td>2.38</td><td>1.02</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-eager">eager</span></td><td>540</td>
+<td>740</td><td>1880</td><td>1907</td>
+<td>2.54</td><td>2.58</td><td>0.99</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-eager">eager</span></td><td>720</td>
+<td>952</td><td>2440</td><td>2507</td>
+<td>2.56</td><td>2.63</td><td>0.97</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-fluctuating">fluctuating</span></td><td>90</td>
+<td>105</td><td>204</td><td>200</td>
+<td>1.94</td><td>1.90</td><td>1.02</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-fluctuating">fluctuating</span></td><td>180</td>
+<td>190</td><td>426</td><td>406</td>
+<td>2.24</td><td>2.14</td><td>1.05</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-fluctuating">fluctuating</span></td><td>360</td>
+<td>332</td><td>704</td><td>752</td>
+<td>2.12</td><td>2.27</td><td>0.94</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-fluctuating">fluctuating</span></td><td>540</td>
+<td>463</td><td>1090</td><td>1082</td>
+<td>2.35</td><td>2.34</td><td>1.01</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-fluctuating">fluctuating</span></td><td>720</td>
+<td>604</td><td>1419</td><td>1396</td>
+<td>2.35</td><td>2.31</td><td>1.02</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-lazy">lazy</span></td><td>90</td>
+<td>56</td><td>113</td><td>103</td>
+<td>2.02</td><td>1.84</td><td>1.10</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-lazy">lazy</span></td><td>180</td>
+<td>90</td><td>203</td><td>203</td>
+<td>2.26</td><td>2.26</td><td>1.00</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-lazy">lazy</span></td><td>360</td>
+<td>153</td><td>367</td><td>383</td>
+<td>2.40</td><td>2.50</td><td>0.96</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-lazy">lazy</span></td><td>540</td>
+<td>203</td><td>532</td><td>549</td>
+<td>2.62</td><td>2.70</td><td>0.97</td></tr>
+<tr><td><span class="pill pill-silver">silver</span></td><td><span class="pill pill-lazy">lazy</span></td><td>720</td>
+<td>279</td><td>705</td><td>681</td>
+<td>2.53</td><td>2.44</td><td>1.04</td></tr>
+</table></div></div>
+<div class="card"><h2 id="s2">2. Summary Dashboard</h2>
+<div class="grid">
+<div class="stat-box version-v5e">
+<div class="value">498</div>
+<div class="label">Avg Learned Words</div>
+<div style="margin-top:4px;font-size:0.8em">
+  min=56 max=1713
+</div>
+<div class="value" style="font-size:1.1em">1192</div>
+<div class="label">Avg Efficiency (learned/$)</div>
+<div class="value" style="font-size:1.1em">$0.4242</div>
+<div class="label">Avg AI Cost</div>
+<div class="value" style="font-size:1.1em">707.1</div>
+<div class="label">Avg AI Calls</div>
+</div>
+<div class="stat-box version-v5d">
+<div class="value">1205</div>
+<div class="label">Avg Learned Words</div>
+<div style="margin-top:4px;font-size:0.8em">
+  min=113 max=4300
+</div>
+<div class="value" style="font-size:1.1em">1318</div>
+<div class="label">Avg Efficiency (learned/$)</div>
+<div class="value" style="font-size:1.1em">$0.8945</div>
+<div class="label">Avg AI Cost</div>
+<div class="value" style="font-size:1.1em">1490.8</div>
+<div class="label">Avg AI Calls</div>
+</div>
+<div class="stat-box version-v5l">
+<div class="value">1216</div>
+<div class="label">Avg Learned Words</div>
+<div style="margin-top:4px;font-size:0.8em">
+  min=103 max=4505
+</div>
+<div class="value" style="font-size:1.1em">1295</div>
+<div class="label">Avg Efficiency (learned/$)</div>
+<div class="value" style="font-size:1.1em">$0.9099</div>
+<div class="label">Avg AI Cost</div>
+<div class="value" style="font-size:1.1em">1516.5</div>
+<div class="label">Avg AI Calls</div>
+</div>
+</div></div>
+<div class="card"><h2 id="s3">3. Detailed Comparison Tables</h2>
+<h3>v5.0 DSR-lite — All Scenarios</h3>
+<div class="scroll-table"><table>
+<tr><th>Plan</th><th>Persona</th><th>Days</th><th>Learned</th><th>Active</th><th>AI Calls</th><th>Cost($)</th><th>Eff($)</th><th>Max Due</th><th>Max QBL</th><th>Avg Late</th><th>Max Late</th><th>Rejected</th></tr>
+<tr><td>gold</td><td>average</td><td>90</td><td>217</td><td>239</td><td>281</td><td>$0.1686</td><td>1287</td><td>63</td><td>7</td><td>0.8</td><td>4</td><td>0</td></tr>
+<tr><td>gold</td><td>average</td><td>180</td><td>400</td><td>420</td><td>514</td><td>$0.3084</td><td>1297</td><td>63</td><td>7</td><td>0.7</td><td>4</td><td>0</td></tr>
+<tr><td>gold</td><td>average</td><td>360</td><td>694</td><td>719</td><td>912</td><td>$0.5472</td><td>1268</td><td>101</td><td>12</td><td>0.9</td><td>7</td><td>0</td></tr>
+<tr><td>gold</td><td>average</td><td>540</td><td>977</td><td>997</td><td>1290</td><td>$0.7740</td><td>1262</td><td>101</td><td>12</td><td>0.9</td><td>7</td><td>0</td></tr>
+<tr><td>gold</td><td>average</td><td>720</td><td>1240</td><td>1247</td><td>1641</td><td>$0.9846</td><td>1259</td><td>162</td><td>13</td><td>1.0</td><td>11</td><td>0</td></tr>
+<tr><td>gold</td><td>eager</td><td>90</td><td>300</td><td>333</td><td>434</td><td>$0.2604</td><td>1152</td><td>53</td><td>16</td><td>0.4</td><td>2</td><td>0</td></tr>
+<tr><td>gold</td><td>eager</td><td>180</td><td>528</td><td>569</td><td>773</td><td>$0.4638</td><td>1138</td><td>71</td><td>28</td><td>0.4</td><td>3</td><td>0</td></tr>
+<tr><td>gold</td><td>eager</td><td>360</td><td>960</td><td>991</td><td>1433</td><td>$0.8598</td><td>1116</td><td>71</td><td>38</td><td>0.4</td><td>3</td><td>0</td></tr>
+<tr><td>gold</td><td>eager</td><td>540</td><td>1371</td><td>1390</td><td>2032</td><td>$1.2192</td><td>1124</td><td>71</td><td>49</td><td>0.4</td><td>3</td><td>0</td></tr>
+<tr><td>gold</td><td>eager</td><td>720</td><td>1713</td><td>1729</td><td>2558</td><td>$1.5348</td><td>1116</td><td>75</td><td>50</td><td>0.5</td><td>3</td><td>0</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>90</td><td>209</td><td>228</td><td>273</td><td>$0.1638</td><td>1276</td><td>51</td><td>5</td><td>0.9</td><td>5</td><td>0</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>180</td><td>346</td><td>377</td><td>456</td><td>$0.2736</td><td>1265</td><td>80</td><td>8</td><td>1.1</td><td>6</td><td>0</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>360</td><td>606</td><td>616</td><td>773</td><td>$0.4638</td><td>1307</td><td>135</td><td>8</td><td>1.6</td><td>11</td><td>0</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>540</td><td>830</td><td>871</td><td>1113</td><td>$0.6678</td><td>1243</td><td>135</td><td>14</td><td>1.6</td><td>11</td><td>0</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>720</td><td>1083</td><td>1100</td><td>1427</td><td>$0.8562</td><td>1265</td><td>135</td><td>14</td><td>1.6</td><td>11</td><td>0</td></tr>
+<tr><td>gold</td><td>lazy</td><td>90</td><td>86</td><td>114</td><td>124</td><td>$0.0744</td><td>1156</td><td>90</td><td>2</td><td>2.7</td><td>10</td><td>0</td></tr>
+<tr><td>gold</td><td>lazy</td><td>180</td><td>166</td><td>193</td><td>215</td><td>$0.1290</td><td>1287</td><td>94</td><td>2</td><td>3.0</td><td>13</td><td>0</td></tr>
+<tr><td>gold</td><td>lazy</td><td>360</td><td>291</td><td>298</td><td>339</td><td>$0.2034</td><td>1431</td><td>94</td><td>2</td><td>3.2</td><td>13</td><td>0</td></tr>
+<tr><td>gold</td><td>lazy</td><td>540</td><td>379</td><td>396</td><td>458</td><td>$0.2748</td><td>1379</td><td>126</td><td>2</td><td>4.0</td><td>20</td><td>0</td></tr>
+<tr><td>gold</td><td>lazy</td><td>720</td><td>489</td><td>502</td><td>582</td><td>$0.3492</td><td>1400</td><td>126</td><td>3</td><td>3.9</td><td>20</td><td>0</td></tr>
+<tr><td>silver</td><td>average</td><td>90</td><td>109</td><td>117</td><td>168</td><td>$0.1008</td><td>1081</td><td>36</td><td>6</td><td>0.9</td><td>5</td><td>0</td></tr>
+<tr><td>silver</td><td>average</td><td>180</td><td>204</td><td>222</td><td>313</td><td>$0.1878</td><td>1086</td><td>38</td><td>8</td><td>0.9</td><td>5</td><td>0</td></tr>
+<tr><td>silver</td><td>average</td><td>360</td><td>372</td><td>384</td><td>560</td><td>$0.3360</td><td>1107</td><td>42</td><td>8</td><td>0.9</td><td>5</td><td>0</td></tr>
+<tr><td>silver</td><td>average</td><td>540</td><td>531</td><td>535</td><td>813</td><td>$0.4878</td><td>1089</td><td>69</td><td>11</td><td>0.9</td><td>7</td><td>0</td></tr>
+<tr><td>silver</td><td>average</td><td>720</td><td>677</td><td>686</td><td>1080</td><td>$0.6480</td><td>1045</td><td>69</td><td>11</td><td>1.0</td><td>7</td><td>0</td></tr>
+<tr><td>silver</td><td>eager</td><td>90</td><td>162</td><td>176</td><td>275</td><td>$0.1650</td><td>982</td><td>18</td><td>29</td><td>0.3</td><td>2</td><td>0</td></tr>
+<tr><td>silver</td><td>eager</td><td>180</td><td>298</td><td>311</td><td>493</td><td>$0.2958</td><td>1007</td><td>26</td><td>29</td><td>0.4</td><td>2</td><td>0</td></tr>
+<tr><td>silver</td><td>eager</td><td>360</td><td>519</td><td>535</td><td>809</td><td>$0.4854</td><td>1069</td><td>38</td><td>32</td><td>0.4</td><td>4</td><td>0</td></tr>
+<tr><td>silver</td><td>eager</td><td>540</td><td>740</td><td>751</td><td>1141</td><td>$0.6846</td><td>1081</td><td>51</td><td>32</td><td>0.4</td><td>4</td><td>0</td></tr>
+<tr><td>silver</td><td>eager</td><td>720</td><td>952</td><td>966</td><td>1434</td><td>$0.8604</td><td>1106</td><td>51</td><td>35</td><td>0.4</td><td>4</td><td>0</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>90</td><td>105</td><td>126</td><td>167</td><td>$0.1002</td><td>1048</td><td>59</td><td>6</td><td>1.5</td><td>9</td><td>0</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>180</td><td>190</td><td>200</td><td>289</td><td>$0.1734</td><td>1096</td><td>64</td><td>7</td><td>1.7</td><td>11</td><td>0</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>360</td><td>332</td><td>336</td><td>498</td><td>$0.2988</td><td>1111</td><td>64</td><td>7</td><td>1.7</td><td>11</td><td>0</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>540</td><td>463</td><td>476</td><td>702</td><td>$0.4212</td><td>1099</td><td>64</td><td>15</td><td>1.7</td><td>11</td><td>0</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>720</td><td>604</td><td>610</td><td>914</td><td>$0.5484</td><td>1101</td><td>64</td><td>15</td><td>1.7</td><td>11</td><td>0</td></tr>
+<tr><td>silver</td><td>lazy</td><td>90</td><td>56</td><td>63</td><td>72</td><td>$0.0432</td><td>1296</td><td>35</td><td>1</td><td>2.1</td><td>8</td><td>0</td></tr>
+<tr><td>silver</td><td>lazy</td><td>180</td><td>90</td><td>97</td><td>113</td><td>$0.0678</td><td>1327</td><td>41</td><td>3</td><td>2.8</td><td>10</td><td>0</td></tr>
+<tr><td>silver</td><td>lazy</td><td>360</td><td>153</td><td>155</td><td>184</td><td>$0.1104</td><td>1386</td><td>55</td><td>3</td><td>3.5</td><td>14</td><td>0</td></tr>
+<tr><td>silver</td><td>lazy</td><td>540</td><td>203</td><td>214</td><td>266</td><td>$0.1596</td><td>1272</td><td>55</td><td>3</td><td>3.8</td><td>20</td><td>0</td></tr>
+<tr><td>silver</td><td>lazy</td><td>720</td><td>279</td><td>287</td><td>364</td><td>$0.2184</td><td>1278</td><td>55</td><td>3</td><td>3.6</td><td>20</td><td>0</td></tr>
+</table></div>
+<h3>v5.1 DSR-mid — All Scenarios</h3>
+<div class="scroll-table"><table>
+<tr><th>Plan</th><th>Persona</th><th>Days</th><th>Learned</th><th>Active</th><th>AI Calls</th><th>Cost($)</th><th>Eff($)</th><th>Max Due</th><th>Max QBL</th><th>Avg Late</th><th>Max Late</th><th>Rejected</th></tr>
+<tr><td>gold</td><td>average</td><td>90</td><td>390</td><td>564</td><td>614</td><td>$0.3684</td><td>1059</td><td>50</td><td>1</td><td>0.7</td><td>4</td><td>0</td></tr>
+<tr><td>gold</td><td>average</td><td>180</td><td>792</td><td>924</td><td>1018</td><td>$0.6108</td><td>1297</td><td>70</td><td>4</td><td>0.8</td><td>5</td><td>0</td></tr>
+<tr><td>gold</td><td>average</td><td>360</td><td>1614</td><td>1700</td><td>1886</td><td>$1.1316</td><td>1426</td><td>104</td><td>5</td><td>0.8</td><td>5</td><td>0</td></tr>
+<tr><td>gold</td><td>average</td><td>540</td><td>2351</td><td>2481</td><td>2769</td><td>$1.6614</td><td>1415</td><td>104</td><td>5</td><td>0.8</td><td>7</td><td>0</td></tr>
+<tr><td>gold</td><td>average</td><td>720</td><td>3054</td><td>3138</td><td>3517</td><td>$2.1102</td><td>1447</td><td>104</td><td>5</td><td>0.8</td><td>7</td><td>0</td></tr>
+<tr><td>gold</td><td>eager</td><td>90</td><td>575</td><td>751</td><td>854</td><td>$0.5124</td><td>1122</td><td>30</td><td>7</td><td>0.2</td><td>2</td><td>0</td></tr>
+<tr><td>gold</td><td>eager</td><td>180</td><td>1190</td><td>1326</td><td>1536</td><td>$0.9216</td><td>1291</td><td>43</td><td>20</td><td>0.2</td><td>2</td><td>0</td></tr>
+<tr><td>gold</td><td>eager</td><td>360</td><td>2243</td><td>2400</td><td>2809</td><td>$1.6854</td><td>1331</td><td>53</td><td>21</td><td>0.3</td><td>3</td><td>0</td></tr>
+<tr><td>gold</td><td>eager</td><td>540</td><td>3347</td><td>3505</td><td>4113</td><td>$2.4678</td><td>1356</td><td>91</td><td>21</td><td>0.3</td><td>3</td><td>0</td></tr>
+<tr><td>gold</td><td>eager</td><td>720</td><td>4300</td><td>4417</td><td>5207</td><td>$3.1242</td><td>1376</td><td>127</td><td>40</td><td>0.4</td><td>5</td><td>0</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>90</td><td>400</td><td>486</td><td>520</td><td>$0.3120</td><td>1282</td><td>34</td><td>1</td><td>0.7</td><td>7</td><td>0</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>180</td><td>755</td><td>852</td><td>936</td><td>$0.5616</td><td>1344</td><td>36</td><td>3</td><td>0.7</td><td>7</td><td>0</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>360</td><td>1397</td><td>1498</td><td>1659</td><td>$0.9954</td><td>1404</td><td>73</td><td>7</td><td>1.0</td><td>9</td><td>0</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>540</td><td>2067</td><td>2184</td><td>2419</td><td>$1.4514</td><td>1424</td><td>101</td><td>7</td><td>1.1</td><td>9</td><td>0</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>720</td><td>2773</td><td>2813</td><td>3113</td><td>$1.8678</td><td>1485</td><td>101</td><td>7</td><td>1.1</td><td>9</td><td>0</td></tr>
+<tr><td>gold</td><td>lazy</td><td>90</td><td>195</td><td>248</td><td>257</td><td>$0.1542</td><td>1265</td><td>55</td><td>1</td><td>2.2</td><td>9</td><td>0</td></tr>
+<tr><td>gold</td><td>lazy</td><td>180</td><td>493</td><td>570</td><td>592</td><td>$0.3552</td><td>1388</td><td>55</td><td>2</td><td>1.9</td><td>13</td><td>0</td></tr>
+<tr><td>gold</td><td>lazy</td><td>360</td><td>837</td><td>893</td><td>935</td><td>$0.5610</td><td>1492</td><td>95</td><td>2</td><td>2.6</td><td>14</td><td>0</td></tr>
+<tr><td>gold</td><td>lazy</td><td>540</td><td>1123</td><td>1181</td><td>1243</td><td>$0.7458</td><td>1506</td><td>95</td><td>2</td><td>2.9</td><td>14</td><td>0</td></tr>
+<tr><td>gold</td><td>lazy</td><td>720</td><td>1452</td><td>1526</td><td>1606</td><td>$0.9636</td><td>1507</td><td>95</td><td>2</td><td>2.7</td><td>14</td><td>0</td></tr>
+<tr><td>silver</td><td>average</td><td>90</td><td>207</td><td>255</td><td>294</td><td>$0.1764</td><td>1174</td><td>20</td><td>2</td><td>0.5</td><td>3</td><td>0</td></tr>
+<tr><td>silver</td><td>average</td><td>180</td><td>433</td><td>489</td><td>591</td><td>$0.3546</td><td>1221</td><td>23</td><td>2</td><td>0.5</td><td>5</td><td>0</td></tr>
+<tr><td>silver</td><td>average</td><td>360</td><td>893</td><td>954</td><td>1164</td><td>$0.6984</td><td>1279</td><td>33</td><td>4</td><td>0.5</td><td>5</td><td>0</td></tr>
+<tr><td>silver</td><td>average</td><td>540</td><td>1306</td><td>1365</td><td>1681</td><td>$1.0086</td><td>1295</td><td>37</td><td>4</td><td>0.5</td><td>5</td><td>0</td></tr>
+<tr><td>silver</td><td>average</td><td>720</td><td>1679</td><td>1732</td><td>2158</td><td>$1.2948</td><td>1297</td><td>44</td><td>9</td><td>0.6</td><td>7</td><td>0</td></tr>
+<tr><td>silver</td><td>eager</td><td>90</td><td>306</td><td>424</td><td>517</td><td>$0.3102</td><td>986</td><td>17</td><td>7</td><td>0.2</td><td>2</td><td>0</td></tr>
+<tr><td>silver</td><td>eager</td><td>180</td><td>673</td><td>730</td><td>938</td><td>$0.5628</td><td>1196</td><td>24</td><td>16</td><td>0.3</td><td>2</td><td>0</td></tr>
+<tr><td>silver</td><td>eager</td><td>360</td><td>1265</td><td>1327</td><td>1728</td><td>$1.0368</td><td>1220</td><td>36</td><td>25</td><td>0.3</td><td>2</td><td>0</td></tr>
+<tr><td>silver</td><td>eager</td><td>540</td><td>1880</td><td>1958</td><td>2541</td><td>$1.5246</td><td>1233</td><td>36</td><td>25</td><td>0.3</td><td>3</td><td>0</td></tr>
+<tr><td>silver</td><td>eager</td><td>720</td><td>2440</td><td>2482</td><td>3273</td><td>$1.9638</td><td>1242</td><td>36</td><td>30</td><td>0.3</td><td>3</td><td>0</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>90</td><td>204</td><td>259</td><td>300</td><td>$0.1800</td><td>1133</td><td>17</td><td>1</td><td>0.7</td><td>6</td><td>0</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>180</td><td>426</td><td>468</td><td>555</td><td>$0.3330</td><td>1279</td><td>30</td><td>3</td><td>0.7</td><td>6</td><td>0</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>360</td><td>704</td><td>756</td><td>911</td><td>$0.5466</td><td>1288</td><td>51</td><td>6</td><td>1.2</td><td>12</td><td>0</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>540</td><td>1090</td><td>1131</td><td>1366</td><td>$0.8196</td><td>1330</td><td>51</td><td>7</td><td>1.1</td><td>12</td><td>0</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>720</td><td>1419</td><td>1451</td><td>1775</td><td>$1.0650</td><td>1332</td><td>51</td><td>7</td><td>1.1</td><td>12</td><td>0</td></tr>
+<tr><td>silver</td><td>lazy</td><td>90</td><td>113</td><td>141</td><td>145</td><td>$0.0870</td><td>1299</td><td>25</td><td>1</td><td>2.2</td><td>9</td><td>0</td></tr>
+<tr><td>silver</td><td>lazy</td><td>180</td><td>203</td><td>237</td><td>251</td><td>$0.1506</td><td>1348</td><td>25</td><td>1</td><td>2.0</td><td>9</td><td>0</td></tr>
+<tr><td>silver</td><td>lazy</td><td>360</td><td>367</td><td>397</td><td>424</td><td>$0.2544</td><td>1443</td><td>37</td><td>1</td><td>2.8</td><td>15</td><td>0</td></tr>
+<tr><td>silver</td><td>lazy</td><td>540</td><td>532</td><td>542</td><td>588</td><td>$0.3528</td><td>1508</td><td>39</td><td>2</td><td>2.8</td><td>15</td><td>0</td></tr>
+<tr><td>silver</td><td>lazy</td><td>720</td><td>705</td><td>755</td><td>829</td><td>$0.4974</td><td>1417</td><td>42</td><td>2</td><td>2.6</td><td>15</td><td>0</td></tr>
+</table></div>
+<h3>v5.2 FSRS-6 Full — All Scenarios</h3>
+<div class="scroll-table"><table>
+<tr><th>Plan</th><th>Persona</th><th>Days</th><th>Learned</th><th>Active</th><th>AI Calls</th><th>Cost($)</th><th>Eff($)</th><th>Max Due</th><th>Max QBL</th><th>Avg Late</th><th>Max Late</th><th>Rejected</th></tr>
+<tr><td>gold</td><td>average</td><td>90</td><td>435</td><td>628</td><td>681</td><td>$0.4086</td><td>1065</td><td>37</td><td>4</td><td>0.4</td><td>3</td><td>0</td></tr>
+<tr><td>gold</td><td>average</td><td>180</td><td>923</td><td>1034</td><td>1131</td><td>$0.6786</td><td>1360</td><td>64</td><td>4</td><td>0.7</td><td>7</td><td>0</td></tr>
+<tr><td>gold</td><td>average</td><td>360</td><td>1747</td><td>1814</td><td>2013</td><td>$1.2078</td><td>1446</td><td>69</td><td>7</td><td>0.7</td><td>7</td><td>0</td></tr>
+<tr><td>gold</td><td>average</td><td>540</td><td>2419</td><td>2534</td><td>2817</td><td>$1.6902</td><td>1431</td><td>110</td><td>7</td><td>0.9</td><td>7</td><td>0</td></tr>
+<tr><td>gold</td><td>average</td><td>720</td><td>3155</td><td>3261</td><td>3634</td><td>$2.1804</td><td>1447</td><td>110</td><td>7</td><td>0.9</td><td>7</td><td>0</td></tr>
+<tr><td>gold</td><td>eager</td><td>90</td><td>557</td><td>839</td><td>941</td><td>$0.5646</td><td>986</td><td>36</td><td>8</td><td>0.2</td><td>2</td><td>0</td></tr>
+<tr><td>gold</td><td>eager</td><td>180</td><td>1285</td><td>1531</td><td>1715</td><td>$1.0290</td><td>1249</td><td>36</td><td>9</td><td>0.2</td><td>2</td><td>0</td></tr>
+<tr><td>gold</td><td>eager</td><td>360</td><td>2375</td><td>2565</td><td>2939</td><td>$1.7634</td><td>1347</td><td>76</td><td>25</td><td>0.3</td><td>3</td><td>0</td></tr>
+<tr><td>gold</td><td>eager</td><td>540</td><td>3457</td><td>3680</td><td>4243</td><td>$2.5458</td><td>1358</td><td>76</td><td>25</td><td>0.3</td><td>3</td><td>0</td></tr>
+<tr><td>gold</td><td>eager</td><td>720</td><td>4505</td><td>4639</td><td>5422</td><td>$3.2532</td><td>1385</td><td>76</td><td>25</td><td>0.3</td><td>5</td><td>0</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>90</td><td>404</td><td>528</td><td>564</td><td>$0.3384</td><td>1194</td><td>111</td><td>4</td><td>1.7</td><td>8</td><td>0</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>180</td><td>710</td><td>898</td><td>963</td><td>$0.5778</td><td>1229</td><td>122</td><td>4</td><td>2.1</td><td>12</td><td>0</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>360</td><td>1474</td><td>1560</td><td>1714</td><td>$1.0284</td><td>1433</td><td>122</td><td>5</td><td>1.9</td><td>12</td><td>0</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>540</td><td>2091</td><td>2151</td><td>2399</td><td>$1.4394</td><td>1453</td><td>122</td><td>7</td><td>1.9</td><td>12</td><td>0</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>720</td><td>2659</td><td>2706</td><td>3016</td><td>$1.8096</td><td>1469</td><td>122</td><td>10</td><td>2.0</td><td>12</td><td>0</td></tr>
+<tr><td>gold</td><td>lazy</td><td>90</td><td>208</td><td>276</td><td>290</td><td>$0.1740</td><td>1195</td><td>47</td><td>1</td><td>1.8</td><td>9</td><td>0</td></tr>
+<tr><td>gold</td><td>lazy</td><td>180</td><td>471</td><td>534</td><td>563</td><td>$0.3378</td><td>1394</td><td>90</td><td>3</td><td>1.8</td><td>9</td><td>0</td></tr>
+<tr><td>gold</td><td>lazy</td><td>360</td><td>731</td><td>789</td><td>831</td><td>$0.4986</td><td>1466</td><td>90</td><td>3</td><td>2.6</td><td>14</td><td>0</td></tr>
+<tr><td>gold</td><td>lazy</td><td>540</td><td>1045</td><td>1062</td><td>1125</td><td>$0.6750</td><td>1548</td><td>90</td><td>3</td><td>2.9</td><td>18</td><td>0</td></tr>
+<tr><td>gold</td><td>lazy</td><td>720</td><td>1301</td><td>1353</td><td>1440</td><td>$0.8640</td><td>1506</td><td>90</td><td>3</td><td>2.9</td><td>18</td><td>0</td></tr>
+<tr><td>silver</td><td>average</td><td>90</td><td>234</td><td>297</td><td>347</td><td>$0.2082</td><td>1124</td><td>23</td><td>2</td><td>0.5</td><td>5</td><td>0</td></tr>
+<tr><td>silver</td><td>average</td><td>180</td><td>433</td><td>507</td><td>594</td><td>$0.3564</td><td>1215</td><td>33</td><td>3</td><td>0.8</td><td>5</td><td>0</td></tr>
+<tr><td>silver</td><td>average</td><td>360</td><td>858</td><td>908</td><td>1098</td><td>$0.6588</td><td>1302</td><td>41</td><td>6</td><td>0.8</td><td>5</td><td>0</td></tr>
+<tr><td>silver</td><td>average</td><td>540</td><td>1232</td><td>1310</td><td>1588</td><td>$0.9528</td><td>1293</td><td>41</td><td>6</td><td>0.7</td><td>5</td><td>0</td></tr>
+<tr><td>silver</td><td>average</td><td>720</td><td>1603</td><td>1655</td><td>2011</td><td>$1.2066</td><td>1328</td><td>41</td><td>8</td><td>0.7</td><td>5</td><td>0</td></tr>
+<tr><td>silver</td><td>eager</td><td>90</td><td>279</td><td>440</td><td>552</td><td>$0.3312</td><td>842</td><td>22</td><td>6</td><td>0.2</td><td>3</td><td>0</td></tr>
+<tr><td>silver</td><td>eager</td><td>180</td><td>657</td><td>781</td><td>980</td><td>$0.5880</td><td>1117</td><td>22</td><td>13</td><td>0.2</td><td>3</td><td>0</td></tr>
+<tr><td>silver</td><td>eager</td><td>360</td><td>1235</td><td>1375</td><td>1780</td><td>$1.0680</td><td>1156</td><td>31</td><td>26</td><td>0.3</td><td>3</td><td>0</td></tr>
+<tr><td>silver</td><td>eager</td><td>540</td><td>1907</td><td>2032</td><td>2638</td><td>$1.5828</td><td>1205</td><td>36</td><td>26</td><td>0.3</td><td>3</td><td>0</td></tr>
+<tr><td>silver</td><td>eager</td><td>720</td><td>2507</td><td>2601</td><td>3367</td><td>$2.0202</td><td>1241</td><td>38</td><td>29</td><td>0.3</td><td>3</td><td>0</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>90</td><td>200</td><td>267</td><td>316</td><td>$0.1896</td><td>1055</td><td>27</td><td>3</td><td>0.7</td><td>4</td><td>0</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>180</td><td>406</td><td>457</td><td>557</td><td>$0.3342</td><td>1215</td><td>41</td><td>3</td><td>1.2</td><td>8</td><td>0</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>360</td><td>752</td><td>796</td><td>964</td><td>$0.5784</td><td>1300</td><td>52</td><td>5</td><td>1.4</td><td>10</td><td>0</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>540</td><td>1082</td><td>1142</td><td>1394</td><td>$0.8364</td><td>1294</td><td>63</td><td>6</td><td>1.5</td><td>10</td><td>0</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>720</td><td>1396</td><td>1426</td><td>1754</td><td>$1.0524</td><td>1326</td><td>63</td><td>10</td><td>1.7</td><td>10</td><td>0</td></tr>
+<tr><td>silver</td><td>lazy</td><td>90</td><td>103</td><td>135</td><td>145</td><td>$0.0870</td><td>1184</td><td>20</td><td>0</td><td>1.4</td><td>7</td><td>0</td></tr>
+<tr><td>silver</td><td>lazy</td><td>180</td><td>203</td><td>226</td><td>245</td><td>$0.1470</td><td>1381</td><td>26</td><td>2</td><td>2.0</td><td>12</td><td>0</td></tr>
+<tr><td>silver</td><td>lazy</td><td>360</td><td>383</td><td>410</td><td>453</td><td>$0.2718</td><td>1409</td><td>43</td><td>2</td><td>2.4</td><td>14</td><td>0</td></tr>
+<tr><td>silver</td><td>lazy</td><td>540</td><td>549</td><td>574</td><td>638</td><td>$0.3828</td><td>1434</td><td>43</td><td>2</td><td>2.5</td><td>14</td><td>0</td></tr>
+<tr><td>silver</td><td>lazy</td><td>720</td><td>681</td><td>711</td><td>796</td><td>$0.4776</td><td>1426</td><td>49</td><td>2</td><td>2.8</td><td>17</td><td>0</td></tr>
+</table></div>
+</div>
+<div class="card"><h2 id="s4">4. Learning Curves (Gold/Eager/Intermediate)</h2>
+<p>Shows how learned words accumulate over time for the most active persona.</p>
+<div class="scroll-table"><table>
+<tr><th>Days</th><th>v5.0 Learned</th><th>v5.1 Learned</th><th>v5.2 Learned</th><th>Δ v5.1−v5.0</th><th>Δ v5.2−v5.0</th></tr>
+<tr><td>90</td><td>300</td><td>575</td><td>557</td><td class="best">+275</td><td class="best">+257</td></tr>
+<tr><td>180</td><td>528</td><td>1190</td><td>1285</td><td class="best">+662</td><td class="best">+757</td></tr>
+<tr><td>360</td><td>960</td><td>2243</td><td>2375</td><td class="best">+1283</td><td class="best">+1415</td></tr>
+<tr><td>540</td><td>1371</td><td>3347</td><td>3457</td><td class="best">+1976</td><td class="best">+2086</td></tr>
+<tr><td>720</td><td>1713</td><td>4300</td><td>4505</td><td class="best">+2587</td><td class="best">+2792</td></tr>
+</table></div>
+<div class="card"><h2 id="s5">5. Gap Analysis</h2>
+<h3>5a. Efficiency: v5.1 (DSR-mid) vs v5.2 (FSRS-6 Full)</h3>
+<div class="scroll-table"><table>
+<tr><th>Plan</th><th>Persona</th><th>Days</th><th>v5.0 Eff</th><th>v5.1 Eff</th><th>v5.2 Eff</th><th>v5.1/v5.2</th></tr>
+<tr><td>gold</td><td>average</td><td>90</td><td>1287</td><td>1059</td><td>1065</td><td>0.99</td></tr>
+<tr><td>gold</td><td>average</td><td>180</td><td>1297</td><td>1297</td><td>1360</td><td>0.95</td></tr>
+<tr><td>gold</td><td>average</td><td>360</td><td>1268</td><td>1426</td><td>1446</td><td>0.99</td></tr>
+<tr><td>gold</td><td>average</td><td>540</td><td>1262</td><td>1415</td><td>1431</td><td>0.99</td></tr>
+<tr><td>gold</td><td>average</td><td>720</td><td>1259</td><td>1447</td><td>1447</td><td>1.00</td></tr>
+<tr><td>gold</td><td>eager</td><td>90</td><td>1152</td><td>1122</td><td>986</td><td>1.14</td></tr>
+<tr><td>gold</td><td>eager</td><td>180</td><td>1138</td><td>1291</td><td>1249</td><td>1.03</td></tr>
+<tr><td>gold</td><td>eager</td><td>360</td><td>1116</td><td>1331</td><td>1347</td><td>0.99</td></tr>
+<tr><td>gold</td><td>eager</td><td>540</td><td>1124</td><td>1356</td><td>1358</td><td>1.00</td></tr>
+<tr><td>gold</td><td>eager</td><td>720</td><td>1116</td><td>1376</td><td>1385</td><td>0.99</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>90</td><td>1276</td><td>1282</td><td>1194</td><td>1.07</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>180</td><td>1265</td><td>1344</td><td>1229</td><td>1.09</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>360</td><td>1307</td><td>1404</td><td>1433</td><td>0.98</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>540</td><td>1243</td><td>1424</td><td>1453</td><td>0.98</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>720</td><td>1265</td><td>1485</td><td>1469</td><td>1.01</td></tr>
+<tr><td>gold</td><td>lazy</td><td>90</td><td>1156</td><td>1265</td><td>1195</td><td>1.06</td></tr>
+<tr><td>gold</td><td>lazy</td><td>180</td><td>1287</td><td>1388</td><td>1394</td><td>1.00</td></tr>
+<tr><td>gold</td><td>lazy</td><td>360</td><td>1431</td><td>1492</td><td>1466</td><td>1.02</td></tr>
+<tr><td>gold</td><td>lazy</td><td>540</td><td>1379</td><td>1506</td><td>1548</td><td>0.97</td></tr>
+<tr><td>gold</td><td>lazy</td><td>720</td><td>1400</td><td>1507</td><td>1506</td><td>1.00</td></tr>
+<tr><td>silver</td><td>average</td><td>90</td><td>1081</td><td>1174</td><td>1124</td><td>1.04</td></tr>
+<tr><td>silver</td><td>average</td><td>180</td><td>1086</td><td>1221</td><td>1215</td><td>1.01</td></tr>
+<tr><td>silver</td><td>average</td><td>360</td><td>1107</td><td>1279</td><td>1302</td><td>0.98</td></tr>
+<tr><td>silver</td><td>average</td><td>540</td><td>1089</td><td>1295</td><td>1293</td><td>1.00</td></tr>
+<tr><td>silver</td><td>average</td><td>720</td><td>1045</td><td>1297</td><td>1328</td><td>0.98</td></tr>
+<tr><td>silver</td><td>eager</td><td>90</td><td>982</td><td>986</td><td>842</td><td>1.17</td></tr>
+<tr><td>silver</td><td>eager</td><td>180</td><td>1007</td><td>1196</td><td>1117</td><td>1.07</td></tr>
+<tr><td>silver</td><td>eager</td><td>360</td><td>1069</td><td>1220</td><td>1156</td><td>1.06</td></tr>
+<tr><td>silver</td><td>eager</td><td>540</td><td>1081</td><td>1233</td><td>1205</td><td>1.02</td></tr>
+<tr><td>silver</td><td>eager</td><td>720</td><td>1106</td><td>1242</td><td>1241</td><td>1.00</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>90</td><td>1048</td><td>1133</td><td>1055</td><td>1.07</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>180</td><td>1096</td><td>1279</td><td>1215</td><td>1.05</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>360</td><td>1111</td><td>1288</td><td>1300</td><td>0.99</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>540</td><td>1099</td><td>1330</td><td>1294</td><td>1.03</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>720</td><td>1101</td><td>1332</td><td>1326</td><td>1.00</td></tr>
+<tr><td>silver</td><td>lazy</td><td>90</td><td>1296</td><td>1299</td><td>1184</td><td>1.10</td></tr>
+<tr><td>silver</td><td>lazy</td><td>180</td><td>1327</td><td>1348</td><td>1381</td><td>0.98</td></tr>
+<tr><td>silver</td><td>lazy</td><td>360</td><td>1386</td><td>1443</td><td>1409</td><td>1.02</td></tr>
+<tr><td>silver</td><td>lazy</td><td>540</td><td>1272</td><td>1508</td><td>1434</td><td>1.05</td></tr>
+<tr><td>silver</td><td>lazy</td><td>720</td><td>1278</td><td>1417</td><td>1426</td><td>0.99</td></tr>
+</table></div>
+<h3>5b. Where v5.1 (DSR-mid) trails v5.2 (FSRS-6)</h3>
+<p>Scenarios where DSR-mid learned words are <strong>&lt;90%</strong> of FSRS-6 Full:</p>
+<div class="scroll-table"><table>
+<tr><th>Plan</th><th>Persona</th><th>Days</th><th>v5.1 Learned</th><th>v5.2 Learned</th><th>Gap</th><th>Root Cause</th></tr>
+<tr><td>silver</td><td>average</td><td>90</td><td>207</td><td>234</td><td>88.5%</td><td>Short horizon — first-exposure overhead</td></tr>
+<tr><td>gold</td><td>average</td><td>90</td><td>390</td><td>435</td><td>89.7%</td><td>Short horizon — first-exposure overhead</td></tr>
+<tr><td>gold</td><td>average</td><td>180</td><td>792</td><td>923</td><td>85.8%</td><td>Mean reversion target (D0(Good)) vs D0(Easy) — less aggressive intervals</td></tr>
+</table></div>
+<h3>5c. Where v5.1 outperforms v5.0 (DSR-lite)</h3>
+<div class="scroll-table"><table>
+<tr><th>Plan</th><th>Persona</th><th>Days</th><th>v5.0</th><th>v5.1</th><th>v5.2</th><th>v5.1 gain over v5.0</th></tr>
+<tr><td>gold</td><td>lazy</td><td>180</td><td>166</td><td>493</td><td>471</td><td class="best">+197%</td></tr>
+<tr><td>gold</td><td>lazy</td><td>720</td><td>489</td><td>1452</td><td>1301</td><td class="best">+197%</td></tr>
+<tr><td>gold</td><td>lazy</td><td>540</td><td>379</td><td>1123</td><td>1045</td><td class="best">+196%</td></tr>
+<tr><td>gold</td><td>lazy</td><td>360</td><td>291</td><td>837</td><td>731</td><td class="best">+188%</td></tr>
+<tr><td>silver</td><td>lazy</td><td>540</td><td>203</td><td>532</td><td>549</td><td class="best">+162%</td></tr>
+<tr><td>silver</td><td>eager</td><td>720</td><td>952</td><td>2440</td><td>2507</td><td class="best">+156%</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>720</td><td>1083</td><td>2773</td><td>2659</td><td class="best">+156%</td></tr>
+<tr><td>silver</td><td>eager</td><td>540</td><td>740</td><td>1880</td><td>1907</td><td class="best">+154%</td></tr>
+<tr><td>silver</td><td>lazy</td><td>720</td><td>279</td><td>705</td><td>681</td><td class="best">+153%</td></tr>
+<tr><td>gold</td><td>eager</td><td>720</td><td>1713</td><td>4300</td><td>4505</td><td class="best">+151%</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>540</td><td>830</td><td>2067</td><td>2091</td><td class="best">+149%</td></tr>
+<tr><td>silver</td><td>average</td><td>720</td><td>677</td><td>1679</td><td>1603</td><td class="best">+148%</td></tr>
+<tr><td>gold</td><td>average</td><td>720</td><td>1240</td><td>3054</td><td>3155</td><td class="best">+146%</td></tr>
+<tr><td>silver</td><td>average</td><td>540</td><td>531</td><td>1306</td><td>1232</td><td class="best">+146%</td></tr>
+<tr><td>gold</td><td>eager</td><td>540</td><td>1371</td><td>3347</td><td>3457</td><td class="best">+144%</td></tr>
+</table></div>
+<p class="note">Showing top 15 gains. 40 total scenarios compared.</p>
+<div class="card"><h2 id="s6">6. Quality Gates</h2>
+<h3>Gate 1: DSR-mid (v5.1) ≥ DSR-lite (v5.0) − 5%</h3>
+<div class="scroll-table"><table><tr><th>Plan</th><th>Persona</th><th>Days</th><th>v5.0</th><th>v5.1</th><th>Status</th></tr>
+<tr><td>silver</td><td>eager</td><td>90</td><td>162</td><td>306</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>eager</td><td>180</td><td>298</td><td>673</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>eager</td><td>360</td><td>519</td><td>1265</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>eager</td><td>540</td><td>740</td><td>1880</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>eager</td><td>720</td><td>952</td><td>2440</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>90</td><td>109</td><td>207</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>180</td><td>204</td><td>433</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>360</td><td>372</td><td>893</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>540</td><td>531</td><td>1306</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>720</td><td>677</td><td>1679</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>90</td><td>105</td><td>204</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>180</td><td>190</td><td>426</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>360</td><td>332</td><td>704</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>540</td><td>463</td><td>1090</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>720</td><td>604</td><td>1419</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>90</td><td>56</td><td>113</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>180</td><td>90</td><td>203</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>360</td><td>153</td><td>367</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>540</td><td>203</td><td>532</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>720</td><td>279</td><td>705</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>90</td><td>300</td><td>575</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>180</td><td>528</td><td>1190</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>360</td><td>960</td><td>2243</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>540</td><td>1371</td><td>3347</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>720</td><td>1713</td><td>4300</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>average</td><td>90</td><td>217</td><td>390</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>average</td><td>180</td><td>400</td><td>792</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>average</td><td>360</td><td>694</td><td>1614</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>average</td><td>540</td><td>977</td><td>2351</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>average</td><td>720</td><td>1240</td><td>3054</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>90</td><td>209</td><td>400</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>180</td><td>346</td><td>755</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>360</td><td>606</td><td>1397</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>540</td><td>830</td><td>2067</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>720</td><td>1083</td><td>2773</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>90</td><td>86</td><td>195</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>180</td><td>166</td><td>493</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>360</td><td>291</td><td>837</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>540</td><td>379</td><td>1123</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>720</td><td>489</td><td>1452</td><td>✅ PASS</td></tr>
+</table></div>
+<p><span class="badge badge-green">ALL PASS</span> v5.1 ≥ 95% of v5.0 in all scenarios</p>
+<h3>Gate 2: DSR-mid (v5.1) cost ≤ FSRS-6 Full (v5.2) + 10%</h3>
+<div class="scroll-table"><table><tr><th>Plan</th><th>Persona</th><th>Days</th><th>v5.1 Cost</th><th>v5.2 Cost</th><th>Status</th></tr>
+<tr><td>silver</td><td>eager</td><td>90</td><td>$0.3102</td><td>$0.3312</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>eager</td><td>180</td><td>$0.5628</td><td>$0.5880</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>eager</td><td>360</td><td>$1.0368</td><td>$1.0680</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>eager</td><td>540</td><td>$1.5246</td><td>$1.5828</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>eager</td><td>720</td><td>$1.9638</td><td>$2.0202</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>90</td><td>$0.1764</td><td>$0.2082</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>180</td><td>$0.3546</td><td>$0.3564</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>360</td><td>$0.6984</td><td>$0.6588</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>540</td><td>$1.0086</td><td>$0.9528</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>720</td><td>$1.2948</td><td>$1.2066</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>90</td><td>$0.1800</td><td>$0.1896</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>180</td><td>$0.3330</td><td>$0.3342</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>360</td><td>$0.5466</td><td>$0.5784</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>540</td><td>$0.8196</td><td>$0.8364</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>720</td><td>$1.0650</td><td>$1.0524</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>90</td><td>$0.0870</td><td>$0.0870</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>180</td><td>$0.1506</td><td>$0.1470</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>360</td><td>$0.2544</td><td>$0.2718</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>540</td><td>$0.3528</td><td>$0.3828</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>720</td><td>$0.4974</td><td>$0.4776</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>90</td><td>$0.5124</td><td>$0.5646</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>180</td><td>$0.9216</td><td>$1.0290</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>360</td><td>$1.6854</td><td>$1.7634</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>540</td><td>$2.4678</td><td>$2.5458</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>720</td><td>$3.1242</td><td>$3.2532</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>average</td><td>90</td><td>$0.3684</td><td>$0.4086</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>average</td><td>180</td><td>$0.6108</td><td>$0.6786</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>average</td><td>360</td><td>$1.1316</td><td>$1.2078</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>average</td><td>540</td><td>$1.6614</td><td>$1.6902</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>average</td><td>720</td><td>$2.1102</td><td>$2.1804</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>90</td><td>$0.3120</td><td>$0.3384</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>180</td><td>$0.5616</td><td>$0.5778</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>360</td><td>$0.9954</td><td>$1.0284</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>540</td><td>$1.4514</td><td>$1.4394</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>720</td><td>$1.8678</td><td>$1.8096</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>90</td><td>$0.1542</td><td>$0.1740</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>180</td><td>$0.3552</td><td>$0.3378</td><td>✅ PASS</td></tr>
+<tr class="worst"><td>gold</td><td>lazy</td><td>360</td><td>$0.5610</td><td>$0.4986</td><td>❌ FAIL</td></tr>
+<tr class="worst"><td>gold</td><td>lazy</td><td>540</td><td>$0.7458</td><td>$0.6750</td><td>❌ FAIL</td></tr>
+<tr class="worst"><td>gold</td><td>lazy</td><td>720</td><td>$0.9636</td><td>$0.8640</td><td>❌ FAIL</td></tr>
+</table></div>
+<h3>Gate 3: DSR-mid (v5.1) max_due ≤ FSRS-6 Full (v5.2) × 1.30</h3>
+<div class="scroll-table"><table><tr><th>Plan</th><th>Persona</th><th>Days</th><th>v5.1 Max Due</th><th>v5.2 Max Due</th><th>Status</th></tr>
+<tr><td>silver</td><td>eager</td><td>90</td><td>17</td><td>22</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>eager</td><td>180</td><td>24</td><td>22</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>eager</td><td>360</td><td>36</td><td>31</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>eager</td><td>540</td><td>36</td><td>36</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>eager</td><td>720</td><td>36</td><td>38</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>90</td><td>20</td><td>23</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>180</td><td>23</td><td>33</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>360</td><td>33</td><td>41</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>540</td><td>37</td><td>41</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>720</td><td>44</td><td>41</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>90</td><td>17</td><td>27</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>180</td><td>30</td><td>41</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>360</td><td>51</td><td>52</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>540</td><td>51</td><td>63</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>720</td><td>51</td><td>63</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>90</td><td>25</td><td>20</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>180</td><td>25</td><td>26</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>360</td><td>37</td><td>43</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>540</td><td>39</td><td>43</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>720</td><td>42</td><td>49</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>90</td><td>30</td><td>36</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>180</td><td>43</td><td>36</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>360</td><td>53</td><td>76</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>540</td><td>91</td><td>76</td><td>✅ PASS</td></tr>
+<tr class="worst"><td>gold</td><td>eager</td><td>720</td><td>127</td><td>76</td><td>❌ FAIL</td></tr>
+<tr class="worst"><td>gold</td><td>average</td><td>90</td><td>50</td><td>37</td><td>❌ FAIL</td></tr>
+<tr><td>gold</td><td>average</td><td>180</td><td>70</td><td>64</td><td>✅ PASS</td></tr>
+<tr class="worst"><td>gold</td><td>average</td><td>360</td><td>104</td><td>69</td><td>❌ FAIL</td></tr>
+<tr><td>gold</td><td>average</td><td>540</td><td>104</td><td>110</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>average</td><td>720</td><td>104</td><td>110</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>90</td><td>34</td><td>111</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>180</td><td>36</td><td>122</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>360</td><td>73</td><td>122</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>540</td><td>101</td><td>122</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>720</td><td>101</td><td>122</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>90</td><td>55</td><td>47</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>180</td><td>55</td><td>90</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>360</td><td>95</td><td>90</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>540</td><td>95</td><td>90</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>720</td><td>95</td><td>90</td><td>✅ PASS</td></tr>
+</table></div>
+<h3>Gate 4: DSR-mid (v5.1) efficiency ≥ DSR-lite (v5.0) × 90%</h3>
+<div class="scroll-table"><table><tr><th>Plan</th><th>Persona</th><th>Days</th><th>v5.0 Eff</th><th>v5.1 Eff</th><th>Status</th></tr>
+<tr><td>silver</td><td>eager</td><td>90</td><td>982</td><td>986</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>eager</td><td>180</td><td>1007</td><td>1196</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>eager</td><td>360</td><td>1069</td><td>1220</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>eager</td><td>540</td><td>1081</td><td>1233</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>eager</td><td>720</td><td>1106</td><td>1242</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>90</td><td>1081</td><td>1174</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>180</td><td>1086</td><td>1221</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>360</td><td>1107</td><td>1279</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>540</td><td>1089</td><td>1295</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>average</td><td>720</td><td>1045</td><td>1297</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>90</td><td>1048</td><td>1133</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>180</td><td>1096</td><td>1279</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>360</td><td>1111</td><td>1288</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>540</td><td>1099</td><td>1330</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>fluctuating</td><td>720</td><td>1101</td><td>1332</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>90</td><td>1296</td><td>1299</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>180</td><td>1327</td><td>1348</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>360</td><td>1386</td><td>1443</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>540</td><td>1272</td><td>1508</td><td>✅ PASS</td></tr>
+<tr><td>silver</td><td>lazy</td><td>720</td><td>1278</td><td>1417</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>90</td><td>1152</td><td>1122</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>180</td><td>1138</td><td>1291</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>360</td><td>1116</td><td>1331</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>540</td><td>1124</td><td>1356</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>eager</td><td>720</td><td>1116</td><td>1376</td><td>✅ PASS</td></tr>
+<tr class="worst"><td>gold</td><td>average</td><td>90</td><td>1287</td><td>1059</td><td>❌ FAIL (82.2%)</td></tr>
+<tr><td>gold</td><td>average</td><td>180</td><td>1297</td><td>1297</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>average</td><td>360</td><td>1268</td><td>1426</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>average</td><td>540</td><td>1262</td><td>1415</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>average</td><td>720</td><td>1259</td><td>1447</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>90</td><td>1276</td><td>1282</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>180</td><td>1265</td><td>1344</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>360</td><td>1307</td><td>1404</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>540</td><td>1243</td><td>1424</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>fluctuating</td><td>720</td><td>1265</td><td>1485</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>90</td><td>1156</td><td>1265</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>180</td><td>1287</td><td>1388</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>360</td><td>1431</td><td>1492</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>540</td><td>1379</td><td>1506</td><td>✅ PASS</td></tr>
+<tr><td>gold</td><td>lazy</td><td>720</td><td>1400</td><td>1507</td><td>✅ PASS</td></tr>
+</table></div>
+</div>
+<div class="card"><h2 id="s7">7. Version Notes</h2>
+
+<h3>v5.0 — DSR-lite</h3>
+<ul>
+<li>Simplified FSRS model with fixed stability initial values</li>
+<li>No first-exposure grading (all cards start with S=1, D=5)</li>
+<li>Legacy binary mastery (learned/not learned)</li>
+<li>Fastest execution, lowest accuracy</li>
+</ul>
+
+<h3>v5.1 — DSR-mid (NEW)</h3>
+<ul>
+<li>FSRS-6 core formulas with 12 parameters</li>
+<li>First-exposure grading: 3-button UI (Forget/Hold/Advance) on first card view</li>
+<li>Mean reversion target: D0(Good) instead of D0(Easy) — adaptation for 3-button scenario</li>
+<li>Three dispatchable mastery models: legacy, lite, dsr</li>
+<li>Unified summary fields including tier_counts, avg_stability, avg_difficulty</li>
+<li>Balance: ~2.5x better learning than v5.0 at similar cost</li>
+</ul>
+
+<h3>v5.2 — FSRS-6 Full</h3>
+<ul>
+<li>Full FSRS-6 with all 5 grades (Again/Hard/Good/Easy/Top)</li>
+<li>Full parameter set including w3 (S0_Easy), w16 (Easy bonus), w17–w20 (short-term decay)</li>
+<li>D0(Easy) as mean reversion target — most aggressive interval growth</li>
+<li>Best raw learning throughput; highest AI cost</li>
+<li>Requires 5-button UI (not matching current 3-button Telegram flow)</li>
+</ul>
+
+<div class="footer">
+<p>Generated from tools/Fsrs_simulation_v5/ &nbsp;|&nbsp; Seed=42 &nbsp;|&nbsp; All runs use proficiency=intermediate, enable_rejection=False</p>
+</div></div></body></html>
