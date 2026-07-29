@@ -5,6 +5,7 @@
 **References:**
 - `docs/FSRS_v6.md` — Complete FSRS-6 algorithm reference
 - `tools/Fsrs_simulation_v5/v5.4_FSRS_full.py` — Validated FSRS-6 simulation (566 lines)
+- `tools/Fsrs_simulation_v5/archive/fsrs_simulator_v1.1.html` — Standalone HTML/JS FSRS-6 simulator dashboard (1755 lines, interactive Chart.js UI, potential foundation for future Telegram Mini App or WebApp)
 - `config/keyboards.py` — Current Telegram keyboard definitions
 - `handlers/srs_handler.py` — Current SRS review handler
 - `services/db/__init__.py` — Database functions

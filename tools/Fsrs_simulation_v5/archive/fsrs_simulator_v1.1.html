@@ -1,0 +1,1755 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FSRS-6 Simulator - Dashboard 1440p Optimized</title>
+
+<!-- Google Fonts Vazirmatn & Inter -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Vazirmatn:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<style>
+:root {
+  --bg-main: #090d16;
+  --bg-card: rgba(17, 24, 39, 0.85);
+  --bg-card-solid: #111827;
+  --bg-input: #1f2937;
+  --bg-hover: rgba(255, 255, 255, 0.08);
+  
+  --border: rgba(255, 255, 255, 0.12);
+  --border-glow: rgba(56, 189, 248, 0.35);
+  
+  --fg-main: #f9fafb;
+  --fg-muted: #9ca3af;
+  --fg-dim: #6b7280;
+  
+  --accent: #38bdf8;
+  --accent-gradient: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
+  --accent-glow: rgba(56, 189, 248, 0.25);
+  
+  --again: #f87171;
+  --again-bg: rgba(248, 113, 113, 0.15);
+  --again-border: rgba(248, 113, 113, 0.4);
+  
+  --hard: #fbbf24;
+  --hard-bg: rgba(251, 191, 36, 0.15);
+  --hard-border: rgba(251, 191, 36, 0.4);
+  
+  --good: #34d399;
+  --good-bg: rgba(52, 211, 153, 0.15);
+  --good-border: rgba(52, 211, 153, 0.4);
+  
+  --easy: #60a5fa;
+  --easy-bg: rgba(96, 165, 250, 0.15);
+  --easy-border: rgba(96, 165, 250, 0.4);
+  
+  --tier-learning: #6856b7;
+  --tier-familiar: #fbbf24;
+  --tier-learned: #34d399;
+  --tier-consolidated: #38bdf8;
+
+  --card-font-scale: 1;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden; /* Perfect fit on 1440p displays */
+}
+
+body {
+  font-family: 'Vazirmatn', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: var(--bg-main);
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.08) 0px, transparent 40%),
+    radial-gradient(at 100% 100%, rgba(129, 140, 248, 0.08) 0px, transparent 40%);
+  color: var(--fg-main);
+  padding: 10px 16px; /* Symmetric padding ensures no overflow on left edge */
+  display: flex;
+  flex-direction: column;
+}
+
+.container {
+  max-width: 1680px;
+  width: 100%;
+  margin: 0 auto;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.app-header {
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 16px;
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-icon {
+  width: 28px;
+  height: 28px;
+  background: var(--accent-gradient);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.85rem;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+}
+
+.brand-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.3px;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  transition: all 0.2s ease;
+}
+
+.control-group:focus-within, .control-group:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.control-label {
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Custom Styled Select Inputs */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding: 3px 22px 3px 6px;
+  border: none;
+  background: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2338bdf8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: left 4px center;
+  color: var(--fg-main);
+  font-size: 0.8rem;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  font-weight: 600;
+}
+
+select option {
+  background-color: var(--bg-card-solid);
+  color: var(--fg-main);
+  padding: 6px;
+}
+
+/* Font Size Controller Widget */
+.font-ctrl-group {
+  display: flex;
+  align-items: center;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.font-btn {
+  background: transparent;
+  border: none;
+  color: var(--fg-main);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 5px 9px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.font-btn:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+.font-scale-indicator {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 0 4px;
+  min-width: 38px;
+  text-align: center;
+}
+
+.btn {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-primary {
+  background: var(--accent-gradient);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(56, 189, 248, 0.25);
+}
+
+.btn-primary:hover {
+  opacity: 0.95;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(56, 189, 248, 0.4);
+}
+
+/* Main 3-Column Layout */
+.main-layout {
+  display: grid;
+  grid-template-columns: 350px 1fr 708px;
+
+  grid-template-rows: 1fr;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+/* Right Column: Stats Panel */
+.stats-sidebar {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow-y: auto;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  height: 100%;
+  min-height: 0;
+  justify-content: space-between;
+}
+
+.stats-group-title {
+  font-size: 0.68rem;
+  color: var(--accent);
+  padding: 5px 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+}
+
+.stats-group-title:first-child { border-top: none; }
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 12px;
+  font-size: 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+}
+
+.stat-row .stat-label {
+  color: var(--fg-muted);
+}
+
+.stat-row .stat-value {
+  color: var(--fg-main);
+  font-weight: 700;
+  font-family: 'Inter', sans-serif;
+}
+
+.stat-tiers {
+  padding: 8px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+}
+
+.tier-badge {
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #fff;
+  font-family: 'Inter', sans-serif;
+}
+
+.tier-learning { background: var(--tier-learning); }
+.tier-familiar { background: var(--tier-familiar); color: #000; }
+.tier-learned { background: var(--tier-learned); color: #000; }
+.tier-consolidated { background: var(--tier-consolidated); color: #000; }
+
+/* Center Column: Card & Control Unit */
+.center-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+  align-items: flex-start; /* In RTL, flex-start aligns card slightly to the right */
+  justify-content: center;
+  padding-left: 10px; /* Shifts the card slightly rightwards away from left charts */
+}
+
+.card-area {
+  background: var(--bg-card);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px 22px;
+  width: 100%;
+  max-width: 560px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  overflow-y: auto;
+  min-height: 0;
+  margin: 0 auto;
+}
+
+.card-inner {
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+#cardContent {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+#cardContent .card-score {
+  margin-top: auto;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 24px 12px;
+}
+
+.empty-state h3 {
+  font-size: 1.4rem;
+  font-weight: 800;
+  margin-bottom: 8px;
+  color: var(--accent);
+}
+
+.empty-state p {
+  color: var(--fg-muted);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+/* Card Content Typography with Scalable Font Variable */
+.card-header {
+  text-align: center;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.card-word {
+  font-size: calc(2.2rem * var(--card-font-scale));
+  font-weight: 800;
+  color: var(--fg-main);
+  letter-spacing: -0.5px;
+  font-family: 'Inter', 'Vazirmatn', sans-serif;
+  line-height: 1.25;
+}
+
+.card-phonetic {
+  font-size: calc(0.95rem * var(--card-font-scale));
+  color: var(--accent);
+  margin-top: 3px;
+  direction: ltr;
+  font-family: 'Inter', monospace;
+  letter-spacing: 0.5px;
+}
+
+.card-meaning {
+  font-size: calc(1.35rem * var(--card-font-scale));
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.card-explanation {
+  font-size: calc(0.9rem * var(--card-font-scale));
+  color: var(--fg-muted);
+  margin-bottom: 10px;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.card-syn-ant {
+  margin-bottom: 10px;
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.syn-title, .ant-title {
+  font-size: calc(0.7rem * var(--card-font-scale));
+  font-weight: 700;
+  margin-bottom: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  text-align: center;
+}
+
+.syn-title { color: var(--good); }
+.ant-title { color: var(--again); }
+
+.syn-items, .ant-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+}
+
+.syn-item, .ant-item {
+  padding: 3px 9px;
+  border-radius: 12px;
+  font-size: calc(0.8rem * var(--card-font-scale));
+  font-weight: 600;
+}
+
+.syn-item {
+  background: var(--good-bg);
+  color: var(--good);
+  border: 1px solid var(--good-border);
+}
+
+.ant-item {
+  background: var(--again-bg);
+  color: var(--again);
+  border: 1px solid var(--again-border);
+}
+
+.card-examples {
+  margin-bottom: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+}
+
+.ex-title {
+  font-size: calc(0.7rem * var(--card-font-scale));
+  font-weight: 700;
+  color: var(--fg-muted);
+  margin-bottom: 4px;
+  text-align: center;
+}
+
+.example-pair {
+  margin-bottom: 6px;
+}
+
+.example-pair:last-child { margin-bottom: 0; }
+
+.example-en {
+  display: block;
+  font-size: calc(0.9rem * var(--card-font-scale));
+  color: var(--fg-main);
+  direction: ltr;
+  text-align: center;
+  font-style: italic;
+  font-family: 'Inter', sans-serif;
+}
+
+.example-fa {
+  display: block;
+  font-size: calc(0.82rem * var(--card-font-scale));
+  color: var(--fg-muted);
+  text-align: center;
+  margin-top: 2px;
+}
+
+.card-grammar {
+  padding: 8px 12px;
+  background: rgba(56, 189, 248, 0.06);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+
+.grammar-title {
+  font-size: calc(0.72rem * var(--card-font-scale));
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 2px;
+  text-align: center;
+}
+
+.grammar-text {
+  font-size: calc(0.82rem * var(--card-font-scale));
+  color: var(--fg-muted);
+  line-height: 1.45;
+  text-align: center;
+}
+
+.card-score {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: calc(0.75rem * var(--card-font-scale));
+  color: var(--fg-muted);
+}
+
+.card-score span {
+  background: var(--bg-input);
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.card-score .s-val {
+  color: var(--accent);
+  font-weight: 700;
+  font-family: 'Inter', sans-serif;
+}
+
+.card-history-chart-wrap {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.card-history-chart-wrap h5 {
+  text-align: center;
+  font-size: 0.68rem;
+  color: var(--fg-muted);
+  margin-bottom: 4px;
+}
+
+#cardHistoryChart {
+  width: 100% !important;
+  height: 65px !important;
+}
+
+.progress-container {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+  margin: 0 auto;
+}
+
+.progress-text {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+
+.progress-bar {
+  display: flex;
+  gap: 3px;
+  height: 6px;
+}
+
+.progress-segment {
+  flex: 1;
+  background: var(--bg-input);
+  border-radius: 3px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.progress-segment-fill {
+  height: 100%;
+  background: var(--accent-gradient);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+/* Grade Action Buttons */
+.grade-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  width: 100%;
+  max-width: 560px;
+  flex-shrink: 0;
+  margin: 0 auto;
+}
+
+.grade-btn {
+  padding: 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+  backdrop-filter: blur(10px);
+  color: var(--fg-main);
+  cursor: pointer;
+  text-align: center;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.grade-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+.grade-btn .grade-key {
+  font-size: 0.62rem;
+  background: rgba(255, 255, 255, 0.12);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--fg-muted);
+  font-weight: 700;
+  font-family: 'Inter', sans-serif;
+}
+
+.grade-btn .grade-label {
+  font-size: 0.85rem;
+  font-weight: 800;
+  font-family: 'Vazirmatn', 'Inter', sans-serif;
+}
+
+.grade-btn .grade-persian {
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+}
+
+.grade-btn.again { border-color: var(--again-border); }
+.grade-btn.again:hover { background: var(--again-bg); border-color: var(--again); }
+
+.grade-btn.hard { border-color: var(--hard-border); }
+.grade-btn.hard:hover { background: var(--hard-bg); border-color: var(--hard); }
+
+.grade-btn.good { border-color: var(--good-border); }
+.grade-btn.good:hover { background: var(--good-bg); border-color: var(--good); }
+
+.grade-btn.easy { border-color: var(--easy-border); }
+.grade-btn.easy:hover { background: var(--easy-bg); border-color: var(--easy); }
+
+/* Left Column: Charts Container */
+.sidebar-charts-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  overflow: hidden; /* Prevents edge bleeding */
+}
+
+.sidebar-avg-s {
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.12) 0%, rgba(17, 24, 39, 0.75) 100%);
+  border: 1px solid var(--border-glow);
+  backdrop-filter: blur(8px);
+  border-radius: 12px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.sidebar-avg-s .s-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-avg-s .s-label {
+  font-size: 0.75rem;
+  color: var(--fg-main);
+  font-weight: 700;
+}
+
+.sidebar-avg-s .s-unit {
+  font-size: 0.65rem;
+  color: var(--fg-muted);
+}
+
+.sidebar-avg-s .s-value {
+  font-size: 1.9rem;
+  font-weight: 800;
+  color: var(--accent);
+  line-height: 1;
+  text-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+  font-family: 'Inter', sans-serif;
+}
+
+/* 2x2 Grid for Left Charts */
+.charts-grid-2x2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)); /* Guarantees strict containment */
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+}
+
+.chart-box {
+  background: var(--bg-card);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0; /* Critical for CSS Grid text wrapping */
+  width: 100%;
+  overflow: hidden; /* Keeps all titles and canvas inside the frame */
+}
+
+.chart-box h4 {
+  font-size: 0.72rem;
+  color: var(--fg-main);
+  margin-bottom: 4px;
+  text-align: center;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+}
+
+.chart-canvas-wrap {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+}
+
+.chart-desc {
+  font-size: 0.62rem;
+  color: var(--fg-muted);
+  text-align: center;
+  margin-top: 3px;
+  line-height: 1.3;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* NEW badge for first-encounter cards */
+.card-new-badge {
+  display:inline-block;
+  background:var(--accent);
+  color:#000; font-size:0.6rem; font-weight:800;
+  padding:1px 8px; border-radius:8px;
+  text-transform:uppercase;
+  margin-bottom:4px;
+  letter-spacing:0.3px;
+}
+
+/* Last seen indicator */
+.card-last-seen {
+  font-size:calc(0.65rem * var(--card-font-scale));
+  color:var(--fg-dim);
+  text-align:center;
+  margin-top:2px;
+}
+
+/* Schedule toast overlay */
+.schedule-toast {
+  position:fixed;
+  top:50%; left:50%;
+  transform:translate(-50%,-50%);
+  z-index:9999;
+  background:var(--bg-card-solid);
+  border:1px solid var(--border-glow);
+  border-radius:16px;
+  padding:18px 32px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:6px;
+  box-shadow:0 8px 40px rgba(0,0,0,0.5),0 0 30px var(--accent-glow);
+  pointer-events:none;
+  animation:toastFade 0.9s ease forwards;
+}
+.schedule-toast .toast-icon {
+  font-size:1.8rem;
+}
+.schedule-toast .toast-label {
+  font-size:0.72rem;
+  color:var(--fg-muted);
+}
+.schedule-toast .toast-value {
+  font-size:1.1rem;
+  font-weight:700;
+  color:var(--accent);
+  font-family:'Inter',sans-serif;
+}
+@keyframes toastFade {
+  0%   { opacity:0; transform:translate(-50%,-50%) scale(0.85); }
+  15%  { opacity:1; transform:translate(-50%,-50%) scale(1); }
+  70%  { opacity:1; transform:translate(-50%,-50%) scale(1); }
+  100% { opacity:0; transform:translate(-50%,-50%) scale(0.95); }
+}
+
+.footer {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+@media(max-width: 1280px) {
+  html, body { overflow: auto; }
+  .main-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+  .center-col {
+    padding-left: 0;
+  }
+  .sidebar-charts-container {
+    height: auto;
+  }
+  .charts-grid-2x2 {
+    height: 320px;
+  }
+  .card-area {
+    max-width: 100%;
+  }
+  .stats-sidebar {
+    height: auto;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Header with Brand & Controls -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-icon">F6</div>
+      <div class="brand-title">شبیه‌ساز الگوریتم FSRS-6</div>
+    </div>
+    
+    <div class="controls">
+      <div class="control-group">
+        <span class="control-label">پلن:</span>
+        <select id="planSelect">
+          <option value="free" selected>Free (1x4)</option>
+          <option value="silver">Silver (3x5)</option>
+          <option value="gold">Gold (4x7)</option>
+        </select>
+      </div>
+      
+      <div class="control-group">
+        <span class="control-label">پرسونا:</span>
+        <select id="personaSelect">
+          <option value="eager">Eager</option>
+          <option value="average" selected>Average</option>
+          <option value="lazy">Lazy</option>
+          <option value="fluctuating">Fluctuating</option>
+        </select>
+      </div>
+      
+      <div class="control-group">
+        <span class="control-label">مدت:</span>
+        <select id="daysSelect">
+          <option value="15">۱۵ روز</option>
+          <option value="30">۳۰ روز</option>
+          <option value="45" selected>۴۵ روز</option>
+          <option value="90">۹۰ روز</option>
+        </select>
+      </div>
+      
+      <div class="control-group">
+        <span class="control-label">زبان:</span>
+        <select id="langSelect" onchange="resetSimulation()">
+          <option value="all">همه (549)</option>
+          <option value="en" selected>انگلیسی (314)</option>
+          <option value="tr">ترکی (100)</option>
+          <option value="es">اسپانیایی (76)</option>
+          <option value="de">آلمانی (59)</option>
+        </select>
+      </div>
+
+      <!-- Font Size Controller -->
+      <div class="font-ctrl-group">
+        <button class="font-btn" onclick="adjustCardFontSize(-0.1)" title="کاهش فونت">-A</button>
+        <span class="font-scale-indicator" id="fontScaleDisplay">100%</span>
+        <button class="font-btn" onclick="adjustCardFontSize(0.1)" title="افزایش فونت">+A</button>
+      </div>
+      
+      <button id="resetBtn" class="btn btn-primary" onclick="resetSimulation()">شروع مجدد</button>
+    </div>
+  </header>
+
+  <!-- Main Grid Layout (RTL Order: Right Stats, Center Card, Left Charts) -->
+  <div class="main-layout">
+
+    <!-- Right Column: Stats Panel -->
+    <div class="stats-sidebar" id="statsPanel">
+      <div>
+        <div class="stats-group-title">پیشرفت</div>
+        <div class="stat-row"><span class="stat-label">روز</span><span class="stat-value" id="statDay">0</span></div>
+        <div class="stat-row"><span class="stat-label">جلسه</span><span class="stat-value" id="statSession">0</span></div>
+        <div class="stat-row"><span class="stat-label">کارت جلسه</span><span class="stat-value" id="statCardInSession">0/0</span></div>
+        <div class="stat-row"><span class="stat-label">کارت‌های تثبیت‌شده</span><span class="stat-value" id="statLearned">0</span></div>
+        
+        <div class="stats-group-title">کیفیت و الگوریتم</div>
+        <div class="stat-row"><span class="stat-label">پایداری (Avg S)</span><span class="stat-value" id="statAvgStability">0.0d</span></div>
+        <div class="stat-row"><span class="stat-label">دشواری (Avg D)</span><span class="stat-value" id="statAvgDifficulty">0.0</span></div>
+        <div class="stat-row"><span class="stat-label">بازیابی (Avg R)</span><span class="stat-value" id="statAvgR">0.00</span></div>
+        <div class="stat-row"><span class="stat-label">نرخ به‌یادآوری</span><span class="stat-value" id="statRetention">0%</span></div>
+        
+        <div class="stats-group-title">مصرف و عملکرد</div>
+        <div class="stat-row"><span class="stat-label">هزینه AI</span><span class="stat-value" id="statAiCost">$0</span></div>
+        <div class="stat-row"><span class="stat-label">فراخوانی AI</span><span class="stat-value" id="statAiCalls">0</span></div>
+        <div class="stat-row"><span class="stat-label">زنجیره (Streak)</span><span class="stat-value" id="streakCurrent">0</span></div>
+        <div class="stat-row"><span class="stat-label">رکورد زنجیره</span><span class="stat-value" id="streakBest">0</span></div>
+        
+        <div class="stats-group-title">وضعیت کارت‌ها</div>
+        <div class="stat-row"><span class="stat-label">سررسید (Due)</span><span class="stat-value" id="statDue">0</span></div>
+        <div class="stat-row"><span class="stat-label">فعال</span><span class="stat-value" id="statActive">0</span></div>
+      </div>
+
+      <div class="stat-tiers" id="tierBadges"><span style="color:var(--fg-dim)">—</span></div>
+    </div>
+
+    <!-- Center Main Column -->
+    <div class="center-col">
+
+      <!-- Progress Bar -->
+      <div class="progress-container">
+        <div class="progress-text" id="progressText" style="display:none">
+          <span id="progressLabel">جلسه ۱</span>
+          <span id="progressPercent">۰%</span>
+        </div>
+        <div class="progress-bar" id="progressBar" style="display:none"></div>
+      </div>
+
+      <!-- Card Display Area -->
+      <div class="card-area">
+        <div class="card-inner" id="cardDisplay">
+          <div class="empty-state" id="emptyState">
+            <h3>آماده شبیه‌سازی</h3>
+            <p>جهت اجرای شبیه‌سازی الگوریتم FSRS-6، روی دکمه <strong>شروع مجدد</strong> کلیک کنید.</p>
+          </div>
+          <div id="cardContent"></div>
+        </div>
+      </div>
+
+      <!-- Compact Grade Action Buttons -->
+        <div class="grade-buttons" id="gradeButtons" style="display:none"></div>
+
+    </div><!-- /center-col -->
+
+    <!-- Left Column: 2x2 Grid Charts -->
+    <div class="sidebar-charts-container">
+      <div class="sidebar-avg-s">
+        <div class="s-info">
+          <span class="s-label">میانگین پایداری (Avg S)</span>
+          <span class="s-unit">پایداری در حافظه بلندمدت</span>
+        </div>
+        <span class="s-value" id="bigAvgS">0.0<span style="font-size:0.85rem;font-weight:500;margin-right:2px;color:var(--fg-dim);">روز</span></span>
+      </div>
+
+      <div class="charts-grid-2x2">
+        <div class="chart-box">
+          <h4>پایداری (Stability)</h4>
+          <div class="chart-canvas-wrap"><canvas id="chartStability"></canvas></div>
+          <div class="chart-desc">پایداری S (روز) — هرچه بالاتر، فاصله مرور طولانی‌تر و یادگیری عمیق‌تر</div>
+        </div>
+        
+        <div class="chart-box">
+          <h4>دشواری (Difficulty)</h4>
+          <div class="chart-canvas-wrap"><canvas id="chartDifficulty"></canvas></div>
+          <div class="chart-desc">دشواری D (۱–۱۰) — پایین = آسان، بالا = چالش بیشتر، یادگیری نیازمند تکرار</div>
+        </div>
+        
+        <div class="chart-box">
+          <h4>عقب‌افتاده (Backlog)</h4>
+          <div class="chart-canvas-wrap"><canvas id="chartBacklog"></canvas></div>
+          <div class="chart-desc">کارت Due (عدد) — کاهش خط = مرور به‌موقع و عقب‌ماندگی کمتر</div>
+        </div>
+        
+        <div class="chart-box">
+          <h4>تأخیر (Latency)</h4>
+          <div class="chart-canvas-wrap"><canvas id="chartLatency"></canvas></div>
+          <div class="chart-desc">تأخیر (روز) — میله کوتاه = مرور سر وقت، تأخیر بلند = ریسک فراموشی</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main-layout -->
+
+  <footer class="footer">
+    FSRS-6 (21 Parameters, 4-Grade) | کلید میانبر ۱ تا ۴ | کل کارت‌های دیتابیس: <span id="totalCardCount">549</span>
+  </footer>
+</div>
+
+<div id="scheduleToast" class="schedule-toast" style="display:none">
+  <div class="toast-icon" id="toastIcon">📅</div>
+  <div class="toast-label">مرور بعدی</div>
+  <div class="toast-value" id="toastInterval">—</div>
+</div>
+
+<script>
+// ============================================================
+// FSRS-6 Mathematical Core
+// ============================================================
+const W = {
+  w0:0.212, w1:1.2931, w2:2.3065, w3:8.2956,
+  w4:6.4133, w5:0.8334, w6:3.0194, w7:0.001,
+  w8:1.8722, w9:0.1666, w10:0.796, w11:1.4835,
+  w12:0.0614, w13:0.2629, w14:1.6483, w15:0.6014,
+  w16:1.8729, w17:0.5425, w18:0.0912, w19:0.0658, w20:0.1542,
+};
+const DSR_FACTOR = 0.9**(-1/W.w20)-1;
+const DESIRED_RETENTION = 0.9;
+const LEARNED_MIN_S = 21;
+const AI_COST = 0.0006;
+
+const PLAN = {
+  free:{sessions:1,size:4,ai_cap:3,q_cap:3,q_days:2},
+  silver:{sessions:3,size:5,ai_cap:5,q_cap:7,q_days:3},
+  gold:{sessions:4,size:7,ai_cap:12,q_cap:10,q_days:4},
+};
+const PERSONA = {
+  eager:{q_lo:2,q_hi:6,save:0.70,forget:0.10},
+  average:{q_lo:1,q_hi:4,save:0.50,forget:0.20},
+  lazy:{q_lo:0,q_hi:2,save:0.30,forget:0.35},
+  fluctuating:{q_lo:1,q_hi:4,save:0.50,forget:0.20},
+};
+const TIER_ORDER = ['learning','familiar','learned','consolidated'];
+const GRADE_COLORS = {1:'#f87171', 2:'#fbbf24', 3:'#34d399', 4:'#60a5fa'};
+
+function clamp(v,mn,mx){ return Math.max(mn,Math.min(mx,v)); }
+function retrievability(elapsed,stability){
+  return (1+DSR_FACTOR*Math.max(0,elapsed)/Math.max(0.1,stability))**(-W.w20);
+}
+function intervalDays(stability){
+  return stability*(DESIRED_RETENTION**(-1/W.w20)-1)/DSR_FACTOR;
+}
+function s0(g){ return Math.max(0.1, [W.w0,W.w1,W.w2,W.w3][g-1]); }
+function d0(g){ return clamp(W.w4-Math.exp(W.w5*(g-1))+1,1,10); }
+function updateDifficulty(d,g){
+  const dd = -W.w6*(g-3);
+  return clamp(W.w7*d0(4)+(1-W.w7)*(d+dd*(10-d)/9),1,10);
+}
+function updateStability(d,s,r,g){
+  const sc = Math.max(0.1,s);
+  if(g===1) return clamp(W.w11*(d**-W.w12)*(((sc+1)**W.w13)-1)*Math.exp(W.w14*(1-r)),0.01,sc);
+  return sc*Math.max(1,1+Math.exp(W.w8)*(11-d)*(sc**-W.w9)*(Math.exp(W.w10*(1-r))-1)*(g===2?W.w15:1)*(g===4?W.w16:1));
+}
+function getTier(s){
+  if(s>=60) return 'consolidated';
+  if(s>=21) return 'learned';
+  if(s>=7) return 'familiar';
+  return 'learning';
+}
+
+class RNG {
+  constructor(s=42){ this.s=s>>>0; }
+  next(){
+    this.s=(this.s+0x6D2B79F5)>>>0;
+    let t=Math.imul(this.s^(this.s>>>15),1|this.s);
+    t=(t+Math.imul(t^(t>>>7),61|t))^t;
+    return((t^(t>>>14))>>>0)/4294967296;
+  }
+  random(){ return this.next(); }
+  uniform(lo,hi){ return lo+this.random()*(hi-lo); }
+  randint(lo,hi){ return Math.floor(this.random()*(hi-lo+1))+lo; }
+}
+
+class Card {
+  constructor(data,id){
+    this.id=id;
+    this.word=data.word||'';
+    const ph=data.phonetic;
+    this.phonetic=ph&&typeof ph==='object'?(ph.ipa||ph.persian||''):(ph||'');
+    this.fa_meaning=data.fa_meaning||'';
+    this.fa_explanation=data.fa_explanation||'';
+    this.synonyms=data.synonyms||[];
+    this.antonyms=data.antonyms||[];
+    this.examples=data.examples||[];
+    this.example_translations=data.example_translations||[];
+    this.grammar_tip=data.grammar_tip||'';
+    this.stability=0; this.difficulty=0; this.last_review=null;
+    this.next_review=null; this.due_since=null; this.reviews=0;
+    this.first_exposure_done=false; this.history=[];
+    this.grade_history=[];
+  }
+}
+
+class Simulation {
+  constructor(config,pool){
+    this.config=config; this.pool=pool; this.rng=new RNG(config.seed);
+    const p=PLAN[config.plan];
+    this.sessionsPerDay=p.sessions; this.sessionSize=p.size;
+    this.aiCap=p.ai_cap; this.qCap=p.q_cap; this.qDays=p.q_days;
+    this.dailySlots=p.sessions*p.size;
+    this.persona=PERSONA[config.persona];
+    this.day=0; this.session=0; this.activeCards=[];
+    this.activeIds=new Set(); this.pendingCards=[];
+    this.nextCardId=1; this.totalAiCalls=0; this.totalAiCost=0;
+    this.createdByQuery=0; this.createdByAi=0; this.latenessSamples=[];
+    this.currentCard=null; this.sessions=[]; this.sessionIndex=0;
+    this.sessionDueCounts=[]; this.currentSessionDueCount=0;
+    this.streak=0; this.bestStreak=0; this.finished=false;
+    this.totalReviews=0; this.successfulReviews=0;
+    this.dueSlotsUsed=0; this.querySlotsUsed=0;
+    this.historyS=[]; this.historyBacklog=[];
+    this.historyLatency=[]; this.historyDay=[];
+  }
+
+  startDay(){
+    this.session=0; this.sessions=[]; this.sessionIndex=0; this.currentCard=null;
+    this.dueSlotsUsed=0; this.querySlotsUsed=0;
+
+    this.streak++;
+    this.bestStreak=Math.max(this.bestStreak,this.streak);
+
+    const due=this.activeCards.filter(c=>c.next_review!==null&&c.next_review<=this.day);
+    due.forEach(c=>{if(c.due_since===null)c.due_since=c.next_review;});
+    due.sort((a,b)=>(a.due_since||0)-(b.due_since||0));
+
+    this.queriesToday=0;
+    let remainingDue=[...due];
+
+    // Generate query cards once per day (skip day 0)
+    const qlo=Math.min(this.persona.q_lo,this.qCap);
+    const qhi=Math.min(this.persona.q_hi,this.qCap);
+    const queriesToday=this.day===0?0:this.rng.randint(qlo,qhi);
+    for(let i=0;i<queriesToday;i++){
+      this.totalAiCalls++; this.totalAiCost+=AI_COST;
+      if(this.rng.random()<this.persona.save){
+        const idx=this.rng.randint(0,this.pool.length-1);
+        const card=new Card(this.pool[idx]||{word:'Fallback',fa_meaning:'-',fa_explanation:'-'},this.nextCardId++);
+        card.origin='query'; this.pendingCards.push(card); this.createdByQuery++;
+      }
+    }
+    let remainingPending=this.pendingCards.filter(c=>c.origin==='query');
+
+    let aiBudget=this.aiCap;
+    if(this.day<=2)aiBudget=this.dailySlots;
+
+    const sessionDueCnt=[];
+    const allSessions=[];
+
+    for(let s=0;s<this.sessionsPerDay;s++){
+      let slots=this.sessionSize;
+      const sessionCards=[];
+
+      const dueBatch=remainingDue.splice(0,slots);
+      sessionCards.push(...dueBatch);
+      sessionDueCnt.push(dueBatch.length);
+      this.dueSlotsUsed+=dueBatch.length;
+      slots-=dueBatch.length;
+
+      while(slots>0&&remainingPending.length>0){
+        const qc=remainingPending.shift();
+        this.pendingCards.splice(this.pendingCards.indexOf(qc),1);
+        sessionCards.push(qc);
+        this.querySlotsUsed++;
+        slots--;
+      }
+
+      while(slots>0&&aiBudget>0){
+        this.totalAiCalls++; this.totalAiCost+=AI_COST; aiBudget--;
+        const idx=this.rng.randint(0,this.pool.length-1);
+        const card=new Card(this.pool[idx]||{word:'Fallback',fa_meaning:'-',fa_explanation:'-'},this.nextCardId++);
+        card.origin='ai'; this.pendingCards.push(card); this.createdByAi++;
+        sessionCards.push(card);
+        slots--;
+      }
+
+      allSessions.push(sessionCards);
+    }
+
+    this.sessions=allSessions;
+    this.sessionDueCounts=sessionDueCnt;
+
+    // Compact: remove empty sessions so advanceCard never hits a 0-card session
+    const compact=[];
+    const compactDue=[];
+    for(let s=0;s<this.sessions.length;s++){
+      if(this.sessions[s].length>0){
+        compact.push(this.sessions[s]);
+        compactDue.push(this.sessionDueCounts[s]||0);
+      }
+    }
+    this.sessions=compact;
+    this.sessionDueCounts=compactDue;
+
+    this.session=0;
+    this.sessionIndex=0;
+    this.currentSessionDueCount=this.sessionDueCounts[0]||0;
+    this.currentCard=this.sessions.length>0&&this.sessions[0].length>0?this.sessions[0][0]:null;
+
+    if(this.currentCard){this.recordHistory();return true;}
+    this.recordHistory();return false;
+  }
+
+  recordHistory(){
+    const avgS=this.activeCards.length>0?this.activeCards.reduce((a,c)=>a+c.stability,0)/this.activeCards.length:0;
+    const due=this.activeCards.filter(c=>c.next_review!==null&&c.next_review<=this.day).length;
+    this.historyS.push(avgS);
+    this.historyBacklog.push(due);
+    this.historyDay.push(this.day);
+  }
+
+  submitGrade(grade){
+    if(!this.currentCard)return;
+    const card=this.currentCard;
+    const wasDue=this.sessionIndex<this.currentSessionDueCount;
+    if(wasDue&&card.due_since!==null)this.latenessSamples.push(this.day-card.due_since);
+
+    if(!card.first_exposure_done)this.handleFirstExposure(card,grade);
+    else this.handleReview(card,grade);
+
+    if(!this.activeIds.has(card.id)){this.activeCards.push(card);this.activeIds.add(card.id);}
+
+    card.history.push({day:this.day,stability:card.stability,difficulty:card.difficulty,grade:grade});
+    card.grade_history.push(grade);
+    this.totalReviews++;
+  }
+
+  advanceCard(){
+    this.sessionIndex++;
+    const cur=this.sessions[this.session];
+    if(cur&&this.sessionIndex<cur.length){
+      this.currentCard=cur[this.sessionIndex];
+    }else{
+      this.session++;
+      if(this.session<this.sessions.length){
+        this.sessionIndex=0;
+        this.currentSessionDueCount=this.sessionDueCounts[this.session]||0;
+        this.currentCard=this.sessions[this.session]&&this.sessions[this.session][0]||null;
+      }else{
+        // Day finished — advance and try up to 3 times to find a day with cards
+        this.currentCard=null;
+        for(let tries=0;tries<3;tries++){
+          this.day++;
+          if(this.day>=this.config.days){this.finished=true;return;}
+          if(this.startDay())return;
+        }
+        this.finished=true;
+      }
+    }
+  }
+
+  handleFirstExposure(card,grade){
+    card.stability=s0(grade); card.difficulty=d0(grade);
+    card.first_exposure_done=true; card.reviews=1; card.last_review=this.day;
+    const jitter=1+this.rng.uniform(-this.config.jitter,this.config.jitter);
+    card.next_review=this.day+Math.max(1,Math.round(intervalDays(card.stability)*jitter));
+  }
+
+  handleReview(card,grade){
+    const r=retrievability(this.day-(card.last_review||this.day),card.stability);
+    card.stability=updateStability(card.difficulty,card.stability,r,grade);
+    card.difficulty=updateDifficulty(card.difficulty,grade);
+    card.reviews++; card.last_review=this.day;
+    if(grade>=3)this.successfulReviews++;
+    const jitter=1+this.rng.uniform(-this.config.jitter,this.config.jitter);
+    card.next_review=this.day+Math.max(1,Math.round(intervalDays(card.stability)*jitter));
+  }
+
+  getStats(){
+    const learned=this.activeCards.filter(c=>c.stability>=LEARNED_MIN_S).length;
+    const dueToday=this.activeCards.filter(c=>c.next_review!==null&&c.next_review<=this.day).length;
+    const avgS=this.activeCards.length>0?this.activeCards.reduce((a,c)=>a+c.stability,0)/this.activeCards.length:0;
+    const avgD=this.activeCards.length>0?this.activeCards.reduce((a,c)=>a+c.difficulty,0)/this.activeCards.length:0;
+    const finalDay=this.config.days-1;
+    const avgR=this.activeCards.length>0?this.activeCards.reduce((a,c)=>a+retrievability(finalDay-(c.last_review||finalDay),c.stability),0)/this.activeCards.length:0;
+    const retention=this.totalReviews>0?Math.round(this.successfulReviews/this.totalReviews*100):0;
+    const tiers={learning:0,familiar:0,learned:0,consolidated:0};
+    this.activeCards.forEach(c=>tiers[getTier(c.stability)]++);
+    const totalCards=this.sessions.reduce((a,c)=>a+c.length,0);
+    const prevSessions=this.sessions.slice(0,this.session).reduce((a,c)=>a+c.length,0);
+    return{
+      day:this.day,session:this.session+1,
+      cardCurrent:prevSessions+this.sessionIndex+1,cardTotal:totalCards,
+      learned,dueToday,active:this.activeCards.length,
+      avgS,avgD,avgR,retention,
+      aiCost:this.totalAiCost,aiCalls:this.totalAiCalls,
+      tiers,streak:this.streak,bestStreak:this.bestStreak,
+      finished:this.finished,
+    };
+  }
+}
+
+let simulation=null, cardsPool=[], fullCardsPool=[];
+let chartStability=null, chartDifficulty=null, chartBacklog=null, chartLatency=null;
+let cardHistoryChart=null;
+let cardFontScale=1.0;
+
+function adjustCardFontSize(delta){
+  cardFontScale = Math.min(1.5, Math.max(0.8, +(cardFontScale + delta).toFixed(1)));
+  document.documentElement.style.setProperty('--card-font-scale', cardFontScale);
+  document.getElementById('fontScaleDisplay').textContent = Math.round(cardFontScale * 100) + '%';
+}
+
+function escapeHtml(t){
+  if(t==null)return'';
+  if(typeof t!=='string')t=String(t);
+  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+async function loadCards(){
+  try{
+    const res=await fetch('./simulator_cards.json');
+    const data=await res.json();
+    fullCardsPool=Array.isArray(data)?data:[];
+  }catch(_){
+    fullCardsPool=Array.from({length:40},(_,i)=>({
+      word:'Vocabulary '+i, phonetic:'/vəʊˈkæbjʊləri '+i+'/',
+      fa_meaning:'معنی واژه نمونه '+i, fa_explanation:'توضیحات تکمیلی پیرامون کاربرد کلمه شماره '+i,
+      synonyms:['synonym'+i, 'related'+i], antonyms:['antonym'+i],
+      examples:['This is a sample sentence for word '+i+'.'], example_translations:['این یک جمله نمونه برای واژه '+i+' است.'],
+      grammar_tip:'نکته گرامری مربوط به ساختار واژه شماره '+i,
+      lang:'en',
+    }));
+  }
+  updateLangCounts();
+  applyLangFilter();
+}
+
+function updateLangCounts(){
+  const total=fullCardsPool.length;
+  document.getElementById('totalCardCount').textContent=total;
+  const sel=document.getElementById('langSelect');
+  const langs={};
+  fullCardsPool.forEach(c=>{const l=c.lang||'en';langs[l]=(langs[l]||0)+1;});
+  const labels={en:'انگلیسی',tr:'ترکی',es:'اسپانیایی',de:'آلمانی'};
+  sel.options[0].text='همه ('+total+')';
+  [...sel.options].slice(1).forEach(o=>{
+    const cnt=langs[o.value]||0;
+    o.text=(labels[o.value]||o.value)+' ('+cnt+')';
+  });
+}
+
+function applyLangFilter(){
+  const lang=document.getElementById('langSelect').value;
+  cardsPool=lang==='all'?[...fullCardsPool]:fullCardsPool.filter(c=>(c.lang||'en')===lang);
+  // Shuffle for random card order each reset
+  for(let i=cardsPool.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [cardsPool[i],cardsPool[j]]=[cardsPool[j],cardsPool[i]];
+  }
+}
+
+function resetSimulation(){
+  applyLangFilter();
+  const config={
+    plan:document.getElementById('planSelect').value,
+    persona:document.getElementById('personaSelect').value,
+    days:parseInt(document.getElementById('daysSelect').value),
+    seed:42, jitter:0.15,
+  };
+  simulation=new Simulation(config,cardsPool);
+  if(!simulation.startDay()){simulation.finished=true;}
+  render();
+}
+
+function render(){
+  if(!simulation)return;
+  const s=simulation.getStats();
+
+  document.getElementById('statDay').textContent=s.day;
+  document.getElementById('statSession').textContent=s.session;
+  document.getElementById('statCardInSession').textContent=s.cardCurrent+'/'+s.cardTotal;
+  document.getElementById('statLearned').textContent=s.learned;
+  document.getElementById('statDue').textContent=s.dueToday;
+  document.getElementById('statActive').textContent=s.active;
+  
+  if(document.getElementById('bigAvgS')) document.getElementById('bigAvgS').innerHTML=s.avgS.toFixed(1)+'<span style="font-size:0.85rem;font-weight:500;margin-right:2px;color:var(--fg-dim);">روز</span>';
+  if(document.getElementById('statAvgStability')) document.getElementById('statAvgStability').textContent=s.avgS.toFixed(1)+'d';
+  document.getElementById('statAvgDifficulty').textContent=s.avgD.toFixed(2);
+  document.getElementById('statAvgR').textContent=s.avgR.toFixed(2);
+  document.getElementById('statRetention').textContent=s.retention+'%';
+  document.getElementById('statAiCost').textContent='$'+s.aiCost.toFixed(4);
+  document.getElementById('statAiCalls').textContent=s.aiCalls;
+  document.getElementById('streakCurrent').textContent=s.streak;
+  document.getElementById('streakBest').textContent=s.bestStreak;
+
+  const badges=TIER_ORDER.filter(t=>s.tiers[t]>0).map(t=>
+    '<span class="tier-badge tier-'+t+'">'+({learning:'درحال آموختن',familiar:'آشنا',learned:'آموخته‌شده',consolidated:'پایدار'})[t]+': '+s.tiers[t]+'</span>'
+  ).join(' ');
+  document.getElementById('tierBadges').innerHTML=badges||'<span style="color:var(--fg-dim)">—</span>';
+
+  const emptyState=document.getElementById('emptyState');
+  const cardContent=document.getElementById('cardContent');
+  const gradeButtons=document.getElementById('gradeButtons');
+  const progressText=document.getElementById('progressText');
+  const progressBar=document.getElementById('progressBar');
+
+  if(!simulation.currentCard||s.finished){
+    emptyState.style.display=''; cardContent.style.display='none';
+    if(s.finished)emptyState.innerHTML='<h3>پایان دوره شبیه‌سازی</h3><p>'+s.day+' روز بررسی شد.<br>کارت‌های تثبیت‌شده: '+s.learned+' | نرخ به‌یادآوری: '+s.retention+'%</p>';
+    gradeButtons.style.display='none'; progressText.style.display='none'; progressBar.style.display='none';
+    updateCharts(); updateCardHistoryChart(); return;
+  }
+
+  emptyState.style.display='none'; cardContent.style.display='';
+  gradeButtons.style.display='grid'; progressText.style.display='flex'; progressBar.style.display='';
+
+  // Session label & remaining count
+  const curSession=simulation.sessions[simulation.session];
+  const sessionTotal=curSession?curSession.length:0;
+  document.getElementById('progressLabel').textContent='جلسه '+s.session+' ('+simulation.sessionIndex+'/'+sessionTotal+')';
+  const pct=s.cardTotal>0?Math.round(s.cardCurrent/s.cardTotal*100):0;
+  document.getElementById('progressPercent').textContent=pct+'%';
+
+  // Build segmented progress bar
+  const segContainer=document.getElementById('progressBar');
+  const segCount=simulation.sessions.length;
+  while(segContainer.children.length<segCount){
+    const seg=document.createElement('div');
+    seg.className='progress-segment';
+    const fill=document.createElement('div');
+    fill.className='progress-segment-fill';
+    seg.appendChild(fill);
+    segContainer.appendChild(seg);
+  }
+  while(segContainer.children.length>segCount){
+    segContainer.removeChild(segContainer.lastChild);
+  }
+  for(let i=0;i<segCount;i++){
+    const segFill=segContainer.children[i].firstChild;
+    let fillPct=0;
+    if(i<simulation.session)fillPct=100;
+    else if(i===simulation.session&&sessionTotal>0)fillPct=Math.round(simulation.sessionIndex/sessionTotal*100);
+    segFill.style.width=fillPct+'%';
+  }
+
+  renderCard(simulation.currentCard);
+  renderGradeButtons(simulation.currentCard);
+  updateCharts();
+  updateCardHistoryChart();
+}
+
+function renderCard(card){
+  const container=document.getElementById('cardContent');
+  const hasHistory=card.history.length>0;
+  const daysSinceReview=(card.reviews>0&&card.last_review!==null)?simulation.day-card.last_review:null;
+  container.innerHTML=[
+    '<div class="card-header">',
+      (!card.first_exposure_done)?'<div class="card-new-badge">NEW</div>':'',
+      '<div class="card-word" dir="auto">'+escapeHtml(card.word)+'</div>',
+      '<div class="card-phonetic">'+escapeHtml(card.phonetic)+'</div>',
+      daysSinceReview!==null&&daysSinceReview>0
+        ?'<div class="card-last-seen">'+daysSinceReview+' روز پیش مرور شده</div>':'',
+    '</div>',
+    '<div class="card-meaning" dir="auto">'+escapeHtml(card.fa_meaning)+'</div>',
+    card.fa_explanation?'<div class="card-explanation" dir="auto">'+escapeHtml(card.fa_explanation)+'</div>':'',
+    (card.synonyms.length>0||card.antonyms.length>0)
+      ?'<div class="card-syn-ant">'
+        +(card.synonyms.length>0
+          ?'<div class="syn-list"><div class="syn-title">مترادف‌ها</div><div class="syn-items">'
+            +card.synonyms.map(s=>'<span class="syn-item" dir="auto">'+escapeHtml(s)+'</span>').join('')
+            +'</div></div>':'')
+        +(card.antonyms.length>0
+          ?'<div class="ant-list"><div class="ant-title">متضادها</div><div class="ant-items">'
+            +card.antonyms.map(a=>'<span class="ant-item" dir="auto">'+escapeHtml(a)+'</span>').join('')
+            +'</div></div>':'')
+        +'</div>':'',
+    (card.examples&&card.examples.length>0)
+      ?'<div class="card-examples"><div class="ex-title">مثال کاربردی</div>'
+        +card.examples.map((ex,i)=>'<div class="example-pair">'
+          +'<span class="example-en" dir="ltr">'+escapeHtml(ex)+'</span>'
+          +(card.example_translations&&card.example_translations[i]
+            ?'<span class="example-fa" dir="auto">'+escapeHtml(card.example_translations[i])+'</span>':'')
+          +'</div>').join('')
+        +'</div>':'',
+    card.grammar_tip?'<div class="card-grammar"><div class="grammar-title">نکته گرامری</div><div class="grammar-text">'+escapeHtml(card.grammar_tip)+'</div></div>':'',
+    '<div class="card-score">',
+      '<span>مرورها: <span class="s-val">'+card.reviews+'</span></span>',
+      '<span>پایداری S: <span class="s-val">'+card.stability.toFixed(1)+'</span></span>',
+      '<span>دشواری D: <span class="s-val">'+card.difficulty.toFixed(2)+'</span></span>',
+    '</div>',
+    '<div class="card-history-chart-wrap" id="cardHistoryWrap" style="'+(hasHistory?'':'display:none')+'">',
+      '<h5>روند پایداری (S) در مرورها</h5>',
+      '<canvas id="cardHistoryChart"></canvas>',
+    '</div>',
+  ].join('\n');
+}
+
+function renderGradeButtons(card){
+  const container=document.getElementById('gradeButtons');
+  const isNew=!card.first_exposure_done;
+  const btns=isNew
+    ? [
+        {g:1,label:'کاملا ناآشنا اَم',icon:'🔴',cls:'again'},
+        {g:2,label:'کمی آشنا اَم',icon:'🟡',cls:'hard'},
+        {g:3,label:'آشنایی خوب',icon:'🟢',cls:'good'},
+        {g:4,label:'کاملا بلدمش',icon:'🔵',cls:'easy'},
+      ]
+    : [
+        {g:1,label:'یادم نیامد',icon:'🔴',cls:'again'},
+        {g:2,label:'سخت بود',icon:'🟡',cls:'hard'},
+        {g:3,label:'خوب بود',icon:'🟢',cls:'good'},
+        {g:4,label:'خیلی آسون بود',icon:'🔵',cls:'easy'},
+      ];
+  container.innerHTML=btns.map(b=>
+    '<button class="grade-btn '+b.cls+'" onclick="submitGrade('+b.g+')">'
+    +'<span class="grade-key">'+b.g+'</span>'
+    +'<span class="grade-label">'+b.label+'</span>'
+    +'</button>'
+  ).join('\n');
+}
+
+function submitGrade(grade){
+  if(!simulation||!simulation.currentCard)return;
+  const card=simulation.currentCard;
+  const currentDay=simulation.day;
+  simulation.submitGrade(grade);
+
+  const interval=card.next_review!==null?card.next_review-currentDay:0;
+  if(interval>=0){
+    const toast=document.getElementById('scheduleToast');
+    const el=document.getElementById('toastInterval');
+    let label; let icon=document.getElementById('toastIcon');
+    if(interval===0||interval===1){
+      label='فردا'; icon.textContent='🔜';
+    }else if(interval<=7){
+      label=interval+' روز دیگر'; icon.textContent='📅';
+    }else if(interval<=30){
+      label=interval+' روز دیگر'; icon.textContent='🗓️';
+    }else if(interval<=90){
+      label=interval+' روز دیگر'; icon.textContent='🌙';
+    }else{
+      label=interval+' روز دیگر'; icon.textContent='🌟';
+    }
+    el.textContent=label;
+    toast.style.display='flex';
+    toast.style.animation='none';
+    void toast.offsetWidth;
+    toast.style.animation='toastFade 0.9s ease forwards';
+    setTimeout(()=>{toast.style.display='none';},900);
+  }
+
+  render(); // partial render (card still showing, toast overlay)
+  setTimeout(()=>{
+    simulation.advanceCard();
+    render();
+  },700);
+}
+
+function handleKeydown(e){
+  if(e.target.tagName==='SELECT'||e.target.tagName==='INPUT')return;
+  if(e.key>='1'&&e.key<='4')submitGrade(parseInt(e.key));
+}
+
+function initCharts(){
+  const commonOpts={
+    responsive:true, 
+    maintainAspectRatio:false,
+    plugins:{legend:{display:false}},
+    scales:{
+      x:{ticks:{color:'#9ca3af',font:{size:9,family:'Vazirmatn'}},grid:{color:'rgba(255,255,255,0.06)'}},
+      y:{ticks:{color:'#9ca3af',font:{size:9,family:'Vazirmatn'}},grid:{color:'rgba(255,255,255,0.06)'}},
+    },
+  };
+  
+  chartStability=new Chart(document.getElementById('chartStability'),{
+    type:'line',
+    data:{labels:[],datasets:[{label:'Avg S',data:[],borderColor:'#38bdf8',backgroundColor:'rgba(56,189,248,0.12)',fill:true,tension:0.35,pointRadius:2}]},
+    options:{...commonOpts,scales:{...commonOpts.scales,y:{...commonOpts.scales.y,beginAtZero:true}}}
+  });
+  
+  chartDifficulty=new Chart(document.getElementById('chartDifficulty'),{
+    type:'bar',
+    data:{labels:['1-3','3-5','5-7','7-9','9-10'],datasets:[{label:'کارت',data:[0,0,0,0,0],backgroundColor:['#f87171','#fbbf24','#34d399','#60a5fa','#a78bfa'],borderRadius:4}]},
+    options:commonOpts
+  });
+  
+  chartBacklog=new Chart(document.getElementById('chartBacklog'),{
+    type:'line',
+    data:{labels:[],datasets:[{label:'Due',data:[],borderColor:'#fbbf24',backgroundColor:'rgba(251,191,36,0.12)',fill:true,tension:0.35,pointRadius:2}]},
+    options:{...commonOpts,scales:{...commonOpts.scales,y:{...commonOpts.scales.y,beginAtZero:true}}}
+  });
+  
+  chartLatency=new Chart(document.getElementById('chartLatency'),{
+    type:'bar',
+    data:{labels:[],datasets:[{label:'تعداد',data:[],backgroundColor:'#f87171',borderRadius:4}]},
+    options:commonOpts
+  });
+}
+
+function updateCharts(){
+  if(!simulation)return;
+
+  if(chartStability&&simulation.historyS.length>0){
+    chartStability.data.labels=simulation.historyDay.map(d=>'d'+d);
+    chartStability.data.datasets[0].data=simulation.historyS;
+    chartStability.update('none');
+  }
+
+  if(chartDifficulty&&simulation.activeCards.length>0){
+    const bins=[0,0,0,0,0];
+    simulation.activeCards.forEach(c=>{
+      const d=c.difficulty;
+      if(d<3)bins[0]++;else if(d<5)bins[1]++;else if(d<7)bins[2]++;else if(d<9)bins[3]++;else bins[4]++;
+    });
+    chartDifficulty.data.datasets[0].data=bins;
+    chartDifficulty.update('none');
+  }
+
+  if(chartBacklog&&simulation.historyBacklog.length>0){
+    chartBacklog.data.labels=simulation.historyDay.map(d=>'d'+d);
+    chartBacklog.data.datasets[0].data=simulation.historyBacklog;
+    chartBacklog.update('none');
+  }
+
+  if(chartLatency&&simulation.latenessSamples.length>0){
+    const maxLat=Math.max(...simulation.latenessSamples,1);
+    const binSize=Math.max(1,Math.ceil(maxLat/8));
+    const bins={};
+    simulation.latenessSamples.forEach(l=>{
+      const bin=Math.floor(l/binSize)*binSize;
+      bins[bin]=(bins[bin]||0)+1;
+    });
+    const labels=Object.keys(bins).sort((a,b)=>a-b).map(k=>k+'-'+(+k+binSize));
+    const data=Object.keys(bins).sort((a,b)=>a-b).map(k=>bins[k]);
+    chartLatency.data.labels=labels;
+    chartLatency.data.datasets[0].data=data;
+    chartLatency.update('none');
+  }
+}
+
+function updateCardHistoryChart(){
+  const el=document.getElementById('cardHistoryChart');
+  if(!el||!simulation||!simulation.currentCard)return;
+  const card=simulation.currentCard;
+  
+  if(card.history.length<1){
+    const wrap=document.getElementById('cardHistoryWrap');
+    if(wrap)wrap.style.display='none';
+    return;
+  }
+  
+  const wrap=document.getElementById('cardHistoryWrap');
+  if(wrap)wrap.style.display='';
+
+  if(cardHistoryChart){
+    cardHistoryChart.destroy();
+    cardHistoryChart=null;
+  }
+
+  const labels=card.history.map((h,i)=>'#'+(i+1));
+  const sData=card.history.map(h=>+h.stability.toFixed(2));
+  const grades=card.history.map(h=>h.grade);
+  const pointColors=grades.map(g=>GRADE_COLORS[g]||'#94a3b8');
+
+  cardHistoryChart=new Chart(el,{
+    type:'line',
+    data:{
+      labels:labels,
+      datasets:[{
+        label:'S',
+        data:sData,
+        borderColor:'#38bdf8',
+        backgroundColor:'rgba(56, 189, 248, 0.12)',
+        fill:true,
+        tension:0.3,
+        pointRadius:4,
+        pointBackgroundColor:pointColors,
+        pointBorderColor:pointColors,
+      }],
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>'S: '+ctx.parsed.y.toFixed(2)}}},
+      scales:{
+        x:{ticks:{color:'#9ca3af',font:{size:8,family:'Vazirmatn'}},grid:{color:'rgba(255,255,255,0.04)'}},
+        y:{ticks:{color:'#9ca3af',font:{size:8,family:'Vazirmatn'}},grid:{color:'rgba(255,255,255,0.04)'},beginAtZero:true},
+      },
+    },
+  });
+}
+
+document.addEventListener('DOMContentLoaded',async()=>{
+  document.addEventListener('keydown',handleKeydown);
+  initCharts();
+  await loadCards();
+  resetSimulation();
+});
+</script>
+</body>
+</html>
