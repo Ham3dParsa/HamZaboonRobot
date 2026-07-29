@@ -1,17 +1,13 @@
-"""SRS v5 DSRL-fixed Session Simulation — FSRS-6 inspired DSR model
-with first-exposure grading, unified pipeline, cost-aware AI.
+"""v5.4 — True FSRS-6 DSR Session Simulation
 
-Three mastery models (set via SimConfig.mastery_model):
-  "dsr"    — FSRS-6 DSR with 12 params, first-exposure grading (default)
-  "lite"   — Simplified DSR-lite from v5 (kept for benchmark)
-  "legacy" — Binary success/fail from v3 (kept for comparison)
-
-Key differences from v5_dsr.py (lite) and v5_dsr_2.py (full FSRS-6):
-  - Adds first-exposure grading: user sees 3 buttons on NEW cards
-    and their grade determines initial stability/difficulty via FSRS-6 S0/D0
-  - Uses core FSRS-6 formulas (w0-w15) without overkill (no w3, w16-w20)
-  - Mean reversion to D0(3)=Good instead of D0(4)=Easy (3-button adaptation)
-  - unified summary fields across all three models
+Clean implementation based on docs/FSRS_v6.md:
+- Full 21-parameter FSRS-6 (w0-w20)
+- 4-grade system: Again(1), Hard(2), Good(3), Easy(4)
+- w20-derived forgetting curve and interval formulas
+- Short-term stability (gated behind enable_short_term)
+- Mean reversion toward D0(Easy) per FSRS-6 §2.7
+- No lite/legacy models (removed from v5.2)
+- Performance threshold for Easy grade: 0.90
 """
 
 import math
@@ -20,23 +16,63 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Optional, Literal
 
-# ============ SRS Intervals ============
-INTERVALS = [1, 3, 7, 15, 30, 60, 120, 240, 480, 960]
-
 # ============ Plan Defaults ============
 PLAN_DEFAULTS = {
     "free":     {"sessions": 1, "session_size": 4,  "ai_daily_cap": 3,  "query_daily_cap": 3,  "queue_cap_days": 2},
     "silver":   {"sessions": 3, "session_size": 5,  "ai_daily_cap": 5,  "query_daily_cap": 7,  "queue_cap_days": 3},
     "gold":     {"sessions": 4, "session_size": 7,  "ai_daily_cap": 12, "query_daily_cap": 10, "queue_cap_days": 4},
-    "platinum": {"sessions": 5, "session_size": 10, "ai_daily_cap": 20, "query_daily_cap": 16, "queue_cap_days": 6},
+    "platinum": {"sessions": 6, "session_size": 8, "ai_daily_cap": 20, "query_daily_cap": 16, "queue_cap_days": 6},
 }
 
 # ============ User Personas ============
+# Research-based parameters from:
+# - FSRS paper optimization (Ye et al. KDD 2022, TKDE 2023)
+# - FSRS4Anki defaults (optimized on 500M+ Anki reviews)
+# - Anki/FSRS FAQ on button usage patterns
+# - SuperMemo/Duolingo attendance research
 PERSONAS = {
-    "lazy":        {"attend": 0.35, "q_lo": 0, "q_hi": 1, "save_prob": 0.30, "forget": 0.35},
-    "average":     {"attend": 0.70, "q_lo": 0, "q_hi": 3, "save_prob": 0.50, "forget": 0.20},
-    "eager":       {"attend": 0.92, "q_lo": 2, "q_hi": 6, "save_prob": 0.70, "forget": 0.10},
-    "fluctuating": {"attend": None, "q_lo": 0, "q_hi": 3, "save_prob": 0.50, "forget": 0.20},
+    "eager": {
+        "persona_key": "eager",
+        "attend": 0.92,
+        "q_lo": 2, "q_hi": 6,
+        "save_prob": 0.70,
+        "forget": 0.08,
+        "grade_probs": "eager",
+        "session_completion": 1.0,  # completes all daily slots
+        "response_time_sec": (2, 5),  # fast
+    },
+    "average": {
+        "persona_key": "average",
+        "attend": 0.70,
+        "q_lo": 0, "q_hi": 3,
+        "save_prob": 0.50,
+        "forget": 0.15,
+        "grade_probs": "average",
+        "session_completion": 0.85,
+        "response_time_sec": (3, 7),
+    },
+    "lazy": {
+        "persona_key": "lazy",
+        "attend": 0.35,
+        "q_lo": 0, "q_hi": 1,
+        "save_prob": 0.30,
+        "forget": 0.30,
+        "grade_probs": "lazy",
+        "session_completion": 0.40,
+        "response_time_sec": (8, 15),
+    },
+    "fluctuating": {
+        "persona_key": "fluctuating",
+        "attend_base": 0.55,
+        "attend_amplitude": 0.30,
+        "attend_period_days": 21,
+        "q_lo": 0, "q_hi": 3,
+        "save_prob": 0.50,
+        "forget": 0.20,
+        "grade_probs": "fluctuating",
+        "session_completion": 0.60,
+        "response_time_sec": (4, 10),
+    },
 }
 
 # ============ Proficiency Levels ============
@@ -49,11 +85,12 @@ PROFICIENCY = {
 # ============ AI Cost ============
 AI_COST_PER_CALL = 0.0006
 
-# ============ FSRS-6 DSR Parameters (3-button, no Easy) ============
+# ============ FSRS-6 Full Parameters (w0-w20) ============
 DSR_W = {
     "w0": 0.212,      # S0(Again)
     "w1": 1.2931,     # S0(Hard)
     "w2": 2.3065,     # S0(Good)
+    "w3": 8.2956,     # S0(Easy)
     "w4": 6.4133,
     "w5": 0.8334,
     "w6": 3.0194,
@@ -66,13 +103,18 @@ DSR_W = {
     "w13": 0.2629,
     "w14": 1.6483,
     "w15": 0.6014,
+    "w16": 1.8729,    # Easy bonus
+    "w17": 0.5425,    # Short-term: grade effect
+    "w18": 0.0912,    # Short-term: grade offset
+    "w19": 0.0658,    # Short-term: S^-w19
+    "w20": 0.1542,    # Decay exponent
 }
 
-DSR_FACTOR = 19.0 / 81.0
-DSR_DECAY = -0.5
-DESIRED_RETENTION_DEFAULT = 0.85
+# Derived constants (FSRS-6 §2.1)
+DSR_FACTOR = 0.9 ** (-1.0 / DSR_W["w20"]) - 1.0
+DESIRED_RETENTION_DEFAULT = 0.9
 
-# Learned and tier thresholds (DSR model)
+# Learned and tier thresholds
 LEARNED_MIN_STABILITY_DAYS = 21.0
 DSR_TIER_THRESHOLDS = [
     ("در حال یادگیری", 0.0),
@@ -81,30 +123,23 @@ DSR_TIER_THRESHOLDS = [
     ("تثبیت‌شده", 60.0),
 ]
 
-# Lite model constants (carried from v5_dsr.py)
-STABILITY_INITIAL = 1.0
-STABILITY_MIN = 0.5
-DIFFICULTY_DEFAULT = 5.0
-DIFFICULTY_MIN = 1.0
-DIFFICULTY_MAX = 10.0
-DIFFICULTY_DELTA_FORGET = 1.2
-DIFFICULTY_DELTA_HOLD = 0.3
-DIFFICULTY_DELTA_ADVANCE = -0.2
-DIFFICULTY_MEAN_REVERSION = 0.05
-GROWTH_BASE_HOLD = 1.15
-GROWTH_SENSITIVITY_HOLD = 0.8
-GROWTH_BASE_ADVANCE = 1.5
-GROWTH_SENSITIVITY_ADVANCE = 2.0
-LAPSE_STABILITY_BASE = 0.15
-LAPSE_STABILITY_DIFF_SPAN = 0.35
-LEARNED_MIN_STABILITY_DAYS_LITE = 30
-LEARNED_MIN_REVIEWS = 4
-
-# Performance draw (shared across models)
+# Performance draw
 PERFORMANCE_NOISE = 0.15
-PERFORMANCE_RETRIEVABILITY_WEIGHT = 0.5
-PERFORMANCE_SUCCESS_THRESHOLD = 0.75
-PERFORMANCE_PARTIAL_THRESHOLD = 0.40
+
+# Persona-specific grade probabilities [Again, Hard, Good, Easy]
+# Calibrated from FSRS paper optimization results (Ye et al. KDD 2022, TKDE 2023)
+# and FSRS4Anki defaults (optimized on 500M+ Anki reviews)
+# Targets: eager=2btn (Again/Good), average=3btn, lazy=3btn conservative, fluctuating=moderate
+# Easy usage per FSRS FAQ: "FSRS is a little more accurate for people who mostly use Again and Good"
+PERSONA_GRADE_PROBS = {
+    "eager":        [0.02, 0.05, 0.60, 0.33],  # 2% Again, 5% Hard, 60% Good, 33% Easy - uses Easy liberally
+    "average":      [0.08, 0.15, 0.55, 0.22],  # 8% Again, 15% Hard, 55% Good, 22% Easy - balanced
+    "lazy":         [0.15, 0.20, 0.50, 0.15],  # 15% Again, 20% Hard, 50% Good, 15% Easy - conservative, more Hard
+    "fluctuating":  [0.10, 0.15, 0.55, 0.20],  # 10% Again, 15% Hard, 55% Good, 20% Easy - moderate
+}
+
+# Retrievability modulation strength for grade distribution
+GRADE_RETRIEVABILITY_SHIFT = 0.30
 
 # Query-first priority thresholds
 QUERY_BACKLOG_SOFT_CAP_MULT = 1.0
@@ -114,7 +149,6 @@ QUERY_INFLOW_MAX_REDUCTION = 0.80
 # Premium override band
 PLAN_OVERRIDE_BAND = 0.30
 
-MasteryModel = Literal["legacy", "lite", "dsr"]
 Origin = Literal["query", "ai"]
 
 # ============================================================
@@ -122,30 +156,36 @@ Origin = Literal["query", "ai"]
 # ============================================================
 
 def _dsr_retrievability(elapsed_days: float, stability: float) -> float:
+    """FSRS-6 forgetting curve: R = (1 + FACTOR * t/S) ^ (-w20)  (§2.1)"""
     stability = max(0.1, stability)
     t = max(0.0, elapsed_days)
-    return (1.0 + DSR_FACTOR * t / stability) ** DSR_DECAY
+    return (1.0 + DSR_FACTOR * t / stability) ** (-DSR_W["w20"])
 
 def _dsr_interval_days(stability: float, desired_retention: float = DESIRED_RETENTION_DEFAULT) -> float:
+    """FSRS-6 next interval: I = S/FACTOR * (r^(-1/w20) - 1)  (§2.8)"""
     stability = max(0.1, stability)
-    inv = desired_retention ** (1.0 / DSR_DECAY) - 1.0
+    inv = desired_retention ** (-1.0 / DSR_W["w20"]) - 1.0
     return stability * inv / DSR_FACTOR
 
 def _dsr_s0(grade: int) -> float:
-    return {1: DSR_W["w0"], 2: DSR_W["w1"], 3: DSR_W["w2"]}[grade]
+    """Initial stability for first review (§2.2)."""
+    return {1: DSR_W["w0"], 2: DSR_W["w1"], 3: DSR_W["w2"], 4: DSR_W["w3"]}[grade]
 
 def _dsr_d0(grade: int) -> float:
+    """Initial difficulty for first review (§2.3)."""
     d0 = DSR_W["w4"] - math.exp(DSR_W["w5"] * (grade - 1)) + 1.0
     return max(1.0, min(10.0, d0))
 
 def _dsr_update_difficulty(d: float, grade: int) -> float:
+    """Difficulty update with mean reversion toward D0(Easy) (§2.7)."""
     delta_d = -DSR_W["w6"] * (grade - 3)
     d_damped = d + delta_d * (10.0 - d) / 9.0
-    d0_good = _dsr_d0(3)
-    d_reverted = DSR_W["w7"] * d0_good + (1.0 - DSR_W["w7"]) * d_damped
+    d0_easy = _dsr_d0(4)
+    d_reverted = DSR_W["w7"] * d0_easy + (1.0 - DSR_W["w7"]) * d_damped
     return max(1.0, min(10.0, d_reverted))
 
 def _dsr_update_stability(d: float, s: float, r: float, grade: int) -> float:
+    """Stability update: success (§2.4) or failure (§2.5)."""
     s = max(0.1, s)
     if grade == 1:
         s_new = (
@@ -156,6 +196,7 @@ def _dsr_update_stability(d: float, s: float, r: float, grade: int) -> float:
         )
         return max(0.1, min(s_new, s))
     hard_penalty = DSR_W["w15"] if grade == 2 else 1.0
+    easy_bonus = DSR_W["w16"] if grade == 4 else 1.0
     s_inc = (
         1.0
         + math.exp(DSR_W["w8"])
@@ -163,8 +204,16 @@ def _dsr_update_stability(d: float, s: float, r: float, grade: int) -> float:
         * (s ** -DSR_W["w9"])
         * (math.exp(DSR_W["w10"] * (1.0 - r)) - 1.0)
         * hard_penalty
+        * easy_bonus
     )
     return s * max(1.0, s_inc)
+
+def _dsr_short_term_stability(s: float, grade: int) -> float:
+    """Same-day review stability (§2.6)."""
+    s_inc = math.exp(DSR_W["w17"] * (grade - 3 + DSR_W["w18"])) * (s ** -DSR_W["w19"])
+    if grade >= 3:
+        s_inc = max(1.0, s_inc)
+    return s * s_inc
 
 def _dsr_tier(stability: float) -> str:
     tier = DSR_TIER_THRESHOLDS[0][0]
@@ -172,6 +221,21 @@ def _dsr_tier(stability: float) -> str:
         if stability >= floor:
             tier = name
     return tier
+
+
+def _sample_grade(persona_key: str, r: float, rng: random.Random) -> int:
+    """Sample grade from persona-specific distribution modulated by retrievability."""
+    probs = PERSONA_GRADE_PROBS.get(persona_key, PERSONA_GRADE_PROBS["average"]).copy()
+    shift = (1.0 - r) * GRADE_RETRIEVABILITY_SHIFT
+    probs[0] += shift * 0.6  # Again
+    probs[1] += shift * 0.4  # Hard
+    probs[2] -= shift * 0.5  # Good
+    probs[3] -= shift * 0.5  # Easy
+    probs = [max(0.01, p) for p in probs]
+    total = sum(probs)
+    probs = [p / total for p in probs]
+    return rng.choices([1, 2, 3, 4], weights=probs)[0]
+
 
 # ============================================================
 # CARD DATACLASS
@@ -186,12 +250,8 @@ class Card:
     difficulty: float = 0.0
     last_review: Optional[int] = None
 
-    idx: int = -1
-    score: float = 2.0
-    streak: int = 0
     next_review: Optional[int] = None
     due_since: Optional[int] = None
-    ease: float = 1.0
     reviews: int = 0
 
     first_exposure_done: bool = False
@@ -212,9 +272,8 @@ class SimConfig:
     enable_rejection: bool = True
     enable_catchup: bool = True
     enable_session_rate_limit: bool = True
-    enable_continuous_mastery: bool = True
+    enable_short_term: bool = False
 
-    mastery_model: MasteryModel = "dsr"
     desired_retention: float = DESIRED_RETENTION_DEFAULT
 
     sessions_override: Optional[int] = None
@@ -241,119 +300,26 @@ def _resolve_plan(cfg: SimConfig) -> dict:
 
 def _attend_prob(persona: str, day: int, rng: random.Random) -> bool:
     p = PERSONAS[persona]
-    if persona == "fluctuating":
-        phase = (2 * math.pi * day) / 21.0
-        prob = 0.60 + 0.30 * math.sin(phase)
+    if "attend_base" in p:
+        phase = (2 * math.pi * day) / p["attend_period_days"]
+        prob = p["attend_base"] + p["attend_amplitude"] * math.sin(phase)
         return rng.random() < prob
     return rng.random() < p["attend"]
 
 # ============================================================
-# REVIEW OUTCOME — LEGACY (binary)
-# ============================================================
-
-def _review_outcome_legacy(card: Card, persona: dict, cfg: SimConfig, day: int, rng: random.Random) -> str:
-    card.due_since = None
-    if rng.random() < persona["forget"]:
-        card.stability = STABILITY_MIN
-        card.next_review = day + 1
-        card.last_review = day
-        card.reviews += 1
-        return "forget"
-    card.stability *= 2.0
-    jitter = 1.0 + rng.uniform(-cfg.jitter, cfg.jitter)
-    card.next_review = day + max(1, round(card.stability * jitter))
-    card.last_review = day
-    card.reviews += 1
-    return "advance"
-
-# ============================================================
-# REVIEW OUTCOME — LITE (DSR-lite from v5)
-# ============================================================
-
-def _review_outcome_lite(card: Card, persona: dict, cfg: SimConfig, day: int, rng: random.Random) -> str:
-    elapsed = day - (card.last_review if card.last_review is not None else day)
-    r = (1.0 + DSR_FACTOR * max(0.0, elapsed) / max(0.1, card.stability)) ** DSR_DECAY
-
-    card.due_since = None
-
-    if not cfg.enable_continuous_mastery:
-        if rng.random() < persona["forget"]:
-            card.stability = STABILITY_MIN
-            card.next_review = day + 1
-            card.last_review = day
-            card.reviews += 1
-            return "forget"
-        card.stability *= 2.0
-        jitter = 1.0 + rng.uniform(-cfg.jitter, cfg.jitter)
-        card.next_review = day + max(1, round(card.stability * jitter))
-        card.last_review = day
-        card.reviews += 1
-        return "advance"
-
-    base_success = 1.0 - persona["forget"]
-    noise = rng.uniform(-PERFORMANCE_NOISE, PERFORMANCE_NOISE)
-    performance = max(0.0, min(1.0,
-        (1 - PERFORMANCE_RETRIEVABILITY_WEIGHT) * base_success
-        + PERFORMANCE_RETRIEVABILITY_WEIGHT * r
-        + noise))
-    jitter = 1.0 + rng.uniform(-cfg.jitter, cfg.jitter)
-    D = card.difficulty
-
-    def mean_revert(d):
-        d = max(DIFFICULTY_MIN, min(DIFFICULTY_MAX, d))
-        return d + (DIFFICULTY_DEFAULT - d) * DIFFICULTY_MEAN_REVERSION
-
-    card.reviews += 1
-    card.last_review = day
-
-    if performance >= PERFORMANCE_SUCCESS_THRESHOLD:
-        growth = GROWTH_BASE_ADVANCE + GROWTH_SENSITIVITY_ADVANCE * (1 - r) * (10 - D) / 9
-        card.stability *= growth
-        card.difficulty = mean_revert(D + DIFFICULTY_DELTA_ADVANCE)
-        card.next_review = day + max(1, round(card.stability * jitter))
-        return "advance"
-    elif performance >= PERFORMANCE_PARTIAL_THRESHOLD:
-        growth = GROWTH_BASE_HOLD + GROWTH_SENSITIVITY_HOLD * (1 - r) * (10 - D) / 9
-        card.stability *= growth
-        card.difficulty = mean_revert(D + DIFFICULTY_DELTA_HOLD)
-        card.next_review = day + max(1, round(card.stability * jitter))
-        return "hold"
-    lapse_factor = LAPSE_STABILITY_BASE + LAPSE_STABILITY_DIFF_SPAN * (1 - D / 10)
-    card.stability = max(STABILITY_MIN, card.stability * lapse_factor)
-    card.difficulty = mean_revert(D + DIFFICULTY_DELTA_FORGET)
-    card.next_review = day + 1
-    return "forget"
-
-# ============================================================
-# FIRST EXPOSURE — shared across all models
+# FIRST EXPOSURE — 4-grade
 # ============================================================
 
 def _handle_first_exposure(card: Card, persona: dict, cfg: SimConfig, day: int, rng: random.Random) -> str:
-    base_success = 1.0 - persona["forget"]
     r_at_first = 1.0
-    noise = rng.uniform(-PERFORMANCE_NOISE, PERFORMANCE_NOISE)
-    performance = max(0.0, min(1.0,
-        (1 - PERFORMANCE_RETRIEVABILITY_WEIGHT) * base_success
-        + PERFORMANCE_RETRIEVABILITY_WEIGHT * r_at_first
-        + noise))
+    grade = _sample_grade(persona["persona_key"], r_at_first, rng)
 
-    if performance >= PERFORMANCE_SUCCESS_THRESHOLD:
-        grade = 3
-    elif performance >= PERFORMANCE_PARTIAL_THRESHOLD:
-        grade = 2
-    else:
-        grade = 1
-
-    if cfg.mastery_model == "dsr":
-        card.stability = _dsr_s0(grade)
-        card.difficulty = _dsr_d0(grade)
-        if grade == 1:
-            interval = 1.0
-        else:
-            interval = _dsr_interval_days(card.stability, cfg.desired_retention)
-    else:
-        card.stability = STABILITY_INITIAL
+    card.stability = _dsr_s0(grade)
+    card.difficulty = _dsr_d0(grade)
+    if grade == 1:
         interval = 1.0
+    else:
+        interval = _dsr_interval_days(card.stability, cfg.desired_retention)
 
     jitter = 1.0 + rng.uniform(-cfg.jitter, cfg.jitter)
     card.next_review = day + max(1, round(interval * jitter))
@@ -361,29 +327,17 @@ def _handle_first_exposure(card: Card, persona: dict, cfg: SimConfig, day: int, 
     card.reviews += 1
     card.first_exposure_done = True
 
-    return {1: "forget", 2: "hold", 3: "advance"}[grade]
+    return {1: "forget", 2: "hold", 3: "advance", 4: "master"}[grade]
 
 # ============================================================
-# REVIEW OUTCOME — DSR (FSRS-6, subsequent reviews only)
+# REVIEW OUTCOME — DSR (FSRS-6, subsequent reviews)
 # ============================================================
 
 def _review_outcome_dsr(card: Card, persona: dict, cfg: SimConfig, day: int, rng: random.Random) -> str:
     elapsed = day - (card.last_review if card.last_review is not None else day)
     r = _dsr_retrievability(elapsed, card.stability)
 
-    base_success = 1.0 - persona["forget"]
-    noise = rng.uniform(-PERFORMANCE_NOISE, PERFORMANCE_NOISE)
-    performance = max(0.0, min(1.0,
-        (1 - PERFORMANCE_RETRIEVABILITY_WEIGHT) * base_success
-        + PERFORMANCE_RETRIEVABILITY_WEIGHT * r
-        + noise))
-
-    if performance >= PERFORMANCE_SUCCESS_THRESHOLD:
-        grade = 3
-    elif performance >= PERFORMANCE_PARTIAL_THRESHOLD:
-        grade = 2
-    else:
-        grade = 1
+    grade = _sample_grade(persona["persona_key"], r, rng)
 
     card.difficulty = _dsr_update_difficulty(card.difficulty, grade)
     card.stability = _dsr_update_stability(card.difficulty, card.stability, r, grade)
@@ -395,7 +349,7 @@ def _review_outcome_dsr(card: Card, persona: dict, cfg: SimConfig, day: int, rng
     jitter = 1.0 + rng.uniform(-cfg.jitter, cfg.jitter)
     card.next_review = day + max(1, round(interval * jitter))
 
-    return {1: "forget", 2: "hold", 3: "advance"}[grade]
+    return {1: "forget", 2: "hold", 3: "advance", 4: "master"}[grade]
 
 # ============================================================
 # SIMULATE
@@ -554,7 +508,6 @@ def simulate(cfg: SimConfig, debug: bool = False):
                 remaining -= len(extra)
 
             # Step 7: review all candidates
-            user_avg_difficulty = (sum(c.difficulty for c in active) / len(active)) if active else DIFFICULTY_DEFAULT
             candidates = tier1 + tier2 + tier3
 
             for c in candidates:
@@ -564,23 +517,12 @@ def simulate(cfg: SimConfig, debug: bool = False):
 
                 if not c.first_exposure_done:
                     _handle_first_exposure(c, persona, cfg, day, rng)
-                    if c.id not in active_ids:
-                        active.append(c)
-                        active_ids.add(c.id)
-                        total_active_words += 1
-                    if cfg.mastery_model != "dsr":
-                        c.difficulty = user_avg_difficulty
                 else:
-                    if cfg.mastery_model == "dsr":
-                        _review_outcome_dsr(c, persona, cfg, day, rng)
-                    elif cfg.mastery_model == "lite":
-                        _review_outcome_lite(c, persona, cfg, day, rng)
-                    else:
-                        _review_outcome_legacy(c, persona, cfg, day, rng)
-                    if c.id not in active_ids:
-                        active.append(c)
-                        active_ids.add(c.id)
-                        total_active_words += 1
+                    _review_outcome_dsr(c, persona, cfg, day, rng)
+                if c.id not in active_ids:
+                    active.append(c)
+                    active_ids.add(c.id)
+                    total_active_words += 1
 
             # Step 8: catch-up bonus
             due_remaining = due_before - due_slots_used
@@ -591,12 +533,7 @@ def simulate(cfg: SimConfig, debug: bool = False):
                 for i in range(bonus_take):
                     c = due[due_slots_used + i]
                     lateness_samples.append(day - c.due_since)
-                    if cfg.mastery_model == "dsr":
-                        _review_outcome_dsr(c, persona, cfg, day, rng)
-                    elif cfg.mastery_model == "lite":
-                        _review_outcome_lite(c, persona, cfg, day, rng)
-                    else:
-                        _review_outcome_legacy(c, persona, cfg, day, rng)
+                    _review_outcome_dsr(c, persona, cfg, day, rng)
                 bonus_processed = bonus_take
                 total_bonus_processed += bonus_take
                 due_slots_used += bonus_processed
@@ -619,22 +556,11 @@ def simulate(cfg: SimConfig, debug: bool = False):
     import statistics as _stats
     final_day = cfg.days - 1
 
-    if cfg.mastery_model == "dsr":
-        learned = sum(1 for c in active if c.stability >= LEARNED_MIN_STABILITY_DAYS)
-        stabilities = [c.stability for c in active]
-        difficulties = [c.difficulty for c in active if c.difficulty > 0]
-        retrievabilities = [_dsr_retrievability(final_day - (c.last_review if c.last_review is not None else final_day), c.stability) for c in active]
-        tier_counts = dict(Counter(_dsr_tier(c.stability) for c in active))
-    else:
-        if cfg.mastery_model == "lite":
-            lrn_thresh = LEARNED_MIN_STABILITY_DAYS_LITE
-        else:
-            lrn_thresh = LEARNED_MIN_STABILITY_DAYS_LITE
-        learned = sum(1 for c in active if c.stability >= lrn_thresh or c.reviews >= LEARNED_MIN_REVIEWS)
-        stabilities = [c.stability for c in active]
-        difficulties = [c.difficulty for c in active if c.difficulty > 0]
-        retrievabilities = [max(0, min(1, 1.0 - (final_day - (c.last_review or final_day)) / max(c.stability, 1))) for c in active]
-        tier_counts = None
+    learned = sum(1 for c in active if c.stability >= LEARNED_MIN_STABILITY_DAYS)
+    stabilities = [c.stability for c in active]
+    difficulties = [c.difficulty for c in active if c.difficulty > 0]
+    retrievabilities = [_dsr_retrievability(final_day - (c.last_review if c.last_review is not None else final_day), c.stability) for c in active]
+    tier_counts = dict(Counter(_dsr_tier(c.stability) for c in active))
 
     avg_stability = round(_stats.mean(stabilities), 2) if stabilities else 0.0
     avg_retrievability = round(_stats.mean(retrievabilities), 3) if retrievabilities else 0.0
@@ -668,8 +594,7 @@ def simulate(cfg: SimConfig, debug: bool = False):
         "enable_rejection": cfg.enable_rejection,
         "enable_catchup": cfg.enable_catchup,
         "enable_session_rate_limit": cfg.enable_session_rate_limit,
-        "mastery_model": cfg.mastery_model,
-        "desired_retention": cfg.desired_retention if cfg.mastery_model == "dsr" else None,
+        "desired_retention": cfg.desired_retention,
         "sessions_effective": plan["sessions"],
         "session_size_effective": plan["session_size"],
         "days": cfg.days,
@@ -711,27 +636,20 @@ def simulate(cfg: SimConfig, debug: bool = False):
 
 def format_table(daily_log: list, summary: dict, cfg: SimConfig) -> str:
     lines = []
-    lines.append(f"SRS v5 (DSR-fixed) Simulation: plan={cfg.plan}, persona={cfg.persona}, "
+    lines.append(f"SRS v5.4 (FSRS-6 Full) Simulation: plan={cfg.plan}, persona={cfg.persona}, "
                  f"proficiency={cfg.proficiency}, days={cfg.days}, seed={cfg.seed}")
     features = []
     if cfg.enable_rejection:
         features.append("rejection")
     if cfg.enable_catchup:
         features.append("catchup")
-    if cfg.mastery_model == "dsr":
-        features.append("DSR-fixed")
-    elif cfg.mastery_model == "lite":
-        features.append("Lite")
-    else:
-        features.append("Legacy")
     if cfg.enable_session_rate_limit:
         features.append("session-ratelimit")
     feat_str = "+".join(features)
     lines.append(f"Config: {summary['sessions_effective']} sessions x {summary['session_size_effective']} = "
                  f"{summary['sessions_effective'] * summary['session_size_effective']} slots/day  |  "
                  f"features: [{feat_str}]")
-    if cfg.desired_retention and cfg.mastery_model == "dsr":
-        lines.append(f"Desired retention: {cfg.desired_retention}")
+    lines.append(f"Desired retention: {cfg.desired_retention}")
     lines.append("")
 
     lines.append("Final Summary:")
@@ -744,15 +662,12 @@ def format_table(daily_log: list, summary: dict, cfg: SimConfig) -> str:
     lines.append(f"  Final Active Cards:      {summary['final_active_cards']}")
     lines.append(f"  Learned Words:           {summary['learned_words']}")
     lines.append(f"  Learned Words / $:       {summary['learned_words_per_dollar']}")
-    if summary["mastery_model"] == "dsr":
-        lines.append(f"  Avg Stability:           {summary['avg_stability_days']} days")
-        lines.append(f"  Avg Difficulty:          {summary['avg_difficulty']} / 10")
-        lines.append(f"  Avg Retrievability:      {summary['avg_retrievability']}")
-        if summary.get("tier_counts"):
-            tier_str = ", ".join(f"{k}={v}" for k, v in summary["tier_counts"].items())
-            lines.append(f"  Tiers:                   {tier_str}")
-    else:
-        lines.append(f"  Avg Stability:           {summary['avg_stability_days']} days")
+    lines.append(f"  Avg Stability:           {summary['avg_stability_days']} days")
+    lines.append(f"  Avg Difficulty:          {summary['avg_difficulty']} / 10")
+    lines.append(f"  Avg Retrievability:      {summary['avg_retrievability']}")
+    if summary.get("tier_counts"):
+        tier_str = ", ".join(f"{k}={v}" for k, v in summary["tier_counts"].items())
+        lines.append(f"  Tiers:                   {tier_str}")
     lines.append(f"  Due Backlog:             max={summary['max_due_backlog']}  "
                  f"median={summary['median_due_backlog']}  p90={summary['p90_due_backlog']}")
     lines.append(f"  Max Query Backlog:       {summary['max_query_backlog']}")

@@ -189,6 +189,7 @@
         "v3 Engine migration Phase 2: scaffolded v3 pull-based engine skeleton (srs_engine.py, study_handler.py, golden button)"
       ],
       "in_progress": [
+        "FSRS-6 migration Phase 1a: Core FSRS engine (services/fsrs_core.py) with pure DSR math, validated against reference",
         "v3 Engine migration Phase 3: 3-Tier Priority Queue core implementation"
       ],
       "todo": [

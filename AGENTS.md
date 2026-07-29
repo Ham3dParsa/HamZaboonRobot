@@ -178,6 +178,7 @@ Keep responsibilities aligned with the current module boundaries:
   - `handlers/srs_handler.py`: SRS review handlers.
 - `services/`: Domain services.
   - `services/db/`: SQLite schema, migrations, transactions, persistence, quotas, daily-card state, delivery queue state, and saved-word state.
+  - `services/fsrs_core.py`: Pure FSRS-6 engine (w0-w20 constants, DSR formulas, no side effects).
   - `services/ai/`: OpenAI-compatible client, provider settings, JSON extraction, AI response validation, system prompts, AI content generation, and provider presets.
     - `services/ai/ai.py`: Client construction, validation.
     - `services/ai/llm_services.py`: Cached content generation.

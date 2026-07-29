@@ -700,7 +700,7 @@ menu, but the database save and SRS functions remain internal capabilities.
 
 **Status:** In progress
 **Done:** Durable queues, bounded retries, async-safe provider calls, callback validation, and restart recovery.
-**In progress:** Adaptive SRS correctness and migration contracts.
+**In progress:** FSRS-6 migration Phase 1 (core engine complete, DB schema + 4-button UI + session engine next).
 **To-do:** Resolve issues `42`–`47`, `49`, `50`, and `66` with focused idempotency, migration, reliability, and progress tests.
 
 Make manual generation and scheduled delivery restart-safe and isolated per

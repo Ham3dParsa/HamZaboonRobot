@@ -1,0 +1,50 @@
+======================================================================
+v5.4 FSRS Full - Validation Report
+Simulations: 200 runs x 360 days per persona
+Grade dist tolerance: +/- 2%
+======================================================================
+
+--- Persona: eager ---
+  Again: target=0.02 actual=0.03 diff=0.006 OK
+  Hard: target=0.05 actual=0.05 diff=0.003 OK
+  Good: target=0.60 actual=0.59 diff=0.007 OK
+  Easy: target=0.33 actual=0.33 diff=0.005 OK
+  First-exposure grade distribution: PASS
+  Difficulty degradation: mean_d=6.02 pct_below_2=18.8% PASS
+
+--- Persona: average ---
+  Again: target=0.08 actual=0.08 diff=0.001 OK
+  Hard: target=0.15 actual=0.15 diff=0.001 OK
+  Good: target=0.55 actual=0.55 diff=0.001 OK
+  Easy: target=0.22 actual=0.22 diff=0.001 OK
+  First-exposure grade distribution: PASS
+  Difficulty degradation: mean_d=8.47 pct_below_2=2.2% PASS
+
+--- Persona: lazy ---
+  Again: target=0.15 actual=0.16 diff=0.007 OK
+  Hard: target=0.20 actual=0.20 diff=0.001 OK
+  Good: target=0.50 actual=0.50 diff=0.005 OK
+  Easy: target=0.15 actual=0.15 diff=0.003 OK
+  First-exposure grade distribution: PASS
+  Difficulty degradation: mean_d=9.35 pct_below_2=0.1% PASS
+
+--- Persona: fluctuating ---
+  Again: target=0.10 actual=0.10 diff=0.003 OK
+  Hard: target=0.15 actual=0.15 diff=0.004 OK
+  Good: target=0.55 actual=0.55 diff=0.003 OK
+  Easy: target=0.20 actual=0.20 diff=0.004 OK
+  First-exposure grade distribution: PASS
+  Difficulty degradation: mean_d=8.67 pct_below_2=1.4% PASS
+
+--- Full Simulation (200 runs per persona, 360d) ---
+  eager: avg_learned=2137.9 avg_late=0.2 max_late=5
+  average: avg_learned=1050.0 avg_late=0.8 max_late=11
+  lazy: avg_learned=312.3 avg_late=3.2 max_late=26
+  fluctuating: avg_learned=762.6 avg_late=2.0 max_late=15
+
+--- Learned Words Ratio (lazy / average / eager) ---
+  lazy/average ratio: 0.297
+  average/eager ratio: 0.491
+
+--- Summary ---
+  ALL CHECKS PASSED
