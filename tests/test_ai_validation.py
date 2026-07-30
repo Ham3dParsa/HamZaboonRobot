@@ -71,9 +71,9 @@ class BatchValidationTests(unittest.TestCase):
             ["examples", "example_translations"],
         )
 
-        # Phonetic dict with latin field should be flagged for repair
+        # Phonetic dict with empty ipa should be flagged for repair
         card = valid_card("hello")
-        card["phonetic"] = {"ipa": "/h/", "latin": "h", "persian": "اچ"}
+        card["phonetic"] = {"ipa": ""}
         self.assertEqual(ai.card_repair_fields(card), ["phonetic"])
 
     def test_legacy_phonetic_values_are_marked_for_repair(self):

@@ -12,7 +12,6 @@ from config import (
     DEFAULT_AI_BASE_URL,
     DEFAULT_AI_MODEL,
     DEFAULT_PHONETIC_SHOW_IPA,
-    DEFAULT_PHONETIC_SHOW_PERSIAN,
     FREE_DAILY_CARD_LIMIT,
     SILVER_DAILY_CARD_LIMIT,
     GOLD_DAILY_CARD_LIMIT,
@@ -299,7 +298,6 @@ def init_db():
             "llm_output_cost_usd_per_million": str(LLM_OUTPUT_COST_USD_PER_MILLION),
             "usd_to_toman_rate": str(USD_TO_TOMAN_RATE),
             "phonetic_show_ipa": "true" if DEFAULT_PHONETIC_SHOW_IPA else "false",
-            "phonetic_show_persian": "true" if DEFAULT_PHONETIC_SHOW_PERSIAN else "false",
         }
         for k, v in defaults.items():
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
@@ -440,7 +438,6 @@ def set_bool_setting(key: str, value: bool):
 def get_phonetic_display_settings() -> dict[str, bool]:
     return {
         "ipa": get_bool_setting("phonetic_show_ipa", DEFAULT_PHONETIC_SHOW_IPA),
-        "persian": get_bool_setting("phonetic_show_persian", DEFAULT_PHONETIC_SHOW_PERSIAN),
     }
 
 
@@ -955,7 +952,7 @@ def breakdown_llm_requests(
     filters: dict[str, object] | None = None,
     limit: int = 10,
 ) -> list[dict[str, object]]:
-    if group_by not in {"user_id", "plan", "request_kind", "model", "outcome"}:
+    if group_by not in {"user_id", "plan", "request_kind", "model", "outcome", "preset_name"}:
         raise ValueError(f"Unsupported LLM breakdown: {group_by}")
     where, params = _llm_request_filters_where(filters or {})
     with get_conn() as conn:
@@ -1442,7 +1439,12 @@ def reset_user_blocked(user_id: int):
 # ---------- AI Presets (provider profiles with batch/RPM limits) ----------
 
 def _init_ai_presets_table(conn):
-    """Create ai_presets table and seed built-in presets."""
+    """Create ai_presets table and run migrations.
+
+    Does NOT auto-seed or modify existing presets — all preset management is
+    manual through the AI Preset Manager tool or the admin panel.
+    Only seeds default presets on a completely empty table (fresh database).
+    """
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS ai_presets (
@@ -1503,23 +1505,23 @@ def _init_ai_presets_table(conn):
         );
         """
     )
-    # Ensure all built-in presets exist without overwriting existing customizations
-    from services.ai.ai_presets import seed_presets as get_builtins
-    for p in get_builtins():
-        conn.execute(
-            "INSERT OR IGNORE INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, priority, enabled, is_emergency, input_cost_per_million, output_cost_per_million, group_label, in_fallback_chain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            p,
-        )
-    # Reset old fallback settings that may point to deleted presets
-    first = conn.execute(
-        "SELECT name FROM ai_presets WHERE enabled=1 AND is_emergency=0 ORDER BY priority ASC, name ASC LIMIT 1"
-    ).fetchone()
-    if first:
-        conn.execute(
-            "UPDATE settings SET value=? WHERE key='ai_primary_preset'",
-            (first["name"],),
-        )
-    conn.execute("DELETE FROM settings WHERE key IN ('ai_fallback_preset', 'ai_fallback_active', 'ai_fallback_threshold')")
+    # Seed default presets only on first run (empty table).
+    count = conn.execute("SELECT COUNT(*) as c FROM ai_presets").fetchone()["c"]
+    if count == 0:
+        from services.ai.ai_presets import seed_presets as get_builtins
+        for p in get_builtins():
+            conn.execute(
+                "INSERT INTO ai_presets("
+                "name, base_url, model, api_key, "
+                "daily_batch_size, max_concurrency, max_rpm, "
+                "max_tpm, max_daily_req, timeout_seconds, "
+                "temperature, max_output_tokens, is_custom, "
+                "priority, enabled, is_emergency, "
+                "input_cost_per_million, output_cost_per_million, "
+                "group_label, in_fallback_chain"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                p,
+            )
     conn.commit()
 
 
