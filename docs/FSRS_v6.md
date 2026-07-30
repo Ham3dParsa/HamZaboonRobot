@@ -39,25 +39,18 @@ Default values and their roles:
 ### 2.1 Retrievability (Forgetting Curve)
 
 \[
-R(t, S) = \left(1 + \text{FACTOR} \cdot \frac{t}{9S}\right)^{\text{DECAY}}
+R(t, S) = \left(1 + \text{factor} \cdot \frac{t}{S}\right)^{-w_{20}},
 \]
-
-Where:
-- \(\text{DECAY} = -w_{20}\) (note: in ts-fsrs formula, the exponent shows as DECAY directly, which equals \(-w_{20}\))
-- \(\text{FACTOR} = 0.9^{-1/\text{DECAY}} - 1\)
-
-This is carefully engineered so that when \(t = S\) (elapsed time equals stability), \(R = 0.9\) (90%). The proof: at \(t = S\), \(1 + \text{FACTOR} \cdot \frac{S}{9S} = 1 + \frac{\text{FACTOR}}{9} = 0.9^{-1/\text{DECAY}}\), and raising to DECAY gives exactly 0.9.
-
-**Alternative form** (from the official wiki, more commonly cited):
 
 \[
-R(t,S) = \left(1 + \text{factor} \cdot \frac{t}{S}\right)^{-w_{20}},
-\quad \text{factor} = 0.9^{-\frac{1}{w_{20}}} - 1
+\text{factor} = 0.9^{-\cfrac{1}{w_{20}}} - 1
 \]
 
-These two forms are equivalent. The ts-fsrs uses DECAY = \(-w_{20}\), so the exponent becomes \((-w_{20})\) and the expression becomes \((1 + \text{factor} \cdot t/(9S))^{-w_{20}}\). The wiki uses \((1 + \text{factor} \cdot t/S)^{-w_{20}}\) with a different factor definition.
+Verified against the [official FSRS-6 wiki](https://github.com/open-spaced-repetition/awesome-fsrs/wiki/The-Algorithm#fsrs-6) (2026-07-31).
 
-**Core property:** When \(t = S\), \(R = 0.9\). Stability is defined as the time it takes for retrievability to decay from 100% to 90%.
+**Core property:** When \(t = S\) (elapsed time equals stability), \(R = 0.9\) (90%). Stability is defined as the time it takes for retrievability to decay from 100% to 90%.
+
+**Historical note:** Earlier FSRS versions used a `/9` in the formula (FSRS v4: \(R = (1 + t/(9S))^{-1}\); FSRS-4.5: \(R = (1 + 19/81 · t/S)^{-0.5}\)). The `/9` was absorbed into the trainable \(w_{20}\) parameter starting with FSRS-4.5 and no longer appears in the FSRS-6 formula. The two forms are NOT equivalent — only the formula above (without `/9`) is correct for FSRS-6.
 
 ### 2.2 Initial Stability (First Review, No Prior State)
 
@@ -75,6 +68,8 @@ So:
 
 Clamped: \(S_0 = \max(S_0, 0.1)\).
 
+Verified against the [official FSRS wiki](https://github.com/open-spaced-repetition/awesome-fsrs/wiki/The-Algorithm#fsrs-v4) (2026-07-31).
+
 ### 2.3 Initial Difficulty (First Review)
 
 \[
@@ -84,6 +79,8 @@ D_0(G) = w_4 - e^{w_5 \cdot (G-1)} + 1
 Then clamped: \(D_0 = \min(\max(D_0, 1), 10)\).
 
 Note: \(D_0(3) = w_4 - e^{w_5 \cdot 2} + 1\) for Good (G=3). The formula is designed so that \(D_0(1) = w_4\) (when rating is Again, G=1, the exponential term becomes \(e^{0}=1\), so \(D_0 = w_4 - 1 + 1 = w_4\)).
+
+Formulas 2.2–2.7 are identical across FSRS-5 and FSRS-6 (only the parameter values differ). Verified against the [official wiki's FSRS-5 section](https://github.com/open-spaced-repetition/awesome-fsrs/wiki/The-Algorithm#fsrs-5) (2026-07-31).
 
 ### 2.4 Stability After Successful Recall (Hard/Good/Easy)
 
@@ -142,7 +139,7 @@ The key constraint: **post-lapse stability cannot exceed pre-lapse stability** (
 
 ### 2.6 Short-Term (Same-Day) Stability
 
-For same-day reviews (t < 1 day, usually):
+For same-day reviews (t < 1 day, usually). This is the only formula that changed structurally between FSRS-5 and FSRS-6 (addition of \(S^{-w_{19}}\)). Verified against the [official FSRS-6 wiki](https://github.com/open-spaced-repetition/awesome-fsrs/wiki/The-Algorithm#fsrs-6) (2026-07-31).
 
 \[
 S'_s(S, G) = S \cdot e^{w_{17} \cdot (G - 3 + w_{18})} \cdot S^{-w_{19}}
@@ -190,17 +187,20 @@ Then clamp: \(D' = \min(\max(D', 1), 10)\).
 Given a desired retention \(r\) (default 0.9 = 90%):
 
 \[
-I(r, S) = \frac{S}{\text{FACTOR}} \cdot \left(r^{\frac{1}{\text{DECAY}}} - 1\right)
+I(r, S) = \frac{S}{\text{factor}} \cdot \left(r^{-\cfrac{1}{w_{20}}} - 1\right),
+\quad \text{factor} = 0.9^{-\cfrac{1}{w_{20}}} - 1
 \]
 
-Where DECAY and FACTOR are the same as in the forgetting curve (Section 2.1).
+Verified against the [official FSRS-6 wiki](https://github.com/open-spaced-repetition/awesome-fsrs/wiki/The-Algorithm#formula) (2026-07-31).
+
+**Derivation:** Solve \(r = (1 + \text{factor} \cdot I/S)^{-w_{20}}\) for \(I\). Same `factor` and \(w_{20}\) as the forgetting curve (§2.1).
 
 **Property:** When \(r = 0.9\), \(I = S\) (interval equals stability). For \(r < 0.9\), \(I > S\) (longer intervals); for \(r > 0.9\), \(I < S\) (shorter intervals).
 
-In practice, the `interval_modifier` is precomputed from desired retention:
+In practice, the `interval_modifier` is precomputed:
 
 \[
-\text{interval\_modifier} = \frac{r^{1/\text{DECAY}} - 1}{\text{FACTOR}}
+\text{interval\_modifier} = \frac{r^{-\cfrac{1}{w_{20}}} - 1}{\text{factor}}
 \]
 
 Then:
