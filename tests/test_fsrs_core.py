@@ -1,15 +1,20 @@
 import unittest
 import math
+from types import MappingProxyType
 from services.fsrs_core import (
     compute_retrievability,
     compute_interval,
     initial_stability,
+    initial_stability_first_exposure,
     initial_difficulty,
     update_difficulty,
     update_stability,
     short_term_stability,
     DSR_W,
     DSR_FACTOR,
+    FIRST_EXPOSURE_STABILITY,
+    FSRSConfig,
+    DEFAULT_FSRS_CONFIG,
 )
 
 
@@ -172,6 +177,109 @@ class TestConstants(unittest.TestCase):
     def test_w20_in_range(self):
         self.assertGreaterEqual(DSR_W["w20"], 0.1)
         self.assertLessEqual(DSR_W["w20"], 0.8)
+
+
+class TestFirstExposureStability(unittest.TestCase):
+    def test_again_equals_0_212(self):
+        self.assertAlmostEqual(FIRST_EXPOSURE_STABILITY[1], 0.212)
+
+    def test_hard_equals_1_5(self):
+        self.assertAlmostEqual(FIRST_EXPOSURE_STABILITY[2], 1.5)
+
+    def test_good_equals_3_0(self):
+        self.assertAlmostEqual(FIRST_EXPOSURE_STABILITY[3], 3.0)
+
+    def test_easy_equals_12_0(self):
+        self.assertAlmostEqual(FIRST_EXPOSURE_STABILITY[4], 12.0)
+
+    def test_is_mappingproxy(self):
+        self.assertIsInstance(FIRST_EXPOSURE_STABILITY, MappingProxyType)
+
+    def test_immutable(self):
+        with self.assertRaises(TypeError):
+            FIRST_EXPOSURE_STABILITY[1] = 99.0
+
+
+class TestInitialStabilityFirstExposure(unittest.TestCase):
+    def test_again_returns_correct(self):
+        self.assertAlmostEqual(initial_stability_first_exposure(1), 0.212)
+
+    def test_hard_returns_correct(self):
+        self.assertAlmostEqual(initial_stability_first_exposure(2), 1.5)
+
+    def test_good_returns_correct(self):
+        self.assertAlmostEqual(initial_stability_first_exposure(3), 3.0)
+
+    def test_easy_returns_correct(self):
+        self.assertAlmostEqual(initial_stability_first_exposure(4), 12.0)
+
+    def test_invalid_grade_raises_key_error(self):
+        with self.assertRaises(KeyError):
+            initial_stability_first_exposure(5)
+
+    def test_uses_config_injection(self):
+        custom_stability = {1: 0.5, 2: 2.0, 3: 4.0, 4: 15.0}
+        cfg = FSRSConfig(first_exposure_stability=MappingProxyType(custom_stability))
+        self.assertAlmostEqual(initial_stability_first_exposure(1, config=cfg), 0.5)
+
+
+class TestFSRSConfig(unittest.TestCase):
+    def test_default_config_w_is_mappingproxy(self):
+        self.assertIsInstance(DEFAULT_FSRS_CONFIG.w, MappingProxyType)
+
+    def test_default_config_first_exposure_stability_is_mappingproxy(self):
+        self.assertIsInstance(DEFAULT_FSRS_CONFIG.first_exposure_stability, MappingProxyType)
+
+    def test_frozen_dataclass_prevents_attribute_mutation(self):
+        with self.assertRaises(AttributeError):
+            DEFAULT_FSRS_CONFIG.desired_retention = 0.8
+
+    def test_mappingproxy_prevents_dict_mutation(self):
+        with self.assertRaises(TypeError):
+            DEFAULT_FSRS_CONFIG.w["w3"] = 99.0
+
+    def test_custom_w_via_construction(self):
+        custom_w = {**DSR_W, "w3": 50.0}
+        cfg = FSRSConfig(w=MappingProxyType(custom_w))
+        self.assertAlmostEqual(cfg.w["w3"], 50.0)
+
+    def test_custom_config_affects_interval(self):
+        custom_w = {**DSR_W, "w3": 50.0}
+        cfg = FSRSConfig(w=MappingProxyType(custom_w))
+        s = initial_stability(4, config=cfg)
+        self.assertAlmostEqual(s, 50.0)
+        i = compute_interval(s, 0.9, config=cfg)
+        self.assertAlmostEqual(i, 50.0, delta=1.0)
+
+    def test_maximum_interval_caps_compute_interval(self):
+        cfg = FSRSConfig(maximum_interval=7)
+        i = compute_interval(365.0, 0.9, config=cfg)
+        self.assertLessEqual(i, 7.0)
+
+    def test_maximum_interval_does_not_affect_short_intervals(self):
+        cfg = FSRSConfig(maximum_interval=7)
+        i = compute_interval(5.0, 0.9, config=cfg)
+        self.assertAlmostEqual(i, 5.0, delta=0.5)
+
+    def test_config_name_default(self):
+        self.assertEqual(DEFAULT_FSRS_CONFIG.name, "default")
+
+    def test_config_enable_short_term_default(self):
+        self.assertFalse(DEFAULT_FSRS_CONFIG.enable_short_term)
+
+    def test_config_from_custom_w_alters_retrievability(self):
+        """Change w20 from 0.1542 to 0.3; at R(S=10, t=1) values diverge."""
+        cfg = FSRSConfig(w=MappingProxyType({**DSR_W, "w20": 0.3}))
+        r_default = compute_retrievability(1.0, 10.0)
+        r_custom = compute_retrievability(1.0, 10.0, config=cfg)
+        self.assertNotAlmostEqual(r_default, r_custom, places=4)
+
+
+class TestComputeIntervalWithConfig(unittest.TestCase):
+    def test_verification_identity(self):
+        """Phase 0.7 verification: compute_interval(S=30, r=0.9) == 30.0"""
+        i = compute_interval(30.0, 0.9)
+        self.assertAlmostEqual(i, 30.0, delta=0.5)
 
 
 if __name__ == "__main__":
