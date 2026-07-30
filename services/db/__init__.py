@@ -1503,15 +1503,11 @@ def _init_ai_presets_table(conn):
         );
         """
     )
-    # Replace all presets with current BUILTIN_PRESETS
+    # Ensure all built-in presets exist without overwriting existing customizations
     from services.ai.ai_presets import seed_presets as get_builtins
-    builtin_names = {p[0] for p in get_builtins()}
-    conn.execute("DELETE FROM ai_presets WHERE name NOT IN ({})".format(
-        ",".join("?" for _ in builtin_names)
-    ), list(builtin_names))
     for p in get_builtins():
         conn.execute(
-            "INSERT OR REPLACE INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, priority, enabled, is_emergency, input_cost_per_million, output_cost_per_million, group_label, in_fallback_chain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, priority, enabled, is_emergency, input_cost_per_million, output_cost_per_million, group_label, in_fallback_chain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             p,
         )
     # Reset old fallback settings that may point to deleted presets
