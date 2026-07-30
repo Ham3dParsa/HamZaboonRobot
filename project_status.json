@@ -374,6 +374,14 @@
       "roadmap_ref": "tts-pronunciation",
       "issue_ids": [125],
       "summary": "Edge TTS (free) integrated for vocabulary card pronunciation. Premium-only (Silver/Gold), on-demand button (🔊 تلفظ), filesystem caching, send_voice(). tts.py module with no provider abstraction."
+    },
+    {
+      "id": "decision-remove-persian-phonetic",
+      "status": "locked",
+      "title": "Remove Persian phonetic transcription, keep IPA only",
+      "phase": "phase-1",
+      "roadmap_ref": "phase-1-content-schema-and-validation",
+      "summary": "Persian phonetic transcription (persian sub-field) removed from phonetic data. Only IPA remains. No DB migration — old persian data is silently ignored. phonetic_guidance field removed from LanguageOption dataclass."
     }
   ]
 }
