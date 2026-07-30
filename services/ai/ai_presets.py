@@ -8,7 +8,7 @@ import os
 
 BUILTIN_PRESETS = {
     # ── Google 3.6 Flash (newest, highest priority) ──
-    "google_36_flash_hpof": {
+    "Gemini_36F_HP": {
         "name": "google_36_flash_hpof",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "default_model": "gemini-3.6-flash",
@@ -26,7 +26,7 @@ BUILTIN_PRESETS = {
         "enabled": 1,
         "is_emergency": 0,
     },
-    "google_36_flash_eliapi": {
+    "Gemini_36F_eli": {
         "name": "google_36_flash_eliapi",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "default_model": "gemini-3.6-flash",
@@ -45,7 +45,7 @@ BUILTIN_PRESETS = {
         "is_emergency": 0,
     },
     # ── Google 3.5 Flash (default primary) ──
-    "google_35_flash_hpof": {
+    "Gemini_35F_HP": {
         "name": "google_35_flash_hpof",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "default_model": "gemini-3.5-flash",
@@ -63,7 +63,7 @@ BUILTIN_PRESETS = {
         "enabled": 1,
         "is_emergency": 0,
     },
-    "google_35_flash_eliapi": {
+    "Gemini_35F_ELI": {
         "name": "google_35_flash_eliapi",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "default_model": "gemini-3.5-flash",
@@ -82,7 +82,7 @@ BUILTIN_PRESETS = {
         "is_emergency": 0,
     },
     # ── Google 3.5 Flash Lite (newer lite) ──
-    "google_35_flash_lite_hpof": {
+    "Gemini_35F_lite_HP": {
         "name": "google_35_flash_lite_hpof",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "default_model": "gemini-3.5-flash-lite",
@@ -100,7 +100,7 @@ BUILTIN_PRESETS = {
         "enabled": 1,
         "is_emergency": 0,
     },
-    "google_35_flash_lite_eliapi": {
+    "Gemini_35F_lite_ELI": {
         "name": "google_35_flash_lite_eliapi",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "default_model": "gemini-3.5-flash-lite",
@@ -251,10 +251,28 @@ BUILTIN_PRESETS = {
 }
 
 
-# Apply default cost fields to all presets (None → use global fallback).
+# Apply default cost fields to all presets.
+# Uses real model-specific pricing so the cost dashboard reflects per-model costs.
+# These values are overridden by whatever the admin sets in the DB (pricing is
+# preserved across init_db() — see _init_ai_presets_table in db/__init__.py).
+_MODEL_PRICING: dict[str, tuple[float, float]] = {
+    "gemini-3.6-flash": (1.5, 7.5),
+    "gemini-3.5-flash": (1.5, 9.0),
+    "gemini-3.5-flash-lite": (0.3, 2.5),
+    "gemini-flash-lite-latest": (0.25, 1.5),
+    "gemini-3.1-flash-lite": (0.25, 1.5),
+    "gemma-4-31b-it": (0.15, 0.6),
+    "gemma-4-26b-a4b-it": (0.15, 0.6),
+}
 for _p in BUILTIN_PRESETS.values():
-    _p.setdefault("input_cost_per_million", None)
-    _p.setdefault("output_cost_per_million", None)
+    _model_key = _p.get("default_model", "")
+    if _model_key in _MODEL_PRICING:
+        _inp, _out = _MODEL_PRICING[_model_key]
+        _p["input_cost_per_million"] = _inp
+        _p["output_cost_per_million"] = _out
+    else:
+        _p.setdefault("input_cost_per_million", None)
+        _p.setdefault("output_cost_per_million", None)
 
 
 def resolve_api_key(preset_or_raw: dict | str) -> str:
