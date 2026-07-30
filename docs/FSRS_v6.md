@@ -92,8 +92,8 @@ S'_r(D, S, R, G) = S \cdot \bigl(1 + e^{w_8} \cdot (11-D) \cdot S^{-w_9} \cdot (
 \]
 
 Where:
-- \([G=2]\) is 1 if Hard, else 1 (w₁₅ acts as penalty < 1 when Hard)
-- \([G=4]\) is 1 if Easy, else 1 (w₁₆ acts as bonus > 1 when Easy)
+- \(\text{hard\_penalty} = w_{15}\) if G=2, else 1.0
+- \(\text{easy\_bonus} = w_{16}\) if G=4, else 1.0
 
 **Alternatively expressed:**
 
