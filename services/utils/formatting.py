@@ -1,8 +1,6 @@
 import json
 import re
 
-from services import db
-
 SRS_HIDDEN_INSTRUCTION = (
     "⏰ مرور فاصله‌دار: معنی و مثال‌ها را از حفظ یادآوری کن — "
     "هر بار که از حافظه استفاده می‌کنی، واژه در ذهنت عمیق‌تر می‌شود. "
@@ -105,39 +103,17 @@ def format_srs_prompt(data: dict, *, phonetic_lines: list[str] | None = None) ->
 
 
 def _phonetic_lines(value: str | dict) -> list[str]:
-    settings = db.get_phonetic_display_settings()
-
     if isinstance(value, dict):
-        sections = value
+        ipa = value.get("ipa", "")
+    elif isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+            ipa = parsed.get("ipa", "") if isinstance(parsed, dict) else ""
+        except (json.JSONDecodeError, TypeError):
+            ipa = value.strip()
     else:
-        raw = (value or "").strip()
-        if not raw:
-            return []
+        return []
 
-        if raw.startswith("{") and raw.endswith("}"):
-            try:
-                sections = json.loads(raw.replace("'", '"'))
-            except (json.JSONDecodeError, Exception):
-                lines = raw.splitlines()
-                if len(lines) >= 3:
-                    sections = {"ipa": lines[0].strip(), "persian": lines[2].strip()}
-                elif len(lines) == 2:
-                    sections = {"ipa": lines[0].strip(), "persian": lines[1].strip()}
-                else:
-                    sections = {"ipa": raw, "persian": ""}
-        else:
-            lines = raw.splitlines()
-            if len(lines) >= 3:
-                sections = {"ipa": lines[0].strip(), "persian": lines[2].strip()}
-            elif len(lines) == 2:
-                sections = {"ipa": lines[0].strip(), "persian": lines[1].strip()}
-            else:
-                sections = {"ipa": raw, "persian": ""}
-
-    rendered = []
-    for key in ('ipa', 'persian'):
-        val = sections.get(key)
-        if settings.get(key) and val:
-            rendered.append(f"`{escape_mdv2_code(str(val))}`")
-
-    return rendered
+    if ipa:
+        return [f"`{escape_mdv2_code(str(ipa))}`"]
+    return []

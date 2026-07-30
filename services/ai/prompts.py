@@ -13,7 +13,6 @@ from config.catalog import (
     goal_label,
     language_guidance,
     language_label,
-    phonetic_guidance,
     level_label,
     level_prompt_guidance,
 )
@@ -32,13 +31,9 @@ def _level_guidance(level: str) -> str:
     return level_prompt_guidance(level)
 
 
-def _phonetic_guidance(lang: str) -> str:
-    return phonetic_guidance(lang)
-
-
 def _card_schema(lang_fa: str, example_lang: str, *, compact: bool) -> str:
     if compact:
-        return f"""{{"w":"واژه در زبان {lang_fa}","ph":"IPA|Persian","m":"معنی فارسی",
+        return f"""{{"w":"واژه در زبان {lang_fa}","ph":"/ˈhɛ.loʊ/","m":"معنی فارسی",
 "x":"توضیح فارسی","s":["مترادف"],"a":["متضاد"],
         "e":["جمله اول به زبان {example_lang}.","جمله دوم به زبان {example_lang}."],
 "t":["ترجمه فارسی جمله اول.","ترجمه فارسی جمله دوم."],"g":"نکته گرامری"}}
@@ -47,7 +42,7 @@ def _card_schema(lang_fa: str, example_lang: str, *, compact: bool) -> str:
 وجود داشت، 1-3 مورد متفاوت بده وگرنه [] بگذار."""
     return f"""{{
   "word": "واژه در زبان {lang_fa}",
-  "phonetic": "دو خط با برچسب‌های IPA و Persian؛ هر خط فقط همان رسم‌الخط را داشته باشد",
+  "phonetic": "IPA: /ˈeks.ɑːm.pəl/",
   "fa_meaning": "معادل کوتاه فارسی",
   "fa_explanation": "توضیح ۱-۲ جمله‌ای به فارسی",
   "synonyms": ["مترادف ۱", "مترادف ۲"],
@@ -83,8 +78,7 @@ def card_repair_system_prompt(
 فیلدهای سالم کارت را تغییر نده.
 اگر examples یا example_translations در فهرست درخواست هستند، دقیقاً دو مثال
 و دو ترجمه‌ی متناظر برگردان.
-اگر phonetic در فهرست درخواست است، آن را فقط به صورت یک رشته‌ی چندخطی با
-دو خط و برچسب‌های IPA و Persian برگردان.
+اگر phonetic در فهرست درخواست است، آن را فقط به صورت یک خط با برچسب IPA برگردان، مثلاً: `IPA: /ˈeks.ɑːm.pəl/`.
 اگر synonyms یا antonyms در فهرست درخواست هستند، فهرست را خالی بگذار یا
 حداقل دو مورد متفاوت و غیرخالی بده.
 محتوای مثال‌ها به زبان هدف و ترجمه‌ها به فارسی باشد.
@@ -121,7 +115,6 @@ def daily_card_system_prompt(
 {goal_hint(goal)}
 {_level_guidance(level)}
 {_language_guidance(lang)}
-{_phonetic_guidance(lang)}
 
 هر بار یک واژهٔ مفید، کاربردی و نسبتاً رایج (نه خیلی ساده، نه خیلی نادر) انتخاب کن.
 {avoid_hint}
@@ -156,7 +149,6 @@ def daily_batch_system_prompt(
 هدف کاربر: {goal_fa}. سطح کاربر: {level_name}.
 {_level_guidance(level)}
 {_language_guidance(lang)}
-{_phonetic_guidance(lang)}
 
 دقیقاً {card_count} کارت واژه‌ای مستقل و غیرتکراری بساز.
 {avoid_hint}
@@ -185,7 +177,6 @@ def custom_word_system_prompt(
 اگر فارسی بود، معادل مناسب آن را در زبان {lang_fa} پیدا کن.
 {_level_guidance(level)}
 {_language_guidance(lang)}
-{_phonetic_guidance(lang)}
 
 خروجی را **دقیقاً** با این ساختار JSON بده و هیچ چیز دیگری ننویس:
 
@@ -218,7 +209,6 @@ def grammar_tip_system_prompt(
 یک نکته‌ی گرامری کوتاه، کاربردی و نسبتاً تازه (نه خیلی پایه، نه خیلی پیچیده) انتخاب کن.
 {_level_guidance(level)}
 {_language_guidance(lang)}
-{_phonetic_guidance(lang)}
 {avoid_hint}
 
 خروجی را **دقیقاً** با این ساختار JSON بده و هیچ چیز دیگری ننویس:

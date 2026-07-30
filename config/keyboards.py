@@ -102,7 +102,6 @@ IBTN_PRICE_BACK = "بازگشت"
 
 # --- Admin – Phonetic Settings ---
 IBTN_IPA = "IPA"
-IBTN_PERSIAN = "Persian"
 
 # --- Admin – AI Settings ---
 IBTN_AI_PRESETS = "🤖 پیش‌تنظیم‌های AI"
@@ -599,10 +598,6 @@ def phonetic_settings_keyboard(current: dict[str, bool]) -> InlineKeyboardMarkup
                 InlineKeyboardButton(
                     f"{'✅ ' if current.get('ipa') else ''}{IBTN_IPA}",
                     callback_data="admin:phonetics:ipa",
-                ),
-                InlineKeyboardButton(
-                    f"{'✅ ' if current.get('persian') else ''}{IBTN_PERSIAN}",
-                    callback_data="admin:phonetics:persian",
                 ),
             ],
             [InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:back")],

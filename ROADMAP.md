@@ -896,8 +896,7 @@ a separate lesson system.
 - Premium or user-configurable brief/detailed card presentation after the
   deterministic rendering contract is implemented and tested.
 - Phonetic presentation controls with legacy-card repatching, so learners can
-  switch between IPA, Latin, and Persian-script views without losing stored
-  content.
+  view IPA phonetics without losing stored content.
 - A dedicated owner flow for adding, disabling, or removing supported
   languages, with the canonical catalog remaining the source of truth.
 - Premium smart placement testing for Silver and Gold.

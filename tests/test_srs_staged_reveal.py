@@ -31,7 +31,7 @@ class SrsPromptRenderingTests(unittest.TestCase):
     def _card(self):
         return {
             "word": "hello",
-            "phonetic": "hɛ.loʊ",
+            "phonetic": {"ipa": "hɛ.loʊ"},
             "fa_meaning": "سلام",
             "fa_explanation": "برای سلام کردن استفاده می‌شود.",
             "synonyms": ["hi"],

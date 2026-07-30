@@ -9,7 +9,6 @@ class LanguageOption:
     name_fa: str
     example_name: str
     guidance: str = ""
-    phonetic_guidance: str = ""
 
 
 @dataclass(frozen=True)
@@ -33,28 +32,24 @@ LANGUAGES = {
         "انگلیسی",
         "انگلیسی",
         "برای انگلیسی، صرف فعل و کاربرد واج‌ها را متناسب با سطح کاربر رعایت کن.",
-        "آوانگاری را با IPA و یک بازنویسی فارسی ارائه کن.",
     ),
     "es": LanguageOption(
         "es",
         "اسپانیایی",
         "اسپانیایی",
         "برای اسپانیایی، جنسیت اسم‌ها، صرف فعل و کاربرد درست حروف تعریف را متناسب با سطح کاربر رعایت کن.",
-        "آوانگاری را با IPA و یک بازنویسی فارسی ارائه کن.",
     ),
     "ar": LanguageOption(
         "ar",
         "عربی",
         "عربی",
         "برای عربی، اعراب‌گذاری و ساختارهای صرفی را در حد نیاز و متناسب با سطح کاربر رعایت کن.",
-        "آوانگاری را با IPA و یک بازنویسی فارسی ارائه کن.",
     ),
     "fr": LanguageOption(
         "fr",
         "فرانسوی",
         "فرانسوی",
         "برای فرانسوی، جنسیت اسم‌ها، صرف فعل و حروف تعریف را متناسب با سطح کاربر رعایت کن.",
-        "آوانگاری را با IPA و یک بازنویسی فارسی ارائه کن.",
     ),
     "de": LanguageOption(
         "de",
@@ -63,21 +58,18 @@ LANGUAGES = {
         "برای آلمانی، جنسیت اسم‌ها (der/die/das)، حالت‌های دستوری "
         "(Nominativ/Akkusativ/Dativ/Genitiv)، صرف فعل، حروف بزرگ و جایگاه فعل "
         "را دقیق و متناسب با سطح کاربر رعایت کن.",
-        "آوانگاری را با IPA و یک بازنویسی فارسی ارائه کن.",
     ),
     "tr": LanguageOption(
         "tr",
         "ترکی استانبولی",
         "ترکی استانبولی",
         "برای ترکی استانبولی، هماهنگی واکه‌ها، پسوندها و تلفظ شفاف واژه را متناسب با سطح کاربر رعایت کن.",
-        "آوانگاری را با IPA و یک بازنویسی فارسی ارائه کن.",
     ),
     "he": LanguageOption(
         "he",
         "عبری",
         "عبری",
-        "برای عبری، راست‌به‌چپ بودن متن، ساخت ریشه‌ای و آواهای متناسب با سطح کاربر را رعایت کن.",
-        "آوانگاری را با IPA و یک بازنویسی فارسی ارائه کن.",
+        "برای عبری، ساخت ریشه‌ای و آواهای متناسب با سطح کاربر را رعایت کن.",
     ),
 }
 
@@ -138,11 +130,6 @@ def language_guidance(code: str) -> str:
     return option.guidance if option else ""
 
 
-def phonetic_guidance(code: str) -> str:
-    option = LANGUAGES.get(code)
-    return option.phonetic_guidance if option else ""
-
-
 def goal_label(code: str) -> str:
     option = GOALS.get(code)
     return option.name_fa if option else "عمومی"
@@ -170,12 +157,7 @@ def level_prompt_guidance(code: str) -> str:
 
 def validate_catalog() -> None:
     for code, option in LANGUAGES.items():
-        if (
-            code != option.code
-            or not option.name_fa
-            or not option.example_name
-            or not option.phonetic_guidance
-        ):
+        if code != option.code or not option.name_fa or not option.example_name:
             raise ValueError(f"invalid language catalog entry: {code}")
     for code, option in GOALS.items():
         if code != option.code or not option.name_fa or not option.prompt_hint:
