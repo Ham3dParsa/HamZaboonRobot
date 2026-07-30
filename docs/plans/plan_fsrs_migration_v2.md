@@ -333,6 +333,7 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 | 0.4 | `services/fsrs_core.py` | All 7 existing functions accept optional `config: FSRSConfig = DEFAULT_FSRS_CONFIG` | Existing 31 tests pass with no code change; new test verifies config injection produces expected variation |
 | 0.5 | `services/utils/formatting.py` | Update `SRS_HIDDEN_INSTRUCTION` text to reference 4-grade buttons | Persian text reads naturally; no MarkdownV2 escaping errors |
 | 0.6 | `services/scheduling.py` | **CREATE** with `PLAN_SESSION_CONFIG`, `daily_session_budget()`, `consume_session_slot()`, `release_session_slot()` | `daily_session_budget(test_user, "silver")` returns correct slot counts for today |
+| 0.7 | `docs/FSRS_v6.md` | **VERIFY** — cross-check `compute_retrievability()` and `compute_interval()` against corrected §2.1 and §2.8 formulas (commit 304b2a8). Both functions confirmed matching: no `/9` in code, correct `factor = 0.9^(-1/w20) - 1`, correct `I = S · (r^(-1/w20) - 1) / factor`. | Running `compute_retrievability(S=30, t=30)` returns ≈0.9; `compute_interval(S=30, r=0.9)` returns ≈30 |
 
 **Phase 0 commit:** `[` ☐ `]`
 
