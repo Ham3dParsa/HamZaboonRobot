@@ -11,6 +11,7 @@ from services.ai import ai
 from handlers import admin
 import bot
 from services import db
+from services.db import schema as db_schema
 from services.utils import formatting
 from services.utils import helpers
 from services.ai import llm_services
@@ -21,11 +22,15 @@ class ReliabilityPersistenceTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.previous_db_path = db.DB_PATH
-        db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        self.previous_db_schema_path = db_schema.DB_PATH
+        new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db.DB_PATH = new_path
+        db_schema.DB_PATH = new_path
         db.init_db()
 
     def tearDown(self):
         db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
         self.tempdir.cleanup()
 
     def test_word_query_reservation_is_atomic_and_bounded(self):
@@ -211,8 +216,10 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         row = db.get_saved_word(1, user_id=1)
         self.assertIn("سلام", row["card_data"])
 
-        with patch.object(db, "_today", return_value=dt.date.fromisoformat(row["next_review"])):
+        with patch("services.db.words._today", return_value=dt.date.fromisoformat(row["next_review"])):
             due = db.due_words_for_user(1)
+            self.assertEqual(len(due), 1)
+    # with a word that has already passed its review date.
             self.assertEqual(len(due), 1)
             word_id = due[0]["id"]
             with db.get_conn() as conn:
@@ -744,11 +751,15 @@ class BeginImmediateConcurrencyTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.previous_db_path = db.DB_PATH
-        db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        self.previous_db_schema_path = db_schema.DB_PATH
+        new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db.DB_PATH = new_path
+        db_schema.DB_PATH = new_path
         db.init_db()
 
     def tearDown(self):
         db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
         self.tempdir.cleanup()
 
     def test_concurrent_increment_consecutive_failures_is_serialized(self):

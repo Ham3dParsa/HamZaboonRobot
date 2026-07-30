@@ -4,6 +4,7 @@ import tempfile
 import unittest
 
 from services import db as db_module
+from services.db import schema as db_schema
 
 
 class AiPresetsMigrationsTests(unittest.TestCase):
@@ -12,10 +13,14 @@ class AiPresetsMigrationsTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.old_db_path = db_module.DB_PATH
-        db_module.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        self.old_schema_db_path = db_schema.DB_PATH
+        new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db_module.DB_PATH = new_path
+        db_schema.DB_PATH = new_path
 
     def tearDown(self):
         db_module.DB_PATH = self.old_db_path
+        db_schema.DB_PATH = self.old_schema_db_path
         self.tempdir.cleanup()
 
     def _get_columns(self, table_name):

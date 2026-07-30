@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import bot
 from services import db
+from services.db import schema as db_schema
 from services.utils.formatting import escape_mdv2_code, format_card
 from services.utils.helpers import _is_cancel_input
 from bot import (
@@ -31,11 +32,14 @@ class CustomWordQueryTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.previous_db_path = db.DB_PATH
+        self.previous_db_schema_path = db_schema.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        db_schema.DB_PATH = db.DB_PATH
         db.init_db()
 
     def tearDown(self):
         db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
         self.tempdir.cleanup()
 
     def test_query_result_lifecycle_is_persistent_and_idempotent(self):
@@ -288,7 +292,9 @@ class AskWordKeyboardRestoreTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.previous_db_path = db.DB_PATH
+        self.previous_db_schema_path = db_schema.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        db_schema.DB_PATH = db.DB_PATH
         db.init_db()
         db.create_user_if_needed(1, "learner")
         db.set_user_lang_goal(1, "en", "general")
@@ -296,6 +302,7 @@ class AskWordKeyboardRestoreTests(unittest.TestCase):
 
     def tearDown(self):
         db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
         self.tempdir.cleanup()
 
     def _make_update(self):
