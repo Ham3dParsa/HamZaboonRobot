@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from services import db
+from services.db import schema as db_schema
 from telegram.error import Forbidden
 
 
@@ -11,11 +12,15 @@ class BlockedUserSrsFlowTest(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.previous_db_path = db.DB_PATH
-        db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        self.previous_db_schema_path = db_schema.DB_PATH
+        new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db.DB_PATH = new_path
+        db_schema.DB_PATH = new_path
         db.init_db()
 
     def tearDown(self):
         db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
         self.tempdir.cleanup()
 
     def test_send_with_retry_sets_blocked_flag_on_forbidden(self):

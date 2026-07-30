@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from services import db
+from services.db import schema as db_schema
 from telegram.error import Forbidden
 
 
@@ -11,11 +12,14 @@ class DbBlockedUserTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.previous_db_path = db.DB_PATH
+        self.previous_db_schema_path = db_schema.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        db_schema.DB_PATH = db.DB_PATH
         db.init_db()
 
     def tearDown(self):
         db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
         self.tempdir.cleanup()
 
     def test_set_user_blocked_updates_flag(self):
@@ -74,11 +78,14 @@ class BotBlockedFlagOnForbiddenTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.previous_db_path = db.DB_PATH
+        self.previous_db_schema_path = db_schema.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        db_schema.DB_PATH = db.DB_PATH
         db.init_db()
 
     def tearDown(self):
         db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
         self.tempdir.cleanup()
 
     def test_send_with_retry_sets_blocked_and_raises_forbidden(self):

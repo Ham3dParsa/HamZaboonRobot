@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from services import db
+from services.db import schema as db_schema
 from handlers import srs_handler
 from services.utils.formatting import format_card, format_srs_prompt
 from config.keyboards import srs_hidden_keyboard, srs_revealed_keyboard
@@ -59,11 +60,15 @@ class ReviewEventPersistenceTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.previous_db_path = db.DB_PATH
-        db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        self.previous_schema_db_path = db_schema.DB_PATH
+        new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db.DB_PATH = new_path
+        db_schema.DB_PATH = new_path
         db.init_db()
 
     def tearDown(self):
         db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_schema_db_path
         self.tempdir.cleanup()
 
     def _events(self):
@@ -112,7 +117,10 @@ class SrsHandlerFlowTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.previous_db_path = db.DB_PATH
-        db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        self.previous_schema_db_path = db_schema.DB_PATH
+        new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db.DB_PATH = new_path
+        db_schema.DB_PATH = new_path
         db.init_db()
         db.create_user_if_needed(1, "learner")
         db.set_user_lang_goal(1, "en", "general")
@@ -142,6 +150,7 @@ class SrsHandlerFlowTests(unittest.TestCase):
 
     def tearDown(self):
         db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_schema_db_path
         self.tempdir.cleanup()
 
     def _query(self):
