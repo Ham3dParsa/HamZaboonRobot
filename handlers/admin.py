@@ -134,7 +134,6 @@ def _phonetic_settings_text() -> str:
     return (
         "تنظیم نمایش تلفظ‌ها:\n"
         f"IPA: {'روشن' if settings['ipa'] else 'خاموش'}\n"
-        f"Persian: {'روشن' if settings['persian'] else 'خاموش'}\n"
         f"🔊 تلفظ صوتی: {tts_labels.get(tts_access, tts_access)}"
     )
 
@@ -247,7 +246,6 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         _, setting = action.split(":", 1)
         key_map = {
             "ipa": "phonetic_show_ipa",
-            "persian": "phonetic_show_persian",
         }
         setting_key = key_map.get(setting)
         if not setting_key:
@@ -281,8 +279,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             f"📋 مدل: `{preset.get('model', '—')}`\n"
             f"🌐 Base URL: `{preset.get('base_url', '—')}`\n"
             f"🔑 API Key: `{masked}`\n"
-            f"🗣 IPA: {'روشن' if db.get_bool_setting('phonetic_show_ipa', True) else 'خاموش'}\n"
-            f"🗣 Persian: {'روشن' if db.get_bool_setting('phonetic_show_persian', True) else 'خاموش'}",
+            f"🗣 IPA: {'روشن' if db.get_bool_setting('phonetic_show_ipa', True) else 'خاموش'}",
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data="admin:back")]]),
         )
@@ -658,6 +655,7 @@ def _llm_cost_report_text(state: dict[str, object]) -> str:
 
     breakdown_specs = [
         ("📦 By plan", "plan"),
+        ("🔧 By preset", "preset_name"),
         ("🧩 By request kind", "request_kind"),
         ("🤖 By model", "model"),
     ]

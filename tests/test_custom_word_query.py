@@ -206,17 +206,16 @@ class CustomWordQueryTests(unittest.TestCase):
         )
         self.assertIn("`hɛ.loʊ`", card)
 
-    def test_phonetic_rendering_can_toggle_representations(self):
+    def test_phonetic_rendering(self):
         card = {
             "word": "kompliziert",
             "fa_meaning": "پیچیده",
             "fa_explanation": "به چیزی گفته می‌شود که درک کردن یا انجام دادن آن آسان نیست.",
         }
-        phon_lines = ["`IPA: /kɔm.pliˈtsiːʁt/`", "`Persian: کُم-پلی-تسی-رت`"]
+        phon_lines = ["`IPA: /kɔm.pliˈtsiːʁt/`"]
         rendered = format_card(card, phonetic_lines=phon_lines)
         self.assertIn("`IPA: /kɔm.pliˈtsiːʁt/`", rendered)
         self.assertNotIn("Latin:", rendered)
-        self.assertIn("`Persian: کُم-پلی-تسی-رت`", rendered)
 
     def test_brief_and_detailed_render_the_same_card_at_different_detail_levels(self):
         card = {

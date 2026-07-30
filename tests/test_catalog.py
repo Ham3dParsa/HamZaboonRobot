@@ -32,7 +32,6 @@ class CatalogTests(unittest.TestCase):
         self.assertIn(LEVELS[DEFAULT_LEVEL].cefr, prompt)
         self.assertIn("Nominativ", prompt)
         self.assertIn("IPA", prompt)
-        self.assertIn("Persian", prompt)
 
     def test_new_languages_are_available_through_the_catalog(self):
         self.assertEqual(LANGUAGES["tr"].name_fa, "ترکی استانبولی")
