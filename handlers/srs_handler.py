@@ -21,6 +21,7 @@ from services.utils.helpers import _answer_callback_safely, _edit_with_retry, _m
 from config.keyboards import srs_revealed_keyboard, srs_review_keyboard
 from services.ai.llm_services import _prepare_cached_card
 from services.session import resolve_grade
+from handlers.study_handler import advance_session
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,7 @@ async def _handle_srs_review(
         resolved,
         response_time_ms,
     )
+    await advance_session(update, context)
 
 
 async def _handle_first_exposure_grade(
@@ -177,6 +179,7 @@ async def _handle_first_exposure_grade(
     db.touch_streak(user_id)
     await update.callback_query.answer("ثبت شد.", show_alert=True)
     _log_ua(update, action="first_exposure", outcome=f"grade_{grade}")
+    await advance_session(update, context)
 
 
 async def _handle_srs_reveal(update: Update, context: ContextTypes.DEFAULT_TYPE, target_user_id_text: str, word_id_text: str):

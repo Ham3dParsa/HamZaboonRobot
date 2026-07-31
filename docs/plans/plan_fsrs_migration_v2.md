@@ -578,6 +578,15 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 | 23 | Data migration | Save word records; reset SRS fields; drop `interval_idx`; no rollback column | 2026-07-31 | Owner + Consultant |
 | 24 | Review events schema | Store raw_signal (JSON), not just final grade | 2026-07-31 | Consultant |
 | 25 | Cutover strategy | Atomic — bot is off; all changes land together; no transitional dual-write | 2026-07-31 | Owner + Consultant |
+| 26 | Tier 3 in this migration | Stub only (`generate_tier3_node()` returns None); session ends gracefully at Tiers 1+2 exhaustion | 2026-07-31 | Consultant |
+| 27 | Auto-advance lives in | `study_handler.advance_session()`, called from grade handlers after grading | 2026-07-31 | Consultant |
+| 28 | Auto-advance UX | Direct chain — grade press → next card via `edit_message_text`; no separate "next" button | 2026-07-31 | Consultant |
+| 29 | Session quota storage | `settings` table, key `sessions_used_{user_id}_{date}`, integer count (not boolean) | 2026-07-31 | Consultant |
+| 30 | Session = one invocation | Quota consumed once at top of `handle_study_start`, before `build_session_list()` | 2026-07-31 | Consultant |
+| 31 | SessionState fields | `nodes`, `total_cards`, `tier3_context`, `study_msg_id`, `plan` — no `index` field | 2026-07-31 | Consultant |
+| 32 | advance_session failure boundary | Wrap render+advance in try/except; on failure show Persian error message | 2026-07-31 | Consultant |
+| 33 | Empty session slot release | If Tiers 1+2 empty after build, call `release_session_slot()` before "no cards" message | 2026-07-31 | Consultant |
+| 34 | Double-tap guard | Accepted risk at 10 test users; revisit if real users report skipped cards | 2026-07-31 | Consultant |
 
 ---
 
