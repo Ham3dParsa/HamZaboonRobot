@@ -1,12 +1,13 @@
 import os
 import tempfile
+import time
 import unittest
 from unittest.mock import patch, MagicMock
 
 from services import db
 from services.db import schema as db_schema
 from services.ai import ai
-from services.ai.llm_services import _call_ai_limited, AllPresetsExhausted
+from services.ai.llm_services import _call_ai_limited, AllPresetsExhausted, AIRequestTimedOut
 
 
 def _seed_test_presets(presets_data: list[dict]):
@@ -128,6 +129,60 @@ class FallbackChainTests(unittest.TestCase):
             mock_chain.return_value = [{"name": "preset_b", "priority": 0, "in_fallback_chain": 0}]
             result = _call_ai_limited(mock_func, request_kind="grammar_tip")
             self.assertEqual(result, {"preset": "preset_b"})
+
+    @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
+    def test_past_deadline_aborts_before_calling_any_preset(self, _mock_rate):
+        """An already-expired deadline must abort before any preset runs."""
+        _seed_test_presets([
+            {"name": "preset_a", "priority": 0},
+            {"name": "preset_b", "priority": 1},
+        ])
+
+        call_order = []
+
+        def mock_func(*args, **kwargs):
+            call_order.append(kwargs["preset"]["name"])
+            return {"result": "success"}
+
+        with self.assertRaises(AIRequestTimedOut):
+            _call_ai_limited(
+                mock_func,
+                request_kind="custom_word",
+                deadline=time.monotonic() - 1,
+            )
+
+        self.assertEqual(call_order, [], "no preset should be called after deadline")
+
+    @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
+    def test_rpm_wait_loop_honors_deadline(self, _mock_rate):
+        """A saturated RPM queue must not spin forever; deadline aborts it."""
+        _seed_test_presets([
+            {"name": "preset_a", "priority": 0},
+        ])
+
+        from services.ai import llm_services
+
+        limiter = llm_services._get_limiter_for_preset({"name": "preset_a"})
+        limiter["request_times"].clear()
+        now = time.monotonic()
+        for _ in range(30):  # max_rpm default is 30 -> queue stays full
+            limiter["request_times"].append(now)
+
+        def mock_func(*args, **kwargs):
+            return {"result": "success"}
+
+        try:
+            start = time.monotonic()
+            with self.assertRaises(AIRequestTimedOut):
+                _call_ai_limited(
+                    mock_func,
+                    request_kind="custom_word",
+                    deadline=now + 1.0,
+                )
+            elapsed = time.monotonic() - start
+            self.assertLess(elapsed, 30, "deadline should abort the RPM wait loop quickly")
+        finally:
+            limiter["request_times"].clear()
 
 
 if __name__ == "__main__":

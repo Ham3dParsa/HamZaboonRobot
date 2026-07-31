@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -23,6 +24,7 @@ from config.catalog import (
 from config import (
     APP_TIMEZONE,
     AI_CARD_OUTPUT_FORMAT,
+    ASK_WORD_AI_TIMEOUT_SECONDS,
     DEFAULT_PRESENTATION,
     OWNER_BYPASS_LIMITS,
     PLANS,
@@ -85,6 +87,8 @@ from services.ai.llm_services import _call_ai_limited, _prepare_cached_card
 from handlers.srs_handler import _saved_word_card
 
 logger = logging.getLogger(__name__)
+
+_AI_BUSY_MESSAGE = "هوش مصنوعی الان شلوغه؛ کمی بعد دوباره تلاش کن."
 
 
 def _log_user_activity(update: Update, *, action: str, outcome: str):
@@ -366,6 +370,7 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     usage_text = _grammar_tip_usage_text(db.get_user(user_id) or row)
+    deadline = time.monotonic() + ASK_WORD_AI_TIMEOUT_SECONDS
     wait_message = await _start_llm_wait_state(
         update,
         context,
@@ -377,19 +382,31 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
             row["target_lang"],
         )
         try:
-            data = await asyncio.to_thread(
-                _call_ai_limited,
-                ai.ask_json,
-                prompts.grammar_tip_system_prompt(
-                    row["target_lang"],
-                    row["goal"],
-                    row["level"],
-                    avoid_topics=recent_topics,
+            data = await asyncio.wait_for(
+                asyncio.to_thread(
+                    _call_ai_limited,
+                    ai.ask_json,
+                    prompts.grammar_tip_system_prompt(
+                        row["target_lang"],
+                        row["goal"],
+                        row["level"],
+                        avoid_topics=recent_topics,
+                    ),
+                    request_kind="grammar_tip",
+                    user_id=user_id,
+                    plan=row["plan"] or "free",
+                    deadline=deadline,
                 ),
-                request_kind="grammar_tip",
-                user_id=user_id,
-                plan=row["plan"] or "free",
+                timeout=max(0.0, deadline - time.monotonic()),
             )
+        except asyncio.TimeoutError:
+            db.release_grammar_tip(user_id)
+            await _send_with_retry(
+                context.bot,
+                update.effective_chat.id,
+                _AI_BUSY_MESSAGE,
+            )
+            return
         except Exception:
             db.release_grammar_tip(user_id)
             logger.exception("AI error")

@@ -15,6 +15,10 @@ class AllPresetsExhausted(Exception):
     """Raised when all enabled AI presets have been tried and none succeeded."""
 
 
+class AIRequestTimedOut(Exception):
+    """Raised when a preset attempt exceeds the caller-provided deadline."""
+
+
 def _get_active_preset() -> dict:
     """Get the currently active AI preset (considers fallback)."""
     return db.get_active_preset()
@@ -89,7 +93,7 @@ def _log_preset_usage(preset: dict, result):
             limiter["token_times"].append((time.monotonic(), total_tokens))
 
 
-def _call_ai_limited(function, *args, **kwargs):
+def _call_ai_limited(function, *args, deadline=None, **kwargs):
     """Execute an AI function with automatic fallback across the preset chain.
 
     For each preset in the chain (ordered by priority):
@@ -101,11 +105,20 @@ def _call_ai_limited(function, *args, **kwargs):
       6. On other error: increment failures; skip if threshold reached
       7. On success: record usage, return result
 
+    `deadline` is a `time.monotonic()` timestamp. When set, the function
+    aborts with `AIRequestTimedOut` once the deadline passes instead of
+    waiting indefinitely (e.g. inside the RPM wait loop), so abandoned
+    threads cannot pin executor workers for long.
+
     Logs preset-to-preset switches at WARNING level with the reason.
     """
     chain = db.get_fallback_chain_presets()
     if not chain:
         raise AllPresetsExhausted("No enabled presets available")
+
+    def _raise_if_deadline_exceeded():
+        if deadline is not None and time.monotonic() >= deadline:
+            raise AIRequestTimedOut("AI request exceeded caller deadline")
 
     def _log_switch(from_name: str, to_name: str, reason: str):
         logger.warning("Preset switch: %s → %s (reason: %s)", from_name, to_name, reason)
@@ -113,6 +126,8 @@ def _call_ai_limited(function, *args, **kwargs):
     last_error: Exception | None = None
     for i, preset in enumerate(chain):
         current_name = preset.get("name", "?")
+
+        _raise_if_deadline_exceeded()
 
         if _is_preset_rate_limited(preset):
             if i + 1 < len(chain):
@@ -128,6 +143,7 @@ def _call_ai_limited(function, *args, **kwargs):
 
         try:
             while True:
+                _raise_if_deadline_exceeded()
                 now = time.monotonic()
                 with limiter["request_lock"]:
                     while limiter["request_times"] and now - limiter["request_times"][0] >= 60:
@@ -142,6 +158,9 @@ def _call_ai_limited(function, *args, **kwargs):
             limiter["consecutive_failures"] = 0
             _log_preset_usage(preset, result)
             return result
+
+        except AIRequestTimedOut:
+            raise
 
         except ai.RateLimitError as exc:
             logger.warning("Preset %s rate-limited (429), skipping: %s", current_name, exc)
@@ -173,7 +192,7 @@ def _ask_batch_limited(*args, **kwargs):
     return _call_ai_limited(ai.ask_batch, *args, **kwargs)
 
 
-def _prepare_cached_card(card, *, lang, user_id, plan, source, persist_patch):
+def _prepare_cached_card(card, *, lang, user_id, plan, source, persist_patch, deadline=None):
     try:
         return ai.validate_card(card)
     except ai.CardValidationError as validation_error:
@@ -190,6 +209,7 @@ def _prepare_cached_card(card, *, lang, user_id, plan, source, persist_patch):
                 lang,
                 user_id=user_id,
                 plan=plan,
+                deadline=deadline,
             )
             merged = dict(card) if isinstance(card, dict) else {}
             merged.update(patch)

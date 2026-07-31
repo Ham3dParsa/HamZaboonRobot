@@ -3,6 +3,7 @@ import datetime
 import logging
 import math
 import threading
+import time
 from collections import defaultdict, deque
 from zoneinfo import ZoneInfo
 
@@ -24,6 +25,7 @@ from config import (
     OWNER_ID,
     APP_TIMEZONE,
     AI_CARD_OUTPUT_FORMAT,
+    ASK_WORD_AI_TIMEOUT_SECONDS,
     CONNECTION_HEALTH_INTERVAL_SECONDS,
     PREMIUM_PLANS,
     OWNER_BYPASS_LIMITS,
@@ -235,6 +237,7 @@ _telegram_offline: bool = False
 _consecutive_health_failures: int = 0
 _OFFLINE_THRESHOLD: int = 1
 _OFFLINE_MESSAGE = "⚠️ اتصال ربات به اینترنت قطع شده. به محض وصل شدن، دوباره تلاش کن."
+_AI_BUSY_MESSAGE = "هوش مصنوعی الان شلوغه؛ کمی بعد دوباره تلاش کن."
 
 
 async def _send_card_from_store(
@@ -684,20 +687,35 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context,
                 "⏳ دارم معنی و توضیحش رو پیدا می‌کنم…",
             )
+            deadline = time.monotonic() + ASK_WORD_AI_TIMEOUT_SECONDS
             try:
-                data = await asyncio.to_thread(
-                    _call_ai_limited,
-                    ai.ask_card,
-                    prompts.custom_word_system_prompt(
-                        row["target_lang"],
-                        row["level"],
-                        compact=AI_CARD_OUTPUT_FORMAT == "compact_json",
+                data = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        _call_ai_limited,
+                        ai.ask_card,
+                        prompts.custom_word_system_prompt(
+                            row["target_lang"],
+                            row["level"],
+                            compact=AI_CARD_OUTPUT_FORMAT == "compact_json",
+                        ),
+                        user_prompt=text,
+                        request_kind="custom_word",
+                        user_id=user_id,
+                        plan=row["plan"] or "free",
+                        deadline=deadline,
                     ),
-                    user_prompt=text,
-                    request_kind="custom_word",
-                    user_id=user_id,
-                    plan=row["plan"] or "free",
+                    timeout=max(0.0, deadline - time.monotonic()),
                 )
+            except asyncio.TimeoutError:
+                db.release_word_query(user_id)
+                await _finish_llm_wait_state(wait_message)
+                await _send_with_retry(
+                    context.bot,
+                    update.effective_chat.id,
+                    _AI_BUSY_MESSAGE,
+                    reply_markup=main_menu(is_owner(user_id)),
+                )
+                return
             except Exception:
                 db.release_word_query(user_id)
                 log.exception("AI error")
@@ -710,15 +728,29 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             try:
-                data = await asyncio.to_thread(
-                    _prepare_cached_card,
-                    data,
-                    lang=row["target_lang"],
-                    user_id=user_id,
-                    plan=row["plan"] or "free",
-                    source="custom_word",
-                    persist_patch=lambda patch: True,
+                data = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        _prepare_cached_card,
+                        data,
+                        lang=row["target_lang"],
+                        user_id=user_id,
+                        plan=row["plan"] or "free",
+                        source="custom_word",
+                        persist_patch=lambda patch: True,
+                        deadline=deadline,
+                    ),
+                    timeout=max(0.0, deadline - time.monotonic()),
                 )
+            except asyncio.TimeoutError:
+                db.release_word_query(user_id)
+                await _finish_llm_wait_state(wait_message)
+                await _send_with_retry(
+                    context.bot,
+                    update.effective_chat.id,
+                    _AI_BUSY_MESSAGE,
+                    reply_markup=main_menu(is_owner(user_id)),
+                )
+                return
             except CardPreparationError:
                 db.release_word_query(user_id)
                 await _finish_llm_wait_state(wait_message)
