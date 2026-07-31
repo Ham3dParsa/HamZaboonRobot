@@ -8,23 +8,20 @@ from services import db
 from services.db import schema as db_schema
 from handlers import srs_handler
 from services.utils.formatting import format_card, format_srs_prompt
-from config.keyboards import srs_hidden_keyboard, srs_revealed_keyboard
+from config.keyboards import get_review_keyboard, get_first_exposure_keyboard
 
 
 class SrsKeyboardTests(unittest.TestCase):
-    def test_hidden_keyboard_offers_recall_and_reveal(self):
-        markup = srs_hidden_keyboard(123, 456)
+    def test_review_keyboard_has_4_grade_buttons(self):
+        markup = get_review_keyboard(123, 456)
         callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
-        self.assertEqual(callbacks, ["srs:remember:123:456", "srs:reveal:123:456"])
+        self.assertEqual(callbacks, ["srs:1:123:456", "srs:2:123:456", "srs:3:123:456", "srs:4:123:456"])
         self.assertTrue(all(len(c) < 64 for c in callbacks))
 
-    def test_revealed_keyboard_has_translations_and_actions(self):
-        markup = srs_revealed_keyboard(123, 456)
-        rows = markup.inline_keyboard
-        self.assertEqual(rows[0][0].callback_data, "srs:prepare:123:456")
-        self.assertEqual(rows[1][0].callback_data, "srs:confirm:123:456")
-        self.assertEqual(rows[1][1].callback_data, "srs:again:123:456")
-        callbacks = [b.callback_data for row in rows for b in row]
+    def test_first_exposure_keyboard_has_4_grade_buttons(self):
+        markup = get_first_exposure_keyboard(123, 456)
+        callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
+        self.assertEqual(callbacks, ["srs:fe:1:123:456", "srs:fe:2:123:456", "srs:fe:3:123:456", "srs:fe:4:123:456"])
         self.assertTrue(all(len(c) < 64 for c in callbacks))
 
 

@@ -4,9 +4,8 @@ from config.keyboards import (
     settings_inline_keyboard,
     settings_back_keyboard,
     admin_awaiting_inline_keyboard,
-    srs_hidden_keyboard,
-    srs_revealed_keyboard,
-    srs_review_keyboard,
+    get_review_keyboard,
+    get_first_exposure_keyboard,
     daily_card_keyboard,
     lang_inline_keyboard,
     goal_inline_keyboard,
@@ -16,10 +15,14 @@ from config.keyboards import (
     BTN_ASK_WORD,
     BTN_SETTINGS,
     BTN_ADMIN,
-    IBTN_REMEMBERED,
-    IBTN_REVEAL,
-    IBTN_CONFIRM_CORRECT,
-    IBTN_REMIND_AGAIN,
+    IBTN_SRS_AGAIN_REVIEW,
+    IBTN_SRS_HARD_REVIEW,
+    IBTN_SRS_GOOD_REVIEW,
+    IBTN_SRS_EASY_REVIEW,
+    IBTN_SRS_AGAIN_FE,
+    IBTN_SRS_HARD_FE,
+    IBTN_SRS_GOOD_FE,
+    IBTN_SRS_EASY_FE,
     IBTN_TRANSLATIONS,
     IBTN_PRONOUNCE,
     IBTN_PREV_CARD,
@@ -162,63 +165,80 @@ class TestAdminAwaitingInlineKeyboard(unittest.TestCase):
         self.assertEqual(rows[0][1].callback_data, "admin:cancel")
 
 
-class TestSRSHiddenKeyboard(unittest.TestCase):
-    def test_hidden_stage_has_remember_and_reveal(self):
-        markup = srs_hidden_keyboard(1, 10)
-        rows = markup.inline_keyboard
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0][0].text, IBTN_REMEMBERED)
-        self.assertEqual(rows[0][0].callback_data, "srs:remember:1:10")
-        self.assertEqual(rows[0][1].text, IBTN_REVEAL)
-        self.assertEqual(rows[0][1].callback_data, "srs:reveal:1:10")
-
-    def test_hidden_stage_with_pronounce(self):
-        markup = srs_hidden_keyboard(1, 10, show_pronounce=True)
-        rows = markup.inline_keyboard
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[1][0].text, IBTN_PRONOUNCE)
-        self.assertEqual(rows[1][0].callback_data, "tts:pronounce:s:1:10")
-
-
-class TestSRSRevealedKeyboard(unittest.TestCase):
-    def test_revealed_stage_layout(self):
-        markup = srs_revealed_keyboard(1, 10)
-        rows = markup.inline_keyboard
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[0][0].text, IBTN_TRANSLATIONS)
-        self.assertEqual(rows[0][0].callback_data, "srs:prepare:1:10")
-        self.assertEqual(rows[1][0].text, IBTN_CONFIRM_CORRECT)
-        self.assertEqual(rows[1][0].callback_data, "srs:confirm:1:10")
-        self.assertEqual(rows[1][1].text, IBTN_REMIND_AGAIN)
-        self.assertEqual(rows[1][1].callback_data, "srs:again:1:10")
-
-    def test_revealed_stage_with_pronounce(self):
-        markup = srs_revealed_keyboard(1, 10, show_pronounce=True)
+class TestReviewKeyboard(unittest.TestCase):
+    def test_review_keyboard_has_4_grade_buttons(self):
+        markup = get_review_keyboard(1, 10)
         rows = markup.inline_keyboard
         self.assertEqual(len(rows), 2)
         self.assertEqual(len(rows[0]), 2)
-        self.assertEqual(rows[0][1].text, IBTN_PRONOUNCE)
+        self.assertEqual(len(rows[1]), 2)
+        # Row 0: Again, Hard
+        self.assertEqual(rows[0][0].text, IBTN_SRS_AGAIN_REVIEW)
+        self.assertEqual(rows[0][0].callback_data, "srs:1:1:10")
+        self.assertEqual(rows[0][1].text, IBTN_SRS_HARD_REVIEW)
+        self.assertEqual(rows[0][1].callback_data, "srs:2:1:10")
+        # Row 1: Good, Easy
+        self.assertEqual(rows[1][0].text, IBTN_SRS_GOOD_REVIEW)
+        self.assertEqual(rows[1][0].callback_data, "srs:3:1:10")
+        self.assertEqual(rows[1][1].text, IBTN_SRS_EASY_REVIEW)
+        self.assertEqual(rows[1][1].callback_data, "srs:4:1:10")
 
-
-class TestSRSReviewKeyboard(unittest.TestCase):
-    def test_review_stage_layout(self):
-        markup = srs_review_keyboard(1, 10)
+    def test_review_keyboard_with_pronounce(self):
+        markup = get_review_keyboard(1, 10, show_pronounce=True)
         rows = markup.inline_keyboard
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0][0].text, IBTN_REMEMBERED)
-        self.assertEqual(rows[0][0].callback_data, "srs:remember:1:10")
-        self.assertEqual(rows[0][1].text, IBTN_REMIND_AGAIN)
-        self.assertEqual(rows[0][1].callback_data, "srs:again:1:10")
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[2][0].text, "🔊 تلفظ")
+        self.assertEqual(rows[2][0].callback_data, "tts:pronounce:s:1:10")
 
-    def test_review_stage_with_translations_and_pronounce(self):
-        markup = srs_review_keyboard(1, 10, show_translations=True, show_pronounce=True)
+    def test_all_callbacks_match_pattern(self):
+        markup = get_review_keyboard(123, 456)
+        rows = markup.inline_keyboard
+        for row in rows:
+            for btn in row:
+                self.assertTrue(btn.callback_data.startswith("srs:"))
+                parts = btn.callback_data.split(":")
+                self.assertEqual(len(parts), 4)
+                self.assertIn(parts[1], {"1", "2", "3", "4"})  # grade 1-4
+                self.assertEqual(parts[2], "123")
+                self.assertEqual(parts[3], "456")
+
+
+class TestFirstExposureKeyboard(unittest.TestCase):
+    def test_first_exposure_keyboard_has_4_grade_buttons(self):
+        markup = get_first_exposure_keyboard(1, 10)
         rows = markup.inline_keyboard
         self.assertEqual(len(rows), 2)
         self.assertEqual(len(rows[0]), 2)
-        self.assertEqual(rows[0][0].text, IBTN_TRANSLATIONS)
-        self.assertEqual(rows[0][1].text, IBTN_PRONOUNCE)
-        self.assertEqual(rows[1][0].text, IBTN_REMEMBERED)
-        self.assertEqual(rows[1][1].text, IBTN_REMIND_AGAIN)
+        self.assertEqual(len(rows[1]), 2)
+        # Row 0: Again, Hard
+        self.assertEqual(rows[0][0].text, IBTN_SRS_AGAIN_FE)
+        self.assertEqual(rows[0][0].callback_data, "srs:fe:1:1:10")
+        self.assertEqual(rows[0][1].text, IBTN_SRS_HARD_FE)
+        self.assertEqual(rows[0][1].callback_data, "srs:fe:2:1:10")
+        # Row 1: Good, Easy
+        self.assertEqual(rows[1][0].text, IBTN_SRS_GOOD_FE)
+        self.assertEqual(rows[1][0].callback_data, "srs:fe:3:1:10")
+        self.assertEqual(rows[1][1].text, IBTN_SRS_EASY_FE)
+        self.assertEqual(rows[1][1].callback_data, "srs:fe:4:1:10")
+
+    def test_first_exposure_keyboard_with_pronounce(self):
+        markup = get_first_exposure_keyboard(1, 10, show_pronounce=True)
+        rows = markup.inline_keyboard
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[2][0].text, "🔊 تلفظ")
+        self.assertEqual(rows[2][0].callback_data, "tts:pronounce:s:1:10")
+
+    def test_all_callbacks_match_fe_pattern(self):
+        markup = get_first_exposure_keyboard(123, 456)
+        rows = markup.inline_keyboard
+        for row in rows:
+            for btn in row:
+                self.assertTrue(btn.callback_data.startswith("srs:fe:"))
+                parts = btn.callback_data.split(":")
+                self.assertEqual(len(parts), 5)
+                self.assertIn(parts[2], {"1", "2", "3", "4"})  # grade 1-4
+                self.assertEqual(parts[3], "123")
+                self.assertEqual(parts[4], "456")
 
 
 class TestDailyCardKeyboard(unittest.TestCase):
@@ -276,3 +296,7 @@ class TestDailyCardKeyboard(unittest.TestCase):
         nav_row = rows[-1]
         self.assertEqual(nav_row[1].text, IBTN_NEXT_CARD)
         self.assertEqual(nav_row[1].callback_data, "review:next:1:2026-07-25:0")
+
+
+if __name__ == "__main__":
+    unittest.main()
