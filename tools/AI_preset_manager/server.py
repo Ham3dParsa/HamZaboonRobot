@@ -71,8 +71,6 @@ def _serialize_preset(p, active_name: str | None, chain_names: set | None = None
         "max_tpm": p.get("max_tpm", 0),
         "daily_batch_size": p.get("daily_batch_size", 6),
         "temperature": p.get("temperature", 0.3),
-        "cost_per_req": p.get("cost_per_req", 0.0),
-        "cost_per_1k_tokens": p.get("cost_per_1k_tokens", 0.0),
         "input_cost_per_million": p.get("input_cost_per_million"),
         "output_cost_per_million": p.get("output_cost_per_million"),
         "is_active": p["name"] == active_name,
@@ -85,7 +83,6 @@ _ALLOWED_FIELDS = {
     "is_custom", "is_emergency", "in_fallback_chain",
     "group_label", "max_concurrency", "max_rpm", "max_tpm",
     "daily_batch_size", "temperature",
-    "cost_per_req", "cost_per_1k_tokens",
     "input_cost_per_million", "output_cost_per_million",
 }
 
@@ -286,8 +283,9 @@ def clone_preset(name):
         max_tpm=p.get("max_tpm", 0),
         daily_batch_size=p.get("daily_batch_size", 6),
         temperature=p.get("temperature", 0.3),
-        cost_per_req=p.get("cost_per_req", 0.0),
-        cost_per_1k_tokens=p.get("cost_per_1k_tokens", 0.0),
+        max_output_tokens=p.get("max_output_tokens", 4096),
+        timeout_seconds=p.get("timeout_seconds", 30.0),
+        max_daily_req=p.get("max_daily_req", 0),
         input_cost_per_million=p.get("input_cost_per_million"),
         output_cost_per_million=p.get("output_cost_per_million"),
     )
