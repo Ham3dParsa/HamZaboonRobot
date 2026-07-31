@@ -78,13 +78,11 @@
       "objective": "Generate only requested content, persist it safely, and prepare validated reuse.",
       "done": [
         "Bounded manual and scheduled batches",
-        "Duplicate filtering, persistence, and partial retry"
+        "Duplicate filtering, persistence, and partial retry",
+        "Pool design locked in plan_pooling.md"
       ],
       "in_progress": [],
-      "todo": [
-        "Add the pool table and gated validated write path",
-        "Add pool telemetry and inventory selection"
-      ],
+      "todo": [],
       "acceptance_criteria": [
         "Partial batches preserve valid cards",
         "Restart and duplicate triggers do not regenerate persisted cards"
@@ -382,6 +380,15 @@
       "phase": "phase-1",
       "roadmap_ref": "phase-1-content-schema-and-validation",
       "summary": "Persian phonetic transcription (persian sub-field) removed from phonetic data. Only IPA remains. No DB migration — old persian data is silently ignored. phonetic_guidance field removed from LanguageOption dataclass."
+    },
+    {
+      "id": "decision-pool-deferred",
+      "status": "locked",
+      "title": "Content pool deferred until FSRS migration stable + user growth trigger",
+      "phase": "phase-3",
+      "roadmap_ref": "phase-3-controlled-generation-and-daily-card-storage",
+      "issue_ids": [80],
+      "summary": "Segment-level content pooling (Issue #80) deferred until DAU ≥ 50 across 7 days AND at least one (target_lang, goal, level) segment has ≥10 validated items with ≥2 distinct users. Rationale: with ~10 test users, segment inventory is too sparse to validate selection or measure cost savings. Design and schema are locked in plan_pooling.md; no code exists. Independence from FSRS migration verified — additive schema, no file overlap with Phase 1a split, card-gen extraction (#180) is independent target. Sequencing: FSRS cutover → stabilize → extract #180 → pool writes (inactive) → pool reads + flag."
     }
   ]
 }
