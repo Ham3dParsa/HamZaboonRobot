@@ -147,14 +147,21 @@ class TestAdvanceSession(_BaseStudyHandlerTest):
     @patch("handlers.study_handler.generate_tier3_node", return_value=None)
     def test_advances_to_next_node(self, mock_tier3):
         from services.session import SessionNode
+        # Seed real saved words so rendering decodes a real sqlite3.Row
+        # (card_data stored as a genuine JSON string by add_saved_word).
+        self.assertTrue(db.add_saved_word(1, "hello", "en", {"word": "hello", "fa_meaning": "سلام"}))
+        self.assertTrue(db.add_saved_word(1, "world", "en", {"word": "world", "fa_meaning": "جهان"}))
+        with db.get_conn() as conn:
+            hello_id = conn.execute("SELECT id FROM saved_words WHERE word='hello'").fetchone()["id"]
+            world_id = conn.execute("SELECT id FROM saved_words WHERE word='world'").fetchone()["id"]
         node1 = SessionNode(
             activity_type="srs_review", source_tier=1,
-            card_data={"word": "hello"}, source_id=1,
+            card_data={"word": "hello"}, source_id=hello_id,
             activity_meta={"user_id": 1}, grade_policy_ref="srs_review",
         )
         node2 = SessionNode(
             activity_type="srs_review", source_tier=1,
-            card_data={"word": "world"}, source_id=2,
+            card_data={"word": "world"}, source_id=world_id,
             activity_meta={"user_id": 1}, grade_policy_ref="srs_review",
         )
         state = self._make_state([node1, node2])
@@ -162,11 +169,7 @@ class TestAdvanceSession(_BaseStudyHandlerTest):
         ctx.user_data["current_session"] = state
         update = self._update()
 
-        with patch("handlers.study_handler.db.get_saved_word") as mock_get:
-            mock_get.return_value = MagicMock(
-                id=2, card_data={"word": "world", "fa_meaning": "جهان"}
-            )
-            asyncio.run(advance_session(update, ctx))
+        asyncio.run(advance_session(update, ctx))
 
         # Should have popped node1, now showing node2
         self.assertEqual(len(state.nodes), 1)
@@ -179,3 +182,107 @@ class TestAdvanceSession(_BaseStudyHandlerTest):
         # Should not raise
         asyncio.run(advance_session(update, ctx))
         ctx.bot.edit_message_text.assert_not_awaited()
+
+
+class TestStudyStartEntryPoints(_BaseStudyHandlerTest):
+    """Item-1 integration coverage: text-menu entry and JSON round-trip."""
+
+    def _text_update(self, user_id=1):
+        update = MagicMock()
+        update.effective_user.id = user_id
+        update.callback_query = None
+        update.message = MagicMock()
+        update.message.reply_text = AsyncMock()
+        update.effective_chat.id = 100
+        return update
+
+    def _events(self):
+        with db.get_conn() as conn:
+            return [
+                dict(r)
+                for r in conn.execute(
+                    "SELECT grade, activity_type FROM review_events ORDER BY id"
+                ).fetchall()
+            ]
+
+    @patch("handlers.study_handler.build_session_list")
+    def test_text_entry_quota_full_replies_inline(self, mock_build):
+        # Text-menu entry has no callback_query — the reply must go out as a
+        # normal message with the real quota message, not crash on None.answer.
+        db.create_user_if_needed(2, "learner2")
+        db.set_user_lang_goal(2, "en", "general")
+        db.set_user_level(2, "beginner")
+        from services.scheduling import _session_key
+        db.set_setting(_session_key(2), "1")  # free limit is 1 session/day
+        update = self._text_update(user_id=2)
+        ctx = self._context()
+        asyncio.run(handle_study_start(update, ctx))
+        update.message.reply_text.assert_awaited_once()
+        call_args = update.message.reply_text.call_args
+        self.assertIn("تموم شده", call_args[0][0])
+
+    @patch("handlers.study_handler.generate_tier3_node", return_value=None)
+    @patch("handlers.study_handler.build_session_list")
+    def test_full_session_round_trips_json_card_and_writes_review_event(
+        self, mock_build, mock_tier3
+    ):
+        from services.session import SessionNode
+        card = {
+            "word": "hello",
+            "phonetic": "/həˈloʊ/",
+            "fa_meaning": "سلام",
+            "fa_explanation": "درود هنگام دیدار",
+            "examples": ["Hello there!"],
+            "example_translations": ["سلام!"],
+            "grammar_tip": "سلام به انگلیسی hello است.",
+        }
+        self.assertTrue(db.add_saved_word(1, "hello", "en", card))
+        with db.get_conn() as conn:
+            word_id = conn.execute(
+                "SELECT id FROM saved_words WHERE word='hello'"
+            ).fetchone()["id"]
+        node = SessionNode(
+            activity_type="srs_review", source_tier=1,
+            card_data={"word": "hello"}, source_id=word_id,
+            activity_meta={"user_id": 1}, grade_policy_ref="srs_review",
+        )
+        mock_build.return_value = ([node], {"user_id": 1})
+
+        update = self._update()
+        ctx = self._context()
+        asyncio.run(handle_study_start(update, ctx))
+
+        # Rendering must decode the stored JSON string from a real
+        # sqlite3.Row (add_saved_word stores card_data as JSON text).
+        ctx.bot.send_message.assert_awaited_once()
+        rendered = ctx.bot.send_message.call_args.kwargs.get("text") or ctx.bot.send_message.call_args[0][1]
+        # Round-trip proof: these fields live only inside the card_data JSON
+        # string, so their presence means the real sqlite3.Row was decoded.
+        self.assertIn("hello", rendered)
+        self.assertIn("/həˈloʊ/", rendered)
+        self.assertIn("سلام", rendered)
+        # Full card via format_card — the hidden SRS instruction is not shown.
+        self.assertNotIn("مرور فاصله", rendered)
+        # Persian-digit progress footer (pipe escaped by MarkdownV2).
+        self.assertIn("نشست ۱ \\| کارت ۱ از ۱", rendered)
+
+        # Grade through the real callback route with the live session.
+        import bot
+        from bot import callback_router
+        # Order-independence: earlier tests may leave the circuit breaker
+        # armed (test_reliability sets bot._telegram_offline=True and never
+        # restores it). Reset so callback_router reaches the grade handler.
+        bot._telegram_offline = False
+        grade_update = MagicMock()
+        grade_update.effective_user.id = 1
+        grade_update.callback_query = MagicMock()
+        grade_update.callback_query.answer = AsyncMock()
+        grade_update.callback_query.data = f"srs:3:1:{word_id}"
+        grade_update.effective_chat.id = 100
+        asyncio.run(callback_router(grade_update, ctx))
+
+        # Review event persisted with the resolved grade and activity type.
+        events = self._events()
+        self.assertTrue(events, "expected at least one review event")
+        self.assertEqual(events[-1]["grade"], 3)
+        self.assertEqual(events[-1]["activity_type"], "srs_review")

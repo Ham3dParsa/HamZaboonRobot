@@ -19,8 +19,10 @@ from services.session import SessionNode, build_session_list, generate_tier3_nod
 from services.scheduling import consume_session_slot, release_session_slot
 from services.utils.formatting import (
     _phonetic_lines,
+    _saved_word_card,
     escape_mdv2,
-    format_srs_prompt,
+    format_card,
+    to_persian_digits,
 )
 from services.utils.helpers import _answer_callback_safely
 
@@ -41,6 +43,38 @@ class SessionState:
 
 
 # ---------------------------------------------------------------------------
+# Reply helper — works from both inline (callback_query) and text-menu entry
+# ---------------------------------------------------------------------------
+
+async def _reply_or_answer(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+    *,
+    show_alert: bool = False,
+) -> None:
+    """Reply to a study-session message regardless of entry point.
+
+    Inline button presses are acknowledged via the callback answer; text-menu
+    presses have no callback_query, so they get a normal text reply instead.
+    """
+    if update.callback_query is not None:
+        await _answer_callback_safely(
+            update.callback_query,
+            text,
+            show_alert=show_alert,
+        )
+        return
+    if update.message is not None:
+        await update.message.reply_text(text)
+        return
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=text,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -52,8 +86,9 @@ async def handle_study_start(
     row = db.get_user(user_id)
 
     if not row or not row["onboarded"]:
-        await _answer_callback_safely(
-            update.callback_query,
+        await _reply_or_answer(
+            update,
+            context,
             "ابتدا /start را بزنید.",
             show_alert=True,
         )
@@ -64,8 +99,9 @@ async def handle_study_start(
     # --- quota check (Decision 30: once at top, before build) ---
     if not is_owner(user_id) or not OWNER_BYPASS_LIMITS:
         if not consume_session_slot(user_id, plan):
-            await _answer_callback_safely(
-                update.callback_query,
+            await _reply_or_answer(
+                update,
+                context,
                 "همه کارت‌های امروز تموم شده! فردا دوباره بیا.",
                 show_alert=True,
             )
@@ -82,8 +118,9 @@ async def handle_study_start(
     # --- empty session: release slot (Decision 33) ---
     if not nodes:
         release_session_slot(user_id)
-        await _answer_callback_safely(
-            update.callback_query,
+        await _reply_or_answer(
+            update,
+            context,
             "📚 جلسه‌ای برای امروز نداری. واژه‌های جدید اضافه کن!",
             show_alert=True,
         )
@@ -108,8 +145,9 @@ async def handle_study_start(
         )
         release_session_slot(user_id)
         context.user_data.pop("current_session", None)
-        await _answer_callback_safely(
-            update.callback_query,
+        await _reply_or_answer(
+            update,
+            context,
             "خطا در آماده‌سازی جلسه — دوباره امتحان کن.",
             show_alert=True,
         )
@@ -145,7 +183,7 @@ def _build_card_text_and_keyboard(
     """Fetch card data, build formatted text + keyboard for a session node."""
     word_id = node.source_id or 0
     word_row = db.get_saved_word(word_id, user_id)
-    card_data = dict(word_row["card_data"]) if word_row and word_row.get("card_data") else {}
+    card_data = _saved_word_card(word_row) if word_row else {}
     card_data.setdefault("word", node.card_data.get("word", ""))
 
     # keyboard from activity type
@@ -155,16 +193,20 @@ def _build_card_text_and_keyboard(
         show_pronounce = _show_pronounce(user_id)
         keyboard = get_review_keyboard(user_id, word_id, show_pronounce=show_pronounce)
 
-    # format text
+    # format text — full card content via the shared formatter
     phonetic_lines = _phonetic_lines(card_data.get("phonetic", ""))
-    text = format_srs_prompt(card_data, phonetic_lines=phonetic_lines)
-
-    # progress indicator: "# نشست x | کارت n از m"
     remaining = len(state.nodes)
     n = state.total_cards - remaining + 1
     m = state.total_cards
-    progress = f"# نشست {_session_number(user_id)} | کارت {n} از {m}"
-    text = f"{text}\n\n`{escape_mdv2(progress)}`"
+    progress = (
+        f"نشست {to_persian_digits(_session_number(user_id))}"
+        f" | کارت {to_persian_digits(n)} از {to_persian_digits(m)}"
+    )
+    text = format_card(
+        card_data,
+        footer=progress,
+        phonetic_lines=phonetic_lines,
+    )
 
     return text, keyboard
 

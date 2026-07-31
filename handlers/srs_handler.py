@@ -14,6 +14,7 @@ from services.utils.helpers import _user_activity_line
 from services.utils.formatting import (
     CardPreparationError,
     SRS_REVEAL_QUESTION,
+    _saved_word_card,
     format_card,
     _phonetic_lines,
 )
@@ -41,27 +42,6 @@ def _log_ua(update: Update, action: str, outcome: str):
     )
     if line:
         logger.log(USER_ACTIVITY, "%s", line)
-
-
-def _saved_word_card(row) -> dict:
-    if row["card_data"]:
-        try:
-            data = json.loads(row["card_data"])
-        except (TypeError, json.JSONDecodeError):
-            data = None
-        if isinstance(data, dict):
-            return data
-    return {
-        "word": row["word"],
-        "phonetic": "",
-        "fa_meaning": "این واژه قبلاً بدون کارت کامل ذخیره شده است.",
-        "fa_explanation": "معنی و مثال کامل در داده‌های قدیمی موجود نیست؛ خودت معنی را یادآوری کن.",
-        "synonyms": [],
-        "antonyms": [],
-        "examples": [],
-        "example_translations": [],
-        "grammar_tip": "",
-    }
 
 
 async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str):
