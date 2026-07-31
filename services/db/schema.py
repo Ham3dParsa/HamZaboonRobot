@@ -57,7 +57,10 @@ def _can_consume_daily_count(
 
 @contextmanager
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    # Read the path live from services.db (where tests set db.DB_PATH) instead
+    # of the import-time copy below, so test DB isolation is actually honored.
+    from services.db import DB_PATH as _active_db_path
+    conn = sqlite3.connect(_active_db_path)
     conn.row_factory = sqlite3.Row
     try:
         yield conn

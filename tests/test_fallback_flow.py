@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 from services import db
+from services.db import schema as db_schema
 from services.ai import ai
 from services.ai.llm_services import _call_ai_limited, AllPresetsExhausted
 
@@ -28,7 +29,9 @@ class FallbackChainTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.previous_db_path = db.DB_PATH
+        self.previous_schema_db_path = db_schema.DB_PATH
         db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        db_schema.DB_PATH = db.DB_PATH
         db.init_db()
         # Clean seed presets so only our test presets exist
         for p in db.get_presets():
@@ -36,6 +39,7 @@ class FallbackChainTests(unittest.TestCase):
 
     def tearDown(self):
         db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_schema_db_path
         self.tempdir.cleanup()
 
     @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
