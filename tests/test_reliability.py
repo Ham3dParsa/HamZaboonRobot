@@ -219,28 +219,6 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         with patch("services.db.words._today", return_value=dt.date.fromisoformat(row["next_review"])):
             due = db.due_words_for_user(1)
             self.assertEqual(len(due), 1)
-    # with a word that has already passed its review date.
-            self.assertEqual(len(due), 1)
-            word_id = due[0]["id"]
-            with db.get_conn() as conn:
-                conn.execute(
-                    "UPDATE saved_words SET review_status='pending' WHERE id=?",
-                    (word_id,),
-                )
-                conn.commit()
-            self.assertEqual(db.due_words_for_user(1), [])
-            self.assertTrue(db.defer_word_review(word_id))
-            self.assertFalse(db.defer_word_review(word_id))
-            self.assertEqual(db.due_words_for_user(1), [])
-            with db.get_conn() as conn:
-                conn.execute(
-                    "UPDATE saved_words SET review_status='pending' WHERE id=?",
-                    (word_id,),
-                )
-                conn.commit()
-            self.assertTrue(db.advance_word_review(word_id))
-            self.assertFalse(db.advance_word_review(word_id))
-            self.assertEqual(db.due_words_for_user(1), [])
 
     def test_grade_word_review_accepts_all_grades(self):
         db.create_user_if_needed(1, "learner")

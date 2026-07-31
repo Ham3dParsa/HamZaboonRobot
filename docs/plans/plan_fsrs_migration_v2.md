@@ -478,7 +478,7 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 | 2.2 | (entire repo) | Final grep sweep: verify zero references to `INTERVALS_DAYS`, `interval_idx`, `IBTN_REMEMBERED`, `IBTN_CONFIRM_CORRECT`, `IBTN_REMIND_AGAIN`, `advance_word_review`, `defer_word_review` in production code | Only hits are in git history, archived docs, and `gap_analysis.md` |
 | 2.3 | `docs/plans/plan_fsrs_migration.md` | Archive or replace with reference to v2 | Old plan marked as superseded |
 
-**Phase 2 commit:** `[` ☐ `]`
+**Phase 2 commit:** `[` ☑ `]`
 
 ---
 

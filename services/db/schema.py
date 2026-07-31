@@ -22,7 +22,6 @@ from config import (
     USD_TO_TOMAN_RATE,
 )
 
-INTERVALS_DAYS = [1, 3, 7, 16, 30]
 _app_timezone = ZoneInfo(APP_TIMEZONE)
 def _today() -> datetime.date:
     return datetime.datetime.now(_app_timezone).date()

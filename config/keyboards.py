@@ -45,10 +45,7 @@ IBTN_OLDER = "قدیمی‌تر ➡️"
 IBTN_NO_CARDS = "فعلاً کارتی نیست"
 
 # --- SRS (Spaced Repetition) ---
-IBTN_REMEMBERED = "✅ یادم بود"
 IBTN_REVEAL = "👁 افشای کارت"
-IBTN_CONFIRM_CORRECT = "✅ یادم بود"
-IBTN_REMIND_AGAIN = "🔁 بازم یادم بیار"
 
 # --- SRS 4-Grade (Review: recall-based) ---
 IBTN_SRS_AGAIN_REVIEW = "یادم نیامد ⭕"

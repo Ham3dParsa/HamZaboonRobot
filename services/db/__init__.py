@@ -29,7 +29,6 @@ import secrets
 from services.db.schema import (
     get_conn,
     init_db,
-    INTERVALS_DAYS,
     _app_timezone,
     _today,
     _utc_now,
@@ -83,8 +82,6 @@ from services.db.words import (
     update_saved_word_fields,
     due_words_for_user,
     get_saved_word,
-    advance_word_review,
-    defer_word_review,
     get_pre_first_exposure_words,
     grade_word_review,
     grade_first_exposure,
