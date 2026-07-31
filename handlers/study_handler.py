@@ -13,7 +13,7 @@ from telegram.ext import ContextTypes
 
 from config import OWNER_BYPASS_LIMITS, is_owner
 from services import db
-from services.srs_engine import generate_v3_session
+from services.session import build_session_list
 from services.utils.helpers import _answer_callback_safely
 
 logger = logging.getLogger(__name__)
