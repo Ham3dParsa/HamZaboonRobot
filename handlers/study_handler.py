@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass
 
 from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from config import OWNER_BYPASS_LIMITS, PREMIUM_PLANS, is_owner
@@ -171,6 +172,7 @@ async def _render_and_send_first_card(
         chat_id=chat_id,
         text=text,
         reply_markup=keyboard,
+        parse_mode=ParseMode.MARKDOWN_V2,
     )
     state.study_msg_id = msg.message_id
 
@@ -263,6 +265,7 @@ async def advance_session(
                 chat_id=chat_id,
                 message_id=state.study_msg_id,
                 reply_markup=keyboard,
+                parse_mode=ParseMode.MARKDOWN_V2,
             )
             return
 
@@ -280,6 +283,7 @@ async def advance_session(
                 chat_id=chat_id,
                 message_id=state.study_msg_id,
                 reply_markup=keyboard,
+                parse_mode=ParseMode.MARKDOWN_V2,
             )
             return
 
@@ -289,6 +293,7 @@ async def advance_session(
             text=f"*{completion}*",
             chat_id=chat_id,
             message_id=state.study_msg_id,
+            parse_mode=ParseMode.MARKDOWN_V2,
         )
         context.user_data.pop("current_session", None)
 
@@ -299,6 +304,7 @@ async def advance_session(
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=f"*{error_msg}*",
+                parse_mode=ParseMode.MARKDOWN_V2,
             )
         except Exception:
             logger.exception("advance_session error fallback also failed")

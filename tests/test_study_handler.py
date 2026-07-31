@@ -255,6 +255,12 @@ class TestStudyStartEntryPoints(_BaseStudyHandlerTest):
         # Rendering must decode the stored JSON string from a real
         # sqlite3.Row (add_saved_word stores card_data as JSON text).
         ctx.bot.send_message.assert_awaited_once()
+        # MarkdownV2 must be requested so bold/emphasis actually renders.
+        from telegram.constants import ParseMode
+        self.assertEqual(
+            ctx.bot.send_message.call_args.kwargs.get("parse_mode"),
+            ParseMode.MARKDOWN_V2,
+        )
         rendered = ctx.bot.send_message.call_args.kwargs.get("text") or ctx.bot.send_message.call_args[0][1]
         # Round-trip proof: these fields live only inside the card_data JSON
         # string, so their presence means the real sqlite3.Row was decoded.
