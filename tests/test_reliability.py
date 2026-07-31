@@ -242,6 +242,24 @@ class ReliabilityPersistenceTests(unittest.TestCase):
             self.assertFalse(db.advance_word_review(word_id))
             self.assertEqual(db.due_words_for_user(1), [])
 
+    def test_grade_word_review_accepts_all_grades(self):
+        db.create_user_if_needed(1, "learner")
+        card = {
+            "word": "world",
+            "fa_meaning": "جهان",
+            "fa_explanation": "دنیا.",
+            "examples": ["Hello world!"],
+            "example_translations": ["سلام دنیا!"],
+        }
+        self.assertTrue(db.add_saved_word(1, "world", "en", card))
+        row = db.get_saved_word(1, user_id=1)
+        word_id = row["id"]
+        for grade in (1, 2, 3, 4):
+            self.assertTrue(
+                db.grade_word_review(word_id, grade, 1),
+                f"grade_word_review should return True for grade={grade}",
+            )
+
     def test_surgical_card_patches_update_only_requested_fields(self):
         db.create_user_if_needed(1, "learner")
         card = {
