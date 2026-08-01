@@ -217,12 +217,12 @@ individually in Section 6.
 
 | Phase | Scope | Key changes | Acceptance criteria | Status |
 |---|---|---|---|---|
-| P1 | Fix modeling order-of-operations | Same-month signup→upgrade lag; churn-on-starting-base-then-upgrade | Unit-test scenario: month-1 revenue does not include same-month new-signup upgrades; parity check on a small manual table | planned |
-| P2 | Add full P&L cost lines | Payment fee %, VAT, fixed opex rows; relabel current net → "AI contribution margin"; correct break-even = fixedOpex / contribution-margin-per-user; LTV on full gross margin | Dashboard shows both contribution margin and true net P&L; break-even changes when fixed costs change; LTV < old LTV given same inputs | planned |
-| P3 | Marketing inputs & CAC | CAC input, monthly ad budget, Telegram CPM + funnel conversion, referral-as-signups, win-back effect; strength-tier technique effects | Toggling CAC/budget changes signup count and payback; referral moves signups not conversion; effects show in KPI summary | planned |
-| P4 | AI cost realism | Model-choice dropdown (cheap/mid/strong), tokens/call, cache-saving %, annual cost-decline %; default $0.0003 | Cost-per-call table matches Section 3.3 within ±20%; declining-cost scenario lowers AI cost over time | planned |
-| P5 | Defaults reality-check | Apply Section 4 defaults (conversion 3/1.5/6, FX 192k, renewal factor, involuntary churn, gateway fee, VAT) | With defaults, model shows realistic loss/lean-profit trajectory for a 2,000-MAU start; KPI tips visible | planned |
-| P6 | Cash view & KPIs | Cumulative cash, runway, CAC payback, MRR/ARR, D30 retention, tornado sensitivity | All new KPIs present and update with inputs; tornado ranks conversion & churn as top drivers | planned |
+| P1 | Fix modeling order-of-operations | Same-month signup→upgrade lag; churn-on-starting-base-then-upgrade | Unit-test scenario: month-1 revenue does not include same-month new-signup upgrades; parity check on a small manual table | complete (bc053f6) |
+| P2 | Add full P&L cost lines | Payment fee %, VAT, fixed opex rows; relabel current net → "AI contribution margin"; correct break-even = fixedOpex / contribution-margin-per-user; LTV on full gross margin | Dashboard shows both contribution margin and true net P&L; break-even changes when fixed costs change; LTV < old LTV given same inputs | complete (bc053f6) |
+| P3 | Marketing inputs & CAC | CAC input, monthly ad budget, Telegram CPM + funnel conversion, referral-as-signups, win-back effect; strength-tier technique effects | Toggling CAC/budget changes signup count and payback; referral moves signups not conversion; effects show in KPI summary | complete (bc053f6) |
+| P4 | AI cost realism | Model-choice dropdown (cheap/mid/strong), tokens/call, cache-saving %, annual cost-decline %; default $0.0003 | Cost-per-call table matches Section 3.3 within ±20%; declining-cost scenario lowers AI cost over time | complete (bc053f6) |
+| P5 | Defaults reality-check | Apply Section 4 defaults (conversion 3/1.5/6, FX 192k, renewal factor, involuntary churn, gateway fee, VAT) | With defaults, model shows realistic loss/lean-profit trajectory for a 2,000-MAU start; KPI tips visible | complete (bc053f6) |
+| P6 | Cash view & KPIs | Cumulative cash, runway, CAC payback, MRR/ARR, D30 retention, tornado sensitivity | All new KPIs present and update with inputs; tornado ranks conversion & churn as top drivers | complete (bc053f6) |
 
 **Progress routing rule:** after each phase ships, update this table's Status,
 update `project_status.json` if a phase or decision lock changed, regenerate the
