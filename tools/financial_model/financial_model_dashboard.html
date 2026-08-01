@@ -37,7 +37,7 @@
   <style>
     body { background-color: #FAF8F4; color: #101828; -webkit-tap-highlight-color: transparent; }
     * { box-sizing: border-box; }
-    [v-cloak] { display: none; }
+    [v-cloak] { display: none !important; }
 
     .hz-slider {
       -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px;
@@ -890,7 +890,7 @@
             const aiCalls = (F * params.freeCallsPerDay + B * params.bronzeCallsPerDay + S * params.silverCallsPerDay + G * params.goldCallsPerDay + E * params.emeraldCallsPerDay) * params.periodDays;
             const aiCostToman = Math.round(aiCalls * params.aiCostPerCallUSD * params.exchangeRate);
             const currentTotal = F + B + S + G + E;
-            const newSignups = currentTotal * (params.acquisitionRate / 100) * Math.pow(1 + (growthRate * (1 + signupBoost / 100)) / 100, t);
+            const newSignups = currentTotal * (params.acquisitionRate / 100) * Math.pow(1 + (growthRate + signupBoost) / 100, t);
             const trialCACToman = Math.round(newSignups * trialEligibleShare * trialCostPerUser);
             const netProfit = Math.round(revenue - aiCostToman - trialCACToman);
             const total = F + B + S + G + E;
