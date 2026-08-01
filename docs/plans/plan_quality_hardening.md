@@ -129,6 +129,6 @@ Each WP is a single logical commit/PR following `AGENTS.md` workflow (contract l
 | WP1 | Bulletproof test-DB guard | #237 | pass | ✅ |
 | WP2 | Dead-ref guard, DoD, migration tests | — | — | ☐ |
 | WP3 | Smoke test + runbook | — | — | ☐ |
-| WP4 | AGENTS.md amendments | #238 | — | ☐ |
+| WP4 | AGENTS.md amendments | #238 | pass | ✅ |
 | WP5 | Debt sweep + hygiene | — | — | ☐ |
 | WP6 | State-isolation + vulture | — | — | ☐ |
