@@ -185,10 +185,42 @@
           <number-field label="نرخ دلار به تومان" v-model="inp.exchangeRate" :min="50000" :max="300000" :step="1000" unit="تومان"></number-field>
         </section-card>
 
+        <section-card title="مدل AI و هزینه واقعی" en="AI Model & Cost" icon="cpu">
+          <div class="mb-4">
+            <div class="text-[12px] font-bold text-inkSoft mb-1.5">انتخاب مدل</div>
+            <div class="flex bg-paper p-1 rounded-xl text-[11px] font-medium border border-line">
+              <button @click="inp.modelChoice = 'cheap'" :class="inp.modelChoice === 'cheap' ? 'bg-white shadow text-turquoiseDeep border border-line/50' : 'text-inkSoft'" class="flex-1 py-2 rounded-lg transition">اقتصادی</button>
+              <button @click="inp.modelChoice = 'mid'" :class="inp.modelChoice === 'mid' ? 'bg-white shadow text-turquoiseDeep border border-line/50' : 'text-inkSoft'" class="flex-1 py-2 rounded-lg transition">متوسط</button>
+              <button @click="inp.modelChoice = 'strong'" :class="inp.modelChoice === 'strong' ? 'bg-white shadow text-turquoiseDeep border border-line/50' : 'text-inkSoft'" class="flex-1 py-2 rounded-lg transition">قوی</button>
+            </div>
+            <div class="text-[10px] opacity-60 mt-1.5 leading-relaxed">اقتصادی ≈ Flash-Lite/nano/DeepSeek؛ متوسط ≈ GPT-4.1-mini/Gemini Flash؛ قوی ≈ Claude Haiku 4.5/GPT-5.</div>
+          </div>
+          <number-field label="توکن ورودی هر فراخوانی" v-model="inp.inputTokensPerCall" :min="200" :max="2000" :step="50" unit="توکن"></number-field>
+          <number-field label="توکن خروجی هر فراخوانی" v-model="inp.outputTokensPerCall" :min="50" :max="600" :step="10" unit="توکن"></number-field>
+          <number-field label="صرفه‌جویی کش پرامپت" en="Cache Saving" v-model="inp.cacheSavingPct" :min="0" :max="90" :step="5" unit="٪"></number-field>
+          <number-field label="کاهش سالانه هزینه AI" en="Annual Decline" v-model="inp.annualCostDeclinePct" :min="0" :max="70" :step="5" unit="٪"></number-field>
+          <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-turquoiseSoft/40 text-turquoiseDeep font-bold rounded-xl mt-2 border border-turquoiseSoft">
+            <span>قیمت مؤثر هر فراخوانی (با کش)</span>
+            <span dir="ltr">${{ format(aiCallPriceUSD, 5) }}</span>
+          </div>
+        </section-card>
+
+        <section-card title="هزینه‌های مالی و ثابت" en="Financial & Fixed Costs" icon="landmark" :default-open="false">
+          <number-field label="کارمزد درگاه پرداخت" en="Payment Fee" v-model="inp.paymentFeePct" :min="0" :max="6" :step="0.1" unit="٪"></number-field>
+          <number-field label="مالیات بر ارزش افزوده" en="VAT" v-model="inp.vatPct" :min="0" :max="20" :step="1" unit="٪"></number-field>
+          <hr class="my-3 border-dashed border-line">
+          <number-field label="هزینه ثابت ماهانه (هاست/حقوق)" en="Fixed Opex" v-model="inp.fixedOpexMonthly" :min="0" :max="500000000" :step="1000000" unit="تومان"></number-field>
+          <number-field label="بودجه تبلیغات ماهانه" en="Ad Budget" v-model="inp.monthlyAdBudget" :min="0" :max="200000000" :step="500000" unit="تومان"></number-field>
+          <number-field label="CAC هر کاربر جدید" en="CAC / New User" v-model="inp.cacPerNewUser" :min="0" :max="5000000" :step="10000" unit="تومان"></number-field>
+          <number-field label="سهم ثبت‌نام‌های ارجاعی" en="Referral Share" v-model="inp.referralShareOfSignups" :min="0" :max="50" :step="1" unit="٪"></number-field>
+        </section-card>
+
         <section-card title="رشد و ریزش" en="Growth & Churn" icon="trending-up" :default-open="false">
           <number-field label="تعداد ماه‌های پیش‌بینی" v-model="inp.projectionMonths" :min="3" :max="36" :step="1" unit="ماه"></number-field>
           <number-field label="نرخ ریزش ماهانهٔ کاربران پولی" v-model="inp.paidChurnRate" :min="1" :max="30" :step="0.5" unit="٪"></number-field>
           <number-field label="نرخ ریزش ماهانهٔ کاربران رایگان" v-model="inp.freeChurnRate" :min="3" :max="25" :step="0.5" unit="٪"></number-field>
+          <number-field label="ریزش غیرارادی (پیش‌پرداخت/نبود خودکار)" en="Involuntary Churn" v-model="inp.involuntaryChurnPct" :min="0" :max="30" :step="1" unit="٪"></number-field>
+          <number-field label="بازقیمت‌گذاری سالانه" en="Annual Price Increase" v-model="inp.annualPriceIncreasePct" :min="0" :max="60" :step="1" unit="٪"></number-field>
           <number-field label="نرخ جذب ماهانه (٪ از کل کاربران)" en="Acquisition Rate" v-model="inp.acquisitionRate" :min="0" :max="25" :step="0.5" unit="٪"></number-field>
           <hr class="my-3 border-dashed border-line">
           <div class="text-[11px] font-bold text-inkSoft mb-2">نرخ تبدیل به پولی و رشد کاربر جدید — به تفکیک سناریو</div>
@@ -210,14 +242,26 @@
       <!-- ===== DASHBOARD COLUMN ===== -->
       <div v-show="activeTab === 'dashboard' || (isDesktop && activeTab === 'inputs')" class="flex flex-col gap-6 min-w-0">
         <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
-          <kpi-card title="سود خالص ماهانه" en="Net Profit" icon="wallet" :tone="m1.netProfit >= 0 ? 'emerald' : 'rose'" :value="m1.netProfit" type="toman" sub="درآمد منهای هزینه AI"></kpi-card>
-          <kpi-card title="حاشیه سود" en="Profit Margin" icon="percent" :tone="m1.margin >= 0 ? 'turquoise' : 'rose'" :value="m1.margin" type="percent" sub="سود تقسیم بر درآمد کل"></kpi-card>
-          <kpi-card title="LTV کاربران پولی" en="Avg. LTV" icon="users" tone="indigo" :value="avgLTV" type="toman" sub="ارزش طول عمر بر اساس ریزش"></kpi-card>
-          <kpi-card title="نقطه سر‌به‌سر" en="Break-even" icon="piggy-bank" tone="amber" :value="breakEvenUsers" type="number" sub="کاربر پولی برای جبران هزینه"></kpi-card>
-          <kpi-card title="درآمد کل (MRR)" en="Revenue" icon="trending-up" tone="emerald" :value="m1.revenue" type="toman" sub="فقط کاربران پولی"></kpi-card>
-          <kpi-card title="هزینه کل AI" en="Total AI Cost" icon="wallet" tone="rose" :value="m1.aiCostToman" type="toman" :sub="'$' + format(m1.aiCostUSD, 1)"></kpi-card>
+          <kpi-card title="سود خالص ماهانه" en="Net Profit" icon="wallet" :tone="m1.netProfit >= 0 ? 'emerald' : 'rose'" :value="m1.netProfit" type="toman" sub="درآمد خالص - هزینه AI - CAC - هزینه ثابت"></kpi-card>
+          <kpi-card title="حاشیه سود" en="Profit Margin" icon="percent" :tone="m1.margin >= 0 ? 'turquoise' : 'rose'" :value="m1.margin" type="percent" sub="سود خالص تقسیم بر درآمد خالص"></kpi-card>
+          <kpi-card title="LTV کاربران پولی" en="Avg. LTV" icon="users" tone="indigo" :value="avgLTV" type="toman" sub="حاشیه مشارکت تقسیم بر ریزش مؤثر"></kpi-card>
+          <kpi-card title="نقطه سر‌به‌سر" en="Break-even" icon="piggy-bank" tone="amber" :value="breakEvenUsers" type="number" sub="کاربر پولی برای پوشش هزینهٔ ثابت"></kpi-card>
+          <kpi-card title="درآمد خالص (MRR)" en="Net Revenue" icon="trending-up" tone="emerald" :value="m1.netRevenue" type="toman" sub="بعد از کارمزد درگاه و VAT"></kpi-card>
+          <kpi-card title="هزینه کل AI" en="Total AI Cost" icon="wallet" tone="rose" :value="m1.aiCostToman" type="toman" :sub="'$' + format(m1.aiCostUSD, 2)"></kpi-card>
           <kpi-card title="هزینه AI هر کاربر رایگان" en="Cost / Free User" icon="users" tone="rose" :value="costFreeUser" type="toman" sub="در ماه"></kpi-card>
           <kpi-card :title="'سود خالص در ماه ' + inp.projectionMonths" en="Future Profit" icon="line-chart" :tone="mLast.netProfit >= 0 ? 'emerald' : 'rose'" :value="mLast.netProfit" type="toman"></kpi-card>
+        </div>
+
+        <!-- ===== P6: نقدینگی و شاخص‌های تکمیلی ===== -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+          <kpi-card title="نقدینگی تجمعی (ماه آخر)" en="Cumulative Cash" icon="landmark" :tone="cumulativeCash >= 0 ? 'emerald' : 'rose'" :value="cumulativeCash" type="toman" sub="مجموع سود/زیان ماه‌به‌ماه"></kpi-card>
+          <kpi-card title="Runway (باند سوخت)" en="Runway" icon="timer" :tone="runwayMonths === Infinity || runwayMonths >= 12 ? 'emerald' : 'rose'" :value="runwayMonths === Infinity ? '∞' : Math.round(runwayMonths)" type="number" sub="ماه تا پایان نقدینگی"></kpi-card>
+          <kpi-card title="بازپرداخت CAC" en="CAC Payback" icon="refresh-ccw" tone="turquoise" :value="cacPaybackMonths" type="number" sub="ماه تا بازگشت هزینهٔ جذب"></kpi-card>
+          <kpi-card title="نگه‌داشت ماهانه (D30)" en="D30 Retention" icon="heart-handshake" tone="indigo" :value="d30RetentionPct" type="percent" sub="بر اساس ریزش مؤثر پولی"></kpi-card>
+          <kpi-card title="درآمد سالانه (ARR)" en="ARR" icon="calendar" tone="emerald" :value="arrToman" type="toman" sub="MRR × 12"></kpi-card>
+          <kpi-card title="حاشیه مشارکت هر کاربر پولی" en="Contribution / Paid User" icon="coffee" tone="amber" :value="contributionPerPaidUser" type="toman" sub="درآمد - هزینه AI - مالیات/کارمزد"></kpi-card>
+          <kpi-card title="ریزش مؤثر پولی" en="Effective Paid Churn" icon="arrow-down-right" :tone="effPaidChurnPct <= 15 ? 'emerald' : 'rose'" :value="effPaidChurnPct" type="percent" sub="اختیاری + غیرارادی - اثر تکنیک‌ها"></kpi-card>
+          <kpi-card title="امتیاز سلامت مدل" en="Model Health" icon="activity" :tone="healthScore >= 60 ? 'emerald' : (healthScore >= 30 ? 'amber' : 'rose')" :value="healthScore" type="number" sub="از ۱۰۰"></kpi-card>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -279,9 +323,10 @@
                   <th class="p-3 text-gold">طلایی</th>
                   <th class="p-3 text-emerald">زمرد</th>
                   <th class="p-3 font-bold border-r border-line/50">کل کاربران</th>
-                  <th class="p-3 border-r border-line/50">درآمد کل</th>
+                  <th class="p-3 border-r border-line/50">درآمد خالص</th>
                   <th class="p-3">هزینه AI</th>
-                  <th class="p-3">CAC تریال</th>
+                  <th class="p-3">CAC</th>
+                  <th class="p-3">هزینه ثابت</th>
                   <th class="p-3 font-bold rounded-tl-lg">سود خالص</th>
                 </tr>
               </thead>
@@ -299,14 +344,36 @@
                       ({{ row.total >= baseSeries[idx-1].total ? '+' : '' }}{{ format(row.total - baseSeries[idx-1].total) }})
                     </span>
                   </td>
-                  <td class="p-3 font-medium text-emerald border-r border-line/50">{{ format(row.revenue) }} تومان</td>
+                  <td class="p-3 font-medium text-emerald border-r border-line/50">{{ format(row.netRevenue) }} تومان</td>
                   <td class="p-3 font-medium text-rose">{{ format(row.aiCostToman) }} تومان</td>
-                  <td class="p-3 font-medium text-rose">{{ format(row.trialCACToman) }} تومان</td>
+                  <td class="p-3 font-medium text-rose">{{ format(row.cacToman + row.trialCACToman) }} تومان</td>
+                  <td class="p-3 font-medium text-amber">{{ format(row.fixedToman) }} تومان</td>
                   <td class="p-3 font-extrabold" :class="row.netProfit >= 0 ? 'text-emerald' : 'text-rose'" dir="ltr"><span dir="rtl">{{ format(row.netProfit) }} تومان</span></td>
                 </tr>
               </tbody>
             </table>
           </div>
+        </div>
+
+        <!-- ===== P6: حساسیت (تورنادو) ===== -->
+        <div class="bg-card border border-line rounded-2xl p-5 shadow-sm">
+          <div class="mb-4 flex items-center justify-between">
+            <div class="text-[13px] font-bold text-ink flex items-center gap-2">
+              <i data-lucide="wind" class="w-4 h-4 text-turquoiseDeep"></i>
+              حساسیت سود خالص به محرک‌ها (تأثیر +۱۰٪)
+            </div>
+            <span class="text-[10px] opacity-50">بر مبنای ماه آخر</span>
+          </div>
+          <div class="flex flex-col gap-2">
+            <div v-for="s in sensitivity" :key="s.key" class="flex items-center gap-3 text-[11px]">
+              <span class="w-28 flex-shrink-0 font-bold text-inkSoft">{{ s.label }}</span>
+              <div class="flex-1 h-2 rounded-full bg-paper border border-line overflow-hidden">
+                <div class="h-full rounded-full transition-all" :class="s.up >= 0 ? 'bg-emerald' : 'bg-rose'" :style="{ width: Math.min(100, Math.abs(s.up)) + '%' }"></div>
+              </div>
+              <span dir="ltr" class="w-16 text-right font-bold" :class="s.up >= 0 ? 'text-emerald' : 'text-rose'">{{ format(s.up, 1) }}٪</span>
+            </div>
+          </div>
+          <p class="text-[10px] opacity-50 mt-3 leading-relaxed">افزایش ۱۰٪ی هر محرک چه تغییری در سود خالص ماه آخر ایجاد می‌کند؛ میله‌های بلندتر یعنی حساسیت بیشتر.</p>
         </div>
       </div>
 
@@ -325,6 +392,8 @@
             <div class="px-3 py-1.5 rounded-lg bg-white/70 text-indigo-900">کاهش ریزش فعال: <span dir="ltr">-{{ format(totalChurnReduction,1) }}٪</span></div>
             <div class="px-3 py-1.5 rounded-lg bg-white/70 text-indigo-900">تقویت رشد ثبت‌نام: <span dir="ltr">+{{ format(totalSignupBoost,1) }}٪</span></div>
             <div class="px-3 py-1.5 rounded-lg bg-rose/10 text-rose">هزینهٔ CAC تریال (ماه ۱): <span dir="ltr">{{ format(trialCACToman) }} تومان</span></div>
+            <div class="px-3 py-1.5 rounded-lg bg-rose/10 text-rose">CAC جذب ماهانه: <span dir="ltr">{{ format(m1.cacToman) }} تومان</span></div>
+            <div class="px-3 py-1.5 rounded-lg bg-turquoise/10 text-turquoiseDeep">سهم ارجاعی از ثبت‌نام‌ها: <span dir="ltr">{{ inp.referralShareOfSignups }}٪</span></div>
             <button @click="openAddTechnique" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors inline-flex items-center gap-1.5">
               <i data-lucide="plus" class="w-3.5 h-3.5"></i> افزودن تکنیک
             </button>
@@ -418,11 +487,11 @@
             </div>
             <div class="bg-paper p-3 rounded-xl border border-line">
               <strong class="text-ink block mb-1">ارزش طول عمر (LTV):</strong>
-              نشان می‌دهد یک کاربر پولی قبل از اینکه ریزش کند، در مجموع چند تومان سود خالص برای شما دارد.
+              نشان می‌دهد یک کاربر پولی قبل از اینکه ریزش کند، در مجموع چند تومان حاشیهٔ مشارکت برای شما دارد. حاشیهٔ مشارکت = درآمد خالص (بعد از کارمزد درگاه و VAT) منهای هزینهٔ AI و سهم‌ها.
             </div>
             <div class="bg-paper p-3 rounded-xl border border-line">
               <strong class="text-ink block mb-1">نقطه سر‌به‌سر (Break-even):</strong>
-              حداقل تعداد مشترک پولی که نیاز دارید تا هزینه سرور و AI کاربرانی که رایگان استفاده می‌کنند جبران شود.
+              حداقل تعداد مشترک پولی که برای پوشش هزینه‌های ثابت ماهانه (هاست، حقوق، تبلیغات) لازم دارید؛ بر اساس حاشیهٔ مشارکت هر کاربر پولی.
             </div>
             <div class="bg-paper p-3 rounded-xl border border-line">
               <strong class="text-ink block mb-1">تکنیک‌های بازاریابی (تب بازاریابی):</strong>
@@ -607,12 +676,19 @@
       gold: "#EAB308", bronze: "#CD7F32"
     };
 
+    // قیمت مدل‌های LLM (دلار به ازای ۱ میلیون توکن ورودی/خروجی) — ژوئن ۲۰۲۶
+    const MODEL_PRICING = {
+      cheap: { label: 'اقتصادی', in: 0.10, out: 0.40 },     // Gemini Flash-Lite / GPT-nano / DeepSeek / Qwen
+      mid: { label: 'متوسط', in: 0.40, out: 1.60 },          // GPT-4.1-mini / Gemini 2.5 Flash
+      strong: { label: 'قوی', in: 3.00, out: 15.00 }         // Claude Haiku 4.5 / GPT-5
+    };
+
     const DEFAULTS = {
       inputMode: 'conversion',
       mau: 2000,
-      convBase: 5.0,
-      convPessimistic: 2.0,
-      convOptimistic: 9.0,
+      convBase: 3.0,
+      convPessimistic: 1.5,
+      convOptimistic: 6.0,
       bronzeShare: 40,
       silverShare: 35,
       goldShare: 15,
@@ -625,8 +701,7 @@
       silverPrice: 199000,
       goldPrice: 359000,
       emeraldPrice: 499000,
-      exchangeRate: 195000,
-      aiCostPerCallUSD: 0.00045,
+      exchangeRate: 192000,
       freeCallsPerDay: 3,
       bronzeCallsPerDay: 4,
       silverCallsPerDay: 7,
@@ -641,8 +716,22 @@
       signupGrowthRateBase: 4,
       signupGrowthRatePessimistic: 1.5,
       signupGrowthRateOptimistic: 7,
-      convPessimistic: 2.0,
-      convOptimistic: 9.0,
+      // --- هزینه‌های مالی و ثابت (P&L واقعی) ---
+      paymentFeePct: 1.5,         // کارمزد درگاه (زیبال ~۱٪، زرین‌پال ~۰.۵٪، بین‌المللی ۳–۵٪)
+      vatPct: 10,                 // ارزش افزودهٔ خدمات دیجیتال (آستانهٔ ۰٪ برای آموزش، حساسیت)
+      fixedOpexMonthly: 0,        // هزینه ثابت ماهانه: هاست، نگه‌داری، حقوق (تومان)
+      cacPerNewUser: 100000,      // هزینه جذب هر کاربر رایگان جدید (تومان؛ ~$0.5 — پایینِ بازهٔ ارجاعی برای تلگرام ارگانیک)
+      monthlyAdBudget: 0,         // بودجه تبلیغات ماهانه (تومان)
+      referralShareOfSignups: 10, // ٪ ثبت‌نام‌های ارجاعی (CAC نزدیک صفر)
+      involuntaryChurnPct: 10,    // ریزش غیرارادی به‌خاطر پیش‌پرداخت/نبود خودپرداخت خودکار
+      annualPriceIncreasePct: 25, // بازقیمت‌گذاری سالانه در نوروز (فیلیمو +۲۰٪، فیلما +۲۶٪)
+      // --- مدل AI (انتخاب مدل، توکن، کش و کاهش سالانه هزینه) ---
+      modelChoice: 'mid',         // cheap | mid | strong
+      inputTokensPerCall: 700,
+      outputTokensPerCall: 120,
+      cacheSavingPct: 40,         // صرفه‌جویی کش پرامپت (۵۰–۹۰٪ تخفیف ورودی، ~۴۰٪ کل)
+      annualCostDeclinePct: 40,   // کاهش سالانه قیمت AI (~۱۰x در سال برای هم‌کیفیت)
+      aiCostPerCallUSD: 0.0003,   // معادل محاسبه‌شده (mid + کش ۴۰٪) برای سازگاری با داده ذخیره‌شده
       notes: {
         free: "پیش‌نمایش + ۳ فراخوانی + محدودیت زمانی در دسترسی به TTS",
         bronze: "محافظ استریک + تلفظ صوتی (TTS) نامحدود + گزارش پیشرفت + مرور معکوس",
@@ -660,7 +749,7 @@
         {
           id: 'reverseTrial', title: 'تریال معکوس ۳ روزه (فقط کاربران فعال)', icon: 'timer', enabled: true,
           desc: 'ورود کاربر جدیدِ «پرتلاش» (فعالیت بالا در روزهای اول) = ۳ روز پلن طلایی رایگان؛ روز چهارم به رایگان سقوط می‌کند. چون فقط زیرمجموعه‌ای از کاربران رایگان مشمول‌اند، سهم واجدین شرط را دقیق تعریف می‌کنیم تا هزینهٔ AI آن (CAC) واقعی بماند.',
-          effectType: 'conversion', effect: 1.8, min: 0, max: 4, step: 0.1,
+          effectType: 'conversion', effect: 2.5, min: 0, max: 4, step: 0.1,
           eligibleShare: 15, eligibleMin: 5, eligibleMax: 30, trialDays: 3
         },
         {
@@ -671,7 +760,7 @@
         {
           id: 'capacityWall', title: 'دیوار پرداخت ظرفیتی (سقف FSRS)', icon: 'brain-circuit', enabled: true,
           desc: 'کاربر رایگان به ۲۰۰ کلمهٔ تثبیت‌شده می‌رسد؛ مرور قبلی رایگان می‌ماند اما افزودن کلمهٔ جدید نیاز به برنز دارد.',
-          effectType: 'conversion', effect: 1.5, min: 0, max: 3, step: 0.1
+          effectType: 'conversion', effect: 2.5, min: 0, max: 4, step: 0.1
         },
         {
           id: 'streakMilestone', title: 'پاداش استریک و بیش‌فروشی', icon: 'gift', enabled: true,
@@ -725,6 +814,12 @@
           if ('newUsersMonth1' in d) delete d.newUsersMonth1;
           if (typeof d.acquisitionRate !== 'number') d.acquisitionRate = DEFAULTS.acquisitionRate;
           if (!Array.isArray(d.marketingTechniques)) d.marketingTechniques = DEFAULTS.marketingTechniques;
+          // پشتیبان‌گیری از فیلدهای جدید (کاربرانی که دادهٔ قدیمی دارند)
+          const numericExtra = ['paymentFeePct','vatPct','fixedOpexMonthly','cacPerNewUser','monthlyAdBudget',
+            'referralShareOfSignups','involuntaryChurnPct','annualPriceIncreasePct',
+            'inputTokensPerCall','outputTokensPerCall','cacheSavingPct','annualCostDeclinePct'];
+          for (const k of numericExtra) if (typeof d[k] !== 'number') d[k] = DEFAULTS[k];
+          if (typeof d.modelChoice !== 'string') d.modelChoice = DEFAULTS.modelChoice;
           return d;
         };
 
@@ -820,12 +915,16 @@
 
         // هزینهٔ CAC تریال معکوس: مجموع سهم کاربرانِ «واجد شرط» از کاربران جدیدِ هر ماه در همهٔ تکنیک‌های تریالی فعال
         const getTrialCACPerNewUser = (params) => {
+          // قیمت مؤثر هر فراخوانی با کش (همانند computeSeries) برای انسجام بین تریال و مدل اصلی
+          const mPricing = MODEL_PRICING[params.modelChoice] || MODEL_PRICING.mid;
+          const cacheFactor = 1 - (params.cacheSavingPct || 0) / 100;
+          const effectiveCallUSD = ((params.inputTokensPerCall || 700) * mPricing.in + (params.outputTokensPerCall || 120) * mPricing.out) / 1e6 * cacheFactor;
           let costWeightedSum = 0, shareSum = 0;
           (params.marketingTechniques || []).forEach(t => {
             if (!t.enabled || t.eligibleShare === undefined) return;
             const days = Math.max(1, Number(t.trialDays) || 3);
             const share = Math.max(0, Number(t.eligibleShare) || 0) / 100;
-            const costPerUser = days * params.goldCallsPerDay * params.aiCostPerCallUSD * params.exchangeRate;
+            const costPerUser = days * params.goldCallsPerDay * effectiveCallUSD * params.exchangeRate;
             costWeightedSum += costPerUser * share;
             shareSum += share;
           });
@@ -836,7 +935,7 @@
         // --- CRUD تکنیک‌های بازاریابی ---
         const iconOptions = ['flame', 'timer', 'sparkles', 'gift', 'brain-circuit', 'trending-down', 'users-round', 'hourglass', 'rotate-ccw', 'user-plus', 'anchor', 'rocket', 'megaphone', 'target', 'zap', 'hand-coins', 'party-popper', 'heart', 'star'];
         const boundsByType = {
-          conversion: { min: 0, max: 3, step: 0.1 },
+          conversion: { min: 0, max: 4, step: 0.1 },
           churn_reduction: { min: 0, max: 3, step: 0.1 },
           signup_boost: { min: 0, max: 5, step: 0.1 }
         };
@@ -925,35 +1024,73 @@
           }
           const { convBoost, churnReduction, signupBoost } = getMarketingEffects(params);
           const effConvRate = Math.max(0, convRate + convBoost);
-          const effPaidChurn = Math.max(0, params.paidChurnRate - churnReduction);
+          // ریزش مؤثر پولی = ریزش اختیاری + ریزش غیرارادی (پیش‌پرداخت/نبود خودکار) منهای اثر تکنیک‌ها
+          const effPaidChurn = Math.max(0, (params.paidChurnRate || 7.8) + (params.involuntaryChurnPct || 0) - churnReduction);
           const { costPerUser: trialCostPerUser, eligibleShare: trialEligibleShare } = getTrialCACPerNewUser(params);
+          const mPricing = MODEL_PRICING[params.modelChoice] || MODEL_PRICING.mid;
+          const rawCallUSD = ((params.inputTokensPerCall || 700) * mPricing.in + (params.outputTokensPerCall || 120) * mPricing.out) / 1e6;
+          // صرفه‌جویی کش و کاهش سالانهٔ هزینه — ماهانه به‌صورت نمایی اعمال می‌شود
+          const cacheFactor = 1 - (params.cacheSavingPct || 0) / 100;
+          const annualDecline = (params.annualCostDeclinePct || 0) / 100;
+          const renewal = (params.annualPriceIncreasePct || 0) / 100;
+          const feePct = (params.paymentFeePct || 0) / 100;
+          const vatPct = (params.vatPct || 0) / 100;
+          const fixedOpex = (params.fixedOpexMonthly || 0);
+          const adBudget = (params.monthlyAdBudget || 0);
+          const cacPerNewUser = (params.cacPerNewUser || 0);
+          const referralShare = (params.referralShareOfSignups || 0) / 100;
 
           const rows = [];
           for (let t = 0; t < params.projectionMonths; t++) {
-            const revenue = Math.round(B * params.bronzePrice + S * params.silverPrice + G * params.goldPrice + E * params.emeraldPrice);
-            const aiCalls = (F * params.freeCallsPerDay + B * params.bronzeCallsPerDay + S * params.silverCallsPerDay + G * params.goldCallsPerDay + E * params.emeraldCallsPerDay) * params.periodDays;
-            const aiCostToman = Math.round(aiCalls * params.aiCostPerCallUSD * params.exchangeRate);
-            const currentTotal = F + B + S + G + E;
+            // بازقیمت‌گذاری سالانه: از سال دوم، قیمت‌ها طبق ضریب تجدید می‌شوند
+            const priceIdx = Math.pow(1 + renewal, Math.floor(t / 12));
+            const bp = params.bronzePrice * priceIdx;
+            const sp = params.silverPrice * priceIdx;
+            const gp = params.goldPrice * priceIdx;
+            const ep = params.emeraldPrice * priceIdx;
+            const aiCallPrice = rawCallUSD * cacheFactor * Math.pow(1 - annualDecline, t / 12);
+
+            // --- نقطه شروع ماه: پایهٔ همان ماه (پیش از ورودی‌های جدید این ماه) ---
+            const F_start = F, B_start = B, S_start = S, G_start = G, E_start = E;
+            const grossRevenue = B_start * bp + S_start * sp + G_start * gp + E_start * ep;
+            const feeToman = Math.round(grossRevenue * feePct);
+            const vatToman = Math.round(grossRevenue * vatPct);
+            const netRevenue = grossRevenue - feeToman - vatToman;
+
+            const aiCalls = (F_start * params.freeCallsPerDay + B_start * params.bronzeCallsPerDay + S_start * params.silverCallsPerDay + G_start * params.goldCallsPerDay + E_start * params.emeraldCallsPerDay) * params.periodDays;
+            const aiCostToman = Math.round(aiCalls * aiCallPrice * params.exchangeRate);
+            const currentTotal = F_start + B_start + S_start + G_start + E_start;
+            // ثبت‌نام‌های جدید ماه (پایهٔ ماه قبل + رشد نمایی) — ورودی همین ماه، تبدیل از ماه بعد
             const newSignups = currentTotal * (params.acquisitionRate / 100) * Math.pow(1 + (growthRate + signupBoost) / 100, t);
+            const cacToman = Math.round(newSignups * cacPerNewUser * (1 - referralShare));
             const trialCACToman = Math.round(newSignups * trialEligibleShare * trialCostPerUser);
-            const netProfit = Math.round(revenue - aiCostToman - trialCACToman);
-            const total = F + B + S + G + E;
+
+            // حاشیه مشارکت = درآمد خالص - هزینه AI - CAC تریال - CAC جذب؛ سود خالص = حاشیه - هزینه ثابت
+            const contributionMargin = Math.round(netRevenue - aiCostToman - trialCACToman - cacToman);
+            const fixedToman = fixedOpex + adBudget;
+            const netProfit = contributionMargin - fixedToman;
+            const total = F_start + B_start + S_start + G_start + E_start;
             rows.push({
-              month: t + 1, free: Math.round(F), bronze: Math.round(B), silver: Math.round(S), gold: Math.round(G), emerald: Math.round(E), total: Math.round(total),
+              month: t + 1, free: Math.round(F_start), bronze: Math.round(B_start), silver: Math.round(S_start), gold: Math.round(G_start), emerald: Math.round(E_start), total: Math.round(total),
               newSignups: Math.round(newSignups),
-              revenue, aiCostUSD: aiCalls * params.aiCostPerCallUSD, aiCostToman, trialCACToman, netProfit, margin: revenue > 0 ? (netProfit / revenue) * 100 : 0
+              grossRevenue: Math.round(grossRevenue), netRevenue, feeToman, vatToman,
+              aiCostToman, aiCostUSD: aiCalls * aiCallPrice, cacToman, trialCACToman, fixedToman,
+              contributionMargin, netProfit, margin: netRevenue > 0 ? (netProfit / netRevenue) * 100 : 0
             });
-            const monthlyUpgrades = F * (effConvRate / 100);
-            const freeChurn = F * (params.freeChurnRate / 100);
-            const bronzeChurn = B * (effPaidChurn / 100);
-            const silverChurn = S * (effPaidChurn / 100);
-            const goldChurn = G * (effPaidChurn / 100);
-            const emeraldChurn = E * (effPaidChurn / 100);
-            F = Math.max(0, F + newSignups - monthlyUpgrades - freeChurn);
-            B = Math.max(0, B + monthlyUpgrades * (params.bronzeShare / 100) - bronzeChurn);
-            S = Math.max(0, S + monthlyUpgrades * (params.silverShare / 100) - silverChurn);
-            G = Math.max(0, G + monthlyUpgrades * (params.goldShare / 100) - goldChurn);
-            E = Math.max(0, E + monthlyUpgrades * (Math.max(0, 100 - params.bronzeShare - params.silverShare - params.goldShare) / 100) - emeraldChurn);
+            // --- ورودی جدید ماه جاری، فقط به رایگان اضافه می‌شود ---
+            // تبدیل (upgrade) از پایهٔ ماه جاری محاسبه می‌شود؛ کاربران جدیدِ این ماه از ماه بعد تبدیل می‌شوند
+            const monthlyUpgrades = F_start * (effConvRate / 100);
+            // ریزش روی پایهٔ شروع ماه (پیش از افزودن آپگریدها) اعمال می‌شود
+            const freeChurn = F_start * ((params.freeChurnRate || 10) / 100);
+            const bronzeChurn = B_start * (effPaidChurn / 100);
+            const silverChurn = S_start * (effPaidChurn / 100);
+            const goldChurn = G_start * (effPaidChurn / 100);
+            const emeraldChurn = E_start * (effPaidChurn / 100);
+            F = Math.max(0, F_start + newSignups - monthlyUpgrades - freeChurn);
+            B = Math.max(0, B_start + monthlyUpgrades * (params.bronzeShare / 100) - bronzeChurn);
+            S = Math.max(0, S_start + monthlyUpgrades * (params.silverShare / 100) - silverChurn);
+            G = Math.max(0, G_start + monthlyUpgrades * (params.goldShare / 100) - goldChurn);
+            E = Math.max(0, E_start + monthlyUpgrades * (Math.max(0, 100 - params.bronzeShare - params.silverShare - params.goldShare) / 100) - emeraldChurn);
           }
           return rows;
         };
@@ -969,30 +1106,126 @@
         const m1 = computed(() => baseSeries.value[0] || {});
         const mLast = computed(() => baseSeries.value[baseSeries.value.length - 1] || {});
 
-        const breakEvenUsers = computed(() => {
-          const paidUsers = (m1.value.bronze || 0) + (m1.value.silver || 0) + (m1.value.gold || 0) + (m1.value.emerald || 0);
-          const avgPrice = paidUsers > 0 ? m1.value.revenue / paidUsers : inp.value.silverPrice;
-          return avgPrice > 0 ? Math.round(m1.value.aiCostToman / avgPrice) : 0;
+        // قیمت مؤثر هر فراخوانی AI (با کش) — پایهٔ ماه اول
+        const aiCallPriceUSD = computed(() => {
+          const mPricing = MODEL_PRICING[inp.value.modelChoice] || MODEL_PRICING.mid;
+          const raw = ((inp.value.inputTokensPerCall || 700) * mPricing.in + (inp.value.outputTokensPerCall || 120) * mPricing.out) / 1e6;
+          return raw * (1 - (inp.value.cacheSavingPct || 0) / 100);
         });
 
-        const costFreeUser = computed(() => Math.round(inp.value.freeCallsPerDay * inp.value.periodDays * inp.value.aiCostPerCallUSD * inp.value.exchangeRate));
-        const costBronzeUser = computed(() => Math.round(inp.value.bronzeCallsPerDay * inp.value.periodDays * inp.value.aiCostPerCallUSD * inp.value.exchangeRate));
-        const costSilverUser = computed(() => Math.round(inp.value.silverCallsPerDay * inp.value.periodDays * inp.value.aiCostPerCallUSD * inp.value.exchangeRate));
-        const costGoldUser = computed(() => Math.round(inp.value.goldCallsPerDay * inp.value.periodDays * inp.value.aiCostPerCallUSD * inp.value.exchangeRate));
-        const costEmeraldUser = computed(() => Math.round(inp.value.emeraldCallsPerDay * inp.value.periodDays * inp.value.aiCostPerCallUSD * inp.value.exchangeRate));
+        // حاشیه مشارکت هر کاربر پولی (درآمد خالص - هزینهٔ AI - سهم مالیات/کارمزد) به تفکیک پلن
+        const perTierContribution = computed(() => {
+          const fx = inp.value.exchangeRate;
+          const feeVat = (inp.value.paymentFeePct || 0) / 100 + (inp.value.vatPct || 0) / 100;
+          const tiers = [
+            { n: m1.value.bronze || 0, p: inp.value.bronzePrice, c: inp.value.bronzeCallsPerDay },
+            { n: m1.value.silver || 0, p: inp.value.silverPrice, c: inp.value.silverCallsPerDay },
+            { n: m1.value.gold || 0, p: inp.value.goldPrice, c: inp.value.goldCallsPerDay },
+            { n: m1.value.emerald || 0, p: inp.value.emeraldPrice, c: inp.value.emeraldCallsPerDay }
+          ];
+          return tiers;
+        });
+
+        const paidUsersM1 = computed(() => (m1.value.bronze || 0) + (m1.value.silver || 0) + (m1.value.gold || 0) + (m1.value.emerald || 0));
+
+        // حاشیه مشارکت وزنی هر کاربر پولی (تومان در ماه)
+        const contributionPerPaidUser = computed(() => {
+          const fx = inp.value.exchangeRate;
+          const feeVat = (inp.value.paymentFeePct || 0) / 100 + (inp.value.vatPct || 0) / 100;
+          let totalN = 0, totalContribution = 0;
+          for (const tier of perTierContribution.value) {
+            if (tier.n <= 0) continue;
+            const aiPerUser = tier.c * inp.value.periodDays * aiCallPriceUSD.value * fx;
+            const contribution = tier.p * (1 - feeVat) - aiPerUser;
+            totalN += tier.n; totalContribution += contribution * tier.n;
+          }
+          return totalN > 0 ? totalContribution / totalN : 0;
+        });
+
+        const effPaidChurnPct = computed(() => Math.max(0, (inp.value.paidChurnRate || 0) + (inp.value.involuntaryChurnPct || 0) - totalChurnReduction.value));
+
+        // نقطهٔ سر‌به‌سر واقعی: کاربران پولی موردنیاز برای پوشش هزینه‌های ثابت
+        const breakEvenUsers = computed(() => {
+          const fixedMonthly = (inp.value.fixedOpexMonthly || 0) + (inp.value.monthlyAdBudget || 0);
+          const cpm = contributionPerPaidUser.value;
+          if (cpm <= 0) return Infinity;
+          return Math.ceil(fixedMonthly / cpm);
+        });
+
+        const costFreeUser = computed(() => Math.round(inp.value.freeCallsPerDay * inp.value.periodDays * aiCallPriceUSD.value * inp.value.exchangeRate));
+        const costBronzeUser = computed(() => Math.round(inp.value.bronzeCallsPerDay * inp.value.periodDays * aiCallPriceUSD.value * inp.value.exchangeRate));
+        const costSilverUser = computed(() => Math.round(inp.value.silverCallsPerDay * inp.value.periodDays * aiCallPriceUSD.value * inp.value.exchangeRate));
+        const costGoldUser = computed(() => Math.round(inp.value.goldCallsPerDay * inp.value.periodDays * aiCallPriceUSD.value * inp.value.exchangeRate));
+        const costEmeraldUser = computed(() => Math.round(inp.value.emeraldCallsPerDay * inp.value.periodDays * aiCallPriceUSD.value * inp.value.exchangeRate));
 
         const avgLTV = computed(() => {
-          const churn = inp.value.paidChurnRate / 100;
+          const churn = effPaidChurnPct.value / 100;
           if (churn === 0) return 0;
-          const paidTotal = (m1.value.bronze || 0) + (m1.value.silver || 0) + (m1.value.gold || 0) + (m1.value.emerald || 0);
-          if (paidTotal === 0) return 0;
-          const wMargin = ((inp.value.bronzePrice - costBronzeUser.value) * m1.value.bronze + (inp.value.silverPrice - costSilverUser.value) * m1.value.silver + (inp.value.goldPrice - costGoldUser.value) * m1.value.gold + (inp.value.emeraldPrice - costEmeraldUser.value) * m1.value.emerald) / paidTotal;
+          const wMargin = contributionPerPaidUser.value;
+          if (wMargin <= 0) return 0;
           return Math.round(wMargin / churn);
+        });
+
+        // --- P6: دید نقدینگی و KPIهای تکمیلی ---
+        const cashSeries = computed(() => {
+          let cum = 0;
+          return baseSeries.value.map(r => (cum += r.netProfit));
+        });
+        const cumulativeCash = computed(() => cashSeries.value.length ? cashSeries.value[cashSeries.value.length - 1] : 0);
+        const monthlyBurn = computed(() => Math.abs(Math.min(0, m1.value.netProfit)));
+        const runwayMonths = computed(() => {
+          const cash = cumulativeCash.value;
+          if (cash >= 0) return Infinity;
+          const burn = monthlyBurn.value;
+          return burn > 0 ? Math.abs(cash) / burn : Infinity;
+        });
+        const arrToman = computed(() => m1.value.netRevenue * 12);
+        const cacPaybackMonths = computed(() => {
+          const cac = inp.value.cacPerNewUser || 0;
+          const cpm = contributionPerPaidUser.value;
+          if (cac <= 0 || cpm <= 0) return 0;
+          return cac / cpm;
+        });
+        const d30RetentionPct = computed(() => Math.max(0, 100 - effPaidChurnPct.value));
+        // امتیاز سلامت مدل: مجموع شاخص‌های کلیدی
+        const healthScore = computed(() => {
+          let s = 0;
+          if ((m1.value.margin || 0) >= 10) s += 20;
+          else if ((m1.value.margin || 0) >= 0) s += 10;
+          if (avgLTV.value > 0 && (inp.value.cacPerNewUser || 0) > 0 && avgLTV.value / inp.value.cacPerNewUser >= 3) s += 20;
+          else if (avgLTV.value > 0) s += 10;
+          if (effPaidChurnPct.value <= 15) s += 20;
+          else if (effPaidChurnPct.value <= 25) s += 10;
+          if (runwayMonths.value >= 12 || runwayMonths.value === Infinity) s += 20;
+          else if (runwayMonths.value >= 6) s += 10;
+          if ((m1.value.netProfit || 0) >= 0) s += 20;
+          return s;
+        });
+
+        // حساسیت (تورنادو): تأثیر ±۱۰٪ هر محرک بر سود خالص ماه آخر
+        const sensitivity = computed(() => {
+          const keys = [
+            ['convBase', 'نرخ تبدیل', 'convRate'],
+            ['paidChurnRate', 'ریزش پولی', 'paidChurnRate'],
+            ['bronzePrice', 'قیمت برنز', 'price'],
+            ['cacPerNewUser', 'CAC', 'cacPerNewUser'],
+            ['exchangeRate', 'نرخ ارز', 'exchangeRate'],
+            ['inputTokensPerCall', 'توکن ورودی AI', 'inputTokensPerCall']
+          ];
+          const baseVal = mLast.value.netProfit;
+          const fx = (p, key) => {
+            const alt = { ...inp.value, [key]: (inp.value[key] || 0) * 1.1 };
+            return (computeSeries(alt, alt.convBase, alt.signupGrowthRateBase).slice(-1)[0] || {}).netProfit || 0;
+          };
+          return keys.map(([key, label]) => ({
+            key, label,
+            up: baseVal !== 0 ? ((fx(inp, key) - baseVal) / Math.abs(baseVal)) * 100 : 0
+          })).sort((a, b) => Math.abs(b.up) - Math.abs(a.up));
         });
 
         const updateCharts = () => {
           if (!charts.bar) return;
-          charts.bar.data.datasets[0].data = [m1.value.revenue, m1.value.aiCostToman, m1.value.netProfit];
+          charts.bar.data.datasets[0].data = [m1.value.netRevenue, m1.value.aiCostToman, m1.value.fixedToman, m1.value.netProfit];
           charts.bar.update();
 
           charts.pie.data.datasets[0].data = [
@@ -1032,8 +1265,8 @@
           charts.bar = new Chart(document.getElementById('barChart'), {
             type: 'bar',
             data: {
-              labels: ['درآمد کل', 'هزینه AI', 'سود خالص'],
-              datasets: [{ data: [0,0,0], backgroundColor: [COLORS.emerald, COLORS.rose, COLORS.indigo], borderRadius: 6 }]
+              labels: ['درآمد خالص', 'هزینه AI', 'هزینه ثابت', 'سود خالص'],
+              datasets: [{ data: [0,0,0,0], backgroundColor: [COLORS.emerald, COLORS.rose, COLORS.amber, COLORS.indigo], borderRadius: 6 }]
             },
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
           });
@@ -1099,6 +1332,8 @@
           fileInput, exportJSON, triggerImport, importJSON,
           chartOpen, toggleChart,
           totalConversionBoost, totalChurnReduction, totalSignupBoost, trialCACToman,
+          contributionPerPaidUser, paidUsersM1, effPaidChurnPct, aiCallPriceUSD,
+          cumulativeCash, runwayMonths, arrToman, cacPaybackMonths, d30RetentionPct, healthScore, sensitivity, cashSeries,
           showTechModal, techForm, iconOptions, openAddTechnique, openEditTechnique, saveTechnique,
           deleteTechnique, closeTechModal, onEffectTypeChange
         };
