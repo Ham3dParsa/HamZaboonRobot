@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import datetime
 import secrets
@@ -55,11 +56,28 @@ def _can_consume_daily_count(
     return _current_daily_count(asked_value, asked_date) < daily_limit
 
 
+def _check_test_mode_guard(path: str) -> None:
+    """Refuse to open the production DB while the test suite is running.
+
+    Every database operation funnels through get_conn(), so one guard here
+    protects the real database from any test that forgets to override
+    db.DB_PATH. HAMZABAN_TEST_MODE is set by tests/__init__.py and CI.
+    """
+    if os.environ.get("HAMZABAN_TEST_MODE") == "1":
+        from config import DB_PATH as _production_path
+        if os.path.abspath(path) == os.path.abspath(_production_path):
+            raise RuntimeError(
+                "Test mode refuses to open the production database at "
+                f"{path!r}. A test must override db.DB_PATH."
+            )
+
+
 @contextmanager
 def get_conn():
     # Read the path live from services.db (where tests set db.DB_PATH) instead
     # of the import-time copy below, so test DB isolation is actually honored.
     from services.db import DB_PATH as _active_db_path
+    _check_test_mode_guard(_active_db_path)
     conn = sqlite3.connect(_active_db_path)
     conn.row_factory = sqlite3.Row
     try:
