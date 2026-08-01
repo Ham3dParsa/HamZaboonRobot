@@ -56,6 +56,9 @@
     .hz-scroll::-webkit-scrollbar-track { background: #FAF8F4; border-radius: 999px; }
     .hz-scroll::-webkit-scrollbar-thumb { background: #E7E3DA; border-radius: 999px; }
     .hz-scroll::-webkit-scrollbar-thumb:hover { background: #0D9488; }
+
+    .hz-tip-enter-active, .hz-tip-leave-active { transition: opacity .12s ease, transform .12s ease; }
+    .hz-tip-enter-from, .hz-tip-leave-to { opacity: 0; transform: translateY(4px); }
   </style>
 </head>
 <body class="min-h-screen w-full selection:bg-turquoiseSoft selection:text-turquoiseDeep">
@@ -242,26 +245,26 @@
       <!-- ===== DASHBOARD COLUMN ===== -->
       <div v-show="activeTab === 'dashboard' || (isDesktop && activeTab === 'inputs')" class="flex flex-col gap-6 min-w-0">
         <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
-          <kpi-card title="سود خالص ماهانه" en="Net Profit" icon="wallet" :tone="m1.netProfit >= 0 ? 'emerald' : 'rose'" :value="m1.netProfit" type="toman" sub="درآمد خالص - هزینه AI - CAC - هزینه ثابت"></kpi-card>
-          <kpi-card title="حاشیه سود" en="Profit Margin" icon="percent" :tone="m1.margin >= 0 ? 'turquoise' : 'rose'" :value="m1.margin" type="percent" sub="سود خالص تقسیم بر درآمد خالص"></kpi-card>
-          <kpi-card title="LTV کاربران پولی" en="Avg. LTV" icon="users" tone="indigo" :value="avgLTV" type="toman" sub="حاشیه مشارکت تقسیم بر ریزش مؤثر"></kpi-card>
-          <kpi-card title="نقطه سر‌به‌سر" en="Break-even" icon="piggy-bank" tone="amber" :value="breakEvenUsers" type="number" sub="کاربر پولی برای پوشش هزینهٔ ثابت"></kpi-card>
-          <kpi-card title="درآمد خالص (MRR)" en="Net Revenue" icon="trending-up" tone="emerald" :value="m1.netRevenue" type="toman" sub="بعد از کارمزد درگاه و VAT"></kpi-card>
-          <kpi-card title="هزینه کل AI" en="Total AI Cost" icon="wallet" tone="rose" :value="m1.aiCostToman" type="toman" :sub="'$' + format(m1.aiCostUSD, 2)"></kpi-card>
-          <kpi-card title="هزینه AI هر کاربر رایگان" en="Cost / Free User" icon="users" tone="rose" :value="costFreeUser" type="toman" sub="در ماه"></kpi-card>
-          <kpi-card :title="'سود خالص در ماه ' + inp.projectionMonths" en="Future Profit" icon="line-chart" :tone="mLast.netProfit >= 0 ? 'emerald' : 'rose'" :value="mLast.netProfit" type="toman"></kpi-card>
+          <kpi-card title="سود خالص ماهانه" en="Net Profit" icon="wallet" :tone="m1.netProfit >= 0 ? 'emerald' : 'rose'" :value="m1.netProfit" type="toman" sub="درآمد خالص - هزینه AI - CAC - هزینه ثابت" :help="KPI_HELP.netProfit"></kpi-card>
+          <kpi-card title="حاشیه سود" en="Profit Margin" icon="percent" :tone="m1.margin >= 0 ? 'turquoise' : 'rose'" :value="m1.margin" type="percent" sub="سود خالص تقسیم بر درآمد خالص" :help="KPI_HELP.margin"></kpi-card>
+          <kpi-card title="LTV کاربران پولی" en="Avg. LTV" icon="users" tone="indigo" :value="avgLTV" type="toman" sub="حاشیه مشارکت تقسیم بر ریزش مؤثر" :help="KPI_HELP.ltv"></kpi-card>
+          <kpi-card title="نقطه سر‌به‌سر" en="Break-even" icon="piggy-bank" tone="amber" :value="breakEvenUsers" type="number" sub="کاربر پولی برای پوشش هزینهٔ ثابت" :help="KPI_HELP.breakEven"></kpi-card>
+          <kpi-card title="درآمد خالص (MRR)" en="Net Revenue" icon="trending-up" tone="emerald" :value="m1.netRevenue" type="toman" sub="بعد از کارمزد درگاه و VAT" :help="KPI_HELP.netRevenue"></kpi-card>
+          <kpi-card title="هزینه کل AI" en="Total AI Cost" icon="wallet" tone="rose" :value="m1.aiCostToman" type="toman" :sub="'$' + format(m1.aiCostUSD, 2)" :help="KPI_HELP.aiCost"></kpi-card>
+          <kpi-card title="هزینه AI هر کاربر رایگان" en="Cost / Free User" icon="users" tone="rose" :value="costFreeUser" type="toman" sub="در ماه" :help="KPI_HELP.costFreeUser"></kpi-card>
+          <kpi-card :title="'سود خالص در ماه ' + inp.projectionMonths" en="Future Profit" icon="line-chart" :tone="mLast.netProfit >= 0 ? 'emerald' : 'rose'" :value="mLast.netProfit" type="toman" :help="KPI_HELP.futureProfit"></kpi-card>
         </div>
 
         <!-- ===== P6: نقدینگی و شاخص‌های تکمیلی ===== -->
         <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
-          <kpi-card title="نقدینگی تجمعی (ماه آخر)" en="Cumulative Cash" icon="landmark" :tone="cumulativeCash >= 0 ? 'emerald' : 'rose'" :value="cumulativeCash" type="toman" sub="مجموع سود/زیان ماه‌به‌ماه"></kpi-card>
-          <kpi-card title="Runway (باند سوخت)" en="Runway" icon="timer" :tone="runwayMonths === Infinity || runwayMonths >= 12 ? 'emerald' : 'rose'" :value="runwayMonths === Infinity ? '∞' : Math.round(runwayMonths)" type="number" sub="ماه تا پایان نقدینگی"></kpi-card>
-          <kpi-card title="بازپرداخت CAC" en="CAC Payback" icon="refresh-ccw" tone="turquoise" :value="cacPaybackMonths" type="number" sub="ماه تا بازگشت هزینهٔ جذب"></kpi-card>
-          <kpi-card title="نگه‌داشت ماهانه (D30)" en="D30 Retention" icon="heart-handshake" tone="indigo" :value="d30RetentionPct" type="percent" sub="بر اساس ریزش مؤثر پولی"></kpi-card>
-          <kpi-card title="درآمد سالانه (ARR)" en="ARR" icon="calendar" tone="emerald" :value="arrToman" type="toman" sub="MRR × 12"></kpi-card>
-          <kpi-card title="حاشیه مشارکت هر کاربر پولی" en="Contribution / Paid User" icon="coffee" tone="amber" :value="contributionPerPaidUser" type="toman" sub="درآمد - هزینه AI - مالیات/کارمزد"></kpi-card>
-          <kpi-card title="ریزش مؤثر پولی" en="Effective Paid Churn" icon="arrow-down-right" :tone="effPaidChurnPct <= 15 ? 'emerald' : 'rose'" :value="effPaidChurnPct" type="percent" sub="اختیاری + غیرارادی - اثر تکنیک‌ها"></kpi-card>
-          <kpi-card title="امتیاز سلامت مدل" en="Model Health" icon="activity" :tone="healthScore >= 60 ? 'emerald' : (healthScore >= 30 ? 'amber' : 'rose')" :value="healthScore" type="number" sub="از ۱۰۰"></kpi-card>
+          <kpi-card title="نقدینگی تجمعی (ماه آخر)" en="Cumulative Cash" icon="landmark" :tone="cumulativeCash >= 0 ? 'emerald' : 'rose'" :value="cumulativeCash" type="toman" sub="مجموع سود/زیان ماه‌به‌ماه" :help="KPI_HELP.cumulativeCash"></kpi-card>
+          <kpi-card title="Runway (باند سوخت)" en="Runway" icon="timer" :tone="runwayMonths === Infinity || runwayMonths >= 12 ? 'emerald' : 'rose'" :value="runwayMonths === Infinity ? '∞' : Math.round(runwayMonths)" type="number" sub="ماه تا پایان نقدینگی" :help="KPI_HELP.runway"></kpi-card>
+          <kpi-card title="بازپرداخت CAC" en="CAC Payback" icon="refresh-ccw" tone="turquoise" :value="cacPaybackMonths" type="number" sub="ماه تا بازگشت هزینهٔ جذب" :help="KPI_HELP.cacPayback"></kpi-card>
+          <kpi-card title="نگه‌داشت ماهانه (D30)" en="D30 Retention" icon="heart-handshake" tone="indigo" :value="d30RetentionPct" type="percent" sub="بر اساس ریزش مؤثر پولی" :help="KPI_HELP.d30Retention"></kpi-card>
+          <kpi-card title="درآمد سالانه (ARR)" en="ARR" icon="calendar" tone="emerald" :value="arrToman" type="toman" sub="MRR × 12" :help="KPI_HELP.arr"></kpi-card>
+          <kpi-card title="حاشیه مشارکت هر کاربر پولی" en="Contribution / Paid User" icon="coffee" tone="amber" :value="contributionPerPaidUser" type="toman" sub="درآمد - هزینه AI - مالیات/کارمزد" :help="KPI_HELP.contributionPerPaid"></kpi-card>
+          <kpi-card title="ریزش مؤثر پولی" en="Effective Paid Churn" icon="arrow-down-right" :tone="effPaidChurnPct <= 15 ? 'emerald' : 'rose'" :value="effPaidChurnPct" type="percent" sub="اختیاری + غیرارادی - اثر تکنیک‌ها" :help="KPI_HELP.effPaidChurn"></kpi-card>
+          <kpi-card title="امتیاز سلامت مدل" en="Model Health" icon="activity" :tone="healthScore >= 60 ? 'emerald' : (healthScore >= 30 ? 'amber' : 'rose')" :value="healthScore" type="number" sub="از ۱۰۰" :help="KPI_HELP.healthScore"></kpi-card>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -480,26 +483,75 @@
           <h2 class="text-[15px] font-bold text-turquoiseDeep mb-4 border-b pb-2 flex items-center gap-2">
             <i data-lucide="book-open" class="w-5 h-5"></i> راهنمای شاخص‌ها
           </h2>
+
+          <!-- ضعیف‌ترین شاخص (بر اساس امتیاز سلامت) -->
+          <div class="flex items-start gap-3 rounded-xl border p-3 mb-4 transition"
+               :class="weakIndicator.score < 10 ? 'bg-rose/10 border-rose/30' : weakIndicator.score < 20 ? 'bg-amber/10 border-amber/30' : 'bg-emerald/10 border-emerald/30'">
+            <i data-lucide="activity" class="w-5 h-5 shrink-0 mt-0.5"
+               :class="weakIndicator.score < 10 ? 'text-rose' : weakIndicator.score < 20 ? 'text-amber-500' : 'text-emerald-600'"></i>
+            <div class="text-[12px] leading-relaxed">
+              <div class="font-bold text-ink mb-1">
+                ضعیف‌ترین شاخص فعلی: {{ weakIndicator.label }}
+                <span class="text-[10px] font-normal opacity-70">({{ weakIndicator.hint }})</span>
+              </div>
+              <div class="text-inkSoft">{{ weakIndicator.improve }}</div>
+              <div class="mt-1 text-[10px] opacity-70">امتیاز سلامت مدل در حال حاضر: <b>{{ healthScore }}</b> از ۱۰۰ — روی همین شاخص تمرکز کنید تا سریع‌ترین پیشرفت را ببینید.</div>
+            </div>
+          </div>
+
           <div class="space-y-4 text-[12px] leading-relaxed text-inkSoft">
             <div class="bg-paper p-3 rounded-xl border border-line">
               <strong class="text-ink block mb-1">استراتژی تبدیل (MAU):</strong>
               به جای ورود دستی، تعداد کل کاربران اپلیکیشن را می‌دهید و سیستم با نرخ تبدیل خریداران را تفکیک می‌کند.
+              <span class="block mt-1 text-[11px] bg-card border border-line rounded-lg px-2 py-1.5">
+                مثال: با ورودی فعلی، از {{ format(inp.mau) }} کاربر ماهانه، ماه اول حدود {{ format(paidUsersM1) }} کاربر پولی دارید و بقیه رایگان می‌مانند.
+              </span>
             </div>
             <div class="bg-paper p-3 rounded-xl border border-line">
               <strong class="text-ink block mb-1">ارزش طول عمر (LTV):</strong>
               نشان می‌دهد یک کاربر پولی قبل از اینکه ریزش کند، در مجموع چند تومان حاشیهٔ مشارکت برای شما دارد. حاشیهٔ مشارکت = درآمد خالص (بعد از کارمزد درگاه و VAT) منهای هزینهٔ AI و سهم‌ها.
+              <span class="block mt-1 text-[11px] bg-card border border-line rounded-lg px-2 py-1.5">
+                مثال: با ریزش مؤثر {{ format(effPaidChurnPct, 1) }}٪ و حاشیهٔ ماهانهٔ {{ format(contributionPerPaidUser) }} تومان، LTV هر کاربر پولی ≈ <b>{{ format(avgLTV) }}</b> تومان است.
+              </span>
             </div>
             <div class="bg-paper p-3 rounded-xl border border-line">
               <strong class="text-ink block mb-1">نقطه سر‌به‌سر (Break-even):</strong>
               حداقل تعداد مشترک پولی که برای پوشش هزینه‌های ثابت ماهانه (هاست، حقوق، تبلیغات) لازم دارید؛ بر اساس حاشیهٔ مشارکت هر کاربر پولی.
+              <span class="block mt-1 text-[11px] bg-card border border-line rounded-lg px-2 py-1.5">
+                مثال: برای پوشش هزینهٔ ثابت فعلی، باید حداقل <b>{{ format(breakEvenUsers) }}</b> کاربر پولی داشته باشید.
+              </span>
+            </div>
+            <div class="bg-paper p-3 rounded-xl border border-line">
+              <strong class="text-ink block mb-1">بازپرداخت CAC:</strong>
+              چند ماه طول می‌کشد تا حاشیهٔ مشارکت یک کاربر جدید، هزینهٔ جذب او (CAC) را جبران کند. عدد کمتر بهتر است.
+              <span class="block mt-1 text-[11px] bg-card border border-line rounded-lg px-2 py-1.5">
+                مثال: با CAC هر کاربر {{ format(inp.cacPerNewUser) }} تومان و حاشیهٔ ماهانهٔ {{ format(contributionPerPaidUser) }} تومان، بازپرداخت ≈ <b>{{ format(cacPaybackMonths, 1) }}</b> ماه است (زیر ۱۲ ماه معقول در نظر گرفته می‌شود).
+              </span>
             </div>
             <div class="bg-paper p-3 rounded-xl border border-line">
               <strong class="text-ink block mb-1">تکنیک‌های بازاریابی (تب بازاریابی):</strong>
               هر تکنیک با روشن‌کردنش، درصد تخمینی‌اش را روی نرخ تبدیل یا ریزش اعمال می‌کند و بلافاصله در نمودارها و جدول اثر می‌گذارد. عدد «CAC تریال» هزینهٔ روزهای رایگان پلن طلایی برای همان سهم از کاربران جدید است که فعالیت بالا نشان داده‌اند. با دکمهٔ «افزودن تکنیک» می‌توانید تکنیک‌های سفارشی خودتان را بسازید، ویرایش یا حذف کنید؛ هر تکنیک می‌تواند اختیاری تریال رایگان هم داشته باشد که هزینه‌اش به‌عنوان CAC کسر می‌شود.
+              <span class="block mt-1 text-[11px] bg-card border border-line rounded-lg px-2 py-1.5">
+                مثال: هزینهٔ AI برای تریال‌های فعال در ماه اول ≈ <b>{{ format(trialCACToman) }}</b> تومان از سود کسر شده است.
+              </span>
+            </div>
+            <div class="bg-paper p-3 rounded-xl border border-line">
+              <strong class="text-ink block mb-1">نقدینگی و Runway:</strong>
+              نقدینگی تجمعی مجموع سود/زیان ماه‌به‌ماه است و Runway می‌گوید با همین روند چند ماه تا تمام‌شدن پول فرصت دارید.
+              <span class="block mt-1 text-[11px] bg-card border border-line rounded-lg px-2 py-1.5">
+                مثال: نقدینگی در پایان ماه {{ inp.projectionMonths }} ≈ <b>{{ format(cumulativeCash) }}</b> تومان و باند سوخت ≈ <b>{{ runwayMonths === Infinity ? '∞ (سودده)' : Math.round(runwayMonths) + ' ماه' }}</b> است.
+              </span>
+            </div>
+            <div class="bg-paper p-3 rounded-xl border border-line">
+              <strong class="text-ink block mb-1">امتیاز سلامت مدل:</strong>
+              خلاصهٔ سلامت کسب‌وکار از ۱۰۰ بر اساس حاشیهٔ سود، نسبت LTV به CAC، ریزش، باند نقدینگی و سود ماه اول.
+              <span class="block mt-1 text-[11px] bg-card border border-line rounded-lg px-2 py-1.5">
+                مثال: امتیاز فعلی <b>{{ healthScore }}</b> از ۱۰۰ است — هر شاخصی که امتیاز کمتری از ۲۰ بگیرد در کادر رنگی بالا برجسته می‌شود.
+              </span>
             </div>
             <div class="bg-paper p-3 rounded-xl border border-line">
               <strong class="text-ink block mb-1">ستون «کل کاربران» در جدول:</strong>
-              مجموع رایگان+پولی هر ماه، همراه با تغییر نسبت به ماه قبل. «نرخ جذب ماهانه» درصدی از کل کاربرانِ همان ماه (MAU) است که به جمع اضافه می‌شوند؛ پس رشد واقعی کاربران — نه فقط تبدیل داخلی آن‌ها به پولی — این‌جا قابل مشاهده است و با بزرگ‌شدن جامعه مقیاس‌پذیر می‌ماند.
+              مجموع رایگان+پولی هر ماه، همراه با تغییر نسبت به ماه قبل. «نرخ جذب ماهانه» درصدی از کل کاربرانِ همان ماه (MAU) است که به جمع اضافه می‌شود؛ پس رشد واقعی کاربران — نه فقط تبدیل داخلی آن‌ها به پولی — این‌جا قابل مشاهده است و با بزرگ‌شدن جامعه مقیاس‌پذیر می‌ماند.
             </div>
             <div class="bg-paper p-3 rounded-xl border border-line">
               <strong class="text-ink block mb-1">خروجی/ورودی JSON:</strong>
@@ -640,10 +692,13 @@
   </script>
 
   <script type="text/x-template" id="tpl-kpi">
-    <div class="rounded-2xl p-4 flex flex-col gap-2 bg-card border border-line shadow-sm relative overflow-hidden">
+    <div class="rounded-2xl p-4 flex flex-col gap-2 bg-card border border-line shadow-sm relative overflow-visible" @mouseenter="showHelp = true" @mouseleave="showHelp = false" @click="onTap">
       <div class="flex items-start justify-between relative z-10">
         <span class="text-[11px] font-bold text-inkSoft inline-flex items-center gap-1 flex-wrap">
           {{ title }}
+          <span v-if="help" class="inline-flex items-center gap-0.5 text-[9px] font-normal opacity-60 cursor-help">
+            <i data-lucide="circle-help" class="w-3 h-3"></i> توضیح
+          </span>
         </span>
         <span class="rounded-lg p-1.5 shrink-0" :style="colorStyle.iconBg">
           <i :data-lucide="icon" class="w-4 h-4" :style="colorStyle.iconFg"></i>
@@ -663,6 +718,31 @@
         </span>
       </div>
       <div v-if="sub" class="text-[9px] sm:text-[10px] font-medium opacity-60 relative z-10">{{ sub }}</div>
+
+      <div class="absolute left-1/2 -translate-x-1/2 top-[calc(100%+6px)] z-[70] w-72 sm:w-96 max-w-[90vw]" dir="rtl">
+        <transition name="hz-tip">
+          <div v-if="showHelp && help" class="bg-ink text-white rounded-2xl p-4 shadow-xl border border-white/10">
+            <div class="flex items-center gap-2 mb-2">
+              <i data-lucide="circle-help" class="w-4 h-4 text-turquoiseSoft shrink-0"></i>
+              <div class="font-bold text-[13px]">{{ help.title }}</div>
+            </div>
+            <div class="text-[11.5px] leading-relaxed opacity-90 mb-3">{{ help.meaning }}</div>
+            <div class="mb-2">
+              <div class="text-[10px] font-bold text-amber-300 mb-1 flex items-center gap-1"><i data-lucide="settings-2" class="w-3 h-3"></i> عوامل مؤثر:</div>
+              <ul class="text-[11px] leading-relaxed opacity-85 space-y-0.5 pr-4 list-disc">
+                <li v-for="f in help.factors" :key="f">{{ f }}</li>
+              </ul>
+            </div>
+            <div>
+              <div class="text-[10px] font-bold text-emerald-300 mb-1 flex items-center gap-1"><i data-lucide="trending-up" class="w-3 h-3"></i> راه‌های بهبود:</div>
+              <ul class="text-[11px] leading-relaxed opacity-85 space-y-0.5 pr-4 list-disc">
+                <li v-for="i in help.improve" :key="i">{{ i }}</li>
+              </ul>
+            </div>
+            <div class="text-[9px] opacity-40 mt-2 pt-2 border-t border-white/10">{{ help.hint || 'اعداد از محاسبات این مدل محاسبه می‌شوند و با تغییر ورودی‌ها به‌روز می‌شوند.' }}</div>
+          </div>
+        </transition>
+      </div>
     </div>
   </script>
 
@@ -681,6 +761,106 @@
       cheap: { label: 'اقتصادی', in: 0.10, out: 0.40 },     // Gemini Flash-Lite / GPT-nano / DeepSeek / Qwen
       mid: { label: 'متوسط', in: 0.40, out: 1.60 },          // GPT-4.1-mini / Gemini 2.5 Flash
       strong: { label: 'قوی', in: 3.00, out: 15.00 }         // Claude Haiku 4.5 / GPT-5
+    };
+
+    // توضیح هر شاخص: معنی، عوامل مؤثر و راه‌های بهبود — هم در tooltip و هم در بخش راهنما استفاده می‌شود
+    const KPI_HELP = {
+      netProfit: {
+        title: 'سود خالص ماهانه',
+        meaning: 'درآمد خالص (بعد از کسر کارمزد درگاه و VAT) منهای هزینهٔ AI، هزینهٔ جذب کاربر (CAC) و هزینهٔ ثابت ماهانه. عدد مثبت یعنی کسب‌وکار در این ماه سود کرده است.',
+        factors: ['تعداد کاربران پولی هر پلن', 'قیمت پلن‌ها', 'هزینهٔ AI هر فراخوانی', 'کارمزد درگاه و مالیات', 'CAC و هزینه‌های ثابت'],
+        improve: ['افزایش نرخ تبدیل رایگان به پولی', 'کاهش ریزش مؤثر پولی', 'انتخاب مدل ارزان‌تر یا فعال‌کردن کش پرامپت', 'کاهش هزینهٔ ثابت', 'تنظیم قیمت پلن‌ها']
+      },
+      margin: {
+        title: 'حاشیه سود',
+        meaning: 'درصدی از درآمد خالص که به‌صورت سود باقی می‌ماند. حاشیهٔ مثبت یعنی هر تومان درآمد، سودی هم به همراه دارد.',
+        factors: ['قیمت پلن‌ها', 'هزینهٔ AI', 'هزینه‌های ثابت', 'کارمزد درگاه و مالیات'],
+        improve: ['قیمت‌گذاری بهتر پلن‌ها', 'کاهش هزینهٔ AI هر کاربر', 'کاهش هزینه‌های ثابت', 'بهینه‌سازی کارمزد/مالیات']
+      },
+      ltv: {
+        title: 'LTV کاربران پولی',
+        meaning: 'میانگین حاشیهٔ مشارکتی که یک کاربر پولی در طول عمرش قبل از ریزش تولید می‌کند. مهم‌ترین معیار سلامت واحد اقتصاد.',
+        factors: ['قیمت پلن', 'هزینهٔ AI هر کاربر', 'ریزش مؤثر پولی', 'سهم هر پلن از کاربران'],
+        improve: ['کاهش ریزش (اختیاری و غیرارادی)', 'افزایش قیمت پلن‌های پرمصرف', 'کاهش هزینهٔ AI هر کاربر', 'ترویج آپسل به پلن‌های بالاتر']
+      },
+      breakEven: {
+        title: 'نقطه سر‌به‌سر',
+        meaning: 'تعداد کاربران پولی که برای پوشش هزینه‌های ثابت ماهانه لازم است. عدد کوچک‌تر یعنی رسیدن به سودآوری آسان‌تر.',
+        factors: ['هزینهٔ ثابت ماهانه', 'حاشیهٔ مشارکت هر کاربر پولی'],
+        improve: ['کاهش هزینهٔ ثابت', 'افزایش حاشیهٔ مشارکت (قیمت بالاتر یا هزینهٔ AI کمتر)']
+      },
+      netRevenue: {
+        title: 'درآمد خالص (MRR)',
+        meaning: 'درآمد ماهانهٔ کاربران پولی بعد از کسر کارمزد درگاه و VAT؛ پولی که واقعاً به دست می‌آید.',
+        factors: ['تعداد کاربران پولی', 'قیمت پلن‌ها', 'کارمزد درگاه', 'مالیات بر ارزش افزوده'],
+        improve: ['افزایش کاربران پولی', 'قیمت‌گذاری بهتر', 'انتخاب درگاه با کارمزد کمتر', 'بررسی معافیت آموزشی مالیات']
+      },
+      aiCost: {
+        title: 'هزینه کل AI',
+        meaning: 'مجموع هزینهٔ ماهانهٔ فراخوانی‌های AI همهٔ کاربران (رایگان و پولی) به تومان.',
+        factors: ['تعداد کاربران', 'سهمیهٔ روزانهٔ هر پلن', 'قیمت هر فراخوانی', 'نرخ ارز'],
+        improve: ['انتخاب مدل ارزان‌تر', 'فعال‌کردن کش پرامپت', 'کاهش سهمیهٔ کاربران رایگان', 'بهینه‌سازی توکن‌ها']
+      },
+      costFreeUser: {
+        title: 'هزینه AI هر کاربر رایگان',
+        meaning: 'هزینهٔ AI که یک کاربر رایگان در ماه برای شما ایجاد می‌کند. اگر بالا باشد، کاربران رایگان پرهزینه می‌شوند.',
+        factors: ['سهمیهٔ روزانهٔ رایگان', 'قیمت هر فراخوانی', 'نرخ ارز'],
+        improve: ['کاهش سهمیهٔ رایگان', 'مدل ارزان‌تر برای محتوای رایگان', 'دیوار پرداخت ظرفیتی (سقف FSRS)']
+      },
+      futureProfit: {
+        title: 'سود خالص در ماه پایانی',
+        meaning: 'سود یا زیان پیش‌بینی‌شده در ماهِ پایانی بازهٔ پروژه؛ نتیجهٔ جمع رشد، ریزش، قیمت و هزینه‌ها در طول زمان.',
+        factors: ['رشد کاربران جدید', 'ریزش', 'بازقیمت‌گذاری', 'کاهش هزینهٔ AI', 'CAC'],
+        improve: ['بهبود نرخ تبدیل و جذب', 'کنترل ریزش', 'افزایش قیمت در سال دوم', 'کاهش هزینهٔ AI در طول زمان']
+      },
+      cumulativeCash: {
+        title: 'نقدینگی تجمعی',
+        meaning: 'مجموع سود/زیان ماهانه از ابتدای پروژه تا ماه آخر؛ وضعیت کلی نقدینگی کسب‌وکار. منفی شدن یعنی پول در حال تمام شدن است.',
+        factors: ['همهٔ سودهای ماهانه', 'بودجهٔ تبلیغات', 'هزینه‌های ثابت'],
+        improve: ['بهبود سود ماهانه', 'کنترل بودجهٔ تبلیغات', 'تأمین مالی/سرمایه‌گذاری']
+      },
+      runway: {
+        title: 'Runway (باند سوخت)',
+        meaning: 'چند ماه با نقدینگی فعلی و مصرف ماهانه می‌توانید قبل از تمام‌شدن پول ادامه دهید. ∞ یعنی ماهانه سودده هستید.',
+        factors: ['نقدینگی تجمعی', 'مصرف ماهانه (زیان)'],
+        improve: ['کاهش زیان ماهانه', 'افزایش درآمد', 'جذب سرمایه یا کاهش هزینه‌ها']
+      },
+      cacPayback: {
+        title: 'بازپرداخت CAC',
+        meaning: 'چند ماه طول می‌کشد تا حاشیهٔ مشارکت یک کاربر جدید هزینهٔ جذب او (CAC) را جبران کند. کوتاه‌تر بهتر است.',
+        factors: ['CAC هر کاربر جدید', 'حاشیهٔ مشارکت هر کاربر پولی'],
+        improve: ['کاهش CAC (ارجاع، رشد ارگانیک)', 'افزایش حاشیهٔ مشارکت', 'تمرکز روی کانال‌های جذب ارزان']
+      },
+      d30Retention: {
+        title: 'نگه‌داشت ماهانه (D30)',
+        meaning: 'درصد کاربران پولی که بعد از ۳۰ روز هنوز مشترک هستند؛ معادل ۱۰۰ منهای ریزش مؤثر.',
+        factors: ['ریزش اختیاری', 'ریزش غیرارادی (پیش‌پرداخت)', 'اثر تکنیک‌های نگه‌داشت'],
+        improve: ['کاهش ریزش با تکنیک win-back', 'خودکارسازی پرداخت برای ریزش غیرارادی', 'افزایش ارزش دریافتی کاربر']
+      },
+      arr: {
+        title: 'درآمد سالانه (ARR)',
+        meaning: 'درآمد سالانهٔ تکرارشونده = درآمد خالص ماه اول × ۱۲؛ مقیاس سالانهٔ درآمد برای مقایسه با استانداردهای SaaS.',
+        factors: ['MRR (درآمد خالص ماهانه)'],
+        improve: ['بهبود MRR', 'پیشنهاد پلن سالانه با تخفیف برای نقدینگی بهتر']
+      },
+      contributionPerPaid: {
+        title: 'حاشیه مشارکت هر کاربر پولی',
+        meaning: 'پولی که بعد از کسر هزینه‌های متغیر (کارمزد، مالیات، هزینهٔ AI) از هر کاربر پولی در ماه می‌ماند؛ پایهٔ محاسبهٔ LTV و سربه‌سر.',
+        factors: ['قیمت پلن', 'کارمزد درگاه و مالیات', 'هزینهٔ AI هر کاربر'],
+        improve: ['قیمت بالاتر', 'مدل ارزان‌تر', 'ترکیب بهتر پلن‌ها (سهم بیشتر از پلن‌های گران)']
+      },
+      effPaidChurn: {
+        title: 'ریزش مؤثر پولی',
+        meaning: 'درصد کاربران پولی که هر ماه از دست می‌دهید = ریزش اختیاری + ریزش غیرارادی − اثر تکنیک‌های کاهش ریزش. پایهٔ محاسبهٔ LTV و نگه‌داشت.',
+        factors: ['نرخ ریزش اختیاری', 'ریزش غیرارادی (پیش‌پرداخت/نبود خودکار)', 'اثر تکنیک‌های بازاریابی'],
+        improve: ['کاهش ریزش اختیاری با ارزش بیشتر', 'خودکارسازی پرداخت', 'فعال‌کردن تکنیک‌های کاهش ریزش']
+      },
+      healthScore: {
+        title: 'امتیاز سلامت مدل',
+        meaning: 'خلاصهٔ کلی سلامت کسب‌وکار از ۱۰۰، بر اساس حاشیهٔ سود، نسبت LTV به CAC، ریزش، نقدینگی و سودآوری ماهانه.',
+        factors: ['حاشیه سود', 'LTV نسبت به CAC', 'ریزش مؤثر', 'Runway', 'سودآوری ماهانه'],
+        improve: ['بهبود شاخص‌های پایهٔ بالا', 'مرتب‌سازی اولویت‌ها روی ضعیف‌ترین شاخص']
+      }
     };
 
     const DEFAULTS = {
@@ -1202,6 +1382,44 @@
           return s;
         });
 
+        // ضعیف‌ترین شاخص بر اساس همان زیرمؤلفه‌های امتیاز سلامت (برای راهنمای فعّال)
+        const weakIndicator = computed(() => {
+          const ltvCac = (inp.value.cacPerNewUser || 0) > 0 ? (avgLTV.value / inp.value.cacPerNewUser) : 0;
+          const comps = [
+            {
+              key: 'margin', label: 'حاشیه سود',
+              score: (m1.value.margin || 0) >= 10 ? 20 : (m1.value.margin || 0) >= 0 ? 10 : 0,
+              hint: (m1.value.margin || 0) >= 10 ? 'حاشیه سود سالم (بیش از ۱۰٪)' : (m1.value.margin || 0) >= 0 ? 'حاشیه سود مثبت اما کم (زیر ۱۰٪)' : 'حاشیه سود منفی',
+              improve: 'قیمت پلن‌ها را بالا ببرید یا هزینهٔ AI هر فراخوانی را کاهش دهید.'
+            },
+            {
+              key: 'ltv', label: 'نسبت LTV به CAC',
+              score: ltvCac >= 3 ? 20 : ltvCac > 0 ? 10 : 0,
+              hint: ltvCac >= 3 ? 'نسبت LTV به CAC سالم (۳+)' : ltvCac > 0 ? `نسبت LTV به CAC پایین (${format(ltvCac, 1)})` : 'LTV یا CAC معتبر نداریم',
+              improve: 'CAC را کم کنید (بازاریابی ارگانیک) یا حاشیهٔ مشارکت را بالا ببرید.'
+            },
+            {
+              key: 'churn', label: 'ریزش پولی',
+              score: effPaidChurnPct.value <= 15 ? 20 : effPaidChurnPct.value <= 25 ? 10 : 0,
+              hint: effPaidChurnPct.value <= 15 ? 'ریزش پولی کم' : effPaidChurnPct.value <= 25 ? 'ریزش پولی متوسط' : 'ریزش پولی زیاد',
+              improve: 'تکنیک‌های کاهش ریزش را فعال کنید یا خودکارسازی پرداخت را به‌کار بگیرید.'
+            },
+            {
+              key: 'runway', label: 'باند نقدینگی (Runway)',
+              score: runwayMonths.value >= 12 || runwayMonths.value === Infinity ? 20 : runwayMonths.value >= 6 ? 10 : 0,
+              hint: runwayMonths.value === Infinity ? 'ماهانه سودده هستید' : `باند نقدینگی ${Math.round(runwayMonths.value)} ماه`,
+              improve: 'زیان ماهانه را کم کنید یا نقدینگی را از طریق تأمین مالی بالا ببرید.'
+            },
+            {
+              key: 'profit', label: 'سود ماهانه',
+              score: (m1.value.netProfit || 0) >= 0 ? 20 : 0,
+              hint: (m1.value.netProfit || 0) >= 0 ? 'ماه اول سودده' : 'ماه اول زیانده',
+              improve: 'نرخ تبدیل یا قیمت پلن‌ها را بالا ببرید و هزینه‌های ثابت را کنترل کنید.'
+            }
+          ];
+          return comps.reduce((min, c) => (c.score < min.score ? c : min));
+        });
+
         // حساسیت (تورنادو): تأثیر ±۱۰٪ هر محرک بر سود خالص ماه آخر
         const sensitivity = computed(() => {
           const keys = [
@@ -1324,7 +1542,7 @@
           });
 
           updateCharts();
-          lucide.createIcons();
+          lucide.createIcons({ observe: true });
         });
 
         return {
@@ -1334,6 +1552,7 @@
           totalConversionBoost, totalChurnReduction, totalSignupBoost, trialCACToman,
           contributionPerPaidUser, paidUsersM1, effPaidChurnPct, aiCallPriceUSD,
           cumulativeCash, runwayMonths, arrToman, cacPaybackMonths, d30RetentionPct, healthScore, sensitivity, cashSeries,
+          weakIndicator,
           showTechModal, techForm, iconOptions, openAddTechnique, openEditTechnique, saveTechnique,
           deleteTechnique, closeTechModal, onEffectTypeChange
         };
@@ -1366,7 +1585,7 @@
 
     app.component('kpi-card', {
       template: '#tpl-kpi',
-      props: ['title', 'en', 'icon', 'value', 'tone', 'sub', 'type'],
+      props: ['title', 'en', 'icon', 'value', 'tone', 'sub', 'type', 'help'],
       setup(props) {
         const format = (v, dec = 0) => {
           if (!isFinite(v)) return 0;
@@ -1383,7 +1602,13 @@
           };
           return map[props.tone] || map.ink;
         });
-        return { format, colorStyle };
+        // hover روی دسکتاپ؛ لمس/کلیک روی موبایل
+        const showHelp = ref(false);
+        const canHover = window.matchMedia && window.matchMedia('(hover: hover)').matches;
+        const onTap = () => {
+          if (!canHover) showHelp.value = !showHelp.value;
+        };
+        return { format, colorStyle, showHelp, onTap };
       }
     });
 
