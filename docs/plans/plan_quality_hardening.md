@@ -112,11 +112,12 @@ Each WP is a single logical commit/PR following `AGENTS.md` workflow (contract l
 
 | # | Decision | Choice | Date | Status |
 |---|---|---|---|---|
-| 1 | Quality strategy | Verification-centric: automated checks over plans/human review | 2026-07-31 | Proposed |
-| 2 | DB safety mechanism | Choke-point guard in `get_conn()` + test-mode flag + CI hash + meta-test | 2026-07-31 | Proposed |
-| 3 | Dead-code enforcement | `BANNED_SYMBOLS` registry + CI guard test | 2026-07-31 | Proposed |
-| 4 | Cleanup timing | Bounded cleanup with each PR (amend AGENTS.md §2.2) | 2026-07-31 | Proposed |
-| 5 | Real-system check | Staging copy-DB smoke test + release runbook before cutovers | 2026-07-31 | Proposed |
+| 1 | Quality strategy | Verification-centric: automated checks over plans/human review | 2026-07-31 | Approved |
+| 2 | DB safety mechanism | Choke-point guard in `get_conn()` + test-mode flag + CI hash + meta-test | 2026-07-31 | Approved (WP1) |
+| 3 | Dead-code enforcement | `BANNED_SYMBOLS` registry + CI guard test | 2026-07-31 | Proposed (WP2) |
+| 4 | Cleanup timing | Bounded cleanup with each PR (amend AGENTS.md §2.2) | 2026-07-31 | Approved (WP4) |
+| 5 | Real-system check | Staging copy-DB smoke test + release runbook before cutovers | 2026-07-31 | Proposed (WP3) |
+| 6 | Independent review | Mandatory reviewer subagent (fresh context, report-only) for non-trivial changes | 2026-08-01 | Approved (WP4) |
 
 ---
 
@@ -125,9 +126,9 @@ Each WP is a single logical commit/PR following `AGENTS.md` workflow (contract l
 | WP | Scope | PR | CI | Merged |
 |---|---|---|---|---|
 | WP0 | Land `6ad58ad` DB-isolation fix | #235 | pass | ✅ |
-| WP1 | Bulletproof test-DB guard | #237 | pass | ☐ |
+| WP1 | Bulletproof test-DB guard | #237 | pass | ✅ |
 | WP2 | Dead-ref guard, DoD, migration tests | — | — | ☐ |
 | WP3 | Smoke test + runbook | — | — | ☐ |
-| WP4 | AGENTS.md amendments | — | — | ☐ |
+| WP4 | AGENTS.md amendments | #238 | — | ☐ |
 | WP5 | Debt sweep + hygiene | — | — | ☐ |
 | WP6 | State-isolation + vulture | — | — | ☐ |

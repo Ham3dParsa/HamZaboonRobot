@@ -10,7 +10,7 @@ instruction.
 the agent SHOULD silently verify or explicitly output the **Appendix A** checklist
 to refresh context-window constraints before proceeding.
 
-_Last updated: 2026-07-21. See git history of this file for prior versions
+_Last updated: 2026-08-01. See git history of this file for prior versions
 and rationale for major protocol changes._
 
 ## 1. Product Context
@@ -103,6 +103,13 @@ the demonstrated root cause; opportunistic "extra fixes" or speculative
 hardening are out of scope unless explicitly approved. If a safe workaround
 exists, document it rather than silently converting it into a permanent
 product rule.
+
+**Bounded cleanup allowance:** A PR MAY delete provably-dead code in the
+files it already touches — where "provably dead" means zero references
+anywhere else, verified by grep or a test — provided the removal is declared
+in the contract lock summary and does not change behavior. Speculative
+refactors, cleanup of untouched files, or deletions with any behavioral
+ambiguity still require explicit owner approval.
 
 ### 2.3 Owner contract-locking protocol
 
@@ -351,7 +358,7 @@ For a non-trivial task:
 0. **Contract lock confirmed per Section 2.4 (Mandatory Pre-Implementation Contract Lock Gate).**
 1. Implement on current branch (or stash changes); run full validation (Section 6).
 2. **Create a fresh feature branch from the latest `origin/main`** using convention: `type/short-desc` (e.g., `feat/custom-words`, `fix/collision-retry`).
-3. **Write focused unit tests** in `tests/` for any new logic, edge cases, database schema changes, or callback routing changes introduced by the implementation. For any change that touches `callback_data` strings, `callback_router` dispatch conditions, or sub-router action patterns, a cross-module callback wiring integrity test MUST be added or updated to verify all callback prefixes have matching router and sub-router handlers (see `tests/test_wiring.py`). For behavioral changes (handler logic, keyboard construction, database writes, quota enforcement, or AI interaction), add handler-level integration tests in `tests/test_integration/` following the Integration Test Protocol (Section 6).
+3. **Write focused unit tests** in `tests/` for any new logic, edge cases, database schema changes, or callback routing changes introduced by the implementation. For any change that touches `callback_data` strings, `callback_router` dispatch conditions, or sub-router action patterns, a cross-module callback wiring integrity test MUST be added or updated to verify all callback prefixes have matching router and sub-router handlers (see `tests/test_wiring.py`). For behavioral changes (handler logic, keyboard construction, database writes, quota enforcement, or AI interaction), add handler-level integration tests in `tests/test_integration/` following the Integration Test Protocol (Section 6). **Tests must be written from the user-facing behavior spec and the locked contract, not from the implementation's internal choices** — a test that merely mirrors what the code happens to do cannot catch a wrong assumption that the code and test share.
 4. Stage modified files explicitly: `git add file1.py file2.py` (never `git add .`).
 5. Commit with Conventional Commits format: `type(scope): subject` (e.g., `fix(bot): handle collision retry`).
 6. Push branch and create PR via `gh pr create --fill --base main`.
@@ -372,6 +379,31 @@ For a non-trivial task:
 Do not combine unrelated user-facing features, broad refactors, and issue
 cleanup in one PR. If a discovered issue is outside the requested scope,
 record it rather than silently expanding the implementation.
+
+### Independent Review Subagent (mandatory for non-trivial changes)
+
+Before committing any change that affects behavior, persistence, quotas,
+scheduling, callbacks, AI contracts, module boundaries, or a schema
+migration, the implementing agent MUST launch a separate reviewer subagent
+with fresh context (no access to the implementation session), so that the
+implementation is not reviewed by the same context that produced it. The
+reviewer:
+
+1. Assumes the implementation is wrong until proven correct.
+2. Reviews the diff, the locked contract, and the affected behavior spec.
+3. Reports only — it MUST NOT edit files. Findings must include:
+   - confirmed bugs, with concrete evidence;
+   - spec-vs-contract gaps (does the code satisfy every locked rule?);
+   - "what the plan missed": leftover old symbols, integration points,
+     state leaks, restart safety, quota/date boundaries, callback wiring;
+   - test independence: do tests verify behavior rather than mirror code?
+   - scope violations (invented behavior, silent scope widening).
+4. May run read-only verification (focused tests, greps, wiring scans).
+
+The implementing agent fixes confirmed findings and re-runs the reviewer
+until none remain. If the reviewer surfaces a genuine ambiguity or product
+decision, the implementing agent MUST halt and ask the owner per Section 2.4.
+Trivial, non-behavioral changes (typos, comments, docs) skip this step.
 
 ## 6. Required Validation
 
@@ -486,6 +518,17 @@ d) If the agent is uncertain whether a test failure represents a regression or a
 4. Confirm single logical change per commit (Section 5 Steps 3–4).
 5. Verify branch naming convention: `type/short-desc` with type in `feat|fix|docs|refactor|test|chore`.
 6. While `tests/test_wiring.py` and `tests/test_formatting.py` are recommended locally, any CI failure in these tests triggers the Error Recovery Protocol — fix and re-push immediately. Unlike other tests, `tests/test_wiring.py` performs cross-module introspection and cannot be faked or satisfied by local-only changes.
+7. **Definition of Done** — every commit proves each applicable criterion:
+   - New or changed behavior is covered by a focused test, and by an
+     integration test in `tests/test_integration/` when the change touches
+     handler logic, keyboards, callbacks, DB writes, quotas, or AI;
+   - No leftover references to symbols that this change was meant to remove
+     (WP2 adds an automated dead-reference guard for this);
+   - Schema changes are tested on BOTH a fresh database and an upgrade from
+     the prior schema;
+   - GitHub Issues and `ROADMAP.md` are updated per Section 2;
+   - Where the Independent Review Subagent applies (Section 5), it reported
+     no confirmed findings after the fix cycle.
 
 > **Phase 2 — F401 (unused imports):** When the codebase is ready for a stricter rule
 > budget, run `ruff check --fix --select F401` to auto-clean unused imports, review
