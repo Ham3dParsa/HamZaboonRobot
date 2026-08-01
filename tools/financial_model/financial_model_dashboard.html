@@ -222,18 +222,43 @@
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div class="bg-card border border-line rounded-2xl p-4 shadow-sm">
-            <div class="mb-4 text-[13px] font-bold text-ink">ترکیب درآمد، هزینه و سود <span dir="ltr" class="text-[10px] opacity-60 text-inkSoft ml-1">Revenue vs Cost</span></div>
-            <div class="relative h-[240px] w-full"><canvas id="barChart"></canvas></div>
+            <div class="mb-4 flex items-center justify-between gap-2">
+              <div class="text-[13px] font-bold text-ink">ترکیب درآمد، هزینه و سود <span dir="ltr" class="text-[10px] opacity-60 text-inkSoft ml-1">Revenue vs Cost</span></div>
+              <button @click="toggleChart('bar')" title="باز/بسته" class="p-1.5 rounded-lg text-inkSoft hover:bg-paper transition-colors flex-shrink-0">
+                <i data-lucide="chevron-down" class="w-4 h-4 transition-transform" :style="{ transform: chartOpen.bar ? 'rotate(180deg)' : 'rotate(0deg)' }"></i>
+              </button>
+            </div>
+            <div v-show="chartOpen.bar" class="relative h-[240px] w-full"><canvas id="barChart"></canvas></div>
           </div>
           <div class="bg-card border border-line rounded-2xl p-4 shadow-sm">
-            <div class="mb-4 text-[13px] font-bold text-ink">سهم هزینهٔ AI به تفکیک پلن <span dir="ltr" class="text-[10px] opacity-60 text-inkSoft ml-1">Cost Share</span></div>
-            <div class="relative h-[240px] w-full flex justify-center"><canvas id="pieChart"></canvas></div>
+            <div class="mb-4 flex items-center justify-between gap-2">
+              <div class="text-[13px] font-bold text-ink">سهم هزینهٔ AI به تفکیک پلن <span dir="ltr" class="text-[10px] opacity-60 text-inkSoft ml-1">Cost Share</span></div>
+              <button @click="toggleChart('pie')" title="باز/بسته" class="p-1.5 rounded-lg text-inkSoft hover:bg-paper transition-colors flex-shrink-0">
+                <i data-lucide="chevron-down" class="w-4 h-4 transition-transform" :style="{ transform: chartOpen.pie ? 'rotate(180deg)' : 'rotate(0deg)' }"></i>
+              </button>
+            </div>
+            <div v-show="chartOpen.pie" class="relative h-[240px] w-full flex justify-center"><canvas id="pieChart"></canvas></div>
           </div>
         </div>
 
         <div class="bg-card border border-line rounded-2xl p-4 shadow-sm">
-          <div class="mb-4 text-[13px] font-bold text-ink">روند پیش‌بینی سود خالص (سناریوها) <span dir="ltr" class="text-[10px] opacity-60 text-inkSoft ml-1">Profit Trend Projection</span></div>
-          <div class="relative h-[280px] w-full"><canvas id="lineChart"></canvas></div>
+          <div class="mb-4 flex items-center justify-between gap-2">
+            <div class="text-[13px] font-bold text-ink">روند پیش‌بینی سود خالص (سناریوها) <span dir="ltr" class="text-[10px] opacity-60 text-inkSoft ml-1">Profit Trend Projection</span></div>
+            <button @click="toggleChart('line')" title="باز/بسته" class="p-1.5 rounded-lg text-inkSoft hover:bg-paper transition-colors flex-shrink-0">
+              <i data-lucide="chevron-down" class="w-4 h-4 transition-transform" :style="{ transform: chartOpen.line ? 'rotate(180deg)' : 'rotate(0deg)' }"></i>
+            </button>
+          </div>
+          <div v-show="chartOpen.line" class="relative h-[280px] w-full"><canvas id="lineChart"></canvas></div>
+        </div>
+
+        <div class="bg-card border border-line rounded-2xl p-4 shadow-sm">
+          <div class="mb-4 flex items-center justify-between gap-2">
+            <div class="text-[13px] font-bold text-ink">روند رشد کاربران (MAU) <span dir="ltr" class="text-[10px] opacity-60 text-inkSoft ml-1">User Growth</span></div>
+            <button @click="toggleChart('growth')" title="باز/بسته" class="p-1.5 rounded-lg text-inkSoft hover:bg-paper transition-colors flex-shrink-0">
+              <i data-lucide="chevron-down" class="w-4 h-4 transition-transform" :style="{ transform: chartOpen.growth ? 'rotate(180deg)' : 'rotate(0deg)' }"></i>
+            </button>
+          </div>
+          <div v-show="chartOpen.growth" class="relative h-[280px] w-full"><canvas id="growthChart"></canvas></div>
         </div>
 
         <div class="bg-card border border-line rounded-2xl p-4 shadow-sm overflow-hidden flex flex-col">
@@ -720,9 +745,28 @@
 
         let charts = {};
 
+        const CHART_OPEN_KEY = 'hamzaboon_financial_model_chart_open';
+        const defaultChartOpen = { bar: true, pie: true, line: true, growth: true };
+        const loadChartOpen = () => {
+          try {
+            const saved = JSON.parse(localStorage.getItem(CHART_OPEN_KEY) || '{}');
+            return { ...defaultChartOpen, ...saved };
+          } catch (e) {
+            return { ...defaultChartOpen };
+          }
+        };
+        const chartOpen = ref(loadChartOpen());
+        const toggleChart = (key) => {
+          chartOpen.value[key] = !chartOpen.value[key];
+          try { localStorage.setItem(CHART_OPEN_KEY, JSON.stringify(chartOpen.value)); } catch (e) {}
+          nextTick().then(() => { Object.values(charts).forEach(c => c && c.resize()); });
+        };
+
         const reset = () => {
           localStorage.removeItem('hamzaboon_financial_model_v2');
+          localStorage.removeItem(CHART_OPEN_KEY);
           inp.value = { ...DEFAULTS };
+          chartOpen.value = { ...defaultChartOpen };
           if (!isDesktop.value) activeTab.value = 'dashboard';
         };
 
@@ -896,6 +940,7 @@
             const total = F + B + S + G + E;
             rows.push({
               month: t + 1, free: Math.round(F), bronze: Math.round(B), silver: Math.round(S), gold: Math.round(G), emerald: Math.round(E), total: Math.round(total),
+              newSignups: Math.round(newSignups),
               revenue, aiCostUSD: aiCalls * params.aiCostPerCallUSD, aiCostToman, trialCACToman, netProfit, margin: revenue > 0 ? (netProfit / revenue) * 100 : 0
             });
             const monthlyUpgrades = F * (effConvRate / 100);
@@ -961,6 +1006,13 @@
           charts.line.data.datasets[1].data = baseSeries.value.map(r => r.netProfit);
           charts.line.data.datasets[2].data = oSeries.value.map(r => r.netProfit);
           charts.line.update();
+
+          charts.growth.data.labels = baseSeries.value.map(r => `ماه ${r.month}`);
+          charts.growth.data.datasets[0].data = pSeries.value.map(r => r.total);
+          charts.growth.data.datasets[1].data = baseSeries.value.map(r => r.total);
+          charts.growth.data.datasets[2].data = oSeries.value.map(r => r.total);
+          charts.growth.data.datasets[3].data = baseSeries.value.map(r => r.newSignups);
+          charts.growth.update();
         };
 
         watch(inp, (newVal) => {
@@ -1016,6 +1068,28 @@
             }
           });
 
+          charts.growth = new Chart(document.getElementById('growthChart'), {
+            type: 'bar',
+            data: {
+              labels: [],
+              datasets: [
+                { type: 'line', label: 'بدبینانه', data: [], borderColor: COLORS.rose, tension: 0.4, borderWidth: 2, pointRadius: 0, yAxisID: 'y' },
+                { type: 'line', label: 'پایه (مبنا)', data: [], borderColor: COLORS.turquoiseDeep, tension: 0.4, borderWidth: 3, pointRadius: 0, yAxisID: 'y' },
+                { type: 'line', label: 'خوش‌بینانه', data: [], borderColor: COLORS.emerald, tension: 0.4, borderWidth: 2, pointRadius: 0, yAxisID: 'y' },
+                { type: 'bar', label: 'ثبت‌نام جدید (پایه)', data: [], backgroundColor: 'rgba(13,148,136,0.18)', borderColor: COLORS.turquoise, borderWidth: 1, borderRadius: 4, yAxisID: 'y1', order: 4 }
+              ]
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+              plugins: { legend: { position: 'top', align: 'end', labels: { font: { size: 11, family: 'Vazirmatn' } } } },
+              scales: {
+                y: { position: 'left', grid: { borderDash: [4, 4] }, title: { display: true, text: 'کل کاربران', font: { size: 10, family: 'Vazirmatn' } } },
+                y1: { position: 'right', grid: { display: false }, title: { display: true, text: 'ثبت‌نام جدید', font: { size: 10, family: 'Vazirmatn' } } },
+                x: { grid: { display: false } }
+              }
+            }
+          });
+
           updateCharts();
           lucide.createIcons();
         });
@@ -1023,6 +1097,7 @@
         return {
           inp, activeTab, isDesktop, reset, format, m1, mLast, breakEvenUsers, costFreeUser, avgLTV, baseSeries,
           fileInput, exportJSON, triggerImport, importJSON,
+          chartOpen, toggleChart,
           totalConversionBoost, totalChurnReduction, totalSignupBoost, trialCACToman,
           showTechModal, techForm, iconOptions, openAddTechnique, openEditTechnique, saveTechnique,
           deleteTechnique, closeTechModal, onEffectTypeChange
