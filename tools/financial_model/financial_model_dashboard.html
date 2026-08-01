@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>داشبورد مالی هم‌زبان</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: "#101828", inkSoft: "#344054", paper: "#FAF8F4", card: "#FFFFFF", line: "#E7E3DA",
+            turquoise: "#0D9488", turquoiseDeep: "#0F766E", turquoiseSoft: "#CCFBF1",
+            amber: "#D97706", amberSoft: "#FEF3C7", rose: "#DC2626", roseSoft: "#FEE2E2",
+            emerald: "#059669", emeraldSoft: "#D1FAE5", indigo: "#4F46E5", indigoSoft: "#E0E7FF",
+            gold: "#EAB308", bronze: "#CD7F32"
+          },
+          fontFamily: { sans: ['Vazirmatn', 'sans-serif'] }
+        }
+      }
+    }
+  </script>
+
+  <!-- Vue 3 & Chart.js & Lucide Icons -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    body { background-color: #FAF8F4; color: #101828; -webkit-tap-highlight-color: transparent; }
+    * { box-sizing: border-box; }
+    [v-cloak] { display: none; }
+
+    .hz-slider {
+      -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px;
+      background: linear-gradient(90deg, #0D9488 0%, #E7E3DA 0%); outline: none;
+    }
+    .hz-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none; width: 18px; height: 18px;
+      border-radius: 50%; background: #0F766E; border: 3px solid #fff;
+      box-shadow: 0 1px 4px rgba(15,118,110,0.4); cursor: pointer;
+    }
+    .girih-header {
+      background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.14) 1px, transparent 0);
+      background-size: 18px 18px;
+    }
+    .hz-scroll::-webkit-scrollbar { height: 6px; width: 6px; }
+    .hz-scroll::-webkit-scrollbar-track { background: #FAF8F4; border-radius: 999px; }
+    .hz-scroll::-webkit-scrollbar-thumb { background: #E7E3DA; border-radius: 999px; }
+    .hz-scroll::-webkit-scrollbar-thumb:hover { background: #0D9488; }
+  </style>
+</head>
+<body class="min-h-screen w-full selection:bg-turquoiseSoft selection:text-turquoiseDeep">
+
+  <div id="app" v-cloak class="flex flex-col min-h-screen pb-[76px] lg:pb-24 relative">
+
+    <!-- ========== Top Header ========== -->
+    <header class="girih-header bg-ink text-white sticky top-0 z-40 shadow-md">
+      <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-10 py-4 lg:py-5 flex items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="bg-turquoise p-2 rounded-xl text-white shadow-inner">
+            <i data-lucide="piggy-bank" class="w-5 h-5 sm:w-6 sm:h-6"></i>
+          </div>
+          <div>
+            <h1 class="text-lg sm:text-2xl font-extrabold flex items-center gap-2">داشبورد مالی هم‌زبان</h1>
+            <p dir="ltr" class="text-[10px] sm:text-[11px] opacity-60 font-medium mt-0.5 text-right sm:text-left tracking-wide">HamZaboon Financial Model</p>
+          </div>
+        </div>
+
+        <div class="hidden lg:flex items-center gap-2 mr-auto ml-4">
+          <button @click="exportJSON" class="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2 transition-colors bg-white/10 hover:bg-white/20">
+            <i data-lucide="download" class="w-4 h-4"></i> خروجی JSON
+          </button>
+          <button @click="triggerImport" class="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2 transition-colors bg-white/10 hover:bg-white/20">
+            <i data-lucide="upload" class="w-4 h-4"></i> ورودی JSON
+          </button>
+          <button @click="reset" class="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2 transition-colors bg-white/10 hover:bg-white/20">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i> بازیابی
+          </button>
+        </div>
+        <input ref="fileInput" type="file" accept="application/json" class="hidden" @change="importJSON">
+      </div>
+    </header>
+
+    <!-- ========== Desktop Floating Glass Dock ========== -->
+    <nav class="hidden lg:flex fixed bottom-6 left-1/2 -translate-x-1/2 z-50 items-center gap-1 bg-white/70 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(16,24,40,0.18)] rounded-full px-2 py-2">
+      <button @click="activeTab = 'inputs'" :class="activeTab === 'inputs' ? 'bg-ink text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-4 py-2.5 rounded-full transition-all flex items-center gap-2 text-sm font-medium">
+        <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> تنظیمات
+      </button>
+      <button @click="activeTab = 'dashboard'" :class="activeTab === 'dashboard' ? 'bg-ink text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-4 py-2.5 rounded-full transition-all flex items-center gap-2 text-sm font-medium">
+        <i data-lucide="layout-dashboard" class="w-4 h-4"></i> داشبورد
+      </button>
+      <button @click="activeTab = 'marketing'" :class="activeTab === 'marketing' ? 'bg-indigo-600 text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-4 py-2.5 rounded-full transition-all flex items-center gap-2 text-sm font-medium">
+        <i data-lucide="lightbulb" class="w-4 h-4"></i> بازاریابی
+      </button>
+      <button @click="activeTab = 'guide'" :class="activeTab === 'guide' ? 'bg-turquoiseDeep text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-4 py-2.5 rounded-full transition-all flex items-center gap-2 text-sm font-medium">
+        <i data-lucide="book-open" class="w-4 h-4"></i> راهنما
+      </button>
+    </nav>
+
+    <!-- ========== Main Body ========== -->
+    <main class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-10 py-6 grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6 items-start flex-1 w-full">
+
+      <!-- ===== INPUTS COLUMN ===== -->
+      <div v-show="activeTab === 'inputs' || (isDesktop && activeTab === 'dashboard')" class="flex flex-col gap-4 lg:sticky lg:top-[90px]">
+        <div class="lg:hidden flex items-center gap-2">
+          <button @click="exportJSON" class="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium rounded-xl px-3 py-2.5 bg-card border border-line text-inkSoft">
+            <i data-lucide="download" class="w-4 h-4"></i> خروجی JSON
+          </button>
+          <button @click="triggerImport" class="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium rounded-xl px-3 py-2.5 bg-card border border-line text-inkSoft">
+            <i data-lucide="upload" class="w-4 h-4"></i> ورودی JSON
+          </button>
+        </div>
+        <div class="bg-card border border-line rounded-2xl p-3 shadow-sm">
+          <div class="flex items-center gap-2 mb-3 text-[13px] font-bold text-inkSoft">
+            <i data-lucide="users-2" class="w-4 h-4 text-turquoiseDeep"></i> استراتژی ورودی کاربران
+          </div>
+          <div class="flex bg-paper p-1 rounded-xl text-[11px] font-medium border border-line">
+            <button @click="inp.inputMode = 'conversion'" :class="inp.inputMode === 'conversion' ? 'bg-white shadow text-turquoiseDeep border border-line/50' : 'text-inkSoft'" class="flex-1 py-2 rounded-lg transition">
+              بر اساس نرخ تبدیل
+            </button>
+            <button @click="inp.inputMode = 'manual'" :class="inp.inputMode === 'manual' ? 'bg-white shadow text-turquoiseDeep border border-line/50' : 'text-inkSoft'" class="flex-1 py-2 rounded-lg transition">
+              ورود دستی آمار
+            </button>
+          </div>
+        </div>
+
+        <section-card title="پلن‌ها و تعداد کاربران" en="Plans & Users" icon="users">
+          <template v-if="inp.inputMode === 'conversion'">
+            <number-field label="کل کاربران فعال (MAU)" en="Total Users" v-model="inp.mau" :min="100" :max="50000" :step="100" unit="نفر"></number-field>
+            <number-field label="نرخ تبدیل به پولی" en="Conversion Rate" v-model="inp.convBase" :min="1" :max="15" :step="0.5" unit="٪"></number-field>
+            <number-field label="سهم پلن برنز" en="Bronze Share" v-model="inp.bronzeShare" :min="0" :max="100" :step="1" unit="٪"></number-field>
+            <number-field label="سهم پلن نقره‌ای" en="Silver Share" v-model="inp.silverShare" :min="0" :max="100 - inp.bronzeShare" :step="1" unit="٪"></number-field>
+            <number-field label="سهم پلن طلایی" en="Gold Share" v-model="inp.goldShare" :min="0" :max="100 - inp.bronzeShare - inp.silverShare" :step="1" unit="٪"></number-field>
+            <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-emeraldSoft/50 text-emerald font-bold rounded-xl mt-2 border border-emeraldSoft">
+              <span>سهم پلن زمرد (محاسبه خودکار)</span>
+              <span dir="ltr">{{ Math.max(0, 100 - inp.bronzeShare - inp.silverShare - inp.goldShare) }} %</span>
+            </div>
+          </template>
+          <template v-else>
+            <div class="mb-3 pb-3 border-b border-dashed border-line">
+              <div class="text-[13px] font-bold mb-2 text-ink">رایگان <span dir="ltr" class="text-[10px] opacity-60">Free</span></div>
+              <number-field label="تعداد کاربر" v-model="inp.free0" :min="0" :max="20000" :step="10"></number-field>
+            </div>
+            <div class="mb-3 pb-3 border-b border-dashed border-line">
+              <div class="text-[13px] font-bold mb-2 text-[#CD7F32]">برنز <span dir="ltr" class="text-[10px] opacity-60">Bronze</span></div>
+              <number-field label="تعداد کاربر" v-model="inp.bronze0" :min="0" :max="10000" :step="10"></number-field>
+            </div>
+            <div class="mb-3 pb-3 border-b border-dashed border-line">
+              <div class="text-[13px] font-bold mb-2 text-turquoiseDeep">نقره‌ای <span dir="ltr" class="text-[10px] opacity-60">Silver</span></div>
+              <number-field label="تعداد کاربر" v-model="inp.silver0" :min="0" :max="5000" :step="10"></number-field>
+            </div>
+            <div class="mb-3 pb-3 border-b border-dashed border-line">
+              <div class="text-[13px] font-bold mb-2 text-gold">طلایی <span dir="ltr" class="text-[10px] opacity-60">Gold</span></div>
+              <number-field label="تعداد کاربر" v-model="inp.gold0" :min="0" :max="2000" :step="10"></number-field>
+            </div>
+            <div>
+              <div class="text-[13px] font-bold mb-2 text-emerald">زمرد <span dir="ltr" class="text-[10px] opacity-60">Emerald</span></div>
+              <number-field label="تعداد کاربر" v-model="inp.emerald0" :min="0" :max="1000" :step="10"></number-field>
+            </div>
+          </template>
+        </section-card>
+
+        <section-card title="قیمت و هزینه AI" en="Pricing & AI" icon="wallet">
+          <number-field label="قیمت برنز" en="Bronze Price" v-model="inp.bronzePrice" :min="10000" :max="200000" :step="1000" unit="تومان"></number-field>
+          <number-field label="قیمت نقره‌ای" en="Silver Price" v-model="inp.silverPrice" :min="50000" :max="1000000" :step="1000" unit="تومان"></number-field>
+          <number-field label="قیمت طلایی" en="Gold Price" v-model="inp.goldPrice" :min="100000" :max="2000000" :step="1000" unit="تومان"></number-field>
+          <number-field label="قیمت زمرد" en="Emerald Price" v-model="inp.emeraldPrice" :min="150000" :max="3000000" :step="1000" unit="تومان"></number-field>
+          <hr class="my-3 border-dashed border-line">
+          <number-field label="سهمیه روزانه (رایگان)" v-model="inp.freeCallsPerDay" :min="0" :max="50" :step="1" unit="بار"></number-field>
+          <number-field label="سهمیه روزانه (برنز)" v-model="inp.bronzeCallsPerDay" :min="0" :max="50" :step="1" unit="بار"></number-field>
+          <number-field label="سهمیه روزانه (نقره‌ای)" v-model="inp.silverCallsPerDay" :min="0" :max="50" :step="1" unit="بار"></number-field>
+          <number-field label="سهمیه روزانه (طلایی)" v-model="inp.goldCallsPerDay" :min="0" :max="50" :step="1" unit="بار"></number-field>
+          <number-field label="سهمیه روزانه (زمرد)" v-model="inp.emeraldCallsPerDay" :min="0" :max="50" :step="1" unit="بار"></number-field>
+          <hr class="my-3 border-dashed border-line">
+          <number-field label="هزینه هر فراخوانی AI" en="Cost per Call" v-model="inp.aiCostPerCallUSD" :min="0.0001" :max="0.002" :step="0.00005" unit="$"></number-field>
+          <number-field label="نرخ دلار به تومان" v-model="inp.exchangeRate" :min="50000" :max="300000" :step="1000" unit="تومان"></number-field>
+        </section-card>
+
+        <section-card title="رشد و ریزش" en="Growth & Churn" icon="trending-up" :default-open="false">
+          <number-field label="تعداد ماه‌های پیش‌بینی" v-model="inp.projectionMonths" :min="3" :max="36" :step="1" unit="ماه"></number-field>
+          <number-field label="نرخ ریزش ماهانهٔ کاربران پولی" v-model="inp.paidChurnRate" :min="1" :max="30" :step="0.5" unit="٪"></number-field>
+          <number-field label="نرخ ریزش ماهانهٔ کاربران رایگان" v-model="inp.freeChurnRate" :min="3" :max="25" :step="0.5" unit="٪"></number-field>
+          <number-field label="کاربران جدید ماه اول (عدد مطلق)" v-model="inp.newUsersMonth1" :min="0" :max="5000" :step="10" unit="نفر"></number-field>
+          <hr class="my-3 border-dashed border-line">
+          <div class="text-[11px] font-bold text-inkSoft mb-2">نرخ تبدیل به پولی و رشد کاربر جدید — به تفکیک سناریو</div>
+          <div class="grid grid-cols-3 gap-2 mb-2">
+            <div class="text-[10px] text-rose font-bold text-center">بدبینانه</div>
+            <div class="text-[10px] text-turquoiseDeep font-bold text-center">پایه</div>
+            <div class="text-[10px] text-emerald font-bold text-center">خوش‌بینانه</div>
+          </div>
+          <number-field label="نرخ تبدیل — پایه" v-model="inp.convBase" :min="1" :max="15" :step="0.5" unit="٪"></number-field>
+          <number-field label="نرخ تبدیل — بدبینانه" v-model="inp.convPessimistic" :min="0.5" :max="15" :step="0.5" unit="٪"></number-field>
+          <number-field label="نرخ تبدیل — خوش‌بینانه" v-model="inp.convOptimistic" :min="1" :max="20" :step="0.5" unit="٪"></number-field>
+          <hr class="my-3 border-dashed border-line">
+          <number-field label="رشد کاربر جدید — پایه" v-model="inp.signupGrowthRateBase" :min="0" :max="20" :step="0.5" unit="٪"></number-field>
+          <number-field label="رشد کاربر جدید — بدبینانه" v-model="inp.signupGrowthRatePessimistic" :min="0" :max="15" :step="0.5" unit="٪"></number-field>
+          <number-field label="رشد کاربر جدید — خوش‌بینانه" v-model="inp.signupGrowthRateOptimistic" :min="0" :max="25" :step="0.5" unit="٪"></number-field>
+        </section-card>
+      </div>
+
+      <!-- ===== DASHBOARD COLUMN ===== -->
+      <div v-show="activeTab === 'dashboard' || (isDesktop && activeTab === 'inputs')" class="flex flex-col gap-6 min-w-0">
+        <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+          <kpi-card title="سود خالص ماهانه" en="Net Profit" icon="wallet" :tone="m1.netProfit >= 0 ? 'emerald' : 'rose'" :value="m1.netProfit" type="toman" sub="درآمد منهای هزینه AI"></kpi-card>
+          <kpi-card title="حاشیه سود" en="Profit Margin" icon="percent" :tone="m1.margin >= 0 ? 'turquoise' : 'rose'" :value="m1.margin" type="percent" sub="سود تقسیم بر درآمد کل"></kpi-card>
+          <kpi-card title="LTV کاربران پولی" en="Avg. LTV" icon="users" tone="indigo" :value="avgLTV" type="toman" sub="ارزش طول عمر بر اساس ریزش"></kpi-card>
+          <kpi-card title="نقطه سر‌به‌سر" en="Break-even" icon="piggy-bank" tone="amber" :value="breakEvenUsers" type="number" sub="کاربر پولی برای جبران هزینه"></kpi-card>
+          <kpi-card title="درآمد کل (MRR)" en="Revenue" icon="trending-up" tone="emerald" :value="m1.revenue" type="toman" sub="فقط کاربران پولی"></kpi-card>
+          <kpi-card title="هزینه کل AI" en="Total AI Cost" icon="wallet" tone="rose" :value="m1.aiCostToman" type="toman" :sub="'$' + format(m1.aiCostUSD, 1)"></kpi-card>
+          <kpi-card title="هزینه AI هر کاربر رایگان" en="Cost / Free User" icon="users" tone="rose" :value="costFreeUser" type="toman" sub="در ماه"></kpi-card>
+          <kpi-card :title="'سود خالص در ماه ' + inp.projectionMonths" en="Future Profit" icon="line-chart" :tone="mLast.netProfit >= 0 ? 'emerald' : 'rose'" :value="mLast.netProfit" type="toman"></kpi-card>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="bg-card border border-line rounded-2xl p-4 shadow-sm">
+            <div class="mb-4 text-[13px] font-bold text-ink">ترکیب درآمد، هزینه و سود <span dir="ltr" class="text-[10px] opacity-60 text-inkSoft ml-1">Revenue vs Cost</span></div>
+            <div class="relative h-[240px] w-full"><canvas id="barChart"></canvas></div>
+          </div>
+          <div class="bg-card border border-line rounded-2xl p-4 shadow-sm">
+            <div class="mb-4 text-[13px] font-bold text-ink">سهم هزینهٔ AI به تفکیک پلن <span dir="ltr" class="text-[10px] opacity-60 text-inkSoft ml-1">Cost Share</span></div>
+            <div class="relative h-[240px] w-full flex justify-center"><canvas id="pieChart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="bg-card border border-line rounded-2xl p-4 shadow-sm">
+          <div class="mb-4 text-[13px] font-bold text-ink">روند پیش‌بینی سود خالص (سناریوها) <span dir="ltr" class="text-[10px] opacity-60 text-inkSoft ml-1">Profit Trend Projection</span></div>
+          <div class="relative h-[280px] w-full"><canvas id="lineChart"></canvas></div>
+        </div>
+
+        <div class="bg-card border border-line rounded-2xl p-4 shadow-sm overflow-hidden flex flex-col">
+          <div class="mb-4 flex items-center justify-between">
+            <div class="text-[13px] font-bold text-ink flex items-center gap-2">
+              <i data-lucide="table" class="w-4 h-4 text-turquoiseDeep"></i>
+              جزئیات پیش‌بینی ماه به ماه
+            </div>
+          </div>
+          <div class="overflow-x-auto hz-scroll pb-2">
+            <table class="w-full text-right text-[11px] sm:text-xs whitespace-nowrap">
+              <thead>
+                <tr class="bg-paper text-inkSoft border-b border-line">
+                  <th class="p-3 font-bold rounded-tr-lg">زمان</th>
+                  <th class="p-3">رایگان</th>
+                  <th class="p-3 text-[#CD7F32]">برنز</th>
+                  <th class="p-3 text-turquoiseDeep">نقره‌ای</th>
+                  <th class="p-3 text-gold">طلایی</th>
+                  <th class="p-3 text-emerald">زمرد</th>
+                  <th class="p-3 font-bold border-r border-line/50">کل کاربران</th>
+                  <th class="p-3 border-r border-line/50">درآمد کل</th>
+                  <th class="p-3">هزینه AI</th>
+                  <th class="p-3">CAC تریال</th>
+                  <th class="p-3 font-bold rounded-tl-lg">سود خالص</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-line/40">
+                <tr v-for="(row, idx) in baseSeries" :key="row.month" class="hover:bg-paper/50 transition-colors">
+                  <td class="p-3 font-bold text-inkSoft">ماه {{ row.month }}</td>
+                  <td class="p-3">{{ format(row.free) }} نفر</td>
+                  <td class="p-3 font-medium">{{ format(row.bronze) }} نفر</td>
+                  <td class="p-3 font-medium">{{ format(row.silver) }} نفر</td>
+                  <td class="p-3 font-medium">{{ format(row.gold) }} نفر</td>
+                  <td class="p-3 font-medium">{{ format(row.emerald) }} نفر</td>
+                  <td class="p-3 font-bold border-r border-line/50">
+                    {{ format(row.total) }} نفر
+                    <span v-if="idx > 0" :class="row.total >= baseSeries[idx-1].total ? 'text-emerald' : 'text-rose'" class="text-[10px] font-bold" dir="ltr">
+                      ({{ row.total >= baseSeries[idx-1].total ? '+' : '' }}{{ format(row.total - baseSeries[idx-1].total) }})
+                    </span>
+                  </td>
+                  <td class="p-3 font-medium text-emerald border-r border-line/50">{{ format(row.revenue) }} تومان</td>
+                  <td class="p-3 font-medium text-rose">{{ format(row.aiCostToman) }} تومان</td>
+                  <td class="p-3 font-medium text-rose">{{ format(row.trialCACToman) }} تومان</td>
+                  <td class="p-3 font-extrabold" :class="row.netProfit >= 0 ? 'text-emerald' : 'text-rose'" dir="ltr"><span dir="rtl">{{ format(row.netProfit) }} تومان</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== MARKETING & GROWTH TAB ===== -->
+      <div v-show="activeTab === 'marketing'" class="lg:col-span-2 flex flex-col gap-6">
+
+        <div class="bg-gradient-to-br from-indigoSoft to-purple-100 border border-indigo-200 rounded-2xl p-5 shadow-sm">
+          <h2 class="text-lg font-bold text-indigo-900 mb-2 flex items-center gap-2">
+            <i data-lucide="rocket" class="w-5 h-5"></i> ایده‌های بازاریابی و تبدیل (Growth & Conversion)
+          </h2>
+          <p class="text-xs text-indigo-800/70 mb-1">هر تکنیک را می‌توانید فعال/غیرفعال کنید و شدت اثر تخمینی‌اش را روی نرخ تبدیل یا ریزش تنظیم کنید — این عدد مستقیماً در محاسبات داشبورد اعمال می‌شود.</p>
+          <p class="text-[10px] text-indigo-800/50 mb-5">این درصدها تخمینی هستند، نه دادهٔ واقعی؛ بعد از جمع‌آوری آمار واقعی کاربران قابل کالیبره‌کردن‌اند.</p>
+
+          <div class="flex flex-wrap gap-2 mb-4 text-[11px] font-bold">
+            <div class="px-3 py-1.5 rounded-lg bg-white/70 text-indigo-900">مجموع اثر فعال روی تبدیل: <span dir="ltr">+{{ format(totalConversionBoost,1) }}٪</span></div>
+            <div class="px-3 py-1.5 rounded-lg bg-white/70 text-indigo-900">کاهش ریزش فعال: <span dir="ltr">-{{ format(totalChurnReduction,1) }}٪</span></div>
+            <div class="px-3 py-1.5 rounded-lg bg-white/70 text-indigo-900">تقویت رشد ثبت‌نام: <span dir="ltr">+{{ format(totalSignupBoost,1) }}٪</span></div>
+            <div class="px-3 py-1.5 rounded-lg bg-rose/10 text-rose">هزینهٔ CAC تریال (ماه ۱): <span dir="ltr">{{ format(trialCACToman) }} تومان</span></div>
+          </div>
+
+          <div class="space-y-3">
+            <div v-for="t in inp.marketingTechniques" :key="t.id"
+                 class="bg-white/80 p-4 rounded-xl border" :class="t.enabled ? 'border-indigo-300' : 'border-white'">
+              <div class="flex items-start justify-between gap-3 mb-2">
+                <h3 class="font-bold text-indigo-900 text-sm flex items-center gap-1.5">
+                  <i :data-lucide="t.icon" class="w-4 h-4 flex-shrink-0"></i> {{ t.title }}
+                </h3>
+                <button @click="t.enabled = !t.enabled"
+                        class="flex-shrink-0 w-11 h-6 rounded-full transition-colors relative"
+                        :class="t.enabled ? 'bg-indigo-600' : 'bg-gray-300'">
+                  <span class="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all"
+                        :class="t.enabled ? 'right-0.5' : 'right-5'"></span>
+                </button>
+              </div>
+              <p class="text-xs text-indigo-800/70 leading-relaxed mb-3">{{ t.desc }}</p>
+              <div v-if="t.enabled" class="space-y-2 pt-2 border-t border-dashed border-indigo-100">
+                <div class="flex items-center gap-3">
+                  <span class="text-[10px] font-bold text-indigo-900 w-24 flex-shrink-0">
+                    {{ t.effectType === 'churn_reduction' ? 'کاهش ریزش' : (t.effectType === 'signup_boost' ? 'تقویت ثبت‌نام' : 'اثر روی تبدیل') }}
+                  </span>
+                  <input type="range" v-model.number="t.effect" :min="t.min" :max="t.max" :step="t.step" class="hz-slider flex-1">
+                  <span dir="ltr" class="text-[11px] font-bold text-indigo-900 w-12 text-left">{{ t.effect }}٪</span>
+                </div>
+                <div v-if="t.id === 'reverseTrial'" class="flex items-center gap-3">
+                  <span class="text-[10px] font-bold text-indigo-900 w-24 flex-shrink-0">سهم کاربران واجد شرط</span>
+                  <input type="range" v-model.number="t.eligibleShare" :min="t.eligibleMin" :max="t.eligibleMax" :step="1" class="hz-slider flex-1">
+                  <span dir="ltr" class="text-[11px] font-bold text-indigo-900 w-12 text-left">{{ t.eligibleShare }}٪</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-card border border-line rounded-2xl p-5 shadow-sm">
+          <h2 class="text-lg font-bold text-ink mb-4 border-b pb-3 flex items-center gap-2">
+            <i data-lucide="list-checks" class="w-5 h-5 text-turquoiseDeep"></i> یادداشت‌های تفکیکی هر پلن
+          </h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="text-[12px] font-bold text-inkSoft mb-1.5 block">رایگان (Free)</label>
+              <textarea v-model="inp.notes.free" class="w-full bg-paper border border-line rounded-xl p-3 text-[12px] text-inkSoft outline-none focus:border-turquoise transition min-h-[80px]"></textarea>
+            </div>
+            <div>
+              <label class="text-[12px] font-bold text-[#CD7F32] mb-1.5 block">برنز (Bronze)</label>
+              <textarea v-model="inp.notes.bronze" class="w-full bg-paper border border-line rounded-xl p-3 text-[12px] text-inkSoft outline-none focus:border-[#CD7F32] transition min-h-[80px]"></textarea>
+            </div>
+            <div>
+              <label class="text-[12px] font-bold text-turquoiseDeep mb-1.5 block">نقره‌ای (Silver)</label>
+              <textarea v-model="inp.notes.silver" class="w-full bg-paper border border-line rounded-xl p-3 text-[12px] text-inkSoft outline-none focus:border-turquoiseDeep transition min-h-[80px]"></textarea>
+            </div>
+            <div>
+              <label class="text-[12px] font-bold text-gold mb-1.5 block">طلایی (Gold)</label>
+              <textarea v-model="inp.notes.gold" class="w-full bg-paper border border-line rounded-xl p-3 text-[12px] text-inkSoft outline-none focus:border-gold transition min-h-[80px]"></textarea>
+            </div>
+            <div class="md:col-span-2">
+              <label class="text-[12px] font-bold text-emerald mb-1.5 block">زمرد (Emerald)</label>
+              <textarea v-model="inp.notes.emerald" class="w-full bg-paper border border-line rounded-xl p-3 text-[12px] text-inkSoft outline-none focus:border-emerald transition min-h-[60px]"></textarea>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ===== GUIDE COLUMN ===== -->
+      <div v-show="activeTab === 'guide'" class="lg:col-span-2 flex flex-col gap-4">
+        <div class="bg-card border border-line rounded-2xl p-5 shadow-sm">
+          <h2 class="text-[15px] font-bold text-turquoiseDeep mb-4 border-b pb-2 flex items-center gap-2">
+            <i data-lucide="book-open" class="w-5 h-5"></i> راهنمای شاخص‌ها
+          </h2>
+          <div class="space-y-4 text-[12px] leading-relaxed text-inkSoft">
+            <div class="bg-paper p-3 rounded-xl border border-line">
+              <strong class="text-ink block mb-1">استراتژی تبدیل (MAU):</strong>
+              به جای ورود دستی، تعداد کل کاربران اپلیکیشن را می‌دهید و سیستم با نرخ تبدیل خریداران را تفکیک می‌کند.
+            </div>
+            <div class="bg-paper p-3 rounded-xl border border-line">
+              <strong class="text-ink block mb-1">ارزش طول عمر (LTV):</strong>
+              نشان می‌دهد یک کاربر پولی قبل از اینکه ریزش کند، در مجموع چند تومان سود خالص برای شما دارد.
+            </div>
+            <div class="bg-paper p-3 rounded-xl border border-line">
+              <strong class="text-ink block mb-1">نقطه سر‌به‌سر (Break-even):</strong>
+              حداقل تعداد مشترک پولی که نیاز دارید تا هزینه سرور و AI کاربرانی که رایگان استفاده می‌کنند جبران شود.
+            </div>
+            <div class="bg-paper p-3 rounded-xl border border-line">
+              <strong class="text-ink block mb-1">تکنیک‌های بازاریابی (تب بازاریابی):</strong>
+              هر تکنیک با روشن‌کردنش، درصد تخمینی‌اش را روی نرخ تبدیل یا ریزش اعمال می‌کند و بلافاصله در نمودارها و جدول اثر می‌گذارد. عدد «CAC تریال» هزینهٔ سه‌روز رایگان پلن طلایی برای همان سهم از کاربران جدید است که فعالیت بالا نشان داده‌اند.
+            </div>
+            <div class="bg-paper p-3 rounded-xl border border-line">
+              <strong class="text-ink block mb-1">ستون «کل کاربران» در جدول:</strong>
+              مجموع رایگان+پولی هر ماه، همراه با تغییر نسبت به ماه قبل. «کاربران جدید ماه اول» یک عدد مطلق و مستقل است (نه درصدی از جامعهٔ رایگان فعلی)، پس رشد واقعی کاربران — نه فقط تبدیل داخلی آن‌ها به پولی — این‌جا قابل مشاهده است.
+            </div>
+            <div class="bg-paper p-3 rounded-xl border border-line">
+              <strong class="text-ink block mb-1">خروجی/ورودی JSON:</strong>
+              علاوه بر ذخیرهٔ خودکار در همین مرورگر، می‌توانید کل تنظیمات را به یک فایل JSON بگیرید یا از یک فایل قبلی بازیابی کنید — مفید برای نگه‌داشتن چند سناریوی جداگانه یا انتقال بین دستگاه‌ها.
+            </div>
+          </div>
+          <button @click="reset" class="w-full mt-4 flex items-center justify-center gap-2 bg-rose/10 text-rose font-bold py-3 rounded-xl transition hover:bg-rose/20 lg:hidden">
+            <i data-lucide="refresh-ccw" class="w-4 h-4"></i> بازیابی تنظیمات اولیه
+          </button>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- ========== Mobile Bottom Navigation ========== -->
+    <nav class="lg:hidden fixed bottom-0 left-0 w-full bg-card/95 backdrop-blur-md border-t border-line z-50 flex justify-around items-center px-1 py-1 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]" style="padding-bottom: max(0.5rem, env(safe-area-inset-bottom));">
+      <button @click="activeTab = 'inputs'" :class="activeTab === 'inputs' ? 'text-turquoiseDeep' : 'text-inkSoft'" class="flex-1 flex flex-col items-center justify-center gap-1 p-2 transition-colors">
+        <i data-lucide="sliders-horizontal" class="w-[20px] h-[20px]" :class="activeTab === 'inputs' ? 'fill-turquoiseSoft' : ''"></i>
+        <span class="text-[9px] font-bold">تنظیمات</span>
+      </button>
+      <button @click="activeTab = 'dashboard'" :class="activeTab === 'dashboard' ? 'text-turquoiseDeep' : 'text-inkSoft'" class="flex-1 flex flex-col items-center justify-center gap-1 p-2 transition-colors relative">
+        <i data-lucide="layout-dashboard" class="w-[20px] h-[20px]" :class="activeTab === 'dashboard' ? 'fill-turquoiseSoft' : ''"></i>
+        <span class="text-[9px] font-bold">داشبورد</span>
+      </button>
+      <button @click="activeTab = 'marketing'" :class="activeTab === 'marketing' ? 'text-indigo-600' : 'text-inkSoft'" class="flex-1 flex flex-col items-center justify-center gap-1 p-2 transition-colors">
+        <i data-lucide="lightbulb" class="w-[20px] h-[20px]" :class="activeTab === 'marketing' ? 'fill-indigo-100' : ''"></i>
+        <span class="text-[9px] font-bold">بازاریابی</span>
+      </button>
+      <button @click="activeTab = 'guide'" :class="activeTab === 'guide' ? 'text-turquoiseDeep' : 'text-inkSoft'" class="flex-1 flex flex-col items-center justify-center gap-1 p-2 transition-colors">
+        <i data-lucide="book-open" class="w-[20px] h-[20px]" :class="activeTab === 'guide' ? 'fill-turquoiseSoft' : ''"></i>
+        <span class="text-[9px] font-bold">راهنما</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- ==================== VUE TEMPLATES ==================== -->
+  <script type="text/x-template" id="tpl-section">
+    <div class="rounded-2xl overflow-hidden bg-card border border-line shadow-sm mb-4">
+      <button @click="open = !open" class="w-full flex items-center justify-between px-4 py-3 bg-paper transition-colors hover:bg-line/30">
+        <span class="flex items-center gap-2 font-bold text-[14px] text-ink">
+          <i :data-lucide="icon" class="w-4 h-4 text-turquoiseDeep"></i>
+          {{ title }}
+        </span>
+        <i data-lucide="chevron-down" class="w-4 h-4 transition-transform text-inkSoft" :style="{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }"></i>
+      </button>
+      <div v-show="open" class="px-4 py-4"><slot></slot></div>
+    </div>
+  </script>
+
+  <script type="text/x-template" id="tpl-number">
+    <div class="mb-4 last:mb-0">
+      <div class="flex items-center justify-between mb-1.5">
+        <span class="text-[12px] font-bold text-inkSoft inline-flex items-center gap-1.5">
+          {{ label }} <span v-if="en" dir="ltr" class="text-[0.8em] opacity-55 font-medium tracking-wide">{{ en }}</span>
+        </span>
+      </div>
+      <div class="flex items-center gap-2">
+        <input type="range" :min="min" :max="max" :step="step" v-model.number="localValue" class="hz-slider flex-1" :style="{ background: sliderBg }">
+        <div class="flex items-center gap-1 rounded-lg px-2 py-1.5 bg-paper border border-line">
+          <input type="number" :min="min" :max="max" :step="step" v-model.number="localValue" dir="ltr" class="bg-transparent outline-none text-left w-16 text-[13px] font-bold text-ink" style="font-variant-numeric: tabular-nums;">
+          <span v-if="unit" class="text-[10px] font-medium opacity-70 whitespace-nowrap">{{ unit }}</span>
+        </div>
+      </div>
+    </div>
+  </script>
+
+  <script type="text/x-template" id="tpl-kpi">
+    <div class="rounded-2xl p-4 flex flex-col gap-2 bg-card border border-line shadow-sm relative overflow-hidden">
+      <div class="flex items-start justify-between relative z-10">
+        <span class="text-[11px] font-bold text-inkSoft inline-flex items-center gap-1 flex-wrap">
+          {{ title }}
+        </span>
+        <span class="rounded-lg p-1.5 shrink-0" :style="colorStyle.iconBg">
+          <i :data-lucide="icon" class="w-4 h-4" :style="colorStyle.iconFg"></i>
+        </span>
+      </div>
+      <div class="text-lg sm:text-xl font-extrabold relative z-10" :style="colorStyle.text" style="font-variant-numeric: tabular-nums;">
+        <span dir="ltr" class="inline-flex items-baseline gap-1">
+          <template v-if="type === 'toman'">
+            {{ format(value) }} <span class="text-[0.55em] opacity-70 font-bold">تومان</span>
+          </template>
+          <template v-else-if="type === 'percent'">
+            {{ format(value, 1) }} <span class="text-[0.7em] opacity-70 font-bold">٪</span>
+          </template>
+          <template v-else>
+            {{ format(value) }}
+          </template>
+        </span>
+      </div>
+      <div v-if="sub" class="text-[9px] sm:text-[10px] font-medium opacity-60 relative z-10">{{ sub }}</div>
+    </div>
+  </script>
+
+  <!-- ==================== VUE LOGIC ==================== -->
+  <script>
+    const COLORS = {
+      ink: "#101828", inkSoft: "#344054", paper: "#FAF8F4", card: "#FFFFFF", line: "#E7E3DA",
+      turquoise: "#0D9488", turquoiseDeep: "#0F766E", turquoiseSoft: "#CCFBF1",
+      amber: "#D97706", amberSoft: "#FEF3C7", rose: "#DC2626", roseSoft: "#FEE2E2",
+      emerald: "#059669", emeraldSoft: "#D1FAE5", indigo: "#4F46E5", indigoSoft: "#E0E7FF",
+      gold: "#EAB308", bronze: "#CD7F32"
+    };
+
+    const DEFAULTS = {
+      inputMode: 'conversion',
+      mau: 2000,
+      convBase: 5.0,
+      convPessimistic: 2.0,
+      convOptimistic: 9.0,
+      bronzeShare: 40,
+      silverShare: 35,
+      goldShare: 15,
+      free0: 1500,
+      bronze0: 150,
+      silver0: 250,
+      gold0: 100,
+      emerald0: 50,
+      bronzePrice: 49000,
+      silverPrice: 199000,
+      goldPrice: 359000,
+      emeraldPrice: 499000,
+      exchangeRate: 195000,
+      aiCostPerCallUSD: 0.00045,
+      freeCallsPerDay: 3,
+      bronzeCallsPerDay: 4,
+      silverCallsPerDay: 7,
+      goldCallsPerDay: 12,
+      emeraldCallsPerDay: 20,
+      periodDays: 30,
+      projectionMonths: 12,
+      paidChurnRate: 7.8,
+      // --- رشد کاربران (پارامترهای پنهانِ سابق، اکنون قابل‌تنظیم) ---
+      newUsersMonth1: 150,        // تعداد مطلق کاربران رایگان جدید در ماه ۱ (مستقل از اندازهٔ فعلی جامعهٔ رایگان)
+      freeChurnRate: 10,          // ٪ ریزش ماهانه کاربران رایگان (قبلاً هاردکد ۱۰٪)
+      signupGrowthRateBase: 4,
+      signupGrowthRatePessimistic: 1.5,
+      signupGrowthRateOptimistic: 7,
+      convPessimistic: 2.0,
+      convOptimistic: 9.0,
+      notes: {
+        free: "پیش‌نمایش + ۳ فراخوانی + محدودیت زمانی در دسترسی به TTS",
+        bronze: "محافظ استریک + تلفظ صوتی (TTS) نامحدود + گزارش پیشرفت + مرور معکوس",
+        silver: "شروع یادگیری فعال (مکالمه بر اساس جلسات هفته)",
+        gold: "کوییزهای گرامری و درک مطلب پیشرفته",
+        emerald: "غوطه‌وری کامل و نامحدود"
+      },
+      // --- ایده‌های بازاریابی: هرکدام قابل فعال/غیرفعال‌سازی با اثر قابل‌تنظیم روی مدل مالی ---
+      marketingTechniques: [
+        {
+          id: 'streakRescue', title: 'نجات لحظه‌ای استریک', icon: 'flame', enabled: true,
+          desc: 'ساعت ۲۲ شب، اگر کاربر رایگان تعامل نکرده بود: «استریک ۲۰ روزه‌ات تا ۲ ساعت دیگه می‌سوزه! برنز رو بگیر تا محافظ استریک نجاتت بده.» (برای جلوگیری از خستگی کاربر، حداکثر چندبار در ماه برای هر کاربر ارسال شود.)',
+          effectType: 'conversion', effect: 1.2, min: 0, max: 3, step: 0.1
+        },
+        {
+          id: 'reverseTrial', title: 'تریال معکوس ۳ روزه (فقط کاربران فعال)', icon: 'timer', enabled: true,
+          desc: 'ورود کاربر جدیدِ «پرتلاش» (فعالیت بالا در روزهای اول) = ۳ روز پلن طلایی رایگان؛ روز چهارم به رایگان سقوط می‌کند. چون فقط زیرمجموعه‌ای از کاربران رایگان مشمول‌اند، سهم واجدین شرط را دقیق تعریف می‌کنیم تا هزینهٔ AI آن (CAC) واقعی بماند.',
+          effectType: 'conversion', effect: 1.8, min: 0, max: 4, step: 0.1,
+          eligibleShare: 15, eligibleMin: 5, eligibleMax: 30
+        },
+        {
+          id: 'smartDiscount', title: 'تخفیف هوشمند به کاربران بسیار فعال', icon: 'sparkles', enabled: true,
+          desc: 'اگر کاربر رایگان در ۱۴ روز اول بالای ۱۲ روز فعال بود اما خرید نکرد: کد تخفیف ۳۰٪ به مدت ۴۸ ساعت برای نقره‌ای. هدفمند، نه برای همه.',
+          effectType: 'conversion', effect: 0.9, min: 0, max: 3, step: 0.1
+        },
+        {
+          id: 'capacityWall', title: 'دیوار پرداخت ظرفیتی (سقف FSRS)', icon: 'brain-circuit', enabled: true,
+          desc: 'کاربر رایگان به ۲۰۰ کلمهٔ تثبیت‌شده می‌رسد؛ مرور قبلی رایگان می‌ماند اما افزودن کلمهٔ جدید نیاز به برنز دارد.',
+          effectType: 'conversion', effect: 1.5, min: 0, max: 3, step: 0.1
+        },
+        {
+          id: 'streakMilestone', title: 'پاداش استریک و بیش‌فروشی', icon: 'gift', enabled: true,
+          desc: 'رسیدن به ۳۰ روز استریک = هدیهٔ ۳ روز پلن طلایی، برای نمایش امکانات پلن‌های بالاتر. سقف تعداد دفعات در سال لازم دارد.',
+          effectType: 'conversion', effect: 0.7, min: 0, max: 2, step: 0.1
+        },
+        {
+          id: 'lossAversionContent', title: 'زیان‌گریزی محتوایی', icon: 'trending-down', enabled: false,
+          desc: '«۱۲ کلمهٔ این هفته آماده مرورن، اما سقف رایگان فقط ۳ تاش رو نشون می‌ده» — نمایش عدد دقیق فرصت ازدست‌رفته به‌جای پیام کلی.',
+          effectType: 'conversion', effect: 0.8, min: 0, max: 2, step: 0.1
+        },
+        {
+          id: 'socialProof', title: 'اثبات اجتماعی هم‌سطحان', icon: 'users-round', enabled: false,
+          desc: '«۷۳٪ از هم‌سطحان تو (همین زبان و سطح) پلن نقره‌ای دارند» — بر اساس توزیع واقعی پلن در دیتابیس.',
+          effectType: 'conversion', effect: 0.6, min: 0, max: 2, step: 0.1
+        },
+        {
+          id: 'timeLock', title: 'قفل زمانیِ جلسهٔ بعدی', icon: 'hourglass', enabled: false,
+          desc: 'کاربر رایگان جلسهٔ بعدی SRS را فقط بعد از چند ساعت انتظار می‌بیند مگر آپگرید کند (نسخهٔ ملایمِ hearts دولینگو).',
+          effectType: 'conversion', effect: 1.0, min: 0, max: 3, step: 0.1
+        },
+        {
+          id: 'winBack', title: 'بازگرداندن کاربران ریزش‌کرده', icon: 'rotate-ccw', enabled: false,
+          desc: 'یک پیام یک‌بارهٔ بعد از لغو اشتراک: «۵۰٪ تخفیف ۷ روزه برای بازگشت» — کاهش نرخ ریزش مؤثر پولی.',
+          effectType: 'churn_reduction', effect: 0.8, min: 0, max: 3, step: 0.1
+        },
+        {
+          id: 'referral', title: 'دعوت از دوستان (Referral)', icon: 'user-plus', enabled: false,
+          desc: 'هر دعوت موفق = ۳ روز رایگان پلن برنز برای هر دو نفر. هم‌زمان کاربران جدید واقعی اضافه می‌کند و CAC را کاهش می‌دهد.',
+          effectType: 'signup_boost', effect: 1.5, min: 0, max: 5, step: 0.1
+        },
+        {
+          id: 'anchorPricing', title: 'Anchor آشکار در پیام فروش', icon: 'anchor', enabled: false,
+          desc: 'نمایش پلن زمرد کنار پلن نقره‌ای در پیام تبلیغاتی خودِ ربات (نه فقط در صفحهٔ قیمت) تا نقره‌ای «منطقی» به‌نظر برسد.',
+          effectType: 'conversion', effect: 0.5, min: 0, max: 2, step: 0.1
+        }
+      ],
+      marketing: {
+        trial: "۱. تریال ۳ روزه طلایی برای ورود اولیه کاربر تا به سرعت بالا عادت کند.\n۲. هدیه ۳ روزه به عنوان پاداش رسیدن به استریک ۳۰ روزه.",
+        capacity: "تعیین سقف برای حافظه: وقتی کاربر ۲۰۰ کلمه تثبیت‌شده (FSRS > 30 days) داشت، ربات پیام می‌دهد: «حافظه شما پر شده است! برای نگهداری دیتابیس کلمات بیشتر، پلن برنز را تهیه کنید.»"
+      }
+    };
+
+    const { createApp, ref, computed, watch, onMounted, nextTick } = Vue;
+
+    const app = createApp({
+      setup() {
+        let initialData = { ...DEFAULTS };
+        try {
+          const savedData = localStorage.getItem('hamzaboon_financial_model_v2');
+          if (savedData) {
+            initialData = { ...initialData, ...JSON.parse(savedData) };
+          }
+        } catch (e) {
+          console.error("Could not load saved data", e);
+        }
+
+        const inp = ref(initialData);
+        const activeTab = ref('dashboard');
+        const isDesktop = ref(window.innerWidth >= 1024);
+        const fileInput = ref(null);
+
+        let charts = {};
+
+        const reset = () => {
+          localStorage.removeItem('hamzaboon_financial_model_v2');
+          inp.value = { ...DEFAULTS };
+          if (!isDesktop.value) activeTab.value = 'dashboard';
+        };
+
+        // درون‌ریزی/بیرون‌ریزی JSON (علاوه بر ذخیرهٔ خودکار در حافظهٔ محلی)
+        const exportJSON = () => {
+          const blob = new Blob([JSON.stringify(inp.value, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          const stamp = new Date().toISOString().slice(0, 10);
+          a.href = url;
+          a.download = `hamzaboon-financial-model-${stamp}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+        };
+
+        const triggerImport = () => { if (fileInput.value) fileInput.value.click(); };
+
+        const importJSON = (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            try {
+              const parsed = JSON.parse(ev.target.result);
+              inp.value = { ...DEFAULTS, ...parsed };
+            } catch (err) {
+              alert('فایل JSON نامعتبر است.');
+            } finally {
+              e.target.value = '';
+            }
+          };
+          reader.readAsText(file);
+        };
+
+        const format = (v, dec = 0) => {
+          if (!isFinite(v)) return 0;
+          return new Intl.NumberFormat('en-US', { maximumFractionDigits: dec, minimumFractionDigits: dec }).format(v);
+        };
+
+        // جمع اثر تکنیک‌های فعالِ بازاریابی روی مدل مالی (Rule 3)
+        const getMarketingEffects = (params) => {
+          let convBoost = 0, churnReduction = 0, signupBoost = 0;
+          (params.marketingTechniques || []).forEach(t => {
+            if (!t.enabled) return;
+            if (t.effectType === 'conversion') convBoost += Number(t.effect) || 0;
+            else if (t.effectType === 'churn_reduction') churnReduction += Number(t.effect) || 0;
+            else if (t.effectType === 'signup_boost') signupBoost += Number(t.effect) || 0;
+          });
+          return { convBoost, churnReduction, signupBoost };
+        };
+
+        // هزینهٔ CAC تریال معکوس: فقط برای سهم کاربران «واجد شرط» از کاربران جدید هر ماه (Rule 5)
+        const getTrialCACPerNewUser = (params) => {
+          const trial = (params.marketingTechniques || []).find(t => t.id === 'reverseTrial');
+          if (!trial || !trial.enabled) return { costPerUser: 0, eligibleShare: 0 };
+          const costPerUser = 3 * params.goldCallsPerDay * params.aiCostPerCallUSD * params.exchangeRate;
+          return { costPerUser, eligibleShare: (trial.eligibleShare || 0) / 100 };
+        };
+
+        const computeSeries = (params, convRate, growthRate) => {
+          let F = 0, B = 0, S = 0, G = 0, E = 0;
+          if (params.inputMode === 'conversion') {
+            const upgrades = params.mau * (convRate / 100);
+            B = upgrades * (params.bronzeShare / 100);
+            S = upgrades * (params.silverShare / 100);
+            G = upgrades * (params.goldShare / 100);
+            E = upgrades * (Math.max(0, 100 - params.bronzeShare - params.silverShare - params.goldShare) / 100);
+            F = params.mau - upgrades;
+          } else {
+            F = params.free0; B = params.bronze0; S = params.silver0; G = params.gold0; E = params.emerald0;
+          }
+          const { convBoost, churnReduction, signupBoost } = getMarketingEffects(params);
+          const effConvRate = Math.max(0, convRate + convBoost);
+          const effPaidChurn = Math.max(0, params.paidChurnRate - churnReduction);
+          const { costPerUser: trialCostPerUser, eligibleShare: trialEligibleShare } = getTrialCACPerNewUser(params);
+
+          const rows = [];
+          const newSignups0 = params.newUsersMonth1;
+          for (let t = 0; t < params.projectionMonths; t++) {
+            const revenue = Math.round(B * params.bronzePrice + S * params.silverPrice + G * params.goldPrice + E * params.emeraldPrice);
+            const aiCalls = (F * params.freeCallsPerDay + B * params.bronzeCallsPerDay + S * params.silverCallsPerDay + G * params.goldCallsPerDay + E * params.emeraldCallsPerDay) * params.periodDays;
+            const aiCostToman = Math.round(aiCalls * params.aiCostPerCallUSD * params.exchangeRate);
+            const newSignups = newSignups0 * Math.pow(1 + (growthRate * (1 + signupBoost / 100)) / 100, t);
+            const trialCACToman = Math.round(newSignups * trialEligibleShare * trialCostPerUser);
+            const netProfit = Math.round(revenue - aiCostToman - trialCACToman);
+            const total = F + B + S + G + E;
+            rows.push({
+              month: t + 1, free: Math.round(F), bronze: Math.round(B), silver: Math.round(S), gold: Math.round(G), emerald: Math.round(E), total: Math.round(total),
+              revenue, aiCostUSD: aiCalls * params.aiCostPerCallUSD, aiCostToman, trialCACToman, netProfit, margin: revenue > 0 ? (netProfit / revenue) * 100 : 0
+            });
+            const monthlyUpgrades = F * (effConvRate / 100);
+            const freeChurn = F * (params.freeChurnRate / 100);
+            const bronzeChurn = B * (effPaidChurn / 100);
+            const silverChurn = S * (effPaidChurn / 100);
+            const goldChurn = G * (effPaidChurn / 100);
+            const emeraldChurn = E * (effPaidChurn / 100);
+            F = Math.max(0, F + newSignups - monthlyUpgrades - freeChurn);
+            B = Math.max(0, B + monthlyUpgrades * (params.bronzeShare / 100) - bronzeChurn);
+            S = Math.max(0, S + monthlyUpgrades * (params.silverShare / 100) - silverChurn);
+            G = Math.max(0, G + monthlyUpgrades * (params.goldShare / 100) - goldChurn);
+            E = Math.max(0, E + monthlyUpgrades * (Math.max(0, 100 - params.bronzeShare - params.silverShare - params.goldShare) / 100) - emeraldChurn);
+          }
+          return rows;
+        };
+
+        const baseSeries = computed(() => computeSeries(inp.value, inp.value.convBase, inp.value.signupGrowthRateBase));
+        const pSeries = computed(() => computeSeries(inp.value, inp.value.convPessimistic, inp.value.signupGrowthRatePessimistic));
+        const oSeries = computed(() => computeSeries(inp.value, inp.value.convOptimistic, inp.value.signupGrowthRateOptimistic));
+
+        const totalConversionBoost = computed(() => getMarketingEffects(inp.value).convBoost);
+        const totalChurnReduction = computed(() => getMarketingEffects(inp.value).churnReduction);
+        const totalSignupBoost = computed(() => getMarketingEffects(inp.value).signupBoost);
+        const trialCACToman = computed(() => (baseSeries.value[0] || {}).trialCACToman || 0);
+        const m1 = computed(() => baseSeries.value[0] || {});
+        const mLast = computed(() => baseSeries.value[baseSeries.value.length - 1] || {});
+
+        const breakEvenUsers = computed(() => {
+          const paidUsers = (m1.value.bronze || 0) + (m1.value.silver || 0) + (m1.value.gold || 0) + (m1.value.emerald || 0);
+          const avgPrice = paidUsers > 0 ? m1.value.revenue / paidUsers : inp.value.silverPrice;
+          return avgPrice > 0 ? Math.round(m1.value.aiCostToman / avgPrice) : 0;
+        });
+
+        const costFreeUser = computed(() => Math.round(inp.value.freeCallsPerDay * inp.value.periodDays * inp.value.aiCostPerCallUSD * inp.value.exchangeRate));
+        const costBronzeUser = computed(() => Math.round(inp.value.bronzeCallsPerDay * inp.value.periodDays * inp.value.aiCostPerCallUSD * inp.value.exchangeRate));
+        const costSilverUser = computed(() => Math.round(inp.value.silverCallsPerDay * inp.value.periodDays * inp.value.aiCostPerCallUSD * inp.value.exchangeRate));
+        const costGoldUser = computed(() => Math.round(inp.value.goldCallsPerDay * inp.value.periodDays * inp.value.aiCostPerCallUSD * inp.value.exchangeRate));
+        const costEmeraldUser = computed(() => Math.round(inp.value.emeraldCallsPerDay * inp.value.periodDays * inp.value.aiCostPerCallUSD * inp.value.exchangeRate));
+
+        const avgLTV = computed(() => {
+          const churn = inp.value.paidChurnRate / 100;
+          if (churn === 0) return 0;
+          const paidTotal = (m1.value.bronze || 0) + (m1.value.silver || 0) + (m1.value.gold || 0) + (m1.value.emerald || 0);
+          if (paidTotal === 0) return 0;
+          const wMargin = ((inp.value.bronzePrice - costBronzeUser.value) * m1.value.bronze + (inp.value.silverPrice - costSilverUser.value) * m1.value.silver + (inp.value.goldPrice - costGoldUser.value) * m1.value.gold + (inp.value.emeraldPrice - costEmeraldUser.value) * m1.value.emerald) / paidTotal;
+          return Math.round(wMargin / churn);
+        });
+
+        const updateCharts = () => {
+          if (!charts.bar) return;
+          charts.bar.data.datasets[0].data = [m1.value.revenue, m1.value.aiCostToman, m1.value.netProfit];
+          charts.bar.update();
+
+          charts.pie.data.datasets[0].data = [
+            m1.value.free * costFreeUser.value, m1.value.bronze * costBronzeUser.value,
+            m1.value.silver * costSilverUser.value, m1.value.gold * costGoldUser.value, m1.value.emerald * costEmeraldUser.value
+          ];
+          charts.pie.update();
+
+          charts.line.data.labels = baseSeries.value.map(r => `ماه ${r.month}`);
+          charts.line.data.datasets[0].data = pSeries.value.map(r => r.netProfit);
+          charts.line.data.datasets[1].data = baseSeries.value.map(r => r.netProfit);
+          charts.line.data.datasets[2].data = oSeries.value.map(r => r.netProfit);
+          charts.line.update();
+        };
+
+        watch(inp, (newVal) => {
+          localStorage.setItem('hamzaboon_financial_model_v2', JSON.stringify(newVal));
+          updateCharts();
+        }, { deep: true });
+
+        watch(activeTab, async (val) => {
+           if(val === 'dashboard') { await nextTick(); updateCharts(); }
+           await nextTick(); lucide.createIcons();
+        });
+
+        onMounted(() => {
+          Chart.defaults.font.family = 'Vazirmatn'; Chart.defaults.color = COLORS.inkSoft;
+          window.addEventListener('resize', () => { isDesktop.value = window.innerWidth >= 1024; });
+
+          charts.bar = new Chart(document.getElementById('barChart'), {
+            type: 'bar',
+            data: {
+              labels: ['درآمد کل', 'هزینه AI', 'سود خالص'],
+              datasets: [{ data: [0,0,0], backgroundColor: [COLORS.emerald, COLORS.rose, COLORS.indigo], borderRadius: 6 }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+          });
+
+          charts.pie = new Chart(document.getElementById('pieChart'), {
+            type: 'doughnut',
+            data: {
+              labels: ['هزینه رایگان', 'هزینه برنز', 'هزینه نقره‌ای', 'هزینه طلایی', 'هزینه زمرد'],
+              datasets: [{
+                data: [0,0,0,0,0],
+                backgroundColor: [COLORS.rose, COLORS.bronze, '#94A3B8', COLORS.gold, COLORS.emerald],
+                borderWidth: 0, hoverOffset: 4
+              }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { position: 'bottom', labels: { font: { size: 10, family: 'Vazirmatn' } } } } }
+          });
+
+          charts.line = new Chart(document.getElementById('lineChart'), {
+            type: 'line',
+            data: {
+              labels: [],
+              datasets: [
+                { label: 'بدبینانه', data: [], borderColor: COLORS.rose, tension: 0.4, borderWidth: 2, pointRadius: 0 },
+                { label: 'پایه (مبنا)', data: [], borderColor: COLORS.turquoiseDeep, tension: 0.4, borderWidth: 3, pointRadius: 0 },
+                { label: 'خوش‌بینانه', data: [], borderColor: COLORS.emerald, tension: 0.4, borderWidth: 2, pointRadius: 0 }
+              ]
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+              plugins: { legend: { position: 'top', align: 'end', labels: { font: { size: 11, family: 'Vazirmatn' } } } },
+              scales: { y: { grid: { borderDash: [4, 4] } }, x: { grid: { display: false } } }
+            }
+          });
+
+          updateCharts();
+          lucide.createIcons();
+        });
+
+        return {
+          inp, activeTab, isDesktop, reset, format, m1, mLast, breakEvenUsers, costFreeUser, avgLTV, baseSeries,
+          fileInput, exportJSON, triggerImport, importJSON,
+          totalConversionBoost, totalChurnReduction, totalSignupBoost, trialCACToman
+        };
+      }
+    });
+
+    app.component('section-card', {
+      template: '#tpl-section',
+      props: { title: String, en: String, icon: String, defaultOpen: { type: Boolean, default: true } },
+      setup(props) {
+        const open = ref(props.defaultOpen);
+        watch(open, async () => { await Vue.nextTick(); lucide.createIcons(); });
+        return { open };
+      }
+    });
+
+    app.component('number-field', {
+      template: '#tpl-number',
+      props: ['modelValue', 'label', 'en', 'min', 'max', 'step', 'unit'],
+      emits: ['update:modelValue'],
+      setup(props, { emit }) {
+        const localValue = computed({ get: () => props.modelValue, set: (val) => emit('update:modelValue', val || 0) });
+        const sliderBg = computed(() => {
+          const pct = ((localValue.value - props.min) / (props.max - props.min)) * 100;
+          return `linear-gradient(90deg, #E7E3DA ${100-pct}%, #0D9488 ${100-pct}%)`;
+        });
+        return { localValue, sliderBg };
+      }
+    });
+
+    app.component('kpi-card', {
+      template: '#tpl-kpi',
+      props: ['title', 'en', 'icon', 'value', 'tone', 'sub', 'type'],
+      setup(props) {
+        const format = (v, dec = 0) => {
+          if (!isFinite(v)) return 0;
+          return new Intl.NumberFormat('en-US', { maximumFractionDigits: dec, minimumFractionDigits: dec }).format(v);
+        };
+        const colorStyle = computed(() => {
+          const map = {
+            emerald: { iconBg: 'background: #D1FAE5;', iconFg: 'color: #059669;', text: 'color: #059669;' },
+            rose: { iconBg: 'background: #FEE2E2;', iconFg: 'color: #DC2626;', text: 'color: #DC2626;' },
+            indigo: { iconBg: 'background: #E0E7FF;', iconFg: 'color: #4F46E5;', text: 'color: #4F46E5;' },
+            turquoise: { iconBg: 'background: #CCFBF1;', iconFg: 'color: #0F766E;', text: 'color: #0F766E;' },
+            amber: { iconBg: 'background: #FEF3C7;', iconFg: 'color: #D97706;', text: 'color: #D97706;' },
+            ink: { iconBg: 'background: #F2F4F7;', iconFg: 'color: #101828;', text: 'color: #101828;' }
+          };
+          return map[props.tone] || map.ink;
+        });
+        return { format, colorStyle };
+      }
+    });
+
+    app.mount('#app');
+  </script>
+</body>
+</html>
