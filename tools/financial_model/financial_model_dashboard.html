@@ -20,7 +20,7 @@
             ink: "#101828", inkSoft: "#344054", paper: "#FAF8F4", card: "#FFFFFF", line: "#E7E3DA",
             turquoise: "#0D9488", turquoiseDeep: "#0F766E", turquoiseSoft: "#CCFBF1",
             amber: "#D97706", amberSoft: "#FEF3C7", rose: "#DC2626", roseSoft: "#FEE2E2",
-            emerald: "#059669", emeraldSoft: "#D1FAE5", indigo: "#4F46E5", indigoSoft: "#E0E7FF",
+            emerald: "#059669", emeraldSoft: "#D1FAE5", indigoSoft: "#E0E7FF",
             gold: "#EAB308", bronze: "#CD7F32"
           },
           fontFamily: { sans: ['Vazirmatn', 'sans-serif'] }
@@ -60,7 +60,7 @@
 </head>
 <body class="min-h-screen w-full selection:bg-turquoiseSoft selection:text-turquoiseDeep">
 
-  <div id="app" v-cloak class="flex flex-col min-h-screen pb-[76px] lg:pb-24 relative">
+  <div id="app" v-cloak class="flex flex-col min-h-screen pb-24 lg:pb-28 relative">
 
     <!-- ========== Top Header ========== -->
     <header class="girih-header bg-ink text-white sticky top-0 z-40 shadow-md">
@@ -189,7 +189,7 @@
           <number-field label="تعداد ماه‌های پیش‌بینی" v-model="inp.projectionMonths" :min="3" :max="36" :step="1" unit="ماه"></number-field>
           <number-field label="نرخ ریزش ماهانهٔ کاربران پولی" v-model="inp.paidChurnRate" :min="1" :max="30" :step="0.5" unit="٪"></number-field>
           <number-field label="نرخ ریزش ماهانهٔ کاربران رایگان" v-model="inp.freeChurnRate" :min="3" :max="25" :step="0.5" unit="٪"></number-field>
-          <number-field label="کاربران جدید ماه اول (عدد مطلق)" v-model="inp.newUsersMonth1" :min="0" :max="5000" :step="10" unit="نفر"></number-field>
+          <number-field label="نرخ جذب ماهانه (٪ از کل کاربران)" en="Acquisition Rate" v-model="inp.acquisitionRate" :min="0" :max="25" :step="0.5" unit="٪"></number-field>
           <hr class="my-3 border-dashed border-line">
           <div class="text-[11px] font-bold text-inkSoft mb-2">نرخ تبدیل به پولی و رشد کاربر جدید — به تفکیک سناریو</div>
           <div class="grid grid-cols-3 gap-2 mb-2">
@@ -292,7 +292,7 @@
           <h2 class="text-lg font-bold text-indigo-900 mb-2 flex items-center gap-2">
             <i data-lucide="rocket" class="w-5 h-5"></i> ایده‌های بازاریابی و تبدیل (Growth & Conversion)
           </h2>
-          <p class="text-xs text-indigo-800/70 mb-1">هر تکنیک را می‌توانید فعال/غیرفعال کنید و شدت اثر تخمینی‌اش را روی نرخ تبدیل یا ریزش تنظیم کنید — این عدد مستقیماً در محاسبات داشبورد اعمال می‌شود.</p>
+          <p class="text-xs text-indigo-800/70 mb-1">هر تکنیک را می‌توانید فعال/غیرفعال کنید، بسازید، ویرایش یا حذف کنید؛ شدت اثر تخمینی‌اش را روی نرخ تبدیل، ریزش یا رشد ثبت‌نام تنظیم کنید — این عدد مستقیماً در محاسبات داشبورد اعمال می‌شود.</p>
           <p class="text-[10px] text-indigo-800/50 mb-5">این درصدها تخمینی هستند، نه دادهٔ واقعی؛ بعد از جمع‌آوری آمار واقعی کاربران قابل کالیبره‌کردن‌اند.</p>
 
           <div class="flex flex-wrap gap-2 mb-4 text-[11px] font-bold">
@@ -300,23 +300,35 @@
             <div class="px-3 py-1.5 rounded-lg bg-white/70 text-indigo-900">کاهش ریزش فعال: <span dir="ltr">-{{ format(totalChurnReduction,1) }}٪</span></div>
             <div class="px-3 py-1.5 rounded-lg bg-white/70 text-indigo-900">تقویت رشد ثبت‌نام: <span dir="ltr">+{{ format(totalSignupBoost,1) }}٪</span></div>
             <div class="px-3 py-1.5 rounded-lg bg-rose/10 text-rose">هزینهٔ CAC تریال (ماه ۱): <span dir="ltr">{{ format(trialCACToman) }} تومان</span></div>
+            <button @click="openAddTechnique" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors inline-flex items-center gap-1.5">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i> افزودن تکنیک
+            </button>
           </div>
 
-          <div class="space-y-3">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div v-for="t in inp.marketingTechniques" :key="t.id"
-                 class="bg-white/80 p-4 rounded-xl border" :class="t.enabled ? 'border-indigo-300' : 'border-white'">
+                 class="bg-white/80 p-4 rounded-xl border flex flex-col" :class="t.enabled ? 'border-indigo-300' : 'border-white'">
               <div class="flex items-start justify-between gap-3 mb-2">
-                <h3 class="font-bold text-indigo-900 text-sm flex items-center gap-1.5">
-                  <i :data-lucide="t.icon" class="w-4 h-4 flex-shrink-0"></i> {{ t.title }}
+                <h3 class="font-bold text-indigo-900 text-sm flex items-center gap-1.5 flex-1 min-w-0">
+                  <i :data-lucide="t.icon" class="w-4 h-4 flex-shrink-0"></i>
+                  <span class="truncate">{{ t.title }}</span>
                 </h3>
-                <button @click="t.enabled = !t.enabled"
-                        class="flex-shrink-0 w-11 h-6 rounded-full transition-colors relative"
-                        :class="t.enabled ? 'bg-indigo-600' : 'bg-gray-300'">
-                  <span class="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all"
-                        :class="t.enabled ? 'right-0.5' : 'right-5'"></span>
-                </button>
+                <div class="flex items-center gap-1 flex-shrink-0">
+                  <button @click="openEditTechnique(t)" title="ویرایش" class="p-1.5 rounded-lg text-indigo-700 hover:bg-indigo-100 transition-colors">
+                    <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+                  </button>
+                  <button @click="deleteTechnique(t)" title="حذف" class="p-1.5 rounded-lg text-rose hover:bg-roseSoft transition-colors">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                  </button>
+                  <button @click="t.enabled = !t.enabled"
+                          class="w-11 h-6 rounded-full transition-colors relative"
+                          :class="t.enabled ? 'bg-indigo-600' : 'bg-gray-300'">
+                    <span class="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all"
+                          :class="t.enabled ? 'right-0.5' : 'right-5'"></span>
+                  </button>
+                </div>
               </div>
-              <p class="text-xs text-indigo-800/70 leading-relaxed mb-3">{{ t.desc }}</p>
+              <p class="text-xs text-indigo-800/70 leading-relaxed mb-3 flex-1">{{ t.desc }}</p>
               <div v-if="t.enabled" class="space-y-2 pt-2 border-t border-dashed border-indigo-100">
                 <div class="flex items-center gap-3">
                   <span class="text-[10px] font-bold text-indigo-900 w-24 flex-shrink-0">
@@ -325,10 +337,13 @@
                   <input type="range" v-model.number="t.effect" :min="t.min" :max="t.max" :step="t.step" class="hz-slider flex-1">
                   <span dir="ltr" class="text-[11px] font-bold text-indigo-900 w-12 text-left">{{ t.effect }}٪</span>
                 </div>
-                <div v-if="t.id === 'reverseTrial'" class="flex items-center gap-3">
-                  <span class="text-[10px] font-bold text-indigo-900 w-24 flex-shrink-0">سهم کاربران واجد شرط</span>
-                  <input type="range" v-model.number="t.eligibleShare" :min="t.eligibleMin" :max="t.eligibleMax" :step="1" class="hz-slider flex-1">
-                  <span dir="ltr" class="text-[11px] font-bold text-indigo-900 w-12 text-left">{{ t.eligibleShare }}٪</span>
+                <div v-if="t.eligibleShare !== undefined" class="flex flex-col gap-1">
+                  <div class="flex items-center gap-3">
+                    <span class="text-[10px] font-bold text-indigo-900 w-24 flex-shrink-0">سهم واجدین شرط</span>
+                    <input type="range" v-model.number="t.eligibleShare" :min="t.eligibleMin || 5" :max="t.eligibleMax || 30" :step="1" class="hz-slider flex-1">
+                    <span dir="ltr" class="text-[11px] font-bold text-indigo-900 w-12 text-left">{{ t.eligibleShare }}٪</span>
+                  </div>
+                  <div class="text-[9px] text-indigo-800/50 font-medium">تریال رایگان {{ t.trialDays || 3 }} روزهٔ پلن طلایی — هزینهٔ AI آن به‌عنوان CAC کسر می‌شود.</div>
                 </div>
               </div>
             </div>
@@ -386,11 +401,11 @@
             </div>
             <div class="bg-paper p-3 rounded-xl border border-line">
               <strong class="text-ink block mb-1">تکنیک‌های بازاریابی (تب بازاریابی):</strong>
-              هر تکنیک با روشن‌کردنش، درصد تخمینی‌اش را روی نرخ تبدیل یا ریزش اعمال می‌کند و بلافاصله در نمودارها و جدول اثر می‌گذارد. عدد «CAC تریال» هزینهٔ سه‌روز رایگان پلن طلایی برای همان سهم از کاربران جدید است که فعالیت بالا نشان داده‌اند.
+              هر تکنیک با روشن‌کردنش، درصد تخمینی‌اش را روی نرخ تبدیل یا ریزش اعمال می‌کند و بلافاصله در نمودارها و جدول اثر می‌گذارد. عدد «CAC تریال» هزینهٔ روزهای رایگان پلن طلایی برای همان سهم از کاربران جدید است که فعالیت بالا نشان داده‌اند. با دکمهٔ «افزودن تکنیک» می‌توانید تکنیک‌های سفارشی خودتان را بسازید، ویرایش یا حذف کنید؛ هر تکنیک می‌تواند اختیاری تریال رایگان هم داشته باشد که هزینه‌اش به‌عنوان CAC کسر می‌شود.
             </div>
             <div class="bg-paper p-3 rounded-xl border border-line">
               <strong class="text-ink block mb-1">ستون «کل کاربران» در جدول:</strong>
-              مجموع رایگان+پولی هر ماه، همراه با تغییر نسبت به ماه قبل. «کاربران جدید ماه اول» یک عدد مطلق و مستقل است (نه درصدی از جامعهٔ رایگان فعلی)، پس رشد واقعی کاربران — نه فقط تبدیل داخلی آن‌ها به پولی — این‌جا قابل مشاهده است.
+              مجموع رایگان+پولی هر ماه، همراه با تغییر نسبت به ماه قبل. «نرخ جذب ماهانه» درصدی از کل کاربرانِ همان ماه (MAU) است که به جمع اضافه می‌شوند؛ پس رشد واقعی کاربران — نه فقط تبدیل داخلی آن‌ها به پولی — این‌جا قابل مشاهده است و با بزرگ‌شدن جامعه مقیاس‌پذیر می‌ماند.
             </div>
             <div class="bg-paper p-3 rounded-xl border border-line">
               <strong class="text-ink block mb-1">خروجی/ورودی JSON:</strong>
@@ -405,23 +420,96 @@
 
     </main>
 
-    <!-- ========== Mobile Bottom Navigation ========== -->
-    <nav class="lg:hidden fixed bottom-0 left-0 w-full bg-card/95 backdrop-blur-md border-t border-line z-50 flex justify-around items-center px-1 py-1 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]" style="padding-bottom: max(0.5rem, env(safe-area-inset-bottom));">
-      <button @click="activeTab = 'inputs'" :class="activeTab === 'inputs' ? 'text-turquoiseDeep' : 'text-inkSoft'" class="flex-1 flex flex-col items-center justify-center gap-1 p-2 transition-colors">
-        <i data-lucide="sliders-horizontal" class="w-[20px] h-[20px]" :class="activeTab === 'inputs' ? 'fill-turquoiseSoft' : ''"></i>
-        <span class="text-[9px] font-bold">تنظیمات</span>
+    <!-- ========== Marketing Technique Modal ========== -->
+    <div v-if="showTechModal" class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" @click.self="closeTechModal">
+      <div class="bg-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl shadow-2xl border border-line max-h-[92vh] overflow-y-auto hz-scroll">
+        <div class="p-5 flex flex-col gap-4">
+          <div class="flex items-center justify-between border-b border-dashed border-line pb-3">
+            <h3 class="text-[15px] font-bold text-indigo-900 flex items-center gap-2">
+              <i data-lucide="settings-2" class="w-4 h-4 text-indigo-600"></i>
+              {{ editingTechId ? 'ویرایش تکنیک بازاریابی' : 'افزودن تکنیک بازاریابی' }}
+            </h3>
+            <button @click="closeTechModal" class="p-1.5 rounded-lg text-inkSoft hover:bg-paper transition-colors">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          </div>
+
+          <div class="flex flex-col gap-3 text-[12px]">
+            <div>
+              <label class="font-bold text-inkSoft block mb-1">عنوان تکنیک <span class="text-rose">*</span></label>
+              <input v-model.trim="techForm.title" type="text" placeholder="مثلاً: یادآوری شبانهٔ استریک" class="w-full bg-paper border border-line rounded-xl px-3 py-2.5 text-[12px] outline-none focus:border-indigo-500 transition">
+            </div>
+            <div>
+              <label class="font-bold text-inkSoft block mb-1">آیکن</label>
+              <div class="flex flex-wrap gap-1.5">
+                <button v-for="ic in iconOptions" :key="ic" @click="techForm.icon = ic"
+                        class="w-9 h-9 rounded-xl flex items-center justify-center border transition-colors"
+                        :class="techForm.icon === ic ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-paper text-inkSoft border-line hover:border-indigo-400'">
+                  <i :data-lucide="ic" class="w-4 h-4"></i>
+                </button>
+              </div>
+            </div>
+            <div>
+              <label class="font-bold text-inkSoft block mb-1">شرح / توضیح</label>
+              <textarea v-model="techForm.desc" rows="2" placeholder="این تکنیک چه می‌کند؟" class="w-full bg-paper border border-line rounded-xl px-3 py-2.5 text-[12px] outline-none focus:border-indigo-500 transition"></textarea>
+            </div>
+            <div>
+              <label class="font-bold text-inkSoft block mb-1">نوع اثر</label>
+              <select v-model="techForm.effectType" @change="onEffectTypeChange" class="w-full bg-paper border border-line rounded-xl px-3 py-2.5 text-[12px] outline-none focus:border-indigo-500 transition">
+                <option value="conversion">اثر روی نرخ تبدیل (افزایش فروش)</option>
+                <option value="churn_reduction">کاهش ریزش (نگه‌داشتن کاربران پولی)</option>
+                <option value="signup_boost">تقویت رشد ثبت‌نام (کاربر جدید)</option>
+              </select>
+              <p class="text-[10px] text-inkSoft/70 mt-1 leading-relaxed">این گزینه تعیین می‌کند اثر تکنیک روی کدام پارامتر مدل اعمال شود: نرخ تبدیل به پولی، ریزش ماهانهٔ پولی، یا نرخ رشد کاربران جدید.</p>
+            </div>
+            <div>
+              <label class="font-bold text-inkSoft block mb-1">شدت اثر — {{ techForm.effect }}٪</label>
+              <input type="range" v-model.number="techForm.effect" :min="techForm.min" :max="techForm.max" :step="techForm.step" class="hz-slider w-full">
+              <p class="text-[10px] text-inkSoft/70 mt-1 leading-relaxed">مقدار درصدی که این تکنیک فعال به پارامتر انتخاب‌شده اضافه (یا از ریزش کم) می‌کند؛ به‌صورت مستقیم در محاسبات ماه‌به‌ماه اعمال می‌شود.</p>
+            </div>
+            <div class="bg-paper border border-line rounded-xl p-3 flex flex-col gap-2">
+              <label class="flex items-center gap-2 font-bold text-inkSoft cursor-pointer">
+                <input type="checkbox" v-model="techForm.hasTrial" class="accent-indigo-600 w-4 h-4">
+                این تکنیک تریال رایگان دارد (هزینهٔ AI آن به‌عنوان CAC کسر می‌شود)
+              </label>
+              <p class="text-[10px] text-inkSoft/70 leading-relaxed -mt-1">برای تکنیک‌هایی مثل «تریال معکوس»: فقط سهمی از کاربران جدید، چند روز پلن طلایی رایگان دریافت می‌کنند و هزینهٔ AI همان بازه از سود کسر می‌شود.</p>
+              <div v-if="techForm.hasTrial" class="flex flex-col gap-3 pt-1 border-t border-dashed border-line">
+                <div>
+                  <label class="font-bold text-inkSoft block mb-1">سهم کاربران واجد شرط — {{ techForm.eligibleShare }}٪</label>
+                  <input type="range" v-model.number="techForm.eligibleShare" :min="5" :max="30" :step="1" class="hz-slider w-full">
+                  <p class="text-[10px] text-inkSoft/70 mt-1">درصدی از کاربران جدیدِ هر ماه که مشمول این تریال می‌شوند (معمولاً فعال‌ترین‌ها).</p>
+                </div>
+                <div>
+                  <label class="font-bold text-inkSoft block mb-1">تعداد روز تریال</label>
+                  <input v-model.number="techForm.trialDays" type="number" min="1" max="7" step="1" class="w-full bg-card border border-line rounded-xl px-3 py-2 text-[12px] outline-none focus:border-indigo-500 transition">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex gap-2 pt-1">
+            <button @click="saveTechnique" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-bold py-2.5 rounded-xl transition-colors">
+              {{ editingTechId ? 'ذخیره تغییرات' : 'افزودن تکنیک' }}
+            </button>
+            <button @click="closeTechModal" class="flex-1 bg-paper hover:bg-line/40 text-inkSoft text-[13px] font-bold py-2.5 rounded-xl transition-colors">انصراف</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== Mobile Floating Pill Dock ========== -->
+    <nav class="lg:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 bg-white/70 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(16,24,40,0.18)] rounded-full px-2 py-1.5">
+      <button @click="activeTab = 'inputs'" :class="activeTab === 'inputs' ? 'bg-ink text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-3 py-2 rounded-full transition-all flex items-center gap-1.5 text-[11px] font-medium">
+        <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i> تنظیمات
       </button>
-      <button @click="activeTab = 'dashboard'" :class="activeTab === 'dashboard' ? 'text-turquoiseDeep' : 'text-inkSoft'" class="flex-1 flex flex-col items-center justify-center gap-1 p-2 transition-colors relative">
-        <i data-lucide="layout-dashboard" class="w-[20px] h-[20px]" :class="activeTab === 'dashboard' ? 'fill-turquoiseSoft' : ''"></i>
-        <span class="text-[9px] font-bold">داشبورد</span>
+      <button @click="activeTab = 'dashboard'" :class="activeTab === 'dashboard' ? 'bg-ink text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-3 py-2 rounded-full transition-all flex items-center gap-1.5 text-[11px] font-medium">
+        <i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i> داشبورد
       </button>
-      <button @click="activeTab = 'marketing'" :class="activeTab === 'marketing' ? 'text-indigo-600' : 'text-inkSoft'" class="flex-1 flex flex-col items-center justify-center gap-1 p-2 transition-colors">
-        <i data-lucide="lightbulb" class="w-[20px] h-[20px]" :class="activeTab === 'marketing' ? 'fill-indigo-100' : ''"></i>
-        <span class="text-[9px] font-bold">بازاریابی</span>
+      <button @click="activeTab = 'marketing'" :class="activeTab === 'marketing' ? 'bg-indigo-600 text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-3 py-2 rounded-full transition-all flex items-center gap-1.5 text-[11px] font-medium">
+        <i data-lucide="lightbulb" class="w-3.5 h-3.5"></i> بازاریابی
       </button>
-      <button @click="activeTab = 'guide'" :class="activeTab === 'guide' ? 'text-turquoiseDeep' : 'text-inkSoft'" class="flex-1 flex flex-col items-center justify-center gap-1 p-2 transition-colors">
-        <i data-lucide="book-open" class="w-[20px] h-[20px]" :class="activeTab === 'guide' ? 'fill-turquoiseSoft' : ''"></i>
-        <span class="text-[9px] font-bold">راهنما</span>
+      <button @click="activeTab = 'guide'" :class="activeTab === 'guide' ? 'bg-turquoiseDeep text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-3 py-2 rounded-full transition-all flex items-center gap-1.5 text-[11px] font-medium">
+        <i data-lucide="book-open" class="w-3.5 h-3.5"></i> راهنما
       </button>
     </nav>
   </div>
@@ -522,8 +610,8 @@
       periodDays: 30,
       projectionMonths: 12,
       paidChurnRate: 7.8,
-      // --- رشد کاربران (پارامترهای پنهانِ سابق، اکنون قابل‌تنظیم) ---
-      newUsersMonth1: 150,        // تعداد مطلق کاربران رایگان جدید در ماه ۱ (مستقل از اندازهٔ فعلی جامعهٔ رایگان)
+      // --- رشد کاربران (نرخ جذب به صورت درصدی از کل کاربرانِ همان ماه) ---
+      acquisitionRate: 10,        // ٪ از کل کاربران (MAU) که هر ماه به جمع رایگان اضافه می‌شوند
       freeChurnRate: 10,          // ٪ ریزش ماهانه کاربران رایگان (قبلاً هاردکد ۱۰٪)
       signupGrowthRateBase: 4,
       signupGrowthRatePessimistic: 1.5,
@@ -548,7 +636,7 @@
           id: 'reverseTrial', title: 'تریال معکوس ۳ روزه (فقط کاربران فعال)', icon: 'timer', enabled: true,
           desc: 'ورود کاربر جدیدِ «پرتلاش» (فعالیت بالا در روزهای اول) = ۳ روز پلن طلایی رایگان؛ روز چهارم به رایگان سقوط می‌کند. چون فقط زیرمجموعه‌ای از کاربران رایگان مشمول‌اند، سهم واجدین شرط را دقیق تعریف می‌کنیم تا هزینهٔ AI آن (CAC) واقعی بماند.',
           effectType: 'conversion', effect: 1.8, min: 0, max: 4, step: 0.1,
-          eligibleShare: 15, eligibleMin: 5, eligibleMax: 30
+          eligibleShare: 15, eligibleMin: 5, eligibleMax: 30, trialDays: 3
         },
         {
           id: 'smartDiscount', title: 'تخفیف هوشمند به کاربران بسیار فعال', icon: 'sparkles', enabled: true,
@@ -606,11 +694,20 @@
 
     const app = createApp({
       setup() {
+        // مهاجرت داده‌های قدیمی: حذف پارامتر مطلقِ حذف‌شده و تضمین وجود acquisitionRate
+        const sanitizeLoaded = (data) => {
+          const d = { ...data };
+          if ('newUsersMonth1' in d) delete d.newUsersMonth1;
+          if (typeof d.acquisitionRate !== 'number') d.acquisitionRate = DEFAULTS.acquisitionRate;
+          if (!Array.isArray(d.marketingTechniques)) d.marketingTechniques = DEFAULTS.marketingTechniques;
+          return d;
+        };
+
         let initialData = { ...DEFAULTS };
         try {
           const savedData = localStorage.getItem('hamzaboon_financial_model_v2');
           if (savedData) {
-            initialData = { ...initialData, ...JSON.parse(savedData) };
+            initialData = { ...initialData, ...sanitizeLoaded(JSON.parse(savedData)) };
           }
         } catch (e) {
           console.error("Could not load saved data", e);
@@ -650,7 +747,7 @@
           reader.onload = (ev) => {
             try {
               const parsed = JSON.parse(ev.target.result);
-              inp.value = { ...DEFAULTS, ...parsed };
+              inp.value = { ...DEFAULTS, ...sanitizeLoaded(parsed) };
             } catch (err) {
               alert('فایل JSON نامعتبر است.');
             } finally {
@@ -677,13 +774,98 @@
           return { convBoost, churnReduction, signupBoost };
         };
 
-        // هزینهٔ CAC تریال معکوس: فقط برای سهم کاربران «واجد شرط» از کاربران جدید هر ماه (Rule 5)
+        // هزینهٔ CAC تریال معکوس: مجموع سهم کاربرانِ «واجد شرط» از کاربران جدیدِ هر ماه در همهٔ تکنیک‌های تریالی فعال
         const getTrialCACPerNewUser = (params) => {
-          const trial = (params.marketingTechniques || []).find(t => t.id === 'reverseTrial');
-          if (!trial || !trial.enabled) return { costPerUser: 0, eligibleShare: 0 };
-          const costPerUser = 3 * params.goldCallsPerDay * params.aiCostPerCallUSD * params.exchangeRate;
-          return { costPerUser, eligibleShare: (trial.eligibleShare || 0) / 100 };
+          let costWeightedSum = 0, shareSum = 0;
+          (params.marketingTechniques || []).forEach(t => {
+            if (!t.enabled || t.eligibleShare === undefined) return;
+            const days = Math.max(1, Number(t.trialDays) || 3);
+            const share = Math.max(0, Number(t.eligibleShare) || 0) / 100;
+            const costPerUser = days * params.goldCallsPerDay * params.aiCostPerCallUSD * params.exchangeRate;
+            costWeightedSum += costPerUser * share;
+            shareSum += share;
+          });
+          if (shareSum <= 0) return { costPerUser: 0, eligibleShare: 0 };
+          return { costPerUser: costWeightedSum / shareSum, eligibleShare: shareSum };
         };
+
+        // --- CRUD تکنیک‌های بازاریابی ---
+        const iconOptions = ['flame', 'timer', 'sparkles', 'gift', 'brain-circuit', 'trending-down', 'users-round', 'hourglass', 'rotate-ccw', 'user-plus', 'anchor', 'rocket', 'megaphone', 'target', 'zap', 'hand-coins', 'party-popper', 'heart', 'star'];
+        const boundsByType = {
+          conversion: { min: 0, max: 3, step: 0.1 },
+          churn_reduction: { min: 0, max: 3, step: 0.1 },
+          signup_boost: { min: 0, max: 5, step: 0.1 }
+        };
+        const showTechModal = ref(false);
+        const editingTechId = ref(null);
+        const techForm = ref({ title: '', icon: 'megaphone', desc: '', effectType: 'conversion', effect: 1, min: 0, max: 3, step: 0.1, hasTrial: false, eligibleShare: 15, trialDays: 3 });
+
+        const genTechId = () => 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+        const openAddTechnique = () => {
+          editingTechId.value = null;
+          techForm.value = { title: '', icon: 'megaphone', desc: '', effectType: 'conversion', effect: 1, min: 0, max: 3, step: 0.1, hasTrial: false, eligibleShare: 15, trialDays: 3 };
+          showTechModal.value = true;
+          nextTick().then(() => lucide.createIcons());
+        };
+
+        const openEditTechnique = (t) => {
+          editingTechId.value = t.id;
+          const b = boundsByType[t.effectType] || boundsByType.conversion;
+          techForm.value = {
+            title: t.title || '', icon: t.icon || 'megaphone', desc: t.desc || '',
+            effectType: t.effectType || 'conversion',
+            effect: t.effect ?? 1, min: t.min ?? b.min, max: t.max ?? b.max, step: t.step ?? b.step,
+            hasTrial: t.eligibleShare !== undefined,
+            eligibleShare: t.eligibleShare ?? 15, trialDays: t.trialDays ?? 3
+          };
+          showTechModal.value = true;
+          nextTick().then(() => lucide.createIcons());
+        };
+
+        const onEffectTypeChange = () => {
+          const b = boundsByType[techForm.value.effectType] || boundsByType.conversion;
+          techForm.value.min = b.min; techForm.value.max = b.max; techForm.value.step = b.step;
+        };
+
+        const saveTechnique = () => {
+          const f = techForm.value;
+          if (!f.title || !f.title.trim()) { alert('عنوان تکنیک را وارد کنید.'); return; }
+          const prev = editingTechId.value ? inp.value.marketingTechniques.find(x => x.id === editingTechId.value) : null;
+          const card = {
+            id: editingTechId.value || genTechId(),
+            title: f.title.trim(),
+            icon: f.icon || 'megaphone',
+            desc: f.desc.trim() || '—',
+            effectType: f.effectType,
+            effect: Number(f.effect) || 0,
+            min: Number(f.min) || 0, max: Number(f.max) || 3, step: Number(f.step) || 0.1,
+            enabled: prev ? !!prev.enabled : true
+          };
+          if (f.hasTrial) {
+            card.eligibleShare = Number(f.eligibleShare) || 15;
+            card.eligibleMin = 5; card.eligibleMax = 30;
+            card.trialDays = Math.max(1, Number(f.trialDays) || 3);
+          }
+          if (editingTechId.value) {
+            const idx = inp.value.marketingTechniques.findIndex(x => x.id === editingTechId.value);
+            if (idx !== -1) inp.value.marketingTechniques.splice(idx, 1, card);
+          } else {
+            inp.value.marketingTechniques.push(card);
+          }
+          showTechModal.value = false;
+          editingTechId.value = null;
+          nextTick().then(() => lucide.createIcons());
+        };
+
+        const deleteTechnique = (t) => {
+          if (!confirm('این تکنیک حذف شود؟')) return;
+          const idx = inp.value.marketingTechniques.findIndex(x => x.id === t.id);
+          if (idx !== -1) inp.value.marketingTechniques.splice(idx, 1);
+          nextTick().then(() => lucide.createIcons());
+        };
+
+        const closeTechModal = () => { showTechModal.value = false; editingTechId.value = null; };
 
         const computeSeries = (params, convRate, growthRate) => {
           let F = 0, B = 0, S = 0, G = 0, E = 0;
@@ -703,12 +885,12 @@
           const { costPerUser: trialCostPerUser, eligibleShare: trialEligibleShare } = getTrialCACPerNewUser(params);
 
           const rows = [];
-          const newSignups0 = params.newUsersMonth1;
           for (let t = 0; t < params.projectionMonths; t++) {
             const revenue = Math.round(B * params.bronzePrice + S * params.silverPrice + G * params.goldPrice + E * params.emeraldPrice);
             const aiCalls = (F * params.freeCallsPerDay + B * params.bronzeCallsPerDay + S * params.silverCallsPerDay + G * params.goldCallsPerDay + E * params.emeraldCallsPerDay) * params.periodDays;
             const aiCostToman = Math.round(aiCalls * params.aiCostPerCallUSD * params.exchangeRate);
-            const newSignups = newSignups0 * Math.pow(1 + (growthRate * (1 + signupBoost / 100)) / 100, t);
+            const currentTotal = F + B + S + G + E;
+            const newSignups = currentTotal * (params.acquisitionRate / 100) * Math.pow(1 + (growthRate * (1 + signupBoost / 100)) / 100, t);
             const trialCACToman = Math.round(newSignups * trialEligibleShare * trialCostPerUser);
             const netProfit = Math.round(revenue - aiCostToman - trialCACToman);
             const total = F + B + S + G + E;
@@ -841,7 +1023,9 @@
         return {
           inp, activeTab, isDesktop, reset, format, m1, mLast, breakEvenUsers, costFreeUser, avgLTV, baseSeries,
           fileInput, exportJSON, triggerImport, importJSON,
-          totalConversionBoost, totalChurnReduction, totalSignupBoost, trialCACToman
+          totalConversionBoost, totalChurnReduction, totalSignupBoost, trialCACToman,
+          showTechModal, techForm, iconOptions, openAddTechnique, openEditTechnique, saveTechnique,
+          deleteTechnique, closeTechModal, onEffectTypeChange
         };
       }
     });
