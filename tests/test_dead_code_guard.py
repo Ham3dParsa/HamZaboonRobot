@@ -1,0 +1,221 @@
+"""Dead-reference guard for WP2.
+
+Fails CI if any symbol that a locked plan deliberately removed still exists
+(or is referenced, imported, or defined) anywhere in production code.
+
+Production code = bot.py, handlers/, services/, config/. Code an owner wants
+to KEEP must either live outside those directories (tools/, docs/, tests/),
+or be listed in PRESERVED_SYMBOLS with a why-comment.
+
+Adding a banned symbol:
+    When a plan deletes a symbol (e.g. a function, constant, or column-backed
+    constant removed by the FSRS migration), add its name to BANNED_SYMBOLS
+    with a why-comment. From then on, CI fails if it ever reappears.
+
+Removing a banned symbol:
+    Only remove an entry if the decision to delete it was reversed by the
+    owner in a locked contract. Removing an entry silently re-enables the
+    exact "leftover code survives the migration" failure mode this guard
+    exists to prevent.
+"""
+
+import ast
+import unittest
+from pathlib import Path
+
+# Root-relative production scan targets. Anything not in this set is never
+# scanned: tools/, docs/, tests/, and archives are preservation zones.
+PRODUCTION_SCAN_TARGETS = [
+    Path("bot.py"),
+    Path("handlers"),
+    Path("services"),
+    Path("config"),
+]
+
+# ---------------------------------------------------------------------------
+# Banned / preserved registries
+# ---------------------------------------------------------------------------
+
+# Symbols that were deliberately deleted by a locked plan and must never
+# reappear in production code. key = symbol name, value = why it is banned.
+#
+# NOTE (placeholders): the FSRS migration branch is still being merged. Real
+# deleted symbols (advance_word_review, defer_word_review, INTERVALS_DAYS,
+# IBTN_REMEMBERED, IBTN_CONFIRM_CORRECT, IBTN_REMIND_AGAIN, and the
+# services/srs_engine module) are added here by that merge PR, which already
+# removes them from production. The placeholder entries below exist only to
+# prove the mechanism works until then.
+#
+# NOTE (columns): removed DB *columns* are NOT tracked here — the AST scanner
+# only sees identifiers, and column names appear as SQL string literals /
+# dict keys, which are invisible to it. Track removed columns in
+# BANNED_COLUMNS in tests/test_migration_guards.py instead (see the
+# interval_idx entry there).
+BANNED_SYMBOLS: dict[str, str] = {
+    "legacy_interval_ladder": (
+        "placeholder: replaced by FSRS-6 stability/difficulty scheduling "
+        "in the session-engine migration"
+    ),
+    "old_daily_scheduler": (
+        "placeholder: daily card flow removed by the FSRS cleanup"
+    ),
+}
+
+# Symbols that are intentionally retained even though they are no longer
+# referenced by the current flow. key = symbol name, value = why it is kept.
+# The guard skips these, so they never trip CI.
+PRESERVED_SYMBOLS: dict[str, str] = {
+    "get_conn": "core database choke point; intentionally retained",
+}
+
+
+def _symbols_in_tree(tree: ast.AST) -> set[str]:
+    """Collect every identifier-shaped symbol in a parsed module."""
+    found: set[str] = set()
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            found.add(node.name)
+        elif isinstance(node, ast.Name):
+            found.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            found.add(node.attr)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                # import foo.bar as baz -> symbol is the local name (baz / foo)
+                found.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name != "*":
+                    found.add(alias.asname or alias.name)
+
+    return found
+
+
+def _iter_production_files():
+    for target in PRODUCTION_SCAN_TARGETS:
+        if target.is_file():
+            yield target
+        elif target.is_dir():
+            yield from sorted(target.rglob("*.py"))
+
+
+def _production_file_count() -> int:
+    return sum(1 for _ in _iter_production_files())
+
+
+def find_banned_hits() -> dict[str, list[str]]:
+    """Return {banned_symbol: [file_path, ...]} for every banned symbol that
+    appears anywhere in production code."""
+    hits: dict[str, list[str]] = {sym: [] for sym in BANNED_SYMBOLS}
+
+    for filepath in _iter_production_files():
+        try:
+            tree = ast.parse(filepath.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            # A syntax error in production is caught elsewhere (compile_all,
+            # ruff); the guard must not crash the suite on malformed files.
+            continue
+
+        symbols = _symbols_in_tree(tree)
+        for sym in BANNED_SYMBOLS:
+            if sym in symbols:
+                hits[sym].append(str(filepath))
+
+    return hits
+
+
+class TestDeadCodeGuard(unittest.TestCase):
+    """The guard: no deliberately-removed symbol may survive in production."""
+
+    def test_production_contains_no_banned_symbols(self):
+        hits = find_banned_hits()
+        offending = {sym: files for sym, files in hits.items() if files}
+        if offending:
+            msg = "Banned symbols still present in production code:\n"
+            for sym, files in offending.items():
+                msg += f"  {sym}  (why: {BANNED_SYMBOLS[sym]})\n"
+                for f in files:
+                    msg += f"    {f}\n"
+            self.fail(msg)
+
+    def test_registry_entries_require_why(self):
+        for sym, why in BANNED_SYMBOLS.items():
+            self.assertGreaterEqual(len(sym), 1, "banned symbol name empty")
+            self.assertTrue(
+                why and why.strip(),
+                f"BANNED_SYMBOLS[{sym}] needs a why-comment",
+            )
+        for sym, why in PRESERVED_SYMBOLS.items():
+            self.assertTrue(
+                why and why.strip(),
+                f"PRESERVED_SYMBOLS[{sym}] needs a why-comment",
+            )
+
+    def test_scan_scope_is_production_only(self):
+        """tools/, docs/, tests/ are never scanned and can never trip the guard."""
+        allowed_roots = ("bot.py", "handlers", "services", "config")
+        for target in PRODUCTION_SCAN_TARGETS:
+            self.assertTrue(
+                str(target) in allowed_roots,
+                f"scan target {target} is outside the production allowlist",
+            )
+
+    def test_production_sources_are_found(self):
+        """Fail loudly (not vacuously pass) if run from the wrong working
+        directory: the guard must prove it actually scanned real files."""
+        count = _production_file_count()
+        self.assertGreater(
+            count,
+            10,
+            f"only {count} production .py files found; "
+            "is this test running from the repo root?",
+        )
+
+
+class TestScannerDetection(unittest.TestCase):
+    """Unit-test the scanner: prove it detects a banned symbol in each form
+    (definition, reference, attribute access, import) using synthetic code."""
+
+    def _detects(self, source: str) -> bool:
+        tree = ast.parse(source)
+        return "synthetic_banned_symbol" in _symbols_in_tree(tree)
+
+    def test_detects_function_definition(self):
+        self.assertTrue(self._detects("def synthetic_banned_symbol():\n    pass\n"))
+
+    def test_detects_class_definition(self):
+        self.assertTrue(self._detects("class synthetic_banned_symbol:\n    pass\n"))
+
+    def test_detects_name_reference(self):
+        self.assertTrue(self._detects("x = synthetic_banned_symbol\n"))
+
+    def test_detects_attribute_access(self):
+        self.assertTrue(self._detects("db.synthetic_banned_symbol()\n"))
+
+    def test_detects_import(self):
+        self.assertTrue(self._detects("from legacy import synthetic_banned_symbol\n"))
+
+    def test_detects_import_as(self):
+        self.assertTrue(self._detects("from legacy import x as synthetic_banned_symbol\n"))
+
+    def test_ignores_similar_but_distinct_names(self):
+        self.assertFalse(self._detects("synthetic_banned_symbol_extra = 1\n"))
+        self.assertFalse(self._detects("synthetic_banned = 1\n"))
+
+    def test_preserved_symbols_never_flagged(self):
+        """PRESERVED symbols are intentionally retained; the guard must never
+        report them. The guard only scans BANNED_SYMBOLS, and the registries
+        must stay disjoint so a retained symbol can never be banned."""
+        hits = find_banned_hits()
+        for sym in PRESERVED_SYMBOLS:
+            self.assertNotIn(sym, hits, f"preserved symbol {sym} was flagged")
+        self.assertEqual(
+            set(PRESERVED_SYMBOLS) & set(BANNED_SYMBOLS),
+            set(),
+            "a symbol cannot be both banned and preserved",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

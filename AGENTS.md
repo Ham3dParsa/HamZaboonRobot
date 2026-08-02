@@ -136,6 +136,7 @@ focused tests or other concrete evidence.
 5. If any logical gap, ambiguous test failure, or architectural uncertainty arises during gate preparation, the agent **MUST halt** and present its findings as a clear, focused inquiry to the project owner. **If an interactive question/decision tool is available in the current environment, use it** (with `multiple: true` for decision options, `custom: true` for open-ended clarification). **If no such tool is available, present the same structured inquiry as plain text in the response and explicitly halt, waiting for the owner's reply before proceeding.** The agent is strictly forbidden from proceeding with code edits until the owner explicitly answers or chooses a decision option.
 6. **SUMMARIZE** the locked contract in writing using the template below.
 7. **CONFIRM** owner says "proceed" or "locked" before touching code.
+8. **Dependency & Wiring Map (WP2):** if the change removes/changes a feature, migrates, refactors, changes schema/callbacks, or changes module boundaries, the contract MUST include a completed **Dependency & Wiring Map** (Section 2.4.2). The gate refuses to lock without it. Dispositions in the map are verified after implementation by grep + the reverse-wiring guard (`tests/test_wiring.py`) + the dead-reference guard (`tests/test_dead_code_guard.py`).
 
 > **Owner experience note:** The project owner is not a professional developer. When presenting rules, options, and trade-offs during this gate, the agent MUST explain each option in plain, non-jargon language. Define technical terms if they are unavoidable. State clearly what each option does in practice, what it costs (time, complexity, money if applicable), and why the recommended option is preferred. Do not assume familiarity with Python tooling, testing patterns, or deployment concepts.
 
@@ -156,6 +157,39 @@ Trade-offs: [cost/UX/compatibility/regression per alternative]
 Owner Confirmation: [quote owner's "proceed" or "locked"]
 GATE STATUS: [LOCKED / PENDING]
 ```
+
+> **Dependency & Wiring Map required (Section 2.4.2):** When this contract
+> removes/changes a feature, migrates, refactors, changes schema/callbacks, or
+> changes module boundaries, the agent MUST append the completed Dependency &
+> Wiring Map table before the gate can lock.
+
+#### 2.4.2 Dependency & Wiring Map
+
+For any contract that removes/changes a feature, migrates, refactors, changes
+schema/callbacks, or changes module boundaries, the agent MUST complete this
+map BEFORE the owner locks the contract. It forces the agent to enumerate
+every dependent feature up front instead of leaving a silent half-wiring.
+Dispositions (`update` / `remove` / `keep`) are then verified after
+implementation by grep, the reverse-wiring guard (`tests/test_wiring.py`), and
+the dead-reference guard (`tests/test_dead_code_guard.py`).
+
+```
+| Dependency type | Items affected | Disposition (update / remove / keep) |
+|---|---|---|
+| Callback prefixes | ... | ... |
+| Router branches (callback_router / sub-routers) | ... | ... |
+| Keyboard builders / constants | ... | ... |
+| DB tables / columns / functions | ... | ... |
+| Handler functions | ... | ... |
+| Imports / re-exports | ... | ... |
+| Prompts / formatting helpers | ... | ... |
+| Tests referencing them | ... | ... |
+| Docs (ROADMAP, AGENTS.md §3 map, issues) | ... | ... |
+```
+
+**Verification rule:** after implementation, each row's disposition must be
+demonstrated by concrete evidence (grep output, test, or PR diff). A row with
+no evidence is treated as unverified and blocks the PR review.
 
 #### 2.4.1 Fast-track exception for non-behavioral changes
 
@@ -523,7 +557,8 @@ d) If the agent is uncertain whether a test failure represents a regression or a
      integration test in `tests/test_integration/` when the change touches
      handler logic, keyboards, callbacks, DB writes, quotas, or AI;
    - No leftover references to symbols that this change was meant to remove
-     (WP2 adds an automated dead-reference guard for this);
+     (enforced by the dead-reference guard `tests/test_dead_code_guard.py` and
+     the reverse-wiring guard `tests/test_wiring.py`);
    - Schema changes are tested on BOTH a fresh database and an upgrade from
      the prior schema;
    - GitHub Issues and `ROADMAP.md` are updated per Section 2;

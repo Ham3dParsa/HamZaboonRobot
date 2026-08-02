@@ -58,11 +58,12 @@ Goal: make DB damage *structurally impossible*, not merely unlikely.
 
 ### WP2 — Verification guardrails
 
-- **2.1 Dead-reference guard.** `tests/test_dead_code_guard.py` (new) scans production code and fails if any symbol in a `BANNED_SYMBOLS` registry still exists. Registry lives in the test file with a `why` comment per symbol. When a plan deletes a symbol (e.g., `advance_word_review`), it adds it here — so the migration's Phase 2 cleanup becomes enforced.
-- **2.2 Definition of Done (DoD).** A mandatory checklist in `AGENTS.md` + a PR body template: new tests present, no banned symbols, migration tested on fresh + upgraded DB, integration test added, docs/issues updated, staging smoke passed.
-- **2.3 Migration-completeness test template.** `tests/test_migration_guards.py` (new): for any schema change, assert new columns/functions exist, old ones are absent, on BOTH a fresh DB and an upgraded-from-old-schema DB.
-- **Files:** new test files; `.github/PULL_REQUEST_TEMPLATE.md` (new); `AGENTS.md`.
-- **Acceptance:** A simulated "forgot to delete old function" change fails CI; the template is reused for the FSRS migration.
+- **2.1 Dead-reference guard.** `tests/test_dead_code_guard.py` (new) scans production code (`bot.py`, `handlers/`, `services/`, `config/`) and fails if any symbol in a `BANNED_SYMBOLS` registry still exists (as a definition, reference, import, or attribute access). Registry lives in the test file with a `why` comment per symbol; `PRESERVED_SYMBOLS` lists intentionally-retained symbols the guard skips. When a plan deletes a symbol (e.g., the FSRS migration's `advance_word_review`), it adds it here — so the migration's Phase 2 cleanup becomes enforced. Placeholder entries prove the mechanism until the FSRS merge lands and adds the real deleted names.
+- **2.2 Definition of Done (DoD).** A mandatory checklist in `AGENTS.md` (§7 pre-commit gate) + a PR body template (`.github/PULL_REQUEST_TEMPLATE.md`): new tests present, no banned symbols, migration tested on fresh + upgraded DB, integration test added, docs/issues updated, staging smoke passed.
+- **2.3 Migration-completeness test template.** `tests/test_migration_guards.py` (new): reusable assertions (expected tables/columns present, banned columns absent) on BOTH a fresh DB and an upgraded-from-old-schema DB. Reused by the FSRS migration.
+- **2.4 Reverse wiring + Dependency & Wiring Map.** `tests/test_wiring.py` extended: router call targets resolve, and all project-internal `from X import Y` resolve (including re-exports/submodules). `AGENTS.md` §2.4 gains a mandatory **Dependency & Wiring Map** (§2.4.2) — the gate refuses to lock a refactor/migration/feature-removal contract without it, and each disposition is verified after implementation.
+- **Files:** `tests/test_dead_code_guard.py`, `tests/test_wiring.py`, `tests/test_migration_guards.py`, `AGENTS.md`, `.github/PULL_REQUEST_TEMPLATE.md`.
+- **Acceptance:** a simulated "forgot to delete old function" change fails CI; a feature-removal plan omitting the Dependency & Wiring Map is rejected at the gate; the migration template is reused for the FSRS migration.
 - **Dep/priority:** WP1 / **P1** (must exist before FSRS migration).
 
 ### WP3 — Staging smoke test + release runbook
@@ -118,6 +119,10 @@ Each WP is a single logical commit/PR following `AGENTS.md` workflow (contract l
 | 4 | Cleanup timing | Bounded cleanup with each PR (amend AGENTS.md §2.2) | 2026-07-31 | Approved (WP4) |
 | 5 | Real-system check | Staging copy-DB smoke test + release runbook before cutovers | 2026-07-31 | Proposed (WP3) |
 | 6 | Independent review | Mandatory reviewer subagent (fresh context, report-only) for non-trivial changes | 2026-08-01 | Approved (WP4) |
+| 7 | Guard scan scope | Production only (`bot.py`, `handlers/`, `services/`, `config/`) | 2026-08-02 | Approved (WP2) |
+| 8 | Preservation mechanism | Archive + `PRESERVED` list with why-comments | 2026-08-02 | Approved (WP2) |
+| 9 | Reverse wiring test | Router targets + imports both resolve | 2026-08-02 | Approved (WP2) |
+| 10 | Dependency & Wiring Map | Hard gate requirement (§2.4.2) | 2026-08-02 | Approved (WP2) |
 
 ---
 
