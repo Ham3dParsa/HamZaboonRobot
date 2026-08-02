@@ -21,10 +21,10 @@ from config.keyboards import (
     daily_card_keyboard,
     daily_review_dates_keyboard,
     daily_review_menu_keyboard,
+    get_review_keyboard,
     main_menu,
     presentation_settings_keyboard,
     query_result_keyboard,
-    srs_review_keyboard,
 )
 
 
@@ -82,9 +82,9 @@ class CustomWordQueryTests(unittest.TestCase):
         self.assertEqual(button.callback_data, "query:add:0123456789abcdef0123456789abcdef")
 
     def test_srs_review_keyboard_is_user_scoped_and_short(self):
-        markup = srs_review_keyboard(123, 456)
+        markup = get_review_keyboard(123, 456)
         callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
-        self.assertEqual(callbacks, ["srs:remember:123:456", "srs:again:123:456"])
+        self.assertEqual(callbacks, ["srs:1:123:456", "srs:2:123:456", "srs:3:123:456", "srs:4:123:456"])
         self.assertTrue(all(len(callback) < 64 for callback in callbacks))
 
     def test_translation_prepare_controls_are_scoped(self):
@@ -98,10 +98,10 @@ class CustomWordQueryTests(unittest.TestCase):
             query.inline_keyboard[0][1].callback_data,
             f"query:prepare:{'a' * 32}",
         )
-        srs = srs_review_keyboard(123, 456, show_translations=True)
+        srs = get_review_keyboard(123, 456)
         self.assertEqual(
             srs.inline_keyboard[0][0].callback_data,
-            "srs:prepare:123:456",
+            "srs:1:123:456",
         )
 
     def test_main_menu_no_longer_shows_manual_save_action(self):

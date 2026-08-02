@@ -43,6 +43,9 @@ def _defined_names(tree: ast.AST) -> set[str]:
             for target in node.targets:
                 if isinstance(target, ast.Name):
                     names.add(target.id)
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name):
+                names.add(node.target.id)
     return names
 
 

@@ -19,6 +19,14 @@ def escape_mdv2(text: str) -> str:
     return re.sub(r'([' + re.escape(special) + r'])', r'\\\1', text)
 
 
+_PERSIAN_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+
+
+def to_persian_digits(value) -> str:
+    """Convert Latin digits to Persian digits for learner-facing text."""
+    return str(value).translate(_PERSIAN_DIGITS)
+
+
 def escape_mdv2_code(text: str) -> str:
     if not text:
         return ""
@@ -101,6 +109,33 @@ def format_srs_prompt(data: dict, *, phonetic_lines: list[str] | None = None) ->
         lines.extend(phonetic_lines)
     lines.append(f"\n{escape_mdv2(SRS_HIDDEN_INSTRUCTION)}")
     return "\n".join(lines)
+
+
+def _saved_word_card(row) -> dict:
+    """Decode a saved_words row's card_data JSON into a card dict.
+
+    Single shared implementation for the study/review flows. The stored
+    card_data is a JSON string; a row without a valid card dict falls back
+    to a minimal card so rendering never crashes.
+    """
+    if row["card_data"]:
+        try:
+            data = json.loads(row["card_data"])
+        except (TypeError, json.JSONDecodeError):
+            data = None
+        if isinstance(data, dict):
+            return data
+    return {
+        "word": row["word"],
+        "phonetic": "",
+        "fa_meaning": "این واژه قبلاً بدون کارت کامل ذخیره شده است.",
+        "fa_explanation": "معنی و مثال کامل در داده‌های قدیمی موجود نیست؛ خودت معنی را یادآوری کن.",
+        "synonyms": [],
+        "antonyms": [],
+        "examples": [],
+        "example_translations": [],
+        "grammar_tip": "",
+    }
 
 
 def _phonetic_lines(value: str | dict) -> list[str]:

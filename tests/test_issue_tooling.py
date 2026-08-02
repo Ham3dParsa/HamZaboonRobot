@@ -37,7 +37,7 @@ class DashboardGeneratorTests(unittest.TestCase):
         self.assertIn("phases", data)
         self.assertIn("decisions", data)
         self.assertEqual(len(data["phases"]), 8)
-        self.assertEqual(len(data["decisions"]), 12)
+        self.assertEqual(len(data["decisions"]), 13)
 
     def test_dashboard_has_all_phase_cards(self):
         cards = re.findall(r'<div class="phase-card"', self.html)
@@ -45,7 +45,7 @@ class DashboardGeneratorTests(unittest.TestCase):
 
     def test_dashboard_has_all_decision_rows(self):
         rows = re.findall(r'<tr class="decision-row"', self.html)
-        self.assertEqual(len(rows), 12)
+        self.assertEqual(len(rows), 13)
 
     def test_every_phase_has_progress_bar(self):
         for match in re.finditer(
@@ -205,7 +205,7 @@ class DashboardGeneratorTests(unittest.TestCase):
             r'<a href="#phase-\d+" class="btn-gh-link"[^>]*>📎 Phase</a>',
             self.html,
         )
-        self.assertEqual(len(phase_anchors), 12)
+        self.assertEqual(len(phase_anchors), 13)
 
     def test_decision_without_issues_has_new_issue_button(self):
         """Decisions with no issue_ids show a + New button in actions."""
@@ -233,7 +233,7 @@ class DashboardGeneratorTests(unittest.TestCase):
 
     def test_decision_actions_column_has_dec_actions_class(self):
         dec_action_cols = self.html.count('class="dec-actions"')
-        self.assertEqual(dec_action_cols, 12)
+        self.assertEqual(dec_action_cols, 13)
 
 
 class GeneratorScriptTests(unittest.TestCase):

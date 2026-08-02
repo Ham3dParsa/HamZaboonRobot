@@ -61,7 +61,10 @@ separate concepts and must not be conflated.
 ### In progress
 
 - Adaptive SRS core and real-progress scoring
-- Segment-level content pooling
+
+### Deferred (awaiting trigger condition)
+
+- Segment-level content pooling — deferred until DAU ≥ 50 AND at least one segment has ≥10 shared items with ≥2 users. See [`docs/plans/plan_pooling.md` § Sequencing](docs/plans/plan_pooling.md) for rationale and trigger verbatim.
 
 ### Next
 
@@ -194,6 +197,8 @@ The first implementation slice must not change the existing interval
 schedule or award points for delivery success alone.
 
 ## Locked Direction: Segment-Level Content Pooling
+
+> **Deferred** — see [`docs/plans/plan_pooling.md` § Sequencing](docs/plans/plan_pooling.md) for trigger condition and independence analysis.
 
 The next cost-control direction is a shared, source-agnostic content pool
 keyed by `(target_lang, goal, level, source_kind, item_key)`. It must reuse
@@ -847,7 +852,8 @@ a separate lesson system.
   measurements before advanced personalization.
 - Expand tests around callback authorization, provider failures, Telegram retry
   behavior, SRS chunking, migrations, and reset safeguards.
-- Implement the locked segment-level content-pooling slices, starting with the
+- Revisit the locked segment-level content-pooling slices when the trigger
+  condition is met (DAU ≥ 50 AND ≥1 segment with ≥10 items × ≥2 users), starting with the
   additive SQLite schema and validated daily-card write path.
 - Add explicit migration and cross-segment isolation tests for the shared pool.
 - Define and implement community rating/report thresholds, owner approval
