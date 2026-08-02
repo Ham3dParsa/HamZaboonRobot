@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -13,12 +14,15 @@ from services.utils.helpers import _user_activity_line
 from services.utils.formatting import (
     CardPreparationError,
     SRS_REVEAL_QUESTION,
+    _saved_word_card,
     format_card,
     _phonetic_lines,
 )
 from services.utils.helpers import _answer_callback_safely, _edit_with_retry, _message_has_prepared_translations
 from config.keyboards import srs_revealed_keyboard, srs_review_keyboard
 from services.ai.llm_services import _prepare_cached_card
+from services.session import resolve_grade
+from handlers.study_handler import advance_session
 
 logger = logging.getLogger(__name__)
 
@@ -38,27 +42,6 @@ def _log_ua(update: Update, action: str, outcome: str):
     )
     if line:
         logger.log(USER_ACTIVITY, "%s", line)
-
-
-def _saved_word_card(row) -> dict:
-    if row["card_data"]:
-        try:
-            data = json.loads(row["card_data"])
-        except (TypeError, json.JSONDecodeError):
-            data = None
-        if isinstance(data, dict):
-            return data
-    return {
-        "word": row["word"],
-        "phonetic": "",
-        "fa_meaning": "این واژه قبلاً بدون کارت کامل ذخیره شده است.",
-        "fa_explanation": "معنی و مثال کامل در داده‌های قدیمی موجود نیست؛ خودت معنی را یادآوری کن.",
-        "synonyms": [],
-        "antonyms": [],
-        "examples": [],
-        "example_translations": [],
-        "grammar_tip": "",
-    }
 
 
 async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str):
@@ -83,7 +66,13 @@ async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     await update.callback_query.answer(message, show_alert=True)
 
 
-async def _handle_srs_review(update: Update, action: str, target_user_id_text: str, word_id_text: str):
+async def _handle_srs_review(
+    update: Update,
+    grade: int,
+    target_user_id_text: str,
+    word_id_text: str,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
     try:
         target_user_id = int(target_user_id_text)
         word_id = int(word_id_text)
@@ -98,41 +87,79 @@ async def _handle_srs_review(update: Update, action: str, target_user_id_text: s
     if not row:
         await update.callback_query.answer("این واژه در مرور شما پیدا نشد.", show_alert=True)
         return
-    if action in {"remember", "confirm"}:
-        if not db.advance_word_review(word_id):
-            await update.callback_query.answer("این مرور قبلاً ثبت شده است.", show_alert=True)
-            return
-        db.touch_streak(user_id)
-        revealed = action == "confirm"
-        db.record_review_event(
-            word_id,
-            user_id,
-            revealed_before_answer=revealed,
-            outcome="recalled_after_peek" if revealed else "recalled",
-        )
-        await update.callback_query.answer("ثبت شد؛ مرور بعدی زمان‌بندی شد.", show_alert=True)
-        logger.info(
-            "srs review advanced user_id=%s word_id=%s revealed=%s",
-            user_id,
-            word_id,
-            revealed,
-        )
+    resolved = resolve_grade("srs_review", grade)
+    db.grade_word_review(word_id, resolved, user_id)
+    shown_at = context.user_data.pop(f"card_shown_at_{word_id}", None)
+    response_time_ms = None
+    if shown_at is not None:
+        elapsed = time.time() - shown_at
+        response_time_ms = max(0, int(elapsed * 1000))
+    db.record_review_event(
+        word_id,
+        user_id,
+        resolved,
+        "srs_review",
+        grade_source="direct_button",
+        raw_signal=json.dumps({"button_value": grade}),
+        response_time_ms=response_time_ms,
+    )
+    db.touch_streak(user_id)
+    await _answer_callback_safely(
+        update.callback_query,
+        "ثبت شد؛ مرور بعدی زمان‌بندی شد.",
+        show_alert=True,
+    )
+    _log_ua(update, action="srs_review", outcome=f"grade_{grade}")
+    logger.info(
+        "srs review user_id=%s word_id=%s grade=%s rt=%s",
+        user_id,
+        word_id,
+        resolved,
+        response_time_ms,
+    )
+    await advance_session(update, context)
+
+
+async def _handle_first_exposure_grade(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    grade_str: str,
+    target_user_id_text: str,
+    word_id_text: str,
+) -> None:
+    try:
+        target_user_id = int(target_user_id_text)
+        word_id = int(word_id_text)
+        grade = int(grade_str)
+    except ValueError:
+        await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
         return
-    if action == "again":
-        if not db.defer_word_review(word_id):
-            await update.callback_query.answer("این مرور قبلاً ثبت شده است.", show_alert=True)
-            return
-        db.touch_streak(user_id)
-        db.record_review_event(
-            word_id,
-            user_id,
-            revealed_before_answer=True,
-            outcome="again",
-        )
-        await update.callback_query.answer("باشه؛ فردا دوباره یادآوری می‌کنم.", show_alert=True)
-        logger.info("srs review deferred user_id=%s word_id=%s", user_id, word_id)
+    user_id = update.effective_user.id
+    if user_id != target_user_id:
+        await update.callback_query.answer("این مرور برای کاربر دیگری است.", show_alert=True)
         return
-    await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+    row = db.get_saved_word(word_id, user_id=user_id)
+    if not row:
+        await update.callback_query.answer("این واژه در مرور شما پیدا نشد.", show_alert=True)
+        return
+    resolved = resolve_grade("first_exposure", grade)
+    db.grade_first_exposure(word_id, resolved, user_id)
+    # response_time_ms intentionally omitted for first-exposure:
+    # there is no recall attempt, just a familiarity rating, so
+    # the signal is not comparable to regular-review response time.
+    db.record_review_event(
+        word_id,
+        user_id,
+        resolved,
+        "first_exposure",
+        grade_source="direct_button",
+        raw_signal=json.dumps({"button_value": grade}),
+        response_time_ms=None,
+    )
+    db.touch_streak(user_id)
+    await update.callback_query.answer("ثبت شد.", show_alert=True)
+    _log_ua(update, action="first_exposure", outcome=f"grade_{grade}")
+    await advance_session(update, context)
 
 
 async def _handle_srs_reveal(update: Update, context: ContextTypes.DEFAULT_TYPE, target_user_id_text: str, word_id_text: str):
@@ -199,6 +226,7 @@ async def _handle_srs_reveal(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 show_alert=True,
             )
         return
+    context.user_data[f"card_shown_at_{word_id}"] = time.time()
     await _answer_callback_safely(update.callback_query, "کارت افشا شد.")
 
 

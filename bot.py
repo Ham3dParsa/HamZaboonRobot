@@ -148,6 +148,7 @@ from handlers.user import (
 from handlers.study_handler import handle_study_start
 
 from handlers.srs_handler import (
+    _handle_first_exposure_grade,
     _handle_query_add,
     _handle_srs_review,
     _handle_srs_reveal,
@@ -1127,12 +1128,28 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
             return
         await _handle_srs_reveal(update, context, parts[2], parts[3])
+    elif data.startswith("srs:fe:"):
+        parts = data.split(":")
+        if len(parts) != 5:
+            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            return
+        await _handle_first_exposure_grade(update, context, parts[2], parts[3], parts[4])
     elif data.startswith("srs:"):
         parts = data.split(":")
         if len(parts) != 4:
             await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
             return
-        await _handle_srs_review(update, parts[1], parts[2], parts[3])
+        try:
+            grade = int(parts[1])
+        except ValueError:
+            log.warning("Unrecognized srs callback: %s", data)
+            await update.callback_query.answer("این دکمه دیگر معتبر نیست.", show_alert=False)
+            return
+        if grade not in (1, 2, 3, 4):
+            log.warning("Unrecognized srs callback: %s", data)
+            await update.callback_query.answer("این دکمه دیگر معتبر نیست.", show_alert=False)
+            return
+        await _handle_srs_review(update, grade, parts[2], parts[3], context)
     elif data == "study:start":
         await handle_study_start(update, context)
     elif data.startswith("tts:pronounce:"):

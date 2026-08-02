@@ -1,4 +1,4 @@
-# FSRS-6 Migration Plan v2 — Architecture-Locked, Modular Implementation
+﻿# FSRS-6 Migration Plan v2 — Architecture-Locked, Modular Implementation
 
 **Status:** ✅ Architecture locked — ready for Phase 0 implementation
 **Cutover strategy:** Atomic (bot is OFF; all changes land in one deployment)
@@ -335,7 +335,7 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 | 0.6 | `services/scheduling.py` | **CREATE** with `PLAN_SESSION_CONFIG`, `daily_session_budget()`, `consume_session_slot()`, `release_session_slot()` | `daily_session_budget(test_user, "silver")` returns correct slot counts for today |
 | 0.7 | `docs/FSRS_v6.md` | **VERIFY** — cross-check `compute_retrievability()` and `compute_interval()` against corrected §2.1 and §2.8 formulas (commit 304b2a8). Both functions confirmed matching: no `/9` in code, correct `factor = 0.9^(-1/w20) - 1`, correct `I = S · (r^(-1/w20) - 1) / factor`. | Running `compute_retrievability(S=30, t=30)` returns ≈0.9; `compute_interval(S=30, r=0.9)` returns ≈30 |
 
-**Phase 0 commit:** `[` ☐ `]`
+**Phase 0 commit:** `[` ☑ `]`
 
 ---
 
@@ -362,7 +362,7 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 | 1a.13 | `services/db/words.py` | Delete `advance_word_review()` and `defer_word_review()` | All callers updated to use `grade_word_review()`; grep confirms zero references remain |
 | 1a.14 | `services/db/reviews.py` + docs | Document constraint: any future gamified activity type MUST use a distinct `activity_type` value (never reuse `srs_review`). This costs nothing now (no new column, no handler change) but prevents contaminated training data later. | Constraint stated in docstring at `record_review_event()` and in this plan's schema section; active grep verification not required until gamification is implemented |
 
-**Phase 1a commit:** `[` ☐ `]`
+**Phase 1a commit:** `[` ☑ `]`
 
 ---
 
@@ -379,7 +379,7 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 | 1b.5 | `config/keyboards.py` | Rewrite `srs_review_keyboard()` — 4-grade | Same 4-grade pattern as hidden |
 | 1b.6 | `config/keyboards.py` | Add `srs_first_exposure_keyboard()` — IBTN_FE_* labels, `srs:fe:{grade}:{uid}:{wid}` callbacks | `srs_first_exposure_keyboard(123, 456)` returns 4 callbacks matching `srs:fe:1:123:456` through `srs:fe:4:123:456` |
 
-**Phase 1b commit:** `[` ☐ `]`
+**Phase 1b commit:** `[` ☑ `]`
 
 ---
 
@@ -399,7 +399,7 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 | 1c.8 | `services/session/assembly.py` | Materialize function: `build_session_list()` → materialises Tiers 1+2 into list, stores Tier-3 params for refill | Returns `(session_nodes: list, tier3_params: dict | None)` |
 | 1c.9 | Delete `services/srs_engine.py` | Remove old scaffold | Grep confirms zero imports of `services.srs_engine` remain |
 
-**Phase 1c commit:** `[` ☐ `]`
+**Phase 1c commit:** `[` ☑ `]`
 
 ---
 
@@ -414,7 +414,7 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 | 1d.3 | `handlers/srs_handler.py` | Modify `_handle_srs_reveal()` — show `srs_revealed_keyboard` with 4-grade buttons | After reveal, keyboard shows 4 grade buttons + translations |
 | 1d.4 | `handlers/srs_handler.py` | Modify `_handle_srs_prepare()` — show `srs_review_keyboard` with 4-grade buttons | Prepare action shows 4-grade keyboard |
 
-**Phase 1d commit:** `[` ☐ `]`
+**Phase 1d commit:** `[` ☑ `]`
 
 ---
 
@@ -427,7 +427,7 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 | 1e.1 | `handlers/study_handler.py` | Rewrite `handle_study_start()` — call `build_session_list()`, check session quota, present first card via `ACTIVITY_REGISTRY` dispatch | User with 0 sessions today gets a valid session; user at daily cap gets "همه کارت‌های امروز تموم شده!" |
 | 1e.2 | `handlers/user.py` | Modify `start_srs_review()` — use new `srs_hidden_keyboard` with 4-grade buttons | Existing SRS review menu shows 4-grade keyboard |
 
-**Phase 1e commit:** `[` ☐ `]`
+**Phase 1e commit:** `[` ☑ `]`
 
 ---
 
@@ -442,7 +442,7 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 | 1f.3 | `bot.py` | Update imports — add `_handle_first_exposure_grade` | Import succeeds; no unused import warnings |
 | 1f.4 | `bot.py` | No legacy pattern handling (bot was off; no old keyboards exist) | Router rejects unknown patterns gracefully (no crash) |
 
-**Phase 1f commit:** `[` ☐ `]`
+**Phase 1f commit:** `[` ☑ `]`
 
 ---
 
@@ -464,7 +464,7 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 | 1g.8 | `tests/test_integration/test_srs_callback_routing.py` | Schema migration test: run `migrate_saved_words_to_fsrs()` against temp DB with 10-user snapshot; assert all rows have `stability=0.0, difficulty=5.0, first_exposure_done=0, next_review=<today>` | No row has `interval_idx` column; no row has `NULL` next_review |
 | 1g.9 | Full validation suite | Run `python -m unittest discover -s tests -v` + `ruff check --select F821,F811` + `python scripts/compile_all.py` + `git diff --check` | All new tests pass; no regressions; no whitespace errors |
 
-**Phase 1g commit:** `[` ☐ `]`
+**Phase 1g commit:** `[` ☑ `]`
 
 ---
 
@@ -478,7 +478,7 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 | 2.2 | (entire repo) | Final grep sweep: verify zero references to `INTERVALS_DAYS`, `interval_idx`, `IBTN_REMEMBERED`, `IBTN_CONFIRM_CORRECT`, `IBTN_REMIND_AGAIN`, `advance_word_review`, `defer_word_review` in production code | Only hits are in git history, archived docs, and `gap_analysis.md` |
 | 2.3 | `docs/plans/plan_fsrs_migration.md` | Archive or replace with reference to v2 | Old plan marked as superseded |
 
-**Phase 2 commit:** `[` ☐ `]`
+**Phase 2 commit:** `[` ☑ `]`
 
 ---
 
@@ -578,6 +578,15 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 | 23 | Data migration | Save word records; reset SRS fields; drop `interval_idx`; no rollback column | 2026-07-31 | Owner + Consultant |
 | 24 | Review events schema | Store raw_signal (JSON), not just final grade | 2026-07-31 | Consultant |
 | 25 | Cutover strategy | Atomic — bot is off; all changes land together; no transitional dual-write | 2026-07-31 | Owner + Consultant |
+| 26 | Tier 3 in this migration | Stub only (`generate_tier3_node()` returns None); session ends gracefully at Tiers 1+2 exhaustion | 2026-07-31 | Consultant |
+| 27 | Auto-advance lives in | `study_handler.advance_session()`, called from grade handlers after grading | 2026-07-31 | Consultant |
+| 28 | Auto-advance UX | Direct chain — grade press → next card via `edit_message_text`; no separate "next" button | 2026-07-31 | Consultant |
+| 29 | Session quota storage | `settings` table, key `sessions_used_{user_id}_{date}`, integer count (not boolean) | 2026-07-31 | Consultant |
+| 30 | Session = one invocation | Quota consumed once at top of `handle_study_start`, before `build_session_list()` | 2026-07-31 | Consultant |
+| 31 | SessionState fields | `nodes`, `total_cards`, `tier3_context`, `study_msg_id`, `plan` — no `index` field | 2026-07-31 | Consultant |
+| 32 | advance_session failure boundary | Wrap render+advance in try/except; on failure show Persian error message | 2026-07-31 | Consultant |
+| 33 | Empty session slot release | If Tiers 1+2 empty after build, call `release_session_slot()` before "no cards" message | 2026-07-31 | Consultant |
+| 34 | Double-tap guard | Accepted risk at 10 test users; revisit if real users report skipped cards | 2026-07-31 | Consultant |
 
 ---
 

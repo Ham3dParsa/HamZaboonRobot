@@ -2,8 +2,6 @@ import json
 import datetime
 from services.db.schema import get_conn, _today, _utc_now
 
-INTERVALS_DAYS = [1, 3, 7, 16, 30]
-
 
 def _normalize_word(word: str) -> str:
     return " ".join(word.split()).casefold()
@@ -189,7 +187,7 @@ def add_saved_word(
     if not normalized_word:
         return False
     word = " ".join(word.split())
-    next_review = (_today() + datetime.timedelta(days=INTERVALS_DAYS[0])).isoformat()
+    next_review = (_today() + datetime.timedelta(days=1)).isoformat()
     serialized_card = (
         json.dumps(card_data, ensure_ascii=False)
         if isinstance(card_data, dict)
@@ -288,37 +286,6 @@ def get_saved_word(word_id: int, user_id: int | None = None):
         params.append(user_id)
     with get_conn() as conn:
         return conn.execute(query, params).fetchone()
-
-
-def advance_word_review(word_id: int) -> bool:
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute("SELECT interval_idx FROM saved_words WHERE id=?", (word_id,)).fetchone()
-        if not row:
-            return False
-        idx = min((row["interval_idx"] or 0) + 1, len(INTERVALS_DAYS) - 1)
-        next_review = (_today() + datetime.timedelta(days=INTERVALS_DAYS[idx])).isoformat()
-        cursor = conn.execute(
-            "UPDATE saved_words SET interval_idx=?, next_review=?, "
-            "review_status='idle', review_requested_at=NULL "
-            "WHERE id=? AND review_status='pending'",
-            (idx, next_review, word_id),
-        )
-        conn.commit()
-        return cursor.rowcount == 1
-
-
-def defer_word_review(word_id: int, days: int = 1) -> bool:
-    next_review = (_today() + datetime.timedelta(days=max(days, 1))).isoformat()
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        cursor = conn.execute(
-            "UPDATE saved_words SET next_review=?, review_status='idle', "
-            "review_requested_at=NULL WHERE id=? AND review_status='pending'",
-            (next_review, word_id),
-        )
-        conn.commit()
-        return cursor.rowcount == 1
 
 
 # ---------- توابع جدید (پوسته) ----------

@@ -39,25 +39,39 @@ PRODUCTION_SCAN_TARGETS = [
 # Symbols that were deliberately deleted by a locked plan and must never
 # reappear in production code. key = symbol name, value = why it is banned.
 #
-# NOTE (placeholders): the FSRS migration branch is still being merged. Real
-# deleted symbols (advance_word_review, defer_word_review, INTERVALS_DAYS,
-# IBTN_REMEMBERED, IBTN_CONFIRM_CORRECT, IBTN_REMIND_AGAIN, and the
-# services/srs_engine module) are added here by that merge PR, which already
-# removes them from production. The placeholder entries below exist only to
-# prove the mechanism works until then.
-#
 # NOTE (columns): removed DB *columns* are NOT tracked here — the AST scanner
 # only sees identifiers, and column names appear as SQL string literals /
 # dict keys, which are invisible to it. Track removed columns in
 # BANNED_COLUMNS in tests/test_migration_guards.py instead (see the
 # interval_idx entry there).
 BANNED_SYMBOLS: dict[str, str] = {
-    "legacy_interval_ladder": (
-        "placeholder: replaced by FSRS-6 stability/difficulty scheduling "
-        "in the session-engine migration"
+    "advance_word_review": (
+        "removed by FSRS migration Phase 2: interval-ladder scheduling replaced "
+        "by grade_word_review()/FSRS stability"
     ),
-    "old_daily_scheduler": (
-        "placeholder: daily card flow removed by the FSRS cleanup"
+    "defer_word_review": (
+        "removed by FSRS migration Phase 2: interval-ladder scheduling replaced "
+        "by grade_word_review()/FSRS stability"
+    ),
+    "INTERVALS_DAYS": (
+        "removed by FSRS migration Phase 2: [1,3,7,16,30] ladder replaced by "
+        "FSRS-6 stability/difficulty scheduling"
+    ),
+    "IBTN_REMEMBERED": (
+        "removed by FSRS migration Phase 2: old 2-button SRS labels replaced by "
+        "4-grade review buttons"
+    ),
+    "IBTN_CONFIRM_CORRECT": (
+        "removed by FSRS migration Phase 2: old 2-button SRS labels replaced by "
+        "4-grade review buttons"
+    ),
+    "IBTN_REMIND_AGAIN": (
+        "removed by FSRS migration Phase 2: old 2-button SRS labels replaced by "
+        "4-grade review buttons"
+    ),
+    "srs_engine": (
+        "removed by FSRS migration Phase 1c: services/srs_engine.py scaffold "
+        "replaced by the services/session/ package"
     ),
 }
 

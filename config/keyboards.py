@@ -45,10 +45,19 @@ IBTN_OLDER = "قدیمی‌تر ➡️"
 IBTN_NO_CARDS = "فعلاً کارتی نیست"
 
 # --- SRS (Spaced Repetition) ---
-IBTN_REMEMBERED = "✅ یادم بود"
 IBTN_REVEAL = "👁 افشای کارت"
-IBTN_CONFIRM_CORRECT = "✅ یادم بود"
-IBTN_REMIND_AGAIN = "🔁 بازم یادم بیار"
+
+# --- SRS 4-Grade (Review: recall-based) ---
+IBTN_SRS_AGAIN_REVIEW = "یادم نیامد ⭕"
+IBTN_SRS_HARD_REVIEW = "به سختی یادم اومد 🟡"
+IBTN_SRS_GOOD_REVIEW = "خوب بود 🟢"
+IBTN_SRS_EASY_REVIEW = "خیلی راحت بود 🟣"
+
+# --- SRS 4-Grade (First-Exposure: familiarity-based) ---
+IBTN_SRS_AGAIN_FE = "کاملاً ناآشناام 🟥"
+IBTN_SRS_HARD_FE = "کمی آشناام 🟨"
+IBTN_SRS_GOOD_FE = "آشنایی خوب 🟩"
+IBTN_SRS_EASY_FE = "کاملاً بلدمش 🟪"
 
 # --- Query / Word Lookup ---
 IBTN_ADD_TO_REVIEW = "➕ افزودن به مرور"
@@ -398,21 +407,38 @@ def query_result_keyboard(
     return InlineKeyboardMarkup(rows)
 
 
-def srs_hidden_keyboard(
+def get_review_keyboard(
     user_id: int,
     word_id: int,
     *,
     show_pronounce: bool = False,
 ) -> InlineKeyboardMarkup:
+    """Returns 4-grade review keyboard (recall-based labels).
+
+    Layout (2×2 grid + optional pronounce row):
+    [ یادم نیامد ⭕ ] [ به سختی یادم اومد 🟡 ]
+    [ خوب بود 🟢 ] [ خیلی راحت بود 🟣 ]
+    [ 🔊 تلفظ ] (optional)
+    """
     rows = [
         [
             InlineKeyboardButton(
-                IBTN_REMEMBERED,
-                callback_data=f"srs:remember:{user_id}:{word_id}",
+                IBTN_SRS_AGAIN_REVIEW,
+                callback_data=f"srs:1:{user_id}:{word_id}",
             ),
             InlineKeyboardButton(
-                IBTN_REVEAL,
-                callback_data=f"srs:reveal:{user_id}:{word_id}",
+                IBTN_SRS_HARD_REVIEW,
+                callback_data=f"srs:2:{user_id}:{word_id}",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                IBTN_SRS_GOOD_REVIEW,
+                callback_data=f"srs:3:{user_id}:{word_id}",
+            ),
+            InlineKeyboardButton(
+                IBTN_SRS_EASY_REVIEW,
+                callback_data=f"srs:4:{user_id}:{word_id}",
             ),
         ],
     ]
@@ -426,76 +452,48 @@ def srs_hidden_keyboard(
     return InlineKeyboardMarkup(rows)
 
 
-def srs_revealed_keyboard(
+def get_first_exposure_keyboard(
     user_id: int,
     word_id: int,
     *,
     show_pronounce: bool = False,
 ) -> InlineKeyboardMarkup:
-    rows = []
-    top_buttons = []
-    top_buttons.append(
-        InlineKeyboardButton(
-            IBTN_TRANSLATIONS,
-            callback_data=f"srs:prepare:{user_id}:{word_id}",
-        )
-    )
+    """Returns 4-grade first-exposure keyboard (familiarity-based labels).
+
+    Layout (2×2 grid + optional pronounce row):
+    [ کاملاً ناآشناام 🟥 ] [ کمی آشناام 🟨 ]
+    [ آشنایی خوب 🟩 ] [ کاملاً بلدمش 🟪 ]
+    [ 🔊 تلفظ ] (optional)
+    """
+    rows = [
+        [
+            InlineKeyboardButton(
+                IBTN_SRS_AGAIN_FE,
+                callback_data=f"srs:fe:1:{user_id}:{word_id}",
+            ),
+            InlineKeyboardButton(
+                IBTN_SRS_HARD_FE,
+                callback_data=f"srs:fe:2:{user_id}:{word_id}",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                IBTN_SRS_GOOD_FE,
+                callback_data=f"srs:fe:3:{user_id}:{word_id}",
+            ),
+            InlineKeyboardButton(
+                IBTN_SRS_EASY_FE,
+                callback_data=f"srs:fe:4:{user_id}:{word_id}",
+            ),
+        ],
+    ]
     if show_pronounce:
-        top_buttons.append(
+        rows.append([
             InlineKeyboardButton(
                 IBTN_PRONOUNCE,
                 callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
             )
-        )
-    rows.append(top_buttons)
-    rows.append([
-        InlineKeyboardButton(
-            IBTN_CONFIRM_CORRECT,
-            callback_data=f"srs:confirm:{user_id}:{word_id}",
-        ),
-        InlineKeyboardButton(
-            IBTN_REMIND_AGAIN,
-            callback_data=f"srs:again:{user_id}:{word_id}",
-        ),
-    ])
-    return InlineKeyboardMarkup(rows)
-
-
-def srs_review_keyboard(
-    user_id: int,
-    word_id: int,
-    *,
-    show_translations: bool = False,
-    show_pronounce: bool = False,
-) -> InlineKeyboardMarkup:
-    rows = []
-    top_buttons = []
-    if show_translations:
-        top_buttons.append(
-            InlineKeyboardButton(
-                IBTN_TRANSLATIONS,
-                callback_data=f"srs:prepare:{user_id}:{word_id}",
-            )
-        )
-    if show_pronounce:
-        top_buttons.append(
-            InlineKeyboardButton(
-                IBTN_PRONOUNCE,
-                callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
-            )
-        )
-    if top_buttons:
-        rows.append(top_buttons)
-    rows.append([
-        InlineKeyboardButton(
-            IBTN_REMEMBERED,
-            callback_data=f"srs:remember:{user_id}:{word_id}",
-        ),
-        InlineKeyboardButton(
-            IBTN_REMIND_AGAIN,
-            callback_data=f"srs:again:{user_id}:{word_id}",
-        ),
-    ])
+        ])
     return InlineKeyboardMarkup(rows)
 
 
@@ -527,6 +525,44 @@ def admin_awaiting_inline_keyboard() -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+# --- Deprecated aliases for backward compatibility (remove after Phase 1f) ---
+def srs_hidden_keyboard(
+    user_id: int,
+    word_id: int,
+    *,
+    show_pronounce: bool = False,
+) -> InlineKeyboardMarkup:
+    """Deprecated: use get_review_keyboard() or get_first_exposure_keyboard() instead."""
+    import warnings
+    warnings.warn("srs_hidden_keyboard is deprecated", DeprecationWarning, stacklevel=2)
+    return get_review_keyboard(user_id, word_id, show_pronounce=show_pronounce)
+
+
+def srs_revealed_keyboard(
+    user_id: int,
+    word_id: int,
+    *,
+    show_pronounce: bool = False,
+) -> InlineKeyboardMarkup:
+    """Deprecated: use get_review_keyboard() instead."""
+    import warnings
+    warnings.warn("srs_revealed_keyboard is deprecated", DeprecationWarning, stacklevel=2)
+    return get_review_keyboard(user_id, word_id, show_pronounce=show_pronounce)
+
+
+def srs_review_keyboard(
+    user_id: int,
+    word_id: int,
+    *,
+    show_translations: bool = False,
+    show_pronounce: bool = False,
+) -> InlineKeyboardMarkup:
+    """Deprecated: use get_review_keyboard() instead."""
+    import warnings
+    warnings.warn("srs_review_keyboard is deprecated", DeprecationWarning, stacklevel=2)
+    return get_review_keyboard(user_id, word_id, show_pronounce=show_pronounce)
 
 
 def admin_panel_keyboard() -> InlineKeyboardMarkup:

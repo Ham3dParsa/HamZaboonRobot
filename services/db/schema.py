@@ -23,7 +23,6 @@ from config import (
     USD_TO_TOMAN_RATE,
 )
 
-INTERVALS_DAYS = [1, 3, 7, 16, 30]
 _app_timezone = ZoneInfo(APP_TIMEZONE)
 def _today() -> datetime.date:
     return datetime.datetime.now(_app_timezone).date()
@@ -294,6 +293,19 @@ def init_db():
             conn.execute("ALTER TABLE saved_words ADD COLUMN retry_at TEXT")
         if "srs_retry_attempts" not in saved_word_columns:
             conn.execute("ALTER TABLE saved_words ADD COLUMN srs_retry_attempts INTEGER NOT NULL DEFAULT 0")
+        review_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(review_events)").fetchall()
+        }
+        for col, col_def in (
+            ("grade", "INTEGER"),
+            ("activity_type", "TEXT"),
+            ("grade_source", "TEXT"),
+            ("raw_signal", "TEXT"),
+            ("response_time_ms", "INTEGER"),
+        ):
+            if col not in review_columns:
+                conn.execute(f"ALTER TABLE review_events ADD COLUMN {col} {col_def}")
         conn.execute(
             "UPDATE saved_words SET normalized_word=lower(trim(word)) "
             "WHERE normalized_word IS NULL"

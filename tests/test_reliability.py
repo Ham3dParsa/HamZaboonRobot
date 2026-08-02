@@ -219,28 +219,24 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         with patch("services.db.words._today", return_value=dt.date.fromisoformat(row["next_review"])):
             due = db.due_words_for_user(1)
             self.assertEqual(len(due), 1)
-    # with a word that has already passed its review date.
-            self.assertEqual(len(due), 1)
-            word_id = due[0]["id"]
-            with db.get_conn() as conn:
-                conn.execute(
-                    "UPDATE saved_words SET review_status='pending' WHERE id=?",
-                    (word_id,),
-                )
-                conn.commit()
-            self.assertEqual(db.due_words_for_user(1), [])
-            self.assertTrue(db.defer_word_review(word_id))
-            self.assertFalse(db.defer_word_review(word_id))
-            self.assertEqual(db.due_words_for_user(1), [])
-            with db.get_conn() as conn:
-                conn.execute(
-                    "UPDATE saved_words SET review_status='pending' WHERE id=?",
-                    (word_id,),
-                )
-                conn.commit()
-            self.assertTrue(db.advance_word_review(word_id))
-            self.assertFalse(db.advance_word_review(word_id))
-            self.assertEqual(db.due_words_for_user(1), [])
+
+    def test_grade_word_review_accepts_all_grades(self):
+        db.create_user_if_needed(1, "learner")
+        card = {
+            "word": "world",
+            "fa_meaning": "جهان",
+            "fa_explanation": "دنیا.",
+            "examples": ["Hello world!"],
+            "example_translations": ["سلام دنیا!"],
+        }
+        self.assertTrue(db.add_saved_word(1, "world", "en", card))
+        row = db.get_saved_word(1, user_id=1)
+        word_id = row["id"]
+        for grade in (1, 2, 3, 4):
+            self.assertTrue(
+                db.grade_word_review(word_id, grade, 1),
+                f"grade_word_review should return True for grade={grade}",
+            )
 
     def test_surgical_card_patches_update_only_requested_fields(self):
         db.create_user_if_needed(1, "learner")
