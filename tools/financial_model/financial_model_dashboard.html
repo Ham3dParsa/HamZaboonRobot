@@ -192,11 +192,25 @@
           <div class="mb-4">
             <div class="text-[12px] font-bold text-inkSoft mb-1.5">انتخاب مدل</div>
             <div class="flex bg-paper p-1 rounded-xl text-[11px] font-medium border border-line">
-              <button @click="inp.modelChoice = 'cheap'" :class="inp.modelChoice === 'cheap' ? 'bg-white shadow text-turquoiseDeep border border-line/50' : 'text-inkSoft'" class="flex-1 py-2 rounded-lg transition">اقتصادی</button>
-              <button @click="inp.modelChoice = 'mid'" :class="inp.modelChoice === 'mid' ? 'bg-white shadow text-turquoiseDeep border border-line/50' : 'text-inkSoft'" class="flex-1 py-2 rounded-lg transition">متوسط</button>
-              <button @click="inp.modelChoice = 'strong'" :class="inp.modelChoice === 'strong' ? 'bg-white shadow text-turquoiseDeep border border-line/50' : 'text-inkSoft'" class="flex-1 py-2 rounded-lg transition">قوی</button>
+              <button @click="setModelChoice('cheap')" :class="getTierOf('cheap') ? 'bg-white shadow text-turquoiseDeep border border-line/50' : 'text-inkSoft'" class="flex-1 py-2 rounded-lg transition" :disabled="inp.modelChoice === 'custom'">اقتصادی</button>
+              <button @click="setModelChoice('mid')" :class="getTierOf('mid') ? 'bg-white shadow text-turquoiseDeep border border-line/50' : 'text-inkSoft'" class="flex-1 py-2 rounded-lg transition" :disabled="inp.modelChoice === 'custom'">متوسط</button>
+              <button @click="setModelChoice('strong')" :class="getTierOf('strong') ? 'bg-white shadow text-turquoiseDeep border border-line/50' : 'text-inkSoft'" class="flex-1 py-2 rounded-lg transition" :disabled="inp.modelChoice === 'custom'">قوی</button>
             </div>
-            <div class="text-[10px] opacity-60 mt-1.5 leading-relaxed">اقتصادی ≈ Flash-Lite/nano/DeepSeek؛ متوسط ≈ GPT-4.1-mini/Gemini Flash؛ قوی ≈ Claude Haiku 4.5/GPT-5.</div>
+            <div class="text-[10px] opacity-60 mt-1.5 leading-relaxed">اقتصادی = DeepSeek و Gemma؛ متوسط = Gemini Flash-Lite؛ قوی = Gemini Flash. قیمت‌ها به ازای ۱ میلیون توکن.</div>
+          </div>
+          <div class="mb-4">
+            <div class="text-[12px] font-bold text-inkSoft mb-1.5">مدل دقیق</div>
+            <select v-model="inp.modelChoice" class="w-full bg-paper border border-line rounded-xl px-3 py-2.5 text-[12px] outline-none focus:border-turquoiseDeep transition">
+              <optgroup v-for="tier in ['cheap','mid','strong']" :key="tier" :label="TIER_LABEL[tier]">
+                <option v-for="id in TIER_MODELS[tier]" :key="id" :value="id">{{ MODEL_PRICING[id].label }} — ${{ format(MODEL_PRICING[id].in, 2) }}/${{ format(MODEL_PRICING[id].out, 2) }}</option>
+              </optgroup>
+              <option value="custom">دلخواه — ورود دستی قیمت</option>
+            </select>
+          </div>
+          <div v-if="inp.modelChoice === 'custom'" class="mb-4">
+            <number-field label="قیمت ورودی دلخواه (به ازای ۱ میلیون توکن)" v-model="inp.customInUSD" :min="0.01" :max="50" :step="0.01" unit="$"></number-field>
+            <number-field label="قیمت خروجی دلخواه (به ازای ۱ میلیون توکن)" v-model="inp.customOutUSD" :min="0.01" :max="100" :step="0.01" unit="$"></number-field>
+            <div v-if="!customPricesValid" class="text-[10px] text-rose px-3 py-2 bg-rose/10 rounded-xl mt-1">قیمت دلخواه نامعتبر است؛ تا تکمیل هر دو فیلد، از قیمت مدل قبلی استفاده می‌شود.</div>
           </div>
           <number-field label="توکن ورودی هر فراخوانی" v-model="inp.inputTokensPerCall" :min="200" :max="2000" :step="50" unit="توکن"></number-field>
           <number-field label="توکن خروجی هر فراخوانی" v-model="inp.outputTokensPerCall" :min="50" :max="600" :step="10" unit="توکن"></number-field>
@@ -205,6 +219,29 @@
           <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-turquoiseSoft/40 text-turquoiseDeep font-bold rounded-xl mt-2 border border-turquoiseSoft">
             <span>قیمت مؤثر هر فراخوانی (با کش)</span>
             <span dir="ltr">${{ format(aiCallPriceUSD, 5) }}</span>
+          </div>
+          <div class="mt-4">
+            <div class="text-[12px] font-bold text-inkSoft mb-1.5">قیمت واقعی مدل‌ها (دلار به ازای ۱ میلیون توکن)</div>
+            <table class="w-full text-[11px] border border-line rounded-xl overflow-hidden">
+              <thead class="bg-paper text-inkSoft">
+                <tr>
+                  <th class="p-2 text-right">مدل</th>
+                  <th class="p-2 text-right">دسته</th>
+                  <th class="p-2 text-right">ورودی $</th>
+                  <th class="p-2 text-right">خروجی $</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template v-for="tier in ['cheap','mid','strong']" :key="tier">
+                  <tr v-for="id in TIER_MODELS[tier]" :key="id" class="border-t border-line/60">
+                    <td class="p-2">{{ MODEL_PRICING[id].label }}</td>
+                    <td class="p-2">{{ TIER_LABEL[tier] }}</td>
+                    <td class="p-2" dir="ltr">${{ format(MODEL_PRICING[id].in, 2) }}</td>
+                    <td class="p-2" dir="ltr">${{ format(MODEL_PRICING[id].out, 2) }}</td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
           </div>
         </section-card>
 
@@ -756,11 +793,35 @@
       gold: "#EAB308", bronze: "#CD7F32"
     };
 
-    // قیمت مدل‌های LLM (دلار به ازای ۱ میلیون توکن ورودی/خروجی) — ژوئن ۲۰۲۶
+    // قیمت مدل‌های LLM (دلار به ازای ۱ میلیون توکن ورودی/خروجی) — آگوست ۲۰۲۶، قیمت‌های رسمی ارائه‌دهندگان
     const MODEL_PRICING = {
-      cheap: { label: 'اقتصادی', in: 0.10, out: 0.40 },     // Gemini Flash-Lite / GPT-nano / DeepSeek / Qwen
-      mid: { label: 'متوسط', in: 0.40, out: 1.60 },          // GPT-4.1-mini / Gemini 2.5 Flash
-      strong: { label: 'قوی', in: 3.00, out: 15.00 }         // Claude Haiku 4.5 / GPT-5
+      'deepseek-v4-flash': { label: 'DeepSeek V4 Flash', in: 0.14, out: 0.28, tier: 'cheap' },
+      'gemma-4-26b-a4b-it': { label: 'Gemma 4 26B A4B', in: 0.15, out: 0.60, tier: 'cheap' },
+      'gemma-4-31b-it': { label: 'Gemma 4 31B', in: 0.15, out: 0.60, tier: 'cheap' },
+      'gemini-flash-lite-latest': { label: 'Gemini Flash Lite (latest)', in: 0.25, out: 1.50, tier: 'mid' },
+      'gemini-3.1-flash-lite': { label: 'Gemini 3.1 Flash Lite', in: 0.25, out: 1.50, tier: 'mid' },
+      'gemini-3.5-flash-lite': { label: 'Gemini 3.5 Flash Lite', in: 0.30, out: 2.50, tier: 'mid' },
+      'gemini-3.5-flash': { label: 'Gemini 3.5 Flash', in: 1.50, out: 9.00, tier: 'strong' },
+      'gemini-3.6-flash': { label: 'Gemini 3.6 Flash', in: 1.50, out: 7.50, tier: 'strong' }
+    };
+    // مدل پیش‌فرض هر دسته (برای دکمه‌های اقتصادی/متوسط/قوی و برگشت امن)
+    const TIER_DEFAULT_MODEL = { cheap: 'deepseek-v4-flash', mid: 'gemini-3.1-flash-lite', strong: 'gemini-3.5-flash' };
+    const TIER_MODELS = {
+      cheap: ['deepseek-v4-flash', 'gemma-4-26b-a4b-it', 'gemma-4-31b-it'],
+      mid: ['gemini-flash-lite-latest', 'gemini-3.1-flash-lite', 'gemini-3.5-flash-lite'],
+      strong: ['gemini-3.5-flash', 'gemini-3.6-flash']
+    };
+    const TIER_LABEL = { cheap: 'اقتصادی', mid: 'متوسط', strong: 'قوی' };
+    // تفکیک انتخاب به قیمت واقعی: کلید دسته، شناسهٔ مدل یا «دلخواه» با قیمت دستی
+    const resolveModelPricing = (choice, customInUSD, customOutUSD, lastNonCustom) => {
+      if (choice === 'custom') {
+        const cin = Number(customInUSD), cout = Number(customOutUSD);
+        if (isFinite(cin) && cin > 0 && isFinite(cout) && cout > 0) {
+          return { label: 'دلخواه', in: cin, out: cout, tier: 'custom' };
+        }
+        choice = lastNonCustom;
+      }
+      return MODEL_PRICING[choice] || MODEL_PRICING[TIER_DEFAULT_MODEL[choice]] || MODEL_PRICING[TIER_DEFAULT_MODEL.mid];
     };
 
     // توضیح هر شاخص: معنی، عوامل مؤثر و راه‌های بهبود — هم در tooltip و هم در بخش راهنما استفاده می‌شود
@@ -906,7 +967,10 @@
       involuntaryChurnPct: 10,    // ریزش غیرارادی به‌خاطر پیش‌پرداخت/نبود خودپرداخت خودکار
       annualPriceIncreasePct: 25, // بازقیمت‌گذاری سالانه در نوروز (فیلیمو +۲۰٪، فیلما +۲۶٪)
       // --- مدل AI (انتخاب مدل، توکن، کش و کاهش سالانه هزینه) ---
-      modelChoice: 'mid',         // cheap | mid | strong
+      modelChoice: 'gemini-3.1-flash-lite', // شناسه مدل واقعی (یا custom) — پیش‌فرض: مدل متوسط
+      lastModelChoice: 'gemini-3.1-flash-lite', // آخرین انتخاب غیردلخواه برای برگشت امن
+      customInUSD: 0.25,          // قیمت ورودی دلخواه (دلار به ازای ۱ میلیون توکن)
+      customOutUSD: 1.50,         // قیمت خروجی دلخواه (دلار به ازای ۱ میلیون توکن)
       inputTokensPerCall: 700,
       outputTokensPerCall: 120,
       cacheSavingPct: 40,         // صرفه‌جویی کش پرامپت (۵۰–۹۰٪ تخفیف ورودی، ~۴۰٪ کل)
@@ -1000,6 +1064,12 @@
             'inputTokensPerCall','outputTokensPerCall','cacheSavingPct','annualCostDeclinePct'];
           for (const k of numericExtra) if (typeof d[k] !== 'number') d[k] = DEFAULTS[k];
           if (typeof d.modelChoice !== 'string') d.modelChoice = DEFAULTS.modelChoice;
+          // سازگاری با دادهٔ قدیمی: کلیدهای دسته (cheap/mid/strong) به مدل پیش‌فرض آن دسته نرمال می‌شوند
+          if (TIER_DEFAULT_MODEL[d.modelChoice]) d.modelChoice = TIER_DEFAULT_MODEL[d.modelChoice];
+          if (typeof d.lastModelChoice !== 'string' || d.lastModelChoice === 'custom') d.lastModelChoice = DEFAULTS.lastModelChoice;
+          if (TIER_DEFAULT_MODEL[d.lastModelChoice]) d.lastModelChoice = TIER_DEFAULT_MODEL[d.lastModelChoice];
+          if (typeof d.customInUSD !== 'number' || d.customInUSD <= 0) d.customInUSD = DEFAULTS.customInUSD;
+          if (typeof d.customOutUSD !== 'number' || d.customOutUSD <= 0) d.customOutUSD = DEFAULTS.customOutUSD;
           return d;
         };
 
@@ -1096,7 +1166,7 @@
         // هزینهٔ CAC تریال معکوس: مجموع سهم کاربرانِ «واجد شرط» از کاربران جدیدِ هر ماه در همهٔ تکنیک‌های تریالی فعال
         const getTrialCACPerNewUser = (params) => {
           // قیمت مؤثر هر فراخوانی با کش (همانند computeSeries) برای انسجام بین تریال و مدل اصلی
-          const mPricing = MODEL_PRICING[params.modelChoice] || MODEL_PRICING.mid;
+          const mPricing = resolveModelPricing(params.modelChoice, params.customInUSD, params.customOutUSD, params.lastModelChoice);
           const cacheFactor = 1 - (params.cacheSavingPct || 0) / 100;
           const effectiveCallUSD = ((params.inputTokensPerCall || 700) * mPricing.in + (params.outputTokensPerCall || 120) * mPricing.out) / 1e6 * cacheFactor;
           let costWeightedSum = 0, shareSum = 0;
@@ -1207,7 +1277,7 @@
           // ریزش مؤثر پولی = ریزش اختیاری + ریزش غیرارادی (پیش‌پرداخت/نبود خودکار) منهای اثر تکنیک‌ها
           const effPaidChurn = Math.max(0, (params.paidChurnRate || 7.8) + (params.involuntaryChurnPct || 0) - churnReduction);
           const { costPerUser: trialCostPerUser, eligibleShare: trialEligibleShare } = getTrialCACPerNewUser(params);
-          const mPricing = MODEL_PRICING[params.modelChoice] || MODEL_PRICING.mid;
+          const mPricing = resolveModelPricing(params.modelChoice, params.customInUSD, params.customOutUSD, params.lastModelChoice);
           const rawCallUSD = ((params.inputTokensPerCall || 700) * mPricing.in + (params.outputTokensPerCall || 120) * mPricing.out) / 1e6;
           // صرفه‌جویی کش و کاهش سالانهٔ هزینه — ماهانه به‌صورت نمایی اعمال می‌شود
           const cacheFactor = 1 - (params.cacheSavingPct || 0) / 100;
@@ -1288,9 +1358,36 @@
 
         // قیمت مؤثر هر فراخوانی AI (با کش) — پایهٔ ماه اول
         const aiCallPriceUSD = computed(() => {
-          const mPricing = MODEL_PRICING[inp.value.modelChoice] || MODEL_PRICING.mid;
+          const mPricing = resolveModelPricing(inp.value.modelChoice, inp.value.customInUSD, inp.value.customOutUSD, inp.value.lastModelChoice);
           const raw = ((inp.value.inputTokensPerCall || 700) * mPricing.in + (inp.value.outputTokensPerCall || 120) * mPricing.out) / 1e6;
           return raw * (1 - (inp.value.cacheSavingPct || 0) / 100);
+        });
+
+        // اعتبارسنجی قیمت دلخواه: هر دو فیلد باید عدد مثبت باشند
+        const customPricesValid = computed(() => {
+          const cin = Number(inp.value.customInUSD);
+          const cout = Number(inp.value.customOutUSD);
+          return isFinite(cin) && cin > 0 && isFinite(cout) && cout > 0;
+        });
+
+        // تغییر انتخاب از دکمه‌های دسته: نگه‌داری آخرین انتخاب غیردلخواه برای برگشت امن
+        const setModelChoice = (tier) => {
+          const id = TIER_DEFAULT_MODEL[tier];
+          inp.value.modelChoice = id;
+          inp.value.lastModelChoice = id;
+        };
+
+        // آیا انتخاب فعلی به دستهٔ داده‌شده تعلق دارد؟ (دلخواه → هیچ دکمه‌ای فعال نیست)
+        const getTierOf = (tier) => {
+          if (inp.value.modelChoice === 'custom') return false;
+          const key = MODEL_PRICING[inp.value.modelChoice] ? inp.value.modelChoice : TIER_DEFAULT_MODEL[inp.value.modelChoice];
+          const m = MODEL_PRICING[key];
+          return !!m && m.tier === tier;
+        };
+
+        // هنگام انتخاب از منوی کشویی، آخرین انتخاب غیردلخواه را برای برگشت امن نگه می‌داریم
+        watch(() => inp.value.modelChoice, (v) => {
+          if (v !== 'custom') inp.value.lastModelChoice = v;
         });
 
         // حاشیه مشارکت هر کاربر پولی (درآمد خالص - هزینهٔ AI - سهم مالیات/کارمزد) به تفکیک پلن
@@ -1553,6 +1650,7 @@
           contributionPerPaidUser, paidUsersM1, effPaidChurnPct, aiCallPriceUSD,
           cumulativeCash, runwayMonths, arrToman, cacPaybackMonths, d30RetentionPct, healthScore, sensitivity, cashSeries,
           weakIndicator, KPI_HELP,
+          MODEL_PRICING, TIER_MODELS, TIER_LABEL, setModelChoice, getTierOf, customPricesValid,
           showTechModal, techForm, iconOptions, openAddTechnique, openEditTechnique, saveTechnique,
           deleteTechnique, closeTechModal, onEffectTypeChange
         };
