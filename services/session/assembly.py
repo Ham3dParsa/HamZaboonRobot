@@ -156,6 +156,7 @@ def generate_tier3_node(
     goal: str | None = None,
     level: str | None = None,
     plan: str | None = None,
+    remaining_slots: int | None = None,
 ) -> Any:
     """Generate a single new AI card node. Stub: returns None.
 
