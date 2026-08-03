@@ -5,7 +5,6 @@ import math
 import threading
 import time
 from collections import defaultdict, deque
-from zoneinfo import ZoneInfo
 
 import colorlog
 
@@ -23,7 +22,7 @@ from telegram.ext import (
 from config import (
     BOT_TOKEN,
     OWNER_ID,
-    APP_TIMEZONE,
+    APP_TZ,
     AI_CARD_OUTPUT_FORMAT,
     ASK_WORD_AI_TIMEOUT_SECONDS,
     CONNECTION_HEALTH_INTERVAL_SECONDS,
@@ -222,7 +221,7 @@ def _apply_log_level(level_name: str) -> None:
     log.info("log level set to %s", level_name.upper())
 
 
-_app_timezone = ZoneInfo(APP_TIMEZONE)
+_app_timezone = APP_TZ
 _daily_locks: dict[int, asyncio.Lock] = {}
 _daily_locks_guard: threading.Lock = threading.Lock()
 
