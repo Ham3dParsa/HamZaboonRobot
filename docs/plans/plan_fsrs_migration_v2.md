@@ -362,7 +362,7 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 | 1a.13 | `services/db/words.py` | Delete `advance_word_review()` and `defer_word_review()` | All callers updated to use `grade_word_review()`; grep confirms zero references remain |
 | 1a.14 | `services/db/reviews.py` + docs | Document constraint: any future gamified activity type MUST use a distinct `activity_type` value (never reuse `srs_review`). This costs nothing now (no new column, no handler change) but prevents contaminated training data later. | Constraint stated in docstring at `record_review_event()` and in this plan's schema section; active grep verification not required until gamification is implemented |
 
-**Phase 1a commit:** `[` ☑ `]`
+**Phase 1a commit:** `[` ⚠ partial `]` — items 1a.6–1a.11 (FSRS wiring: `migrate_saved_words_to_fsrs`, `add_saved_word` rewrite, `due_words_for_user` rewrite, `grade_word_review`, `grade_first_exposure`, `get_pre_first_exposure_words`) are stubs; Phase 3b will implement.
 
 ---
 
@@ -399,7 +399,7 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 | 1c.8 | `services/session/assembly.py` | Materialize function: `build_session_list()` → materialises Tiers 1+2 into list, stores Tier-3 params for refill | Returns `(session_nodes: list, tier3_params: dict | None)` |
 | 1c.9 | Delete `services/srs_engine.py` | Remove old scaffold | Grep confirms zero imports of `services.srs_engine` remain |
 
-**Phase 1c commit:** `[` ☑ `]`
+**Phase 1c commit:** `[` ⚠ partial `]` — item 1c.7 `generate_tier3_node()` is a stub returning `None`; AI generation deferred to Phase 3b+.
 
 ---
 
@@ -478,7 +478,7 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 | 2.2 | (entire repo) | Final grep sweep: verify zero references to `INTERVALS_DAYS`, `interval_idx`, `IBTN_REMEMBERED`, `IBTN_CONFIRM_CORRECT`, `IBTN_REMIND_AGAIN`, `advance_word_review`, `defer_word_review` in production code | Only hits are in git history, archived docs, and `gap_analysis.md` |
 | 2.3 | `docs/plans/plan_fsrs_migration.md` | Archive or replace with reference to v2 | Old plan marked as superseded |
 
-**Phase 2 commit:** `[` ☑ `]`
+**Phase 2 commit:** `[` ☐ not done `]` — Phase 2 (cleanup) will run after Phase 3a migration; item 2.2 grep sweep fails (`interval_idx` still in schema, `daily_cards` table exists).
 
 ---
 

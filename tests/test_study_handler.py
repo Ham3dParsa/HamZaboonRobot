@@ -145,6 +145,36 @@ class TestAdvanceSession(_BaseStudyHandlerTest):
         self.assertNotIn("current_session", ctx.user_data)
 
     @patch("handlers.study_handler.generate_tier3_node", return_value=None)
+    def test_session_complete_with_remaining_slots_in_context(self, mock_tier3):
+        """B1 fix: tier3_context with remaining_slots must not crash generate_tier3_node."""
+        from services.session import SessionNode
+        # Simulate a session that had fewer than max_nodes cards (common case)
+        # tier3_context will include remaining_slots > 0 from build_session_list
+        state = self._make_state([], total_cards=2)
+        state.tier3_context = {
+            "user_id": 1,
+            "target_lang": "en",
+            "goal": "general",
+            "level": "beginner",
+            "plan": "free",
+            "remaining_slots": 3,  # This used to cause TypeError
+        }
+        ctx = self._context()
+        ctx.user_data["current_session"] = state
+        update = self._update()
+        asyncio.run(advance_session(update, ctx))
+        # Should complete gracefully (generate_tier3_node called, returns None)
+        ctx.bot.edit_message_text.assert_awaited_once()
+        call_args = ctx.bot.edit_message_text.call_args
+        self.assertIn("جلسه مطالعه تموم شد", call_args.kwargs.get("text", ""))
+        self.assertNotIn("current_session", ctx.user_data)
+        # generate_tier3_node should have been called with remaining_slots in kwargs
+        mock_tier3.assert_called_once()
+        call_kwargs = mock_tier3.call_args.kwargs
+        self.assertIn("remaining_slots", call_kwargs)
+        self.assertEqual(call_kwargs["remaining_slots"], 3)
+
+    @patch("handlers.study_handler.generate_tier3_node", return_value=None)
     def test_advances_to_next_node(self, mock_tier3):
         from services.session import SessionNode
         # Seed real saved words so rendering decodes a real sqlite3.Row
