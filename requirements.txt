@@ -7,3 +7,4 @@ edge-tts>=7.2.8,<8
 colorlog>=6.12.0,<7
 pytest>=8.0,<9
 flask>=3,<4
+tzdata>=2024.1

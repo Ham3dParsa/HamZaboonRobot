@@ -4,7 +4,7 @@ import sqlite3
 import datetime
 import secrets
 from contextlib import contextmanager
-from zoneinfo import ZoneInfo
+
 from config.catalog import DEFAULT_LEVEL
 
 from config import (
@@ -19,11 +19,11 @@ from config import (
     LLM_INPUT_COST_USD_PER_MILLION,
     LLM_OUTPUT_COST_USD_PER_MILLION,
     PLANS,
-    APP_TIMEZONE,
+    APP_TZ,
     USD_TO_TOMAN_RATE,
 )
 
-_app_timezone = ZoneInfo(APP_TIMEZONE)
+_app_timezone = APP_TZ
 def _today() -> datetime.date:
     return datetime.datetime.now(_app_timezone).date()
 

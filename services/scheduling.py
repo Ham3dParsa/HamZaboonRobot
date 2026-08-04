@@ -11,14 +11,13 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime
-from zoneinfo import ZoneInfo
 
-from config import APP_TIMEZONE
+from config import APP_TZ
 from services.db import get_conn, get_setting, set_setting
 
 logger = logging.getLogger(__name__)
 
-_app_tz = ZoneInfo(APP_TIMEZONE)
+_app_tz = APP_TZ
 
 PLAN_SESSION_CONFIG: dict[str, int] = {
     "free": 1,

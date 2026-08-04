@@ -6,13 +6,12 @@ import logging
 import os
 from collections import defaultdict
 from urllib.parse import quote, unquote
-from zoneinfo import ZoneInfo
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from config import APP_TIMEZONE, DB_PATH, OWNER_ID, PLANS, is_owner
+from config import APP_TZ, DB_PATH, OWNER_ID, PLANS, is_owner
 from services import db
 from services.ai import ai
 from services.ai import ai_presets
@@ -63,7 +62,7 @@ from config.keyboards import (
 )
 
 logger = logging.getLogger(__name__)
-_app_timezone = ZoneInfo(APP_TIMEZONE)
+_app_timezone = APP_TZ
 
 _FIELD_HELP = {
     "name": "نام یکتای پریست. فقط حروف انگلیسی (a-z)، اعداد (0-9) و زیرخط (_) مجاز است. بعد از ذخیره قابل تغییر نیست.",

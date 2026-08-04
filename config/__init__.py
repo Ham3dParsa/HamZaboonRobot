@@ -114,10 +114,25 @@ def is_owner(user_id: int) -> bool:
     return OWNER_ID != 0 and user_id == OWNER_ID
 
 
+def _resolve_app_tz():
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    import datetime as _dt
+    try:
+        return ZoneInfo(APP_TIMEZONE)
+    except (ZoneInfoNotFoundError, KeyError):
+        import logging as _log
+        _log.getLogger(__name__).warning(
+            "APP_TIMEZONE=%r not found in tz database; falling back to UTC", APP_TIMEZONE,
+        )
+        return _dt.timezone.utc
+
+
+APP_TZ = _resolve_app_tz()
+
+
 def _app_today() -> str:
-    from zoneinfo import ZoneInfo
     import datetime
-    return datetime.datetime.now(ZoneInfo(APP_TIMEZONE)).date().isoformat()
+    return datetime.datetime.now(APP_TZ).date().isoformat()
 
 
 def _user_presentation(row) -> str:
