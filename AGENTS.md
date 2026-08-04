@@ -634,11 +634,13 @@ this list require explicit prior approval.
 - `gh issue list [--label <label>] [--state <state>]` — list issues
 - `gh issue view <N>` — read issue details and comments
 
-**Security & bounds:**
+**Security, Bounds & Shell Safety:**
 - The agent MUST NOT expose the `gh` auth token in logs, commits, or PR descriptions.
 - The agent MUST NOT close, reopen, or create GitHub Issues ad hoc
   (these operations are governed by the issue update policy in Section 2).
 - The agent MUST NOT merge a PR with failing CI checks.
+- **PowerShell String & Backtick Safety:** When passing formatted text (PR descriptions, multi-line strings, markdown with backticks) to CLI tools (`gh pr create`, `gh pr edit`), **NEVER** pass inline double-quoted strings in PowerShell (PowerShell treats backticks as escape characters, e.g. `` `t `` becomes a tab character `\t`). Always write the formatted Markdown to a temporary file via the file tool and pass `--body-file <path>`.
+- **Subagent Non-ASCII Output Sanitization:** When synthesizing report documents from subagent outputs containing Persian or non-ASCII text, verify Unicode integrity before saving. If character-encoding artifacts or corrupted tokens occur, perform an atomic full-file update via the file writing tool rather than incremental `edit` operations over invisible control characters (such as ZWNJs).
 
 ### Security Rules
 
