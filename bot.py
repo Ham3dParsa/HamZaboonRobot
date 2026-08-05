@@ -222,7 +222,7 @@ def _get_user_lock(user_id: int) -> asyncio.Lock:
 _telegram_offline: bool = False
 _consecutive_health_failures: int = 0
 _OFFLINE_THRESHOLD: int = 1
-_OFFLINE_MESSAGE = "⚠️ اتصال ربات به اینترنت قطع شده. به محض وصل شدن، دوباره تلاش کن."
+_OFFLINE_MESSAGE = "متاسفانه به دلیل مشکلات موقتی فنی، فعلا قادر به انجام این درخواست نیستیم 🙏 لطفا بعدا تلاش کنید. ⏳"
 _AI_BUSY_MESSAGE = "هوش مصنوعی الان شلوغه؛ کمی بعد دوباره تلاش کن."
 
 
@@ -423,7 +423,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if _telegram_offline:
         await _answer_callback_safely(
             update.callback_query,
-            "ربات به اینترنت دسترسی ندارد.",
+            "متاسفانه به دلیل مشکلات موقتی فنی، فعلا قادر به انجام این درخواست نیستیم 🙏 لطفا بعدا تلاش کنید. ⏳",
             show_alert=True,
         )
         try:
