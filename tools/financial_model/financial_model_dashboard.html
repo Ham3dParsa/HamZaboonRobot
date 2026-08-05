@@ -140,52 +140,51 @@
           <template v-if="inp.inputMode === 'conversion'">
             <number-field label="کل کاربران فعال (MAU)" en="Total Users" v-model="inp.mau" :min="100" :max="50000" :step="100" unit="نفر"></number-field>
             <number-field label="نرخ تبدیل به پولی" en="Conversion Rate" v-model="inp.convBase" :min="1" :max="15" :step="0.5" unit="٪"></number-field>
-            <number-field label="سهم پلن برنز" en="Bronze Share" v-model="inp.bronzeShare" :min="0" :max="100" :step="1" unit="٪"></number-field>
-            <number-field label="سهم پلن نقره‌ای" en="Silver Share" v-model="inp.silverShare" :min="0" :max="100 - inp.bronzeShare" :step="1" unit="٪"></number-field>
-            <number-field label="سهم پلن طلایی" en="Gold Share" v-model="inp.goldShare" :min="0" :max="100 - inp.bronzeShare - inp.silverShare" :step="1" unit="٪"></number-field>
             <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-emeraldSoft/50 text-emerald font-bold rounded-xl mt-2 border border-emeraldSoft">
-              <span>سهم پلن زمرد (محاسبه خودکار)</span>
-              <span dir="ltr">{{ Math.max(0, 100 - inp.bronzeShare - inp.silverShare - inp.goldShare) }} %</span>
+              <span>سهم پلن‌ها (تنظیم در «قیمت و سهم پلن‌ها»)</span>
+              <span dir="ltr">{{ paidPlansShareSum }}٪</span>
             </div>
           </template>
           <template v-else>
-            <div class="mb-3 pb-3 border-b border-dashed border-line">
-              <div class="text-[13px] font-bold mb-2 text-ink">رایگان <span dir="ltr" class="text-[10px] opacity-60">Free</span></div>
-              <number-field label="تعداد کاربر" v-model="inp.free0" :min="0" :max="20000" :step="10"></number-field>
-            </div>
-            <div class="mb-3 pb-3 border-b border-dashed border-line">
-              <div class="text-[13px] font-bold mb-2 text-[#CD7F32]">برنز <span dir="ltr" class="text-[10px] opacity-60">Bronze</span></div>
-              <number-field label="تعداد کاربر" v-model="inp.bronze0" :min="0" :max="10000" :step="10"></number-field>
-            </div>
-            <div class="mb-3 pb-3 border-b border-dashed border-line">
-              <div class="text-[13px] font-bold mb-2 text-turquoiseDeep">نقره‌ای <span dir="ltr" class="text-[10px] opacity-60">Silver</span></div>
-              <number-field label="تعداد کاربر" v-model="inp.silver0" :min="0" :max="5000" :step="10"></number-field>
-            </div>
-            <div class="mb-3 pb-3 border-b border-dashed border-line">
-              <div class="text-[13px] font-bold mb-2 text-gold">طلایی <span dir="ltr" class="text-[10px] opacity-60">Gold</span></div>
-              <number-field label="تعداد کاربر" v-model="inp.gold0" :min="0" :max="2000" :step="10"></number-field>
-            </div>
-            <div>
-              <div class="text-[13px] font-bold mb-2 text-emerald">زمرد <span dir="ltr" class="text-[10px] opacity-60">Emerald</span></div>
-              <number-field label="تعداد کاربر" v-model="inp.emerald0" :min="0" :max="1000" :step="10"></number-field>
+            <div v-for="p in inp.plans" :key="p.id" class="mb-3 pb-3 border-b border-dashed border-line last:border-0 last:mb-0 last:pb-0">
+              <div class="text-[13px] font-bold mb-2">{{ p.name }} <span dir="ltr" class="text-[10px] opacity-60">{{ p.nameEn }}</span></div>
+              <number-field label="تعداد کاربر" v-model.number="p.initialCount" :min="0" :max="20000" :step="10"></number-field>
             </div>
           </template>
         </section-card>
 
+        <section-card title="قیمت و سهم پلن‌ها" en="Plan Pricing & Share" icon="tags" :default-open="false">
+          <div v-for="(p, idx) in inp.plans" :key="p.id" class="mb-4 pb-4 border-b border-dashed border-line last:border-0 last:mb-0 last:pb-0">
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="text-[12px] font-bold">{{ p.name }} <span dir="ltr" class="text-[10px] opacity-60">{{ p.nameEn }}</span></span>
+              <span v-if="p.id !== 'free'" dir="ltr" class="text-[10px] font-bold text-inkSoft">{{ paidPlanShare(p) }}٪</span>
+            </div>
+            <template v-if="p.id !== 'free'">
+              <div class="flex items-center gap-3 mb-1">
+                <span class="text-[10px] font-bold text-inkSoft w-16 flex-shrink-0">قیمت</span>
+                <input type="range" v-model.number="p.price" :min="0" :max="3000000" :step="1000" class="hz-slider flex-1">
+                <span dir="ltr" class="text-[11px] font-bold text-inkSoft w-24 text-left">{{ format(p.price) }} تومان</span>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="text-[10px] font-bold text-inkSoft w-16 flex-shrink-0">سهم</span>
+                <input type="range" v-model.number="p.sharePct" :min="0" :max="100" :step="1" class="hz-slider flex-1" @input="autoBalanceShare(p.id, $event.target.value)">
+                <span dir="ltr" class="text-[11px] font-bold text-turquoiseDeep w-24 text-left">{{ p.sharePct }}٪</span>
+              </div>
+            </template>
+            <template v-else>
+              <div class="text-[10px] text-inkSoft/70 leading-relaxed">پلن رایگان: قیمت ۰، بدون سهم — فقط تعداد کاربر (بخش بالایی) و سهمیهٔ روزانه در تب بازاریابی تنظیم می‌شود.</div>
+            </template>
+          </div>
+          <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-turquoiseSoft/40 text-turquoiseDeep font-bold rounded-xl mt-2 border border-turquoiseSoft">
+            <span>مجموع سهم پلن‌های پولی</span>
+            <span dir="ltr">{{ paidPlansShareSum }}٪</span>
+          </div>
+        </section-card>
+
         <section-card title="قیمت و هزینه AI" en="Pricing & AI" icon="wallet">
-          <number-field label="قیمت برنز" en="Bronze Price" v-model="inp.bronzePrice" :min="10000" :max="200000" :step="1000" unit="تومان"></number-field>
-          <number-field label="قیمت نقره‌ای" en="Silver Price" v-model="inp.silverPrice" :min="50000" :max="1000000" :step="1000" unit="تومان"></number-field>
-          <number-field label="قیمت طلایی" en="Gold Price" v-model="inp.goldPrice" :min="100000" :max="2000000" :step="1000" unit="تومان"></number-field>
-          <number-field label="قیمت زمرد" en="Emerald Price" v-model="inp.emeraldPrice" :min="150000" :max="3000000" :step="1000" unit="تومان"></number-field>
-          <hr class="my-3 border-dashed border-line">
-          <number-field label="سهمیه روزانه (رایگان)" v-model="inp.freeCallsPerDay" :min="0" :max="50" :step="1" unit="بار"></number-field>
-          <number-field label="سهمیه روزانه (برنز)" v-model="inp.bronzeCallsPerDay" :min="0" :max="50" :step="1" unit="بار"></number-field>
-          <number-field label="سهمیه روزانه (نقره‌ای)" v-model="inp.silverCallsPerDay" :min="0" :max="50" :step="1" unit="بار"></number-field>
-          <number-field label="سهمیه روزانه (طلایی)" v-model="inp.goldCallsPerDay" :min="0" :max="50" :step="1" unit="بار"></number-field>
-          <number-field label="سهمیه روزانه (زمرد)" v-model="inp.emeraldCallsPerDay" :min="0" :max="50" :step="1" unit="بار"></number-field>
-          <hr class="my-3 border-dashed border-line">
           <number-field label="هزینه هر فراخوانی AI" en="Cost per Call" v-model="inp.aiCostPerCallUSD" :min="0.0001" :max="0.002" :step="0.00005" unit="$"></number-field>
           <number-field label="نرخ دلار به تومان" v-model="inp.exchangeRate" :min="50000" :max="300000" :step="1000" unit="تومان"></number-field>
+          <p class="text-[10px] text-inkSoft/70 leading-relaxed mt-1">قیمت پلن‌ها، سهمیهٔ روزانه و یادداشت‌ها در تب «بازاریابی» و اسلایدر قیمت/سهم در بخش «قیمت و سهم پلن‌ها» تنظیم می‌شود.</p>
         </section-card>
 
         <section-card title="مدل AI و هزینه واقعی" en="AI Model & Cost" icon="cpu">
@@ -252,6 +251,11 @@
           <number-field label="هزینه ثابت ماهانه (هاست/حقوق)" en="Fixed Opex" v-model="inp.fixedOpexMonthly" :min="0" :max="500000000" :step="1000000" unit="تومان"></number-field>
           <number-field label="بودجه تبلیغات ماهانه" en="Ad Budget" v-model="inp.monthlyAdBudget" :min="0" :max="200000000" :step="500000" unit="تومان"></number-field>
           <number-field label="CAC هر کاربر جدید" en="CAC / New User" v-model="inp.cacPerNewUser" :min="0" :max="5000000" :step="10000" unit="تومان"></number-field>
+          <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-turquoiseSoft/40 text-turquoiseDeep font-bold rounded-xl border border-turquoiseSoft">
+            <span>CAC ترکیبی (زنده از بودجهٔ تبلیغات)</span>
+            <span dir="ltr">{{ format(effectiveCACPerNewUser) }} تومان</span>
+          </div>
+          <p class="text-[10px] text-inkSoft/70 leading-relaxed mt-1">اگر فیلد دستی ۰ باشد، CAC از بودجهٔ تبلیغات ماهانه و ثبت‌نام‌های غیرارجاعیِ ماه اول محاسبه می‌شود.</p>
           <number-field label="سهم ثبت‌نام‌های ارجاعی" en="Referral Share" v-model="inp.referralShareOfSignups" :min="0" :max="50" :step="1" unit="٪"></number-field>
         </section-card>
 
@@ -355,29 +359,21 @@
           <div class="overflow-x-auto hz-scroll pb-2">
             <table class="w-full text-right text-[11px] sm:text-xs whitespace-nowrap">
               <thead>
-                <tr class="bg-paper text-inkSoft border-b border-line">
-                  <th class="p-3 font-bold rounded-tr-lg">زمان</th>
-                  <th class="p-3">رایگان</th>
-                  <th class="p-3 text-[#CD7F32]">برنز</th>
-                  <th class="p-3 text-turquoiseDeep">نقره‌ای</th>
-                  <th class="p-3 text-gold">طلایی</th>
-                  <th class="p-3 text-emerald">زمرد</th>
-                  <th class="p-3 font-bold border-r border-line/50">کل کاربران</th>
-                  <th class="p-3 border-r border-line/50">درآمد خالص</th>
-                  <th class="p-3">هزینه AI</th>
-                  <th class="p-3">CAC</th>
-                  <th class="p-3">هزینه ثابت</th>
-                  <th class="p-3 font-bold rounded-tl-lg">سود خالص</th>
-                </tr>
+                  <tr class="bg-paper text-inkSoft border-b border-line">
+                    <th class="p-3 font-bold rounded-tr-lg">زمان</th>
+                    <th v-for="(p, pi) in inp.plans" :key="p.id" class="p-3" :class="pi === 0 ? 'text-inkSoft' : (COLORS[p.id] ? 'font-medium' : '')" :style="pi > 0 && COLORS[p.id] ? { color: COLORS[p.id] } : {}">{{ p.name }}</th>
+                    <th class="p-3 font-bold border-r border-line/50">کل کاربران</th>
+                    <th class="p-3 border-r border-line/50">درآمد خالص</th>
+                    <th class="p-3">هزینه AI</th>
+                    <th class="p-3">CAC</th>
+                    <th class="p-3">هزینه ثابت</th>
+                    <th class="p-3 font-bold rounded-tl-lg">سود خالص</th>
+                  </tr>
               </thead>
               <tbody class="divide-y divide-line/40">
                 <tr v-for="(row, idx) in baseSeries" :key="row.month" class="hover:bg-paper/50 transition-colors">
                   <td class="p-3 font-bold text-inkSoft">ماه {{ row.month }}</td>
-                  <td class="p-3">{{ format(row.free) }} نفر</td>
-                  <td class="p-3 font-medium">{{ format(row.bronze) }} نفر</td>
-                  <td class="p-3 font-medium">{{ format(row.silver) }} نفر</td>
-                  <td class="p-3 font-medium">{{ format(row.gold) }} نفر</td>
-                  <td class="p-3 font-medium">{{ format(row.emerald) }} نفر</td>
+                  <td v-for="p in inp.plans" :key="p.id" class="p-3" :class="p.id === 'free' ? '' : 'font-medium'">{{ format(row.counts[p.id] || 0) }} نفر</td>
                   <td class="p-3 font-bold border-r border-line/50">
                     {{ format(row.total) }} نفر
                     <span v-if="idx > 0" :class="row.total >= baseSeries[idx-1].total ? 'text-emerald' : 'text-rose'" class="text-[10px] font-bold" dir="ltr">
@@ -433,6 +429,7 @@
             <div class="px-3 py-1.5 rounded-lg bg-white/70 text-indigo-900">تقویت رشد ثبت‌نام: <span dir="ltr">+{{ format(totalSignupBoost,1) }}٪</span></div>
             <div class="px-3 py-1.5 rounded-lg bg-rose/10 text-rose">هزینهٔ CAC تریال (ماه ۱): <span dir="ltr">{{ format(trialCACToman) }} تومان</span></div>
             <div class="px-3 py-1.5 rounded-lg bg-rose/10 text-rose">CAC جذب ماهانه: <span dir="ltr">{{ format(m1.cacToman) }} تومان</span></div>
+            <div class="px-3 py-1.5 rounded-lg bg-turquoise/10 text-turquoiseDeep">CAC مؤثر هر کاربر: <span dir="ltr">{{ format(effectiveCACPerNewUser) }} تومان</span></div>
             <div class="px-3 py-1.5 rounded-lg bg-turquoise/10 text-turquoiseDeep">سهم ارجاعی از ثبت‌نام‌ها: <span dir="ltr">{{ inp.referralShareOfSignups }}٪</span></div>
             <button @click="openAddTechnique" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors inline-flex items-center gap-1.5">
               <i data-lucide="plus" class="w-3.5 h-3.5"></i> افزودن تکنیک
@@ -477,7 +474,7 @@
                     <input type="range" v-model.number="t.eligibleShare" :min="t.eligibleMin || 5" :max="t.eligibleMax || 30" :step="1" class="hz-slider flex-1">
                     <span dir="ltr" class="text-[11px] font-bold text-indigo-900 w-12 text-left">{{ t.eligibleShare }}٪</span>
                   </div>
-                  <div class="text-[9px] text-indigo-800/50 font-medium">تریال رایگان {{ t.trialDays || 3 }} روزهٔ پلن طلایی — هزینهٔ AI آن به‌عنوان CAC کسر می‌شود.</div>
+                  <div class="text-[9px] text-indigo-800/50 font-medium">تریال رایگان {{ t.trialDays || 3 }} روزهٔ {{ techniqueTrialName(t) }} — هزینهٔ AI آن به‌عنوان CAC کسر می‌شود.</div>
                 </div>
               </div>
             </div>
@@ -485,30 +482,54 @@
         </div>
 
         <div class="bg-card border border-line rounded-2xl p-5 shadow-sm">
-          <h2 class="text-lg font-bold text-ink mb-4 border-b pb-3 flex items-center gap-2">
-            <i data-lucide="list-checks" class="w-5 h-5 text-turquoiseDeep"></i> یادداشت‌های تفکیکی هر پلن
-          </h2>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label class="text-[12px] font-bold text-inkSoft mb-1.5 block">رایگان (Free)</label>
-              <textarea v-model="inp.notes.free" class="w-full bg-paper border border-line rounded-xl p-3 text-[12px] text-inkSoft outline-none focus:border-turquoise transition min-h-[80px]"></textarea>
+          <div class="flex items-center justify-between mb-4 border-b pb-3 gap-2">
+            <h2 class="text-lg font-bold text-ink flex items-center gap-2">
+              <i data-lucide="list-checks" class="w-5 h-5 text-turquoiseDeep"></i> مدیریت پلن‌ها، تعریف و یادداشت‌های تفکیکی
+            </h2>
+            <button @click="addPlan" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold transition-colors inline-flex items-center gap-1.5">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i> افزودن پلن
+            </button>
+          </div>
+          <p class="text-[10px] text-inkSoft/70 mb-4 leading-relaxed">پلن‌ها را تعریف، نام/قیمت/سهمیه/سهم را ویرایش و یادداشت تفکیکی هر پلن را نگهداری کنید. تغییرات بلافاصله در محاسبات داشبورد اعمال می‌شود. سهم‌ها به‌صورت خودکار روی ۱۰۰٪ متوازن می‌شوند؛ پلن رایگان همیشه index 0 است.</p>
+          <div class="flex flex-col gap-4">
+            <div v-for="(p, idx) in inp.plans" :key="p.id" class="bg-paper/60 border border-line/80 rounded-xl p-4 flex flex-col gap-3">
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2 flex-1 min-w-0">
+                  <span class="text-[10px] font-bold text-inkSoft bg-card border border-line rounded-lg px-2 py-1 flex-shrink-0" :class="p.id === 'free' ? 'text-turquoiseDeep' : ''">{{ p.id === 'free' ? 'رایگان' : 'پلن ' + idx }}</span>
+                  <input v-model="p.name" type="text" class="bg-card border border-line rounded-lg px-2 py-1.5 text-[12px] font-bold outline-none focus:border-turquoiseDeep transition flex-1 min-w-0">
+                </div>
+                <button v-if="p.id !== 'free'" @click="removePlan(p)" title="حذف پلن" class="p-1.5 rounded-lg text-rose hover:bg-roseSoft transition-colors flex-shrink-0">
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+                <span v-else class="text-[10px] font-bold text-inkSoft/60 bg-paper border border-line rounded-lg px-2 py-1 flex-shrink-0">پلن رایگان ثابت</span>
+              </div>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div>
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">نام انگلیسی</label>
+                  <input v-model="p.nameEn" type="text" dir="ltr" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-turquoiseDeep transition">
+                </div>
+                <div>
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">قیمت (تومان)</label>
+                  <input v-model.number="p.price" type="number" min="0" step="1000" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-turquoiseDeep transition">
+                </div>
+                <div>
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">سهمیه روزانه</label>
+                  <input v-model.number="p.callsPerDay" type="number" min="0" max="100" step="1" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-turquoiseDeep transition">
+                </div>
+                <div v-if="p.id !== 'free'">
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">سهم آپگرید — {{ Math.round(p.sharePct) }}٪</label>
+                  <input type="range" v-model.number="p.sharePct" :min="0" :max="100" :step="1" class="hz-slider w-full mt-2.5" @input="autoBalanceShare(p.id, $event.target.value)">
+                </div>
+              </div>
+              <div>
+                <label class="text-[10px] font-bold text-inkSoft block mb-1">یادداشت تفکیکی پلن</label>
+                <textarea v-model="p.notes" rows="2" class="w-full bg-card border border-line rounded-lg p-2.5 text-[11px] text-inkSoft outline-none focus:border-turquoiseDeep transition"></textarea>
+              </div>
             </div>
-            <div>
-              <label class="text-[12px] font-bold text-[#CD7F32] mb-1.5 block">برنز (Bronze)</label>
-              <textarea v-model="inp.notes.bronze" class="w-full bg-paper border border-line rounded-xl p-3 text-[12px] text-inkSoft outline-none focus:border-[#CD7F32] transition min-h-[80px]"></textarea>
-            </div>
-            <div>
-              <label class="text-[12px] font-bold text-turquoiseDeep mb-1.5 block">نقره‌ای (Silver)</label>
-              <textarea v-model="inp.notes.silver" class="w-full bg-paper border border-line rounded-xl p-3 text-[12px] text-inkSoft outline-none focus:border-turquoiseDeep transition min-h-[80px]"></textarea>
-            </div>
-            <div>
-              <label class="text-[12px] font-bold text-gold mb-1.5 block">طلایی (Gold)</label>
-              <textarea v-model="inp.notes.gold" class="w-full bg-paper border border-line rounded-xl p-3 text-[12px] text-inkSoft outline-none focus:border-gold transition min-h-[80px]"></textarea>
-            </div>
-            <div class="md:col-span-2">
-              <label class="text-[12px] font-bold text-emerald mb-1.5 block">زمرد (Emerald)</label>
-              <textarea v-model="inp.notes.emerald" class="w-full bg-paper border border-line rounded-xl p-3 text-[12px] text-inkSoft outline-none focus:border-emerald transition min-h-[60px]"></textarea>
-            </div>
+          </div>
+          <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-turquoiseSoft/40 text-turquoiseDeep font-bold rounded-xl mt-4 border border-turquoiseSoft">
+            <span>مجموع سهم پلن‌های پولی</span>
+            <span dir="ltr">{{ paidPlansShareSum }}٪</span>
           </div>
         </div>
 
@@ -567,7 +588,7 @@
             </div>
             <div class="bg-paper p-3 rounded-xl border border-line">
               <strong class="text-ink block mb-1">تکنیک‌های بازاریابی (تب بازاریابی):</strong>
-              هر تکنیک با روشن‌کردنش، درصد تخمینی‌اش را روی نرخ تبدیل یا ریزش اعمال می‌کند و بلافاصله در نمودارها و جدول اثر می‌گذارد. عدد «CAC تریال» هزینهٔ روزهای رایگان پلن طلایی برای همان سهم از کاربران جدید است که فعالیت بالا نشان داده‌اند. با دکمهٔ «افزودن تکنیک» می‌توانید تکنیک‌های سفارشی خودتان را بسازید، ویرایش یا حذف کنید؛ هر تکنیک می‌تواند اختیاری تریال رایگان هم داشته باشد که هزینه‌اش به‌عنوان CAC کسر می‌شود.
+              هر تکنیک با روشن‌کردنش، درصد تخمینی‌اش را روی نرخ تبدیل یا ریزش اعمال می‌کند و بلافاصله در نمودارها و جدول اثر می‌گذارد. عدد «CAC تریال» هزینهٔ روزهای رایگان {{ trialPlanName }} برای همان سهم از کاربران جدید است که فعالیت بالا نشان داده‌اند. با دکمهٔ «افزودن تکنیک» می‌توانید تکنیک‌های سفارشی خودتان را بسازید، ویرایش یا حذف کنید؛ هر تکنیک می‌تواند اختیاری تریال رایگان هم داشته باشد که هزینه‌اش به‌عنوان CAC کسر می‌شود.
               <span class="block mt-1 text-[11px] bg-card border border-line rounded-lg px-2 py-1.5">
                 مثال: هزینهٔ AI برای تریال‌های فعال در ماه اول ≈ <b>{{ format(trialCACToman) }}</b> تومان از سود کسر شده است.
               </span>
@@ -655,7 +676,7 @@
                 <input type="checkbox" v-model="techForm.hasTrial" class="accent-indigo-600 w-4 h-4">
                 این تکنیک تریال رایگان دارد (هزینهٔ AI آن به‌عنوان CAC کسر می‌شود)
               </label>
-              <p class="text-[10px] text-inkSoft/70 leading-relaxed -mt-1">برای تکنیک‌هایی مثل «تریال معکوس»: فقط سهمی از کاربران جدید، چند روز پلن طلایی رایگان دریافت می‌کنند و هزینهٔ AI همان بازه از سود کسر می‌شود.</p>
+              <p class="text-[10px] text-inkSoft/70 leading-relaxed -mt-1">برای تکنیک‌هایی مثل «تریال معکوس»: فقط سهمی از کاربران جدید، چند روز {{ trialPlanName }} رایگان دریافت می‌کنند و هزینهٔ AI همان بازه از سود کسر می‌شود.</p>
               <div v-if="techForm.hasTrial" class="flex flex-col gap-3 pt-1 border-t border-dashed border-line">
                 <div>
                   <label class="font-bold text-inkSoft block mb-1">سهم کاربران واجد شرط — {{ techForm.eligibleShare }}٪</label>
@@ -665,6 +686,14 @@
                 <div>
                   <label class="font-bold text-inkSoft block mb-1">تعداد روز تریال</label>
                   <input v-model.number="techForm.trialDays" type="number" min="1" max="7" step="1" class="w-full bg-card border border-line rounded-xl px-3 py-2 text-[12px] outline-none focus:border-indigo-500 transition">
+                </div>
+                <div>
+                  <label class="font-bold text-inkSoft block mb-1">پلن تریال</label>
+                  <select v-model="techForm.trialPlanId" class="w-full bg-card border border-line rounded-xl px-3 py-2 text-[12px] outline-none focus:border-indigo-500 transition">
+                    <option :value="null">پلن برتر (پولی با بیشترین سهمیهٔ روزانه)</option>
+                    <option v-for="p in paidPlans" :key="p.id" :value="p.id">{{ p.name }}</option>
+                  </select>
+                  <p class="text-[10px] text-inkSoft/70 mt-1">هزینهٔ AI روزهای تریال با سهمیهٔ روزانهٔ همین پلن محاسبه می‌شود.</p>
                 </div>
               </div>
             </div>
@@ -695,6 +724,61 @@
         <i data-lucide="book-open" class="w-3.5 h-3.5"></i> راهنما
       </button>
     </nav>
+
+    <!-- ========== Export/Import section-selection modals (Vue inline templates) ========== -->
+    <template v-if="exportSelecting" class="fixed inset-0 z-[90] flex items-center justify-center p-4">
+      <div class="fixed inset-0 bg-ink/40 backdrop-blur-sm" @click="closeExportModal"></div>
+      <div class="relative bg-card border border-line rounded-2xl shadow-xl w-full max-w-md overflow-hidden" dir="rtl">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-line">
+          <h3 class="text-[15px] font-bold text-ink flex items-center gap-2">
+            <i data-lucide="download" class="w-4 h-4 text-turquoiseDeep"></i> انتخاب بخش‌ها برای خروجی
+          </h3>
+          <button @click="closeExportModal" class="p-1.5 rounded-lg text-inkSoft hover:bg-paper transition-colors">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+        <div class="px-5 py-4 flex flex-col gap-2.5">
+          <label v-for="s in EXPORT_SECTIONS" :key="s.id" class="flex items-center gap-3 p-3 rounded-xl border border-line/70 hover:border-turquoiseDeep/40 transition-colors cursor-pointer">
+            <input type="checkbox" v-model="selectedSections[s.id]" class="accent-turquoiseDeep w-4 h-4">
+            <span class="flex-1">
+              <span class="text-[13px] font-bold text-ink block">{{ s.label }}</span>
+              <span dir="ltr" class="text-[10px] text-inkSoft/70 text-right block">{{ s.en }}</span>
+            </span>
+          </label>
+        </div>
+        <div class="px-5 py-4 border-t border-line flex gap-2">
+          <button @click="doExport" class="flex-1 bg-turquoiseDeep hover:bg-turquoise text-white text-[13px] font-bold py-2.5 rounded-xl transition-colors">صدور انتخاب‌شده</button>
+          <button @click="closeExportModal" class="flex-1 bg-paper hover:bg-line/40 text-inkSoft text-[13px] font-bold py-2.5 rounded-xl transition-colors">انصراف</button>
+        </div>
+      </div>
+    </template>
+
+    <template v-if="importSelecting" class="fixed inset-0 z-[90] flex items-center justify-center p-4">
+      <div class="fixed inset-0 bg-ink/40 backdrop-blur-sm" @click="closeImportModal"></div>
+      <div class="relative bg-card border border-line rounded-2xl shadow-xl w-full max-w-md overflow-hidden" dir="rtl">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-line">
+          <h3 class="text-[15px] font-bold text-ink flex items-center gap-2">
+            <i data-lucide="upload" class="w-4 h-4 text-turquoiseDeep"></i> انتخاب بخش‌ها برای ورودی
+          </h3>
+          <button @click="closeImportModal" class="p-1.5 rounded-lg text-inkSoft hover:bg-paper transition-colors">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+        <div class="px-5 py-4 flex flex-col gap-2.5">
+          <label v-for="s in EXPORT_SECTIONS" :key="s.id" class="flex items-center gap-3 p-3 rounded-xl border border-line/70 hover:border-turquoiseDeep/40 transition-colors cursor-pointer">
+            <input type="checkbox" v-model="selectedSections[s.id]" class="accent-turquoiseDeep w-4 h-4">
+            <span class="flex-1">
+              <span class="text-[13px] font-bold text-ink block">{{ s.label }}</span>
+              <span dir="ltr" class="text-[10px] text-inkSoft/70 text-right block">{{ s.en }}</span>
+            </span>
+          </label>
+        </div>
+        <div class="px-5 py-4 border-t border-line flex gap-2">
+          <button @click="doImport" class="flex-1 bg-turquoiseDeep hover:bg-turquoise text-white text-[13px] font-bold py-2.5 rounded-xl transition-colors">واردکردن انتخاب‌شده</button>
+          <button @click="closeImportModal" class="flex-1 bg-paper hover:bg-line/40 text-inkSoft text-[13px] font-bold py-2.5 rounded-xl transition-colors">انصراف</button>
+        </div>
+      </div>
+    </template>
   </div>
 
   <!-- ==================== VUE TEMPLATES ==================== -->
@@ -792,6 +876,9 @@
       emerald: "#059669", emeraldSoft: "#D1FAE5", indigo: "#4F46E5", indigoSoft: "#E0E7FF",
       gold: "#EAB308", bronze: "#CD7F32"
     };
+
+    // پالت رنگ پلن‌ها برای نمودار دایره‌ای — با شناسهٔ پلن یا اندیس رنگ می‌شود
+    const PLAN_COLORS = ['#0F766E', '#CD7F32', '#94A3B8', '#EAB308', '#059669', '#4F46E5', '#DC2626', '#0D9488', '#D97706', '#7C3AED', '#E11D48', '#0EA5E9'];
 
     // قیمت مدل‌های LLM (دلار به ازای ۱ میلیون توکن ورودی/خروجی) — آگوست ۲۰۲۶، قیمت‌های رسمی ارائه‌دهندگان
     const MODEL_PRICING = {
@@ -930,27 +1017,19 @@
       convBase: 3.0,
       convPessimistic: 1.5,
       convOptimistic: 6.0,
-      bronzeShare: 40,
-      silverShare: 35,
-      goldShare: 15,
-      free0: 1500,
-      bronze0: 150,
-      silver0: 250,
-      gold0: 100,
-      emerald0: 50,
-      bronzePrice: 49000,
-      silverPrice: 199000,
-      goldPrice: 359000,
-      emeraldPrice: 499000,
       exchangeRate: 192000,
-      freeCallsPerDay: 3,
-      bronzeCallsPerDay: 4,
-      silverCallsPerDay: 7,
-      goldCallsPerDay: 12,
-      emeraldCallsPerDay: 20,
       periodDays: 30,
       projectionMonths: 12,
       paidChurnRate: 7.8,
+      // --- پلن‌ها (منبع واحد حقیقت: قیمت، سهم، سهمیه روزانه، تعداد اولیه، یادداشت) ---
+      // پلن «رایگان» همیشه index 0 است. سهم (sharePct) فقط برای پلن‌های پولی معنا دارد و مجموع آن‌ها باید ۱۰۰ شود.
+      plans: [
+        { id: 'free', name: 'رایگان', nameEn: 'Free', price: 0, callsPerDay: 3, initialCount: 1500, sharePct: 0, notes: 'پیش‌نمایش + ۳ فراخوانی + محدودیت زمانی در دسترسی به TTS' },
+        { id: 'bronze', name: 'برنز', nameEn: 'Bronze', price: 49000, callsPerDay: 4, initialCount: 150, sharePct: 40, notes: 'محافظ استریک + تلفظ صوتی (TTS) نامحدود + گزارش پیشرفت + مرور معکوس' },
+        { id: 'silver', name: 'نقره‌ای', nameEn: 'Silver', price: 199000, callsPerDay: 7, initialCount: 250, sharePct: 35, notes: 'شروع یادگیری فعال (مکالمه بر اساس جلسات هفته)' },
+        { id: 'gold', name: 'طلایی', nameEn: 'Gold', price: 359000, callsPerDay: 12, initialCount: 100, sharePct: 15, notes: 'کوییزهای گرامری و درک مطلب پیشرفته' },
+        { id: 'emerald', name: 'زمرد', nameEn: 'Emerald', price: 499000, callsPerDay: 20, initialCount: 50, sharePct: 10, notes: 'غوطه‌وری کامل و نامحدود' }
+      ],
       // --- رشد کاربران (نرخ جذب به صورت درصدی از کل کاربرانِ همان ماه) ---
       acquisitionRate: 10,        // ٪ از کل کاربران (MAU) که هر ماه به جمع رایگان اضافه می‌شوند
       freeChurnRate: 10,          // ٪ ریزش ماهانه کاربران رایگان (قبلاً هاردکد ۱۰٪)
@@ -961,7 +1040,7 @@
       paymentFeePct: 1.5,         // کارمزد درگاه (زیبال ~۱٪، زرین‌پال ~۰.۵٪، بین‌المللی ۳–۵٪)
       vatPct: 10,                 // ارزش افزودهٔ خدمات دیجیتال (آستانهٔ ۰٪ برای آموزش، حساسیت)
       fixedOpexMonthly: 0,        // هزینه ثابت ماهانه: هاست، نگه‌داری، حقوق (تومان)
-      cacPerNewUser: 100000,      // هزینه جذب هر کاربر رایگان جدید (تومان؛ ~$0.5 — پایینِ بازهٔ ارجاعی برای تلگرام ارگانیک)
+      cacPerNewUser: 0,           // هزینه جذب هر کاربر رایگان (تومان) — پیش‌فرض ۰؛ اگر ۰ باشد از CAC ترکیبیِ زنده استفاده می‌شود
       monthlyAdBudget: 0,         // بودجه تبلیغات ماهانه (تومان)
       referralShareOfSignups: 10, // ٪ ثبت‌نام‌های ارجاعی (CAC نزدیک صفر)
       involuntaryChurnPct: 10,    // ریزش غیرارادی به‌خاطر پیش‌پرداخت/نبود خودپرداخت خودکار
@@ -976,13 +1055,6 @@
       cacheSavingPct: 40,         // صرفه‌جویی کش پرامپت (۵۰–۹۰٪ تخفیف ورودی، ~۴۰٪ کل)
       annualCostDeclinePct: 40,   // کاهش سالانه قیمت AI (~۱۰x در سال برای هم‌کیفیت)
       aiCostPerCallUSD: 0.0003,   // معادل محاسبه‌شده (mid + کش ۴۰٪) برای سازگاری با داده ذخیره‌شده
-      notes: {
-        free: "پیش‌نمایش + ۳ فراخوانی + محدودیت زمانی در دسترسی به TTS",
-        bronze: "محافظ استریک + تلفظ صوتی (TTS) نامحدود + گزارش پیشرفت + مرور معکوس",
-        silver: "شروع یادگیری فعال (مکالمه بر اساس جلسات هفته)",
-        gold: "کوییزهای گرامری و درک مطلب پیشرفته",
-        emerald: "غوطه‌وری کامل و نامحدود"
-      },
       // --- ایده‌های بازاریابی: هرکدام قابل فعال/غیرفعال‌سازی با اثر قابل‌تنظیم روی مدل مالی ---
       marketingTechniques: [
         {
@@ -992,7 +1064,7 @@
         },
         {
           id: 'reverseTrial', title: 'تریال معکوس ۳ روزه (فقط کاربران فعال)', icon: 'timer', enabled: true,
-          desc: 'ورود کاربر جدیدِ «پرتلاش» (فعالیت بالا در روزهای اول) = ۳ روز پلن طلایی رایگان؛ روز چهارم به رایگان سقوط می‌کند. چون فقط زیرمجموعه‌ای از کاربران رایگان مشمول‌اند، سهم واجدین شرط را دقیق تعریف می‌کنیم تا هزینهٔ AI آن (CAC) واقعی بماند.',
+          desc: 'ورود کاربر جدیدِ «پرتلاش» (فعالیت بالا در روزهای اول) = ۳ روز پلن برتر رایگان؛ روز چهارم به رایگان سقوط می‌کند. چون فقط زیرمجموعه‌ای از کاربران رایگان مشمول‌اند، سهم واجدین شرط را دقیق تعریف می‌کنیم تا هزینهٔ AI آن (CAC) واقعی بماند.',
           effectType: 'conversion', effect: 2.5, min: 0, max: 4, step: 0.1,
           eligibleShare: 15, eligibleMin: 5, eligibleMax: 30, trialDays: 3
         },
@@ -1008,7 +1080,7 @@
         },
         {
           id: 'streakMilestone', title: 'پاداش استریک و بیش‌فروشی', icon: 'gift', enabled: true,
-          desc: 'رسیدن به ۳۰ روز استریک = هدیهٔ ۳ روز پلن طلایی، برای نمایش امکانات پلن‌های بالاتر. سقف تعداد دفعات در سال لازم دارد.',
+          desc: 'رسیدن به ۳۰ روز استریک = هدیهٔ ۳ روز پلن برتر، برای نمایش امکانات پلن‌های بالاتر. سقف تعداد دفعات در سال لازم دارد.',
           effectType: 'conversion', effect: 0.7, min: 0, max: 2, step: 0.1
         },
         {
@@ -1043,10 +1115,38 @@
         }
       ],
       marketing: {
-        trial: "۱. تریال ۳ روزه طلایی برای ورود اولیه کاربر تا به سرعت بالا عادت کند.\n۲. هدیه ۳ روزه به عنوان پاداش رسیدن به استریک ۳۰ روزه.",
+        trial: "۱. تریال ۳ روزهٔ پلن برتر برای ورود اولیه کاربر تا به سرعت بالا عادت کند.\n۲. هدیه ۳ روزه به عنوان پاداش رسیدن به استریک ۳۰ روزه.",
         capacity: "تعیین سقف برای حافظه: وقتی کاربر ۲۰۰ کلمه تثبیت‌شده (FSRS > 30 days) داشت، ربات پیام می‌دهد: «حافظه شما پر شده است! برای نگهداری دیتابیس کلمات بیشتر، پلن برنز را تهیه کنید.»"
       }
     };
+
+    // --- بخش‌های انتخابی صدور/وارد کردن JSON ---
+    const EXPORT_SECTIONS = [
+      {
+        id: 'simulation', label: 'شبیه‌سازی مالی', en: 'Financial Simulation',
+        keys: ['inputMode','mau','convBase','convPessimistic','convOptimistic',
+          'exchangeRate','periodDays','projectionMonths','paidChurnRate','freeChurnRate',
+          'signupGrowthRateBase','signupGrowthRatePessimistic','signupGrowthRateOptimistic',
+          'involuntaryChurnPct','annualPriceIncreasePct','acquisitionRate']
+      },
+      {
+        id: 'financial', label: 'هزینه‌ها و ثابت', en: 'Financial & Fixed',
+        keys: ['paymentFeePct','vatPct','fixedOpexMonthly','cacPerNewUser','monthlyAdBudget','referralShareOfSignups']
+      },
+      {
+        id: 'aiModel', label: 'مدل AI', en: 'AI Model',
+        keys: ['modelChoice','lastModelChoice','customInUSD','customOutUSD',
+          'inputTokensPerCall','outputTokensPerCall','cacheSavingPct','annualCostDeclinePct','aiCostPerCallUSD']
+      },
+      {
+        id: 'plans', label: 'پلن‌ها (تعریف و یادداشت)', en: 'Plans & Notes',
+        keys: ['plans']
+      },
+      {
+        id: 'marketing', label: 'کارزارهای بازرگانی و تکنیک‌ها', en: 'Marketing Campaigns',
+        keys: ['marketingTechniques','marketing']
+      }
+    ];
 
     const { createApp, ref, computed, watch, onMounted, nextTick } = Vue;
 
@@ -1058,6 +1158,43 @@
           if ('newUsersMonth1' in d) delete d.newUsersMonth1;
           if (typeof d.acquisitionRate !== 'number') d.acquisitionRate = DEFAULTS.acquisitionRate;
           if (!Array.isArray(d.marketingTechniques)) d.marketingTechniques = DEFAULTS.marketingTechniques;
+          // مهاجرت از دادهٔ قدیمی با کلیدهای تختِ پلن به آرایهٔ plans (افزودن/حذف پلن ها از این پس)
+          if (!Array.isArray(d.plans)) {
+            const bk = (v, fb) => typeof v === 'number' ? v : fb;
+            const bks = (v, fb) => typeof v === 'string' && v !== '' ? v : fb;
+            d.plans = [
+              { id: 'free', name: 'رایگان', nameEn: 'Free', price: 0, callsPerDay: bk(d.freeCallsPerDay, 3), initialCount: bk(d.free0, 1500), sharePct: 0, notes: bks(d.notes && d.notes.free, DEFAULTS.plans[0].notes) },
+              { id: 'bronze', name: 'برنز', nameEn: 'Bronze', price: bk(d.bronzePrice, 49000), callsPerDay: bk(d.bronzeCallsPerDay, 4), initialCount: bk(d.bronze0, 150), sharePct: bk(d.bronzeShare, 40), notes: bks(d.notes && d.notes.bronze, DEFAULTS.plans[1].notes) },
+              { id: 'silver', name: 'نقره‌ای', nameEn: 'Silver', price: bk(d.silverPrice, 199000), callsPerDay: bk(d.silverCallsPerDay, 7), initialCount: bk(d.silver0, 250), sharePct: bk(d.silverShare, 35), notes: bks(d.notes && d.notes.silver, DEFAULTS.plans[2].notes) },
+              { id: 'gold', name: 'طلایی', nameEn: 'Gold', price: bk(d.goldPrice, 359000), callsPerDay: bk(d.goldCallsPerDay, 12), initialCount: bk(d.gold0, 100), sharePct: bk(d.goldShare, 15), notes: bks(d.notes && d.notes.gold, DEFAULTS.plans[3].notes) },
+              { id: 'emerald', name: 'زمرد', nameEn: 'Emerald', price: bk(d.emeraldPrice, 499000), callsPerDay: bk(d.emeraldCallsPerDay, 20), initialCount: bk(d.emerald0, 50), sharePct: Math.max(0, 100 - bk(d.bronzeShare, 40) - bk(d.silverShare, 35) - bk(d.goldShare, 15)), notes: bks(d.notes && d.notes.emerald, DEFAULTS.plans[4].notes) }
+            ];
+            // حذف کلیدهای تختِ قدیمی برای جلوگیری از رجوع مجدد
+            ['free0','bronze0','silver0','gold0','emerald0',
+             'bronzePrice','silverPrice','goldPrice','emeraldPrice',
+             'freeCallsPerDay','bronzeCallsPerDay','silverCallsPerDay','goldCallsPerDay','emeraldCallsPerDay',
+             'bronzeShare','silverShare','goldShare','notes'].forEach(k => delete d[k]);
+          } else {
+            // تضمین اسکیمای هر پلن و نرمال‌سازی sharePct برای پلن رایگان
+            d.plans = d.plans.map(p => {
+              const base = DEFAULTS.plans.find(b => b.id === p.id);
+              return {
+                id: p.id, name: p.name || (base && base.name) || 'پلن',
+                nameEn: p.nameEn || (base && base.nameEn) || '',
+                price: typeof p.price === 'number' ? p.price : (base && base.price) || 0,
+                callsPerDay: typeof p.callsPerDay === 'number' ? p.callsPerDay : (base && base.callsPerDay) || 3,
+                initialCount: typeof p.initialCount === 'number' ? p.initialCount : (base && base.initialCount) || 0,
+                sharePct: p.id === 'free' ? 0 : (typeof p.sharePct === 'number' ? p.sharePct : 0),
+                notes: typeof p.notes === 'string' ? p.notes : (base && base.notes) || ''
+              };
+            }).filter(Boolean);
+            if (d.plans.length === 0) d.plans = DEFAULTS.plans.map(p => ({ ...p }));
+          }
+          // تضمین وجود پلن رایگان (قانون ۲): اگر در لیست نیست، اولین پلن نقش آن را می‌گیرد
+          if (!d.plans.some(p => p.id === 'free') && d.plans.length) {
+            d.plans[0].id = 'free';
+            d.plans[0].sharePct = 0;
+          }
           // پشتیبان‌گیری از فیلدهای جدید (کاربرانی که دادهٔ قدیمی دارند)
           const numericExtra = ['paymentFeePct','vatPct','fixedOpexMonthly','cacPerNewUser','monthlyAdBudget',
             'referralShareOfSignups','involuntaryChurnPct','annualPriceIncreasePct',
@@ -1073,7 +1210,10 @@
           return d;
         };
 
-        let initialData = { ...DEFAULTS };
+        // کپی عمیقِ plans تا ویرایش‌های درون‌جلسه، DEFAULTS را آلوده نکنند (B) و reset بازگردانی درست داشته باشد
+        const freshDefaults = () => ({ ...DEFAULTS, plans: DEFAULTS.plans.map(p => ({ ...p })) });
+
+        let initialData = freshDefaults();
         try {
           const savedData = localStorage.getItem('hamzaboon_financial_model_v2');
           if (savedData) {
@@ -1110,14 +1250,36 @@
         const reset = () => {
           localStorage.removeItem('hamzaboon_financial_model_v2');
           localStorage.removeItem(CHART_OPEN_KEY);
-          inp.value = { ...DEFAULTS };
+          inp.value = freshDefaults();
           chartOpen.value = { ...defaultChartOpen };
           if (!isDesktop.value) activeTab.value = 'dashboard';
         };
 
-        // درون‌ریزی/بیرون‌ریزی JSON (علاوه بر ذخیرهٔ خودکار در حافظهٔ محلی)
-        const exportJSON = () => {
-          const blob = new Blob([JSON.stringify(inp.value, null, 2)], { type: 'application/json' });
+        // درون‌ریزی/بیرون‌ریزی JSON با انتخاب بخش‌ها (شبیه‌سازی، هزینه‌ها، AI، پلن‌ها، بازاریابی)
+        const exportSelecting = ref(false);
+        const importSelecting = ref(false);
+        const pendingImportData = ref(null);
+        const selectedSections = ref({});
+        const resetSectionSelection = () => {
+          const sel = {};
+          EXPORT_SECTIONS.forEach(s => { sel[s.id] = true; });
+          selectedSections.value = sel;
+        };
+        resetSectionSelection();
+
+        const openExportModal = () => {
+          resetSectionSelection();
+          exportSelecting.value = true;
+        };
+
+        const doExport = () => {
+          const out = {};
+          if (selectedSections.value.plans) out.plans = inp.value.plans;
+          EXPORT_SECTIONS.forEach(s => {
+            if (!selectedSections.value[s.id] || s.id === 'plans') return;
+            s.keys.forEach(k => { if (k in inp.value) out[k] = inp.value[k]; });
+          });
+          const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           const stamp = new Date().toISOString().slice(0, 10);
@@ -1125,9 +1287,13 @@
           a.download = `hamzaboon-financial-model-${stamp}.json`;
           a.click();
           URL.revokeObjectURL(url);
+          exportSelecting.value = false;
         };
+        const closeExportModal = () => { exportSelecting.value = false; };
 
         const triggerImport = () => { if (fileInput.value) fileInput.value.click(); };
+        // نگه‌داری نام قبلی برای سازگاری با دکمه‌های header/mobile
+        const exportJSON = openExportModal;
 
         const importJSON = (e) => {
           const file = e.target.files && e.target.files[0];
@@ -1135,8 +1301,9 @@
           const reader = new FileReader();
           reader.onload = (ev) => {
             try {
-              const parsed = JSON.parse(ev.target.result);
-              inp.value = { ...DEFAULTS, ...sanitizeLoaded(parsed) };
+              pendingImportData.value = JSON.parse(ev.target.result);
+              resetSectionSelection();
+              importSelecting.value = true;
             } catch (err) {
               alert('فایل JSON نامعتبر است.');
             } finally {
@@ -1145,6 +1312,42 @@
           };
           reader.readAsText(file);
         };
+        const doImport = () => {
+          const parsed = pendingImportData.value;
+          if (!parsed) { importSelecting.value = false; return; }
+          const merged = { ...inp.value };
+          // بخش‌های پایه که همیشه در `sanitizeLoaded` بازسازی می‌شوند
+          EXPORT_SECTIONS.forEach(s => {
+            if (!selectedSections.value[s.id]) return;
+            if (s.id === 'plans') {
+              if (Array.isArray(parsed.plans)) {
+                merged.plans = parsed.plans.map(p => ({ ...p }));
+              } else {
+                // سازگاری با خروجی نسخهٔ قبلی (کلیدهای تخت و بدون plans):
+                // کلیدهای تخت را کپی و plans فعلی را حذف می‌کنیم تا `sanitizeLoaded` مهاجرت قدیمی را اجرا کند
+                const flatPlanKeys = ['free0','bronze0','silver0','gold0','emerald0',
+                  'bronzePrice','silverPrice','goldPrice','emeraldPrice',
+                  'freeCallsPerDay','bronzeCallsPerDay','silverCallsPerDay','goldCallsPerDay','emeraldCallsPerDay',
+                  'bronzeShare','silverShare','goldShare','notes'];
+                const hasOldFlatPlans = flatPlanKeys.some(k => k in parsed);
+                if (hasOldFlatPlans) {
+                  flatPlanKeys.forEach(k => { if (k in parsed) merged[k] = parsed[k]; });
+                  delete merged.plans;
+                }
+              }
+            } else {
+              s.keys.forEach(k => { if (k in parsed) merged[k] = parsed[k]; });
+            }
+          });
+          try {
+            inp.value = { ...DEFAULTS, ...sanitizeLoaded(merged) };
+          } catch (err) {
+            alert('فایل JSON ناسازگار است؛ هیچ تغییری اعمال نشد.');
+          }
+          importSelecting.value = false;
+          pendingImportData.value = null;
+        };
+        const closeImportModal = () => { importSelecting.value = false; };
 
         const format = (v, dec = 0) => {
           if (!isFinite(v)) return 0;
@@ -1164,6 +1367,16 @@
         };
 
         // هزینهٔ CAC تریال معکوس: مجموع سهم کاربرانِ «واجد شرط» از کاربران جدیدِ هر ماه در همهٔ تکنیک‌های تریالی فعال
+        // هر تکنیک می‌تواند پلن تریال خودش را انتخاب کند؛ پیش‌فرض: پولی با بیشترین سهمیهٔ روزانه
+        const resolveTrialPlan = (technique, plans) => {
+          const paidPlans = (plans || []).filter(p => p.id !== 'free');
+          if (technique && technique.trialPlanId) {
+            const chosen = paidPlans.find(p => p.id === technique.trialPlanId);
+            if (chosen) return chosen;
+          }
+          if (!paidPlans.length) return { callsPerDay: 12, name: 'پلن برتر' };
+          return paidPlans.reduce((a, b) => ((b.callsPerDay || 0) > (a.callsPerDay || 0) ? b : a), { callsPerDay: 0 });
+        };
         const getTrialCACPerNewUser = (params) => {
           // قیمت مؤثر هر فراخوانی با کش (همانند computeSeries) برای انسجام بین تریال و مدل اصلی
           const mPricing = resolveModelPricing(params.modelChoice, params.customInUSD, params.customOutUSD, params.lastModelChoice);
@@ -1174,12 +1387,86 @@
             if (!t.enabled || t.eligibleShare === undefined) return;
             const days = Math.max(1, Number(t.trialDays) || 3);
             const share = Math.max(0, Number(t.eligibleShare) || 0) / 100;
-            const costPerUser = days * params.goldCallsPerDay * effectiveCallUSD * params.exchangeRate;
+            const plan = resolveTrialPlan(t, params.plans);
+            const trialCallsPerDay = Number.isFinite(plan.callsPerDay) ? plan.callsPerDay : 12;
+            const costPerUser = days * trialCallsPerDay * effectiveCallUSD * params.exchangeRate;
             costWeightedSum += costPerUser * share;
             shareSum += share;
           });
           if (shareSum <= 0) return { costPerUser: 0, eligibleShare: 0 };
           return { costPerUser: costWeightedSum / shareSum, eligibleShare: shareSum };
+        };
+
+        // --- پلن‌ها: سهم‌ها و توابع مدیریتی ---
+        const paidPlans = computed(() => (inp.value.plans || []).filter(p => p.id !== 'free'));
+        const paidPlansShareSum = computed(() => paidPlans.value.reduce((s, p) => s + (Number(p.sharePct) || 0), 0));
+        const paidPlanShare = (p) => Math.round(Number(p.sharePct) || 0);
+        // پلن تریال یک تکنیک خاص: پلن انتخاب‌شدهٔ آن تکنیک، یا پیش‌فرض پولیِ با بیشترین سهمیه (گزارش پویا)
+        const techniqueTrialName = (t) => {
+          const plan = resolveTrialPlan(t, inp.value.plans || []);
+          return (plan && plan.name) ? plan.name : 'پلن برتر';
+        };
+        // پلن تریال کلی (برای متن‌های عمومی): پولی با بیشترین سهمیهٔ روزانه
+        const trialPlanName = computed(() => {
+          const paid = (inp.value.plans || []).filter(p => p.id !== 'free');
+          const top = paid.reduce((a, b) => ((b.callsPerDay || 0) > (a.callsPerDay || 0) ? b : a), { callsPerDay: 0 });
+          return top && top.name ? top.name : 'پلن برتر';
+        });
+        // متوازن‌سازی نسبی: با تغییر سهم یک پلن، بقیه به‌نسبت سهم قبلی خود تنظیم می‌شوند تا مجموع ۱۰۰ بماند
+        const autoBalanceShare = (changedId, rawVal) => {
+          const paid = inp.value.plans.filter(p => p.id !== 'free');
+          const changed = paid.find(p => p.id === changedId);
+          if (!changed) return;
+          const newShare = Math.max(0, Math.min(100, Number(rawVal) || 0));
+          const others = paid.filter(p => p.id !== changedId);
+          const otherSum = others.reduce((s, p) => s + (Number(p.sharePct) || 0), 0);
+          if (others.length === 0 || otherSum === 0) {
+            // تنها پلن پولی است یا بقیه سهم ۰ دارند: این پلن کل ۱۰۰٪ را می‌گیرد تا مجموع ۱۰۰ بماند
+            changed.sharePct = 100;
+          } else {
+            const remaining = 100 - newShare;
+            others.forEach(p => {
+              p.sharePct = Math.round((Number(p.sharePct) || 0) / otherSum * remaining);
+            });
+            // رفع خطای گرد‌کردن
+            const drift = remaining - others.reduce((s, p) => s + p.sharePct, 0);
+            if (drift !== 0) others[others.length - 1].sharePct += drift;
+            changed.sharePct = newShare;
+          }
+          inp.value.plans = [...inp.value.plans];
+        };
+        const addPlan = () => {
+          const base = { id: 'p' + Date.now().toString(36), name: 'پلن جدید', nameEn: 'New Plan',
+            price: 100000, callsPerDay: 5, initialCount: 10, sharePct: 0, notes: '' };
+          inp.value.plans.push(base);
+          // توزیع مجدد سهم‌ها روی پلن‌های پولی
+          const paid = inp.value.plans.filter(p => p.id !== 'free');
+          const n = paid.length;
+          paid.forEach(p => p.sharePct = Math.round(100 / n));
+          const drift = 100 - paid.reduce((s, p) => s + p.sharePct, 0);
+          if (drift !== 0 && paid.length) paid[paid.length - 1].sharePct += drift;
+          inp.value.plans = [...inp.value.plans];
+        };
+        const removePlan = (p) => {
+          if (!p || p.id === 'free') return;
+          if (!confirm(`پلن «${p.name}» حذف شود؟`)) return;
+          inp.value.plans = inp.value.plans.filter(x => x.id !== p.id);
+          const paid = inp.value.plans.filter(x => x.id !== 'free');
+          // توزیع نسبی سهم‌ها پس از حذف: وزن‌های باقی‌مانده به‌نسبت سهم قبلی‌شان بزرگ می‌شوند تا مجموع ۱۰۰ بماند
+          if (paid.length) {
+            const currentSum = paid.reduce((s, x) => s + (Number(x.sharePct) || 0), 0);
+            if (currentSum > 0) {
+              paid.forEach(x => x.sharePct = Math.round((Number(x.sharePct) || 0) / currentSum * 100));
+              const drift = 100 - paid.reduce((s, x) => s + x.sharePct, 0);
+              if (drift !== 0) paid[paid.length - 1].sharePct += drift;
+            } else {
+              // همه سهم‌ها ۰ بودند (حالت لبه): تقسیم مساوی
+              paid.forEach(x => x.sharePct = Math.round(100 / paid.length));
+              const drift = 100 - paid.reduce((s, x) => s + x.sharePct, 0);
+              if (drift !== 0) paid[paid.length - 1].sharePct += drift;
+            }
+          }
+          inp.value.plans = [...inp.value.plans];
         };
 
         // --- CRUD تکنیک‌های بازاریابی ---
@@ -1191,13 +1478,13 @@
         };
         const showTechModal = ref(false);
         const editingTechId = ref(null);
-        const techForm = ref({ title: '', icon: 'megaphone', desc: '', effectType: 'conversion', effect: 1, min: 0, max: 3, step: 0.1, hasTrial: false, eligibleShare: 15, trialDays: 3 });
+        const techForm = ref({ title: '', icon: 'megaphone', desc: '', effectType: 'conversion', effect: 1, min: 0, max: 3, step: 0.1, hasTrial: false, eligibleShare: 15, trialDays: 3, trialPlanId: null });
 
         const genTechId = () => 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
         const openAddTechnique = () => {
           editingTechId.value = null;
-          techForm.value = { title: '', icon: 'megaphone', desc: '', effectType: 'conversion', effect: 1, min: 0, max: 3, step: 0.1, hasTrial: false, eligibleShare: 15, trialDays: 3 };
+          techForm.value = { title: '', icon: 'megaphone', desc: '', effectType: 'conversion', effect: 1, min: 0, max: 3, step: 0.1, hasTrial: false, eligibleShare: 15, trialDays: 3, trialPlanId: null };
           showTechModal.value = true;
           nextTick().then(() => lucide.createIcons());
         };
@@ -1205,12 +1492,15 @@
         const openEditTechnique = (t) => {
           editingTechId.value = t.id;
           const b = boundsByType[t.effectType] || boundsByType.conversion;
+          const trialPlanId = t.trialPlanId ?? null;
+          const paidPlanIds = paidPlans.value.map(p => p.id);
           techForm.value = {
             title: t.title || '', icon: t.icon || 'megaphone', desc: t.desc || '',
             effectType: t.effectType || 'conversion',
             effect: t.effect ?? 1, min: t.min ?? b.min, max: t.max ?? b.max, step: t.step ?? b.step,
             hasTrial: t.eligibleShare !== undefined,
-            eligibleShare: t.eligibleShare ?? 15, trialDays: t.trialDays ?? 3
+            eligibleShare: t.eligibleShare ?? 15, trialDays: t.trialDays ?? 3,
+            trialPlanId: (trialPlanId && paidPlanIds.includes(trialPlanId)) ? trialPlanId : null
           };
           showTechModal.value = true;
           nextTick().then(() => lucide.createIcons());
@@ -1239,6 +1529,8 @@
             card.eligibleShare = Number(f.eligibleShare) || 15;
             card.eligibleMin = 5; card.eligibleMax = 30;
             card.trialDays = Math.max(1, Number(f.trialDays) || 3);
+            const paidPlanIds = paidPlans.value.map(p => p.id);
+            card.trialPlanId = (f.trialPlanId && paidPlanIds.includes(f.trialPlanId)) ? f.trialPlanId : null;
           }
           if (editingTechId.value) {
             const idx = inp.value.marketingTechniques.findIndex(x => x.id === editingTechId.value);
@@ -1261,16 +1553,23 @@
         const closeTechModal = () => { showTechModal.value = false; editingTechId.value = null; };
 
         const computeSeries = (params, convRate, growthRate) => {
-          let F = 0, B = 0, S = 0, G = 0, E = 0;
+          // پلن‌ها: آرایهٔ واحد حقیقت — index 0 همیشه رایگان است
+          const plans = params.plans || [];
+          // پلنِ جذب (free): همیشه index 0 است؛ اگر حذف شد، اولین پلن به‌عنوان سطل ثبت‌نام‌های جدید عمل می‌کند
+          const freePlan = plans.find(p => p.id === 'free') || plans[0] || { id: 'free', callsPerDay: 3 };
+          const paidPlans = plans.filter(p => p.id !== freePlan.id);
+          // سهم مجموع پلن‌های پولی (برای توزیع آپگریدها)؛ اگر ۰ بود یک پلن پولی نداریم
+          const totalPaidShare = paidPlans.reduce((s, p) => s + (p.sharePct || 0), 0) || 1;
+
+          // شمارندهٔ کاربران به تفکیک پلن (کلید: شناسه پلن)
+          let counts = {};
+          plans.forEach(p => counts[p.id] = 0);
           if (params.inputMode === 'conversion') {
             const upgrades = params.mau * (convRate / 100);
-            B = upgrades * (params.bronzeShare / 100);
-            S = upgrades * (params.silverShare / 100);
-            G = upgrades * (params.goldShare / 100);
-            E = upgrades * (Math.max(0, 100 - params.bronzeShare - params.silverShare - params.goldShare) / 100);
-            F = params.mau - upgrades;
+            paidPlans.forEach(p => counts[p.id] = upgrades * (p.sharePct || 0) / totalPaidShare);
+            counts[freePlan.id] = Math.max(0, params.mau - upgrades);
           } else {
-            F = params.free0; B = params.bronze0; S = params.silver0; G = params.gold0; E = params.emerald0;
+            plans.forEach(p => counts[p.id] = p.initialCount || 0);
           }
           const { convBoost, churnReduction, signupBoost } = getMarketingEffects(params);
           const effConvRate = Math.max(0, convRate + convBoost);
@@ -1287,41 +1586,46 @@
           const vatPct = (params.vatPct || 0) / 100;
           const fixedOpex = (params.fixedOpexMonthly || 0);
           const adBudget = (params.monthlyAdBudget || 0);
-          const cacPerNewUser = (params.cacPerNewUser || 0);
+          const cacManual = (params.cacPerNewUser || 0);
           const referralShare = (params.referralShareOfSignups || 0) / 100;
 
           const rows = [];
           for (let t = 0; t < params.projectionMonths; t++) {
             // بازقیمت‌گذاری سالانه: از سال دوم، قیمت‌ها طبق ضریب تجدید می‌شوند
             const priceIdx = Math.pow(1 + renewal, Math.floor(t / 12));
-            const bp = params.bronzePrice * priceIdx;
-            const sp = params.silverPrice * priceIdx;
-            const gp = params.goldPrice * priceIdx;
-            const ep = params.emeraldPrice * priceIdx;
             const aiCallPrice = rawCallUSD * cacheFactor * Math.pow(1 - annualDecline, t / 12);
 
             // --- نقطه شروع ماه: پایهٔ همان ماه (پیش از ورودی‌های جدید این ماه) ---
-            const F_start = F, B_start = B, S_start = S, G_start = G, E_start = E;
-            const grossRevenue = B_start * bp + S_start * sp + G_start * gp + E_start * ep;
+            const start = { ...counts };
+            const grossRevenue = paidPlans.reduce((s, p) => s + (start[p.id] || 0) * (p.price || 0) * priceIdx, 0);
             const feeToman = Math.round(grossRevenue * feePct);
             const vatToman = Math.round(grossRevenue * vatPct);
             const netRevenue = grossRevenue - feeToman - vatToman;
 
-            const aiCalls = (F_start * params.freeCallsPerDay + B_start * params.bronzeCallsPerDay + S_start * params.silverCallsPerDay + G_start * params.goldCallsPerDay + E_start * params.emeraldCallsPerDay) * params.periodDays;
+            const aiCalls = plans.reduce((s, p) => s + (start[p.id] || 0) * (p.callsPerDay || 0), 0) * params.periodDays;
             const aiCostToman = Math.round(aiCalls * aiCallPrice * params.exchangeRate);
-            const currentTotal = F_start + B_start + S_start + G_start + E_start;
+            const currentTotal = plans.reduce((s, p) => s + (start[p.id] || 0), 0);
             // ثبت‌نام‌های جدید ماه (پایهٔ ماه قبل + رشد نمایی) — ورودی همین ماه، تبدیل از ماه بعد
             const newSignups = currentTotal * (params.acquisitionRate / 100) * Math.pow(1 + (growthRate + signupBoost) / 100, t);
-            const cacToman = Math.round(newSignups * cacPerNewUser * (1 - referralShare));
+            // CAC مؤثر: اگر فیلد دستی ۰ باشد، از بودجهٔ تبلیغات و ثبت‌نام‌های جدید «CAC ترکیبی» محاسبه می‌شود
+            const paidNewSignups = Math.max(0, newSignups * (1 - referralShare));
+            const cacPerNewUser = cacManual > 0
+              ? cacManual
+              : (adBudget > 0 && paidNewSignups > 0 ? adBudget / paidNewSignups : 0);
+            const cacToman = Math.round(paidNewSignups * cacPerNewUser);
             const trialCACToman = Math.round(newSignups * trialEligibleShare * trialCostPerUser);
 
             // حاشیه مشارکت = درآمد خالص - هزینه AI - CAC تریال - CAC جذب؛ سود خالص = حاشیه - هزینه ثابت
             const contributionMargin = Math.round(netRevenue - aiCostToman - trialCACToman - cacToman);
             const fixedToman = fixedOpex + adBudget;
             const netProfit = contributionMargin - fixedToman;
-            const total = F_start + B_start + S_start + G_start + E_start;
+            const rowCounts = {};
+            plans.forEach(p => rowCounts[p.id] = Math.round(start[p.id] || 0));
             rows.push({
-              month: t + 1, free: Math.round(F_start), bronze: Math.round(B_start), silver: Math.round(S_start), gold: Math.round(G_start), emerald: Math.round(E_start), total: Math.round(total),
+              month: t + 1,
+              counts: rowCounts,
+              free: rowCounts[freePlan.id] || 0,
+              total: Math.round(currentTotal),
               newSignups: Math.round(newSignups),
               grossRevenue: Math.round(grossRevenue), netRevenue, feeToman, vatToman,
               aiCostToman, aiCostUSD: aiCalls * aiCallPrice, cacToman, trialCACToman, fixedToman,
@@ -1329,18 +1633,14 @@
             });
             // --- ورودی جدید ماه جاری، فقط به رایگان اضافه می‌شود ---
             // تبدیل (upgrade) از پایهٔ ماه جاری محاسبه می‌شود؛ کاربران جدیدِ این ماه از ماه بعد تبدیل می‌شوند
-            const monthlyUpgrades = F_start * (effConvRate / 100);
+            const monthlyUpgrades = (start[freePlan.id] || 0) * (effConvRate / 100);
             // ریزش روی پایهٔ شروع ماه (پیش از افزودن آپگریدها) اعمال می‌شود
-            const freeChurn = F_start * ((params.freeChurnRate || 10) / 100);
-            const bronzeChurn = B_start * (effPaidChurn / 100);
-            const silverChurn = S_start * (effPaidChurn / 100);
-            const goldChurn = G_start * (effPaidChurn / 100);
-            const emeraldChurn = E_start * (effPaidChurn / 100);
-            F = Math.max(0, F_start + newSignups - monthlyUpgrades - freeChurn);
-            B = Math.max(0, B_start + monthlyUpgrades * (params.bronzeShare / 100) - bronzeChurn);
-            S = Math.max(0, S_start + monthlyUpgrades * (params.silverShare / 100) - silverChurn);
-            G = Math.max(0, G_start + monthlyUpgrades * (params.goldShare / 100) - goldChurn);
-            E = Math.max(0, E_start + monthlyUpgrades * (Math.max(0, 100 - params.bronzeShare - params.silverShare - params.goldShare) / 100) - emeraldChurn);
+            const freeChurn = (start[freePlan.id] || 0) * ((params.freeChurnRate || 10) / 100);
+            counts[freePlan.id] = Math.max(0, (start[freePlan.id] || 0) + newSignups - monthlyUpgrades - freeChurn);
+            paidPlans.forEach(p => {
+              const churn = (start[p.id] || 0) * (effPaidChurn / 100);
+              counts[p.id] = Math.max(0, (start[p.id] || 0) + monthlyUpgrades * (p.sharePct || 0) / totalPaidShare - churn);
+            });
           }
           return rows;
         };
@@ -1394,16 +1694,16 @@
         const perTierContribution = computed(() => {
           const fx = inp.value.exchangeRate;
           const feeVat = (inp.value.paymentFeePct || 0) / 100 + (inp.value.vatPct || 0) / 100;
-          const tiers = [
-            { n: m1.value.bronze || 0, p: inp.value.bronzePrice, c: inp.value.bronzeCallsPerDay },
-            { n: m1.value.silver || 0, p: inp.value.silverPrice, c: inp.value.silverCallsPerDay },
-            { n: m1.value.gold || 0, p: inp.value.goldPrice, c: inp.value.goldCallsPerDay },
-            { n: m1.value.emerald || 0, p: inp.value.emeraldPrice, c: inp.value.emeraldCallsPerDay }
-          ];
-          return tiers;
+          const m1Counts = m1.value.counts || {};
+          return (inp.value.plans || [])
+            .filter(p => p.id !== 'free')
+            .map(p => ({ n: m1Counts[p.id] || 0, p: p.price, c: p.callsPerDay, name: p.name }));
         });
 
-        const paidUsersM1 = computed(() => (m1.value.bronze || 0) + (m1.value.silver || 0) + (m1.value.gold || 0) + (m1.value.emerald || 0));
+        const paidUsersM1 = computed(() => {
+          const m1Counts = m1.value.counts || {};
+          return (inp.value.plans || []).filter(p => p.id !== 'free').reduce((s, p) => s + (m1Counts[p.id] || 0), 0);
+        });
 
         // حاشیه مشارکت وزنی هر کاربر پولی (تومان در ماه)
         const contributionPerPaidUser = computed(() => {
@@ -1429,11 +1729,24 @@
           return Math.ceil(fixedMonthly / cpm);
         });
 
-        const costFreeUser = computed(() => Math.round(inp.value.freeCallsPerDay * inp.value.periodDays * aiCallPriceUSD.value * inp.value.exchangeRate));
-        const costBronzeUser = computed(() => Math.round(inp.value.bronzeCallsPerDay * inp.value.periodDays * aiCallPriceUSD.value * inp.value.exchangeRate));
-        const costSilverUser = computed(() => Math.round(inp.value.silverCallsPerDay * inp.value.periodDays * aiCallPriceUSD.value * inp.value.exchangeRate));
-        const costGoldUser = computed(() => Math.round(inp.value.goldCallsPerDay * inp.value.periodDays * aiCallPriceUSD.value * inp.value.exchangeRate));
-        const costEmeraldUser = computed(() => Math.round(inp.value.emeraldCallsPerDay * inp.value.periodDays * aiCallPriceUSD.value * inp.value.exchangeRate));
+        // هزینهٔ AI هر کاربر به تفکیک پلن (ماهانه، تومان)
+        const planCostPerUser = computed(() => {
+          const fx = inp.value.exchangeRate;
+          const map = {};
+          (inp.value.plans || []).forEach(p => {
+            map[p.id] = Math.round((p.callsPerDay || 0) * inp.value.periodDays * aiCallPriceUSD.value * fx);
+          });
+          return map;
+        });
+        const costFreeUser = computed(() => planCostPerUser.value.free || 0);
+        // هزینهٔ AI کل ماه اول به تفکیک پلن (برای نمودار دایره‌ای)
+        const planCostTotalM1 = computed(() => {
+          const m1Counts = m1.value.counts || {};
+          return (inp.value.plans || []).map(p => ({
+            id: p.id, name: p.name,
+            cost: Math.round((m1Counts[p.id] || 0) * (planCostPerUser.value[p.id] || 0))
+          }));
+        });
 
         const avgLTV = computed(() => {
           const churn = effPaidChurnPct.value / 100;
@@ -1457,8 +1770,16 @@
           return burn > 0 ? Math.abs(cash) / burn : Infinity;
         });
         const arrToman = computed(() => m1.value.netRevenue * 12);
+        // CAC مؤثر: اگر فیلد دستی ۰ باشد، از بودجهٔ تبلیغات و ثبت‌نام‌های غیرارجاعیِ ماه اول «CAC ترکیبی» محاسبه می‌شود
+        const effectiveCACPerNewUser = computed(() => {
+          if ((inp.value.cacPerNewUser || 0) > 0) return inp.value.cacPerNewUser;
+          const adBudget = inp.value.monthlyAdBudget || 0;
+          const paidShare = Math.max(0, 1 - (inp.value.referralShareOfSignups || 0) / 100);
+          const paidSignups = (m1.value.newSignups || 0) * paidShare;
+          return (adBudget > 0 && paidSignups > 0) ? adBudget / paidSignups : 0;
+        });
         const cacPaybackMonths = computed(() => {
-          const cac = inp.value.cacPerNewUser || 0;
+          const cac = effectiveCACPerNewUser.value;
           const cpm = contributionPerPaidUser.value;
           if (cac <= 0 || cpm <= 0) return 0;
           return cac / cpm;
@@ -1466,10 +1787,11 @@
         const d30RetentionPct = computed(() => Math.max(0, 100 - effPaidChurnPct.value));
         // امتیاز سلامت مدل: مجموع شاخص‌های کلیدی
         const healthScore = computed(() => {
+          const cac = effectiveCACPerNewUser.value;
           let s = 0;
           if ((m1.value.margin || 0) >= 10) s += 20;
           else if ((m1.value.margin || 0) >= 0) s += 10;
-          if (avgLTV.value > 0 && (inp.value.cacPerNewUser || 0) > 0 && avgLTV.value / inp.value.cacPerNewUser >= 3) s += 20;
+          if (avgLTV.value > 0 && cac > 0 && avgLTV.value / cac >= 3) s += 20;
           else if (avgLTV.value > 0) s += 10;
           if (effPaidChurnPct.value <= 15) s += 20;
           else if (effPaidChurnPct.value <= 25) s += 10;
@@ -1481,7 +1803,7 @@
 
         // ضعیف‌ترین شاخص بر اساس همان زیرمؤلفه‌های امتیاز سلامت (برای راهنمای فعّال)
         const weakIndicator = computed(() => {
-          const ltvCac = (inp.value.cacPerNewUser || 0) > 0 ? (avgLTV.value / inp.value.cacPerNewUser) : 0;
+          const ltvCac = effectiveCACPerNewUser.value > 0 ? (avgLTV.value / effectiveCACPerNewUser.value) : 0;
           const comps = [
             {
               key: 'margin', label: 'حاشیه سود',
@@ -1522,7 +1844,6 @@
           const keys = [
             ['convBase', 'نرخ تبدیل', 'convRate'],
             ['paidChurnRate', 'ریزش پولی', 'paidChurnRate'],
-            ['bronzePrice', 'قیمت برنز', 'price'],
             ['cacPerNewUser', 'CAC', 'cacPerNewUser'],
             ['exchangeRate', 'نرخ ارز', 'exchangeRate'],
             ['inputTokensPerCall', 'توکن ورودی AI', 'inputTokensPerCall']
@@ -1543,10 +1864,9 @@
           charts.bar.data.datasets[0].data = [m1.value.netRevenue, m1.value.aiCostToman, m1.value.fixedToman, m1.value.netProfit];
           charts.bar.update();
 
-          charts.pie.data.datasets[0].data = [
-            m1.value.free * costFreeUser.value, m1.value.bronze * costBronzeUser.value,
-            m1.value.silver * costSilverUser.value, m1.value.gold * costGoldUser.value, m1.value.emerald * costEmeraldUser.value
-          ];
+          charts.pie.data.labels = planCostTotalM1.value.map(x => x.name);
+          charts.pie.data.datasets[0].data = planCostTotalM1.value.map(x => x.cost);
+          charts.pie.data.datasets[0].backgroundColor = planCostTotalM1.value.map((x, i) => COLORS[x.id] || PLAN_COLORS[i % PLAN_COLORS.length]);
           charts.pie.update();
 
           charts.line.data.labels = baseSeries.value.map(r => `ماه ${r.month}`);
@@ -1589,10 +1909,10 @@
           charts.pie = new Chart(document.getElementById('pieChart'), {
             type: 'doughnut',
             data: {
-              labels: ['هزینه رایگان', 'هزینه برنز', 'هزینه نقره‌ای', 'هزینه طلایی', 'هزینه زمرد'],
+              labels: (inp.value.plans || []).map(p => p.name),
               datasets: [{
-                data: [0,0,0,0,0],
-                backgroundColor: [COLORS.rose, COLORS.bronze, '#94A3B8', COLORS.gold, COLORS.emerald],
+                data: (inp.value.plans || []).map(() => 0),
+                backgroundColor: (inp.value.plans || []).map((p, i) => COLORS[p.id] || PLAN_COLORS[i % PLAN_COLORS.length]),
                 borderWidth: 0, hoverOffset: 4
               }]
             },
@@ -1645,6 +1965,8 @@
         return {
           inp, activeTab, isDesktop, reset, format, m1, mLast, breakEvenUsers, costFreeUser, avgLTV, baseSeries,
           fileInput, exportJSON, triggerImport, importJSON,
+          exportSelecting, importSelecting, selectedSections, EXPORT_SECTIONS,
+          openExportModal, doExport, closeExportModal, doImport, closeImportModal,
           chartOpen, toggleChart,
           totalConversionBoost, totalChurnReduction, totalSignupBoost, trialCACToman,
           contributionPerPaidUser, paidUsersM1, effPaidChurnPct, aiCallPriceUSD,
@@ -1652,7 +1974,10 @@
           weakIndicator, KPI_HELP,
           MODEL_PRICING, TIER_MODELS, TIER_LABEL, setModelChoice, getTierOf, customPricesValid,
           showTechModal, techForm, iconOptions, openAddTechnique, openEditTechnique, saveTechnique,
-          deleteTechnique, closeTechModal, onEffectTypeChange
+          deleteTechnique, closeTechModal, onEffectTypeChange,
+          COLORS, PLAN_COLORS,
+          paidPlans, paidPlansShareSum, paidPlanShare, autoBalanceShare, addPlan, removePlan,
+          effectiveCACPerNewUser, planCostPerUser, planCostTotalM1, trialPlanName, techniqueTrialName
         };
       }
     });
