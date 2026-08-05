@@ -4,7 +4,7 @@ description: Migrate daily_cards to saved_words as Tier-2 first-exposure cards, 
 created: 2026-08-05
 base_commit: 97997534ef86fe50fb3e03dc18813e4555a813fa
 branch: feat/phase-3a-daily-cards-migration
-status: in-progress
+status: complete
 ---
 
 # Phase 3a — Daily Cards Migration to Session Engine (Tier 2 First-Exposure)
@@ -49,8 +49,9 @@ Traces to `docs/plans/plan_daily_cards_migration.md` (PR 1 of 3) and
 | 5 | Update/add tests | complete |
 | 6 | Full validation suite | complete |
 | 7 | Independent review subagent | complete (2 findings fixed: vacuous tests onboarded) |
-| 8 | Commit, push, PR; update docs/issues | in-progress (committed 88e80fc, PR #252, CI green; docs updated; issue comment pending) |
+| 8 | Commit, push, PR; update docs/issues | complete (commits 88e80fc+304f077, PR #252, CI green; docs/issues updated) |
 
 ## Update Log
 - 2026-08-05: Plan persisted; contract locked (5 rules, all Recommended).
 - 2026-08-05: Implementation complete; full suite 384 tests OK; reviewer confirmed no bugs after fixing 2 vacuous test fixtures.
+- 2026-08-05: PR #252 (commits 88e80fc + 304f077) CI green; docs/issues updated. Phase 3a done.
