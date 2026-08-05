@@ -255,7 +255,15 @@
             <span>CAC ترکیبی (زنده از بودجهٔ تبلیغات)</span>
             <span dir="ltr">{{ format(effectiveCACPerNewUser) }} تومان</span>
           </div>
-          <p class="text-[10px] text-inkSoft/70 leading-relaxed mt-1">اگر فیلد دستی ۰ باشد، CAC از بودجهٔ تبلیغات ماهانه و ثبت‌نام‌های غیرارجاعیِ ماه اول محاسبه می‌شود.</p>
+          <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-white/70 text-indigo-900 font-bold rounded-xl border border-line mt-1">
+            <span>CAC دستی</span>
+            <span dir="ltr">{{ (inp.cacPerNewUser || 0) > 0 ? format(inp.cacPerNewUser) : '—' }} تومان</span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-white/70 text-indigo-900 font-bold rounded-xl border border-line mt-1">
+            <span>CAC تخمینی از بودجهٔ تبلیغات</span>
+            <span dir="ltr">{{ format(autoCACPerNewUser) }} تومان</span>
+          </div>
+          <p class="text-[10px] text-inkSoft/70 leading-relaxed mt-1">اگر فیلد دستی ۰ باشد، CAC ترکیبی از بودجهٔ تبلیغات ماهانه و ثبت‌نام‌های غیرارجاعیِ ماه اول محاسبه می‌شود. این اعداد را برای بازبینی کنار هم مقایسه کنید.</p>
           <number-field label="سهم ثبت‌نام‌های ارجاعی" en="Referral Share" v-model="inp.referralShareOfSignups" :min="0" :max="50" :step="1" unit="٪"></number-field>
         </section-card>
 
@@ -430,6 +438,7 @@
             <div class="px-3 py-1.5 rounded-lg bg-rose/10 text-rose">هزینهٔ CAC تریال (ماه ۱): <span dir="ltr">{{ format(trialCACToman) }} تومان</span></div>
             <div class="px-3 py-1.5 rounded-lg bg-rose/10 text-rose">CAC جذب ماهانه: <span dir="ltr">{{ format(m1.cacToman) }} تومان</span></div>
             <div class="px-3 py-1.5 rounded-lg bg-turquoise/10 text-turquoiseDeep">CAC مؤثر هر کاربر: <span dir="ltr">{{ format(effectiveCACPerNewUser) }} تومان</span></div>
+            <div class="px-3 py-1.5 rounded-lg bg-white/70 text-indigo-900">CAC تخمینی از بودجهٔ تبلیغات: <span dir="ltr">{{ format(autoCACPerNewUser) }} تومان</span></div>
             <div class="px-3 py-1.5 rounded-lg bg-turquoise/10 text-turquoiseDeep">سهم ارجاعی از ثبت‌نام‌ها: <span dir="ltr">{{ inp.referralShareOfSignups }}٪</span></div>
             <button @click="openAddTechnique" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors inline-flex items-center gap-1.5">
               <i data-lucide="plus" class="w-3.5 h-3.5"></i> افزودن تکنیک
@@ -1778,6 +1787,13 @@
           const paidSignups = (m1.value.newSignups || 0) * paidShare;
           return (adBudget > 0 && paidSignups > 0) ? adBudget / paidSignups : 0;
         });
+        // R5: نمایش کنار هم — تخمین زنده از بودجهٔ تبلیغات (مستقل از فیلد دستی) برای بازبینی CAC
+        const autoCACPerNewUser = computed(() => {
+          const adBudget = inp.value.monthlyAdBudget || 0;
+          const paidShare = Math.max(0, 1 - (inp.value.referralShareOfSignups || 0) / 100);
+          const paidSignups = (m1.value.newSignups || 0) * paidShare;
+          return (adBudget > 0 && paidSignups > 0) ? adBudget / paidSignups : 0;
+        });
         const cacPaybackMonths = computed(() => {
           const cac = effectiveCACPerNewUser.value;
           const cpm = contributionPerPaidUser.value;
@@ -1977,7 +1993,7 @@
           deleteTechnique, closeTechModal, onEffectTypeChange,
           COLORS, PLAN_COLORS,
           paidPlans, paidPlansShareSum, paidPlanShare, autoBalanceShare, addPlan, removePlan,
-          effectiveCACPerNewUser, planCostPerUser, planCostTotalM1, trialPlanName, techniqueTrialName
+          effectiveCACPerNewUser, autoCACPerNewUser, planCostPerUser, planCostTotalM1, trialPlanName, techniqueTrialName
         };
       }
     });
