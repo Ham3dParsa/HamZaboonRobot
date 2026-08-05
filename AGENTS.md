@@ -697,6 +697,85 @@ Do not introduce payment automation, groups, leaderboards, AI images, broad
 analytics, or advanced placement testing unless the user explicitly moves
 them into scope through `ROADMAP.md`.
 
+## 10. OpenCode Skills, Subagents, and Plan Persistence
+
+<!-- [opencode-setup:start] -->
+
+This section is a delimited, revertible block. It defines how skills and
+subagents are loaded and how plans must be persisted. Reverting the whole
+setup = delete this block (plus the `.gitignore` `[opencode-setup]` block and
+the `.opencode/` folders). See `.opencode/plans/plan-opencode-tooling-setup.md`.
+
+### 10.1 Skill loading policy
+
+Skills are loaded **lazily and only when relevant** to control token usage —
+they are NOT injected into every session. The agent loads a skill via the
+`skill` tool only when the task matches the skill's description. Repo-specific
+skills live in `.opencode/skills/`; general-purpose reusable skills live
+globally in `~/.config/opencode/skills/` (shared across all projects).
+
+### 10.2 Skills map
+
+| Skill (repo-local `.opencode/skills/`) | Load when | Enforces |
+|---|---|---|
+| `contract-lock-gate` | any code change is proposed | AGENTS.md §2.4 pre-implementation gate |
+| `hamzaban-validation` | preparing to commit / validate | AGENTS.md §6 full validation suite |
+| `pre-commit-gate` | before any commit | AGENTS.md §7 pre-commit checklist |
+| `integration-test-proto` | behavioral change (callbacks, handlers, DB, quotas, AI) | Integration Test Protocol (§6) |
+| `callback-wiring` | adding/changing callback prefixes or keyboards | Callback Routing Map (§3) + wiring guards |
+| `persian-formatting` | adding/changing user-facing text | MarkdownV2 escaping contract (§3) |
+| `plan-persistence` | plan locked / after each implementation step | Plan persistence + archive rule (§10.3) |
+| `graphify-index` | structural queries / large refactors | Graphify knowledge-graph usage |
+| `grill-to-spec` | plan finalization before execution | Grill → spec → contract-lock discipline |
+| `spec-to-tickets` | complex task needs per-phase breakdown | Tracer-bullet tickets + per-phase plans |
+| `tdd-enforcement` | during implementation phases | Test-first discipline (§5) |
+| `bug-diagnosis` | debugging failure / test failure / CI failure | Systematic diagnose → fix loop (§7) |
+
+Global general skills (shared, `~/.config/opencode/skills/`): TDD, systematic
+debugging, executing-plans, verifying-before-completion, writing-plans,
+requesting/receiving-code-review, reviewing-security, evolving-apis-and-schemas,
+subagent-driven-development, using-git-worktrees, git-commit, python-pro,
+test-master, code-reviewer, debugging-wizard. These may be used across any
+project; they are optional conveniences, not HamZaban-specific gates.
+
+### 10.3 Lean subagents
+
+`.opencode/agents/` defines specialized subagents with tightly scoped tool
+permissions to minimize per-turn prompt overhead and prevent out-of-domain
+edits. Use them for their domain:
+
+| Subagent | Domain | Key permission |
+|---|---|---|
+| `hamzaboon-db` | `services/db/*`, `services/fsrs_core.py` | bash → db/reviews/fsrs/migrations tests only |
+| `hamzaboon-ai` | `services/ai/*` | bash → ai tests only |
+| `hamzaboon-handler` | `handlers/*`, `config/keyboards.py`, `bot.py` | bash → integration/wiring/formatting tests only |
+| `hamzaboon-reviewer` | independent review | `edit: deny`; read-only |
+
+The Independent Review Subagent requirement (§5) is satisfied by
+`hamzaboon-reviewer`.
+
+### 10.4 Plan persistence rule
+
+When a locked plan begins execution, the agent MUST persist the full plan with
+per-phase/step progress status to `.opencode/plans/plan*.md`, and update it
+after each implementation step. This keeps the plan complete and current so
+that continuation after context compaction or in a new chat produces correct
+results, not corrupted or gap-filled outcomes.
+
+For complex/thorough tasks with nuances and critical module changes (schema
+migrations, callback routing, module boundary changes, multi-file refactors),
+the agent MUST create a per-phase plan file for each phase of the main plan
+(`.opencode/plans/plan-<main>-phase-<NN>-<topic>.md`). This forces each phase's
+details to be specified up front and prevents silent self-filling of logical
+gaps. Plans that introduce or change behavior must trace back to their locked
+Contract Lock rules.
+
+**Archive rule:** when a plan is done and completely evaluated, it moves to
+`docs/archive/` (with a date suffix). `.opencode/plans/` keeps only active or
+in-progress plans.
+
+<!-- [opencode-setup:end] -->
+
 ## Appendix A: Agent Self-Check Checklist
 
 **Context Refresh Protocol**: At the start of every new session or major task, the agent SHOULD silently verify or explicitly output this checklist to refresh context-window constraints before proceeding.

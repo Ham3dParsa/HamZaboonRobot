@@ -30,3 +30,9 @@ env/
 env-example.txt
 hamzaban-product-doc-*.html
 hamzaban-product-doc-v1_files/
+
+# [opencode-setup] Graphify knowledge-graph artifacts
+graphify-out/
+.graphify/
+graph.html
+GRAPH_REPORT.md
