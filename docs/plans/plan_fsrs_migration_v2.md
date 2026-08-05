@@ -1,6 +1,6 @@
 ﻿# FSRS-6 Migration Plan v2 — Architecture-Locked, Modular Implementation
 
-**Status:** ✅ Architecture locked — ready for Phase 0 implementation
+**Status:** ✅ Architecture locked — Phase 1 (0–1g) merged 2026-08-02/03; Phases 1a/1c partial (FSRS DB wiring + Tier-3 AI stubbed for Phase 3b), Phase 2 pending after Phase 3a migration
 **Cutover strategy:** Atomic (bot is OFF; all changes land in one deployment)
 **References:**
 - `docs/FSRS_v6.md` — Complete FSRS-6 algorithm reference
