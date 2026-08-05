@@ -62,14 +62,7 @@ from config.keyboards import (
     settings_inline_keyboard,
     awaiting_reply_keyboard,
     awaiting_inline_keyboard,
-    daily_review_dates_keyboard,
-    daily_review_menu_keyboard,
     query_result_keyboard,
-    srs_hidden_keyboard,
-    srs_revealed_keyboard,
-    srs_review_keyboard,
-    daily_card_keyboard,
-    study_start_keyboard,
     BTN_STUDY_SESSION,
     BTN_ASK_WORD,
     BTN_ADMIN,
@@ -81,7 +74,6 @@ from config.keyboards import (
 from services.utils.formatting import (
     CardPreparationError,
     format_card,
-    format_srs_prompt,
     _phonetic_lines,
 )
 
@@ -105,7 +97,6 @@ from services.utils.helpers import (
 
 from services.ai.llm_services import (
     _call_ai_limited,
-    _ask_batch_limited,
     _prepare_cached_card,
     _retry_primary_preset,
 )
@@ -136,9 +127,7 @@ from handlers.user import (
     on_level_changed,
     ask_for_ask_word,
     show_status,
-    _handle_daily_prepare,
     _handle_query_prepare,
-    _show_review_menu,
     _show_settings_menu,
     _custom_word_input_error,
     _word_query_usage_text,
@@ -150,9 +139,6 @@ from handlers.srs_handler import (
     _handle_first_exposure_grade,
     _handle_query_add,
     _handle_srs_review,
-    _handle_srs_reveal,
-    _handle_srs_prepare,
-    _saved_word_card,
 )
 
 logging.addLevelName(COST, "COST")
@@ -238,395 +224,6 @@ _consecutive_health_failures: int = 0
 _OFFLINE_THRESHOLD: int = 1
 _OFFLINE_MESSAGE = "⚠️ اتصال ربات به اینترنت قطع شده. به محض وصل شدن، دوباره تلاش کن."
 _AI_BUSY_MESSAGE = "هوش مصنوعی الان شلوغه؛ کمی بعد دوباره تلاش کن."
-
-
-async def _send_card_from_store(
-    context: ContextTypes.DEFAULT_TYPE,
-    chat_id: int,
-    user_id: int,
-    card_date: str,
-    card_index: int,
-    *,
-    review_mode: bool = False,
-    callback_query=None,
-):
-    cards = db.get_daily_cards(user_id, card_date)
-    if card_index >= len(cards):
-        return None, len(cards)
-    card = cards[card_index]
-    row = db.get_user(user_id)
-    session = db.get_daily_card_session(user_id, card_date)
-    if not row:
-        raise CardPreparationError("daily card owner no longer exists")
-    card = await asyncio.to_thread(
-        _prepare_cached_card,
-        card,
-        lang=(session["target_lang"] if session else row["target_lang"]),
-        user_id=user_id,
-        plan=row["plan"] or "free",
-        source="daily_review" if review_mode else "daily",
-        persist_patch=lambda patch: db.update_daily_card_fields(
-            user_id,
-            card_date,
-            card_index,
-            patch,
-        ),
-    )
-    footer = f"📖 کارت {card_index + 1} از {len(cards)} برای {card_date}"
-    if review_mode:
-        footer = f"📚 مرور کارت {card_index + 1} از {len(cards)} برای {card_date}"
-    phon_lines = _phonetic_lines(card.get("phonetic", ""))
-    progress = db.get_daily_progress(user_id, card_date)
-    if not review_mode:
-        limit = effective_daily_allowance(
-            row["plan"] or "free",
-            row["optional_daily_limit"],
-            OWNER_BYPASS_LIMITS and is_owner(user_id),
-        )
-        next_index = card_index + 1
-        has_next = next_index < limit
-        next_card_is_new = next_index >= progress
-    else:
-        has_next = card_index + 1 < len(cards)
-        next_card_is_new = False
-    markup = daily_card_keyboard(
-        user_id,
-        card_date,
-        card_index,
-        has_next,
-        callback_prefix="review:next" if review_mode else "daily:next",
-        show_translations=True,
-        show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
-        has_prev=card_index > 0,
-        next_card_is_new=next_card_is_new,
-    )
-    text = format_card(
-        card,
-        footer=footer,
-        presentation=_user_presentation(row),
-        phonetic_lines=phon_lines,
-    )
-    if callback_query:
-        try:
-            await _edit_with_retry(callback_query, text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=markup)
-            return card, len(cards)
-        except BadRequest:
-            pass
-    await _send_with_retry(context.bot, chat_id, text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=markup)
-    return card, len(cards)
-
-
-# ---------------- دکمه‌های اصلی ----------------
-
-def _generate_daily_batch(
-    lang: str,
-    goal: str,
-    level: str,
-    card_count: int,
-    used_words: list[str],
-    user_id: int | None = None,
-    plan: str | None = None,
-) -> list[dict]:
-    cards: list[dict] = []
-    last_error: Exception | None = None
-    omit_prompt_avoid = False
-    for attempt in range(1, 4):
-        remaining = card_count - len(cards)
-        if remaining <= 0:
-            break
-        batch_words = used_words + [card["word"] for card in cards]
-        prompt_avoid_words = [] if omit_prompt_avoid else batch_words
-        if omit_prompt_avoid:
-            log.info(
-                "daily batch retry omitting prompt avoid-list user_id=%s attempt=%s",
-                user_id,
-                attempt,
-            )
-        try:
-            batch = _ask_batch_limited(
-                prompts.daily_batch_system_prompt(
-                    lang,
-                    goal,
-                    level,
-                    remaining,
-                    avoid_words=prompt_avoid_words,
-                    compact=AI_CARD_OUTPUT_FORMAT == "compact_json",
-                ),
-                expected_count=remaining,
-                used_words=batch_words,
-                request_kind="daily_batch",
-                user_id=user_id,
-                plan=plan,
-            )
-        except Exception as exc:
-            last_error = exc
-            if (
-                isinstance(exc, ai.BatchValidationError)
-                and exc.diagnostics.get("accepted", 0) == 0
-                and exc.diagnostics.get("validation_rejected", 0) == 0
-                and exc.diagnostics.get("duplicates_against_avoid", 0) > 0
-                and exc.diagnostics.get("duplicates_within_batch", 0) == 0
-            ):
-                omit_prompt_avoid = True
-            log.warning(
-                "daily batch attempt failed user_id=%s attempt=%s requested=%s "
-                "accepted_so_far=%s error=%s",
-                user_id,
-                attempt,
-                remaining,
-                len(cards),
-                exc,
-            )
-            continue
-        if not batch:
-            log.warning(
-                "daily batch returned empty result user_id=%s attempt=%s requested=%s",
-                user_id,
-                attempt,
-                remaining,
-            )
-            continue
-        cards.extend(batch)
-
-    if not cards and last_error:
-        raise last_error
-    return cards
-
-
-def _daily_avoid_words(user_id: int, target_lang: str, card_date: str, current_cards: list[dict]) -> list[str]:
-    words: list[str] = []
-    seen: set[str] = set()
-    for word in db.get_recent_daily_words(user_id, target_lang, exclude_date=card_date, limit=50):
-        normalized = " ".join(str(word).split()).casefold()
-        if normalized and normalized not in seen:
-            seen.add(normalized)
-            words.append(word)
-    for card in current_cards:
-        word = str(card.get("word", "")).strip()
-        normalized = " ".join(word.split()).casefold()
-        if normalized and normalized not in seen:
-            seen.add(normalized)
-            words.append(word)
-    return words
-
-
-def _daily_card_session_profile(user_id: int, row, card_date: str):
-    session = db.ensure_daily_card_session(
-        user_id,
-        card_date,
-        row["target_lang"],
-        row["goal"],
-        row["level"],
-    )
-    return session
-
-
-def _ensure_daily_cards(user_id: int, row, card_date: str, limit: int) -> list[dict]:
-    session = _daily_card_session_profile(user_id, row, card_date)
-    cards = db.get_daily_cards(user_id, card_date)
-    if len(cards) >= limit:
-        return cards
-
-    active_preset = db.get_active_preset()
-    provenance = active_preset.get("name", "unknown") if active_preset else "unknown"
-    used_words = _daily_avoid_words(user_id, session["target_lang"], card_date, cards)
-    new_cards = _generate_daily_batch(
-        session["target_lang"],
-        session["goal"],
-        session["level"],
-        limit - len(cards),
-        used_words,
-        user_id,
-        row["plan"] or "free",
-    )
-    for offset, card in enumerate(new_cards):
-        db.add_daily_card(user_id, card_date, len(cards) + offset, card, provenance=provenance)
-    return db.get_daily_cards(user_id, card_date)
-
-
-def _ensure_next_daily_card(user_id: int, row, card_date: str, limit: int) -> tuple[dict | None, int]:
-    session = _daily_card_session_profile(user_id, row, card_date)
-    next_index = db.get_daily_progress(user_id, card_date)
-    if next_index >= limit:
-        return None, next_index
-
-    cards = db.get_daily_cards(user_id, card_date)
-    if next_index >= len(cards):
-        active_preset = db.get_active_preset()
-        provenance = active_preset.get("name", "unknown") if active_preset else "unknown"
-        batch_size = active_preset.get("daily_batch_size", 6) if active_preset else 6
-        used_words = _daily_avoid_words(user_id, session["target_lang"], card_date, cards)
-        remaining = limit - len(cards)
-        new_cards = _generate_daily_batch(
-            session["target_lang"],
-            session["goal"],
-            session["level"],
-            min(batch_size, remaining),
-            used_words,
-            user_id,
-            row["plan"] or "free",
-        )
-        if not new_cards:
-            raise RuntimeError("AI returned no card for the requested daily card")
-        for offset, card in enumerate(new_cards):
-            db.add_daily_card(user_id, card_date, len(cards) + offset, card, provenance=provenance)
-        cards = db.get_daily_cards(user_id, card_date)
-
-    card = cards[next_index]
-    return card, next_index
-
-
-async def _send_next_daily_card(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    row,
-    card_date: str,
-    limit: int,
-    *,
-    callback_query=None,
-):
-    user_id = row["user_id"]
-    async with _get_user_lock(user_id):
-        card, card_index = await asyncio.to_thread(
-            _ensure_next_daily_card,
-            user_id,
-            row,
-            card_date,
-            limit,
-        )
-        if card is not None:
-            card = await asyncio.to_thread(
-                _prepare_cached_card,
-                card,
-                lang=row["target_lang"],
-                user_id=user_id,
-                plan=row["plan"] or "free",
-                source="daily",
-                persist_patch=lambda patch: db.update_daily_card_fields(
-                    user_id,
-                    card_date,
-                    card_index,
-                    patch,
-                ),
-            )
-            db.set_daily_progress(user_id, card_date, card_index + 1)
-
-    if card is None:
-        await _send_with_retry(
-            context.bot,
-            update.effective_chat.id,
-            f"✅ سهمیه‌ی امروزت ({limit} کارت) کامل شده است.",
-            reply_markup=daily_review_menu_keyboard(),
-        )
-        return
-
-    db.touch_streak(user_id)
-    log.info("daily card delivered user_id=%s date=%s index=%s", user_id, card_date, card_index)
-    phon_lines = _phonetic_lines(card.get("phonetic", ""))
-    markup = daily_card_keyboard(
-        user_id,
-        card_date,
-        card_index,
-        card_index + 1 < limit,
-        show_translations=True,
-        show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
-        has_prev=card_index > 0,
-    )
-    text = format_card(
-        card,
-        footer=f"📖 کارت {card_index + 1} از {limit} امروز",
-        presentation=_user_presentation(row),
-        phonetic_lines=phon_lines,
-    )
-    if callback_query:
-        try:
-            await _edit_with_retry(callback_query, text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=markup)
-            return
-        except BadRequest:
-            pass
-    await _send_with_retry(context.bot, update.effective_chat.id, text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=markup)
-
-
-async def send_daily_card_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    row = db.get_user(user_id)
-    if not row or not row["onboarded"]:
-        await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
-        return
-
-    today = _app_today()
-    plan = _user_plan(row)
-    limit = effective_daily_allowance(
-        row["plan"] or "free",
-        row["optional_daily_limit"],
-        OWNER_BYPASS_LIMITS and is_owner(user_id),
-    )
-
-    user = update.effective_user
-    _ua_line = _user_activity_line(
-        user_id=user_id, full_name=user.full_name, username=user.username,
-        action="daily_card", outcome="started",
-        plan=row["plan"], lang=row["target_lang"], goal=row["goal"], level=row["level"],
-    )
-    if _ua_line:
-        log.log(USER_ACTIVITY, "%s", _ua_line)
-
-    wait_message = await _start_llm_wait_state(
-        update,
-        context,
-        "⏳ دارم کارت امروز رو می‌سازم…",
-    )
-    success = True
-    try:
-        await _send_next_daily_card(update, context, row, today, limit)
-    except Exception:
-        success = False
-        log.exception("Daily card generation failed")
-        await _send_with_retry(context.bot, update.effective_chat.id, "مشکلی در ساخت کارت‌های امروز پیش اومد.")
-    finally:
-        await _finish_llm_wait_state(wait_message, bot=context.bot)
-        _ua_line2 = _user_activity_line(
-            user_id=user_id, full_name=user.full_name, username=user.username,
-            action="daily_card", outcome="success" if success else "error",
-            plan=row["plan"], lang=row["target_lang"], goal=row["goal"], level=row["level"],
-        )
-        if _ua_line2:
-            log.log(USER_ACTIVITY, "%s", _ua_line2)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-async def _show_review_date(update: Update, context: ContextTypes.DEFAULT_TYPE, card_date: str):
-    user_id = update.effective_user.id
-    row = db.get_user(user_id)
-    if not row or not row["onboarded"]:
-        await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
-        return
-    cards = db.get_daily_cards(user_id, card_date)
-    if not cards:
-        await update.callback_query.answer("برای این روز کارتی پیدا نشد.", show_alert=True)
-        return
-    await _send_card_from_store(
-        context,
-        update.effective_chat.id,
-        user_id,
-        card_date,
-        0,
-        review_mode=True,
-        callback_query=update.callback_query,
-    )
 
 
 # ---------------- روتر پیام‌های متنی (منو + حالت‌های در انتظار ورودی) ----------------
@@ -845,9 +442,6 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "study:start",
             "query:add:",
             "query:prepare:",
-            "daily:prepare:",
-            "daily:prev:",
-            "review:prepare:",
             "presentation:",
             "flow:",
             "srs:",
@@ -943,152 +537,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await on_level_changed(update, context, level)
         else:
             await on_level_selected(update, context, level)
-    elif data.startswith("daily:prepare:"):
-        await _handle_daily_prepare(update, context, data, review_mode=False)
-    elif data.startswith("review:prepare:"):
-        await _handle_daily_prepare(update, context, data, review_mode=True)
     elif data.startswith("query:prepare:"):
         await _handle_query_prepare(update, context, data.split(":", 2)[2])
-    elif data.startswith("daily:next:"):
-        parts = data.split(":")
-        if len(parts) != 5:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-            return
-        target_user_id_text, card_date, current_index_text = parts[2], parts[3], parts[4]
-        today = _app_today()
-        if card_date != today:
-            await update.callback_query.answer("این کارت مربوط به روز گذشته است.", show_alert=True)
-            return
-        try:
-            target_user_id = int(target_user_id_text)
-            current_index = int(current_index_text)
-        except ValueError:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-            return
-
-        user_id = update.effective_user.id
-        if user_id != target_user_id:
-            await update.callback_query.answer("این کارت برای کاربر دیگری است.", show_alert=True)
-            return
-        row = db.get_user(user_id)
-        if not row or not row["onboarded"]:
-            await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
-            return
-
-        progress = db.get_daily_progress(user_id, today)
-        next_index = current_index + 1
-
-        if next_index < progress:
-            await update.callback_query.answer()
-            try:
-                await _send_card_from_store(context, update.effective_chat.id, user_id, today, next_index, callback_query=update.callback_query)
-            except CardPreparationError:
-                await _send_with_retry(context.bot, update.effective_chat.id, "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.")
-            return
-
-        if next_index > progress:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-            return
-
-        limit = effective_daily_allowance(
-            row["plan"] or "free",
-            row["optional_daily_limit"],
-            OWNER_BYPASS_LIMITS and is_owner(user_id),
-        )
-        await update.callback_query.answer()
-        try:
-            await _send_next_daily_card(update, context, row, today, limit)
-        except Exception:
-            log.exception("Next daily card generation failed")
-            await _send_with_retry(
-                context.bot,
-                update.effective_chat.id,
-                "مشکلی در ساخت کارت بعدی پیش اومد.",
-            )
-    elif data.startswith("daily:prev:"):
-        parts = data.split(":")
-        if len(parts) != 5:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-            return
-        target_user_id_text, card_date, current_index_text = parts[2], parts[3], parts[4]
-        try:
-            target_user_id = int(target_user_id_text)
-            current_index = int(current_index_text)
-        except ValueError:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-            return
-        user_id = update.effective_user.id
-        if user_id != target_user_id:
-            await update.callback_query.answer("این کارت برای کاربر دیگری است.", show_alert=True)
-            return
-        prev_index = current_index - 1
-        if prev_index < 0:
-            await update.callback_query.answer("این اولین کارت است.", show_alert=True)
-            return
-        await update.callback_query.answer()
-        try:
-            await _send_card_from_store(context, update.effective_chat.id, user_id, card_date, prev_index, callback_query=update.callback_query)
-        except CardPreparationError:
-            await _send_with_retry(context.bot, update.effective_chat.id, "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.")
-    elif data == "review:menu":
-        await _show_review_menu(update, context)
-    elif data.startswith("review:page:"):
-        parts = data.split(":")
-        if len(parts) != 3:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-            return
-        try:
-            page = int(parts[2])
-        except ValueError:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-            return
-        await _show_review_menu(update, context, page)
-    elif data.startswith("review:date:"):
-        card_date = data.split(":", 2)[2]
-        await _show_review_date(update, context, card_date)
-    elif data.startswith("review:next:"):
-        parts = data.split(":")
-        if len(parts) != 5:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-            return
-        target_user_id_text, card_date, current_index_text = parts[2], parts[3], parts[4]
-        try:
-            target_user_id = int(target_user_id_text)
-            current_index = int(current_index_text)
-        except ValueError:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-            return
-        user_id = update.effective_user.id
-        if user_id != target_user_id:
-            await update.callback_query.answer("این کارت برای کاربر دیگری است.", show_alert=True)
-            return
-        row = db.get_user(user_id)
-        if not row or not row["onboarded"]:
-            await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
-            return
-        cards = db.get_daily_cards(user_id, card_date)
-        if current_index + 1 >= len(cards):
-            await update.callback_query.answer("کارت دیگری برای این روز وجود ندارد.", show_alert=True)
-            return
-        await update.callback_query.answer()
-        try:
-            await _send_card_from_store(
-                context,
-                update.effective_chat.id,
-                user_id,
-                card_date,
-                current_index + 1,
-                review_mode=True,
-                callback_query=update.callback_query,
-            )
-        except CardPreparationError:
-            await _send_with_retry(
-                context.bot,
-                update.effective_chat.id,
-                "این کارت فعلاً با اطمینان آماده نشد؛ لطفاً بعداً دوباره امتحان کنید.",
-            )
-    elif data == "review:noop":
-        await update.callback_query.answer("هنوز کارتی برای مرور ندارید.", show_alert=True)
     elif data.startswith("query:add:"):
         parts = data.split(":", 2)
         if len(parts) != 3:
@@ -1115,18 +565,6 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _answer_callback_safely(update.callback_query)
     elif data.startswith("llm:"):
         await _handle_llm_callback(update, context, data)
-    elif data.startswith("srs:prepare:"):
-        parts = data.split(":")
-        if len(parts) != 4:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-            return
-        await _handle_srs_prepare(update, context, parts[2], parts[3])
-    elif data.startswith("srs:reveal:"):
-        parts = data.split(":")
-        if len(parts) != 4:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-            return
-        await _handle_srs_reveal(update, context, parts[2], parts[3])
     elif data.startswith("srs:fe:"):
         parts = data.split(":")
         if len(parts) != 5:

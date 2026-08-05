@@ -73,6 +73,86 @@ BANNED_SYMBOLS: dict[str, str] = {
         "removed by FSRS migration Phase 1c: services/srs_engine.py scaffold "
         "replaced by the services/session/ package"
     ),
+    "_generate_daily_batch": (
+        "removed by FSRS migration Phase 2: daily-card batch AI generation replaced "
+        "by the reusable ai.ask_batch layer + saved-words FSRS flow"
+    ),
+    "_daily_avoid_words": (
+        "removed by FSRS migration Phase 2: daily-card avoid-word tracking replaced "
+        "by saved-words review flow"
+    ),
+    "_ensure_daily_cards": (
+        "removed by FSRS migration Phase 2: daily-card priming replaced by the "
+        "saved-words FSRS flow"
+    ),
+    "_ensure_next_daily_card": (
+        "removed by FSRS migration Phase 2: daily-card delivery replaced by the "
+        "saved-words FSRS flow"
+    ),
+    "_send_next_daily_card": (
+        "removed by FSRS migration Phase 2: daily-card delivery replaced by the "
+        "saved-words FSRS flow"
+    ),
+    "_send_card_from_store": (
+        "removed by FSRS migration Phase 2: daily-card store delivery replaced by "
+        "the saved-words FSRS flow"
+    ),
+    "send_daily_card_now": (
+        "removed by FSRS migration Phase 2: manual daily-card send replaced by the "
+        "saved-words FSRS flow"
+    ),
+    "_show_review_date": (
+        "removed by FSRS migration Phase 2: daily-card review-date summary replaced "
+        "by the saved-words FSRS flow"
+    ),
+    "start_srs_review": (
+        "removed by FSRS migration Phase 2: legacy review-history menu replaced by "
+        "the saved-words FSRS flow"
+    ),
+    "_show_review_menu": (
+        "removed by FSRS migration Phase 2: legacy review menu replaced by the "
+        "saved-words FSRS flow"
+    ),
+    "_handle_daily_prepare": (
+        "removed by FSRS migration Phase 2: daily-card prepare callback replaced by "
+        "the saved-words FSRS flow"
+    ),
+    "_review_history_page": (
+        "removed by FSRS migration Phase 2: legacy review-history paging replaced by "
+        "the saved-words FSRS flow"
+    ),
+    "_handle_srs_reveal": (
+        "removed by FSRS migration Phase 2: staged-reveal callback replaced by the "
+        "4-grade review flow"
+    ),
+    "_handle_srs_prepare": (
+        "removed by FSRS migration Phase 2: SRS prepare callback replaced by the "
+        "4-grade review flow"
+    ),
+    "daily_card_keyboard": (
+        "removed by FSRS migration Phase 2: daily-card keyboard replaced by the "
+        "saved-words FSRS flow"
+    ),
+    "daily_review_menu_keyboard": (
+        "removed by FSRS migration Phase 2: legacy review menu keyboard removed with "
+        "the saved-words FSRS flow"
+    ),
+    "daily_review_dates_keyboard": (
+        "removed by FSRS migration Phase 2: legacy review-history keyboard removed "
+        "with the saved-words FSRS flow"
+    ),
+    "srs_hidden_keyboard": (
+        "removed by FSRS migration Phase 2: staged-reveal hidden keyboard replaced "
+        "by the 4-grade review flow"
+    ),
+    "srs_revealed_keyboard": (
+        "removed by FSRS migration Phase 2: staged-reveal shown keyboard replaced "
+        "by the 4-grade review flow"
+    ),
+    "srs_review_keyboard": (
+        "removed by FSRS migration Phase 2: legacy review keyboard replaced by the "
+        "4-grade review flow"
+    ),
 }
 
 # Symbols that are intentionally retained even though they are no longer

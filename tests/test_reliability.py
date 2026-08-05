@@ -453,42 +453,6 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertEqual(db.touch_streak(1), 1)
         self.assertEqual(db.touch_streak(1), 1)
 
-    def test_manual_daily_card_request_primes_a_shared_batch_reservoir(self):
-        db.create_user_if_needed(1, "learner")
-        db.set_user_lang_goal(1, "en", "words")
-        db.set_user_level(1, "beginner")
-        row = db.get_user(1)
-        card_date = dt.date(2026, 7, 12).isoformat()
-        calls: list[int] = []
-
-        def fake_generate_daily_batch(
-            lang,
-            goal,
-            level,
-            card_count,
-            used_words,
-            user_id=None,
-            plan=None,
-        ):
-            calls.append(card_count)
-            return [
-                {
-                    "word": f"word-{index}",
-                    "translation": f"translation-{index}",
-                    "romanization": "",
-                    "grammar_tip": "",
-                }
-                for index in range(card_count)
-            ]
-
-        with patch.object(bot, "_generate_daily_batch", side_effect=fake_generate_daily_batch):
-            card, index = bot._ensure_next_daily_card(1, row, card_date, 30)
-
-        self.assertEqual(calls, [6])
-        self.assertEqual(index, 0)
-        self.assertEqual(card["word"], "word-0")
-        self.assertEqual(db.count_daily_cards(1, card_date), 6)
-
     def test_six_card_batch_is_persisted_as_six_readable_cards(self):
         db.create_user_if_needed(1, "learner")
         cards = [
@@ -508,86 +472,6 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         stored = db.get_daily_cards(1, "2026-07-12")
         self.assertEqual(len(stored), 6)
         self.assertEqual([card["word"] for card in stored], [f"word-{i}" for i in range(6)])
-
-    def test_daily_batch_retry_removes_prompt_avoid_list_after_avoid_collisions(self):
-        diagnostics = {
-            "accepted": 0,
-            "validation_rejected": 0,
-            "duplicates_against_avoid": 6,
-            "duplicates_within_batch": 0,
-        }
-        prompts_seen: list[str] = []
-        calls = 0
-
-        def fake_ask_batch(system_prompt, **kwargs):
-            nonlocal calls
-            calls += 1
-            prompts_seen.append(system_prompt)
-            if calls == 1:
-                raise ai.BatchValidationError(
-                    "No valid cards remained after batch validation",
-                    diagnostics,
-                )
-            return [
-                {
-                    "word": "new-word",
-                    "translation": "translation",
-                }
-            ]
-
-        with patch.object(bot, "_ask_batch_limited", side_effect=fake_ask_batch):
-            cards = bot._generate_daily_batch(
-                "en",
-                "general",
-                "beginner",
-                1,
-                ["known-word"],
-            )
-
-        self.assertEqual(cards[0]["word"], "new-word")
-        self.assertIn("known-word", prompts_seen[0])
-        self.assertNotIn("known-word", prompts_seen[1])
-
-    def test_daily_cards_lock_to_the_first_session_snapshot_of_the_day(self):
-        db.create_user_if_needed(1, "learner")
-        db.set_user_lang_goal(1, "en", "general")
-        db.set_user_level(1, "beginner")
-        row = db.get_user(1)
-        card_date = dt.date(2026, 7, 12).isoformat()
-        calls: list[tuple[str, str, str, int]] = []
-
-        def fake_generate_daily_batch(
-            lang,
-            goal,
-            level,
-            card_count,
-            used_words,
-            user_id=None,
-            plan=None,
-        ):
-            calls.append((lang, goal, level, card_count))
-            return [
-                {
-                    "word": f"{lang}-{goal}-{level}-{index}",
-                    "translation": f"translation-{index}",
-                    "romanization": "",
-                    "grammar_tip": "",
-                }
-                for index in range(card_count)
-            ]
-
-        with patch.object(bot, "_generate_daily_batch", side_effect=fake_generate_daily_batch):
-            bot._ensure_next_daily_card(1, row, card_date, 12)
-            db.set_daily_progress(1, card_date, 6)
-            db.set_user_lang_goal(1, "es", "toeic")
-            db.set_user_level(1, "advanced")
-            bot._ensure_next_daily_card(1, db.get_user(1), card_date, 12)
-
-        self.assertEqual(calls[0][:3], ("en", "general", "beginner"))
-        self.assertEqual(calls[1][:3], ("en", "general", "beginner"))
-        self.assertEqual(db.get_daily_card_session(1, card_date)["target_lang"], "en")
-        self.assertEqual(db.count_daily_cards(1, card_date), 12)
-
 
 
 

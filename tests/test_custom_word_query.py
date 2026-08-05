@@ -18,9 +18,6 @@ from config.keyboards import (
     BTN_ASK_WORD,
     BTN_SETTINGS,
     awaiting_inline_keyboard,
-    daily_card_keyboard,
-    daily_review_dates_keyboard,
-    daily_review_menu_keyboard,
     get_review_keyboard,
     main_menu,
     presentation_settings_keyboard,
@@ -88,11 +85,6 @@ class CustomWordQueryTests(unittest.TestCase):
         self.assertTrue(all(len(callback) < 64 for callback in callbacks))
 
     def test_translation_prepare_controls_are_scoped(self):
-        daily = daily_card_keyboard(123, "2026-07-12", 2, False, show_translations=True)
-        self.assertEqual(
-            daily.inline_keyboard[0][0].callback_data,
-            "daily:prepare:123:2026-07-12:2",
-        )
         query = query_result_keyboard("a" * 32, show_translations=True)
         self.assertEqual(
             query.inline_keyboard[0][1].callback_data,
@@ -148,39 +140,6 @@ class CustomWordQueryTests(unittest.TestCase):
             db.get_recent_daily_card_dates(1, limit=3),
             ["2026-07-12", "2026-07-11", "2026-07-10"],
         )
-
-    def test_review_keyboards_expose_dates_and_menu(self):
-        menu = daily_review_menu_keyboard()
-        self.assertEqual(menu.inline_keyboard[0][0].callback_data, "review:menu")
-
-        dates = daily_review_dates_keyboard(["2026-07-12", "2026-07-11"])
-        self.assertEqual(dates.inline_keyboard[0][0].callback_data, "review:date:2026-07-12")
-        self.assertEqual(dates.inline_keyboard[1][0].callback_data, "review:date:2026-07-11")
-
-        next_card = daily_card_keyboard(1, "2026-07-12", 0, True, callback_prefix="review:next")
-        self.assertEqual(
-            next_card.inline_keyboard[0][0].callback_data,
-            "review:next:1:2026-07-12:0",
-        )
-
-    def test_review_history_keyboard_adds_week_pagination_controls(self):
-        dates = [
-            "2026-07-12",
-            "2026-07-11",
-            "2026-07-10",
-            "2026-07-09",
-            "2026-07-08",
-            "2026-07-07",
-            "2026-07-06",
-        ]
-        markup = daily_review_dates_keyboard(dates, page=1, total_pages=3)
-        labels = [button.text for row in markup.inline_keyboard for button in row]
-        callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
-        self.assertIn("⬅️ جدیدتر", labels)
-        self.assertIn("📚 منوی مرور", labels)
-        self.assertIn("قدیمی‌تر ➡️", labels)
-        self.assertIn("review:page:0", callbacks)
-        self.assertIn("review:page:2", callbacks)
 
     def test_custom_word_validation_rejects_long_or_unrelated_input(self):
         self.assertIsNone(_custom_word_input_error("thick burger", "en"))

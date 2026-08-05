@@ -43,7 +43,6 @@ from services.utils.formatting import (
     escape_mdv2,
     escape_mdv2_code,
     format_card,
-    format_srs_prompt,
     _phonetic_lines,
 )
 from services.utils.helpers import (
@@ -72,11 +71,7 @@ from config.keyboards import (
     settings_back_keyboard,
     awaiting_reply_keyboard,
     awaiting_inline_keyboard,
-    daily_review_dates_keyboard,
-    daily_review_menu_keyboard,
     query_result_keyboard,
-    daily_card_keyboard,
-    srs_hidden_keyboard,
     BTN_ASK_WORD,
     BTN_ADMIN,
     BTN_SETTINGS,
@@ -84,7 +79,6 @@ from config.keyboards import (
     BTN_BACK,
 )
 from services.ai.llm_services import _call_ai_limited, _prepare_cached_card
-from handlers.srs_handler import _saved_word_card
 
 logger = logging.getLogger(__name__)
 
@@ -513,59 +507,7 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 
-async def start_srs_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    row = db.get_user(user_id)
-    if not row or not row["onboarded"]:
-        await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
-        return
-    due = db.due_words_for_user(user_id)
-    if not due:
-        await _send_with_retry(
-            context.bot,
-            update.effective_chat.id,
-            "🎉 واژه‌ای برای مرور نداری! هر روز فلش‌کارت بگیر و واژه‌های جدید را به مرور اضافه کن.",
-        )
-        return
-    word = due[0]
-    try:
-        card = await asyncio.to_thread(
-            _prepare_cached_card,
-            _saved_word_card(word),
-            lang=word["lang"],
-            user_id=user_id,
-            plan=row["plan"] or "free",
-            source="srs",
-            persist_patch=lambda patch, word_id=word["id"]: db.update_saved_word_fields(word_id, user_id, patch),
-        )
-    except CardPreparationError:
-        await _send_with_retry(
-            context.bot,
-            update.effective_chat.id,
-            "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کن.",
-        )
-        return
-    phon_lines = _phonetic_lines(card.get("phonetic", ""))
-    show_pronounce = db.get_setting("tts_access", "premium") != "none" and ((row["plan"] or "free") in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all")
-    await _send_with_retry(
-        context.bot,
-        update.effective_chat.id,
-        format_srs_prompt(card, phonetic_lines=phon_lines),
-        parse_mode=ParseMode.MARKDOWN_V2,
-        reply_markup=srs_hidden_keyboard(user_id, word["id"], show_pronounce=show_pronounce),
-    )
-
-
 # ---------------- Callback handlers ----------------
-
-
-def _review_history_page(dates: list[str], page: int, page_size: int = 7) -> tuple[list[str], int, int]:
-    import math
-    total_pages = max(1, math.ceil(len(dates) / page_size))
-    page = max(0, min(page, total_pages - 1))
-    start = page * page_size
-    end = start + page_size
-    return dates[start:end], page, total_pages
 
 
 def _custom_word_input_error(text: str, target_lang: str) -> str | None:
@@ -601,105 +543,6 @@ def _custom_word_input_error(text: str, target_lang: str) -> str | None:
         return "برای این زبان، عبارت کوتاه‌تری بفرست (حداکثر ۳ کلمه)."
 
     return None
-
-
-async def _handle_daily_prepare(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    data: str,
-    *,
-    review_mode: bool,
-):
-    parts = data.split(":")
-    if len(parts) != 5:
-        await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-        return
-    try:
-        target_user_id = int(parts[2])
-        card_index = int(parts[4])
-    except ValueError:
-        await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
-        return
-    user_id = update.effective_user.id
-    if user_id != target_user_id:
-        await update.callback_query.answer("این کارت برای کاربر دیگری است.", show_alert=True)
-        return
-    if _message_has_prepared_translations(update):
-        await update.callback_query.answer("ترجمه‌ها آماده شده‌اند.")
-        return
-    row = db.get_user(user_id)
-    if not row or not row["onboarded"]:
-        await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
-        return
-    card_date = parts[3]
-    cards = db.get_daily_cards(user_id, card_date)
-    if card_index < 0 or card_index >= len(cards):
-        await update.callback_query.answer("این کارت دیگر در دسترس نیست.", show_alert=True)
-        return
-    session = db.get_daily_card_session(user_id, card_date)
-    try:
-        card = await asyncio.to_thread(
-            _prepare_cached_card,
-            cards[card_index],
-            lang=(session["target_lang"] if session else row["target_lang"]),
-            user_id=user_id,
-            plan=row["plan"] or "free",
-            source="daily_review" if review_mode else "daily",
-            persist_patch=lambda patch: db.update_daily_card_fields(
-                user_id,
-                card_date,
-                card_index,
-                patch,
-            ),
-        )
-    except CardPreparationError:
-        await update.callback_query.answer(
-            "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.",
-            show_alert=True,
-        )
-        return
-    footer = f"📖 کارت {card_index + 1} از {len(cards)} برای {card_date}"
-    if review_mode:
-        footer = f"📚 مرور کارت {card_index + 1} از {len(cards)} برای {card_date}"
-    is_premium = _user_plan(row) in PREMIUM_PLANS
-    markup = daily_card_keyboard(
-        user_id,
-        card_date,
-        card_index,
-        card_index + 1 < len(cards),
-        callback_prefix="review:next" if review_mode else "daily:next",
-        show_translations=False,
-        show_pronounce=is_premium,
-    )
-    phon_lines = _phonetic_lines(card.get("phonetic", ""))
-    try:
-        await _edit_with_retry(
-            update.callback_query,
-            format_card(
-                card,
-                footer=footer,
-                presentation=_user_presentation(row),
-                translations_prepared=True,
-                phonetic_lines=phon_lines,
-            ),
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=markup,
-        )
-    except BadRequest as exc:
-        if "not modified" in str(exc).casefold():
-            await _answer_callback_safely(
-                update.callback_query,
-                "ترجمه‌ها قبلاً آماده شده‌اند.",
-            )
-        else:
-            logger.exception("failed to edit prepared daily card")
-            await _answer_callback_safely(
-                update.callback_query,
-                "نمایش ترجمه‌ها انجام نشد؛ لطفاً دوباره امتحان کنید.",
-                show_alert=True,
-            )
-        return
-    await _answer_callback_safely(update.callback_query, "ترجمه‌ها آماده شدند.")
 
 
 async def _handle_query_prepare(
@@ -781,26 +624,3 @@ async def _handle_query_prepare(
             )
         return
     await _answer_callback_safely(update.callback_query, "ترجمه‌ها آماده شدند.")
-
-
-async def _show_review_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
-    user_id = update.effective_user.id
-    row = db.get_user(user_id)
-    if not row or not row["onboarded"]:
-        await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
-        return
-    dates = db.get_recent_daily_card_dates(user_id, limit=90)
-    if not dates:
-        await update.callback_query.answer("هنوز کارتی برای مرور ندارید.", show_alert=True)
-        return
-    page_dates, page, total_pages = _review_history_page(dates, page)
-    await _edit_or_send(
-        update,
-        context,
-        (
-            "کدوم روز رو می‌خوای مرور کنی؟"
-            if total_pages == 1
-            else f"کدوم روز رو می‌خوای مرور کنی؟\nصفحه {page + 1} از {total_pages}"
-        ),
-        reply_markup=daily_review_dates_keyboard(page_dates, page=page, total_pages=total_pages),
-    )
