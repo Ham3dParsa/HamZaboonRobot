@@ -121,7 +121,10 @@ def init_db():
                 next_review TEXT,
                 review_status TEXT DEFAULT 'idle',
                 review_requested_at TEXT,
-                added_at TEXT
+                added_at TEXT,
+                first_exposure_done INTEGER DEFAULT 0,
+                stability REAL DEFAULT 0.0,
+                difficulty REAL DEFAULT 5.0
             );
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -293,6 +296,14 @@ def init_db():
             conn.execute("ALTER TABLE saved_words ADD COLUMN retry_at TEXT")
         if "srs_retry_attempts" not in saved_word_columns:
             conn.execute("ALTER TABLE saved_words ADD COLUMN srs_retry_attempts INTEGER NOT NULL DEFAULT 0")
+        if "first_exposure_done" not in saved_word_columns:
+            conn.execute(
+                "ALTER TABLE saved_words ADD COLUMN first_exposure_done INTEGER DEFAULT 0"
+            )
+        if "stability" not in saved_word_columns:
+            conn.execute("ALTER TABLE saved_words ADD COLUMN stability REAL DEFAULT 0.0")
+        if "difficulty" not in saved_word_columns:
+            conn.execute("ALTER TABLE saved_words ADD COLUMN difficulty REAL DEFAULT 5.0")
         review_columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(review_events)").fetchall()

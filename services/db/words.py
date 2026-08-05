@@ -198,8 +198,9 @@ def add_saved_word(
         cursor = conn.execute(
             "INSERT OR IGNORE INTO saved_words("
             "user_id, word, lang, normalized_word, card_data, interval_idx, "
-            "next_review, review_status, added_at) "
-            "VALUES (?, ?, ?, ?, ?, 0, ?, 'idle', ?)",
+            "next_review, review_status, added_at, "
+            "first_exposure_done, stability, difficulty) "
+            "VALUES (?, ?, ?, ?, ?, 0, ?, 'idle', ?, 0, 0.0, 5.0)",
             (
                 user_id,
                 word,
@@ -271,6 +272,7 @@ def due_words_for_user(user_id: int):
         conn.commit()
         return conn.execute(
             "SELECT * FROM saved_words WHERE user_id=? AND next_review<=? "
+            "AND COALESCE(first_exposure_done, 0)=1 "
             "AND COALESCE(review_status, 'idle')!='pending' "
             "AND retry_at IS NULL "
             "ORDER BY (julianday('now') - julianday(next_review)) DESC",
@@ -291,7 +293,12 @@ def get_saved_word(word_id: int, user_id: int | None = None):
 # ---------- توابع جدید (پوسته) ----------
 
 def get_pre_first_exposure_words(user_id):
-    return []
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM saved_words WHERE user_id=? AND first_exposure_done=0 "
+            "ORDER BY added_at ASC",
+            (user_id,),
+        ).fetchall()
 
 
 def grade_word_review(word_id, grade, user_id):
@@ -303,4 +310,62 @@ def grade_first_exposure(word_id, grade, user_id):
 
 
 def migrate_saved_words_to_fsrs():
-    return True
+    """One-time startup migration of daily_cards → saved_words as Tier 2.
+
+    Idempotent via settings key 'fsrs_migration_done'. Returns True if the
+    migration ran, False if it was already done.
+    """
+    today = _today().isoformat()
+    with get_conn() as conn:
+        already = conn.execute(
+            "SELECT 1 FROM settings WHERE key='fsrs_migration_done'"
+        ).fetchone()
+        if already:
+            return False
+
+        conn.execute("BEGIN IMMEDIATE")
+        # Reset existing saved_words to brand-new first-exposure state,
+        # keeping card_data and review history.
+        conn.execute(
+            "UPDATE saved_words SET interval_idx=0, next_review=?, "
+            "review_status='idle', first_exposure_done=0, "
+            "stability=0.0, difficulty=5.0",
+            (today,),
+        )
+        # Migrate historical daily_cards into saved_words as first-exposure
+        # (Tier 2) cards. Language per-date from daily_card_sessions, falling
+        # back to the user's current target_lang. INSERT OR IGNORE keeps any
+        # existing saved_words row (Rule 3: don't overwrite saved content).
+        conn.execute(
+            "INSERT OR IGNORE INTO saved_words("
+            "user_id, word, lang, normalized_word, card_data, interval_idx, "
+            "next_review, review_status, first_exposure_done, stability, "
+            "difficulty, added_at) "
+            "SELECT "
+            "  dc.user_id, "
+            "  json_extract(dc.card_data, '$.word'), "
+            "  COALESCE(dcs.target_lang, u.target_lang), "
+            "  lower(trim(json_extract(dc.card_data, '$.word'))), "
+            "  dc.card_data, "
+            "  0, "
+            "  ?, "
+            "  'idle', "
+            "  0, "
+            "  0.0, "
+            "  5.0, "
+            "  datetime(dc.card_date || ' ' || printf('%02d:%02d:00', "
+            "    dc.card_index / 60, dc.card_index % 60)) "
+            "FROM daily_cards dc "
+            "JOIN users u ON u.user_id = dc.user_id "
+            "LEFT JOIN daily_card_sessions dcs "
+            "  ON dcs.user_id = dc.user_id AND dcs.card_date = dc.card_date "
+            "WHERE u.onboarded = 1 "
+            "  AND json_extract(dc.card_data, '$.word') IS NOT NULL "
+            "  AND trim(json_extract(dc.card_data, '$.word')) <> ''",
+            (today,),
+        )
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES ('fsrs_migration_done', '1')"
+        )
+        conn.commit()
+        return True
