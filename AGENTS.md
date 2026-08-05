@@ -554,12 +554,18 @@ exactly. Loading a skill and ignoring its rules is a compliance violation.
 | `spec-to-tickets` | complex task needs per-phase breakdown | Tracer-bullet tickets + per-phase plans |
 | `tdd-enforcement` | during implementation phases | Test-first discipline (§5) |
 | `bug-diagnosis` | debugging failure / test failure / CI failure | Systematic diagnose → fix loop (§7) |
+| `i18n-accessibility` | auditing/adding RTL/bidi, `lang`/`dir`, mixed-direction forms, icon mirroring | i18n + RTL accessibility audit (WCAG 3.1) |
+| `core-web-vitals` | asked to improve LCP/INP/CLS or page experience | Core Web Vitals optimization + checklist |
+| `frontend-ui-engineering` | building/modifying UI components, pages, or interfaces | Production-quality, accessible, responsive UI |
+| `reviewing-interface-quality` | asked to review/audit/critique an interface or as a pre-ship UI gate | Evidence-based interface quality review |
 
 Global general skills (shared, `~/.config/opencode/skills/`): TDD, systematic
 debugging, executing-plans, verifying-before-completion, writing-plans,
 requesting/receiving-code-review, reviewing-security, evolving-apis-and-schemas,
 subagent-driven-development, using-git-worktrees, git-commit, python-pro,
-test-master, code-reviewer, debugging-wizard. These may be used across any
+test-master, code-reviewer, debugging-wizard, accessibility,
+frontend-design, testing-webapps, investigating-performance,
+reviewing-interface-quality. These may be used across any
 project; they are optional conveniences, not HamZaban-specific gates.
 
 ### 10.3 Lean subagents
