@@ -51,7 +51,10 @@ The agent may use `gh` only for:
 - MUST NOT expose the `gh` auth token in logs, commits, or PR descriptions.
 - MUST NOT close, reopen, or create GitHub Issues ad hoc (governed by AGENTS.md §2).
 - MUST NOT merge a PR with failing CI checks.
-- **PowerShell String & Backtick Safety:** When passing formatted text (PR descriptions, multi-line strings, markdown with backticks) to CLI tools (`gh pr create`, `gh pr edit`), NEVER pass inline double-quoted strings in PowerShell (backticks are escape characters, e.g. `` `t `` becomes a tab). Always write the formatted Markdown to a temporary file via the file tool and pass `--body-file <path>`.
+- **PowerShell String & Backtick Safety:** When passing formatted text (PR descriptions, multi-line strings, markdown with backticks) to CLI tools (`gh pr create`, `gh pr edit`), NEVER pass inline double-quoted strings in PowerShell (backticks are escape characters, e.g. `` `t `` becomes a tab).
+  - **MUST write the Markdown to a temp file using the file write tool** (not PowerShell `Set-Content`/`Out-File`), then pass `--body-file <path>`.
+  - **Why:** even a double-quoted here-string (`@"..."@`) still interprets backticks as escape sequences, so `` `audit-workflow` `` becomes BEL (0x07) + `udit-workflow` (shows as `^Gudit-workflow`), and PS 5.1 `Set-Content -Encoding UTF8` prepends a UTF-8 BOM. Both corrupt the GitHub body.
+  - **Verify before sending:** re-read the temp file and confirm no BOM (first byte must not be `239`/`EF`), no control characters (0x07/BEL), and all intended backticks/asterisks are intact.
 - **Subagent Non-ASCII Output Sanitization:** When synthesizing report documents from subagent outputs containing Persian or non-ASCII text, verify Unicode integrity before saving. If encoding artifacts/corrupted tokens occur, perform an atomic full-file update via the file writing tool rather than incremental `edit` over invisible control characters (such as ZWNJs).
 
 ## Security Rules
