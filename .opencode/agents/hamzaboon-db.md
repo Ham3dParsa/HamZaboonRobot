@@ -1,7 +1,6 @@
 ---
 description: SQLite schema, migrations, FSRS reviews, daily card queues, quotas
 mode: subagent
-model: anthropic/claude-sonnet-4-5
 temperature: 0.1
 permission:
   edit: allow
