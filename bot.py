@@ -1320,6 +1320,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     db.init_db()
+    db.migrate_saved_words_to_fsrs()
     db_level = db.get_setting("log_level", "")
     if db_level:
         _apply_log_level(db_level)

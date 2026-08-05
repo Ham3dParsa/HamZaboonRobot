@@ -215,7 +215,16 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertTrue(db.add_saved_word(1, "hello", "en", card))
         row = db.get_saved_word(1, user_id=1)
         self.assertIn("سلام", row["card_data"])
+        self.assertEqual(row["first_exposure_done"], 0)
 
+        # Once first exposure completes, it becomes a due Tier 1 word.
+        with db.get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "UPDATE saved_words SET first_exposure_done=1 WHERE id=? AND user_id=?",
+                (row["id"], 1),
+            )
+            conn.commit()
         with patch("services.db.words._today", return_value=dt.date.fromisoformat(row["next_review"])):
             due = db.due_words_for_user(1)
             self.assertEqual(len(due), 1)

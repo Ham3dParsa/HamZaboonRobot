@@ -42,6 +42,9 @@ EXPECTED_COLUMNS = {
         "interval_idx",  # NOTE: moves to BANNED_COLUMNS when FSRS drops it
         "next_review",
         "review_status",
+        "first_exposure_done",  # NOTE: added in Phase 3a migration
+        "stability",            # NOTE: added in Phase 3a migration
+        "difficulty",           # NOTE: added in Phase 3a migration
     },
     "review_events": {"id", "word_id", "user_id", "outcome", "created_at"},
     "llm_requests": {"id", "request_id", "cost_usd", "preset_name"},
