@@ -35,17 +35,6 @@ IBTN_DETAILED = "کامل"
 
 # --- Daily Cards & Review ---
 IBTN_TRANSLATIONS = "✦ ترجمه مثال‌ها"
-IBTN_NEXT_CARD = "▶️ بعدی"
-IBTN_NEXT_CARD_NEW = "▶️ بعدی 🆕"
-IBTN_PREV_CARD = "⬅️ کارت قبلی"
-IBTN_REVIEW_CARDS = "📚 مرور کارت‌ها"
-IBTN_REVIEW_MENU = "📚 منوی مرور"
-IBTN_NEWER = "⬅️ جدیدتر"
-IBTN_OLDER = "قدیمی‌تر ➡️"
-IBTN_NO_CARDS = "فعلاً کارتی نیست"
-
-# --- SRS (Spaced Repetition) ---
-IBTN_REVEAL = "👁 افشای کارت"
 
 # --- SRS 4-Grade (Review: recall-based) ---
 IBTN_SRS_AGAIN_REVIEW = "یادم نیامد ⭕"
@@ -287,92 +276,6 @@ def settings_back_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def daily_card_keyboard(
-    user_id: int,
-    card_date: str,
-    card_index: int,
-    has_next: bool,
-    callback_prefix: str = "daily:next",
-    *,
-    show_translations: bool = False,
-    show_pronounce: bool = False,
-    has_prev: bool = False,
-    next_card_is_new: bool = True,
-) -> InlineKeyboardMarkup | None:
-    if not has_next and not show_translations and not show_pronounce and not has_prev:
-        return None
-    translation_prefix = "review:prepare" if callback_prefix.startswith("review:") else "daily:prepare"
-    top_buttons = []
-    if show_translations:
-        top_buttons.append(
-            InlineKeyboardButton(
-                IBTN_TRANSLATIONS,
-                callback_data=f"{translation_prefix}:{user_id}:{card_date}:{card_index}",
-            )
-        )
-    if show_pronounce:
-        top_buttons.append(
-            InlineKeyboardButton(
-                IBTN_PRONOUNCE,
-                callback_data=f"tts:pronounce:d:{user_id}:{card_date}:{card_index}",
-            )
-        )
-    rows = [top_buttons] if top_buttons else []
-    nav_buttons = []
-    if has_prev:
-        nav_buttons.append(
-            InlineKeyboardButton(
-                IBTN_PREV_CARD,
-                callback_data=f"daily:prev:{user_id}:{card_date}:{card_index}",
-            )
-        )
-    if has_next:
-        next_prefix = callback_prefix
-        next_label = IBTN_NEXT_CARD_NEW if next_card_is_new else IBTN_NEXT_CARD
-        nav_buttons.append(
-            InlineKeyboardButton(
-                next_label,
-                callback_data=f"{next_prefix}:{user_id}:{card_date}:{card_index}",
-            )
-        )
-    if nav_buttons:
-        rows.append(nav_buttons)
-    return InlineKeyboardMarkup(rows) if rows else None
-
-
-def daily_review_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton(IBTN_REVIEW_CARDS, callback_data="review:menu")],
-        ]
-    )
-
-
-def daily_review_dates_keyboard(
-    dates: list[str],
-    *,
-    page: int = 0,
-    total_pages: int = 1,
-) -> InlineKeyboardMarkup:
-    buttons = [
-        [InlineKeyboardButton(date, callback_data=f"review:date:{date}")]
-        for date in dates
-    ]
-    nav_buttons = []
-    if total_pages > 1:
-        if page > 0:
-            nav_buttons.append(
-                InlineKeyboardButton(IBTN_NEWER, callback_data=f"review:page:{page - 1}")
-            )
-        nav_buttons.append(InlineKeyboardButton(IBTN_REVIEW_MENU, callback_data="review:menu"))
-        if page + 1 < total_pages:
-            nav_buttons.append(
-                InlineKeyboardButton(IBTN_OLDER, callback_data=f"review:page:{page + 1}")
-            )
-        buttons.append(nav_buttons)
-    return InlineKeyboardMarkup(buttons or [[InlineKeyboardButton(IBTN_NO_CARDS, callback_data="review:noop")]])
-
-
 def query_result_keyboard(
     token: str,
     lang: str | None = None,
@@ -525,44 +428,6 @@ def admin_awaiting_inline_keyboard() -> InlineKeyboardMarkup:
             ]
         ]
     )
-
-
-# --- Deprecated aliases for backward compatibility (remove after Phase 1f) ---
-def srs_hidden_keyboard(
-    user_id: int,
-    word_id: int,
-    *,
-    show_pronounce: bool = False,
-) -> InlineKeyboardMarkup:
-    """Deprecated: use get_review_keyboard() or get_first_exposure_keyboard() instead."""
-    import warnings
-    warnings.warn("srs_hidden_keyboard is deprecated", DeprecationWarning, stacklevel=2)
-    return get_review_keyboard(user_id, word_id, show_pronounce=show_pronounce)
-
-
-def srs_revealed_keyboard(
-    user_id: int,
-    word_id: int,
-    *,
-    show_pronounce: bool = False,
-) -> InlineKeyboardMarkup:
-    """Deprecated: use get_review_keyboard() instead."""
-    import warnings
-    warnings.warn("srs_revealed_keyboard is deprecated", DeprecationWarning, stacklevel=2)
-    return get_review_keyboard(user_id, word_id, show_pronounce=show_pronounce)
-
-
-def srs_review_keyboard(
-    user_id: int,
-    word_id: int,
-    *,
-    show_translations: bool = False,
-    show_pronounce: bool = False,
-) -> InlineKeyboardMarkup:
-    """Deprecated: use get_review_keyboard() instead."""
-    import warnings
-    warnings.warn("srs_review_keyboard is deprecated", DeprecationWarning, stacklevel=2)
-    return get_review_keyboard(user_id, word_id, show_pronounce=show_pronounce)
 
 
 def admin_panel_keyboard() -> InlineKeyboardMarkup:

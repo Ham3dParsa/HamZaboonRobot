@@ -97,6 +97,42 @@ async def handle_study_start(
 
     plan = row["plan"] or "free"
 
+    # --- resume existing session (Decision 30: don't double-count slots) ---
+    existing = context.user_data.get("current_session")
+    if existing is not None and existing.nodes:
+        await _reply_or_answer(
+            update,
+            context,
+            "جلسه‌ی قبلی ادامه داده می‌شه.",
+            show_alert=True,
+        )
+        state = existing
+        try:
+            node = state.nodes[0]
+            user_id = node.activity_meta.get("user_id", 0)
+            text, keyboard = _build_card_text_and_keyboard(node, state, user_id)
+            if state.study_msg_id:
+                await context.bot.edit_message_text(
+                    text=text,
+                    chat_id=update.effective_chat.id,
+                    message_id=state.study_msg_id,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                )
+            else:
+                msg = await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=text,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                )
+                state.study_msg_id = msg.message_id
+        except Exception:
+            logger.exception(
+                "handle_study_start resume render failed user_id=%s", user_id
+            )
+        return
+
     # --- quota check (Decision 30: once at top, before build) ---
     if not is_owner(user_id) or not OWNER_BYPASS_LIMITS:
         if not consume_session_slot(user_id, plan):
@@ -269,23 +305,26 @@ async def advance_session(
             )
             return
 
-        # Tiers 1+2 exhausted — attempt Tier 3 (Decision 26: stub returns None)
-        tier3_node = generate_tier3_node(**state.tier3_context)
-        if tier3_node is not None:
-            state.nodes.append(tier3_node)
-            state.total_cards += 1
-            user_id = tier3_node.activity_meta.get("user_id", 0)
-            text, keyboard = _build_card_text_and_keyboard(
-                tier3_node, state, user_id,
-            )
-            await context.bot.edit_message_text(
-                text=text,
-                chat_id=chat_id,
-                message_id=state.study_msg_id,
-                reply_markup=keyboard,
-                parse_mode=ParseMode.MARKDOWN_V2,
-            )
-            return
+        # Tiers 1+2 exhausted — attempt Tier 3 (Decision 26: stub returns None).
+        # Only when tier3_context is populated (i.e. there were remaining slots);
+        # otherwise the session is simply complete.
+        if state.tier3_context:
+            tier3_node = generate_tier3_node(**state.tier3_context)
+            if tier3_node is not None:
+                state.nodes.append(tier3_node)
+                state.total_cards += 1
+                user_id = tier3_node.activity_meta.get("user_id", 0)
+                text, keyboard = _build_card_text_and_keyboard(
+                    tier3_node, state, user_id,
+                )
+                await context.bot.edit_message_text(
+                    text=text,
+                    chat_id=chat_id,
+                    message_id=state.study_msg_id,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                )
+                return
 
         # session complete
         completion = escape_mdv2("جلسه مطالعه تموم شد! 🎉")
@@ -300,7 +339,7 @@ async def advance_session(
     except Exception:
         logger.exception("advance_session failed user_id=%s chat_id=%s", user_id if state.nodes else "?", chat_id)
         try:
-            error_msg = escape_mdv2("خطا در بارگذاری کارت بعدی — لطفاً /study را دوباره بزنید")
+            error_msg = escape_mdv2("خطا در بارگذاری کارت بعدی — لطفاً جلسه‌ی مطالعه را دوباره شروع کنید")
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=f"*{error_msg}*",
