@@ -704,7 +704,7 @@ them into scope through `ROADMAP.md`.
 This section is a delimited, revertible block. It defines how skills and
 subagents are loaded and how plans must be persisted. Reverting the whole
 setup = delete this block (plus the `.gitignore` `[opencode-setup]` block and
-the `.opencode/` folders). See `.opencode/plans/plan-opencode-tooling-setup.md`.
+the `.opencode/` folders). See `docs/archive/plan-opencode-tooling-setup-2026-08-05.md` (completed setup plan).
 
 ### 10.1 Skill loading policy
 

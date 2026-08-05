@@ -4,7 +4,7 @@ description: Add lean subagents, project skills, global skills, graphify indexin
 created: 2026-08-05
 base_commit: 3c7f251
 branch: feat/opencode-skills-setup
-status: in-progress
+status: complete
 ---
 
 # Plan: OpenCode Tooling Setup (Lean Subagents + Skills + Graphify)
@@ -23,7 +23,7 @@ Implement the full OpenCode tooling setup as per locked contract: 4 lean subagen
 | 4 | Pocock/EC-C adapted skills (repo-local, scoped) | complete | grill-to-spec, spec-to-tickets, tdd-enforcement, bug-diagnosis (4 skills) |
 | 5 | Graphify install + build + `.gitignore` block | complete | `uv tool install graphifyy` (uv 0.12.1 installed); `graphify . --code-only` → 2490 nodes; graphify-index skill added; `.gitignore` block added |
 | 6 | AGENTS.md §11 + `project_status.json` + dashboard | complete | §10 skills/subagent/plan-persistence block added (no §11 existed; kept sequential); decision-opencode-tooling-setup entry; dashboard regenerated |
-| 7 | Validation suite + commit | in-progress | Full suite passes (379 tests); compile OK; diff --check clean. Pre-existing ruff F821 errors only in untracked tools/ archives (not in change set). Decision entry removed from project_status.json per owner (dev tooling not a product decision). |
+| 7 | Validation suite + commit | complete | Full suite passes (379 tests); compile OK; diff --check clean; committed `1a38827` on `feat/opencode-skills-setup` |
 
 ## Locked Contract References
 - **Rule 1 (Knowledge Graph):** Graphify indexing (Option A chosen)
@@ -48,4 +48,4 @@ Each phase is independent and reversible:
 - 2026-08-05: Phase 4 complete — 4 Pocock/EC-C adapted skills created
 - 2026-08-05: Phase 5 complete — uv + graphifyy installed, graph built (2490 nodes), graphify-index skill + .gitignore block added
 - 2026-08-05: Phase 6 complete — AGENTS.md §10 block added; decision entry added then removed per owner (dev tooling not a product decision); dashboard regenerated
-- 2026-08-05: Phase 7 — validation passing (379 tests OK, compile OK, diff --check clean); commit pending
+- 2026-08-05: Phase 7 — validation passing (379 tests OK, compile OK, diff --check clean); committed `1a38827`; plan COMPLETE
