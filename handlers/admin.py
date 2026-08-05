@@ -59,6 +59,10 @@ from config.keyboards import (
     IBTN_HELP_FALLBACK,
     stats_menu_keyboard,
     stats_back_keyboard,
+    plan_manager_keyboard,
+    plan_view_keyboard,
+    plan_wizard_keyboard,
+    plan_wizard_summary_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -229,10 +233,33 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             chat_id=update.effective_chat.id,
             text="فرمت را ارسال کنید:\n`user_id_or_username plan`\n\n"
             "مثال: `123456789 silver` یا `@username gold`\n"
-            "پلن‌ها: free، silver، gold",
+            "پلن‌ها: free، bronze، silver، gold، emerald",
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=admin_awaiting_inline_keyboard(),
         )
+    elif action == "plans":
+        await _show_plan_list(update, context)
+    elif action.startswith("plans:view:"):
+        name = action.split(":", 2)[2]
+        await _show_plan_view(update, context, name)
+    elif action.startswith("plans:edit:"):
+        name = action.split(":", 2)[2]
+        await _start_plan_wizard(update, context, name)
+    elif action.startswith("plans:full_edit_next:"):
+        name = action.split(":", 2)[2]
+        await _handle_plan_wizard_next(update, context, name)
+    elif action.startswith("plans:full_edit_skip:"):
+        name = action.split(":", 2)[2]
+        await _handle_plan_wizard_next(update, context, name, skip=True)
+    elif action.startswith("plans:full_edit_cancel:"):
+        name = action.split(":", 2)[2]
+        await _handle_plan_wizard_cancel(update, context, name)
+    elif action.startswith("plans:full_edit_save:"):
+        name = action.split(":", 2)[2]
+        await _handle_plan_wizard_save(update, context, name)
+    elif action.startswith("plans:set_active:"):
+        name = action.split(":", 2)[2]
+        await _handle_plan_set_active(update, context, name)
     elif action == "phonetics":
         await _edit_or_send(
             update,
@@ -902,7 +929,7 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
 
     if awaiting == "admin_set_plan":
         parts = text.split()
-        if len(parts) != 2 or parts[1].lower() not in PLANS:
+        if len(parts) != 2 or not db.valid_plan_name(parts[1].lower()):
             context.user_data["awaiting"] = "admin_set_plan"
             await update.message.reply_text(
                 "فرمت نامعتبر است. نمونه: `123456789 silver` یا `@username gold`",
@@ -916,10 +943,11 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
             return
         plan = parts[1].lower()
         previous_plan = target["plan"] or "free"
+        plan_label = (db.get_plan(plan) or {}).get("display_name", plan)
+        prev_label = (db.get_plan(previous_plan) or {}).get("display_name", previous_plan)
         db.set_plan(target["user_id"], plan)
         await update.message.reply_text(
-            f"پلن کاربر {target['user_id']} از {PLANS.get(previous_plan, previous_plan)} "
-            f"به {PLANS[plan]} تغییر کرد."
+            f"پلن کاربر {target['user_id']} از {prev_label} به {plan_label} تغییر کرد."
         )
         return
 
@@ -1008,14 +1036,20 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
         await _show_fallback_chain(update, context)
         return
 
+    if awaiting.startswith("admin_plan_full_edit:"):
+        # format: admin_plan_full_edit:plan_name:field_idx
+        parts = awaiting.split(":", 3)
+        if len(parts) == 3:
+            plan_name, field_idx = parts[1], parts[2]
+            await _handle_plan_wizard_input(update, context, plan_name, int(field_idx), text)
+        return
+
     if awaiting.startswith("ai_preset_full_edit:"):
         # format: ai_preset_full_edit:preset_name:field_idx
-        parts = awaiting.split(":", 2)
+        parts = awaiting.split(":", 3)
         if len(parts) == 3:
-            sub_parts = parts[2].rsplit(":", 1)
-            if len(sub_parts) == 2:
-                preset_name, field_idx = sub_parts
-                await _handle_full_edit_input(update, context, preset_name, int(field_idx), text)
+            preset_name, field_idx = parts[1], parts[2]
+            await _handle_full_edit_input(update, context, preset_name, int(field_idx), text)
         return
 
     if awaiting == "ai_custom_test_prompt":
@@ -1694,6 +1728,227 @@ async def _handle_full_edit_save(update: Update, context: ContextTypes.DEFAULT_T
 
     await update.callback_query.answer(f"پیش‌تنظیم {new_name} ذخیره شد")
     await _show_ai_preset_view(update, context, new_name)
+
+
+PLAN_WIZARD_FIELDS = [
+    "display_name", "price", "query_quota", "max_sessions", "cards_per_session",
+]
+PLAN_WIZARD_FIELD_LABELS = {
+    "display_name": "نام نمایشی",
+    "price": "قیمت (تومان)",
+    "query_quota": "سهمیه سؤال روزانه",
+    "max_sessions": "جلسات روزانه",
+    "cards_per_session": "کارت در هر جلسه",
+}
+PLAN_WIZARD_GROUP_HEADERS = {
+    0: "🎨 — گروه نمایش (Display):",
+    1: "💰 — گروه سهمیه (Quotas):",
+}
+TOTAL_PLAN_WIZARD_FIELDS = len(PLAN_WIZARD_FIELDS)
+
+
+def _validate_plan_wizard_value(field_name: str, raw: str) -> tuple | None:
+    """Validate a plan wizard field value. Returns (value,) or None on invalid."""
+    if field_name == "display_name":
+        v = raw.strip()
+        if not v:
+            return None
+        return (v,)
+    if field_name == "price":
+        try:
+            v = int(raw)
+        except (ValueError, TypeError):
+            return None
+        if v < 0:
+            return None
+        return (v,)
+    if field_name in ("query_quota", "max_sessions", "cards_per_session"):
+        try:
+            v = int(raw)
+        except (ValueError, TypeError):
+            return None
+        if v < 0:
+            return None
+        return (v,)
+    return None
+
+
+async def _show_plan_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    plans = db.list_plans(active_only=False)
+    await _edit_or_send(
+        update,
+        context,
+        "💳 مدیریت پلن‌ها\n\nیک پلن را انتخاب کن تا جزئیاتش را ببینی یا ویرایشش کنی:",
+        reply_markup=plan_manager_keyboard(plans),
+    )
+    await update.callback_query.answer()
+
+
+async def _show_plan_view(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str):
+    plan = db.get_plan(name)
+    if not plan:
+        await update.callback_query.answer("پلن یافت نشد", show_alert=True)
+        return await _show_plan_list(update, context)
+    status = "✅ فعال" if plan.get("is_active") else "⭕ غیرفعال"
+    text = (
+        f"💳 <b>{plan.get('display_name')} ({plan.get('name')})</b>\n"
+        f"وضعیت: {status}\n\n"
+        f"• قیمت: {plan.get('price'):,} تومان\n"
+        f"• سهمیه سؤال روزانه: {plan.get('query_quota')}\n"
+        f"• جلسات روزانه: {plan.get('max_sessions')}\n"
+        f"• کارت در هر جلسه: {plan.get('cards_per_session')}"
+    )
+    await _edit_or_send(
+        update,
+        context,
+        text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=plan_view_keyboard(name, bool(plan.get("is_active"))),
+    )
+    await update.callback_query.answer()
+
+
+async def _start_plan_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str):
+    plan = db.get_plan(name)
+    if not plan:
+        await update.callback_query.answer("پلن یافت نشد", show_alert=True)
+        return
+    context.user_data["plan_full_edit"] = {"plan": name, "field_idx": 0, "values": {}}
+    context.user_data["awaiting"] = f"admin_plan_full_edit:{name}:0"
+    await _show_plan_wizard_field(update, context, name, 0, plan)
+
+
+async def _show_plan_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str, field_idx: int, plan: dict):
+    field_name = PLAN_WIZARD_FIELDS[field_idx]
+    current = plan.get(field_name)
+    if current is None:
+        current = ""
+    group_header = PLAN_WIZARD_GROUP_HEADERS.get(field_idx, "")
+    label = PLAN_WIZARD_FIELD_LABELS.get(field_name, field_name)
+
+    message = f"✏️ <b>ویرایش پلن {name} — گام {field_idx + 1} از {TOTAL_PLAN_WIZARD_FIELDS}</b>\n"
+    if group_header:
+        message += f"\n{group_header}\n"
+    message += f"\n<b>{label}</b>"
+    if current != "":
+        message += f"\nمقدار فعلی: <code>{current}</code>"
+    message += "\n\nمقدار جدید را ارسال کنید (یا خالی = رد کردن):"
+
+    keyboard = plan_wizard_keyboard(name, is_last=(field_idx == TOTAL_PLAN_WIZARD_FIELDS - 1))
+    context.user_data["awaiting"] = f"admin_plan_full_edit:{name}:{field_idx}"
+
+    await _edit_or_send(update, context, message, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
+async def _handle_plan_wizard_input(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str, field_idx: int, text: str):
+    plan = db.get_plan(name)
+    if not plan:
+        await update.message.reply_text("پلن یافت نشد")
+        return
+    field_name = PLAN_WIZARD_FIELDS[field_idx]
+    raw = text.strip()
+    wizard = context.user_data.get("plan_full_edit", {})
+    if wizard.get("plan") != name:
+        await update.message.reply_text("ویزارد منقضی شده. دوباره شروع کنید.")
+        return
+    if raw:
+        result = _validate_plan_wizard_value(field_name, raw)
+        if result is None:
+            context.user_data["awaiting"] = f"admin_plan_full_edit:{name}:{field_idx}"
+            await update.message.reply_text("فرمت نامعتبر. لطفاً مقدار معتبر بفرستید.", reply_markup=awaiting_inline_keyboard())
+            return
+        wizard["values"][field_name] = result[0]
+    next_idx = field_idx + 1
+    wizard["field_idx"] = next_idx
+    if next_idx >= TOTAL_PLAN_WIZARD_FIELDS:
+        await _show_plan_wizard_summary(update, context, name)
+    else:
+        context.user_data["awaiting"] = f"admin_plan_full_edit:{name}:{next_idx}"
+        await _show_plan_wizard_field(update, context, name, next_idx, plan)
+
+
+async def _handle_plan_wizard_next(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str, skip: bool = False):
+    wizard = context.user_data.get("plan_full_edit", {})
+    if wizard.get("plan") != name:
+        await update.callback_query.answer("ویزارد منقضی شده")
+        return
+    current_idx = wizard.get("field_idx", 0)
+    next_idx = current_idx + 1
+    wizard["field_idx"] = next_idx
+    plan = db.get_plan(name)
+    if next_idx >= TOTAL_PLAN_WIZARD_FIELDS:
+        await _show_plan_wizard_summary(update, context, name)
+    else:
+        context.user_data["awaiting"] = f"admin_plan_full_edit:{name}:{next_idx}"
+        await _show_plan_wizard_field(update, context, name, next_idx, plan or {})
+
+
+async def _handle_plan_wizard_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str):
+    context.user_data.pop("plan_full_edit", None)
+    context.user_data.pop("awaiting", None)
+    await update.callback_query.answer("ویرایش پلن لغو شد")
+    await _show_plan_view(update, context, name)
+
+
+async def _show_plan_wizard_summary(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str):
+    wizard = context.user_data.get("plan_full_edit", {})
+    values = wizard.get("values", {})
+    plan = db.get_plan(name) or {}
+    lines = [f"📋 <b>خلاصه تغییرات برای {plan.get('display_name', name)}</b>\n"]
+    changed = 0
+    for field_name in PLAN_WIZARD_FIELDS:
+        if field_name in values:
+            new_val = values[field_name]
+            old_val = plan.get(field_name, "—")
+            label = PLAN_WIZARD_FIELD_LABELS.get(field_name, field_name)
+            lines.append(f"• <b>{label}</b>: {old_val} → {new_val}")
+            changed += 1
+    if not changed:
+        lines.append("هیچ تغییری اعمال نشد.")
+    lines.append(f"\nتعداد تغییرات: {changed}")
+    context.user_data.pop("awaiting", None)
+    await _edit_or_send(
+        update,
+        context,
+        "\n".join(lines),
+        parse_mode=ParseMode.HTML,
+        reply_markup=plan_wizard_summary_keyboard(name),
+    )
+
+
+async def _handle_plan_wizard_save(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str):
+    wizard = context.user_data.get("plan_full_edit", {})
+    if wizard.get("plan") != name:
+        await update.callback_query.answer("ویزارد منقضی شده")
+        return
+    values = wizard.get("values", {})
+    plan = db.get_plan(name)
+    if not plan:
+        await update.callback_query.answer("پلن یافت نشد", show_alert=True)
+        return
+    db.upsert_plan(
+        name=name,
+        display_name=values.get("display_name", plan.get("display_name")),
+        price=int(values.get("price", plan.get("price", 0))),
+        query_quota=int(values.get("query_quota", plan.get("query_quota", 0))),
+        max_sessions=int(values.get("max_sessions", plan.get("max_sessions", 0))),
+        cards_per_session=int(values.get("cards_per_session", plan.get("cards_per_session", 0))),
+        sort_order=plan.get("sort_order", 0),
+        is_active=plan.get("is_active", 1),
+    )
+    context.user_data.pop("plan_full_edit", None)
+    context.user_data.pop("awaiting", None)
+    await update.callback_query.answer("پلن ذخیره شد")
+    await _show_plan_view(update, context, name)
+
+
+async def _handle_plan_set_active(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str):
+    plan = db.get_plan(name)
+    if not plan:
+        await update.callback_query.answer("پلن یافت نشد", show_alert=True)
+        return
+    db.set_plan_active(name, not bool(plan.get("is_active")))
+    await _show_plan_view(update, context, name)
 
 
 async def _toggle_preset_view_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):

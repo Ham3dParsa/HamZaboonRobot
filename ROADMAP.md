@@ -362,12 +362,11 @@ The next language addition must use this contract.
 - The environment file provides global defaults. Per-user preferred delivery
   time, active window, and optional daily card limit remain database-backed
   overrides.
-- Plan quotas are explicit deployment settings:
-  `FREE_DAILY_CARD_LIMIT=3`, `SILVER_DAILY_CARD_LIMIT=12`, and
-  `GOLD_DAILY_CARD_LIMIT=30`.
-- Custom-word query quotas are also explicit:
-  `FREE_DAILY_WORD_QUERY_LIMIT=3`, `SILVER_DAILY_WORD_QUERY_LIMIT=16`, and
-  `GOLD_DAILY_WORD_QUERY_LIMIT=40`. `-1` means unlimited.
+- Plan quotas are managed at runtime from the `plans` database table, not from
+  deployment environment variables. The DB is the sole source of truth for the
+  five plans (free / bronze / silver / gold / emerald): per-day session count,
+  cards per session, and daily word-query quota. The admin plan-manager wizard
+  edits and toggles these rows; `DB` seed values apply only on a fresh database.
 - AI base URL, model, and API key in `.env` are bootstrap defaults only;
   owner/admin runtime overrides remain supported. Real secrets must never be
   committed.
@@ -403,23 +402,23 @@ The next language addition must use this contract.
   two paired examples by default, and at least two distinct synonyms or
   antonyms whenever the model identifies a meaningful populated list; an
   unavailable optional field may remain empty.
-- Session sizing uses a plan-agnostic formula rather than a plan-name lookup:
-  - Let `L` be the effective daily allowance.
-  - Target roughly 3 cards per learner-facing session.
-  - Choose `S = min(L, max_sessions, max(min_sessions, ceil(L / 3)))`,
-    further constrained by the number of feasible time slots in the user's
-    active window.
-  - Partition `L` as evenly as possible across `S` sessions; session sizes
-    may differ by at most one card.
+- Session sizing uses per-plan values read from the `plans` DB table rather
+  than a formula over the total allowance: each plan stores its daily session
+  budget (`max_sessions`) and target cards per session
+  (`cards_per_session`). A study session produces up to `cards_per_session`
+  nodes; the scheduler daily budget is `max_sessions`. Remaining day logic
+  keeps a soft target: `S` sessions partition the effective allowance as
+  evenly as possible, with session sizes differing by at most one card.
 - The default educational bounds are configurable policy constants:
   `min_sessions = 3`, `max_sessions = 6`, and `target_cards_per_session = 3`.
-  They are not tied to Free, Silver, or Gold, so new plans inherit the same
-  behavior automatically.
-- Examples of the formula:
-  - `L=4` → 3 sessions containing 2, 1, and 1 cards
-  - `L=12` → 4 sessions of 3 cards
-  - `L=24` → 6 sessions of 4 cards
-  - `L=30` → 6 sessions of 5 cards
+  They are not tied to a plan name, so new plans inherit the same behavior
+  unless the DB plan row overrides `max_sessions` / `cards_per_session`.
+- Plan limits are therefore expressed as concrete DB values:
+  - free → 2 sessions × 3 cards/session, query quota 2
+  - bronze → 3 × 3, query quota 4
+  - silver → 3 × 5, query quota 7
+  - gold → 4 × 7, query quota 12
+  - emerald → 5 × 9, query quota 20
 - Users can choose a preferred delivery start time. It is a soft target, not
   a promise that all users will receive content at the exact same minute.
 - The scheduler spreads sessions across the user's active day and shifts them
@@ -668,9 +667,9 @@ over cached cards, not an AI or database-schema format change, and
 
 ### Phase 5: Custom-Word Queries and Spaced-Repetition Capture
 
-**Status:** Planned
+**Status:** In progress
 **Done:** Quota visibility, persistent query identity, idempotent Add to review, and complete cached review payloads.
-**In progress:** None.
+**In progress:** DB-driven plan specs — plan limits (daily sessions, cards per session, word-query quota) live in the `plans` DB table (free/bronze/silver/gold/emerald), seeded on first run and editable via the admin plan-manager wizard; env-var plan limits removed.
 **To-do:** Finish the remaining custom-word UX and review-entry acceptance criteria.
 
 Extend the custom-word flow so that:

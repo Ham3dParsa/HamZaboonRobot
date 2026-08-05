@@ -19,12 +19,6 @@ logger = logging.getLogger(__name__)
 
 _app_tz = APP_TZ
 
-PLAN_SESSION_CONFIG: dict[str, int] = {
-    "free": 1,
-    "silver": 4,
-    "gold": 10,
-}
-
 
 def _today_str() -> str:
     return datetime.now(_app_tz).date().isoformat()
@@ -42,8 +36,17 @@ def _get_used(user_id: int) -> int:
         return 0
 
 
+def _max_sessions_for_plan(plan: str) -> int:
+    """Return the plan's daily session budget (max_sessions) from the DB.
+
+    Missing/deactivated plans fall back to the free-plan value.
+    """
+    from config import max_sessions_for_plan as _db_max_sessions
+    return _db_max_sessions(plan)
+
+
 def daily_session_budget(user_id: int, plan: str) -> dict:
-    total = PLAN_SESSION_CONFIG.get(plan, PLAN_SESSION_CONFIG["free"])
+    total = _max_sessions_for_plan(plan)
     used = _get_used(user_id)
     return {
         "total": total,
@@ -59,7 +62,7 @@ def consume_session_slot(user_id: int, plan: str = "free") -> bool:
     Returns True if a slot was consumed (session may proceed).
     Returns False if quota exceeded (session must not start).
     """
-    limit = PLAN_SESSION_CONFIG.get(plan, PLAN_SESSION_CONFIG["free"])
+    limit = _max_sessions_for_plan(plan)
     key = _session_key(user_id)
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")

@@ -13,12 +13,8 @@ from config import (
     DEFAULT_AI_BASE_URL,
     DEFAULT_AI_MODEL,
     DEFAULT_PHONETIC_SHOW_IPA,
-    FREE_DAILY_CARD_LIMIT,
-    SILVER_DAILY_CARD_LIMIT,
-    GOLD_DAILY_CARD_LIMIT,
     LLM_INPUT_COST_USD_PER_MILLION,
     LLM_OUTPUT_COST_USD_PER_MILLION,
-    PLANS,
     APP_TZ,
     USD_TO_TOMAN_RATE,
 )
@@ -362,6 +358,9 @@ def init_db():
         # Initialize config_tests table for audit logging
         _init_config_tests_table(conn)
 
+        # Initialize plans table with default plan specs (admin-editable)
+        _init_plans_table(conn)
+
         # Initialize fallback-related settings
         fallback_defaults = {
             "ai_fallback_active": "false",
@@ -551,3 +550,44 @@ def _init_config_tests_table(conn):
     conn.execute(
         "CREATE INDEX IF NOT EXISTS config_tests_created_at_idx ON config_tests(created_at)"
     )
+
+
+def _init_plans_table(conn):
+    """Create the administrative plans table and seed default plans.
+
+    Plan specs are admin-editable; the seed only runs when the table is empty
+    (fresh database / upgrade), so admin edits persist across restarts.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS plans (
+            name TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            price INTEGER NOT NULL DEFAULT 0,
+            query_quota INTEGER NOT NULL DEFAULT 0,
+            max_sessions INTEGER NOT NULL DEFAULT 1,
+            cards_per_session INTEGER NOT NULL DEFAULT 1,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER NOT NULL DEFAULT 0
+        );
+        """
+    )
+    count = conn.execute("SELECT COUNT(*) AS c FROM plans").fetchone()["c"]
+    if count == 0:
+        from services.db.plans import DEFAULT_PLANS
+        for name, (display_name, price, query_quota, max_sessions,
+                   cards_per_session, sort_order) in DEFAULT_PLANS.items():
+            conn.execute(
+                "INSERT INTO plans("
+                "name, display_name, price, query_quota, max_sessions, "
+                "cards_per_session, is_active, sort_order"
+                ") VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
+                (
+                    name, display_name, price, query_quota, max_sessions,
+                    cards_per_session, sort_order,
+                ),
+            )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS plans_sort_idx ON plans(sort_order)"
+    )
+    conn.commit()

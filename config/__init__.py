@@ -52,48 +52,72 @@ USER_ACTIVITY = 26
 if CONNECTION_HEALTH_INTERVAL_SECONDS <= 0:
     raise ValueError("CONNECTION_HEALTH_INTERVAL_SECONDS must be positive")
 
-FREE_DAILY_CARD_LIMIT = int(
-    os.getenv("FREE_DAILY_CARD_LIMIT", os.getenv("FREE_DAILY_CARD_COUNT", "3"))
-)
-SILVER_DAILY_CARD_LIMIT = int(
-    os.getenv("SILVER_DAILY_CARD_LIMIT", os.getenv("SILVER_DAILY_CARD_COUNT", "12"))
-)
-GOLD_DAILY_CARD_LIMIT = int(
-    os.getenv("GOLD_DAILY_CARD_LIMIT", os.getenv("GOLD_DAILY_CARD_COUNT", "30"))
-)
-FREE_DAILY_WORD_QUERY_LIMIT = int(
-    os.getenv("FREE_DAILY_WORD_QUERY_LIMIT", os.getenv("FREE_DAILY_WORD_LIMIT", "3"))
-)
-SILVER_DAILY_WORD_QUERY_LIMIT = int(os.getenv("SILVER_DAILY_WORD_QUERY_LIMIT", "16"))
-GOLD_DAILY_WORD_QUERY_LIMIT = int(os.getenv("GOLD_DAILY_WORD_QUERY_LIMIT", "40"))
 OWNER_BYPASS_LIMITS = os.getenv("OWNER_BYPASS_LIMITS", "false").lower() in {
     "1",
     "true",
     "yes",
 }
 
+# Canonical plan name -> learner-facing label (Rule 2; the DB display_name is
+# authoritative at runtime for admin-edited labels, but this map provides the
+# stable code-name fallback and set membership).
 PLANS = {
     "free": "رایگان",
+    "bronze": "برنزی",
     "silver": "نقره‌ای",
     "gold": "طلایی",
+    "emerald": "زمردی",
 }
-PREMIUM_PLANS = frozenset({"silver", "gold"})
+PREMIUM_PLANS = frozenset({"silver", "gold", "emerald"})
+
+
+def _plan_spec(plan: str) -> dict:
+    """Return the armed plan spec dict, falling back to free defaults.
+
+    Reads lazily from the DB to avoid a config->db import cycle. R2/R7: a
+    missing or deactivated plan resolves to the 'free' spec.
+    """
+    try:
+        from services.db.plans import get_plan
+        spec = get_plan(plan)
+        if spec and spec.get("is_active", 1):
+            return spec
+    except Exception:
+        pass
+    try:
+        from services.db.plans import DEFAULT_PLANS
+        display, price, query, sessions, cards, _ = DEFAULT_PLANS["free"]
+        return {
+            "display_name": display, "price": price,
+            "query_quota": query, "max_sessions": sessions,
+            "cards_per_session": cards, "is_active": 1,
+        }
+    except Exception:
+        return {
+            "display_name": plan, "price": 0, "query_quota": 2,
+            "max_sessions": 2, "cards_per_session": 3, "is_active": 1,
+        }
+
+
+def max_sessions_for_plan(plan: str) -> int:
+    return int(_plan_spec(plan).get("max_sessions") or 1)
+
+
+def cards_per_session_for_plan(plan: str) -> int:
+    return int(_plan_spec(plan).get("cards_per_session") or 1)
+
+
+def plan_display_name(plan: str) -> str:
+    display = _plan_spec(plan).get("display_name")
+    return display or PLANS.get(plan, plan)
 
 
 def daily_card_count_for_plan(plan: str) -> int:
-    return {
-        "free": FREE_DAILY_CARD_LIMIT,
-        "silver": SILVER_DAILY_CARD_LIMIT,
-        "gold": GOLD_DAILY_CARD_LIMIT,
-    }.get(plan, FREE_DAILY_CARD_LIMIT)
+    return max_sessions_for_plan(plan) * cards_per_session_for_plan(plan)
 
 
 def daily_word_query_limit_for_plan(plan: str) -> int:
-    return {
-        "free": FREE_DAILY_WORD_QUERY_LIMIT,
-        "silver": SILVER_DAILY_WORD_QUERY_LIMIT,
-        "gold": GOLD_DAILY_WORD_QUERY_LIMIT,
-    }.get(plan, FREE_DAILY_WORD_QUERY_LIMIT)
+    return int(_plan_spec(plan).get("query_quota") or 0)
 
 
 def effective_plan(plan: str, bypass_limits: bool = False) -> str:
@@ -149,7 +173,7 @@ def _user_plan(row) -> str:
 
 
 def _user_plan_label(row) -> str:
-    actual = PLANS.get(row["plan"] or "free", row["plan"] or "free")
+    actual = plan_display_name(row["plan"] or "free")
     if OWNER_BYPASS_LIMITS and is_owner(row["user_id"]):
         return f"{actual} (دسترسی مالک)"
     return actual

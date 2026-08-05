@@ -9,9 +9,6 @@ from config import (
     DEFAULT_AI_BASE_URL,
     DEFAULT_AI_MODEL,
     DEFAULT_PHONETIC_SHOW_IPA,
-    FREE_DAILY_CARD_LIMIT,
-    SILVER_DAILY_CARD_LIMIT,
-    GOLD_DAILY_CARD_LIMIT,
     LLM_INPUT_COST_USD_PER_MILLION,
     LLM_OUTPUT_COST_USD_PER_MILLION,
     PLANS,
@@ -37,6 +34,15 @@ from services.db.schema import (
     _can_consume_daily_count,
     _init_ai_presets_table,
     _init_config_tests_table,
+    _init_plans_table,
+)
+
+from services.db.plans import (
+    get_plan,
+    list_plans,
+    valid_plan_name,
+    upsert_plan,
+    set_plan_active,
 )
 
 from services.db.users import (
