@@ -1,7 +1,6 @@
 ---
 description: OpenAI client, AI preset resolver, JSON extractor, prompts, content generator
 mode: subagent
-model: anthropic/claude-sonnet-4-5
 temperature: 0.1
 permission:
   edit: allow
