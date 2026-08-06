@@ -43,8 +43,9 @@ EXPECTED_COLUMNS = {
         "next_review",
         "review_status",
         "first_exposure_done",  # NOTE: added in Phase 3a migration
-        "stability",            # NOTE: added in Phase 3a migration
-        "difficulty",           # NOTE: added in Phase 3a migration
+        "stability",           # NOTE: added in Phase 3a migration
+        "difficulty",          # NOTE: added in Phase 3a migration
+        "entry_source",        # NOTE: added in entry_source column change
     },
     "review_events": {"id", "word_id", "user_id", "outcome", "created_at"},
     "llm_requests": {"id", "request_id", "cost_usd", "preset_name"},

@@ -182,6 +182,7 @@ def add_saved_word(
     word: str,
     lang: str,
     card_data: dict | None = None,
+    entry_source: str = "manual",
 ) -> bool:
     normalized_word = _normalize_word(word)
     if not normalized_word:
@@ -199,8 +200,8 @@ def add_saved_word(
             "INSERT OR IGNORE INTO saved_words("
             "user_id, word, lang, normalized_word, card_data, interval_idx, "
             "next_review, review_status, added_at, "
-            "first_exposure_done, stability, difficulty) "
-            "VALUES (?, ?, ?, ?, ?, 0, ?, 'idle', ?, 0, 0.0, 5.0)",
+            "first_exposure_done, stability, difficulty, entry_source) "
+            "VALUES (?, ?, ?, ?, ?, 0, ?, 'idle', ?, 0, 0.0, 5.0, ?)",
             (
                 user_id,
                 word,
@@ -209,6 +210,7 @@ def add_saved_word(
                 serialized_card,
                 next_review,
                 _utc_now().isoformat(),
+                entry_source,
             ),
         )
         if cursor.rowcount == 0 and serialized_card is not None:

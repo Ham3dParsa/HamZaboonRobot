@@ -43,7 +43,7 @@ async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         return
 
     result_data = json.loads(row["result_json"])
-    added = db.add_saved_word(user_id, row["word"], row["lang"], result_data)
+    added = db.add_saved_word(user_id, row["word"], row["lang"], result_data, entry_source="manual")
     db.mark_query_result_saved(token)
     if added:
         message = "واژه به مرور شما اضافه شد. ✅"
