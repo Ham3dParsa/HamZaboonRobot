@@ -121,6 +121,77 @@ class TestHandleStudyStart(_BaseStudyHandlerTest):
         self.assertEqual(state.total_cards, 1)
         self.assertEqual(state.plan, "free")
 
+    @patch("handlers.study_handler.build_session_list")
+    @patch("handlers.study_handler.consume_session_slot", return_value=True)
+    def test_active_session_resumes_without_consuming_new_slot(
+        self, mock_consume, mock_build
+    ):
+        """Pressing the study-start button again while a session is active must
+        resume the existing session — it must NOT consume another slot, must
+        NOT rebuild via build_session_list, and must re-render the same card."""
+        from services.session import SessionNode
+        node = SessionNode(
+            activity_type="srs_review", source_tier=1,
+            card_data={"word": "hello"}, source_id=1,
+            activity_meta={"user_id": 1}, grade_policy_ref="srs_review",
+        )
+        existing = SessionState(
+            nodes=[node],
+            total_cards=1,
+            tier3_context={},
+            study_msg_id=777,
+            plan="free",
+        )
+        update = self._update()
+        ctx = self._context()
+        ctx.user_data["current_session"] = existing
+
+        asyncio.run(handle_study_start(update, ctx))
+
+        # Slot must NOT be consumed again and session must NOT be rebuilt.
+        mock_consume.assert_not_called()
+        mock_build.assert_not_called()
+        # The same session object is retained (no discard/rebuild).
+        self.assertIs(ctx.user_data["current_session"], existing)
+        # The resume path re-renders the current card by editing the existing message.
+        ctx.bot.edit_message_text.assert_awaited()
+        ctx.bot.send_message.assert_not_awaited()
+        # A brief Persian confirmation is shown to the user.
+        call_args = update.callback_query.answer.call_args
+        self.assertIn("جلسه‌ی قبلی", call_args[0][0])
+
+    @patch("handlers.study_handler.build_session_list")
+    @patch("handlers.study_handler.consume_session_slot", return_value=True)
+    def test_completed_session_is_not_resumed(self, mock_consume, mock_build):
+        """A session whose nodes are all graded (empty nodes) but which has not
+        yet been popped from user_data must NOT be re-shown — the handler must
+        fall through to a fresh session build."""
+        from services.session import SessionNode
+        node = SessionNode(
+            activity_type="srs_review", source_tier=1,
+            card_data={"word": "hello"}, source_id=1,
+            activity_meta={"user_id": 1}, grade_policy_ref="srs_review",
+        )
+        completed = SessionState(
+            nodes=[],
+            total_cards=1,
+            tier3_context={},
+            study_msg_id=777,
+            plan="free",
+        )
+        mock_build.return_value = ([node], {"user_id": 1, "remaining_slots": 0})
+        update = self._update()
+        ctx = self._context()
+        ctx.user_data["current_session"] = completed
+
+        asyncio.run(handle_study_start(update, ctx))
+
+        # Empty-nodes session is treated as no active session: a new slot is
+        # consumed and a new session is built.
+        mock_consume.assert_called_once()
+        mock_build.assert_called_once()
+        self.assertIsNot(ctx.user_data["current_session"], completed)
+
 
 class TestAdvanceSession(_BaseStudyHandlerTest):
     def _make_state(self, nodes, total_cards=None):
