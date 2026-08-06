@@ -65,13 +65,14 @@ button; redundant next/skip; confusing quota labels/groups). Product decision
 | D wizard | label/group fix + per-field hints + pending-value display | complete | integration render test |
 | E | wiring/dead-ref/format tests | complete | test_wiring + keyboards |
 | F | file R5 issue (#259) | complete | gh issue #259 |
-| G | Independent Review + validation + commit + PR | in-progress | review + suite (396) |
+| G | Independent Review + validation + commit + PR | complete | review + suite (399) + PR #260 CI green |
 
 ## Update Log
 
 - 2026-08-06: Contract locked (R1–R5). Branch `feat/study-resume-and-plan-wizard-ux` created on top of `feat/db-driven-plan-spec` (PR #258) since the wizard edits depend on the un-merged #258 code.
 - 2026-08-06: Phase A–F complete. R1 study-resume inactivates old card + sends fresh card; `study:inactive` handler pops then deletes. R2 back button + R3 skip semantics (skip clears pending per owner) on `admin_plan_full_edit`. R4 labels/groups + F3 (header on all 3 quota fields) + F5 (DB + pending value display) + R3 (display header on price). R5 deferred as issue #259.
-- 2026-08-06: Independent Review pass 1 (no critical bugs) applied: F1 assert inactive keyboard; F2 drop is_last; F4 view label; F8 back-at-first + skip tests. Pass 2 (no critical bugs) applied: R1 render test, R6 BadRequest-resume test, R3 price header (owner), R4 skip-clears-typed (owner). Full suite 396 green. #258 plan file Phase F marked complete (bookkeeping).
+- 2026-08-06: Independent Review pass 1 (no critical bugs) applied: F1 assert inactive keyboard; F2 drop is_last; F4 view label; F8 back-at-first + skip tests. Pass 2 (no critical bugs) applied: R1 render test, R6 BadRequest-resume test, R3 price header (owner), R4 skip-clears-typed (owner). Added html.escape (F2 from pass 2), de-hardened test (F3). Full suite 399 green. #258 plan file Phase F marked complete (bookkeeping).
+- 2026-08-06: Committed `ef95738` (10 files), pushed, opened PR #260 against `main` (documented stack dependency on #257/#258; merge order #258 then #260). All 3 CI checks green (label, test 3.10, test 3.13). ROADMAP Done section updated with study-wizard UX note; callback-wiring skill map updated.
 
 ## Verification
 - Full validation suite (§6) green; wiring integrity + dead-reference guards pass.
