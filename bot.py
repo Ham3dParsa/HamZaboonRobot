@@ -600,6 +600,13 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _handle_tts_pronounce(update, context, data.split(":", 2)[2])
     elif data.startswith("admin:"):
         await _handle_admin_callback(update, context, data.split(":", 1)[1])
+    else:
+        log.warning("Unhandled callback data in recognized prefix: %s", data)
+        await _answer_callback_safely(
+            update.callback_query,
+            "عملیات ناموفق بود.",
+            show_alert=True,
+        )
 
 
 async def connection_health_job(context: ContextTypes.DEFAULT_TYPE):
@@ -761,6 +768,13 @@ async def primary_retry_job(context: ContextTypes.DEFAULT_TYPE):
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     log.exception("Unhandled exception while processing update", exc_info=context.error)
+    callback_query = getattr(update, "callback_query", None)
+    if callback_query is not None:
+        await _answer_callback_safely(
+            callback_query,
+            "خطا در پردازش درخواست. دوباره تلاش کنید.",
+            show_alert=True,
+        )
 
 
 def main():
