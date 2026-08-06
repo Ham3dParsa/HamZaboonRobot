@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from telegram import Update
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from config import (
@@ -19,7 +20,11 @@ from config import (
     cards_per_session_for_plan,
     is_owner,
 )
-from config.keyboards import get_first_exposure_keyboard, get_review_keyboard
+from config.keyboards import (
+    get_first_exposure_keyboard,
+    get_review_keyboard,
+    study_inactive_keyboard,
+)
 from services import db
 from services.session import SessionNode, build_session_list, generate_tier3_node
 from services.scheduling import consume_session_slot, release_session_slot
@@ -116,22 +121,38 @@ async def handle_study_start(
             node = state.nodes[0]
             user_id = node.activity_meta.get("user_id", 0)
             text, keyboard = _build_card_text_and_keyboard(node, state, user_id)
+
+            # Deactivate the previous card message (if it still exists) so its
+            # grade buttons are replaced by a single "not active" button. If
+            # the message was already deleted/lost, this fails harmlessly.
             if state.study_msg_id:
-                await context.bot.edit_message_text(
-                    text=text,
-                    chat_id=update.effective_chat.id,
-                    message_id=state.study_msg_id,
-                    reply_markup=keyboard,
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                )
-            else:
-                msg = await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=text,
-                    reply_markup=keyboard,
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                )
-                state.study_msg_id = msg.message_id
+                try:
+                    await context.bot.edit_message_reply_markup(
+                        chat_id=update.effective_chat.id,
+                        message_id=state.study_msg_id,
+                        reply_markup=study_inactive_keyboard(),
+                    )
+                except BadRequest:
+                    # Stale message already gone — nothing to inactivate.
+                    logger.info(
+                        "resume: prior study message gone; sending fresh card user_id=%s",
+                        user_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "handle_study_start inactivate-old-card failed user_id=%s",
+                        user_id,
+                    )
+
+            # Always send a fresh, active card so the user can continue even if
+            # the original card message was deleted or lost.
+            msg = await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=text,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            state.study_msg_id = msg.message_id
         except Exception:
             logger.exception(
                 "handle_study_start resume render failed user_id=%s", user_id
@@ -273,6 +294,33 @@ def _session_number(user_id: int) -> int:
     """Current session number today (1-based)."""
     from services.scheduling import _get_used
     return _get_used(user_id)
+
+
+async def handle_study_inactive(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle a stale study-card "not active" button press.
+
+    Informs the learner that this card is superseded by a newer session card,
+    then deletes the stale message so its now-broken buttons disappear.
+    """
+    note = (
+        "این پیام غیرفعال شده، لطفاً از آخرین پیام جلسه استفاده کن یا "
+        "دکمهٔ «شروع مطالعه امروز» را بزن."
+    )
+    try:
+        await _answer_callback_safely(update.callback_query, note, show_alert=True)
+    except Exception:
+        logger.exception("study_inactive answer failed")
+
+    try:
+        if update.callback_query is not None and update.callback_query.message is not None:
+            await update.callback_query.message.delete()
+    except BadRequest:
+        # Already deleted by the user.
+        pass
+    except Exception:
+        logger.exception("handle_study_inactive delete failed")
 
 
 # ---------------------------------------------------------------------------

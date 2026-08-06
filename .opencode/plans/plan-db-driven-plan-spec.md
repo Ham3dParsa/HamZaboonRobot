@@ -4,7 +4,7 @@ description: Admin-editable DB-driven plan specs (5 plans, query quota, sessions
 created: 2026-08-05
 base_commit: 553084d
 branch: feat/db-driven-plan-spec
-status: in-progress
+status: complete
 ---
 
 # Plan: DB-Driven Admin-Editable Plan Spec
@@ -42,7 +42,7 @@ status: in-progress
 | C | scheduling max_sessions + session sizing from DB | complete |
 | D | admin plan-manager wizard callbacks + keyboards | complete |
 | E | wiring/integration/config/scheduling tests + docs | complete |
-| F | Independent Review + full validation + commit + PR | in-progress |
+| F | Independent Review + full validation + commit + PR | complete |
 
 ## Dependency & Wiring Map
 

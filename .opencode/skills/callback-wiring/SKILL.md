@@ -25,8 +25,9 @@ metadata:
 | `review:prepare:`, `review:menu`, `review:page:`, `review:date:`, `review:next:`, `review:noop` | `bot.py` | `_handle_daily_prepare`, `_show_review_menu`, `_show_review_date`, `_send_card_from_store` |
 | `query:prepare:`, `query:add:` | `bot.py` | `_handle_query_prepare`, `_handle_query_add` |
 | `tts:pronounce:` | `bot.py` | `_handle_tts_pronounce` |
+| `study:start`, `study:inactive` | `handlers/study_handler.py` | `handle_study_start`, `handle_study_inactive` (via `bot.py callback_router`) |
 | `srs:prepare:`, `srs:reveal:`, `srs:` | `handlers/srs_handler.py` | `_handle_srs_prepare`, `_handle_srs_reveal`, `_handle_srs_review` |
-| `admin:` | `handlers/admin.py` | `_handle_admin_callback` (incl. plan-manager: `plans`, `plans:view`, `plans:edit`, `plans:full_edit_next`, `plans:full_edit_skip`, `plans:full_edit_cancel`, `plans:full_edit_save`, `plans:set_active`) |
+| `admin:` | `handlers/admin.py` | `_handle_admin_callback` (incl. plan-manager: `plans`, `plans:view`, `plans:edit`, `plans:full_edit_back`, `plans:full_edit_skip`, `plans:full_edit_cancel`, `plans:full_edit_save`, `plans:set_active`) |
 | `llm:` | `handlers/admin.py` | `_handle_llm_callback` |
 | `flow:` | `config/keyboards.py` | `_handle_admin_callback`, `_exit_awaiting_flow` |
 

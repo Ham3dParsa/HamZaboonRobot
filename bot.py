@@ -133,7 +133,7 @@ from handlers.user import (
     _word_query_usage_text,
 )
 
-from handlers.study_handler import handle_study_start
+from handlers.study_handler import handle_study_inactive, handle_study_start
 
 from handlers.srs_handler import (
     _handle_first_exposure_grade,
@@ -594,6 +594,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _handle_srs_review(update, grade, parts[2], parts[3], context)
     elif data == "study:start":
         await handle_study_start(update, context)
+    elif data == "study:inactive":
+        await handle_study_inactive(update, context)
     elif data.startswith("tts:pronounce:"):
         await _handle_tts_pronounce(update, context, data.split(":", 2)[2])
     elif data.startswith("admin:"):

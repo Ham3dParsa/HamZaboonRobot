@@ -57,6 +57,10 @@ separate concepts and must not be conflated.
 - Owner-only administrative settings and per-user plan assignment
 - Explicit owner bypass for plan limits during development
 - Stable issue registry workflow with `issues/issues.json` as canonical data
+- Study-session resume UX: re-entering an active session always sends a fresh
+  card and inactivates the old one; plan-edit wizard back button, skip
+  semantics, quota/display grouping with per-field hints and pending-value
+  display. Card "report" button deferred to #259.
 
 ### In progress
 
