@@ -13,7 +13,12 @@ from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from config import OWNER_BYPASS_LIMITS, PREMIUM_PLANS, is_owner
+from config import (
+    OWNER_BYPASS_LIMITS,
+    PREMIUM_PLANS,
+    cards_per_session_for_plan,
+    is_owner,
+)
 from config.keyboards import get_first_exposure_keyboard, get_review_keyboard
 from services import db
 from services.session import SessionNode, build_session_list, generate_tier3_node
@@ -148,8 +153,10 @@ async def handle_study_start(
     lang = row["target_lang"]
     goal = row["goal"]
     level = row["level"]
+    max_nodes = cards_per_session_for_plan(plan)
     nodes, tier3_context = build_session_list(
         user_id, lang, goal, level, plan,
+        max_nodes=max_nodes,
     )
 
     # --- empty session: release slot (Decision 33) ---

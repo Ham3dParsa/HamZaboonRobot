@@ -462,6 +462,9 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop("full_edit", None)
             context.user_data.pop("awaiting", None)
             await _edit_ai_preset(update, context, preset_name)
+        elif awaiting.startswith("admin_plan_full_edit:"):
+            context.user_data.pop("plan_full_edit", None)
+            await _exit_awaiting_flow(update, context, via_callback=True)
         elif awaiting:
             await _exit_awaiting_flow(update, context, via_callback=True)
         else:
@@ -476,6 +479,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data.setdefault("preset_edits", {}).pop(preset_name, None)
             elif awaiting.startswith("ai_preset_full_edit:"):
                 context.user_data.pop("full_edit", None)
+            elif awaiting.startswith("admin_plan_full_edit:"):
+                context.user_data.pop("plan_full_edit", None)
             await _exit_awaiting_flow(update, context, via_callback=True)
         else:
             await update.callback_query.answer("فعلاً چیزی برای لغو نیست.", show_alert=True)

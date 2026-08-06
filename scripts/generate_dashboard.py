@@ -16,7 +16,7 @@ import os
 import sys
 import threading
 import time
-from datetime import date
+from datetime import datetime, timezone
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
@@ -1349,7 +1349,9 @@ def render() -> str:
     ps = json.loads(PROJECT_STATUS_PATH.read_text(encoding="utf-8"))
     phases: list[dict] = ps.get("phases", [])
     decisions: list[dict] = ps.get("decisions", [])
-    today = date.today().isoformat()
+    # Generate with a timezone-stable reference date so the committed html
+    # footer matches CI's regeneration regardless of the runner's local clock.
+    today = datetime.now(timezone.utc).date().isoformat()
     json_data = json.dumps(ps, ensure_ascii=False)
 
     parts = [

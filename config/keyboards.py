@@ -111,6 +111,7 @@ IBTN_FALLBACK_CHAIN = "⛓️ زنجیره فال‌بک"
 # --- Admin – AI Presets ---
 IBTN_ACTIVATE = "✅ فعال کردن"
 IBTN_ACTIVATE_THIS = "✅ فعال کردن این پیش‌تنظیم"
+IBTN_DEACTIVATE = "⛔ غیرفعال کردن"
 IBTN_EDIT = "✏️ ویرایش"
 IBTN_DELETE = "🗑 حذف"
 IBTN_EDIT_FORK = "✏️ ویرایش (fork)"
@@ -430,6 +431,49 @@ def admin_awaiting_inline_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def plan_manager_keyboard(plans: list[dict]) -> InlineKeyboardMarkup:
+    """Admin plan-manager list: one row per plan with edit + active toggle."""
+    rows = []
+    for p in plans:
+        marker = "✅" if p.get("is_active") else "⭕"
+        label = f"{marker} {p.get('display_name')} ({p.get('name')})"
+        rows.append([
+            InlineKeyboardButton(label, callback_data=f"admin:plans:view:{p.get('name')}"),
+            InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:plans:edit:{p.get('name')}"),
+        ])
+    rows.append([InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:back")])
+    return InlineKeyboardMarkup(rows)
+
+
+def plan_view_keyboard(name: str, is_active: bool) -> InlineKeyboardMarkup:
+    """Plan detail: full-edit wizard, activate/deactivate, back to list."""
+    toggle_label = IBTN_DEACTIVATE if is_active else IBTN_ACTIVATE
+    rows = [
+        [InlineKeyboardButton(IBTN_FULL_EDIT_WIZARD, callback_data=f"admin:plans:edit:{name}")],
+        [InlineKeyboardButton(toggle_label, callback_data=f"admin:plans:set_active:{name}")],
+        [InlineKeyboardButton(IBTN_BACK, callback_data="admin:plans")],
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def plan_wizard_keyboard(name: str, is_last: bool) -> InlineKeyboardMarkup:
+    """Full-edit wizard navigation for a plan."""
+    buttons = []
+    if not is_last:
+        buttons.append(InlineKeyboardButton(IBTN_FULL_EDIT_NEXT, callback_data=f"admin:plans:full_edit_next:{name}"))
+    buttons.append(InlineKeyboardButton(IBTN_FULL_EDIT_SKIP, callback_data=f"admin:plans:full_edit_skip:{name}"))
+    buttons.append(InlineKeyboardButton(IBTN_FULL_EDIT_CANCEL_WIZARD, callback_data=f"admin:plans:full_edit_cancel:{name}"))
+    return InlineKeyboardMarkup([buttons])
+
+
+def plan_wizard_summary_keyboard(name: str) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(IBTN_FULL_EDIT_SAVE_ALL, callback_data=f"admin:plans:full_edit_save:{name}"),
+         InlineKeyboardButton(IBTN_FULL_EDIT_CANCEL_WIZARD, callback_data=f"admin:plans:full_edit_cancel:{name}")],
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
 def admin_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
@@ -437,11 +481,12 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
              InlineKeyboardButton(IBTN_PLAN, callback_data="admin:set_plan")],
             [InlineKeyboardButton(IBTN_ADMIN_AI, callback_data="admin:ai_settings"),
              InlineKeyboardButton(IBTN_ADMIN_PHONETICS, callback_data="admin:phonetics")],
-            [InlineKeyboardButton(IBTN_ADMIN_COST, callback_data="admin:cost_dashboard"),
-             InlineKeyboardButton(IBTN_ADMIN_SETTINGS, callback_data="admin:show_settings")],
-            [InlineKeyboardButton("📋 سطح لاگ", callback_data="admin:log_level"),
-             InlineKeyboardButton(BTN_ADMIN_BROADCAST, callback_data="admin:broadcast")],
-            [InlineKeyboardButton(IBTN_USER_ACTIVITY_LOG, callback_data="admin:user_activity_log")],
+            [InlineKeyboardButton("💳 مدیریت پلن‌ها", callback_data="admin:plans"),
+             InlineKeyboardButton(IBTN_ADMIN_COST, callback_data="admin:cost_dashboard")],
+            [InlineKeyboardButton(IBTN_ADMIN_SETTINGS, callback_data="admin:show_settings"),
+             InlineKeyboardButton("📋 سطح لاگ", callback_data="admin:log_level")],
+            [InlineKeyboardButton(BTN_ADMIN_BROADCAST, callback_data="admin:broadcast"),
+             InlineKeyboardButton(IBTN_USER_ACTIVITY_LOG, callback_data="admin:user_activity_log")],
         ]
     )
 

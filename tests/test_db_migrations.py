@@ -68,7 +68,82 @@ class AiPresetsMigrationsTests(unittest.TestCase):
         self.assertIn("preset_name", cols)
         self.assertEqual(cols["preset_name"]["notnull"], 0)
 
-    # ---- Migration from prior schema ----
+    # ---- Plans table (admin-editable plan specs) ----
+
+    def test_fresh_db_has_plans_table_with_all_columns(self):
+        db_module.init_db()
+        cols = self._get_columns("plans")
+        for col_name in (
+            "name", "display_name", "price", "query_quota",
+            "max_sessions", "cards_per_session", "is_active", "sort_order",
+        ):
+            self.assertIn(col_name, cols, f"Missing plans column {col_name}")
+
+    def test_fresh_db_seeds_default_plans(self):
+        db_module.init_db()
+        with db_module.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT name, query_quota, max_sessions, cards_per_session "
+                "FROM plans ORDER BY sort_order"
+            ).fetchall()
+        expected = {
+            "free": (2, 2, 3),
+            "bronze": (4, 3, 3),
+            "silver": (7, 3, 5),
+            "gold": (12, 4, 7),
+            "emerald": (20, 5, 9),
+        }
+        self.assertEqual({r["name"] for r in rows}, set(expected))
+        for row in rows:
+            self.assertEqual(
+                (row["query_quota"], row["max_sessions"], row["cards_per_session"]),
+                expected[row["name"]],
+            )
+
+    def test_plans_seed_does_not_overwrite_admin_edits(self):
+        db_module.init_db()
+        db_module.upsert_plan(
+            "free", "رایگان", 0, query_quota=99, max_sessions=1,
+            cards_per_session=1,
+        )
+        with db_module.get_conn() as conn:
+            db_module._init_plans_table(conn)
+            row = conn.execute(
+                "SELECT query_quota FROM plans WHERE name='free'"
+            ).fetchone()
+        self.assertEqual(row["query_quota"], 99, "re-init must not overwrite admin edits")
+
+    def test_migration_adds_plans_table_to_prior_schema(self):
+        conn = sqlite3.connect(db_module.DB_PATH)
+        try:
+            conn.execute("""
+                CREATE TABLE ai_presets (
+                    name TEXT PRIMARY KEY,
+                    base_url TEXT,
+                    model TEXT,
+                    api_key TEXT NOT NULL DEFAULT ''
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            """)
+            conn.commit()
+        finally:
+            conn.close()
+
+        with db_module.get_conn() as conn:
+            db_module._init_plans_table(conn)
+
+        cols = self._get_columns("plans")
+        for col_name in ("name", "display_name", "query_quota", "max_sessions",
+                         "cards_per_session", "is_active", "sort_order"):
+            self.assertIn(col_name, cols, f"plans missing column {col_name}")
+        with db_module.get_conn() as conn:
+            count = conn.execute("SELECT COUNT(*) AS c FROM plans").fetchone()["c"]
+        self.assertEqual(count, 5, "plans table should be seeded on migration")
 
     def test_migration_from_prior_schema(self):
         conn = sqlite3.connect(db_module.DB_PATH)

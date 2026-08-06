@@ -95,9 +95,9 @@ class TestHandleStudyStart(_BaseStudyHandlerTest):
         db.set_user_level(2, "beginner")
         update = self._update(user_id=2)
         ctx = self._context()
-        # Manually set the session count to exceed free limit
+        # Manually set the session count to exceed the free-plan limit (2/day).
         from services.scheduling import _session_key
-        db.set_setting(_session_key(2), "1")
+        db.set_setting(_session_key(2), "2")
         asyncio.run(handle_study_start(update, ctx))
         update.callback_query.answer.assert_awaited()
         call_args = update.callback_query.answer.call_args
@@ -314,7 +314,7 @@ class TestStudyStartEntryPoints(_BaseStudyHandlerTest):
         db.set_user_lang_goal(2, "en", "general")
         db.set_user_level(2, "beginner")
         from services.scheduling import _session_key
-        db.set_setting(_session_key(2), "1")  # free limit is 1 session/day
+        db.set_setting(_session_key(2), "2")  # free limit is 2 sessions/day
         update = self._text_update(user_id=2)
         ctx = self._context()
         asyncio.run(handle_study_start(update, ctx))

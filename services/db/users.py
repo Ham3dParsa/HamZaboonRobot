@@ -1,6 +1,6 @@
 import datetime
 
-from config import PLANS
+from services.db.plans import valid_plan_name
 from services.db.schema import get_conn, _today, _utc_now, _current_daily_count, _can_consume_daily_count
 
 
@@ -252,7 +252,7 @@ def count_llm_requests_since(date: str) -> int:
 
 
 def set_plan(user_id: int, plan: str):
-    if plan not in PLANS:
+    if not valid_plan_name(plan):
         raise ValueError(f"Unknown plan: {plan}")
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")

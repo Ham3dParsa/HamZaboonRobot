@@ -153,7 +153,8 @@
       "done": [
         "Quota visibility",
         "Persistent query identity",
-        "Idempotent Add to review"
+        "Idempotent Add to review",
+        "DB-driven plan specs: plans table + admin plan-manager wizard"
       ],
       "in_progress": [],
       "todo": [
@@ -167,7 +168,7 @@
         "phase-3",
         "phase-4"
       ],
-      "issue_ids": [],
+      "issue_ids": [257],
       "roadmap_anchor": "phase-5-custom-word-queries-and-spaced-repetition-capture"
     },
     {
