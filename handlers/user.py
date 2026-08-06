@@ -241,6 +241,7 @@ async def change_lang_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "زبان جدید خود را انتخاب کنید:",
         reply_markup=lang_inline_keyboard(back_to_settings=True),
     )
+    await _answer_callback_safely(update.callback_query)
 
 
 async def change_goal_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -251,6 +252,7 @@ async def change_goal_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "هدف جدید خود را انتخاب کنید:",
         reply_markup=goal_inline_keyboard(back_to_settings=True),
     )
+    await _answer_callback_safely(update.callback_query)
 
 
 async def change_level_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -261,6 +263,7 @@ async def change_level_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "سطح جدید خود را انتخاب کنید:",
         reply_markup=level_inline_keyboard(back_to_settings=True),
     )
+    await _answer_callback_safely(update.callback_query)
 
 
 async def change_presentation_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -268,6 +271,7 @@ async def change_presentation_start(update: Update, context: ContextTypes.DEFAUL
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
         await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
+        await _answer_callback_safely(update.callback_query)
         return
     current = _user_presentation(row)
     if (row["plan"] or "free") not in PREMIUM_PLANS:
@@ -277,6 +281,7 @@ async def change_presentation_start(update: Update, context: ContextTypes.DEFAUL
             f"نمایش فعلی کارت‌ها: {'خلاصه' if current == 'brief' else 'کامل'}.\n"
             "انتخاب دائمی نمایش کارت فقط برای کاربران پریمیوم فعال است.",
         )
+        await _answer_callback_safely(update.callback_query)
         return
     await _edit_or_send(
         update,
@@ -285,6 +290,7 @@ async def change_presentation_start(update: Update, context: ContextTypes.DEFAUL
         "نمایش موردنظر را انتخاب کنید:",
         reply_markup=presentation_settings_keyboard(current, back_to_settings=True),
     )
+    await _answer_callback_safely(update.callback_query)
 
 
 async def on_lang_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str):
@@ -477,6 +483,7 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
         await _edit_or_send(update, context, "اول باید /start رو بزنی.")
+        await _answer_callback_safely(update.callback_query)
         return
     due = db.due_words_for_user(user_id)
     text = (
@@ -488,6 +495,7 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⏰ واژه‌های آماده‌ی مرور: {len(due)}"
     )
     await _edit_or_send(update, context, text, reply_markup=settings_back_keyboard())
+    await _answer_callback_safely(update.callback_query)
 
 
 async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -495,6 +503,7 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
         await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
+        await _answer_callback_safely(update.callback_query)
         return
     lang_name = language_label(row["target_lang"])
     goal_name = goal_label(row["goal"])
@@ -505,6 +514,7 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         "⚙️ تنظیمات و پروفایل من:\nاز دکمه‌های زیر یکی را انتخاب کن.",
         reply_markup=settings_inline_keyboard(lang_name, goal_name, level_name),
     )
+    await _answer_callback_safely(update.callback_query)
 
 
 # ---------------- Callback handlers ----------------
