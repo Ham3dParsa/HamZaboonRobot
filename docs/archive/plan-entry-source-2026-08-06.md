@@ -3,9 +3,14 @@ name: entry-source
 description: Add additive `entry_source` column to saved_words (manual/auto origin tag); manual write path now, auto deferred to Tier-3
 created: 2026-08-06
 base_commit: 130941a
-branch: (to be created) feat/entry-source-column
-status: planned
+merged_commit: 302ad0d
+PR: #266
+status: implemented
 ---
+
+> **ARCHIVED 2026-08-06** — Plan completed and fully evaluated. Merged to `main` via PR #266.
+> Contract record: `docs/audit/architecture_alignment_2026-08-06.md` (Owner Section 2).
+> Issue: #267 (closed resolved).
 
 # entry_source column (Contract Lock B6) — independent half
 
@@ -65,10 +70,12 @@ truth: `docs/audit/architecture_alignment_2026-08-06.md` (Owner Section 2, scope
 | 3 | words.py: `add_saved_word` entry_source kwarg | complete |
 | 4 | srs_handler.py: `_handle_query_add` passes `'manual'` | complete |
 | 5 | Tests: migration_guards EXPECTED + default, upgrade row-preserve, unit kwarg, integration flow | complete |
-| 6 | Full validation suite (`hamzaban-validation`) — 406 tests OK, compile OK, ruff clean on changed files, dashboard OK, diff --check OK (ruff repo-wide fails only on untracked tools/Fsrs_simulation_v5 archive files, absent from CI) | complete |
-| 7 | Independent review subagent (`hamzaboon-reviewer`) | in_progress |
-| 8 | Commit, push, PR; update issue #245 follow-up (status/evidence/last_reviewed 2026-08-06) | planned |
+| 6 | Full validation suite (`hamzaban-validation`) | complete |
+| 7 | Independent review subagent (`hamzaboon-reviewer`) — READY FOR COMMIT | complete |
+| 8 | Commit, push, PR #266; issue #267 created+closed (resolved) | complete |
 
 ## Update Log
 - 2026-08-06: Plan persisted; scope trimmed to independent rules #1/#3; Rule #2 deferred to
   phase 2b per subagent findings + architecture_alignment Owner Section 2 revision.
+- 2026-08-06: Implemented, validated, independently reviewed, PR #266 merged (`302ad0d`),
+  issue #267 closed resolved. Archived to docs/archive/ per AGENTS.md §10.4.
