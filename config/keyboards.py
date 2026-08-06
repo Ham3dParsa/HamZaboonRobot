@@ -155,9 +155,13 @@ IBTN_SAVE_CANCEL = "❌ لغو ذخیره"
 # --- Admin – Full Edit Wizard ---
 IBTN_FULL_EDIT_WIZARD = "✏️ ویرایش کامل"
 IBTN_FULL_EDIT_NEXT = "▶️ بعدی"
+IBTN_FULL_EDIT_BACK = "↩️ قبلی"
 IBTN_FULL_EDIT_SKIP = "⏭️ رد کردن"
 IBTN_FULL_EDIT_CANCEL_WIZARD = "❌ انصراف از ویرایش"
 IBTN_FULL_EDIT_SAVE_ALL = "✅ ذخیره همه تغییرات"
+
+# --- Study – stale-card notice ---
+IBTN_STUDY_INACTIVE = "⚠️ این پیام دیگر فعال نیست"
 
 # --- Admin – Preset Group / Pagination ---
 IBTN_VIEW_MODE_LINEAR = "📋 نمایش خطی"
@@ -192,6 +196,17 @@ def study_start_keyboard() -> InlineKeyboardMarkup:
     """Single '📚 شروع مطالعه امروز' inline button for the nudge / menu."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(BTN_STUDY_SESSION, callback_data="study:start")],
+    ])
+
+
+def study_inactive_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard that replaces a stale study card's grade buttons.
+
+    Pressing it triggers a 'this message is no longer active' popup, after
+    which the stale message is deleted. Prevents grading an outdated card.
+    """
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(IBTN_STUDY_INACTIVE, callback_data="study:inactive")],
     ])
 
 
@@ -456,13 +471,18 @@ def plan_view_keyboard(name: str, is_active: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def plan_wizard_keyboard(name: str, is_last: bool) -> InlineKeyboardMarkup:
-    """Full-edit wizard navigation for a plan."""
-    buttons = []
-    if not is_last:
-        buttons.append(InlineKeyboardButton(IBTN_FULL_EDIT_NEXT, callback_data=f"admin:plans:full_edit_next:{name}"))
-    buttons.append(InlineKeyboardButton(IBTN_FULL_EDIT_SKIP, callback_data=f"admin:plans:full_edit_skip:{name}"))
-    buttons.append(InlineKeyboardButton(IBTN_FULL_EDIT_CANCEL_WIZARD, callback_data=f"admin:plans:full_edit_cancel:{name}"))
+def plan_wizard_keyboard(name: str) -> InlineKeyboardMarkup:
+    """Full-edit wizard navigation for a plan.
+
+    Back re-shows the previous field; skip leaves the current field's DB
+    value unchanged and advances. There is no redundant 'next' button —
+    typing a value (or skipping) always advances.
+    """
+    buttons = [
+        InlineKeyboardButton(IBTN_FULL_EDIT_BACK, callback_data=f"admin:plans:full_edit_back:{name}"),
+        InlineKeyboardButton(IBTN_FULL_EDIT_SKIP, callback_data=f"admin:plans:full_edit_skip:{name}"),
+        InlineKeyboardButton(IBTN_FULL_EDIT_CANCEL_WIZARD, callback_data=f"admin:plans:full_edit_cancel:{name}"),
+    ]
     return InlineKeyboardMarkup([buttons])
 
 

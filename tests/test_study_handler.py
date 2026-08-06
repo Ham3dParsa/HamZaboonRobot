@@ -11,7 +11,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from services import db
 from services.db import schema as db_schema
 from handlers import study_handler
-from handlers.study_handler import SessionState, advance_session, handle_study_start
+from handlers.study_handler import (
+    SessionState,
+    advance_session,
+    handle_study_inactive,
+    handle_study_start,
+)
 
 
 class _BaseStudyHandlerTest(unittest.TestCase):
@@ -128,7 +133,8 @@ class TestHandleStudyStart(_BaseStudyHandlerTest):
     ):
         """Pressing the study-start button again while a session is active must
         resume the existing session — it must NOT consume another slot, must
-        NOT rebuild via build_session_list, and must re-render the same card."""
+        NOT rebuild via build_session_list, and must inactivate the old card
+        and send a fresh card (R1)."""
         from services.session import SessionNode
         node = SessionNode(
             activity_type="srs_review", source_tier=1,
@@ -144,6 +150,7 @@ class TestHandleStudyStart(_BaseStudyHandlerTest):
         )
         update = self._update()
         ctx = self._context()
+        ctx.bot.edit_message_reply_markup = AsyncMock()
         ctx.user_data["current_session"] = existing
 
         asyncio.run(handle_study_start(update, ctx))
@@ -153,9 +160,9 @@ class TestHandleStudyStart(_BaseStudyHandlerTest):
         mock_build.assert_not_called()
         # The same session object is retained (no discard/rebuild).
         self.assertIs(ctx.user_data["current_session"], existing)
-        # The resume path re-renders the current card by editing the existing message.
-        ctx.bot.edit_message_text.assert_awaited()
-        ctx.bot.send_message.assert_not_awaited()
+        # R1: The resume path inactivates the old card and sends a fresh card.
+        ctx.bot.edit_message_reply_markup.assert_awaited()
+        ctx.bot.send_message.assert_awaited()
         # A brief Persian confirmation is shown to the user.
         call_args = update.callback_query.answer.call_args
         self.assertIn("جلسه‌ی قبلی", call_args[0][0])
@@ -191,6 +198,98 @@ class TestHandleStudyStart(_BaseStudyHandlerTest):
         mock_consume.assert_called_once()
         mock_build.assert_called_once()
         self.assertIsNot(ctx.user_data["current_session"], completed)
+
+    def test_resume_sends_new_card_and_inactivates_old(self):
+        """When a session is resumed, the previous card's buttons are replaced
+        with the inactive keyboard and a fresh card message is sent, so the
+        learner can continue even if the original message was lost."""
+        self.assertTrue(db.add_saved_word(1, "hello", "en", {"word": "hello", "fa_meaning": "سلام"}))
+        with db.get_conn() as conn:
+            word_id = conn.execute("SELECT id FROM saved_words WHERE word='hello'").fetchone()["id"]
+        from services.session import SessionNode
+        node = SessionNode(
+            activity_type="srs_review", source_tier=1,
+            card_data={"word": "hello"}, source_id=word_id,
+            activity_meta={"user_id": 1}, grade_policy_ref="srs_review",
+        )
+        state = SessionState(
+            nodes=[node], total_cards=1, tier3_context={},
+            study_msg_id=42, plan="free",
+        )
+        ctx = self._context()
+        ctx.bot.edit_message_reply_markup = AsyncMock()
+        ctx.user_data["current_session"] = state
+        update = self._update()
+        asyncio.run(handle_study_start(update, ctx))
+
+        ctx.bot.edit_message_reply_markup.assert_awaited_once()
+        # The old card's buttons are swapped for the inactive notice.
+        markup = ctx.bot.edit_message_reply_markup.call_args.kwargs["reply_markup"]
+        inline_rows = markup.to_json() if hasattr(markup, "to_json") else str(markup)
+        self.assertIn("study:inactive", inline_rows)
+        self.assertEqual(
+            ctx.bot.edit_message_reply_markup.call_args.kwargs["message_id"], 42
+        )
+        # A fresh card is sent so the user can continue.
+        ctx.bot.send_message.assert_awaited_once()
+        self.assertEqual(ctx.user_data["current_session"].study_msg_id, 999)
+
+    def test_handle_study_inactive_pops_and_deletes(self):
+        update = self._update()
+        update.callback_query.message = MagicMock()
+        update.callback_query.message.delete = AsyncMock()
+        ctx = self._context()
+        asyncio.run(handle_study_inactive(update, ctx))
+        update.callback_query.answer.assert_awaited_once()
+        # show_alert must be enabled so the learner actually sees the notice.
+        self.assertTrue(
+            update.callback_query.answer.call_args.kwargs.get("show_alert", False)
+        )
+        update.callback_query.message.delete.assert_awaited_once()
+
+    def test_handle_study_inactive_deleted_message_no_crash(self):
+        """Deleting an already-deleted stale card must not raise."""
+        from telegram.error import BadRequest
+        update = self._update()
+        query = MagicMock()
+        query.message.delete = AsyncMock(side_effect=BadRequest("message not found"))
+        update.callback_query = query
+        update.callback_query.answer = AsyncMock()
+        ctx = self._context()
+        asyncio.run(handle_study_inactive(update, ctx))
+        update.callback_query.message.delete.assert_awaited_once()
+
+    @patch("handlers.study_handler.build_session_list")
+    def test_resume_old_card_deleted_still_sends_fresh(self, mock_build):
+        """If the previous card message was already deleted, inactivating it
+        must fail harmlessly (BadRequest) yet a fresh card is still sent."""
+        from telegram.error import BadRequest
+        self.assertTrue(db.add_saved_word(1, "hello", "en", {"word": "hello", "fa_meaning": "سلام"}))
+        with db.get_conn() as conn:
+            word_id = conn.execute("SELECT id FROM saved_words WHERE word='hello'").fetchone()["id"]
+        from services.session import SessionNode
+        node = SessionNode(
+            activity_type="srs_review", source_tier=1,
+            card_data={"word": "hello"}, source_id=word_id,
+            activity_meta={"user_id": 1}, grade_policy_ref="srs_review",
+        )
+        state = SessionState(
+            nodes=[node], total_cards=1, tier3_context={},
+            study_msg_id=42, plan="free",
+        )
+        ctx = self._context()
+        ctx.bot.edit_message_reply_markup = AsyncMock(
+            side_effect=BadRequest("replied_to_message_not_found")
+        )
+        ctx.bot.send_message = AsyncMock(return_value=MagicMock(message_id=999))
+        ctx.user_data["current_session"] = state
+        update = self._update()
+        asyncio.run(handle_study_start(update, ctx))
+
+        ctx.bot.edit_message_reply_markup.assert_awaited_once()
+        # Fresh card must still be sent even though the old one was gone.
+        ctx.bot.send_message.assert_awaited_once()
+        self.assertEqual(ctx.user_data["current_session"].study_msg_id, 999)
 
 
 class TestAdvanceSession(_BaseStudyHandlerTest):
