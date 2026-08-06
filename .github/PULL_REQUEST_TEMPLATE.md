@@ -23,7 +23,7 @@
   - Focused unit tests: <file names>
   - Integration tests: <file names, per AGENTS.md §6>
   - Migration covered on BOTH fresh DB and upgraded-from-prior-schema DB: yes/no
-  - Full validation run: unittest / compile_all / ruff F821,F811 / git diff --check
+  - Full validation run: pytest -n / compile_all / ruff F821,F811 / git diff --check
 -->
 
 ## Dependency & Wiring Map (required if applicable)

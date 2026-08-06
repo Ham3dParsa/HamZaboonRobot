@@ -1,6 +1,6 @@
 ---
 name: hamzaban-validation
-description: Execute the full AGENTS.md §6 validation suite in one atomic command: unittest discover, compile_all.py, ruff F821/F811, generate_dashboard.py, git diff --check. Load when preparing to commit, before PR creation, or when asked to validate.
+description: Execute the full AGENTS.md §6 validation suite in one atomic command: pytest -n tests, compile_all.py, ruff F821/F811, generate_dashboard.py, git diff --check. Load when preparing to commit, before PR creation, or when asked to validate.
 license: MIT
 compatibility: opencode
 metadata:
@@ -18,7 +18,7 @@ metadata:
 
 ### Windows PowerShell
 ```powershell
-python -m unittest discover -s tests -v
+python -m pytest tests/ -n 14
 python scripts\compile_all.py
 python -m ruff check --select F821,F811
 python scripts\generate_dashboard.py
@@ -27,7 +27,7 @@ git diff --check
 
 ### Linux/macOS (CI)
 ```bash
-.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python -m pytest tests/ -n 4
 .venv/bin/python -m py_compile $(git ls-files '*.py' | grep -v 'tests/')
 .venv/bin/python -m ruff check --select F821,F811
 python scripts/generate_dashboard.py

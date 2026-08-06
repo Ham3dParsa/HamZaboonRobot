@@ -68,7 +68,7 @@ jobs:
         continue-on-error: true
         env:
           HAMZABAN_TEST_MODE: "1"
-        run: python -m pytest tests/ --junitxml=junit/test-results.xml -v
+        run: python -m pytest tests/ -n 4 --junitxml=junit/test-results.xml -v
 
       - name: Generate dashboard
         run: python scripts/generate_dashboard.py

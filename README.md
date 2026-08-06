@@ -18,7 +18,7 @@ python bot.py
 برای بررسی سریع بدون اجرای ربات:
 
 ```bash
-.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python -m pytest tests/ -n 14
 .venv/bin/python scripts/compile_all.py
 .venv/bin/python -m ruff check --select F821,F811
 .venv/bin/python scripts/generate_dashboard.py
