@@ -120,7 +120,8 @@ def init_db():
                 added_at TEXT,
                 first_exposure_done INTEGER DEFAULT 0,
                 stability REAL DEFAULT 0.0,
-                difficulty REAL DEFAULT 5.0
+                difficulty REAL DEFAULT 5.0,
+                entry_source TEXT DEFAULT 'manual'
             );
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -300,6 +301,10 @@ def init_db():
             conn.execute("ALTER TABLE saved_words ADD COLUMN stability REAL DEFAULT 0.0")
         if "difficulty" not in saved_word_columns:
             conn.execute("ALTER TABLE saved_words ADD COLUMN difficulty REAL DEFAULT 5.0")
+        if "entry_source" not in saved_word_columns:
+            conn.execute(
+                "ALTER TABLE saved_words ADD COLUMN entry_source TEXT DEFAULT 'manual'"
+            )
         review_columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(review_events)").fetchall()

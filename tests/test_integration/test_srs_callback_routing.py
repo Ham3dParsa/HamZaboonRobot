@@ -253,5 +253,59 @@ class SchemaMigrationTest(unittest.TestCase):
         self.assertEqual(count, 1)
 
 
+class QueryAddEntrySourceTest(unittest.TestCase):
+    """entry_source: 'Add to review' flow writes entry_source='manual'."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.previous_db_path = db.DB_PATH
+        self.previous_db_schema_path = db_schema.DB_PATH
+        new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db.DB_PATH = new_path
+        db_schema.DB_PATH = new_path
+        db.init_db()
+        db.create_user_if_needed(1, "learner")
+
+    def tearDown(self):
+        db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
+        self.tempdir.cleanup()
+
+    def test_query_add_writes_entry_source_manual(self):
+        from handlers.srs_handler import _handle_query_add
+
+        result_data = {
+            "word": "hello",
+            "fa_meaning": "سلام",
+            "fa_explanation": "توضیح",
+            "examples": ["Hello!"],
+            "example_translations": ["سلام!"],
+        }
+        token = db.create_query_result(1, "hello", "hello", "en", result_data)
+
+        update = MagicMock()
+        update.effective_user.id = 1
+        update.callback_query.answer = AsyncMock()
+        ctx = MagicMock()
+        ctx.user_data = {}
+
+        asyncio.run(_handle_query_add(update, ctx, token))
+
+        with db.get_conn() as conn:
+            row = conn.execute(
+                "SELECT entry_source FROM saved_words WHERE user_id=1 AND word='hello'"
+            ).fetchone()
+        self.assertIsNotNone(row, "Add to review must create a saved_words row")
+        self.assertEqual(row["entry_source"], "manual")
+
+    def test_query_add_entry_source_default_via_add_saved_word(self):
+        db.add_saved_word(1, "world", "en", {"word": "world"})
+        with db.get_conn() as conn:
+            row = conn.execute(
+                "SELECT entry_source FROM saved_words WHERE user_id=1 AND word='world'"
+            ).fetchone()
+        self.assertEqual(row["entry_source"], "manual")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -212,6 +212,55 @@ class AiPresetsMigrationsTests(unittest.TestCase):
         llm_cols = self._get_columns("llm_requests")
         self.assertIn("preset_name", llm_cols, "preset_name not added to llm_requests")
 
+    def test_fresh_db_saved_words_entry_source_default(self):
+        db_module.init_db()
+        cols = self._get_columns("saved_words")
+        self.assertIn("entry_source", cols)
+        self.assertEqual(cols["entry_source"]["dflt_value"], "'manual'")
+
+    def test_upgrade_prior_schema_adds_entry_source_preserves_rows(self):
+        conn = sqlite3.connect(db_module.DB_PATH)
+        try:
+            conn.execute("""
+                CREATE TABLE saved_words (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    word TEXT,
+                    lang TEXT,
+                    normalized_word TEXT
+                )
+            """)
+            conn.execute(
+                "INSERT INTO saved_words(user_id, word, lang, normalized_word) "
+                "VALUES (1, 'hello', 'en', 'hello')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        db_module.init_db()
+
+        cols = self._get_columns("saved_words")
+        self.assertIn("entry_source", cols, "entry_source not added on upgrade")
+        with db_module.get_conn() as conn:
+            row = conn.execute(
+                "SELECT word, entry_source FROM saved_words WHERE user_id=1"
+            ).fetchone()
+        self.assertEqual(row["word"], "hello", "existing row must not be lost on upgrade")
+        self.assertEqual(row["entry_source"], "manual", "existing rows default to manual")
+
+    def test_add_saved_word_entry_source_writes_value(self):
+        db_module.init_db()
+        db_module.create_user_if_needed(1, "learner")
+        db_module.add_saved_word(1, "hello", "en", {"word": "hello"}, entry_source="manual")
+        db_module.add_saved_word(1, "auto_word", "en", {"word": "auto_word"}, entry_source="auto")
+        with db_module.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT word, entry_source FROM saved_words ORDER BY word"
+            ).fetchall()
+        self.assertEqual(rows[0]["entry_source"], "auto")
+        self.assertEqual(rows[1]["entry_source"], "manual")
+
 
 if __name__ == "__main__":
     unittest.main()
