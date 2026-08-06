@@ -7,7 +7,7 @@ permission:
   bash:
     "*": deny
     "python -m ruff check *": allow
-    "python -m unittest discover -s tests -v": allow
+    "python -m pytest tests/ -n *": allow
     "git diff*": allow
     "git log*": allow
     "grep *": allow
