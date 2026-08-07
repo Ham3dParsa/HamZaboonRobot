@@ -407,6 +407,12 @@ regeneration, `git diff --check`) and its exact commands (Windows PowerShell and
 Linux/macOS variants) live in the `hamzaban-validation` skill — load it before
 committing or creating a PR. All five steps must pass before commit.
 
+**Locked test worker rule:** local runs MUST use `python -m pytest tests/ -n 14`
+(the machine has 24 logical cores; `-n 14` is the fast-and-stable count, ~2x
+faster than the CI count). The CI count (`-n 4`, `.github/workflows/ci.yml`) is
+only for matching GitHub Actions output exactly. Never use `-n 14` in CI files,
+and never default local runs to the CI count.
+
 For changes to a specific subsystem, add focused tests before relying on the
 full suite: scheduling/delivery (queue state, retry budget, backoff, restart
 safety, shared slots), AI (timeout, JSON validation, limiter, async
