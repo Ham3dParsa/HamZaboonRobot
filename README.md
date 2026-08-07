@@ -66,16 +66,43 @@ git diff --check
 - خروجی کارت و batch به‌صورت پیش‌فرض `compact_json` است.
 - هر تماس AI نوع درخواست، مدل، latency و token usage را log می‌کند.
 
-## مکانیزم SRS و مرور
+## مکانیزم SRS و مرور (FSRS)
 
-- نتیجه‌ی معتبر پرسش واژه با payload کامل کارت در `saved_words.card_data`
-  ذخیره می‌شود؛ SRS برای نمایش reminder کامل نیازی به API call جدید ندارد.
-- reminderهای SRS کارت کامل را نمایش می‌دهند و با دکمه‌های کاربرمحور
-  «یادم بود» و «فردا دوباره» جلو می‌روند.
-- فاصله‌ی مرور فقط بعد از تعامل کاربر advance می‌شود.
+- این پروژه به سمت پیاده‌سازی و به‌کارگیری مدل FSRS-6 پیش رفته است. هسته‌ی
+  الگوریتم در `services/fsrs_core.py` قرار دارد و مستندسازی کامل پارامترها و
+  تغییرات نسبت به FSRS-5 در `docs/FSRS_v6.md` آماده است.
+- ساختار داده‌ها و ستون‌های بانکی برای FSRS موجود هستند: `saved_words` اکنون
+  ستون‌هایی مانند `first_exposure_done`, `stability`, `difficulty` را نگه می‌دارد
+  و `saved_words.card_data` همچنان payload کامل کارت معتبر را ذخیره می‌کند.
+- مهاجرت از `daily_cards` → `saved_words` برای آماده‌سازی کارت‌ها به‌عنوان
+  Tier-2 (pre-first-exposure) پیاده‌سازی شده‌است و تابع idempotent `migrate_saved_words_to_fsrs()`
+  در `services/db/words.py` وجود دارد. یک PR مرتبط (PR #252) برای این مرحله باز بوده
+  و CI آن موفق گزارش شده است (جزئیات در `project_status.json`).
+- UX مرور از بازخورد ۲-دکمه‌ای قدیمی به یک UI چهار-دکمه‌ای FSRS (Again/Hard/Good/Easy)
+  ارتقا یافته — gradeها به‌صورت کامل برای FSRS-6 ثبت می‌شوند.
+- فرمول short-term stability در هسته وجود دارد اما به‌صورت پیش‌فرض غیرفعال است
+  (قابل فعال‌سازی از طریق پیکربندی `enable_short_term` در FSRS config).
+- یادآورها و نشان دادن کارتِ کامل (بدون نیاز به فراخوانی AI جدید) بر مبنای
+  داده‌های ذخیره‌شده انجام می‌شود؛ پیشرفت فاصله‌ها تنها پس از تعامل کاربر advance می‌شود.
+
+### وضعیت مهاجرت و کارهای باقی‌مانده FSRS (خلاصه از project_status.json)
+- وضعیت کلی فازها: فازهای مربوط به schema/validation، پشتیبانی زبان و تولید کنترل‌شده
+  تکمیل شده‌اند؛ فازهای مربوط به Query capture و SRS در حال انجام هستند و
+  فاز مربوط به delivery/concurrency/data lifecycle نیز در حال انجام است.
+- موارد انجام‌شده مرتبط با FSRS در `project_status.json`:
+  - shell موتور session و UI چهار-دکمه‌ای FSRS مرج شده (Phase 1).
+  - مهاجرت `daily_cards` → `saved_words` و ستون‌های schema برای FSRS اضافه شده
+    و PR مربوطه باز/مرور شده (Phase 3a / PR #252).
+- کارهای باقی‌مانده (Phase 6 todo + docs/plans):
+  - حذف کامل جریان‌های قدیمی daily/review/old-SRS (یک PR واحد در Phase 2 plan stack).
+  - سیم‌کشی کامل scheduling/SRS (توابعی مانند `grade_word_review`, `due_words_for_user`,
+    `get_pre_first_exposure_words`) تا از `fsrs_core.py` استفاده کنند و آینده‌ی reminder‌ها
+    و زمان‌بندی را محاسبه کنند.
+  - Tier-3 تولید AI (generate_tier3_node) و نهایی‌سازی اولویت‌بندی سه‌مرحله‌ای session engine.
 
 ## محدودیت‌های عمدی MVP
 
 - بدون تصویر AI، گروه/leaderboard، پرداخت خودکار و placement test رایگان.
 - ارتقای پلن فعلاً دستی و owner-only است.
 - محتوای آموزشی learner-facing باید AI-generated بماند.
+
