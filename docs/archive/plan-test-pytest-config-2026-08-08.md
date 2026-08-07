@@ -4,7 +4,7 @@ description: Add pytest.ini so bare `pytest` scopes to tests/ and stops collecti
 created: 2026-08-08
 base_commit: a8f9529
 branch: chore/test-pytest-config
-status: in-progress
+status: completed
 ---
 
 # Plan: pytest.ini collection scoping
@@ -32,7 +32,7 @@ status: in-progress
 | 3 | Validate bare `pytest -n 4 -q` → 453 passed, 0 errors | done |
 | 4 | Validate `pytest tests/ -n 14` still green (no regression) | done |
 | 5 | Full validation (compile_all, ruff F821/F811, dashboard, git diff --check) | done |
-| 6 | Commit `chore(test): scope pytest collection to tests/` + PR | in-progress |
+| 6 | Commit `chore(test): scope pytest collection to tests/` + PR | done |
 
 ## Out of scope
 
@@ -42,3 +42,5 @@ status: in-progress
 ## Update Log
 
 - 2026-08-08: Plan locked by owner. Beginning implementation.
+- 2026-08-08: Committed `e4639f7`, pushed, PR #270 opened. CI will not run (workflow `paths:` filter excludes `pytest.ini`/`.md`); pytest collection behavior verified locally. Awaiting owner review/merge.
+- 2026-08-08: PR #270 squash-merged to `main` (`3379ec2`). Plan complete; archived to `docs/archive/plan-test-pytest-config-2026-08-08.md`.
