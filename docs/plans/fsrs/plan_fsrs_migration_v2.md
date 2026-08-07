@@ -1,4 +1,4 @@
-﻿# FSRS-6 Migration Plan v2 — Architecture-Locked, Modular Implementation
+# FSRS-6 Migration Plan v2 — Architecture-Locked, Modular Implementation
 
 **Status:** ✅ Architecture locked — Phase 1 (0–1g) merged 2026-08-02/03; Phases 1a/1c partial (FSRS DB wiring + Tier-3 AI stubbed for Phase 3b), Phase 2 pending after Phase 3a migration
 **Cutover strategy:** Atomic (bot is OFF; all changes land in one deployment)
@@ -476,7 +476,7 @@ All changes are grouped into ordered phases. Within each phase, items can be don
 |---|---|---|---|
 | 2.1 | `services/db/schema.py` | Remove one-time `migrate_saved_words_to_fsrs()` call from `init_db()` | `init_db()` no longer calls migration function (function itself may be kept or deleted) |
 | 2.2 | (entire repo) | Final grep sweep: verify zero references to `INTERVALS_DAYS`, `interval_idx`, `IBTN_REMEMBERED`, `IBTN_CONFIRM_CORRECT`, `IBTN_REMIND_AGAIN`, `advance_word_review`, `defer_word_review` in production code | Only hits are in git history, archived docs, and `gap_analysis.md` |
-| 2.3 | `docs/plans/plan_fsrs_migration.md` | Archive or replace with reference to v2 | Old plan marked as superseded |
+| 2.3 | `docs/plans/fsrs/plan_fsrs_migration.md` | Archive or replace with reference to v2 | Old plan marked as superseded |
 
 **Phase 2 commit:** `[` ☐ not done `]` — Phase 2 (cleanup) will run after Phase 3a migration; item 2.2 grep sweep fails (`interval_idx` still in schema, `daily_cards` table exists).
 
@@ -634,7 +634,7 @@ If FSRS scheduling produces worse results than the old 5-step ladder:
 
 ## 7. Forward Reference: Parameter Optimization (Deferred)
 
-**Phase 3 (parameter optimization) is intentionally deferred to a separate document**, contingent on reaching ~500+ review events across all users. This plan (V2) covers only the architecture and migration. The future document (`docs/plans/plan_fsrs_optimization.md`, not yet written) will specify:
+**Phase 3 (parameter optimization) is intentionally deferred to a separate document**, contingent on reaching ~500+ review events across all users. This plan (V2) covers only the architecture and migration. The future document (`docs/plans/fsrs/plan_fsrs_optimization.md`, not yet written) will specify:
 
 - Anti-gaming detection thresholds (response time, grade-vs-retrievability mismatch, grade distribution variance)
 - Pre-filtering heuristics vs. robust statistical down-weighting

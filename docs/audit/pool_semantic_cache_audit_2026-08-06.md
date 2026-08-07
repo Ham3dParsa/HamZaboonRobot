@@ -17,8 +17,8 @@ against the Tier-1/2/3 session engine (see §5 Tier-3 interconnection).
 
 ## 1. Pool-plan vs FSRS compatibility
 
-Source evidence: `docs/plans/plan_pooling.md`, `docs/plans/plan_fsrs_migration_v2.md`,
-`docs/plans/plan_daily_cards_migration.md`, `docs/plans/plan_fsrs_session_cleanup.md`,
+Source evidence: `docs/plans/content/plan_pooling.md`, `docs/plans/fsrs/plan_fsrs_migration_v2.md`,
+`docs/plans/fsrs/plan_daily_cards_migration.md`, `docs/plans/fsrs/plan_fsrs_session_cleanup.md`,
 `docs/archive/plan_fsrs_phase1_merge_engine.md`, `migrations/v3_cleanup.sql`,
 `services/session/__init__.py`, `services/session/assembly.py`, `services/session/grade_policy.py`,
 `handlers/study_handler.py`, `services/db/` (schema + words + reviews), `project_status.json`.
@@ -27,24 +27,24 @@ Findings table:
 
 | # | Claim | Evidence (file:line) | Verdict |
 |---|-------|----------------------|---------|
-| Q1 | Daily cards eligible after "the existing card validation and accepted-storage path" | `docs/plans/plan_pooling.md:22-23` | needs owner decision — "accepted-storage path" is ambiguous; `daily_cards` is being dropped and storage migrates to `saved_words.first_exposure_done` (`services/db/words.py:312-371`) |
-| Q1 | Reserved source kind `daily_card` implies the daily-card concept is pool intake | `docs/plans/plan_pooling.md:46-48` (`daily_card \| saved_query_card \| grammar_tip \| quiz_item`) | stale — daily-card concept is under active removal (Phase-2 in_progress) |
-| Q1 | Inventory floor counts per segment/source | `docs/plans/plan_pooling.md:74` ("Initial default: 10 distinct eligible items per segment/source") | needs owner decision — source set must be re-derived after daily→saved first-exposure merge |
-| Q1 | Sequencing step "Insert validated daily cards into the pool" | `docs/plans/plan_pooling.md:146` | stale — `daily_cards` table is in the removal path (`project_status.json:192`) |
-| Q1 | Avoid-lists: cards "enter the same stored daily-card or personal-history paths" | `docs/plans/plan_pooling.md:130-132` | stale / needs owner decision — daily-card path being dropped; only personal-history path survives |
-| Q1 | "How to check" SQL groups `saved_words` + `content_pool` by `(lang, goal, level)` | `docs/plans/plan_pooling.md:219-220` | needs owner decision — `saved_words` has no `goal`/`level` columns (see Q2) |
-| Q2 | Pool identity key `(target_lang, goal, level, source_kind, item_key)` | `docs/plans/plan_pooling.md:41,113` (`UNIQUE(target_lang, goal, level, source_kind, item_key)`) | still valid (new table, no FK dependency) |
-| Q2 | `item_key` = normalized word, casefold semantics | `docs/plans/plan_pooling.md:50-55` (`" ".join(value.split()).casefold()`) | still valid — matches `_normalize_word` (`services/db/schema.py:31-32`) |
+| Q1 | Daily cards eligible after "the existing card validation and accepted-storage path" | `docs/plans/content/plan_pooling.md:22-23` | needs owner decision — "accepted-storage path" is ambiguous; `daily_cards` is being dropped and storage migrates to `saved_words.first_exposure_done` (`services/db/words.py:312-371`) |
+| Q1 | Reserved source kind `daily_card` implies the daily-card concept is pool intake | `docs/plans/content/plan_pooling.md:46-48` (`daily_card \| saved_query_card \| grammar_tip \| quiz_item`) | stale — daily-card concept is under active removal (Phase-2 in_progress) |
+| Q1 | Inventory floor counts per segment/source | `docs/plans/content/plan_pooling.md:74` ("Initial default: 10 distinct eligible items per segment/source") | needs owner decision — source set must be re-derived after daily→saved first-exposure merge |
+| Q1 | Sequencing step "Insert validated daily cards into the pool" | `docs/plans/content/plan_pooling.md:146` | stale — `daily_cards` table is in the removal path (`project_status.json:192`) |
+| Q1 | Avoid-lists: cards "enter the same stored daily-card or personal-history paths" | `docs/plans/content/plan_pooling.md:130-132` | stale / needs owner decision — daily-card path being dropped; only personal-history path survives |
+| Q1 | "How to check" SQL groups `saved_words` + `content_pool` by `(lang, goal, level)` | `docs/plans/content/plan_pooling.md:219-220` | needs owner decision — `saved_words` has no `goal`/`level` columns (see Q2) |
+| Q2 | Pool identity key `(target_lang, goal, level, source_kind, item_key)` | `docs/plans/content/plan_pooling.md:41,113` (`UNIQUE(target_lang, goal, level, source_kind, item_key)`) | still valid (new table, no FK dependency) |
+| Q2 | `item_key` = normalized word, casefold semantics | `docs/plans/content/plan_pooling.md:50-55` (`" ".join(value.split()).casefold()`) | still valid — matches `_normalize_word` (`services/db/schema.py:31-32`) |
 | Q2 | FK / segment-key mismatch: `saved_words` no `goal`/`level` column, no FK to pool | `services/db/schema.py:109-124` (CREATE `saved_words`: `id, user_id, word, lang, normalized_word, card_data, ...`; no goal/level, no FK) | needs owner decision — pool keyed by `(goal, level)` but the learner-avoid key is only `(user_id, lang, normalized_word)` (`schema.py:330` UNIQUE), so cross-segment elimination of a user's own words is structurally incomplete |
 | Q2 | Normalization duplicate: backfill vs `_normalize_word` | backfill `normalized_word=lower(trim(word))` vs `_normalize_word` = `casefold` (`schema.py:31-32`) | needs owner decision — two distinct definitions; risk of `item_key` divergence |
-| Q3 | Re-entry trigger DAU ≥ 50 across a 7-day window | `docs/plans/plan_pooling.md:214-219` | needs owner decision — no live user-count evidence; plan cites ~10 test users |
-| Q3 | Segment-density trigger (≥10 items, ≥2 users) | `docs/plans/plan_pooling.md:...` (~217) | still valid in intent; depends on a pool table that does not exist |
+| Q3 | Re-entry trigger DAU ≥ 50 across a 7-day window | `docs/plans/content/plan_pooling.md:214-219` | needs owner decision — no live user-count evidence; plan cites ~10 test users |
+| Q3 | Segment-density trigger (≥10 items, ≥2 users) | `docs/plans/content/plan_pooling.md:...` (~217) | still valid in intent; depends on a pool table that does not exist |
 | Q3 | Phase-6 removal of `daily_cards` is in_progress | `project_status.json:191-194` ("...DROP old daily_cards table", listed under `in_progress`) | confirmed removal in flight |
-| Q3 | Phase-3a migration status | `docs/plans/plan_daily_cards_migration.md:3` ("> STATUS: Phase 3a complete (PR #252, CI green)"); implemented at `services/db/words.py:312-371`; live DB: 562 daily_cards still present (awaiting Phase-2 drop) | completed / merged — Phase 2 (DROP) is the remaining step |
+| Q3 | Phase-3a migration status | `docs/plans/fsrs/plan_daily_cards_migration.md:3` ("> STATUS: Phase 3a complete (PR #252, CI green)"); implemented at `services/db/words.py:312-371`; live DB: 562 daily_cards still present (awaiting Phase-2 drop) | completed / merged — Phase 2 (DROP) is the remaining step |
 | Q3 | Phase 3b / 3b+ state | `project_status.json:196-198` ("Phase 3b: wire FSRS scheduling ...", "Phase 3b+: AI Tier-3 generation ..." both in `todo`); grading stubs in `services/db/words.py` | needs owner decision — the plan's "defer entry until FSRS stable" depends on 3b |
 | Q4 | `content_pool` table | grep: zero code hits (only plan + `ROADMAP.md` mentions) | not implemented / still valid (locked-not-implemented) |
 | Q4 | `ENABLE_CONTENT_POOL` flag | grep: zero hits in code/settings | not implemented, consistent with plan |
-| Q4 | `services/ai/cards.py` extraction target | does not exist; `services/ai/` = `__init__.py, ai.py, ai_presets.py, llm_services.py, prompts.py`; card logic still in `bot.py` | not implemented — plan treats it as a future step (`plan_pooling.md:178-183`) |
+| Q4 | `services/ai/cards.py` extraction target | does not exist; `services/ai/` = `__init__.py, ai.py, ai_presets.py, llm_services.py, prompts.py`; card logic still in `bot.py` | not implemented — plan treats it as a future step (`docs/plans/content/plan_pooling.md:178-183`) |
 | Q4 | `daily_cards` table itself | `services/db/schema.py:129-134` still `CREATE TABLE IF NOT EXISTS daily_cards`; `words.py` still read/write it; `migrations/v3_cleanup.sql` drops `delivery_queue` but NOT `daily_cards` | still exists but scheduled for removal — needs decision |
 | Q4 | `review_events` table | `services/db/schema.py:198-205` + migrated `:307-315` exist; `services/db/reviews.py` write path valid | still valid |
 
@@ -53,7 +53,7 @@ Findings table:
 1. **`daily_cards` is under active removal BY PLAN (the V3/FSRS session engine has already
    superseded it).** The removal is not merely a `project_status.json` intent — it is enforced by
    the FSRS plan phase ordering and already implemented in code:
-   - Phase ordering is explicit: `docs/plans/plan_daily_cards_migration.md:126-139` — `Phase 1 →
+   - Phase ordering is explicit: `docs/plans/fsrs/plan_daily_cards_migration.md:126-139` — `Phase 1 →
      Phase 3a (migrate daily_cards → saved_words) → Phase 2 (remove stale daily/review/old-SRS +
      DROP daily_cards) → Phase 3b`, with `:139` "why 3a before 2: Migration needs daily_cards table.
      Phase 2 drops it."
@@ -63,7 +63,7 @@ Findings table:
    - The current session engine reads ONLY `saved_words`, never `daily_cards`:
      `services/session/assembly.py:47,62,109,124` use `due_words_for_user` /
      `get_pre_first_exposure_words`. `daily_cards` is a drained source table awaiting its scheduled drop.
-   - Scheduled removal is a committed stale-inventory item: `docs/plans/plan_fsrs_session_cleanup.md:82-87
+   - Scheduled removal is a committed stale-inventory item: `docs/plans/fsrs/plan_fsrs_session_cleanup.md:82-87
      (Phase 2)` and `:130-134 ("Stale (remove): ... DB daily_cards/daily_progress/daily_card_sessions").
      `migrations/v3_cleanup.sql:1-12` already drops `delivery_queue`: the `daily_cards` DROP is the
      pending Phase-2 half.
@@ -72,12 +72,12 @@ Findings table:
      Tier-2 (already the acceptance path), and Phase-3a merged first-exposure cards are the current
      candidate source. Owner decision needed on re-derived source set.
 2. **Schema mismatch between the pool's segment key and the actual word source.** The pool is keyed
-   by `(target_lang, goal, level, source_kind, item_key)` (`plan_pooling.md:41-42`), but `saved_words`
+   by `(target_lang, goal, level, source_kind, item_key)` (`docs/plans/content/plan_pooling.md:41-42`), but `saved_words`
    has no `goal`/`level` columns and is unique only on `(user_id, lang, normalized_word)`
    (`schema.py:124, 330`). The plan's own "check" SQL grouping by `(goal, level)` is not reducible,
    and cross-segment elimination of a user's own words needs a field that does not exist.
 3. **Trigger sequencing still depends on unreleased Phase 3b state.** The re-entry trigger
-   (`plan_pooling.md:214-218`) and the deferred decision both depend on FSRS scheduling wiring,
+   (`docs/plans/content/plan_pooling.md:214-218`) and the deferred decision both depend on FSRS scheduling wiring,
    which is a `todo` (`project_status.json:196`); grade stubs remain in `grade_policy.py`.
    The AI extraction target (`services/ai/cards.py`, Issue #180) does not exist. No upstream is landed.
 
@@ -244,13 +244,13 @@ these; no existing branch string-prefix-matches `report_card:` nor is swallowed 
 ### 5.1 Tier 3 as currently planned
 
 - **Stub by design:** `generate_tier3_node()` in `services/session/assembly.py:153-167` returns
-  `None`; `docs/plans/plan_fsrs_migration_v2.md:398,402,581` (Decision 26) and `:196-197` in
+  `None`; `docs/plans/fsrs/plan_fsrs_migration_v2.md:398,402,581` (Decision 26) and `:196-197` in
   `project_status.json` (Phase 3b+) defer real AI generation.
 - **Invocation seam:** `handlers/study_handler.py:315-334` — `advance_session()` calls
   `generate_tier3_node(**state.tier3_context)` ONLY when `tier3_context` is populated (remaining
   slots), appends the node, and renders it in place. This is the exact point a cache/pool read
   would replace the AI call.
-- **Planned prompt for Tier 3:** `docs/plans/plan_daily_cards_migration.md:143-155` designates
+- **Planned prompt for Tier 3:** `docs/plans/fsrs/plan_daily_cards_migration.md:143-155` designates
   `daily_card_system_prompt` (`services/ai/prompts.py:88-...`, `avoid_words` param at `:91-105`)
   as the Tier-3 template, with `avoid_words` from already-seen words (Tier 1+2 + Tier-3 so far)
   and AI daily quota respected.
@@ -321,31 +321,31 @@ Design-relevant facts for a semantic-cache proposal (from the above):
   breaking `query:prepare:`/`query:add:` token invariants.
 - **Quota is reserved before AI and released on failure** — a cache hit must route around
   `ask_card()` only *after* the same atomic reserve gate, so a hit does not bypass §2.2/broader
-  quota semantics silently (the `plan_pooling.md:61-69` rule for pool hits mirrors this).
+  quota semantics silently (the `docs/plans/content/plan_pooling.md:61-69` rule for pool hits mirrors this).
 - **The only landed repair/validation choke point for fetched cards is `_prepare_cached_card()`
   + `ai.validate_card`**; both any pooled-card read (Tier-3 or query) and a semantic-cache read
-  must pass the same validation invariant (`plan_pooling.md:125-127`) or the card-repair fetch
+  must pass the same validation invariant (`docs/plans/content/plan_pooling.md:125-127`) or the card-repair fetch
   path `ai` again (extra provider cost — relevant to the AI-cost discipline rule).
 - `cleanup_expired_query_results` lifecycle (§5.2 §5.4 item 7) is the one landed expiry/GC lifecycle a new
   cache layer must not disturb.
 
 ### 5.4 Interaction of the two proposals with Tier 3 (observed facts, not recommendations)
 
-| Concern | Pool proposal (plan_pooling.md) | Semantic cache (proposed) | Tier-3 seam impact |
+| Concern | Pool proposal (docs/plans/content/plan_pooling.md) | Semantic cache (proposed) | Tier-3 seam impact |
 |---|---|---|---|
-| Where a hit would replace AI | Pool read path planned to live in `services/ai/cards.py` (#180) per `plan_pooling.md:174,178-183` | A cache lookup would sit before `ask_card()` / `_prepare_cached_card()` | `generate_tier3_node()` is the only caller that "refills" a session; both proposals must plug into `study_handler.py:318-334` or inside `generate_tier3_node()` |
+| Where a hit would replace AI | Pool read path planned to live in `services/ai/cards.py` (#180) per `docs/plans/content/plan_pooling.md:174,178-183` | A cache lookup would sit before `ask_card()` / `_prepare_cached_card()` | `generate_tier3_node()` is the only caller that "refills" a session; both proposals must plug into `study_handler.py:318-334` or inside `generate_tier3_node()` |
 | Eligibility source | `daily_card` source-kind is stale (see §1); intake must re-base on `saved_words` Tier-2 (`first_exposure_done`) or the custom-word/saved path | Candidate set = generated/validated cards (Tier-3 output) that were ever produced | Both must agree on what "accepted/validated" content is eligible to be cached/pooled — currently only `saved_words` + `grammar_tips` carry accepted content |
 | Segment key | `(target_lang, goal, level, source_kind, item_key)` — but `saved_words` lacks `goal`/`level` (§1, finding 2) | An embedding keyed by lang+query semantics | Tier-3 generation already receives `goal`/`level` via `tier3_context` (`study_handler.py:141-147`) — so a cache/pool keyed by `(lang, goal, level)` is satisfiable at the Tier-3 seam even though `saved_words` cannot supply it |
-| Quota / cost | Pool hit = learner-facing feature quota, zero provider cost (`plan_pooling.md:61-69`) | Cache hit = zero provider cost, still product usage | Tier-3 quota (`consume_session_slot`) is separate from AI daily cap; a cache/pool hit must not burn AI quota but must still count as a served slot |
-| AI quota interplay | `plan_pooling.md:63` — pool hit consumes learner feature quota, not provider budget | Same intent | `ask_card()` burns AI daily cap; `generate_tier3_node()` currently would too — a hit path must route around `_call_ai_limited` (see `llm_services.py:96`) |
-| Validation invariant | `plan_pooling.md:125-127` — no invalid card may be shown or pooled | Cache rows must pass the same validation | `_prepare_cached_card()` already re-validates cached cards (repair via `ai.repair_card`, `llm_services.py:195-237`) — reuse this for pooled/cached Tier-3 reads |
-| Avoid-lists | `plan_pooling.md:130-132` — pool-served cards enter the same stored paths so prompts avoid them | Cache hits must respect per-user `saved_words`/`grammar_tips` | Tier-3 prompt already threads `avoid_words` (`prompts.py:91-105`); a hit must bypass generation but still be excluded if it is the user's own word |
+| Quota / cost | Pool hit = learner-facing feature quota, zero provider cost (`docs/plans/content/plan_pooling.md:61-69`) | Cache hit = zero provider cost, still product usage | Tier-3 quota (`consume_session_slot`) is separate from AI daily cap; a cache/pool hit must not burn AI quota but must still count as a served slot |
+| AI quota interplay | `docs/plans/content/plan_pooling.md:63` — pool hit consumes learner feature quota, not provider budget | Same intent | `ask_card()` burns AI daily cap; `generate_tier3_node()` currently would too — a hit path must route around `_call_ai_limited` (see `llm_services.py:96`) |
+| Validation invariant | `docs/plans/content/plan_pooling.md:125-127` — no invalid card may be shown or pooled | Cache rows must pass the same validation | `_prepare_cached_card()` already re-validates cached cards (repair via `ai.repair_card`, `llm_services.py:195-237`) — reuse this for pooled/cached Tier-3 reads |
+| Avoid-lists | `docs/plans/content/plan_pooling.md:130-132` — pool-served cards enter the same stored paths so prompts avoid them | Cache hits must respect per-user `saved_words`/`grammar_tips` | Tier-3 prompt already threads `avoid_words` (`prompts.py:91-105`); a hit must bypass generation but still be excluded if it is the user's own word |
 
 ### 5.5 Sequencing observations for the future Tier-3 plan update
 
-- Both the pooling read path (`plan_pooling.md:146-158` slices) and the semantic-cache embed
+- Both the pooling read path (`docs/plans/content/plan_pooling.md:146-158` slices) and the semantic-cache embed
   path are **unimplemented**, and their re-entry triggers are gated on scale
-  (`plan_pooling.md:210-233` DAU≥50 + segment density; §2 embedding verdict
+  (`docs/plans/content/plan_pooling.md:210-233` DAU≥50 + segment density; §2 embedding verdict
   feasible-with-constraints).
 - Tier-3 implementation (Phase 3b+, `project_status.json:197`) is a prerequisite *independent*
   seam: before either proposal can serve cards, `generate_tier3_node()` must produce real nodes,

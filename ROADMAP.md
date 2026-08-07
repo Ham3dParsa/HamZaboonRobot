@@ -1,4 +1,4 @@
-﻿# HamZaboon Roadmap
+# HamZaboon Roadmap
 
 ## Product Goal
 
@@ -68,7 +68,7 @@ separate concepts and must not be conflated.
 
 ### Deferred (awaiting trigger condition)
 
-- Segment-level content pooling — deferred until DAU ≥ 50 AND at least one segment has ≥10 shared items with ≥2 users. See [`docs/plans/plan_pooling.md` § Sequencing](docs/plans/plan_pooling.md) for rationale and trigger verbatim.
+- Segment-level content pooling — deferred until DAU ≥ 50 AND at least one segment has ≥10 shared items with ≥2 users. See [`docs/plans/content/plan_pooling.md` § Sequencing](docs/plans/content/plan_pooling.md) for rationale and trigger verbatim.
 
 ### Next
 
@@ -202,7 +202,7 @@ schedule or award points for delivery success alone.
 
 ## Locked Direction: Segment-Level Content Pooling
 
-> **Deferred** — see [`docs/plans/plan_pooling.md` § Sequencing](docs/plans/plan_pooling.md) for trigger condition and independence analysis.
+> **Deferred** — see [`docs/plans/content/plan_pooling.md` § Sequencing](docs/plans/content/plan_pooling.md) for trigger condition and independence analysis.
 
 The next cost-control direction is a shared, source-agnostic content pool
 keyed by `(target_lang, goal, level, source_kind, item_key)`. It must reuse
@@ -244,7 +244,7 @@ instrumentation first, then gated reads, saved-query and grammar
 recommendation paths, pool telemetry, and inventory selection. Mini-quiz
 read/write behavior remains deferred; only its reserved source kind ships
 with the shared schema. The complete locked plan lives in
-`plan_pooling.md`; this section and the canonical issue registry remain the
+`docs/plans/content/plan_pooling.md`; this section and the canonical issue registry remain the
 product-level source of truth.
 
 The remaining work is tracked in the explicit ToDo section near the end of
@@ -708,7 +708,7 @@ menu, but the database save and SRS functions remain internal capabilities.
 
 **Status:** In progress
 **Done:** Durable queues, bounded retries, async-safe provider calls, callback validation, and restart recovery.
-**In progress:** FSRS-6 migration — Phase 1 (core engine + session engine shell merged, 4-button UI live) and Phase 3a (daily_cards → saved_words first-exposure migration, schema columns, startup migration; PR #252 open, CI green) done. Next: Phase 2 stale-flow cleanup (DROP daily_cards) → Phase 3b FSRS data wiring. See `docs/plans/plan_fsrs_migration_v2.md`, `docs/plans/plan_daily_cards_migration.md`, `docs/plans/plan_fsrs_session_cleanup.md`.
+**In progress:** FSRS-6 migration — Phase 1 (core engine + session engine shell merged, 4-button UI live) and Phase 3a (daily_cards → saved_words first-exposure migration, schema columns, startup migration; PR #252 open, CI green) done. Next: Phase 2 stale-flow cleanup (DROP daily_cards) → Phase 3b FSRS data wiring. See `docs/plans/fsrs/plan_fsrs_migration_v2.md`, `docs/plans/fsrs/plan_daily_cards_migration.md`, `docs/plans/fsrs/plan_fsrs_session_cleanup.md`.
 **To-do:** Resolve issues `42`–`47`, `49`, `50`, and `66` with focused idempotency, migration, reliability, and progress tests.
 
 Make manual generation and scheduled delivery restart-safe and isolated per

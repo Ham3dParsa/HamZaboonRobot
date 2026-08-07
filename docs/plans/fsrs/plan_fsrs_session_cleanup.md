@@ -3,7 +3,7 @@
 **Status:** `> STATUS: active`
 **Cutover strategy:** Sequential PRs (Phase 1 merges the engine; Phase 2 removes stale flows; Phase 3 applies the reset)
 **References:**
-- `docs/plans/plan_fsrs_migration_v2.md` — the FSRS-6 migration plan (Phases 0–1c marked complete on the branch)
+- `docs/plans/fsrs/plan_fsrs_migration_v2.md` — the FSRS-6 migration plan (Phases 0–1c marked complete on the branch)
 - `services/fsrs_core.py` — pure FSRS-6 engine
 - Local branch `feat/fsrs-migration` — carries the working session engine (unmerged onto `main`)
 - `gap_analysis.md` — pre-plan code audit
@@ -70,7 +70,7 @@ No auto-push, no scheduled delivery, no separate review menu.
 
 ### Phase 1 — Merge the engine onto `main` (Q1)
 
-See `docs/plans/plan_fsrs_phase1_merge_engine.md` for the detailed, lockable plan.
+See `docs/archive/plan_fsrs_phase1_merge_engine.md` for the detailed, lockable plan.
 
 Summary: stash the unrelated working-tree change; update `main`; create `merge/fsrs-engine`; merge
 `feat/fsrs-migration`; resolve conflicts; full validation; independent review; PR; owner squash-merge.

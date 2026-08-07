@@ -3,9 +3,9 @@
 **Status:** `> STATUS: implemented` (merged 2026-08-02 via PR #240; B1 completion fix merged 2026-08-03 via PR #243)
 **Owner gate:** LOCKED — owner approved proceed; executed and closed
 **References:**
-- `docs/plans/plan_fsrs_session_cleanup.md` — comprehensive plan (this was its Phase 1)
+- `docs/plans/fsrs/plan_fsrs_session_cleanup.md` — comprehensive plan (this was its Phase 1)
 - Local branch `feat/fsrs-migration` — source of the engine (tip `025f968`)
-- `docs/plans/plan_fsrs_migration_v2.md` — engine design (Phases 0–1g complete; 1a/1c partial per FSRS wiring stubs)
+- `docs/plans/fsrs/plan_fsrs_migration_v2.md` — engine design (Phases 0–1g complete; 1a/1c partial per FSRS wiring stubs)
 
 ---
 
@@ -32,7 +32,7 @@ reviewed, conflict-resolved merge — without disturbing the owner's unrelated i
   rewritten `record_review_event`, and tests `test_study_handler.py`, `test_session_engine.py`,
   `test_srs_callback_routing.py`, `test_reviews.py`.
 - The "deletions" in `git diff main feat/fsrs-migration` for financial-dashboard files
-  (`tools/financial_model/financial_model_dashboard.html`, `docs/plan_financial_dashboard_baseline.md`,
+  (`tools/financial_model/financial_model_dashboard.html`, `docs/plans/costs/plan_financial_dashboard_baseline.md`,
   `tests/__init__.py`, `tests/test_ai_preset_manager.py`, `tests/test_db_guard.py`,
   `tests/test_integration/test_ai_timeout_flow.py`) are NOT in the merge-base and NOT on the branch —
   they were added to `main` after the split. A three-way merge preserves them.

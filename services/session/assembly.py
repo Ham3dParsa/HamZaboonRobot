@@ -1,6 +1,6 @@
 """3-tier priority session assembly: due SRS -> first-exposure -> new AI cards.
 
-Architecture decisions (locked, see docs/plans/plan_fsrs_migration_v2.md):
+Architecture decisions (locked, see docs/plans/fsrs/plan_fsrs_migration_v2.md):
 - build_session() is the internal, pure, fully-lazy 3-tier generator.
   Useful for isolated testing of assembly logic.
 - build_session_list() is the handler-facing entry point.

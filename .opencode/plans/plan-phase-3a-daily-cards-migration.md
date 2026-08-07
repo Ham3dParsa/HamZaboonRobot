@@ -9,8 +9,8 @@ status: complete
 
 # Phase 3a — Daily Cards Migration to Session Engine (Tier 2 First-Exposure)
 
-Traces to `docs/plans/plan_daily_cards_migration.md` (PR 1 of 3) and
-`docs/plans/plan_fsrs_migration_v2.md` (Phase 1a.6–1a.11, Phase 2 partial).
+Traces to `docs/plans/fsrs/plan_daily_cards_migration.md` (PR 1 of 3) and
+`docs/plans/fsrs/plan_fsrs_migration_v2.md` (Phase 1a.6–1a.11, Phase 2 partial).
 
 ## Locked Contract Rules (owner-approved 2026-08-05, all "Recommended")
 

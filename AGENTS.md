@@ -53,6 +53,8 @@ findings:
 | `issues/issues.html` | Compatibility redirect to `issues/project_status.html`. | Do not use it as an editor or status source. |
 | `scripts/generate_dashboard.py` | Lightweight HTML dashboard generator from `project_status.json`. | Use after intentional phase/decision changes. |
 | `docs/vision_and_product_goals.md` | Product vision, strategic goals, and target audience. | Curate when strategic direction or goals change. |
+| `docs/plans/` | Implementation plans grouped by dependency theme: `fsrs/` (FSRS migration chain), `content/` (pooling, extraction, quality hardening), `costs/` (LLM cost metrics, financial baseline). | Plan files reference related plans via `docs/plans/<theme>/` paths; archive superseded plans to `docs/archive/`. |
+| `docs/audit/` | Read-only audit reports and architecture alignment blueprints. | Keep evidence-cited; reference the `docs/plans/` files they analyze via full paths. |
 
 `project_status.json` is authoritative for phase/decision status. GitHub Issues
 are authoritative for individual issue state. HTML `localStorage`, embedded

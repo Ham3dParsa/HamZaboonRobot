@@ -7,7 +7,7 @@
 
 ## 🎯 Problem Understanding & Core Objective
 
-The audit report provides definitive clarity on system constraints. Specifically, the original `plan_pooling.md` relied on `daily_cards` (a construct currently slated for removal). Additionally, evaluating vectorization for semantic caching highlighted its dependency overhead (`sentence-transformers` brings PyTorch, adding ~190MB to Linux build packages). Rather than discarding previous designs, existing parameters are adjusted to align with verified repository metrics.
+The audit report provides definitive clarity on system constraints. Specifically, the original `docs/plans/content/plan_pooling.md` relied on `daily_cards` (a construct currently slated for removal). Additionally, evaluating vectorization for semantic caching highlighted its dependency overhead (`sentence-transformers` brings PyTorch, adding ~190MB to Linux build packages). Rather than discarding previous designs, existing parameters are adjusted to align with verified repository metrics.
 
 **Key Alignment:** Tier-3 generation (`generate_tier3_node` in `study_handler.py:315-334`) is confirmed as the exact entry point where both the content pool lookup and semantic caching layers must reside.
 

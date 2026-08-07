@@ -9,7 +9,7 @@ status: in-progress
 
 # Phase 2 — Remove Stale Card Systems + Drop Daily Tables
 
-Traces to `docs/plans/plan_fsrs_session_cleanup.md` (Phase 2) and follows the
+Traces to `docs/plans/fsrs/plan_fsrs_session_cleanup.md` (Phase 2) and follows the
 Phase 3a migration (merged as PR #252, commit `628b9e4`). The migration has
 been validated as run against `hamzaban.db` (`settings.fsrs_migration_done='1'`,
 531 saved_words reset to first-exposure, daily tables intact).

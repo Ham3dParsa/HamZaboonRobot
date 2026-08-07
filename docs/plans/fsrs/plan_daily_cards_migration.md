@@ -1,7 +1,7 @@
 # Plan — Migrate Daily Cards to Session Engine (Tier 2 First-Exposure)
 
 **Status:** `> STATUS: Phase 3a complete (PR #252, CI green)`
-**Related:** `docs/plans/plan_fsrs_session_cleanup.md` (Phase 3), `docs/plans/plan_fsrs_migration_v2.md`
+**Related:** `docs/plans/fsrs/plan_fsrs_session_cleanup.md` (Phase 3), `docs/plans/fsrs/plan_fsrs_migration_v2.md`
 **Target:** Solve "empty session for existing users" by converting `daily_cards` → `saved_words` as first-exposure cards.
 
 ---
@@ -197,7 +197,7 @@ def test_migration_dedupes_by_user_lang_word():
 | `services/db/words.py` | Implement `due_words_for_user()` → filter `first_exposure_done=1 AND next_review<=today` |
 | `services/db/words.py` | Implement `grade_word_review()` using `fsrs_core.compute_interval()` etc. |
 | `services/session/assembly.py` | `generate_tier3_node()` → call AI with `daily_card_system_prompt` |
-| `docs/plans/plan_fsrs_migration_v2.md` | Update Phase 1a items 1a.6–1a.11 status (partial) |
+| `docs/plans/fsrs/plan_fsrs_migration_v2.md` | Update Phase 1a items 1a.6–1a.11 status (partial) |
 
 ---
 

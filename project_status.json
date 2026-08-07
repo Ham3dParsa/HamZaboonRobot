@@ -79,7 +79,7 @@
       "done": [
         "Bounded manual and scheduled batches",
         "Duplicate filtering, persistence, and partial retry",
-        "Pool design locked in plan_pooling.md"
+        "Pool design locked in docs/plans/content/plan_pooling.md"
       ],
       "in_progress": [],
       "todo": [],
@@ -181,7 +181,7 @@
         "Async-safe provider calls",
         "Callback validation and restart recovery",
         "Phonetic data normalization",
-        "Staged bot.py module extraction plan (docs/plan_bot_extraction.md)",
+        "Staged bot.py module extraction plan (docs/plans/content/plan_bot_extraction.md)",
         "Bot.py module extraction Stages 1-5 complete (formatting.py, helpers.py, user.py, srs_handler.py, admin.py)",
         "Package restructuring: flat modules moved to config/, handlers/, services/ packages",
         "v3 Engine migration Phase 2: purged v2.8 push-based SRS (delivery_queue, scheduler, push jobs)",
@@ -391,7 +391,7 @@
       "phase": "phase-3",
       "roadmap_ref": "phase-3-controlled-generation-and-daily-card-storage",
       "issue_ids": [80],
-      "summary": "Segment-level content pooling (Issue #80) deferred until DAU ≥ 50 across 7 days AND at least one (target_lang, goal, level) segment has ≥10 validated items with ≥2 distinct users. Rationale: with ~10 test users, segment inventory is too sparse to validate selection or measure cost savings. Design and schema are locked in plan_pooling.md; no code exists. Independence from FSRS migration verified — additive schema, no file overlap with Phase 1a split, card-gen extraction (#180) is independent target. Sequencing: FSRS cutover → stabilize → extract #180 → pool writes (inactive) → pool reads + flag."
+      "summary": "Segment-level content pooling (Issue #80) deferred until DAU ≥ 50 across 7 days AND at least one (target_lang, goal, level) segment has ≥10 validated items with ≥2 distinct users. Rationale: with ~10 test users, segment inventory is too sparse to validate selection or measure cost savings. Design and schema are locked in docs/plans/content/plan_pooling.md; no code exists. Independence from FSRS migration verified — additive schema, no file overlap with Phase 1a split, card-gen extraction (#180) is independent target. Sequencing: FSRS cutover → stabilize → extract #180 → pool writes (inactive) → pool reads + flag."
     }
   ]
 }

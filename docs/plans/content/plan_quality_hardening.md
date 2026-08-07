@@ -6,7 +6,7 @@
 
 **Context:** Owner is a non-professional Python coder; quality must come from automation and enforced process, not human review. Product is a paid startup service; silent/sneaky errors are business-critical. Users are promised good uptime and a low-error (ideally error-free) experience.
 
-**Companion docs:** `AGENTS.md` (operating agreement), `docs/plans/plan_fsrs_migration_v2.md` (next major migration that must benefit from this system), `ROADMAP.md`, GitHub Issues #171, #233, #234.
+**Companion docs:** `AGENTS.md` (operating agreement), `docs/plans/fsrs/plan_fsrs_migration_v2.md` (next major migration that must benefit from this system), `ROADMAP.md`, GitHub Issues #171, #233, #234.
 
 ---
 

@@ -1,11 +1,11 @@
 # WP2 — Verification Guardrails: Dead-Reference Guard, Reverse Wiring, Migration Template, Dependency Map Gate
 
 > STATUS: active
-> Parent: `docs/plans/plan_quality_hardening.md` (WP2)
+> Parent: `docs/plans/content/plan_quality_hardening.md` (WP2)
 
 **Purpose:** Prevent dead code from surviving any future plan or implementation, and force an agent to enumerate every dependent feature before writing a refactor/migration/feature-removal plan — then verify all wiring after implementation. Catches the failure mode where a plan deletes a function/handler/symbol but leaves a caller, callback branch, keyboard, or import behind, and nothing fails CI until the bot breaks at runtime.
 
-**Companion docs:** `AGENTS.md` (§2.4 contract-lock gate, §3 callback routing map), `docs/plans/plan_quality_hardening.md`, `docs/plans/plan_fsrs_migration_v2.md` (first consumer: FSRS merge adds its deleted names to `BANNED_SYMBOLS`).
+**Companion docs:** `AGENTS.md` (§2.4 contract-lock gate, §3 callback routing map), `docs/plans/content/plan_quality_hardening.md`, `docs/plans/fsrs/plan_fsrs_migration_v2.md` (first consumer: FSRS merge adds its deleted names to `BANNED_SYMBOLS`).
 
 ---
 
