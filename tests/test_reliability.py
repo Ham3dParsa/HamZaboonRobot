@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from services.ai import ai
-from handlers import admin
+from handlers.admin_cost import _llm_cost_report_text
 import bot
 from services import db
 from services.db import schema as db_schema
@@ -142,7 +142,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
             usd_to_toman_rate=50000,
             latency_ms=123,
         )
-        text = admin._llm_cost_report_text(
+        text = _llm_cost_report_text(
             {
                 "range": "mtd",
                 "detail": True,
@@ -182,7 +182,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertEqual(rows[0]["billed_failure_count"], 1)
         self.assertEqual(rows[0]["request_count"], 1)
 
-        text = admin._llm_cost_report_text(
+        text = _llm_cost_report_text(
             {
                 "range": "all",
                 "detail": False,

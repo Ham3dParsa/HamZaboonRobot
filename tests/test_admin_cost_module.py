@@ -1,12 +1,14 @@
-"""Focused tests for the admin_cost expand module (Finding #7, task 7.3).
+"""Focused tests for the admin_cost module (Finding #7, task 7.5 migration).
 
-Task 7.3 establishes the cost/LLM domain seam by re-exporting the standalone
-cost symbols verbatim, with no behavior change and no routing changes yet.
+The LLM cost/pricing handler logic now lives in handlers.admin_cost; the admin
+monolith and bot.py import the cost functions from this module. Behavior is
+unchanged.
 """
 
 import unittest
 
 from config.keyboards import (
+    admin_awaiting_inline_keyboard,
     admin_cost_keyboard,
     llm_cost_dashboard_keyboard,
     llm_cost_kind_keyboard,
@@ -17,7 +19,7 @@ from config.keyboards import (
 from handlers import admin
 from handlers import admin_cost
 
-_FUNCTIONS = (
+_COST_FUNCTIONS = (
     "_handle_llm_callback",
     "_llm_cost_currency_text",
     "_llm_cost_default_state",
@@ -36,6 +38,7 @@ _FUNCTIONS = (
 )
 
 _KEYBOARDS = {
+    "admin_awaiting_inline_keyboard": admin_awaiting_inline_keyboard,
     "admin_cost_keyboard": admin_cost_keyboard,
     "llm_cost_dashboard_keyboard": llm_cost_dashboard_keyboard,
     "llm_cost_kind_keyboard": llm_cost_kind_keyboard,
@@ -46,10 +49,18 @@ _KEYBOARDS = {
 
 
 class TestAdminCostModule(unittest.TestCase):
-    def test_reexports_cost_functions_verbatim(self):
-        for name in _FUNCTIONS:
+    def test_defines_cost_functions(self):
+        for name in _COST_FUNCTIONS:
             with self.subTest(name=name):
-                self.assertIs(getattr(admin_cost, name), getattr(admin, name))
+                self.assertTrue(callable(getattr(admin_cost, name)))
+
+    def test_monolith_imports_cost_functions_from_module(self):
+        for name in ("_show_llm_cost_dashboard", "_llm_pricing_text", "_llm_cost_set_state"):
+            with self.subTest(name=name):
+                self.assertIs(getattr(admin, name), getattr(admin_cost, name))
+
+    def test_bot_llm_callback_reexported_through_monolith(self):
+        self.assertIs(admin._handle_llm_callback, admin_cost._handle_llm_callback)
 
     def test_reexports_cost_keyboards_verbatim(self):
         for name, kbd in _KEYBOARDS.items():
@@ -58,7 +69,7 @@ class TestAdminCostModule(unittest.TestCase):
 
     def test_all_is_explicit(self):
         expected = sorted(
-            list(_FUNCTIONS) + list(_KEYBOARDS.keys()),
+            list(_COST_FUNCTIONS) + list(_KEYBOARDS.keys()),
             key=lambda s: s.lower(),
         )
         self.assertEqual(sorted(admin_cost.__all__, key=lambda s: s.lower()), expected)
