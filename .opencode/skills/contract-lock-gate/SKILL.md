@@ -6,6 +6,8 @@ compatibility: opencode
 metadata:
   category: workflow
   gate: pre-implementation
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 # Contract Lock Gate Skill
 

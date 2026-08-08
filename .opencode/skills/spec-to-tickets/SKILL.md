@@ -6,6 +6,8 @@ compatibility: opencode
 metadata:
   category: workflow
   source: mattpocock/skills (to-tickets)
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 # Spec-to-Tickets Skill (plan-persistence per-phase adaptation)
 

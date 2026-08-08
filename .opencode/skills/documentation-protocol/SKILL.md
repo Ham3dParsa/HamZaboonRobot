@@ -6,6 +6,8 @@ compatibility: opencode
 metadata:
   category: workflow
   gate: documentation-change
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 # Documentation Update Protocol Skill (AGENTS.md §8)
 

@@ -6,6 +6,8 @@ compatibility: opencode
 metadata:
   category: indexing
   tool: graphifyy
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 # Graphify Index Skill
 

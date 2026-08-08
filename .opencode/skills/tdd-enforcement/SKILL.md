@@ -6,6 +6,8 @@ compatibility: opencode
 metadata:
   category: testing
   source: mattpocock/skills (implement, tdd)
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 # TDD Enforcement Skill (AGENTS.md §5 + Pocock implement adaptation)
 

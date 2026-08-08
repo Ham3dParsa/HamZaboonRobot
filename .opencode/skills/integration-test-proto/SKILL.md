@@ -6,6 +6,8 @@ compatibility: opencode
 metadata:
   category: testing
   gate: behavioral-change
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 # Integration Test Protocol Skill
 

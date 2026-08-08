@@ -6,6 +6,8 @@ compatibility: opencode
 metadata:
   category: debugging
   source: mattpocock/skills (diagnosing-bugs)
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 # Bug Diagnosis Skill (Pocock + AGENTS.md §7 Error Recovery adaptation)
 

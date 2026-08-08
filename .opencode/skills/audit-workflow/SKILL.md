@@ -6,6 +6,8 @@ compatibility: opencode
 metadata:
   category: workflow
   gate: audit-review
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 # Audit & Code-Review Workflow Skill (AGENTS.md §4)
 

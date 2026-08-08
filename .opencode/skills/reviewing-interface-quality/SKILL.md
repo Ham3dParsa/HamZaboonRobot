@@ -1,6 +1,8 @@
 ---
 name: reviewing-interface-quality
 description: Use when asked to review, critique, audit, or improve an existing user interface — "review this UI", "why does this look generic", "make this more polished", "design feedback", "does this look AI-generated", "audit this page". Also use as the final gate before shipping any frontend work, and when a UI renders correctly but feels unfinished, cheap, or inconsistent without an obvious cause.
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 
 # Reviewing Interface Quality

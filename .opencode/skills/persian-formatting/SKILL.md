@@ -6,6 +6,8 @@ compatibility: opencode
 metadata:
   category: formatting
   gate: user-facing-text
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 # Persian MarkdownV2 Formatting Skill
 

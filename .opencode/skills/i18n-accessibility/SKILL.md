@@ -1,6 +1,8 @@
 ---
 name: i18n-accessibility
 description: Internationalization and RTL accessibility specialist. Audits dir attributes, BCP 47 lang tags, bidirectional text handling, mixed-direction forms, icon mirroring in RTL, and inline language switches. Ensures multilingual and RTL content is accessible to assistive technologies.
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 
 

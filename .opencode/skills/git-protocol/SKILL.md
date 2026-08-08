@@ -6,6 +6,8 @@ compatibility: opencode
 metadata:
   category: workflow
   gate: git-operation
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 # Git Protocol Skill (AGENTS.md §7)
 

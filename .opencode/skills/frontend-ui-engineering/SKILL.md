@@ -1,6 +1,8 @@
 ---
 name: frontend-ui-engineering
 description: Builds production-quality, accessible, responsive user-facing UIs. Use when building or modifying interfaces and pages, creating components, implementing layouts, meeting WCAG accessibility requirements, managing state, or when the output needs to look and feel production-quality rather than AI-generated.
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 
 # Frontend UI Engineering

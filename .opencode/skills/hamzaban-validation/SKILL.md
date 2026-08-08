@@ -6,6 +6,8 @@ compatibility: opencode
 metadata:
   category: validation
   gate: pre-commit
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 # HamZaban Full Validation Skill
 

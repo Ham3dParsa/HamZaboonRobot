@@ -6,6 +6,8 @@ compatibility: opencode
 metadata:
   category: wiring
   gate: callback-change
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 # Callback Wiring Integrity Skill
 

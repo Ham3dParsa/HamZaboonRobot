@@ -1,30 +1,45 @@
 ---
 name: plan-persistence
-description: Mandatory plan file persistence for all locked plans — write full plan with per-phase/step progress status to .opencode/plans/plan*.md, update after each step; for complex/thorough tasks with critical module changes, create per-phase plan files to prevent silent gap-filling; completed plans move to docs/archive/. Load when a plan is locked and execution begins, and after each implementation step.
-license: MIT
+description: Mandatory plan file persistence for locked plans. Use when a plan is locked, after each implementation step, or when resuming work.
 compatibility: opencode
 metadata:
   category: workflow
   gate: plan-execution
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 # Plan Persistence Skill
 
 ## When to load
-- When a plan is locked and execution begins (Contract Lock GATE STATUS = LOCKED)
-- After EVERY implementation step/phase completion
-- When resuming work after context compaction or in a new chat
+- When a plan is locked and execution begins (Contract Lock GATE STATUS = LOCKED).
+- After EVERY implementation step/phase completion.
+- When resuming work after context compaction or in a new chat.
 
 ## Core Rule
 
-**When a locked plan begins execution, persist the full plan with per-phase/step progress status to `.opencode/plans/plan*.md`, updating it after each step. For complex/thorough tasks with critical module changes, create a per-phase plan file for each phase to prevent silent gap-filling. Resume work from the plan file across context compaction and new chats.**
+**Persist locked plans to `.opencode/plans/<theme>/plan-*.md` with a top-level `STATE` line, theme subfolders, per-theme `index.md`, evidence-gated completion, and blocked-question logs. Update after each step. Resume work from the plan file across context compaction and new chats.**
 
-## Plan File Requirements
+## Structure & Naming
 
-### Naming
-- Main plan: `.opencode/plans/plan-<short-description>.md` (e.g., `plan-opencode-tooling-setup.md`)
-- Per-phase plans (when needed): `.opencode/plans/plan-<main>-phase-<NN>-<topic>.md`
+Plans live in dependency-based theme subfolders with a discovery index:
+- Theme folder: `.opencode/plans/<theme>/` (`fsrs/`, `content/`, `callbacks/`, `costs/`)
+- Theme index: `.opencode/plans/<theme>/index.md` (theme scope, plans, phases, and dependency edges)
+- Main plan: `.opencode/plans/<theme>/plan-<short-description>.md`
+- Per-phase sub-plans: `.opencode/plans/<theme>/plan-<main>-phase-<NN>-<topic>.md`
 
-### Frontmatter (required)
+### Theme Index Template (`index.md`)
+```markdown
+---
+name: <theme>
+scope: <one-line purpose>
+---
+## Plans & Dependency Edges
+| Plan | Phase | Depends On | Status |
+|------|-------|------------|--------|
+| `plan-<main>.md` | 1..N | `<theme>/plan-X-phase-NN` | `in-progress` |
+```
+
+### Frontmatter & Top STATE Block
 ```yaml
 ---
 name: <plan-name>
@@ -35,57 +50,36 @@ branch: <branch-name>
 status: in-progress | complete | archived
 ---
 ```
-
-### Phase/Step Status Table (required)
-| Phase | Description | Status | Notes |
-|-------|-------------|--------|-------|
-| 0 | Branch + backups | complete | ... |
-| 1 | Agents | in-progress | ... |
-| 2 | Skills | planned | ... |
-
-Status values: `planned` / `in-progress` / `blocked` / `complete` / `deferred` (matching `project_status.json` vocabulary)
-
-### Locked Contract References
-Each plan file MUST reference the locked contract rules by number/decision so plan and gate stay in sync and traceable.
-
-### Update Log
-Append entries after each phase:
 ```markdown
-## Update Log
-- YYYY-MM-DD: Phase N complete — <summary>
-- YYYY-MM-DD: Phase N+1 next
+STATE: phase <N>/<M> — status: <in-progress|blocked|complete> — focus: <short action>
+```
+*A resuming agent reads this first to orient in milliseconds without scanning logs.*
+
+### Evidence-Gated Status Rule
+A phase or step status MUST NOT be marked `complete` based on intent. The Notes column MUST cite real artifacts:
+- Test names (`pytest tests/test_wiring.py -k test_foo`)
+- Commit hashes (`git rev: ...`)
+- File paths modified (`services/db/schema.py`)
+
+### Blocked Question Log
+When a phase is `blocked`, append or update:
+```markdown
+## Blocked Questions
+- [YYYY-MM-DD] Phase <N>: Exact question posed to owner. Decision: <choice>.
+```
+*Prevents re-asking the owner or re-deriving answers across restarts.*
+
+### Archive Rule & Final Verdict
+When a plan is done and evaluated, it moves to `docs/archive/plan-<name>-<YYYYMMDD>.md` with a **Final Verdict** block:
+```markdown
+## Final Verdict
+- Done: <shipped items>
+- Deliberately Not Done: <untouched scope>
+- Deferred: <future work>
+- Uncertain: <remaining edge risks>
 ```
 
-## Per-Phase Sub-Plans (for complex/thorough tasks)
-Required when task involves:
-- Schema migrations
-- Callback routing changes
-- Module boundary changes
-- Multi-file refactors
-- Critical module changes (SRS, MarkdownV2, quotas, delivery)
-
-Each phase gets its own plan file with:
-- Detailed step-by-step breakdown
-- Specific contract rule references for that phase
-- Expected test updates
-- Dependency & Wiring Map rows for that phase
-
-**Purpose:** Forces each phase's details to be spelled out up front, preventing the AI from silently self-filling logical gaps. Each phase references back to its locked contract.
-
-## Archive Rule
-**When a plan is done and completely evaluated, it moves to `docs/archive/`.**
-- Archive preserves: plan file + any per-phase files + final verdict
-- Main `.opencode/plans/` keeps only active/in-progress plans
-- Archive naming: `docs/archive/plan-<name>-<YYYYMMDD>.md`
-
 ## Cross-Session Continuation
-To resume in a new chat or after context compaction:
-1. Read the plan file (`.opencode/plans/plan-*.md`)
-2. Identify current phase (status = `in-progress` or first `planned`)
-3. Continue from that phase — do NOT re-plan or re-decide locked rules
-4. Update plan file as you progress
-
-## Integration with Contract Lock Gate
-- Plan file created **immediately after** Contract Lock GATE STATUS = LOCKED
-- Plan file references each locked rule by number
-- If new gaps discovered during execution → HALT, return to Contract Lock Gate (§2.4), do NOT silently fill gaps
+1. Check per-theme `index.md` to locate active plans.
+2. Read the top `STATE` line of the plan file.
+3. Resume from current phase — do NOT re-plan or re-decide locked rules.

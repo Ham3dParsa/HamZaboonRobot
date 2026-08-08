@@ -6,6 +6,8 @@ compatibility: opencode
 metadata:
   category: workflow
   source: mattpocock/skills (grill-with-docs, to-spec)
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
 ---
 # Grill-to-Spec Skill (AGENTS.md §2.4 Adaptation)
 
