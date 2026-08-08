@@ -81,7 +81,7 @@ These features layer an **internal economy** and **quiz surface** on top of data
   - **Core learning remains ad/coin-free** — educational content is never paywalled.
   - **Premium plans get a multiplier** (e.g., **2x coins**) as a reward for paying users.
 - **UX sketch:** A coin balance shown in the main menu; spend flows for a streak-saver (restore a broken streak) or cosmetic (theme / badge).
-- **Provisional data dependency:** a new coin ledger derived from existing `retention_events`; the spend targets (streak-saver, cosmetics) presume a streak mechanism and a cosmetic store that **do not exist yet** and must be scoped.
+- **Provisional data dependency:** a new coin ledger derived from `retention_events`; the spend targets (streak-saver, cosmetics) presume a streak mechanism and a cosmetic store that **do not exist yet** and must be scoped. **Note:** the `retention_events` source this economy builds on does **not exist yet** — it is created by [#84](https://github.com/Ham3dParsa/HamZaboonRobot/issues/84) (phase-6, open). Coin Economy therefore depends on #84 being implemented first.
 - **Success metric:** coin balance growth correlates with review consistency; streak-saver used but not abused; no learner-facing content becomes coin-gated.
 - **Open questions:** economy balance (earn vs. spend rates); anti-abuse of streak-savers; whether Premium multiplier is flat or tiered; what cosmetics exist initially.
 
@@ -148,6 +148,21 @@ This phase **requires formal Product Owner approval and architecture expansion**
 - ✅ Explicit budget for any new AI / infrastructure cost.
 
 **Nothing in this section is scheduled work.** It is recorded only as a directional idea pending explicit owner approval.
+
+---
+
+## Related GitHub Issues
+
+The ideas above relate to existing tracked issues. This document does **not** change their status — it only records the relationship. Each issue carries a comment linking back to this doc.
+
+| Issue | Topic | Doc relation |
+| --- | --- | --- |
+| [#108](https://github.com/Ham3dParsa/HamZaboonRobot/issues/108) | Extra gamification beyond streak = premium reward surface | Coin Economy (Phase 2) — direct |
+| [#87](https://github.com/Ham3dParsa/HamZaboonRobot/issues/87) | Mini-quiz feedback buttons / response trail | Semantic Explorer (Phase 2) — adjacent |
+| [#86](https://github.com/Ham3dParsa/HamZaboonRobot/issues/86) | Streak only after full daily-card completion | Weekly Wrap-up / streak (Phase 1) |
+| [#88](https://github.com/Ham3dParsa/HamZaboonRobot/issues/88) | User-configurable daily target tied to streak | Weekly Wrap-up / streak (Phase 1) |
+| [#105](https://github.com/Ham3dParsa/HamZaboonRobot/issues/105) | Progress-aware learner reminders | Forgetting Alerts (Phase 1) — adjacent |
+| [#84](https://github.com/Ham3dParsa/HamZaboonRobot/issues/84) | `retention_events` points (1/3/6/10) | Coin Economy data source (Phase 2) — blocking |
 
 ---
 
