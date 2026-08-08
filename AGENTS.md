@@ -209,7 +209,7 @@ Keep responsibilities aligned with the current module boundaries:
   - `handlers/user.py`: User settings handlers (language, goal, level).
   - `handlers/srs_handler.py`: SRS review handlers.
 - `services/`: Domain services.
-  - `services/db/`: SQLite schema, migrations, transactions, persistence, quotas, daily-card state, delivery queue state, saved-word state, and plan-spec state (`services/db/plans.py` seeds and CRUDs the `plans` table).
+  - `services/db/`: SQLite schema, migrations, transactions, persistence, quotas, daily-card state, delivery queue state, saved-word state, and plan-spec state. `services/db/__init__.py` is a thin re-export façade + shared helpers; `schema.py` owns schema/migrations, `plans.py` seeds and CRUDs the `plans` table, `settings.py` owns settings accessors, `cost_tracking.py` owns LLM cost analytics, and `preset_registry.py` owns AI preset/fallback/hourly-usage logic.
   - `services/fsrs_core.py`: Pure FSRS-6 engine (w0-w20 constants, DSR formulas, no side effects).
   - `services/ai/`: OpenAI-compatible client, provider settings, JSON extraction, AI response validation, system prompts, AI content generation, and provider presets.
   - `services/utils/`: Utility modules.
@@ -575,6 +575,26 @@ test-master, code-reviewer, debugging-wizard, accessibility,
 frontend-design, testing-webapps, investigating-performance,
 reviewing-interface-quality. These may be used across any
 project; they are optional conveniences, not HamZaban-specific gates.
+
+MattPocock workflow skills are installed globally and load lazily when their
+trigger matches. Follow his workflow for the parts HamZaban does not already
+lock down with a repo-local gate:
+
+- Model-invocable (auto-load via the `skill` tool when the topic matches):
+  `diagnosing-bugs`, `code-review`, `tdd`, `research`, `prototype`,
+  `domain-modeling`, `codebase-design`, `resolving-merge-conflicts`, `wizard`,
+  `grilling`, `writing-for-agents`.
+- Owner-triggered slash commands (only fire when the human types them, mirroring
+  MattPocock's `disable-model-invocation` skills): `/grill-me`, `/grill-with-docs`,
+  `/to-spec`, `/to-tickets`, `/triage`, `/implement`, `/handoff`, `/teach`,
+  `/to-questionnaire`, `/wait-what`, `/improve-codebase-architecture`.
+
+Where a MattPocock skill overlaps a repo-local gate (e.g. `diagnosing-bugs` vs
+`bug-diagnosis`, `tdd` vs `tdd-enforcement`, `code-review` vs the Independent
+Review Subagent in §5), the repo-local gate remains canonical and takes
+precedence; the global skill is a supporting refinement, not a replacement.
+When asked to plan a change, use `/to-spec` → `/to-tickets` to keep the
+grill-to-spec / spec-to-tickets discipline aligned with MattPocock's workflow.
 
 ### 10.3 Lean subagents
 
