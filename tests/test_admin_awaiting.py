@@ -150,6 +150,21 @@ class TestTextRouterPrefixDispatch(unittest.IsolatedAsyncioTestCase):
                 await _handle_admin_text_input(update, context, "ai_fallback_rank:gpt", "2")
             mock_fn.assert_called_once()
 
+    async def test_router_dispatches_ai_fallback_rank_via_is_admin_awaiting(self):
+        """text_router must now route ai_fallback_rank: through _handle_admin_text_input
+        to _handle_ai_text_input (regression guard for the Finding #6 routing gap)."""
+        from bot import text_router
+        update = _make_update(user_id=1, text="2")
+        context = _make_context()
+        context.user_data["awaiting"] = "ai_fallback_rank:gpt"
+        with patch("bot.db.reset_user_blocked"):
+            with patch("bot.is_owner", return_value=True):
+                with patch("handlers.admin._handle_ai_text_input", new=AsyncMock()) as mock_fn:
+                    with patch("handlers.admin.db") as mock_db:
+                        mock_db.get_preset.return_value = {"name": "gpt", "is_emergency": 0}
+                        await text_router(update, context)
+                    mock_fn.assert_called_once()
+
     async def test_router_rejects_nonowner_admin_flows(self):
         """Non-owner with admin_ awaiting must be rejected."""
         from bot import text_router
@@ -162,7 +177,57 @@ class TestTextRouterPrefixDispatch(unittest.IsolatedAsyncioTestCase):
                     await text_router(update, context)
                 mock_fn.assert_not_called()
 
+    async def test_callback_router_routes_flow_back_to_resume_admin_wizard(self):
+        """callback_router(data='flow:back') must delegate to resume_admin_wizard."""
+        from bot import callback_router
+        update = _make_update(user_id=1, text="")
+        update.callback_query.data = "flow:back"
+        context = _make_context()
+        context.user_data["awaiting"] = "ai_preset_edit:gpt:model"
+        with patch("bot.db.reset_user_blocked"):
+            with patch("bot.resume_admin_wizard", new=AsyncMock()) as mock_fn:
+                await callback_router(update, context)
+            mock_fn.assert_called_once()
 
+
+class TestResumeAdminWizard(unittest.IsolatedAsyncioTestCase):
+    """resume_admin_wizard() back-navigation branches (Finding #6 move)."""
+
+    async def _run(self, awaiting: str):
+        from handlers.admin import resume_admin_wizard
+        update = _make_update()
+        context = _make_context()
+        context.user_data["awaiting"] = awaiting
+        with patch("handlers.admin._edit_ai_preset", new=AsyncMock()) as m_edit:
+            with patch("handlers.admin._exit_awaiting_flow", new=AsyncMock()) as m_exit:
+                await resume_admin_wizard(update, context)
+        return m_edit, m_exit, update, context
+
+    async def test_ai_preset_edit_branch(self):
+        m_edit, m_exit, update, context = await self._run("ai_preset_edit:gpt:model")
+        m_edit.assert_called_once_with(update, context, "gpt")
+        m_exit.assert_not_called()
+
+    async def test_ai_preset_full_edit_branch(self):
+        m_edit, m_exit, update, context = await self._run("ai_preset_full_edit:gpt:0")
+        m_edit.assert_called_once_with(update, context, "gpt")
+        m_exit.assert_not_called()
+
+    async def test_admin_plan_full_edit_branch(self):
+        m_edit, m_exit, update, context = await self._run("admin_plan_full_edit:silver:0")
+        m_exit.assert_called_once()
+        m_edit.assert_not_called()
+
+    async def test_generic_admin_awaiting_branch(self):
+        m_edit, m_exit, update, context = await self._run("admin_set_plan")
+        m_exit.assert_called_once()
+        m_edit.assert_not_called()
+
+    async def test_empty_awaiting_branch(self):
+        m_edit, m_exit, update, context = await self._run("")
+        m_exit.assert_not_called()
+        m_edit.assert_not_called()
+        update.callback_query.answer.assert_called()
 
 
 class TestAiCallWrappedInToThread(unittest.IsolatedAsyncioTestCase):
@@ -208,6 +273,35 @@ class TestAiCallWrappedInToThread(unittest.IsolatedAsyncioTestCase):
     async def test_custom_test_ab_runs_via_to_thread_twice(self):
         mock_to_thread = await self._run_custom_test_with_mocks("ab")
         self.assertEqual(mock_to_thread.call_count, 2)
+
+
+class TestIsAdminAwaiting(unittest.IsolatedAsyncioTestCase):
+    """is_admin_awaiting() is the single source of truth for admin awaiting keys
+    (Finding #6). It must recognize every admin awaiting key and reject user keys."""
+
+    def test_known_admin_keys_return_true(self):
+        from handlers.admin import is_admin_awaiting
+        for key in (
+            "admin_set_plan", "admin_broadcast", "admin_restore",
+            "admin_plan_full_edit:silver:0", "admin_ai_preset_new_name",
+            "admin_group_batch_key:abc", "admin_group_set_label:abc",
+            "admin_group_manager_rename:abc",
+            "ai_preset_new_name", "ai_preset_edit:gpt:model",
+            "ai_preset_full_edit:gpt:0", "ai_custom_test_prompt",
+            "ai_fallback_rank:gpt", "llm_cost_user", "llm_cost_model",
+            "llm_price_input", "llm_price_output", "llm_price_rate",
+        ):
+            self.assertTrue(is_admin_awaiting(key), key)
+
+    def test_non_admin_keys_return_false(self):
+        from handlers.admin import is_admin_awaiting
+        for key in ("ask_word", "", "flow:back", "stats", "llm:usage", "srs:fe", "user_settings"):
+            self.assertFalse(is_admin_awaiting(key), key)
+
+    def test_empty_and_none_return_false(self):
+        from handlers.admin import is_admin_awaiting
+        self.assertFalse(is_admin_awaiting(""))
+        self.assertFalse(is_admin_awaiting(None))
 
 
 if __name__ == "__main__":

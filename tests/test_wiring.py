@@ -426,6 +426,40 @@ def _is_allowed(prefix: str) -> bool:
     return False
 
 
+_ADMIN_AWAITING_MODULES = [
+    "handlers/admin.py",
+    "handlers/admin_stats.py",
+    "handlers/admin_cost.py",
+    "handlers/admin_plans.py",
+    "handlers/admin_ai.py",
+]
+
+
+def _collect_admin_awaiting_keys() -> set[str]:
+    """Collect the static prefix of every ``user_data['awaiting']`` assignment in
+    the admin modules (handlers/admin*.py).
+
+    For an f-string ``f"admin_plan_full_edit:{name}:0"`` the static prefix is
+    ``admin_plan_full_edit:``; for a literal ``"llm_cost_user"`` it is the whole
+    string. These are the admin awaiting keys that ``is_admin_awaiting`` must
+    recognize so the router never drops one (Finding #6 regression guard).
+    """
+    import re
+
+    keys: set[str] = set()
+    for filepath in _ADMIN_AWAITING_MODULES:
+        try:
+            with open(filepath, encoding="utf-8") as f:
+                text = f.read()
+        except FileNotFoundError:
+            continue
+        for m in re.finditer(r'user_data\["awaiting"\]\s*=\s*f?"([^"]*)"', text):
+            static = m.group(1).split("{", 1)[0]
+            if static:
+                keys.add(static)
+    return keys
+
+
 class TestCallbackWiring(unittest.TestCase):
     """Verifies that every InlineKeyboardButton callback_data string built
     anywhere in the project has a matching dispatch branch in the callback
@@ -618,6 +652,26 @@ class TestCallbackWiring(unittest.TestCase):
         self.assertTrue(
             _module_has_symbol("handlers.study_handler", "handle_study_start"),
             "resolvable import was rejected",
+        )
+
+    def test_is_admin_awaiting_covers_all_admin_awaiting_keys(self):
+        """Every admin awaiting key assigned in handlers/admin*.py must be
+        recognized by ``is_admin_awaiting`` (Finding #6 regression guard).
+
+        If a new admin awaiting key is introduced without extending
+        ``is_admin_awaiting`` (and the ``bot.py`` text_router that now delegates
+        to it), the router would silently drop it — exactly the ``ai_fallback_rank:``
+        gap this finding fixes. This guard makes that impossible to miss.
+        """
+        from handlers.admin import is_admin_awaiting
+
+        keys = _collect_admin_awaiting_keys()
+        self.assertGreater(len(keys), 0, "no admin awaiting keys collected")
+        uncovered = sorted(k for k in keys if not is_admin_awaiting(k))
+        self.assertEqual(
+            uncovered,
+            [],
+            f"admin awaiting keys not covered by is_admin_awaiting: {uncovered}",
         )
 
     def test_no_handler_imports_from_bot(self):

@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes
 from config import APP_TZ, DB_PATH, is_owner
 from services import db
 from services.ai import ai_presets
-from services.utils.helpers import _edit_or_send, _send_with_retry
+from services.utils.helpers import _edit_or_send, _exit_awaiting_flow, _send_with_retry
 from handlers.admin_stats import handle_admin_stats
 from handlers.admin_cost import (
     _handle_cost_text_input,
@@ -91,6 +91,31 @@ from config.keyboards import (
 
 logger = logging.getLogger(__name__)
 _app_timezone = APP_TZ
+
+# Single source of truth for "is this user_data['awaiting'] an admin flow state".
+# Every admin awaiting key — set across handlers/admin.py and its domain
+# submodules — is covered here so the router never silently drops a new key
+# (this is the root-cause fix for the ai_fallback_rank: routing gap, Finding #6).
+_ADMIN_AWAITING_PREFIXES = (
+    "admin_",            # admin_set_plan, admin_broadcast, admin_restore,
+                         # admin_plan_full_edit:, admin_ai_preset_new_name,
+                         # admin_group_batch_key:, admin_group_set_label:,
+                         # admin_group_manager_rename:
+    "ai_preset_",        # ai_preset_new_name, ai_preset_edit:, ai_preset_full_edit:
+    "ai_custom_test_",   # ai_custom_test_prompt
+    "ai_fallback_rank:",  # ai_fallback_rank:{preset_name}
+    "llm_cost_",         # llm_cost_user, llm_cost_model
+    "llm_price_",        # llm_price_input, llm_price_output, llm_price_rate
+)
+
+
+def is_admin_awaiting(awaiting: str) -> bool:
+    """Return True if *awaiting* is an admin-panel text-input flow state.
+
+    Centralizes the admin awaiting-key namespace so bot.py's text_router no
+    longer hard-codes a prefix list (and can never miss a key again).
+    """
+    return bool(awaiting) and awaiting.startswith(_ADMIN_AWAITING_PREFIXES)
 
 
 async def open_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -229,6 +254,32 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         new_value = "off" if current == "on" else "on"
         db.set_setting("user_activity_log", new_value)
         await _show_user_activity_settings(update, context)
+
+
+async def resume_admin_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Resume (go back from) an in-progress admin editing flow on ``flow:back``.
+
+    Encapsulates the awaiting-key-aware back-navigation logic that previously
+    lived inline in ``bot.py``'s callback_router. Behavior is unchanged.
+    """
+    awaiting = context.user_data.get("awaiting", "")
+    if awaiting.startswith("ai_preset_edit:"):
+        preset_name = awaiting.split(":", 1)[1].rsplit(":", 1)[0]
+        context.user_data.pop("awaiting", None)
+        await _edit_ai_preset(update, context, preset_name)
+    elif awaiting.startswith("ai_preset_full_edit:"):
+        preset_name = awaiting.split(":", 2)[1]
+        context.user_data.pop("full_edit", None)
+        context.user_data.pop("awaiting", None)
+        await _edit_ai_preset(update, context, preset_name)
+    elif awaiting.startswith("admin_plan_full_edit:"):
+        context.user_data.pop("plan_full_edit", None)
+        await _exit_awaiting_flow(update, context, via_callback=True)
+    elif awaiting:
+        await _exit_awaiting_flow(update, context, via_callback=True)
+    else:
+        await update.callback_query.answer("فعلاً چیزی برای لغو نیست.", show_alert=True)
+
 
 async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE, awaiting: str, text: str):
     if awaiting in {"llm_cost_user", "llm_cost_model", "llm_price_input", "llm_price_output", "llm_price_rate"}:
