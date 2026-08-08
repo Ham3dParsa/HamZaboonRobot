@@ -206,7 +206,7 @@ class PlanManagerFlowTest(unittest.TestCase):
         self.assertEqual(ctx.user_data["awaiting"], "admin_plan_full_edit:silver:0")
 
         # Display group header + hint must be defined.
-        from handlers.admin import PLAN_WIZARD_GROUP_HEADERS, PLAN_WIZARD_FIELD_HINTS
+        from handlers.admin_plans import PLAN_WIZARD_GROUP_HEADERS, PLAN_WIZARD_FIELD_HINTS
         header0, hint0 = PLAN_WIZARD_GROUP_HEADERS[0]
         self.assertTrue(header0 and hint0, "display group header/hint defined")
         # Field hint for the clarified query-quota label must be defined.
