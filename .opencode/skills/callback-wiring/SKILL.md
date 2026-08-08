@@ -29,9 +29,15 @@ author_url: https://github.com/Ham3dParsa
 | `tts:pronounce:` | `bot.py` | `_handle_tts_pronounce` |
 | `study:start`, `study:inactive` | `handlers/study_handler.py` | `handle_study_start`, `handle_study_inactive` (via `bot.py callback_router`) |
 | `srs:prepare:`, `srs:reveal:`, `srs:` | `handlers/srs_handler.py` | `_handle_srs_prepare`, `_handle_srs_reveal`, `_handle_srs_review` |
-| `admin:` | `handlers/admin.py` | `_handle_admin_callback` (incl. plan-manager: `plans`, `plans:view`, `plans:edit`, `plans:full_edit_back`, `plans:full_edit_skip`, `plans:full_edit_cancel`, `plans:full_edit_save`, `plans:set_active`) |
-| `llm:` | `handlers/admin.py` | `_handle_llm_callback` |
-| `flow:` | `config/keyboards.py` | `_handle_admin_callback`, `_exit_awaiting_flow` |
+| `admin:` (thin dispatcher) | `handlers/admin.py` | `_handle_admin_callback` — owner gate + prefix dispatch to domain sub-routers (sub-routes below) |
+| `admin:stats`, `admin:stats:*` | `handlers/admin_stats.py` | `handle_admin_stats` |
+| `admin:plans`, `admin:plans:*`, `admin:set_plan` | `handlers/admin_plans.py` | `handle_plan_callback` (incl. `admin:plans:view`, `:edit`, `:full_edit_back/skip/cancel/save`, `:set_active`) |
+| `admin:cost_dashboard`, `admin:llm_costs`, `admin:llm_pricing` | `handlers/admin_cost.py` | `handle_cost_callback` |
+| `admin:ai_*`, `admin:fallback*`, `admin:help:presets`, `admin:help:fallback_chain` | `handlers/admin_ai.py` | `handle_ai_callback` |
+| `admin:back`, `admin:cancel`, `admin:phonetics*`, `admin:broadcast`, `admin:show_settings`, `admin:noop`, `admin:log_level*`, `admin:user_activity_log`, `admin:user_activity:toggle` | `handlers/admin.py` | handled inline in `_handle_admin_callback` |
+| `llm:` | `handlers/admin_cost.py` (re-exported via `handlers/admin.py`) | `_handle_llm_callback` — dispatched from `bot.py callback_router` (separate prefix from `admin:`) |
+| `flow:back` | `handlers/admin.py` | `handle_flow_back` (resume_admin_wizard) |
+| `flow:cancel` | `bot.py` → `services/utils/helpers.py` | `callback_router` calls `_exit_awaiting_flow` (now in `services/utils/helpers.py`); `config/keyboards.py` only emits the `flow:back`/`flow:cancel` buttons |
 
 ## Wiring Integrity Requirements
 
@@ -69,3 +75,5 @@ Each row's disposition demonstrated by concrete evidence (grep output, test, PR 
 - Callback strings are case-sensitive; must match exactly
 - Sub-router dispatch uses string prefix matching (e.g., `data.startswith("review:")`)
 - New prefixes follow existing naming conventions (lowercase, colon-separated)
+- The `admin:` prefix is a **two-level dispatch**: `handlers/admin.py::_handle_admin_callback` gates ownership, then delegates to domain sub-routers (`handle_admin_stats` / `handle_plan_callback` / `handle_cost_callback` / `handle_ai_callback`). When adding an `admin:` route, cover **both** the dispatcher branch in `admin.py` **and** the sub-router branch, and assert both in `tests/test_wiring.py`.
+- `flow:back` / `flow:cancel` are emitted only by `config/keyboards.py`; their handling lives in `handlers/admin.py` (`handle_flow_back`) and `bot.py callback_router` (`_exit_awaiting_flow` in `services/utils/helpers.py`), not in `config/keyboards.py`.
