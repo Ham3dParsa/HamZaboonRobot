@@ -169,6 +169,10 @@ BANNED_SYMBOLS: dict[str, str] = {
         "removed by architecture deepening finding #4: duplicate generator "
         "assembler; build_session_list is the single handler-facing seam"
     ),
+    "ai_custom_test_wizard_keyboard": (
+        "removed by architecture deepening finding #2: dead keyboard with a latent "
+        "catalog import error; inline _custom_test_step_lang is the canonical path"
+    ),
 }
 
 # Symbols that are intentionally retained even though they are no longer

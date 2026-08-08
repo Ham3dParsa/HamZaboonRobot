@@ -72,4 +72,5 @@ After implementation: `tests/test_wiring.py`, `tests/test_dead_code_guard.py`, r
 ### Phase status (2026-08-08)
 - #1 (ai outcome) **done** — `_call_tracked`; committed 883371a.
 - #4 (session + registry) **done** — `build_session`/`ACTIVITY_REGISTRY`/`get_interaction_ui`/`ActivityHandler` removed; `__init__.py` pruned; 4 `BANNED_SYMBOLS`; guards green.
-- Remaining: #2 dead wizard keyboard, #3 db split, #5 circular import, #6 awaiting, #7 admin split.
+- #2 (dead wizard keyboard) **done** — `ai_custom_test_wizard_keyboard` + admin.py:40 import removed; `BANNED_SYMBOLS`; guards green.
+- Remaining: #3 db split, #5 circular import, #6 awaiting, #7 admin split.

@@ -803,30 +803,6 @@ def ai_fallback_keyboard(primary: str, fallback: str, active: str) -> InlineKeyb
     )
 
 
-def ai_custom_test_wizard_keyboard(step: str, lang: str | None = None, goal: str | None = None, level: str | None = None, target: str | None = None) -> InlineKeyboardMarkup:
-    """Keyboard for the custom test wizard."""
-    rows = []
-    if step == "lang":
-        from catalog import LANGUAGES
-        for code, opt in LANGUAGES.items():
-            rows.append([InlineKeyboardButton(opt.name_fa, callback_data=f"admin:ai_custom_test:lang:{code}")])
-    elif step == "goal":
-        from catalog import GOALS
-        for code, opt in GOALS.items():
-            rows.append([InlineKeyboardButton(opt.name_fa, callback_data=f"admin:ai_custom_test:goal:{code}")])
-    elif step == "level":
-        from catalog import LEVELS
-        for code, opt in LEVELS.items():
-            rows.append([InlineKeyboardButton(f"{opt.name_fa} ({opt.cefr})", callback_data=f"admin:ai_custom_test:level:{code}")])
-    elif step == "target":
-        rows.append([InlineKeyboardButton(IBTN_CURRENT_CONFIG, callback_data="admin:ai_custom_test:target:current")])
-        rows.append([InlineKeyboardButton(IBTN_CANDIDATE, callback_data="admin:ai_custom_test:target:candidate")])
-        rows.append([InlineKeyboardButton(IBTN_COMPARE_AB, callback_data="admin:ai_custom_test:target:ab")])
-    if step != "prompt":
-        rows.append([InlineKeyboardButton(IBTN_CANCEL_WIZARD, callback_data="admin:ai_settings")])
-    return InlineKeyboardMarkup(rows)
-
-
 def fallback_chain_keyboard(chain: list[dict]) -> InlineKeyboardMarkup:
     rows = []
     for rank, preset in enumerate(chain, 1):

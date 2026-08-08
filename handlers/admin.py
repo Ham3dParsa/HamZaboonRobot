@@ -37,7 +37,6 @@ from config.keyboards import (
     ai_preset_view_keyboard,
     ai_preset_edit_keyboard,
     ai_fallback_keyboard,
-    ai_custom_test_wizard_keyboard,
     admin_cost_keyboard,
     fallback_chain_keyboard,
     log_level_keyboard,
