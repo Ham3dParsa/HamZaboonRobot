@@ -1,0 +1,1435 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FSRS Replay — v5.4 Interactive Time-Lapse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Vazirmatn:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="archive/simulator_cards.js"></script>
+<style>
+:root{--bg-main:#090d16;--bg-card:rgba(17,24,39,0.85);--bg-card-solid:#111827;--bg-input:#1f2937;--bg-hover:rgba(255,255,255,0.08);--border:rgba(255,255,255,0.12);--border-glow:rgba(56,189,248,0.35);--fg-main:#f9fafb;--fg-muted:#9ca3af;--fg-dim:#6b7280;--accent:#38bdf8;--accent-gradient:linear-gradient(135deg,#38bdf8 0%,#818cf8 100%);--accent-glow:rgba(56,189,248,0.25);--again:#f87171;--again-bg:rgba(248,113,113,0.15);--again-border:rgba(248,113,113,0.4);--hard:#fbbf24;--hard-bg:rgba(251,191,36,0.15);--hard-border:rgba(251,191,36,0.4);--good:#34d399;--good-bg:rgba(52,211,153,0.15);--good-border:rgba(52,211,153,0.4);--easy:#60a5fa;--easy-bg:rgba(96,165,250,0.15);--easy-border:rgba(96,165,250,0.4);--tier-learning:#6856b7;--tier-familiar:#fbbf24;--tier-learned:#34d399;--tier-consolidated:#38bdf8;--card-font-scale:1;}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;overflow:hidden;}
+body{font-family:'Vazirmatn','Inter',-apple-system,BlinkMacSystemFont,sans-serif;background-color:var(--bg-main);background-image:radial-gradient(at 0% 0%,rgba(56,189,248,0.08) 0px,transparent 40%),radial-gradient(at 100% 100%,rgba(129,140,248,0.08) 0px,transparent 40%);color:var(--fg-main);padding:10px 16px;display:flex;flex-direction:column;}
+.container{max-width:1680px;width:100%;margin:0 auto;height:100%;display:flex;flex-direction:column;gap:10px;}
+.app-header{background:var(--bg-card);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:12px;padding:8px 16px;display:flex;justify-content:center;gap:32px;align-items:center;flex-shrink:0;}
+.brand{display:flex;align-items:center;gap:10px;}
+.brand-icon{width:28px;height:28px;background:var(--accent-gradient);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:0.85rem;box-shadow:0 0 12px rgba(56,189,248,0.4);}
+.brand-title{font-size:1.05rem;font-weight:800;background:var(--accent-gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-0.3px;}
+.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.control-group{display:flex;align-items:center;gap:6px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;padding:4px 10px;transition:all 0.2s ease;}
+.control-group:focus-within,.control-group:hover{border-color:var(--accent);box-shadow:0 0 8px var(--accent-glow);}
+.control-label{font-size:0.72rem;color:var(--fg-muted);font-weight:600;white-space:nowrap;}
+select{appearance:none;-webkit-appearance:none;-moz-appearance:none;padding:3px 22px 3px 6px;border:none;background:transparent;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2338bdf8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");background-repeat:no-repeat;background-position:left 4px center;color:var(--fg-main);font-size:0.8rem;font-family:inherit;cursor:pointer;outline:none;font-weight:600;}
+select option{background-color:var(--bg-card-solid);color:var(--fg-main);padding:6px;}
+.font-ctrl-group{display:flex;align-items:center;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.font-btn{background:transparent;border:none;color:var(--fg-main);font-size:0.78rem;font-weight:700;padding:5px 9px;cursor:pointer;transition:background 0.15s;}
+.font-btn:hover{background:var(--bg-hover);color:var(--accent);}
+.font-scale-indicator{font-size:0.7rem;font-weight:600;color:var(--accent);padding:0 4px;min-width:38px;text-align:center;}
+.btn{padding:6px 16px;border:none;border-radius:8px;font-size:0.8rem;font-weight:700;font-family:inherit;cursor:pointer;transition:all 0.2s ease;display:inline-flex;align-items:center;gap:4px;}
+.btn-primary{background:var(--accent-gradient);color:#fff;box-shadow:0 2px 10px rgba(56,189,248,0.25);}
+.btn-primary:hover{opacity:0.95;transform:translateY(-1px);box-shadow:0 4px 14px rgba(56,189,248,0.4);}
+.main-layout{display:grid;grid-template-columns:350px 1fr 708px;grid-template-rows:1fr;gap:14px;flex:1;min-height:0;width:100%;}
+.stats-sidebar{display:flex;flex-direction:column;background:var(--bg-card);backdrop-filter:blur(10px);border:1px solid var(--border);border-radius:12px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,0.15);height:100%;min-height:0;justify-content:space-between;}
+.stats-group-title{font-size:0.68rem;color:var(--accent);padding:5px 12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;background:rgba(255,255,255,0.03);border-bottom:1px solid var(--border);border-top:1px solid var(--border);}
+.stats-group-title:first-child{border-top:none;}
+.stat-row{display:flex;justify-content:space-between;align-items:center;padding:5px 12px;font-size:0.75rem;border-bottom:1px solid rgba(255,255,255,0.02);}
+.stat-row .stat-label{color:var(--fg-muted);}
+.stat-row .stat-value{color:var(--fg-main);font-weight:700;font-family:'Inter',sans-serif;}
+.stat-tiers{padding:8px 10px;display:flex;flex-wrap:wrap;gap:4px;justify-content:center;}
+.tier-badge{padding:2px 8px;border-radius:6px;font-size:0.65rem;font-weight:600;color:#fff;font-family:'Inter',sans-serif;}
+.tier-learning{background:var(--tier-learning);}
+.tier-familiar{background:var(--tier-familiar);color:#000;}
+.tier-learned{background:var(--tier-learned);color:#000;}
+.tier-consolidated{background:var(--tier-consolidated);color:#000;}
+.center-col{display:flex;flex-direction:column;gap:10px;height:100%;min-height:0;align-items:flex-start;justify-content:center;padding-left:10px;}
+.card-area{background:var(--bg-card);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--border);border-radius:16px;padding:16px 22px;width:100%;max-width:560px;flex:1;display:flex;flex-direction:column;justify-content:center;position:relative;box-shadow:0 8px 30px rgba(0,0,0,0.35);overflow-y:auto;min-height:0;margin:0 auto;}
+.card-inner{width:100%;margin:0 auto;display:flex;flex-direction:column;flex:1;min-height:0;}
+#cardContent{display:flex;flex-direction:column;flex:1;min-height:0;}
+#cardContent .card-score{margin-top:auto;}
+.empty-state{text-align:center;padding:24px 12px;}
+.empty-state h3{font-size:1.4rem;font-weight:800;margin-bottom:8px;color:var(--accent);}
+.empty-state p{color:var(--fg-muted);font-size:0.88rem;line-height:1.6;}
+.card-header{text-align:center;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border);}
+.card-word{font-size:calc(2.2rem * var(--card-font-scale));font-weight:800;color:var(--fg-main);letter-spacing:-0.5px;font-family:'Inter','Vazirmatn',sans-serif;line-height:1.25;}
+.card-phonetic{font-size:calc(0.95rem * var(--card-font-scale));color:var(--accent);margin-top:3px;direction:ltr;font-family:'Inter',monospace;letter-spacing:0.5px;}
+.card-meaning{font-size:calc(1.35rem * var(--card-font-scale));font-weight:700;color:#ffffff;margin-bottom:8px;text-align:center;}
+.card-explanation{font-size:calc(0.9rem * var(--card-font-scale));color:var(--fg-muted);margin-bottom:10px;text-align:center;line-height:1.5;}
+.card-syn-ant{margin-bottom:10px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;}
+.syn-title,.ant-title{font-size:calc(0.7rem * var(--card-font-scale));font-weight:700;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;text-align:center;}
+.syn-title{color:var(--good);}.ant-title{color:var(--again);}
+.syn-items,.ant-items{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;}
+.syn-item,.ant-item{padding:3px 9px;border-radius:12px;font-size:calc(0.8rem * var(--card-font-scale));font-weight:600;}
+.syn-item{background:var(--good-bg);color:var(--good);border:1px solid var(--good-border);}
+.ant-item{background:var(--again-bg);color:var(--again);border:1px solid var(--again-border);}
+.card-examples{margin-bottom:10px;background:rgba(255,255,255,0.03);border-radius:10px;padding:8px 12px;border:1px solid var(--border);}
+.ex-title{font-size:calc(0.7rem * var(--card-font-scale));font-weight:700;color:var(--fg-muted);margin-bottom:4px;text-align:center;}
+.example-pair{margin-bottom:6px;}.example-pair:last-child{margin-bottom:0;}
+.example-en{display:block;font-size:calc(0.9rem * var(--card-font-scale));color:var(--fg-main);direction:ltr;text-align:center;font-style:italic;font-family:'Inter',sans-serif;}
+.example-fa{display:block;font-size:calc(0.82rem * var(--card-font-scale));color:var(--fg-muted);text-align:center;margin-top:2px;}
+.card-grammar{padding:8px 12px;background:rgba(56,189,248,0.06);border:1px solid rgba(56,189,248,0.2);border-radius:10px;margin-bottom:8px;}
+.grammar-title{font-size:calc(0.72rem * var(--card-font-scale));font-weight:700;color:var(--accent);margin-bottom:2px;text-align:center;}
+.grammar-text{font-size:calc(0.82rem * var(--card-font-scale));color:var(--fg-muted);line-height:1.45;text-align:center;}
+.card-score{display:flex;gap:12px;justify-content:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:calc(0.75rem * var(--card-font-scale));color:var(--fg-muted);}
+.card-score span{background:var(--bg-input);padding:2px 10px;border-radius:6px;border:1px solid var(--border);}
+.card-score .s-val{color:var(--accent);font-weight:700;font-family:'Inter',sans-serif;}
+.card-history-chart-wrap{margin-top:8px;padding-top:6px;border-top:1px solid var(--border);}
+.card-history-chart-wrap h5{text-align:center;font-size:0.68rem;color:var(--fg-muted);margin-bottom:4px;}
+#cardHistoryChart{width:100% !important;height:65px !important;}
+.card-new-badge{display:inline-block;background:var(--accent);color:#000;font-size:0.6rem;font-weight:800;padding:1px 8px;border-radius:8px;text-transform:uppercase;margin-bottom:4px;letter-spacing:0.3px;}
+.card-last-seen{font-size:calc(0.65rem * var(--card-font-scale));color:var(--fg-dim);text-align:center;margin-top:2px;}
+.progress-container{width:100%;max-width:560px;display:flex;flex-direction:column;gap:3px;flex-shrink:0;margin:0 auto;}
+.progress-text{display:flex;justify-content:space-between;font-size:0.72rem;color:var(--fg-muted);font-weight:600;}
+.progress-bar{display:flex;gap:3px;height:6px;}
+.progress-segment{flex:1;background:var(--bg-input);border-radius:3px;overflow:hidden;min-width:0;}
+.progress-segment-fill{height:100%;background:var(--accent-gradient);border-radius:3px;transition:width 0.3s ease;}
+.grade-buttons{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;width:100%;max-width:560px;flex-shrink:0;margin:0 auto;}
+.grade-btn{padding:8px 8px;border:1px solid var(--border);border-radius:12px;background:var(--bg-card);backdrop-filter:blur(10px);color:var(--fg-main);cursor:pointer;text-align:center;font-family:inherit;transition:all 0.2s ease;display:flex;flex-direction:column;align-items:center;gap:2px;}
+.grade-btn:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,0.3);}
+.grade-btn .grade-key{font-size:0.62rem;background:rgba(255,255,255,0.12);padding:1px 6px;border-radius:4px;color:var(--fg-muted);font-weight:700;font-family:'Inter',sans-serif;}
+.grade-btn .grade-label{font-size:0.85rem;font-weight:800;font-family:'Vazirmatn','Inter',sans-serif;}
+.grade-btn.again{border-color:var(--again-border);}
+.grade-btn.again:hover{background:var(--again-bg);border-color:var(--again);}
+.grade-btn.hard{border-color:var(--hard-border);}
+.grade-btn.hard:hover{background:var(--hard-bg);border-color:var(--hard);}
+.grade-btn.good{border-color:var(--good-border);}
+.grade-btn.good:hover{background:var(--good-bg);border-color:var(--good);}
+.grade-btn.easy{border-color:var(--easy-border);}
+.grade-btn.easy:hover{background:var(--easy-bg);border-color:var(--easy);}
+.grade-btn.highlight{transform:translateY(-2px) scale(1.05);box-shadow:0 0 20px rgba(56,189,248,0.5);transition:all 0.15s ease;}
+.grade-btn.again.highlight{box-shadow:0 0 20px var(--again);}
+.grade-btn.hard.highlight{box-shadow:0 0 20px var(--hard);}
+.grade-btn.good.highlight{box-shadow:0 0 20px var(--good);}
+.grade-btn.easy.highlight{box-shadow:0 0 20px var(--easy);}
+.grade-btn.active{background:var(--bg-hover);border-color:var(--accent);}
+.sidebar-charts-container{display:flex;flex-direction:column;gap:8px;height:100%;min-height:0;width:100%;overflow:hidden;}
+.sidebar-avg-s{background:linear-gradient(180deg,rgba(56,189,248,0.12) 0%,rgba(17,24,39,0.75) 100%);border:1px solid var(--border-glow);backdrop-filter:blur(8px);border-radius:12px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.sidebar-avg-s .s-info{display:flex;flex-direction:column;}
+.sidebar-avg-s .s-label{font-size:0.75rem;color:var(--fg-main);font-weight:700;}
+.sidebar-avg-s .s-unit{font-size:0.65rem;color:var(--fg-muted);}
+.sidebar-avg-s .s-value{font-size:1.9rem;font-weight:800;color:var(--accent);line-height:1;text-shadow:0 0 12px rgba(56,189,248,0.4);font-family:'Inter',sans-serif;}
+.charts-grid-2x2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:8px;flex:1;min-height:0;width:100%;}
+.chart-box{background:var(--bg-card);backdrop-filter:blur(10px);border:1px solid var(--border);border-radius:12px;padding:8px 10px;display:flex;flex-direction:column;min-height:0;width:100%;overflow:hidden;}
+.chart-box h4{font-size:0.72rem;color:var(--fg-main);margin-bottom:4px;text-align:center;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;}
+.chart-canvas-wrap{flex:1;position:relative;min-height:0;width:100%;}
+.chart-desc{font-size:0.62rem;color:var(--fg-muted);text-align:center;margin-top:3px;line-height:1.3;width:100%;}
+.tl-panel{background:var(--bg-card-solid);border:1px solid var(--border);border-radius:8px;margin:4px 8px;overflow:hidden;}
+.tl-header{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.15s;}
+.tl-header:hover{background:var(--bg-hover);}
+.tl-title{font-size:0.72rem;font-weight:700;color:var(--accent);}
+.tl-toggle{font-size:0.65rem;color:var(--fg-dim);transition:transform 0.2s;}
+.tl-body{padding:6px 10px;display:flex;flex-direction:column;gap:5px;}
+.tl-body.hidden{display:none;}
+.tl-row{display:flex;align-items:center;gap:4px;font-size:0.7rem;}
+.tl-label{color:var(--fg-muted);font-weight:600;min-width:42px;font-family:'Inter',sans-serif;}
+.tl-value{color:var(--fg-main);font-weight:700;font-family:'Inter',sans-serif;}
+.tl-seed-input{width:72px;padding:2px 6px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--fg-main);font-family:'Inter',sans-serif;font-size:0.75rem;font-weight:600;outline:none;}
+.tl-seed-input:focus{border-color:var(--accent);box-shadow:0 0 6px var(--accent-glow);}
+.tl-slider{flex:1;height:4px;accent-color:var(--accent);cursor:pointer;}
+.tl-speed-label{min-width:42px;text-align:right;font-size:0.68rem;font-weight:700;color:var(--accent);font-family:'Inter',sans-serif;}
+.tl-btn{padding:3px 8px;border:1px solid var(--border);border-radius:5px;background:var(--bg-input);color:var(--fg-main);font-size:0.7rem;font-weight:600;font-family:inherit;cursor:pointer;transition:all 0.15s;display:inline-flex;align-items:center;gap:3px;}
+.tl-btn:hover{background:var(--bg-hover);border-color:var(--accent);}
+.tl-btn-sm{padding:2px 5px;font-size:0.65rem;}
+.tl-lock{min-width:24px;justify-content:center;}
+.tl-play{background:var(--accent-gradient);color:#fff;border:none;padding:4px 14px;}
+.tl-play:hover{opacity:0.9;}
+.tl-play.paused{background:linear-gradient(135deg,#fbbf24,#f59e0b);}
+.tl-step{padding:4px 10px;}
+.tl-stop{padding:4px 10px;background:linear-gradient(135deg,#f87171,#ef4444);color:#fff;border:none;}
+.tl-stop:hover{opacity:0.85;}
+.tl-btn-row{gap:6px;margin-top:2px;}
+.tl-status{font-size:0.62rem;font-weight:700;color:var(--fg-dim);padding:2px 8px;background:var(--bg-input);border-radius:4px;margin-left:auto;}
+.tl-status.active{color:var(--good);background:var(--good-bg);}
+.tl-status.paused{color:var(--hard);background:var(--hard-bg);}
+.tl-monitor{border-top:1px solid rgba(255,255,255,0.05);padding-top:4px;margin-top:2px;}
+.tl-badge{font-size:0.62rem;padding:1px 5px;border-radius:3px;font-weight:700;}
+.tl-badge.flagged{background:var(--again-bg);color:var(--again);}
+.tl-badge.clean{background:var(--good-bg);color:var(--good);}
+.tl-thresh-slider{flex:1;height:3px;accent-color:var(--hard);cursor:pointer;}
+.tl-feature-toggle{display:flex;align-items:center;gap:6px;padding:2px 4px;}
+.tl-feature-toggle label{font-size:0.65rem;color:var(--fg-muted);font-weight:600;cursor:pointer;flex:1;}
+.tl-feature-toggle input[type="checkbox"]{accent-color:var(--accent);cursor:pointer;width:14px;height:14px;}
+#aiQueryBtn{padding:3px 10px;border:1px solid var(--accent-border, var(--border));border-radius:5px;background:linear-gradient(135deg,#818cf8,#38bdf8);color:#fff;font-size:0.7rem;font-weight:700;font-family:inherit;cursor:pointer;transition:all 0.15s;display:none;align-items:center;gap:4px;}
+#aiQueryBtn:hover{opacity:0.9;transform:translateY(-1px);}
+.footer{text-align:center;font-size:0.7rem;color:var(--fg-dim);padding:2px;flex-shrink:0;}
+.schedule-toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;background:var(--bg-card-solid);border:1px solid var(--border-glow);border-radius:16px;padding:18px 32px;display:flex;flex-direction:column;align-items:center;gap:6px;box-shadow:0 8px 40px rgba(0,0,0,0.5),0 0 30px var(--accent-glow);pointer-events:none;animation:toastFade 0.9s ease forwards;}
+.schedule-toast .toast-icon{font-size:1.8rem;}
+.schedule-toast .toast-label{font-size:0.72rem;color:var(--fg-muted);}
+.schedule-toast .toast-value{font-size:1.1rem;font-weight:700;color:var(--accent);font-family:'Inter',sans-serif;}
+@keyframes toastFade{0%{opacity:0;transform:translate(-50%,-50%) scale(0.85);}15%{opacity:1;transform:translate(-50%,-50%) scale(1);}70%{opacity:1;transform:translate(-50%,-50%) scale(1);}100%{opacity:0;transform:translate(-50%,-50%) scale(0.95);}}
+@media(max-width:1280px){html,body{overflow:auto;}.main-layout{grid-template-columns:1fr;height:auto;}.center-col{padding-left:0;}.sidebar-charts-container{height:auto;}.charts-grid-2x2{height:320px;}.card-area{max-width:100%;}.stats-sidebar{height:auto;}}
+</style>
+</head>
+<body>
+<div class="container">
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-icon">F6</div>
+      <div class="brand-title">FSRS Replay — v5.4 Interactive Time-Lapse</div>
+    </div>
+    <div class="controls">
+      <div class="control-group">
+        <span class="control-label">پلن:</span>
+        <select id="planSelect" onchange="onConfigChange()">
+          <option value="free">Free (1x4)</option>
+          <option value="silver">Silver (3x5)</option>
+          <option value="gold" selected>Gold (4x7)</option>
+          <option value="platinum">Platinum (6x8)</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <span class="control-label">پرسونا:</span>
+        <select id="personaSelect" onchange="onConfigChange()">
+          <option value="eager">Eager</option>
+          <option value="average" selected>Average</option>
+          <option value="lazy">Lazy</option>
+          <option value="fluctuating">Fluctuating</option>
+          <option value="gamer">Gamer 🎮</option>
+          <option value="me">من (ME)</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <span class="control-label">مدت:</span>
+        <select id="daysSelect" onchange="onConfigChange()">
+          <option value="15">۱۵ روز</option>
+          <option value="30" selected>۳۰ روز</option>
+          <option value="90">۹۰ روز</option>
+          <option value="180">۶ ماه</option>
+          <option value="360">۱۲ ماه</option>
+          <option value="720">۲۴ ماه</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <span class="control-label">توانایی:</span>
+        <select id="proficiencySelect" onchange="onConfigChange()">
+          <option value="beginner">مبتدی</option>
+          <option value="intermediate" selected>متوسط</option>
+          <option value="advanced">پیشرفته</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <span class="control-label">زبان:</span>
+        <select id="langSelect" onchange="onConfigChange()">
+          <option value="all">همه</option>
+          <option value="en">انگلیسی</option>
+          <option value="tr">ترکی</option>
+          <option value="es">اسپانیایی</option>
+          <option value="de">آلمانی</option>
+        </select>
+      </div>
+      <div class="font-ctrl-group">
+        <button class="font-btn" onclick="adjustFontSize(-0.1)" title="کاهش فونت">-A</button>
+        <span class="font-scale-indicator" id="fontScaleDisplay">100%</span>
+        <button class="font-btn" onclick="adjustFontSize(0.1)" title="افزایش فونت">+A</button>
+      </div>
+      <button id="resetBtn" class="btn btn-primary" onclick="resetSimulation()">شروع مجدد</button>
+    </div>
+  </header>
+
+  <div class="main-layout">
+    <!-- LEFT: Stats + TL Panel -->
+    <div class="stats-sidebar" id="statsPanel">
+      <div>
+        <div class="stats-group-title">پیشرفت</div>
+        <div class="stat-row"><span class="stat-label">روز</span><span class="stat-value" id="statDay">0</span></div>
+        <div class="stat-row"><span class="stat-label">جلسه</span><span class="stat-value" id="statSession">0</span></div>
+        <div class="stat-row"><span class="stat-label">کارت جلسه</span><span class="stat-value" id="statCardInSession">0/0</span></div>
+        <div class="stat-row"><span class="stat-label">کارت‌های تثبیت‌شده</span><span class="stat-value" id="statLearned">0</span></div>
+        <div class="stat-row"><span class="stat-label">کارت‌های نمایش‌داده‌شده</span><span class="stat-value" id="statExposed">0</span></div>
+
+        <div class="stats-group-title">کیفیت و الگوریتم</div>
+        <div class="stat-row"><span class="stat-label">پایداری (Avg S)</span><span class="stat-value" id="statAvgStability">0.0d</span></div>
+        <div class="stat-row"><span class="stat-label">دشواری (Avg D)</span><span class="stat-value" id="statAvgDifficulty">0.0</span></div>
+        <div class="stat-row"><span class="stat-label">بازیابی (Avg R)</span><span class="stat-value" id="statAvgR">0.00</span></div>
+        <div class="stat-row"><span class="stat-label">نرخ به‌یادآوری</span><span class="stat-value" id="statRetention">0%</span></div>
+        <div class="stat-row"><span class="stat-label">میانگین تأخیر</span><span class="stat-value" id="statAvgLateness">0</span></div>
+
+        <div class="stats-group-title">مصرف و عملکرد</div>
+        <div class="stat-row"><span class="stat-label">هزینه AI</span><span class="stat-value" id="statAiCost">$0</span></div>
+        <div class="stat-row"><span class="stat-label">فراخوانی AI</span><span class="stat-value" id="statAiCalls">0</span></div>
+        <div class="stat-row"><span class="stat-label">زنجیره (Streak)</span><span class="stat-value" id="streakCurrent">0</span></div>
+        <div class="stat-row"><span class="stat-label">رکورد زنجیره</span><span class="stat-value" id="streakBest">0</span></div>
+
+        <div class="stats-group-title">وضعیت کارت‌ها</div>
+        <div class="stat-row"><span class="stat-label">سررسید (Due)</span><span class="stat-value" id="statDue">0</span></div>
+        <div class="stat-row"><span class="stat-label">فعال</span><span class="stat-value" id="statActive">0</span></div>
+      </div>
+
+      <div class="stat-tiers" id="tierBadges"><span style="color:var(--fg-dim)">—</span></div>
+
+      <!-- TL Panel -->
+      <div class="tl-panel" id="tlPanel">
+        <div class="tl-header" onclick="toggleTLPanel()">
+          <span class="tl-title">▶ Time-Lapse</span>
+          <span class="tl-toggle" id="tlToggle">▲</span>
+        </div>
+        <div class="tl-body" id="tlBody">
+          <div class="tl-row">
+            <span class="tl-label">Seed:</span>
+            <input type="number" class="tl-seed-input" id="seedInput" value="42" min="0" max="999999">
+            <button class="tl-btn tl-btn-sm" onclick="randomizeSeed()" title="Randomize seed">🎲</button>
+            <button class="tl-btn tl-btn-sm tl-lock" id="seedLockBtn" onclick="toggleSeedLock()" title="Lock seed">🔓</button>
+          </div>
+          <div class="tl-row">
+            <span class="tl-label">Speed:</span>
+            <input type="range" class="tl-slider" id="speedSlider" min="0" max="11" step="1" value="3" oninput="updateSpeedFromSlider()">
+            <span class="tl-speed-label" id="speedLabel">100ms</span>
+          </div>
+          <div class="tl-row tl-btn-row">
+            <button class="tl-btn tl-step" onclick="stepOne()" title="Forward one step">⏭</button>
+            <button class="tl-btn tl-play" id="tlPlayBtn" onclick="toggleAutoPlay()">▶ Play</button>
+            <button class="tl-btn tl-step" onclick="undoLastStep()" title="Back one step">⏮</button>
+            <button class="tl-btn tl-stop" onclick="stopAutoPlay();resetSimulation()" title="Stop & Reset">⏹</button>
+            <button id="aiQueryBtn" onclick="handleAiQuery()" title="AI Word Query">🤖 AI Query</button>
+            <span class="tl-status" id="tlStatus">Manual</span>
+          </div>
+          <div class="tl-row tl-monitor" id="tlMonitor" style="display:none">
+            <span class="tl-label">Easy Rate:</span>
+            <span class="tl-value" id="tlEasyRate">—</span>
+            <span class="tl-badge" id="tlFlag">✅</span>
+          </div>
+          <div class="tl-row tl-monitor">
+            <span class="tl-label">Threshold:</span>
+            <input type="range" class="tl-slider tl-thresh-slider" id="threshSlider" min="10" max="90" step="5" value="50" oninput="updateThreshFromSlider()">
+            <span class="tl-speed-label" id="threshLabel">50%</span>
+          </div>
+          <div class="tl-row tl-monitor" id="tlPenaltyRow">
+            <span class="tl-label">Penalty:</span>
+            <input type="range" class="tl-slider tl-thresh-slider" id="penaltySlider" min="0" max="70" step="5" value="30" oninput="updatePenaltyFromSlider()">
+            <span class="tl-speed-label" id="penaltyLabel">30%</span>
+            <button class="tl-btn tl-btn-sm" id="tlPenaltyToggle" onclick="toggleAntiGaming()">Enable</button>
+          </div>
+          <!-- Engine Features Toggles -->
+          <div class="tl-monitor" style="padding-top:4px;margin-top:2px;">
+            <div class="tl-header" style="padding:4px 6px;cursor:pointer;" onclick="toggleFeaturePanel()">
+              <span style="font-size:0.68rem;font-weight:700;color:var(--accent);">⚙️ Engine Features</span>
+              <span class="tl-toggle" id="ftToggle">▲</span>
+            </div>
+            <div id="featurePanel" style="display:flex;flex-direction:column;gap:2px;padding:4px 6px;">
+              <div class="tl-feature-toggle"><label>Rejection</label><input type="checkbox" id="ftRejection" checked onchange="saveFeatureToggles()"></div>
+              <div class="tl-feature-toggle"><label>Catchup</label><input type="checkbox" id="ftCatchup" checked onchange="saveFeatureToggles()"></div>
+              <div class="tl-feature-toggle"><label>Session Rate Limit</label><input type="checkbox" id="ftRateLimit" checked onchange="saveFeatureToggles()"></div>
+              <div class="tl-feature-toggle"><label>Short-term Stability</label><input type="checkbox" id="ftShortTerm" onchange="saveFeatureToggles()"></div>
+              <div class="tl-feature-toggle"><label>Attendance Effect</label><input type="checkbox" id="ftAttendance" checked onchange="saveFeatureToggles()"></div>
+              <div class="tl-feature-toggle"><label>AI Generation</label><input type="checkbox" id="ftAiGen" checked onchange="saveFeatureToggles()"></div>
+              <div class="tl-feature-toggle"><label>Query Generation</label><input type="checkbox" id="ftQueryGen" checked onchange="saveFeatureToggles()"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER: Card + Progress + Grade Buttons -->
+    <div class="center-col">
+      <div class="progress-container" id="progressContainer" style="display:none">
+        <div class="progress-text">
+          <span id="progressLabel">جلسه ۱</span>
+          <span id="progressPercent">۰%</span>
+        </div>
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+
+      <div class="card-area">
+        <div class="card-inner">
+          <div class="empty-state" id="emptyState">
+            <h3>آماده شبیه‌سازی</h3>
+            <p>جهت اجرای شبیه‌سازی الگوریتم FSRS-6، روی دکمه <strong>شروع مجدد</strong> کلیک کنید.</p>
+          </div>
+          <div id="cardContent"></div>
+        </div>
+      </div>
+
+      <div class="grade-buttons" id="gradeButtons" style="display:none"></div>
+    </div>
+
+    <!-- RIGHT: Charts -->
+    <div class="sidebar-charts-container">
+      <div class="sidebar-avg-s">
+        <div class="s-info">
+          <span class="s-label">میانگین پایداری (Avg S)</span>
+          <span class="s-unit">پایداری در حافظه بلندمدت</span>
+        </div>
+        <span class="s-value" id="bigAvgS">0.0<span style="font-size:0.85rem;font-weight:500;margin-right:2px;color:var(--fg-dim);">روز</span></span>
+      </div>
+
+      <div class="charts-grid-2x2">
+        <div class="chart-box">
+          <h4>پایداری (Stability)</h4>
+          <div class="chart-canvas-wrap"><canvas id="chartStability"></canvas></div>
+          <div class="chart-desc">پایداری S (روز) — هرچه بالاتر، فاصله مرور طولانی‌تر و یادگیری عمیق‌تر</div>
+        </div>
+        <div class="chart-box">
+          <h4>دشواری (Difficulty)</h4>
+          <div class="chart-canvas-wrap"><canvas id="chartDifficulty"></canvas></div>
+          <div class="chart-desc">دشواری D (۱–۱۰) — پایین = آسان، بالا = چالش بیشتر</div>
+        </div>
+        <div class="chart-box">
+          <h4>عقب‌افتاده (Backlog)</h4>
+          <div class="chart-canvas-wrap"><canvas id="chartBacklog"></canvas></div>
+          <div class="chart-desc">کارت Due (عدد) — کاهش خط = مرور به‌موقع و عقب‌ماندگی کمتر</div>
+        </div>
+        <div class="chart-box">
+          <h4>تأخیر (Latency)</h4>
+          <div class="chart-canvas-wrap"><canvas id="chartLatency"></canvas></div>
+          <div class="chart-desc">تأخیر (روز) — میله کوتاه = مرور سر وقت، تأخیر بلند = ریسک فراموشی</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    FSRS Replay v1.5 | v5.4 Engine | 6 Personas | 4 Plans | کلید میانبر ۱ تا ۴ | کل کارت‌های دیتابیس: <span id="totalCardCount">549</span>
+  </footer>
+</div>
+
+<div id="scheduleToast" class="schedule-toast" style="display:none">
+  <div class="toast-icon" id="toastIcon">📅</div>
+  <div class="toast-label">مرور بعدی</div>
+  <div class="toast-value" id="toastInterval">—</div>
+</div>
+
+<div id="aiQueryModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;">
+  <div style="background:var(--bg-card-solid);border:1px solid var(--border-glow);border-radius:16px;padding:24px 32px;max-width:440px;width:90%;box-shadow:0 8px 40px rgba(0,0,0,0.5);">
+    <h4 style="text-align:center;color:var(--accent);margin-bottom:12px;font-size:1rem;">🔍 کلمه جدید از AI</h4>
+    <div id="aiQueryCardDisplay" style="text-align:center;min-height:80px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;margin-bottom:16px;">
+      <div id="aqWord" style="font-size:1.4rem;font-weight:800;color:var(--fg-main);"></div>
+      <div id="aqMeaning" style="font-size:0.9rem;color:var(--fg-muted);"></div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:center;">
+      <button class="btn btn-primary" onclick="confirmAiQuery(true)" style="background:linear-gradient(135deg,#34d399,#059669);">💾 Save</button>
+      <button class="btn" onclick="confirmAiQuery(false)" style="background:var(--bg-input);border:1px solid var(--border);color:var(--fg-muted);">❌ Discard</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// FSRS-6 MATH (shared between ME mode and display)
+// ═══════════════════════════════════════════════════════════════
+const W = {w0:0.212,w1:1.2931,w2:2.3065,w3:8.2956,w4:6.4133,w5:0.8334,w6:3.0194,w7:0.001,w8:1.8722,w9:0.1666,w10:0.796,w11:1.4835,w12:0.0614,w13:0.2629,w14:1.6483,w15:0.6014,w16:1.8729,w17:0.5425,w18:0.0912,w19:0.0658,w20:0.1542};
+const DSR_FACTOR = 0.9**(-1/W.w20)-1;
+const DESIRED_RETENTION = 0.9;
+const LEARNED_MIN_S = 21;
+const AI_COST = 0.0006;
+const TIER_ORDER = ['learning','familiar','learned','consolidated'];
+const TIER_LABELS = {learning:'درحال آموختن',familiar:'آشنا',learned:'آموخته‌شده',consolidated:'پایدار'};
+const GRADE_COLORS = {1:'#f87171',2:'#fbbf24',3:'#34d399',4:'#60a5fa'};
+const SPEEDS = [1000,500,200,100,50,10,5,1,0.5,0.1,0.01,0];
+const SPEED_LABELS = ['1s','500ms','200ms','100ms','50ms','10ms','5ms','1ms','500µs','100µs','10µs','MAX'];
+const PLAN = {free:{sessions:1,size:4,aiCap:3},silver:{sessions:3,size:5,aiCap:5},gold:{sessions:4,size:7,aiCap:12},platinum:{sessions:6,size:8,aiCap:20}};
+
+function clamp(v,mn,mx){return Math.max(mn,Math.min(mx,v));}
+function retrievability(elapsed,S){return (1+DSR_FACTOR*Math.max(0,elapsed)/Math.max(0.1,S))**(-W.w20);}
+function intervalDays(S){return S*(DESIRED_RETENTION**(-1/W.w20)-1)/DSR_FACTOR;}
+function s0(g){return Math.max(0.1,[W.w0,W.w1,W.w2,W.w3][g-1]);}
+function d0(g){return clamp(W.w4-Math.exp(W.w5*(g-1))+1,1,10);}
+function updateDifficulty(D,g){const dd=-W.w6*(g-3);return clamp(W.w7*d0(4)+(1-W.w7)*(D+dd*(10-D)/9),1,10);}
+function updateStability(D,S,R,g){
+  const sc=Math.max(0.1,S);
+  if(g===1) return clamp(W.w11*(D**-W.w12)*(((sc+1)**W.w13)-1)*Math.exp(W.w14*(1-R)),0.01,sc);
+  return sc*Math.max(1,1+Math.exp(W.w8)*(11-D)*(sc**-W.w9)*(Math.exp(W.w10*(1-R))-1)*(g===2?W.w15:1)*(g===4?W.w16:1));
+}
+function getTier(s){if(s>=60)return 'consolidated';if(s>=21)return 'learned';if(s>=7)return 'familiar';return 'learning';}
+
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+let simData = null;
+let events = [];
+let replayIndex = -1;
+let autoPlayTimer = null;
+let autoPlayActive = false;
+let speedMs = 100;
+let gradeHighlightDuration = 100;
+let seedLocked = true;
+let cardFontScale = 1.0;
+
+let antiGamingEnabled = false;
+let antiGamingThreshold = 0.50;
+let antiGamingPenalty = 0.30;
+
+let chartStability=null, chartDifficulty=null, chartBacklog=null, chartLatency=null;
+let cardHistoryChart=null;
+
+// ME mode specific
+let isMeMode = false;
+let meGrades = {};  // eventIndex -> {grade, S_after, D_after}
+let meCardStates = {};  // card_id -> {stability, difficulty, reviews, last_review, next_review, first_exposure_done}
+let meEventGrades = {};  // eventIndex -> grade (user-assigned)
+let meAvailableIndices = [];
+
+// Feature toggles
+let featureToggles = {rejection:true,catchup:true,rateLimit:true,shortTerm:false,attendance:true,aiGen:true,queryGen:true};
+
+// ═══════════════════════════════════════════════════════════════
+// API
+// ═══════════════════════════════════════════════════════════════
+function getPersonaState() {
+  const p = document.getElementById('personaSelect').value;
+  isMeMode = (p === 'me');
+  document.getElementById('aiQueryBtn').style.display = isMeMode ? 'inline-flex' : 'none';
+  // Hide attendance toggle in ME mode
+  document.getElementById('ftAttendance').disabled = isMeMode;
+  // Update lang dropdown behavior
+  updateLangCounts();
+}
+
+function onConfigChange() {
+  getPersonaState();
+  resetSimulation();
+}
+
+async function resetSimulation() {
+  stopAutoPlay();
+  getPersonaState();
+
+  const plan = document.getElementById('planSelect').value;
+  const persona = document.getElementById('personaSelect').value;
+  const days = parseInt(document.getElementById('daysSelect').value);
+  const proficiency = document.getElementById('proficiencySelect').value;
+  const language = document.getElementById('langSelect').value;
+  const seedEl = document.getElementById('seedInput');
+  if (!seedLocked) seedEl.value = Math.floor(Math.random() * 99999);
+  const seed = parseInt(seedEl.value) || 42;
+
+  const params = {
+    plan, persona, days, seed, proficiency, language,
+    enable_rejection: featureToggles.rejection,
+    enable_catchup: featureToggles.catchup,
+    enable_session_rate_limit: featureToggles.rateLimit,
+    enable_short_term: featureToggles.shortTerm,
+    enable_attendance: featureToggles.attendance,
+    enable_ai_gen: featureToggles.aiGen,
+    enable_query_gen: featureToggles.queryGen,
+  };
+
+  try {
+    const resp = await fetch('/api/simulate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(params),
+    });
+    simData = await resp.json();
+    events = simData.events || [];
+    replayIndex = -1;
+
+    if (isMeMode) {
+      meGrades = {};
+      meCardStates = {};
+      meEventGrades = {};
+      meAvailableIndices = simData.available_card_indices || [];
+      // Initialize card states from events
+      events.forEach((ev, idx) => {
+        if (ev.grade_required && !meCardStates[ev.card_id]) {
+          meCardStates[ev.card_id] = {stability:0,difficulty:5.5,reviews:0,last_review:null,next_review:null,first_exposure_done:false};
+        }
+      });
+    }
+
+    document.getElementById('emptyState').style.display = '';
+    document.getElementById('cardContent').style.display = 'none';
+    document.getElementById('gradeButtons').style.display = 'none';
+    document.getElementById('progressContainer').style.display = 'none';
+    document.getElementById('tierBadges').innerHTML = '<span style="color:var(--fg-dim)">—</span>';
+    document.getElementById('scheduleToast').style.display = 'none';
+
+    if (events.length > 0) {
+      renderStats(events[0], 0);
+    } else {
+      renderDefaultStats();
+    }
+    updateCharts();
+    updateTLStatus();
+    updateLangCounts();
+  } catch (e) {
+    document.getElementById('emptyState').innerHTML = '<h3>خطا در ارتباط</h3><p>نمی‌توان به سرور متصل شد.</p>';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LANGUAGE FILTER
+// ═══════════════════════════════════════════════════════════════
+function updateLangCounts() {
+  const sel = document.getElementById('langSelect');
+  if (!sel || !SIMULATOR_CARDS) return;
+  const total = SIMULATOR_CARDS.length;
+  document.getElementById('totalCardCount').textContent = total;
+  const langs = {};
+  SIMULATOR_CARDS.forEach(c => { const l = c.lang || 'en'; langs[l] = (langs[l] || 0) + 1; });
+  const labels = {en:'انگلیسی',tr:'ترکی',es:'اسپانیایی',de:'آلمانی'};
+  sel.options[0].text = 'همه (' + total + ')';
+  [...sel.options].slice(1).forEach(o => {
+    const cnt = langs[o.value] || 0;
+    o.text = (labels[o.value] || o.value) + ' (' + cnt + ')';
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ME MODE — AI QUERY
+// ═══════════════════════════════════════════════════════════════
+let pendingAiQueryIdx = -1;
+
+function handleAiQuery() {
+  if (!isMeMode || !simData || meAvailableIndices.length === 0) return;
+  const idx = Math.floor(Math.random() * meAvailableIndices.length);
+  pendingAiQueryIdx = meAvailableIndices[idx];
+  const cardData = SIMULATOR_CARDS[pendingAiQueryIdx];
+  if (!cardData) return;
+  document.getElementById('aqWord').textContent = cardData.word || '';
+  document.getElementById('aqMeaning').textContent = cardData.fa_meaning || '';
+  document.getElementById('aiQueryModal').style.display = 'flex';
+}
+
+function confirmAiQuery(saved) {
+  document.getElementById('aiQueryModal').style.display = 'none';
+  if (!saved || pendingAiQueryIdx < 0) { pendingAiQueryIdx = -1; return; }
+  // Remove from available
+  meAvailableIndices = meAvailableIndices.filter(i => i !== pendingAiQueryIdx);
+  const cardData = SIMULATOR_CARDS[pendingAiQueryIdx];
+  if (!cardData) { pendingAiQueryIdx = -1; return; }
+  // Create a new event for this card at the current position
+  const newEvent = {
+    day: events.length > 0 ? events[Math.min(Math.max(replayIndex, 0), events.length - 1)].day : 0,
+    session: events.length > 0 ? events[Math.min(Math.max(replayIndex, 0), events.length - 1)].session : 0,
+    card_id: Date.now() + Math.floor(Math.random() * 10000),
+    card_idx: pendingAiQueryIdx,
+    word: cardData.word || '',
+    type: 'first_exposure',
+    grade: 0,
+    grade_required: true,
+    S_before: 0, S_after: 0,
+    D_before: 0, D_after: 0,
+    R_before: null,
+    outcome: 'first_exposure',
+    interval_days: 1,
+    tier_before: 'new', tier_after: 'new',
+    default_grade: 3,
+    stats: null,
+  };
+  // Insert at current position
+  events.splice(replayIndex + 1, 0, newEvent);
+  meCardStates[newEvent.card_id] = {stability:0,difficulty:5.5,reviews:0,last_review:null,next_review:null,first_exposure_done:false};
+  // Advance to the new event
+  replayIndex++;
+  stepOne();
+  pendingAiQueryIdx = -1;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RENDER STATS
+// ═══════════════════════════════════════════════════════════════
+function renderDefaultStats() {
+  ['statDay','statSession','statLearned','statExposed','statDue','statActive','statAvgR',
+   'statRetention','statAiCost','statAiCalls','streakCurrent','streakBest','statAvgStability',
+   'statAvgDifficulty','statCardInSession','statAvgLateness'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.textContent = '0';
+  });
+  document.getElementById('bigAvgS').innerHTML = '0.0<span style="font-size:0.85rem;font-weight:500;margin-right:2px;color:var(--fg-dim);">روز</span>';
+}
+
+function getStatsForIndex(idx) {
+  if (!events || idx < 0 || idx >= events.length) return null;
+  const ev = events[idx];
+  const s = ev.stats || {};
+  const dayData = simData && simData.rows && simData.rows[ev.day];
+  // For ME mode, compute live stats from user grades
+  if (isMeMode) {
+    return computeMeStats(idx);
+  }
+  return {
+    day: ev.day + 1,
+    session: (ev.session != null) ? ev.session + 1 : 1,
+    cardCurrent: idx + 1,
+    cardTotal: events.length,
+    learned: s.learned || 0,
+    dueToday: dayData ? dayData.due_remaining : 0,
+    active: s.active || 0,
+    avgS: s.avg_S || 0,
+    avgD: s.avg_D || 0,
+    avgR: (simData && simData.history && simData.history.avg_R && simData.history.avg_R[ev.day]) || 0,
+    retention: s.retention || 0,
+    aiCost: s.ai_cost || 0,
+    aiCalls: s.ai_calls || 0,
+    streak: s.streak || 0,
+    bestStreak: (simData && simData.summary && simData.summary.best_streak) || 0,
+    latency: (simData && simData.summary && simData.summary.avg_lateness_days) || 0,
+    exposed: (simData && simData.summary && simData.summary.total_cards_exposed) || 0,
+  };
+}
+
+function computeMeStats(idx) {
+  // Recompute stats from all events up to idx, using user grades where available
+  const uniqueCards = {};
+  let totalS = 0, totalD = 0, totalR = 0, cardCount = 0;
+  let learned = 0, success = 0, totalRev = 0, exposed = 0;
+  let dueToday = 0;
+
+  for (let i = 0; i <= idx; i++) {
+    const ev = events[i];
+    if (!ev) continue;
+    const cid = ev.card_id;
+    if (!uniqueCards[cid]) { uniqueCards[cid] = {S:0,D:5.5,lastReview:null,nextReview:null}; }
+    const cs = uniqueCards[cid];
+
+    if (ev.type === 'first_exposure') {
+      const grade = meEventGrades[i] || 0;
+      if (grade > 0) {
+        const newS = s0(grade), newD = d0(grade);
+        cs.S = newS; cs.D = newD;
+        cs.lastReview = ev.day;
+        cs.nextReview = ev.day + Math.max(1, Math.round(intervalDays(newS)));
+      }
+    } else {
+      const grade = meEventGrades[i] || 0;
+      if (grade > 0 && cs.lastReview != null) {
+        const elapsed = ev.day - cs.lastReview;
+        const R = retrievability(Math.max(0, elapsed), cs.S);
+        const newS = updateStability(cs.D, cs.S, R, grade);
+        const newD = updateDifficulty(cs.D, grade);
+        cs.S = newS; cs.D = newD;
+        cs.lastReview = ev.day;
+        cs.nextReview = ev.day + Math.max(1, Math.round(intervalDays(newS)));
+        if (grade >= 3) success++;
+        totalRev++;
+      }
+    }
+    if (ev.type === 'first_exposure') exposed++;
+  }
+
+  const cardList = Object.values(uniqueCards);
+  cardCount = cardList.length;
+  cardList.forEach(c => { totalS += c.S; totalD += c.D; });
+  const avgS = cardCount > 0 ? totalS / cardCount : 0;
+  const avgD = cardCount > 0 ? totalD / cardCount : 0;
+
+  // Retention
+  const retention = totalRev > 0 ? Math.round(success / totalRev * 100) : 0;
+
+  // Due today
+  const currentDay = events[idx] ? events[idx].day : 0;
+  dueToday = cardList.filter(c => c.nextReview != null && c.nextReview <= currentDay).length;
+
+  // Learned
+  learned = cardList.filter(c => c.S >= LEARNED_MIN_S).length;
+
+  return {
+    day: events[idx] ? events[idx].day + 1 : 1,
+    session: (events[idx] && events[idx].session != null) ? events[idx].session + 1 : 1,
+    cardCurrent: idx + 1,
+    cardTotal: events.length,
+    learned: learned,
+    dueToday: dueToday,
+    active: cardCount,
+    avgS: avgS,
+    avgD: avgD,
+    avgR: 0,
+    retention: retention,
+    aiCost: 0,
+    aiCalls: 0,
+    streak: 0,
+    bestStreak: 0,
+    latency: 0,
+    exposed: exposed,
+  };
+}
+
+function renderStats(ev, idx) {
+  const st = getStatsForIndex(idx);
+  if (!st) return;
+  document.getElementById('statDay').textContent = st.day;
+  document.getElementById('statSession').textContent = st.session;
+  document.getElementById('statCardInSession').textContent = st.cardCurrent + '/' + st.cardTotal;
+  document.getElementById('statLearned').textContent = st.learned;
+  document.getElementById('statExposed').textContent = st.exposed || 0;
+  document.getElementById('statDue').textContent = st.dueToday;
+  document.getElementById('statActive').textContent = st.active;
+  document.getElementById('statAvgLateness').textContent = st.latency ? st.latency.toFixed(1) + 'd' : '0';
+  document.getElementById('bigAvgS').innerHTML = st.avgS.toFixed(1) + '<span style="font-size:0.85rem;font-weight:500;margin-right:2px;color:var(--fg-dim);">روز</span>';
+  document.getElementById('statAvgStability').textContent = st.avgS.toFixed(1) + 'd';
+  document.getElementById('statAvgDifficulty').textContent = st.avgD.toFixed(2);
+  document.getElementById('statAvgR').textContent = st.avgR.toFixed(2);
+  document.getElementById('statRetention').textContent = st.retention + '%';
+  document.getElementById('statAiCost').textContent = '$' + st.aiCost.toFixed(4);
+  document.getElementById('statAiCalls').textContent = st.aiCalls;
+  document.getElementById('streakCurrent').textContent = st.streak;
+  document.getElementById('streakBest').textContent = st.bestStreak;
+}
+
+function renderTiersFromSummary() {
+  const container = document.getElementById('tierBadges');
+  if (!simData || !simData.summary || !simData.summary.tier_counts) {
+    container.innerHTML = '<span style="color:var(--fg-dim)">—</span>';
+    return;
+  }
+  const tiers = simData.summary.tier_counts;
+  const keys = Object.keys(tiers);
+  if (keys.length === 0) {
+    container.innerHTML = '<span style="color:var(--fg-dim)">—</span>';
+    return;
+  }
+  const tierClasses = {'در حال یادگیری':'tier-learning','آشنا':'tier-familiar','یادگرفته‌شده':'tier-learned','تثبیت‌شده':'tier-consolidated'};
+  container.innerHTML = keys.map(k =>
+    '<span class="tier-badge ' + (tierClasses[k] || 'tier-learning') + '">' + k + ': ' + tiers[k] + '</span>'
+  ).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STEP / NAVIGATION
+// ═══════════════════════════════════════════════════════════════
+function stepOne() {
+  if (!events || events.length === 0) return;
+  if (replayIndex >= events.length - 1) { updateTLStatus(); return; }
+  replayIndex++;
+  const ev = events[replayIndex];
+  const idx = ev.card_idx;
+  const cardData = (typeof SIMULATOR_CARDS !== 'undefined' && idx >= 0 && idx < SIMULATOR_CARDS.length)
+    ? SIMULATOR_CARDS[idx] : null;
+
+  renderStats(ev, replayIndex);
+  renderCard(ev, cardData);
+  renderGradeButtons(ev);
+  updateProgress();
+  updateCharts();
+  updateTLStatus();
+  updateAntiGaming();
+
+  if (ev.grade && ev.grade > 0) {
+    highlightGradeButton(ev.grade);
+  }
+}
+
+function gotoEvent(idx) {
+  if (idx < 0 || idx >= events.length) return;
+  replayIndex = idx - 1;
+  stepOne();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PROGRESS BAR (Session-Based)
+// ═══════════════════════════════════════════════════════════════
+function updateProgress() {
+  const container = document.getElementById('progressContainer');
+  if (!container || replayIndex < 0 || replayIndex >= events.length) return;
+  container.style.display = 'flex';
+
+  const curEv = events[replayIndex];
+  const curDay = curEv.day;
+
+  // Get all events for this day, grouped by session
+  const dayEvents = events.filter(e => e.day === curDay);
+  const sessions = {};
+  dayEvents.forEach(e => {
+    const s = e.session != null ? e.session : 0;
+    if (!sessions[s]) sessions[s] = [];
+    sessions[s].push(e);
+  });
+  const sessionKeys = Object.keys(sessions).map(Number).sort((a,b) => a - b);
+  const totalInDay = dayEvents.length;
+  const currentInDay = dayEvents.indexOf(curEv) + 1;
+  const pct = Math.round(currentInDay / totalInDay * 100);
+
+  // Find current session index within this day
+  let curSessionIdx = 0;
+  let curInSession = 0;
+  let totalBefore = 0;
+  sessionKeys.forEach((sk, si) => {
+    const len = sessions[sk].length;
+    if (curEv.session === sk) {
+      curSessionIdx = si;
+      curInSession = dayEvents.slice(totalBefore, totalBefore + len).indexOf(curEv) + 1;
+    }
+    totalBefore += len;
+  });
+
+  document.getElementById('progressLabel').textContent =
+    'روز ' + (curDay + 1) + ' | جلسه ' + (curSessionIdx + 1) + ' (' + curInSession + '/' + (sessions[curEv.session] ? sessions[curEv.session].length : 0) + ')';
+  document.getElementById('progressPercent').textContent = pct + '%';
+
+  // Build session segments
+  const bar = document.getElementById('progressBar');
+  bar.innerHTML = '';
+  sessionKeys.forEach(sk => {
+    const seg = document.createElement('div');
+    seg.className = 'progress-segment';
+    const fill = document.createElement('div');
+    fill.className = 'progress-segment-fill';
+    const sessEvents = sessions[sk];
+    const totalInSess = sessEvents.length;
+    let doneInSess = 0;
+    for (let i = dayEvents.indexOf(sessEvents[0]); i <= dayEvents.indexOf(curEv); i++) {
+      if (i >= 0 && i < dayEvents.length && dayEvents[i].session === sk) doneInSess++;
+    }
+    fill.style.width = (curEv.session > sk || (curEv.session === sk && doneInSess >= totalInSess))
+      ? '100%'
+      : (curEv.session === sk ? Math.round(doneInSess / totalInSess * 100) + '%' : '0%');
+    seg.appendChild(fill);
+    bar.appendChild(seg);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CARD RENDER
+// ═══════════════════════════════════════════════════════════════
+function renderCard(ev, cardData) {
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('cardContent').style.display = '';
+  document.getElementById('gradeButtons').style.display = 'grid';
+
+  const container = document.getElementById('cardContent');
+  const isNew = ev.type === 'first_exposure';
+
+  // For ME mode, use user grade if available
+  let displayGrade = ev.grade;
+  let displaySAfter = ev.S_after;
+  let displayDAfter = ev.D_after;
+  if (isMeMode && meEventGrades[replayIndex]) {
+    const ug = meEventGrades[replayIndex];
+    displayGrade = ug;
+    // Compute S/D for display
+    if (ev.type === 'first_exposure') {
+      displaySAfter = s0(ug);
+      displayDAfter = d0(ug);
+    } else {
+      const cs = meCardStates[ev.card_id];
+      if (cs) {
+        const R = ev.R_before || (ev.S_before > 0 ? retrievability(0, ev.S_before) : 0.5);
+        displaySAfter = updateStability(ev.D_before || 5.5, ev.S_before || 0, R, ug);
+        displayDAfter = updateDifficulty(ev.D_before || 5.5, ug);
+      }
+    }
+  }
+
+  if (!cardData) {
+    container.innerHTML = [
+      '<div class="card-header">',
+      '<div class="card-word">' + escapeHtml(ev.word || '#' + ev.card_id) + '</div>',
+      '</div>',
+      '<div style="text-align:center;color:var(--fg-dim);padding:10px;">جزئیات کارت در دسترس نیست</div>',
+      '<div class="card-score">',
+      '<span>S: <span class="s-val">' + displaySAfter.toFixed(1) + '</span></span>',
+      '<span>D: <span class="s-val">' + displayDAfter.toFixed(2) + '</span></span>',
+      '<span>Grade: <span class="s-val">' + (['','Again','Hard','Good','Easy'][displayGrade] || '-') + '</span></span>',
+      '</div>',
+    ].join('\n');
+    return;
+  }
+
+  // Build card history data
+  const cardHistoryEvents = events.filter((e, i) => e.card_id === ev.card_id && i <= replayIndex);
+  const hasHistory = cardHistoryEvents.length > 1;
+
+  container.innerHTML = [
+    '<div class="card-header">',
+    isNew ? '<div class="card-new-badge">NEW</div>' : '',
+    '<div class="card-word" dir="auto">' + escapeHtml(cardData.word || '') + '</div>',
+    cardData.phonetic ? '<div class="card-phonetic">' + escapeHtml(cardData.phonetic) + '</div>' : '',
+    '</div>',
+    '<div class="card-meaning" dir="auto">' + escapeHtml(cardData.fa_meaning || '') + '</div>',
+    cardData.fa_explanation ? '<div class="card-explanation" dir="auto">' + escapeHtml(cardData.fa_explanation) + '</div>' : '',
+    (cardData.synonyms && cardData.synonyms.length > 0) || (cardData.antonyms && cardData.antonyms.length > 0)
+      ? '<div class="card-syn-ant">'
+        + (cardData.synonyms && cardData.synonyms.length > 0
+          ? '<div class="syn-list"><div class="syn-title">مترادف‌ها</div><div class="syn-items">'
+            + cardData.synonyms.map(s => '<span class="syn-item" dir="auto">' + escapeHtml(s) + '</span>').join('') + '</div></div>' : '')
+        + (cardData.antonyms && cardData.antonyms.length > 0
+          ? '<div class="ant-list"><div class="ant-title">متضادها</div><div class="ant-items">'
+            + cardData.antonyms.map(a => '<span class="ant-item" dir="auto">' + escapeHtml(a) + '</span>').join('') + '</div></div>' : '')
+        + '</div>' : '',
+    cardData.examples && cardData.examples.length > 0
+      ? '<div class="card-examples"><div class="ex-title">مثال کاربردی</div>'
+        + cardData.examples.map((ex, i) => '<div class="example-pair">'
+          + '<span class="example-en" dir="ltr">' + escapeHtml(ex) + '</span>'
+          + (cardData.example_translations && cardData.example_translations[i]
+            ? '<span class="example-fa" dir="auto">' + escapeHtml(cardData.example_translations[i]) + '</span>' : '')
+          + '</div>').join('') + '</div>' : '',
+    cardData.grammar_tip
+      ? '<div class="card-grammar"><div class="grammar-title">نکته گرامری</div><div class="grammar-text">' + escapeHtml(cardData.grammar_tip) + '</div></div>' : '',
+    '<div class="card-score">',
+    '<span>نمره: <span class="s-val">' + (['','Again','Hard','Good','Easy'][displayGrade] || '-') + '</span></span>',
+    '<span>S: <span class="s-val">' + displaySAfter.toFixed(1) + '</span></span>',
+    '<span>D: <span class="s-val">' + displayDAfter.toFixed(2) + '</span></span>',
+    '</div>',
+    '<div class="card-history-chart-wrap" id="cardHistoryWrap" style="' + (hasHistory ? '' : 'display:none') + '">',
+    '<h5>روند پایداری (S) در مرورها</h5>',
+    '<canvas id="cardHistoryChart"></canvas>',
+    '</div>',
+  ].join('\n');
+
+  // Render card history chart if there are multiple events for this card
+  if (hasHistory) {
+    setTimeout(() => renderCardHistoryChart(cardHistoryEvents), 50);
+  }
+}
+
+function renderGradeButtons(ev) {
+  const container = document.getElementById('gradeButtons');
+  const isNew = ev.type === 'first_exposure';
+  const btns = isNew
+    ? [{g:1,label:'کاملا ناآشنا اَم',icon:'🔴',cls:'again'},{g:2,label:'کمی آشنا اَم',icon:'🟡',cls:'hard'},{g:3,label:'آشنایی خوب',icon:'🟢',cls:'good'},{g:4,label:'کاملا بلدمش',icon:'🔵',cls:'easy'}]
+    : [{g:1,label:'یادم نیامد',icon:'🔴',cls:'again'},{g:2,label:'سخت بود',icon:'🟡',cls:'hard'},{g:3,label:'خوب بود',icon:'🟢',cls:'good'},{g:4,label:'خیلی آسون بود',icon:'🔵',cls:'easy'}];
+
+  const currentGrade = isMeMode ? (meEventGrades[replayIndex] || 0) : (ev.grade || 0);
+
+  container.innerHTML = btns.map(b =>
+    '<button class="grade-btn ' + b.cls + (currentGrade === b.g ? ' active' : '') + '" onclick="onClickGrade(' + b.g + ')">'
+    + '<span class="grade-key">' + b.g + '</span>'
+    + '<span class="grade-label">' + b.label + '</span>'
+    + '</button>'
+  ).join('\n');
+
+  // Shade disabled buttons (already graded in non-ME)
+  if (!isMeMode && ev.grade > 0) {
+    container.querySelectorAll('.grade-btn').forEach(b => b.style.opacity = '0.5');
+  }
+
+  // Schedule toast
+  showScheduleToast(ev);
+}
+
+function showScheduleToast(ev) {
+  const toast = document.getElementById('scheduleToast');
+  if (ev.interval_days == null || ev.interval_days <= 0) { toast.style.display = 'none'; return; }
+  const interval = Math.round(ev.interval_days);
+  const icon = document.getElementById('toastIcon');
+  const label = document.getElementById('toastInterval');
+  let txt;
+  if (interval <= 1) { txt = 'فردا'; icon.textContent = '🔜'; }
+  else if (interval <= 7) { txt = interval + ' روز دیگر'; icon.textContent = '📅'; }
+  else if (interval <= 30) { txt = interval + ' روز دیگر'; icon.textContent = '🗓️'; }
+  else if (interval <= 90) { txt = interval + ' روز دیگر'; icon.textContent = '🌙'; }
+  else { txt = interval + ' روز دیگر'; icon.textContent = '🌟'; }
+  label.textContent = txt;
+  toast.style.display = 'flex';
+  toast.style.animation = 'none';
+  void toast.offsetWidth;
+  toast.style.animation = 'toastFade 0.9s ease forwards';
+  setTimeout(() => { toast.style.display = 'none'; }, 900);
+}
+
+function highlightGradeButton(grade) {
+  if (grade < 1 || grade > 4) return;
+  document.querySelectorAll('.grade-btn').forEach(b => b.classList.remove('highlight'));
+  const btns = document.querySelectorAll('.grade-btn');
+  if (btns[grade - 1]) {
+    btns[grade - 1].classList.add('highlight');
+    setTimeout(() => btns[grade - 1].classList.remove('highlight'), gradeHighlightDuration || 100);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GRADE SUBMISSION
+// ═══════════════════════════════════════════════════════════════
+function onClickGrade(grade) {
+  if (!events || replayIndex < 0 || replayIndex >= events.length) return;
+  const ev = events[replayIndex];
+  if (!isMeMode && ev.grade > 0) return; // Already graded in non-ME mode
+  if (autoPlayActive) stopAutoPlay();
+  if (isMeMode) {
+    meEventGrades[replayIndex] = grade;
+    renderCard(ev, (ev.card_idx >= 0 && ev.card_idx < SIMULATOR_CARDS.length) ? SIMULATOR_CARDS[ev.card_idx] : null);
+    renderGradeButtons(ev);
+    // Update stats
+    renderStats(ev, replayIndex);
+    updateCharts();
+    updateAntiGaming();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UNDO
+// ═══════════════════════════════════════════════════════════════
+function undoLastStep() {
+  stopAutoPlay();
+  if (replayIndex <= 0) return;
+  if (isMeMode) {
+    // Clear grade at current position and go back
+    delete meEventGrades[replayIndex];
+  }
+  replayIndex -= 2;
+  if (replayIndex < -1) replayIndex = -1;
+  stepOne();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUTO PLAY
+// ═══════════════════════════════════════════════════════════════
+function toggleAutoPlay() {
+  if (isMeMode) return; // No auto-play in ME mode
+  if (autoPlayActive) { stopAutoPlay(); return; }
+  if (!events || events.length === 0 || replayIndex >= events.length - 1) {
+    resetSimulation();
+    setTimeout(() => { if (events.length > 0) startAutoPlay(); }, 100);
+    return;
+  }
+  startAutoPlay();
+}
+
+function startAutoPlay() {
+  autoPlayActive = true;
+  const btn = document.getElementById('tlPlayBtn');
+  btn.textContent = '⏸ Pause';
+  btn.classList.add('paused');
+  document.getElementById('tlStatus').textContent = 'Auto';
+  document.getElementById('tlStatus').className = 'tl-status active';
+
+  if (speedMs === 0) {
+    runMaxBatch();
+  } else {
+    autoPlayStep();
+  }
+}
+
+function stopAutoPlay() {
+  autoPlayActive = false;
+  if (autoPlayTimer) { clearTimeout(autoPlayTimer); autoPlayTimer = null; }
+  const btn = document.getElementById('tlPlayBtn');
+  btn.textContent = '▶ Play';
+  btn.classList.remove('paused');
+  updateTLStatus();
+}
+
+function autoPlayStep() {
+  if (!autoPlayActive) return;
+  stepOne();
+  if (replayIndex >= events.length - 1 || !autoPlayActive) {
+    if (autoPlayActive) stopAutoPlay();
+    return;
+  }
+  autoPlayTimer = setTimeout(autoPlayStep, speedMs);
+}
+
+function runMaxBatch() {
+  if (!autoPlayActive) return;
+  const batchSize = 100;
+  let count = 0;
+  while (count < batchSize && replayIndex < events.length - 1 && autoPlayActive) {
+    stepOne();
+    count++;
+  }
+  if (replayIndex >= events.length - 1) { stopAutoPlay(); return; }
+  if (autoPlayActive) autoPlayTimer = setTimeout(runMaxBatch, 0);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CHARTS
+// ═══════════════════════════════════════════════════════════════
+function initCharts() {
+  const commonOpts = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: '#9ca3af', font: { size: 9, family: 'Vazirmatn' } }, grid: { color: 'rgba(255,255,255,0.06)' } },
+      y: { ticks: { color: '#9ca3af', font: { size: 9, family: 'Vazirmatn' } }, grid: { color: 'rgba(255,255,255,0.06)' } },
+    },
+  };
+
+  chartStability = new Chart(document.getElementById('chartStability'), {
+    type: 'line',
+    data: { labels: [], datasets: [{ label: 'Avg S', data: [], borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,0.12)', fill: true, tension: 0.35, pointRadius: 2 }] },
+    options: { ...commonOpts, scales: { ...commonOpts.scales, y: { ...commonOpts.scales.y, beginAtZero: true } } },
+  });
+
+  chartDifficulty = new Chart(document.getElementById('chartDifficulty'), {
+    type: 'bar',
+    data: { labels: ['1-3', '3-5', '5-7', '7-9', '9-10'], datasets: [{ label: 'کارت', data: [0, 0, 0, 0, 0], backgroundColor: ['#f87171', '#fbbf24', '#34d399', '#60a5fa', '#a78bfa'], borderRadius: 4 }] },
+    options: commonOpts,
+  });
+
+  chartBacklog = new Chart(document.getElementById('chartBacklog'), {
+    type: 'line',
+    data: { labels: [], datasets: [{ label: 'Due', data: [], borderColor: '#fbbf24', backgroundColor: 'rgba(251,191,36,0.12)', fill: true, tension: 0.35, pointRadius: 2 }] },
+    options: { ...commonOpts, scales: { ...commonOpts.scales, y: { ...commonOpts.scales.y, beginAtZero: true } } },
+  });
+
+  chartLatency = new Chart(document.getElementById('chartLatency'), {
+    type: 'bar',
+    data: { labels: [], datasets: [{ label: 'تعداد', data: [], backgroundColor: '#f87171', borderRadius: 4 }] },
+    options: commonOpts,
+  });
+}
+
+function updateCharts() {
+  if (!simData || !simData.history) return;
+  const h = simData.history;
+  const dayCount = h.avg_S.length;
+  if (dayCount === 0) return;
+  const labels = Array.from({ length: dayCount }, (_, i) => 'd' + (i + 1));
+
+  if (chartStability) {
+    chartStability.data.labels = labels;
+    chartStability.data.datasets[0].data = h.avg_S;
+    chartStability.update('none');
+  }
+
+  if (chartBacklog) {
+    chartBacklog.data.labels = labels;
+    chartBacklog.data.datasets[0].data = h.backlog;
+    chartBacklog.update('none');
+  }
+
+  // Difficulty: bin ALL active cards at current day
+  if (chartDifficulty && events.length > 0) {
+    const refIdx = Math.min(Math.max(replayIndex, 0), events.length - 1);
+    const refEv = events[refIdx];
+    const curDay = refEv ? refEv.day : 0;
+    // Collect unique cards at this day with their D values
+    const cardDiffs = {};
+    for (let i = 0; i <= refIdx; i++) {
+      const e = events[i];
+      if (e && e.card_id) {
+        const dVal = (isMeMode && meEventGrades[i])
+          ? (e.type === 'first_exposure' ? d0(meEventGrades[i]) : updateDifficulty(e.D_before || 5.5, meEventGrades[i]))
+          : (e.S_after > 0 ? e.D_after : 0);
+        if (dVal > 0) cardDiffs[e.card_id] = dVal;
+      }
+    }
+    const diffs = Object.values(cardDiffs);
+    if (diffs.length > 0) {
+      const buckets = [0, 0, 0, 0, 0];
+      diffs.forEach(d => { if (d <= 3) buckets[0]++; else if (d <= 5) buckets[1]++; else if (d <= 7) buckets[2]++; else if (d <= 9) buckets[3]++; else buckets[4]++; });
+      chartDifficulty.data.datasets[0].data = buckets;
+      chartDifficulty.update('none');
+    }
+  }
+
+  // Latency: use lateness_samples from rows (due_remaining = pending backlog, not lateness)
+  // For latency chart, we show the distribution of due_remaining across days
+  if (chartLatency && simData.rows) {
+    const lats = simData.rows.filter(r => r.attended).map(r => r.due_remaining);
+    if (lats.length > 0) {
+      const maxVal = Math.max(...lats, 1);
+      const binSize = Math.max(1, Math.ceil(maxVal / 8));
+      const bins = {};
+      lats.forEach(v => { const b = Math.floor(v / binSize) * binSize; bins[b] = (bins[b] || 0) + 1; });
+      const sorted = Object.keys(bins).sort((a, b) => +a - +b);
+      chartLatency.data.labels = sorted.map(k => k + '-' + (+k + binSize));
+      chartLatency.data.datasets[0].data = sorted.map(k => bins[k]);
+      chartLatency.update('none');
+    }
+  }
+}
+
+function renderCardHistoryChart(cardEvents) {
+  const el = document.getElementById('cardHistoryChart');
+  if (!el || !cardEvents || cardEvents.length < 2) return;
+
+  if (cardHistoryChart) { cardHistoryChart.destroy(); cardHistoryChart = null; }
+
+  const labels = cardEvents.map((h, i) => '#' + (i + 1));
+  const sValues = cardEvents.map((h, i) => {
+    if (isMeMode && meEventGrades[events.indexOf(h)] && h.type !== 'first_exposure') {
+      const g = meEventGrades[events.indexOf(h)];
+      const cs = meCardStates[h.card_id];
+      if (cs) {
+        const R = h.R_before || 0.5;
+        return updateStability(h.D_before || 5.5, h.S_before || 0, R, g);
+      }
+    }
+    return h.S_after > 0 ? h.S_after : (h.type === 'first_exposure' ? s0(h.default_grade || 3) : 0);
+  }).filter(v => v > 0);
+  const grades = cardEvents.map((h, i) => {
+    if (isMeMode && meEventGrades[events.indexOf(h)]) return meEventGrades[events.indexOf(h)];
+    return h.grade || h.default_grade || 3;
+  });
+
+  if (sValues.length < 2) return;
+
+  const pointColors = grades.slice(0, sValues.length).map(g => GRADE_COLORS[g] || '#94a3b8');
+
+  cardHistoryChart = new Chart(el, {
+    type: 'line',
+    data: {
+      labels: labels.slice(0, sValues.length),
+      datasets: [{
+        label: 'S',
+        data: sValues,
+        borderColor: '#38bdf8',
+        backgroundColor: 'rgba(56, 189, 248, 0.12)',
+        fill: true, tension: 0.3,
+        pointRadius: 4,
+        pointBackgroundColor: pointColors,
+        pointBorderColor: pointColors,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => 'S: ' + ctx.parsed.y.toFixed(2) } } },
+      scales: {
+        x: { ticks: { color: '#9ca3af', font: { size: 8, family: 'Vazirmatn' } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#9ca3af', font: { size: 8, family: 'Vazirmatn' } }, grid: { color: 'rgba(255,255,255,0.04)' }, beginAtZero: true },
+      },
+    },
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TL CONTROLS
+// ═══════════════════════════════════════════════════════════════
+function updateSpeedFromSlider() {
+  const val = parseInt(document.getElementById('speedSlider').value);
+  speedMs = SPEEDS[val] || 0;
+  gradeHighlightDuration = speedMs < 50 ? 0 : Math.min(300, speedMs);
+  document.getElementById('speedLabel').textContent = SPEED_LABELS[val] || 'MAX';
+}
+
+function updateThreshFromSlider() {
+  const val = parseInt(document.getElementById('threshSlider').value);
+  document.getElementById('threshLabel').textContent = val + '%';
+  antiGamingThreshold = val / 100;
+}
+
+function updatePenaltyFromSlider() {
+  const val = parseInt(document.getElementById('penaltySlider').value);
+  document.getElementById('penaltyLabel').textContent = val + '%';
+  antiGamingPenalty = val / 100;
+}
+
+function toggleTLPanel() {
+  const body = document.getElementById('tlBody');
+  const toggle = document.getElementById('tlToggle');
+  const hidden = body.style.display === 'none';
+  body.style.display = hidden ? 'flex' : 'none';
+  toggle.textContent = hidden ? '▲' : '▼';
+  toggle.className = hidden ? 'tl-toggle' : 'tl-toggle collapsed';
+}
+
+function randomizeSeed() {
+  if (seedLocked) return;
+  document.getElementById('seedInput').value = Math.floor(Math.random() * 99999);
+}
+
+function toggleSeedLock() {
+  seedLocked = !seedLocked;
+  document.getElementById('seedLockBtn').textContent = seedLocked ? '🔒' : '🔓';
+}
+
+function toggleAntiGaming() {
+  antiGamingEnabled = !antiGamingEnabled;
+  document.getElementById('tlPenaltyToggle').textContent = antiGamingEnabled ? 'Disable' : 'Enable';
+  if (!antiGamingEnabled) {
+    document.getElementById('tlMonitor').style.display = 'none';
+  } else {
+    updateAntiGaming();
+  }
+}
+
+function updateAntiGaming() {
+  if (!antiGamingEnabled) {
+    document.getElementById('tlMonitor').style.display = 'none';
+    return;
+  }
+  const monitor = document.getElementById('tlMonitor');
+  const easyEl = document.getElementById('tlEasyRate');
+  const flagEl = document.getElementById('tlFlag');
+  monitor.style.display = 'flex';
+
+  // Compute easy rate from recent sessions
+  let easyCount = 0, totalCount = 0;
+  const lookBack = Math.min(replayIndex + 1, events.length);
+  const startIdx = Math.max(0, lookBack - 10);
+  for (let i = startIdx; i <= replayIndex; i++) {
+    const ev = events[i];
+    if (!ev) continue;
+    const g = isMeMode ? (meEventGrades[i] || 0) : (ev.grade || 0);
+    if (g > 0) { totalCount++; if (g === 4) easyCount++; }
+  }
+  const easyRate = totalCount > 0 ? easyCount / totalCount : 0;
+  easyEl.textContent = Math.round(easyRate * 100) + '%';
+
+  const flagged = easyRate > antiGamingThreshold;
+  if (flagged) {
+    flagEl.textContent = '⚠️';
+    flagEl.className = 'tl-badge flagged';
+  } else {
+    flagEl.textContent = '✅';
+    flagEl.className = 'tl-badge clean';
+  }
+}
+
+function updateTLStatus() {
+  const el = document.getElementById('tlStatus');
+  if (autoPlayActive) {
+    el.textContent = 'Auto';
+    el.className = 'tl-status active';
+  } else if (replayIndex >= events.length - 1 && events.length > 0) {
+    el.textContent = 'Done';
+    el.className = 'tl-status';
+  } else {
+    el.textContent = 'Manual';
+    el.className = 'tl-status';
+  }
+}
+
+function adjustFontSize(delta) {
+  cardFontScale = Math.max(0.6, Math.min(1.8, cardFontScale + delta));
+  document.getElementById('fontScaleDisplay').textContent = Math.round(cardFontScale * 100) + '%';
+  document.documentElement.style.setProperty('--card-font-scale', cardFontScale);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ENGINE FEATURES TOGGLES
+// ═══════════════════════════════════════════════════════════════
+let ftPanelVisible = true;
+
+function toggleFeaturePanel() {
+  const panel = document.getElementById('featurePanel');
+  const toggle = document.getElementById('ftToggle');
+  ftPanelVisible = !ftPanelVisible;
+  panel.style.display = ftPanelVisible ? 'flex' : 'none';
+  toggle.textContent = ftPanelVisible ? '▲' : '▼';
+  toggle.className = 'tl-toggle' + (ftPanelVisible ? '' : ' collapsed');
+}
+
+function saveFeatureToggles() {
+  featureToggles = {
+    rejection: document.getElementById('ftRejection').checked,
+    catchup: document.getElementById('ftCatchup').checked,
+    rateLimit: document.getElementById('ftRateLimit').checked,
+    shortTerm: document.getElementById('ftShortTerm').checked,
+    attendance: document.getElementById('ftAttendance').checked,
+    aiGen: document.getElementById('ftAiGen').checked,
+    queryGen: document.getElementById('ftQueryGen').checked,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// KEYBOARD
+// ═══════════════════════════════════════════════════════════════
+document.addEventListener('keydown', function(e) {
+  const key = parseInt(e.key);
+  if (key >= 1 && key <= 4) {
+    if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+    onClickGrade(key);
+    e.preventDefault();
+  }
+  if (e.key === ' ' && !isMeMode) { toggleAutoPlay(); e.preventDefault(); }
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { stepOne(); e.preventDefault(); }
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { undoLastStep(); e.preventDefault(); }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+function escapeHtml(text) {
+  if (!text) return '';
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  initCharts();
+  updateSpeedFromSlider();
+  updateLangCounts();
+  getPersonaState();
+  if (typeof SIMULATOR_CARDS !== 'undefined') {
+    document.getElementById('totalCardCount').textContent = SIMULATOR_CARDS.length;
+  }
+  resetSimulation();
+});
+</script>
+</body>
+</html>
