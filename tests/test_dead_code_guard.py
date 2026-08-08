@@ -153,6 +153,22 @@ BANNED_SYMBOLS: dict[str, str] = {
         "removed by FSRS migration Phase 2: legacy review keyboard replaced by the "
         "4-grade review flow"
     ),
+    "ACTIVITY_REGISTRY": (
+        "removed by architecture deepening finding #4: dormant UI registry never "
+        "used by a production caller; study_handler owns rendering"
+    ),
+    "ActivityHandler": (
+        "removed by architecture deepening finding #4: dormant UI-registry wrapper "
+        "never used by a production caller"
+    ),
+    "get_interaction_ui": (
+        "removed by architecture deepening finding #4: dormant UI lookup removed "
+        "with the ActivityHandler registry"
+    ),
+    "build_session": (
+        "removed by architecture deepening finding #4: duplicate generator "
+        "assembler; build_session_list is the single handler-facing seam"
+    ),
 }
 
 # Symbols that are intentionally retained even though they are no longer

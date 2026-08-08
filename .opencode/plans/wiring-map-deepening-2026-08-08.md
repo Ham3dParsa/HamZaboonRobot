@@ -68,3 +68,8 @@ After implementation: `tests/test_wiring.py`, `tests/test_dead_code_guard.py`, r
 ## Contract status
 
 **GATE STATUS: LOCKED** — owner: "locked" (2026-08-08). All 7 findings approved with recommended options. Next: branch `refactor/architecture-deepening`, per-phase tickets (expand→migrate→contract), TDD one ticket at a time, run guards (`test_wiring.py`, `test_dead_code_guard.py`, repo suite + CI) between batches.
+
+### Phase status (2026-08-08)
+- #1 (ai outcome) **done** — `_call_tracked`; committed 883371a.
+- #4 (session + registry) **done** — `build_session`/`ACTIVITY_REGISTRY`/`get_interaction_ui`/`ActivityHandler` removed; `__init__.py` pruned; 4 `BANNED_SYMBOLS`; guards green.
+- Remaining: #2 dead wizard keyboard, #3 db split, #5 circular import, #6 awaiting, #7 admin split.

@@ -18,27 +18,21 @@ class SessionNode:
 
 
 from services.session.grade_policy import (  # noqa: E402
-    ACTIVITY_REGISTRY,
     GRADE_POLICIES,
-    ActivityHandler,
     GradePolicy,
     resolve_grade,
 )
 
 from services.session.assembly import (  # noqa: E402
-    build_session,
     build_session_list,
     generate_tier3_node,
 )
 
 
 __all__ = [
-    "ACTIVITY_REGISTRY",
     "GRADE_POLICIES",
-    "ActivityHandler",
     "GradePolicy",
     "SessionNode",
-    "build_session",
     "build_session_list",
     "generate_tier3_node",
     "resolve_grade",

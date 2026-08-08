@@ -32,7 +32,7 @@ Lowest risk / highest locality first. Phase files:
 
 ## Status
 - Phase 01: complete — `_call_tracked(log_target=...)` + 7 tests, committed 883371a, reviewer clean, 460 tests pass
-- Phase 02: pending
+- Phase 02: complete — single `build_session_list`; removed `ACTIVITY_REGISTRY`/`ActivityHandler`/`get_interaction_ui`/`build_session`; `__init__.py` `__all__` pruned; 4 `BANNED_SYMBOLS` added; reviewer clean, 454 tests pass
 - Phase 03: pending
 - Phase 04: pending
 - Phase 05: pending
