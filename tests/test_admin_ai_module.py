@@ -37,6 +37,7 @@ _FUNCTIONS = (
     "_handle_ai_fallback",
     "_handle_ai_preset_field_input",
     "_handle_ai_preset_new_name",
+    "_handle_ai_text_input",
     "_handle_custom_test_wizard",
     "_handle_fallback_rank",
     "_handle_full_edit_cancel",
@@ -104,6 +105,7 @@ _ADMIN_REEXPORTS = (
     "_show_grouped_presets",
     "_handle_ai_preset_new_name",
     "_handle_ai_preset_field_input",
+    "_handle_ai_text_input",
 )
 
 

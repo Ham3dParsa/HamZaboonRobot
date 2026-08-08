@@ -20,6 +20,7 @@ from handlers import admin
 from handlers import admin_cost
 
 _COST_FUNCTIONS = (
+    "_handle_cost_text_input",
     "_handle_llm_callback",
     "_llm_cost_currency_text",
     "_llm_cost_default_state",

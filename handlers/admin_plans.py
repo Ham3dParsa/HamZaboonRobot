@@ -291,6 +291,39 @@ async def _handle_plan_set_active(update: Update, context: ContextTypes.DEFAULT_
     await _show_plan_view(update, context, name)
 
 
+async def _handle_plans_text_input(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+) -> None:
+    """Route plan text-input awaiting states (``admin_set_plan``) to their handler.
+
+    Mirrors the inline block that previously lived in the admin monolith's
+    ``_handle_admin_text_input``. Behavior and awaiting strings are unchanged.
+    """
+    parts = text.split()
+    if len(parts) != 2 or not db.valid_plan_name(parts[1].lower()):
+        context.user_data["awaiting"] = "admin_set_plan"
+        await update.message.reply_text(
+            "فرمت نامعتبر است. نمونه: `123456789 silver` یا `@username gold`",
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+        return
+    target = db.find_user(parts[0])
+    if not target:
+        context.user_data["awaiting"] = "admin_set_plan"
+        await update.message.reply_text("کاربر پیدا نشد؛ ابتدا باید کاربر /start را زده باشد.")
+        return
+    plan = parts[1].lower()
+    previous_plan = target["plan"] or "free"
+    plan_label = (db.get_plan(plan) or {}).get("display_name", plan)
+    prev_label = (db.get_plan(previous_plan) or {}).get("display_name", previous_plan)
+    db.set_plan(target["user_id"], plan)
+    await update.message.reply_text(
+        f"پلن کاربر {target['user_id']} از {prev_label} به {plan_label} تغییر کرد."
+    )
+
+
 __all__ = [
     "PLAN_WIZARD_FIELD_HINTS",
     "PLAN_WIZARD_FIELD_LABELS",
@@ -303,6 +336,7 @@ __all__ = [
     "_handle_plan_wizard_input",
     "_handle_plan_wizard_next",
     "_handle_plan_wizard_save",
+    "_handle_plans_text_input",
     "_show_plan_list",
     "_show_plan_view",
     "_show_plan_wizard_field",

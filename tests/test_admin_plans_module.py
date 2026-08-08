@@ -29,6 +29,7 @@ _PLAN_FUNCTIONS = (
     "_show_plan_wizard_summary",
     "_handle_plan_wizard_save",
     "_handle_plan_set_active",
+    "_handle_plans_text_input",
 )
 
 _KEYBOARDS = {

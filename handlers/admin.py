@@ -13,6 +13,7 @@ from services.ai import ai_presets
 from services.utils.helpers import _edit_or_send, _send_with_retry
 from handlers.admin_stats import handle_admin_stats
 from handlers.admin_cost import (
+    _handle_cost_text_input,
     _handle_llm_callback,
     _llm_cost_set_state,
     _llm_pricing_text,
@@ -25,6 +26,7 @@ from handlers.admin_plans import (
     _handle_plan_wizard_input,
     _handle_plan_wizard_next,
     _handle_plan_wizard_save,
+    _handle_plans_text_input,
     _show_plan_list,
     _show_plan_view,
     _show_plan_wizard_field,
@@ -45,6 +47,7 @@ from handlers.admin_ai import (
     _handle_ai_fallback,
     _handle_ai_preset_field_input,
     _handle_ai_preset_new_name,
+    _handle_ai_text_input,
     _handle_custom_test_wizard,
     _handle_fallback_rank,
     _handle_full_edit_cancel,
@@ -416,86 +419,12 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE, awaiting: str, text: str):
-    if awaiting == "llm_cost_user":
-        if text.casefold() in {"all", "همه", "none", "null"}:
-            _llm_cost_set_state(context, user_id=None)
-        else:
-            target = db.find_user(text)
-            if not target:
-                context.user_data["awaiting"] = "llm_cost_user"
-                await update.message.reply_text(
-                    "User not found. Send a valid user_id or @username, or type all.",
-                    reply_markup=admin_awaiting_inline_keyboard(),
-                )
-                return
-            _llm_cost_set_state(context, user_id=target["user_id"])
-        await _show_llm_cost_dashboard(update, context)
-        return
-
-    if awaiting == "llm_cost_model":
-        if text.casefold() in {"all", "همه", "none", "null"}:
-            _llm_cost_set_state(context, model=None)
-        else:
-            _llm_cost_set_state(context, model=text.strip())
-        await _show_llm_cost_dashboard(update, context)
-        return
-
-    if awaiting in {"llm_price_input", "llm_price_output", "llm_price_rate"}:
-        try:
-            value = float(text.replace(",", "").strip())
-            if value < 0:
-                raise ValueError
-        except ValueError:
-            context.user_data["awaiting"] = awaiting
-            await update.message.reply_text(
-                "عدد معتبر بفرست، مثلاً 0.12 یا 65000.",
-                reply_markup=admin_awaiting_inline_keyboard(),
-            )
-            return
-        profile = db.get_llm_cost_profile()
-        if awaiting == "llm_price_input":
-            db.set_llm_cost_profile(
-                input_cost_usd_per_million=value,
-                output_cost_usd_per_million=profile["output_cost_usd_per_million"],
-                usd_to_toman_rate=profile["usd_to_toman_rate"],
-            )
-        elif awaiting == "llm_price_output":
-            db.set_llm_cost_profile(
-                input_cost_usd_per_million=profile["input_cost_usd_per_million"],
-                output_cost_usd_per_million=value,
-                usd_to_toman_rate=profile["usd_to_toman_rate"],
-            )
-        else:
-            db.set_llm_cost_profile(
-                input_cost_usd_per_million=profile["input_cost_usd_per_million"],
-                output_cost_usd_per_million=profile["output_cost_usd_per_million"],
-                usd_to_toman_rate=value,
-            )
-        await update.message.reply_text(_llm_pricing_text())
+    if awaiting in {"llm_cost_user", "llm_cost_model", "llm_price_input", "llm_price_output", "llm_price_rate"}:
+        await _handle_cost_text_input(update, context, awaiting, text)
         return
 
     if awaiting == "admin_set_plan":
-        parts = text.split()
-        if len(parts) != 2 or not db.valid_plan_name(parts[1].lower()):
-            context.user_data["awaiting"] = "admin_set_plan"
-            await update.message.reply_text(
-                "فرمت نامعتبر است. نمونه: `123456789 silver` یا `@username gold`",
-                parse_mode=ParseMode.MARKDOWN_V2,
-            )
-            return
-        target = db.find_user(parts[0])
-        if not target:
-            context.user_data["awaiting"] = "admin_set_plan"
-            await update.message.reply_text("کاربر پیدا نشد؛ ابتدا باید کاربر /start را زده باشد.")
-            return
-        plan = parts[1].lower()
-        previous_plan = target["plan"] or "free"
-        plan_label = (db.get_plan(plan) or {}).get("display_name", plan)
-        prev_label = (db.get_plan(previous_plan) or {}).get("display_name", previous_plan)
-        db.set_plan(target["user_id"], plan)
-        await update.message.reply_text(
-            f"پلن کاربر {target['user_id']} از {prev_label} به {plan_label} تغییر کرد."
-        )
+        await _handle_plans_text_input(update, context, text)
         return
 
     if awaiting == "admin_broadcast":
@@ -512,39 +441,8 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
 
     # ======== AI Settings awaiting handlers ========
 
-    if awaiting.startswith("admin_group_batch_key:"):
-        key_hash = awaiting.split(":", 1)[1]
-        groups = _detect_key_groups()
-        target = next((g for g in groups if g["key_hash"] == key_hash), None)
-        if target:
-            db.set_preset_api_key_batch(target["names"], text.strip())
-        context.user_data.pop("awaiting", None)
-        await update.message.reply_text("✅ کلید API برای همه اعضای گروه به‌روز شد.")
-        await _show_grouped_presets(update, context)
-        return
-
-    if awaiting.startswith("admin_group_set_label:"):
-        key_hash = awaiting.split(":", 1)[1]
-        groups = _detect_key_groups()
-        target = next((g for g in groups if g["key_hash"] == key_hash), None)
-        if target:
-            db.set_preset_group_label_batch(target["names"], text.strip())
-        context.user_data.pop("awaiting", None)
-        await update.message.reply_text("✅ برچسب گروه برای همه اعضا تنظیم شد.")
-        await _show_grouped_presets(update, context)
-        return
-
-    if awaiting.startswith("admin_group_manager_rename:"):
-        old_label = unquote(awaiting.split(":", 1)[1])
-        new_label = text.strip()
-        if new_label:
-            db.rename_group_label(old_label, new_label)
-            context.user_data.pop("awaiting", None)
-            await update.message.reply_text(f"✅ برچسب «{old_label}» به «{new_label}» تغییر نام یافت.")
-        else:
-            context.user_data.pop("awaiting", None)
-            await update.message.reply_text("انصراف از تغییر نام.")
-        await _show_group_manager(update, context)
+    if awaiting.startswith("admin_group_batch_key:") or awaiting.startswith("admin_group_set_label:") or awaiting.startswith("admin_group_manager_rename:") or awaiting.startswith("ai_fallback_rank:"):
+        await _handle_ai_text_input(update, context, awaiting, text)
         return
 
     if awaiting == "ai_preset_new_name":
@@ -556,31 +454,6 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
         parts = awaiting.split(":", 2)
         if len(parts) == 3:
             await _handle_ai_preset_field_input(update, context, parts[1], parts[2], text)
-        return
-
-    if awaiting.startswith("ai_fallback_rank:"):
-        preset_name = awaiting.split(":", 1)[1]
-        try:
-            target_rank = int(text.strip())
-        except ValueError:
-            context.user_data["awaiting"] = awaiting
-            await update.message.reply_text("لطفاً یک عدد معتبر وارد کنید.")
-            return
-        preset = db.get_preset(preset_name)
-        if not preset:
-            await update.message.reply_text("پیش‌تنظیم یافت نشد")
-            return
-        group_is_emergency = bool(preset.get("is_emergency", 0))
-        chain = db.get_fallback_chain_presets()
-        count = len(chain)
-        try:
-            db.reindex_preset_priority(preset_name, target_rank, group_is_emergency)
-        except ValueError as e:
-            await update.message.reply_text(str(e))
-            return
-        context.user_data.pop("awaiting", None)
-        await update.message.reply_text(f"✅ رتبه {preset_name} به {target_rank} تغییر یافت.")
-        await _show_fallback_chain(update, context)
         return
 
     if awaiting.startswith("admin_plan_full_edit:"):

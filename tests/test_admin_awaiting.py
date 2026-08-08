@@ -128,6 +128,28 @@ class TestTextRouterPrefixDispatch(unittest.IsolatedAsyncioTestCase):
                     await text_router(update, context)
                 mock_fn.assert_called_once()
 
+    async def test_router_dispatches_llm_cost_user(self):
+        from bot import text_router
+        update = _make_update(user_id=1, text="all")
+        context = _make_context()
+        context.user_data["awaiting"] = "llm_cost_user"
+        with patch("bot.db.reset_user_blocked"):
+            with patch("bot.is_owner", return_value=True):
+                with patch("handlers.admin._handle_cost_text_input", new=AsyncMock()) as mock_fn:
+                    with patch("handlers.admin.db") as mock_db:
+                        await text_router(update, context)
+                    mock_fn.assert_called_once()
+
+    async def test_dispatcher_routes_ai_fallback_rank(self):
+        from handlers.admin import _handle_admin_text_input
+        update = _make_update(user_id=1, text="2")
+        context = _make_context()
+        with patch("handlers.admin._handle_ai_text_input", new=AsyncMock()) as mock_fn:
+            with patch("handlers.admin.db") as mock_db:
+                mock_db.get_preset.return_value = {"name": "gpt", "is_emergency": 0}
+                await _handle_admin_text_input(update, context, "ai_fallback_rank:gpt", "2")
+            mock_fn.assert_called_once()
+
     async def test_router_rejects_nonowner_admin_flows(self):
         """Non-owner with admin_ awaiting must be rejected."""
         from bot import text_router

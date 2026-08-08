@@ -426,7 +426,78 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
 
 
+async def _handle_cost_text_input(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    awaiting: str,
+    text: str,
+) -> None:
+    """Route LLM-cost / pricing text-input awaiting states to their handlers.
+
+    Mirrors the inline blocks that previously lived in the admin monolith's
+    ``_handle_admin_text_input``. Behavior and awaiting strings are unchanged.
+    """
+    if awaiting == "llm_cost_user":
+        if text.casefold() in {"all", "همه", "none", "null"}:
+            _llm_cost_set_state(context, user_id=None)
+        else:
+            target = db.find_user(text)
+            if not target:
+                context.user_data["awaiting"] = "llm_cost_user"
+                await update.message.reply_text(
+                    "User not found. Send a valid user_id or @username, or type all.",
+                    reply_markup=admin_awaiting_inline_keyboard(),
+                )
+                return
+            _llm_cost_set_state(context, user_id=target["user_id"])
+        await _show_llm_cost_dashboard(update, context)
+        return
+
+    if awaiting == "llm_cost_model":
+        if text.casefold() in {"all", "همه", "none", "null"}:
+            _llm_cost_set_state(context, model=None)
+        else:
+            _llm_cost_set_state(context, model=text.strip())
+        await _show_llm_cost_dashboard(update, context)
+        return
+
+    if awaiting in {"llm_price_input", "llm_price_output", "llm_price_rate"}:
+        try:
+            value = float(text.replace(",", "").strip())
+            if value < 0:
+                raise ValueError
+        except ValueError:
+            context.user_data["awaiting"] = awaiting
+            await update.message.reply_text(
+                "عدد معتبر بفرست، مثلاً 0.12 یا 65000.",
+                reply_markup=admin_awaiting_inline_keyboard(),
+            )
+            return
+        profile = db.get_llm_cost_profile()
+        if awaiting == "llm_price_input":
+            db.set_llm_cost_profile(
+                input_cost_usd_per_million=value,
+                output_cost_usd_per_million=profile["output_cost_usd_per_million"],
+                usd_to_toman_rate=profile["usd_to_toman_rate"],
+            )
+        elif awaiting == "llm_price_output":
+            db.set_llm_cost_profile(
+                input_cost_usd_per_million=profile["input_cost_usd_per_million"],
+                output_cost_usd_per_million=value,
+                usd_to_toman_rate=profile["usd_to_toman_rate"],
+            )
+        else:
+            db.set_llm_cost_profile(
+                input_cost_usd_per_million=profile["input_cost_usd_per_million"],
+                output_cost_usd_per_million=profile["output_cost_usd_per_million"],
+                usd_to_toman_rate=value,
+            )
+        await update.message.reply_text(_llm_pricing_text())
+        return
+
+
 __all__ = [
+    "_handle_cost_text_input",
     "_handle_llm_callback",
     "_llm_cost_currency_text",
     "_llm_cost_default_state",

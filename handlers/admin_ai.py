@@ -10,7 +10,7 @@ from ``bot.py``; dispatch flows through ``handlers.admin``.
 
 import asyncio
 import hashlib
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ParseMode
@@ -1377,3 +1377,75 @@ async def _handle_fallback_rank(update: Update, context: ContextTypes.DEFAULT_TY
         f"🎯 رتبه جدید در گروه «{group_label}» را وارد کنید (۱ تا {max_rank}):",
         reply_markup=admin_awaiting_inline_keyboard(),
     )
+
+
+async def _handle_ai_text_input(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    awaiting: str,
+    text: str,
+) -> None:
+    """Route AI/preset text-input awaiting states to their handlers.
+
+    Mirrors the inline blocks that previously lived in the admin monolith's
+    ``_handle_admin_text_input``. Behavior and awaiting strings are unchanged.
+    """
+    if awaiting.startswith("admin_group_batch_key:"):
+        key_hash = awaiting.split(":", 1)[1]
+        groups = _detect_key_groups()
+        target = next((g for g in groups if g["key_hash"] == key_hash), None)
+        if target:
+            db.set_preset_api_key_batch(target["names"], text.strip())
+        context.user_data.pop("awaiting", None)
+        await update.message.reply_text("✅ کلید API برای همه اعضای گروه به‌روز شد.")
+        await _show_grouped_presets(update, context)
+        return
+
+    if awaiting.startswith("admin_group_set_label:"):
+        key_hash = awaiting.split(":", 1)[1]
+        groups = _detect_key_groups()
+        target = next((g for g in groups if g["key_hash"] == key_hash), None)
+        if target:
+            db.set_preset_group_label_batch(target["names"], text.strip())
+        context.user_data.pop("awaiting", None)
+        await update.message.reply_text("✅ برچسب گروه برای همه اعضا تنظیم شد.")
+        await _show_grouped_presets(update, context)
+        return
+
+    if awaiting.startswith("admin_group_manager_rename:"):
+        old_label = unquote(awaiting.split(":", 1)[1])
+        new_label = text.strip()
+        if new_label:
+            db.rename_group_label(old_label, new_label)
+            context.user_data.pop("awaiting", None)
+            await update.message.reply_text(f"✅ برچسب «{old_label}» به «{new_label}» تغییر نام یافت.")
+        else:
+            context.user_data.pop("awaiting", None)
+            await update.message.reply_text("انصراف از تغییر نام.")
+        await _show_group_manager(update, context)
+        return
+
+    if awaiting.startswith("ai_fallback_rank:"):
+        preset_name = awaiting.split(":", 1)[1]
+        try:
+            target_rank = int(text.strip())
+        except ValueError:
+            context.user_data["awaiting"] = awaiting
+            await update.message.reply_text("لطفاً یک عدد معتبر وارد کنید.")
+            return
+        preset = db.get_preset(preset_name)
+        if not preset:
+            await update.message.reply_text("پیش‌تنظیم یافت نشد")
+            return
+        group_is_emergency = bool(preset.get("is_emergency", 0))
+        chain = db.get_fallback_chain_presets()
+        count = len(chain)
+        try:
+            db.reindex_preset_priority(preset_name, target_rank, group_is_emergency)
+        except ValueError as e:
+            await update.message.reply_text(str(e))
+            return
+        context.user_data.pop("awaiting", None)
+        await update.message.reply_text(f"✅ رتبه {preset_name} به {target_rank} تغییر یافت.")
+        await _show_fallback_chain(update, context)
+        return

@@ -14,13 +14,13 @@ independently-testable increments so a bug is isolated to one slice. Each task k
 
 | Task | Scope | Risk | Blocking | Gate |
 |---|---|---|---|---|
-| 7.1 | Create `handlers/admin_stats.py` — empty module re-exporting only stats functions verbatim | none | — | module |
-| 7.2 | Create `handlers/admin_plans.py` — re-export plan functions verbatim | none | 7.1 | module |
-| 7.3 | Create `handlers/admin_cost.py` — re-export cost/pricing/llm funcs verbatim | none | 7.2 | module |
-| 7.4 | Create `handlers/admin_ai.py` — re-export AI/preset/fallback/custom-test funcs verbatim | none | 7.3 | module |
-| 7.5 | Migrate Batch A: `_handle_admin_callback` routes `stats:`→admin_stats, `plans:`→admin_plans, cost→admin_cost, AI→admin_ai | medium | 7.4 | callback + module |
-| 7.6 | Migrate Batch B: `_handle_llm_callback` → admin_cost | medium | 7.5 | callback + module |
-| 7.7 | Migrate `_handle_admin_text_input` awaiting handlers → submodules | medium | 7.6 | callback + module |
+| 7.1 ✅ | Create `handlers/admin_stats.py` — empty module re-exporting only stats functions verbatim | none | — | module |
+| 7.2 ✅ | Create `handlers/admin_plans.py` — re-export plan functions verbatim | none | 7.1 | module |
+| 7.3 ✅ | Create `handlers/admin_cost.py` — re-export cost/pricing/llm funcs verbatim | none | 7.2 | module |
+| 7.4 ✅ | Create `handlers/admin_ai.py` — re-export AI/preset/fallback/custom-test funcs verbatim | none | 7.3 | module |
+| 7.5 ✅ | Migrate Batch A: `_handle_admin_callback` routes `stats:`→admin_stats, `plans:`→admin_plans, cost→admin_cost, AI→admin_ai | medium | 7.4 | callback + module |
+| 7.6 ✅ | Migrate Batch B: `_handle_llm_callback` → admin_cost | medium | 7.5 | callback + module |
+| 7.7 ✅ | Migrate `_handle_admin_text_input` awaiting handlers → submodules | medium | 7.6 | callback + module |
 | 7.8 | **Contract**: `_handle_admin_callback` → thin prefix→sub-router dispatcher; delete moved defs from monolith | high | 7.7 (+ phase 06 alongside) | callback + keyboards + module |
 | 7.9 | Rework `tests/test_wiring.py::_collect_admin_sub_actions` (:337-363) to scan ALL admin modules | medium | 7.8 | wiring |
 
@@ -47,3 +47,12 @@ independently-testable increments so a bug is isolated to one slice. Each task k
 
 ## Verify
 `tests/test_wiring.py`, `tests/test_dead_code_guard.py`, admin integration tests, full suite + CI, then AGENTS.md §3 updated.
+
+## Findings (logged during 7.7, NOT regressions of this split)
+- **PRE-EXISTING**: `ai_fallback_rank:<preset>` is unreachable via `bot.py` text_router. The dispatch condition
+  (~bot.py:394) only matches `admin_` / `llm_cost_` / `llm_price_` / `ai_preset_` / `ai_custom_test_`. Since
+  `_handle_fallback_rank` (admin_ai.py) sets `awaiting = "ai_fallback_rank:..."`, a user typing a rank number falls
+  through to the main menu and the rank is never changed. Out of scope for 7.7 (module split); needs owner decision
+  (add `ai_fallback_rank` / a general `ai_` prefix to the text_router condition, or rename the awaiting key).
+- Carried over verbatim (byte-identity contract): `count = len(chain)` dead local in `_handle_ai_text_input`.
+  Leave as-is unless owner approves F841 cleanup.
