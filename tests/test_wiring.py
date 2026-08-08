@@ -578,3 +578,27 @@ class TestCallbackWiring(unittest.TestCase):
             _module_has_symbol("handlers.study_handler", "handle_study_start"),
             "resolvable import was rejected",
         )
+
+    def test_no_handler_imports_from_bot(self):
+        """No handler/service may import `from bot import ...`.
+
+        bot.py is the top-level entry point and owns the Telegram router and
+        job orchestration; it imports handlers, so any handler->bot import is
+        a backward edge that risks a circular import. Shared runtime helpers
+        (e.g. apply_log_level) must live in services/utils/helpers.py or
+        config/ instead. This guard prevents regression of the #5 fix.
+        """
+        offending: list[str] = []
+        for path in _production_py_files():
+            if str(path) == "bot.py":
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ImportFrom):
+                    continue
+                if node.module == "bot":
+                    names = ", ".join(
+                        (a.asname or a.name) for a in node.names
+                    )
+                    offending.append(f"{path}: from bot import {names}")
+        self.assertEqual(offending, [])

@@ -93,6 +93,7 @@ from services.utils.helpers import (
     _CANCEL_INPUTS,
     _CUSTOM_WORD_MAX_CHARS,
     _CUSTOM_WORD_MAX_WORDS,
+    apply_log_level,
 )
 
 from services.ai.llm_services import (
@@ -195,16 +196,6 @@ logging.basicConfig(level=_log_level, handlers=[_handler], force=True)
 for _quiet_logger_name in ("apscheduler", "httpcore", "httpx", "telegram"):
     logging.getLogger(_quiet_logger_name).setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
-
-def _apply_log_level(level_name: str) -> None:
-    """Set root logger level and quieter external loggers accordingly."""
-    level = getattr(logging, level_name.upper(), None)
-    if level is None:
-        return
-    logging.getLogger().setLevel(level)
-    for name in ("apscheduler", "httpcore", "httpx", "telegram"):
-        logging.getLogger(name).setLevel(max(level, logging.WARNING))
-    log.info("log level set to %s", level_name.upper())
 
 
 _app_timezone = APP_TZ
@@ -782,7 +773,7 @@ def main():
     db.migrate_saved_words_to_fsrs()
     db_level = db.get_setting("log_level", "")
     if db_level:
-        _apply_log_level(db_level)
+        apply_log_level(db_level)
     if not BOT_TOKEN:
         raise SystemExit("BOT_TOKEN در .env تنظیم نشده.")
 

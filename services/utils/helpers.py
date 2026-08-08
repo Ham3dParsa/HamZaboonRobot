@@ -13,6 +13,17 @@ from services import db
 logger = logging.getLogger(__name__)
 
 
+def apply_log_level(level_name: str) -> None:
+    """Set root logger level and quieter external loggers accordingly."""
+    level = getattr(logging, level_name.upper(), None)
+    if level is None:
+        return
+    logging.getLogger().setLevel(level)
+    for name in ("apscheduler", "httpcore", "httpx", "telegram"):
+        logging.getLogger(name).setLevel(max(level, logging.WARNING))
+    logger.info("log level set to %s", level_name.upper())
+
+
 def _user_activity_line(
     *,
     user_id: int,

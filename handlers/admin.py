@@ -458,8 +458,8 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif action.startswith("log_level:set:"):
         level_name = action.split(":", 2)[2]
         db.set_setting("log_level", level_name)
-        from bot import _apply_log_level
-        _apply_log_level(level_name)
+        from services.utils.helpers import apply_log_level
+        apply_log_level(level_name)
         await _show_log_level_settings(update, context)
     elif action == "user_activity_log":
         await _show_user_activity_settings(update, context)
