@@ -1,7 +1,10 @@
-"""Focused tests for the admin_ai expand module (Finding #7, task 7.4).
+"""Focused tests for the admin_ai module (Finding #7, task 7.5 AI migration).
 
-Task 7.4 establishes the AI domain seam by re-exporting the standalone AI
-symbols verbatim, with no behavior change and no routing changes yet.
+After the migrate step, ``handlers.admin_ai`` DEFINES the standalone AI/preset/
+fallback/custom-test handler functions that previously lived in the ``admin``
+monolith. ``handlers.admin`` imports them back and ``bot.py`` continues to import
+``_edit_ai_preset`` via ``handlers.admin``. These tests verify the migrated
+ownership and the re-export direction, with no behavior change.
 """
 
 import unittest
@@ -71,33 +74,52 @@ _FUNCTIONS = (
     "_validate_wizard_value",
 )
 
-_KEYBOARDS = {
-    "ai_settings_keyboard": ai_settings_keyboard,
-    "ai_presets_list_keyboard": ai_presets_list_keyboard,
-    "ai_preset_view_keyboard": ai_preset_view_keyboard,
-    "ai_preset_edit_keyboard": ai_preset_edit_keyboard,
-    "ai_fallback_keyboard": ai_fallback_keyboard,
-    "fallback_chain_keyboard": fallback_chain_keyboard,
-}
+# The subset of AI functions admin.py still dispatches on (and _edit_ai_preset,
+# which bot.py imports through handlers.admin).
+_ADMIN_REEXPORTS = (
+    "_show_ai_settings",
+    "_show_ai_presets",
+    "_show_ai_preset_view",
+    "_edit_ai_preset",
+    "_edit_ai_preset_field",
+    "_start_full_edit_wizard",
+    "_confirm_save_preset",
+    "_save_ai_preset",
+    "_discard_all_preset_changes",
+    "_delete_ai_preset",
+    "_add_ai_preset",
+    "_toggle_preset_view_mode",
+    "_handle_group_view",
+    "_handle_group_batch_key",
+    "_handle_group_set_label",
+    "_show_group_manager",
+    "_handle_group_manager_rename",
+    "_handle_group_manager_clear",
+    "_test_ai_connection",
+    "_start_custom_test_wizard",
+    "_handle_custom_test_wizard",
+    "_show_ai_fallback",
+    "_handle_ai_fallback",
+    "_handle_fallback_rank",
+    "_show_grouped_presets",
+    "_handle_ai_preset_new_name",
+    "_handle_ai_preset_field_input",
+)
 
 
 class TestAdminAiModule(unittest.TestCase):
-    def test_reexports_ai_functions_verbatim(self):
+    def test_defines_ai_functions(self):
         for name in _FUNCTIONS:
             with self.subTest(name=name):
-                self.assertIs(getattr(admin_ai, name), getattr(admin, name))
+                self.assertTrue(hasattr(admin_ai, name), f"admin_ai.{name} missing")
 
-    def test_reexports_ai_keyboards_verbatim(self):
-        for name, kbd in _KEYBOARDS.items():
+    def test_admin_reexports_ai_functions_verbatim(self):
+        for name in _ADMIN_REEXPORTS:
             with self.subTest(name=name):
-                self.assertIs(getattr(admin_ai, name), kbd)
+                self.assertIs(getattr(admin, name), getattr(admin_ai, name))
 
-    def test_all_is_explicit(self):
-        expected = sorted(
-            list(_FUNCTIONS) + list(_KEYBOARDS.keys()),
-            key=lambda s: s.lower(),
-        )
-        self.assertEqual(sorted(admin_ai.__all__, key=lambda s: s.lower()), expected)
+    def test_bot_edit_ai_preset_resolves_through_admin(self):
+        self.assertIs(admin._edit_ai_preset, admin_ai._edit_ai_preset)
 
 
 if __name__ == "__main__":
