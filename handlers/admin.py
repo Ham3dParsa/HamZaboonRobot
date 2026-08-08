@@ -18,6 +18,7 @@ from services.ai import ai
 from services.ai import ai_presets
 from services.ai import prompts
 from services.utils.helpers import _edit_or_send, _send_with_retry
+from handlers.admin_stats import handle_admin_stats
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
     BTN_BACK,
@@ -57,8 +58,6 @@ from config.keyboards import (
     IBTN_CONSUMPTION_DETAILS,
     IBTN_HELP_PRESETS,
     IBTN_HELP_FALLBACK,
-    stats_menu_keyboard,
-    stats_back_keyboard,
     plan_manager_keyboard,
     plan_view_keyboard,
     plan_wizard_keyboard,
@@ -145,63 +144,8 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
     if not is_owner(update.effective_user.id):
         await update.callback_query.answer("فقط مالک ربات دسترسی داره.", show_alert=True)
         return
-    if action == "stats":
-        await _edit_or_send(
-            update, context,
-            "📊 آمار کاربران\n\nیکی از بخش‌ها را انتخاب کن:",
-            reply_markup=stats_menu_keyboard(),
-        )
-    elif action.startswith("stats:"):
-        sub = action.split(":", 1)[1]
-        if sub == "overview":
-            data = db.count_users_overview()
-            await _edit_or_send(
-                update, context,
-                f"👥 نمای کلی کاربران\n\n"
-                f"• کل کاربران: {data['total']}\n"
-                f"• ثبت‌نام کامل: {data['onboarded']}\n"
-                f"• بلاک کرده: {data['blocked']}",
-                reply_markup=stats_back_keyboard(),
-            )
-        elif sub == "distribution":
-            lines = ["📊 توزیع کاربران\n"]
-            for label, field in [("پلن", "plan"), ("زبان مقصد", "target_lang"), ("هدف", "goal"), ("سطح", "level")]:
-                rows = db.count_users_grouped(field)
-                if not rows:
-                    continue
-                lines.append(f"{label}:")
-                for r in rows:
-                    val = r["val"] or "ناشناخته"
-                    lines.append(f"  {val}: {r['cnt']}")
-                lines.append("")
-            await _edit_or_send(
-                update, context,
-                "\n".join(lines).strip(),
-                reply_markup=stats_back_keyboard(),
-            )
-        elif sub == "activity":
-            from datetime import timedelta, date
-            today = date.today()
-            today_str = today.isoformat()
-            week_ago = (today - timedelta(days=7)).isoformat()
-            month_ago = (today - timedelta(days=30)).isoformat()
-            active_today = db.count_active_users_since(today_str)
-            active_week = db.count_active_users_since(week_ago)
-            active_month = db.count_active_users_since(month_ago)
-            total_words = db.count_saved_words_total()
-            today_llm = db.count_llm_requests_since(today_str)
-            await _edit_or_send(
-                update, context,
-                f"📈 فعالیت کاربران\n\n"
-                f"• فعال امروز: {active_today}\n"
-                f"• فعال این هفته: {active_week}\n"
-                f"• فعال این ماه: {active_month}\n\n"
-                f"• کل لغات ذخیره‌شده: {total_words:,}\n"
-                f"• درخواست‌های AI امروز: {today_llm}",
-                reply_markup=stats_back_keyboard(),
-            )
-        else:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+    if action == "stats" or action.startswith("stats:"):
+        await handle_admin_stats(update, context, action)
     elif action == "back":
         await _edit_or_send(update, context, "پنل مدیریت ربات:", reply_markup=admin_panel_keyboard())
         await update.callback_query.answer("بازگشت")
