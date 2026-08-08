@@ -445,15 +445,18 @@ def _collect_admin_awaiting_keys() -> set[str]:
     recognize so the router never drops one (Finding #6 regression guard).
     """
     import re
+    from pathlib import Path
 
     keys: set[str] = set()
-    for filepath in _ADMIN_AWAITING_MODULES:
+    # Dynamic discovery: all admin_*.py files in handlers/
+    for filepath in Path("handlers").glob("admin*.py"):
         try:
             with open(filepath, encoding="utf-8") as f:
                 text = f.read()
         except FileNotFoundError:
             continue
-        for m in re.finditer(r'user_data\["awaiting"\]\s*=\s*f?"([^"]*)"', text):
+        # Match both single and double quotes, literals and f-strings
+        for m in re.finditer(r'user_data\[["\']awaiting["\']\]\s*=\s*f?["\']([^"\']*)["\']', text):
             static = m.group(1).split("{", 1)[0]
             if static:
                 keys.add(static)

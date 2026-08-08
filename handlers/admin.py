@@ -256,11 +256,13 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         await _show_user_activity_settings(update, context)
 
 
-async def resume_admin_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Resume (go back from) an in-progress admin editing flow on ``flow:back``.
+async def handle_flow_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle the ``flow:back`` callback by resuming the previous editing flow.
 
     Encapsulates the awaiting-key-aware back-navigation logic that previously
-    lived inline in ``bot.py``'s callback_router. Behavior is unchanged.
+    lived inline in ``bot.py``'s callback_router. Handles all awaiting states,
+    not only admin ones (e.g., ``ask_word`` is also supported). Behavior is
+    unchanged.
     """
     awaiting = context.user_data.get("awaiting", "")
     if awaiting.startswith("ai_preset_edit:"):

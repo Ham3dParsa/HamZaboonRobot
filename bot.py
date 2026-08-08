@@ -108,7 +108,7 @@ from handlers.admin import (
     _handle_admin_text_input,
     _handle_llm_callback,
     is_admin_awaiting,
-    resume_admin_wizard,
+    handle_flow_back,
     cmd_backup,
     cmd_restore,
     handle_restore_doc,
@@ -444,7 +444,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.callback_query.answer()
 
     if data == "flow:back":
-        await resume_admin_wizard(update, context)
+        await handle_flow_back(update, context)
         return
 
     if data == "flow:cancel":

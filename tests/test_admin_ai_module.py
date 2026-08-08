@@ -122,7 +122,7 @@ class TestAdminAiModule(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIs(getattr(admin, name), getattr(admin_ai, name))
 
-    def test_bot_edit_ai_preset_resolves_through_admin(self):
+    def test_edit_ai_preset_resolves_through_admin(self):
         self.assertIs(admin._edit_ai_preset, admin_ai._edit_ai_preset)
 
 

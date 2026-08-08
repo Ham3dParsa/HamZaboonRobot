@@ -177,30 +177,30 @@ class TestTextRouterPrefixDispatch(unittest.IsolatedAsyncioTestCase):
                     await text_router(update, context)
                 mock_fn.assert_not_called()
 
-    async def test_callback_router_routes_flow_back_to_resume_admin_wizard(self):
-        """callback_router(data='flow:back') must delegate to resume_admin_wizard."""
+    async def test_callback_router_routes_flow_back_to_handle_flow_back(self):
+        """callback_router(data='flow:back') must delegate to handle_flow_back."""
         from bot import callback_router
         update = _make_update(user_id=1, text="")
         update.callback_query.data = "flow:back"
         context = _make_context()
         context.user_data["awaiting"] = "ai_preset_edit:gpt:model"
         with patch("bot.db.reset_user_blocked"):
-            with patch("bot.resume_admin_wizard", new=AsyncMock()) as mock_fn:
+            with patch("bot.handle_flow_back", new=AsyncMock()) as mock_fn:
                 await callback_router(update, context)
             mock_fn.assert_called_once()
 
 
-class TestResumeAdminWizard(unittest.IsolatedAsyncioTestCase):
-    """resume_admin_wizard() back-navigation branches (Finding #6 move)."""
+class TestHandleFlowBack(unittest.IsolatedAsyncioTestCase):
+    """handle_flow_back() back-navigation branches (Finding #6 move)."""
 
     async def _run(self, awaiting: str):
-        from handlers.admin import resume_admin_wizard
+        from handlers.admin import handle_flow_back
         update = _make_update()
         context = _make_context()
         context.user_data["awaiting"] = awaiting
         with patch("handlers.admin._edit_ai_preset", new=AsyncMock()) as m_edit:
             with patch("handlers.admin._exit_awaiting_flow", new=AsyncMock()) as m_exit:
-                await resume_admin_wizard(update, context)
+                await handle_flow_back(update, context)
         return m_edit, m_exit, update, context
 
     async def test_ai_preset_edit_branch(self):
