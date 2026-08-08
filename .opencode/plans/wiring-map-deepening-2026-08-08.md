@@ -75,4 +75,5 @@ After implementation: `tests/test_wiring.py`, `tests/test_dead_code_guard.py`, r
 - #2 (dead wizard keyboard) **done** — `ai_custom_test_wizard_keyboard` + admin.py:40 import removed; `BANNED_SYMBOLS`; guards green.
 - #3 (db split) **done** — cost analytics → `cost_tracking.py`, presets/fallback → `preset_registry.py`, settings → `settings.py`; `__init__.py` is a thin façade; `test_db_facade_split.py` seam tests; full suite green.
 - #5 (circular import) **done** — `apply_log_level` moved to `services/utils/helpers.py`; `from bot import _apply_log_level` removed; `test_no_handler_imports_from_bot` reverse guard added; full suite green.
-- Remaining: #6 awaiting, #7 admin split.
+- #7 (admin split) **in progress** — sliced into 7.1–7.9 (expand→migrate→contract); task table in phase-07 plan.
+- #6 (awaiting concentration) **in progress** — sliced into 6.1–6.4; runs alongside #7; task table in phase-06 plan.

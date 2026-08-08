@@ -36,5 +36,5 @@ Lowest risk / highest locality first. Phase files:
 - Phase 03: complete — `ai_custom_test_wizard_keyboard` deleted + admin.py:40 import removed; `BANNED_SYMBOLS` added; wiring/dead-code/admin tests green
 - Phase 04: complete — split cost analytics + preset registry + settings into own modules; `__init__.py` is thin façade; seam tests green; AGENTS.md §3 updated
 - Phase 05: complete — `_apply_log_level` → `apply_log_level` in services/utils/helpers.py; no `from bot import` in handlers; wiring reverse guard added; reviewer clean
-- Phase 06: pending
-- Phase 07: pending
+- Phase 06: in-progress — sliced into tasks 6.1–6.4 (awaiting concentration); runs alongside phase 07
+- Phase 07: in-progress — sliced into tasks 7.1–7.9 (admin monolith split); 7.1 next
