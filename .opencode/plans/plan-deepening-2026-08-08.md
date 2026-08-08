@@ -37,4 +37,4 @@ Lowest risk / highest locality first. Phase files:
 - Phase 04: complete — split cost analytics + preset registry + settings into own modules; `__init__.py` is thin façade; seam tests green; AGENTS.md §3 updated
 - Phase 05: complete — `_apply_log_level` → `apply_log_level` in services/utils/helpers.py; no `from bot import` in handlers; wiring reverse guard added; reviewer clean
 - Phase 06: complete — `is_admin_awaiting()`/`resume_admin_wizard()` in admin.py; bot.py text_router delegates to `is_admin_awaiting()`; `flow:back` logic moved to `resume_admin_wizard()`; fixes the `ai_fallback_rank:` routing gap; reviewer clean, 495 tests pass
-- Phase 07: in-progress — sliced into tasks 7.1–7.9 (admin monolith split); 7.1 next
+- Phase 07: complete — split into admin_ai/cost/plans/stats, thin dispatcher; `_handle_admin_callback` delegates by prefix to `handle_*_callback` sub-routers and `_handle_admin_text_input` delegates awaiting handlers; reviewer clean, 484 tests pass (commits a70fed1…9b68278, 79cb491, 222692e)
