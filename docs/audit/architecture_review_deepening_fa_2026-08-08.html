@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>هَم‌زبون — بررسی معماری</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  html { font-size: 19px; }
+  body { font-family: "Vazirmatn", "Segoe UI", system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif; }
+  .mono { font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace; }
+  .card { transition: transform .15s ease, box-shadow .15s ease; }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 12px 30px -12px rgba(0,0,0,.25); }
+  .badge { display:inline-block; padding:.15rem .6rem; border-radius:9999px; font-size:.72rem; font-weight:600; letter-spacing:.02em; }
+  .mermaid { background: transparent !important; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  bdi { unicode-bidi: isolate; }
+</style>
+</head>
+<body class="bg-slate-950 text-slate-100">
+
+  <!-- HERO -->
+  <header class="max-w-full mx-auto px-12 pt-14 pb-10">
+    <div class="flex items-center gap-2 text-sm text-slate-400 mb-4">
+      <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+      <span class="mono"><bdi lang="en" dir="ltr">HamZaboon · Telegram language-learning bot</bdi></span>
+    </div>
+    <h1 class="text-4xl font-extrabold leading-tight">
+      بررسی <span class="text-emerald-400">تعمیق</span> معماری
+    </h1>
+    <p class="mt-4 max-w-3xl text-slate-300 leading-relaxed">
+      اصطکاک‌ها از نقاط داغ کدبیس ردیابی شدند — <span class="mono text-emerald-300"><bdi lang="en" dir="ltr">bot.py</bdi></span> (۸۴ کامیت)،
+      <span class="mono text-emerald-300"><bdi lang="en" dir="ltr">handlers/admin.py</bdi></span> (۲۷۴۵ خط)،
+      <span class="mono text-emerald-300"><bdi lang="en" dir="ltr">services/db/__init__.py</bdi></span> (۹۱۹ خط)،
+      <span class="mono text-emerald-300"><bdi lang="en" dir="ltr">config/keyboards.py</bdi></span> (۸۴۹ خط) و
+      <span class="mono text-emerald-300"><bdi lang="en" dir="ltr">services/ai/ai.py</bdi></span> (۷۶۱ خط).
+      در ادامه چهار گزینه‌ی تعمیق آمده است؛ هر یک یک <b>مدول سطحی</b> است که ارزش <b>عمیق</b> شدن دارد.
+    </p>
+    <div class="mt-6 flex flex-wrap gap-3 text-xs">
+      <span class="badge bg-emerald-900/60 text-emerald-200 border border-emerald-700">قوی</span>
+      <span class="badge bg-amber-900/60 text-amber-200 border border-amber-700">ارزش بررسی</span>
+      <span class="badge bg-slate-700/60 text-slate-300 border border-slate-600">حدسی</span>
+    </div>
+  </header>
+
+  <!-- ============ کاندیدا ۱ ============ -->
+  <section class="max-w-full mx-auto px-12 pb-16">
+    <div class="card bg-slate-900 border border-slate-800 rounded-2xl p-10">
+      <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div class="text-xs text-slate-400 mb-1">کاندیدای ۰۱</div>
+          <h2 class="text-2xl font-bold">چرخه‌ی دریافت پرسش واژه</h2>
+        </div>
+        <span class="badge bg-emerald-900/60 text-emerald-200 border border-emerald-700">قوی</span>
+      </div>
+
+      <div class="mt-5 grid md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-semibold text-emerald-300 mb-2">فایل‌ها</h3>
+          <ul class="mono text-sm text-slate-300 space-y-1">
+            <li><span class="text-slate-500"><bdi lang="en" dir="ltr">bot.py</bdi></span> · شاخه‌ی <bdi lang="en" dir="ltr" class="text-slate-400">ask_word</bdi> در <bdi lang="en" dir="ltr" class="text-slate-400">text_router</bdi> (خطوط ۲۵۷–۴۰۱)</li>
+            <li><span class="text-slate-500"><bdi lang="en" dir="ltr">handlers/user.py</bdi></span> · <bdi lang="en" dir="ltr" class="text-slate-400">ask_for_ask_word</bdi>، <bdi lang="en" dir="ltr" class="text-slate-400">_handle_query_prepare</bdi></li>
+            <li><span class="text-slate-500"><bdi lang="en" dir="ltr">handlers/srs_handler.py</bdi></span> · <bdi lang="en" dir="ltr" class="text-slate-400">_handle_query_add</bdi></li>
+            <li><span class="text-slate-500"><bdi lang="en" dir="ltr">services/db</bdi></span> · <bdi lang="en" dir="ltr" class="text-slate-400">reserve_word_query</bdi>، <bdi lang="en" dir="ltr" class="text-slate-400">query_results</bdi></li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="font-semibold text-amber-300 mb-2">مشکل</h3>
+          <p class="text-slate-300 text-sm leading-relaxed">
+            یک مفهوم کاربردی — <b>پرسش واژه</b> — چرخه‌اش بین سه مدول پراکنده شده است. شاخه‌ی
+            <span class="mono"><bdi lang="en" dir="ltr">ask_word</bdi></span> در <span class="mono text-emerald-300"><bdi lang="en" dir="ltr">text_router</bdi></span> تابعی با حدود ۱۴۵ خط است که
+            رزرو سهمیه، قفل async هر کاربر، فراخوانی هوش مصنوعی با مهلت زمانی، آماده‌سازی کارت کش، متن مصرف،
+            ماندگاری نتیجه‌ی پرسش، ثبت استریک، قالب‌بندی کارت MarkdownV2 و ساخت کیبورد را در هم آمیخته — و
+            شاخه‌های خطا (آزادکردن سهمیه ← پایان حالت انتظار ← ارسال پوزش) چهار بار تکرار شده‌اند.
+          </p>
+          <p class="mt-2 text-slate-300 text-sm leading-relaxed">
+            هر یک از سه فاز، همان حقایق را دوباره به دست می‌آورد: ردیف کاربر، پلن، سقف مجاز، متن مصرف،
+            آماده‌سازی کارت و کیبورد نتیجه. این یعنی <b>بی‌محلی</b> (no locality): تغییر در «نحوه‌ی نمایش کارت پاسخ»
+            باید در سه جا و در سه مدول متفاوت انجام شود.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">راه‌حل</h3>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          تمام چرخه‌ی پرسش را پشت یک <b>مدول عمیق</b> جمع کن — <b>مدول دریافت پرسش واژه</b> — با یک رابط کوچک
+          (<span class="mono"><bdi lang="en" dir="ltr">start_intake(user, chat)</bdi></span> ← <span class="mono"><bdi lang="en" dir="ltr">answer(text)</bdi></span> ← <span class="mono"><bdi lang="en" dir="ltr">prepare(token)</bdi></span> ← <span class="mono"><bdi lang="en" dir="ltr">add(token)</bdi></span>).
+          سهمیه، تعیین پلن، هوش مصنوعی با مهلت، آماده‌سازی کش، قالب‌بندی و سه مسیر خطا پشت همین درز (seam) پنهان می‌شوند.
+          روترهای تلگرام نازک می‌شوند: ورودی را می‌پارسیل و به مدول دریافت واگذار می‌کنند.
+        </p>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">قبل / بعد</h3>
+        <div class="grid md:grid-cols-2 gap-8 mt-3">
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+            <div class="text-xs text-slate-400 mb-2">قبل — سطحی و پراکنده</div>
+            <pre class="mermaid">
+flowchart LR
+  TR["bot.py<br/>text_router ask_word"] --> Q1["رزرو سهمیه"]
+  TR --> AI1["فراخوانی AI + مهلت"]
+  TR --> P1["آماده‌سازی کارت"]
+  TR --> D1["ماندگاری + استریک"]
+  TR --> F1["قالب + کیبورد"]
+  TR -.۴ شاخه‌ی خطا.-> E1["آزادسازی + پوزش"]
+  U["handlers/user.py<br/>ask_for_ask_word"] -.بازیابی سهمیه/مصرف.-> TR
+  U2["handlers/user.py<br/>_handle_query_prepare"] --> P2["آماده‌سازی کارت"]
+  U2 --> F2["قالب + کیبورد"]
+  S["handlers/srs_handler.py<br/>_handle_query_add"] --> D2["واژه‌ی ذخیره"]
+  P1 & P2 -.همان منطق.-> F
+            </pre>
+          </div>
+          <div class="bg-slate-950 border border-emerald-800 rounded-xl p-4">
+            <div class="text-xs text-emerald-400 mb-2">بعد — مدول دریافت عمیق، روترهای نازک</div>
+            <pre class="mermaid">
+flowchart LR
+  TR["bot.py<br/>text_router"] --> WQI
+  U["handlers/user.py<br/>prepare"] --> WQI
+  S["handlers/srs_handler.py<br/>add"] --> WQI
+  subgraph WQI["مدول دریافت پرسش واژه (عمیق)"]
+    Q["سهمیه + پلن"]
+    AI["فراخوانی AI + مهلت"]
+    P["آماده‌سازی کارت + کش"]
+    D["ماندگاری + استریک"]
+    F["قالب + کیبورد"]
+    E["مسیرهای خطا ×۱"]
+  end
+  WQI --> DB[("services/db")]
+            </pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 grid md:grid-cols-2 gap-8">
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-emerald-300 text-sm mb-2">مزایا</h4>
+          <ul class="text-sm text-slate-300 space-y-2 list-disc list-inside">
+            <li><b>محلیت</b> — قالب‌بندی کارت، سهمیه و مدیریت خطا در یک جا متمرکز می‌شود؛ یک‌بار درست کن، همه‌جا درست است.</li>
+            <li><b>اهرم</b> — یک رابط دریافت در سه محل فراخوانی و در تست‌های یکپارچه بازده دارد.</li>
+            <li><b>سطح آزمون</b> — تست‌ها از درز دریافت عبور می‌کنند نه از لوله‌کشی تلگرام؛ قاعده‌ی «افزودن یکتا (idempotent) است» به یک تست مستقیم بدل می‌شود.</li>
+            <li>مستقیم در خدمت جهت بعدیِ مشخص‌شده در نقشه‌ی راه (سهمیه‌ی قابل‌مشاهده، افزودن یکتا، یک مسیر ذخیره).</li>
+          </ul>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-amber-300 text-sm mb-2">ریسک / آزمون حذف</h4>
+          <p class="text-sm text-slate-300 leading-relaxed">
+            حذف شاخه‌ی فعلیِ پرسش واژه، پیچیدگی را <b>متمرکز</b> می‌کند — مسیرهای خطا و قواعد سهمیه واقعی‌اند نه عبوری — پس تعمیق توجیه دارد.
+            ریسک اصلی: نشت انواع <span class="mono"><bdi lang="en" dir="ltr">update/context</bdi></span> تلگرام به داخل درز. درز را مستقل از فرانت نگه دار (شناسه‌های ساده + یک مقدار بازگشتی)، همان‌طور که <span class="mono"><bdi lang="en" dir="ltr">services/session</bdi></span> قبلاً هست.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ کاندیدا ۲ ============ -->
+  <section class="max-w-full mx-auto px-12 pb-16">
+    <div class="card bg-slate-900 border border-slate-800 rounded-2xl p-10">
+      <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div class="text-xs text-slate-400 mb-1">کاندیدای ۰۲</div>
+          <h2 class="text-2xl font-bold">نمای جامع <span class="mono"><bdi lang="en" dir="ltr">services/db</bdi></span></h2>
+        </div>
+        <span class="badge bg-emerald-900/60 text-emerald-200 border border-emerald-700">قوی</span>
+      </div>
+
+      <div class="mt-5 grid md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-semibold text-emerald-300 mb-2">فایل‌ها</h3>
+          <ul class="mono text-sm text-slate-300 space-y-1">
+            <li><span class="text-slate-500"><bdi lang="en" dir="ltr">services/db/__init__.py</bdi></span> · ۹۱۹ خط</li>
+            <li>بازصادرسازی از <span class="text-slate-400"><bdi lang="en" dir="ltr">schema / users / words / plans / reviews</bdi></span></li>
+          </ul>
+          <p class="text-slate-400 text-xs mt-3 leading-relaxed">
+            این فایل هم <em>نمای بازصادرسازی</em> است و هم خانه‌ی SQL خام پنج حوزه‌ی نامرتبط:
+            تنظیمات، نتایج پرسش، نکات گرامری، <b>تحلیل هزینه‌ی LLM</b> (خطوط ۳۴۰–۵۱۵) و <b>ماندگاری پیش‌تنظیم‌های هوش مصنوعی</b> (خطوط ۵۱۷–۸۹۳).
+          </p>
+        </div>
+        <div>
+          <h3 class="font-semibold text-amber-300 mb-2">مشکل</h3>
+          <p class="text-slate-300 text-sm leading-relaxed">
+            درک <em>هر</em> حوزه یعنی ورق زدن یک فایل که هر هندلری آن را ایمپورت می‌کند. بلوک تحلیل هزینه‌ی LLM یک حوزه‌ی
+            منسجم و عمیق است (تفکیک صورتحساب، فیلترها، SQL تجمیعی) که داخل یک «آشپزخانه‌ی همه‌کاره» دفن شده. مخزن پیش‌تنظیم‌های هوش مصنوعی
+            دومین حوزه‌ی منسجم است (زنجیره‌ی جایگزین، بازترتیب‌دهی اولویت، گروه‌های اضطراری) که در همین فایل نشسته. هیچ‌کدام <b>درز</b> خودش را ندارد —
+            پس منطق هزینه و منطق پیش‌تنظیم نمی‌توانند به‌صورت مجزا تغییر کنند یا به‌طور جداگانه تست شوند.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">راه‌حل</h3>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          هر حوزه‌ی دفن‌شده را به یک <b>مدول عمیق</b> مجزا پشت یک رابط کوچک استخراج کن — یک <b>مدول ردیابی هزینه</b>
+          (<span class="mono"><bdi lang="en" dir="ltr">record_usage(...)</bdi></span>، <span class="mono"><bdi lang="en" dir="ltr">summarize(...)</bdi></span>، <span class="mono"><bdi lang="en" dir="ltr">breakdown(...)</bdi></span> که SQL تجمیعی را پنهان می‌کند)
+          و یک <b>ثبت‌نام پیش‌تنظیم</b> (که قواعد زنجیره‌ی جایگزین/اولویت را پنهان می‌کند). <span class="mono"><bdi lang="en" dir="ltr">services/db/__init__.py</bdi></span>
+          به‌عنوان یک نمای نازک که فقط بازصادرسازی می‌کند باقی می‌ماند — دقیقاً همان‌طور که برای users/words/plans/reviews از قبل همین است.
+        </p>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">قبل / بعد</h3>
+        <div class="grid md:grid-cols-2 gap-8 mt-3">
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+            <div class="text-xs text-slate-400 mb-2">قبل — یک فایل، چند مسئولیت سطحی</div>
+            <pre class="mermaid">
+flowchart TB
+  H["handlers / bot.py"] --> F["services/db/__init__.py (۹۱۹ خط)"]
+  F --> A["بازصادرسازی schema/users/words"]
+  F --> B["تنظیمات"]
+  F --> C["نتایج پرسش"]
+  F --> D["نکات گرامری"]
+  F --> E["تحلیل هزینه‌ی LLM<br/>SQL تجمیعی"]
+  F --> G["ai_presets + زنجیره‌ی جایگزین"]
+            </pre>
+          </div>
+          <div class="bg-slate-950 border border-emerald-800 rounded-xl p-4">
+            <div class="text-xs text-emerald-400 mb-2">بعد — نمای نازک، هم‌سنگ‌های عمیق</div>
+            <pre class="mermaid">
+flowchart TB
+  H["handlers / bot.py"] --> F["services/db/__init__.py<br/>نمای نازک بازصادرسازی"]
+  F --> A["users"]
+  F --> W["words"]
+  F --> P["plans"]
+  F --> R["reviews"]
+  F --> C["ردیابی هزینه (عمیق)"]
+  F --> S["ثبت‌نام پیش‌تنظیم (عمیق)"]
+            </pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 grid md:grid-cols-2 gap-8">
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-emerald-300 text-sm mb-2">مزایا</h4>
+          <ul class="text-sm text-slate-300 space-y-2 list-disc list-inside">
+            <li><b>محلیت</b> — ریاضی هزینه و قواعد جایگزینی پیش‌تنظیم خانه‌ی واحدی می‌گیرند؛ امروز هر تغییری یک فایل غول‌پیکر را که همه به آن وابسته‌اند دست می‌زند.</li>
+            <li><b>سطح آزمون</b> — تجمیع هزینه و بازترتیب‌دهی اولویت پیش‌تنظیم بدون کشیدن کل نمای جامع، از درزهای کوچک قابل‌تست می‌شوند.</li>
+            <li><b>آزمون حذف موفق</b> — تحلیل هزینه واقعاً عمیق است (SQL فیلترشده‌ی تجمیعی)؛ سزاوار ماندن است، فقط بدجای‌گذاشته‌شده.</li>
+          </ul>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-amber-300 text-sm mb-2">ریسک / یادداشت</h4>
+          <p class="text-sm text-slate-300 leading-relaxed">
+            جابجایی صرفاً ساختاری — بدون تغییر رفتارِ رو‌به‌روی کاربر، سهمیه، زمان‌بندی یا کال‌بک، پس در صورت تأیید با استثنای
+            سریع (fast-track) سازگار است. مراقب باش: نام‌های بازصادرسازی را یکسان نگه دار تا بسیاری از محل‌های
+            <span class="mono"><bdi lang="en" dir="ltr">from services import db</bdi></span> نشکنند. این کار <em>مکانیکی</em>، کم‌ریسک و با بازده محلیت بالاست.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ کاندیدا ۳ ============ -->
+  <section class="max-w-full mx-auto px-12 pb-16">
+    <div class="card bg-slate-900 border border-slate-800 rounded-2xl p-10">
+      <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div class="text-xs text-slate-400 mb-1">کاندیدای ۰۳</div>
+          <h2 class="text-2xl font-bold">زیرروتر دریافت تلفظ TTS</h2>
+        </div>
+        <span class="badge bg-amber-900/60 text-amber-200 border border-amber-700">ارزش بررسی</span>
+      </div>
+
+      <div class="mt-5 grid md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-semibold text-emerald-300 mb-2">فایل‌ها</h3>
+          <ul class="mono text-sm text-slate-300 space-y-1">
+            <li><span class="text-slate-500"><bdi lang="en" dir="ltr">bot.py</bdi></span> · <bdi lang="en" dir="ltr" class="text-slate-400">_handle_tts_pronounce</bdi> (خطوط ۶۴۶–۷۵۸، ۱۱۰ خط)</li>
+            <li><span class="text-slate-500"><bdi lang="en" dir="ltr">services/tts.py</bdi></span> · <bdi lang="en" dir="ltr" class="text-slate-400">Adapter</bdi> این Edge-TTS (نازک)</li>
+            <li><span class="text-slate-500"><bdi lang="en" dir="ltr">services/db</bdi></span> · جست‌وجوهای کارت روزانه / نتیجه‌ی پرسش / واژه‌ی ذخیره</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="font-semibold text-amber-300 mb-2">مشکل</h3>
+          <p class="text-slate-300 text-sm leading-relaxed">
+            <span class="mono"><bdi lang="en" dir="ltr">_handle_tts_pronounce</bdi></span> یک زیرروتر پنهان در دل <span class="mono"><bdi lang="en" dir="ltr">bot.py</bdi></span> است.
+            روی سه منبع توزیع می‌کند (<span class="mono"><bdi lang="en" dir="ltr">d</bdi></span>=کارت روزانه، <span class="mono"><bdi lang="en" dir="ltr">q</bdi></span>=نتیجه‌ی پرسش، <span class="mono"><bdi lang="en" dir="ltr">s</bdi></span>=واژه‌ی ذخیره)،
+            هرکدام با شکل توکن کال‌بکِ خودش، جست‌وجوی DB خودش و بررسی مجوز خودش — سپس واژه+زبان را حل کرده و به Adapter تلفظ می‌سپارد.
+            <b>درز</b> از قبل هست (Adapter تلفظ)؛ چیزی که کم است، منطق <b>دریافت</b> است که باید پشت همان درز قرار گیرد.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">راه‌حل</h3>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          <span class="mono"><bdi lang="en" dir="ltr">services/tts.py</bdi></span> را به <b>مدول دریافت کامل تلفظ</b> عمیق کن: یک ورودی کوچک
+          (<span class="mono"><bdi lang="en" dir="ltr">resolve_pronounce(user_id, source, parts) → word, lang</bdi></span> به‌همراه مجوز)،
+          که پارسرهای سه منبع و جست‌وجوهای DB شان را پشت درز پنهان کند. <span class="mono"><bdi lang="en" dir="ltr">bot.py</bdi></span> فقط تحویلِ نازک
+          (ارسال پیام صوتی) را نگه می‌دارد.
+        </p>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">قبل / بعد</h3>
+        <div class="grid md:grid-cols-2 gap-8 mt-3">
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+            <div class="text-xs text-slate-400 mb-2">قبل — سه پارسر داخل bot.py</div>
+            <pre class="mermaid">
+flowchart LR
+  CR["bot.py callback_router"] --> H["_handle_tts_pronounce<br/>(۱۱۰ خط، داخل bot.py)"]
+  H --> P1["پارس توکن d/ کارت روزانه"]
+  H --> P2["پارس توکن q/ پرسش"]
+  H --> P3["پارس توکن s/ واژه‌ی ذخیره"]
+  P1 --> D1["db کارت روزانه"]
+  P2 --> D2["db نتایج پرسش"]
+  P3 --> D3["db واژه‌های ذخیره"]
+  H --> T["services/tts.py<br/>Adapter نازک"]
+            </pre>
+          </div>
+          <div class="bg-slate-950 border border-emerald-800 rounded-xl p-4">
+            <div class="text-xs text-emerald-400 mb-2">بعد — دریافت پشت درز TTS</div>
+            <pre class="mermaid">
+flowchart LR
+  CR["bot.py callback_router"] --> T["services/tts.py (مدول دریافت عمیق)"]
+  T --> S["حل + مجوز (۳ منبع)"]
+  T --> DB[("services/db")]
+  T --> AD["Adapter Edge-TTS"]
+  T --> OUT["word + lang (مقدار بازگشتی)"]
+  CR --> D["تحویل نازک bot.py"]
+            </pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 grid md:grid-cols-2 gap-8">
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-emerald-300 text-sm mb-2">مزایا</h4>
+          <ul class="text-sm text-slate-300 space-y-2 list-disc list-inside">
+            <li><b>محلیت</b> — پارس توکن + مجوز هر سه منبع از شلوغ‌ترین فایل مخزن خارج می‌شود.</li>
+            <li><b>درز واقعاً موجود</b> — Adapter تلفظ یک Adapter اصیل است؛ دریافت پشت آن یک درز واقعی است نه فرضی.</li>
+            <li><b>سطح آزمون</b> — پارس منبع (d/q/s) بدون تلگرام مستقیم و واحد قابل‌تست می‌شود.</li>
+          </ul>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-amber-300 text-sm mb-2">یادداشت</h4>
+          <p class="text-sm text-slate-300 leading-relaxed">
+            منبع <span class="mono"><bdi lang="en" dir="ltr">d/</bdi></span> همچنین JSON خام کارت را می‌خواند — ارزش دارد تصمیم بگیری مدول دریافت،
+            <b>واژه‌ی</b> ازپیش‌پارس‌شده را بگیرد نه اینکه خودش JSON کارت را پارس کند. این یک انتخاب رابطِ واقعی است که در گریل‌کردن باید انجام شود.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ کاندیدا ۴ ============ -->
+  <section class="max-w-full mx-auto px-12 pb-16">
+    <div class="card bg-slate-900 border border-slate-800 rounded-2xl p-10">
+      <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div class="text-xs text-slate-400 mb-1">کاندیدای ۰۴</div>
+          <h2 class="text-2xl font-bold">نگهبان عرضه‌ی مقطعی</h2>
+        </div>
+        <span class="badge bg-slate-700/60 text-slate-300 border border-slate-600">حدسی</span>
+      </div>
+
+      <div class="mt-5 grid md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-semibold text-emerald-300 mb-2">فایل‌ها</h3>
+          <ul class="mono text-sm text-slate-300 space-y-1">
+            <li><span class="text-slate-500"><bdi lang="en" dir="ltr">bot.py</bdi></span> · <bdi lang="en" dir="ltr" class="text-slate-400">_telegram_offline</bdi>، <bdi lang="en" dir="ltr" class="text-slate-400">_get_user_lock</bdi>، <bdi lang="en" dir="ltr" class="text-slate-400">connection_health_job</bdi></li>
+            <li><span class="text-slate-500"><bdi lang="en" dir="ltr">services/utils/helpers.py</bdi></span> · <bdi lang="en" dir="ltr" class="text-slate-400">_send_with_retry</bdi> و دیگران</li>
+            <li>فراخوانی‌های رزرو سهمیه در میان هندلرها</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="font-semibold text-amber-300 mb-2">مشکل</h3>
+          <p class="text-slate-300 text-sm leading-relaxed">
+            قابلیت‌اطمینان تلگرام اولویت اعلام‌شده است، اما اجرایش پراکنده است: هر روتر پرچم سطح‌مدول
+            <span class="mono"><bdi lang="en" dir="ltr">_telegram_offline</bdi></span> را چک می‌کند، فراخوان‌ها به‌صورت دستی قفل async هر کاربر را می‌گیرند، و فراخوانی‌های رزرو سهمیه در هر نقطه‌ی دریافت inline شده‌اند.
+            رفتار نگهبان به‌جای اینکه متمرکز باشد، با دست تکرار می‌شود.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">راه‌حل</h3>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          گیت آفلاین + قفل هر کاربر + رزرو اتمیک سهمیه را در یک <b>مدول نگهبان عرضه</b> جمع کن — یک رابط کوچک
+          مثل <span class="mono"><bdi lang="en" dir="ltr">guard(user_id, chat_id, plan) → ctx</bdi></span> که روترها یک‌بار صدا می‌زنند.
+          محلیت، قواعد قابلیت‌اطمینان را متمرکز می‌کند؛ تست‌ها مستقیماً درز نگهبان را تمرین می‌کنند.
+        </p>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">قبل / بعد</h3>
+        <div class="grid md:grid-cols-2 gap-8 mt-3">
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+            <div class="text-xs text-slate-400 mb-2">قبل — منطق نگهبان inline در هر هندلر</div>
+            <pre class="mermaid">
+flowchart LR
+  R1["text_router"] --> O1["_telegram_offline?"]
+  R2["callback_router"] --> O2["_telegram_offline?"]
+  R3["شاخه‌ی ask_word"] --> L1["_get_user_lock"]
+  R4["سایر هندلرها"] --> L2["قفل + سهمیه"]
+  O1 & O2 & L1 & L2 -.تکرار با دست.-> G["قواعد قابلیت‌اطمینان تلگرام"]
+            </pre>
+          </div>
+          <div class="bg-slate-950 border border-emerald-800 rounded-xl p-4">
+            <div class="text-xs text-emerald-400 mb-2">بعد — نگهبان پشت یک درز</div>
+            <pre class="mermaid">
+flowchart LR
+  R1["text_router"] --> GU["مدول نگهبان عرضه"]
+  R2["callback_router"] --> GU
+  R3["هندلرهای دریافت"] --> GU
+  GU --> O["گیت آفلاین"]
+  GU --> L["قفل هر کاربر"]
+  GU --> Q["رزرو اتمیک سهمیه"]
+  GU --> T["مسیر تلاش مجدد تلگرام"]
+            </pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 grid md:grid-cols-2 gap-8">
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-emerald-300 text-sm mb-2">مزایا</h4>
+          <ul class="text-sm text-slate-300 space-y-2 list-disc list-inside">
+            <li><b>محلیت</b> — قواعد قابلیت‌اطمینان (آفلاین، قفل، سهمیه، تلاش مجدد) در یک مدول متمرکز می‌شوند.</li>
+            <li><b>اهرم</b> — یک رابط نگهبان در هر هندلر و در مجموعه‌ی تست قابلیت‌اطمینان بازده دارد.</li>
+          </ul>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-amber-300 text-sm mb-2">چرا حدسی</h4>
+          <p class="text-sm text-slate-300 leading-relaxed">
+            امروز فقط <em>یک</em> Adapter هست — کلاینت واقعی تلگرام. طبق <b>قاعده‌ی یک-Adapter</b>، درزی که صرفاً برای تست‌شدن
+            وجود دارد ممکن است زودهنگام باشد. تعمیق این‌جا فقط وقتی ارزش دارد که قواعد قابلیت‌اطمینان واقعاً دارند دردسر درست می‌کنند،
+            یا درزیِ تلگرامِ جعلی برای شبیه‌سازی بخواهی. کم‌اعتمادترین گزینه از میان چهار مورد.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ پیشنهاد برتر ============ -->
+  <section class="max-w-full mx-auto px-12 pb-20">
+    <div class="card bg-gradient-to-br from-emerald-900/40 to-slate-900 border border-emerald-800 rounded-2xl p-10">
+      <h2 class="text-2xl font-bold text-emerald-300 mb-3">پیشنهاد برتر</h2>
+      <p class="text-slate-200 leading-relaxed text-sm">
+        اول <b>کاندیدای ۰۲ — نمای جامع <span class="mono"><bdi lang="en" dir="ltr">services/db</bdi></span></b> را انجام بده. کم‌ریسک‌ترین و پربازده‌ترین از نظر
+        محلیت است: استخراجی مکانیکی با صفر تغییر رفتار، بدون کال‌بک، بدون سهمیه، بدون زمان‌بندی. اصطکاکی را که هر تغییر دیگری را برای
+        استدلال دشوار می‌کند حذف می‌کند — ریاضی هزینه و قواعد جایگزینی پیش‌تنظیم درز و سطح آزمون خودشان را می‌گیرند. سپس <b>کاندیدای ۰۱</b>
+        (دریافت پرسش واژه) را انجام بده که جهت بعدیِ اعلام‌شده‌ی محصول است و منطقِ پرتکرار قالب‌بندی/سهمیه بیشترین هزینه را دارد.
+      </p>
+      <div class="mt-4 flex flex-wrap gap-3">
+        <span class="badge bg-emerald-800 text-emerald-100 border border-emerald-600">۱# · تفکیک services/db — مکانیکی، محلیت بالا</span>
+        <span class="badge bg-slate-700 text-slate-200 border border-slate-600">۲# · دریافت پرسش واژه — هم‌سو با نقشه‌ی راه</span>
+        <span class="badge bg-slate-700 text-slate-200 border border-slate-600">۳# · دریافت TTS — کوچک، متمرکز</span>
+      </div>
+    </div>
+  </section>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: {
+    primaryColor: '#0f172a', primaryTextColor: '#e2e8f0', primaryBorderColor: '#334155',
+    lineColor: '#475569', secondaryColor: '#064e3b', tertiaryColor: '#0f172a',
+    fontSize: '20px', fontFamily: '"Vazirmatn", "Segoe UI", sans-serif'
+  }, flowchart: { useMaxWidth: true } });
+</script>
+</body>
+</html>

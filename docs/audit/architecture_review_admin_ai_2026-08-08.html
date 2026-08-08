@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HamZaboon — Architecture Review II</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  html { font-size: 19px; }
+  body { font-family: "Vazirmatn", "Segoe UI", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .mono { font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace; }
+  .card { transition: transform .15s ease, box-shadow .15s ease; }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 12px 30px -12px rgba(0,0,0,.25); }
+  .badge { display:inline-block; padding:.15rem .6rem; border-radius:9999px; font-size:.72rem; font-weight:600; letter-spacing:.02em; }
+  .mermaid { background: transparent !important; }
+  .mermaid svg { max-width: 100%; height: auto; }
+</style>
+</head>
+<body class="bg-slate-950 text-slate-100">
+  <!-- HERO -->
+  <header class="max-w-full mx-auto px-12 pt-14 pb-10">
+    <div class="flex items-center gap-2 text-sm text-slate-400 mb-4">
+      <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+      <span class="mono">HamZaboon · Telegram language-learning bot</span>
+    </div>
+    <h1 class="text-4xl font-extrabold leading-tight">
+      Architecture Review <span class="text-emerald-400">II</span>
+      <span class="text-slate-500 font-medium">— administration, keyboards, AI, session &amp; config</span>
+    </h1>
+    <p class="mt-4 max-w-4xl text-slate-300 leading-relaxed">
+      The second half of the deepening review. This pass examines the modules the first review did not touch:
+      <span class="mono text-emerald-300">handlers/admin.py</span> (2745 lines), <span class="mono text-emerald-300">config/keyboards.py</span> (849 lines),
+      <span class="mono text-emerald-300">services/ai/</span>, <span class="mono text-emerald-300">services/session/</span>,
+      <span class="mono text-emerald-300">services/scheduling.py</span>, <span class="mono text-emerald-300">services/fsrs_core.py</span>,
+      <span class="mono text-emerald-300">services/utils/formatting.py</span>, and <span class="mono text-emerald-300">config/</span>.
+      Six deepening candidates, ordered by recommended tackle order (lowest risk / highest locality first).
+    </p>
+    <div class="mt-6 flex flex-wrap gap-3 text-xs">
+      <span class="badge bg-emerald-900/60 text-emerald-200 border border-emerald-700">Strong</span>
+      <span class="badge bg-amber-900/60 text-amber-200 border border-amber-700">Worth exploring</span>
+      <span class="badge bg-slate-700/60 text-slate-300 border border-slate-600">Speculative</span>
+    </div>
+    <p class="mt-4 text-xs text-slate-500 leading-relaxed max-w-4xl">
+      Gated findings — anything touching <b>callback routing</b>, <b>keyboards</b>, or <b>module boundaries</b> must pass the
+      repo's §2.4 contract-lock gate and its wiring guards (<span class="mono">tests/test_wiring.py</span>,
+      <span class="mono">tests/test_dead_code_guard.py</span>). Each candidate below flags which of those gates it crosses.
+    </p>
+  </header>
+
+  <!-- ============ CANDIDATE 1 ============ -->
+  <section class="max-w-full mx-auto px-12 pb-16">
+    <div class="card bg-slate-900 border border-slate-800 rounded-2xl p-10">
+      <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div class="text-xs text-slate-400 mb-1">Candidate 01 · tackle order #1</div>
+          <h2 class="text-2xl font-bold">AI call telemetry is a handwritten, duplicated <span class="mono">try/except/finally</span></h2>
+        </div>
+        <span class="badge bg-emerald-900/60 text-emerald-200 border border-emerald-700">Strong</span>
+      </div>
+
+      <div class="mt-5 grid md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-semibold text-emerald-300 mb-2">Files</h3>
+          <ul class="mono text-sm text-slate-300 space-y-1">
+            <li><span class="text-slate-500">services/ai/ai.py</span> · <span class="text-slate-400">repair_card</span> (485–522)</li>
+            <li><span class="text-slate-500">services/ai/ai.py</span> · <span class="text-slate-400">ask_json</span> (568–607), <span class="text-slate-400">ask_card</span> (610–651), <span class="text-slate-400">ask_batch</span> (708–761)</li>
+          </ul>
+          <p class="text-slate-400 text-xs mt-3 leading-relaxed">
+            The exact outcome-classification ternary appears five times in the file:
+            <span class="mono">failure_billed</span> occurs 5× (lines 143, 517, 602, 646, 756).
+          </p>
+        </div>
+        <div>
+          <h3 class="font-semibold text-amber-300 mb-2">Problem</h3>
+          <p class="text-slate-300 text-sm leading-relaxed">
+            Every AI-calling path repeats the same skeleton by hand: open a <span class="mono">telemetry</span> dict, run
+            <span class="mono">_request_json</span>, and in <span class="mono">finally</span> classify the cost outcome
+            (<span class="mono">success</span> vs <span class="mono">failure_billed</span> vs <span class="mono">failure_zero_cost</span>)
+            based on whether <span class="mono">telemetry["usage"]</span> exists. This is a <b>shallow, scattered seam</b>: a change to
+            how "billed vs zero-cost" is decided must be made in four places at once, and each call site re-derives the same
+            <span class="mono">outcome</span> expression. There is <b>no locality</b> for the project's core cost-discipline rule.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Solution</h3>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          Fold the telemetry lifecycle behind one <b>deep</b> wrapper — a decorator or <span class="mono">_call_tracked(request_kind, preset, ...)</span>
+          that owns the try/except/finally, the <span class="mono">outcome</span> classification, and the <span class="mono">_log_llm_request</span> call.
+          <span class="mono">repair_card</span>, <span class="mono">ask_json</span>, <span class="mono">ask_card</span>, and <span class="mono">ask_batch</span>
+          collapse to "describe the request, return the validated value." The cost-outcome rule lives in exactly one place.
+        </p>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Before / After</h3>
+        <div class="grid md:grid-cols-2 gap-8 mt-3">
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+            <div class="text-xs text-slate-400 mb-2">BEFORE — outcome rule hand-copied 4×</div>
+            <pre class="mermaid">
+flowchart LR
+  R["repair_card"] --> T1["telemetry + try/except/finally"]
+  J["ask_json"] --> T2["telemetry + try/except/finally"]
+  C["ask_card"] --> T3["telemetry + try/except/finally"]
+  B["ask_batch"] --> T4["telemetry + try/except/finally"]
+  T1 & T2 & T3 & T4 --> O["outcome rule: billed vs zero-cost"] -.4 copies.-> L["_log_llm_request"]
+            </pre>
+          </div>
+          <div class="bg-slate-950 border border-emerald-800 rounded-xl p-4">
+            <div class="text-xs text-emerald-400 mb-2">AFTER — one tracked-call seam</div>
+            <pre class="mermaid">
+flowchart LR
+  R["repair_card"] --> W["_call_tracked (deep)"]
+  J["ask_json"] --> W
+  C["ask_card"] --> W
+  B["ask_batch"] --> W
+  W --> O["outcome rule x1"]
+  W --> L["_log_llm_request"]
+            </pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 grid md:grid-cols-2 gap-8">
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-emerald-300 text-sm mb-2">Benefits</h4>
+          <ul class="text-sm text-slate-300 space-y-2 list-disc list-inside">
+            <li><b>Locality</b> — the cost-outcome classification concentrates; fix once, fixed everywhere.</li>
+            <li><b>Deletion test passes</b> — the telemetry/cost rules are real and deep; they're just misplaced.</li>
+            <li><b>Gates</b>: none. No callback, keyboard, or module-boundary change.</li>
+          </ul>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-amber-300 text-sm mb-2">Risk / note</h4>
+          <p class="text-sm text-slate-300 leading-relaxed">
+            Pure mechanical refactor — no learner-facing behavior, quota, or scheduling change, so it qualifies for the
+            §2.4.1 fast-track if approved. Care: <span class="mono">custom_test_card</span> writes to <span class="mono">config_tests</span>
+            instead of <span class="mono">llm_requests</span>, so the wrapper must accept a "log target" — or the test-only paths stay
+            separate. Lowest risk, highest locality of the six. Recommend tackling first.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CANDIDATE 2 ============ -->
+  <section class="max-w-full mx-auto px-12 pb-16">
+    <div class="card bg-slate-900 border border-slate-800 rounded-2xl p-10">
+      <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div class="text-xs text-slate-400 mb-1">Candidate 02 · tackle order #2</div>
+          <h2 class="text-2xl font-bold">Session assembly is implemented twice, and its UI registry is dormant</h2>
+        </div>
+        <span class="badge bg-amber-900/60 text-amber-200 border border-amber-700">Worth exploring</span>
+      </div>
+
+      <div class="mt-5 grid md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-semibold text-emerald-300 mb-2">Files</h3>
+          <ul class="mono text-sm text-slate-300 space-y-1">
+            <li><span class="text-slate-500">services/session/assembly.py</span> · <span class="text-slate-400">build_session</span> (26–84) vs <span class="text-slate-400">build_session_list</span> (87–150)</li>
+            <li><span class="text-slate-500">services/session/grade_policy.py</span> · <span class="text-slate-400">ACTIVITY_REGISTRY</span> / <span class="text-slate-400">get_interaction_ui</span> (71–98)</li>
+            <li><span class="text-slate-500">handlers/study_handler.py</span> · <span class="text-slate-400">_build_card_text_and_keyboard</span> (244–277)</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="font-semibold text-amber-300 mb-2">Problem</h3>
+          <p class="text-slate-300 text-sm leading-relaxed">
+            <span class="mono">build_session</span> (generator) and <span class="mono">build_session_list</span> (list) both hand-roll the
+            <b>same</b> Tier-1 (due) + Tier-2 (first-exposure) <span class="mono">SessionNode</span> construction, just with a different accumulator
+            (<span class="mono">yield_count</span> vs <span class="mono">len(nodes)</span>). A change to node shape must be made twice. Meanwhile
+            <span class="mono">grade_policy.py</span> exports a UI registry (<span class="mono">ActivityHandler</span> + <span class="mono">get_interaction_ui</span>)
+            that <b>no production caller uses</b> — <span class="mono">study_handler</span> re-implements the activity→keyboard dispatch with its own
+            <span class="mono">if node.activity_type == "first_exposure"</span> branch. Two parallel dispatch mechanisms for the same fact.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Solution</h3>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          Collapse assembly to one implementation (keep <span class="mono">build_session_list</span> as the handler seam; make
+          <span class="mono">build_session</span> an alias or delete it — it is exported only for "isolated testing"). For the registry, pick one
+          owner: either <b>delete</b> the dormant <span class="mono">get_interaction_ui</span>/<span class="mono">ACTIVITY_REGISTRY</span> layer (keeping
+          <span class="mono">GRADE_POLICIES</span>/<span class="mono">resolve_grade</span>, which <span class="mono">srs_handler</span> does use) and let the handler own
+          rendering, or — if the registry is the intended seam — make <span class="mono">study_handler</span> consume it. Decide during grilling.
+        </p>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Before / After</h3>
+        <div class="grid md:grid-cols-2 gap-8 mt-3">
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+            <div class="text-xs text-slate-400 mb-2">BEFORE — two assemblers, dormant registry</div>
+            <pre class="mermaid">
+flowchart LR
+  A["build_session<br/>generator"] --> T1["Tier1+2 node build"]
+  A2["build_session_list"] --> T2["Tier1+2 node build"]
+  T1 & T2 -.duplicated.-> N["SessionNode"]
+  G["grade_policy.ACTIVITY_REGISTRY<br/>get_interaction_ui (dormant)"] -.unused.-> K["keyboards"]
+  H["study_handler._build_card_text_and_keyboard"] --> K2["activity->keyboard branch"]
+            </pre>
+          </div>
+          <div class="bg-slate-950 border border-emerald-800 rounded-xl p-4">
+            <div class="text-xs text-emerald-400 mb-2">AFTER — one assembler, one render owner</div>
+            <pre class="mermaid">
+flowchart LR
+  A["build_session_list (only)"] --> N["SessionNode"]
+  H["study_handler renders"] --> K["keyboards"]
+  G["grade_policy keeps GRADE_POLICIES<br/>+ resolve_grade only"]
+            </pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 grid md:grid-cols-2 gap-8">
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-emerald-300 text-sm mb-2">Benefits</h4>
+          <ul class="text-sm text-slate-300 space-y-2 list-disc list-inside">
+            <li><b>Locality</b> — node shape and render dispatch each have one home.</li>
+            <li><b>Removes a shallow/dormant abstraction</b> (<span class="mono">ActivityHandler</span>) and one parallel assembler.</li>
+          </ul>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-amber-300 text-sm mb-2">Risk / gates</h4>
+          <p class="text-sm text-slate-300 leading-relaxed">
+            <b>Module boundary (gated):</b> <span class="mono">build_session</span> is in <span class="mono">__init__.py __all__</span>, and the
+            "frontend-agnostic" claim in AGENTS.md §3 is currently violated because <span class="mono">grade_policy.py</span> lazily imports
+            <span class="mono">config.keyboards</span>. Choose one direction (delete registry vs consume it) via the §2.4 gate; the
+            <span class="mono">srs_handler</span> and <span class="mono">study_handler</span> integration tests guard the behavior. Mechanical within its
+            chosen direction.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CANDIDATE 3 ============ -->
+  <section class="max-w-full mx-auto px-12 pb-16">
+    <div class="card bg-slate-900 border border-slate-800 rounded-2xl p-10">
+      <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div class="text-xs text-slate-400 mb-1">Candidate 03 · tackle order #3</div>
+          <h2 class="text-2xl font-bold">A dead wizard keyboard that imports a non-existent module</h2>
+        </div>
+        <span class="badge bg-emerald-900/60 text-emerald-200 border border-emerald-700">Strong</span>
+      </div>
+
+      <div class="mt-5 grid md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-semibold text-emerald-300 mb-2">Files</h3>
+          <ul class="mono text-sm text-slate-300 space-y-1">
+            <li><span class="text-slate-500">config/keyboards.py</span> · <span class="text-slate-400">ai_custom_test_wizard_keyboard</span> (806–827)</li>
+            <li><span class="text-slate-500">handlers/admin.py</span> · import at <span class="text-slate-400">line 40</span>; inline keyboard at <span class="text-slate-400">_custom_test_step_lang</span> (2297–2300)</li>
+          </ul>
+          <p class="text-slate-400 text-xs mt-3 leading-relaxed">
+            The builder is imported in <span class="mono">admin.py:40</span> but has <b>no call site</b> anywhere in the repo.
+          </p>
+        </div>
+        <div>
+          <h3 class="font-semibold text-amber-300 mb-2">Problem</h3>
+          <p class="text-slate-300 text-sm leading-relaxed">
+            <span class="mono">ai_custom_test_wizard_keyboard</span> is dead-but-imported, and its <span class="mono">lang</span>/<span class="mono">goal</span>/<span class="mono">level</span>
+            branches do <span class="mono">from catalog import LANGUAGES</span> (lines 810, 814, 818). There is no top-level <span class="mono">catalog</span>
+            module — the canonical import is <span class="mono">config.catalog</span>. If the builder is ever wired, those branches raise
+            <span class="mono">ImportError</span> at runtime. Meanwhile the live wizard handlers rebuild the <b>same</b> keyboard inline
+            (<span class="mono">_custom_test_step_lang</span> at admin.py:2297), duplicating the builder that exists but is never called.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Solution</h3>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          Make the wizard handlers call a <b>single</b> keyboard builder, and delete the dead one. If the live handlers' inline
+          construction is the canonical path, delete <span class="mono">ai_custom_test_wizard_keyboard</span> outright (it is provably dead —
+          zero references, so it qualifies for the bounded-cleanup rule). The latent <span class="mono">from catalog import</span> bug disappears
+          with it.
+        </p>
+      </div>
+
+      <div class="mt-6 grid md:grid-cols-2 gap-8">
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-emerald-300 text-sm mb-2">Benefits</h4>
+          <ul class="text-sm text-slate-300 space-y-2 list-disc list-inside">
+            <li>Removes a dormant function <em>and</em> a latent <span class="mono">ImportError</span> (would crash if ever used).</li>
+            <li>Single source for the wizard keyboard — the current duplication is exactly the drift the catalog/keyboard rules warn against.</li>
+          </ul>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-amber-300 text-sm mb-2">Risk / gates</h4>
+          <p class="text-sm text-slate-300 leading-relaxed">
+            <b>Keyboards + callback routing (gated):</b> the builder emits <span class="mono">admin:ai_custom_test:...</span> callback strings.
+            But because the live handlers already emit those same prefixes inline, deleting the dead builder changes no emitted
+            <span class="mono">callback_data</span> and no dispatch branch — so it should pass <span class="mono">test_wiring.py</span> unchanged. Declare
+            the removal in the contract-lock summary and confirm the wizard's <span class="mono">config_tests</span> integration test still passes.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CANDIDATE 4 ============ -->
+  <section class="max-w-full mx-auto px-12 pb-16">
+    <div class="card bg-slate-900 border border-slate-800 rounded-2xl p-10">
+      <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div class="text-xs text-slate-400 mb-1">Candidate 04 · tackle order #4</div>
+          <h2 class="text-2xl font-bold">Handlers import from <span class="mono">bot.py</span> — a lazy circular import</h2>
+        </div>
+        <span class="badge bg-amber-900/60 text-amber-200 border border-amber-700">Worth exploring</span>
+      </div>
+
+      <div class="mt-5 grid md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-semibold text-emerald-300 mb-2">Files</h3>
+          <ul class="mono text-sm text-slate-300 space-y-1">
+            <li><span class="text-slate-500">handlers/admin.py</span> · <span class="text-slate-400">from bot import _apply_log_level</span> (line 462)</li>
+            <li><span class="text-slate-500">bot.py</span> · <span class="text-slate-400">from handlers.admin import ...</span> (line 104)</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="font-semibold text-amber-300 mb-2">Problem</h3>
+          <p class="text-slate-300 text-sm leading-relaxed">
+            <span class="mono">bot.py</span> imports <span class="mono">handlers.admin</span>, and <span class="mono">handlers.admin</span> imports back
+            from <span class="mono">bot</span>. The cycle is <em>only</em> broken because the admin import is function-local (inside
+            <span class="mono">log_level:set:</span> handling), so it executes after <span class="mono">bot</span> is fully loaded. Any future top-level
+            <span class="mono">from bot import ...</span> in a handler crashes at import time. The dependency direction (handler → entry point)
+            is also wrong: the runtime-config helper <span class="mono">_apply_log_level</span> lives in the wrong module for its consumers.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Solution</h3>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          Move <span class="mono">_apply_log_level</span> (and any runtime-config apply helper) into <span class="mono">config/</span> or a small
+          shared service, and have both <span class="mono">bot.py</span> and <span class="mono">handlers/admin.py</span> import it from there. That
+          removes the backward edge and the latent cycle entirely. Handlers should never import from the entry point.
+        </p>
+      </div>
+
+      <div class="mt-6 grid md:grid-cols-2 gap-8">
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-emerald-300 text-sm mb-2">Benefits</h4>
+          <ul class="text-sm text-slate-300 space-y-2 list-disc list-inside">
+            <li>Removes a latent circular import and a wrong dependency direction.</li>
+            <li>One-line move, no behavioral change.</li>
+          </ul>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-amber-300 text-sm mb-2">Risk / gates</h4>
+          <p class="text-sm text-slate-300 leading-relaxed">
+            <b>Module boundary (gated).</b> No callback or keyboard string changes. <span class="mono">test_wiring.py</span>'s reverse guard
+            (<span class="mono">_resolve_import</span>) currently treats <span class="mono">bot</span> as external/trusted, so a leftover
+            <span class="mono">from bot import</span> would <em>not</em> be caught — worth strengthening the guard to flag handler→bot imports
+            as part of this change. Low risk, mechanical.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CANDIDATE 5 ============ -->
+  <section class="max-w-full mx-auto px-12 pb-16">
+    <div class="card bg-slate-900 border border-slate-800 rounded-2xl p-10">
+      <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div class="text-xs text-slate-400 mb-1">Candidate 05 · tackle order #5</div>
+          <h2 class="text-2xl font-bold">The <span class="mono">awaiting</span> string is a de-facto routing namespace shared across bot.py and admin.py</h2>
+        </div>
+        <span class="badge bg-slate-700/60 text-slate-300 border border-slate-600">Speculative</span>
+      </div>
+
+      <div class="mt-5 grid md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-semibold text-emerald-300 mb-2">Files</h3>
+          <ul class="mono text-sm text-slate-300 space-y-1">
+            <li><span class="text-slate-500">bot.py</span> · <span class="text-slate-400">text_router</span> awaiting branches (254, 403, 456–482)</li>
+            <li><span class="text-slate-500">handlers/admin.py</span> · <span class="text-slate-400">_handle_admin_text_input</span> (872–1072) and every wizard state machine</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="font-semibold text-amber-300 mb-2">Problem</h3>
+          <p class="text-slate-300 text-sm leading-relaxed">
+            Text input is routed by matching the <span class="mono">awaiting</span> string, and that namespace is <b>split across two files</b>:
+            <span class="mono">bot.py</span> matches prefixes like <span class="mono">admin_</span>/<span class="mono">llm_cost_</span>/<span class="mono">ai_preset_</span>/<span class="mono">ai_custom_test_</span>
+            (line 403) and hands off to admin.py, but also special-cases <span class="mono">ai_preset_edit:</span>/<span class="mono">ai_preset_full_edit:</span>/<span class="mono">admin_plan_full_edit:</span>
+            for <span class="mono">flow:back</span> (456–482). So the "routing table" for one concept (a paused wizard) lives in two places, and a change
+            to any <span class="mono">awaiting</span> value ripples through both files. This is the same shape as the admin-callback sprawl in
+            Candidate 06, but for text input.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Solution</h3>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          Give admin.py a single entry <span class="mono">is_admin_awaiting(awaiting) → bool</span> that bot.py calls instead of hard-coding the
+          prefix list, and move the <span class="mono">flow:back</span> wizard resume logic into admin.py as well (a public
+          <span class="mono">resume_admin_wizard(awaiting)</span>). Then bot.py never encodes admin awaiting prefixes, and the string-to-handler
+          table for text input concentrates in one module.
+        </p>
+      </div>
+
+      <div class="mt-6 grid md:grid-cols-2 gap-8">
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-emerald-300 text-sm mb-2">Benefits</h4>
+          <ul class="text-sm text-slate-300 space-y-2 list-disc list-inside">
+            <li><b>Locality</b> — the awaiting routing table for admin text input concentrates in admin.py.</li>
+            <li>Removes duplicate prefix lists that can silently drift between files.</li>
+          </ul>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-amber-300 text-sm mb-2">Why speculative</h4>
+          <p class="text-sm text-slate-300 leading-relaxed">
+            Lower confidence than the mechanical items because the <span class="mono">awaiting</span> convention is load-bearing and subtle
+            (owner-gating at bot.py:254 also reads these prefixes). Worth doing <em>as part of</em> the larger admin decomposition
+            (Candidate 06) rather than alone, since the two share the same root. <b>Callback routing / module boundary (gated).</b>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CANDIDATE 6 ============ -->
+  <section class="max-w-full mx-auto px-12 pb-16">
+    <div class="card bg-slate-900 border border-slate-800 rounded-2xl p-10">
+      <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div class="text-xs text-slate-400 mb-1">Candidate 06 · tackle order #6</div>
+          <h2 class="text-2xl font-bold">The <span class="mono">admin.py</span> monolith: three dispatch surfaces, one file</h2>
+        </div>
+        <span class="badge bg-amber-900/60 text-amber-200 border border-amber-700">Worth exploring</span>
+      </div>
+
+      <div class="mt-5 grid md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-semibold text-emerald-300 mb-2">Files</h3>
+          <ul class="mono text-sm text-slate-300 space-y-1">
+            <li><span class="text-slate-500">handlers/admin.py</span> · <span class="text-slate-400">_handle_admin_callback</span> (145–471, ~50 elif branches)</li>
+            <li><span class="text-slate-500">handlers/admin.py</span> · <span class="text-slate-400">_handle_llm_callback</span> (771–869), <span class="text-slate-400">_handle_admin_text_input</span> (872–1072)</li>
+            <li><span class="text-slate-500">config/keyboards.py</span> · 50 <span class="mono">admin:</span> callback builders across ~20 prefixes</li>
+          </ul>
+          <p class="text-slate-400 text-xs mt-3 leading-relaxed">
+            2745-line file; the single largest module in the repo. The busiest file <em>and</em> the one with the most callbacks.
+          </p>
+        </div>
+        <div>
+          <h3 class="font-semibold text-amber-300 mb-2">Problem</h3>
+          <p class="text-slate-300 text-sm leading-relaxed">
+            One file owns three unrelated dispatch mechanisms — <b>callback routing</b> (<span class="mono">admin:</span> sub-actions), <b>LLM-cost
+            callbacks</b> (<span class="mono">llm:</span>), and <b>text-input awaiting</b> — plus ~10 hand-rolled wizard state machines
+            (<span class="mono">_start_full_edit_wizard</span>, <span class="mono">_start_plan_wizard</span>, <span class="mono">_handle_custom_test_wizard</span>...). The
+            <b>AI-preset manager</b>, <b>plan manager</b>, <b>LLM-cost dashboard</b>, and <b>stats</b> domains are each coherent, deep features
+            with no seam of their own — so any change to one must be reasoned about against all the others in a single giant function,
+            and <span class="mono">test_wiring.py</span> has to line-scan one function to validate every admin route.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Solution</h3>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          Split admin into domain sub-modules (<span class="mono">handlers/admin_ai.py</span>, <span class="mono">admin_cost.py</span>,
+          <span class="mono">admin_plans.py</span>, <span class="mono">admin_stats.py</span>), each owning its callback sub-router, awaiting handlers,
+          and wizard state. Keep <span class="mono">_handle_admin_callback</span> as a <b>thin prefix → sub-router</b> dispatcher that re-exports the
+          sub-modules' entry points. This mirrors how <span class="mono">services/session</span> already packages its engine, and how the rest of
+          the repo splits handlers by domain.
+        </p>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Before / After</h3>
+        <div class="grid md:grid-cols-2 gap-8 mt-3">
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+            <div class="text-xs text-slate-400 mb-2">BEFORE — one file, three routers, ~10 wizards</div>
+            <pre class="mermaid">
+flowchart TB
+  CR["bot.py callback_router admin:"] --> AC["_handle_admin_callback<br/>~50 elif"]
+  LLM["bot.py llm:"] --> LC["_handle_llm_callback"]
+  TX["bot.py text_router awaiting"] --> AT["_handle_admin_text_input"]
+  AC --> P["ai presets"]
+  AC --> PL["plans"]
+  AC --> C["cost"]
+  AC --> S["stats"]
+  AC -.wizard state.-> W["full_edit / plan / custom_test"]
+            </pre>
+          </div>
+          <div class="bg-slate-950 border border-emerald-800 rounded-xl p-4">
+            <div class="text-xs text-emerald-400 mb-2">AFTER — thin dispatcher, deep domain sub-modules</div>
+            <pre class="mermaid">
+flowchart TB
+  CR["bot.py callback_router admin:"] --> AD["admin.py thin prefix router"]
+  AD --> AI["admin_ai.py<br/>presets + fallback + test"]
+  AD --> AC["admin_cost.py<br/>llm dashboard + pricing"]
+  AD --> AP["admin_plans.py<br/>plan manager"]
+  AD --> AS["admin_stats.py<br/>stats + activity"]
+  TX["bot.py awaiting"] --> AD
+            </pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 grid md:grid-cols-2 gap-8">
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-emerald-300 text-sm mb-2">Benefits</h4>
+          <ul class="text-sm text-slate-300 space-y-2 list-disc list-inside">
+            <li><b>Locality</b> — each admin domain gets a real seam and its own test surface.</li>
+            <li>Shrinks the repo's largest file and the surface every admin change must reason about.</li>
+            <li>The <span class="mono">test_wiring.py</span> admin scan can then validate per-module sub-routers instead of line-scanning one function.</li>
+          </ul>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-amber-300 text-sm mb-2">Risk / gates</h4>
+          <p class="text-sm text-slate-300 leading-relaxed">
+            <b>Callback routing + keyboards + module boundaries (heavily gated).</b> <span class="mono">admin:</span>/<span class="mono">llm:</span> prefixes
+            and the <span class="mono">awaiting</span> namespace are all load-bearing; AGENTS.md §3's module-change guard requires updating the
+            responsibilities table AND <span class="mono">test_wiring.py</span> scan targets. Specifically
+            <span class="mono">test_wiring._collect_admin_sub_actions</span> (lines 337–363) scans <em>only</em> <span class="mono">handlers/admin.py</span> for a
+            single <span class="mono">_handle_admin_callback</span> — splitting demands reworking that test to scan all admin modules. Keep the re-export
+            names identical so the many <span class="mono">from handlers.admin import ...</span> call sites and bot.py's dispatch don't break. This is the
+            highest-effort, most-gated candidate; do it last, after the mechanical cleanups.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TOP RECOMMENDATION ============ -->
+  <section class="max-w-full mx-auto px-12 pb-20">
+    <div class="card bg-gradient-to-br from-emerald-900/40 to-slate-900 border border-emerald-800 rounded-2xl p-10">
+      <h2 class="text-2xl font-bold text-emerald-300 mb-3">Top recommendation</h2>
+      <p class="text-slate-200 leading-relaxed text-sm">
+        Work from <b>lowest risk / highest locality up</b>. Start with <b>Candidate 01</b> (the AI telemetry seam) — a pure mechanical
+        refactor with no callback, keyboard, or module-boundary change, and it concentrates the project's cost-discipline rule in one place.
+        Then <b>Candidate 02</b> (collapse the duplicate session assembler and delete the dormant UI registry) — mechanical within a chosen
+        direction. <b>Candidate 03</b> (delete the dead wizard keyboard and its latent <span class="mono">ImportError</span>) and <b>Candidate 04</b>
+        (remove the lazy bot.py↔admin.py cycle) are small, safe wins. The two architectural items — <b>Candidate 06</b> (the admin monolith)
+        and its enabler <b>Candidate 05</b> (the shared <span class="mono">awaiting</span> namespace) — are the highest-payoff but most-gated;
+        do them together, last, through the full §2.4 contract-lock gate with the wiring-guard updates they demand.
+      </p>
+      <div class="mt-4 flex flex-wrap gap-3">
+        <span class="badge bg-emerald-800 text-emerald-100 border border-emerald-600">#1 · AI telemetry seam — mechanical, no gates</span>
+        <span class="badge bg-slate-700 text-slate-200 border border-slate-600">#2 · session assembly + registry — mechanical, module boundary</span>
+        <span class="badge bg-slate-700 text-slate-200 border border-slate-600">#3 · dead wizard keyboard — keyboards, small</span>
+        <span class="badge bg-slate-700 text-slate-200 border border-slate-600">#4 · bot.py↔admin.py cycle — module boundary, small</span>
+        <span class="badge bg-slate-700 text-slate-200 border border-slate-600">#5 · awaiting namespace — gated, architectural</span>
+        <span class="badge bg-slate-700 text-slate-200 border border-slate-600">#6 · admin monolith — heavily gated, do last</span>
+      </div>
+    </div>
+  </section>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: {
+    primaryColor: '#0f172a', primaryTextColor: '#e2e8f0', primaryBorderColor: '#334155',
+    lineColor: '#475569', secondaryColor: '#064e3b', tertiaryColor: '#0f172a',
+    fontSize: '20px', fontFamily: '"Vazirmatn", "Segoe UI", sans-serif'
+  }, flowchart: { useMaxWidth: true } });
+</script>
+</body>
+</html>

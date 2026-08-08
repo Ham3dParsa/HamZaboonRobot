@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HamZaboon — Architecture Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  html { font-size: 19px; }
+  body { font-family: "Vazirmatn", "Segoe UI", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .mono { font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace; }
+  .card { transition: transform .15s ease, box-shadow .15s ease; }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 12px 30px -12px rgba(0,0,0,.25); }
+  .badge { display:inline-block; padding:.15rem .6rem; border-radius:9999px; font-size:.72rem; font-weight:600; letter-spacing:.02em; }
+  .mermaid { background: transparent !important; }
+  .mermaid svg { max-width: 100%; height: auto; }
+</style>
+</head>
+<body class="bg-slate-950 text-slate-100">
+  <!-- HERO -->
+  <header class="max-w-full mx-auto px-12 pt-14 pb-10">
+    <div class="flex items-center gap-2 text-sm text-slate-400 mb-4">
+      <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+      <span class="mono">HamZaboon · Telegram language-learning bot</span>
+    </div>
+    <h1 class="text-4xl font-extrabold leading-tight">
+      Architecture <span class="text-emerald-400">Deepening</span> Review
+    </h1>
+    <p class="mt-4 max-w-3xl text-slate-300 leading-relaxed">
+      Friction surfaced from the codebase's hot spots — <span class="mono text-emerald-300">bot.py</span> (84 commits),
+      <span class="mono text-emerald-300">handlers/admin.py</span> (2745 lines), <span class="mono text-emerald-300">services/db/__init__.py</span> (919 lines),
+      <span class="mono text-emerald-300">config/keyboards.py</span> (849 lines), <span class="mono text-emerald-300">services/ai/ai.py</span> (761 lines).
+      Four deepening candidates below, each a <b>shallow module</b> worth making <b>deep</b>.
+    </p>
+    <div class="mt-6 flex flex-wrap gap-3 text-xs">
+      <span class="badge bg-emerald-900/60 text-emerald-200 border border-emerald-700">Strong</span>
+      <span class="badge bg-amber-900/60 text-amber-200 border border-amber-700">Worth exploring</span>
+      <span class="badge bg-slate-700/60 text-slate-300 border border-slate-600">Speculative</span>
+    </div>
+  </header>
+
+  <!-- ============ CANDIDATE 1 ============ -->
+  <section class="max-w-full mx-auto px-12 pb-16">
+    <div class="card bg-slate-900 border border-slate-800 rounded-2xl p-10">
+      <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div class="text-xs text-slate-400 mb-1">Candidate 01</div>
+          <h2 class="text-2xl font-bold">The custom-word query intake lifecycle</h2>
+        </div>
+        <span class="badge bg-emerald-900/60 text-emerald-200 border border-emerald-700">Strong</span>
+      </div>
+
+      <div class="mt-5 grid md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-semibold text-emerald-300 mb-2">Files</h3>
+          <ul class="mono text-sm text-slate-300 space-y-1">
+            <li><span class="text-slate-500">bot.py</span> · ask-word branch of <span class="text-slate-400">text_router</span> (lines 257–401)</li>
+            <li><span class="text-slate-500">handlers/user.py</span> · <span class="text-slate-400">ask_for_ask_word</span>, <span class="text-slate-400">_handle_query_prepare</span></li>
+            <li><span class="text-slate-500">handlers/srs_handler.py</span> · <span class="text-slate-400">_handle_query_add</span></li>
+            <li><span class="text-slate-500">services/db</span> · <span class="text-slate-400">reserve_word_query</span>, <span class="text-slate-400">query_results</span></li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="font-semibold text-amber-300 mb-2">Problem</h3>
+          <p class="text-slate-300 text-sm leading-relaxed">
+            One user-facing concept — <b>the word query</b> — has its lifecycle spread across three modules.
+            The <span class="mono">ask_word</span> branch of <span class="mono text-emerald-300">text_router</span> is a ~145-line function mixing
+            quota reservation, per-user async lock, an AI call with timeout, cached-card preparation, usage text,
+            query-result persistence, streak touch, MarkdownV2 card formatting, and keyboard construction — with the
+            error branches (release-quota → finish-wait → send-apology) duplicated four times.
+          </p>
+          <p class="mt-2 text-slate-300 text-sm leading-relaxed">
+            Each of the three phases re-derives the same facts: the user row, the plan, the allowance, the usage text,
+            card preparation, and the result keyboard. There is <b>no locality</b>: a change to "how an answer card is
+            shown" must be made in three places, and each lives in a different module.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Solution</h3>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          Pull the whole query lifecycle behind a single <b>deep module</b> — the <b>word-query intake module</b> — exposing a small interface
+          (<span class="mono">start_intake(user, chat)</span> → <span class="mono">answer(text)</span> → <span class="mono">prepare(token)</span> → <span class="mono">add(token)</span>).
+          Quota, plan resolution, AI-with-timeout, cache preparation, formatting, and the three error paths hide behind
+          that seam. The Telegram routers become thin: they parse the input and hand off to the intake module.
+        </p>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Before / After</h3>
+        <div class="grid md:grid-cols-2 gap-8 mt-3">
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+            <div class="text-xs text-slate-400 mb-2">BEFORE — shallow, scattered</div>
+            <pre class="mermaid">
+flowchart LR
+  TR["bot.py<br/>text_router ask_word"] --> Q1["quota reserve"]
+  TR --> AI1["AI call + timeout"]
+  TR --> P1["card prep"]
+  TR --> D1["persist + streak"]
+  TR --> F1["format + keyboard"]
+  TR -.4x error branches.-> E1["release + apologize"]
+  U["handlers/user.py<br/>ask_for_ask_word"] -.derives quota/usage.-> TR
+  U2["handlers/user.py<br/>_handle_query_prepare"] --> P2["card prep"]
+  U2 --> F2["format + keyboard"]
+  S["handlers/srs_handler.py<br/>_handle_query_add"] --> D2["saved word"]
+  P1 & P2 -.same logic.-> F
+            </pre>
+          </div>
+          <div class="bg-slate-950 border border-emerald-800 rounded-xl p-4">
+            <div class="text-xs text-emerald-400 mb-2">AFTER — deep intake module, thin routers</div>
+            <pre class="mermaid">
+flowchart LR
+  TR["bot.py<br/>text_router"] --> WQI
+  U["handlers/user.py<br/>prepare"] --> WQI
+  S["handlers/srs_handler.py<br/>add"] --> WQI
+  subgraph WQI["word-query intake module (deep)"]
+    Q["quota + plan"]
+    AI["AI call + timeout"]
+    P["card prep + cache"]
+    D["persist + streak"]
+    F["format + keyboard"]
+    E["error paths x1"]
+  end
+  WQI --> DB[("services/db")]
+            </pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 grid md:grid-cols-2 gap-8">
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-emerald-300 text-sm mb-2">Benefits</h4>
+          <ul class="text-sm text-slate-300 space-y-2 list-disc list-inside">
+            <li><b>Locality</b> — card formatting, quota, and error handling concentrate in one place; fix once, fixed everywhere.</li>
+            <li><b>Leverage</b> — one intake interface repays across three call sites and the integration tests.</li>
+            <li><b>Test surface</b> — tests cross the intake seam, not Telegram plumbing; the "add is idempotent" rule becomes a direct test.</li>
+            <li>Directly serves the roadmap's stated next direction (visible quota, idempotent add, one save path).</li>
+          </ul>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-amber-300 text-sm mb-2">Risk / deletion test</h4>
+          <p class="text-sm text-slate-300 leading-relaxed">
+            Deleting the current ask-word branch would <b>concentrate</b> complexity — the error paths and quota rules are real, not
+            pass-through — so the deepening is justified. Main risk: the Telegram <span class="mono">update/context</span> types leak into
+            the seam. Keep the module frontend-agnostic (accept plain ids + a return value), the way <span class="mono">services/session</span>
+            already is.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CANDIDATE 2 ============ -->
+  <section class="max-w-full mx-auto px-12 pb-16">
+    <div class="card bg-slate-900 border border-slate-800 rounded-2xl p-10">
+      <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div class="text-xs text-slate-400 mb-1">Candidate 02</div>
+          <h2 class="text-2xl font-bold">The <span class="mono">services/db</span> kitchen-sink façade</h2>
+        </div>
+        <span class="badge bg-emerald-900/60 text-emerald-200 border border-emerald-700">Strong</span>
+      </div>
+
+      <div class="mt-5 grid md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-semibold text-emerald-300 mb-2">Files</h3>
+          <ul class="mono text-sm text-slate-300 space-y-1">
+            <li><span class="text-slate-500">services/db/__init__.py</span> · 919 lines</li>
+            <li>re-exports from <span class="text-slate-400">schema / users / words / plans / reviews</span></li>
+          </ul>
+          <p class="text-slate-400 text-xs mt-3 leading-relaxed">
+            The file is <em>both</em> a re-export façade and the raw-SQL home of five unrelated domains:
+            settings, query-results, grammar-tips, <b>LLM cost analytics</b> (lines 340–515), and <b>AI-preset persistence</b> (lines 517–893).
+          </p>
+        </div>
+        <div>
+          <h3 class="font-semibold text-amber-300 mb-2">Problem</h3>
+          <p class="text-slate-300 text-sm leading-relaxed">
+            Understanding <em>any</em> domain means scanning one file that is imported by every handler. The LLM cost-analytics
+            block is a coherent, deep domain (billing breakdowns, filters, aggregate SQL) buried inside a kitchen sink.
+            The AI-preset store is a second coherent domain (fallback chain, priority reindexing, emergency groups) sitting
+            in the same file. Neither has its own <b>seam</b> — so cost logic and preset logic cannot vary or be tested in isolation.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Solution</h3>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          Extract each buried domain into its own <b>deep module</b> behind a small interface — a <b>cost-tracking module</b>
+          (<span class="mono">record_usage(...)</span>, <span class="mono">summarize(...)</span>, <span class="mono">breakdown(...)</span> hiding the aggregate SQL)
+          and a <b>preset registry module</b> (hiding the fallback-chain/priority rules). <span class="mono">services/db/__init__.py</span> stays a thin
+          façade that just re-exports, exactly like it already does for users/words/plans/reviews.
+        </p>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Before / After</h3>
+        <div class="grid md:grid-cols-2 gap-8 mt-3">
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+            <div class="text-xs text-slate-400 mb-2">BEFORE — one file, many shallow responsibilities</div>
+            <pre class="mermaid">
+flowchart TB
+  H["handlers / bot.py"] --> F["services/db/__init__.py (919 lines)"]
+  F --> A["re-export schema/users/words"]
+  F --> B["settings"]
+  F --> C["query_results"]
+  F --> D["grammar_tips"]
+  F --> E["LLM cost analytics<br/>aggregate SQL"]
+  F --> G["ai_presets + fallback chain"]
+            </pre>
+          </div>
+          <div class="bg-slate-950 border border-emerald-800 rounded-xl p-4">
+            <div class="text-xs text-emerald-400 mb-2">AFTER — thin façade, deep siblings</div>
+            <pre class="mermaid">
+flowchart TB
+  H["handlers / bot.py"] --> F["services/db/__init__.py<br/>thin re-export façade"]
+  F --> A["users"]
+  F --> W["words"]
+  F --> P["plans"]
+  F --> R["reviews"]
+  F --> C["cost-tracking (deep)"]
+  F --> S["preset registry (deep)"]
+            </pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 grid md:grid-cols-2 gap-8">
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-emerald-300 text-sm mb-2">Benefits</h4>
+          <ul class="text-sm text-slate-300 space-y-2 list-disc list-inside">
+            <li><b>Locality</b> — cost math and preset fallback rules get a single home; today a change touches one giant file every caller depends on.</li>
+            <li><b>Test surface</b> — cost aggregation and preset priority reindexing become testable through small seams without dragging in the whole façade.</li>
+            <li><b>Deletion test passes</b> — the cost analytics are genuinely deep (filtered aggregate SQL); they earn their keep, they're just mis-placed.</li>
+          </ul>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-amber-300 text-sm mb-2">Risk / note</h4>
+          <p class="text-sm text-slate-300 leading-relaxed">
+            Pure structural move — no learner-facing behavior, quota, scheduling, or callback change, so it fits the
+            fast-track exception if approved. Care: keep the re-export names identical to avoid breaking the many
+            <span class="mono">from services import db</span> call sites. This is <em>mechanical</em>, low-risk, high-locality payoff.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CANDIDATE 3 ============ -->
+  <section class="max-w-full mx-auto px-12 pb-16">
+    <div class="card bg-slate-900 border border-slate-800 rounded-2xl p-10">
+      <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div class="text-xs text-slate-400 mb-1">Candidate 03</div>
+          <h2 class="text-2xl font-bold">TTS pronunciation intake sub-router</h2>
+        </div>
+        <span class="badge bg-amber-900/60 text-amber-200 border border-amber-700">Worth exploring</span>
+      </div>
+
+      <div class="mt-5 grid md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-semibold text-emerald-300 mb-2">Files</h3>
+          <ul class="mono text-sm text-slate-300 space-y-1">
+            <li><span class="text-slate-500">bot.py</span> · <span class="text-slate-400">_handle_tts_pronounce</span> (lines 646–758, 110 lines)</li>
+            <li><span class="text-slate-500">services/tts.py</span> · the Edge-TTS <b>adapter</b> (thin)</li>
+            <li><span class="text-slate-500">services/db</span> · daily cards / query results / saved words lookups</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="font-semibold text-amber-300 mb-2">Problem</h3>
+          <p class="text-slate-300 text-sm leading-relaxed">
+            <span class="mono">_handle_tts_pronounce</span> is a hidden sub-router living in <span class="mono">bot.py</span>. It dispatches on three sources
+            (<span class="mono">d</span>=daily card, <span class="mono">q</span>=query result, <span class="mono">s</span>=saved word), each with its own callback-token shape,
+            its own DB lookup, and its own authorization check — then resolves the word+lang and hands off to the TTS adapter.
+            The <b>seam</b> is already there (the TTS adapter); what's missing is the <b>intake</b> logic that belongs behind it.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Solution</h3>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          Deepen <span class="mono">services/tts.py</span> into the full pronunciation <b>intake module</b>: one small entry
+          (<span class="mono">resolve_pronounce(user_id, source, parts) → word, lang</span> plus authorization), hiding the three source
+          parsers and their DB lookups behind the seam. <span class="mono">bot.py</span> keeps only the thin delivery (send the voice message).
+        </p>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Before / After</h3>
+        <div class="grid md:grid-cols-2 gap-8 mt-3">
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+            <div class="text-xs text-slate-400 mb-2">BEFORE — three parsers inlined in bot.py</div>
+            <pre class="mermaid">
+flowchart LR
+  CR["bot.py callback_router"] --> H["_handle_tts_pronounce<br/>(110 lines, in bot.py)"]
+  H --> P1["parse d/ daily-card token"]
+  H --> P2["parse q/ query token"]
+  H --> P3["parse s/ saved-word token"]
+  P1 --> D1["db daily cards"]
+  P2 --> D2["db query results"]
+  P3 --> D3["db saved words"]
+  H --> T["services/tts.py<br/>thin adapter"]
+            </pre>
+          </div>
+          <div class="bg-slate-950 border border-emerald-800 rounded-xl p-4">
+            <div class="text-xs text-emerald-400 mb-2">AFTER — intake behind the TTS seam</div>
+            <pre class="mermaid">
+flowchart LR
+  CR["bot.py callback_router"] --> T["services/tts.py (deep intake module)"]
+  T --> S["resolve + authorize (3 sources)"]
+  T --> DB[("services/db")]
+  T --> AD["Edge-TTS adapter"]
+  T --> OUT["word + lang (return value)"]
+  CR --> D["bot.py thin delivery"]
+            </pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 grid md:grid-cols-2 gap-8">
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-emerald-300 text-sm mb-2">Benefits</h4>
+          <ul class="text-sm text-slate-300 space-y-2 list-disc list-inside">
+            <li><b>Locality</b> — token parsing + authorization for all three sources move out of the busiest file in the repo.</li>
+            <li><b>Seam already real</b> — the TTS adapter is a genuine adapter; intake behind it is a real seam, not a hypothetical one.</li>
+            <li><b>Test surface</b> — source parsing (d/q/s) becomes directly unit-testable without Telegram.</li>
+          </ul>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-amber-300 text-sm mb-2">Note</h4>
+          <p class="text-sm text-slate-300 leading-relaxed">
+            The <span class="mono">d/</span> source also reads raw JSON card data — worth deciding whether the intake module should take the
+            already-parsed <b>word</b> rather than parse the card JSON itself. That is a genuine interface choice to make during grilling.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CANDIDATE 4 ============ -->
+  <section class="max-w-full mx-auto px-12 pb-16">
+    <div class="card bg-slate-900 border border-slate-800 rounded-2xl p-10">
+      <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div class="text-xs text-slate-400 mb-1">Candidate 04</div>
+          <h2 class="text-2xl font-bold">A cross-cutting delivery guard</h2>
+        </div>
+        <span class="badge bg-slate-700/60 text-slate-300 border border-slate-600">Speculative</span>
+      </div>
+
+      <div class="mt-5 grid md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-semibold text-emerald-300 mb-2">Files</h3>
+          <ul class="mono text-sm text-slate-300 space-y-1">
+            <li><span class="text-slate-500">bot.py</span> · <span class="text-slate-400">_telegram_offline</span>, <span class="text-slate-400">_get_user_lock</span>, <span class="text-slate-400">connection_health_job</span></li>
+            <li><span class="text-slate-500">services/utils/helpers.py</span> · <span class="text-slate-400">_send_with_retry</span> et al.</li>
+            <li>quota reservation calls across handlers</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="font-semibold text-amber-300 mb-2">Problem</h3>
+          <p class="text-slate-300 text-sm leading-relaxed">
+            Telegram reliability is a stated priority, but its enforcement is scattered: every router checks the module-level
+            <span class="mono">_telegram_offline</span> flag, callers manually take a per-user async lock, and quota reserve calls are inlined at each
+            intake point. The guard behaviour is duplicated by hand rather than concentrated.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Solution</h3>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          Fold offline-gating + per-user lock + atomic quota reservation into a single <b>delivery guard module</b> — a small interface
+          like <span class="mono">guard(user_id, chat_id, plan) → ctx</span> that the routers call once. Locality concentrates reliability rules; tests
+          exercise the guard seam directly.
+        </p>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold text-sky-300 mb-2">Before / After</h3>
+        <div class="grid md:grid-cols-2 gap-8 mt-3">
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+            <div class="text-xs text-slate-400 mb-2">BEFORE — guard logic inlined per handler</div>
+            <pre class="mermaid">
+flowchart LR
+  R1["text_router"] --> O1["_telegram_offline?"]
+  R2["callback_router"] --> O2["_telegram_offline?"]
+  R3["ask_word branch"] --> L1["_get_user_lock"]
+  R4["other handlers"] --> L2["lock + quota"]
+  O1 & O2 & L1 & L2 -.duplicated by hand.-> G["telegram reliability rules"]
+            </pre>
+          </div>
+          <div class="bg-slate-950 border border-emerald-800 rounded-xl p-4">
+            <div class="text-xs text-emerald-400 mb-2">AFTER — guard behind one seam</div>
+            <pre class="mermaid">
+flowchart LR
+  R1["text_router"] --> GU["delivery guard module"]
+  R2["callback_router"] --> GU
+  R3["intake handlers"] --> GU
+  GU --> O["offline gate"]
+  GU --> L["per-user lock"]
+  GU --> Q["atomic quota reserve"]
+  GU --> T["telegram retry path"]
+            </pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 grid md:grid-cols-2 gap-8">
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-emerald-300 text-sm mb-2">Benefits</h4>
+          <ul class="text-sm text-slate-300 space-y-2 list-disc list-inside">
+            <li><b>Locality</b> — reliability rules (offline, lock, quota, retry) concentrate in one module.</li>
+            <li><b>Leverage</b> — one guard interface repays across every handler and the reliability test suite.</li>
+          </ul>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+          <h4 class="font-semibold text-amber-300 text-sm mb-2">Why speculative</h4>
+          <p class="text-sm text-slate-300 leading-relaxed">
+            There is <em>one</em> adapter today — the real Telegram client. Per the <b>one-adapter rule</b>, a seam that only exists to be
+            tested may be premature. Deepening here is worthwhile only if the reliability rules are actively causing bugs or you want a
+            fake-Telegram seam for simulation. Lowest confidence of the four.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TOP RECOMMENDATION ============ -->
+  <section class="max-w-full mx-auto px-12 pb-20">
+    <div class="card bg-gradient-to-br from-emerald-900/40 to-slate-900 border border-emerald-800 rounded-2xl p-10">
+      <h2 class="text-2xl font-bold text-emerald-300 mb-3">Top recommendation</h2>
+      <p class="text-slate-200 leading-relaxed text-sm">
+        Tackle <b>Candidate 02 — the <span class="mono">services/db</span> kitchen-sink façade</b> first. It is the lowest-risk, highest-locality
+        payoff: a mechanical extraction with zero behavioral change, no callbacks, no quotas, no scheduling touched. It removes the
+        friction that makes every other change harder to reason about — cost math and preset fallback rules get their own seams and
+        test surfaces. Then do <b>Candidate 01</b> (the word-query intake), which is the product's stated next direction and where the
+        repeated card-formatting/quota logic currently costs the most.
+      </p>
+      <div class="mt-4 flex flex-wrap gap-3">
+        <span class="badge bg-emerald-800 text-emerald-100 border border-emerald-600">#1 · services/db split — mechanical, high locality</span>
+        <span class="badge bg-slate-700 text-slate-200 border border-slate-600">#2 · word-query intake — roadmap-aligned</span>
+        <span class="badge bg-slate-700 text-slate-200 border border-slate-600">#3 · TTS intake — small, focused</span>
+      </div>
+    </div>
+  </section>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: {
+    primaryColor: '#0f172a', primaryTextColor: '#e2e8f0', primaryBorderColor: '#334155',
+    lineColor: '#475569', secondaryColor: '#064e3b', tertiaryColor: '#0f172a',
+    fontSize: '20px', fontFamily: '"Vazirmatn", "Segoe UI", sans-serif'
+  }, flowchart: { useMaxWidth: true } });
+</script>
+</body>
+</html>
