@@ -334,32 +334,73 @@ def _collect_router_handlers() -> set[str]:
     return handlers
 
 
-def _collect_admin_sub_actions() -> set[str]:
-    """Extract action patterns from _handle_admin_callback in handlers/admin.py.
+_ADMIN_SUB_ROUTER_FUNCS = [
+    ("handlers/admin.py", "_handle_admin_callback", {"stats:", "plans:", "fallback", "ai_"}),
+    ("handlers/admin_stats.py", "handle_admin_stats", set()),
+    ("handlers/admin_cost.py", "handle_cost_callback", set()),
+    ("handlers/admin_plans.py", "handle_plan_callback", set()),
+    ("handlers/admin_ai.py", "handle_ai_callback", set()),
+]
 
-    Returns action strings from ``action == "..."`` and
-    ``action.startswith("...")`` comparisons.
-    """
+# Coarse delegating prefixes emitted by the thin _handle_admin_callback dispatcher.
+# These only ROUTE to a sub-router; the real leaf branches live in the sub-routers,
+# so they must not satisfy the wiring guard on their own (otherwise deleting a leaf
+# branch would go unnoticed).
+_ADMIN_DELEGATING_PREFIXES = {"stats:", "plans:", "fallback", "ai_"}
+
+
+def _collect_action_patterns_in_func(
+    filepath: str, func_name: str, exclude: set[str] | None = None
+) -> set[str]:
+    """Collect ``action == "..."`` / ``action.startswith("...")`` patterns from
+    a single admin sub-router function (case-significant action strings).
+
+    *exclude* drops patterns that are pure delegation (e.g. the ``plans:`` /
+    ``fallback`` / ``ai_`` prefixes emitted by ``_handle_admin_callback``)."""
+    exclude = exclude or set()
     actions: set[str] = set()
-    with open("handlers/admin.py", encoding="utf-8") as f:
-        lines = f.readlines()
+    try:
+        with open(filepath, encoding="utf-8") as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        return actions
 
     in_func = False
-    for i, line in enumerate(lines):
-        if "async def _handle_admin_callback" in line:
+    for line in lines:
+        if f"def {func_name}(" in line or f"async def {func_name}(" in line:
             in_func = True
             continue
         if in_func:
             stripped = line.strip()
-            if stripped.startswith("async def "):
+            if stripped.startswith(("async def ", "def ")) and func_name not in stripped:
                 break
             m = re.search(r'action\s*==\s*"([^"]+)"', stripped)
-            if m:
+            if m and m.group(1) not in exclude:
                 actions.add(m.group(1))
             m = re.search(r'action\.startswith\("([^"]+)"\)', stripped)
-            if m:
+            if m and m.group(1) not in exclude:
                 actions.add(m.group(1))
+    return actions
 
+
+def _collect_admin_sub_actions() -> set[str]:
+    """Extract action patterns from the admin sub-router functions.
+
+    After the Finding #7 split, ``admin:`` sub-actions are handled by
+    ``_handle_admin_callback`` (handlers/admin.py) which delegates by prefix to
+    per-domain sub-routers (handle_admin_stats, handle_cost_callback,
+    handle_plan_callback, handle_ai_callback). Collect every ``action == "..."``
+    and ``action.startswith("...")`` comparison across all admin sub-routers so
+    the wiring guard validates the full set. ``_handle_llm_callback`` is excluded
+    because it serves the ``llm:`` prefix, not ``admin:``.
+
+    The thin dispatcher's coarse delegating prefixes (``stats:``, ``plans:``,
+    ``fallback``, ``ai_``) are excluded so the guard still requires the concrete
+    leaf branches to exist in a sub-router.
+    """
+    actions: set[str] = set()
+    for filepath, func_name, exclude in _ADMIN_SUB_ROUTER_FUNCS:
+        actions |= _collect_action_patterns_in_func(filepath, func_name, exclude)
     return actions
 
 
@@ -383,6 +424,43 @@ def _is_allowed(prefix: str) -> bool:
         if prefix.startswith(allowed) or allowed.startswith(prefix):
             return True
     return False
+
+
+_ADMIN_AWAITING_MODULES = [
+    "handlers/admin.py",
+    "handlers/admin_stats.py",
+    "handlers/admin_cost.py",
+    "handlers/admin_plans.py",
+    "handlers/admin_ai.py",
+]
+
+
+def _collect_admin_awaiting_keys() -> set[str]:
+    """Collect the static prefix of every ``user_data['awaiting']`` assignment in
+    the admin modules (handlers/admin*.py).
+
+    For an f-string ``f"admin_plan_full_edit:{name}:0"`` the static prefix is
+    ``admin_plan_full_edit:``; for a literal ``"llm_cost_user"`` it is the whole
+    string. These are the admin awaiting keys that ``is_admin_awaiting`` must
+    recognize so the router never drops one (Finding #6 regression guard).
+    """
+    import re
+    from pathlib import Path
+
+    keys: set[str] = set()
+    # Dynamic discovery: all admin_*.py files in handlers/
+    for filepath in Path("handlers").glob("admin*.py"):
+        try:
+            with open(filepath, encoding="utf-8") as f:
+                text = f.read()
+        except FileNotFoundError:
+            continue
+        # Match both single and double quotes, literals and f-strings
+        for m in re.finditer(r'user_data\[["\']awaiting["\']\]\s*=\s*f?["\']([^"\']*)["\']', text):
+            static = m.group(1).split("{", 1)[0]
+            if static:
+                keys.add(static)
+    return keys
 
 
 class TestCallbackWiring(unittest.TestCase):
@@ -578,3 +656,47 @@ class TestCallbackWiring(unittest.TestCase):
             _module_has_symbol("handlers.study_handler", "handle_study_start"),
             "resolvable import was rejected",
         )
+
+    def test_is_admin_awaiting_covers_all_admin_awaiting_keys(self):
+        """Every admin awaiting key assigned in handlers/admin*.py must be
+        recognized by ``is_admin_awaiting`` (Finding #6 regression guard).
+
+        If a new admin awaiting key is introduced without extending
+        ``is_admin_awaiting`` (and the ``bot.py`` text_router that now delegates
+        to it), the router would silently drop it — exactly the ``ai_fallback_rank:``
+        gap this finding fixes. This guard makes that impossible to miss.
+        """
+        from handlers.admin import is_admin_awaiting
+
+        keys = _collect_admin_awaiting_keys()
+        self.assertGreater(len(keys), 0, "no admin awaiting keys collected")
+        uncovered = sorted(k for k in keys if not is_admin_awaiting(k))
+        self.assertEqual(
+            uncovered,
+            [],
+            f"admin awaiting keys not covered by is_admin_awaiting: {uncovered}",
+        )
+
+    def test_no_handler_imports_from_bot(self):
+        """No handler/service may import `from bot import ...`.
+
+        bot.py is the top-level entry point and owns the Telegram router and
+        job orchestration; it imports handlers, so any handler->bot import is
+        a backward edge that risks a circular import. Shared runtime helpers
+        (e.g. apply_log_level) must live in services/utils/helpers.py or
+        config/ instead. This guard prevents regression of the #5 fix.
+        """
+        offending: list[str] = []
+        for path in _production_py_files():
+            if str(path) == "bot.py":
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ImportFrom):
+                    continue
+                if node.module == "bot":
+                    names = ", ".join(
+                        (a.asname or a.name) for a in node.names
+                    )
+                    offending.append(f"{path}: from bot import {names}")
+        self.assertEqual(offending, [])

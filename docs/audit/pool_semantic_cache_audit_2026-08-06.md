@@ -1,6 +1,6 @@
 # Pool / Semantic-Cache Pre-Decision Audit
 
-**Date:** 2026-08-06
+**Date:** 2026-08-06 (reconciled 2026-08-08)
 **Scope:** Read-only fact-gathering. No implementation. Prepared so the owner (Parsa) can
 review risks before any Contract Lock Rule in the "B" category is locked.
 **Method:** Three independent subagents (pool-plan/FSRS, embedding infra, callback/scope)
@@ -360,5 +360,49 @@ Design-relevant facts for a semantic-cache proposal (from the above):
   records the facts above.
 
 ---
+
+---
+
+## 6. Reconciliation (2026-08-08)
+
+> Additive, docs-only. No locked decision changed. Records which findings were
+> resolved by subsequent code and which remain open owner decisions, so the
+> next Contract-Lock session reads a consistent baseline. Findings below are
+> reconciled against source on 2026-08-08.
+
+### Resolved since 2026-08-06
+
+- **`entry_source` landed** (§3 Q2-family, owner amendment): `saved_words.entry_source
+  TEXT DEFAULT 'manual'` (`services/db/schema.py:124,304-306`); manual write path wires
+  `entry_source='manual'`; Rule #1/#3 LOCKED, Rule #2 (backfill) deferred pending Phase 2b
+  (`docs/audit/architecture_alignment_2026-08-06.md` § Candidate B rule). This closes the
+  "no source column" gap for origin tagging; pool writes can rely on it once Tier-3 exists.
+- **Normalization standard confirmed**: `casefold` (`_normalize_word`,
+  `services/db/schema.py:31-32`) is the single canonical key; the `lower(trim)` backfill
+  divergence is retired in favor of `casefold` (architecture R1 / Option C). Pool `item_key`
+  must reuse `_normalize_word` exactly.
+- **Segment-key gap resolved as a design decision (not yet implemented)**: extract
+  `(target_lang, goal, level)` from `tier3_context` at runtime
+  (`handlers/study_handler.py:141-147`) instead of adding `goal`/`level` columns to
+  `saved_words` (architecture Option B / R3). The plan's non-reducible "check" SQL is restated
+  accordingly.
+
+### Still open (owner decision — decision inputs, not locked rules)
+
+- **Pool intake source-set after daily-card removal**: re-anchor on
+  `saved_words.first_exposure_done` Tier-2 rows (plan_pooling.md § 2026-08-08 Reconciliation);
+  source kinds and avoid-list wording to be re-derived.
+- **Semantic-cache embeddings (A1)**: vector dependency still adds
+  `sentence-transformers`/torch/onnxruntime + BLOB schema + CI weight; no owner approval.
+  Phase 0 (normalized matching) recommended first.
+- **Admin forum group (A4)**: still needs a `ROADMAP.md` scope move out of AGENTS.md §9
+  `groups` guardrail.
+- **`report_card:` feedback signal carrier (A2)**: `quality_flag_count` column + `report_card:`
+  callbacks proposed; routing map / skill table update required if approved.
+- **Pool-builder CLI budget/scope (B3/B5)**: bulk-pool-pilot limits and whether the builder
+  precedes the DAU trigger; see architecture blueprint open questions.
+
+The plan-file updates implied by the resolved rows are recorded in
+`docs/plans/content/plan_pooling.md` § 2026-08-08 Reconciliation.
 
 _End of audit. No source files were modified; this report is the sole output._

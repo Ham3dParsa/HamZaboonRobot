@@ -93,6 +93,7 @@ from services.utils.helpers import (
     _CANCEL_INPUTS,
     _CUSTOM_WORD_MAX_CHARS,
     _CUSTOM_WORD_MAX_WORDS,
+    apply_log_level,
 )
 
 from services.ai.llm_services import (
@@ -106,7 +107,8 @@ from handlers.admin import (
     _handle_admin_callback,
     _handle_admin_text_input,
     _handle_llm_callback,
-    _edit_ai_preset,
+    is_admin_awaiting,
+    handle_flow_back,
     cmd_backup,
     cmd_restore,
     handle_restore_doc,
@@ -195,16 +197,6 @@ logging.basicConfig(level=_log_level, handlers=[_handler], force=True)
 for _quiet_logger_name in ("apscheduler", "httpcore", "httpx", "telegram"):
     logging.getLogger(_quiet_logger_name).setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
-
-def _apply_log_level(level_name: str) -> None:
-    """Set root logger level and quieter external loggers accordingly."""
-    level = getattr(logging, level_name.upper(), None)
-    if level is None:
-        return
-    logging.getLogger().setLevel(level)
-    for name in ("apscheduler", "httpcore", "httpx", "telegram"):
-        logging.getLogger(name).setLevel(max(level, logging.WARNING))
-    log.info("log level set to %s", level_name.upper())
 
 
 _app_timezone = APP_TZ
@@ -400,7 +392,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        if awaiting.startswith("admin_") or awaiting.startswith("llm_cost_") or awaiting.startswith("llm_price_") or awaiting.startswith("ai_preset_") or awaiting.startswith("ai_custom_test_"):
+        if is_admin_awaiting(awaiting):
             await _handle_admin_text_input(update, context, awaiting, text)
             return
 
@@ -452,23 +444,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.callback_query.answer()
 
     if data == "flow:back":
-        awaiting = context.user_data.get("awaiting", "")
-        if awaiting.startswith("ai_preset_edit:"):
-            preset_name = awaiting.split(":", 1)[1].rsplit(":", 1)[0]
-            context.user_data.pop("awaiting", None)
-            await _edit_ai_preset(update, context, preset_name)
-        elif awaiting.startswith("ai_preset_full_edit:"):
-            preset_name = awaiting.split(":", 2)[1]
-            context.user_data.pop("full_edit", None)
-            context.user_data.pop("awaiting", None)
-            await _edit_ai_preset(update, context, preset_name)
-        elif awaiting.startswith("admin_plan_full_edit:"):
-            context.user_data.pop("plan_full_edit", None)
-            await _exit_awaiting_flow(update, context, via_callback=True)
-        elif awaiting:
-            await _exit_awaiting_flow(update, context, via_callback=True)
-        else:
-            await update.callback_query.answer("فعلاً چیزی برای لغو نیست.", show_alert=True)
+        await handle_flow_back(update, context)
         return
 
     if data == "flow:cancel":
@@ -782,7 +758,7 @@ def main():
     db.migrate_saved_words_to_fsrs()
     db_level = db.get_setting("log_level", "")
     if db_level:
-        _apply_log_level(db_level)
+        apply_log_level(db_level)
     if not BOT_TOKEN:
         raise SystemExit("BOT_TOKEN در .env تنظیم نشده.")
 

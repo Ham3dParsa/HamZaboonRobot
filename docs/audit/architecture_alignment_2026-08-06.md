@@ -1,6 +1,6 @@
 # System Architecture Alignment & Technical Blueprint
 **Document Reference:** `docs/audit/pool_semantic_cache_audit_2026-08-06.md`
-**Status:** Under Revision
+**Status:** Under Revision (reconciled 2026-08-08 — B6 `entry_source` landed; see § entry_source status below)
 **Target Architecture:** Tier-3 Integration (Phase 3b+)
 
 ---
@@ -171,6 +171,9 @@ entry sources**, and a card then moves through two **lifecycle states**:
   `saved_words`.
   Rejected: B (column only, no writes — weaker evidence); C (defer to Tier-3 — forces a
   later migration).
+  > **Landed 2026-08-08:** `entry_source TEXT DEFAULT 'manual'` present on fresh DB
+  > (`services/db/schema.py:124`) and via idempotent ALTER for prior-schema upgrade
+  > (`services/db/schema.py:304-306`). **Gate status: LOCKED / IMPLEMENTED.**
 - **Rule #2 (DEFERRED pending Phase 2b):** backfill — pre-existing `saved_words` rows →
   `'manual'`; rows migrated from `daily_cards` → `'auto'`. Implemented inside
   `migrate_saved_words_to_fsrs()`: reset `UPDATE` (`words.py:329-334`) sets `'manual'`;
@@ -181,6 +184,8 @@ entry sources**, and a card then moves through two **lifecycle states**:
 - **Rule #3 (LOCKED, independent):** wire the manual write path — `_handle_query_add`
   (`srs_handler.py:46`) → `add_saved_word(..., entry_source='manual')`; optional kwarg
   default `'manual'` in `add_saved_word` (`words.py:180-203`).
+  > **Landed 2026-08-08:** manual write path wires `entry_source='manual'`. **Gate status:
+  > LOCKED / IMPLEMENTED.**
 
 ### Dependency & Wiring Map (verified post-impl via grep + `tests/test_wiring.py` + dead-ref guard)
 - `schema.py:109-124` CREATE block → add `entry_source` column (fresh DB).

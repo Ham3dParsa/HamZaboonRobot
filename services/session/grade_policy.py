@@ -1,11 +1,11 @@
-"""Grade policy definitions and activity registry for session engine."""
+"""Grade policy definitions for the session engine."""
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -58,42 +58,6 @@ GRADE_POLICIES: dict[str, GradePolicy] = {
             "perfect": 4,
         }),
         description="Sentence writing assessment (judged by AI)",
-    ),
-}
-
-
-@dataclass(frozen=True)
-class ActivityHandler:
-    grade_policy: GradePolicy
-    get_interaction_ui: Callable | None = None
-
-
-def _get_review_ui(node):
-    from config.keyboards import get_review_keyboard
-    user_id = node.activity_meta.get("user_id", 0)
-    word_id = node.source_id or 0
-    text = node.card_data.get("word", "")
-    keyboard = get_review_keyboard(user_id, word_id, show_pronounce=True)
-    return text, keyboard
-
-
-def _get_first_exposure_ui(node):
-    from config.keyboards import get_first_exposure_keyboard
-    user_id = node.activity_meta.get("user_id", 0)
-    word_id = node.source_id or 0
-    text = node.card_data.get("word", "")
-    keyboard = get_first_exposure_keyboard(user_id, word_id, show_pronounce=True)
-    return text, keyboard
-
-
-ACTIVITY_REGISTRY: dict[str, ActivityHandler] = {
-    "srs_review": ActivityHandler(
-        grade_policy=GRADE_POLICIES["srs_review"],
-        get_interaction_ui=_get_review_ui,
-    ),
-    "first_exposure": ActivityHandler(
-        grade_policy=GRADE_POLICIES["first_exposure"],
-        get_interaction_ui=_get_first_exposure_ui,
     ),
 }
 

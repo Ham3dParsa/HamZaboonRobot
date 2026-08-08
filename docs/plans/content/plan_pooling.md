@@ -3,6 +3,87 @@
 > **STATUS:** active (locked, not implemented)
 > **Canonical references:** this file, `ROADMAP.md`, [GitHub Issues #40](https://github.com/Ham3dParsa/HamZaboonRobot/issues/40)
 > **Sequencing vetted:** 2026-07-31 — confirmed independent of FSRS migration (Phase 1a `db/` split), recommended deferred until after FSRS stabilizes + Issue #180 extraction. See [§ Sequencing](#sequencing) for trigger condition and rationale.
+> **Reconciled:** 2026-08-08 — superseded assumptions re-anchored to current code. See [§ 2026-08-08 Reconciliation](#2026-08-08-reconciliation). Locked decisions below are **not** rewritten by the reconciliation; deltas that require re-derivation are flagged there as pending owner decision.
+
+---
+
+## 2026-08-08 Reconciliation
+
+> Additive, docs-only note. No locked decision below is changed. This section
+> records where this plan's assumptions no longer match current code and what a
+> future pool-builder Contract-Lock session must re-derive. Evidence-based from
+> `docs/audit/pool_semantic_cache_audit_2026-08-06.md`,
+> `docs/audit/architecture_alignment_2026-08-06.md`, and source.
+
+**Daily-card intake is obsolete.** The reserved `source_kind: daily_card`
+(§ Pool identity) and the sequencing step "Insert validated daily cards into
+the pool" (slice 2) reference a construct under active removal. The session
+engine reads only `saved_words`; `daily_cards` is a drained source awaiting its
+scheduled Phase-2 drop (`services/db/schema.py:130`,
+`services/db/words.py:12-115,312-371`, `docs/plans/fsrs/plan_fsrs_session_cleanup.md`).
+**Pool eligibility and intake must re-anchor on `saved_words.first_exposure_done`
+Tier-2 rows** (the already-landed acceptance path). The source-kind set and the
+"avoid-lists" wording in § Locked product decisions must be re-derived from
+that re-anchor at contract-lock time.
+
+**Segment key comes from session context, not a stored column.** The pool is
+keyed by `(target_lang, goal, level, ...)`, but `saved_words` has no
+`goal`/`level` columns and is unique only on `(user_id, lang, normalized_word)`
+(`services/db/schema.py:124,330`). The plan's "How to check" SQL grouping by
+`(goal, level)` over `saved_words` is not reducible as written. The resolved
+design is to derive `(target_lang, goal, level)` dynamically from `tier3_context`
+at runtime (`handlers/study_handler.py:141-147`) rather than migrate the schema —
+see `docs/audit/architecture_alignment_2026-08-06.md` (Option B, R3).
+
+**`entry_source` has landed.** `saved_words.entry_source TEXT DEFAULT 'manual'`
+was added (`services/db/schema.py:124,304-306`), the manual write path wires
+`entry_source='manual'`, and the migration backfill half (Rule #2) is deferred
+pending Phase 2b. Pool writes can rely on `entry_source` for origin tagging once
+Tier-3 (Phase 3b+) real generation exists; `'auto'` has no write path today.
+
+**Normalization is confirmed.** `_normalize_word` =
+`" ".join(word.split()).casefold()` (`services/db/schema.py:31-32`) is the single
+canonical standard; the legacy `lower(trim(...))` backfill divergence is
+resolved in favor of `casefold` (Option C / R1 in the architecture blueprint).
+The pool `item_key` must reuse `_normalize_word` semantics exactly.
+
+**Re-entry trigger still unmet and still valid in intent.** Live scale
+(`saved_words`=531, `users`=15) does not reach the DAU≥50 + segment-density
+trigger, so implementation remains deferred. The trigger's "How to check" query
+must be restated against the Tier-2 `saved_words` re-anchor once `daily_cards`
+is dropped (it cannot reference `content_pool` before the table exists and
+cannot group `saved_words` by a `goal`/`level` it does not store).
+
+**Deltas pending owner decision at the next Contract-Lock session (decision
+inputs, not locked rules):** source-kind set after daily-card removal; avoid-list
+wording on the surviving personal-history path; inventory-floor "per segment/
+source" definition post re-anchor; and whether a bulk pool-builder CLI (~1000
+cards/segment) enters scope before the DAU trigger — see
+`docs/audit/architecture_alignment_2026-08-06.md` B2/B3/B5 and the Claude-decision
+context note. These do not unlock implementation; they only define the
+contract-lock surface.
+
+### Claude decision context (non-normative — decision inputs, not locked rules)
+
+> Recorded 2026-08-08 from the 2026-08-04 audit
+> `docs/audit/audit_content_pool_feedback_2026-08.md` and the owner's Claude-
+> conversation summary. This list is **evidence, not gate** — every item below is
+> a PENDING owner decision to be locked in the next pool-builder Contract-Lock
+> session, not an approved rule. The full Rules 1–12 enumeration is owned by that
+> session; only evidence-backed items are listed here, and no missing rule is
+> inferred (AGENTS.md §2.2).
+
+| Evidence-backed item | Where | State |
+|----------------------|-------|-------|
+| Pool ownership / `content_pool` schema (Rule 2) | `plan_pooling.md` schema; `audit_content_pool_feedback_2026-08.md` §3, Appendix A | PENDING owner decision |
+| Flag threshold for card quality (Rule 7) | No existing `view`/`report` field on any table — count mechanism starts from zero (`audit_content_pool_feedback_2026-08.md` §3) | PENDING owner decision |
+| Cheap review model exists (Rule 8b) | `gemini-3.5-flash-lite` and `gemini-flash-lite-latest` already registered in `ai_presets.py` — no new model needed | PENDING owner decision (reuse) |
+| Model tag (Rule 9) | `llm_requests.model`/`preset_name` logged per request but no `card_id`/`saved_word_id` join and no model column on cards; needs a new column/key (`audit_content_pool_feedback_2026-08.md` §3, Appendix B) | PENDING owner decision |
+| Phase-8 reality (Rule 10) | Phase 8 remains `planned`; only raw grading scaffolds (`grade_policy.py`) + admin cost dashboard exist, not yet registered as started work | PENDING owner decision |
+| Admin forum group with topics | No `ADMIN_GROUP_ID`/`message_thread_id` infrastructure; requires a `ROADMAP.md` scope move out of AGENTS.md §9 `groups` guardrail and design from zero | PENDING owner decision |
+
+These items are the Claude-conversation decision surface that the next
+Contract-Lock session must resolve rule-by-rule per AGENTS.md §2.3/§2.4.
 
 ## Goal
 

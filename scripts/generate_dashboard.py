@@ -1349,9 +1349,18 @@ def render() -> str:
     ps = json.loads(PROJECT_STATUS_PATH.read_text(encoding="utf-8"))
     phases: list[dict] = ps.get("phases", [])
     decisions: list[dict] = ps.get("decisions", [])
-    # Generate with a timezone-stable reference date so the committed html
+    # Use the last commit date (deterministic) so the committed html
     # footer matches CI's regeneration regardless of the runner's local clock.
-    today = datetime.now(timezone.utc).date().isoformat()
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["git", "log", "-1", "--format=%ci"],
+            capture_output=True, text=True, cwd=BASE
+        )
+        commit_date = result.stdout.strip().split()[0] if result.returncode == 0 and result.stdout.strip() else datetime.now(timezone.utc).date().isoformat()
+    except Exception:
+        commit_date = datetime.now(timezone.utc).date().isoformat()
+    today = commit_date
     json_data = json.dumps(ps, ensure_ascii=False)
 
     parts = [

@@ -36,3 +36,27 @@ graphify-out/
 .graphify/
 graph.html
 GRAPH_REPORT.md
+
+# Runtime / generated artifacts
+tts_cache/
+junit/
+*.bak
+*.tmp
+*.lnk
+
+# One-off analysis / throwaway scripts
+check_db.py
+check_v12_temp.py
+export_cards.py
+gap_analysis.md
+Report_TechDebt_Audit*.md
+shapuri-mar.html
+
+# Temp cross-context docs
+docs/tmp_docs_4_contx_4_other_AIs/
+
+# Raw generated report dumps (keep the .md comparisons)
+docs/reports/*.json
+
+# FSRS simulator archived experiment versions
+tools/**/archive/

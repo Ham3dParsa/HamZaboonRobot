@@ -29,10 +29,10 @@ class TestAiPresetFieldInputReArm(unittest.IsolatedAsyncioTestCase):
     """_handle_ai_preset_field_input must re-arm awaiting on ValueError."""
 
     async def _run(self, field_name: str, bad_input: str):
-        from handlers.admin import _handle_ai_preset_field_input
+        from handlers.admin_ai import _handle_ai_preset_field_input
         update = _make_update(text=bad_input)
         context = _make_context()
-        with patch("handlers.admin.db") as mock_db:
+        with patch("handlers.admin_ai.db") as mock_db:
             mock_db.get_preset.return_value = {"name": "test", "base_url": "", "model": "",
                                                "daily_batch_size": 6, "max_concurrency": 2,
                                                "max_rpm": 30, "timeout_seconds": 30.0,
@@ -61,10 +61,10 @@ class TestAiPresetNewNameReArm(unittest.IsolatedAsyncioTestCase):
     """_handle_ai_preset_new_name must re-arm awaiting on validation failure."""
 
     async def _run(self, name: str, existing_name: str | None = None):
-        from handlers.admin import _handle_ai_preset_new_name
+        from handlers.admin_ai import _handle_ai_preset_new_name
         update = _make_update(text=name)
         context = _make_context()
-        with patch("handlers.admin.db") as mock_db:
+        with patch("handlers.admin_ai.db") as mock_db:
             mock_db.get_preset.return_value = (
                 {"name": existing_name} if existing_name else None
             )
@@ -128,6 +128,43 @@ class TestTextRouterPrefixDispatch(unittest.IsolatedAsyncioTestCase):
                     await text_router(update, context)
                 mock_fn.assert_called_once()
 
+    async def test_router_dispatches_llm_cost_user(self):
+        from bot import text_router
+        update = _make_update(user_id=1, text="all")
+        context = _make_context()
+        context.user_data["awaiting"] = "llm_cost_user"
+        with patch("bot.db.reset_user_blocked"):
+            with patch("bot.is_owner", return_value=True):
+                with patch("handlers.admin._handle_cost_text_input", new=AsyncMock()) as mock_fn:
+                    with patch("handlers.admin.db") as mock_db:
+                        await text_router(update, context)
+                    mock_fn.assert_called_once()
+
+    async def test_dispatcher_routes_ai_fallback_rank(self):
+        from handlers.admin import _handle_admin_text_input
+        update = _make_update(user_id=1, text="2")
+        context = _make_context()
+        with patch("handlers.admin._handle_ai_text_input", new=AsyncMock()) as mock_fn:
+            with patch("handlers.admin.db") as mock_db:
+                mock_db.get_preset.return_value = {"name": "gpt", "is_emergency": 0}
+                await _handle_admin_text_input(update, context, "ai_fallback_rank:gpt", "2")
+            mock_fn.assert_called_once()
+
+    async def test_router_dispatches_ai_fallback_rank_via_is_admin_awaiting(self):
+        """text_router must now route ai_fallback_rank: through _handle_admin_text_input
+        to _handle_ai_text_input (regression guard for the Finding #6 routing gap)."""
+        from bot import text_router
+        update = _make_update(user_id=1, text="2")
+        context = _make_context()
+        context.user_data["awaiting"] = "ai_fallback_rank:gpt"
+        with patch("bot.db.reset_user_blocked"):
+            with patch("bot.is_owner", return_value=True):
+                with patch("handlers.admin._handle_ai_text_input", new=AsyncMock()) as mock_fn:
+                    with patch("handlers.admin.db") as mock_db:
+                        mock_db.get_preset.return_value = {"name": "gpt", "is_emergency": 0}
+                        await text_router(update, context)
+                    mock_fn.assert_called_once()
+
     async def test_router_rejects_nonowner_admin_flows(self):
         """Non-owner with admin_ awaiting must be rejected."""
         from bot import text_router
@@ -140,20 +177,70 @@ class TestTextRouterPrefixDispatch(unittest.IsolatedAsyncioTestCase):
                     await text_router(update, context)
                 mock_fn.assert_not_called()
 
+    async def test_callback_router_routes_flow_back_to_handle_flow_back(self):
+        """callback_router(data='flow:back') must delegate to handle_flow_back."""
+        from bot import callback_router
+        update = _make_update(user_id=1, text="")
+        update.callback_query.data = "flow:back"
+        context = _make_context()
+        context.user_data["awaiting"] = "ai_preset_edit:gpt:model"
+        with patch("bot.db.reset_user_blocked"):
+            with patch("bot.handle_flow_back", new=AsyncMock()) as mock_fn:
+                await callback_router(update, context)
+            mock_fn.assert_called_once()
 
+
+class TestHandleFlowBack(unittest.IsolatedAsyncioTestCase):
+    """handle_flow_back() back-navigation branches (Finding #6 move)."""
+
+    async def _run(self, awaiting: str):
+        from handlers.admin import handle_flow_back
+        update = _make_update()
+        context = _make_context()
+        context.user_data["awaiting"] = awaiting
+        with patch("handlers.admin._edit_ai_preset", new=AsyncMock()) as m_edit:
+            with patch("handlers.admin._exit_awaiting_flow", new=AsyncMock()) as m_exit:
+                await handle_flow_back(update, context)
+        return m_edit, m_exit, update, context
+
+    async def test_ai_preset_edit_branch(self):
+        m_edit, m_exit, update, context = await self._run("ai_preset_edit:gpt:model")
+        m_edit.assert_called_once_with(update, context, "gpt")
+        m_exit.assert_not_called()
+
+    async def test_ai_preset_full_edit_branch(self):
+        m_edit, m_exit, update, context = await self._run("ai_preset_full_edit:gpt:0")
+        m_edit.assert_called_once_with(update, context, "gpt")
+        m_exit.assert_not_called()
+
+    async def test_admin_plan_full_edit_branch(self):
+        m_edit, m_exit, update, context = await self._run("admin_plan_full_edit:silver:0")
+        m_exit.assert_called_once()
+        m_edit.assert_not_called()
+
+    async def test_generic_admin_awaiting_branch(self):
+        m_edit, m_exit, update, context = await self._run("admin_set_plan")
+        m_exit.assert_called_once()
+        m_edit.assert_not_called()
+
+    async def test_empty_awaiting_branch(self):
+        m_edit, m_exit, update, context = await self._run("")
+        m_exit.assert_not_called()
+        m_edit.assert_not_called()
+        update.callback_query.answer.assert_called()
 
 
 class TestAiCallWrappedInToThread(unittest.IsolatedAsyncioTestCase):
     """Finding #1: sync AI calls in admin handlers must run via asyncio.to_thread."""
 
     async def test_ai_connection_runs_via_to_thread(self):
-        from handlers.admin import _test_ai_connection
+        from handlers.admin_ai import _test_ai_connection
         update = _make_update()
         context = _make_context()
-        with patch("handlers.admin.db.get_active_preset") as mock_preset:
+        with patch("handlers.admin_ai.db.get_active_preset") as mock_preset:
             mock_preset.return_value = {"base_url": "", "model": "test", "timeout_seconds": 30.0}
-            with patch("handlers.admin.ai.test_connection") as mock_test:
-                with patch("handlers.admin.asyncio.to_thread", new=AsyncMock()) as mock_to_thread:
+            with patch("handlers.admin_ai.ai.test_connection") as mock_test:
+                with patch("handlers.admin_ai.asyncio.to_thread", new=AsyncMock()) as mock_to_thread:
                     mock_to_thread.return_value = {"success": True, "latency_ms": 42, "model": "test", "usage": {}}
                     await _test_ai_connection(update, context)
         mock_to_thread.assert_called_once()
@@ -161,17 +248,17 @@ class TestAiCallWrappedInToThread(unittest.IsolatedAsyncioTestCase):
         self.assertIs(args[0], mock_test)
 
     async def _run_custom_test_with_mocks(self, target: str):
-        from handlers.admin import _run_custom_test
+        from handlers.admin_ai import _run_custom_test
         update = _make_update()
         context = _make_context()
         context.user_data["custom_test_state"] = {"prompt": "test", "lang": "en", "goal": "general", "level": "beginner"}
-        with patch("handlers.admin.prompts.daily_batch_system_prompt", return_value="system prompt"):
-            with patch("handlers.admin.db.get_active_preset") as mock_active:
+        with patch("handlers.admin_ai.prompts.daily_batch_system_prompt", return_value="system prompt"):
+            with patch("handlers.admin_ai.db.get_active_preset") as mock_active:
                 mock_active.return_value = {"name": "current"}
-                with patch("handlers.admin.db.get_preset") as mock_get_preset:
+                with patch("handlers.admin_ai.db.get_preset") as mock_get_preset:
                     mock_get_preset.return_value = {"name": "candidate"}
-                    with patch("handlers.admin.ai_presets") as mock_presets:
-                        with patch("handlers.admin.asyncio.to_thread", new=AsyncMock()) as mock_to_thread:
+                    with patch("handlers.admin_ai.ai_presets") as mock_presets:
+                        with patch("handlers.admin_ai.asyncio.to_thread", new=AsyncMock()) as mock_to_thread:
                             mock_to_thread.return_value = {"word": "hello"}
                             await _run_custom_test(update, context, target)
         return mock_to_thread
@@ -186,6 +273,35 @@ class TestAiCallWrappedInToThread(unittest.IsolatedAsyncioTestCase):
     async def test_custom_test_ab_runs_via_to_thread_twice(self):
         mock_to_thread = await self._run_custom_test_with_mocks("ab")
         self.assertEqual(mock_to_thread.call_count, 2)
+
+
+class TestIsAdminAwaiting(unittest.IsolatedAsyncioTestCase):
+    """is_admin_awaiting() is the single source of truth for admin awaiting keys
+    (Finding #6). It must recognize every admin awaiting key and reject user keys."""
+
+    def test_known_admin_keys_return_true(self):
+        from handlers.admin import is_admin_awaiting
+        for key in (
+            "admin_set_plan", "admin_broadcast", "admin_restore",
+            "admin_plan_full_edit:silver:0", "admin_ai_preset_new_name",
+            "admin_group_batch_key:abc", "admin_group_set_label:abc",
+            "admin_group_manager_rename:abc",
+            "ai_preset_new_name", "ai_preset_edit:gpt:model",
+            "ai_preset_full_edit:gpt:0", "ai_custom_test_prompt",
+            "ai_fallback_rank:gpt", "llm_cost_user", "llm_cost_model",
+            "llm_price_input", "llm_price_output", "llm_price_rate",
+        ):
+            self.assertTrue(is_admin_awaiting(key), key)
+
+    def test_non_admin_keys_return_false(self):
+        from handlers.admin import is_admin_awaiting
+        for key in ("ask_word", "", "flow:back", "stats", "llm:usage", "srs:fe", "user_settings"):
+            self.assertFalse(is_admin_awaiting(key), key)
+
+    def test_empty_and_none_return_false(self):
+        from handlers.admin import is_admin_awaiting
+        self.assertFalse(is_admin_awaiting(""))
+        self.assertFalse(is_admin_awaiting(None))
 
 
 if __name__ == "__main__":

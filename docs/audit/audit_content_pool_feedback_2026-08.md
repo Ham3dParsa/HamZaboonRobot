@@ -29,7 +29,7 @@
 
 | محور | وجود دارد؟ | خلاصهٔ شواهد | ریسک / نکتهٔ مهم برای تصمیم بعدی |
 |---|---|---|---|
-| **استخر محتوا (Pooling)** | سند دارد، کد ندارد | طرح در `docs/plans/content/plan_pooling.md` (نسخهٔ جدیدتر، ۲۴۵ خط) و `docs/plan_pooling.md` (نسخهٔ قدیمی‌تر، ۱۶۹ خط) هست؛ schema پیشنهادی و کلید یکتا عیناً در پیوست A نقل می‌شود. هیچ جدول `content_pool` / `pool` / `shared_cards` در `services/db/schema.py` وجود ندارد (۱۳ جدول فعلی هیچ‌کدام pool نیستند). پرچم `ENABLE_CONTENT_POOL` در کد نیست. | دو فایلِ طرح تقریباً یکسان ولی نه کاملاً یکسان‌اند (نسخهٔ جدیدتر بخش «Sequencing» دارد و پیاده‌سازی را به محرک DAU≥۵۰ موکول کرده). این دوتاگی مبهم است و طبق AGENTS.md §۸ ریسکِ یک‌دست‌نبودن اسناد دارد. |
+| **استخر محتوا (Pooling)** | سند دارد، کد ندارد | طرح در `docs/plans/content/plan_pooling.md` (۲۴۵ خط، نسخهٔ فعلی) هست؛ schema پیشنهادی و کلید یکتا عیناً در پیوست A نقل می‌شود. هیچ جدول `content_pool` / `pool` / `shared_cards` در `services/db/schema.py` وجود ندارد (۱۳ جدول فعلی هیچ‌کدام pool نیستند). پرچم `ENABLE_CONTENT_POOL` در کد نیست. | طرح یک فایل مرجع واحد دارد (`docs/plans/content/plan_pooling.md`)؛ نسخهٔ قدیمی‌تر `docs/plan_pooling.md` در 2026-08-08 حذف و محتوایش در گروه‌بندی تم به `docs/plans/content/` منتقل شد. پیاده‌سازی به محرک DAU≥۵۰ موکول شده و وضعیتش «قفل‌شده، پیاده‌نشده» است. |
 | **بازخورد / بازدید کارت** | ندارد | در `services/db/` هیچ ستون یا تابعی با نام‌های `views` ،`impressions` ،`feedback` ،`rating` ،`report` ،`flag` ،`thumbs` ،`like` ،`dislike` نیست. هیچ دکمه یا `callback_data` مرتبط با گزارش/مشکل/لایک در `callback_router` (`bot.py`)، `config/keyboards.py` یا `handlers/srs_handler.py` نیست. تنها «بازخورد» موجود، درون‌مایهٔ درجه‌بندی SRS (`review_events.grade/outcome`) است. | `daily_cards` جدولِ روزانه/گذراست و طبق `project_status.json` (فاز ۲) در دستِ حذف است؛ افزودن شمارنده به آن ریسک بالاتری دارد. `saved_words` جدول پایدار SRS است و پیشینهٔ «ALTER TABLE ADD COLUMN» (مثل `srs_retry_attempts`) را دارد. |
 | **تگ مدل / preset** | لاگ هست، تگ کارت نیست | جدول `llm_requests` (schema.py:177) در هر درخواست شامل `model` و `preset_name` (مقادیر migration، schema.py:487) است. `_log_llm_request()` (`services/ai/ai.py`) در زمان تولید، `preset_name` و `model` را ثبت می‌کند. ولی `llm_requests` هیچ ستون `card_id` / `word_id` ندارد؛ بنابراین اتصال (join) به کارتِ خاص ممکن نیست. `daily_cards` و `saved_words` هیچ ستون `generated_by_model` / `model_name` / `preset_id` ندارند. | برای تگ مدل روی کارت، یا باید ستونی روی جدول کارت(ها) اضافه شود، یا یک کلید `card_id` / `saved_word_id` به `llm_requests`. در `ai_presets.py`، مدل‌های `gemini-3.5-flash-lite` و `gemini-flash-lite-latest` از قبل ثبت شده‌اند (مرتبط با Rule 8b). |
 | **گروه / تاپیک ادمین** | ندارد | تنها شناسهٔ مالک `OWNER_ID` است (`config/__init__.py:7`). هیچ `ADMIN_GROUP_ID` / شناسهٔ گروهی نیست. پیام‌های ادمین به `update.effective_chat.id` (همان چت خصوصیِ مالک) ارسال می‌شوند؛ `error_handler` (`bot.py:1318`) فقط در لاگ است و پیامی به مالک نمی‌فرستد. `message_thread_id` (پارامتر ارسال به تاپیک) در هیچ‌جای کدبیس نیست. | اگر گزارش‌های دسته‌بندی‌شده بخواهند به گروه/سوپرگروه با تاپیک بروند، هم شناسهٔ چتِ گروهی و هم `message_thread_id` غایب‌اند — باید از صفر طراحی شود. |
@@ -76,9 +76,7 @@
 
 این سؤال‌ها به مالک گذاشته می‌شود و جواب‌دادن به آن‌ها بخشی از گفتگوی بعدی است:
 
-1. کدام فایلِ طرحِ pooling مرجع اصلی است: `docs/plans/content/plan_pooling.md` (نسخهٔ جدیدتر،
-   با بخش «Sequencing») یا `docs/plan_pooling.md` (نسخهٔ قدیمی‌تر)؟ این دوتاییگی، نظام
-   اسنادی (AGENTS §۸) را به خطر می‌اندازد.
+1. کدام فایلِ طرحِ pooling مرجع اصلی است: `docs/plans/content/plan_pooling.md`؟ (نسخهٔ قدیمی‌تر `docs/plan_pooling.md` در 2026-08-08 به‌عنوان سندِ تکراری حذف شد؛ اکنون یک فایل مرجع واحد هست.)
 2. مرجع Issueِ اصلیِ pool — انتخابی که طرح به آن اشاره می‌کند — آیا همانی است که
    ROADMAP استفاده می‌کند؟ (لزوم شماره‌گذاری واحد.)
 3. قصد بازسازی: `daily_cards` طبق فاز-۲ در انتظار حذف است؛ اگر شمارش بازدید/گزارش بخواهد
@@ -97,8 +95,7 @@
 
 ## پیوست A — schema عینی پیشنهادی استخر محتوا (برای Rule 2)
 
-نقل‌قولِ عیناً از `docs/plans/content/plan_pooling.md` (خطوط ۱۰۰–۱۱۶)؛ همین متن در
-`docs/plan_pooling.md` (خطوط ۱۰۰–۱۱۸) تکرار شده است:
+نقل‌قولِ عیناً از `docs/plans/content/plan_pooling.md` (بخش «Data model»؛ بعد از بازبینی 2026-08-08، خطوط ~۱۸۲–۱۹۸):
 
 ```sql
 CREATE TABLE IF NOT EXISTS content_pool (
