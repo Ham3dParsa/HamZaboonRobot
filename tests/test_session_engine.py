@@ -1,4 +1,4 @@
-"""Tests for session engine package — GradePolicy, ACTIVITY_REGISTRY, Assembly."""
+"""Tests for session engine package — GradePolicy, Assembly."""
 
 from __future__ import annotations
 
@@ -7,13 +7,11 @@ from unittest.mock import patch
 
 import pytest
 
+import services.session as session_pkg
 from services.session import (
-    ACTIVITY_REGISTRY,
     GRADE_POLICIES,
-    ActivityHandler,
     GradePolicy,
     SessionNode,
-    build_session,
     build_session_list,
     generate_tier3_node,
     resolve_grade,
@@ -85,28 +83,32 @@ class TestGRADEPolicies:
             assert isinstance(policy.description, str)
 
 
-class TestACTIVITYRegistry:
-    def test_exactly_two_wired_activities(self):
-        # Scope-creep guard: only activities with working UI should be here
-        assert set(ACTIVITY_REGISTRY.keys()) == {"srs_review", "first_exposure"}
+class TestPublicAPI:
+    """The session engine exposes one assembly seam and no dormant registry."""
 
-    def test_srs_review_has_ui(self):
-        handler = ACTIVITY_REGISTRY["srs_review"]
-        assert handler.get_interaction_ui is not None
-        assert callable(handler.get_interaction_ui)
+    def test_public_exports_match_locked_contract(self):
+        expected = {
+            "GRADE_POLICIES",
+            "GradePolicy",
+            "SessionNode",
+            "build_session_list",
+            "generate_tier3_node",
+            "resolve_grade",
+        }
+        # Exact equality pins the public surface so an unintended new export
+        # (or a re-added dormant symbol) fails the test.
+        assert set(session_pkg.__all__) == expected
 
-    def test_first_exposure_has_ui(self):
-        handler = ACTIVITY_REGISTRY["first_exposure"]
-        assert handler.get_interaction_ui is not None
-        assert callable(handler.get_interaction_ui)
-
-    def test_srs_review_grade_policy_matches(self):
-        handler = ACTIVITY_REGISTRY["srs_review"]
-        assert handler.grade_policy.activity_type == "srs_review"
-
-    def test_first_exposure_grade_policy_matches(self):
-        handler = ACTIVITY_REGISTRY["first_exposure"]
-        assert handler.grade_policy.activity_type == "first_exposure"
+    def test_dormant_registry_and_duplicate_assembler_absent(self):
+        # Removed by finding #4: ACTIVITY_REGISTRY, ActivityHandler,
+        # get_interaction_ui, and build_session must not re-enter the public API.
+        for removed in (
+            "ACTIVITY_REGISTRY",
+            "ActivityHandler",
+            "get_interaction_ui",
+            "build_session",
+        ):
+            assert removed not in session_pkg.__all__
 
 
 class TestResolveGrade:
@@ -269,29 +271,6 @@ class TestAssemblyBuildSessionList:
         assert tier3["level"] == "beginner"
         assert tier3["plan"] == "free"
         assert tier3["remaining_slots"] == 5
-
-
-class TestAssemblyBuildSession:
-    def test_is_generator(self):
-        gen = build_session(user_id=1, max_nodes=5)
-        assert hasattr(gen, "__next__")
-        assert hasattr(gen, "send")
-
-    @patch("services.session.assembly.due_words_for_user", return_value=[])
-    @patch("services.session.assembly.get_pre_first_exposure_words", return_value=[])
-    def test_yields_nothing_with_empty_db(self, mock_fe, mock_due):
-        nodes = list(build_session(user_id=1, max_nodes=5))
-        assert nodes == []
-
-    @patch("services.session.assembly.due_words_for_user", return_value=[
-        {"id": 1, "word": "hello"},
-    ])
-    @patch("services.session.assembly.get_pre_first_exposure_words", return_value=[])
-    def test_yields_srs_node(self, mock_fe, mock_due):
-        nodes = list(build_session(user_id=1, max_nodes=5))
-        assert len(nodes) == 1
-        assert nodes[0].activity_type == "srs_review"
-        assert nodes[0].card_data["word"] == "hello"
 
 
 class TestGenerateTier3Node:
