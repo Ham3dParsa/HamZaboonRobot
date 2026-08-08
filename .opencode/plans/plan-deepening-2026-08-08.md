@@ -31,7 +31,7 @@ Lowest risk / highest locality first. Phase files:
 `tests/test_wiring.py`, `tests/test_dead_code_guard.py`, `tests/test_session_engine.py` (phases 2), focused tests, then full suite. Commit per phase (Conventional Commits). Independent review via `hamzaboon-reviewer` before commit per §5.
 
 ## Status
-- Phase 01: in progress — wrapper implemented, focused tests green (59 AI tests pass); pending independent review + commit
+- Phase 01: complete — `_call_tracked(log_target=...)` + 7 tests, committed 883371a, reviewer clean, 460 tests pass
 - Phase 02: pending
 - Phase 03: pending
 - Phase 04: pending
