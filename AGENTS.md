@@ -205,7 +205,11 @@ Keep responsibilities aligned with the current module boundaries:
 
 - `bot.py`: Thin entry point; Telegram handlers, callback routing, jobs, delivery orchestration, and user-facing formatting.
 - `handlers/`: Telegram handler modules.
-  - `handlers/admin.py`: Admin panel handlers.
+  - `handlers/admin.py`: Admin panel **thin dispatcher** — owner gate, callback routing (`_handle_admin_callback`) by prefix to the domain sub-routers below, text-input awaiting dispatch (`_handle_admin_text_input`), and admin-infra handlers (backup/restore, broadcast, phonetic / log-level / user-activity settings). Domain logic lives in the submodules.
+  - `handlers/admin_stats.py`: Admin **stats** sub-router (`handle_admin_stats`) and stats keyboards.
+  - `handlers/admin_plans.py`: Admin **plans** sub-router (`handle_plan_callback`), plan wizard, and plan keyboards.
+  - `handlers/admin_cost.py`: Admin **LLM cost / pricing** sub-router (`handle_cost_callback`, `_handle_llm_callback`) and cost keyboards.
+  - `handlers/admin_ai.py`: Admin **AI presets / fallback / custom-test** sub-router (`handle_ai_callback`) and AI settings panels.
   - `handlers/user.py`: User settings handlers (language, goal, level).
   - `handlers/srs_handler.py`: SRS review handlers.
 - `services/`: Domain services.
