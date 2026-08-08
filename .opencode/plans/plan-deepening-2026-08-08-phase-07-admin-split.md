@@ -21,8 +21,8 @@ independently-testable increments so a bug is isolated to one slice. Each task k
 | 7.5 ✅ | Migrate Batch A: `_handle_admin_callback` routes `stats:`→admin_stats, `plans:`→admin_plans, cost→admin_cost, AI→admin_ai | medium | 7.4 | callback + module |
 | 7.6 ✅ | Migrate Batch B: `_handle_llm_callback` → admin_cost | medium | 7.5 | callback + module |
 | 7.7 ✅ | Migrate `_handle_admin_text_input` awaiting handlers → submodules | medium | 7.6 | callback + module |
-| 7.8 | **Contract**: `_handle_admin_callback` → thin prefix→sub-router dispatcher; delete moved defs from monolith | high | 7.7 (+ phase 06 alongside) | callback + keyboards + module |
-| 7.9 | Rework `tests/test_wiring.py::_collect_admin_sub_actions` (:337-363) to scan ALL admin modules | medium | 7.8 | wiring |
+| 7.8 ✅ | **Contract**: `_handle_admin_callback` → thin prefix→sub-router dispatcher; delete moved defs from monolith | high | 7.7 (+ phase 06 alongside) | callback + keyboards + module |
+| 7.9 ✅ | Rework `tests/test_wiring.py::_collect_admin_sub_actions` (:337-363) to scan ALL admin modules | medium | 7.8 | wiring |
 
 ## Scope — expand→migrate→contract
 - **Expand**: create `handlers/admin_ai.py`, `handlers/admin_cost.py`, `handlers/admin_plans.py`, `handlers/admin_stats.py` as empty modules re-exporting the monolith's existing functions verbatim. No behavior change; all call sites still import from monolith.

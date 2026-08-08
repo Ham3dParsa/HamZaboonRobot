@@ -1379,6 +1379,160 @@ async def _handle_fallback_rank(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 
+async def handle_ai_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    action: str,
+) -> None:
+    """Route AI/preset/fallback admin callback sub-actions to their handlers.
+
+    Mirrors the inline ``admin:ai_*`` / ``admin:fallback*`` / ``admin:help:*``
+    branches that previously lived in the admin monolith's ``_handle_admin_callback``.
+    The owner check is performed by the caller. Behavior and action strings are unchanged.
+    """
+    if action == "ai_settings":
+        await _show_ai_settings(update, context)
+    elif action == "ai_presets":
+        await _show_ai_presets(update, context)
+    elif action.startswith("ai_preset:view:"):
+        preset_name = action.split(":", 2)[2]
+        await _show_ai_preset_view(update, context, preset_name)
+    elif action.startswith("ai_preset:activate:"):
+        preset_name = action.split(":", 2)[2]
+        await _activate_ai_preset(update, context, preset_name)
+    elif action.startswith("ai_preset:edit:"):
+        preset_name = action.split(":", 2)[2]
+        await _edit_ai_preset(update, context, preset_name)
+    elif action.startswith("ai_preset:edit_field:"):
+        # format: ai_preset:edit_field:preset_name:field_name
+        parts = action.split(":", 3)
+        if len(parts) == 4:
+            await _edit_ai_preset_field(update, context, parts[2], parts[3])
+    elif action.startswith("ai_preset:full_edit:"):
+        preset_name = action.split(":", 2)[2]
+        await _start_full_edit_wizard(update, context, preset_name)
+    elif action.startswith("ai_preset:full_edit_next:"):
+        parts = action.split(":", 3)
+        if len(parts) == 4:
+            preset_name = parts[2]
+            await _handle_full_edit_next(update, context, preset_name)
+    elif action.startswith("ai_preset:full_edit_skip:"):
+        parts = action.split(":", 3)
+        if len(parts) == 4:
+            preset_name = parts[2]
+            await _handle_full_edit_skip(update, context, preset_name)
+    elif action.startswith("ai_preset:full_edit_cancel:"):
+        preset_name = action.split(":", 2)[2]
+        await _handle_full_edit_cancel(update, context, preset_name)
+    elif action.startswith("ai_preset:full_edit_pick_group:"):
+        # format: ai_preset:full_edit_pick_group:preset_name:encoded_label
+        parts = action.split(":", 3)
+        if len(parts) == 4:
+            preset_name = parts[2]
+            label = unquote(parts[3])
+            await _handle_full_edit_pick_group(update, context, preset_name, label)
+    elif action.startswith("ai_preset:full_edit_save:"):
+        preset_name = action.split(":", 2)[2]
+        await _handle_full_edit_save(update, context, preset_name)
+    elif action.startswith("ai_preset:save:"):
+        preset_name = action.split(":", 2)[2]
+        await _confirm_save_preset(update, context, preset_name)
+    elif action.startswith("ai_preset:confirm_save_yes:"):
+        preset_name = action.split(":", 2)[2]
+        await _save_ai_preset(update, context, preset_name)
+    elif action.startswith("ai_preset:confirm_save_no:"):
+        preset_name = action.split(":", 2)[2]
+        await _edit_ai_preset(update, context, preset_name)
+    elif action.startswith("ai_preset:discard_all:"):
+        preset_name = action.split(":", 2)[2]
+        await _discard_all_preset_changes(update, context, preset_name)
+    elif action.startswith("ai_preset:delete:"):
+        preset_name = action.split(":", 2)[2]
+        await _delete_ai_preset(update, context, preset_name)
+    elif action == "ai_preset:add":
+        await _add_ai_preset(update, context)
+    elif action.startswith("ai_preset:page:"):
+        page = int(action.split(":", 2)[2])
+        await _show_linear_presets(update, context, page)
+    elif action.startswith("ai_preset:view_mode:"):
+        mode = action.split(":", 2)[2]
+        await _toggle_preset_view_mode(update, context)
+    elif action.startswith("ai_preset:group:"):
+        key_hash = action.split(":", 2)[2]
+        await _handle_group_view(update, context, key_hash)
+    elif action.startswith("ai_preset:group_batch_key:"):
+        key_hash = action.split(":", 2)[2]
+        await _handle_group_batch_key(update, context, key_hash)
+    elif action.startswith("ai_preset:group_set_label:"):
+        key_hash = action.split(":", 2)[2]
+        await _handle_group_set_label(update, context, key_hash)
+    elif action == "ai_preset:group_manager":
+        await _show_group_manager(update, context)
+    elif action.startswith("ai_preset:group_manager_rename:"):
+        parts = action.split(":", 2)
+        if len(parts) == 3:
+            label = unquote(parts[2])
+            await _handle_group_manager_rename(update, context, label)
+    elif action.startswith("ai_preset:group_manager_clear:"):
+        parts = action.split(":", 2)
+        if len(parts) == 3:
+            label = unquote(parts[2])
+            await _handle_group_manager_clear(update, context, label)
+    elif action == "ai_test_connection":
+        await _test_ai_connection(update, context)
+    elif action == "ai_custom_test":
+        await _start_custom_test_wizard(update, context)
+    elif action.startswith("ai_custom_test:"):
+        await _handle_custom_test_wizard(update, context, action)
+    elif action == "ai_fallback":
+        await _show_ai_fallback(update, context)
+    elif action.startswith("ai_fallback:"):
+        await _handle_ai_fallback(update, context, action)
+    elif action == "fallback_chain":
+        await _show_fallback_chain(update, context)
+    elif action.startswith("fallback:move_up:"):
+        name = action.split(":", 2)[2]
+        chain = db.get_enabled_presets_ordered()
+        idx = next((i for i, p in enumerate(chain) if p["name"] == name), None)
+        if idx and idx > 0:
+            above = chain[idx - 1]
+            tmp = above["priority"]
+            db.set_preset_priority(above["name"], chain[idx]["priority"])
+            db.set_preset_priority(name, tmp)
+        await _show_fallback_chain(update, context)
+    elif action.startswith("fallback:move_down:"):
+        name = action.split(":", 2)[2]
+        chain = db.get_enabled_presets_ordered()
+        idx = next((i for i, p in enumerate(chain) if p["name"] == name), None)
+        if idx is not None and idx < len(chain) - 1:
+            below = chain[idx + 1]
+            tmp = below["priority"]
+            db.set_preset_priority(below["name"], chain[idx]["priority"])
+            db.set_preset_priority(name, tmp)
+        await _show_fallback_chain(update, context)
+    elif action.startswith("fallback:toggle:"):
+        name = action.split(":", 2)[2]
+        preset = db.get_preset(name)
+        if preset:
+            db.set_preset_enabled(name, not preset.get("enabled", 1))
+        await _show_fallback_chain(update, context)
+    elif action.startswith("fallback:set_emergency:"):
+        name = action.split(":", 2)[2]
+        chain = db.get_enabled_presets_ordered()
+        for p in chain:
+            db.set_preset_emergency(p["name"], p["name"] == name)
+        await _show_fallback_chain(update, context)
+    elif action.startswith("fallback:rank:"):
+        name = action.split(":", 2)[2]
+        await _handle_fallback_rank(update, context, name)
+    elif action == "fallback:usage_details":
+        await _show_fallback_usage_details(update, context)
+    elif action == "help:presets":
+        await _show_help_presets(update, context)
+    elif action == "help:fallback_chain":
+        await _show_help_fallback_chain(update, context)
+
+
 async def _handle_ai_text_input(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,

@@ -496,9 +496,41 @@ async def _handle_cost_text_input(
         return
 
 
+async def handle_cost_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    action: str,
+) -> None:
+    """Route cost/LLM-cost admin callback sub-actions to their handlers.
+
+    Mirrors the inline ``admin:cost_dashboard`` / ``admin:llm_costs`` /
+    ``admin:llm_pricing`` branches that previously lived in the admin monolith's
+    ``_handle_admin_callback``. The owner check is performed by the caller.
+    Behavior and action strings are unchanged.
+    """
+    if action == "llm_costs":
+        await _show_llm_cost_dashboard(update, context)
+    elif action == "llm_pricing":
+        await _edit_or_send(
+            update,
+            context,
+            _llm_pricing_text(),
+            reply_markup=llm_cost_pricing_keyboard(),
+        )
+    elif action == "cost_dashboard":
+        await _edit_or_send(
+            update,
+            context,
+            "💰 مدیریت هزینه‌های LLM:",
+            reply_markup=admin_cost_keyboard(),
+        )
+        await update.callback_query.answer()
+
+
 __all__ = [
     "_handle_cost_text_input",
     "_handle_llm_callback",
+    "handle_cost_callback",
     "_llm_cost_currency_text",
     "_llm_cost_default_state",
     "_llm_cost_filter_label",

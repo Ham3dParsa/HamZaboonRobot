@@ -14,6 +14,7 @@ from telegram.ext import ContextTypes
 from services import db
 from services.utils.helpers import _edit_or_send
 from config.keyboards import (
+    admin_awaiting_inline_keyboard,
     awaiting_inline_keyboard,
     plan_manager_keyboard,
     plan_view_keyboard,
@@ -324,8 +325,56 @@ async def _handle_plans_text_input(
     )
 
 
+async def handle_plan_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    action: str,
+) -> None:
+    """Route plan admin callback sub-actions to their handlers.
+
+    Mirrors the inline ``admin:plans`` / ``admin:set_plan`` / ``admin:plans:*``
+    branches that previously lived in the admin monolith's ``_handle_admin_callback``.
+    The owner check is performed by the caller. Behavior and action strings are unchanged.
+    """
+    if action == "plans":
+        await _show_plan_list(update, context)
+    elif action == "set_plan":
+        context.user_data["awaiting"] = "admin_set_plan"
+        await update.callback_query.answer()
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="فرمت را ارسال کنید:\n`user_id_or_username plan`\n\n"
+            "مثال: `123456789 silver` یا `@username gold`\n"
+            "پلن‌ها: free، bronze، silver، gold، emerald",
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=admin_awaiting_inline_keyboard(),
+        )
+    elif action.startswith("plans:view:"):
+        name = action.split(":", 2)[2]
+        await _show_plan_view(update, context, name)
+    elif action.startswith("plans:edit:"):
+        name = action.split(":", 2)[2]
+        await _start_plan_wizard(update, context, name)
+    elif action.startswith("plans:full_edit_back:"):
+        name = action.split(":", 2)[2]
+        await _handle_plan_wizard_back(update, context, name)
+    elif action.startswith("plans:full_edit_skip:"):
+        name = action.split(":", 2)[2]
+        await _handle_plan_wizard_next(update, context, name)
+    elif action.startswith("plans:full_edit_cancel:"):
+        name = action.split(":", 2)[2]
+        await _handle_plan_wizard_cancel(update, context, name)
+    elif action.startswith("plans:full_edit_save:"):
+        name = action.split(":", 2)[2]
+        await _handle_plan_wizard_save(update, context, name)
+    elif action.startswith("plans:set_active:"):
+        name = action.split(":", 2)[2]
+        await _handle_plan_set_active(update, context, name)
+
+
 __all__ = [
     "PLAN_WIZARD_FIELD_HINTS",
+    "handle_plan_callback",
     "PLAN_WIZARD_FIELD_LABELS",
     "PLAN_WIZARD_FIELDS",
     "PLAN_WIZARD_GROUP_HEADERS",

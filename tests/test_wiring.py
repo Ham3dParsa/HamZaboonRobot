@@ -334,32 +334,73 @@ def _collect_router_handlers() -> set[str]:
     return handlers
 
 
-def _collect_admin_sub_actions() -> set[str]:
-    """Extract action patterns from _handle_admin_callback in handlers/admin.py.
+_ADMIN_SUB_ROUTER_FUNCS = [
+    ("handlers/admin.py", "_handle_admin_callback", {"stats:", "plans:", "fallback", "ai_"}),
+    ("handlers/admin_stats.py", "handle_admin_stats", set()),
+    ("handlers/admin_cost.py", "handle_cost_callback", set()),
+    ("handlers/admin_plans.py", "handle_plan_callback", set()),
+    ("handlers/admin_ai.py", "handle_ai_callback", set()),
+]
 
-    Returns action strings from ``action == "..."`` and
-    ``action.startswith("...")`` comparisons.
-    """
+# Coarse delegating prefixes emitted by the thin _handle_admin_callback dispatcher.
+# These only ROUTE to a sub-router; the real leaf branches live in the sub-routers,
+# so they must not satisfy the wiring guard on their own (otherwise deleting a leaf
+# branch would go unnoticed).
+_ADMIN_DELEGATING_PREFIXES = {"stats:", "plans:", "fallback", "ai_"}
+
+
+def _collect_action_patterns_in_func(
+    filepath: str, func_name: str, exclude: set[str] | None = None
+) -> set[str]:
+    """Collect ``action == "..."`` / ``action.startswith("...")`` patterns from
+    a single admin sub-router function (case-significant action strings).
+
+    *exclude* drops patterns that are pure delegation (e.g. the ``plans:`` /
+    ``fallback`` / ``ai_`` prefixes emitted by ``_handle_admin_callback``)."""
+    exclude = exclude or set()
     actions: set[str] = set()
-    with open("handlers/admin.py", encoding="utf-8") as f:
-        lines = f.readlines()
+    try:
+        with open(filepath, encoding="utf-8") as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        return actions
 
     in_func = False
-    for i, line in enumerate(lines):
-        if "async def _handle_admin_callback" in line:
+    for line in lines:
+        if f"def {func_name}(" in line or f"async def {func_name}(" in line:
             in_func = True
             continue
         if in_func:
             stripped = line.strip()
-            if stripped.startswith("async def "):
+            if stripped.startswith(("async def ", "def ")) and func_name not in stripped:
                 break
             m = re.search(r'action\s*==\s*"([^"]+)"', stripped)
-            if m:
+            if m and m.group(1) not in exclude:
                 actions.add(m.group(1))
             m = re.search(r'action\.startswith\("([^"]+)"\)', stripped)
-            if m:
+            if m and m.group(1) not in exclude:
                 actions.add(m.group(1))
+    return actions
 
+
+def _collect_admin_sub_actions() -> set[str]:
+    """Extract action patterns from the admin sub-router functions.
+
+    After the Finding #7 split, ``admin:`` sub-actions are handled by
+    ``_handle_admin_callback`` (handlers/admin.py) which delegates by prefix to
+    per-domain sub-routers (handle_admin_stats, handle_cost_callback,
+    handle_plan_callback, handle_ai_callback). Collect every ``action == "..."``
+    and ``action.startswith("...")`` comparison across all admin sub-routers so
+    the wiring guard validates the full set. ``_handle_llm_callback`` is excluded
+    because it serves the ``llm:`` prefix, not ``admin:``.
+
+    The thin dispatcher's coarse delegating prefixes (``stats:``, ``plans:``,
+    ``fallback``, ``ai_``) are excluded so the guard still requires the concrete
+    leaf branches to exist in a sub-router.
+    """
+    actions: set[str] = set()
+    for filepath, func_name, exclude in _ADMIN_SUB_ROUTER_FUNCS:
+        actions |= _collect_action_patterns_in_func(filepath, func_name, exclude)
     return actions
 
 
