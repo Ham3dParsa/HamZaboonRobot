@@ -3,7 +3,7 @@ import logging
 import os
 import re
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from openai import OpenAI
 
@@ -245,6 +245,51 @@ def _log_llm_request(
         error_message=str(error) if error else None,
         preset_name=preset_name,
     )
+
+
+def _call_tracked(
+    fn,
+    *,
+    request_kind: str,
+    user_id: int | None = None,
+    plan: str | None = None,
+    preset: dict | None = None,
+    log_target: Callable[..., None] | None = None,
+):
+    """Run a tracked AI call, owning the telemetry/error/outcome lifecycle.
+
+    ``fn(telemetry)`` must describe the request, perform the model call
+    (populating ``telemetry``), and return the validated value. On any
+    exception the error is captured and re-raised; the ``finally`` block logs
+    the request and classifies the cost outcome (success vs billed vs
+    zero-cost) based on whether ``usage`` was recorded.
+
+    ``log_target`` overrides where the request record is written. It defaults
+    to ``_log_llm_request`` (the ``llm_requests`` table); a test-only caller
+    may pass a different writer (e.g. to the ``config_tests`` table) so that
+    throwaway/test calls do not pollute the cost dashboard.
+    """
+    telemetry: dict[str, object] = {}
+    error: Exception | None = None
+    writer = log_target if log_target is not None else _log_llm_request
+    try:
+        return fn(telemetry)
+    except Exception as exc:
+        error = exc
+        raise
+    finally:
+        writer(
+            request_kind=request_kind,
+            user_id=user_id,
+            plan=plan,
+            model=str(telemetry.get("model") or _model(preset)),
+            telemetry=telemetry,
+            outcome="success" if error is None else (
+                "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"
+            ),
+            preset=preset,
+            error=error,
+        )
 
 
 class RateLimitError(Exception):
@@ -491,9 +536,7 @@ def repair_card(
     plan: str | None = None,
     preset: dict | None = None,
 ) -> dict:
-    telemetry: dict[str, object] = {}
-    error: Exception | None = None
-    try:
+    def _run(telemetry: dict[str, object]) -> dict:
         value = _request_json(
             prompts.card_repair_system_prompt(lang, card, fields),
             user_prompt="فقط patch حداقلی فیلدهای درخواست‌شده را بساز.",
@@ -504,22 +547,14 @@ def repair_card(
             preset=preset,
         )
         return validate_card_patch(value, fields)
-    except Exception as exc:
-        error = exc
-        raise
-    finally:
-        _log_llm_request(
-            request_kind="card_repair",
-            user_id=user_id,
-            plan=plan,
-            model=str(telemetry.get("model") or _model(preset)),
-            telemetry=telemetry,
-            outcome="success" if error is None else (
-                "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"
-            ),
-            preset=preset,
-            error=error,
-        )
+
+    return _call_tracked(
+        _run,
+        request_kind="card_repair",
+        user_id=user_id,
+        plan=plan,
+        preset=preset,
+    )
 
 
 def _request_json(
@@ -574,9 +609,7 @@ def ask_json(
     plan: str | None = None,
     preset: dict | None = None,
 ) -> dict:
-    telemetry: dict[str, object] = {}
-    error: Exception | None = None
-    try:
+    def _run(telemetry: dict[str, object]) -> dict:
         value = _request_json(
             system_prompt,
             user_prompt,
@@ -589,22 +622,14 @@ def ask_json(
         if not isinstance(value, Mapping):
             raise CardValidationError("Expected a JSON object")
         return dict(value)
-    except Exception as exc:
-        error = exc
-        raise
-    finally:
-        _log_llm_request(
-            request_kind=request_kind,
-            user_id=user_id,
-            plan=plan,
-            model=str(telemetry.get("model") or _model(preset)),
-            telemetry=telemetry,
-            outcome="success" if error is None else (
-                "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"
-            ),
-            preset=preset,
-            error=error,
-        )
+
+    return _call_tracked(
+        _run,
+        request_kind=request_kind,
+        user_id=user_id,
+        plan=plan,
+        preset=preset,
+    )
 
 
 def ask_card(
@@ -616,9 +641,7 @@ def ask_card(
     plan: str | None = None,
     preset: dict | None = None,
 ) -> dict:
-    telemetry: dict[str, object] = {}
-    error: Exception | None = None
-    try:
+    def _run(telemetry: dict[str, object]) -> dict:
         value = _request_json(
             system_prompt,
             user_prompt,
@@ -633,22 +656,14 @@ def ask_card(
         except CardValidationError:
             log.warning("ask_card raw [%s]", json.dumps(value, ensure_ascii=False)[:500])
             raise
-    except Exception as exc:
-        error = exc
-        raise
-    finally:
-        _log_llm_request(
-            request_kind=request_kind,
-            user_id=user_id,
-            plan=plan,
-            model=str(telemetry.get("model") or _model(preset)),
-            telemetry=telemetry,
-            outcome="success" if error is None else (
-                "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"
-            ),
-            preset=preset,
-            error=error,
-        )
+
+    return _call_tracked(
+        _run,
+        request_kind=request_kind,
+        user_id=user_id,
+        plan=plan,
+        preset=preset,
+    )
 
 
 def validate_batch(
@@ -715,13 +730,11 @@ def ask_batch(
     plan: str | None = None,
     preset: dict | None = None,
 ) -> list[dict]:
-    telemetry: dict[str, object] = {}
-    error: Exception | None = None
-    diagnostics: dict[str, int] = {}
-    rejection_reasons: dict[str, int] = {}
-    telemetry["batch_validation"] = diagnostics
-    telemetry["batch_validation_reasons"] = rejection_reasons
-    try:
+    def _run(telemetry: dict[str, object]) -> list[dict]:
+        diagnostics: dict[str, int] = {}
+        rejection_reasons: dict[str, int] = {}
+        telemetry["batch_validation"] = diagnostics
+        telemetry["batch_validation_reasons"] = rejection_reasons
         value = _request_json(
             system_prompt,
             request_kind=request_kind,
@@ -743,19 +756,11 @@ def ask_batch(
                 diagnostics,
             )
         return cards
-    except Exception as exc:
-        error = exc
-        raise
-    finally:
-        _log_llm_request(
-            request_kind=request_kind,
-            user_id=user_id,
-            plan=plan,
-            model=str(telemetry.get("model") or _model(preset)),
-            telemetry=telemetry,
-            outcome="success" if error is None else (
-                "failure_billed" if telemetry.get("usage") is not None else "failure_zero_cost"
-            ),
-            preset=preset,
-            error=error,
-        )
+
+    return _call_tracked(
+        _run,
+        request_kind=request_kind,
+        user_id=user_id,
+        plan=plan,
+        preset=preset,
+    )
