@@ -1,3 +1,4 @@
+import html
 import json
 import re
 
@@ -31,6 +32,18 @@ def escape_mdv2_code(text: str) -> str:
     if not text:
         return ""
     return re.sub(r"([`\\])", r"\\\1", text)
+
+
+def html_escape(text: str) -> str:
+    """Escape a dynamic value for interpolation into a ParseMode.HTML message.
+
+    Centralized choke point for HTML-mode admin/non-learner renderings. Escapes
+    the reserved HTML characters (``& < > " '``) so a value containing them
+    (e.g. a base_url query string) cannot break Telegram's entity parsing.
+    """
+    if not text:
+        return ""
+    return html.escape(str(text), quote=True)
 
 
 class CardPreparationError(RuntimeError):

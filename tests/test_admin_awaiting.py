@@ -83,6 +83,18 @@ class TestAiPresetNewNameReArm(unittest.IsolatedAsyncioTestCase):
         context = await self._run("")
         self.assertEqual(context.user_data.get("awaiting"), "ai_preset_new_name")
 
+    async def test_underscore_with_special_char_rearms(self):
+        """Regression for the precedence bug: 'my_preset!' must be rejected
+        even though it contains an underscore (which previously defeated the
+        alnum check via `not name.isalnum() and "_" not in name`)."""
+        context = await self._run("my_preset!")
+        self.assertEqual(context.user_data.get("awaiting"), "ai_preset_new_name")
+
+    async def test_overlong_name_rearms(self):
+        """A name longer than MAX_PRESET_NAME_LEN must be rejected."""
+        context = await self._run("n" * 70)
+        self.assertEqual(context.user_data.get("awaiting"), "ai_preset_new_name")
+
 
 class TestTextRouterPrefixDispatch(unittest.IsolatedAsyncioTestCase):
     """bot.py text_router must dispatch ai_preset_* and ai_custom_test_* awaiting values."""
@@ -304,6 +316,69 @@ class TestIsAdminAwaiting(unittest.IsolatedAsyncioTestCase):
         from handlers.admin import is_admin_awaiting
         self.assertFalse(is_admin_awaiting(""))
         self.assertFalse(is_admin_awaiting(None))
+
+
+class TestValidateWizardValueLengthCaps(unittest.TestCase):
+    """_validate_wizard_value must enforce length caps on name and group_label."""
+
+    def _validate(self, field: str, raw: str, preset_name: str = "existing") -> bool:
+        from handlers.admin_ai import _validate_wizard_value
+        return _validate_wizard_value(field, raw, preset_name) is not None
+
+    @patch("handlers.admin_ai.db.get_preset", return_value=None)
+    def test_name_over_60_rejected(self, _):
+        self.assertFalse(self._validate("name", "n" * 61))
+
+    @patch("handlers.admin_ai.db.get_preset", return_value=None)
+    def test_name_under_60_accepted(self, _):
+        self.assertTrue(self._validate("name", "valid_name"))
+
+    @patch("handlers.admin_ai.db.get_preset", return_value=None)
+    def test_name_60_accepted(self, _):
+        self.assertTrue(self._validate("name", "n" * 60))
+
+    def test_group_label_empty_rejected(self):
+        self.assertFalse(self._validate("group_label", ""))
+
+    def test_group_label_over_40_rejected(self):
+        self.assertFalse(self._validate("group_label", "g" * 41))
+
+    def test_group_label_valid_accepted(self):
+        self.assertTrue(self._validate("group_label", "valid group"))
+
+    def test_group_label_40_accepted(self):
+        self.assertTrue(self._validate("group_label", "g" * 40))
+
+
+class TestGroupLabelTextInputCaps(unittest.IsolatedAsyncioTestCase):
+    """_handle_ai_text_input group-set-label and group-rename paths must enforce
+    the group_label length cap / non-empty validation (D3)."""
+
+    async def test_group_set_label_overlong_rearms(self):
+        from handlers.admin_ai import _handle_ai_text_input
+        update = _make_update(text="g" * 41)
+        context = _make_context()
+        context.user_data["awaiting"] = "admin_group_set_label:abc"
+        with patch("handlers.admin_ai._detect_key_groups") as mock_detect:
+            await _handle_ai_text_input(update, context, "admin_group_set_label:abc", "g" * 41)
+        # awaiting preserved for retry
+        self.assertEqual(context.user_data.get("awaiting"), "admin_group_set_label:abc")
+
+    async def test_group_set_label_empty_rearms(self):
+        from handlers.admin_ai import _handle_ai_text_input
+        update = _make_update(text="")
+        context = _make_context()
+        context.user_data["awaiting"] = "admin_group_set_label:abc"
+        await _handle_ai_text_input(update, context, "admin_group_set_label:abc", "")
+        self.assertEqual(context.user_data.get("awaiting"), "admin_group_set_label:abc")
+
+    async def test_group_manager_rename_overlong_rearms(self):
+        from handlers.admin_ai import _handle_ai_text_input
+        update = _make_update(text="g" * 41)
+        context = _make_context()
+        context.user_data["awaiting"] = "admin_group_manager_rename:old"
+        await _handle_ai_text_input(update, context, "admin_group_manager_rename:old", "g" * 41)
+        self.assertEqual(context.user_data.get("awaiting"), "admin_group_manager_rename:old")
 
 
 if __name__ == "__main__":

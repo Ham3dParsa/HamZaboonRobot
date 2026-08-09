@@ -92,6 +92,13 @@ class ReindexPresetPriorityTest(_ScratchDbTestCase):
             "unknown name must not mutate priorities",
         )
 
+    def test_reindex_rollback_allows_subsequent_write(self):
+        """A ValueError rollback must release the lock so the next write succeeds."""
+        with self.assertRaises(ValueError):
+            db.reindex_preset_priority("preset_a", target_rank=99, group_is_emergency=False)
+        db.reindex_preset_priority("preset_a", target_rank=3, group_is_emergency=False)
+        self.assertEqual(self._group_order(), ["preset_b", "preset_c", "preset_a"])
+
     def test_reindex_respects_emergency_group(self):
         db.set_preset_emergency("preset_b", 1)
         db.set_preset_emergency("preset_c", 1)

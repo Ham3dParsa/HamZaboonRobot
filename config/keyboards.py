@@ -679,6 +679,7 @@ def ai_presets_list_keyboard(
     groups: list[dict] | None = None,
 ) -> InlineKeyboardMarkup:
     """List presets with activate/edit/delete buttons and view-mode toggle."""
+    from services.utils.callback_codec import preset_token, label_token
     rows = []
     if view_mode == "grouped" and groups:
         for g in groups:
@@ -707,16 +708,16 @@ def ai_presets_list_keyboard(
             if is_custom:
                 label += " (custom)"
             rows.append([
-                InlineKeyboardButton(label, callback_data=f"admin:ai_preset:view:{name}"),
+                InlineKeyboardButton(label, callback_data=f"admin:ai_preset:view:{preset_token(name)}"),
             ])
             action_row = []
             if name != active_name:
-                action_row.append(InlineKeyboardButton(IBTN_ACTIVATE, callback_data=f"admin:ai_preset:activate:{name}"))
+                action_row.append(InlineKeyboardButton(IBTN_ACTIVATE, callback_data=f"admin:ai_preset:activate:{preset_token(name)}"))
             if is_custom:
-                action_row.append(InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:ai_preset:edit:{name}"))
-                action_row.append(InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{name}"))
+                action_row.append(InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:ai_preset:edit:{preset_token(name)}"))
+                action_row.append(InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{preset_token(name)}"))
             else:
-                action_row.append(InlineKeyboardButton(IBTN_EDIT_FORK, callback_data=f"admin:ai_preset:edit:{name}"))
+                action_row.append(InlineKeyboardButton(IBTN_EDIT_FORK, callback_data=f"admin:ai_preset:edit:{preset_token(name)}"))
             if action_row:
                 rows.append(action_row)
         # Pagination
@@ -739,22 +740,25 @@ def ai_presets_list_keyboard(
 
 def ai_preset_view_keyboard(preset: dict, active_name: str) -> InlineKeyboardMarkup:
     """View/edit a specific preset."""
+    from services.utils.callback_codec import preset_token
     name = preset["name"]
     is_custom = preset.get("is_custom", 0)
     rows = []
     if name != active_name:
-        rows.append([InlineKeyboardButton(IBTN_ACTIVATE_THIS, callback_data=f"admin:ai_preset:activate:{name}")])
+        rows.append([InlineKeyboardButton(IBTN_ACTIVATE_THIS, callback_data=f"admin:ai_preset:activate:{preset_token(name)}")])
     if is_custom:
-        rows.append([InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:ai_preset:edit:{name}")])
-        rows.append([InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{name}")])
+        rows.append([InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:ai_preset:edit:{preset_token(name)}")])
+        rows.append([InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{preset_token(name)}")])
     else:
-        rows.append([InlineKeyboardButton(IBTN_EDIT_COPY, callback_data=f"admin:ai_preset:edit:{name}")])
+        rows.append([InlineKeyboardButton(IBTN_EDIT_COPY, callback_data=f"admin:ai_preset:edit:{preset_token(name)}")])
     rows.append([InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_presets")])
     return InlineKeyboardMarkup(rows)
 
 
 def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None) -> InlineKeyboardMarkup:
     """Keyboard for editing a preset field-by-field."""
+    from services.utils.callback_codec import alias_field, preset_token
+    preset_ref = preset_token(preset_name)
     fields = [
         ("base_url", IBTN_FIELD_BASE_URL),
         ("model", IBTN_FIELD_MODEL),
@@ -782,12 +786,12 @@ def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None) -> Inl
             display = (current[:6] + "…" + current[-4:]) if len(current) > 12 else "***"
         suffix = f": {display}" if display else ""
         rows.append([
-            InlineKeyboardButton(f"{label}{suffix}", callback_data=f"admin:ai_preset:edit_field:{preset_name}:{key}"),
+            InlineKeyboardButton(f"{label}{suffix}", callback_data=f"admin:ai_preset:edit_field:{preset_ref}:{alias_field(key)}"),
         ])
-    rows.append([InlineKeyboardButton(IBTN_FULL_EDIT_WIZARD, callback_data=f"admin:ai_preset:full_edit:{preset_name}")])
-    rows.append([InlineKeyboardButton(IBTN_DISCARD_ALL, callback_data=f"admin:ai_preset:discard_all:{preset_name}")])
-    rows.append([InlineKeyboardButton(IBTN_SAVE_PRESET, callback_data=f"admin:ai_preset:save:{preset_name}")])
-    rows.append([InlineKeyboardButton(IBTN_CANCEL_EDIT, callback_data=f"admin:ai_preset:view:{preset_name}")])
+    rows.append([InlineKeyboardButton(IBTN_FULL_EDIT_WIZARD, callback_data=f"admin:ai_preset:full_edit:{preset_ref}")])
+    rows.append([InlineKeyboardButton(IBTN_DISCARD_ALL, callback_data=f"admin:ai_preset:discard_all:{preset_ref}")])
+    rows.append([InlineKeyboardButton(IBTN_SAVE_PRESET, callback_data=f"admin:ai_preset:save:{preset_ref}")])
+    rows.append([InlineKeyboardButton(IBTN_CANCEL_EDIT, callback_data=f"admin:ai_preset:view:{preset_ref}")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -804,6 +808,7 @@ def ai_fallback_keyboard(primary: str, fallback: str, active: str) -> InlineKeyb
 
 
 def fallback_chain_keyboard(chain: list[dict]) -> InlineKeyboardMarkup:
+    from services.utils.callback_codec import preset_token
     rows = []
     for rank, preset in enumerate(chain, 1):
         name = preset.get("name", "?")
@@ -811,13 +816,13 @@ def fallback_chain_keyboard(chain: list[dict]) -> InlineKeyboardMarkup:
         status_icon = "🟢" if preset.get("enabled", 1) else "🔴"
         row = [
             InlineKeyboardButton(f"{rank}. {emoji} {name} {status_icon}", callback_data="admin:noop"),
-            InlineKeyboardButton("⬆", callback_data=f"admin:fallback:move_up:{name}"),
-            InlineKeyboardButton("⬇", callback_data=f"admin:fallback:move_down:{name}"),
-            InlineKeyboardButton(status_icon, callback_data=f"admin:fallback:toggle:{name}"),
-            InlineKeyboardButton("🎯", callback_data=f"admin:fallback:rank:{name}"),
+            InlineKeyboardButton("⬆", callback_data=f"admin:fallback:move_up:{preset_token(name)}"),
+            InlineKeyboardButton("⬇", callback_data=f"admin:fallback:move_down:{preset_token(name)}"),
+            InlineKeyboardButton(status_icon, callback_data=f"admin:fallback:toggle:{preset_token(name)}"),
+            InlineKeyboardButton("🎯", callback_data=f"admin:fallback:rank:{preset_token(name)}"),
         ]
         if not preset.get("is_emergency"):
-            row.append(InlineKeyboardButton("🚨", callback_data=f"admin:fallback:set_emergency:{name}"))
+            row.append(InlineKeyboardButton("🚨", callback_data=f"admin:fallback:set_emergency:{preset_token(name)}"))
         rows.append(row)
     rows.append([InlineKeyboardButton(IBTN_CONSUMPTION_DETAILS, callback_data="admin:fallback:usage_details")])
     rows.append([InlineKeyboardButton(IBTN_HELP_FALLBACK, callback_data="admin:help:fallback_chain")])

@@ -1,5 +1,5 @@
 import unittest
-from services.utils.formatting import escape_mdv2, escape_mdv2_code
+from services.utils.formatting import escape_mdv2, escape_mdv2_code, html_escape
 
 
 PERSIAN_ENGLISH_MIXED = (
@@ -69,3 +69,33 @@ class TestMarkdownV2Escaping(unittest.TestCase):
     def test_escape_mdv2_code_no_special(self):
         text = "plain text بدون کاراکتر خاص"
         self.assertEqual(escape_mdv2_code(text), text)
+
+
+class TestHtmlEscape(unittest.TestCase):
+    """html_escape must escape the standard HTML reserved characters."""
+
+    def test_ampersand(self):
+        self.assertEqual(html_escape("a&b"), "a&amp;b")
+
+    def test_less_than(self):
+        self.assertEqual(html_escape("a<b"), "a&lt;b")
+
+    def test_greater_than(self):
+        self.assertEqual(html_escape("a>b"), "a&gt;b")
+
+    def test_double_quote(self):
+        self.assertEqual(html_escape('a"b'), "a&quot;b")
+
+    def test_single_quote(self):
+        self.assertEqual(html_escape("a'b"), "a&#x27;b")
+
+    def test_multiple_special(self):
+        self.assertEqual(html_escape("<a href='x'>"), "&lt;a href=&#x27;x&#x27;&gt;")
+
+    def test_persian_text_unchanged(self):
+        text = "سلام دنیا"
+        self.assertEqual(html_escape(text), text)
+
+    def test_url_with_query_string(self):
+        url = "https://api.example.com/v1?key=123&fmt=json"
+        self.assertEqual(html_escape(url), "https://api.example.com/v1?key=123&amp;fmt=json")
