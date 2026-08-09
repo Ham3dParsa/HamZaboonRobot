@@ -4,7 +4,6 @@ import time
 from collections import deque
 
 from services.ai import ai
-from services.ai import ai_presets
 from services import db
 from services.utils.formatting import CardPreparationError
 
@@ -246,7 +245,7 @@ def _retry_primary_preset():
     if not preset:
         logger.warning("Primary preset %s not found for retry", primary_name)
         return
-    api_key = ai_presets.resolve_api_key(preset)
+    api_key = db.resolve_preset_key(preset)
     if not api_key:
         logger.warning("No API key for primary preset %s, skipping retry", primary_name)
         return

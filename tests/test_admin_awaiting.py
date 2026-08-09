@@ -260,10 +260,9 @@ class TestAiCallWrappedInToThread(unittest.IsolatedAsyncioTestCase):
                 mock_active.return_value = {"name": "current"}
                 with patch("handlers.admin_ai.db.get_preset") as mock_get_preset:
                     mock_get_preset.return_value = {"name": "candidate"}
-                    with patch("handlers.admin_ai.ai_presets") as mock_presets:
-                        with patch("handlers.admin_ai.asyncio.to_thread", new=AsyncMock()) as mock_to_thread:
-                            mock_to_thread.return_value = {"word": "hello"}
-                            await _run_custom_test(update, context, target)
+                    with patch("handlers.admin_ai.asyncio.to_thread", new=AsyncMock()) as mock_to_thread:
+                        mock_to_thread.return_value = {"word": "hello"}
+                        await _run_custom_test(update, context, target)
         return mock_to_thread
 
     async def test_custom_test_current_runs_via_to_thread(self):

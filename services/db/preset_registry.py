@@ -4,6 +4,7 @@ import datetime as _dt
 
 from services.db.schema import get_conn, _utc_now
 from services.db.settings import get_bool_setting, get_setting
+from services.ai.ai_presets import resolve_api_key
 
 
 def get_presets() -> list[dict]:
@@ -132,6 +133,11 @@ def rename_group_label(old_label: str, new_label: str):
             "UPDATE ai_presets SET group_label=? WHERE group_label=?",
             (new_label, old_label),
         )
+        # Keep any shared group key consistent with the renamed label.
+        conn.execute(
+            "UPDATE preset_groups SET group_label=? WHERE group_label=?",
+            (new_label, old_label),
+        )
         conn.commit()
 
 
@@ -142,7 +148,57 @@ def clear_group_label(label: str):
             "UPDATE ai_presets SET group_label='' WHERE group_label=?",
             (label,),
         )
+        # Remove the now-orphaned shared group key (no preset references it).
+        conn.execute(
+            "DELETE FROM preset_groups WHERE group_label=?",
+            (label,),
+        )
         conn.commit()
+
+
+# ---------- Group Shared Keys ----------
+
+def set_group_key(label: str, api_key: str):
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "INSERT INTO preset_groups(group_label, api_key) VALUES (?, ?) "
+            "ON CONFLICT(group_label) DO UPDATE SET api_key=excluded.api_key",
+            (label, api_key),
+        )
+        conn.commit()
+
+
+def get_group_key(label: str) -> str | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT api_key FROM preset_groups WHERE group_label=?", (label,)
+        ).fetchone()
+    return row["api_key"] if row else None
+
+
+def delete_group_key(label: str):
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("DELETE FROM preset_groups WHERE group_label=?", (label,))
+        conn.commit()
+
+
+def resolve_preset_key(preset: dict) -> str:
+    """Resolve a preset's effective API key to a real value.
+
+    Precedence: the preset's own `api_key` (if non-empty), else the shared key
+    of its `group_label` (if the group has one), else empty. The chosen raw
+    value (a `$ENV` reference or a literal token) is then resolved by the pure
+    `resolve_api_key`. Backward-compatible: when a preset owns its key and no
+    group key exists, this returns the same value as `resolve_api_key(preset)`.
+    """
+    raw = preset.get("api_key", "") or ""
+    if not raw:
+        label = preset.get("group_label", "") or ""
+        if label:
+            raw = get_group_key(label) or ""
+    return resolve_api_key(raw)
 
 
 def delete_preset(name: str) -> bool:

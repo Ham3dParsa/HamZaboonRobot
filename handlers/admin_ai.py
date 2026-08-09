@@ -18,7 +18,6 @@ from telegram.ext import ContextTypes
 
 from services import db
 from services.ai import ai
-from services.ai import ai_presets
 from services.ai import prompts
 from services.utils.helpers import _edit_or_send
 from config.catalog import GOALS, LANGUAGES, LEVELS
@@ -126,11 +125,10 @@ def _key_hash(api_key: str) -> str:
 
 def _detect_key_groups() -> list[dict]:
     """Group all presets by resolved API key. Returns list sorted by count desc."""
-    from services.ai.ai_presets import resolve_api_key
     presets = db.get_presets()
     groups_map: dict[str, dict] = {}
     for p in presets:
-        resolved = resolve_api_key(p)
+        resolved = db.resolve_preset_key(p)
         if not resolved:
             resolved = "__no_key__"
         if resolved not in groups_map:
@@ -962,7 +960,7 @@ async def _test_ai_connection(update: Update, context: ContextTypes.DEFAULT_TYPE
     result = await asyncio.to_thread(
         ai.test_connection,
         base_url=active.get("base_url", ""),
-        api_key=ai_presets.resolve_api_key(active),
+        api_key=db.resolve_preset_key(active),
         model=active.get("model", ""),
         timeout=active.get("timeout_seconds", 30.0),
     )

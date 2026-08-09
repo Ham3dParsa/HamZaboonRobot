@@ -8,7 +8,6 @@ from telegram.ext import ContextTypes
 
 from config import APP_TZ, DB_PATH, is_owner
 from services import db
-from services.ai import ai_presets
 from services.utils.helpers import _edit_or_send, _exit_awaiting_flow, _send_with_retry
 from handlers.admin_stats import handle_admin_stats
 from handlers.admin_cost import (
@@ -224,7 +223,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         )
     elif action == "show_settings":
         preset = db.get_active_preset()
-        raw_key = ai_presets.resolve_api_key(preset)
+        raw_key = db.resolve_preset_key(preset)
         masked = (raw_key[:6] + "…" + raw_key[-4:]) if len(raw_key) > 12 else ("—" if not raw_key else raw_key)
         await _edit_or_send(
             update,

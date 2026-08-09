@@ -16,7 +16,6 @@ sys.path.insert(0, PROJECT_ROOT)
 
 from flask import Flask, jsonify, request, send_from_directory
 from services import db
-from services.ai.ai_presets import resolve_api_key
 
 app = Flask(__name__, static_folder=None)
 
@@ -34,7 +33,7 @@ def _mask_key(raw: str | None) -> str:
 
 
 def _resolve_key(preset: dict) -> str:
-    return resolve_api_key(preset) or ""
+    return db.resolve_preset_key(preset) or ""
 
 
 def _validate_preset_name(name: str) -> str | None:
