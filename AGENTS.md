@@ -222,9 +222,9 @@ Keep responsibilities aligned with the current module boundaries:
   - `services/scheduling.py`: Pure session sizing, slot planning, and timezone-aware planned timestamps.
   - `services/tts.py`: Text-to-Speech generation using Edge TTS.
   - `services/session/`: Pure FSRS session engine (frontend-agnostic).
-    - `services/session/__init__.py`: Public API — `build_session()`, `build_session_list()`, `generate_tier3_node()`, `SessionNode`.
+    - `services/session/__init__.py`: Public API — `build_session_list()`, `generate_tier3_node()`, `SessionNode`.
     - `services/session/assembly.py`: 3-tier priority assembler (Tier 1 due → Tier 2 first-exposure → Tier 3 AI refill). `generate_tier3_node()` is currently a stub (returns `None`) pending Phase 3b+.
-    - `services/session/grade_policy.py`: `GradePolicy`, `GRADE_POLICIES`, `ACTIVITY_REGISTRY`, `resolve_grade()`, activity renderers.
+    - `services/session/grade_policy.py`: `GradePolicy`, `GRADE_POLICIES`, `resolve_grade()`, activity renderers.
   - `handlers/study_handler.py`: Study-session handler — `handle_study_start()`, `advance_session()`, grade-first-exposure relay.
 - `config/`: Configuration and metadata.
   - `config/__init__.py`: Environment and deployment settings; it must not become a second learner-option registry.

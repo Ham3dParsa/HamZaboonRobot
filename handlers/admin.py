@@ -338,7 +338,9 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
         return
 
     if awaiting == "ai_custom_test_prompt":
-        context.user_data["custom_test_prompt"] = text
+        state = context.user_data.setdefault("custom_test_state", {})
+        state["prompt"] = text
+        context.user_data["custom_test_state"] = state
         await _custom_test_step_lang(update, context)
         return
 

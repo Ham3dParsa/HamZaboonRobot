@@ -13,7 +13,7 @@ Branch: `refactor/architecture-deepening` (to be created)
 | 3 | services/db kitchen sink | extract cost + preset, thin façade | module |
 | 4 | Duplicate assembly + dormant registry | single `build_session_list`; delete registry | module |
 | 5 | `bot.py↔admin.py` circular import | move `_apply_log_level` to shared; strengthen reverse guard | module |
-| 6 | `awaiting` split across files | `is_admin_awaiting()`/`resume_admin_wizard()` in admin.py | callback+module |
+| 6 | `awaiting` split across files | `is_admin_awaiting()`/`handle_flow_back()` in admin.py | callback+module |
 | 7 | admin monolith 2745 lines | split into admin_ai/cost/plans/stats, thin dispatcher | callback+module |
 
 ## Sequencing strategy (Pocock expand→migrate→contract)
@@ -36,5 +36,5 @@ Lowest risk / highest locality first. Phase files:
 - Phase 03: complete — `ai_custom_test_wizard_keyboard` deleted + admin.py:40 import removed; `BANNED_SYMBOLS` added; wiring/dead-code/admin tests green
 - Phase 04: complete — split cost analytics + preset registry + settings into own modules; `__init__.py` is thin façade; seam tests green; AGENTS.md §3 updated
 - Phase 05: complete — `_apply_log_level` → `apply_log_level` in services/utils/helpers.py; no `from bot import` in handlers; wiring reverse guard added; reviewer clean
-- Phase 06: complete — `is_admin_awaiting()`/`resume_admin_wizard()` in admin.py; bot.py text_router delegates to `is_admin_awaiting()`; `flow:back` logic moved to `resume_admin_wizard()`; fixes the `ai_fallback_rank:` routing gap; reviewer clean, 495 tests pass
+- Phase 06: complete — `is_admin_awaiting()`/`handle_flow_back()` in admin.py; bot.py text_router delegates to `is_admin_awaiting()`; `flow:back` logic moved to `handle_flow_back()`; fixes the `ai_fallback_rank:` routing gap; reviewer clean, 495 tests pass
 - Phase 07: complete — split into admin_ai/cost/plans/stats, thin dispatcher; `_handle_admin_callback` delegates by prefix to `handle_*_callback` sub-routers and `_handle_admin_text_input` delegates awaiting handlers; reviewer clean, 484 tests pass (commits a70fed1…9b68278, 79cb491, 222692e)

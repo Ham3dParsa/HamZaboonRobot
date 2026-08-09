@@ -85,8 +85,8 @@ Every new callback_data introduced by this plan. Format: `prefix` — descriptio
 | `admin:ai_preset:confirm_save_yes:{name}` | Yes, save now | Phase 3 |
 | `admin:ai_preset:confirm_save_no:{name}` | No, cancel save | Phase 3 |
 | `admin:ai_preset:full_edit:{name}` | Start full edit wizard | Phase 4 |
-| `admin:ai_preset:full_edit_next:{name}:{idx}` | Next field in wizard | Phase 4 |
-| `admin:ai_preset:full_edit_skip:{name}:{idx}` | Skip field in wizard | Phase 4 |
+| `admin:ai_preset:full_edit_next:{name}` | Next field in wizard | Phase 4 |
+| `admin:ai_preset:full_edit_skip:{name}` | Skip field in wizard | Phase 4 |
 | `admin:ai_preset:full_edit_cancel:{name}` | Cancel wizard | Phase 4 |
 | `admin:ai_preset:full_edit_save:{name}` | Save all wizard changes | Phase 4 |
 

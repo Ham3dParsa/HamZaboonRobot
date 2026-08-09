@@ -216,20 +216,14 @@ _consecutive_health_failures: int = 0
 _OFFLINE_THRESHOLD: int = 1
 _OFFLINE_MESSAGE = "متاسفانه به دلیل مشکلات موقتی فنی، فعلا قادر به انجام این درخواست نیستیم 🙏 لطفا بعدا تلاش کنید. ⏳"
 _AI_BUSY_MESSAGE = "هوش مصنوعی الان شلوغه؛ کمی بعد دوباره تلاش کن."
+_offline_notice_sent: set[int] = set()  # chat_ids notified in the current offline window
 
 
 # ---------------- روتر پیام‌های متنی (منو + حالت‌های در انتظار ورودی) ----------------
 
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if _telegram_offline:
-        try:
-            await _send_with_retry(
-                context.bot,
-                update.effective_chat.id,
-                _OFFLINE_MESSAGE,
-            )
-        except Exception:
-            log.debug("offline notification send failed (expected)")
+        await _send_offline_notice(context, update.effective_chat.id)
         return
     user_id = update.effective_user.id
     db.reset_user_blocked(user_id)
@@ -243,7 +237,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data["awaiting"] = None
 
-        if (awaiting.startswith("admin_") or awaiting.startswith("llm_cost_") or awaiting.startswith("llm_price_")) and not is_owner(user_id):
+        if is_admin_awaiting(awaiting) and not is_owner(user_id):
             return  # لایه‌ی امنیتی اضافه؛ در حالت عادی اصلاً به این حالت نمی‌رسد
 
         if awaiting == "ask_word":
@@ -415,17 +409,10 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if _telegram_offline:
         await _answer_callback_safely(
             update.callback_query,
-            "متاسفانه به دلیل مشکلات موقتی فنی، فعلا قادر به انجام این درخواست نیستیم 🙏 لطفا بعدا تلاش کنید. ⏳",
+            _OFFLINE_MESSAGE,
             show_alert=True,
         )
-        try:
-            await _send_with_retry(
-                context.bot,
-                update.effective_chat.id,
-                _OFFLINE_MESSAGE,
-            )
-        except Exception:
-            log.debug("offline notification send failed (expected)")
+        await _send_offline_notice(context, update.effective_chat.id)
         return
     db.reset_user_blocked(update.effective_user.id)
     data = update.callback_query.data
@@ -585,6 +572,21 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def _send_offline_notice(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
+    if chat_id in _offline_notice_sent:
+        return
+    _offline_notice_sent.add(chat_id)
+    try:
+        await _send_with_retry(
+            context.bot,
+            chat_id,
+            _OFFLINE_MESSAGE,
+            reset_telegram_cb=False,
+        )
+    except Exception:
+        log.debug("offline notification send failed (expected)")
+
+
 async def connection_health_job(context: ContextTypes.DEFAULT_TYPE):
     global _telegram_offline, _consecutive_health_failures
     try:
@@ -596,6 +598,7 @@ async def connection_health_job(context: ContextTypes.DEFAULT_TYPE):
             was_offline = _telegram_offline
             _telegram_offline = True
             if not was_offline:
+                _offline_notice_sent.clear()
                 log.warning(
                     "Telegram marked offline after %s consecutive failures",
                     _consecutive_health_failures,
@@ -614,6 +617,7 @@ async def connection_health_job(context: ContextTypes.DEFAULT_TYPE):
         _telegram_offline = False
         _consecutive_health_failures = 0
         if was_offline:
+            _offline_notice_sent.clear()
             log.info("Telegram connection restored")
         else:
             log.info("Telegram connection healthy")

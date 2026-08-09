@@ -99,11 +99,12 @@ class TestTextRouterPrefixDispatch(unittest.IsolatedAsyncioTestCase):
         context = _make_context()
         context.user_data["awaiting"] = "ai_preset_new_name"
         with patch("bot.db.reset_user_blocked"):
-            with patch("handlers.admin._handle_ai_preset_new_name", new=AsyncMock()) as mock_fn:
-                with patch("handlers.admin.db") as mock_db:
-                    mock_db.get_preset.return_value = None
-                    await text_router(update, context)
-                mock_fn.assert_called_once()
+            with patch("bot.is_owner", return_value=True):
+                with patch("handlers.admin._handle_ai_preset_new_name", new=AsyncMock()) as mock_fn:
+                    with patch("handlers.admin.db") as mock_db:
+                        mock_db.get_preset.return_value = None
+                        await text_router(update, context)
+                    mock_fn.assert_called_once()
 
     async def test_router_dispatches_ai_preset_edit(self):
         from bot import text_router
@@ -111,11 +112,12 @@ class TestTextRouterPrefixDispatch(unittest.IsolatedAsyncioTestCase):
         context = _make_context()
         context.user_data["awaiting"] = "ai_preset_edit:test:model"
         with patch("bot.db.reset_user_blocked"):
-            with patch("handlers.admin._handle_ai_preset_field_input", new=AsyncMock()) as mock_fn:
-                with patch("handlers.admin.db") as mock_db:
-                    mock_db.get_preset.return_value = {"name": "test"}
-                    await text_router(update, context)
-                mock_fn.assert_called_once()
+            with patch("bot.is_owner", return_value=True):
+                with patch("handlers.admin._handle_ai_preset_field_input", new=AsyncMock()) as mock_fn:
+                    with patch("handlers.admin.db") as mock_db:
+                        mock_db.get_preset.return_value = {"name": "test"}
+                        await text_router(update, context)
+                    mock_fn.assert_called_once()
 
     async def test_router_dispatches_ai_custom_test_prompt(self):
         from bot import text_router
@@ -123,10 +125,11 @@ class TestTextRouterPrefixDispatch(unittest.IsolatedAsyncioTestCase):
         context = _make_context()
         context.user_data["awaiting"] = "ai_custom_test_prompt"
         with patch("bot.db.reset_user_blocked"):
-            with patch("handlers.admin._custom_test_step_lang", new=AsyncMock()) as mock_fn:
-                with patch("handlers.admin.db") as mock_db:
-                    await text_router(update, context)
-                mock_fn.assert_called_once()
+            with patch("bot.is_owner", return_value=True):
+                with patch("handlers.admin._custom_test_step_lang", new=AsyncMock()) as mock_fn:
+                    with patch("handlers.admin.db") as mock_db:
+                        await text_router(update, context)
+                    mock_fn.assert_called_once()
 
     async def test_router_dispatches_llm_cost_user(self):
         from bot import text_router

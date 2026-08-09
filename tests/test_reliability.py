@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 import json
 import os
@@ -15,7 +16,7 @@ from services.db import schema as db_schema
 from services.utils import formatting
 from services.utils import helpers
 from services.ai import llm_services
-from telegram.error import BadRequest, NetworkError, TimedOut
+from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
 
 class ReliabilityPersistenceTests(unittest.TestCase):
@@ -601,6 +602,74 @@ class NetworkResilienceTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(BadRequest):
                 await helpers._send_with_retry(bot_mock, 123, "hello")
         reset_mock.assert_not_called()
+
+    async def test_send_with_retry_does_not_retry_on_timeout(self):
+        """A send timeout is ambiguous (may already be delivered): never re-send."""
+        bot_mock = MagicMock()
+        bot_mock.send_message = AsyncMock(side_effect=TimedOut("timeout"))
+        with self.assertRaises(TimedOut):
+            await helpers._send_with_retry(bot_mock, 123, "hello")
+        self.assertEqual(bot_mock.send_message.call_count, 1)
+
+    async def test_send_with_retry_does_not_retry_on_network_error(self):
+        bot_mock = MagicMock()
+        bot_mock.send_message = AsyncMock(side_effect=NetworkError("down"))
+        with self.assertRaises(NetworkError):
+            await helpers._send_with_retry(bot_mock, 123, "hello")
+        self.assertEqual(bot_mock.send_message.call_count, 1)
+
+    async def test_send_with_retry_retries_on_retry_after(self):
+        """RetryAfter means Telegram explicitly rejected it: retrying is safe."""
+        bot_mock = MagicMock()
+        bot_mock.send_message = AsyncMock(side_effect=[RetryAfter(1), "ok"])
+        with patch.object(asyncio, "sleep", new=AsyncMock()):
+            result = await helpers._send_with_retry(bot_mock, 123, "hello")
+        self.assertEqual(result, "ok")
+        self.assertEqual(bot_mock.send_message.call_count, 2)
+
+    async def test_send_voice_with_retry_does_not_retry_on_timeout(self):
+        bot_mock = MagicMock()
+        bot_mock.send_voice = AsyncMock(side_effect=TimedOut("timeout"))
+        with self.assertRaises(TimedOut):
+            await helpers._send_voice_with_retry(bot_mock, 123, b"audio")
+        self.assertEqual(bot_mock.send_voice.call_count, 1)
+
+    async def test_send_voice_with_retry_retries_on_retry_after(self):
+        bot_mock = MagicMock()
+        bot_mock.send_voice = AsyncMock(side_effect=[RetryAfter(1), "ok"])
+        with patch.object(asyncio, "sleep", new=AsyncMock()):
+            result = await helpers._send_voice_with_retry(bot_mock, 123, b"audio")
+        self.assertEqual(result, "ok")
+        self.assertEqual(bot_mock.send_voice.call_count, 2)
+
+    async def test_offline_notice_sent_once_per_window_per_user(self):
+        """An offline user must receive the notice once per offline window."""
+        context = MagicMock()
+        context.bot.send_message = AsyncMock(return_value="ok")
+        with patch.object(bot, "_offline_notice_sent", set()):
+            await bot._send_offline_notice(context, 123)
+            await bot._send_offline_notice(context, 123)
+            await bot._send_offline_notice(context, 456)
+        self.assertEqual(context.bot.send_message.call_count, 2)
+
+    async def test_offline_notice_resends_after_window_cleared(self):
+        context = MagicMock()
+        context.bot.send_message = AsyncMock(return_value="ok")
+        sent = set()
+        with patch.object(bot, "_offline_notice_sent", sent):
+            await bot._send_offline_notice(context, 123)
+        sent.clear()
+        await bot._send_offline_notice(context, 123)
+        self.assertEqual(context.bot.send_message.call_count, 2)
+
+    async def test_offline_notice_does_not_reset_offline_flag(self):
+        """A successful offline notice must not flip the global flag mid-window."""
+        context = MagicMock()
+        context.bot.send_message = AsyncMock(return_value="ok")
+        with patch.object(bot, "_offline_notice_sent", set()), \
+                patch.object(bot, "_telegram_offline", True):
+            await bot._send_offline_notice(context, 123)
+            self.assertTrue(bot._telegram_offline)
 
 
 

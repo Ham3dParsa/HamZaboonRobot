@@ -5,8 +5,6 @@ import datetime as _dt
 from services.db.schema import get_conn, _utc_now
 from services.db.settings import get_bool_setting, get_setting
 
-_first_enabled_name_cache: str | None = None
-
 
 def get_presets() -> list[dict]:
     with get_conn() as conn:

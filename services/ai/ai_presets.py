@@ -4,7 +4,10 @@ Built-in presets are defined here and seeded into the ai_presets table at init.
 Custom presets can be created by admins and stored in the DB (is_custom=1).
 """
 
+import logging
 import os
+
+log = logging.getLogger(__name__)
 
 BUILTIN_PRESETS = {
     # ── Google 3.6 Flash (newest, highest priority) ──
@@ -297,7 +300,36 @@ def resolve_api_key(preset_or_raw: dict | str) -> str:
         env_name = raw[1:]
         return os.getenv(env_name, "")
 
+    # Defensive guard (R3B): a raw key that is neither a "$" env reference nor
+    # a plausibly-valid literal key is almost certainly a mis-stored env-var
+    # name (e.g. the historical "HpOF_API_KEY" without the "$" prefix). Log it
+    # so the mistake surfaces instead of being silently sent to the provider.
+    # We never throw here: callers' fallback chains may still try to use it.
+    if not _looks_like_plausible_key(raw):
+        log.warning(
+            "resolve_api_key: api_key %r is not a '$ENV' reference nor a "
+            "plausible literal key; check the preset's stored api_key",
+            raw,
+        )
+
     return raw
+
+
+def _looks_like_plausible_key(raw: str) -> bool:
+    """Heuristic: is ``raw`` a plausibly-valid literal API key?
+
+    Real keys in this codebase are token-like — hyphenated/dotted (``sk-...``)
+    or long (``ix_<long hex>``). A short bare ``[A-Za-z0-9_]+`` token is the
+    shape of a mis-stored env-var name (e.g. ``HpOF_API_KEY`` without the
+    leading ``$``), so it is treated as not-a-key and surfaced for review.
+    """
+    if not raw:
+        return False
+    if "-" in raw or "." in raw:
+        return True
+    if len(raw) >= 32:
+        return True
+    return False
 
 
 def seed_presets():

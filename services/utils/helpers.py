@@ -156,6 +156,8 @@ async def _send_with_retry(
     bot,
     chat_id: int,
     text: str,
+    *,
+    reset_telegram_cb: bool = True,
     **kwargs,
 ):
     for attempt in range(3):
@@ -163,7 +165,8 @@ async def _send_with_retry(
             async with _telegram_slots:
                 send_kwargs = {"chat_id": chat_id, "text": text, **kwargs}
                 result = await bot.send_message(**send_kwargs)
-                _reset_telegram_cb()
+                if reset_telegram_cb:
+                    _reset_telegram_cb()
                 return result
         except Forbidden:
             db.set_user_blocked(chat_id)
@@ -175,9 +178,10 @@ async def _send_with_retry(
                 raise
             await asyncio.sleep(min(float(exc.retry_after), 30))
         except (TimedOut, NetworkError):
-            if attempt == 2:
-                raise
-            await asyncio.sleep(2**attempt)
+            # Sending creates a NEW message each call, so a timeout/network
+            # error is ambiguous (the message may already be delivered).
+            # Re-sending would produce a duplicate, so never retry sends.
+            raise
 
 
 async def _edit_with_retry(query, text, **kwargs):
@@ -235,6 +239,6 @@ async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
                 raise
             await asyncio.sleep(min(float(exc.retry_after), 30))
         except (TimedOut, NetworkError):
-            if attempt == 2:
-                raise
-            await asyncio.sleep(2**attempt)
+            # Sending creates a NEW message each call; a timeout/network error
+            # is ambiguous (may already be delivered). Never re-send a voice.
+            raise
