@@ -1413,12 +1413,12 @@ async def handle_ai_callback(
         await _start_full_edit_wizard(update, context, preset_name)
     elif action.startswith("ai_preset:full_edit_next:"):
         parts = action.split(":", 3)
-        if len(parts) == 4:
+        if len(parts) >= 3:
             preset_name = parts[2]
             await _handle_full_edit_next(update, context, preset_name)
     elif action.startswith("ai_preset:full_edit_skip:"):
         parts = action.split(":", 3)
-        if len(parts) == 4:
+        if len(parts) >= 3:
             preset_name = parts[2]
             await _handle_full_edit_skip(update, context, preset_name)
     elif action.startswith("ai_preset:full_edit_cancel:"):
