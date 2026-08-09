@@ -535,6 +535,17 @@ def _init_ai_presets_table(conn):
                 ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 p,
             )
+    # Data fix (R3A): historical databases seeded before the "$ENV" convention
+    # stored the HpOF env-var name bare (e.g. "HpOF_API_KEY" without the "$"
+    # prefix), so resolve_api_key treated it as a literal key and the provider
+    # rejected it. Prefix "$" idempotently — only for these known HP presets
+    # and only when the stored value is exactly the bare env name (never
+    # touching custom/ELI/GAPGPT keys or real literal key values).
+    conn.execute(
+        "UPDATE ai_presets SET api_key = '$' || api_key "
+        "WHERE name IN ('g3_6_f_HP', 'g3_5_f_HP', 'g3_5_FL_HP', 'g3_1_FL_HP') "
+        "AND api_key = 'HpOF_API_KEY'"
+    )
     conn.commit()
 
 
