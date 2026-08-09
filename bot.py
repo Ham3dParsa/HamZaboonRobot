@@ -237,7 +237,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data["awaiting"] = None
 
-        if (awaiting.startswith("admin_") or awaiting.startswith("llm_cost_") or awaiting.startswith("llm_price_")) and not is_owner(user_id):
+        if is_admin_awaiting(awaiting) and not is_owner(user_id):
             return  # لایه‌ی امنیتی اضافه؛ در حالت عادی اصلاً به این حالت نمی‌رسد
 
         if awaiting == "ask_word":

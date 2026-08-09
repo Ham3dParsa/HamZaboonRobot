@@ -58,7 +58,7 @@ Purpose: ground the §2.4.2 Dependency & Wiring Map in **actual call sites** (gr
 | `build_session` (assembly.py:26) | **remove** (keep `build_session_list`) (#4) |
 | cost + preset blocks in services/db/__init__.py | **update** → new modules, same re-export names (#3) |
 | `_handle_admin_callback` (admin.py:145) + `_handle_llm_callback` (771) + `_handle_admin_text_input` (872) | **split** into admin_ai/cost/plans/stats, thin prefix dispatcher (#7) |
-| awaiting prefix table in bot.py:403,456-484 | **update** → `is_admin_awaiting()`/`resume_admin_wizard()` in admin.py (#6) |
+| awaiting prefix table in bot.py:403,456-484 | **update** → `is_admin_awaiting()`/`handle_flow_back()` in admin.py (#6) |
 | AI outcome ternary in ai.py | **update** → `_call_tracked(...)` (#1) |
 
 ## Verify-after (reverse-wiring + dead-reference)
