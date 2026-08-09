@@ -346,7 +346,6 @@ _ADMIN_SUB_ROUTER_FUNCS = [
 # These only ROUTE to a sub-router; the real leaf branches live in the sub-routers,
 # so they must not satisfy the wiring guard on their own (otherwise deleting a leaf
 # branch would go unnoticed).
-_ADMIN_DELEGATING_PREFIXES = {"stats:", "plans:", "fallback", "ai_"}
 
 
 def _collect_action_patterns_in_func(
