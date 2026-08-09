@@ -10,6 +10,7 @@ from ``bot.py``; dispatch flows through ``handlers.admin``.
 
 import asyncio
 import hashlib
+import re
 from urllib.parse import quote, unquote
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
@@ -138,13 +139,23 @@ def _resolve_preset_ref(ref: str) -> str:
     return resolve_preset_token(ref) or ref
 
 
-def _resolve_label_ref(ref: str) -> str:
+def _resolve_label_ref(ref: str) -> str | None:
     """Resolve a callback group-label ref (hash token) back to a real label.
 
-    Falls back to URL-decoding the raw ref to preserve legacy plain-label
-    callbacks.
+    Legacy plain-label callbacks are URL-decoded. An unresolved 12-character
+    hash is stale and must not become a persisted group label.
     """
-    return resolve_label_token(ref) or unquote(ref)
+    resolved = resolve_label_token(ref)
+    if resolved:
+        return resolved
+    raw_ref = unquote(ref)
+    # A legacy plain label may itself be 12 hexadecimal characters, making it
+    # otherwise indistinguishable from the compact callback token.
+    if any(group["label"] == raw_ref for group in db.get_group_labels()):
+        return raw_ref
+    if re.fullmatch(r"[0-9a-f]{12}", ref):
+        return None
+    return raw_ref
 
 
 def _detect_key_groups() -> list[dict]:
@@ -635,8 +646,15 @@ async def _handle_full_edit_next(update: Update, context: ContextTypes.DEFAULT_T
         await _show_wizard_field(update, context, preset_name, next_idx, preset or {})
 
 
-async def _handle_full_edit_pick_group(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, label: str):
+async def _handle_full_edit_pick_group(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, label: str | None):
     """Handle group label picker selection in wizard."""
+    if label is None:
+        await update.callback_query.answer(
+            "برچسب گروه یافت نشد. دوباره ویرایش را باز کنید.",
+            show_alert=True,
+        )
+        return
+
     wizard = context.user_data.get("full_edit", {})
     if wizard.get("preset") != preset_name:
         await update.callback_query.answer("ویزارد منقضی شده")
@@ -1508,12 +1526,18 @@ async def handle_ai_callback(
         parts = action.split(":", 2)
         if len(parts) == 3:
             label = _resolve_label_ref(parts[2])
-            await _handle_group_manager_rename(update, context, label)
+            if label is None:
+                await update.callback_query.answer("برچسب گروه یافت نشد.", show_alert=True)
+            else:
+                await _handle_group_manager_rename(update, context, label)
     elif action.startswith("ai_preset:group_manager_clear:"):
         parts = action.split(":", 2)
         if len(parts) == 3:
             label = _resolve_label_ref(parts[2])
-            await _handle_group_manager_clear(update, context, label)
+            if label is None:
+                await update.callback_query.answer("برچسب گروه یافت نشد.", show_alert=True)
+            else:
+                await _handle_group_manager_clear(update, context, label)
     elif action == "ai_test_connection":
         await _test_ai_connection(update, context)
     elif action == "ai_custom_test":
@@ -1623,7 +1647,7 @@ async def _handle_ai_text_input(
                 return
             db.rename_group_label(old_label, new_label)
             context.user_data.pop("awaiting", None)
-            await update.message.reply_text(f"✅ برچسب «{html_escape(old_label)}» به «{html_escape(new_label)}» تغییر نام یافت.")
+            await update.message.reply_text(f"✅ برچسب «{old_label}» به «{new_label}» تغییر نام یافت.")
         else:
             context.user_data.pop("awaiting", None)
             await update.message.reply_text("انصراف از تغییر نام.")

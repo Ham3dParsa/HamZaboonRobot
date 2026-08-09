@@ -99,3 +99,10 @@ class TestHtmlEscape(unittest.TestCase):
     def test_url_with_query_string(self):
         url = "https://api.example.com/v1?key=123&fmt=json"
         self.assertEqual(html_escape(url), "https://api.example.com/v1?key=123&amp;fmt=json")
+
+    def test_none_is_empty(self):
+        self.assertEqual(html_escape(None), "")
+
+    def test_falsy_non_strings_are_stringified(self):
+        self.assertEqual(html_escape(0), "0")
+        self.assertEqual(html_escape(False), "False")

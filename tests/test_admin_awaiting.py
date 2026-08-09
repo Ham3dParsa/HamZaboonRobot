@@ -359,8 +359,7 @@ class TestGroupLabelTextInputCaps(unittest.IsolatedAsyncioTestCase):
         update = _make_update(text="g" * 41)
         context = _make_context()
         context.user_data["awaiting"] = "admin_group_set_label:abc"
-        with patch("handlers.admin_ai._detect_key_groups") as mock_detect:
-            await _handle_ai_text_input(update, context, "admin_group_set_label:abc", "g" * 41)
+        await _handle_ai_text_input(update, context, "admin_group_set_label:abc", "g" * 41)
         # awaiting preserved for retry
         self.assertEqual(context.user_data.get("awaiting"), "admin_group_set_label:abc")
 

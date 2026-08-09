@@ -34,14 +34,14 @@ def escape_mdv2_code(text: str) -> str:
     return re.sub(r"([`\\])", r"\\\1", text)
 
 
-def html_escape(text: str) -> str:
+def html_escape(text: object | None) -> str:
     """Escape a dynamic value for interpolation into a ParseMode.HTML message.
 
     Centralized choke point for HTML-mode admin/non-learner renderings. Escapes
     the reserved HTML characters (``& < > " '``) so a value containing them
     (e.g. a base_url query string) cannot break Telegram's entity parsing.
     """
-    if not text:
+    if text is None:
         return ""
     return html.escape(str(text), quote=True)
 

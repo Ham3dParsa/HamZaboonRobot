@@ -158,5 +158,191 @@ class AiConnectionEscapingTest(unittest.TestCase):
         return ctx
 
 
+class GroupLabelCallbackSafetyTest(unittest.TestCase):
+    """Stale group-label callbacks must not leak their hash into pending edits."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.previous_db_path = db.DB_PATH
+        self.previous_schema_path = db_schema.DB_PATH
+        self.new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db.DB_PATH = self.new_path
+        db_schema.DB_PATH = self.new_path
+        db.init_db()
+        db.create_user_if_needed(1, "owner")
+        db.set_preset(name="custom_preset", base_url="https://x", model="m", is_custom=1)
+        db.set_preset(
+            name="grouped_preset",
+            base_url="https://x",
+            model="m",
+            is_custom=1,
+            group_label="legacy label",
+        )
+        db.set_preset(
+            name="hash_like_grouped_preset",
+            base_url="https://x",
+            model="m",
+            is_custom=1,
+            group_label="abcdef123456",
+        )
+        self.owner_patcher = patch("handlers.admin.is_owner", return_value=True)
+        self.owner_patcher.start()
+        self.addCleanup(self.owner_patcher.stop)
+
+    def tearDown(self):
+        db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_schema_path
+        self.tempdir.cleanup()
+
+    def _callback_update(self):
+        query = MagicMock()
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update = MagicMock()
+        update.effective_user.id = 1
+        update.effective_chat.id = 1
+        update.callback_query = query
+        return update
+
+    def _text_update(self):
+        update = MagicMock()
+        update.callback_query = None
+        update.message.reply_text = AsyncMock()
+        return update
+
+    def _context(self):
+        ctx = MagicMock()
+        ctx.user_data = {}
+        ctx.bot = AsyncMock()
+        return ctx
+
+    def test_stale_hash_is_rejected_without_changing_wizard_or_database(self):
+        from handlers.admin import _handle_admin_callback
+        from services.utils.callback_codec import preset_token
+
+        update = self._callback_update()
+        context = self._context()
+        context.user_data["full_edit"] = {
+            "preset": "custom_preset",
+            "values": {},
+            "field_idx": 17,
+        }
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:full_edit_pick_group:{preset_token('custom_preset')}:000000000000",
+            )
+        )
+
+        self.assertEqual(context.user_data["full_edit"]["values"], {})
+        self.assertEqual(db.get_preset("custom_preset")["group_label"], "")
+        update.callback_query.answer.assert_awaited_once_with(
+            "برچسب گروه یافت نشد. دوباره ویرایش را باز کنید.",
+            show_alert=True,
+        )
+
+    def test_legacy_plain_label_callback_still_selects_the_existing_label(self):
+        from handlers.admin import _handle_admin_callback
+        from services.utils.callback_codec import preset_token
+
+        update = self._callback_update()
+        context = self._context()
+        context.user_data["full_edit"] = {
+            "preset": "custom_preset",
+            "values": {},
+            "field_idx": 17,
+        }
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:full_edit_pick_group:{preset_token('custom_preset')}:legacy%20label",
+            )
+        )
+
+        self.assertEqual(context.user_data["full_edit"]["values"]["group_label"], "legacy label")
+
+    def test_legacy_hash_like_label_callback_still_selects_the_existing_label(self):
+        from handlers.admin import _handle_admin_callback
+        from services.utils.callback_codec import preset_token
+
+        update = self._callback_update()
+        context = self._context()
+        context.user_data["full_edit"] = {
+            "preset": "custom_preset",
+            "values": {},
+            "field_idx": 17,
+        }
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:full_edit_pick_group:{preset_token('custom_preset')}:abcdef123456",
+            )
+        )
+
+        self.assertEqual(context.user_data["full_edit"]["values"]["group_label"], "abcdef123456")
+
+    def test_stale_group_manager_rename_is_rejected_without_awaiting_state(self):
+        from handlers.admin import _handle_admin_callback
+
+        update = self._callback_update()
+        context = self._context()
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                "ai_preset:group_manager_rename:000000000000",
+            )
+        )
+
+        self.assertNotIn("awaiting", context.user_data)
+        update.callback_query.answer.assert_awaited_once_with(
+            "برچسب گروه یافت نشد.",
+            show_alert=True,
+        )
+
+    def test_stale_group_manager_clear_is_rejected_without_database_change(self):
+        from handlers.admin import _handle_admin_callback
+
+        update = self._callback_update()
+        context = self._context()
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                "ai_preset:group_manager_clear:000000000000",
+            )
+        )
+
+        self.assertEqual(db.get_preset("grouped_preset")["group_label"], "legacy label")
+        update.callback_query.answer.assert_awaited_once_with(
+            "برچسب گروه یافت نشد.",
+            show_alert=True,
+        )
+
+    def test_rename_confirmation_keeps_group_label_plain_text(self):
+        from handlers.admin_ai import _handle_ai_text_input
+
+        update = self._text_update()
+        context = self._context()
+        awaiting = "admin_group_manager_rename:legacy%20label"
+
+        asyncio.run(
+            _handle_ai_text_input(update, context, awaiting, "old&new")
+        )
+
+        confirmation = update.message.reply_text.await_args_list[0].args[0]
+        self.assertIn("old&new", confirmation)
+        self.assertIn("legacy label", confirmation)
+        self.assertNotIn("&amp;", confirmation)
+
+
 if __name__ == "__main__":
     unittest.main()
