@@ -181,10 +181,13 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif action.startswith("ai_") or action.startswith("fallback") or action in ("help:presets", "help:fallback_chain"):
         await handle_ai_callback(update, context, action)
     elif action == "back":
+        context.user_data.pop("awaiting", None)
         await _edit_or_send(update, context, "پنل مدیریت ربات:", reply_markup=admin_panel_keyboard())
         await update.callback_query.answer("بازگشت")
     elif action == "cancel":
         context.user_data.pop("awaiting", None)
+        context.user_data.pop("preset_edits", None)
+        context.user_data.pop("full_edit", None)
         await _edit_or_send(update, context, "عملیات لغو شد.", reply_markup=admin_panel_keyboard())
         await update.callback_query.answer("لغو شد")
     elif action == "phonetics":
@@ -224,16 +227,22 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif action == "show_settings":
         preset = db.get_active_preset()
         raw_key = db.resolve_preset_key(preset)
-        masked = (raw_key[:6] + "…" + raw_key[-4:]) if len(raw_key) > 12 else ("—" if not raw_key else raw_key)
+        if len(raw_key) > 12:
+            masked = raw_key[:6] + "…" + raw_key[-4:]
+        elif raw_key:
+            masked = "***"
+        else:
+            masked = "—"
+        from services.utils.formatting import html_escape
         await _edit_or_send(
             update,
             context,
-            f"🤖 پیش‌تنظیم فعال: `{preset.get('name', 'gapgpt')}`\n"
-            f"📋 مدل: `{preset.get('model', '—')}`\n"
-            f"🌐 Base URL: `{preset.get('base_url', '—')}`\n"
-            f"🔑 API Key: `{masked}`\n"
+            f"🤖 پیش‌تنظیم فعال: <b>{html_escape(str(preset.get('name', 'gapgpt'))) }</b>\n"
+            f"📋 مدل: <b>{html_escape(str(preset.get('model', '—'))) }</b>\n"
+            f"🌐 Base URL: <b>{html_escape(str(preset.get('base_url', '—'))) }</b>\n"
+            f"🔑 API Key: <code>{html_escape(masked)}</code>\n"
             f"🗣 IPA: {'روشن' if db.get_bool_setting('phonetic_show_ipa', True) else 'خاموش'}",
-            parse_mode=ParseMode.MARKDOWN_V2,
+            parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data="admin:back")]]),
         )
     elif action == "noop":

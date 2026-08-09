@@ -52,46 +52,75 @@ def set_preset(
     output_cost_per_million: float | None = None,
     in_fallback_chain: int = 1,
     group_label: str = "",
+    *,
+    previous_name: str | None = None,
+    remove_orphaned_group_key: bool = False,
 ):
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        conn.execute(
-            "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, is_emergency, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(name) DO UPDATE SET "
-            "base_url=excluded.base_url, model=excluded.model, api_key=excluded.api_key, "
-            "daily_batch_size=excluded.daily_batch_size, "
-            "max_concurrency=excluded.max_concurrency, max_rpm=excluded.max_rpm, "
-            "max_tpm=excluded.max_tpm, max_daily_req=excluded.max_daily_req, "
-            "timeout_seconds=excluded.timeout_seconds, temperature=excluded.temperature, "
-            "max_output_tokens=excluded.max_output_tokens, is_custom=excluded.is_custom, "
-            "is_emergency=excluded.is_emergency, "
-            "input_cost_per_million=excluded.input_cost_per_million, "
-            "output_cost_per_million=excluded.output_cost_per_million, "
-            "in_fallback_chain=excluded.in_fallback_chain, "
-            "group_label=excluded.group_label",
-            (
-                name,
-                base_url,
-                model,
-                api_key,
-                daily_batch_size,
-                max_concurrency,
-                max_rpm,
-                max_tpm,
-                max_daily_req,
-                timeout_seconds,
-                temperature,
-                max_output_tokens,
-                is_custom,
-                is_emergency,
-                input_cost_per_million,
-                output_cost_per_million,
-                in_fallback_chain,
-                group_label,
-            ),
-        )
-        conn.commit()
+        try:
+            source_name = previous_name or name
+            previous = conn.execute(
+                "SELECT group_label FROM ai_presets WHERE name=?", (source_name,)
+            ).fetchone()
+            if previous_name and previous_name != name:
+                collision = conn.execute(
+                    "SELECT 1 FROM ai_presets WHERE name=?", (name,)
+                ).fetchone()
+                if collision:
+                    raise ValueError(f"preset name already exists: {name}")
+            conn.execute(
+                "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, is_emergency, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET "
+                "base_url=excluded.base_url, model=excluded.model, api_key=excluded.api_key, "
+                "daily_batch_size=excluded.daily_batch_size, "
+                "max_concurrency=excluded.max_concurrency, max_rpm=excluded.max_rpm, "
+                "max_tpm=excluded.max_tpm, max_daily_req=excluded.max_daily_req, "
+                "timeout_seconds=excluded.timeout_seconds, temperature=excluded.temperature, "
+                "max_output_tokens=excluded.max_output_tokens, is_custom=excluded.is_custom, "
+                "is_emergency=excluded.is_emergency, "
+                "input_cost_per_million=excluded.input_cost_per_million, "
+                "output_cost_per_million=excluded.output_cost_per_million, "
+                "in_fallback_chain=excluded.in_fallback_chain, "
+                "group_label=excluded.group_label",
+                (
+                    name,
+                    base_url,
+                    model,
+                    api_key,
+                    daily_batch_size,
+                    max_concurrency,
+                    max_rpm,
+                    max_tpm,
+                    max_daily_req,
+                    timeout_seconds,
+                    temperature,
+                    max_output_tokens,
+                    is_custom,
+                    is_emergency,
+                    input_cost_per_million,
+                    output_cost_per_million,
+                    in_fallback_chain,
+                    group_label,
+                ),
+            )
+            if previous_name and previous_name != name:
+                conn.execute("DELETE FROM ai_presets WHERE name=?", (previous_name,))
+            old_label = previous["group_label"] if previous else ""
+            if remove_orphaned_group_key and old_label and old_label != group_label:
+                remaining_member = conn.execute(
+                    "SELECT 1 FROM ai_presets WHERE group_label=? LIMIT 1",
+                    (old_label,),
+                ).fetchone()
+                if not remaining_member:
+                    conn.execute(
+                        "DELETE FROM preset_groups WHERE group_label=?", (old_label,)
+                    )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
 
 def set_preset_api_key_batch(names: list[str], new_key: str):
@@ -131,38 +160,46 @@ def rename_group_label(old_label: str, new_label: str):
         return
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        conn.execute(
-            "UPDATE ai_presets SET group_label=? WHERE group_label=?",
-            (new_label, old_label),
-        )
-        # Keep any shared group key consistent with the renamed label.
-        # If the target label already owns a key, it wins (merge, keep target's
-        # key); otherwise the source key carries over. Never crash on the PK.
-        conn.execute(
-            "INSERT OR IGNORE INTO preset_groups(group_label, api_key) "
-            "SELECT ?, api_key FROM preset_groups WHERE group_label=?",
-            (new_label, old_label),
-        )
-        conn.execute(
-            "DELETE FROM preset_groups WHERE group_label=?",
-            (old_label,),
-        )
-        conn.commit()
+        try:
+            conn.execute(
+                "UPDATE ai_presets SET group_label=? WHERE group_label=?",
+                (new_label, old_label),
+            )
+            # Keep any shared group key consistent with the renamed label.
+            # If the target label already owns a key, it wins (merge, keep target's
+            # key); otherwise the source key carries over. Never crash on the PK.
+            conn.execute(
+                "INSERT OR IGNORE INTO preset_groups(group_label, api_key) "
+                "SELECT ?, api_key FROM preset_groups WHERE group_label=?",
+                (new_label, old_label),
+            )
+            conn.execute(
+                "DELETE FROM preset_groups WHERE group_label=?",
+                (old_label,),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
 
 def clear_group_label(label: str):
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        conn.execute(
-            "UPDATE ai_presets SET group_label='' WHERE group_label=?",
-            (label,),
-        )
-        # Remove the now-orphaned shared group key (no preset references it).
-        conn.execute(
-            "DELETE FROM preset_groups WHERE group_label=?",
-            (label,),
-        )
-        conn.commit()
+        try:
+            conn.execute(
+                "UPDATE ai_presets SET group_label='' WHERE group_label=?",
+                (label,),
+            )
+            # Remove the now-orphaned shared group key (no preset references it).
+            conn.execute(
+                "DELETE FROM preset_groups WHERE group_label=?",
+                (label,),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
 
 # ---------- Group Shared Keys ----------
@@ -270,35 +307,39 @@ def get_preset_cost(preset_name: str) -> dict:
 def set_fallback_active(active: bool, fallback_preset: str | None = None):
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        conn.execute(
-            "INSERT INTO settings(key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            ("ai_fallback_active", "true" if active else "false"),
-        )
-        if active:
+        try:
             conn.execute(
                 "INSERT INTO settings(key, value) VALUES (?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                ("ai_fallback_since", _utc_now().isoformat()),
+                ("ai_fallback_active", "true" if active else "false"),
             )
-            if fallback_preset:
+            if active:
                 conn.execute(
                     "INSERT INTO settings(key, value) VALUES (?, ?) "
                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                    ("ai_fallback_preset", fallback_preset),
+                    ("ai_fallback_since", _utc_now().isoformat()),
                 )
-        else:
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                ("ai_fallback_since", ""),
-            )
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                ("ai_consecutive_failures", "0"),
-            )
-        conn.commit()
+                if fallback_preset:
+                    conn.execute(
+                        "INSERT INTO settings(key, value) VALUES (?, ?) "
+                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                        ("ai_fallback_preset", fallback_preset),
+                    )
+            else:
+                conn.execute(
+                    "INSERT INTO settings(key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    ("ai_fallback_since", ""),
+                )
+                conn.execute(
+                    "INSERT INTO settings(key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    ("ai_consecutive_failures", "0"),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
 
 def increment_consecutive_failures() -> int:
@@ -402,11 +443,13 @@ def reindex_preset_priority(name: str, target_rank: int, group_is_emergency: boo
 
         count = len(rows)
         if not (1 <= target_rank <= count):
+            conn.rollback()
             raise ValueError(f"target_rank {target_rank} out of range [1, {count}]")
 
         names = [r["name"] for r in rows]
         current_idx = names.index(name) if name in names else -1
         if current_idx == -1:
+            conn.rollback()
             raise ValueError(f"preset {name} not found in group")
         if current_idx == target_idx:
             conn.commit()
@@ -415,12 +458,16 @@ def reindex_preset_priority(name: str, target_rank: int, group_is_emergency: boo
         item = rows.pop(current_idx)
         rows.insert(target_idx, item)
 
-        for i, row in enumerate(rows):
-            conn.execute(
-                "UPDATE ai_presets SET priority=? WHERE name=?",
-                (i, row["name"]),
-            )
-        conn.commit()
+        try:
+            for i, row in enumerate(rows):
+                conn.execute(
+                    "UPDATE ai_presets SET priority=? WHERE name=?",
+                    (i, row["name"]),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
 
 def set_preset_priority(name: str, priority: int):
