@@ -518,6 +518,16 @@ def _init_ai_presets_table(conn):
         );
         """
     )
+    # Additive optional group-key table. A group shares one default API key;
+    # a preset uses its own key if set, else its group's key. Empty by default.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS preset_groups (
+            group_label TEXT PRIMARY KEY,
+            api_key TEXT NOT NULL DEFAULT ''
+        );
+        """
+    )
     # Seed default presets only on first run (empty table).
     count = conn.execute("SELECT COUNT(*) as c FROM ai_presets").fetchone()["c"]
     if count == 0:

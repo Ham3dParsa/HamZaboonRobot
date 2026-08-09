@@ -18,7 +18,6 @@ from config import (
 )
 from services import db
 from services.ai import prompts
-from services.ai import ai_presets
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +27,7 @@ def _client(preset: dict | None = None) -> OpenAI:
     if preset is None:
         preset = db.get_active_preset() or {}
     base_url = preset.get("base_url", "") or DEFAULT_AI_BASE_URL
-    api_key = ai_presets.resolve_api_key(preset)
+    api_key = db.resolve_preset_key(preset)
     if not api_key:
         api_key = db.get_setting("ai_api_key", DEFAULT_AI_API_KEY)
     timeout = preset.get("timeout_seconds", AI_TIMEOUT_SECONDS)

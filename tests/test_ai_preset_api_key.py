@@ -120,7 +120,7 @@ class PresetApiKeyMigrationTest(_ScratchDbTestCase):
             )
             conn.execute(
                 "INSERT INTO ai_presets(name, api_key, is_custom) "
-                "VALUES ('g3_6_f_ELI', '$ELIAPI_API_KEY', 1)"
+                "VALUES ('g3_6_f_ELI', '$ELI_API_KEY', 1)"
             )
             conn.execute(
                 "INSERT INTO ai_presets(name, api_key, is_custom) "
@@ -142,7 +142,7 @@ class PresetApiKeyMigrationTest(_ScratchDbTestCase):
                 "SELECT api_key FROM ai_presets WHERE name='gapgpt_G3_1F_L'"
             ).fetchone()["api_key"]
         self.assertTrue(custom_lit.startswith("sk-"))
-        self.assertEqual(eli, "$ELIAPI_API_KEY")
+        self.assertEqual(eli, "$ELI_API_KEY")
         self.assertEqual(gap, "$GAPGPT_API_KEY")
 
 
