@@ -7,7 +7,7 @@ branch: fix/admin-ai-presets-audit
 status: in-progress
 ---
 
-STATE: phase 1/3 - status: in-progress - focus: publish locked spec and implement group-label callback safety
+STATE: phase 2/3 - status: in-progress - focus: per-preset group detachment
 
 ## Problem Statement
 
@@ -34,6 +34,14 @@ Make group-label callbacks stale-safe, show rename confirmations as plain text, 
 4. Full-edit wizard behavior is unchanged: an empty text response still skips that field. The primary edit keyboard is the single detach entry point for this scope.
 5. Explicit transaction rollbacks remain in place. The test verifies state preservation as well as a later successful write.
 6. `html_escape` treats only `None` as the special empty value. The unused keyboard import and unreachable test mock are removed.
+7. The new detach action accepts only a currently resolvable preset hash. It rejects stale tokens instead of using the general legacy raw-name fallback because this action has no legacy callbacks.
+8. When a detach removes the final member of a shared-key group, the same preset-save transaction deletes that label's orphaned shared key. Existing group-wide clear behavior remains unchanged.
+9. The existing preset Save operation accepts optional rename and detach-cleanup context so its update/create, old-name removal, and final-member key cleanup complete in one immediate transaction.
+10. Orphan cleanup remains limited to the new detach flow. Existing batch label changes and the separate preset-manager tool are recorded as follow-up work rather than broadened here.
+11. Starting the full-edit wizard while direct changes are pending is rejected. The admin must Save or Discard first, preserving both staging models without silent merging or loss.
+12. An atomic rename Save verifies the destination name remains unclaimed inside its transaction. A late conflict rolls back entirely and leaves the pending edit available for correction.
+13. A detach callback is rejected while Full Edit is active for that same preset, so neither staging model can leave a surprise change for the other.
+14. Full Edit and detach are session-wide exclusive workflows: Full Edit is blocked by any pending direct edit, and any active Full Edit blocks every detach callback.
 
 ## Testing Decisions
 
@@ -67,6 +75,14 @@ Make group-label callbacks stale-safe, show rename confirmations as plain text, 
 | 4 | Priority rollback | Keep explicit rollback; strengthen proof | LOCKED |
 | 5 | Minor cleanup | Remove unused import; narrow `html_escape` guard | LOCKED |
 | 6 | Dead test setup | Remove unreachable mock | LOCKED |
+| 7 | Stale detach preset reference | Reject unresolved token for detach only | LOCKED |
+| 8 | Last-member shared key | Delete orphaned key transactionally | LOCKED |
+| 9 | Rename plus detach | One atomic preset Save transaction | LOCKED |
+| 10 | Existing orphan paths | Defer batch/tool cleanup to a follow-up | LOCKED |
+| 11 | Direct edits plus full edit | Require Save or Discard before Full Edit | LOCKED |
+| 12 | Late rename collision | Reject without writing or deleting either preset | LOCKED |
+| 13 | Detach during Full Edit | Reject without changing either staging area | LOCKED |
+| 14 | Cross-preset staging | Keep Full Edit and detach exclusive for the whole admin session | LOCKED |
 
 ## Dependency & Wiring Map
 
@@ -75,7 +91,7 @@ Make group-label callbacks stale-safe, show rename confirmations as plain text, 
 | Callback prefixes | Existing label-picker callbacks; new per-preset detach action | update |
 | Router branches | Owner-gated admin dispatcher; AI preset sub-router | keep / update |
 | Keyboard builders / constants | Custom-preset edit keyboard; detach label | update |
-| DB tables / columns / functions | Existing `group_label` persistence through preset Save | keep |
+| DB tables / columns / functions | Existing preset Save transaction gains optional atomic rename and detach-only orphan-key cleanup | update |
 | Handler functions | Label resolution, full-edit selection, detach action | update |
 | Imports / re-exports | Callback codec / keyboard imports | update / remove |
 | Prompts / formatting helpers | Persian admin confirmation; HTML escaping | update |
@@ -86,6 +102,11 @@ Make group-label callbacks stale-safe, show rename confirmations as plain text, 
 
 | Phase | Ticket | Execution order | Status | Evidence |
 |---|---|---:|---|---|
-| 1 | #289 Group-label callback and escaping safety | 1 | in-progress | Contract locked; implementation not started |
-| 2 | #290 Per-preset group detachment | 2 | pending | Not started |
+| 1 | #289 Group-label callback and escaping safety | 1 | complete | `5dad67f`; focused suite and 589 full tests passed |
+| 2 | #290 Per-preset group detachment | 2 | ready | Rules 3, 7-14 implemented; 602 full tests passed; staged pending commit |
 | 3 | #291 Rollback test proof | 3 | pending | Not started |
+
+## Follow-up Risks
+
+- Existing batch group-label changes and the separate preset-manager tool can leave orphaned shared keys. Owner selected deferred handling (Rule 10); tracked in #292 rather than widening this PR.
+- The full-edit wizard Save path remains a separate non-atomic rename (pre-existing; plan held wizard unchanged). Owner deferred; tracked in #299.

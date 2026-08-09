@@ -4,10 +4,10 @@ description: Make group-label callback selections safe and repair non-HTML confi
 created: 2026-08-09
 base_commit: a871300
 branch: fix/admin-ai-presets-audit
-status: ready
+status: complete
 ---
 
-STATE: phase 1/3 - status: ready - focus: group-label callback and escaping safety
+STATE: phase 1/3 - status: complete - focus: committed as 5dad67f
 
 ## Parent
 
@@ -43,6 +43,12 @@ An admin sees exact label text in a successful group-rename confirmation. If a g
 - [ ] Existing non-hash label callback payloads still resolve.
 - [ ] Focused handler, codec, formatting, and awaiting tests pass.
 - [ ] Full validation and wiring/dead-reference guards pass before commit.
+
+## Evidence
+
+- Commit: `5dad67f fix(admin): harden group-label callbacks`.
+- Focused callback, formatting, awaiting, and codec tests: 77 passed.
+- Full validation: ruff and compile passed; 589 tests passed with `-n 14`; dashboard generation and whitespace checks passed.
 
 ## Dependency & Wiring Map
 

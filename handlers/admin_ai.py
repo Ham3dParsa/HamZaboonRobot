@@ -477,6 +477,13 @@ TOTAL_WIZARD_FIELDS = len(WIZARD_FIELDS)
 
 async def _start_full_edit_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
     """Start the full preset edit wizard."""
+    if any(context.user_data.get("preset_edits", {}).values()):
+        await update.callback_query.answer(
+            "ابتدا تغییرات فعلی را ذخیره یا دور بریزید.",
+            show_alert=True,
+        )
+        return
+
     preset = db.get_preset(preset_name)
     if not preset or not preset.get("is_custom"):
         await update.callback_query.answer("فقط پیش‌تنظیم‌های custom قابل ویرایش‌اند", show_alert=True)
@@ -903,6 +910,29 @@ async def _discard_all_preset_changes(update: Update, context: ContextTypes.DEFA
     await _show_ai_preset_view(update, context, preset_name)
 
 
+async def _detach_ai_preset_group(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+    """Stage removal of one custom preset from its group until Save is confirmed."""
+    if context.user_data.get("full_edit"):
+        await update.callback_query.answer(
+            "ابتدا ویرایش کامل را تمام یا لغو کنید.",
+            show_alert=True,
+        )
+        return
+
+    preset = db.get_preset(preset_name)
+    if not preset or not preset.get("is_custom"):
+        await update.callback_query.answer("پیش‌تنظیم قابل ویرایش یافت نشد", show_alert=True)
+        return
+    if not preset.get("group_label"):
+        await update.callback_query.answer("این پیش‌تنظیم در گروهی نیست", show_alert=True)
+        return
+
+    edits = context.user_data.setdefault("preset_edits", {})
+    edits.setdefault(preset_name, {})["group_label"] = ""
+    await update.callback_query.answer("✅ حذف از گروه ثبت شد. برای اعمال، ذخیره را بزنید.")
+    await _edit_ai_preset(update, context, preset_name)
+
+
 async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
     """Save all pending changes for a preset to the database."""
     preset = db.get_preset(preset_name)
@@ -919,32 +949,43 @@ async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
     # Handle rename: if name changed, use new name as key
     new_name = edits.get("name", preset_name)
     rename = new_name != preset_name
-
-    # Apply to preset from in-memory edits + existing values as fallback
-    db.set_preset(
-        name=new_name,
-        base_url=edits.get("base_url", preset.get("base_url", "")),
-        model=edits.get("model", preset.get("model", "")),
-        api_key=edits.get("api_key", preset.get("api_key", "")),
-        daily_batch_size=int(edits.get("daily_batch_size", preset.get("daily_batch_size", 6))),
-        max_concurrency=int(edits.get("max_concurrency", preset.get("max_concurrency", 2))),
-        max_rpm=int(edits.get("max_rpm", preset.get("max_rpm", 30))),
-        max_tpm=int(edits.get("max_tpm", preset.get("max_tpm", 0))),
-        max_daily_req=int(edits.get("max_daily_req", preset.get("max_daily_req", 0))),
-        timeout_seconds=float(edits.get("timeout_seconds", preset.get("timeout_seconds", 30.0))),
-        temperature=float(edits.get("temperature", preset.get("temperature", 0.6))),
-        max_output_tokens=int(edits.get("max_output_tokens", preset.get("max_output_tokens", 4096))),
-        is_custom=1,
-        is_emergency=int(edits.get("is_emergency", preset.get("is_emergency", 0))),
-        input_cost_per_million=edits.get("input_cost_per_million", preset.get("input_cost_per_million")),
-        output_cost_per_million=edits.get("output_cost_per_million", preset.get("output_cost_per_million")),
-        in_fallback_chain=int(edits.get("in_fallback_chain", preset.get("in_fallback_chain", 1))),
-        group_label=edits.get("group_label", preset.get("group_label", "")),
+    removing_group = (
+        edits.get("group_label") == "" and bool(preset.get("group_label"))
     )
 
-    # If renamed, delete old preset row
+    # Apply to preset from in-memory edits + existing values as fallback
+    try:
+        db.set_preset(
+            name=new_name,
+            base_url=edits.get("base_url", preset.get("base_url", "")),
+            model=edits.get("model", preset.get("model", "")),
+            api_key=edits.get("api_key", preset.get("api_key", "")),
+            daily_batch_size=int(edits.get("daily_batch_size", preset.get("daily_batch_size", 6))),
+            max_concurrency=int(edits.get("max_concurrency", preset.get("max_concurrency", 2))),
+            max_rpm=int(edits.get("max_rpm", preset.get("max_rpm", 30))),
+            max_tpm=int(edits.get("max_tpm", preset.get("max_tpm", 0))),
+            max_daily_req=int(edits.get("max_daily_req", preset.get("max_daily_req", 0))),
+            timeout_seconds=float(edits.get("timeout_seconds", preset.get("timeout_seconds", 30.0))),
+            temperature=float(edits.get("temperature", preset.get("temperature", 0.6))),
+            max_output_tokens=int(edits.get("max_output_tokens", preset.get("max_output_tokens", 4096))),
+            is_custom=1,
+            is_emergency=int(edits.get("is_emergency", preset.get("is_emergency", 0))),
+            input_cost_per_million=edits.get("input_cost_per_million", preset.get("input_cost_per_million")),
+            output_cost_per_million=edits.get("output_cost_per_million", preset.get("output_cost_per_million")),
+            in_fallback_chain=int(edits.get("in_fallback_chain", preset.get("in_fallback_chain", 1))),
+            group_label=edits.get("group_label", preset.get("group_label", "")),
+            previous_name=preset_name,
+            remove_orphaned_group_key=removing_group,
+        )
+    except ValueError:
+        await update.callback_query.answer(
+            "این نام هم‌اکنون توسط پیش‌تنظیم دیگری استفاده می‌شود.",
+            show_alert=True,
+        )
+        return
+
+    # The database transaction already removed the old row when renamed.
     if rename:
-        db.delete_preset(preset_name)
         # Move pending edits to new name key
         context.user_data.setdefault("preset_edits", {}).pop(preset_name, None)
 
@@ -1500,6 +1541,12 @@ async def handle_ai_callback(
     elif action.startswith("ai_preset:discard_all:"):
         preset_name = _resolve_preset_ref(action.split(":", 2)[2])
         await _discard_all_preset_changes(update, context, preset_name)
+    elif action.startswith("ai_preset:detach_group:"):
+        preset_name = resolve_preset_token(action.split(":", 2)[2])
+        if not preset_name:
+            await update.callback_query.answer("پیش‌تنظیم یافت نشد", show_alert=True)
+        else:
+            await _detach_ai_preset_group(update, context, preset_name)
     elif action.startswith("ai_preset:delete:"):
         preset_name = _resolve_preset_ref(action.split(":", 2)[2])
         await _delete_ai_preset(update, context, preset_name)

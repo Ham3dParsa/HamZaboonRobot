@@ -52,46 +52,75 @@ def set_preset(
     output_cost_per_million: float | None = None,
     in_fallback_chain: int = 1,
     group_label: str = "",
+    *,
+    previous_name: str | None = None,
+    remove_orphaned_group_key: bool = False,
 ):
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        conn.execute(
-            "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, is_emergency, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(name) DO UPDATE SET "
-            "base_url=excluded.base_url, model=excluded.model, api_key=excluded.api_key, "
-            "daily_batch_size=excluded.daily_batch_size, "
-            "max_concurrency=excluded.max_concurrency, max_rpm=excluded.max_rpm, "
-            "max_tpm=excluded.max_tpm, max_daily_req=excluded.max_daily_req, "
-            "timeout_seconds=excluded.timeout_seconds, temperature=excluded.temperature, "
-            "max_output_tokens=excluded.max_output_tokens, is_custom=excluded.is_custom, "
-            "is_emergency=excluded.is_emergency, "
-            "input_cost_per_million=excluded.input_cost_per_million, "
-            "output_cost_per_million=excluded.output_cost_per_million, "
-            "in_fallback_chain=excluded.in_fallback_chain, "
-            "group_label=excluded.group_label",
-            (
-                name,
-                base_url,
-                model,
-                api_key,
-                daily_batch_size,
-                max_concurrency,
-                max_rpm,
-                max_tpm,
-                max_daily_req,
-                timeout_seconds,
-                temperature,
-                max_output_tokens,
-                is_custom,
-                is_emergency,
-                input_cost_per_million,
-                output_cost_per_million,
-                in_fallback_chain,
-                group_label,
-            ),
-        )
-        conn.commit()
+        try:
+            source_name = previous_name or name
+            previous = conn.execute(
+                "SELECT group_label FROM ai_presets WHERE name=?", (source_name,)
+            ).fetchone()
+            if previous_name and previous_name != name:
+                collision = conn.execute(
+                    "SELECT 1 FROM ai_presets WHERE name=?", (name,)
+                ).fetchone()
+                if collision:
+                    raise ValueError(f"preset name already exists: {name}")
+            conn.execute(
+                "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, is_emergency, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET "
+                "base_url=excluded.base_url, model=excluded.model, api_key=excluded.api_key, "
+                "daily_batch_size=excluded.daily_batch_size, "
+                "max_concurrency=excluded.max_concurrency, max_rpm=excluded.max_rpm, "
+                "max_tpm=excluded.max_tpm, max_daily_req=excluded.max_daily_req, "
+                "timeout_seconds=excluded.timeout_seconds, temperature=excluded.temperature, "
+                "max_output_tokens=excluded.max_output_tokens, is_custom=excluded.is_custom, "
+                "is_emergency=excluded.is_emergency, "
+                "input_cost_per_million=excluded.input_cost_per_million, "
+                "output_cost_per_million=excluded.output_cost_per_million, "
+                "in_fallback_chain=excluded.in_fallback_chain, "
+                "group_label=excluded.group_label",
+                (
+                    name,
+                    base_url,
+                    model,
+                    api_key,
+                    daily_batch_size,
+                    max_concurrency,
+                    max_rpm,
+                    max_tpm,
+                    max_daily_req,
+                    timeout_seconds,
+                    temperature,
+                    max_output_tokens,
+                    is_custom,
+                    is_emergency,
+                    input_cost_per_million,
+                    output_cost_per_million,
+                    in_fallback_chain,
+                    group_label,
+                ),
+            )
+            if previous_name and previous_name != name:
+                conn.execute("DELETE FROM ai_presets WHERE name=?", (previous_name,))
+            old_label = previous["group_label"] if previous else ""
+            if remove_orphaned_group_key and old_label and old_label != group_label:
+                remaining_member = conn.execute(
+                    "SELECT 1 FROM ai_presets WHERE group_label=? LIMIT 1",
+                    (old_label,),
+                ).fetchone()
+                if not remaining_member:
+                    conn.execute(
+                        "DELETE FROM preset_groups WHERE group_label=?", (old_label,)
+                    )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
 
 def set_preset_api_key_batch(names: list[str], new_key: str):

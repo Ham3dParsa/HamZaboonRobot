@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sqlite3
 import tempfile
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -342,6 +343,438 @@ class GroupLabelCallbackSafetyTest(unittest.TestCase):
         self.assertIn("old&new", confirmation)
         self.assertIn("legacy label", confirmation)
         self.assertNotIn("&amp;", confirmation)
+
+
+class PerPresetGroupDetachmentTest(unittest.TestCase):
+    """A custom preset can leave a group without changing its peers."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.previous_db_path = db.DB_PATH
+        self.previous_schema_path = db_schema.DB_PATH
+        self.new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db.DB_PATH = self.new_path
+        db_schema.DB_PATH = self.new_path
+        db.init_db()
+        db.create_user_if_needed(1, "owner")
+        for name in ("target_preset", "peer_preset", "ungrouped_preset"):
+            db.set_preset(
+                name=name,
+                base_url="https://x",
+                model="m",
+                is_custom=1,
+                group_label="shared group" if name != "ungrouped_preset" else "",
+            )
+        db.set_preset(
+            name="solo_preset",
+            base_url="https://x",
+            model="m",
+            is_custom=1,
+            group_label="solo group",
+        )
+        db.set_preset(
+            name="000000000000",
+            base_url="https://x",
+            model="m",
+            is_custom=1,
+            group_label="hash-named group",
+        )
+        db.set_group_key("shared group", "$SHARED_GROUP_KEY")
+        db.set_group_key("solo group", "$SOLO_GROUP_KEY")
+        self.owner_patcher = patch("handlers.admin.is_owner", return_value=True)
+        self.owner_patcher.start()
+        self.addCleanup(self.owner_patcher.stop)
+
+    def tearDown(self):
+        db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_schema_path
+        self.tempdir.cleanup()
+
+    def _callback_update(self):
+        query = MagicMock()
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update = MagicMock()
+        update.effective_user.id = 1
+        update.effective_chat.id = 1
+        update.callback_query = query
+        return update
+
+    def _context(self):
+        ctx = MagicMock()
+        ctx.user_data = {}
+        ctx.bot = AsyncMock()
+        return ctx
+
+    def test_edit_keyboard_emits_detach_only_for_grouped_preset(self):
+        from config.keyboards import ai_preset_edit_keyboard
+        from services.utils.callback_codec import preset_token
+
+        grouped = ai_preset_edit_keyboard("target_preset", db.get_preset("target_preset"))
+        ungrouped = ai_preset_edit_keyboard("ungrouped_preset", db.get_preset("ungrouped_preset"))
+
+        grouped_callbacks = _collect(grouped.inline_keyboard)
+        ungrouped_callbacks = _collect(ungrouped.inline_keyboard)
+        detach_callback = f"admin:ai_preset:detach_group:{preset_token('target_preset')}"
+        self.assertIn(detach_callback, grouped_callbacks)
+        self.assertLessEqual(len(detach_callback.encode("utf-8")), 64)
+        self.assertFalse(any("detach_group" in callback for callback in ungrouped_callbacks))
+
+    def test_saved_detach_only_clears_selected_preset_group_label(self):
+        from handlers.admin import _handle_admin_callback
+        from services.utils.callback_codec import preset_token
+
+        update = self._callback_update()
+        context = self._context()
+        preset_ref = preset_token("target_preset")
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:detach_group:{preset_ref}",
+            )
+        )
+
+        self.assertEqual(context.user_data["preset_edits"]["target_preset"]["group_label"], "")
+        self.assertEqual(db.get_preset("target_preset")["group_label"], "shared group")
+        self.assertEqual(db.get_preset("peer_preset")["group_label"], "shared group")
+        update.callback_query.answer.assert_awaited_once_with(
+            "✅ حذف از گروه ثبت شد. برای اعمال، ذخیره را بزنید."
+        )
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:confirm_save_yes:{preset_ref}",
+            )
+        )
+
+        self.assertEqual(db.get_preset("target_preset")["group_label"], "")
+        self.assertEqual(db.get_preset("peer_preset")["group_label"], "shared group")
+
+    def test_discarded_detach_preserves_stored_group_label(self):
+        from handlers.admin import _handle_admin_callback
+        from services.utils.callback_codec import preset_token
+
+        update = self._callback_update()
+        context = self._context()
+        preset_ref = preset_token("target_preset")
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:detach_group:{preset_ref}",
+            )
+        )
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:discard_all:{preset_ref}",
+            )
+        )
+
+        self.assertEqual(db.get_preset("target_preset")["group_label"], "shared group")
+        self.assertNotIn("target_preset", context.user_data.get("preset_edits", {}))
+
+    def test_stale_detach_token_cannot_target_a_hash_named_preset(self):
+        from handlers.admin import _handle_admin_callback
+
+        update = self._callback_update()
+        context = self._context()
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                "ai_preset:detach_group:000000000000",
+            )
+        )
+
+        self.assertNotIn("preset_edits", context.user_data)
+        self.assertEqual(db.get_preset("000000000000")["group_label"], "hash-named group")
+        update.callback_query.answer.assert_awaited_once_with(
+            "پیش‌تنظیم یافت نشد",
+            show_alert=True,
+        )
+
+    def test_detaching_final_member_deletes_its_orphaned_shared_key(self):
+        from handlers.admin import _handle_admin_callback
+        from services.utils.callback_codec import preset_token
+
+        update = self._callback_update()
+        context = self._context()
+        preset_ref = preset_token("solo_preset")
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:detach_group:{preset_ref}",
+            )
+        )
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:confirm_save_yes:{preset_ref}",
+            )
+        )
+
+        self.assertEqual(db.get_preset("solo_preset")["group_label"], "")
+        self.assertIsNone(db.get_group_key("solo group"))
+
+    def test_detaching_one_of_several_members_keeps_the_shared_key(self):
+        from handlers.admin import _handle_admin_callback
+        from services.utils.callback_codec import preset_token
+
+        update = self._callback_update()
+        context = self._context()
+        preset_ref = preset_token("target_preset")
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:detach_group:{preset_ref}",
+            )
+        )
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:confirm_save_yes:{preset_ref}",
+            )
+        )
+
+        self.assertEqual(db.get_group_key("shared group"), "$SHARED_GROUP_KEY")
+
+    def test_saved_detach_with_rename_deletes_the_orphaned_shared_key(self):
+        from handlers.admin import _handle_admin_callback
+        from services.utils.callback_codec import preset_token
+
+        update = self._callback_update()
+        context = self._context()
+        preset_ref = preset_token("solo_preset")
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:detach_group:{preset_ref}",
+            )
+        )
+        context.user_data["preset_edits"]["solo_preset"]["name"] = "renamed_solo"
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:confirm_save_yes:{preset_ref}",
+            )
+        )
+
+        self.assertIsNone(db.get_preset("solo_preset"))
+        self.assertEqual(db.get_preset("renamed_solo")["group_label"], "")
+        self.assertIsNone(db.get_group_key("solo group"))
+
+    def test_rename_detach_save_rolls_back_when_old_preset_removal_fails(self):
+        from handlers.admin import _handle_admin_callback
+        from services.utils.callback_codec import preset_token
+
+        update = self._callback_update()
+        context = self._context()
+        preset_ref = preset_token("solo_preset")
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:detach_group:{preset_ref}",
+            )
+        )
+        context.user_data["preset_edits"]["solo_preset"]["name"] = "renamed_solo"
+        with db.get_conn() as conn:
+            conn.execute(
+                "CREATE TRIGGER reject_solo_delete BEFORE DELETE ON ai_presets "
+                "WHEN OLD.name = 'solo_preset' "
+                "BEGIN SELECT RAISE(ABORT, 'simulated delete failure'); END"
+            )
+            conn.commit()
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            asyncio.run(
+                _handle_admin_callback(
+                    update,
+                    context,
+                    f"ai_preset:confirm_save_yes:{preset_ref}",
+                )
+            )
+
+        self.assertEqual(db.get_preset("solo_preset")["group_label"], "solo group")
+        self.assertIsNone(db.get_preset("renamed_solo"))
+        self.assertEqual(db.get_group_key("solo group"), "$SOLO_GROUP_KEY")
+
+    def test_full_edit_is_blocked_while_detach_is_pending(self):
+        from handlers.admin import _handle_admin_callback
+        from services.utils.callback_codec import preset_token
+
+        update = self._callback_update()
+        context = self._context()
+        preset_ref = preset_token("target_preset")
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:detach_group:{preset_ref}",
+            )
+        )
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:full_edit:{preset_ref}",
+            )
+        )
+
+        self.assertNotIn("full_edit", context.user_data)
+        self.assertEqual(
+            update.callback_query.answer.await_args_list[-1].args[0],
+            "ابتدا تغییرات فعلی را ذخیره یا دور بریزید.",
+        )
+
+    def test_late_rename_collision_preserves_both_presets_and_pending_detach(self):
+        from handlers.admin import _handle_admin_callback
+        from services.utils.callback_codec import preset_token
+
+        update = self._callback_update()
+        context = self._context()
+        preset_ref = preset_token("solo_preset")
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:detach_group:{preset_ref}",
+            )
+        )
+        context.user_data["preset_edits"]["solo_preset"]["name"] = "claimed_name"
+        db.set_preset(
+            name="claimed_name",
+            base_url="https://protected",
+            model="protected-model",
+            is_custom=1,
+            group_label="protected group",
+        )
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:confirm_save_yes:{preset_ref}",
+            )
+        )
+
+        self.assertEqual(db.get_preset("solo_preset")["group_label"], "solo group")
+        self.assertEqual(db.get_preset("claimed_name")["model"], "protected-model")
+        self.assertEqual(
+            context.user_data["preset_edits"]["solo_preset"],
+            {"group_label": "", "name": "claimed_name"},
+        )
+        update.callback_query.answer.assert_awaited_with(
+            "این نام هم‌اکنون توسط پیش‌تنظیم دیگری استفاده می‌شود.",
+            show_alert=True,
+        )
+
+    def test_detach_is_blocked_while_full_edit_is_active(self):
+        from handlers.admin import _handle_admin_callback
+        from services.utils.callback_codec import preset_token
+
+        update = self._callback_update()
+        context = self._context()
+        preset_ref = preset_token("target_preset")
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:full_edit:{preset_ref}",
+            )
+        )
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:detach_group:{preset_ref}",
+            )
+        )
+
+        self.assertEqual(context.user_data["full_edit"]["preset"], "target_preset")
+        self.assertNotIn("preset_edits", context.user_data)
+        self.assertEqual(
+            update.callback_query.answer.await_args_list[-1].args[0],
+            "ابتدا ویرایش کامل را تمام یا لغو کنید.",
+        )
+
+    def test_full_edit_is_blocked_by_pending_edits_for_another_preset(self):
+        from handlers.admin import _handle_admin_callback
+        from services.utils.callback_codec import preset_token
+
+        update = self._callback_update()
+        context = self._context()
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:detach_group:{preset_token('target_preset')}",
+            )
+        )
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:full_edit:{preset_token('solo_preset')}",
+            )
+        )
+
+        self.assertNotIn("full_edit", context.user_data)
+        self.assertEqual(
+            update.callback_query.answer.await_args_list[-1].args[0],
+            "ابتدا تغییرات فعلی را ذخیره یا دور بریزید.",
+        )
+
+    def test_detach_is_blocked_by_full_edit_for_another_preset(self):
+        from handlers.admin import _handle_admin_callback
+        from services.utils.callback_codec import preset_token
+
+        update = self._callback_update()
+        context = self._context()
+
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:full_edit:{preset_token('target_preset')}",
+            )
+        )
+        asyncio.run(
+            _handle_admin_callback(
+                update,
+                context,
+                f"ai_preset:detach_group:{preset_token('solo_preset')}",
+            )
+        )
+
+        self.assertEqual(context.user_data["full_edit"]["preset"], "target_preset")
+        self.assertNotIn("preset_edits", context.user_data)
+        self.assertEqual(
+            update.callback_query.answer.await_args_list[-1].args[0],
+            "ابتدا ویرایش کامل را تمام یا لغو کنید.",
+        )
 
 
 if __name__ == "__main__":

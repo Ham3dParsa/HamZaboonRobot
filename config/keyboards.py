@@ -118,6 +118,7 @@ IBTN_EDIT_FORK = "✏️ ویرایش (fork)"
 IBTN_EDIT_COPY = "✏️ ویرایش (ایجاد کپی سفارشی)"
 IBTN_ADD_CUSTOM = "➕ افزودن پیش‌تنظیم سفارشی"
 IBTN_SAVE_PRESET = "✅ ذخیره پیش‌تنظیم"
+IBTN_DETACH_GROUP = "🚫 حذف از گروه"
 
 # --- Admin – AI Fallback ---
 IBTN_RESET_PRIMARY = "🔄 بازنشانی به Primary (Manual)"
@@ -679,7 +680,7 @@ def ai_presets_list_keyboard(
     groups: list[dict] | None = None,
 ) -> InlineKeyboardMarkup:
     """List presets with activate/edit/delete buttons and view-mode toggle."""
-    from services.utils.callback_codec import preset_token, label_token
+    from services.utils.callback_codec import preset_token
     rows = []
     if view_mode == "grouped" and groups:
         for g in groups:
@@ -787,6 +788,10 @@ def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None) -> Inl
         suffix = f": {display}" if display else ""
         rows.append([
             InlineKeyboardButton(f"{label}{suffix}", callback_data=f"admin:ai_preset:edit_field:{preset_ref}:{alias_field(key)}"),
+        ])
+    if preset and preset.get("is_custom") and preset.get("group_label"):
+        rows.append([
+            InlineKeyboardButton(IBTN_DETACH_GROUP, callback_data=f"admin:ai_preset:detach_group:{preset_ref}"),
         ])
     rows.append([InlineKeyboardButton(IBTN_FULL_EDIT_WIZARD, callback_data=f"admin:ai_preset:full_edit:{preset_ref}")])
     rows.append([InlineKeyboardButton(IBTN_DISCARD_ALL, callback_data=f"admin:ai_preset:discard_all:{preset_ref}")])
