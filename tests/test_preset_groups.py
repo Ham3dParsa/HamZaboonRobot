@@ -68,10 +68,10 @@ class ResolvePresetKeyTest(_ScratchDbTestCase):
         preset = preset_registry.get_preset("p1")
         self.assertEqual(preset_registry.resolve_preset_key(preset), "group-secret")
 
-    def test_group_key_env_ref_resolves(self):
-        self._seed([("p1", "", "g")], {"g": "$HZ_GROUP_KEY"})
+    def test_group_key_literal_resolves(self):
+        self._seed([("p1", "", "g")], {"g": "sk-group-literal"})
         preset = preset_registry.get_preset("p1")
-        self.assertEqual(preset_registry.resolve_preset_key(preset), "group-secret")
+        self.assertEqual(preset_registry.resolve_preset_key(preset), "sk-group-literal")
 
     def test_no_group_key_returns_empty(self):
         self._seed([("p1", "", "g")], {})
@@ -103,6 +103,28 @@ class GroupCrdTest(_ScratchDbTestCase):
         preset_registry.rename_group_label("old", "new")
         self.assertIsNone(preset_registry.get_group_key("old"))
         self.assertEqual(preset_registry.get_group_key("new"), "$HZ_KEY")
+
+    def test_self_rename_preserves_group_key(self):
+        preset_registry.set_preset(name="p1", api_key="", group_label="g")
+        preset_registry.set_group_key("g", "$HZ_KEY")
+        preset_registry.rename_group_label("g", "g")
+        self.assertEqual(preset_registry.get_group_key("g"), "$HZ_KEY")
+
+    def test_rename_into_existing_group_keeps_target_key(self):
+        preset_registry.set_preset(name="p1", api_key="", group_label="old")
+        preset_registry.set_preset(name="p2", api_key="", group_label="new")
+        preset_registry.set_group_key("old", "$HZ_OLD_KEY")
+        preset_registry.set_group_key("new", "$HZ_NEW_KEY")
+        preset_registry.rename_group_label("old", "new")
+        self.assertIsNone(preset_registry.get_group_key("old"))
+        self.assertEqual(preset_registry.get_group_key("new"), "$HZ_NEW_KEY")
+
+    def test_rename_into_keyless_group_carries_source_key(self):
+        preset_registry.set_preset(name="p1", api_key="", group_label="old")
+        preset_registry.set_group_key("old", "$HZ_OLD_KEY")
+        preset_registry.rename_group_label("old", "new")
+        self.assertIsNone(preset_registry.get_group_key("old"))
+        self.assertEqual(preset_registry.get_group_key("new"), "$HZ_OLD_KEY")
 
     def test_clear_group_label_removes_group_row(self):
         preset_registry.set_preset(name="p1", api_key="", group_label="g")

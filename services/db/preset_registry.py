@@ -127,6 +127,8 @@ def get_group_labels() -> list[dict]:
 
 
 def rename_group_label(old_label: str, new_label: str):
+    if old_label == new_label:
+        return
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(
@@ -134,9 +136,16 @@ def rename_group_label(old_label: str, new_label: str):
             (new_label, old_label),
         )
         # Keep any shared group key consistent with the renamed label.
+        # If the target label already owns a key, it wins (merge, keep target's
+        # key); otherwise the source key carries over. Never crash on the PK.
         conn.execute(
-            "UPDATE preset_groups SET group_label=? WHERE group_label=?",
+            "INSERT OR IGNORE INTO preset_groups(group_label, api_key) "
+            "SELECT ?, api_key FROM preset_groups WHERE group_label=?",
             (new_label, old_label),
+        )
+        conn.execute(
+            "DELETE FROM preset_groups WHERE group_label=?",
+            (old_label,),
         )
         conn.commit()
 
