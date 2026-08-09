@@ -4,10 +4,10 @@ description: Prove priority reindex rollback preserves state before later writes
 created: 2026-08-09
 base_commit: a871300
 branch: fix/admin-ai-presets-audit
-status: ready
+status: complete
 ---
 
-STATE: phase 3/3 - status: ready - focus: priority-reindex rollback proof
+STATE: phase 3/3 - status: complete - focus: rollback test strengthened, full suite passed
 
 ## Parent
 

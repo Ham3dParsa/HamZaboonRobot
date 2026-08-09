@@ -7,7 +7,7 @@ branch: fix/admin-ai-presets-audit
 status: in-progress
 ---
 
-STATE: phase 2/3 - status: in-progress - focus: per-preset group detachment
+STATE: phase 3/3 - status: in-progress - focus: priority-reindex rollback proof
 
 ## Problem Statement
 
@@ -103,8 +103,8 @@ Make group-label callbacks stale-safe, show rename confirmations as plain text, 
 | Phase | Ticket | Execution order | Status | Evidence |
 |---|---|---:|---|---|
 | 1 | #289 Group-label callback and escaping safety | 1 | complete | `5dad67f`; focused suite and 589 full tests passed |
-| 2 | #290 Per-preset group detachment | 2 | ready | Rules 3, 7-14 implemented; 602 full tests passed; staged pending commit |
-| 3 | #291 Rollback test proof | 3 | pending | Not started |
+| 2 | #290 Per-preset group detachment | 2 | complete | `577aec7`; Rules 3, 7-14; 602 full tests passed |
+| 3 | #291 Rollback test proof | 3 | in-progress | Test strengthened; focused tests and full suite passed |
 
 ## Follow-up Risks
 

@@ -93,11 +93,32 @@ class ReindexPresetPriorityTest(_ScratchDbTestCase):
         )
 
     def test_reindex_rollback_allows_subsequent_write(self):
-        """A ValueError rollback must release the lock so the next write succeeds."""
+        """A ValueError rollback must preserve state and free the lock.
+
+        The explicit ``conn.rollback()`` is defensive because ``get_conn()``
+        closes the connection on exit, which would release the ``BEGIN
+        IMMEDIATE`` lock anyway. These assertions prove failed reindexing
+        leaves priorities untouched and does not wedge a later write.
+        """
         with self.assertRaises(ValueError):
             db.reindex_preset_priority("preset_a", target_rank=99, group_is_emergency=False)
+        self.assertEqual(
+            self._group_order(),
+            ["preset_a", "preset_b", "preset_c"],
+            "failed reindex must not reorder the fallback chain",
+        )
+        self.assertEqual(
+            self._priorities(),
+            {"preset_a": 0, "preset_b": 1, "preset_c": 2},
+            "failed reindex must not mutate priorities",
+        )
         db.reindex_preset_priority("preset_a", target_rank=3, group_is_emergency=False)
         self.assertEqual(self._group_order(), ["preset_b", "preset_c", "preset_a"])
+        self.assertEqual(
+            self._priorities(),
+            {"preset_b": 0, "preset_c": 1, "preset_a": 2},
+            "a later reindex must succeed after the rollback",
+        )
 
     def test_reindex_respects_emergency_group(self):
         db.set_preset_emergency("preset_b", 1)
