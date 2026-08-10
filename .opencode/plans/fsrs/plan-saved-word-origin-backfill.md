@@ -27,7 +27,7 @@ Owner confirmation: "ok then proceed and do that."
 | 3 | Match `saved_words` to `daily_cards` by user and normalized card word; update matches to `legacy_daily`; leave unmatched rows `manual`. |
 | 4 | Merge this branch and run the backfill before PR #300. Update PR #300 to remove the temporary backfill block before its daily-table cleanup ships. |
 | 5 | Keep future Tier-3 writes out of scope; they will write `entry_source='auto'` in the Phase 3b+ ticket. |
-| 6 | An empty `daily_cards` table completes the harmless no-op and records `entry_source_backfilled='1'` only for a fresh database; a missing table on any pre-existing application database logs a warning and does not set the flag. |
+| 6 | An empty `daily_cards` table completes the harmless no-op and records `entry_source_backfilled='1'`. A pre-existing application database without a usable legacy source logs a warning and also records the flag, so the backfill cannot re-arm and relabel later manual saves. |
 
 ## Live DB Evidence (2026-08-10, Read Only)
 

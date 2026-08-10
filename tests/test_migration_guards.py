@@ -399,22 +399,22 @@ class MigrationGuardTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(flag["value"], "1")
 
-    def test_origin_backfill_keeps_partial_legacy_db_eligible_for_future_run(self):
+    def test_origin_backfill_marks_partial_legacy_db_complete(self):
         build_prior_schema(self.upgraded)
         db_module.DB_PATH = self.upgraded
         db_schema.DB_PATH = self.upgraded
 
         with self.assertLogs("services.db.schema", level="WARNING"):
             db_module.init_db()
-        with self.assertLogs("services.db.schema", level="WARNING"):
+        with self.assertNoLogs("services.db.schema", level="WARNING"):
             db_module.init_db()
         with _closed_conn(self.upgraded) as conn:
             flag = conn.execute(
                 "SELECT value FROM settings WHERE key='entry_source_backfilled'"
             ).fetchone()
-        self.assertIsNone(flag)
+        self.assertEqual(flag["value"], "1")
 
-    def test_origin_backfill_treats_users_only_db_as_partial(self):
+    def test_origin_backfill_marks_users_only_db_complete(self):
         with _closed_conn(self.upgraded) as conn:
             conn.execute(
                 "CREATE TABLE users(user_id INTEGER PRIMARY KEY, username TEXT)"
@@ -428,7 +428,7 @@ class MigrationGuardTests(unittest.TestCase):
             flag = conn.execute(
                 "SELECT value FROM settings WHERE key='entry_source_backfilled'"
             ).fetchone()
-        self.assertIsNone(flag)
+        self.assertEqual(flag["value"], "1")
 
     def test_template_flags_banned_column(self):
         """The template's absence check works: a banned column that still

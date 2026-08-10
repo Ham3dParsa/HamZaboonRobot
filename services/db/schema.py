@@ -36,6 +36,13 @@ def _normalize_word(word: str) -> str:
     return " ".join(word.split()).casefold()
 
 
+def _mark_origin_backfill_done(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "INSERT INTO settings(key, value) VALUES ('entry_source_backfilled', '1') "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+    )
+
+
 def _backfill_legacy_daily_sources(
     conn: sqlite3.Connection, *, should_run: bool = True
 ) -> None:
@@ -47,10 +54,13 @@ def _backfill_legacy_daily_sources(
         return
 
     if not should_run:
+        # No legacy source means nothing to tag, ever: record the terminal
+        # state so a later restart cannot relabel new manual saves.
         logger.warning(
-            "Skipping saved-word origin backfill because no usable legacy "
-            "daily_cards source existed before initialization"
+            "Recording saved-word origin backfill as complete because no "
+            "usable legacy daily_cards source existed before initialization"
         )
+        _mark_origin_backfill_done(conn)
         return
 
     conn.create_function(
@@ -76,10 +86,7 @@ def _backfill_legacy_daily_sources(
         "normalize_word(saved_words.word)"
         ") AND COALESCE(saved_words.entry_source, 'manual')='manual'"
     )
-    conn.execute(
-        "INSERT INTO settings(key, value) VALUES ('entry_source_backfilled', '1') "
-        "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
-    )
+    _mark_origin_backfill_done(conn)
 
 
 def _current_daily_count(asked_value, asked_date) -> int:
