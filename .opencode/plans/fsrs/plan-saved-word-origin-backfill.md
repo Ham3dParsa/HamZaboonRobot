@@ -55,7 +55,7 @@ Owner confirmation: "ok then proceed and do that."
 1. Fresh DB: an empty `daily_cards` table completes the no-op and records the flag.
 2. Legacy DB: matching `daily_cards` rows become `legacy_daily`; unmatched rows remain `manual`.
 3. Idempotency: a completed flag prevents a second update.
-4. Missing table: no crash and no attempt to query `daily_cards`.
+4. Missing table: the pre-`executescript` `should_run` guard skips the backfill without querying `daily_cards`.
 5. Existing FSRS migration flag does not suppress this independent origin backfill.
 
 ## Steps

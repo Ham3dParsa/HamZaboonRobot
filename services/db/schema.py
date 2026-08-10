@@ -52,17 +52,6 @@ def _backfill_legacy_daily_sources(
             "daily_cards source existed before initialization"
         )
         return
-    tables = {
-        row["name"]
-        for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
-    }
-    if "daily_cards" not in tables:
-        logger.warning(
-            "Skipping saved-word origin backfill because daily_cards is absent"
-        )
-        return
 
     conn.create_function(
         "normalize_word",
