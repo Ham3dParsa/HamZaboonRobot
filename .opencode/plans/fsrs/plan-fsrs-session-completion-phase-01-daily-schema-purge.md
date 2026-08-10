@@ -7,7 +7,7 @@ branch: feat/phase-2b-drop-daily-tables
 status: in-progress
 ---
 
-STATE: phase 1/6 — status: in-progress — focus: Ticket 01 pre-commit gate
+STATE: phase 1/6 — status: in-progress — focus: restore-safety pre-commit gate
 
 # Ticket 01 — Phase 2b Daily Schema Purge
 
@@ -105,6 +105,7 @@ daily tables exist.
 | 6 | Run focused and full validation | complete | `tests/test_migration_guards.py`: 7 passed; TTS/custom-query/wiring suite: 33 passed; full `python -m pytest tests/ -n 14`: 596 passed; compile, F821/F811 lint, dashboard generation, and whitespace checks passed |
 | 7 | Independent review and fix cycle | complete | Final `hamzaboon-reviewer` report: no confirmed findings; verified the early TTS `d` rejection, migration guard ordering, stale runtime-symbol removal, and focused coverage |
 | 8 | PR, CI, maintenance deployment, read-only verification | pending | — |
+| 9 | Reject invalid backup before overwriting live DB | complete | Candidate startup + required schema comparison + shared DB lock before atomic replace; restore/admin/migration/wiring/dead guard suite: 38 passed; final reviewer: no confirmed findings; full `python -m pytest tests/ -n 14`: 605 passed; compile, F821/F811 lint, dashboard generation, and whitespace checks passed |
 
 ## Acceptance Criteria
 
@@ -125,6 +126,26 @@ daily tables exist.
   06 so this cleanup commit remains limited to its locked scope. Ticket 06
   must verify every retained table/row/schema/index contract and reconcile
   stale daily-runtime references in canonical and tooling documentation.
+- [2026-08-10] Kilo found that `import_db_bytes()` overwrites the live DB before
+  the new migration guard runs. The owner chose to require exact
+  `settings.fsrs_migration_done='1'` in the uploaded backup, reject with a clear
+  Persian error before any overwrite, and leave the current DB byte-for-byte
+  unchanged. Validation belongs in `import_db_bytes()` so every caller is
+  protected. Pre-FSRS backup auto-migration remains deliberately removed.
+  Tests use temporary DB files and mocked Telegram only; AI cost is zero.
+- [2026-08-10] Independent review found that a marker-valid but structurally
+  incompatible backup could still fail after overwrite. The owner locked full
+  temporary startup validation: run `init_db()` against the uploaded copy,
+  then replace the live DB only after successful initialization. Normal DB
+  callers keep their existing default path; callbacks and keyboards remain
+  unchanged. Owner confirmation: "Proceed, locked."
+- [2026-08-10] A second independent review found two remaining restore gaps.
+  The owner locked (1) comparing every required table/column against a freshly
+  initialized current-schema reference while allowing extra legacy schema,
+  and (2) a shared re-entrant DB lock covering every normal connection lifetime
+  and final restore replacement. Tests must cover an incomplete schema that
+  startup otherwise accepts and restore while a live connection is open.
+  Owner confirmation: "Proceed, locked."
 
 ## Blocked Questions
 

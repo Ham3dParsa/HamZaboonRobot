@@ -7,13 +7,20 @@ from config import DB_PATH
 
 import json
 import datetime
+import os
 import secrets
+import sqlite3
+import sys
+import tempfile
+import shutil
+from contextlib import closing
 
 # ---------------------------------------------------------------------------
 # Re-export from submodules
 # ---------------------------------------------------------------------------
 from services.db.schema import (
     get_conn,
+    database_lock,
     init_db,
     _app_timezone,
     _today,
@@ -311,11 +318,92 @@ def log_config_test(test_type: str, preset_name: str, prompt: str, result: dict)
 # ---------- Backup / Restore ----------
 
 def export_db_bytes() -> bytes:
-    with open(DB_PATH, "rb") as f:
-        return f.read()
+    with database_lock():
+        with open(DB_PATH, "rb") as database_file:
+            return database_file.read()
 
 
-def import_db_bytes(data: bytes) -> None:
-    with open(DB_PATH, "wb") as f:
-        f.write(data)
-    init_db()
+def import_db_bytes(data: bytes, backup_path: str | None = None) -> None:
+    candidate_path = None
+    reference_path = None
+    try:
+        with database_lock():
+            try:
+                candidate_fd, candidate_path = tempfile.mkstemp(
+                    suffix=".sqlite",
+                    dir=os.path.dirname(os.path.abspath(DB_PATH)),
+                )
+                with os.fdopen(candidate_fd, "wb") as candidate_file:
+                    candidate_file.write(data)
+                if backup_path:
+                    shutil.copy2(DB_PATH, backup_path)
+                with closing(sqlite3.connect(candidate_path)) as candidate_conn:
+                    migrated = candidate_conn.execute(
+                        "SELECT value FROM settings WHERE key='fsrs_migration_done'"
+                    ).fetchone()
+                if not migrated or migrated[0] != "1":
+                    raise ValueError(
+                        "نسخه پشتیبان قدیمی است و پس از مهاجرت FSRS قابل بازگردانی نیست."
+                    )
+                init_db(candidate_path)
+                reference_fd, reference_path = tempfile.mkstemp(
+                    suffix=".sqlite",
+                    dir=os.path.dirname(os.path.abspath(DB_PATH)),
+                )
+                os.close(reference_fd)
+                init_db(reference_path)
+                with closing(sqlite3.connect(candidate_path)) as candidate_conn, closing(
+                    sqlite3.connect(reference_path)
+                ) as reference_conn:
+                    required_tables = {
+                        row[0]
+                        for row in reference_conn.execute(
+                            "SELECT name FROM sqlite_master "
+                            "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                        )
+                    }
+                    candidate_tables = {
+                        row[0]
+                        for row in candidate_conn.execute(
+                            "SELECT name FROM sqlite_master "
+                            "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                        )
+                    }
+                    missing_tables = required_tables - candidate_tables
+                    missing_columns = {
+                        table: {
+                            row[1]
+                            for row in reference_conn.execute(f"PRAGMA table_info({table})")
+                        }
+                        - {
+                            row[1]
+                            for row in candidate_conn.execute(f"PRAGMA table_info({table})")
+                        }
+                        for table in required_tables & candidate_tables
+                    }
+                if missing_tables or any(missing_columns.values()):
+                    raise RuntimeError("incomplete schema")
+            except ValueError:
+                raise
+            except Exception as exc:
+                raise ValueError(
+                    "نسخه پشتیبان با نسخه فعلی ربات سازگار نیست."
+                ) from exc
+            try:
+                os.replace(candidate_path, DB_PATH)
+            except OSError as exc:
+                raise ValueError(
+                    "جایگزینی دیتابیس در حال حاضر ممکن نیست. دوباره تلاش کنید."
+                ) from exc
+    finally:
+        cleanup_error = None
+        for path in (candidate_path, reference_path):
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError as exc:
+                    cleanup_error = exc
+        if cleanup_error and sys.exc_info()[0] is None:
+            raise ValueError(
+                "پاک‌سازی موقت نسخه پشتیبان ممکن نیست. دوباره تلاش کنید."
+            ) from cleanup_error

@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+import threading
 import datetime
 import secrets
 from contextlib import contextmanager
@@ -101,22 +102,35 @@ def _check_test_mode_guard(path: str) -> None:
             )
 
 
+_DB_LOCK = threading.RLock()
+
+
 @contextmanager
-def get_conn():
+def database_lock():
+    with _DB_LOCK:
+        yield
+
+
+@contextmanager
+def get_conn(path: str | None = None):
     # Read the path live from services.db (where tests set db.DB_PATH) instead
     # of the import-time copy below, so test DB isolation is actually honored.
-    from services.db import DB_PATH as _active_db_path
-    _check_test_mode_guard(_active_db_path)
-    conn = sqlite3.connect(_active_db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-    finally:
-        conn.close()
+    if path is None:
+        from services.db import DB_PATH as _active_db_path
+    else:
+        _active_db_path = path
+    with database_lock():
+        _check_test_mode_guard(_active_db_path)
+        conn = sqlite3.connect(_active_db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+        finally:
+            conn.close()
 
 
-def init_db():
-    with get_conn() as conn:
+def init_db(path: str | None = None):
+    with get_conn(path) as conn:
         _require_daily_cards_migrated(conn)
         conn.executescript(
             """
