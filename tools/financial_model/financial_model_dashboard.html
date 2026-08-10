@@ -153,46 +153,57 @@
           </template>
         </section-card>
 
-        <section-card title="قیمت و سهم پلن‌ها" en="Plan Pricing & Share" icon="tags" :default-open="false">
-          <div v-for="(p, idx) in inp.plans" :key="p.id" class="mb-4 pb-4 border-b border-dashed border-line last:border-0 last:mb-0 last:pb-0">
-           <div class="flex items-center justify-between mb-1.5">
-            <span class="text-[12px] font-bold">{{ p.name }} <span dir="ltr" class="text-[10px] opacity-60">{{ p.nameEn }}</span></span>
+        <section-card title="قیمت و سهم — نمای تحلیلی" en="Pricing & Share — Analysis" icon="tags" :default-open="false">
+          <p class="text-[10px] text-inkSoft/70 leading-relaxed mb-3">این بخش فقط‌خواندنی است. تعریف و ویرایش پلن‌ها در «مدیریت پلن‌ها» و بسته‌های Query در «مدیریت بسته‌های اعتبار» انجام می‌شود.</p>
+          <div class="text-[11px] font-bold text-inkSoft mb-2">پلن‌ها</div>
+          <div class="overflow-x-auto hz-scroll border border-line rounded-xl mb-3">
+            <table class="w-full min-w-[560px] text-[10px]">
+              <thead class="bg-paper text-inkSoft"><tr>
+                <th class="p-2 text-right">پلن</th><th class="p-2 text-right">نوع</th><th class="p-2 text-right">قیمت</th>
+                <th class="p-2 text-right">سهمیه AI</th><th class="p-2 text-right">ترکیب ارتقا</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="p in inp.plans" :key="p.id" class="border-t border-line/60">
+                  <td class="p-2 font-bold">{{ p.name }} <span dir="ltr" class="opacity-50">{{ p.nameEn }}</span></td>
+                  <td class="p-2">{{ p.id === 'free' ? 'رایگان' : 'پولی' }}</td>
+                  <td class="p-2" dir="ltr">{{ p.id === 'free' ? '—' : format(p.price) }} تومان</td>
+                  <td class="p-2" dir="ltr">{{ format(p.callsPerDay) }} / روز</td>
+                  <td class="p-2" dir="ltr">{{ p.id === 'free' ? '—' : Math.round(p.sharePct || 0) + '٪' }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-          <template v-if="p.id !== 'free'">
-            <div class="flex items-center gap-3 mb-1">
-              <span class="text-[10px] font-bold text-inkSoft w-16 flex-shrink-0">قیمت</span>
-              <input type="range" v-model.number="p.price" :min="0" :max="3000000" :step="1000" class="hz-slider flex-1">
-              <input type="number" v-model.number="p.price" min="0" max="3000000" step="1000" dir="ltr" class="w-28 rounded-lg bg-paper border border-line px-2 py-1.5 text-[11px] font-bold text-ink outline-none focus:border-turquoiseDeep transition">
-            </div>
-            <div class="text-[10px] text-inkSoft/70 -mt-1 mb-2 text-left" dir="ltr">{{ format(p.price) }} تومان</div>
-            <div class="flex items-center gap-3 mb-1">
-              <span class="text-[10px] font-bold text-inkSoft w-16 flex-shrink-0">سهم</span>
-              <input type="range" v-model.number="p.sharePct" :min="0" :max="100" :step="1" class="hz-slider flex-1" @input="autoBalanceShare(p.id, $event.target.value)">
-              <div class="flex items-center gap-1 rounded-lg px-2 py-1.5 bg-paper border border-line">
-                <input type="number" v-model.number="p.sharePct" min="0" max="100" step="1" dir="ltr" class="bg-transparent outline-none text-left w-20 text-[11px] font-bold text-turquoiseDeep" @change="autoBalanceShare(p.id, $event.target.value)">
-                <span class="text-[10px] font-medium opacity-70">٪</span>
-              </div>
-            </div>
-            <div class="flex items-center gap-3">
-              <span class="text-[10px] font-bold text-inkSoft w-16 flex-shrink-0">سهمیه</span>
-              <input type="number" v-model.number="p.callsPerDay" min="0" max="100" step="1" dir="ltr" class="flex-1 rounded-lg bg-paper border border-line px-2 py-1.5 text-[11px] font-bold text-ink outline-none focus:border-turquoiseDeep transition">
-              <span class="text-[10px] font-bold text-inkSoft whitespace-nowrap">تماس/روز</span>
-            </div>
-          </template>
-            <template v-else>
-              <div class="text-[10px] text-inkSoft/70 leading-relaxed">پلن رایگان: قیمت ۰، بدون سهم — فقط تعداد کاربر (بخش بالایی) و سهمیهٔ روزانه در تب بازاریابی تنظیم می‌شود.</div>
-            </template>
+          <div class="flex items-center justify-between text-[10px] px-3 py-2 bg-turquoiseSoft/40 text-turquoiseDeep font-bold rounded-xl border border-turquoiseSoft mb-4">
+            <span>مجموع ترکیب ارتقای پلن‌های پولی</span><span dir="ltr">{{ paidPlansShareSum }}٪</span>
           </div>
-          <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-turquoiseSoft/40 text-turquoiseDeep font-bold rounded-xl mt-2 border border-turquoiseSoft">
-            <span>مجموع سهم پلن‌های پولی</span>
-            <span dir="ltr">{{ paidPlansShareSum }}٪</span>
+          <div class="text-[11px] font-bold text-inkSoft mb-2">بسته‌های اعتبار Query</div>
+          <div v-if="creditPacks.length" class="overflow-x-auto hz-scroll border border-line rounded-xl">
+            <table class="w-full min-w-[620px] text-[10px]">
+              <thead class="bg-paper text-inkSoft"><tr>
+                <th class="p-2 text-right">بسته</th><th class="p-2 text-right">قیمت</th><th class="p-2 text-right">اعتبار</th>
+                <th class="p-2 text-right">قیمت هر Query</th><th class="p-2 text-right">سهم فروش</th><th class="p-2 text-right">ماه اول</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="p in creditPacks" :key="p.id" class="border-t border-line/60">
+                  <td class="p-2 font-bold">{{ p.name }} <span v-if="!p.active" class="text-rose">(غیرفعال)</span></td>
+                  <td class="p-2" dir="ltr">{{ format(p.price) }} تومان</td>
+                  <td class="p-2" dir="ltr">{{ format(p.credits) }}</td>
+                  <td class="p-2" dir="ltr">{{ format(creditPackPricePerQuery(p), 0) }} تومان</td>
+                  <td class="p-2" dir="ltr">{{ Math.round(p.salesSharePct || 0) }}٪</td>
+                  <td class="p-2" dir="ltr">{{ format(packSalesM1(p)) }} فروش</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="flex items-center justify-between text-[10px] px-3 py-2 bg-indigoSoft/60 text-indigo-900 font-bold rounded-xl mt-3 border border-indigo-200">
+            <span>مجموع ترکیب فروش بسته‌های Query</span><span dir="ltr">{{ creditPackSalesShareSum }}٪</span>
           </div>
         </section-card>
 
         <section-card title="قیمت و هزینه AI" en="Pricing & AI" icon="wallet">
           <number-field label="هزینه هر فراخوانی AI" en="Cost per Call" v-model="inp.aiCostPerCallUSD" :min="0.0001" :max="0.002" :step="0.00005" unit="$"></number-field>
           <number-field label="نرخ دلار به تومان" v-model="inp.exchangeRate" :min="50000" :max="300000" :step="1000" unit="تومان"></number-field>
-          <p class="text-[10px] text-inkSoft/70 leading-relaxed mt-1">قیمت پلن‌ها، سهمیهٔ روزانه و یادداشت‌ها در تب «بازاریابی» و اسلایدر قیمت/سهم در بخش «قیمت و سهم پلن‌ها» تنظیم می‌شود.</p>
+          <p class="text-[10px] text-inkSoft/70 leading-relaxed mt-1">قیمت و سهمیهٔ پلن‌ها در مدیریت پلن‌ها و قیمت و سهم فروش بسته‌های Query در مدیریت بسته‌های اعتبار تنظیم می‌شود؛ این نمای تحلیلی فقط‌خواندنی است.</p>
         </section-card>
 
         <section-card title="مدل AI و هزینه واقعی" en="AI Model & Cost" icon="cpu">
@@ -557,6 +568,82 @@
           <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-turquoiseSoft/40 text-turquoiseDeep font-bold rounded-xl mt-4 border border-turquoiseSoft">
             <span>مجموع سهم پلن‌های پولی</span>
             <span dir="ltr">{{ paidPlansShareSum }}٪</span>
+          </div>
+        </div>
+
+        <div class="bg-card border border-line rounded-2xl p-5 shadow-sm">
+          <div class="flex items-center justify-between mb-4 border-b pb-3 gap-2">
+            <h2 class="text-lg font-bold text-ink flex items-center gap-2">
+              <i data-lucide="ticket" class="w-5 h-5 text-indigo-600"></i> مدیریت بسته‌های اعتبار Query
+            </h2>
+            <button @click="addCreditPack" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold transition-colors inline-flex items-center gap-1.5">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i> افزودن بسته
+            </button>
+          </div>
+          <p class="text-[10px] text-inkSoft/70 mb-4 leading-relaxed">بسته‌های Query محصولی مستقل از پلن هستند: پرداخت یک‌باره، اعتبارهای بدون انقضا، و مخصوص کاربران رایگان. این بخش منبع اصلی ویرایش بسته‌هاست؛ انتقال اعتبار کاربر به پلن پریمیوم فقط یک فرض شبیه‌سازی است و در ربات اجرا نمی‌شود.</p>
+          <div class="bg-indigoSoft/40 border border-indigo-200 rounded-xl p-3 mb-4">
+            <div class="text-[11px] font-bold text-indigo-900 mb-2">فرضیات تقاضا و مصرف — با نویز محدود و قابل تکرار</div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-3">
+              <number-field label="نرخ خرید کاربران رایگان" en="Free-user purchase rate" v-model="inp.creditPackPurchaseRatePct" :min="0" :max="20" :step="0.1" unit="٪ / ماه"></number-field>
+              <number-field label="تقویت خرید مجدد" en="Repeat-purchase uplift" v-model="inp.creditPackRepeatRatePct" :min="0" :max="100" :step="5" unit="٪"></number-field>
+              <number-field label="نویز خرید ماهانه" en="Purchase noise" v-model="inp.creditPackPurchaseNoisePct" :min="0" :max="50" :step="1" unit="±٪"></number-field>
+              <number-field label="نرخ مصرف اعتبار در ماه" en="Credit consumption rate" v-model="inp.creditPackConsumptionRatePct" :min="0" :max="100" :step="5" unit="٪"></number-field>
+              <number-field label="نویز مصرف ماهانه" en="Consumption noise" v-model="inp.creditPackConsumptionNoisePct" :min="0" :max="50" :step="1" unit="±٪"></number-field>
+              <number-field label="بذر تصادفی سناریو" en="Scenario seed" v-model="inp.creditPackRandomSeed" :min="1" :max="999999" :step="1"></number-field>
+            </div>
+            <div class="text-[10px] text-indigo-900/70 leading-relaxed">نرخ خرید روی کاربران رایگان ماه شروع ماه اعمال می‌شود. نویز فقط برای واقع‌گرایی شبیه‌سازی است و با بذر ثابت، مقایسهٔ سناریوها تکرارپذیر می‌ماند.</div>
+          </div>
+
+          <div class="flex flex-col gap-4">
+            <div v-for="(p, idx) in inp.creditPacks" :key="p.id" class="bg-indigoSoft/20 border rounded-xl p-4 flex flex-col gap-3" :class="p.active ? 'border-indigo-200' : 'border-line opacity-70'">
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2 flex-1 min-w-0">
+                  <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :style="{ background: p.active ? '#4F46E5' : '#98A2B3' }"></span>
+                  <input v-model="p.name" type="text" class="bg-card border border-line rounded-lg px-2 py-1.5 text-[12px] font-bold outline-none focus:border-indigo-600 transition flex-1 min-w-0">
+                  <span class="text-[10px] font-bold text-indigo-900/70 bg-white/70 border border-indigo-200 rounded-lg px-2 py-1 flex-shrink-0" dir="ltr">{{ p.nameEn }}</span>
+                </div>
+                <div class="flex items-center gap-1 flex-shrink-0">
+                  <button @click="p.active = !p.active" :aria-pressed="p.active" :title="p.active ? 'غیرفعال‌کردن بسته' : 'فعال‌کردن بسته'" class="px-2 py-1 rounded-lg text-[10px] font-bold transition-colors" :class="p.active ? 'bg-emeraldSoft text-emerald' : 'bg-paper text-inkSoft'">{{ p.active ? 'فعال' : 'غیرفعال' }}</button>
+                  <button @click="removeCreditPack(p)" title="حذف بسته" class="p-1.5 rounded-lg text-rose hover:bg-roseSoft transition-colors">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">نام انگلیسی</label>
+                  <input v-model="p.nameEn" type="text" dir="ltr" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-indigo-600 transition">
+                </div>
+                <div>
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">قیمت (تومان)</label>
+                  <input v-model.number="p.price" type="number" min="0" step="1000" dir="ltr" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-indigo-600 transition">
+                </div>
+                <div>
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">تعداد اعتبار Query</label>
+                  <input v-model.number="p.credits" type="number" min="1" max="10000" step="1" dir="ltr" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-indigo-600 transition">
+                </div>
+                <div>
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">سهم فروش بسته</label>
+                  <div class="flex items-center gap-2">
+                    <input type="range" v-model.number="p.salesSharePct" min="0" max="100" step="1" class="hz-slider flex-1">
+                    <span class="w-12 text-left text-[11px] font-bold text-indigo-700" dir="ltr">{{ Math.round(p.salesSharePct || 0) }}٪</span>
+                  </div>
+                </div>
+              </div>
+              <div class="flex flex-wrap items-center gap-2 text-[10px] font-bold">
+                <span class="px-2.5 py-1.5 rounded-lg bg-white/70 border border-indigo-200 text-indigo-900">قیمت مؤثر: <b dir="ltr">{{ format(creditPackPricePerQuery(p), 0) }} تومان / Query</b></span>
+                <span class="px-2.5 py-1.5 rounded-lg bg-white/70 border border-line text-inkSoft">اعتبارها منقضی نمی‌شوند</span>
+                <span class="px-2.5 py-1.5 rounded-lg bg-white/70 border border-line text-inkSoft">درآمد ماه اول: <b dir="ltr">{{ format(packRevenueM1(p)) }} تومان</b></span>
+              </div>
+              <div class="pt-3 border-t border-dashed border-indigo-200/70">
+                <label class="text-[10px] font-bold text-inkSoft block mb-1">یادداشت تفکیکی بسته</label>
+                <textarea v-model="p.notes" rows="2" class="w-full bg-card border border-line rounded-lg p-2.5 text-[11px] text-inkSoft outline-none focus:border-indigo-600 transition"></textarea>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center justify-between text-[11px] px-3 py-2 rounded-xl mt-4 border font-bold" :class="creditPackSalesShareSum === 100 ? 'bg-indigoSoft/50 text-indigo-900 border-indigo-200' : 'bg-amberSoft text-amber-900 border-amber-200'">
+            <span>مجموع ترکیب فروش بسته‌ها</span>
+            <span dir="ltr">{{ creditPackSalesShareSum }}٪ <button v-if="creditPackSalesShareSum !== 100" @click="normalizeCreditPackShares" class="underline mr-2">نرمال‌سازی</button></span>
           </div>
         </div>
 
@@ -1492,6 +1579,52 @@
         const paidPlans = computed(() => (inp.value.plans || []).filter(p => p.id !== 'free'));
         const paidPlansShareSum = computed(() => paidPlans.value.reduce((s, p) => s + (Number(p.sharePct) || 0), 0));
         const paidPlanShare = (p) => Math.round(Number(p.sharePct) || 0);
+        const creditPacks = computed(() => inp.value.creditPacks || []);
+        const creditPackSalesShareSum = computed(() => creditPacks.value.reduce((s, p) => s + (Number(p.salesSharePct) || 0), 0));
+        const creditPackPricePerQuery = (p) => {
+          const credits = Number(p && p.credits) || 0;
+          return credits > 0 ? (Number(p.price) || 0) / credits : 0;
+        };
+        const packSalesM1 = (p) => {
+          const row = m1.value || {};
+          const totalCredits = (row.creditsSold || 0);
+          const totalPackCredits = creditPacks.value.reduce((s, x) => s + (Number(x.credits) || 0) * (Number(x.salesSharePct) || 0), 0);
+          if (!p || totalPackCredits <= 0) return 0;
+          return totalCredits * ((Number(p.credits) || 0) * (Number(p.salesSharePct) || 0) / totalPackCredits) / Math.max(1, Number(p.credits) || 1);
+        };
+        const packRevenueM1 = (p) => {
+          const totalRevenue = Number(m1.value && m1.value.packGrossRevenue) || 0;
+          const totalWeightedShare = creditPacks.value.reduce((s, x) => s + (Number(x.salesSharePct) || 0), 0) || 1;
+          return totalRevenue * ((Number(p && p.salesSharePct) || 0) / totalWeightedShare);
+        };
+        const normalizeCreditPackShares = () => {
+          const packs = inp.value.creditPacks || [];
+          const active = packs.filter(p => p.active !== false);
+          if (!active.length) return;
+          const currentSum = active.reduce((s, p) => s + Math.max(0, Number(p.salesSharePct) || 0), 0);
+          if (currentSum > 0) {
+            active.forEach(p => { p.salesSharePct = Math.round((Math.max(0, Number(p.salesSharePct) || 0) / currentSum) * 100); });
+          } else {
+            active.forEach(p => { p.salesSharePct = Math.round(100 / active.length); });
+          }
+          const drift = 100 - active.reduce((s, p) => s + p.salesSharePct, 0);
+          if (drift !== 0) active[active.length - 1].salesSharePct += drift;
+          inp.value.creditPacks = [...packs];
+        };
+        const addCreditPack = () => {
+          const base = {
+            id: 'query' + Date.now().toString(36), name: 'بستهٔ Query جدید', nameEn: 'New Query Pack',
+            price: 9000, credits: 40, salesSharePct: 0, active: true, nonExpiring: true, notes: ''
+          };
+          inp.value.creditPacks.push(base);
+          normalizeCreditPackShares();
+        };
+        const removeCreditPack = (p) => {
+          if (!p) return;
+          if (!confirm(`بستهٔ «${p.name}» حذف شود؟`)) return;
+          inp.value.creditPacks = inp.value.creditPacks.filter(x => x.id !== p.id);
+          normalizeCreditPackShares();
+        };
         // پلن تریال یک تکنیک خاص: پلن انتخاب‌شدهٔ آن تکنیک، یا پیش‌فرض پولیِ با بیشترین سهمیه (گزارش پویا)
         const techniqueTrialName = (t) => {
           const plan = resolveTrialPlan(t, inp.value.plans || []);
@@ -2113,6 +2246,8 @@
           deleteTechnique, closeTechModal, onEffectTypeChange,
           COLORS, PLAN_COLORS,
           paidPlans, paidPlansShareSum, paidPlanShare, autoBalanceShare, addPlan, removePlan,
+          creditPacks, creditPackSalesShareSum, creditPackPricePerQuery, packSalesM1, packRevenueM1,
+          normalizeCreditPackShares, addCreditPack, removeCreditPack,
           effectiveCACPerNewUser, autoCACPerNewUser, planCostPerUser, planCostTotalM1, trialPlanName, techniqueTrialName
         };
       }

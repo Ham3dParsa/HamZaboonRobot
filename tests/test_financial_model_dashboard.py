@@ -61,3 +61,14 @@ def test_credit_pack_prices_follow_existing_annual_price_index():
 
     assert "const priceIdx = Math.pow(1 + renewal, Math.floor(t / 12));" in html
     assert "p.units * (p.price || 0) * priceIdx" in html
+
+
+def test_plan_and_credit_pack_editors_have_separate_authority():
+    html = _html()
+
+    assert "مدیریت بسته‌های اعتبار Query" in html
+    assert "قیمت و سهم — نمای تحلیلی" in html
+    assert "const addCreditPack =" in html
+    assert "const removeCreditPack =" in html
+    assert "normalizeCreditPackShares" in html
+    assert "creditPackSalesShareSum" in html
