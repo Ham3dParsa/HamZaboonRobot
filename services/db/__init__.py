@@ -86,13 +86,15 @@ logger = logging.getLogger(__name__)
 _RESTORE_CORE_TABLES = frozenset(
     {"users", "saved_words", "settings", "review_events", "llm_requests"}
 )
+# Stable SQLite primary result codes; Python 3.10 does not expose all of the
+# corresponding sqlite3.SQLITE_* constants.
 _STORAGE_SQLITE_CODES = frozenset(
     {
-        sqlite3.SQLITE_CANTOPEN,
-        sqlite3.SQLITE_FULL,
-        sqlite3.SQLITE_IOERR,
-        sqlite3.SQLITE_NOMEM,
-        sqlite3.SQLITE_READONLY,
+        7,   # SQLITE_NOMEM
+        8,   # SQLITE_READONLY
+        10,  # SQLITE_IOERR
+        13,  # SQLITE_FULL
+        14,  # SQLITE_CANTOPEN
     }
 )
 
