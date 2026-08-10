@@ -155,22 +155,30 @@
 
         <section-card title="قیمت و سهم پلن‌ها" en="Plan Pricing & Share" icon="tags" :default-open="false">
           <div v-for="(p, idx) in inp.plans" :key="p.id" class="mb-4 pb-4 border-b border-dashed border-line last:border-0 last:mb-0 last:pb-0">
-            <div class="flex items-center justify-between mb-1.5">
-              <span class="text-[12px] font-bold">{{ p.name }} <span dir="ltr" class="text-[10px] opacity-60">{{ p.nameEn }}</span></span>
-              <span v-if="p.id !== 'free'" dir="ltr" class="text-[10px] font-bold text-inkSoft">{{ paidPlanShare(p) }}٪</span>
+           <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[12px] font-bold">{{ p.name }} <span dir="ltr" class="text-[10px] opacity-60">{{ p.nameEn }}</span></span>
+          </div>
+          <template v-if="p.id !== 'free'">
+            <div class="flex items-center gap-3 mb-1">
+              <span class="text-[10px] font-bold text-inkSoft w-16 flex-shrink-0">قیمت</span>
+              <input type="range" v-model.number="p.price" :min="0" :max="3000000" :step="1000" class="hz-slider flex-1">
+              <input type="number" v-model.number="p.price" min="0" max="3000000" step="1000" dir="ltr" class="w-28 rounded-lg bg-paper border border-line px-2 py-1.5 text-[11px] font-bold text-ink outline-none focus:border-turquoiseDeep transition">
             </div>
-            <template v-if="p.id !== 'free'">
-              <div class="flex items-center gap-3 mb-1">
-                <span class="text-[10px] font-bold text-inkSoft w-16 flex-shrink-0">قیمت</span>
-                <input type="range" v-model.number="p.price" :min="0" :max="3000000" :step="1000" class="hz-slider flex-1">
-                <span dir="ltr" class="text-[11px] font-bold text-inkSoft w-24 text-left">{{ format(p.price) }} تومان</span>
+            <div class="text-[10px] text-inkSoft/70 -mt-1 mb-2 text-left" dir="ltr">{{ format(p.price) }} تومان</div>
+            <div class="flex items-center gap-3 mb-1">
+              <span class="text-[10px] font-bold text-inkSoft w-16 flex-shrink-0">سهم</span>
+              <input type="range" v-model.number="p.sharePct" :min="0" :max="100" :step="1" class="hz-slider flex-1" @input="autoBalanceShare(p.id, $event.target.value)">
+              <div class="flex items-center gap-1 rounded-lg px-2 py-1.5 bg-paper border border-line">
+                <input type="number" v-model.number="p.sharePct" min="0" max="100" step="1" dir="ltr" class="bg-transparent outline-none text-left w-20 text-[11px] font-bold text-turquoiseDeep" @change="autoBalanceShare(p.id, $event.target.value)">
+                <span class="text-[10px] font-medium opacity-70">٪</span>
               </div>
-              <div class="flex items-center gap-3">
-                <span class="text-[10px] font-bold text-inkSoft w-16 flex-shrink-0">سهم</span>
-                <input type="range" v-model.number="p.sharePct" :min="0" :max="100" :step="1" class="hz-slider flex-1" @input="autoBalanceShare(p.id, $event.target.value)">
-                <span dir="ltr" class="text-[11px] font-bold text-turquoiseDeep w-24 text-left">{{ p.sharePct }}٪</span>
-              </div>
-            </template>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-[10px] font-bold text-inkSoft w-16 flex-shrink-0">سهمیه</span>
+              <input type="number" v-model.number="p.callsPerDay" min="0" max="100" step="1" dir="ltr" class="flex-1 rounded-lg bg-paper border border-line px-2 py-1.5 text-[11px] font-bold text-ink outline-none focus:border-turquoiseDeep transition">
+              <span class="text-[10px] font-bold text-inkSoft whitespace-nowrap">تماس/روز</span>
+            </div>
+          </template>
             <template v-else>
               <div class="text-[10px] text-inkSoft/70 leading-relaxed">پلن رایگان: قیمت ۰، بدون سهم — فقط تعداد کاربر (بخش بالایی) و سهمیهٔ روزانه در تب بازاریابی تنظیم می‌شود.</div>
             </template>
@@ -506,40 +514,45 @@
           </div>
           <p class="text-[10px] text-inkSoft/70 mb-4 leading-relaxed">پلن‌ها را تعریف، نام/قیمت/سهمیه/سهم را ویرایش و یادداشت تفکیکی هر پلن را نگهداری کنید. تغییرات بلافاصله در محاسبات داشبورد اعمال می‌شود. سهم‌ها به‌صورت خودکار روی ۱۰۰٪ متوازن می‌شوند؛ پلن رایگان همیشه index 0 است.</p>
           <div class="flex flex-col gap-4">
-            <div v-for="(p, idx) in inp.plans" :key="p.id" class="bg-paper/60 border border-line/80 rounded-xl p-4 flex flex-col gap-3">
-              <div class="flex items-center justify-between gap-2">
-                <div class="flex items-center gap-2 flex-1 min-w-0">
-                  <span class="text-[10px] font-bold text-inkSoft bg-card border border-line rounded-lg px-2 py-1 flex-shrink-0" :class="p.id === 'free' ? 'text-turquoiseDeep' : ''">{{ p.id === 'free' ? 'رایگان' : 'پلن ' + idx }}</span>
-                  <input v-model="p.name" type="text" class="bg-card border border-line rounded-lg px-2 py-1.5 text-[12px] font-bold outline-none focus:border-turquoiseDeep transition flex-1 min-w-0">
-                </div>
-                <button v-if="p.id !== 'free'" @click="removePlan(p)" title="حذف پلن" class="p-1.5 rounded-lg text-rose hover:bg-roseSoft transition-colors flex-shrink-0">
-                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                </button>
-                <span v-else class="text-[10px] font-bold text-inkSoft/60 bg-paper border border-line rounded-lg px-2 py-1 flex-shrink-0">پلن رایگان ثابت</span>
-              </div>
-              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div>
-                  <label class="text-[10px] font-bold text-inkSoft block mb-1">نام انگلیسی</label>
-                  <input v-model="p.nameEn" type="text" dir="ltr" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-turquoiseDeep transition">
-                </div>
-                <div>
-                  <label class="text-[10px] font-bold text-inkSoft block mb-1">قیمت (تومان)</label>
-                  <input v-model.number="p.price" type="number" min="0" step="1000" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-turquoiseDeep transition">
-                </div>
-                <div>
-                  <label class="text-[10px] font-bold text-inkSoft block mb-1">سهمیه روزانه</label>
-                  <input v-model.number="p.callsPerDay" type="number" min="0" max="100" step="1" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-turquoiseDeep transition">
-                </div>
-                <div v-if="p.id !== 'free'">
-                  <label class="text-[10px] font-bold text-inkSoft block mb-1">سهم آپگرید — {{ Math.round(p.sharePct) }}٪</label>
-                  <input type="range" v-model.number="p.sharePct" :min="0" :max="100" :step="1" class="hz-slider w-full mt-2.5" @input="autoBalanceShare(p.id, $event.target.value)">
-                </div>
-              </div>
-              <div>
-                <label class="text-[10px] font-bold text-inkSoft block mb-1">یادداشت تفکیکی پلن</label>
-                <textarea v-model="p.notes" rows="2" class="w-full bg-card border border-line rounded-lg p-2.5 text-[11px] text-inkSoft outline-none focus:border-turquoiseDeep transition"></textarea>
-              </div>
-            </div>
+             <div v-for="(p, idx) in inp.plans" :key="p.id"
+                  class="bg-paper/60 border border-line/80 rounded-xl p-4 flex flex-col gap-3"
+                  :style="p.id !== 'free' ? { borderInlineStart: '3px solid ' + (PLAN_COLORS[idx] || '#0D9488') } : {}">
+               <div class="flex items-center justify-between gap-2">
+                 <div class="flex items-center gap-2 flex-1 min-w-0">
+                   <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :style="{ background: (PLAN_COLORS[idx] || '#0D9488') }"></span>
+                   <span class="text-[10px] font-bold text-inkSoft bg-card border border-line rounded-lg px-2 py-1 flex-shrink-0" :class="p.id === 'free' ? 'text-turquoiseDeep' : ''">{{ p.id === 'free' ? 'رایگان' : 'پلن ' + idx }}</span>
+                   <input v-model="p.name" type="text" class="bg-card border border-line rounded-lg px-2 py-1.5 text-[12px] font-bold outline-none focus:border-turquoiseDeep transition flex-1 min-w-0">
+                 </div>
+                 <button v-if="p.id !== 'free'" @click="removePlan(p)" title="حذف پلن" class="p-1.5 rounded-lg text-rose hover:bg-roseSoft transition-colors flex-shrink-0">
+                   <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                 </button>
+                 <span v-else class="text-[10px] font-bold text-inkSoft/60 bg-paper border border-line rounded-lg px-2 py-1 flex-shrink-0">پلن رایگان ثابت</span>
+               </div>
+               <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                 <div>
+                   <label class="text-[10px] font-bold text-inkSoft block mb-1">نام انگلیسی</label>
+                   <input v-model="p.nameEn" type="text" dir="ltr" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-turquoiseDeep transition">
+                 </div>
+                 <div v-if="p.id !== 'free'">
+                   <label class="text-[10px] font-bold text-inkSoft block mb-1">قیمت (تومان)</label>
+                   <input v-model.number="p.price" type="number" min="0" step="1000" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-turquoiseDeep transition">
+                 </div>
+               </div>
+               <div v-if="p.id !== 'free'" class="grid grid-cols-2 gap-2.5 pt-3 border-t border-dashed border-line/70">
+                 <div>
+                   <label class="text-[10px] font-bold text-inkSoft block mb-1">سهمیه روزانه</label>
+                   <input v-model.number="p.callsPerDay" type="number" min="0" max="100" step="1" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-turquoiseDeep transition">
+                 </div>
+                 <div>
+                   <label class="text-[10px] font-bold text-inkSoft block mb-1">سهم آپگرید — {{ Math.round(p.sharePct) }}٪</label>
+                   <input type="range" v-model.number="p.sharePct" :min="0" :max="100" :step="1" class="hz-slider w-full mt-2.5" @input="autoBalanceShare(p.id, $event.target.value)">
+                 </div>
+               </div>
+               <div class="pt-3 border-t border-dashed border-line/70">
+                 <label class="text-[10px] font-bold text-inkSoft block mb-1">یادداشت تفکیکی پلن</label>
+                 <textarea v-model="p.notes" rows="2" class="w-full bg-card border border-line rounded-lg p-2.5 text-[11px] text-inkSoft outline-none focus:border-turquoiseDeep transition"></textarea>
+               </div>
+             </div>
           </div>
           <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-turquoiseSoft/40 text-turquoiseDeep font-bold rounded-xl mt-4 border border-turquoiseSoft">
             <span>مجموع سهم پلن‌های پولی</span>
