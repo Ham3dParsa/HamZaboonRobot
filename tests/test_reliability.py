@@ -257,16 +257,16 @@ class ReliabilityPersistenceTests(unittest.TestCase):
             "examples": ["Hello one.", "Hello two."],
             "example_translations": ["قدیمی اول.", "قدیمی دوم."],
         }
-        db.add_daily_card(1, "2026-07-12", 0, card)
+        self.assertTrue(db.add_saved_word(1, "hello", "en", card))
+        row = db.get_saved_word(1, user_id=1)
         self.assertTrue(
-            db.update_daily_card_fields(
+            db.update_saved_word_fields(
+                row["id"],
                 1,
-                "2026-07-12",
-                0,
                 {"example_translations": ["جدید اول.", "جدید دوم."]},
             )
         )
-        updated = db.get_daily_cards(1, "2026-07-12")[0]
+        updated = json.loads(db.get_saved_word(row["id"], user_id=1)["card_data"])
         self.assertEqual(updated["word"], "hello")
         self.assertEqual(updated["examples"], card["examples"])
         self.assertEqual(
@@ -326,27 +326,22 @@ class ReliabilityPersistenceTests(unittest.TestCase):
 
     def test_rendering_keeps_persisted_card_payloads_unchanged(self):
         db.create_user_if_needed(1, "learner")
-        daily_card = {
+        card = {
             "word": "hello",
             "fa_meaning": "سلام",
             "fa_explanation": "توضیح",
             "examples": ["Example one.", "Example two."],
             "example_translations": ["مثال اول.", "مثال دوم."],
         }
-        db.add_daily_card(1, "2026-07-12", 0, daily_card)
-        query_token = db.create_query_result(1, "hello", "hello", "en", daily_card)
-        db.add_saved_word(1, "hello", "en", daily_card)
+        query_token = db.create_query_result(1, "hello", "hello", "en", card)
+        db.add_saved_word(1, "hello", "en", card)
 
-        daily_before = db.get_daily_cards(1, "2026-07-12")[0]
         query_before = json.loads(db.get_query_result(query_token, user_id=1)["result_json"])
         saved_before = json.loads(db.get_saved_word(1, user_id=1)["card_data"])
 
-        formatting.format_card(daily_before, presentation="brief")
-        formatting.format_card(daily_before, presentation="detailed", translations_prepared=True)
         formatting.format_card(query_before, presentation="brief")
         formatting.format_card(saved_before, presentation="detailed")
 
-        self.assertEqual(db.get_daily_cards(1, "2026-07-12")[0], daily_before)
         self.assertEqual(
             json.loads(db.get_query_result(query_token, user_id=1)["result_json"]),
             query_before,
@@ -417,32 +412,6 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         db.set_presentation_preference(1, "brief")
         self.assertEqual(db.get_user(1)["presentation_preference"], "brief")
 
-    def test_recent_daily_words_excludes_current_date(self):
-        db.create_user_if_needed(1, "learner")
-        db.add_daily_card(1, "2026-07-12", 0, {"word": "today"})
-        db.add_daily_card(1, "2026-07-11", 0, {"word": "recent"})
-        self.assertEqual(
-            db.get_recent_daily_words(1, exclude_date="2026-07-12"),
-            ["recent"],
-        )
-
-    def test_recent_daily_words_filters_by_language(self):
-        db.create_user_if_needed(2, "learner")
-        db.ensure_daily_card_session(2, "2026-07-10", "en", "general", "beginner")
-        db.ensure_daily_card_session(2, "2026-07-11", "de", "general", "beginner")
-        db.add_daily_card(2, "2026-07-10", 0, {"word": "hello"})
-        db.add_daily_card(2, "2026-07-10", 1, {"word": "world"})
-        db.add_daily_card(2, "2026-07-11", 0, {"word": "hallo"})
-        db.add_daily_card(2, "2026-07-11", 1, {"word": "welt"})
-        en_words = db.get_recent_daily_words(2, "en")
-        de_words = db.get_recent_daily_words(2, "de")
-        self.assertIn("hello", en_words)
-        self.assertIn("world", en_words)
-        self.assertNotIn("hallo", en_words)
-        self.assertIn("hallo", de_words)
-        self.assertIn("welt", de_words)
-        self.assertNotIn("hello", de_words)
-
     def test_recent_grammar_tip_titles_are_language_scoped(self):
         db.create_user_if_needed(1, "learner")
         db.add_grammar_tip(1, "Adjectives", "en", "general", "beginner", {"title": "Adjectives"})
@@ -454,7 +423,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertEqual(db.touch_streak(1), 1)
         self.assertEqual(db.touch_streak(1), 1)
 
-    def test_six_card_batch_is_persisted_as_six_readable_cards(self):
+    def test_multiple_saved_words_are_readable_first_exposure_cards(self):
         db.create_user_if_needed(1, "learner")
         cards = [
             {
@@ -467,10 +436,10 @@ class ReliabilityPersistenceTests(unittest.TestCase):
             for index in range(6)
         ]
 
-        for index, card in enumerate(cards):
-            db.add_daily_card(1, "2026-07-12", index, card)
+        for card in cards:
+            self.assertTrue(db.add_saved_word(1, card["word"], "en", card))
 
-        stored = db.get_daily_cards(1, "2026-07-12")
+        stored = [json.loads(row["card_data"]) for row in db.get_pre_first_exposure_words(1)]
         self.assertEqual(len(stored), 6)
         self.assertEqual([card["word"] for card in stored], [f"word-{i}" for i in range(6)])
 

@@ -4,10 +4,10 @@ description: Persist legacy daily-card origin before daily_cards is removed.
 created: 2026-08-10
 base_commit: 6ab4d40eb3eb5754387c31c4ce5cad32a3ea445b
 branch: feat/saved-word-origin
-status: in-progress
+status: complete
 ---
 
-STATE: phase 1/3 - status: in-progress - focus: pre-commit validation gate
+STATE: phase 1/3 - status: complete - focus: deployed and verified before Phase 2b cleanup
 
 # Saved-Word Origin Backfill
 
@@ -39,6 +39,16 @@ Owner confirmation: "ok then proceed and do that."
 | Daily-card matches | about 510 distinct saved words; 548 join pairs due to duplicate cards |
 | Unmatched saved words | 22; retain `manual` |
 
+## Deployment Evidence (2026-08-10)
+
+The bot was stopped and a SQLite snapshot was created before deployment:
+`hamzaban.pre_origin_backfill_20260810_204601.db`, SHA-256
+`7e2c209a69a496b2c8dca5dd530bf29e483abccc9f938e3c2bc304b76ea6131f`.
+Running PR #304's `init_db()` against the live database produced
+`entry_source_backfilled='1'`, 510 `legacy_daily` rows, 22 `manual` rows, and
+left all 562 `daily_cards` rows available for Phase 2b. A second run produced
+the same counts and `PRAGMA quick_check` returned `ok`.
+
 ## Dependency and Wiring Map
 
 | Dependency | Disposition | Verification |
@@ -67,8 +77,8 @@ Owner confirmation: "ok then proceed and do that."
 | 3 | Add guarded backfill to `init_db()` | complete | Canonical raw-word normalization on both sides; exact flag value `'1'`; fresh/partial pre-init distinction; `tests/test_migration_guards.py`: 8 passed |
 | 4 | Run focused tests and full validation | complete | Full `python -m pytest tests/ -n 14`: 598 passed; compile, F821/F811 lint, dashboard generation, and whitespace checks passed |
 | 5 | Independent review and fix cycle | complete | Final `hamzaboon-reviewer` report: no confirmed findings |
-| 6 | Commit, push, and open PR before #300 | pending | - |
-| 7 | Update #300 to remove the temporary backfill block after backfill deployment | pending | - |
+| 6 | Commit, push, and open PR before #300 | complete | PR #304 merged as `bd58566` |
+| 7 | Update #300 to remove the temporary backfill block after backfill deployment | complete | Live evidence recorded above; conflict resolution removes temporary code and tests |
 
 ## Deliberately Not Done
 

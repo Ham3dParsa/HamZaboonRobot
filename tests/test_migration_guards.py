@@ -39,9 +39,11 @@ EXPECTED_COLUMNS = {
         "lang",
         "normalized_word",
         "card_data",
-        "interval_idx",  # NOTE: moves to BANNED_COLUMNS when FSRS drops it
         "next_review",
         "review_status",
+        "review_requested_at",
+        "retry_at",
+        "srs_retry_attempts",
         "first_exposure_done",  # NOTE: added in Phase 3a migration
         "stability",           # NOTE: added in Phase 3a migration
         "difficulty",          # NOTE: added in Phase 3a migration
@@ -55,9 +57,7 @@ EXPECTED_COLUMNS = {
 # Columns that MUST NOT exist after init_db(). A migration that drops a column
 # adds it here so CI proves the drop actually happened.
 BANNED_COLUMNS = {
-    # The FSRS migration drops interval_idx from saved_words; uncomment when
-    # that lands. Keeping this set empty means "nothing must be removed yet".
-    # "saved_words": {"interval_idx"},
+    "saved_words": {"interval_idx"},
 }
 
 # Tables that must exist after init_db().
@@ -65,9 +65,6 @@ EXPECTED_TABLES = {
     "users",
     "saved_words",
     "settings",
-    "daily_cards",
-    "daily_progress",
-    "daily_card_sessions",
     "query_results",
     "grammar_tips",
     "llm_requests",
@@ -77,11 +74,12 @@ EXPECTED_TABLES = {
     "config_tests",
 }
 
-# The exact warning the origin backfill emits when no legacy source exists.
-# Tests assert on it so a different guard firing cannot pass silently.
-NO_LEGACY_SOURCE_WARNING = (
-    "no usable legacy daily_cards source existed before initialization"
-)
+# Tables that MUST NOT exist after init_db().
+BANNED_TABLES = {
+    "daily_cards",
+    "daily_progress",
+    "daily_card_sessions",
+}
 
 
 def _connect(path: str) -> sqlite3.Connection:
@@ -118,6 +116,22 @@ def _column_names(path: str, table: str) -> set[str]:
         }
 
 
+def _index_contract(conn: sqlite3.Connection, table: str) -> dict[str, tuple]:
+    contract = {}
+    for row in conn.execute(f"PRAGMA index_list({table})").fetchall():
+        columns = tuple(
+            item["name"]
+            for item in conn.execute(f"PRAGMA index_info({row['name']})").fetchall()
+        )
+        contract[row["name"]] = (
+            row["unique"],
+            row["origin"],
+            row["partial"],
+            columns,
+        )
+    return contract
+
+
 def assert_schema_complete(testcase, path: str) -> None:
     """Shared assertion for the migration template.
 
@@ -131,6 +145,13 @@ def assert_schema_complete(testcase, path: str) -> None:
         missing_tables,
         set(),
         f"Missing tables after init_db(): {sorted(missing_tables)}",
+    )
+
+    present_banned_tables = BANNED_TABLES & tables
+    testcase.assertEqual(
+        present_banned_tables,
+        set(),
+        f"Banned tables still present: {sorted(present_banned_tables)}",
     )
 
     for table, expected in EXPECTED_COLUMNS.items():
@@ -156,7 +177,7 @@ def assert_schema_complete(testcase, path: str) -> None:
         )
 
 
-def build_prior_schema(path: str) -> None:
+def build_prior_schema(path: str, *, migration_done: bool = True) -> None:
     """Create the prior-schema database that init_db() must upgrade from.
 
     This is the schema BEFORE the latest migration. New migrations extend this
@@ -181,13 +202,46 @@ def build_prior_schema(path: str) -> None:
                 user_id INTEGER,
                 word TEXT,
                 lang TEXT,
+                normalized_word TEXT,
+                card_data TEXT,
                 interval_idx INTEGER DEFAULT 0,
                 next_review TEXT,
-                added_at TEXT
+                review_status TEXT DEFAULT 'idle',
+                review_requested_at TEXT,
+                retry_at TEXT,
+                srs_retry_attempts INTEGER NOT NULL DEFAULT 0,
+                added_at TEXT,
+                first_exposure_done INTEGER DEFAULT 0,
+                stability REAL DEFAULT 0.0,
+                difficulty REAL DEFAULT 5.0,
+                entry_source TEXT DEFAULT 'manual'
             );
             CREATE TABLE settings (
                 key TEXT PRIMARY KEY,
                 value TEXT
+            );
+            CREATE TABLE daily_cards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                card_date TEXT,
+                card_index INTEGER,
+                card_data TEXT,
+                UNIQUE(user_id, card_date, card_index)
+            );
+            CREATE TABLE daily_progress (
+                user_id INTEGER,
+                card_date TEXT,
+                next_index INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(user_id, card_date)
+            );
+            CREATE TABLE daily_card_sessions (
+                user_id INTEGER,
+                card_date TEXT,
+                target_lang TEXT,
+                goal TEXT,
+                level TEXT,
+                created_at TEXT,
+                PRIMARY KEY(user_id, card_date)
             );
             CREATE TABLE llm_requests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -210,56 +264,22 @@ def build_prior_schema(path: str) -> None:
                 word_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
                 outcome TEXT NOT NULL,
+                grade INTEGER,
+                activity_type TEXT,
+                grade_source TEXT,
+                raw_signal TEXT,
+                response_time_ms INTEGER,
                 created_at TEXT NOT NULL
             );
             """
         )
         conn.execute("INSERT INTO settings(key, value) VALUES ('ai_primary_preset', 'x')")
+        if migration_done:
+            conn.execute(
+                "INSERT INTO settings(key, value) VALUES "
+                "('fsrs_migration_done', '1')"
+            )
         conn.commit()
-
-
-def build_origin_backfill_schema(path: str) -> None:
-    """Create a post-FSRS, pre-origin-backfill database."""
-    build_prior_schema(path)
-    with _closed_conn(path) as conn:
-        conn.executescript(
-            """
-            ALTER TABLE saved_words ADD COLUMN normalized_word TEXT;
-            ALTER TABLE saved_words ADD COLUMN card_data TEXT;
-            ALTER TABLE saved_words ADD COLUMN entry_source TEXT DEFAULT 'manual';
-            CREATE TABLE daily_cards (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                card_date TEXT,
-                card_index INTEGER,
-                card_data TEXT
-            );
-            """
-        )
-        conn.execute(
-            "INSERT INTO users(user_id, username, target_lang, onboarded) "
-            "VALUES (1, 'learner', 'en', 1)"
-        )
-        conn.execute(
-            "INSERT INTO saved_words("
-            "user_id, word, lang, normalized_word, card_data, entry_source) "
-            "VALUES (1, 'Daily   Word', 'en', 'daily   word', ?, 'manual')",
-            ('{"word":"Daily   Word"}',),
-        )
-        conn.execute(
-            "INSERT INTO saved_words("
-            "user_id, word, lang, normalized_word, card_data, entry_source) "
-            "VALUES (1, 'manual word', 'en', 'manual word', ?, 'manual')",
-            ('{"word":"manual word"}',),
-        )
-        conn.execute(
-            "INSERT INTO daily_cards(user_id, card_date, card_index, card_data) "
-            "VALUES (1, '2026-08-10', 0, ?)",
-            ('{"word":"daily word"}',),
-        )
-        conn.execute(
-            "INSERT INTO settings(key, value) VALUES ('fsrs_migration_done', '1')"
-        )
 
 
 class MigrationGuardTests(unittest.TestCase):
@@ -296,176 +316,139 @@ class MigrationGuardTests(unittest.TestCase):
         build_prior_schema(self.upgraded)
         with _closed_conn(self.upgraded) as conn:
             conn.execute(
-                "INSERT INTO users(user_id, username) VALUES (1, 'keep_me')"
+                "INSERT INTO users(user_id, username, target_lang, goal, plan, "
+                "streak, last_active_date, onboarded, created_at) VALUES "
+                "(1, 'keep_me', 'en', 'general', 'silver', 7, '2026-08-08', "
+                "1, '2026-08-01T00:00:00+00:00')"
             )
+            conn.execute(
+                "INSERT INTO saved_words("
+                "user_id, word, lang, normalized_word, card_data, interval_idx, "
+                "next_review, review_status, review_requested_at, retry_at, "
+                "srs_retry_attempts, added_at, first_exposure_done, stability, "
+                "difficulty, entry_source) VALUES "
+                "(1, 'retain', 'en', 'retain', ?, 4, '2026-08-10', 'pending', "
+                "'2026-08-09T00:00:00+00:00', '2026-08-09T01:00:00+00:00', "
+                "2, '2026-08-09T00:00:00+00:00', 1, 8.5, 6.25, 'legacy_daily')",
+                ('{"word":"retain","fa_meaning":"keep"}',),
+            )
+            conn.execute(
+                "INSERT INTO review_events("
+                "word_id, user_id, outcome, grade, activity_type, grade_source, "
+                "raw_signal, response_time_ms, created_at) VALUES "
+                "(1, 1, 'recalled', 3, 'srs_review', 'direct_button', "
+                "'{\"button_value\":3}', 1200, '2026-08-09T00:00:00+00:00')"
+            )
+            conn.execute(
+                "INSERT INTO llm_requests("
+                "request_id, created_at, request_date, user_id, plan, "
+                "request_kind, model, outcome, prompt_tokens, completion_tokens, "
+                "total_tokens, cost_usd, cost_toman) VALUES "
+                "('req-keep', '2026-08-09T00:00:00+00:00', '2026-08-09', 1, "
+                "'silver', 'card', 'model-keep', 'success', 100, 50, 150, "
+                "0.001, 85.0)"
+            )
+
+            retained_tables = (
+                "users",
+                "saved_words",
+                "settings",
+                "llm_requests",
+                "review_events",
+            )
+            retained_columns = {}
+            retained_schema = {}
+            retained_rows = {}
+            retained_indexes = {}
+            for table in retained_tables:
+                table_info = conn.execute(f"PRAGMA table_info({table})").fetchall()
+                columns = [
+                    row["name"]
+                    for row in table_info
+                    if row["name"] != "interval_idx"
+                ]
+                retained_columns[table] = columns
+                retained_schema[table] = {
+                    row["name"]: (
+                        row["type"],
+                        row["notnull"],
+                        row["dflt_value"],
+                        row["pk"],
+                    )
+                    for row in table_info
+                    if row["name"] != "interval_idx"
+                }
+                retained_rows[table] = [
+                    tuple(row[column] for column in columns)
+                    for row in conn.execute(f"SELECT * FROM {table}").fetchall()
+                ]
+                retained_indexes[table] = {
+                    name: signature
+                    for name, signature in _index_contract(conn, table).items()
+                    if "interval_idx" not in signature[3]
+                }
         db_module.DB_PATH = self.upgraded
         db_schema.DB_PATH = self.upgraded
         db_module.init_db()
         with _closed_conn(self.upgraded) as conn:
-            row = conn.execute(
-                "SELECT username FROM users WHERE user_id=1"
-            ).fetchone()
-        self.assertEqual(row["username"], "keep_me")
+            for table in retained_tables:
+                after_info = {
+                    row["name"]: (
+                        row["type"],
+                        row["notnull"],
+                        row["dflt_value"],
+                        row["pk"],
+                    )
+                    for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+                }
+                for column, signature in retained_schema[table].items():
+                    self.assertEqual(after_info[column], signature)
 
-    def test_origin_backfill_tags_daily_matches_once(self):
-        build_origin_backfill_schema(self.upgraded)
+                columns = retained_columns[table]
+                selected = ", ".join(columns)
+                after_rows = [
+                    tuple(row[column] for column in columns)
+                    for row in conn.execute(
+                        f"SELECT {selected} FROM {table}"
+                    ).fetchall()
+                ]
+                for row in retained_rows[table]:
+                    self.assertIn(row, after_rows)
+
+                after_indexes = _index_contract(conn, table)
+                for name, signature in retained_indexes[table].items():
+                    self.assertEqual(after_indexes[name], signature)
+
+            origin = conn.execute(
+                "SELECT entry_source FROM saved_words WHERE word='retain'"
+            ).fetchone()
+            self.assertEqual(origin["entry_source"], "legacy_daily")
+
+    def test_unmigrated_daily_schema_aborts_without_deleting(self):
+        build_prior_schema(self.upgraded, migration_done=False)
         db_module.DB_PATH = self.upgraded
         db_schema.DB_PATH = self.upgraded
-        with _closed_conn(self.upgraded) as conn:
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES "
-                "('entry_source_backfilled', '0')"
-            )
 
-        db_module.init_db()
+        with self.assertRaisesRegex(RuntimeError, "fsrs_migration_done"):
+            db_module.init_db()
 
-        with _closed_conn(self.upgraded) as conn:
-            sources = {
-                row["normalized_word"]: row["entry_source"]
-                for row in conn.execute(
-                    "SELECT normalized_word, entry_source FROM saved_words "
-                    "ORDER BY normalized_word"
-                ).fetchall()
-            }
-            flag = conn.execute(
-                "SELECT value FROM settings WHERE key='entry_source_backfilled'"
-            ).fetchone()
-        self.assertEqual(
-            sources,
-            {"daily   word": "legacy_daily", "manual word": "manual"},
-        )
-        self.assertEqual(flag["value"], "1")
+        self.assertTrue(BANNED_TABLES.issubset(_table_names(self.upgraded)))
+        self.assertIn("interval_idx", _column_names(self.upgraded, "saved_words"))
 
-        with _closed_conn(self.upgraded) as conn:
-            conn.execute(
-                "INSERT INTO saved_words("
-                "user_id, word, lang, normalized_word, entry_source) "
-                "VALUES (1, 'Later Word', 'en', 'later word', 'manual')"
-            )
-            conn.execute(
-                "INSERT INTO daily_cards(user_id, card_date, card_index, card_data) "
-                "VALUES (1, '2026-08-11', 0, ?)",
-                ('{"word":"Later Word"}',),
-            )
-        db_module.init_db()
-        with _closed_conn(self.upgraded) as conn:
-            sources_after_repeat = {
-                row["normalized_word"]: row["entry_source"]
-                for row in conn.execute(
-                    "SELECT normalized_word, entry_source FROM saved_words "
-                    "ORDER BY normalized_word"
-                ).fetchall()
-            }
-        self.assertEqual(
-            sources_after_repeat,
-            {**sources, "later word": "manual"},
-        )
-
-    def test_origin_backfill_matches_the_card_language_only(self):
-        """A word saved under two languages is tagged only for the language
-        the daily card was generated in."""
-        build_origin_backfill_schema(self.upgraded)
-        db_module.DB_PATH = self.upgraded
-        db_schema.DB_PATH = self.upgraded
-        with _closed_conn(self.upgraded) as conn:
-            conn.execute(
-                "INSERT INTO saved_words("
-                "user_id, word, lang, normalized_word, entry_source) "
-                "VALUES (1, 'Gift', 'en', 'gift', 'manual')"
-            )
-            conn.execute(
-                "INSERT INTO saved_words("
-                "user_id, word, lang, normalized_word, entry_source) "
-                "VALUES (1, 'Gift', 'de', 'gift', 'manual')"
-            )
-            conn.execute(
-                "INSERT INTO daily_cards(user_id, card_date, card_index, card_data) "
-                "VALUES (1, '2026-08-12', 0, ?)",
-                ('{"word":"gift"}',),
-            )
-
-        db_module.init_db()
-
-        with _closed_conn(self.upgraded) as conn:
-            sources = {
-                (row["normalized_word"], row["lang"]): row["entry_source"]
-                for row in conn.execute(
-                    "SELECT normalized_word, lang, entry_source FROM saved_words"
-                ).fetchall()
-            }
-        self.assertEqual(sources[("gift", "en")], "legacy_daily")
-        self.assertEqual(sources[("gift", "de")], "manual")
-
-    def test_origin_backfill_marks_empty_daily_table_complete(self):
-        db_module.init_db()
-
-        with _closed_conn(self.fresh) as conn:
-            flag = conn.execute(
-                "SELECT value FROM settings WHERE key='entry_source_backfilled'"
-            ).fetchone()
-        self.assertEqual(flag["value"], "1")
-
-    def test_origin_backfill_marks_partial_legacy_db_complete(self):
+    def test_nonfinal_migration_flag_aborts_without_deleting(self):
         build_prior_schema(self.upgraded)
-        db_module.DB_PATH = self.upgraded
-        db_schema.DB_PATH = self.upgraded
-
-        with self.assertLogs("services.db.schema", level="WARNING") as cm:
-            db_module.init_db()
-        self.assertIn(NO_LEGACY_SOURCE_WARNING, "\n".join(cm.output))
-        with self.assertNoLogs("services.db.schema", level="WARNING"):
-            db_module.init_db()
-        with _closed_conn(self.upgraded) as conn:
-            flag = conn.execute(
-                "SELECT value FROM settings WHERE key='entry_source_backfilled'"
-            ).fetchone()
-        self.assertEqual(flag["value"], "1")
-
-    def test_origin_backfill_marks_users_only_db_complete(self):
         with _closed_conn(self.upgraded) as conn:
             conn.execute(
-                "CREATE TABLE users(user_id INTEGER PRIMARY KEY, username TEXT)"
+                "UPDATE settings SET value='0' WHERE key='fsrs_migration_done'"
             )
         db_module.DB_PATH = self.upgraded
         db_schema.DB_PATH = self.upgraded
 
-        with self.assertLogs("services.db.schema", level="WARNING") as cm:
-            db_module.init_db()
-        self.assertIn(NO_LEGACY_SOURCE_WARNING, "\n".join(cm.output))
-        with _closed_conn(self.upgraded) as conn:
-            flag = conn.execute(
-                "SELECT value FROM settings WHERE key='entry_source_backfilled'"
-            ).fetchone()
-        self.assertEqual(flag["value"], "1")
-
-    def test_origin_backfill_completes_on_pruned_daily_table(self):
-        """A pre-existing DB whose daily_cards table exists but is empty has
-        nothing to tag: saved words stay manual and the flag is recorded."""
-        build_origin_backfill_schema(self.upgraded)
-        with _closed_conn(self.upgraded) as conn:
-            conn.execute("DELETE FROM daily_cards")
-        db_module.DB_PATH = self.upgraded
-        db_schema.DB_PATH = self.upgraded
-
-        with self.assertLogs("services.db.schema", level="WARNING") as cm:
+        with self.assertRaisesRegex(RuntimeError, "fsrs_migration_done"):
             db_module.init_db()
 
-        self.assertIn(NO_LEGACY_SOURCE_WARNING, "\n".join(cm.output))
-        with _closed_conn(self.upgraded) as conn:
-            sources = {
-                row["normalized_word"]: row["entry_source"]
-                for row in conn.execute(
-                    "SELECT normalized_word, entry_source FROM saved_words"
-                ).fetchall()
-            }
-            flag = conn.execute(
-                "SELECT value FROM settings WHERE key='entry_source_backfilled'"
-            ).fetchone()
-        self.assertEqual(
-            sources,
-            {"daily   word": "manual", "manual word": "manual"},
-        )
-        self.assertEqual(flag["value"], "1")
+        self.assertTrue(BANNED_TABLES.issubset(_table_names(self.upgraded)))
+        self.assertIn("interval_idx", _column_names(self.upgraded, "saved_words"))
 
     def test_template_flags_banned_column(self):
         """The template's absence check works: a banned column that still
@@ -483,6 +466,20 @@ class MigrationGuardTests(unittest.TestCase):
         finally:
             BANNED_COLUMNS.clear()
             BANNED_COLUMNS.update(original)
+
+    def test_template_flags_banned_table(self):
+        db_module.init_db()
+        with _closed_conn(self.fresh) as conn:
+            conn.execute("CREATE TABLE fake_banned (id INTEGER)")
+
+        original = set(BANNED_TABLES)
+        BANNED_TABLES.add("fake_banned")
+        try:
+            with self.assertRaises(AssertionError):
+                assert_schema_complete(self, self.fresh)
+        finally:
+            BANNED_TABLES.clear()
+            BANNED_TABLES.update(original)
 
 
 if __name__ == "__main__":

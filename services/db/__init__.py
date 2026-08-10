@@ -7,13 +7,22 @@ from config import DB_PATH
 
 import json
 import datetime
+import logging
+import os
 import secrets
+import sqlite3
+import stat
+import tempfile
+import shutil
+from contextlib import closing
 
 # ---------------------------------------------------------------------------
 # Re-export from submodules
 # ---------------------------------------------------------------------------
 from services.db.schema import (
     get_conn,
+    database_lock,
+    _LEGACY_DAILY_TABLES,
     init_db,
     _app_timezone,
     _today,
@@ -63,16 +72,6 @@ from services.db.users import (
 )
 
 from services.db.words import (
-    get_daily_cards,
-    get_recent_daily_words,
-    get_recent_daily_card_dates,
-    count_daily_cards,
-    add_daily_card,
-    update_daily_card_fields,
-    get_daily_progress,
-    set_daily_progress,
-    get_daily_card_session,
-    ensure_daily_card_session,
     add_saved_word,
     update_saved_word_fields,
     due_words_for_user,
@@ -80,8 +79,34 @@ from services.db.words import (
     get_pre_first_exposure_words,
     grade_word_review,
     grade_first_exposure,
-    migrate_saved_words_to_fsrs,
 )
+
+
+logger = logging.getLogger(__name__)
+_RESTORE_CORE_TABLES = frozenset(
+    {"users", "saved_words", "settings", "review_events", "llm_requests"}
+)
+# Stable SQLite primary result codes; Python 3.10 does not expose all of the
+# corresponding sqlite3.SQLITE_* constants.
+_STORAGE_SQLITE_CODES = frozenset(
+    {
+        7,   # SQLITE_NOMEM
+        8,   # SQLITE_READONLY
+        10,  # SQLITE_IOERR
+        13,  # SQLITE_FULL
+        14,  # SQLITE_CANTOPEN
+    }
+)
+
+
+def _is_storage_error(exc: BaseException) -> bool:
+    error_code = getattr(exc, "sqlite_errorcode", None)
+    if error_code is not None and error_code & 0xFF in _STORAGE_SQLITE_CODES:
+        return True
+    return any(
+        phrase in str(exc).lower()
+        for phrase in ("disk is full", "i/o error", "readonly", "read-only")
+    )
 
 from services.db.reviews import (
     REVIEW_OUTCOMES,
@@ -322,11 +347,130 @@ def log_config_test(test_type: str, preset_name: str, prompt: str, result: dict)
 # ---------- Backup / Restore ----------
 
 def export_db_bytes() -> bytes:
-    with open(DB_PATH, "rb") as f:
-        return f.read()
+    snapshot_fd, snapshot_path = tempfile.mkstemp(
+        suffix=".sqlite",
+        dir=os.path.dirname(os.path.abspath(DB_PATH)),
+    )
+    os.close(snapshot_fd)
+    try:
+        with get_conn() as source, closing(sqlite3.connect(snapshot_path)) as target:
+            source.backup(target)
+        with open(snapshot_path, "rb") as snapshot_file:
+            return snapshot_file.read()
+    finally:
+        try:
+            if os.path.exists(snapshot_path):
+                os.remove(snapshot_path)
+        except OSError:
+            logger.exception("Could not remove temporary database snapshot: %s", snapshot_path)
 
 
-def import_db_bytes(data: bytes) -> None:
-    with open(DB_PATH, "wb") as f:
-        f.write(data)
-    init_db()
+def import_db_bytes(data: bytes, backup_path: str | None = None) -> None:
+    candidate_path = None
+    reference_path = None
+    try:
+        with database_lock():
+            try:
+                candidate_fd, candidate_path = tempfile.mkstemp(
+                    suffix=".sqlite",
+                    dir=os.path.dirname(os.path.abspath(DB_PATH)),
+                )
+                original_stat = os.stat(DB_PATH)
+                with os.fdopen(candidate_fd, "wb") as candidate_file:
+                    candidate_file.write(data)
+                with closing(sqlite3.connect(candidate_path)) as candidate_conn:
+                    quick_check = candidate_conn.execute("PRAGMA quick_check").fetchone()
+                    candidate_tables = {
+                        row[0]
+                        for row in candidate_conn.execute(
+                            "SELECT name FROM sqlite_master "
+                            "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                        )
+                    }
+                if not quick_check or quick_check[0] != "ok":
+                    raise ValueError("فایل پشتیبان معتبر نیست.")
+                if _LEGACY_DAILY_TABLES & candidate_tables:
+                    raise ValueError(
+                        "نسخه پشتیبان قدیمی است و قابل بازگردانی نیست."
+                    )
+                if not _RESTORE_CORE_TABLES.issubset(candidate_tables):
+                    raise ValueError("فایل پشتیبان معتبر نیست.")
+                init_db(candidate_path)
+                reference_fd, reference_path = tempfile.mkstemp(
+                    suffix=".sqlite",
+                    dir=os.path.dirname(os.path.abspath(DB_PATH)),
+                )
+                os.close(reference_fd)
+                init_db(reference_path)
+                with closing(sqlite3.connect(candidate_path)) as candidate_conn, closing(
+                    sqlite3.connect(reference_path)
+                ) as reference_conn:
+                    required_tables = {
+                        row[0]
+                        for row in reference_conn.execute(
+                            "SELECT name FROM sqlite_master "
+                            "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                        )
+                    }
+                    candidate_tables = {
+                        row[0]
+                        for row in candidate_conn.execute(
+                            "SELECT name FROM sqlite_master "
+                            "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                        )
+                    }
+                    missing_columns = {
+                        table: {
+                            row[1]
+                            for row in reference_conn.execute(f"PRAGMA table_info({table})")
+                        }
+                        - {
+                            row[1]
+                            for row in candidate_conn.execute(f"PRAGMA table_info({table})")
+                        }
+                        for table in required_tables & candidate_tables
+                    }
+                if any(missing_columns.values()):
+                    raise RuntimeError("incomplete schema")
+            except ValueError:
+                raise
+            except (OSError, MemoryError) as exc:
+                raise ValueError(
+                    "فضای ذخیره‌سازی یا دسترسی فایل برای بازگردانی کافی نیست."
+                ) from exc
+            except Exception as exc:
+                if _is_storage_error(exc):
+                    raise ValueError(
+                        "فضای ذخیره‌سازی یا دسترسی فایل برای بازگردانی کافی نیست."
+                    ) from exc
+                raise ValueError(
+                    "نسخه پشتیبان با نسخه فعلی ربات سازگار نیست."
+                ) from exc
+            try:
+                os.chmod(candidate_path, stat.S_IMODE(original_stat.st_mode))
+                if hasattr(os, "chown"):
+                    try:
+                        os.chown(candidate_path, original_stat.st_uid, original_stat.st_gid)
+                    except PermissionError:
+                        pass
+                if backup_path:
+                    shutil.copy2(DB_PATH, backup_path)
+                os.replace(candidate_path, DB_PATH)
+            except OSError as exc:
+                raise ValueError(
+                    "جایگزینی دیتابیس در حال حاضر ممکن نیست. دوباره تلاش کنید."
+                ) from exc
+            for suffix in ("-journal", "-wal", "-shm"):
+                sidecar = f"{DB_PATH}{suffix}"
+                try:
+                    if os.path.exists(sidecar):
+                        os.remove(sidecar)
+                except OSError:
+                    logger.exception("Could not remove stale SQLite sidecar: %s", sidecar)
+    finally:
+        for path in (candidate_path, reference_path):
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    logger.exception("Could not remove temporary restore file: %s", path)

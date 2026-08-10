@@ -153,6 +153,40 @@ BANNED_SYMBOLS: dict[str, str] = {
         "removed by FSRS migration Phase 2: legacy review keyboard replaced by the "
         "4-grade review flow"
     ),
+    "get_daily_cards": (
+        "removed by FSRS migration Phase 2b: daily persistence was replaced by "
+        "saved_words first-exposure state"
+    ),
+    "get_recent_daily_words": (
+        "removed by FSRS migration Phase 2b with the daily_cards table"
+    ),
+    "get_recent_daily_card_dates": (
+        "removed by FSRS migration Phase 2b with the daily_cards table"
+    ),
+    "count_daily_cards": (
+        "removed by FSRS migration Phase 2b with the daily_cards table"
+    ),
+    "add_daily_card": (
+        "removed by FSRS migration Phase 2b: new cards enter saved_words"
+    ),
+    "update_daily_card_fields": (
+        "removed by FSRS migration Phase 2b with the daily_cards table"
+    ),
+    "get_daily_progress": (
+        "removed by FSRS migration Phase 2b with the daily_progress table"
+    ),
+    "set_daily_progress": (
+        "removed by FSRS migration Phase 2b with the daily_progress table"
+    ),
+    "get_daily_card_session": (
+        "removed by FSRS migration Phase 2b with daily_card_sessions"
+    ),
+    "ensure_daily_card_session": (
+        "removed by FSRS migration Phase 2b with daily_card_sessions"
+    ),
+    "migrate_saved_words_to_fsrs": (
+        "removed after the guarded daily_cards to saved_words migration completed"
+    ),
     "ACTIVITY_REGISTRY": (
         "removed by architecture deepening finding #4: dormant UI registry never "
         "used by a production caller; study_handler owns rendering"

@@ -708,7 +708,7 @@ menu, but the database save and SRS functions remain internal capabilities.
 
 **Status:** In progress
 **Done:** Durable queues, bounded retries, async-safe provider calls, callback validation, and restart recovery.
-**In progress:** FSRS-6 migration — Phase 1 (core engine + session engine shell merged, 4-button UI live) and Phase 3a (daily_cards → saved_words first-exposure migration, schema columns, startup migration; PR #252 open, CI green) done. Next: saved-word origin backfill → Phase 2 stale-flow cleanup (DROP daily_cards) → Phase 3b FSRS data wiring. See `docs/plans/fsrs/plan_fsrs_migration_v2.md`, `docs/plans/fsrs/plan_daily_cards_migration.md`, `docs/plans/fsrs/plan_fsrs_session_cleanup.md`.
+**In progress:** FSRS-6 migration — Phase 1 (core engine + session engine shell merged, 4-button UI live) and Phase 3a (`daily_cards` → `saved_words` first-exposure migration and schema columns) are done. The saved-word origin backfill is deployed and verified on the live database (510 `legacy_daily`, 22 `manual`); Phase 2b stale-flow cleanup (daily-table/runtime removal) is under PR validation, followed by Phase 3b FSRS data wiring. See `docs/plans/fsrs/plan_fsrs_migration_v2.md`, `docs/plans/fsrs/plan_daily_cards_migration.md`, `docs/plans/fsrs/plan_fsrs_session_cleanup.md`.
 **To-do:** Resolve issues `42`–`47`, `49`, `50`, and `66` with focused idempotency, migration, reliability, and progress tests.
 
 Make manual generation and scheduled delivery restart-safe and isolated per
