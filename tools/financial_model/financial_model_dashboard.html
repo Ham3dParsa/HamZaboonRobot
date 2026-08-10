@@ -323,6 +323,7 @@
           <kpi-card title="LTV کاربران پولی" en="Avg. LTV" icon="users" tone="indigo" :value="avgLTV" type="toman" sub="حاشیه مشارکت تقسیم بر ریزش مؤثر" :help="KPI_HELP.ltv"></kpi-card>
           <kpi-card title="نقطه سر‌به‌سر" en="Break-even" icon="piggy-bank" tone="amber" :value="breakEvenUsers" type="number" sub="کاربر پولی برای پوشش هزینهٔ ثابت" :help="KPI_HELP.breakEven"></kpi-card>
           <kpi-card title="درآمد خالص (MRR)" en="Net Revenue" icon="trending-up" tone="emerald" :value="m1.netRevenue" type="toman" sub="بعد از کارمزد درگاه و VAT" :help="KPI_HELP.netRevenue"></kpi-card>
+          <kpi-card title="درآمد بسته‌های Query" en="Query Pack Revenue" icon="ticket" tone="indigo" :value="m1.packNetRevenue" type="toman" sub="درآمد خالص خریدهای یک‌باره در ماه اول" :help="KPI_HELP.netRevenue"></kpi-card>
           <kpi-card title="هزینه کل AI" en="Total AI Cost" icon="wallet" tone="rose" :value="m1.aiCostToman" type="toman" :sub="'$' + format(m1.aiCostUSD, 2)" :help="KPI_HELP.aiCost"></kpi-card>
           <kpi-card title="هزینه AI هر کاربر رایگان" en="Cost / Free User" icon="users" tone="rose" :value="costFreeUser" type="toman" sub="در ماه" :help="KPI_HELP.costFreeUser"></kpi-card>
           <kpi-card :title="'سود خالص در ماه ' + inp.projectionMonths" en="Future Profit" icon="line-chart" :tone="mLast.netProfit >= 0 ? 'emerald' : 'rose'" :value="mLast.netProfit" type="toman" :help="KPI_HELP.futureProfit"></kpi-card>
@@ -1887,7 +1888,8 @@
               newSignups: Math.round(newSignups),
               grossRevenue: Math.round(grossRevenue), netRevenue, feeToman, vatToman,
               planGrossRevenue: Math.round(planGrossRevenue), packGrossRevenue: Math.round(packGrossRevenue),
-              packNetRevenue, packBuyers: Math.round(packBuyers), creditsSold: Math.round(creditsSold),
+              planNetRevenue: Math.round(netRevenue - packNetRevenue), packNetRevenue,
+              packBuyers: Math.round(packBuyers), creditsSold: Math.round(creditsSold),
               creditsConsumed: Math.round(creditsConsumed), outstandingCredits: Math.round(outstandingCreditBalance),
               planAiCostToman, queryAiCostToman,
               aiCostToman, aiCostUSD: (aiCalls + creditsConsumed) * aiCallPrice, cacToman, trialCACToman, fixedToman,
@@ -2130,7 +2132,7 @@
 
         const updateCharts = () => {
           if (!charts.bar) return;
-          charts.bar.data.datasets[0].data = [m1.value.netRevenue, m1.value.aiCostToman, m1.value.fixedToman, m1.value.netProfit];
+          charts.bar.data.datasets[0].data = [m1.value.planNetRevenue, m1.value.packNetRevenue, m1.value.aiCostToman, m1.value.fixedToman, m1.value.netProfit];
           charts.bar.update();
 
           charts.pie.data.labels = planCostTotalM1.value.map(x => x.name);
@@ -2169,8 +2171,8 @@
           charts.bar = new Chart(document.getElementById('barChart'), {
             type: 'bar',
             data: {
-              labels: ['درآمد خالص', 'هزینه AI', 'هزینه ثابت', 'سود خالص'],
-              datasets: [{ data: [0,0,0,0], backgroundColor: [COLORS.emerald, COLORS.rose, COLORS.amber, COLORS.indigo], borderRadius: 6 }]
+              labels: ['درآمد پلن‌ها', 'درآمد بسته Query', 'هزینه AI', 'هزینه ثابت', 'سود خالص'],
+              datasets: [{ data: [0,0,0,0,0], backgroundColor: [COLORS.emerald, COLORS.indigo, COLORS.rose, COLORS.amber, COLORS.turquoise], borderRadius: 6 }]
             },
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
           });

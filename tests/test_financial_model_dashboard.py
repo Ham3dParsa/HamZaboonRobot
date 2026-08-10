@@ -72,3 +72,12 @@ def test_plan_and_credit_pack_editors_have_separate_authority():
     assert "const removeCreditPack =" in html
     assert "normalizeCreditPackShares" in html
     assert "creditPackSalesShareSum" in html
+
+
+def test_dashboard_surfaces_credit_pack_revenue_separately():
+    html = _html()
+
+    assert "m1.packNetRevenue" in html
+    assert "planNetRevenue" in html
+    assert "درآمد بسته Query" in html
+    assert "[m1.value.planNetRevenue, m1.value.packNetRevenue" in html

@@ -4,9 +4,9 @@ description: Add financial-model support for non-expiring Query credit packs sol
 created: 2026-08-10
 base_commit: e76c572f63dfb26f661dd52656219dd0ad86147e
 branch: feat/financial-model-ui
-status: in-progress
+status: complete
 ---
-STATE: phase 3/3 — status: in-progress — focus: Phase 3 validation and persistence review
+STATE: phase 3/3 — status: complete — focus: model, UI, persistence, and validation delivered
 
 ## Scope
 
