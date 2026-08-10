@@ -355,6 +355,41 @@ class MigrationGuardTests(unittest.TestCase):
             {**sources, "later word": "manual"},
         )
 
+    def test_origin_backfill_matches_the_card_language_only(self):
+        """A word saved under two languages is tagged only for the language
+        the daily card was generated in."""
+        build_origin_backfill_schema(self.upgraded)
+        db_module.DB_PATH = self.upgraded
+        db_schema.DB_PATH = self.upgraded
+        with _closed_conn(self.upgraded) as conn:
+            conn.execute(
+                "INSERT INTO saved_words("
+                "user_id, word, lang, normalized_word, entry_source) "
+                "VALUES (1, 'Gift', 'en', 'gift', 'manual')"
+            )
+            conn.execute(
+                "INSERT INTO saved_words("
+                "user_id, word, lang, normalized_word, entry_source) "
+                "VALUES (1, 'Gift', 'de', 'gift', 'manual')"
+            )
+            conn.execute(
+                "INSERT INTO daily_cards(user_id, card_date, card_index, card_data) "
+                "VALUES (1, '2026-08-12', 0, ?)",
+                ('{"word":"gift"}',),
+            )
+
+        db_module.init_db()
+
+        with _closed_conn(self.upgraded) as conn:
+            sources = {
+                (row["normalized_word"], row["lang"]): row["entry_source"]
+                for row in conn.execute(
+                    "SELECT normalized_word, lang, entry_source FROM saved_words"
+                ).fetchall()
+            }
+        self.assertEqual(sources[("gift", "en")], "legacy_daily")
+        self.assertEqual(sources[("gift", "de")], "manual")
+
     def test_origin_backfill_marks_empty_daily_table_complete(self):
         db_module.init_db()
 
