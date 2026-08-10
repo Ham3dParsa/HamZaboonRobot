@@ -27,6 +27,8 @@ Findings must include:
 3. "What the plan missed": leftover old symbols, integration points, state leaks, restart safety, quota/date boundaries, callback wiring
 4. Test independence: do tests verify behavior rather than mirror code?
 5. Scope violations: invented behavior, silent scope widening
+6. Does this change introduce a new seam with only one adapter (premature abstraction — see codebase-design skill's deletion test)?
+7. Does this change bypass an existing seam's interface (reaching into a module's internals instead of its public function)?
 
 Verification tools (read-only):
 - Focused tests, greps, wiring scans (`tests/test_wiring.py`, `tests/test_dead_code_guard.py`)
