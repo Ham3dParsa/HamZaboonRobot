@@ -80,7 +80,7 @@ def _backfill_legacy_daily_sources(
         "THEN json_extract(daily_cards.card_data, '$.word') END"
         ")="
         "normalize_word(saved_words.word)"
-        ")"
+        ") AND COALESCE(saved_words.entry_source, 'manual')='manual'"
     )
     conn.execute(
         "INSERT INTO settings(key, value) VALUES ('entry_source_backfilled', '1') "
