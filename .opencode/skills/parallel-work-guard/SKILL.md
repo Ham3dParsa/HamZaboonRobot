@@ -1,6 +1,6 @@
 ---
 name: parallel-work-guard
-description: Check for seam claims before starting parallel work, or when the owner is running multiple branches/worktrees at once. Trigger on any new Contract Lock Gate session and before creating a new branch/worktree.
+description: Check for seam claims before any new Contract Lock Gate session, before creating a new branch/worktree, or when multiple branches/worktrees run at once, so parallel work never silently collides on a shared seam.
 license: Copyright (c) Ham3dParsa. All rights reserved.
 ---
 # Parallel Work Guard Skill
@@ -9,6 +9,10 @@ A **claim** is a locked contract's declared ownership of one or more seams —
 the domain boundaries and shared resources that two parallel branches/worktrees
 could silently collide on without touching the same file. The canonical list of
 seams is in SEAMS.md (this skill folder). Do not invent ad-hoc seam names.
+
+Run this skill at every Contract Lock Gate, before creating a branch/worktree, and whenever parallel branches/worktrees are already in progress.
+When a task runs entirely in one session on one branch with no parallel work in
+progress, the check usually finds no overlap — still run every step in order, since other worktrees may hold claims in the shared registry.
 
 ## Steps
 
