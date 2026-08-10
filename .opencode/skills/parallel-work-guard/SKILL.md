@@ -33,12 +33,14 @@ seams is in SEAMS.md (this skill folder). Do not invent ad-hoc seam names.
    equivalent exclusive-write lock before reading the shared claims file. Hold
    that lock through parsing, overlap/duplicate matching, modification,
    validation, and the complete write; release it only after the write is
-   finished. Preserve unrelated claims, validate the JSON object, and append
-   `{branch, seams: [...], locked_at (ISO 8601), rule_ids: [...]}`. Match an
-   existing claim by exact equality of its `branch` value with the current
-   branch name; update that claim instead of creating a duplicate. Write via a
-   temporary file followed by an atomic replacement while the lock is held so
-   concurrent sessions cannot lose claims.
+   finished. Under that same lock, parse the JSON object, validate it, then
+   match the current branch's existing claim by exact equality of its `branch`
+   value with `git branch --show-current`. If a matching claim exists, update
+   it; otherwise append a new claim
+   `{branch, seams: [...], locked_at (ISO 8601), rule_ids: [...]}`. Preserve
+   unrelated claims. Write via a temporary file followed by an atomic
+   replacement while the lock is held so concurrent sessions cannot lose
+   claims.
 5. On post-merge cleanup (AGENTS.md §5 step 8), atomically remove this branch's
    claim from the shared claims file. On every skill load, flag (do not
    auto-delete) any claim with `locked_at` older than 14 days for owner review.
