@@ -10,7 +10,7 @@ the domain boundaries and shared resources that two parallel branches/worktrees
 could silently collide on without touching the same file. The canonical list of
 seams is in SEAMS.md (this skill folder). Do not invent ad-hoc seam names.
 
-Run this skill when a task reaches a Contract Lock Gate or creates a branch/worktree.
+Run this skill at every Contract Lock Gate, before creating a branch/worktree, and whenever parallel branches/worktrees are already in progress.
 When a task runs entirely in one session on one branch with no parallel work in
 progress, the seam check is a fast no-op — still run it, but do not slow the gate.
 
