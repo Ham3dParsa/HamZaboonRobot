@@ -212,6 +212,50 @@ def build_prior_schema(path: str) -> None:
         conn.commit()
 
 
+def build_origin_backfill_schema(path: str) -> None:
+    """Create a post-FSRS, pre-origin-backfill database."""
+    build_prior_schema(path)
+    with _closed_conn(path) as conn:
+        conn.executescript(
+            """
+            ALTER TABLE saved_words ADD COLUMN normalized_word TEXT;
+            ALTER TABLE saved_words ADD COLUMN card_data TEXT;
+            ALTER TABLE saved_words ADD COLUMN entry_source TEXT DEFAULT 'manual';
+            CREATE TABLE daily_cards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                card_date TEXT,
+                card_index INTEGER,
+                card_data TEXT
+            );
+            """
+        )
+        conn.execute(
+            "INSERT INTO users(user_id, username, target_lang, onboarded) "
+            "VALUES (1, 'learner', 'en', 1)"
+        )
+        conn.execute(
+            "INSERT INTO saved_words("
+            "user_id, word, lang, normalized_word, card_data, entry_source) "
+            "VALUES (1, 'Daily   Word', 'en', 'daily   word', ?, 'manual')",
+            ('{"word":"Daily   Word"}',),
+        )
+        conn.execute(
+            "INSERT INTO saved_words("
+            "user_id, word, lang, normalized_word, card_data, entry_source) "
+            "VALUES (1, 'manual word', 'en', 'manual word', ?, 'manual')",
+            ('{"word":"manual word"}',),
+        )
+        conn.execute(
+            "INSERT INTO daily_cards(user_id, card_date, card_index, card_data) "
+            "VALUES (1, '2026-08-10', 0, ?)",
+            ('{"word":"daily word"}',),
+        )
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES ('fsrs_migration_done', '1')"
+        )
+
+
 class MigrationGuardTests(unittest.TestCase):
     """The migration-completeness template, exercised against the live schema."""
 
@@ -256,6 +300,100 @@ class MigrationGuardTests(unittest.TestCase):
                 "SELECT username FROM users WHERE user_id=1"
             ).fetchone()
         self.assertEqual(row["username"], "keep_me")
+
+    def test_origin_backfill_tags_daily_matches_once(self):
+        build_origin_backfill_schema(self.upgraded)
+        db_module.DB_PATH = self.upgraded
+        db_schema.DB_PATH = self.upgraded
+        with _closed_conn(self.upgraded) as conn:
+            conn.execute(
+                "INSERT INTO settings(key, value) VALUES "
+                "('entry_source_backfilled', '0')"
+            )
+
+        db_module.init_db()
+
+        with _closed_conn(self.upgraded) as conn:
+            sources = {
+                row["normalized_word"]: row["entry_source"]
+                for row in conn.execute(
+                    "SELECT normalized_word, entry_source FROM saved_words "
+                    "ORDER BY normalized_word"
+                ).fetchall()
+            }
+            flag = conn.execute(
+                "SELECT value FROM settings WHERE key='entry_source_backfilled'"
+            ).fetchone()
+        self.assertEqual(
+            sources,
+            {"daily   word": "legacy_daily", "manual word": "manual"},
+        )
+        self.assertEqual(flag["value"], "1")
+
+        with _closed_conn(self.upgraded) as conn:
+            conn.execute(
+                "INSERT INTO saved_words("
+                "user_id, word, lang, normalized_word, entry_source) "
+                "VALUES (1, 'Later Word', 'en', 'later word', 'manual')"
+            )
+            conn.execute(
+                "INSERT INTO daily_cards(user_id, card_date, card_index, card_data) "
+                "VALUES (1, '2026-08-11', 0, ?)",
+                ('{"word":"Later Word"}',),
+            )
+        db_module.init_db()
+        with _closed_conn(self.upgraded) as conn:
+            sources_after_repeat = {
+                row["normalized_word"]: row["entry_source"]
+                for row in conn.execute(
+                    "SELECT normalized_word, entry_source FROM saved_words "
+                    "ORDER BY normalized_word"
+                ).fetchall()
+            }
+        self.assertEqual(
+            sources_after_repeat,
+            {**sources, "later word": "manual"},
+        )
+
+    def test_origin_backfill_marks_empty_daily_table_complete(self):
+        db_module.init_db()
+
+        with _closed_conn(self.fresh) as conn:
+            flag = conn.execute(
+                "SELECT value FROM settings WHERE key='entry_source_backfilled'"
+            ).fetchone()
+        self.assertEqual(flag["value"], "1")
+
+    def test_origin_backfill_keeps_partial_legacy_db_eligible_for_future_run(self):
+        build_prior_schema(self.upgraded)
+        db_module.DB_PATH = self.upgraded
+        db_schema.DB_PATH = self.upgraded
+
+        with self.assertLogs("services.db.schema", level="WARNING"):
+            db_module.init_db()
+        with self.assertLogs("services.db.schema", level="WARNING"):
+            db_module.init_db()
+        with _closed_conn(self.upgraded) as conn:
+            flag = conn.execute(
+                "SELECT value FROM settings WHERE key='entry_source_backfilled'"
+            ).fetchone()
+        self.assertIsNone(flag)
+
+    def test_origin_backfill_treats_users_only_db_as_partial(self):
+        with _closed_conn(self.upgraded) as conn:
+            conn.execute(
+                "CREATE TABLE users(user_id INTEGER PRIMARY KEY, username TEXT)"
+            )
+        db_module.DB_PATH = self.upgraded
+        db_schema.DB_PATH = self.upgraded
+
+        with self.assertLogs("services.db.schema", level="WARNING"):
+            db_module.init_db()
+        with _closed_conn(self.upgraded) as conn:
+            flag = conn.execute(
+                "SELECT value FROM settings WHERE key='entry_source_backfilled'"
+            ).fetchone()
+        self.assertIsNone(flag)
 
     def test_template_flags_banned_column(self):
         """The template's absence check works: a banned column that still

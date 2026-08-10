@@ -211,6 +211,7 @@ class SchemaMigrationTest(unittest.TestCase):
             self.assertEqual(row["first_exposure_done"], 0)
             self.assertEqual(row["lang"], "en")
             self.assertIsNotNone(row["added_at"])
+            self.assertEqual(row["entry_source"], "legacy_daily")
 
     def test_migration_migrated_cards_not_due_tier1(self):
         db.create_user_if_needed(1, "learner")
