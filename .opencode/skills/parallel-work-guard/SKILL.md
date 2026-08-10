@@ -37,7 +37,7 @@ seams is in SEAMS.md (this skill folder). Do not invent ad-hoc seam names.
    match the current branch's existing claim by exact equality of its `branch`
    value with `git branch --show-current`. If a matching claim exists, update
    it; otherwise append a new claim
-   `{branch, seams: [...], locked_at (ISO 8601), rule_ids: [...]}`. Preserve
+   `{branch, seams: [...], locked_at (ISO 8601 UTC, e.g. 2026-08-10T12:00:00Z), rule_ids: [...]}`. Preserve
    unrelated claims. Write via a temporary file followed by an atomic
    replacement while the lock is held so concurrent sessions cannot lose
    claims.
