@@ -7,10 +7,11 @@ from config import DB_PATH
 
 import json
 import datetime
+import logging
 import os
 import secrets
 import sqlite3
-import sys
+import stat
 import tempfile
 import shutil
 from contextlib import closing
@@ -21,6 +22,7 @@ from contextlib import closing
 from services.db.schema import (
     get_conn,
     database_lock,
+    _LEGACY_DAILY_TABLES,
     init_db,
     _app_timezone,
     _today,
@@ -78,6 +80,31 @@ from services.db.words import (
     grade_word_review,
     grade_first_exposure,
 )
+
+
+logger = logging.getLogger(__name__)
+_RESTORE_CORE_TABLES = frozenset(
+    {"users", "saved_words", "settings", "review_events", "llm_requests"}
+)
+_STORAGE_SQLITE_CODES = frozenset(
+    {
+        sqlite3.SQLITE_CANTOPEN,
+        sqlite3.SQLITE_FULL,
+        sqlite3.SQLITE_IOERR,
+        sqlite3.SQLITE_NOMEM,
+        sqlite3.SQLITE_READONLY,
+    }
+)
+
+
+def _is_storage_error(exc: BaseException) -> bool:
+    error_code = getattr(exc, "sqlite_errorcode", None)
+    if error_code is not None and error_code & 0xFF in _STORAGE_SQLITE_CODES:
+        return True
+    return any(
+        phrase in str(exc).lower()
+        for phrase in ("disk is full", "i/o error", "readonly", "read-only")
+    )
 
 from services.db.reviews import (
     REVIEW_OUTCOMES,
@@ -318,9 +345,22 @@ def log_config_test(test_type: str, preset_name: str, prompt: str, result: dict)
 # ---------- Backup / Restore ----------
 
 def export_db_bytes() -> bytes:
-    with database_lock():
-        with open(DB_PATH, "rb") as database_file:
-            return database_file.read()
+    snapshot_fd, snapshot_path = tempfile.mkstemp(
+        suffix=".sqlite",
+        dir=os.path.dirname(os.path.abspath(DB_PATH)),
+    )
+    os.close(snapshot_fd)
+    try:
+        with get_conn() as source, closing(sqlite3.connect(snapshot_path)) as target:
+            source.backup(target)
+        with open(snapshot_path, "rb") as snapshot_file:
+            return snapshot_file.read()
+    finally:
+        try:
+            if os.path.exists(snapshot_path):
+                os.remove(snapshot_path)
+        except OSError:
+            logger.exception("Could not remove temporary database snapshot: %s", snapshot_path)
 
 
 def import_db_bytes(data: bytes, backup_path: str | None = None) -> None:
@@ -333,18 +373,26 @@ def import_db_bytes(data: bytes, backup_path: str | None = None) -> None:
                     suffix=".sqlite",
                     dir=os.path.dirname(os.path.abspath(DB_PATH)),
                 )
+                original_stat = os.stat(DB_PATH)
                 with os.fdopen(candidate_fd, "wb") as candidate_file:
                     candidate_file.write(data)
-                if backup_path:
-                    shutil.copy2(DB_PATH, backup_path)
                 with closing(sqlite3.connect(candidate_path)) as candidate_conn:
-                    migrated = candidate_conn.execute(
-                        "SELECT value FROM settings WHERE key='fsrs_migration_done'"
-                    ).fetchone()
-                if not migrated or migrated[0] != "1":
+                    quick_check = candidate_conn.execute("PRAGMA quick_check").fetchone()
+                    candidate_tables = {
+                        row[0]
+                        for row in candidate_conn.execute(
+                            "SELECT name FROM sqlite_master "
+                            "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                        )
+                    }
+                if not quick_check or quick_check[0] != "ok":
+                    raise ValueError("فایل پشتیبان معتبر نیست.")
+                if _LEGACY_DAILY_TABLES & candidate_tables:
                     raise ValueError(
-                        "نسخه پشتیبان قدیمی است و پس از مهاجرت FSRS قابل بازگردانی نیست."
+                        "نسخه پشتیبان قدیمی است و قابل بازگردانی نیست."
                     )
+                if not _RESTORE_CORE_TABLES.issubset(candidate_tables):
+                    raise ValueError("فایل پشتیبان معتبر نیست.")
                 init_db(candidate_path)
                 reference_fd, reference_path = tempfile.mkstemp(
                     suffix=".sqlite",
@@ -369,7 +417,6 @@ def import_db_bytes(data: bytes, backup_path: str | None = None) -> None:
                             "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
                         )
                     }
-                    missing_tables = required_tables - candidate_tables
                     missing_columns = {
                         table: {
                             row[1]
@@ -381,29 +428,47 @@ def import_db_bytes(data: bytes, backup_path: str | None = None) -> None:
                         }
                         for table in required_tables & candidate_tables
                     }
-                if missing_tables or any(missing_columns.values()):
+                if any(missing_columns.values()):
                     raise RuntimeError("incomplete schema")
             except ValueError:
                 raise
+            except (OSError, MemoryError) as exc:
+                raise ValueError(
+                    "فضای ذخیره‌سازی یا دسترسی فایل برای بازگردانی کافی نیست."
+                ) from exc
             except Exception as exc:
+                if _is_storage_error(exc):
+                    raise ValueError(
+                        "فضای ذخیره‌سازی یا دسترسی فایل برای بازگردانی کافی نیست."
+                    ) from exc
                 raise ValueError(
                     "نسخه پشتیبان با نسخه فعلی ربات سازگار نیست."
                 ) from exc
             try:
+                os.chmod(candidate_path, stat.S_IMODE(original_stat.st_mode))
+                if hasattr(os, "chown"):
+                    try:
+                        os.chown(candidate_path, original_stat.st_uid, original_stat.st_gid)
+                    except PermissionError:
+                        pass
+                if backup_path:
+                    shutil.copy2(DB_PATH, backup_path)
                 os.replace(candidate_path, DB_PATH)
             except OSError as exc:
                 raise ValueError(
                     "جایگزینی دیتابیس در حال حاضر ممکن نیست. دوباره تلاش کنید."
                 ) from exc
+            for suffix in ("-journal", "-wal", "-shm"):
+                sidecar = f"{DB_PATH}{suffix}"
+                try:
+                    if os.path.exists(sidecar):
+                        os.remove(sidecar)
+                except OSError:
+                    logger.exception("Could not remove stale SQLite sidecar: %s", sidecar)
     finally:
-        cleanup_error = None
         for path in (candidate_path, reference_path):
             if path and os.path.exists(path):
                 try:
                     os.remove(path)
-                except OSError as exc:
-                    cleanup_error = exc
-        if cleanup_error and sys.exc_info()[0] is None:
-            raise ValueError(
-                "پاک‌سازی موقت نسخه پشتیبان ممکن نیست. دوباره تلاش کنید."
-            ) from cleanup_error
+                except OSError:
+                    logger.exception("Could not remove temporary restore file: %s", path)

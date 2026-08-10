@@ -4,49 +4,22 @@ import tempfile
 import threading
 import unittest
 from contextlib import closing
+from unittest.mock import patch
 
 from services import db
 from services.db import schema as db_schema
 
 
-def _write_backup(path: str, migration_value: str | None) -> bytes:
-    with closing(sqlite3.connect(path)) as conn:
-        with conn:
-            conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
-            if migration_value is not None:
-                conn.execute(
-                    "INSERT INTO settings(key, value) VALUES "
-                    "('fsrs_migration_done', ?)",
-                    (migration_value,),
-                )
+def _read_bytes(path: str) -> bytes:
     with open(path, "rb") as backup_file:
         return backup_file.read()
 
 
-def _write_incompatible_marked_backup(path: str) -> bytes:
+def _write_foreign_backup(path: str) -> bytes:
     with closing(sqlite3.connect(path)) as conn:
         with conn:
             conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES "
-                "('fsrs_migration_done', '1')"
-            )
-            conn.execute("CREATE TABLE saved_words (id INTEGER PRIMARY KEY)")
-    with open(path, "rb") as backup_file:
-        return backup_file.read()
-
-
-def _write_incomplete_marked_backup(path: str) -> bytes:
-    with closing(sqlite3.connect(path)) as conn:
-        with conn:
-            conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES "
-                "('fsrs_migration_done', '1')"
-            )
-            conn.execute("CREATE TABLE users (user_id INTEGER PRIMARY KEY)")
-    with open(path, "rb") as backup_file:
-        return backup_file.read()
+    return _read_bytes(path)
 
 
 class DatabaseRestoreSafetyTests(unittest.TestCase):
@@ -65,69 +38,117 @@ class DatabaseRestoreSafetyTests(unittest.TestCase):
         db_schema.DB_PATH = self.previous_schema_path
         self.tempdir.cleanup()
 
-    def test_pre_fsrs_backup_is_rejected_before_live_db_overwrite(self):
+    def test_legacy_backup_is_rejected_before_live_db_overwrite(self):
         backup_path = os.path.join(self.tempdir.name, "old-backup.sqlite")
-        backup = _write_backup(backup_path, migration_value=None)
-        with open(self.live_path, "rb") as live_file:
-            original = live_file.read()
+        backup = db.export_db_bytes()
+        with open(backup_path, "wb") as backup_file:
+            backup_file.write(backup)
+        with closing(sqlite3.connect(backup_path)) as conn:
+            with conn:
+                conn.execute("CREATE TABLE daily_cards (id INTEGER PRIMARY KEY)")
+        legacy_backup = _read_bytes(backup_path)
+        original = _read_bytes(self.live_path)
 
         with self.assertRaisesRegex(ValueError, "نسخه پشتیبان قدیمی"):
-            db.import_db_bytes(backup)
+            db.import_db_bytes(legacy_backup)
 
-        with open(self.live_path, "rb") as live_file:
-            self.assertEqual(live_file.read(), original)
+        self.assertEqual(_read_bytes(self.live_path), original)
         self.assertEqual(db.get_setting("restore_sentinel"), "live")
 
-    def test_nonfinal_fsrs_marker_is_rejected_before_overwrite(self):
-        backup_path = os.path.join(self.tempdir.name, "partial-backup.sqlite")
-        backup = _write_backup(backup_path, migration_value="0")
-        with open(self.live_path, "rb") as live_file:
-            original = live_file.read()
+    def test_foreign_backup_is_rejected_before_live_db_overwrite(self):
+        backup_path = os.path.join(self.tempdir.name, "foreign.sqlite")
+        backup = _write_foreign_backup(backup_path)
+        original = _read_bytes(self.live_path)
 
-        with self.assertRaisesRegex(ValueError, "نسخه پشتیبان قدیمی"):
+        with self.assertRaisesRegex(ValueError, "پشتیبان معتبر"):
             db.import_db_bytes(backup)
 
-        with open(self.live_path, "rb") as live_file:
-            self.assertEqual(live_file.read(), original)
+        self.assertEqual(_read_bytes(self.live_path), original)
+        self.assertEqual(db.get_setting("restore_sentinel"), "live")
 
-    def test_final_fsrs_marker_allows_restore(self):
-        backup_path = os.path.join(self.tempdir.name, "current-backup.sqlite")
-        backup = _write_backup(backup_path, migration_value="1")
+    def test_post_cutover_backup_round_trip_preserves_user_and_saved_word(self):
+        db.create_user_if_needed(7, "learner")
+        self.assertTrue(db.add_saved_word(7, "persist", "en"))
+        backup = db.export_db_bytes()
+        db.set_setting("restore_sentinel", "changed")
+        db.add_saved_word(7, "discard", "en")
 
         db.import_db_bytes(backup)
 
-        self.assertEqual(db.get_setting("fsrs_migration_done"), "1")
-        self.assertEqual(db.get_setting("restore_sentinel"), "")
+        self.assertEqual(db.get_setting("restore_sentinel"), "live")
+        self.assertIsNotNone(db.get_user(7))
+        with db.get_conn() as conn:
+            words = [row[0] for row in conn.execute("SELECT word FROM saved_words")]
+        self.assertEqual(words, ["persist"])
 
-    def test_incompatible_marked_backup_is_rejected_before_overwrite(self):
-        backup_path = os.path.join(self.tempdir.name, "incompatible-backup.sqlite")
-        backup = _write_incompatible_marked_backup(backup_path)
-        with open(self.live_path, "rb") as live_file:
-            original = live_file.read()
+    def test_rejected_backup_preserves_existing_rollback_copy(self):
+        rollback_path = f"{self.live_path}.pre_restore"
+        with open(rollback_path, "wb") as rollback_file:
+            rollback_file.write(b"previous rollback")
+        backup_path = os.path.join(self.tempdir.name, "foreign.sqlite")
+        foreign_backup = _write_foreign_backup(backup_path)
 
-        with self.assertRaisesRegex(ValueError, "نسخه فعلی ربات سازگار نیست"):
-            db.import_db_bytes(backup)
+        with self.assertRaisesRegex(ValueError, "پشتیبان معتبر"):
+            db.import_db_bytes(foreign_backup, backup_path=rollback_path)
 
-        with open(self.live_path, "rb") as live_file:
-            self.assertEqual(live_file.read(), original)
+        self.assertEqual(_read_bytes(rollback_path), b"previous rollback")
+
+    def test_successful_restore_replaces_rollback_copy_after_validation(self):
+        backup = db.export_db_bytes()
+        db.set_setting("restore_sentinel", "changed")
+        rollback_path = f"{self.live_path}.pre_restore"
+
+        db.import_db_bytes(backup, backup_path=rollback_path)
+
+        with closing(sqlite3.connect(rollback_path)) as rollback_conn:
+            value = rollback_conn.execute(
+                "SELECT value FROM settings WHERE key='restore_sentinel'"
+            ).fetchone()
+        self.assertEqual(value[0], "changed")
         self.assertEqual(db.get_setting("restore_sentinel"), "live")
 
-    def test_incomplete_marked_backup_is_rejected_before_overwrite(self):
-        backup_path = os.path.join(self.tempdir.name, "incomplete-backup.sqlite")
-        backup = _write_incomplete_marked_backup(backup_path)
-        with open(self.live_path, "rb") as live_file:
-            original = live_file.read()
+    def test_permission_failure_preserves_existing_rollback_copy(self):
+        backup = db.export_db_bytes()
+        rollback_path = f"{self.live_path}.pre_restore"
+        with open(rollback_path, "wb") as rollback_file:
+            rollback_file.write(b"previous rollback")
 
-        with self.assertRaisesRegex(ValueError, "نسخه فعلی ربات سازگار نیست"):
-            db.import_db_bytes(backup)
+        with patch("services.db.os.chmod", side_effect=PermissionError):
+            with self.assertRaisesRegex(ValueError, "جایگزینی دیتابیس"):
+                db.import_db_bytes(backup, backup_path=rollback_path)
 
-        with open(self.live_path, "rb") as live_file:
-            self.assertEqual(live_file.read(), original)
-        self.assertEqual(db.get_setting("restore_sentinel"), "live")
+        self.assertEqual(_read_bytes(rollback_path), b"previous rollback")
+
+    def test_successful_restore_removes_stale_sqlite_sidecars(self):
+        backup = db.export_db_bytes()
+        sidecars = [f"{self.live_path}{suffix}" for suffix in ("-journal", "-wal", "-shm")]
+        for sidecar in sidecars:
+            with open(sidecar, "wb") as sidecar_file:
+                sidecar_file.write(b"stale")
+
+        db.import_db_bytes(backup)
+
+        self.assertTrue(all(not os.path.exists(sidecar) for sidecar in sidecars))
+
+    def test_storage_failure_reports_storage_error(self):
+        backup = db.export_db_bytes()
+
+        with patch("services.db.tempfile.mkstemp", side_effect=PermissionError):
+            with self.assertRaisesRegex(ValueError, "فضای ذخیره‌سازی"):
+                db.import_db_bytes(backup)
+
+    def test_sqlite_storage_failure_reports_storage_error(self):
+        backup = db.export_db_bytes()
+
+        with patch(
+            "services.db.init_db",
+            side_effect=sqlite3.OperationalError("database or disk is full"),
+        ):
+            with self.assertRaisesRegex(ValueError, "فضای ذخیره‌سازی"):
+                db.import_db_bytes(backup)
 
     def test_restore_waits_for_open_database_connection(self):
-        backup_path = os.path.join(self.tempdir.name, "locked-backup.sqlite")
-        backup = _write_backup(backup_path, migration_value="1")
+        backup = db.export_db_bytes()
         started = threading.Event()
         finished = threading.Event()
         errors = []
@@ -153,7 +174,7 @@ class DatabaseRestoreSafetyTests(unittest.TestCase):
             thread.join(timeout=5)
         self.assertFalse(thread.is_alive())
         self.assertEqual(errors, [])
-        self.assertEqual(db.get_setting("fsrs_migration_done"), "1")
+        self.assertEqual(db.get_setting("restore_sentinel"), "live")
 
     def test_export_waits_for_open_database_connection(self):
         started = threading.Event()

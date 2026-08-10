@@ -1,7 +1,9 @@
+import asyncio
 import datetime
 import io
 import logging
 import os
+from pathlib import Path
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ParseMode
@@ -377,7 +379,7 @@ async def cmd_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("فقط مالک ربات دسترسی داره.")
         return
     try:
-        data = db.export_db_bytes()
+        data = await asyncio.to_thread(db.export_db_bytes)
         await update.message.reply_document(
             document=io.BytesIO(data),
             filename=f"hamzaban_backup_{datetime.datetime.now(_app_timezone).strftime('%Y%m%d_%H%M%S')}.db",
@@ -417,7 +419,7 @@ async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if len(data) < 100 or data[:16] != b"SQLite format 3\x00":
             raise ValueError("فایل معتبر SQLite نیست.")
         backup_path = f"{DB_PATH}.pre_restore"
-        db.import_db_bytes(bytes(data), backup_path=backup_path)
+        await asyncio.to_thread(db.import_db_bytes, bytes(data), backup_path)
         await update.message.reply_text(
             "✅ دیتابیس با موفقیت بازگردانی شد.\n"
             f"یک نسخه پشتیبان از دیتابیس قبلی در {backup_path} ذخیره شد.",
@@ -428,26 +430,31 @@ async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"❌ خطا در بازگردانی: {exc}")
 
 
+def _create_auto_backup() -> str | None:
+    if not db.get_bool_setting("auto_backup_enabled", True):
+        return None
+    backup_dir = os.path.join(os.path.dirname(DB_PATH) or ".", "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+    timestamp = datetime.datetime.now(_app_timezone).strftime("%Y%m%d_%H%M%S")
+    backup_path = os.path.join(backup_dir, f"hamzaban_auto_{timestamp}.db")
+    Path(backup_path).write_bytes(db.export_db_bytes())
+    cutoff = datetime.datetime.now(_app_timezone).timestamp() - 30 * 86400
+    for fname in os.listdir(backup_dir):
+        fpath = os.path.join(backup_dir, fname)
+        if fname.startswith("hamzaban_auto_") and fname.endswith(".db"):
+            try:
+                if os.path.getmtime(fpath) < cutoff:
+                    os.remove(fpath)
+            except OSError:
+                pass
+    return backup_path
+
+
 async def auto_backup_job(context: ContextTypes.DEFAULT_TYPE):
     """Periodic auto-backup: save a timestamped copy locally."""
-    if not db.get_bool_setting("auto_backup_enabled", True):
-        return
     try:
-        backup_dir = os.path.join(os.path.dirname(DB_PATH) or ".", "backups")
-        os.makedirs(backup_dir, exist_ok=True)
-        timestamp = datetime.datetime.now(_app_timezone).strftime("%Y%m%d_%H%M%S")
-        backup_path = os.path.join(backup_dir, f"hamzaban_auto_{timestamp}.db")
-        with open(backup_path, "wb") as backup_file:
-            backup_file.write(db.export_db_bytes())
-        cutoff = datetime.datetime.now(_app_timezone).timestamp() - 30 * 86400
-        for fname in os.listdir(backup_dir):
-            fpath = os.path.join(backup_dir, fname)
-            if fname.startswith("hamzaban_auto_") and fname.endswith(".db"):
-                try:
-                    if os.path.getmtime(fpath) < cutoff:
-                        os.remove(fpath)
-                except OSError:
-                    pass
-        logger.info("Auto-backup saved: %s", backup_path)
+        backup_path = await asyncio.to_thread(_create_auto_backup)
+        if backup_path:
+            logger.info("Auto-backup saved: %s", backup_path)
     except Exception as exc:
         logger.exception("Auto-backup failed: %s", exc)

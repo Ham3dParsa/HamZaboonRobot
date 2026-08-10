@@ -6,7 +6,7 @@ import unittest
 from contextlib import closing
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from handlers.admin import cmd_backup, handle_restore_doc
+from handlers.admin import auto_backup_job, cmd_backup, handle_restore_doc
 from services import db
 from services.db import schema as db_schema
 
@@ -27,7 +27,7 @@ class AdminRestoreFlowTests(unittest.IsolatedAsyncioTestCase):
         db_schema.DB_PATH = self.previous_schema_path
         self.tempdir.cleanup()
 
-    async def test_pre_fsrs_backup_reports_error_without_replacing_live_db(self):
+    async def test_foreign_backup_reports_error_without_replacing_live_db(self):
         backup_path = os.path.join(self.tempdir.name, "old-backup.sqlite")
         with closing(sqlite3.connect(backup_path)) as conn:
             with conn:
@@ -59,7 +59,7 @@ class AdminRestoreFlowTests(unittest.IsolatedAsyncioTestCase):
 
         rendered = message.reply_text.await_args.args[0]
         self.assertIn("خطا در بازگردانی", rendered)
-        self.assertIn("نسخه پشتیبان قدیمی", rendered)
+        self.assertIn("فایل پشتیبان معتبر نیست", rendered)
         with open(self.live_path, "rb") as live_file:
             self.assertEqual(live_file.read(), original)
         self.assertEqual(db.get_setting("restore_sentinel"), "live")
@@ -78,6 +78,23 @@ class AdminRestoreFlowTests(unittest.IsolatedAsyncioTestCase):
         document = message.reply_document.await_args.kwargs["document"]
         self.assertIsInstance(document, io.BytesIO)
         self.assertTrue(document.getvalue().startswith(b"SQLite format 3\x00"))
+
+    async def test_auto_backup_runs_all_file_work_in_worker(self):
+        context = MagicMock()
+        original_to_thread = __import__("asyncio").to_thread
+
+        async def run_in_worker(func, *args):
+            return await original_to_thread(func, *args)
+
+        worker = AsyncMock(side_effect=run_in_worker)
+
+        with (
+            patch("handlers.admin.DB_PATH", self.live_path),
+            patch("handlers.admin.asyncio.to_thread", worker),
+        ):
+            await auto_backup_job(context)
+
+        self.assertEqual(worker.await_count, 1)
 
 
 if __name__ == "__main__":

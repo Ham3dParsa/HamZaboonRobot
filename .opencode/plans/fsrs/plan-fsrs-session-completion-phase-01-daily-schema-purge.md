@@ -7,7 +7,7 @@ branch: feat/phase-2b-drop-daily-tables
 status: in-progress
 ---
 
-STATE: phase 1/6 — status: in-progress — focus: restore-safety pre-commit gate
+STATE: phase 1/6 — status: in-progress — focus: post-cutover restore pre-commit gate
 
 # Ticket 01 — Phase 2b Daily Schema Purge
 
@@ -106,6 +106,7 @@ daily tables exist.
 | 7 | Independent review and fix cycle | complete | Final `hamzaboon-reviewer` report: no confirmed findings; verified the early TTS `d` rejection, migration guard ordering, stale runtime-symbol removal, and focused coverage |
 | 8 | PR, CI, maintenance deployment, read-only verification | pending | — |
 | 9 | Reject invalid backup before overwriting live DB | complete | Candidate startup + required schema comparison + shared DB lock before atomic replace; restore/admin/migration/wiring/dead guard suite: 38 passed; final reviewer: no confirmed findings; full `python -m pytest tests/ -n 14`: 605 passed; compile, F821/F811 lint, dashboard generation, and whitespace checks passed |
+| 10 | Align restore with post-cutover FSRS-only backups | complete | Marker-only gate replaced by pre-init legacy/core/quick-check validation; SQLite snapshot + worker-thread file work; rollback-safe replacement; restore/admin/migration/wiring/dead guard suite: 43 passed; final reviewer: no confirmed findings; full `python -m pytest tests/ -n 14`: 610 passed; compile, F821/F811 lint, dashboard generation, and whitespace checks passed. |
 
 ## Acceptance Criteria
 
@@ -146,6 +147,18 @@ daily tables exist.
   and final restore replacement. Tests must cover an incomplete schema that
   startup otherwise accepts and restore while a live connection is open.
   Owner confirmation: "Proceed, locked."
+- [2026-08-10] The prior restore contract requiring exact
+  `fsrs_migration_done='1'` is superseded. The owner clarified that only the
+  current live database receives the one-time card-origin backfill; legacy
+  review data is deliberately not migrated and legacy-backed databases are
+  unsupported after cutover. A restore candidate must have no legacy daily
+  tables and must already contain `users`, `saved_words`, `settings`,
+  `review_events`, and `llm_requests` before `init_db()` can upgrade it. Use a
+  SQLite snapshot, run file work off the Telegram event loop, preserve the
+  previous rollback point until validation succeeds, preserve permissions,
+  clean stale SQLite sidecars after replacement, and log cleanup failures
+  without reporting a successful restore as failed. Owner confirmation:
+  "Proceed, locked."
 
 ## Blocked Questions
 
