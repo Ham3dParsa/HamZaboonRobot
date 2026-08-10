@@ -3,6 +3,7 @@ import os
 import sqlite3
 import datetime
 import secrets
+import logging
 from contextlib import contextmanager
 
 from config.catalog import DEFAULT_LEVEL
@@ -20,6 +21,9 @@ from config import (
 )
 
 _app_timezone = APP_TZ
+logger = logging.getLogger(__name__)
+
+
 def _today() -> datetime.date:
     return datetime.datetime.now(_app_timezone).date()
 
@@ -30,6 +34,59 @@ def _utc_now() -> datetime.datetime:
 
 def _normalize_word(word: str) -> str:
     return " ".join(word.split()).casefold()
+
+
+def _mark_origin_backfill_done(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "INSERT INTO settings(key, value) VALUES ('entry_source_backfilled', '1') "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+    )
+
+
+def _backfill_legacy_daily_sources(
+    conn: sqlite3.Connection, *, should_run: bool = True
+) -> None:
+    """Tag cards imported from the legacy daily-card engine once."""
+    completed = conn.execute(
+        "SELECT value FROM settings WHERE key='entry_source_backfilled'"
+    ).fetchone()
+    if completed and completed["value"] == "1":
+        return
+
+    if not should_run:
+        # No legacy source means nothing to tag, ever: record the terminal
+        # state so a later restart cannot relabel new manual saves.
+        logger.warning(
+            "Recording saved-word origin backfill as complete because no "
+            "usable legacy daily_cards source existed before initialization"
+        )
+        _mark_origin_backfill_done(conn)
+        return
+
+    conn.create_function(
+        "normalize_word",
+        1,
+        lambda word: (_normalize_word(word) or None) if isinstance(word, str) else None,
+        deterministic=True,
+    )
+    conn.execute(
+        "UPDATE saved_words SET entry_source='legacy_daily' "
+        "WHERE EXISTS ("
+        "SELECT 1 FROM daily_cards "
+        "JOIN users u ON u.user_id=daily_cards.user_id "
+        "LEFT JOIN daily_card_sessions dcs "
+        "ON dcs.user_id=daily_cards.user_id "
+        "AND dcs.card_date=daily_cards.card_date "
+        "WHERE daily_cards.user_id=saved_words.user_id "
+        "AND saved_words.lang=COALESCE(dcs.target_lang, u.target_lang) "
+        "AND normalize_word("
+        "CASE WHEN json_valid(daily_cards.card_data) "
+        "THEN json_extract(daily_cards.card_data, '$.word') END"
+        ")="
+        "normalize_word(saved_words.word)"
+        ") AND COALESCE(saved_words.entry_source, 'manual')='manual'"
+    )
+    _mark_origin_backfill_done(conn)
 
 
 def _current_daily_count(asked_value, asked_date) -> int:
@@ -83,6 +140,22 @@ def get_conn():
 
 def init_db():
     with get_conn() as conn:
+        existing_tables = {
+            row["name"]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        daily_cards_existed = "daily_cards" in existing_tables
+        daily_cards_has_rows = daily_cards_existed and bool(
+            conn.execute("SELECT 1 FROM daily_cards LIMIT 1").fetchone()
+        )
+        is_fresh_database = not (
+            existing_tables - {"sqlite_sequence"}
+        )
+        should_backfill_daily_sources = (
+            daily_cards_has_rows or is_fresh_database
+        )
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -448,6 +521,14 @@ def init_db():
                         (legacy_api_key["value"], active_name_val),
                     )
 
+        try:
+            _backfill_legacy_daily_sources(
+                conn, should_run=should_backfill_daily_sources
+            )
+        except Exception:
+            # A corrupt legacy row must degrade to "not tagged", never block
+            # startup: init_db() is the first statement of main().
+            logger.exception("Saved-word origin backfill failed; skipping it")
         conn.commit()
 
 
