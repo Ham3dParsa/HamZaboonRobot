@@ -27,8 +27,8 @@ This is disclosed reference — loaded only when parallel-work-guard fires.
 
 ## Shared Resource Registries (non-seam collision surfaces)
 
-These are flat namespaces — table/column names, settings keys, callback
-prefixes, and catalog identifiers — where two branches can collide silently
+These are flat namespaces — table/column names, callback prefixes, and catalog
+identifiers — where two branches can collide silently
 even though they edit different files.
 
 ### DB tables / columns
@@ -38,13 +38,16 @@ daily_card_sessions, query_results, grammar_tips, llm_requests, review_events,
 ai_presets, preset_hourly_usage, preset_groups, config_tests, plans
 (source: services/db/schema.py)
 
-### Settings keys
+### Settings keys (deferred)
 
-Flat key-value store with no central registry today — scattered across
-services/db/settings.py, services/db/preset_registry.py, services/ai/ai.py,
-services/ai/llm_services.py, handlers/admin.py, handlers/study_handler.py,
-bot.py, services/scheduling.py. Includes the dynamic wildcard pattern
-sessions_used_{session_slug}.
+Settings keys are not claimable in this version. They remain a known collision
+surface because the flat key-value store has no central registry and keys are
+scattered across services/db/settings.py, services/db/preset_registry.py,
+services/ai/ai.py, services/ai/llm_services.py, handlers/admin.py,
+handlers/study_handler.py, bot.py, and services/scheduling.py. The dynamic
+pattern sessions_used_{session_slug} also requires a canonical inventory or
+namespace policy before settings claims can provide precise resource names.
+Track the settings inventory as a separate follow-up issue.
 
 ### Callback prefixes
 

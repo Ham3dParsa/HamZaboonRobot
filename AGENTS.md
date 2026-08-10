@@ -641,16 +641,20 @@ in-progress plans.
 ### 10.5 Parallel Work Claims
 
 Before any Contract Lock Gate reaches GATE STATUS: LOCKED, the agent MUST run
-the parallel-work-guard skill to check `.opencode/state/claims.json` for
+the parallel-work-guard skill to check the shared claims file resolved from
+the common Git directory (`<git-common-dir>/parallel-work-claims.json`) for
 seam-level claim overlaps with other in-progress branches/worktrees, per the
 locked rules below.
 
 1. Conflict unit is the seam registry (SEAMS.md), not file diffs.
-2. Claims are written to `.opencode/state/claims.json` at GATE STATUS: LOCKED.
+2. Claims are written to the shared common-Git-directory claims file at GATE
+   STATUS: LOCKED, not to tracked worktree files.
 3. Overlap = warn with the exact resource named + explicit owner decision
    required (proceed anyway / wait). Never silent block, never silent proceed.
 4. Claims are removed on post-merge cleanup (§5 step 8); claims older than 14
-   days are flagged for owner review, not auto-deleted.
+   days are flagged for owner review, not auto-deleted. Malformed registry data
+   halts claim-guarded work and requests owner repair; unrelated read-only
+   investigation may continue.
 5. Deep-module seam review is folded into the existing hamzaboon-reviewer
    checklist (§10.3) — no new subagent.
 
