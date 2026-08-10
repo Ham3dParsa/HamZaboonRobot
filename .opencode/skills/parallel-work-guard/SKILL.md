@@ -1,6 +1,6 @@
 ---
 name: parallel-work-guard
-description: Claim seams before any new Contract Lock Gate session and before creating a new branch/worktree, so parallel branches/worktrees never silently collide on the same module.
+description: Check for seam claims before any new Contract Lock Gate session, before creating a new branch/worktree, or when multiple branches/worktrees run at once, so parallel work never silently collides on a shared seam.
 license: Copyright (c) Ham3dParsa. All rights reserved.
 ---
 # Parallel Work Guard Skill
