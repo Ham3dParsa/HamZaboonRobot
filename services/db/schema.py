@@ -75,7 +75,10 @@ def _backfill_legacy_daily_sources(
         "WHERE EXISTS ("
         "SELECT 1 FROM daily_cards "
         "WHERE daily_cards.user_id=saved_words.user_id "
-        "AND normalize_word(json_extract(daily_cards.card_data, '$.word'))="
+        "AND normalize_word("
+        "CASE WHEN json_valid(daily_cards.card_data) "
+        "THEN json_extract(daily_cards.card_data, '$.word') END"
+        ")="
         "normalize_word(saved_words.word)"
         ")"
     )
