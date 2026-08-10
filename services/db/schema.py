@@ -68,6 +68,7 @@ def _backfill_legacy_daily_sources(
         "normalize_word",
         1,
         lambda word: _normalize_word(word) if isinstance(word, str) and word else None,
+        deterministic=True,
     )
     conn.execute(
         "UPDATE saved_words SET entry_source='legacy_daily' "
