@@ -1051,12 +1051,23 @@
       // --- پلن‌ها (منبع واحد حقیقت: قیمت، سهم، سهمیه روزانه، تعداد اولیه، یادداشت) ---
       // پلن «رایگان» همیشه index 0 است. سهم (sharePct) فقط برای پلن‌های پولی معنا دارد و مجموع آن‌ها باید ۱۰۰ شود.
       plans: [
-        { id: 'free', name: 'رایگان', nameEn: 'Free', price: 0, callsPerDay: 3, initialCount: 1500, sharePct: 0, notes: 'پیش‌نمایش + ۳ فراخوانی + محدودیت زمانی در دسترسی به TTS' },
+        { id: 'free', name: 'رایگان', nameEn: 'Free', price: 0, callsPerDay: 0, initialCount: 1500, sharePct: 0, notes: 'امکانات پایه بدون سهمیهٔ Query AI' },
         { id: 'bronze', name: 'برنز', nameEn: 'Bronze', price: 49000, callsPerDay: 4, initialCount: 150, sharePct: 40, notes: 'محافظ استریک + تلفظ صوتی (TTS) نامحدود + گزارش پیشرفت + مرور معکوس' },
         { id: 'silver', name: 'نقره‌ای', nameEn: 'Silver', price: 199000, callsPerDay: 7, initialCount: 250, sharePct: 35, notes: 'شروع یادگیری فعال (مکالمه بر اساس جلسات هفته)' },
         { id: 'gold', name: 'طلایی', nameEn: 'Gold', price: 359000, callsPerDay: 12, initialCount: 100, sharePct: 15, notes: 'کوییزهای گرامری و درک مطلب پیشرفته' },
         { id: 'emerald', name: 'زمرد', nameEn: 'Emerald', price: 499000, callsPerDay: 20, initialCount: 50, sharePct: 10, notes: 'غوطه‌وری کامل و نامحدود' }
       ],
+      // --- بسته‌های اعتبار Query (محصول مستقل از پلن؛ اعتبارها منقضی نمی‌شوند) ---
+      creditPacks: [
+        { id: 'query40', name: 'Query 40', nameEn: 'Query 40', price: 9000, credits: 40, salesSharePct: 60, active: true, nonExpiring: true, notes: 'بستهٔ ورودی کم‌ریسک برای کاربران رایگان' },
+        { id: 'query100', name: 'Query 100', nameEn: 'Query 100', price: 19000, credits: 100, salesSharePct: 40, active: true, nonExpiring: true, notes: 'بستهٔ حجمی با قیمت مؤثر کمتر برای هر پرسش' }
+      ],
+      creditPackPurchaseRatePct: 2.0,    // ٪ کاربران رایگان که در ماه بسته می‌خرند
+      creditPackRepeatRatePct: 20,       // ٪ افزایش تقاضا برای خرید مجدد در برآورد ماهانه
+      creditPackPurchaseNoisePct: 15,    // دامنهٔ نویز خرید ماهانه، به‌صورت ±٪
+      creditPackConsumptionRatePct: 65,  // ٪ اعتبارهای در دسترس که در ماه مصرف می‌شوند
+      creditPackConsumptionNoisePct: 10, // دامنهٔ نویز مصرف ماهانه، به‌صورت ±٪
+      creditPackRandomSeed: 42,          // بذر ثابت برای مقایسهٔ سناریوها
       // --- رشد کاربران (نرخ جذب به صورت درصدی از کل کاربرانِ همان ماه) ---
       acquisitionRate: 10,        // ٪ از کل کاربران (MAU) که هر ماه به جمع رایگان اضافه می‌شوند
       freeChurnRate: 10,          // ٪ ریزش ماهانه کاربران رایگان (قبلاً هاردکد ۱۰٪)
@@ -1170,6 +1181,12 @@
         keys: ['plans']
       },
       {
+        id: 'creditPacks', label: 'بسته‌های اعتبار Query', en: 'Query Credit Packs',
+        keys: ['creditPacks','creditPackPurchaseRatePct','creditPackRepeatRatePct',
+          'creditPackPurchaseNoisePct','creditPackConsumptionRatePct',
+          'creditPackConsumptionNoisePct','creditPackRandomSeed']
+      },
+      {
         id: 'marketing', label: 'کارزارهای بازرگانی و تکنیک‌ها', en: 'Marketing Campaigns',
         keys: ['marketingTechniques','marketing']
       }
@@ -1190,7 +1207,7 @@
             const bk = (v, fb) => typeof v === 'number' ? v : fb;
             const bks = (v, fb) => typeof v === 'string' && v !== '' ? v : fb;
             d.plans = [
-              { id: 'free', name: 'رایگان', nameEn: 'Free', price: 0, callsPerDay: bk(d.freeCallsPerDay, 3), initialCount: bk(d.free0, 1500), sharePct: 0, notes: bks(d.notes && d.notes.free, DEFAULTS.plans[0].notes) },
+              { id: 'free', name: 'رایگان', nameEn: 'Free', price: 0, callsPerDay: 0, initialCount: bk(d.free0, 1500), sharePct: 0, notes: bks(d.notes && d.notes.free, DEFAULTS.plans[0].notes) },
               { id: 'bronze', name: 'برنز', nameEn: 'Bronze', price: bk(d.bronzePrice, 49000), callsPerDay: bk(d.bronzeCallsPerDay, 4), initialCount: bk(d.bronze0, 150), sharePct: bk(d.bronzeShare, 40), notes: bks(d.notes && d.notes.bronze, DEFAULTS.plans[1].notes) },
               { id: 'silver', name: 'نقره‌ای', nameEn: 'Silver', price: bk(d.silverPrice, 199000), callsPerDay: bk(d.silverCallsPerDay, 7), initialCount: bk(d.silver0, 250), sharePct: bk(d.silverShare, 35), notes: bks(d.notes && d.notes.silver, DEFAULTS.plans[2].notes) },
               { id: 'gold', name: 'طلایی', nameEn: 'Gold', price: bk(d.goldPrice, 359000), callsPerDay: bk(d.goldCallsPerDay, 12), initialCount: bk(d.gold0, 100), sharePct: bk(d.goldShare, 15), notes: bks(d.notes && d.notes.gold, DEFAULTS.plans[3].notes) },
@@ -1209,7 +1226,7 @@
                 id: p.id, name: p.name || (base && base.name) || 'پلن',
                 nameEn: p.nameEn || (base && base.nameEn) || '',
                 price: typeof p.price === 'number' ? p.price : (base && base.price) || 0,
-                callsPerDay: typeof p.callsPerDay === 'number' ? p.callsPerDay : (base && base.callsPerDay) || 3,
+                callsPerDay: p.id === 'free' ? 0 : (typeof p.callsPerDay === 'number' ? p.callsPerDay : (base && base.callsPerDay) || 3),
                 initialCount: typeof p.initialCount === 'number' ? p.initialCount : (base && base.initialCount) || 0,
                 sharePct: p.id === 'free' ? 0 : (typeof p.sharePct === 'number' ? p.sharePct : 0),
                 notes: typeof p.notes === 'string' ? p.notes : (base && base.notes) || ''
@@ -1222,10 +1239,35 @@
             d.plans[0].id = 'free';
             d.plans[0].sharePct = 0;
           }
+          // پلن رایگان سهمیهٔ پیش‌فرض Query AI ندارد؛ اعتبار Query فقط از بستهٔ مستقل خریداری می‌شود.
+          d.plans = d.plans.map(p => p.id === 'free' ? { ...p, callsPerDay: 0 } : p);
+          // مهاجرت امنِ مدل جدید بسته‌های اعتبار از دادهٔ ذخیره‌شدهٔ قدیمی.
+          const defaultPacks = DEFAULTS.creditPacks || [];
+          if (!Array.isArray(d.creditPacks)) {
+            d.creditPacks = defaultPacks.map(p => ({ ...p }));
+          } else {
+            d.creditPacks = d.creditPacks.map(p => {
+              const base = defaultPacks.find(b => b.id === p.id);
+              return {
+                id: p.id || (base && base.id) || `query-${Date.now()}`,
+                name: p.name || (base && base.name) || 'بستهٔ Query',
+                nameEn: p.nameEn || (base && base.nameEn) || 'Query Pack',
+                price: typeof p.price === 'number' ? p.price : (base && base.price) || 0,
+                credits: typeof p.credits === 'number' ? p.credits : (base && base.credits) || 0,
+                salesSharePct: typeof p.salesSharePct === 'number' ? p.salesSharePct : (base && base.salesSharePct) || 0,
+                active: p.active !== false,
+                nonExpiring: p.nonExpiring !== false,
+                notes: typeof p.notes === 'string' ? p.notes : (base && base.notes) || ''
+              };
+            }).filter(p => p && p.id);
+            if (d.creditPacks.length === 0) d.creditPacks = defaultPacks.map(p => ({ ...p }));
+          }
           // پشتیبان‌گیری از فیلدهای جدید (کاربرانی که دادهٔ قدیمی دارند)
           const numericExtra = ['paymentFeePct','vatPct','fixedOpexMonthly','cacPerNewUser','monthlyAdBudget',
             'referralShareOfSignups','involuntaryChurnPct','annualPriceIncreasePct',
-            'inputTokensPerCall','outputTokensPerCall','cacheSavingPct','annualCostDeclinePct'];
+            'inputTokensPerCall','outputTokensPerCall','cacheSavingPct','annualCostDeclinePct',
+            'creditPackPurchaseRatePct','creditPackRepeatRatePct','creditPackConsumptionRatePct',
+            'creditPackPurchaseNoisePct','creditPackConsumptionNoisePct','creditPackRandomSeed'];
           for (const k of numericExtra) if (typeof d[k] !== 'number') d[k] = DEFAULTS[k];
           if (typeof d.modelChoice !== 'string') d.modelChoice = DEFAULTS.modelChoice;
           // سازگاری با دادهٔ قدیمی: کلیدهای دسته (cheap/mid/strong) به مدل پیش‌فرض آن دسته نرمال می‌شوند
@@ -1237,8 +1279,12 @@
           return d;
         };
 
-        // کپی عمیقِ plans تا ویرایش‌های درون‌جلسه، DEFAULTS را آلوده نکنند (B) و reset بازگردانی درست داشته باشد
-        const freshDefaults = () => ({ ...DEFAULTS, plans: DEFAULTS.plans.map(p => ({ ...p })) });
+        // کپی عمیقِ آرایه‌های قابل ویرایش تا DEFAULTS آلوده نشوند و reset درست باشد.
+        const freshDefaults = () => ({
+          ...DEFAULTS,
+          plans: DEFAULTS.plans.map(p => ({ ...p })),
+          creditPacks: DEFAULTS.creditPacks.map(p => ({ ...p }))
+        });
 
         let initialData = freshDefaults();
         try {
@@ -1304,9 +1350,17 @@
 
         const doExport = () => {
           const out = {};
-          if (selectedSections.value.plans) out.plans = inp.value.plans;
           EXPORT_SECTIONS.forEach(s => {
-            if (!selectedSections.value[s.id] || s.id === 'plans') return;
+            if (!selectedSections.value[s.id]) return;
+            if (s.id === 'plans') {
+              out.plans = inp.value.plans;
+              return;
+            }
+            if (s.id === 'creditPacks') {
+              out.creditPacks = inp.value.creditPacks;
+              s.keys.filter(k => k !== 'creditPacks').forEach(k => { if (k in inp.value) out[k] = inp.value[k]; });
+              return;
+            }
             s.keys.forEach(k => { if (k in inp.value) out[k] = inp.value[k]; });
           });
           const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
@@ -1365,6 +1419,13 @@
                   delete merged.plans;
                 }
               }
+            } else if (s.id === 'creditPacks') {
+              if (Array.isArray(parsed.creditPacks)) {
+                merged.creditPacks = parsed.creditPacks.map(p => ({ ...p }));
+              }
+              s.keys.filter(k => k !== 'creditPacks').forEach(k => {
+                if (k in parsed) merged[k] = parsed[k];
+              });
             } else {
               s.keys.forEach(k => { if (k in parsed) merged[k] = parsed[k]; });
             }
@@ -1582,6 +1643,12 @@
 
         const closeTechModal = () => { showTechModal.value = false; editingTechId.value = null; };
 
+        // نویزِ قطعی و محدود برای مقایسهٔ منصفانهٔ سناریوها؛ یک seed ثابت خروجی تکرارپذیر می‌دهد.
+        const seededNoise = (seed, monthIndex, channel = 0) => {
+          const raw = Math.sin((Number(seed) || 1) * 12.9898 + (monthIndex + 1) * 78.233 + channel * 37.719) * 43758.5453;
+          return (raw - Math.floor(raw)) * 2 - 1;
+        };
+
         const computeSeries = (params, convRate, growthRate) => {
           // پلن‌ها: آرایهٔ واحد حقیقت — index 0 همیشه رایگان است
           const plans = params.plans || [];
@@ -1618,6 +1685,9 @@
           const adBudget = (params.monthlyAdBudget || 0);
           const cacManual = (params.cacPerNewUser || 0);
           const referralShare = (params.referralShareOfSignups || 0) / 100;
+          const creditPacks = (params.creditPacks || []).filter(p => p && p.active !== false && (p.credits || 0) > 0);
+          const creditPackShareTotal = creditPacks.reduce((s, p) => s + Math.max(0, Number(p.salesSharePct) || 0), 0) || 1;
+          let outstandingCreditBalance = 0;
 
           const rows = [];
           for (let t = 0; t < params.projectionMonths; t++) {
@@ -1627,13 +1697,38 @@
 
             // --- نقطه شروع ماه: پایهٔ همان ماه (پیش از ورودی‌های جدید این ماه) ---
             const start = { ...counts };
-            const grossRevenue = paidPlans.reduce((s, p) => s + (start[p.id] || 0) * (p.price || 0) * priceIdx, 0);
+            const planGrossRevenue = paidPlans.reduce((s, p) => s + (start[p.id] || 0) * (p.price || 0) * priceIdx, 0);
+            // بسته‌های Query خرید یک‌باره‌اند؛ نرخ خرید و نرخ مصرف نویز محدود اما تکرارپذیر دارند.
+            const freeUsers = Math.max(0, start[freePlan.id] || 0);
+            const purchaseNoise = seededNoise(params.creditPackRandomSeed, t, 1) * ((params.creditPackPurchaseNoisePct || 0) / 100);
+            const consumptionNoise = seededNoise(params.creditPackRandomSeed, t, 2) * ((params.creditPackConsumptionNoisePct || 0) / 100);
+            const purchaseRate = Math.max(0, (params.creditPackPurchaseRatePct || 0) / 100) * Math.max(0, 1 + purchaseNoise);
+            const repeatRate = Math.max(0, (params.creditPackRepeatRatePct || 0) / 100);
+            const packBuyers = freeUsers * purchaseRate * (1 + repeatRate);
+            const packSales = creditPacks.map(p => {
+              const share = Math.max(0, Number(p.salesSharePct) || 0) / creditPackShareTotal;
+              const units = packBuyers * share;
+              return { ...p, units, creditsSold: units * Math.max(0, Number(p.credits) || 0) };
+            });
+            const creditsSold = packSales.reduce((s, p) => s + p.creditsSold, 0);
+            const packGrossRevenue = packSales.reduce((s, p) => s + p.units * (p.price || 0) * priceIdx, 0);
+            const availableCreditBalance = outstandingCreditBalance + creditsSold;
+            const consumptionRate = Math.max(0, Math.min(1, (params.creditPackConsumptionRatePct || 0) / 100 * Math.max(0, 1 + consumptionNoise)));
+            const creditsConsumed = Math.min(availableCreditBalance, availableCreditBalance * consumptionRate);
+            outstandingCreditBalance = Math.max(0, availableCreditBalance - creditsConsumed);
+            const grossRevenue = planGrossRevenue + packGrossRevenue;
             const feeToman = Math.round(grossRevenue * feePct);
             const vatToman = Math.round(grossRevenue * vatPct);
             const netRevenue = grossRevenue - feeToman - vatToman;
+            const packRevenueShare = grossRevenue > 0 ? packGrossRevenue / grossRevenue : 0;
+            const packFeeToman = Math.round(feeToman * packRevenueShare);
+            const packVatToman = Math.round(vatToman * packRevenueShare);
+            const packNetRevenue = Math.round(packGrossRevenue - packFeeToman - packVatToman);
 
             const aiCalls = plans.reduce((s, p) => s + (start[p.id] || 0) * (p.callsPerDay || 0), 0) * params.periodDays;
-            const aiCostToman = Math.round(aiCalls * aiCallPrice * params.exchangeRate);
+            const planAiCostToman = Math.round(aiCalls * aiCallPrice * params.exchangeRate);
+            const queryAiCostToman = Math.round(creditsConsumed * aiCallPrice * params.exchangeRate);
+            const aiCostToman = planAiCostToman + queryAiCostToman;
             const currentTotal = plans.reduce((s, p) => s + (start[p.id] || 0), 0);
             // ثبت‌نام‌های جدید ماه (پایهٔ ماه قبل + رشد نمایی) — ورودی همین ماه، تبدیل از ماه بعد
             const newSignups = currentTotal * (params.acquisitionRate / 100) * Math.pow(1 + (growthRate + signupBoost) / 100, t);
@@ -1658,7 +1753,11 @@
               total: Math.round(currentTotal),
               newSignups: Math.round(newSignups),
               grossRevenue: Math.round(grossRevenue), netRevenue, feeToman, vatToman,
-              aiCostToman, aiCostUSD: aiCalls * aiCallPrice, cacToman, trialCACToman, fixedToman,
+              planGrossRevenue: Math.round(planGrossRevenue), packGrossRevenue: Math.round(packGrossRevenue),
+              packNetRevenue, packBuyers: Math.round(packBuyers), creditsSold: Math.round(creditsSold),
+              creditsConsumed: Math.round(creditsConsumed), outstandingCredits: Math.round(outstandingCreditBalance),
+              planAiCostToman, queryAiCostToman,
+              aiCostToman, aiCostUSD: (aiCalls + creditsConsumed) * aiCallPrice, cacToman, trialCACToman, fixedToman,
               contributionMargin, netProfit, margin: netRevenue > 0 ? (netProfit / netRevenue) * 100 : 0
             });
             // --- ورودی جدید ماه جاری، فقط به رایگان اضافه می‌شود ---
