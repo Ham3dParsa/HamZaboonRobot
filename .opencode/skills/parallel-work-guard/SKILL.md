@@ -12,7 +12,7 @@ seams is in SEAMS.md (this skill folder). Do not invent ad-hoc seam names.
 
 Run this skill at every Contract Lock Gate, before creating a branch/worktree, and whenever parallel branches/worktrees are already in progress.
 When a task runs entirely in one session on one branch with no parallel work in
-progress, the check usually finds no overlap — still run steps 1, 3, and 5 in full, since other worktrees may hold claims in the shared registry.
+progress, the check usually finds no overlap — still run every step in order, since other worktrees may hold claims in the shared registry.
 
 ## Steps
 
