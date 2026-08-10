@@ -220,7 +220,11 @@
             <span dir="ltr">${{ format(aiCallPriceUSD, 5) }}</span>
           </div>
           <div class="mt-4">
-            <div class="text-[12px] font-bold text-inkSoft mb-1.5">قیمت واقعی مدل‌ها (دلار به ازای ۱ میلیون توکن)</div>
+            <button @click="toggleModelTable" class="w-full flex items-center justify-between group">
+              <span class="text-[12px] font-bold text-inkSoft">قیمت واقعی مدل‌ها (دلار به ازای ۱ میلیون توکن)</span>
+              <i data-lucide="chevron-down" class="w-4 h-4 text-inkSoft transition-transform" :style="{ transform: modelTableOpen ? 'rotate(180deg)' : 'rotate(0deg)' }"></i>
+            </button>
+            <div v-show="modelTableOpen">
             <table class="w-full text-[11px] border border-line rounded-xl overflow-hidden">
               <thead class="bg-paper text-inkSoft">
                 <tr>
@@ -236,11 +240,12 @@
                     <td class="p-2">{{ MODEL_PRICING[id].label }}</td>
                     <td class="p-2">{{ TIER_LABEL[tier] }}</td>
                     <td class="p-2" dir="ltr">${{ format(MODEL_PRICING[id].in, 2) }}</td>
-                    <td class="p-2" dir="ltr">${{ format(MODEL_PRICING[id].out, 2) }}</td>
-                  </tr>
-                </template>
+                  <td class="p-2" dir="ltr">${{ format(MODEL_PRICING[id].out, 2) }}</td>
+                </tr>
+              </template>
               </tbody>
             </table>
+            </div>
           </div>
         </section-card>
 
@@ -1256,6 +1261,9 @@
           nextTick().then(() => { Object.values(charts).forEach(c => c && c.resize()); });
         };
 
+        const modelTableOpen = ref(false);
+        const toggleModelTable = () => { modelTableOpen.value = !modelTableOpen.value; };
+
         const reset = () => {
           localStorage.removeItem('hamzaboon_financial_model_v2');
           localStorage.removeItem(CHART_OPEN_KEY);
@@ -1983,7 +1991,7 @@
           fileInput, exportJSON, triggerImport, importJSON,
           exportSelecting, importSelecting, selectedSections, EXPORT_SECTIONS,
           openExportModal, doExport, closeExportModal, doImport, closeImportModal,
-          chartOpen, toggleChart,
+          chartOpen, toggleChart, modelTableOpen, toggleModelTable,
           totalConversionBoost, totalChurnReduction, totalSignupBoost, trialCACToman,
           contributionPerPaidUser, paidUsersM1, effPaidChurnPct, aiCallPriceUSD,
           cumulativeCash, runwayMonths, arrToman, cacPaybackMonths, d30RetentionPct, healthScore, sensitivity, cashSeries,
