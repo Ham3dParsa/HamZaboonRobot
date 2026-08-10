@@ -514,7 +514,14 @@ def init_db():
                         (legacy_api_key["value"], active_name_val),
                     )
 
-        _backfill_legacy_daily_sources(conn, should_run=should_backfill_daily_sources)
+        try:
+            _backfill_legacy_daily_sources(
+                conn, should_run=should_backfill_daily_sources
+            )
+        except Exception:
+            # A corrupt legacy row must degrade to "not tagged", never block
+            # startup: init_db() is the first statement of main().
+            logger.exception("Saved-word origin backfill failed; skipping it")
         conn.commit()
 
 
