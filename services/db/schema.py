@@ -65,7 +65,9 @@ def _backfill_legacy_daily_sources(
         return
 
     conn.create_function(
-        "normalize_word", 1, lambda word: _normalize_word(word) if word else None
+        "normalize_word",
+        1,
+        lambda word: _normalize_word(word) if isinstance(word, str) and word else None,
     )
     conn.execute(
         "UPDATE saved_words SET entry_source='legacy_daily' "
