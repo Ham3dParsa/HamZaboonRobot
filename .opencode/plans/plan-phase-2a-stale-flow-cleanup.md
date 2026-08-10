@@ -98,4 +98,4 @@ crash fix (owner Rule "Bug" = A).
 ## Update Log
 - 2026-08-05: Plan persisted; contract locked (Rules 1, 2-partial, 5, 6, Bug=A).
 - 2026-08-05: Phase 2a implementation + tests done. Full suite: 372 tests OK. Ruff (tracked files) clean; `git diff --check` clean. `user.py` extra dead imports removed. `tests/test_wiring.py` added `test_phase2_stale_callbacks_removed_and_survivors_routed`.
-- (Phase 2b plan follows in `.opencode/plans/plan-phase-2b-drop-daily-tables.md`.)
+- (Phase 2b continues in `.opencode/plans/fsrs/plan-fsrs-session-completion-phase-01-daily-schema-purge.md`.)

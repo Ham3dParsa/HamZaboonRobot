@@ -51,8 +51,8 @@ git diff --check
 
 ## کنترل هزینه و کیفیت AI
 
-- کارت‌های روزانه در `daily_cards` ذخیره می‌شوند و درخواست‌های بعدی از همان
-  cache استفاده می‌کنند؛ restart یا کلیک تکراری نباید باعث API call تکراری شود.
+- کارت‌های آماده‌ی مرور در `saved_words` همراه با payload کامل کارت ذخیره
+  می‌شوند؛ restart یا کلیک تکراری نباید باعث API call تکراری شود.
 - مسیر دستی، یک reservoir کوچک ۲ تا ۶ کارتی را آماده می‌کند تا هر کارت با یک
   prompt جداگانه ساخته نشود، اما کل سهمیه‌ی روز را هم بی‌دلیل پیش‌مصرف نمی‌کند.
 - مسیر زمان‌بندی‌شده فقط session لازم را تولید می‌کند و ارسال‌ها را از صف
@@ -74,10 +74,9 @@ git diff --check
 - ساختار داده‌ها و ستون‌های بانکی برای FSRS موجود هستند: `saved_words` اکنون
   ستون‌هایی مانند `first_exposure_done`, `stability`, `difficulty` را نگه می‌دارد
   و `saved_words.card_data` همچنان payload کامل کارت معتبر را ذخیره می‌کند.
-- مهاجرت از `daily_cards` → `saved_words` برای آماده‌سازی کارت‌ها به‌عنوان
-  Tier-2 (pre-first-exposure) پیاده‌سازی شده‌است و تابع idempotent `migrate_saved_words_to_fsrs()`
-  در `services/db/words.py` وجود دارد. یک PR مرتبط (PR #252) برای این مرحله باز بوده
-  و CI آن موفق گزارش شده است (جزئیات در `project_status.json`).
+- مهاجرت از `daily_cards` به `saved_words` برای آماده‌سازی کارت‌ها به‌عنوان
+  Tier-2 (pre-first-exposure) تکمیل شده‌است. پس از مهاجرت، جدول‌ها و APIهای
+  قدیمی daily از مسیر runtime حذف شده‌اند.
 - UX مرور از بازخورد ۲-دکمه‌ای قدیمی به یک UI چهار-دکمه‌ای FSRS (Again/Hard/Good/Easy)
   ارتقا یافته — gradeها به‌صورت کامل برای FSRS-6 ثبت می‌شوند.
 - فرمول short-term stability در هسته وجود دارد اما به‌صورت پیش‌فرض غیرفعال است
@@ -91,10 +90,9 @@ git diff --check
   فاز مربوط به delivery/concurrency/data lifecycle نیز در حال انجام است.
 - موارد انجام‌شده مرتبط با FSRS در `project_status.json`:
   - shell موتور session و UI چهار-دکمه‌ای FSRS مرج شده (Phase 1).
-  - مهاجرت `daily_cards` → `saved_words` و ستون‌های schema برای FSRS اضافه شده
-    و PR مربوطه باز/مرور شده (Phase 3a / PR #252).
+  - مهاجرت `daily_cards` به `saved_words` و ستون‌های schema برای FSRS اضافه شده
+    و جریان‌های runtime قدیمی daily حذف شده‌اند.
 - کارهای باقی‌مانده (Phase 6 todo + docs/plans):
-  - حذف کامل جریان‌های قدیمی daily/review/old-SRS (یک PR واحد در Phase 2 plan stack).
   - سیم‌کشی کامل scheduling/SRS (توابعی مانند `grade_word_review`, `due_words_for_user`,
     `get_pre_first_exposure_words`) تا از `fsrs_core.py` استفاده کنند و آینده‌ی reminder‌ها
     و زمان‌بندی را محاسبه کنند.

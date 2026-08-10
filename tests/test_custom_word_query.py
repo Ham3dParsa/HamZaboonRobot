@@ -131,15 +131,11 @@ class CustomWordQueryTests(unittest.TestCase):
         db.set_plan(1, "free")
         self.assertEqual(_user_presentation(db.get_user(1)), "detailed")
 
-    def test_recent_daily_card_dates_are_sorted_descending(self):
+    def test_saved_words_enter_first_exposure_queue(self):
         db.create_user_if_needed(1, "learner")
-        db.add_daily_card(1, "2026-07-10", 0, {"word": "a"})
-        db.add_daily_card(1, "2026-07-12", 0, {"word": "b"})
-        db.add_daily_card(1, "2026-07-11", 0, {"word": "c"})
-        self.assertEqual(
-            db.get_recent_daily_card_dates(1, limit=3),
-            ["2026-07-12", "2026-07-11", "2026-07-10"],
-        )
+        self.assertTrue(db.add_saved_word(1, "query-word", "en"))
+        rows = db.get_pre_first_exposure_words(1)
+        self.assertEqual([row["word"] for row in rows], ["query-word"])
 
     def test_custom_word_validation_rejects_long_or_unrelated_input(self):
         self.assertIsNone(_custom_word_input_error("thick burger", "en"))

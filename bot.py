@@ -630,6 +630,10 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     source = parts[0]
+    if source not in {"q", "s"}:
+        await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
+        return
+
     user_id = update.effective_user.id
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
@@ -647,38 +651,7 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
     word = None
     lang = None
 
-    if source == "d":
-        if len(parts) != 4:
-            await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
-            return
-        try:
-            target_user_id = int(parts[1])
-            card_date = parts[2]
-            card_index = int(parts[3])
-        except ValueError:
-            await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
-            return
-        if user_id != target_user_id:
-            await update.callback_query.answer("این کارت برای کاربر دیگری است.", show_alert=True)
-            return
-        cards = db.get_daily_cards(user_id, card_date)
-        if card_index < 0 or card_index >= len(cards):
-            await update.callback_query.answer("کارت پیدا نشد.", show_alert=True)
-            return
-        card_data = cards[card_index]
-        if isinstance(card_data, dict):
-            word = card_data.get("word", "")
-        elif isinstance(card_data, str):
-            try:
-                import json
-                card_data = json.loads(card_data)
-                word = card_data.get("word", "")
-            except (json.JSONDecodeError, TypeError):
-                pass
-        session = db.get_daily_card_session(user_id, card_date)
-        lang = session["target_lang"] if session else row["target_lang"]
-
-    elif source == "q":
+    if source == "q":
         if len(parts) != 2:
             await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
             return
@@ -759,7 +732,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     db.init_db()
-    db.migrate_saved_words_to_fsrs()
     db_level = db.get_setting("log_level", "")
     if db_level:
         apply_log_level(db_level)

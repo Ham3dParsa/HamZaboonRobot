@@ -20,6 +20,11 @@ from config import (
 )
 
 _app_timezone = APP_TZ
+_LEGACY_DAILY_TABLES = frozenset(
+    {"daily_cards", "daily_progress", "daily_card_sessions"}
+)
+
+
 def _today() -> datetime.date:
     return datetime.datetime.now(_app_timezone).date()
 
@@ -30,6 +35,35 @@ def _utc_now() -> datetime.datetime:
 
 def _normalize_word(word: str) -> str:
     return " ".join(word.split()).casefold()
+
+
+def _table_names(conn: sqlite3.Connection) -> set[str]:
+    return {
+        row["name"]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+
+
+def _require_daily_cards_migrated(conn: sqlite3.Connection) -> None:
+    """Refuse destructive daily-table cleanup on an unmigrated database."""
+    tables = _table_names(conn)
+    if not (_LEGACY_DAILY_TABLES & tables):
+        return
+    if "settings" not in tables:
+        raise RuntimeError(
+            "Refusing to drop legacy daily tables: "
+            "settings.fsrs_migration_done=1 is missing."
+        )
+    migrated = conn.execute(
+        "SELECT value FROM settings WHERE key='fsrs_migration_done'"
+    ).fetchone()
+    if not migrated or migrated["value"] != "1":
+        raise RuntimeError(
+            "Refusing to drop legacy daily tables: "
+            "settings.fsrs_migration_done=1 is required."
+        )
 
 
 def _current_daily_count(asked_value, asked_date) -> int:
@@ -83,6 +117,7 @@ def get_conn():
 
 def init_db():
     with get_conn() as conn:
+        _require_daily_cards_migrated(conn)
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -113,7 +148,6 @@ def init_db():
                 lang TEXT,
                 normalized_word TEXT,
                 card_data TEXT,
-                interval_idx INTEGER DEFAULT 0,
                 next_review TEXT,
                 review_status TEXT DEFAULT 'idle',
                 review_requested_at TEXT,
@@ -127,30 +161,6 @@ def init_db():
                 key TEXT PRIMARY KEY,
                 value TEXT
             );
-            CREATE TABLE IF NOT EXISTS daily_cards (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                card_date TEXT,                -- تاریخ به فرمت YYYY-MM-DD
-                card_index INTEGER,            -- card index for that day (0-based)
-                card_data TEXT,                -- محتوای JSON کارت
-                UNIQUE(user_id, card_date, card_index)
-            );
-            CREATE TABLE IF NOT EXISTS daily_progress (
-                user_id INTEGER,
-                card_date TEXT,
-                next_index INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY(user_id, card_date)
-            );
-            CREATE TABLE IF NOT EXISTS daily_card_sessions (
-                user_id INTEGER,
-                card_date TEXT,
-                target_lang TEXT,
-                goal TEXT,
-                level TEXT,
-                created_at TEXT,
-                PRIMARY KEY(user_id, card_date)
-            );
-
             CREATE TABLE IF NOT EXISTS query_results (
                 token TEXT PRIMARY KEY,
                 user_id INTEGER NOT NULL,
@@ -263,18 +273,6 @@ def init_db():
         if "bot_blocked" not in columns:
             conn.execute("ALTER TABLE users ADD COLUMN bot_blocked INTEGER DEFAULT 0")
         conn.commit()
-        session_columns = {
-            row["name"]
-            for row in conn.execute("PRAGMA table_info(daily_card_sessions)").fetchall()
-        }
-        if session_columns and "target_lang" not in session_columns:
-            conn.execute("ALTER TABLE daily_card_sessions ADD COLUMN target_lang TEXT")
-        if session_columns and "goal" not in session_columns:
-            conn.execute("ALTER TABLE daily_card_sessions ADD COLUMN goal TEXT")
-        if session_columns and "level" not in session_columns:
-            conn.execute("ALTER TABLE daily_card_sessions ADD COLUMN level TEXT")
-        if session_columns and "created_at" not in session_columns:
-            conn.execute("ALTER TABLE daily_card_sessions ADD COLUMN created_at TEXT")
         saved_word_columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(saved_words)").fetchall()
@@ -347,7 +345,6 @@ def init_db():
         for k, v in defaults.items():
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
         for tbl, col, col_def in (
-            ("daily_cards", "provenance", "TEXT DEFAULT ''"),
             ("grammar_tips", "provenance", "TEXT DEFAULT ''"),
         ):
             existing = {
@@ -448,6 +445,18 @@ def init_db():
                         (legacy_api_key["value"], active_name_val),
                     )
 
+        # Commit all additive migrations before the destructive cleanup so a
+        # failure in DROP COLUMN/TABLE rolls back the destructive transaction.
+        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        saved_word_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(saved_words)").fetchall()
+        }
+        if "interval_idx" in saved_word_columns:
+            conn.execute("ALTER TABLE saved_words DROP COLUMN interval_idx")
+        for table in sorted(_LEGACY_DAILY_TABLES):
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
         conn.commit()
 
 

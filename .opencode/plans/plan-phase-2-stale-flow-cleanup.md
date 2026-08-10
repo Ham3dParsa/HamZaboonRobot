@@ -24,7 +24,7 @@ Because the migration has completed, `migrate_saved_words_to_fsrs()` is now
 
 Per-phase detail lives in:
 - `.opencode/plans/plan-phase-2a-stale-flow-cleanup.md`
-- `.opencode/plans/plan-phase-2b-drop-daily-tables.md`
+- `.opencode/plans/fsrs/plan-fsrs-session-completion-phase-01-daily-schema-purge.md`
 
 ## Locked Contract Rules (owner-approved 2026-08-05)
 

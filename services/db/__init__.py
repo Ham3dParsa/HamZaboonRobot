@@ -63,16 +63,6 @@ from services.db.users import (
 )
 
 from services.db.words import (
-    get_daily_cards,
-    get_recent_daily_words,
-    get_recent_daily_card_dates,
-    count_daily_cards,
-    add_daily_card,
-    update_daily_card_fields,
-    get_daily_progress,
-    set_daily_progress,
-    get_daily_card_session,
-    ensure_daily_card_session,
     add_saved_word,
     update_saved_word_fields,
     due_words_for_user,
@@ -80,7 +70,6 @@ from services.db.words import (
     get_pre_first_exposure_words,
     grade_word_review,
     grade_first_exposure,
-    migrate_saved_words_to_fsrs,
 )
 
 from services.db.reviews import (
