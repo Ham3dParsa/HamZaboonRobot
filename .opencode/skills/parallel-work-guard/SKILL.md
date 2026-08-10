@@ -26,15 +26,19 @@ seams is in SEAMS.md (this skill folder). Do not invent ad-hoc seam names.
    - No overlap: proceed to the gate as normal.
    - Overlap found: STOP. Report the exact seam(s), the claiming branch, and
    the precise colliding resource (table/column name, callback prefix, or
-   catalog identifier — never just "overlap detected"). Ask the
-     owner to choose: proceed anyway, or wait. Do not proceed until answered.
-4. Once the Contract Lock reaches GATE STATUS: LOCKED, update the shared claims
-   file with an atomic read-modify-write operation. Preserve unrelated claims,
-   validate the JSON object, and append `{branch, seams: [...], locked_at (ISO
-   8601), rule_ids: [...]}`. If this branch already has a claim, update that
-   branch's claim rather than creating a duplicate. Use a file lock or an
-   equivalent exclusive-write mechanism so concurrent sessions cannot lose
-   claims.
+    catalog identifier — never just "overlap detected"). Ask the owner to
+    choose: proceed anyway, or wait. Do not proceed until answered.
+4. Once the Contract Lock reaches GATE STATUS: LOCKED, resolve the current
+   branch with `git branch --show-current`, then acquire a file lock or
+   equivalent exclusive-write lock before reading the shared claims file. Hold
+   that lock through parsing, overlap/duplicate matching, modification,
+   validation, and the complete write; release it only after the write is
+   finished. Preserve unrelated claims, validate the JSON object, and append
+   `{branch, seams: [...], locked_at (ISO 8601), rule_ids: [...]}`. Match an
+   existing claim by exact equality of its `branch` value with the current
+   branch name; update that claim instead of creating a duplicate. Write via a
+   temporary file followed by an atomic replacement while the lock is held so
+   concurrent sessions cannot lose claims.
 5. On post-merge cleanup (AGENTS.md §5 step 8), atomically remove this branch's
    claim from the shared claims file. On every skill load, flag (do not
    auto-delete) any claim with `locked_at` older than 14 days for owner review.
