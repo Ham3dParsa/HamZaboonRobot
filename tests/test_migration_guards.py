@@ -77,6 +77,12 @@ EXPECTED_TABLES = {
     "config_tests",
 }
 
+# The exact warning the origin backfill emits when no legacy source exists.
+# Tests assert on it so a different guard firing cannot pass silently.
+NO_LEGACY_SOURCE_WARNING = (
+    "no usable legacy daily_cards source existed before initialization"
+)
+
 
 def _connect(path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
@@ -404,8 +410,9 @@ class MigrationGuardTests(unittest.TestCase):
         db_module.DB_PATH = self.upgraded
         db_schema.DB_PATH = self.upgraded
 
-        with self.assertLogs("services.db.schema", level="WARNING"):
+        with self.assertLogs("services.db.schema", level="WARNING") as cm:
             db_module.init_db()
+        self.assertIn(NO_LEGACY_SOURCE_WARNING, "\n".join(cm.output))
         with self.assertNoLogs("services.db.schema", level="WARNING"):
             db_module.init_db()
         with _closed_conn(self.upgraded) as conn:
@@ -422,12 +429,42 @@ class MigrationGuardTests(unittest.TestCase):
         db_module.DB_PATH = self.upgraded
         db_schema.DB_PATH = self.upgraded
 
-        with self.assertLogs("services.db.schema", level="WARNING"):
+        with self.assertLogs("services.db.schema", level="WARNING") as cm:
             db_module.init_db()
+        self.assertIn(NO_LEGACY_SOURCE_WARNING, "\n".join(cm.output))
         with _closed_conn(self.upgraded) as conn:
             flag = conn.execute(
                 "SELECT value FROM settings WHERE key='entry_source_backfilled'"
             ).fetchone()
+        self.assertEqual(flag["value"], "1")
+
+    def test_origin_backfill_completes_on_pruned_daily_table(self):
+        """A pre-existing DB whose daily_cards table exists but is empty has
+        nothing to tag: saved words stay manual and the flag is recorded."""
+        build_origin_backfill_schema(self.upgraded)
+        with _closed_conn(self.upgraded) as conn:
+            conn.execute("DELETE FROM daily_cards")
+        db_module.DB_PATH = self.upgraded
+        db_schema.DB_PATH = self.upgraded
+
+        with self.assertLogs("services.db.schema", level="WARNING") as cm:
+            db_module.init_db()
+
+        self.assertIn(NO_LEGACY_SOURCE_WARNING, "\n".join(cm.output))
+        with _closed_conn(self.upgraded) as conn:
+            sources = {
+                row["normalized_word"]: row["entry_source"]
+                for row in conn.execute(
+                    "SELECT normalized_word, entry_source FROM saved_words"
+                ).fetchall()
+            }
+            flag = conn.execute(
+                "SELECT value FROM settings WHERE key='entry_source_backfilled'"
+            ).fetchone()
+        self.assertEqual(
+            sources,
+            {"daily   word": "manual", "manual word": "manual"},
+        )
         self.assertEqual(flag["value"], "1")
 
     def test_template_flags_banned_column(self):
