@@ -7,7 +7,7 @@ branch: feat/phase-2b-drop-daily-tables
 status: in-progress
 ---
 
-STATE: phase 1/6 — status: in-progress — focus: post-cutover restore pre-commit gate
+STATE: phase 1/6 — status: in-progress — focus: PR #300 resolved merge pre-commit gate
 
 # Ticket 01 — Phase 2b Daily Schema Purge
 
@@ -107,6 +107,7 @@ daily tables exist.
 | 8 | PR, CI, maintenance deployment, read-only verification | pending | — |
 | 9 | Reject invalid backup before overwriting live DB | complete | Candidate startup + required schema comparison + shared DB lock before atomic replace; restore/admin/migration/wiring/dead guard suite: 38 passed; final reviewer: no confirmed findings; full `python -m pytest tests/ -n 14`: 605 passed; compile, F821/F811 lint, dashboard generation, and whitespace checks passed |
 | 10 | Align restore with post-cutover FSRS-only backups | complete | Marker-only gate replaced by pre-init legacy/core/quick-check validation; SQLite snapshot + worker-thread file work; rollback-safe replacement; restore/admin/migration/wiring/dead guard suite: 43 passed; final reviewer: no confirmed findings; full `python -m pytest tests/ -n 14`: 610 passed; compile, F821/F811 lint, dashboard generation, and whitespace checks passed. |
+| 11 | Merge deployed PR #304 and current `origin/main` into PR #300 | complete | Live prerequisite verified (`entry_source_backfilled=1`, 510 `legacy_daily`, 22 `manual`, 562 source rows, quick-check `ok`); six conflicts resolved by removing temporary backfill/importer while retaining destructive guard and persisted origins; focused suite: 54 passed; final reviewer: no confirmed findings; full suite: 611 passed plus compile/lint/dashboard/whitespace checks. |
 
 ## Acceptance Criteria
 

@@ -329,7 +329,7 @@ class MigrationGuardTests(unittest.TestCase):
                 "difficulty, entry_source) VALUES "
                 "(1, 'retain', 'en', 'retain', ?, 4, '2026-08-10', 'pending', "
                 "'2026-08-09T00:00:00+00:00', '2026-08-09T01:00:00+00:00', "
-                "2, '2026-08-09T00:00:00+00:00', 1, 8.5, 6.25, 'manual')",
+                "2, '2026-08-09T00:00:00+00:00', 1, 8.5, 6.25, 'legacy_daily')",
                 ('{"word":"retain","fa_meaning":"keep"}',),
             )
             conn.execute(
@@ -418,6 +418,11 @@ class MigrationGuardTests(unittest.TestCase):
                 after_indexes = _index_contract(conn, table)
                 for name, signature in retained_indexes[table].items():
                     self.assertEqual(after_indexes[name], signature)
+
+            origin = conn.execute(
+                "SELECT entry_source FROM saved_words WHERE word='retain'"
+            ).fetchone()
+            self.assertEqual(origin["entry_source"], "legacy_daily")
 
     def test_unmigrated_daily_schema_aborts_without_deleting(self):
         build_prior_schema(self.upgraded, migration_done=False)

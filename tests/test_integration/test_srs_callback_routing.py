@@ -168,6 +168,7 @@ class SavedWordSessionStateTest(unittest.TestCase):
             self.assertEqual(row["first_exposure_done"], 0)
             self.assertEqual(row["lang"], "en")
             self.assertIsNotNone(row["added_at"])
+            self.assertEqual(row["entry_source"], "manual")
         self.assertEqual(db.due_words_for_user(1), [])
 
     def test_first_exposure_word_is_not_due_tier1(self):

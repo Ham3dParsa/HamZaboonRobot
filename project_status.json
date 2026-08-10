@@ -190,7 +190,7 @@
         "FSRS-6 migration Phase 3a: daily_cards -> saved_words migration + schema columns (first_exposure_done, stability, difficulty); PR #252 open (CI green)"
       ],
       "in_progress": [
-        "FSRS-6 migration Phase 2: remove stale daily/review/old-SRS flows and DROP daily_cards table",
+        "FSRS-6 migration Phase 2: origin backfill verified; remove stale daily/review/old-SRS flows and DROP daily_cards table",
         "v3 Engine migration Phase 3: 3-Tier Priority Queue core implementation"
       ],
       "todo": [

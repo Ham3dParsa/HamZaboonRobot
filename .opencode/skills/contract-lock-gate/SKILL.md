@@ -64,6 +64,13 @@ GATE STATUS: [LOCKED / PENDING]
 
 ### CONFIRM owner says "proceed" or "locked" before touching code
 
+### WRITE the claim on lock
+Once GATE STATUS is LOCKED, invoke the parallel-work-guard skill to write this
+contract's claim to the shared common-Git-directory claims file (branch, seams touched,
+locked_at, rule IDs). Side-effect step only — it does not gate or block; the
+overlap check already ran earlier in this gate sequence per parallel-work-guard.
+Reference parallel-work-guard by name; do not duplicate its overlap-check logic.
+
 ### GATE KEYWORD
 Agent MUST include `<SYSTEM_GATE> Contract lock required before proceeding </SYSTEM_GATE>` in response before any implementation.
 

@@ -66,6 +66,22 @@ class DatabaseRestoreSafetyTests(unittest.TestCase):
         self.assertEqual(_read_bytes(self.live_path), original)
         self.assertEqual(db.get_setting("restore_sentinel"), "live")
 
+    def test_modern_backup_missing_required_column_is_rejected(self):
+        backup_path = os.path.join(self.tempdir.name, "missing-column.sqlite")
+        with open(backup_path, "wb") as backup_file:
+            backup_file.write(db.export_db_bytes())
+        with closing(sqlite3.connect(backup_path)) as conn:
+            with conn:
+                conn.execute("ALTER TABLE users DROP COLUMN username")
+        backup = _read_bytes(backup_path)
+        original = _read_bytes(self.live_path)
+
+        with self.assertRaisesRegex(ValueError, "نسخه فعلی ربات سازگار نیست"):
+            db.import_db_bytes(backup)
+
+        self.assertEqual(_read_bytes(self.live_path), original)
+        self.assertEqual(db.get_setting("restore_sentinel"), "live")
+
     def test_post_cutover_backup_round_trip_preserves_user_and_saved_word(self):
         db.create_user_if_needed(7, "learner")
         self.assertTrue(db.add_saved_word(7, "persist", "en"))

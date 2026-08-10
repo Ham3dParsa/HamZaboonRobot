@@ -241,7 +241,8 @@ abstraction. Keep runtime behavior separate from issue-review tooling.
 
 If the module structure changes (add, rename, split, or remove), the agent
 MUST update the responsibilities table above AND the scan-target paths in
-`tests/test_wiring.py`.
+`tests/test_wiring.py` — also update `.opencode/skills/parallel-work-guard/SEAMS.md`
+to keep the seam registry current.
 
 ### Callback Routing Map
 
@@ -552,6 +553,7 @@ exactly. Loading a skill and ignoring its rules is a compliance violation.
 | Skill (repo-local `.opencode/skills/`) | Load when | Enforces |
 |---|---|---|
 | `contract-lock-gate` | any code change is proposed | AGENTS.md §2.4 pre-implementation gate |
+| `parallel-work-guard` | starting parallel work / new branch or worktree | Claim registry + seam-collision check (§10.5) |
 | `git-protocol` | any git/gh operation is proposed or run | AGENTS.md §7 git/PR/gh/security discipline + Error Recovery |
 | `hamzaban-validation` | preparing to commit / validate | AGENTS.md §6 full validation suite |
 | `pre-commit-gate` | before any commit | AGENTS.md §7 pre-commit checklist |
@@ -635,6 +637,29 @@ Contract Lock rules.
 **Archive rule:** when a plan is done and completely evaluated, it moves to
 `docs/archive/` (with a date suffix). `.opencode/plans/` keeps only active or
 in-progress plans.
+
+### 10.5 Parallel Work Claims
+
+Before any Contract Lock Gate reaches GATE STATUS: LOCKED, the agent MUST run
+the parallel-work-guard skill to check the shared claims file resolved from
+the common Git directory (`<git-common-dir>/parallel-work-claims.json`) for
+seam-level claim overlaps with other in-progress branches/worktrees, per the
+locked rules below.
+
+1. Conflict unit is the seam registry (SEAMS.md), not file diffs.
+2. Claims are written to the shared common-Git-directory claims file at GATE
+   STATUS: LOCKED, not to tracked worktree files.
+3. Overlap = warn with the exact resource named + explicit owner decision
+   required (proceed anyway / wait). Never silent block, never silent proceed.
+4. Claims are removed on post-merge cleanup (§5 step 8); claims older than 14
+   days are flagged for owner review, not auto-deleted. Malformed registry data
+   halts claim-guarded work and requests owner repair; unrelated read-only
+   investigation may continue.
+5. Deep-module seam review is folded into the existing hamzaboon-reviewer
+   checklist (§10.3) — no new subagent.
+
+Full mechanics: `parallel-work-guard` skill. Seam registry: `SEAMS.md` (same
+skill folder).
 
 <!-- [opencode-setup:end] -->
 
