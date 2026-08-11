@@ -135,6 +135,8 @@ from handlers.user import (
     _word_query_usage_text,
 )
 
+from handlers.help_command import send_help_panel, handle_help_callback
+
 from handlers.study_handler import handle_study_inactive, handle_study_start
 
 from handlers.srs_handler import (
@@ -399,6 +401,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _show_settings_menu(update, context)
     elif text == BTN_ADMIN:
         await open_admin_panel(update, context)
+    elif text == "راهنما":
+        await send_help_panel(update, context)
     else:
         await _send_with_retry(context.bot, update.effective_chat.id, "از دکمه‌های پایین استفاده کن 🙂", reply_markup=main_menu(is_owner(user_id)))
 
@@ -426,6 +430,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "srs:",
             "tts:pronounce:",
             "settings:",
+            "help:",
         )
     ):
         await notify_callback(update.callback_query)
@@ -558,6 +563,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_study_inactive(update, context)
     elif data.startswith("tts:pronounce:"):
         await _handle_tts_pronounce(update, context, data.split(":", 2)[2])
+    elif data.startswith("help:"):
+        await handle_help_callback(update, context, data)
     elif data.startswith("admin:"):
         await _handle_admin_callback(update, context, data.split(":", 1)[1])
     else:
@@ -738,6 +745,7 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("help", send_help_panel))
     app.add_handler(CommandHandler("backup", cmd_backup))
     app.add_handler(CommandHandler("restore", cmd_restore))
     app.add_handler(CallbackQueryHandler(callback_router))

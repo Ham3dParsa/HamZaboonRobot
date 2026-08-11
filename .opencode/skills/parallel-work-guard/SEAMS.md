@@ -17,6 +17,7 @@ This is disclosed reference — loaded only when parallel-work-guard fires.
 | 5 | Telegram UI -> Study | handlers/study_handler.py | handle_study_start(), advance_session() |
 | 6 | Telegram UI -> SRS Grading | handlers/srs_handler.py | _handle_srs_review(), _handle_first_exposure_grade() |
 | 7 | Telegram UI -> User Domain | handlers/user.py | cmd_start, ask_for_ask_word, send_grammar_tip, on_lang_selected |
+| 16 | Telegram UI -> Help | handlers/help_command.py | send_help_panel(), handle_help_callback() |
 | 8 | Telegram UI -> Admin | handlers/admin.py | open_admin_panel, _handle_admin_callback, _handle_admin_text_input |
 | 9 | Telegram UI -> Stats | handlers/admin_stats.py | handle_admin_stats |
 | 10 | Telegram UI -> Plans | handlers/admin_plans.py | handle_plan_callback, _start_plan_wizard, _show_plan_list |
@@ -25,6 +26,7 @@ This is disclosed reference — loaded only when parallel-work-guard fires.
 | 13 | TTS Provider | services/tts.py | async pronounce(word, lang) |
 | 14 | Scheduling/Quota | services/scheduling.py | daily_session_budget(), consume_session_slot(), release_session_slot() |
 | 15 | Telegram Callback Notifications | services/utils/callback_notifications.py | notify_callback(query, text, intent=...) |
+| 16 | Custom-word input validation | services/utils/validation.py | validate_word_query(text, language) |
 
 ## Shared Resource Registries (non-seam collision surfaces)
 

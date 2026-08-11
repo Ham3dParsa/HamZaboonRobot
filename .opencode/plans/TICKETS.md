@@ -3,4 +3,5 @@
 | Ticket | Plan | Issue | Branch | Status |
 |---|---|---|---|---|
 | CB-NOTIFY-01 | `callbacks/plan-callback-notifications.md` | #310 | `refactor/callback-notifications` | in-progress |
-| GRADE-FEEDBACK-01 | `ux/plan-grade-feedback-toast.md` | #308 | `feat/grade-feedback-toast` | in-progress |
+| HELP-01 | `help-command/plan-help-command.md` | — | `feat/help-command` | complete |
+| GRADE-FEEDBACK-01 (PR 312) | `ux/plan-grade-feedback-toast.md` | #308 | `feat/grade-feedback-toast` | complete |
