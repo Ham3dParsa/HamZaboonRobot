@@ -16,6 +16,7 @@ import bot
 from services import db
 from services.db import schema as db_schema
 from telegram.error import NetworkError
+from handlers.srs_handler import _handle_query_add
 
 
 class CustomWordQuotaReleaseFlowTests(unittest.TestCase):
@@ -216,6 +217,97 @@ class CustomWordValidationFlowTests(unittest.TestCase):
             asyncio.run(bot.text_router(update, context))
         ai_mock.assert_called()
         self.assertEqual(db.get_user(1)["words_asked_today"], 1)
+
+
+class QueryAddToggleFlowTests(unittest.TestCase):
+    """Rule D+E: the manual save button is an idempotent toggle with toasts.
+
+    Tapping saves the word and flips the button to "remove"; tapping again
+    removes it and flips the button back. The callback prefix stays
+    ``query:add:{token}``; only the semantics become a toggle.
+    """
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.previous_db_path = db.DB_PATH
+        self.previous_db_schema_path = db_schema.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        db_schema.DB_PATH = db.DB_PATH
+        db.init_db()
+        db.create_user_if_needed(1, "learner")
+        db.set_user_lang_goal(1, "en", "general")
+        db.set_user_level(1, "beginner")
+        self.result_data = {
+            "word": "hello",
+            "fa_meaning": "سلام",
+            "fa_explanation": "برای سلام کردن.",
+            "examples": ["Hello!"],
+        }
+        self.token = db.create_query_result(1, "hello", "hello", "en", self.result_data)
+
+    def tearDown(self):
+        db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
+        self.tempdir.cleanup()
+
+    def _make_update(self):
+        update = MagicMock()
+        update.effective_user.id = 1
+        update.callback_query.answer = AsyncMock()
+        update.effective_message.edit_reply_markup = AsyncMock()
+        return update
+
+    def _word_count(self):
+        with db.get_conn() as conn:
+            return conn.execute(
+                "SELECT COUNT(*) AS c FROM saved_words WHERE user_id=1 AND word='hello'"
+            ).fetchone()["c"]
+
+    def test_toggle_saves_then_removes_with_toast_and_label_flip(self):
+        update = self._make_update()
+        context = MagicMock()
+        # Render-time flags are stored in user_data; the toggle must preserve the
+        # translations + pronounce buttons when it edits the card.
+        context.user_data = {
+            f"query_kb_{self.token}": {
+                "show_translations": True,
+                "show_pronounce": True,
+            }
+        }
+
+        asyncio.run(_handle_query_add(update, context, self.token))
+        self.assertEqual(self._word_count(), 1, "first tap saves the word")
+        self.assertEqual(
+            update.callback_query.answer.call_args[0][0],
+            "در جعبه مرور ذخیره شد!",
+        )
+        saved_markup = update.effective_message.edit_reply_markup.call_args.kwargs["reply_markup"]
+        saved_calls = [b.callback_data for r in saved_markup.inline_keyboard for b in r]
+        self.assertIn("حذف از جعبه مرور", saved_markup.inline_keyboard[0][0].text)
+        self.assertTrue(
+            any(c.startswith("query:prepare:") for c in saved_calls),
+            "toggle edit must preserve the translations button",
+        )
+        self.assertTrue(
+            any(c.startswith("tts:pronounce:q:") for c in saved_calls),
+            "toggle edit must preserve the pronounce button",
+        )
+
+        # Second tap removes.
+        update = self._make_update()
+        asyncio.run(_handle_query_add(update, context, self.token))
+        self.assertEqual(self._word_count(), 0, "second tap removes the word")
+        self.assertEqual(
+            update.callback_query.answer.call_args[0][0],
+            "از جعبه مرور حذف شد!",
+        )
+        removed_markup = update.effective_message.edit_reply_markup.call_args.kwargs["reply_markup"]
+        self.assertIn("ذخیره در جعبه مرور", removed_markup.inline_keyboard[0][0].text)
+
+        # Third tap saves again (idempotent round-trip).
+        update = self._make_update()
+        asyncio.run(_handle_query_add(update, context, self.token))
+        self.assertEqual(self._word_count(), 1)
 
 
 if __name__ == "__main__":

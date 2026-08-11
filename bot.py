@@ -380,6 +380,16 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             phon_lines = _phonetic_lines(data.get("phonetic", ""))
             delivered = False
             try:
+                show_translations = True
+                show_pronounce = (
+                    db.get_setting("tts_access", "premium") != "none"
+                    and (_user_plan(row) in PREMIUM_PLANS
+                         or db.get_setting("tts_access", "premium") == "all")
+                )
+                context.user_data[f"query_kb_{query_token}"] = {
+                    "show_translations": show_translations,
+                    "show_pronounce": show_pronounce,
+                }
                 await _send_with_retry(
                     context.bot,
                     update.effective_chat.id,
@@ -396,8 +406,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=query_result_keyboard(
                         query_token,
                         row["target_lang"] if row else "en",
-                        show_translations=True,
-                        show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
+                        show_translations=show_translations,
+                        show_pronounce=show_pronounce,
                     ),
                 )
                 delivered = True

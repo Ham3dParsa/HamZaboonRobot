@@ -144,6 +144,32 @@ class CustomWordQueryTests(unittest.TestCase):
         rows = db.get_pre_first_exposure_words(1)
         self.assertEqual([row["word"] for row in rows], ["query-word"])
 
+    def test_toggle_review_word_adds_then_removes_idempotently(self):
+        db.create_user_if_needed(1, "learner")
+        result_data = {"word": "hello", "fa_meaning": "سلام", "examples": []}
+        # Add direction.
+        self.assertEqual(db.toggle_review_word(1, "hello", "en", result_data), "saved")
+        with db.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM saved_words WHERE user_id=1 AND normalized_word='hello'"
+            ).fetchall()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["entry_source"], "manual")
+        # Idempotent: toggling again while present removes it.
+        self.assertEqual(db.toggle_review_word(1, "  Hello  ", "en", result_data), "removed")
+        with db.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM saved_words WHERE user_id=1 AND normalized_word='hello'"
+            ).fetchall()
+        self.assertEqual(len(rows), 0)
+        # Add again after removal.
+        self.assertEqual(db.toggle_review_word(1, "hello", "en", result_data), "saved")
+        with db.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM saved_words WHERE user_id=1 AND normalized_word='hello'"
+            ).fetchall()
+        self.assertEqual(len(rows), 1)
+
     def test_custom_word_validation_rejects_long_or_unrelated_input(self):
         self.assertIsNone(validate_word_query("thick burger", "en"))
         # "همبرگر آفرقایی کلفت" is now considered valid input

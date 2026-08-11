@@ -49,7 +49,8 @@ IBTN_SRS_GOOD_FE = "آشنایی خوب 🟩"
 IBTN_SRS_EASY_FE = "کاملاً بلدمش 🟪"
 
 # --- Query / Word Lookup ---
-IBTN_ADD_TO_REVIEW = "➕ افزودن به مرور"
+IBTN_ADD_TO_REVIEW = "ذخیره در جعبه مرور"
+IBTN_REMOVE_FROM_REVIEW = "حذف از جعبه مرور"
 
 # --- Pronunciation ---
 IBTN_PRONOUNCE = "🔊 تلفظ"
@@ -299,8 +300,9 @@ def query_result_keyboard(
     *,
     show_translations: bool = False,
     show_pronounce: bool = False,
+    saved: bool = False,
 ) -> InlineKeyboardMarkup:
-    label = IBTN_ADD_TO_REVIEW
+    label = IBTN_REMOVE_FROM_REVIEW if saved else IBTN_ADD_TO_REVIEW
     if lang:
         label = f"{label} ({language_label(lang)})"
     buttons = [

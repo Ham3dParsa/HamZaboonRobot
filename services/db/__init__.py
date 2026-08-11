@@ -73,6 +73,7 @@ from services.db.users import (
 
 from services.db.words import (
     add_saved_word,
+    toggle_review_word,
     update_saved_word_fields,
     due_words_for_user,
     get_saved_word,

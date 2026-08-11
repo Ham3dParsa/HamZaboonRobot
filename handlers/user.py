@@ -566,6 +566,10 @@ async def _handle_query_prepare(
         "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
     )
     phon_lines = _phonetic_lines(card.get("phonetic", ""))
+    context.user_data[f"query_kb_{row['token']}"] = {
+        "show_translations": False,
+        "show_pronounce": _user_plan(user_row) in PREMIUM_PLANS,
+    }
     try:
         await _edit_with_retry(
             update.callback_query,

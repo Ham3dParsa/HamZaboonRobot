@@ -13,12 +13,14 @@ class CallbackNoticeIntent(str, Enum):
     SUCCESS = "success"
     INFO = "info"
     IMPORTANT_ERROR = "important_error"
+    SUCCESS_TOAST = "success_toast"
 
 
 _SHOW_ALERT_BY_INTENT = {
     CallbackNoticeIntent.SUCCESS: False,
     CallbackNoticeIntent.INFO: False,
     CallbackNoticeIntent.IMPORTANT_ERROR: True,
+    CallbackNoticeIntent.SUCCESS_TOAST: True,
 }
 
 
