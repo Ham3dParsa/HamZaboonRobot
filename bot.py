@@ -358,26 +358,32 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log.info("custom word query delivered user_id=%s lang=%s", user_id, row["target_lang"])
             await _finish_llm_wait_state(wait_message)
             phon_lines = _phonetic_lines(data.get("phonetic", ""))
-            await _send_with_retry(
-                context.bot,
-                update.effective_chat.id,
-                format_card(
-                    data,
-                    footer=(
-                        f"{usage_text}\n\n"
-                        "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
+            delivered = False
+            try:
+                await _send_with_retry(
+                    context.bot,
+                    update.effective_chat.id,
+                    format_card(
+                        data,
+                        footer=(
+                            f"{usage_text}\n\n"
+                            "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
+                        ),
+                        presentation=_user_presentation(row),
+                        phonetic_lines=phon_lines,
                     ),
-                    presentation=_user_presentation(row),
-                    phonetic_lines=phon_lines,
-                ),
-                parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=query_result_keyboard(
-                    query_token,
-                    row["target_lang"] if row else "en",
-                    show_translations=True,
-                    show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
-                ),
-            )
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                    reply_markup=query_result_keyboard(
+                        query_token,
+                        row["target_lang"] if row else "en",
+                        show_translations=True,
+                        show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
+                    ),
+                )
+                delivered = True
+            finally:
+                if not delivered:
+                    db.release_word_query(user_id)
             await _send_with_retry(
                 context.bot,
                 update.effective_chat.id,

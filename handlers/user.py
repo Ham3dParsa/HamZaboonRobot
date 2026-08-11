@@ -433,12 +433,18 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         _log_user_activity(update, action="grammar_tip", outcome="success")
         logger.info("grammar tip delivered user_id=%s lang=%s", user_id, row["target_lang"])
-        await _send_with_retry(
-            context.bot,
-            update.effective_chat.id,
-            text,
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
+        delivered = False
+        try:
+            await _send_with_retry(
+                context.bot,
+                update.effective_chat.id,
+                text,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            delivered = True
+        finally:
+            if not delivered:
+                db.release_grammar_tip(user_id)
     except Exception:
         _log_user_activity(update, action="grammar_tip", outcome="error")
         logger.exception("Grammar tip delivery failed")
