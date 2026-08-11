@@ -21,6 +21,7 @@ from services.utils.validation import (
     ERR_TOO_MANY_WORDS,
     validate_word_query,
 )
+from config import _app_today, daily_word_query_limit_for_plan
 from config.keyboards import (
     BTN_ASK_WORD,
     BTN_SETTINGS,
@@ -84,6 +85,53 @@ class CustomWordQueryTests(unittest.TestCase):
         button = markup.inline_keyboard[0][0]
         self.assertIn("انگلیسی", button.text)
         self.assertEqual(button.callback_data, "query:add:0123456789abcdef0123456789abcdef")
+
+    def test_get_quota_status_reports_word_and_grammar_usage(self):
+        db.create_user_if_needed(1, "learner")
+        limit = daily_word_query_limit_for_plan("free")
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE users SET plan='free', words_asked_today=3, "
+                "grammar_tips_asked_today=1, words_asked_date=?, grammar_tips_asked_date=? "
+                "WHERE user_id=1",
+                (_app_today(), _app_today()),
+            )
+            conn.commit()
+        status = db.get_quota_status(1)
+        self.assertEqual(status["word_query"], {"used": 3, "limit": limit})
+        self.assertEqual(status["grammar_tip"], {"used": 1, "limit": limit})
+
+    def test_get_quota_status_resets_when_date_is_stale(self):
+        db.create_user_if_needed(1, "learner")
+        limit = daily_word_query_limit_for_plan("free")
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE users SET plan='free', words_asked_today=3, "
+                "grammar_tips_asked_today=1, words_asked_date='1990-01-01', "
+                "grammar_tips_asked_date='1990-01-01' WHERE user_id=1",
+            )
+            conn.commit()
+        status = db.get_quota_status(1)
+        self.assertEqual(status["word_query"], {"used": 0, "limit": limit})
+        self.assertEqual(status["grammar_tip"], {"used": 0, "limit": limit})
+
+    def test_get_quota_status_uses_plan_limit(self):
+        db.create_user_if_needed(1, "learner")
+        limit = daily_word_query_limit_for_plan("gold")
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE users SET plan='gold', words_asked_today=3, "
+                "grammar_tips_asked_today=1, words_asked_date=?, grammar_tips_asked_date=? "
+                "WHERE user_id=1",
+                (_app_today(), _app_today()),
+            )
+            conn.commit()
+        status = db.get_quota_status(1)
+        self.assertEqual(status["word_query"]["limit"], limit)
+        self.assertEqual(status["grammar_tip"]["limit"], limit)
+
+    def test_get_quota_status_returns_none_for_unknown_user(self):
+        self.assertIsNone(db.get_quota_status(999999))
 
     def test_srs_review_keyboard_is_user_scoped_and_short(self):
         markup = get_review_keyboard(123, 456)

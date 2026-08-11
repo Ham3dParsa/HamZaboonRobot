@@ -310,5 +310,53 @@ class QueryAddToggleFlowTests(unittest.TestCase):
         self.assertEqual(self._word_count(), 1)
 
 
+class ShowStatusQuotaRenderTests(unittest.TestCase):
+    """Rule C — the settings panel (show_status) renders remaining quota."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.previous_db_path = db.DB_PATH
+        self.previous_db_schema_path = db_schema.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        db_schema.DB_PATH = db.DB_PATH
+        db.init_db()
+        db.create_user_if_needed(1, "learner")
+        db.set_user_lang_goal(1, "en", "general")
+        db.set_user_level(1, "beginner")
+
+    def tearDown(self):
+        db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
+        self.tempdir.cleanup()
+
+    def test_show_status_renders_remaining_word_and_grammar_quota(self):
+        from handlers.user import show_status
+        from config import _app_today
+        limit = db.get_quota_status(1)["word_query"]["limit"]
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE users SET words_asked_today=1, grammar_tips_asked_today=2, "
+                "words_asked_date=?, grammar_tips_asked_date=? WHERE user_id=1",
+                (_app_today(), _app_today()),
+            )
+            conn.commit()
+
+        update = MagicMock()
+        update.effective_user.id = 1
+        update.callback_query = MagicMock()
+        update.callback_query.answer = AsyncMock()
+        context = MagicMock()
+
+        captured = {}
+        with patch("handlers.user._edit_or_send", new=AsyncMock()) as edit_mock:
+            edit_mock.side_effect = lambda u, c, text, **kw: captured.update(text=text)
+            asyncio.run(show_status(update, context))
+
+        self.assertIn("پرسش واژه", captured["text"])
+        self.assertIn(f"1/{limit} (باقی‌مانده {max(limit - 1, 0)})", captured["text"])
+        self.assertIn("نکته گرامری", captured["text"])
+        self.assertIn(f"2/{limit} (باقی‌مانده {max(limit - 2, 0)})", captured["text"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -129,6 +129,13 @@ def _grammar_tip_usage_text(row) -> str:
     return f"📊 استفاده امروز از نکات گرامری: {used}/{limit} · باقی‌مانده: {remaining}"
 
 
+def _quota_line(status: dict) -> str:
+    used, limit = status["used"], status["limit"]
+    if limit < 0:
+        return f"{used} / نامحدود"
+    return f"{used}/{limit} (باقی‌مانده {max(limit - used, 0)})"
+
+
 # ---------------- /start و onboarding ----------------
 
 
@@ -488,11 +495,14 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await notify_callback(update.callback_query)
         return
     due = db.due_words_for_user(user_id)
+    quota = db.get_quota_status(user_id)
     text = (
         f"🌐 زبان: {language_label(row['target_lang'])}\n"
         f"🎯 هدف: {goal_label(row['goal'])}\n"
         f"📚 سطح: {level_label(row['level'])}\n"
         f"💳 پلن: {_user_plan_label(row)}\n"
+        f"📊 پرسش واژه: {_quota_line(quota['word_query'])}\n"
+        f"💡 نکته گرامری: {_quota_line(quota['grammar_tip'])}\n"
         f"🔥 استریک: {row['streak'] or 0} روز\n"
         f"⏰ واژه‌های آماده‌ی مرور: {len(due)}"
     )

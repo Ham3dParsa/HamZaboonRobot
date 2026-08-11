@@ -9,6 +9,34 @@ def get_user(user_id: int):
         return conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
 
 
+def get_quota_status(user_id: int) -> dict | None:
+    """Return today's remaining word-query and grammar-tip quota for a user.
+
+    Returns a dict with two keys, ``"word_query"`` and ``"grammar_tip"``, each
+    holding ``{"used": int, "limit": int}``. ``limit`` comes from the user's
+    plan query quota. Returns ``None`` when the user does not exist.
+    Rule C: the word-query reply and the settings panel both read this single
+    seam so they can never drift.
+    """
+    from config import _app_today, daily_word_query_limit_for_plan
+    row = get_user(user_id)
+    if not row:
+        return None
+    limit = daily_word_query_limit_for_plan(row["plan"] or "free")
+
+    wq_used = row["words_asked_today"] or 0
+    if row["words_asked_date"] != _app_today():
+        wq_used = 0
+    gt_used = row["grammar_tips_asked_today"] or 0
+    if row["grammar_tips_asked_date"] != _app_today():
+        gt_used = 0
+
+    return {
+        "word_query": {"used": wq_used, "limit": limit},
+        "grammar_tip": {"used": gt_used, "limit": limit},
+    }
+
+
 def create_user_if_needed(user_id: int, username: str):
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
