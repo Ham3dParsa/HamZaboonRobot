@@ -169,7 +169,9 @@ def init_db(path: str | None = None):
                 first_exposure_done INTEGER DEFAULT 0,
                 stability REAL DEFAULT 0.0,
                 difficulty REAL DEFAULT 5.0,
-                entry_source TEXT DEFAULT 'manual'
+                entry_source TEXT DEFAULT 'manual',
+                last_review_at TEXT,
+                next_review_at TEXT
             );
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -316,6 +318,37 @@ def init_db(path: str | None = None):
         if "entry_source" not in saved_word_columns:
             conn.execute(
                 "ALTER TABLE saved_words ADD COLUMN entry_source TEXT DEFAULT 'manual'"
+            )
+        added_timestamp_columns = False
+        if "last_review_at" not in saved_word_columns:
+            conn.execute("ALTER TABLE saved_words ADD COLUMN last_review_at TEXT")
+            added_timestamp_columns = True
+        if "next_review_at" not in saved_word_columns:
+            conn.execute("ALTER TABLE saved_words ADD COLUMN next_review_at TEXT")
+            added_timestamp_columns = True
+        if added_timestamp_columns and "next_review" in saved_word_columns:
+            # A row marked first_exposure_done=1 with a NULL last_review_at is
+            # inconsistent (exposed without a grade time). Reset it to a
+            # deterministic first-exposure state and clear transient review
+            # fields, without fabricating a review timestamp. Runs only when
+            # the timestamp columns are introduced (idempotent on re-init).
+            conn.execute(
+                """
+                UPDATE saved_words
+                SET first_exposure_done = 0,
+                    stability = 0.0,
+                    difficulty = 5.0,
+                    last_review_at = NULL,
+                    next_review_at = NULL,
+                    next_review = ?,
+                    review_status = 'idle',
+                    review_requested_at = NULL,
+                    retry_at = NULL,
+                    srs_retry_attempts = 0
+                WHERE COALESCE(first_exposure_done, 0) = 1
+                  AND last_review_at IS NULL
+                """,
+                (_today().isoformat(),),
             )
         review_columns = {
             row["name"]

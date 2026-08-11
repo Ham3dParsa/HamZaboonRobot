@@ -2,12 +2,12 @@
 name: fsrs-session-completion-phase-02-timestamp-schema
 description: Add rollback-compatible UTC review timestamps before enabling same-day FSRS behavior.
 created: 2026-08-09
-base_commit: pending-phase-01-merge
+base_commit: e45a2a9
 branch: feat/fsrs-timestamp-schema
-status: blocked
+status: in-progress
 ---
 
-STATE: phase 2/6 — status: blocked — focus: wait for Phase 1 merge and verification
+STATE: phase 2/6 — status: in-progress — focus: Ticket 02 implemented and validated; PR created; pending merge + live verification
 
 # Ticket 02 — Timestamp Schema Expansion
 
@@ -97,12 +97,12 @@ review timestamp.
 
 | Step | Action | Status | Evidence |
 |---|---|---|---|
-| 1 | Create branch from Phase 1 merge | blocked | — |
-| 2 | Add failing fresh/upgrade/anomaly tests | pending | — |
-| 3 | Add columns and migration logic | pending | — |
-| 4 | Run focused schema/migration tests | pending | — |
-| 5 | Run full validation and independent review | pending | — |
-| 6 | PR, CI, merge, and read-only live schema verification | pending | — |
+| 1 | Create branch from Phase 1 merge | complete | `feat/fsrs-timestamp-schema` from `origin/main` e45a2a9 |
+| 2 | Add failing fresh/upgrade/anomaly tests | complete | `TimestampSchemaMigrationTests` in `tests/test_migration_guards.py` |
+| 3 | Add columns and migration logic | complete | `services/db/schema.py` (CREATE + idempotent ALTER + anomaly reset) |
+| 4 | Run focused schema/migration tests | complete | `python -m pytest tests/test_migration_guards.py tests/test_db_migrations.py -q` → 27 passed |
+| 5 | Run full validation and independent review | complete | Full suite 681 passed + 149 subtests; compile_all; ruff F821/F811 clean; reviewer APPROVED (no MUST-FIX) |
+| 6 | PR, CI, merge, and read-only live schema verification | pending | PR against main; live DB verification is an owner-coordinated step |
 
 ## Acceptance Criteria
 

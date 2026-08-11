@@ -12,12 +12,14 @@ interval_idx. When that lands, `interval_idx` moves from EXPECTED to BANNED
 here and the FSRS columns move into EXPECTED.
 """
 
+import datetime
 import os
 import sqlite3
 import tempfile
 import unittest
 from contextlib import contextmanager
 
+from config import APP_TZ
 from services import db as db_module
 from services.db import schema as db_schema
 
@@ -48,6 +50,8 @@ EXPECTED_COLUMNS = {
         "stability",           # NOTE: added in Phase 3a migration
         "difficulty",          # NOTE: added in Phase 3a migration
         "entry_source",        # NOTE: added in entry_source column change
+        "last_review_at",      # NOTE: added in Phase 02 (FSRS timestamp schema)
+        "next_review_at",      # NOTE: added in Phase 02 (FSRS timestamp schema)
     },
     "review_events": {"id", "word_id", "user_id", "outcome", "created_at"},
     "llm_requests": {"id", "request_id", "cost_usd", "preset_name"},
@@ -329,7 +333,7 @@ class MigrationGuardTests(unittest.TestCase):
                 "difficulty, entry_source) VALUES "
                 "(1, 'retain', 'en', 'retain', ?, 4, '2026-08-10', 'pending', "
                 "'2026-08-09T00:00:00+00:00', '2026-08-09T01:00:00+00:00', "
-                "2, '2026-08-09T00:00:00+00:00', 1, 8.5, 6.25, 'legacy_daily')",
+                "2, '2026-08-09T00:00:00+00:00', 0, 8.5, 6.25, 'legacy_daily')",
                 ('{"word":"retain","fa_meaning":"keep"}',),
             )
             conn.execute(
@@ -480,6 +484,231 @@ class MigrationGuardTests(unittest.TestCase):
         finally:
             BANNED_TABLES.clear()
             BANNED_TABLES.update(original)
+
+
+class TimestampSchemaMigrationTests(unittest.TestCase):
+    """Phase 02 — UTC review timestamp schema expansion.
+
+    Validates the rollback-compatible addition of `last_review_at` and
+    `next_review_at` on saved_words and the deterministic first-exposure reset
+    of invalid exposed rows, with no fabricated history and no behavior change.
+    """
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self._prev_db = db_module.DB_PATH
+        self._prev_schema_db = db_schema.DB_PATH
+        self.path = os.path.join(self.tempdir.name, "ts.sqlite")
+        db_module.DB_PATH = self.path
+        db_schema.DB_PATH = self.path
+
+    def tearDown(self):
+        db_module.DB_PATH = self._prev_db
+        db_schema.DB_PATH = self._prev_schema_db
+        self.tempdir.cleanup()
+
+    def _column_info(self, table):
+        with _closed_conn(self.path) as conn:
+            return {
+                row["name"]: {
+                    "type": row["type"],
+                    "notnull": row["notnull"],
+                    "dflt_value": row["dflt_value"],
+                }
+                for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+
+    def _saved_word_row(self, word):
+        with _closed_conn(self.path) as conn:
+            return conn.execute(
+                "SELECT * FROM saved_words WHERE word=?", (word,)
+            ).fetchone()
+
+    def _init_via_prior_schema(self):
+        """Point the live connection at the already-built prior-schema DB and
+        run the upgrade (the caller must have built the prior schema first)."""
+        db_module.DB_PATH = self.path
+        db_schema.DB_PATH = self.path
+        db_module.init_db()
+
+    def test_fresh_db_has_nullable_timestamp_columns(self):
+        db_module.init_db()
+        cols = self._column_info("saved_words")
+        for col in ("last_review_at", "next_review_at"):
+            self.assertIn(col, cols, f"Missing column {col}")
+            self.assertEqual(cols[col]["type"], "TEXT")
+            self.assertEqual(cols[col]["notnull"], 0, f"{col} must be nullable")
+            self.assertIsNone(cols[col]["dflt_value"], f"{col} must have no default")
+
+    def test_upgrade_adds_columns_without_data_loss(self):
+        build_prior_schema(self.path)
+        with _closed_conn(self.path) as conn:
+            conn.execute(
+                "INSERT INTO saved_words("
+                "user_id, word, lang, normalized_word, card_data, next_review, "
+                "review_status, review_requested_at, retry_at, "
+                "srs_retry_attempts, added_at, first_exposure_done, stability, "
+                "difficulty, entry_source) VALUES "
+                "(1, 'keep', 'en', 'keep', NULL, '2026-08-10', 'pending', "
+                "'2026-08-09T00:00:00+00:00', '2026-08-09T01:00:00+00:00', "
+                "2, '2026-08-09T00:00:00+00:00', 0, 0.0, 5.0, 'manual')"
+            )
+        db_module.DB_PATH = self.path
+        db_schema.DB_PATH = self.path
+        db_module.init_db()
+        row = self._saved_word_row("keep")
+        self.assertIsNotNone(row, "row must survive the upgrade")
+        self.assertEqual(row["word"], "keep")
+        self.assertEqual(row["first_exposure_done"], 0)
+        self.assertIsNone(row["last_review_at"])
+        self.assertIsNone(row["next_review_at"])
+
+    def test_unexposed_row_keeps_null_timestamps(self):
+        build_prior_schema(self.path)
+        with _closed_conn(self.path) as conn:
+            conn.execute(
+                "INSERT INTO saved_words("
+                "user_id, word, lang, normalized_word, card_data, next_review, "
+                "review_status, review_requested_at, retry_at, "
+                "srs_retry_attempts, added_at, first_exposure_done, stability, "
+                "difficulty, entry_source) VALUES "
+                "(1, 'never_reviewed', 'en', 'never_reviewed', NULL, "
+                "'2026-08-10', 'idle', NULL, NULL, 0, "
+                "'2026-08-09T00:00:00+00:00', 0, 0.0, 5.0, 'manual')"
+            )
+        db_module.DB_PATH = self.path
+        db_schema.DB_PATH = self.path
+        db_module.init_db()
+        row = self._saved_word_row("never_reviewed")
+        self.assertEqual(row["first_exposure_done"], 0)
+        self.assertIsNone(row["last_review_at"])
+        self.assertIsNone(row["next_review_at"])
+
+    def test_invalid_exposed_row_resets_to_first_exposure(self):
+        """first_exposure_done=1 with NULL last_review_at is an inconsistent
+        row (exposed without a grade time). It must reset to a deterministic
+        first-exposure state and clear transient review fields — without
+        fabricating a review timestamp."""
+        build_prior_schema(self.path)
+        with _closed_conn(self.path) as conn:
+            conn.execute(
+                "INSERT INTO saved_words("
+                "user_id, word, lang, normalized_word, card_data, next_review, "
+                "review_status, review_requested_at, retry_at, "
+                "srs_retry_attempts, added_at, first_exposure_done, stability, "
+                "difficulty, entry_source) VALUES "
+                "(1, 'invalid_exposed', 'en', 'invalid_exposed', NULL, "
+                "'2020-01-01', 'pending', '2026-08-09T10:00:00+00:00', "
+                "'2026-08-09T10:30:00+00:00', 3, "
+                "'2020-01-01T00:00:00+00:00', 1, 7.25, 6.5, 'legacy_daily')"
+            )
+        # Capture the expected date before init_db() so a midnight boundary
+        # between the two _today() evaluations cannot flake the assertion.
+        today = datetime.datetime.now(APP_TZ).date().isoformat()
+        self._init_via_prior_schema()
+        row = self._saved_word_row("invalid_exposed")
+        self.assertEqual(row["first_exposure_done"], 0)
+        self.assertEqual(row["stability"], 0.0)
+        self.assertEqual(row["difficulty"], 5.0)
+        self.assertIsNone(row["last_review_at"])
+        self.assertIsNone(row["next_review_at"])
+        self.assertEqual(row["next_review"], today)
+        self.assertEqual(row["review_status"], "idle")
+        self.assertIsNone(row["review_requested_at"])
+        self.assertIsNone(row["retry_at"])
+        self.assertEqual(row["srs_retry_attempts"], 0)
+
+    def test_valid_future_row_unchanged(self):
+        """A row that already has a non-null timestamp must be left alone."""
+        db_module.init_db()
+        with _closed_conn(self.path) as conn:
+            conn.execute(
+                "INSERT INTO saved_words("
+                "user_id, word, lang, normalized_word, card_data, next_review, "
+                "review_status, review_requested_at, retry_at, "
+                "srs_retry_attempts, added_at, first_exposure_done, stability, "
+                "difficulty, entry_source, last_review_at, next_review_at) VALUES "
+                "(1, 'valid', 'en', 'valid', NULL, '2026-08-12', 'idle', NULL, "
+                "NULL, 0, '2026-08-09T00:00:00+00:00', 1, 3.5, 4.75, 'manual', "
+                "'2026-08-10T08:00:00+00:00', '2026-08-12T08:00:00+00:00')"
+            )
+        # Re-run init_db to prove idempotency leaves the valid row untouched.
+        db_module.init_db()
+        row = self._saved_word_row("valid")
+        self.assertEqual(row["first_exposure_done"], 1)
+        self.assertEqual(row["last_review_at"], "2026-08-10T08:00:00+00:00")
+        self.assertEqual(row["next_review_at"], "2026-08-12T08:00:00+00:00")
+        self.assertEqual(row["next_review"], "2026-08-12")
+        self.assertEqual(row["stability"], 3.5)
+        self.assertEqual(row["difficulty"], 4.75)
+
+    def test_reset_does_not_run_on_fresh_db(self):
+        """The anomaly reset only fires when the timestamp columns are first
+        introduced (prior-schema upgrade). A fresh DB exposes the columns at
+        CREATE time, so an invalid exposed row inserted there must remain
+        untouched across repeated init_db()."""
+        db_module.init_db()
+        with _closed_conn(self.path) as conn:
+            conn.execute(
+                "INSERT INTO saved_words("
+                "user_id, word, lang, normalized_word, card_data, next_review, "
+                "review_status, review_requested_at, retry_at, "
+                "srs_retry_attempts, added_at, first_exposure_done, stability, "
+                "difficulty, entry_source) VALUES "
+                "(1, 'fresh_exposed', 'en', 'fresh_exposed', NULL, "
+                "'2026-08-12', 'pending', '2026-08-09T10:00:00+00:00', "
+                "'2026-08-09T10:30:00+00:00', 3, "
+                "'2026-08-09T00:00:00+00:00', 1, 7.25, 6.5, 'manual')"
+            )
+        db_module.init_db()
+        row = self._saved_word_row("fresh_exposed")
+        self.assertEqual(row["first_exposure_done"], 1)
+        self.assertEqual(row["stability"], 7.25)
+        self.assertEqual(row["difficulty"], 6.5)
+        self.assertEqual(row["review_status"], "pending")
+        self.assertEqual(row["srs_retry_attempts"], 3)
+
+    def test_init_db_is_idempotent(self):
+        build_prior_schema(self.path)
+        with _closed_conn(self.path) as conn:
+            conn.execute(
+                "INSERT INTO saved_words("
+                "user_id, word, lang, normalized_word, card_data, next_review, "
+                "review_status, review_requested_at, retry_at, "
+                "srs_retry_attempts, added_at, first_exposure_done, stability, "
+                "difficulty, entry_source) VALUES "
+                "(1, 'dup', 'en', 'dup', NULL, '2020-01-01', 'pending', "
+                "'2026-08-09T10:00:00+00:00', '2026-08-09T10:30:00+00:00', 3, "
+                "'2020-01-01T00:00:00+00:00', 1, 7.25, 6.5, 'legacy_daily')"
+            )
+        self._init_via_prior_schema()
+        first = self._saved_word_row("dup")
+        db_module.init_db()
+        second = self._saved_word_row("dup")
+        self.assertEqual(
+            tuple(first), tuple(second), "repeated init_db must not alter the row"
+        )
+
+    def test_legacy_next_review_still_readable(self):
+        """Rollback compatibility: legacy `next_review` remains present and
+        readable after the timestamp columns are added."""
+        db_module.init_db()
+        with _closed_conn(self.path) as conn:
+            conn.execute(
+                "INSERT INTO saved_words("
+                "user_id, word, lang, normalized_word, card_data, next_review, "
+                "review_status, review_requested_at, retry_at, "
+                "srs_retry_attempts, added_at, first_exposure_done, stability, "
+                "difficulty, entry_source) VALUES "
+                "(1, 'legacy', 'en', 'legacy', NULL, '2026-08-10', 'idle', NULL, "
+                "NULL, 0, '2026-08-09T00:00:00+00:00', 0, 0.0, 5.0, 'manual')"
+            )
+        with _closed_conn(self.path) as conn:
+            row = conn.execute(
+                "SELECT next_review, last_review_at, next_review_at "
+                "FROM saved_words WHERE word='legacy'"
+            ).fetchone()
+        self.assertEqual(row["next_review"], "2026-08-10")
 
 
 if __name__ == "__main__":
