@@ -154,6 +154,31 @@ class CustomWordQueryTests(unittest.TestCase):
     def test_should_show_pronounce_false_for_unknown_user(self):
         self.assertFalse(db.should_show_pronounce(999999))
 
+    def test_should_show_pronounce_honors_owner_bypass(self):
+        db.create_user_if_needed(1, "learner")
+        self._set_plan(1, "free")
+        db.set_setting("tts_access", "premium")
+        with patch("config.OWNER_ID", 1), patch("config.OWNER_BYPASS_LIMITS", True):
+            self.assertTrue(
+                db.should_show_pronounce(1),
+                "owner bypass with a stored free plan must see 🔊 under tts=premium",
+            )
+
+    def test_should_show_pronounce_accepts_passed_row(self):
+        db.create_user_if_needed(1, "learner")
+        self._set_plan(1, "free")
+        db.set_setting("tts_access", "premium")
+        row = db.get_user(1)
+        self.assertFalse(
+            db.should_show_pronounce(1, row),
+            "free stored plan with tts=premium stays hidden even when a row is passed",
+        )
+        premium_row = dict(row, plan="gold")
+        self.assertTrue(
+            db.should_show_pronounce(1, premium_row),
+            "a passed gold row must be honored without re-querying the DB",
+        )
+
     def test_clear_query_result_saved_nulls_markers(self):
         db.create_user_if_needed(1, "learner")
         token = db.create_query_result(

@@ -575,7 +575,7 @@ async def _handle_query_prepare(
         "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
     )
     phon_lines = _phonetic_lines(card.get("phonetic", ""))
-    show_pronounce = db.should_show_pronounce(user_id)
+    show_pronounce = db.should_show_pronounce(user_id, user_row)
     context.user_data[f"query_kb_{row['token']}"] = {
         "show_translations": False,
         "show_pronounce": show_pronounce,

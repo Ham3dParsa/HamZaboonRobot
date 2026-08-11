@@ -381,7 +381,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             delivered = False
             try:
                 show_translations = True
-                show_pronounce = db.should_show_pronounce(user_id)
+                show_pronounce = db.should_show_pronounce(user_id, row)
                 context.user_data[f"query_kb_{query_token}"] = {
                     "show_translations": show_translations,
                     "show_pronounce": show_pronounce,

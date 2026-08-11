@@ -255,7 +255,7 @@ def _build_card_text_and_keyboard(
     if node.activity_type == "first_exposure":
         keyboard = get_first_exposure_keyboard(user_id, word_id)
     else:
-        show_pronounce = _show_pronounce(user_id)
+        show_pronounce = db.should_show_pronounce(user_id)
         keyboard = get_review_keyboard(user_id, word_id, show_pronounce=show_pronounce)
 
     # format text — full card content via the shared formatter
@@ -274,10 +274,6 @@ def _build_card_text_and_keyboard(
     )
 
     return text, keyboard
-
-
-def _show_pronounce(user_id: int) -> bool:
-    return db.should_show_pronounce(user_id)
 
 
 def _session_number(user_id: int) -> int:

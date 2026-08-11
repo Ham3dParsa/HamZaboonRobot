@@ -366,5 +366,120 @@ class ShowStatusQuotaRenderTests(unittest.TestCase):
         self.assertIn(f"2/{limit} (باقی‌مانده {max(limit - 2, 0)})", captured["text"])
 
 
+class TTSGateShowPronounceFlowTests(unittest.TestCase):
+    """Rule H+J — the 🔊 pronounce button is decided by ONE shared helper.
+
+    Regression coverage for the Kilo warning on PR #316: the delivered-card gate
+    (bot.py text_router), the prepare path (handlers.user._handle_query_prepare),
+    and the study session previously computed ``show_pronounce`` independently, so
+    a free user granted ``tts_access="all"`` saw the button on some cards but not
+    others. These tests pin the handler wiring (not just the helper) so the bug
+    path stays guarded, including the owner bypass.
+    """
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.previous_db_path = db.DB_PATH
+        self.previous_db_schema_path = db_schema.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        db_schema.DB_PATH = db.DB_PATH
+        db.init_db()
+        db.create_user_if_needed(1, "learner")
+        db.set_user_lang_goal(1, "en", "general")
+        db.set_user_level(1, "beginner")
+        self.card = {
+            "word": "hello",
+            "fa_meaning": "سلام",
+            "fa_explanation": "برای سلام کردن.",
+            "examples": ["Hello!"],
+        }
+
+    def tearDown(self):
+        db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
+        self.tempdir.cleanup()
+
+    def _ask_word_update(self):
+        message = MagicMock()
+        message.text = "hello"
+        message.reply_text = AsyncMock()
+        chat = MagicMock()
+        chat.id = 1
+        chat.send_action = AsyncMock()
+        update = MagicMock()
+        update.effective_user.id = 1
+        update.message = message
+        update.effective_chat = chat
+        return update
+
+    def _run_text_router(self, *, owner=False):
+        update = self._ask_word_update()
+        context = MagicMock()
+        context.user_data = {"awaiting": "ask_word"}
+        context.bot.send_message = AsyncMock()
+        with patch.object(bot, "_call_ai_limited", return_value=self.card), \
+             patch.object(bot, "_prepare_cached_card", return_value=self.card), \
+             patch.object(bot, "_start_llm_wait_state", new=AsyncMock(return_value=None)), \
+             patch.object(bot, "_finish_llm_wait_state", new=AsyncMock()), \
+             patch.object(bot, "is_owner", return_value=owner):
+            asyncio.run(bot.text_router(update, context))
+        return context
+
+    def _delivered_card_has_pronounce(self, context):
+        for call in context.bot.send_message.call_args_list:
+            kb = call.kwargs.get("reply_markup")
+            if not kb or not hasattr(kb, "inline_keyboard"):
+                continue
+            for row in kb.inline_keyboard:
+                for button in row:
+                    if str(button.callback_data).startswith("tts:pronounce:q:"):
+                        return True
+        return False
+
+    def test_text_router_free_user_with_tts_all_sees_pronounce(self):
+        db.set_setting("tts_access", "all")
+        context = self._run_text_router()
+        self.assertTrue(
+            self._delivered_card_has_pronounce(context),
+            "free user with tts_access=all must see the 🔊 button on the delivered card",
+        )
+
+    def test_text_router_free_user_with_tts_premium_hides_pronounce(self):
+        db.set_setting("tts_access", "premium")
+        context = self._run_text_router()
+        self.assertFalse(
+            self._delivered_card_has_pronounce(context),
+            "free user with tts_access=premium must NOT see the 🔊 button",
+        )
+
+    def test_text_router_owner_bypass_sees_pronounce_with_stored_free_plan(self):
+        db.set_setting("tts_access", "premium")
+        with patch("config.OWNER_ID", 1), patch("config.OWNER_BYPASS_LIMITS", True):
+            context = self._run_text_router(owner=True)
+        self.assertTrue(
+            self._delivered_card_has_pronounce(context),
+            "owner bypass (stored free plan) must still see the 🔊 button under tts=premium",
+        )
+
+    def test_query_prepare_persists_correct_show_pronounce_for_free_tts_all(self):
+        from handlers import user as user_handlers
+
+        db.set_setting("tts_access", "all")
+        token = db.create_query_result(1, "hello", "hello", "en", self.card)
+        update = MagicMock()
+        update.effective_user.id = 1
+        update.callback_query.answer = AsyncMock()
+        context = MagicMock()
+        context.user_data = {}
+        with patch.object(user_handlers, "_message_has_prepared_translations", return_value=False), \
+             patch.object(user_handlers, "_prepare_cached_card", return_value=self.card), \
+             patch.object(user_handlers, "_edit_with_retry", new=AsyncMock()):
+            asyncio.run(user_handlers._handle_query_prepare(update, context, token))
+        self.assertTrue(
+            context.user_data[f"query_kb_{token}"]["show_pronounce"],
+            "prepare path must persist show_pronounce=True for a free user with tts_access=all",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
