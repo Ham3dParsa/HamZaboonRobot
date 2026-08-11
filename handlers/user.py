@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import re
 import time
 
 from telegram import Update
@@ -53,13 +52,10 @@ from services.utils.helpers import (
     _finish_llm_wait_state,
     _is_cancel_input,
     _message_has_prepared_translations,
-    _normalize_custom_word_input,
     _send_with_retry,
     _start_llm_wait_state,
     _user_activity_line,
     _CANCEL_INPUTS,
-    _CUSTOM_WORD_MAX_CHARS,
-    _CUSTOM_WORD_MAX_WORDS,
 )
 from config.keyboards import (
     main_menu,
@@ -524,41 +520,6 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 # ---------------- Callback handlers ----------------
-
-
-def _custom_word_input_error(text: str, target_lang: str) -> str | None:
-    normalized = _normalize_custom_word_input(text)
-    if not normalized:
-        return "یک واژه یا عبارت کوتاه بفرست."
-
-    if len(normalized) > _CUSTOM_WORD_MAX_CHARS:
-        return f"حداکثر {_CUSTOM_WORD_MAX_CHARS} کاراکتر مجاز است."
-
-    words = normalized.split()
-    if len(words) > _CUSTOM_WORD_MAX_WORDS:
-        return f"فقط یک واژه یا عبارت کوتاهِ حداکثر {_CUSTOM_WORD_MAX_WORDS} کلمه‌ای بفرست."
-
-    if any(len(word) > 25 for word in words):
-        return "واژه یا عبارتت خیلی بلند است؛ کوتاه‌تر بفرست."
-
-    if not re.fullmatch(r"[\w\s\u0600-\u06FF'’\-ـ.,؟«»؛،؟]+", normalized):
-        return "لطفاً فقط واژه یا عبارت ساده بفرست (علائم محدود مجاز است)."
-
-    has_persian = bool(re.search(r"[\u0600-\u06FF]", normalized))
-    has_latin = bool(re.search(r"[A-Za-z]", normalized))
-
-    if not has_persian and not has_latin:
-        return "یک واژه یا عبارت واقعی بفرست."
-
-    latin_target = target_lang in {"en", "es", "fr", "de"}
-
-    if latin_target and has_persian and len(words) >= 4:
-        return "برای این زبان، عبارت کوتاه‌تری بفرست (حداکثر ۳-۴ کلمه)."
-
-    if latin_target and not has_latin and len(words) > 3:
-        return "برای این زبان، عبارت کوتاه‌تری بفرست (حداکثر ۳ کلمه)."
-
-    return None
 
 
 async def _handle_query_prepare(

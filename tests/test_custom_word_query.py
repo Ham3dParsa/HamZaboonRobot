@@ -11,8 +11,15 @@ from services.db import schema as db_schema
 from services.utils.formatting import escape_mdv2_code, format_card
 from services.utils.helpers import _is_cancel_input
 from bot import (
-    _custom_word_input_error,
     _user_presentation,
+)
+from services.utils.validation import (
+    ERR_EMPTY,
+    ERR_INVALID_CHARS,
+    ERR_TOO_FEW_LETTERS,
+    ERR_TOO_LONG,
+    ERR_TOO_MANY_WORDS,
+    validate_word_query,
 )
 from config.keyboards import (
     BTN_ASK_WORD,
@@ -138,10 +145,57 @@ class CustomWordQueryTests(unittest.TestCase):
         self.assertEqual([row["word"] for row in rows], ["query-word"])
 
     def test_custom_word_validation_rejects_long_or_unrelated_input(self):
-        self.assertIsNone(_custom_word_input_error("thick burger", "en"))
+        self.assertIsNone(validate_word_query("thick burger", "en"))
         # "همبرگر آفرقایی کلفت" is now considered valid input
-        self.assertIsNone(_custom_word_input_error("one two three four", "en"))  # 4 words, Latin target, no Persian
-        self.assertIsNotNone(_custom_word_input_error("", "en"))
+        self.assertIsNone(validate_word_query("one two three four", "en"))  # 4 words, Latin target, no Persian
+        self.assertEqual(validate_word_query("", "en"), ERR_EMPTY)
+        self.assertEqual(validate_word_query("   ", "en"), ERR_EMPTY)
+
+    def test_validate_word_query_rejects_digits_and_non_letters(self):
+        # ses_01b176ac re-lock: digits are rejected even inside an otherwise
+        # valid phrase (e.g. "قرن ۲۱").
+        self.assertEqual(validate_word_query("قرن ۲۱", "en"), ERR_INVALID_CHARS)
+        self.assertEqual(validate_word_query("hello123", "en"), ERR_INVALID_CHARS)
+        self.assertEqual(validate_word_query("qwrty", "en"), None)  # no vowel heuristic
+        self.assertEqual(validate_word_query("Rhythmus", "en"), None)
+
+    def test_validate_word_query_requires_at_least_two_letters(self):
+        # Owner decision 2026-08-11: punctuation-only (or single-letter) queries
+        # are invalid so they cannot burn daily quota or an AI call.
+        self.assertEqual(validate_word_query("-", "en"), ERR_TOO_FEW_LETTERS)
+        self.assertEqual(validate_word_query("---", "en"), ERR_TOO_FEW_LETTERS)
+        self.assertEqual(validate_word_query("'", "en"), ERR_TOO_FEW_LETTERS)
+        self.assertEqual(validate_word_query("a", "en"), ERR_TOO_FEW_LETTERS)
+        self.assertEqual(validate_word_query("ab", "en"), None)
+        self.assertEqual(validate_word_query("aa", "en"), None)
+
+    def test_validate_word_query_is_unicode_aware(self):
+        self.assertIsNone(validate_word_query("همبرگر", "fa"))
+        self.assertIsNone(validate_word_query("برگر کلفت", "en"))
+        # Persian digits and Latin digits are both non-letters -> rejected.
+        self.assertEqual(validate_word_query("ساعت 12", "fa"), ERR_INVALID_CHARS)
+        self.assertEqual(validate_word_query("ساعت ۱۲", "fa"), ERR_INVALID_CHARS)
+
+    def test_validate_word_query_allows_punctuation_and_zwnj(self):
+        self.assertIsNone(validate_word_query("don't", "en"))
+        self.assertIsNone(validate_word_query("میخواهم", "fa"))
+        # Hyphen, ZWNJ, apostrophe, and right single quote are the allowed set.
+        self.assertIsNone(validate_word_query("self-contained", "en"))
+        self.assertIsNone(validate_word_query("خودکار", "fa"))
+
+    def test_validate_word_query_enforces_length_and_word_caps(self):
+        self.assertEqual(validate_word_query("a" * 49, "en"), ERR_TOO_LONG)
+        self.assertIsNone(validate_word_query("a" * 48, "en"))
+        self.assertEqual(
+            validate_word_query("one two three four five", "en"),
+            ERR_TOO_MANY_WORDS,
+        )
+
+    def test_validate_word_query_language_does_not_change_acceptance(self):
+        # Rule B: language is retained for message tailoring only.
+        self.assertEqual(validate_word_query("قرن ۲۱", "fa"), ERR_INVALID_CHARS)
+        self.assertEqual(validate_word_query("قرن ۲۱", "en"), ERR_INVALID_CHARS)
+        self.assertIsNone(validate_word_query("Rhythmus", "de"))
 
     def test_cancel_back_inline_keyboard_is_shared(self):
         markup = awaiting_inline_keyboard()

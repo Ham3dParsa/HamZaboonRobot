@@ -220,6 +220,7 @@ Keep responsibilities aligned with the current module boundaries:
     - `services/utils/callback_notifications.py`: Deep callback-query notification seam; semantic intent mapping, empty acknowledgements, and expected Telegram callback-answer failure handling.
     - `services/utils/formatting.py`: Learner-facing message formatting and escaping behind a stable interface.
     - `services/utils/helpers.py`: Shared helper functions (retry, cancel detection, etc.).
+    - `services/utils/validation.py`: Pure custom-word input validation seam — `validate_word_query(text, language) -> Optional[error_key]` (digit rejection, Unicode `isalpha`, no vowel heuristic).
   - `services/scheduling.py`: Pure session sizing, slot planning, and timezone-aware planned timestamps.
   - `services/tts.py`: Text-to-Speech generation using Edge TTS.
   - `services/session/`: Pure FSRS session engine (frontend-agnostic).

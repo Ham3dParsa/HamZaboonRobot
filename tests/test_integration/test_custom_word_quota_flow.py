@@ -133,5 +133,90 @@ class GrammarTipQuotaReleaseFlowTests(unittest.TestCase):
         )
 
 
+class CustomWordValidationFlowTests(unittest.TestCase):
+    """Rule B: invalid input is rejected before quota reserve and AI.
+
+    A query containing digits (e.g. Persian "قرن ۲۱" or Latin "hello123") must be
+    rejected by the validate_word_query seam before reserve_word_query runs and
+    before any AI call, so the learner is neither charged nor billed.
+    """
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.previous_db_path = db.DB_PATH
+        self.previous_db_schema_path = db_schema.DB_PATH
+        db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
+        db_schema.DB_PATH = db.DB_PATH
+        db.init_db()
+        db.create_user_if_needed(1, "learner")
+        db.set_user_lang_goal(1, "en", "general")
+        db.set_user_level(1, "beginner")
+
+    def tearDown(self):
+        db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
+        self.tempdir.cleanup()
+
+    def _make_update(self, text):
+        message = MagicMock()
+        message.text = text
+        message.reply_text = AsyncMock()
+        chat = MagicMock()
+        chat.id = 1
+        chat.send_action = AsyncMock()
+        update = MagicMock()
+        update.effective_user.id = 1
+        update.message = message
+        update.effective_chat = chat
+        return update
+
+    def _run_invalid(self, text):
+        update = self._make_update(text)
+        context = MagicMock()
+        context.user_data = {"awaiting": "ask_word"}
+        context.bot.send_message = AsyncMock()
+        with patch.object(bot, "is_owner", return_value=False), \
+             patch.object(bot, "_call_ai_limited", new=AsyncMock()) as ai_mock:
+            asyncio.run(bot.text_router(update, context))
+        return context, ai_mock
+
+    def test_digit_query_is_rejected_before_reserve_and_ai(self):
+        for bad in ("قرن ۲۱", "hello123", "ساعت ۱۲"):
+            with self.subTest(bad=bad):
+                context, ai_mock = self._run_invalid(bad)
+                self.assertEqual(
+                    db.get_user(1)["words_asked_today"],
+                    0,
+                    f"invalid query {bad!r} must not reserve word-query quota",
+                )
+                ai_mock.assert_not_called()
+                sent = context.bot.send_message.call_args.kwargs["text"]
+                self.assertIn("لطفاً فقط واژه یا عبارت ساده بفرست", sent)
+
+    def test_punctuation_only_query_is_rejected_before_reserve_and_ai(self):
+        # Owner decision 2026-08-11: punctuation-only input (no real word) must
+        # not reserve quota or trigger an AI call.
+        context, ai_mock = self._run_invalid("---")
+        self.assertEqual(db.get_user(1)["words_asked_today"], 0)
+        ai_mock.assert_not_called()
+        sent = context.bot.send_message.call_args.kwargs["text"]
+        self.assertIn("یک واژه یا عبارت واقعی بفرست", sent)
+
+    def test_valid_digit_free_query_still_reaches_ai(self):
+        context = MagicMock()
+        update = self._make_update("hello")
+        context.user_data = {"awaiting": "ask_word"}
+        context.bot.send_message = AsyncMock()
+        card = {"word": "hello", "fa_meaning": "سلام", "fa_explanation": "برای سلام", "examples": []}
+        with patch.object(bot, "is_owner", return_value=False), \
+             patch.object(bot, "_call_ai_limited", return_value=card) as ai_mock, \
+             patch.object(bot, "_prepare_cached_card", return_value=card), \
+             patch.object(bot, "_start_llm_wait_state", new=AsyncMock(return_value=None)), \
+             patch.object(bot, "_finish_llm_wait_state", new=AsyncMock()):
+            asyncio.run(bot.text_router(update, context))
+        ai_mock.assert_called()
+        self.assertEqual(db.get_user(1)["words_asked_today"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
