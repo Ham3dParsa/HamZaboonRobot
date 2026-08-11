@@ -29,7 +29,7 @@ Decision: Feedback shown after a successful grade submission.
 
 Rule #: 1
 Decision: Successful grade feedback presentation.
-Option Chosen: A - silent toast using `update.callback_query.answer(text, show_alert=False)`.
+Option Chosen: A - silent toast via `notify_callback(query, text, intent=CallbackNoticeIntent.SUCCESS)` (shared module, `show_alert=False`).
 Alternatives Rejected: B - modal, because it interrupts every successful review.
 Trade-offs: The toast preserves study flow but is less prominent than a modal.
 Owner Confirmation: "lock it hell yeah."
