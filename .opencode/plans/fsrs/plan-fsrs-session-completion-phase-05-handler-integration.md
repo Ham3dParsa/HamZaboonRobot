@@ -41,7 +41,7 @@ resolve grade through existing GradePolicy
 call grade_first_exposure or grade_word_review
 
 if GradeResult is falsy:
-    answer expected Persian error
+    notify_callback(query, error_text, intent=IMPORTANT_ERROR)
     do not record event
     do not touch streak
     do not advance session
@@ -49,7 +49,7 @@ if GradeResult is falsy:
 if successful:
     record review event in separate transaction
     touch streak
-    show relative next-review alert
+    notify_callback(query, next_review_text, intent=SUCCESS)
     advance session
 ```
 
@@ -71,9 +71,12 @@ rounded interval > 1 day:
     ثبت شد؛ مرور بعدی: N روز دیگر.
 ```
 
-`callback_query.answer` uses plain text and no Markdown parse mode. The helper
-still belongs in centralized formatting code for natural Persian and testable
-copy consistency.
+Successful grades use a short toast via
+`notify_callback(query, text, intent=SUCCESS)` (`show_alert=False`) with the
+relative next-review time and no Markdown parse mode. Expected errors use
+`notify_callback(query, text, intent=IMPORTANT_ERROR)` (`show_alert=True`) so
+the learner must notice the problem. Message text belongs in centralized
+formatting code for natural Persian and testable copy consistency.
 
 ## Session and Quota Contract
 
@@ -115,7 +118,7 @@ transitions.
 
 | Flow | Required assertion |
 |---|---|
-| First exposure | callback persists timestamps/state/event and shows relative alert |
+| First exposure | callback persists timestamps/state/event and shows relative toast |
 | Regular review | callback persists FSRS transition/event and advances session |
 | Wrong state | no event, streak, or advance |
 | FE double tap | second tap is harmless `wrong_state` |
@@ -150,4 +153,9 @@ transitions.
 
 ## Blocked Questions
 
-None.
+- [2026-08-10] Grade-result feedback UX is locked by issue #308: successful
+  grades use `notify_callback(query, text, intent=SUCCESS)` (brief toast,
+  `show_alert=False`) with relative next-review time; expected errors use
+  `notify_callback(query, text, intent=IMPORTANT_ERROR)` (modal alert,
+  `show_alert=True`). Shared module: `services/utils/callback_notifications.py`
+  (foundation #311). Owner confirmation: "lock it hell yeah."
