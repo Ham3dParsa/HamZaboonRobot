@@ -9,6 +9,27 @@ def get_user(user_id: int):
         return conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
 
 
+def should_show_pronounce(user_id: int) -> bool:
+    """Whether the 🔊 pronounce button is shown for a user.
+
+    Honors the admin ``tts_access`` setting (none/premium/all): none → False;
+    a paid plan → True; otherwise True only when tts_access == "all". Single
+    source of truth for every card/button so the admin toggle never drifts.
+    """
+    from config import PREMIUM_PLANS
+    from services.db.settings import get_setting
+    row = get_user(user_id)
+    if not row:
+        return False
+    plan = row["plan"] or "free"
+    tts_setting = get_setting("tts_access", "premium")
+    if tts_setting == "none":
+        return False
+    if plan in PREMIUM_PLANS:
+        return True
+    return tts_setting == "all"
+
+
 def get_quota_status(user_id: int) -> dict | None:
     """Return today's remaining word-query and grammar-tip quota for a user.
 

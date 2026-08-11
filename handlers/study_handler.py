@@ -16,7 +16,6 @@ from telegram.ext import ContextTypes
 
 from config import (
     OWNER_BYPASS_LIMITS,
-    PREMIUM_PLANS,
     cards_per_session_for_plan,
     is_owner,
 )
@@ -278,16 +277,7 @@ def _build_card_text_and_keyboard(
 
 
 def _show_pronounce(user_id: int) -> bool:
-    row = db.get_user(user_id)
-    if not row:
-        return False
-    plan = row["plan"] or "free"
-    tts_setting = db.get_setting("tts_access", "premium")
-    if tts_setting == "none":
-        return False
-    if plan in PREMIUM_PLANS:
-        return True
-    return tts_setting == "all"
+    return db.should_show_pronounce(user_id)
 
 
 def _session_number(user_id: int) -> int:

@@ -31,7 +31,6 @@ from config import (
     USER_ACTIVITY,
     _app_today,
     _user_presentation,
-    _user_plan,
     _user_plan_label,
     daily_word_query_limit_for_plan,
     effective_daily_allowance,
@@ -576,9 +575,10 @@ async def _handle_query_prepare(
         "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
     )
     phon_lines = _phonetic_lines(card.get("phonetic", ""))
+    show_pronounce = db.should_show_pronounce(user_id)
     context.user_data[f"query_kb_{row['token']}"] = {
         "show_translations": False,
-        "show_pronounce": _user_plan(user_row) in PREMIUM_PLANS,
+        "show_pronounce": show_pronounce,
     }
     try:
         await _edit_with_retry(
@@ -594,7 +594,7 @@ async def _handle_query_prepare(
             reply_markup=query_result_keyboard(
                 row["token"], row["lang"],
                 show_translations=False,
-                show_pronounce=_user_plan(user_row) in PREMIUM_PLANS,
+                show_pronounce=show_pronounce,
             ),
         )
     except BadRequest as exc:

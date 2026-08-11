@@ -284,6 +284,10 @@ class QueryAddToggleFlowTests(unittest.TestCase):
         saved_markup = update.effective_message.edit_reply_markup.call_args.kwargs["reply_markup"]
         saved_calls = [b.callback_data for r in saved_markup.inline_keyboard for b in r]
         self.assertIn("حذف از جعبه مرور", saved_markup.inline_keyboard[0][0].text)
+        self.assertIsNotNone(
+            db.get_query_result(self.token, user_id=1)["saved_at"],
+            "save sets the saved marker",
+        )
         self.assertTrue(
             any(c.startswith("query:prepare:") for c in saved_calls),
             "toggle edit must preserve the translations button",
@@ -303,6 +307,10 @@ class QueryAddToggleFlowTests(unittest.TestCase):
         )
         removed_markup = update.effective_message.edit_reply_markup.call_args.kwargs["reply_markup"]
         self.assertIn("ذخیره در جعبه مرور", removed_markup.inline_keyboard[0][0].text)
+        self.assertIsNone(
+            db.get_query_result(self.token, user_id=1)["saved_at"],
+            "removal clears the saved marker",
+        )
 
         # Third tap saves again (idempotent round-trip).
         update = self._make_update()

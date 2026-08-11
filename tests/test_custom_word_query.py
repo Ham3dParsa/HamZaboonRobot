@@ -133,6 +133,39 @@ class CustomWordQueryTests(unittest.TestCase):
     def test_get_quota_status_returns_none_for_unknown_user(self):
         self.assertIsNone(db.get_quota_status(999999))
 
+    def _set_plan(self, user_id, plan):
+        with db.get_conn() as conn:
+            conn.execute("UPDATE users SET plan=? WHERE user_id=?", (plan, user_id))
+            conn.commit()
+
+    def test_should_show_pronounce_honors_tts_access_gate(self):
+        db.create_user_if_needed(1, "learner")
+        db.set_setting("tts_access", "all")
+        self.assertTrue(db.should_show_pronounce(1), "free user sees 🔊 when tts=all")
+
+        db.set_setting("tts_access", "premium")
+        self.assertFalse(db.should_show_pronounce(1), "free user hidden when tts=premium")
+        self._set_plan(1, "gold")
+        self.assertTrue(db.should_show_pronounce(1), "premium user sees 🔊 when tts=premium")
+
+        db.set_setting("tts_access", "none")
+        self.assertFalse(db.should_show_pronounce(1), "none hides 🔊 even for premium")
+
+    def test_should_show_pronounce_false_for_unknown_user(self):
+        self.assertFalse(db.should_show_pronounce(999999))
+
+    def test_clear_query_result_saved_nulls_markers(self):
+        db.create_user_if_needed(1, "learner")
+        token = db.create_query_result(
+            1, "hello", "hello", "en", {"word": "hello", "examples": []}
+        )
+        db.mark_query_result_saved(token)
+        self.assertIsNotNone(db.get_query_result(token, user_id=1)["saved_at"])
+        db.clear_query_result_saved(token)
+        row = db.get_query_result(token, user_id=1)
+        self.assertIsNone(row["saved_at"])
+        self.assertIsNone(row["saved_word_id"])
+
     def test_srs_review_keyboard_is_user_scoped_and_short(self):
         markup = get_review_keyboard(123, 456)
         callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]

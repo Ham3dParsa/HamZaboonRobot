@@ -49,6 +49,7 @@ async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         message = "در جعبه مرور ذخیره شد!"
         logger.info("query result saved user_id=%s word_id_token=%s", user_id, token)
     else:
+        db.clear_query_result_saved(token)
         message = "از جعبه مرور حذف شد!"
         logger.info("query result removed user_id=%s word_id_token=%s", user_id, token)
 
