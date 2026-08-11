@@ -95,7 +95,7 @@ async def _handle_srs_review(
     await notify_callback(
         update.callback_query,
         "ثبت شد؛ مرور بعدی زمان‌بندی شد.",
-        intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        intent=CallbackNoticeIntent.SUCCESS,
     )
     _log_ua(update, action="srs_review", outcome=f"grade_{grade}")
     logger.info(
@@ -145,6 +145,6 @@ async def _handle_first_exposure_grade(
         response_time_ms=None,
     )
     db.touch_streak(user_id)
-    await notify_callback(update.callback_query, "ثبت شد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+    await notify_callback(update.callback_query, "ثبت شد.", intent=CallbackNoticeIntent.SUCCESS)
     _log_ua(update, action="first_exposure", outcome=f"grade_{grade}")
     await advance_session(update, context)
