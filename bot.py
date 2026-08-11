@@ -23,11 +23,9 @@ from config import (
     BOT_TOKEN,
     OWNER_ID,
     APP_TZ,
-    AI_CARD_OUTPUT_FORMAT,
     ASK_WORD_AI_TIMEOUT_SECONDS,
     CONNECTION_HEALTH_INTERVAL_SECONDS,
     PREMIUM_PLANS,
-    OWNER_BYPASS_LIMITS,
     daily_word_query_limit_for_plan,
     effective_daily_allowance,
     presentation_for_user,
@@ -41,8 +39,8 @@ from config import (
 )
 from services import db
 from services.ai import ai
-from services.ai import prompts
 from services import tts
+from services import word_query
 from config.catalog import (
     GOALS,
     LANGUAGES,
@@ -72,7 +70,6 @@ from config.keyboards import (
 )
 
 from services.utils.formatting import (
-    CardPreparationError,
     format_card,
     _phonetic_lines,
 )
@@ -101,7 +98,6 @@ from services.utils.validation import (
     ERR_TOO_FEW_LETTERS,
     ERR_TOO_LONG,
     ERR_TOO_MANY_WORDS,
-    validate_word_query,
 )
 
 # Learner-facing Persian messages for the custom-word validation error keys.
@@ -151,7 +147,6 @@ from handlers.user import (
     show_status,
     _handle_query_prepare,
     _show_settings_menu,
-    _word_query_usage_text,
 )
 
 from handlers.help_command import send_help_panel, handle_help_callback
@@ -264,22 +259,67 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if awaiting == "ask_word":
             row = db.get_user(user_id)
             limit = daily_word_query_limit_for_plan(row["plan"] if row else "free")
-            error_key = validate_word_query(text, row["target_lang"] if row else "en")
-            if error_key:
-                error = _WORD_QUERY_ERROR_MESSAGES[error_key]
+
+            # --- build the rate-limited 2-step generator (handler owns Telegram infra) ---
+            deadline = time.monotonic() + ASK_WORD_AI_TIMEOUT_SECONDS
+
+            async def generate_card(*, system_prompt, user_prompt, request_kind, user_id, plan):
+                # The wait-state wraps ONLY the AI pipeline, so invalid input and
+                # quota-exhausted never flash a misleading "thinking" message.
+                wait_message = await _start_llm_wait_state(
+                    update,
+                    context,
+                    "⏳ دارم معنی و توضیحش رو پیدا می‌کنم…",
+                )
+                try:
+                    data = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            _call_ai_limited,
+                            ai.ask_card,
+                            system_prompt,
+                            user_prompt=user_prompt,
+                            request_kind=request_kind,
+                            user_id=user_id,
+                            plan=plan,
+                            deadline=deadline,
+                        ),
+                        timeout=max(0.0, deadline - time.monotonic()),
+                    )
+                    return await asyncio.wait_for(
+                        asyncio.to_thread(
+                            _prepare_cached_card,
+                            data,
+                            lang=row["target_lang"],
+                            user_id=user_id,
+                            plan=plan or "free",
+                            source="custom_word",
+                            persist_patch=lambda patch: True,
+                            deadline=deadline,
+                        ),
+                        timeout=max(0.0, deadline - time.monotonic()),
+                    )
+                finally:
+                    await _finish_llm_wait_state(wait_message)
+
+            result = await word_query.ask(
+                user_id,
+                text,
+                lang=row["target_lang"] if row else "en",
+                level=row["level"] if row else "...",
+                plan=row["plan"] if row else "free",
+                generate_card=generate_card,
+            )
+
+            if result.kind == "invalid_input":
                 context.user_data["awaiting"] = "ask_word"
                 await _send_with_retry(
                     context.bot,
                     update.effective_chat.id,
-                    f"{error}\n\nچه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟",
+                    f"{_WORD_QUERY_ERROR_MESSAGES[result.error_key]}\n\nچه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟",
                     reply_markup=awaiting_inline_keyboard(),
                 )
                 return
-            if not db.reserve_word_query(
-                user_id,
-                limit,
-                bypass_limits=OWNER_BYPASS_LIMITS and is_owner(user_id),
-            ):
+            if result.kind == "quota_exhausted":
                 await _send_with_retry(
                     context.bot,
                     update.effective_chat.id,
@@ -287,33 +327,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=main_menu(is_owner(user_id)),
                 )
                 return
-            wait_message = await _start_llm_wait_state(
-                update,
-                context,
-                "⏳ دارم معنی و توضیحش رو پیدا می‌کنم…",
-            )
-            deadline = time.monotonic() + ASK_WORD_AI_TIMEOUT_SECONDS
-            try:
-                data = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        _call_ai_limited,
-                        ai.ask_card,
-                        prompts.custom_word_system_prompt(
-                            row["target_lang"],
-                            row["level"],
-                            compact=AI_CARD_OUTPUT_FORMAT == "compact_json",
-                        ),
-                        user_prompt=text,
-                        request_kind="custom_word",
-                        user_id=user_id,
-                        plan=row["plan"] or "free",
-                        deadline=deadline,
-                    ),
-                    timeout=max(0.0, deadline - time.monotonic()),
-                )
-            except asyncio.TimeoutError:
-                db.release_word_query(user_id)
-                await _finish_llm_wait_state(wait_message)
+            if result.kind == "ai_timeout":
                 await _send_with_retry(
                     context.bot,
                     update.effective_chat.id,
@@ -321,10 +335,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=main_menu(is_owner(user_id)),
                 )
                 return
-            except Exception:
-                db.release_word_query(user_id)
-                log.exception("AI error")
-                await _finish_llm_wait_state(wait_message)
+            if result.kind == "ai_error":
                 await _send_with_retry(
                     context.bot,
                     update.effective_chat.id,
@@ -332,33 +343,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=main_menu(is_owner(user_id)),
                 )
                 return
-            try:
-                data = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        _prepare_cached_card,
-                        data,
-                        lang=row["target_lang"],
-                        user_id=user_id,
-                        plan=row["plan"] or "free",
-                        source="custom_word",
-                        persist_patch=lambda patch: True,
-                        deadline=deadline,
-                    ),
-                    timeout=max(0.0, deadline - time.monotonic()),
-                )
-            except asyncio.TimeoutError:
-                db.release_word_query(user_id)
-                await _finish_llm_wait_state(wait_message)
-                await _send_with_retry(
-                    context.bot,
-                    update.effective_chat.id,
-                    _AI_BUSY_MESSAGE,
-                    reply_markup=main_menu(is_owner(user_id)),
-                )
-                return
-            except CardPreparationError:
-                db.release_word_query(user_id)
-                await _finish_llm_wait_state(wait_message)
+            if result.kind == "card_prep_error":
                 await _send_with_retry(
                     context.bot,
                     update.effective_chat.id,
@@ -366,35 +351,23 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=main_menu(is_owner(user_id)),
                 )
                 return
-            row_after = db.get_user(user_id)
-            usage_row = row_after or row
-            usage_text = _word_query_usage_text(usage_row) if usage_row else f"📊 استفاده امروز: 1/{limit}"
-            query_token = db.create_query_result(
-                user_id,
-                text,
-                data.get("word", text),
-                row["target_lang"] if row else "en",
-                data,
-            )
-            db.touch_streak(user_id)
-            log.info("custom word query delivered user_id=%s lang=%s", user_id, row["target_lang"])
-            await _finish_llm_wait_state(wait_message)
-            phon_lines = _phonetic_lines(data.get("phonetic", ""))
+
+            show_translations = True
+            show_pronounce = bool(result.show_pronounce)
+            context.user_data[f"query_kb_{result.token}"] = {
+                "show_translations": show_translations,
+                "show_pronounce": show_pronounce,
+            }
+            phon_lines = _phonetic_lines(result.card_data.get("phonetic", ""))
             delivered = False
             try:
-                show_translations = True
-                show_pronounce = db.should_show_pronounce(user_id, row)
-                context.user_data[f"query_kb_{query_token}"] = {
-                    "show_translations": show_translations,
-                    "show_pronounce": show_pronounce,
-                }
                 await _send_with_retry(
                     context.bot,
                     update.effective_chat.id,
                     format_card(
-                        data,
+                        result.card_data,
                         footer=(
-                            f"{usage_text}\n\n"
+                            f"{result.usage_text}\n\n"
                             "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
                         ),
                         presentation=_user_presentation(row),
@@ -402,7 +375,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     ),
                     parse_mode=ParseMode.MARKDOWN_V2,
                     reply_markup=query_result_keyboard(
-                        query_token,
+                        result.token,
                         row["target_lang"] if row else "en",
                         show_translations=show_translations,
                         show_pronounce=show_pronounce,
@@ -412,6 +385,11 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             finally:
                 if not delivered:
                     db.release_word_query(user_id)
+            log.info(
+                "custom word query delivered user_id=%s lang=%s",
+                user_id,
+                row["target_lang"] if row else "en",
+            )
             await _send_with_retry(
                 context.bot,
                 update.effective_chat.id,
