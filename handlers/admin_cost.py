@@ -14,6 +14,7 @@ from telegram.ext import ContextTypes
 
 from config import APP_TZ
 from services import db
+from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send
 from config.keyboards import (
     admin_awaiting_inline_keyboard,
@@ -328,7 +329,7 @@ async def _show_llm_cost_dashboard(
 async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
     parts = data.split(":")
     if len(parts) < 2:
-        await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+        await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     action = parts[1]
     if action == "pricing" and len(parts) >= 2:
@@ -359,7 +360,7 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 reply_markup=admin_awaiting_inline_keyboard(),
             )
         else:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     if action == "range" and len(parts) == 3:
         _llm_cost_set_state(context, range=parts[2], detail=False)
@@ -404,7 +405,7 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 reply_markup=llm_cost_status_keyboard(),
             )
         else:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
     elif action == "plan" and len(parts) == 3:
         _llm_cost_set_state(context, plan=None if parts[2] == "all" else parts[2], detail=False)
         await _show_llm_cost_dashboard(update, context)
@@ -423,7 +424,7 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         _llm_cost_set_state(context, detail=not bool(_llm_cost_state(context).get("detail")))
         await _show_llm_cost_dashboard(update, context)
     else:
-        await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+        await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
 
 
 async def _handle_cost_text_input(
@@ -524,7 +525,7 @@ async def handle_cost_callback(
             "💰 مدیریت هزینه‌های LLM:",
             reply_markup=admin_cost_keyboard(),
         )
-        await update.callback_query.answer()
+        await notify_callback(update.callback_query)
 
 
 __all__ = [

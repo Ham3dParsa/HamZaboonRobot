@@ -35,7 +35,7 @@ from services.utils.formatting import (
     format_card,
     to_persian_digits,
 )
-from services.utils.helpers import _answer_callback_safely
+from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ async def _reply_or_answer(
     context: ContextTypes.DEFAULT_TYPE,
     text: str,
     *,
-    show_alert: bool = False,
+    intent: CallbackNoticeIntent = CallbackNoticeIntent.INFO,
 ) -> None:
     """Reply to a study-session message regardless of entry point.
 
@@ -70,10 +70,10 @@ async def _reply_or_answer(
     presses have no callback_query, so they get a normal text reply instead.
     """
     if update.callback_query is not None:
-        await _answer_callback_safely(
+        await notify_callback(
             update.callback_query,
             text,
-            show_alert=show_alert,
+            intent=intent,
         )
         return
     if update.message is not None:
@@ -101,7 +101,7 @@ async def handle_study_start(
             update,
             context,
             "ابتدا /start را بزنید.",
-            show_alert=True,
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         return
 
@@ -114,7 +114,7 @@ async def handle_study_start(
             update,
             context,
             "جلسه‌ی قبلی ادامه داده می‌شه.",
-            show_alert=True,
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         state = existing
         try:
@@ -166,7 +166,7 @@ async def handle_study_start(
                 update,
                 context,
                 "همه کارت‌های امروز تموم شده! فردا دوباره بیا.",
-                show_alert=True,
+                intent=CallbackNoticeIntent.IMPORTANT_ERROR,
             )
             return
 
@@ -187,7 +187,7 @@ async def handle_study_start(
             update,
             context,
             "📚 جلسه‌ای برای امروز نداری. واژه‌های جدید اضافه کن!",
-            show_alert=True,
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         return
 
@@ -214,7 +214,7 @@ async def handle_study_start(
             update,
             context,
             "خطا در آماده‌سازی جلسه — دوباره امتحان کن.",
-            show_alert=True,
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
 
 
@@ -308,10 +308,11 @@ async def handle_study_inactive(
         "این پیام غیرفعال شده، لطفاً از آخرین پیام جلسه استفاده کن یا "
         "دکمهٔ «شروع مطالعه امروز» را بزن."
     )
-    try:
-        await _answer_callback_safely(update.callback_query, note, show_alert=True)
-    except Exception:
-        logger.exception("study_inactive answer failed")
+    await notify_callback(
+        update.callback_query,
+        note,
+        intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+    )
 
     try:
         if update.callback_query is not None and update.callback_query.message is not None:

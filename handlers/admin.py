@@ -11,6 +11,7 @@ from telegram.ext import ContextTypes
 
 from config import APP_TZ, DB_PATH, is_owner
 from services import db
+from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send, _exit_awaiting_flow, _send_with_retry
 from handlers.admin_stats import handle_admin_stats
 from handlers.admin_cost import (
@@ -173,7 +174,7 @@ def _phonetic_settings_text() -> str:
 
 async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
     if not is_owner(update.effective_user.id):
-        await update.callback_query.answer("فقط مالک ربات دسترسی داره.", show_alert=True)
+        await notify_callback(update.callback_query, "فقط مالک ربات دسترسی داره.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     if action == "stats" or action.startswith("stats:"):
         await handle_admin_stats(update, context, action)
@@ -186,13 +187,13 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif action == "back":
         context.user_data.pop("awaiting", None)
         await _edit_or_send(update, context, "پنل مدیریت ربات:", reply_markup=admin_panel_keyboard())
-        await update.callback_query.answer("بازگشت")
+        await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
     elif action == "cancel":
         context.user_data.pop("awaiting", None)
         context.user_data.pop("preset_edits", None)
         context.user_data.pop("full_edit", None)
         await _edit_or_send(update, context, "عملیات لغو شد.", reply_markup=admin_panel_keyboard())
-        await update.callback_query.answer("لغو شد")
+        await notify_callback(update.callback_query, "لغو شد", intent=CallbackNoticeIntent.INFO)
     elif action == "phonetics":
         await _edit_or_send(
             update,
@@ -200,7 +201,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             _phonetic_settings_text(),
             reply_markup=phonetic_settings_keyboard(db.get_phonetic_display_settings()),
         )
-        await update.callback_query.answer("تنظیم شد.")
+        await notify_callback(update.callback_query, "تنظیم شد.", intent=CallbackNoticeIntent.SUCCESS)
     elif action.startswith("phonetics:"):
         _, setting = action.split(":", 1)
         key_map = {
@@ -208,7 +209,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         }
         setting_key = key_map.get(setting)
         if not setting_key:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         current = db.get_bool_setting(setting_key, True)
         db.set_bool_setting(setting_key, not current)
@@ -218,10 +219,10 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             _phonetic_settings_text(),
             reply_markup=phonetic_settings_keyboard(db.get_phonetic_display_settings()),
         )
-        await update.callback_query.answer("تنظیم شد.")
+        await notify_callback(update.callback_query, "تنظیم شد.", intent=CallbackNoticeIntent.SUCCESS)
     elif action == "broadcast":
         context.user_data["awaiting"] = "admin_broadcast"
-        await update.callback_query.answer()
+        await notify_callback(update.callback_query)
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="متن پیام همگانی رو بفرست:",
@@ -249,7 +250,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data="admin:back")]]),
         )
     elif action == "noop":
-        await update.callback_query.answer()
+        await notify_callback(update.callback_query)
     elif action == "log_level":
         await _show_log_level_settings(update, context)
     elif action.startswith("log_level:set:"):
@@ -291,7 +292,7 @@ async def handle_flow_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif awaiting:
         await _exit_awaiting_flow(update, context, via_callback=True)
     else:
-        await update.callback_query.answer("فعلاً چیزی برای لغو نیست.", show_alert=True)
+        await notify_callback(update.callback_query, "فعلاً چیزی برای لغو نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
 
 
 async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE, awaiting: str, text: str):

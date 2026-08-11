@@ -45,6 +45,10 @@ PRODUCTION_SCAN_TARGETS = [
 # BANNED_COLUMNS in tests/test_migration_guards.py instead (see the
 # interval_idx entry there).
 BANNED_SYMBOLS: dict[str, str] = {
+    "_answer_callback_safely": (
+        "removed by callback-notification foundation: semantic notify_callback() owns "
+        "callback answer presentation and expected Telegram failures"
+    ),
     "advance_word_review": (
         "removed by FSRS migration Phase 2: interval-ladder scheduling replaced "
         "by grade_word_review()/FSRS stability"

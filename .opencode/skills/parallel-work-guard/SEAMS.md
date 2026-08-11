@@ -24,6 +24,7 @@ This is disclosed reference — loaded only when parallel-work-guard fires.
 | 12 | Telegram UI -> AI Config | handlers/admin_ai.py | handle_ai_callback, _show_ai_presets, _show_ai_settings |
 | 13 | TTS Provider | services/tts.py | async pronounce(word, lang) |
 | 14 | Scheduling/Quota | services/scheduling.py | daily_session_budget(), consume_session_slot(), release_session_slot() |
+| 15 | Telegram Callback Notifications | services/utils/callback_notifications.py | notify_callback(query, text, intent=...) |
 
 ## Shared Resource Registries (non-seam collision surfaces)
 

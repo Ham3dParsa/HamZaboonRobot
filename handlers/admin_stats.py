@@ -12,6 +12,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from services import db
+from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send
 from config.keyboards import stats_back_keyboard, stats_menu_keyboard
 
@@ -76,4 +77,4 @@ async def handle_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 reply_markup=stats_back_keyboard(),
             )
         else:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)

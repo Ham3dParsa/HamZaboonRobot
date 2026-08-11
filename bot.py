@@ -76,9 +76,9 @@ from services.utils.formatting import (
     format_card,
     _phonetic_lines,
 )
+from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 
 from services.utils.helpers import (
-    _answer_callback_safely,
     _delete_with_retry,
     _edit_with_retry,
     _exit_awaiting_flow,
@@ -407,10 +407,10 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if _telegram_offline:
-        await _answer_callback_safely(
+        await notify_callback(
             update.callback_query,
             _OFFLINE_MESSAGE,
-            show_alert=True,
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         await _send_offline_notice(context, update.effective_chat.id)
         return
@@ -428,7 +428,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "settings:",
         )
     ):
-        await update.callback_query.answer()
+        await notify_callback(update.callback_query)
 
     if data == "flow:back":
         await handle_flow_back(update, context)
@@ -446,24 +446,21 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data.pop("plan_full_edit", None)
             await _exit_awaiting_flow(update, context, via_callback=True)
         else:
-            await update.callback_query.answer("فعلاً چیزی برای لغو نیست.", show_alert=True)
+            await notify_callback(update.callback_query, "فعلاً چیزی برای لغو نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     if data.startswith("presentation:set:"):
         preference = data.split(":", 2)[2]
         if preference not in {"brief", "detailed"}:
-            await update.callback_query.answer("انتخاب نامعتبر است.", show_alert=True)
+            await notify_callback(update.callback_query, "انتخاب نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         user_id = update.effective_user.id
         row = db.get_user(user_id)
         if not row or not row["onboarded"]:
-            await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
+            await notify_callback(update.callback_query, "ابتدا /start را بزنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         if (row["plan"] or "free") not in PREMIUM_PLANS:
-            await update.callback_query.answer(
-                "این تنظیم فقط برای کاربران پریمیوم فعال است.",
-                show_alert=True,
-            )
+            await notify_callback(update.callback_query, "این تنظیم فقط برای کاربران پریمیوم فعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         db.set_presentation_preference(user_id, preference)
         label = "خلاصه" if preference == "brief" else "کامل"
@@ -472,13 +469,13 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"نمایش کارت‌ها روی «{label}» تنظیم شد.",
             reply_markup=presentation_settings_keyboard(preference, back_to_settings=True),
         )
-        await update.callback_query.answer("تنظیمات ذخیره شد.")
+        await notify_callback(update.callback_query, "تنظیمات ذخیره شد.", intent=CallbackNoticeIntent.SUCCESS)
         return
 
     if data.startswith("lang:"):
         lang = data.split(":", 1)[1]
         if lang not in LANGUAGES:
-            await update.callback_query.answer("زبان نامعتبر است.", show_alert=True)
+            await notify_callback(update.callback_query, "زبان نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         row = db.get_user(update.effective_user.id)
         if row and row["onboarded"]:
@@ -488,7 +485,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("goal:"):
         goal = data.split(":", 1)[1]
         if goal not in GOALS:
-            await update.callback_query.answer("هدف نامعتبر است.", show_alert=True)
+            await notify_callback(update.callback_query, "هدف نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         row = db.get_user(update.effective_user.id)
         if row and row["onboarded"]:
@@ -498,7 +495,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("level:"):
         level = data.split(":", 1)[1]
         if level not in LEVELS:
-            await update.callback_query.answer("سطح نامعتبر است.", show_alert=True)
+            await notify_callback(update.callback_query, "سطح نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         row = db.get_user(update.effective_user.id)
         if row and row["onboarded"]:
@@ -510,7 +507,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("query:add:"):
         parts = data.split(":", 2)
         if len(parts) != 3:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         await _handle_query_add(update, context, parts[2])
     elif data == "settings:lang":
@@ -528,31 +525,31 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "settings:close":
         try:
             await update.callback_query.message.delete()
-            await _answer_callback_safely(update.callback_query, "بسته شد.")
+            await notify_callback(update.callback_query, "بسته شد.", intent=CallbackNoticeIntent.INFO)
         except BadRequest:
-            await _answer_callback_safely(update.callback_query)
+            await notify_callback(update.callback_query)
     elif data.startswith("llm:"):
         await _handle_llm_callback(update, context, data)
     elif data.startswith("srs:fe:"):
         parts = data.split(":")
         if len(parts) != 5:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         await _handle_first_exposure_grade(update, context, parts[2], parts[3], parts[4])
     elif data.startswith("srs:"):
         parts = data.split(":")
         if len(parts) != 4:
-            await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         try:
             grade = int(parts[1])
         except ValueError:
             log.warning("Unrecognized srs callback: %s", data)
-            await update.callback_query.answer("این دکمه دیگر معتبر نیست.", show_alert=False)
+            await notify_callback(update.callback_query, "این دکمه دیگر معتبر نیست.", intent=CallbackNoticeIntent.INFO)
             return
         if grade not in (1, 2, 3, 4):
             log.warning("Unrecognized srs callback: %s", data)
-            await update.callback_query.answer("این دکمه دیگر معتبر نیست.", show_alert=False)
+            await notify_callback(update.callback_query, "این دکمه دیگر معتبر نیست.", intent=CallbackNoticeIntent.INFO)
             return
         await _handle_srs_review(update, grade, parts[2], parts[3], context)
     elif data == "study:start":
@@ -565,10 +562,10 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _handle_admin_callback(update, context, data.split(":", 1)[1])
     else:
         log.warning("Unhandled callback data in recognized prefix: %s", data)
-        await _answer_callback_safely(
+        await notify_callback(
             update.callback_query,
             "عملیات ناموفق بود.",
-            show_alert=True,
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
 
 
@@ -626,26 +623,26 @@ async def connection_health_job(context: ContextTypes.DEFAULT_TYPE):
 async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
     parts = data.split(":")
     if len(parts) < 2:
-        await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
+        await notify_callback(update.callback_query, "دکمه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     source = parts[0]
     if source not in {"q", "s"}:
-        await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
+        await notify_callback(update.callback_query, "دکمه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     user_id = update.effective_user.id
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
-        await update.callback_query.answer("ابتدا /start را بزنید.", show_alert=True)
+        await notify_callback(update.callback_query, "ابتدا /start را بزنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     tts_access = db.get_setting("tts_access", "premium")
     if tts_access == "none":
-        await update.callback_query.answer("تلفظ غیرفعال است.", show_alert=True)
+        await notify_callback(update.callback_query, "تلفظ غیرفعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     if tts_access == "premium" and _user_plan(row) not in PREMIUM_PLANS:
-        await update.callback_query.answer("این قابلیت فقط برای کاربران نقره‌ای و طلایی فعال است.", show_alert=True)
+        await notify_callback(update.callback_query, "این قابلیت فقط برای کاربران نقره‌ای و طلایی فعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     word = None
@@ -653,45 +650,45 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
 
     if source == "q":
         if len(parts) != 2:
-            await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
+            await notify_callback(update.callback_query, "دکمه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         token = parts[1]
         qr = db.get_query_result(token, user_id=user_id)
         if not qr:
-            await update.callback_query.answer("این نتیجه منقضی شده است.", show_alert=True)
+            await notify_callback(update.callback_query, "این نتیجه منقضی شده است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         word = qr["word"]
         lang = qr["lang"]
 
     elif source == "s":
         if len(parts) != 3:
-            await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
+            await notify_callback(update.callback_query, "دکمه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         try:
             target_user_id = int(parts[1])
             word_id = int(parts[2])
         except ValueError:
-            await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
+            await notify_callback(update.callback_query, "دکمه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         if user_id != target_user_id:
-            await update.callback_query.answer("این مرور برای کاربر دیگری است.", show_alert=True)
+            await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         sw = db.get_saved_word(word_id, user_id=user_id)
         if not sw:
-            await update.callback_query.answer("واژه در مرور شما پیدا نشد.", show_alert=True)
+            await notify_callback(update.callback_query, "واژه در مرور شما پیدا نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         word = sw["word"]
         lang = sw["lang"]
 
     else:
-        await update.callback_query.answer("دکمه نامعتبر است.", show_alert=True)
+        await notify_callback(update.callback_query, "دکمه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     if not word or not lang:
-        await update.callback_query.answer("واژه یا زبان نامعتبر است.", show_alert=True)
+        await notify_callback(update.callback_query, "واژه یا زبان نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
-    await update.callback_query.answer("🎧 در حال آماده‌سازی تلفظ…")
+    await notify_callback(update.callback_query, "🎧 در حال آماده‌سازی تلفظ…", intent=CallbackNoticeIntent.INFO)
 
     try:
         path = await tts.pronounce(word, lang)
@@ -723,10 +720,10 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     log.exception("Unhandled exception while processing update", exc_info=context.error)
     callback_query = getattr(update, "callback_query", None)
     if callback_query is not None:
-        await _answer_callback_safely(
+        await notify_callback(
             callback_query,
             "خطا در پردازش درخواست. دوباره تلاش کنید.",
-            show_alert=True,
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
 
 

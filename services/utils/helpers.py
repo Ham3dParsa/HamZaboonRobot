@@ -9,6 +9,7 @@ from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, Time
 from config import OWNER_ID, TELEGRAM_MAX_CONCURRENCY, USER_ACTIVITY
 from config.keyboards import main_menu, awaiting_inline_keyboard, BTN_CANCEL, BTN_BACK
 from services import db
+from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 
 logger = logging.getLogger(__name__)
 
@@ -102,12 +103,16 @@ async def _exit_awaiting_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
     if via_callback:
         try:
             await update.callback_query.edit_message_text("لغو شد.")
-            await update.callback_query.answer("لغو شد.", show_alert=False)
-            return
         except BadRequest:
             logger.info("cancel callback edit failed; sending new message")
-            await update.callback_query.answer()
-        await update.callback_query.message.reply_text("لغو شد.", reply_markup=reply_markup)
+            await notify_callback(update.callback_query)
+            await update.callback_query.message.reply_text("لغو شد.", reply_markup=reply_markup)
+            return
+        await notify_callback(
+            update.callback_query,
+            "لغو شد.",
+            intent=CallbackNoticeIntent.INFO,
+        )
         return
     await update.message.reply_text("لغو شد.", reply_markup=reply_markup)
 
@@ -118,7 +123,7 @@ async def _edit_or_send(update: Update, context: ContextTypes.DEFAULT_TYPE, text
             return await update.callback_query.edit_message_text(text, **kwargs)
         except BadRequest as e:
             if "message is not modified" in str(e).lower():
-                return await update.callback_query.answer()
+                return await notify_callback(update.callback_query)
             logger.info("callback edit failed; sending replacement message")
             return await context.bot.send_message(
                 chat_id=update.effective_chat.id,
@@ -131,19 +136,6 @@ async def _edit_or_send(update: Update, context: ContextTypes.DEFAULT_TYPE, text
 def _message_has_prepared_translations(update: Update) -> bool:
     message = update.callback_query.message
     return bool(message and "ترجمه‌ی مثال‌ها" in (message.text or ""))
-
-
-async def _answer_callback_safely(query, *args, **kwargs) -> None:
-    try:
-        await query.answer(*args, **kwargs)
-    except BadRequest as exc:
-        message = str(exc).casefold()
-        if "query is too old" in message or "query id is invalid" in message:
-            logger.debug("skipped stale callback answer: %s", exc)
-        else:
-            raise
-    except (TimedOut, NetworkError):
-        logger.warning("callback answer failed due to network error")
 
 
 def _reset_telegram_cb():

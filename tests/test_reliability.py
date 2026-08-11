@@ -15,6 +15,7 @@ from services import db
 from services.db import schema as db_schema
 from services.utils import formatting
 from services.utils import helpers
+from services.utils import callback_notifications
 from services.ai import llm_services
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
@@ -452,7 +453,7 @@ class CallbackAnswerTests(unittest.IsolatedAsyncioTestCase):
             async def answer(self, *args, **kwargs):
                 raise BadRequest("Query is too old and response timeout expired")
 
-        await helpers._answer_callback_safely(FakeQuery(), "done")
+        await callback_notifications.notify_callback(FakeQuery(), "done")
 
     async def test_unrelated_callback_answer_error_is_reraised(self):
         class FakeQuery:
@@ -460,7 +461,7 @@ class CallbackAnswerTests(unittest.IsolatedAsyncioTestCase):
                 raise BadRequest("message is not modified")
 
         with self.assertRaises(BadRequest):
-            await helpers._answer_callback_safely(FakeQuery(), "done")
+            await callback_notifications.notify_callback(FakeQuery(), "done")
 
 
 class NetworkResilienceTests(unittest.IsolatedAsyncioTestCase):
