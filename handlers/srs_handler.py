@@ -7,7 +7,8 @@ from telegram.ext import ContextTypes
 
 from services import db
 from config import USER_ACTIVITY
-from services.utils.helpers import _answer_callback_safely, _user_activity_line
+from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
+from services.utils.helpers import _user_activity_line
 from services.session import resolve_grade
 from handlers.study_handler import advance_session
 
@@ -36,10 +37,10 @@ async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     _log_ua(update, action="query_add", outcome="started")
     row = db.get_query_result(token, user_id=user_id)
     if not row:
-        await update.callback_query.answer("این نتیجه منقضی شده یا در دسترس نیست.", show_alert=True)
+        await notify_callback(update.callback_query, "این نتیجه منقضی شده یا در دسترس نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     if row["saved_at"]:
-        await update.callback_query.answer("این واژه قبلاً به مرور اضافه شده است.", show_alert=True)
+        await notify_callback(update.callback_query, "این واژه قبلاً به مرور اضافه شده است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     result_data = json.loads(row["result_json"])
@@ -50,7 +51,7 @@ async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         logger.info("query result saved user_id=%s word_id_token=%s", user_id, token)
     else:
         message = "این واژه از قبل در مرور شما ثبت شده بود."
-    await update.callback_query.answer(message, show_alert=True)
+    await notify_callback(update.callback_query, message, intent=CallbackNoticeIntent.IMPORTANT_ERROR)
 
 
 async def _handle_srs_review(
@@ -64,15 +65,15 @@ async def _handle_srs_review(
         target_user_id = int(target_user_id_text)
         word_id = int(word_id_text)
     except ValueError:
-        await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+        await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     user_id = update.effective_user.id
     if user_id != target_user_id:
-        await update.callback_query.answer("این مرور برای کاربر دیگری است.", show_alert=True)
+        await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     row = db.get_saved_word(word_id, user_id=user_id)
     if not row:
-        await update.callback_query.answer("این واژه در مرور شما پیدا نشد.", show_alert=True)
+        await notify_callback(update.callback_query, "این واژه در مرور شما پیدا نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     resolved = resolve_grade("srs_review", grade)
     db.grade_word_review(word_id, resolved, user_id)
@@ -91,10 +92,10 @@ async def _handle_srs_review(
         response_time_ms=response_time_ms,
     )
     db.touch_streak(user_id)
-    await _answer_callback_safely(
+    await notify_callback(
         update.callback_query,
         "ثبت شد؛ مرور بعدی زمان‌بندی شد.",
-        show_alert=True,
+        intent=CallbackNoticeIntent.IMPORTANT_ERROR,
     )
     _log_ua(update, action="srs_review", outcome=f"grade_{grade}")
     logger.info(
@@ -119,15 +120,15 @@ async def _handle_first_exposure_grade(
         word_id = int(word_id_text)
         grade = int(grade_str)
     except ValueError:
-        await update.callback_query.answer("دکمه‌ی نامعتبر است.", show_alert=True)
+        await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     user_id = update.effective_user.id
     if user_id != target_user_id:
-        await update.callback_query.answer("این مرور برای کاربر دیگری است.", show_alert=True)
+        await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     row = db.get_saved_word(word_id, user_id=user_id)
     if not row:
-        await update.callback_query.answer("این واژه در مرور شما پیدا نشد.", show_alert=True)
+        await notify_callback(update.callback_query, "این واژه در مرور شما پیدا نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     resolved = resolve_grade("first_exposure", grade)
     db.grade_first_exposure(word_id, resolved, user_id)
@@ -144,6 +145,6 @@ async def _handle_first_exposure_grade(
         response_time_ms=None,
     )
     db.touch_streak(user_id)
-    await update.callback_query.answer("ثبت شد.", show_alert=True)
+    await notify_callback(update.callback_query, "ثبت شد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
     _log_ua(update, action="first_exposure", outcome=f"grade_{grade}")
     await advance_session(update, context)

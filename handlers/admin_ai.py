@@ -25,6 +25,7 @@ from services.utils.callback_codec import (
 )
 from services.ai import ai
 from services.ai import prompts
+from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send
 from services.utils.formatting import html_escape
 from config.catalog import GOALS, LANGUAGES, LEVELS
@@ -253,7 +254,7 @@ async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYP
     """View/edit a single preset."""
     preset = db.get_preset(preset_name)
     if not preset:
-        await update.callback_query.answer("پیش‌تنظیم یافت نشد", show_alert=True)
+        await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     active_name = db.get_active_preset_name()
@@ -294,9 +295,9 @@ async def _activate_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Activate a preset as primary."""
     success = db.activate_preset(preset_name)
     if success:
-        await update.callback_query.answer(f"پیش‌تنظیم {preset_name} فعال شد")
+        await notify_callback(update.callback_query, f"پیش‌تنظیم {preset_name} فعال شد", intent=CallbackNoticeIntent.SUCCESS)
     else:
-        await update.callback_query.answer("خطا در فعال‌سازی", show_alert=True)
+        await notify_callback(update.callback_query, "خطا در فعال‌سازی", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
     await _show_ai_preset_view(update, context, preset_name)
 
 
@@ -304,7 +305,7 @@ async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
     """Show field edit options for a preset."""
     preset = db.get_preset(preset_name)
     if not preset or not preset.get("is_custom"):
-        await update.callback_query.answer("فقط پیش‌تنظیم‌های custom قابل ویرایش‌اند", show_alert=True)
+        await notify_callback(update.callback_query, "فقط پیش‌تنظیم‌های custom قابل ویرایش‌اند", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     text = f"✏️ <b>ویرایش پیش‌تنظیم: {html_escape(preset_name)}</b>\nانتخاب فیلد برای تغییر:"
@@ -320,7 +321,7 @@ async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TY
     """Prompt for new value of a field."""
     preset = db.get_preset(preset_name)
     if not preset:
-        await update.callback_query.answer("پیش‌تنظیم یافت نشد", show_alert=True)
+        await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     current = preset.get(field_name, "")
@@ -478,15 +479,12 @@ TOTAL_WIZARD_FIELDS = len(WIZARD_FIELDS)
 async def _start_full_edit_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
     """Start the full preset edit wizard."""
     if any(context.user_data.get("preset_edits", {}).values()):
-        await update.callback_query.answer(
-            "ابتدا تغییرات فعلی را ذخیره یا دور بریزید.",
-            show_alert=True,
-        )
+        await notify_callback(update.callback_query, "ابتدا تغییرات فعلی را ذخیره یا دور بریزید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     preset = db.get_preset(preset_name)
     if not preset or not preset.get("is_custom"):
-        await update.callback_query.answer("فقط پیش‌تنظیم‌های custom قابل ویرایش‌اند", show_alert=True)
+        await notify_callback(update.callback_query, "فقط پیش‌تنظیم‌های custom قابل ویرایش‌اند", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     context.user_data["full_edit"] = {"preset": preset_name, "field_idx": 0, "values": {}}
@@ -638,7 +636,7 @@ async def _handle_full_edit_next(update: Update, context: ContextTypes.DEFAULT_T
     """Advance to next field without saving current."""
     wizard = context.user_data.get("full_edit", {})
     if wizard.get("preset") != preset_name:
-        await update.callback_query.answer("ویزارد منقضی شده")
+        await notify_callback(update.callback_query, "ویزارد منقضی شده", intent=CallbackNoticeIntent.INFO)
         return
 
     current_idx = wizard.get("field_idx", 0)
@@ -656,15 +654,12 @@ async def _handle_full_edit_next(update: Update, context: ContextTypes.DEFAULT_T
 async def _handle_full_edit_pick_group(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, label: str | None):
     """Handle group label picker selection in wizard."""
     if label is None:
-        await update.callback_query.answer(
-            "برچسب گروه یافت نشد. دوباره ویرایش را باز کنید.",
-            show_alert=True,
-        )
+        await notify_callback(update.callback_query, "برچسب گروه یافت نشد. دوباره ویرایش را باز کنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     wizard = context.user_data.get("full_edit", {})
     if wizard.get("preset") != preset_name:
-        await update.callback_query.answer("ویزارد منقضی شده")
+        await notify_callback(update.callback_query, "ویزارد منقضی شده", intent=CallbackNoticeIntent.INFO)
         return
 
     wizard["values"]["group_label"] = label
@@ -677,7 +672,7 @@ async def _handle_full_edit_pick_group(update: Update, context: ContextTypes.DEF
         await _show_wizard_summary(update, context, preset_name)
     else:
         context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:{next_idx}"
-        await update.callback_query.answer(f"✅ {label}")
+        await notify_callback(update.callback_query, f"✅ {label}", intent=CallbackNoticeIntent.SUCCESS)
         await _show_wizard_field(update, context, preset_name, next_idx, preset or {})
 
 
@@ -690,7 +685,7 @@ async def _handle_full_edit_cancel(update: Update, context: ContextTypes.DEFAULT
     """Cancel the full edit wizard."""
     context.user_data.pop("full_edit", None)
     context.user_data.pop("awaiting", None)
-    await update.callback_query.answer("ویرایش کامل لغو شد")
+    await notify_callback(update.callback_query, "ویرایش کامل لغو شد", intent=CallbackNoticeIntent.INFO)
     await _edit_ai_preset(update, context, preset_name)
 
 
@@ -733,13 +728,13 @@ async def _handle_full_edit_save(update: Update, context: ContextTypes.DEFAULT_T
     """Save all wizard changes."""
     wizard = context.user_data.get("full_edit", {})
     if wizard.get("preset") != preset_name:
-        await update.callback_query.answer("ویزارد منقضی شده")
+        await notify_callback(update.callback_query, "ویزارد منقضی شده", intent=CallbackNoticeIntent.INFO)
         return
 
     values = wizard.get("values", {})
     preset = db.get_preset(preset_name)
     if not preset:
-        await update.callback_query.answer("پیش‌تنظیم یافت نشد", show_alert=True)
+        await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     new_name = values.get("name", preset_name)
@@ -772,7 +767,7 @@ async def _handle_full_edit_save(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data.pop("full_edit", None)
     context.user_data.pop("awaiting", None)
 
-    await update.callback_query.answer(f"پیش‌تنظیم {new_name} ذخیره شد")
+    await notify_callback(update.callback_query, f"پیش‌تنظیم {new_name} ذخیره شد", intent=CallbackNoticeIntent.SUCCESS)
     await _show_ai_preset_view(update, context, new_name)
 
 
@@ -781,7 +776,7 @@ async def _toggle_preset_view_mode(update: Update, context: ContextTypes.DEFAULT
     current = context.user_data.get("preset_view_mode", "linear")
     new_mode = "grouped" if current == "linear" else "linear"
     context.user_data["preset_view_mode"] = new_mode
-    await update.callback_query.answer(f"حالت نمایش: {'گروهی' if new_mode == 'grouped' else 'خطی'}")
+    await notify_callback(update.callback_query, f"حالت نمایش: {'گروهی' if new_mode == 'grouped' else 'خطی'}", intent=CallbackNoticeIntent.INFO)
     await _show_ai_presets(update, context)
 
 
@@ -790,7 +785,7 @@ async def _handle_group_view(update: Update, context: ContextTypes.DEFAULT_TYPE,
     groups = _detect_key_groups()
     target = next((g for g in groups if g["key_hash"] == key_hash), None)
     if not target:
-        await update.callback_query.answer("گروه یافت نشد", show_alert=True)
+        await notify_callback(update.callback_query, "گروه یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     names = target["names"]
@@ -875,7 +870,7 @@ async def _handle_group_manager_rename(update: Update, context: ContextTypes.DEF
 async def _handle_group_manager_clear(update: Update, context: ContextTypes.DEFAULT_TYPE, label: str):
     """Clear a group label from all presets."""
     db.clear_group_label(label)
-    await update.callback_query.answer(f"✅ برچسب «{label}» از همه پریست‌ها حذف شد")
+    await notify_callback(update.callback_query, f"✅ برچسب «{label}» از همه پریست‌ها حذف شد", intent=CallbackNoticeIntent.SUCCESS)
     await _show_group_manager(update, context)
 
 
@@ -883,7 +878,7 @@ async def _confirm_save_preset(update: Update, context: ContextTypes.DEFAULT_TYP
     """Show confirmation dialog before saving."""
     edits = context.user_data.get("preset_edits", {}).get(preset_name, {})
     if not edits:
-        await update.callback_query.answer("تغییری برای ذخیره وجود ندارد")
+        await notify_callback(update.callback_query, "تغییری برای ذخیره وجود ندارد", intent=CallbackNoticeIntent.INFO)
         return
 
     from config.keyboards import IBTN_SAVE_CONFIRM, IBTN_SAVE_CANCEL
@@ -906,30 +901,27 @@ async def _confirm_save_preset(update: Update, context: ContextTypes.DEFAULT_TYP
 async def _discard_all_preset_changes(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
     """Discard all pending edits for a preset."""
     context.user_data.setdefault("preset_edits", {}).pop(preset_name, None)
-    await update.callback_query.answer("همه تغییرات دور ریخته شد")
+    await notify_callback(update.callback_query, "همه تغییرات دور ریخته شد", intent=CallbackNoticeIntent.INFO)
     await _show_ai_preset_view(update, context, preset_name)
 
 
 async def _detach_ai_preset_group(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
     """Stage removal of one custom preset from its group until Save is confirmed."""
     if context.user_data.get("full_edit"):
-        await update.callback_query.answer(
-            "ابتدا ویرایش کامل را تمام یا لغو کنید.",
-            show_alert=True,
-        )
+        await notify_callback(update.callback_query, "ابتدا ویرایش کامل را تمام یا لغو کنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     preset = db.get_preset(preset_name)
     if not preset or not preset.get("is_custom"):
-        await update.callback_query.answer("پیش‌تنظیم قابل ویرایش یافت نشد", show_alert=True)
+        await notify_callback(update.callback_query, "پیش‌تنظیم قابل ویرایش یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     if not preset.get("group_label"):
-        await update.callback_query.answer("این پیش‌تنظیم در گروهی نیست", show_alert=True)
+        await notify_callback(update.callback_query, "این پیش‌تنظیم در گروهی نیست", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     edits = context.user_data.setdefault("preset_edits", {})
     edits.setdefault(preset_name, {})["group_label"] = ""
-    await update.callback_query.answer("✅ حذف از گروه ثبت شد. برای اعمال، ذخیره را بزنید.")
+    await notify_callback(update.callback_query, "✅ حذف از گروه ثبت شد. برای اعمال، ذخیره را بزنید.", intent=CallbackNoticeIntent.SUCCESS)
     await _edit_ai_preset(update, context, preset_name)
 
 
@@ -937,13 +929,13 @@ async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
     """Save all pending changes for a preset to the database."""
     preset = db.get_preset(preset_name)
     if not preset:
-        await update.callback_query.answer("پیش‌تنظیم یافت نشد", show_alert=True)
+        await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     # Read in-memory edits for this preset
     edits = context.user_data.get("preset_edits", {}).get(preset_name, {})
     if not edits:
-        await update.callback_query.answer("تغییری برای ذخیره وجود ندارد")
+        await notify_callback(update.callback_query, "تغییری برای ذخیره وجود ندارد", intent=CallbackNoticeIntent.INFO)
         return
 
     # Handle rename: if name changed, use new name as key
@@ -978,10 +970,7 @@ async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
             remove_orphaned_group_key=removing_group,
         )
     except ValueError:
-        await update.callback_query.answer(
-            "این نام هم‌اکنون توسط پیش‌تنظیم دیگری استفاده می‌شود.",
-            show_alert=True,
-        )
+        await notify_callback(update.callback_query, "این نام هم‌اکنون توسط پیش‌تنظیم دیگری استفاده می‌شود.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     # The database transaction already removed the old row when renamed.
@@ -992,7 +981,7 @@ async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
     # Clear in-memory edits for this preset
     context.user_data.setdefault("preset_edits", {}).pop(new_name, None)
 
-    await update.callback_query.answer(f"پیش‌تنظیم {new_name} ذخیره شد")
+    await notify_callback(update.callback_query, f"پیش‌تنظیم {new_name} ذخیره شد", intent=CallbackNoticeIntent.SUCCESS)
     await _show_ai_preset_view(update, context, new_name)
 
 
@@ -1000,16 +989,16 @@ async def _delete_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     """Delete a preset (forbidden for the currently active one)."""
     preset = db.get_preset(preset_name)
     if not preset:
-        await update.callback_query.answer("پیش‌تنظیم یافت نشد", show_alert=True)
+        await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     active_name = db.get_active_preset_name()
     if preset_name == active_name:
-        await update.callback_query.answer("نمی‌توان پیش‌تنظیم فعال را حذف کرد", show_alert=True)
+        await notify_callback(update.callback_query, "نمی‌توان پیش‌تنظیم فعال را حذف کرد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     db.delete_preset(preset_name)
-    await update.callback_query.answer(f"پیش‌تنظیم {preset_name} حذف شد")
+    await notify_callback(update.callback_query, f"پیش‌تنظیم {preset_name} حذف شد", intent=CallbackNoticeIntent.SUCCESS)
     await _show_ai_presets(update, context)
 
 
@@ -1048,7 +1037,7 @@ async def _handle_ai_preset_new_name(update: Update, context: ContextTypes.DEFAU
 
 async def _test_ai_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Test current AI connection."""
-    await update.callback_query.answer("در حال تست اتصال...")
+    await notify_callback(update.callback_query, "در حال تست اتصال...", intent=CallbackNoticeIntent.INFO)
     active = db.get_active_preset()
     result = await asyncio.to_thread(
         ai.test_connection,
@@ -1188,7 +1177,7 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     goal = state.get("goal", "general")
     level = state.get("level", "beginner")
 
-    await update.callback_query.answer("در حال اجرای تست...")
+    await notify_callback(update.callback_query, "در حال اجرای تست...", intent=CallbackNoticeIntent.INFO)
 
     system_prompt = prompts.daily_batch_system_prompt(lang, goal, level, compact=False)
 
@@ -1319,17 +1308,17 @@ async def _handle_ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif action.startswith("ai_fallback:pick_primary:"):
         name = _resolve_preset_ref(action.split(":")[2])
         db.set_setting("ai_primary_preset", name)
-        await update.callback_query.answer(f"Primary preset: {name}")
+        await notify_callback(update.callback_query, f"Primary preset: {name}", intent=CallbackNoticeIntent.SUCCESS)
         await _show_ai_fallback(update, context)
     elif action.startswith("ai_fallback:pick_fallback:"):
         name = _resolve_preset_ref(action.split(":")[2])
         db.set_setting("ai_fallback_preset", name)
-        await update.callback_query.answer(f"Fallback preset: {name}")
+        await notify_callback(update.callback_query, f"Fallback preset: {name}", intent=CallbackNoticeIntent.SUCCESS)
         await _show_ai_fallback(update, context)
     elif action == "ai_fallback:reset":
         db.set_fallback_active(False)
         db.set_setting("ai_consecutive_failures", "0")
-        await update.callback_query.answer("بازگشت به Primary")
+        await notify_callback(update.callback_query, "بازگشت به Primary", intent=CallbackNoticeIntent.INFO)
         await _show_ai_fallback(update, context)
 
 
@@ -1455,7 +1444,7 @@ async def _handle_fallback_rank(update: Update, context: ContextTypes.DEFAULT_TY
     """Start awaiting flow for rank jump input."""
     preset = db.get_preset(preset_name)
     if not preset:
-        await update.callback_query.answer("پیش‌تنظیم یافت نشد", show_alert=True)
+        await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     group_is_emergency = bool(preset.get("is_emergency", 0))
@@ -1544,7 +1533,7 @@ async def handle_ai_callback(
     elif action.startswith("ai_preset:detach_group:"):
         preset_name = resolve_preset_token(action.split(":", 2)[2])
         if not preset_name:
-            await update.callback_query.answer("پیش‌تنظیم یافت نشد", show_alert=True)
+            await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         else:
             await _detach_ai_preset_group(update, context, preset_name)
     elif action.startswith("ai_preset:delete:"):
@@ -1574,7 +1563,7 @@ async def handle_ai_callback(
         if len(parts) == 3:
             label = _resolve_label_ref(parts[2])
             if label is None:
-                await update.callback_query.answer("برچسب گروه یافت نشد.", show_alert=True)
+                await notify_callback(update.callback_query, "برچسب گروه یافت نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             else:
                 await _handle_group_manager_rename(update, context, label)
     elif action.startswith("ai_preset:group_manager_clear:"):
@@ -1582,7 +1571,7 @@ async def handle_ai_callback(
         if len(parts) == 3:
             label = _resolve_label_ref(parts[2])
             if label is None:
-                await update.callback_query.answer("برچسب گروه یافت نشد.", show_alert=True)
+                await notify_callback(update.callback_query, "برچسب گروه یافت نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             else:
                 await _handle_group_manager_clear(update, context, label)
     elif action == "ai_test_connection":

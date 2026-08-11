@@ -12,6 +12,7 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from services import db
+from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send
 from config.keyboards import (
     admin_awaiting_inline_keyboard,
@@ -83,13 +84,13 @@ async def _show_plan_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💳 مدیریت پلن‌ها\n\nیک پلن را انتخاب کن تا جزئیاتش را ببینی یا ویرایشش کنی:",
         reply_markup=plan_manager_keyboard(plans),
     )
-    await update.callback_query.answer()
+    await notify_callback(update.callback_query)
 
 
 async def _show_plan_view(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str):
     plan = db.get_plan(name)
     if not plan:
-        await update.callback_query.answer("پلن یافت نشد", show_alert=True)
+        await notify_callback(update.callback_query, "پلن یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return await _show_plan_list(update, context)
     status = "✅ فعال" if plan.get("is_active") else "⭕ غیرفعال"
     text = (
@@ -107,13 +108,13 @@ async def _show_plan_view(update: Update, context: ContextTypes.DEFAULT_TYPE, na
         parse_mode=ParseMode.HTML,
         reply_markup=plan_view_keyboard(name, bool(plan.get("is_active"))),
     )
-    await update.callback_query.answer()
+    await notify_callback(update.callback_query)
 
 
 async def _start_plan_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str):
     plan = db.get_plan(name)
     if not plan:
-        await update.callback_query.answer("پلن یافت نشد", show_alert=True)
+        await notify_callback(update.callback_query, "پلن یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     context.user_data["plan_full_edit"] = {"plan": name, "field_idx": 0, "values": {}}
     context.user_data["awaiting"] = f"admin_plan_full_edit:{name}:0"
@@ -189,7 +190,7 @@ async def _handle_plan_wizard_input(update: Update, context: ContextTypes.DEFAUL
 async def _handle_plan_wizard_next(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str):
     wizard = context.user_data.get("plan_full_edit", {})
     if wizard.get("plan") != name:
-        await update.callback_query.answer("ویزارد منقضی شده")
+        await notify_callback(update.callback_query, "ویزارد منقضی شده", intent=CallbackNoticeIntent.INFO)
         return
     current_idx = wizard.get("field_idx", 0)
     # Skip leaves the current field unchanged: discard any pending typed value
@@ -211,11 +212,11 @@ async def _handle_plan_wizard_back(update: Update, context: ContextTypes.DEFAULT
     # are preserved so the owner can re-enter one field without losing the rest.
     wizard = context.user_data.get("plan_full_edit", {})
     if wizard.get("plan") != name:
-        await update.callback_query.answer("ویزارد منقضی شده")
+        await notify_callback(update.callback_query, "ویزارد منقضی شده", intent=CallbackNoticeIntent.INFO)
         return
     current_idx = wizard.get("field_idx", 0)
     if current_idx <= 0:
-        await update.callback_query.answer("در اولین گام هستید")
+        await notify_callback(update.callback_query, "در اولین گام هستید", intent=CallbackNoticeIntent.INFO)
         return
     prev_idx = current_idx - 1
     plan = db.get_plan(name)
@@ -227,7 +228,7 @@ async def _handle_plan_wizard_back(update: Update, context: ContextTypes.DEFAULT
 async def _handle_plan_wizard_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str):
     context.user_data.pop("plan_full_edit", None)
     context.user_data.pop("awaiting", None)
-    await update.callback_query.answer("ویرایش پلن لغو شد")
+    await notify_callback(update.callback_query, "ویرایش پلن لغو شد", intent=CallbackNoticeIntent.INFO)
     await _show_plan_view(update, context, name)
 
 
@@ -260,12 +261,12 @@ async def _show_plan_wizard_summary(update: Update, context: ContextTypes.DEFAUL
 async def _handle_plan_wizard_save(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str):
     wizard = context.user_data.get("plan_full_edit", {})
     if wizard.get("plan") != name:
-        await update.callback_query.answer("ویزارد منقضی شده")
+        await notify_callback(update.callback_query, "ویزارد منقضی شده", intent=CallbackNoticeIntent.INFO)
         return
     values = wizard.get("values", {})
     plan = db.get_plan(name)
     if not plan:
-        await update.callback_query.answer("پلن یافت نشد", show_alert=True)
+        await notify_callback(update.callback_query, "پلن یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     db.upsert_plan(
         name=name,
@@ -279,14 +280,14 @@ async def _handle_plan_wizard_save(update: Update, context: ContextTypes.DEFAULT
     )
     context.user_data.pop("plan_full_edit", None)
     context.user_data.pop("awaiting", None)
-    await update.callback_query.answer("پلن ذخیره شد")
+    await notify_callback(update.callback_query, "پلن ذخیره شد", intent=CallbackNoticeIntent.SUCCESS)
     await _show_plan_view(update, context, name)
 
 
 async def _handle_plan_set_active(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str):
     plan = db.get_plan(name)
     if not plan:
-        await update.callback_query.answer("پلن یافت نشد", show_alert=True)
+        await notify_callback(update.callback_query, "پلن یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     db.set_plan_active(name, not bool(plan.get("is_active")))
     await _show_plan_view(update, context, name)
@@ -340,7 +341,7 @@ async def handle_plan_callback(
         await _show_plan_list(update, context)
     elif action == "set_plan":
         context.user_data["awaiting"] = "admin_set_plan"
-        await update.callback_query.answer()
+        await notify_callback(update.callback_query)
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="فرمت را ارسال کنید:\n`user_id_or_username plan`\n\n"
