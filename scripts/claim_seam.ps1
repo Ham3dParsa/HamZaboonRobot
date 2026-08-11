@@ -91,7 +91,7 @@ function Acquire-Claim {
 
 function Release-Claim {
     param([string]$Branch)
-    if (-not $Branch) { throw "release requires --branch" }
+    if (-not $Branch) { throw "release requires -Branch" }
     $claimsPath = Get-ClaimsPath
     $lockPath   = Get-LockPath
     $fs = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
@@ -105,26 +105,6 @@ function Release-Claim {
     }
 }
 
-function Check-Claims {
-    param([string]$Branch, [string]$Seams)
-    if (-not $Seams) { throw "check requires --seams" }
-    $claimsPath = Get-ClaimsPath
-    if (-not (Test-Path $claimsPath)) { return }
-    $data = Read-ClaimsFile -Path $claimsPath
-    $seamsList = $Seams -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
-    foreach ($seam in $seamsList) {
-        foreach ($claim in $data.claims) {
-            if ($claim.branch -eq $Branch) { continue }
-            if ($claim.seams -contains $seam) {
-                [PSCustomObject]@{
-                    Branch = $claim.branch
-                    Seam   = $seam
-                }
-            }
-        }
-    }
-}
-
 function Prune-Claims {
     param([int]$OlderThanDays = 14)
     $claimsPath = Get-ClaimsPath
@@ -134,7 +114,12 @@ function Prune-Claims {
         $data = Read-ClaimsFile -Path $claimsPath
         $cutoff = (Get-Date).ToUniversalTime().AddDays(-$OlderThanDays)
         foreach ($claim in $data.claims) {
-            $ts = [DateTime]::Parse($claim.locked_at)
+            $ts = [DateTime]::MinValue
+            $parsed = [DateTime]::TryParse($claim.locked_at, [ref]$ts)
+            if (-not $parsed) {
+                Write-Warning "Malformed locked_at in claim: branch=$($claim.branch) locked_at=$($claim.locked_at)"
+                continue
+            }
             if ($ts -lt $cutoff) {
                 Write-Warning "Stale claim: branch=$($claim.branch) locked_at=$($claim.locked_at)"
             }
@@ -148,6 +133,5 @@ function Prune-Claims {
 switch ($Command) {
     "acquire" { Acquire-Claim -Branch $Branch -Seams $Seams -RuleIds $RuleIds }
     "release" { Release-Claim -Branch $Branch }
-    "check"   { Check-Claims  -Branch $Branch -Seams $Seams }
     "prune"   { Prune-Claims  -OlderThanDays $OlderThanDays }
 }

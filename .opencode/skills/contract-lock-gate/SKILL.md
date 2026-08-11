@@ -27,6 +27,12 @@ author_url: https://github.com/Ham3dParsa
 After step 1 (STOP and identify gaps), ask the owner **2–3 triage questions**
 before loading any additional skill. No skill is loaded speculatively.
 
+For fast-track changes (typos, docs, comments, formatting, test-only), skip
+the full triage and ask a single abbreviated confirmation instead:
+"Any additional skills needed beyond the default?" This catches edge cases
+where a doc/tooling change also touches a callback prefix, schema, or new
+module boundary without running the full behavioral triage.
+
 Ask via the `question` tool with `multiple: true`:
 
 1. **"Are you working in parallel or in another session?"**
@@ -111,7 +117,7 @@ Only for strictly non-behavioral changes:
 - Adding tests that don't change production logic
 - Formatting/whitespace-only diffs
 
-To use: state under `<SYSTEM_GATE>` what the change is, why non-behavioral, and that it proceeds without locked contract. Does NOT apply if ANY ambiguity about learner-facing behavior, persistence, quotas, scheduling, or module boundaries. The triage questions above still run so the owner can confirm no additional skills are needed.
+To use: state under `<SYSTEM_GATE>` what the change is, why non-behavioral, and that it proceeds without locked contract. Does NOT apply if ANY ambiguity about learner-facing behavior, persistence, quotas, scheduling, or module boundaries. For fast-track changes, skip the full 3-question behavioral triage; instead ask a single abbreviated confirmation — "Any additional skills needed beyond the default?" — to catch edge cases where a doc/tooling change also touches a callback prefix, schema, or new module boundary.
 
 ## Owner Experience Note (AGENTS.md §2.4)
 Owner is not a professional developer. Explain options in plain language:
