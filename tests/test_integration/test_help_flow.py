@@ -156,6 +156,27 @@ class HelpFlowTest(unittest.TestCase):
         self.assertIn("مدیریت ربات", edit_args[0][0])
         update.callback_query.answer.assert_called_once()
 
+    def test_about_section_in_panel_and_openable(self):
+        from bot import callback_router
+        from handlers.help_command import send_help_panel
+
+        # "درباره هم‌زبان" is the first button on the panel and opens for everyone.
+        update = self._make_message_update("/help")
+        ctx = self._make_context()
+        asyncio.run(send_help_panel(update, ctx))
+        first = ctx.bot.send_message.call_args_list[0]
+        kb = first.kwargs["reply_markup"]
+        callbacks = [b.callback_data for row in kb.inline_keyboard for b in row]
+        self.assertIn("help:section:about", callbacks)
+        self.assertEqual("help:section:about", callbacks[0])
+
+        update2 = self._make_callback_update("help:section:about")
+        ctx2 = self._make_context()
+        asyncio.run(callback_router(update2, ctx2))
+        edit_args = update2.callback_query.edit_message_text.call_args
+        self.assertIn("مهاجرت", edit_args[0][0])
+        update2.callback_query.answer.assert_called_once()
+
     def test_hidden_review_section_not_openable(self):
         from bot import callback_router
 

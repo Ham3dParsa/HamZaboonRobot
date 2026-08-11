@@ -35,7 +35,30 @@ _HELP_INTRO = (
 )
 
 # id, button label, bold heading, body — all raw Persian (escaped at build).
+# Bold emphasis inside a body uses guillemets (« ») — see _apply_bold.
 HELP_SECTIONS = [
+    {
+        "id": "about",
+        "label": "\U0001F331 درباره هم‌زبان",
+        "title": "درباره هم‌زبان",
+        "body": (
+            "\U0001F331 «درووود! من هم‌زبانم» 👋\n\n"
+            "همون‌طور که از اسمم پیداست، قراره هم‌زبونت باشم تو مسیر یادگیری زبان 💬\n\n"
+            "\U0001F4DA هر روز که یه نشست مطالعه شروع می‌کنی:\n"
+            "✨ کلمه‌های جدید یادت می‌دم\n"
+            "🔁 کلمه‌هایی که تازه یاد گرفتی و ممکنه یادت بره رو، دقیقاً سروقت آماده مرور می‌کنم\n\n"
+            "\U0001F5C2 تو هر کارت اینا رو می‌بینی:\n"
+            "\U0001F4D6 معنی + توضیح کوتاه\n"
+            "✍️ دو مثال کاربردی\n"
+            "\U0001F3AD مترادف‌ها / متضادها\n"
+            "\U0001F4DD نکته‌های گرامری مرتبط\n"
+            "\U0001F50A امکان شنیدن تلفظ\n\n"
+            "\U0001F3AF هدف اصلیم: کمکت کنم واقعاً با زبانی که داری یاد می‌گیری درگیر بشی، نه این که فقط حفظ کنی و فراموش کنی.\n\n"
+            "«همه‌چیز در این سفر شخصی‌سازی شده‌ست:»\n"
+            "   ⚙️ زبان، هدف (مثل ✈️ مهاجرت، \U0001F4DA کنکور) و سطحت رو بهم بگو تا محتوا مخصوص خودت بشه.\n"
+            "   ❓ هر کلمه‌ی جدید یا سختی که دیدی رو بپرس؛ کارت کاملشو می‌سازم و می‌تونی تو جعبه‌ی مرورت بذاری تا در جلسات آینده بهت یادش بدم! \U0001F4E5"
+        ),
+    },
     {
         "id": "study",
         "label": "📚 شروع مطالعه امروز",
@@ -127,10 +150,21 @@ def _build_intro() -> str:
     return escaped.replace("@@BOT@@", bot).replace("@@START@@", start)
 
 
+def _apply_bold(text: str) -> str:
+    # Help content is static. Authors mark bold spans with guillemets (« »)
+    # which are NOT MarkdownV2 special chars, so they survive escape_mdv2
+    # untouched and are converted to literal bold markers (*) only after
+    # escaping. This keeps the body safe to interpolate while still allowing
+    # emphasis without leaking unescaped markdown.
+    return text.replace("\u00ab", "*").replace("\u00bb", "*")
+
+
 def _build_section_detail(section_id: str) -> str | None:
     for section in HELP_SECTIONS:
         if section["id"] == section_id:
-            return f"*{escape_mdv2(section['title'])}*\n\n{escape_mdv2(section['body'])}"
+            title = escape_mdv2(section["title"])
+            body = _apply_bold(escape_mdv2(section["body"]))
+            return f"*{title}*\n\n{body}"
     return None
 
 
