@@ -4,10 +4,10 @@
 
 - Foundation branch: `refactor/callback-notifications`
 - Tracking issue: #310
-- PR URL: pending creation
+- PR URL: https://github.com/Ham3dParsa/HamZaboonRobot/pull/311
 - Base commit: `a62bb1204610c3f587e23937526cef5a936c14d1` (`origin/main` at worktree creation)
-- Final branch commit: pending commit
-- Merge status: not merged; awaiting validation, review, PR CI, and owner approval.
+- Final implementation commit: `c3553b4`
+- Merge status: not merged; awaiting PR CI and owner approval.
 - Foundation claim: `Telegram Callback Notifications`, registered for `refactor/callback-notifications` in the shared claims file. It remains registered until post-merge cleanup.
 
 ## Public Interface
