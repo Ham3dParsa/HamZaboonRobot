@@ -4,10 +4,10 @@ description: Add rollback-compatible UTC review timestamps before enabling same-
 created: 2026-08-09
 base_commit: e45a2a9
 branch: feat/fsrs-timestamp-schema
-status: in-progress
+status: complete
 ---
 
-STATE: phase 2/6 — status: in-progress — focus: Ticket 02 implemented and validated; PR created; pending merge + live verification
+STATE: phase 2/6 — status: complete — merged as PR #318 (aea834e)
 
 # Ticket 02 — Timestamp Schema Expansion
 
@@ -102,7 +102,7 @@ review timestamp.
 | 3 | Add columns and migration logic | complete | `services/db/schema.py` (CREATE + idempotent ALTER + anomaly reset) |
 | 4 | Run focused schema/migration tests | complete | `python -m pytest tests/test_migration_guards.py tests/test_db_migrations.py -q` → 27 passed |
 | 5 | Run full validation and independent review | complete | Full suite 681 passed + 149 subtests; compile_all; ruff F821/F811 clean; reviewer APPROVED (no MUST-FIX) |
-| 6 | PR, CI, merge, and read-only live schema verification | pending | PR against main; live DB verification is an owner-coordinated step |
+| 6 | PR, CI, merge, and read-only live schema verification | complete | PR #318 merged (squash aea834e); CI green; live DB verification remains an owner-coordinated step |
 
 ## Acceptance Criteria
 
