@@ -216,6 +216,7 @@ Keep responsibilities aligned with the current module boundaries:
 - `services/`: Domain services.
   - `services/db/`: SQLite schema, migrations, transactions, persistence, quotas, daily-card state, delivery queue state, saved-word state, and plan-spec state. `services/db/__init__.py` is a thin re-export façade + shared helpers; `schema.py` owns schema/migrations, `plans.py` seeds and CRUDs the `plans` table, `settings.py` owns settings accessors, `cost_tracking.py` owns LLM cost analytics, and `preset_registry.py` owns AI preset/fallback/hourly-usage logic.
   - `services/fsrs_core.py`: Pure FSRS-6 engine (w0-w20 constants, DSR formulas, no side effects).
+  - `services/word_query.py`: Pure orchestration core for the custom-word query flow — `ask` (validate→reserve→AI→persist), `prepare` (toggle translations view), `toggle_save` (save/remove saved word). Stateless functions over `services/db/*` + `validation`; no Telegram imports. Handlers (`bot.py` ask-word block, `handlers/user.py` prepare, `handlers/srs_handler.py` toggle) stay thin adapters.
   - `services/ai/`: OpenAI-compatible client, provider settings, JSON extraction, AI response validation, system prompts, AI content generation, and provider presets.
   - `services/utils/`: Utility modules.
     - `services/utils/callback_notifications.py`: Deep callback-query notification seam; semantic intent mapping, empty acknowledgements, and expected Telegram callback-answer failure handling.

@@ -23,8 +23,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 from config import (
     AI_CARD_OUTPUT_FORMAT,
@@ -251,6 +254,7 @@ async def ask(
         db.release_word_query(user_id)
         return AskResult(kind="card_prep_error")
     except Exception:
+        logger.exception("AI error in word_query.ask user_id=%s", user_id)
         db.release_word_query(user_id)
         return AskResult(kind="ai_error")
 
