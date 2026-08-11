@@ -33,21 +33,22 @@ progress, the check usually finds no overlap — still run every step in order, 
     catalog identifier — never just "overlap detected"). Ask the owner to
     choose: proceed anyway, or wait. Do not proceed until answered.
 4. Once the Contract Lock reaches GATE STATUS: LOCKED, resolve the current
-   branch with `git branch --show-current`, then acquire a file lock or
-   equivalent exclusive-write lock before reading the shared claims file. Hold
-   that lock through parsing, overlap/duplicate matching, modification,
-   validation, and the complete write; release it only after the write is
-   finished. Under that same lock, parse the JSON object, validate it, then
-   match the current branch's existing claim by exact equality of its `branch`
-   value with `git branch --show-current`. If a matching claim exists, update
-   it; otherwise append a new claim
-   `{branch, seams: [...], locked_at (ISO 8601 UTC, e.g. 2026-08-10T12:00:00Z), rule_ids: [...]}`. Preserve
-   unrelated claims. Write via a temporary file followed by an atomic
-   replacement while the lock is held so concurrent sessions cannot lose
-   claims.
-5. On post-merge cleanup (AGENTS.md §5 step 8), atomically remove this branch's
-   claim from the shared claims file. On every skill load, flag (do not
-   auto-delete) any claim with `locked_at` older than 14 days for owner review.
+   branch with `git branch --show-current`, then run:
+   ```
+   powershell scripts/claim_seam.ps1 -Command acquire -Branch <branch> -Seams <s1,s2> -RuleIds <r1,r2>
+   ```
+   The script handles exclusive file lock, JSON parsing, atomic write via temp
+   file + `Move-Item`, and path normalization. Do not inline PowerShell
+   file-lock logic; always call this script.
+
+5. On post-merge cleanup (AGENTS.md §5 step 8), run:
+   ```
+   powershell scripts/claim_seam.ps1 -Command release -Branch <branch>
+   ```
+   For stale-claim review (14+ days old), run:
+   ```
+   powershell scripts/claim_seam.ps1 -Command prune -OlderThanDays 14
+   ```
 
 ## Completion criterion
 

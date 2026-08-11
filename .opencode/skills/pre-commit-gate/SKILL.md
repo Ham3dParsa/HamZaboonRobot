@@ -1,6 +1,6 @@
 ---
 name: pre-commit-gate
-description: Enforce AGENTS.md §7 Mandatory Pre-Commit Validation Gate — run full validation suite, check git diff --staged --check, scan for secrets/credentials/tokens/API keys in staged changes, verify Conventional Commits format, verify branch naming convention, verify explicit staging only (no git add .), verify <SYSTEM_GATE> keyword present. Load before committing.
+description: Enforce AGENTS.md §7 Mandatory Pre-Commit Validation Gate — run validation tier appropriate to change type (full suite for behavioral changes, lightweight path for doc/tooling-only changes), check git diff --staged --check, scan for secrets/credentials/tokens/API keys in staged changes, verify Conventional Commits format, verify branch naming convention, verify explicit staging only (no git add .), verify <SYSTEM_GATE> keyword present. Load before committing.
 license: MIT
 compatibility: opencode
 metadata:
@@ -17,7 +17,9 @@ author_url: https://github.com/Ham3dParsa
 
 ## Gate Checklist (AGENTS.md §7)
 
-1. **Full validation suite** — run `hamzaban-validation` skill
+1. **Validation tier** — determine change scope:
+   - Behavioral (handlers, DB, callbacks, AI, quotas, schemas, production `.py`) → run `hamzaban-validation` full suite
+   - Non-behavioral (docs, skills, agents, plans, formatting, comments, test-only) → run `hamzaban-validation` lightweight path (`git diff --check` only)
 2. **Whitespace check** — `git diff --check` AND `git diff --staged --check` — both must be clean
 3. **Secret scan** — scan staged files for patterns:
    - API keys: `sk-[a-zA-Z0-9]{32,}`, `sk_live_[a-zA-Z0-9]{24,}`, `ghp_[a-zA-Z0-9]{36}`, `AIza[a-zA-Z0-9_-]{35}`
@@ -40,4 +42,4 @@ author_url: https://github.com/Ham3dParsa
 ## Notes
 - Secret detection is regex-based; false positives possible — user must review
 - `.gitignore` already excludes `.env`, `*.db`, `venv/`, `.venv/` — but scan staged anyway
-- CI runs same validation; local gate prevents CI failures
+- CI runs full validation; lightweight path is local-only optimization for non-behavioral changes
