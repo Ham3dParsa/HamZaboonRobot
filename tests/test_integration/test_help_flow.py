@@ -156,6 +156,19 @@ class HelpFlowTest(unittest.TestCase):
         self.assertIn("مدیریت ربات", edit_args[0][0])
         update.callback_query.answer.assert_called_once()
 
+    def test_hidden_review_section_not_openable(self):
+        from bot import callback_router
+
+        # The review section is deactivated (hidden) for now, so even its
+        # callback must be rejected for everyone.
+        update = self._make_callback_update("help:section:review")
+        ctx = self._make_context()
+        with patch("handlers.help_command.is_owner", return_value=True):
+            asyncio.run(callback_router(update, ctx))
+        update.callback_query.answer.assert_called_once()
+        self.assertIn("موجود نیست", update.callback_query.answer.call_args[0][0])
+        update.callback_query.edit_message_text.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

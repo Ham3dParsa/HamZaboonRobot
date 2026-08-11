@@ -69,6 +69,7 @@ HELP_SECTIONS = [
             "الگوریتم فاصله‌دار (FSRS) زمانِ مرور بعدی تنظیم بشه.\n\n"
             "روش: از داخل «شروع مطالعه امروز» وارد مرور می‌شی."
         ),
+        "hidden": True,  # deactivated from the help panel for now
     },
     {
         "id": "settings",
@@ -109,7 +110,11 @@ _HELP_MENU_HINT = "🔻 برای بازگشت به منوی اصلی از دکم
 
 
 def _visible_sections(user_id: int) -> list[dict]:
-    return [s for s in HELP_SECTIONS if not s.get("owner_only") or is_owner(user_id)]
+    return [
+        s
+        for s in HELP_SECTIONS
+        if (not s.get("owner_only") or is_owner(user_id)) and not s.get("hidden")
+    ]
 
 
 def _build_intro() -> str:
