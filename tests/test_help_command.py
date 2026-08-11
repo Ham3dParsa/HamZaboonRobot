@@ -71,6 +71,20 @@ class HelpBuildersTest(unittest.TestCase):
         kb = _back_keyboard()
         self.assertEqual(kb.inline_keyboard[0][0].callback_data, "help:back")
 
+    def test_hidden_section_excluded_from_panel_for_all(self):
+        with patch("handlers.help_command.is_owner", return_value=False):
+            kb = _panel_keyboard(1)
+        self.assertNotIn(
+            "help:section:review",
+            [b.callback_data for row in kb.inline_keyboard for b in row],
+        )
+        with patch("handlers.help_command.is_owner", return_value=True):
+            kb = _panel_keyboard(1)
+        self.assertNotIn(
+            "help:section:review",
+            [b.callback_data for row in kb.inline_keyboard for b in row],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
