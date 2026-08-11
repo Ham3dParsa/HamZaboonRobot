@@ -55,6 +55,62 @@ def add_saved_word(
         return cursor.rowcount == 1
 
 
+def toggle_review_word(
+    user_id: int,
+    word: str,
+    lang: str,
+    card_data: dict | None = None,
+    entry_source: str = "manual",
+) -> str:
+    """Idempotently add a saved word if absent, or remove it if present.
+
+    Returns ``"saved"`` when a row was added and ``"removed"`` when an existing
+    row was deleted. The unique key is (user_id, lang, normalized_word), so
+    rapid repeated taps cannot produce duplicates.
+    """
+    normalized_word = _normalize_word(word)
+    if not normalized_word:
+        return "removed"
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT id FROM saved_words "
+            "WHERE user_id=? AND lang=? AND normalized_word=?",
+            (user_id, lang, normalized_word),
+        ).fetchone()
+        if existing is not None:
+            conn.execute("DELETE FROM saved_words WHERE id=?", (existing["id"],))
+            conn.commit()
+            return "removed"
+
+        clean_word = " ".join(word.split())
+        next_review = (_today() + datetime.timedelta(days=1)).isoformat()
+        serialized_card = (
+            json.dumps(card_data, ensure_ascii=False)
+            if isinstance(card_data, dict)
+            else None
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO saved_words("
+            "user_id, word, lang, normalized_word, card_data, "
+            "next_review, review_status, added_at, "
+            "first_exposure_done, stability, difficulty, entry_source) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'idle', ?, 0, 0.0, 5.0, ?)",
+            (
+                user_id,
+                clean_word,
+                lang,
+                normalized_word,
+                serialized_card,
+                next_review,
+                _utc_now().isoformat(),
+                entry_source,
+            ),
+        )
+        conn.commit()
+        return "saved"
+
+
 def update_saved_word_fields(
     word_id: int,
     user_id: int,

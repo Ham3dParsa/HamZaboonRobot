@@ -84,17 +84,37 @@ from services.utils.helpers import (
     _exit_awaiting_flow,
     _finish_llm_wait_state,
     _is_cancel_input,
-    _normalize_custom_word_input,
     _send_with_retry,
     _send_voice_with_retry,
     _start_llm_wait_state,
     _telegram_slots,
     _user_activity_line,
     _CANCEL_INPUTS,
-    _CUSTOM_WORD_MAX_CHARS,
-    _CUSTOM_WORD_MAX_WORDS,
     apply_log_level,
 )
+
+from services.utils.validation import (
+    _CUSTOM_WORD_MAX_CHARS,
+    _CUSTOM_WORD_MAX_WORDS,
+    ERR_EMPTY,
+    ERR_INVALID_CHARS,
+    ERR_TOO_FEW_LETTERS,
+    ERR_TOO_LONG,
+    ERR_TOO_MANY_WORDS,
+    validate_word_query,
+)
+
+# Learner-facing Persian messages for the custom-word validation error keys.
+# Keys mirror the locked Rule B error vocabulary in services/utils/validation.py.
+_WORD_QUERY_ERROR_MESSAGES = {
+    ERR_EMPTY: "یک واژه یا عبارت کوتاه بفرست.",
+    ERR_TOO_LONG: f"حداکثر {_CUSTOM_WORD_MAX_CHARS} کاراکتر مجاز است.",
+    ERR_TOO_MANY_WORDS: (
+        f"فقط یک واژه یا عبارت کوتاهِ حداکثر {_CUSTOM_WORD_MAX_WORDS} کلمه‌ای بفرست."
+    ),
+    ERR_INVALID_CHARS: "لطفاً فقط واژه یا عبارت ساده بفرست (علائم محدود مجاز است).",
+    ERR_TOO_FEW_LETTERS: "یک واژه یا عبارت واقعی بفرست.",
+}
 
 from services.ai.llm_services import (
     _call_ai_limited,
@@ -131,7 +151,6 @@ from handlers.user import (
     show_status,
     _handle_query_prepare,
     _show_settings_menu,
-    _custom_word_input_error,
     _word_query_usage_text,
 )
 
@@ -245,8 +264,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if awaiting == "ask_word":
             row = db.get_user(user_id)
             limit = daily_word_query_limit_for_plan(row["plan"] if row else "free")
-            error = _custom_word_input_error(text, row["target_lang"] if row else "en")
-            if error:
+            error_key = validate_word_query(text, row["target_lang"] if row else "en")
+            if error_key:
+                error = _WORD_QUERY_ERROR_MESSAGES[error_key]
                 context.user_data["awaiting"] = "ask_word"
                 await _send_with_retry(
                     context.bot,
@@ -360,26 +380,38 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log.info("custom word query delivered user_id=%s lang=%s", user_id, row["target_lang"])
             await _finish_llm_wait_state(wait_message)
             phon_lines = _phonetic_lines(data.get("phonetic", ""))
-            await _send_with_retry(
-                context.bot,
-                update.effective_chat.id,
-                format_card(
-                    data,
-                    footer=(
-                        f"{usage_text}\n\n"
-                        "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
+            delivered = False
+            try:
+                show_translations = True
+                show_pronounce = db.should_show_pronounce(user_id, row)
+                context.user_data[f"query_kb_{query_token}"] = {
+                    "show_translations": show_translations,
+                    "show_pronounce": show_pronounce,
+                }
+                await _send_with_retry(
+                    context.bot,
+                    update.effective_chat.id,
+                    format_card(
+                        data,
+                        footer=(
+                            f"{usage_text}\n\n"
+                            "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
+                        ),
+                        presentation=_user_presentation(row),
+                        phonetic_lines=phon_lines,
                     ),
-                    presentation=_user_presentation(row),
-                    phonetic_lines=phon_lines,
-                ),
-                parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=query_result_keyboard(
-                    query_token,
-                    row["target_lang"] if row else "en",
-                    show_translations=True,
-                    show_pronounce=db.get_setting("tts_access", "premium") != "none" and (_user_plan(row) in PREMIUM_PLANS or db.get_setting("tts_access", "premium") == "all"),
-                ),
-            )
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                    reply_markup=query_result_keyboard(
+                        query_token,
+                        row["target_lang"] if row else "en",
+                        show_translations=show_translations,
+                        show_pronounce=show_pronounce,
+                    ),
+                )
+                delivered = True
+            finally:
+                if not delivered:
+                    db.release_word_query(user_id)
             await _send_with_retry(
                 context.bot,
                 update.effective_chat.id,

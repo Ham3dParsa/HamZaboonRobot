@@ -49,8 +49,6 @@ def _user_activity_line(
     )
 
 _telegram_slots = asyncio.Semaphore(TELEGRAM_MAX_CONCURRENCY)
-_CUSTOM_WORD_MAX_CHARS = 50
-_CUSTOM_WORD_MAX_WORDS = 4
 _CANCEL_INPUTS = {
     "cancel",
     "back",

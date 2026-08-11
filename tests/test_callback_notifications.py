@@ -12,6 +12,7 @@ class CallbackNotificationTests(unittest.IsolatedAsyncioTestCase):
             (CallbackNoticeIntent.SUCCESS, False),
             (CallbackNoticeIntent.INFO, False),
             (CallbackNoticeIntent.IMPORTANT_ERROR, True),
+            (CallbackNoticeIntent.SUCCESS_TOAST, True),
         )
 
         for intent, show_alert in cases:

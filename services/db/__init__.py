@@ -45,6 +45,8 @@ from services.db.plans import (
 
 from services.db.users import (
     get_user,
+    get_quota_status,
+    should_show_pronounce,
     create_user_if_needed,
     set_user_lang_goal,
     set_user_level,
@@ -73,6 +75,7 @@ from services.db.users import (
 
 from services.db.words import (
     add_saved_word,
+    toggle_review_word,
     update_saved_word_fields,
     due_words_for_user,
     get_saved_word,
@@ -184,6 +187,16 @@ def mark_query_result_saved(token: str, saved_word_id: int | None = None):
             "UPDATE query_results SET saved_at=COALESCE(saved_at, ?), "
             "saved_word_id=COALESCE(saved_word_id, ?) WHERE token=?",
             (_utc_now().isoformat(), saved_word_id, token),
+        )
+        conn.commit()
+
+
+def clear_query_result_saved(token: str):
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "UPDATE query_results SET saved_at=NULL, saved_word_id=NULL WHERE token=?",
+            (token,),
         )
         conn.commit()
 

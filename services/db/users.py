@@ -9,6 +9,59 @@ def get_user(user_id: int):
         return conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
 
 
+def should_show_pronounce(user_id: int, row=None) -> bool:
+    """Whether the 🔊 pronounce button is shown for a user.
+
+    Honors the admin ``tts_access`` setting (none/premium/all): none → False;
+    a paid plan → True; otherwise True only when tts_access == "all". Single
+    source of truth for every card/button so the admin toggle never drifts.
+
+    ``row`` is an optional pre-fetched users row (callers that already hold it
+    pass it in to avoid an extra SELECT); it is re-fetched when omitted.
+    """
+    from config import PREMIUM_PLANS, _user_plan
+    from services.db.settings import get_setting
+    if row is None:
+        row = get_user(user_id)
+    if not row:
+        return False
+    plan = _user_plan(row)
+    tts_setting = get_setting("tts_access", "premium")
+    if tts_setting == "none":
+        return False
+    if plan in PREMIUM_PLANS:
+        return True
+    return tts_setting == "all"
+
+
+def get_quota_status(user_id: int) -> dict | None:
+    """Return today's remaining word-query and grammar-tip quota for a user.
+
+    Returns a dict with two keys, ``"word_query"`` and ``"grammar_tip"``, each
+    holding ``{"used": int, "limit": int}``. ``limit`` comes from the user's
+    plan query quota. Returns ``None`` when the user does not exist.
+    Rule C: the word-query reply and the settings panel both read this single
+    seam so they can never drift.
+    """
+    from config import _app_today, daily_word_query_limit_for_plan
+    row = get_user(user_id)
+    if not row:
+        return None
+    limit = daily_word_query_limit_for_plan(row["plan"] or "free")
+
+    wq_used = row["words_asked_today"] or 0
+    if row["words_asked_date"] != _app_today():
+        wq_used = 0
+    gt_used = row["grammar_tips_asked_today"] or 0
+    if row["grammar_tips_asked_date"] != _app_today():
+        gt_used = 0
+
+    return {
+        "word_query": {"used": wq_used, "limit": limit},
+        "grammar_tip": {"used": gt_used, "limit": limit},
+    }
+
+
 def create_user_if_needed(user_id: int, username: str):
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")

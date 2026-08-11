@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import re
 import time
 
 from telegram import Update
@@ -32,7 +31,6 @@ from config import (
     USER_ACTIVITY,
     _app_today,
     _user_presentation,
-    _user_plan,
     _user_plan_label,
     daily_word_query_limit_for_plan,
     effective_daily_allowance,
@@ -53,13 +51,10 @@ from services.utils.helpers import (
     _finish_llm_wait_state,
     _is_cancel_input,
     _message_has_prepared_translations,
-    _normalize_custom_word_input,
     _send_with_retry,
     _start_llm_wait_state,
     _user_activity_line,
     _CANCEL_INPUTS,
-    _CUSTOM_WORD_MAX_CHARS,
-    _CUSTOM_WORD_MAX_WORDS,
 )
 from config.keyboards import (
     main_menu,
@@ -131,6 +126,13 @@ def _grammar_tip_usage_text(row) -> str:
         return f"📊 استفاده امروز از نکات گرامری: {used} / نامحدود"
     remaining = max(limit - used, 0)
     return f"📊 استفاده امروز از نکات گرامری: {used}/{limit} · باقی‌مانده: {remaining}"
+
+
+def _quota_line(status: dict) -> str:
+    used, limit = status["used"], status["limit"]
+    if limit < 0:
+        return f"{used} / نامحدود"
+    return f"{used}/{limit} (باقی‌مانده {max(limit - used, 0)})"
 
 
 # ---------------- /start و onboarding ----------------
@@ -433,12 +435,18 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         _log_user_activity(update, action="grammar_tip", outcome="success")
         logger.info("grammar tip delivered user_id=%s lang=%s", user_id, row["target_lang"])
-        await _send_with_retry(
-            context.bot,
-            update.effective_chat.id,
-            text,
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
+        delivered = False
+        try:
+            await _send_with_retry(
+                context.bot,
+                update.effective_chat.id,
+                text,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            delivered = True
+        finally:
+            if not delivered:
+                db.release_grammar_tip(user_id)
     except Exception:
         _log_user_activity(update, action="grammar_tip", outcome="error")
         logger.exception("Grammar tip delivery failed")
@@ -486,11 +494,14 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await notify_callback(update.callback_query)
         return
     due = db.due_words_for_user(user_id)
+    quota = db.get_quota_status(user_id)
     text = (
         f"🌐 زبان: {language_label(row['target_lang'])}\n"
         f"🎯 هدف: {goal_label(row['goal'])}\n"
         f"📚 سطح: {level_label(row['level'])}\n"
         f"💳 پلن: {_user_plan_label(row)}\n"
+        f"📊 پرسش واژه: {_quota_line(quota['word_query'])}\n"
+        f"💡 نکته گرامری: {_quota_line(quota['grammar_tip'])}\n"
         f"🔥 استریک: {row['streak'] or 0} روز\n"
         f"⏰ واژه‌های آماده‌ی مرور: {len(due)}"
     )
@@ -518,41 +529,6 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 # ---------------- Callback handlers ----------------
-
-
-def _custom_word_input_error(text: str, target_lang: str) -> str | None:
-    normalized = _normalize_custom_word_input(text)
-    if not normalized:
-        return "یک واژه یا عبارت کوتاه بفرست."
-
-    if len(normalized) > _CUSTOM_WORD_MAX_CHARS:
-        return f"حداکثر {_CUSTOM_WORD_MAX_CHARS} کاراکتر مجاز است."
-
-    words = normalized.split()
-    if len(words) > _CUSTOM_WORD_MAX_WORDS:
-        return f"فقط یک واژه یا عبارت کوتاهِ حداکثر {_CUSTOM_WORD_MAX_WORDS} کلمه‌ای بفرست."
-
-    if any(len(word) > 25 for word in words):
-        return "واژه یا عبارتت خیلی بلند است؛ کوتاه‌تر بفرست."
-
-    if not re.fullmatch(r"[\w\s\u0600-\u06FF'’\-ـ.,؟«»؛،؟]+", normalized):
-        return "لطفاً فقط واژه یا عبارت ساده بفرست (علائم محدود مجاز است)."
-
-    has_persian = bool(re.search(r"[\u0600-\u06FF]", normalized))
-    has_latin = bool(re.search(r"[A-Za-z]", normalized))
-
-    if not has_persian and not has_latin:
-        return "یک واژه یا عبارت واقعی بفرست."
-
-    latin_target = target_lang in {"en", "es", "fr", "de"}
-
-    if latin_target and has_persian and len(words) >= 4:
-        return "برای این زبان، عبارت کوتاه‌تری بفرست (حداکثر ۳-۴ کلمه)."
-
-    if latin_target and not has_latin and len(words) > 3:
-        return "برای این زبان، عبارت کوتاه‌تری بفرست (حداکثر ۳ کلمه)."
-
-    return None
 
 
 async def _handle_query_prepare(
@@ -599,6 +575,11 @@ async def _handle_query_prepare(
         "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
     )
     phon_lines = _phonetic_lines(card.get("phonetic", ""))
+    show_pronounce = db.should_show_pronounce(user_id, user_row)
+    context.user_data[f"query_kb_{row['token']}"] = {
+        "show_translations": False,
+        "show_pronounce": show_pronounce,
+    }
     try:
         await _edit_with_retry(
             update.callback_query,
@@ -613,7 +594,7 @@ async def _handle_query_prepare(
             reply_markup=query_result_keyboard(
                 row["token"], row["lang"],
                 show_translations=False,
-                show_pronounce=_user_plan(user_row) in PREMIUM_PLANS,
+                show_pronounce=show_pronounce,
             ),
         )
     except BadRequest as exc:

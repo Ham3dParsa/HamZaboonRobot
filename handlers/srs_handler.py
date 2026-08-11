@@ -4,12 +4,14 @@ import time
 
 from telegram import Update
 from telegram.ext import ContextTypes
+from telegram.error import BadRequest
 
 from services import db
 from config import USER_ACTIVITY
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _user_activity_line
 from services.session import resolve_grade
+from config.keyboards import query_result_keyboard
 from handlers.study_handler import advance_session
 
 logger = logging.getLogger(__name__)
@@ -39,19 +41,32 @@ async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     if not row:
         await notify_callback(update.callback_query, "این نتیجه منقضی شده یا در دسترس نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
-    if row["saved_at"]:
-        await notify_callback(update.callback_query, "این واژه قبلاً به مرور اضافه شده است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-        return
 
     result_data = json.loads(row["result_json"])
-    added = db.add_saved_word(user_id, row["word"], row["lang"], result_data, entry_source="manual")
-    db.mark_query_result_saved(token)
-    if added:
-        message = "واژه به مرور شما اضافه شد. ✅"
+    state = db.toggle_review_word(user_id, row["word"], row["lang"], result_data)
+    if state == "saved":
+        db.mark_query_result_saved(token)
+        message = "در جعبه مرور ذخیره شد!"
         logger.info("query result saved user_id=%s word_id_token=%s", user_id, token)
     else:
-        message = "این واژه از قبل در مرور شما ثبت شده بود."
-    await notify_callback(update.callback_query, message, intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        db.clear_query_result_saved(token)
+        message = "از جعبه مرور حذف شد!"
+        logger.info("query result removed user_id=%s word_id_token=%s", user_id, token)
+
+    kb_state = context.user_data.get(f"query_kb_{token}", {}) if context and context.user_data else {}
+    markup = query_result_keyboard(
+        token,
+        row["lang"],
+        show_translations=kb_state.get("show_translations", False),
+        show_pronounce=kb_state.get("show_pronounce", False),
+        saved=(state == "saved"),
+    )
+    try:
+        await update.effective_message.edit_reply_markup(reply_markup=markup)
+    except BadRequest as exc:
+        if "not modified" not in str(exc).casefold():
+            raise
+    await notify_callback(update.callback_query, message, intent=CallbackNoticeIntent.SUCCESS_TOAST)
 
 
 async def _handle_srs_review(

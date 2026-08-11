@@ -49,6 +49,12 @@ BANNED_SYMBOLS: dict[str, str] = {
         "removed by callback-notification foundation: semantic notify_callback() owns "
         "callback answer presentation and expected Telegram failures"
     ),
+    "_custom_word_input_error": (
+        "removed by custom-word-query Rule B: inline regex/heuristic validation in "
+        "handlers/user.py replaced by the validate_word_query() seam in "
+        "services/utils/validation.py (digit rejection, Unicode isalpha, no vowel "
+        "heuristic)"
+    ),
     "advance_word_review": (
         "removed by FSRS migration Phase 2: interval-ladder scheduling replaced "
         "by grade_word_review()/FSRS stability"

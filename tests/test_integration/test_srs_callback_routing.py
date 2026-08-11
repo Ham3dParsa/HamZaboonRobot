@@ -269,6 +269,7 @@ class QueryAddEntrySourceTest(unittest.TestCase):
         update = MagicMock()
         update.effective_user.id = 1
         update.callback_query.answer = AsyncMock()
+        update.effective_message.edit_reply_markup = AsyncMock()
         ctx = MagicMock()
         ctx.user_data = {}
 

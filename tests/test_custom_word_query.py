@@ -11,9 +11,17 @@ from services.db import schema as db_schema
 from services.utils.formatting import escape_mdv2_code, format_card
 from services.utils.helpers import _is_cancel_input
 from bot import (
-    _custom_word_input_error,
     _user_presentation,
 )
+from services.utils.validation import (
+    ERR_EMPTY,
+    ERR_INVALID_CHARS,
+    ERR_TOO_FEW_LETTERS,
+    ERR_TOO_LONG,
+    ERR_TOO_MANY_WORDS,
+    validate_word_query,
+)
+from config import _app_today, daily_word_query_limit_for_plan
 from config.keyboards import (
     BTN_ASK_WORD,
     BTN_SETTINGS,
@@ -78,6 +86,111 @@ class CustomWordQueryTests(unittest.TestCase):
         self.assertIn("انگلیسی", button.text)
         self.assertEqual(button.callback_data, "query:add:0123456789abcdef0123456789abcdef")
 
+    def test_get_quota_status_reports_word_and_grammar_usage(self):
+        db.create_user_if_needed(1, "learner")
+        limit = daily_word_query_limit_for_plan("free")
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE users SET plan='free', words_asked_today=3, "
+                "grammar_tips_asked_today=1, words_asked_date=?, grammar_tips_asked_date=? "
+                "WHERE user_id=1",
+                (_app_today(), _app_today()),
+            )
+            conn.commit()
+        status = db.get_quota_status(1)
+        self.assertEqual(status["word_query"], {"used": 3, "limit": limit})
+        self.assertEqual(status["grammar_tip"], {"used": 1, "limit": limit})
+
+    def test_get_quota_status_resets_when_date_is_stale(self):
+        db.create_user_if_needed(1, "learner")
+        limit = daily_word_query_limit_for_plan("free")
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE users SET plan='free', words_asked_today=3, "
+                "grammar_tips_asked_today=1, words_asked_date='1990-01-01', "
+                "grammar_tips_asked_date='1990-01-01' WHERE user_id=1",
+            )
+            conn.commit()
+        status = db.get_quota_status(1)
+        self.assertEqual(status["word_query"], {"used": 0, "limit": limit})
+        self.assertEqual(status["grammar_tip"], {"used": 0, "limit": limit})
+
+    def test_get_quota_status_uses_plan_limit(self):
+        db.create_user_if_needed(1, "learner")
+        limit = daily_word_query_limit_for_plan("gold")
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE users SET plan='gold', words_asked_today=3, "
+                "grammar_tips_asked_today=1, words_asked_date=?, grammar_tips_asked_date=? "
+                "WHERE user_id=1",
+                (_app_today(), _app_today()),
+            )
+            conn.commit()
+        status = db.get_quota_status(1)
+        self.assertEqual(status["word_query"]["limit"], limit)
+        self.assertEqual(status["grammar_tip"]["limit"], limit)
+
+    def test_get_quota_status_returns_none_for_unknown_user(self):
+        self.assertIsNone(db.get_quota_status(999999))
+
+    def _set_plan(self, user_id, plan):
+        with db.get_conn() as conn:
+            conn.execute("UPDATE users SET plan=? WHERE user_id=?", (plan, user_id))
+            conn.commit()
+
+    def test_should_show_pronounce_honors_tts_access_gate(self):
+        db.create_user_if_needed(1, "learner")
+        db.set_setting("tts_access", "all")
+        self.assertTrue(db.should_show_pronounce(1), "free user sees 🔊 when tts=all")
+
+        db.set_setting("tts_access", "premium")
+        self.assertFalse(db.should_show_pronounce(1), "free user hidden when tts=premium")
+        self._set_plan(1, "gold")
+        self.assertTrue(db.should_show_pronounce(1), "premium user sees 🔊 when tts=premium")
+
+        db.set_setting("tts_access", "none")
+        self.assertFalse(db.should_show_pronounce(1), "none hides 🔊 even for premium")
+
+    def test_should_show_pronounce_false_for_unknown_user(self):
+        self.assertFalse(db.should_show_pronounce(999999))
+
+    def test_should_show_pronounce_honors_owner_bypass(self):
+        db.create_user_if_needed(1, "learner")
+        self._set_plan(1, "free")
+        db.set_setting("tts_access", "premium")
+        with patch("config.OWNER_ID", 1), patch("config.OWNER_BYPASS_LIMITS", True):
+            self.assertTrue(
+                db.should_show_pronounce(1),
+                "owner bypass with a stored free plan must see 🔊 under tts=premium",
+            )
+
+    def test_should_show_pronounce_accepts_passed_row(self):
+        db.create_user_if_needed(1, "learner")
+        self._set_plan(1, "free")
+        db.set_setting("tts_access", "premium")
+        row = db.get_user(1)
+        self.assertFalse(
+            db.should_show_pronounce(1, row),
+            "free stored plan with tts=premium stays hidden even when a row is passed",
+        )
+        premium_row = dict(row, plan="gold")
+        self.assertTrue(
+            db.should_show_pronounce(1, premium_row),
+            "a passed gold row must be honored without re-querying the DB",
+        )
+
+    def test_clear_query_result_saved_nulls_markers(self):
+        db.create_user_if_needed(1, "learner")
+        token = db.create_query_result(
+            1, "hello", "hello", "en", {"word": "hello", "examples": []}
+        )
+        db.mark_query_result_saved(token)
+        self.assertIsNotNone(db.get_query_result(token, user_id=1)["saved_at"])
+        db.clear_query_result_saved(token)
+        row = db.get_query_result(token, user_id=1)
+        self.assertIsNone(row["saved_at"])
+        self.assertIsNone(row["saved_word_id"])
+
     def test_srs_review_keyboard_is_user_scoped_and_short(self):
         markup = get_review_keyboard(123, 456)
         callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
@@ -137,11 +250,84 @@ class CustomWordQueryTests(unittest.TestCase):
         rows = db.get_pre_first_exposure_words(1)
         self.assertEqual([row["word"] for row in rows], ["query-word"])
 
+    def test_toggle_review_word_adds_then_removes_idempotently(self):
+        db.create_user_if_needed(1, "learner")
+        result_data = {"word": "hello", "fa_meaning": "سلام", "examples": []}
+        # Add direction.
+        self.assertEqual(db.toggle_review_word(1, "hello", "en", result_data), "saved")
+        with db.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM saved_words WHERE user_id=1 AND normalized_word='hello'"
+            ).fetchall()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["entry_source"], "manual")
+        # Idempotent: toggling again while present removes it.
+        self.assertEqual(db.toggle_review_word(1, "  Hello  ", "en", result_data), "removed")
+        with db.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM saved_words WHERE user_id=1 AND normalized_word='hello'"
+            ).fetchall()
+        self.assertEqual(len(rows), 0)
+        # Add again after removal.
+        self.assertEqual(db.toggle_review_word(1, "hello", "en", result_data), "saved")
+        with db.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM saved_words WHERE user_id=1 AND normalized_word='hello'"
+            ).fetchall()
+        self.assertEqual(len(rows), 1)
+
     def test_custom_word_validation_rejects_long_or_unrelated_input(self):
-        self.assertIsNone(_custom_word_input_error("thick burger", "en"))
+        self.assertIsNone(validate_word_query("thick burger", "en"))
         # "همبرگر آفرقایی کلفت" is now considered valid input
-        self.assertIsNone(_custom_word_input_error("one two three four", "en"))  # 4 words, Latin target, no Persian
-        self.assertIsNotNone(_custom_word_input_error("", "en"))
+        self.assertIsNone(validate_word_query("one two three four", "en"))  # 4 words, Latin target, no Persian
+        self.assertEqual(validate_word_query("", "en"), ERR_EMPTY)
+        self.assertEqual(validate_word_query("   ", "en"), ERR_EMPTY)
+
+    def test_validate_word_query_rejects_digits_and_non_letters(self):
+        # ses_01b176ac re-lock: digits are rejected even inside an otherwise
+        # valid phrase (e.g. "قرن ۲۱").
+        self.assertEqual(validate_word_query("قرن ۲۱", "en"), ERR_INVALID_CHARS)
+        self.assertEqual(validate_word_query("hello123", "en"), ERR_INVALID_CHARS)
+        self.assertEqual(validate_word_query("qwrty", "en"), None)  # no vowel heuristic
+        self.assertEqual(validate_word_query("Rhythmus", "en"), None)
+
+    def test_validate_word_query_requires_at_least_two_letters(self):
+        # Owner decision 2026-08-11: punctuation-only (or single-letter) queries
+        # are invalid so they cannot burn daily quota or an AI call.
+        self.assertEqual(validate_word_query("-", "en"), ERR_TOO_FEW_LETTERS)
+        self.assertEqual(validate_word_query("---", "en"), ERR_TOO_FEW_LETTERS)
+        self.assertEqual(validate_word_query("'", "en"), ERR_TOO_FEW_LETTERS)
+        self.assertEqual(validate_word_query("a", "en"), ERR_TOO_FEW_LETTERS)
+        self.assertEqual(validate_word_query("ab", "en"), None)
+        self.assertEqual(validate_word_query("aa", "en"), None)
+
+    def test_validate_word_query_is_unicode_aware(self):
+        self.assertIsNone(validate_word_query("همبرگر", "fa"))
+        self.assertIsNone(validate_word_query("برگر کلفت", "en"))
+        # Persian digits and Latin digits are both non-letters -> rejected.
+        self.assertEqual(validate_word_query("ساعت 12", "fa"), ERR_INVALID_CHARS)
+        self.assertEqual(validate_word_query("ساعت ۱۲", "fa"), ERR_INVALID_CHARS)
+
+    def test_validate_word_query_allows_punctuation_and_zwnj(self):
+        self.assertIsNone(validate_word_query("don't", "en"))
+        self.assertIsNone(validate_word_query("میخواهم", "fa"))
+        # Hyphen, ZWNJ, apostrophe, and right single quote are the allowed set.
+        self.assertIsNone(validate_word_query("self-contained", "en"))
+        self.assertIsNone(validate_word_query("خودکار", "fa"))
+
+    def test_validate_word_query_enforces_length_and_word_caps(self):
+        self.assertEqual(validate_word_query("a" * 49, "en"), ERR_TOO_LONG)
+        self.assertIsNone(validate_word_query("a" * 48, "en"))
+        self.assertEqual(
+            validate_word_query("one two three four five", "en"),
+            ERR_TOO_MANY_WORDS,
+        )
+
+    def test_validate_word_query_language_does_not_change_acceptance(self):
+        # Rule B: language is retained for message tailoring only.
+        self.assertEqual(validate_word_query("قرن ۲۱", "fa"), ERR_INVALID_CHARS)
+        self.assertEqual(validate_word_query("قرن ۲۱", "en"), ERR_INVALID_CHARS)
+        self.assertIsNone(validate_word_query("Rhythmus", "de"))
 
     def test_cancel_back_inline_keyboard_is_shared(self):
         markup = awaiting_inline_keyboard()
