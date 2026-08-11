@@ -28,6 +28,7 @@ author_url: https://github.com/Ham3dParsa
 | `query:prepare:`, `query:add:` | `bot.py` | `_handle_query_prepare`, `_handle_query_add` |
 | `tts:pronounce:` | `bot.py` | `_handle_tts_pronounce` |
 | `study:start`, `study:inactive` | `handlers/study_handler.py` | `handle_study_start`, `handle_study_inactive` (via `bot.py callback_router`) |
+| `help:section:`, `help:back` | `handlers/help_command.py` | `send_help_panel` (command/text entry), `handle_help_callback` |
 | `srs:prepare:`, `srs:reveal:`, `srs:` | `handlers/srs_handler.py` | `_handle_srs_prepare`, `_handle_srs_reveal`, `_handle_srs_review` |
 | `admin:` (thin dispatcher) | `handlers/admin.py` | `_handle_admin_callback` — owner gate + prefix dispatch to domain sub-routers (sub-routes below) |
 | `admin:stats`, `admin:stats:*` | `handlers/admin_stats.py` | `handle_admin_stats` |

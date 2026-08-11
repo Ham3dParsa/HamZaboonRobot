@@ -211,6 +211,7 @@ Keep responsibilities aligned with the current module boundaries:
   - `handlers/admin_cost.py`: Admin **LLM cost / pricing** sub-router (`handle_cost_callback`, `_handle_llm_callback`) and cost keyboards.
   - `handlers/admin_ai.py`: Admin **AI presets / fallback / custom-test** sub-router (`handle_ai_callback`) and AI settings panels.
   - `handlers/user.py`: User settings handlers (language, goal, level).
+  - `handlers/help_command.py`: User **help** module — `/help` + "راهنما" panel (`send_help_panel`), inline help-section callback dispatch (`handle_help_callback`), content-driven `HELP_SECTIONS` registry.
   - `handlers/srs_handler.py`: SRS review handlers.
 - `services/`: Domain services.
   - `services/db/`: SQLite schema, migrations, transactions, persistence, quotas, daily-card state, delivery queue state, saved-word state, and plan-spec state. `services/db/__init__.py` is a thin re-export façade + shared helpers; `schema.py` owns schema/migrations, `plans.py` seeds and CRUDs the `plans` table, `settings.py` owns settings accessors, `cost_tracking.py` owns LLM cost analytics, and `preset_registry.py` owns AI preset/fallback/hourly-usage logic.
