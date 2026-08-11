@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import time
 
@@ -10,6 +9,7 @@ from telegram.error import BadRequest
 
 from services.ai import ai
 from services import db
+from services import word_query
 from services.ai import prompts
 from config.catalog import (
     GOALS,
@@ -37,10 +37,10 @@ from config import (
     is_owner,
 )
 from services.utils.formatting import (
-    CardPreparationError,
     escape_mdv2,
     escape_mdv2_code,
     format_card,
+    word_query_usage_text,
     _phonetic_lines,
 )
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
@@ -96,21 +96,6 @@ def _log_user_activity(update: Update, *, action: str, outcome: str):
     )
     if line:
         logger.log(USER_ACTIVITY, "%s", line)
-
-
-def _word_query_usage(row) -> tuple[int, int]:
-    used = row["words_asked_today"] or 0
-    if row["words_asked_date"] != _app_today():
-        used = 0
-    return used, daily_word_query_limit_for_plan(row["plan"] or "free")
-
-
-def _word_query_usage_text(row) -> str:
-    used, limit = _word_query_usage(row)
-    if limit < 0:
-        return f"📊 استفاده امروز: {used} / نامحدود"
-    remaining = max(limit - used, 0)
-    return f"📊 استفاده امروز: {used}/{limit} · باقی‌مانده: {remaining}"
 
 
 def _grammar_tip_usage(row) -> tuple[int, int]:
@@ -465,7 +450,7 @@ async def ask_for_ask_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
     row = db.get_user(user_id)
     plan = row["plan"] if row else "free"
     limit = daily_word_query_limit_for_plan(plan)
-    usage_text = _word_query_usage_text(row) if row else f"📊 استفاده امروز: 0/{limit}"
+    usage_text = word_query_usage_text(row) if row else f"📊 استفاده امروز: 0/{limit}"
     if not db.can_ask_word(
         user_id,
         limit,
@@ -541,50 +526,43 @@ async def _handle_query_prepare(
     if _message_has_prepared_translations(update):
         await notify_callback(update.callback_query, "ترجمه‌ها آماده شده‌اند.", intent=CallbackNoticeIntent.SUCCESS)
         return
-    row = db.get_query_result(token, user_id=user_id)
-    if not row:
+
+    async def prepare_card(card, **kwargs):
+        return await asyncio.to_thread(_prepare_cached_card, card, **kwargs)
+
+    result = await word_query.prepare(
+        token,
+        user_id,
+        prepare_card=prepare_card,
+    )
+    if result.kind == "expired":
         await notify_callback(update.callback_query, "این نتیجه منقضی شده یا در دسترس نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
-    try:
-        card = json.loads(row["result_json"])
-    except (TypeError, json.JSONDecodeError):
-        card = None
-    user_row = db.get_user(user_id)
+    if result.kind == "not_found":
+        await notify_callback(update.callback_query, "کاربر پیدا نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    if result.kind == "card_prep_error":
+        await notify_callback(update.callback_query, "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+
+    user_row = result.user_row
     if not user_row:
         await notify_callback(update.callback_query, "کاربر پیدا نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
-    try:
-        card = await asyncio.to_thread(
-            _prepare_cached_card,
-            card,
-            lang=row["lang"],
-            user_id=user_id,
-            plan=user_row["plan"] or "free",
-            source="custom_word",
-            persist_patch=lambda patch: db.update_query_result_fields(
-                token,
-                user_id,
-                patch,
-            ),
-        )
-    except CardPreparationError:
-        await notify_callback(update.callback_query, "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-        return
     footer = (
-        f"{_word_query_usage_text(user_row)}\n\n"
+        f"{word_query_usage_text(user_row)}\n\n"
         "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
     )
-    phon_lines = _phonetic_lines(card.get("phonetic", ""))
-    show_pronounce = db.should_show_pronounce(user_id, user_row)
-    context.user_data[f"query_kb_{row['token']}"] = {
+    phon_lines = _phonetic_lines(result.card_data.get("phonetic", ""))
+    context.user_data[f"query_kb_{result.token}"] = {
         "show_translations": False,
-        "show_pronounce": show_pronounce,
+        "show_pronounce": result.show_pronounce,
     }
     try:
         await _edit_with_retry(
             update.callback_query,
             format_card(
-                card,
+                result.card_data,
                 footer=footer,
                 presentation=_user_presentation(user_row),
                 translations_prepared=True,
@@ -592,9 +570,10 @@ async def _handle_query_prepare(
             ),
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=query_result_keyboard(
-                row["token"], row["lang"],
+                result.token, result.lang,
                 show_translations=False,
-                show_pronounce=show_pronounce,
+                show_pronounce=result.show_pronounce,
+                saved=result.saved,
             ),
         )
     except BadRequest as exc:

@@ -7,6 +7,7 @@ from telegram.ext import ContextTypes
 from telegram.error import BadRequest
 
 from services import db
+from services import word_query
 from config import USER_ACTIVITY
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _user_activity_line
@@ -37,36 +38,30 @@ def _log_ua(update: Update, action: str, outcome: str):
 async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str):
     user_id = update.effective_user.id
     _log_ua(update, action="query_add", outcome="started")
-    row = db.get_query_result(token, user_id=user_id)
-    if not row:
+    result = await word_query.toggle_save(token, user_id)
+    if result.kind == "expired":
         await notify_callback(update.callback_query, "این نتیجه منقضی شده یا در دسترس نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
-    result_data = json.loads(row["result_json"])
-    state = db.toggle_review_word(user_id, row["word"], row["lang"], result_data)
-    if state == "saved":
-        db.mark_query_result_saved(token)
-        message = "در جعبه مرور ذخیره شد!"
+    if result.saved:
         logger.info("query result saved user_id=%s word_id_token=%s", user_id, token)
     else:
-        db.clear_query_result_saved(token)
-        message = "از جعبه مرور حذف شد!"
         logger.info("query result removed user_id=%s word_id_token=%s", user_id, token)
 
     kb_state = context.user_data.get(f"query_kb_{token}", {}) if context and context.user_data else {}
     markup = query_result_keyboard(
-        token,
-        row["lang"],
+        result.token,
+        result.lang,
         show_translations=kb_state.get("show_translations", False),
         show_pronounce=kb_state.get("show_pronounce", False),
-        saved=(state == "saved"),
+        saved=result.saved,
     )
     try:
         await update.effective_message.edit_reply_markup(reply_markup=markup)
     except BadRequest as exc:
         if "not modified" not in str(exc).casefold():
             raise
-    await notify_callback(update.callback_query, message, intent=CallbackNoticeIntent.SUCCESS_TOAST)
+    await notify_callback(update.callback_query, result.message, intent=CallbackNoticeIntent.SUCCESS_TOAST)
 
 
 async def _handle_srs_review(

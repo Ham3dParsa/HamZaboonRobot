@@ -73,6 +73,8 @@ class PrepareResult:
     lang: Optional[str] = None
     show_translations: bool = True
     show_pronounce: bool = True
+    saved: bool = False
+    user_row: Optional[dict] = None
 
 
 @dataclass(frozen=True)
@@ -164,6 +166,10 @@ async def prepare(token: str, user_id: int, *, prepare_card: Callable[..., Await
         return PrepareResult(kind="not_found")
 
     try:
+        saved = bool(row["saved_at"])
+    except (KeyError, IndexError, TypeError):
+        saved = bool(row.get("saved_at", False)) if isinstance(row, dict) else False
+    try:
         card = json.loads(row["result_json"])
     except (TypeError, json.JSONDecodeError):
         card = None
@@ -188,6 +194,8 @@ async def prepare(token: str, user_id: int, *, prepare_card: Callable[..., Await
         lang=row["lang"],
         show_translations=False,
         show_pronounce=show_pronounce,
+        saved=saved,
+        user_row=user_row,
     )
 
 
