@@ -1,13 +1,13 @@
 <#
 .SYNOPSIS
-    Acquire, update, release, check, and prune parallel-work-claims.json
+    Acquire, update, release, and prune parallel-work-claims.json
     under an exclusive file lock. Uses native [System.IO.FileStream] lock.
     Normalizes paths via [System.IO.DirectoryInfo].FullName to avoid
     [IO.File]::Replace mixed-slash path failures.
 #>
 param(
     [Parameter(Mandatory)]
-    [ValidateSet("acquire","release","check","prune")]
+    [ValidateSet("acquire","release","prune")]
     [string]$Command,
 
     [string]$Branch,
@@ -134,4 +134,5 @@ switch ($Command) {
     "acquire" { Acquire-Claim -Branch $Branch -Seams $Seams -RuleIds $RuleIds }
     "release" { Release-Claim -Branch $Branch }
     "prune"   { Prune-Claims  -OlderThanDays $OlderThanDays }
+    default   { throw "Unknown command: $Command" }
 }
