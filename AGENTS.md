@@ -217,6 +217,7 @@ Keep responsibilities aligned with the current module boundaries:
   - `services/fsrs_core.py`: Pure FSRS-6 engine (w0-w20 constants, DSR formulas, no side effects).
   - `services/ai/`: OpenAI-compatible client, provider settings, JSON extraction, AI response validation, system prompts, AI content generation, and provider presets.
   - `services/utils/`: Utility modules.
+    - `services/utils/callback_notifications.py`: Deep callback-query notification seam; semantic intent mapping, empty acknowledgements, and expected Telegram callback-answer failure handling.
     - `services/utils/formatting.py`: Learner-facing message formatting and escaping behind a stable interface.
     - `services/utils/helpers.py`: Shared helper functions (retry, cancel detection, etc.).
   - `services/scheduling.py`: Pure session sizing, slot planning, and timezone-aware planned timestamps.

@@ -45,8 +45,8 @@ from services.utils.formatting import (
     format_card,
     _phonetic_lines,
 )
+from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import (
-    _answer_callback_safely,
     _edit_or_send,
     _edit_with_retry,
     _exit_awaiting_flow,
@@ -241,7 +241,7 @@ async def change_lang_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "زبان جدید خود را انتخاب کنید:",
         reply_markup=lang_inline_keyboard(back_to_settings=True),
     )
-    await _answer_callback_safely(update.callback_query)
+    await notify_callback(update.callback_query)
 
 
 async def change_goal_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -252,7 +252,7 @@ async def change_goal_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "هدف جدید خود را انتخاب کنید:",
         reply_markup=goal_inline_keyboard(back_to_settings=True),
     )
-    await _answer_callback_safely(update.callback_query)
+    await notify_callback(update.callback_query)
 
 
 async def change_level_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -263,7 +263,7 @@ async def change_level_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "سطح جدید خود را انتخاب کنید:",
         reply_markup=level_inline_keyboard(back_to_settings=True),
     )
-    await _answer_callback_safely(update.callback_query)
+    await notify_callback(update.callback_query)
 
 
 async def change_presentation_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -271,7 +271,7 @@ async def change_presentation_start(update: Update, context: ContextTypes.DEFAUL
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
         await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
-        await _answer_callback_safely(update.callback_query)
+        await notify_callback(update.callback_query)
         return
     current = _user_presentation(row)
     if (row["plan"] or "free") not in PREMIUM_PLANS:
@@ -281,7 +281,7 @@ async def change_presentation_start(update: Update, context: ContextTypes.DEFAUL
             f"نمایش فعلی کارت‌ها: {'خلاصه' if current == 'brief' else 'کامل'}.\n"
             "انتخاب دائمی نمایش کارت فقط برای کاربران پریمیوم فعال است.",
         )
-        await _answer_callback_safely(update.callback_query)
+        await notify_callback(update.callback_query)
         return
     await _edit_or_send(
         update,
@@ -290,7 +290,7 @@ async def change_presentation_start(update: Update, context: ContextTypes.DEFAUL
         "نمایش موردنظر را انتخاب کنید:",
         reply_markup=presentation_settings_keyboard(current, back_to_settings=True),
     )
-    await _answer_callback_safely(update.callback_query)
+    await notify_callback(update.callback_query)
 
 
 async def on_lang_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str):
@@ -483,7 +483,7 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
         await _edit_or_send(update, context, "اول باید /start رو بزنی.")
-        await _answer_callback_safely(update.callback_query)
+        await notify_callback(update.callback_query)
         return
     due = db.due_words_for_user(user_id)
     text = (
@@ -495,7 +495,7 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⏰ واژه‌های آماده‌ی مرور: {len(due)}"
     )
     await _edit_or_send(update, context, text, reply_markup=settings_back_keyboard())
-    await _answer_callback_safely(update.callback_query)
+    await notify_callback(update.callback_query)
 
 
 async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -503,7 +503,7 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
         await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
-        await _answer_callback_safely(update.callback_query)
+        await notify_callback(update.callback_query)
         return
     lang_name = language_label(row["target_lang"])
     goal_name = goal_label(row["goal"])
@@ -514,7 +514,7 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         "⚙️ تنظیمات و پروفایل من:\nاز دکمه‌های زیر یکی را انتخاب کن.",
         reply_markup=settings_inline_keyboard(lang_name, goal_name, level_name),
     )
-    await _answer_callback_safely(update.callback_query)
+    await notify_callback(update.callback_query)
 
 
 # ---------------- Callback handlers ----------------
@@ -563,11 +563,11 @@ async def _handle_query_prepare(
     user_id = update.effective_user.id
     _log_user_activity(update, action="query_translate", outcome="requested")
     if _message_has_prepared_translations(update):
-        await update.callback_query.answer("ترجمه‌ها آماده شده‌اند.")
+        await notify_callback(update.callback_query, "ترجمه‌ها آماده شده‌اند.", intent=CallbackNoticeIntent.SUCCESS)
         return
     row = db.get_query_result(token, user_id=user_id)
     if not row:
-        await update.callback_query.answer("این نتیجه منقضی شده یا در دسترس نیست.", show_alert=True)
+        await notify_callback(update.callback_query, "این نتیجه منقضی شده یا در دسترس نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     try:
         card = json.loads(row["result_json"])
@@ -575,7 +575,7 @@ async def _handle_query_prepare(
         card = None
     user_row = db.get_user(user_id)
     if not user_row:
-        await update.callback_query.answer("کاربر پیدا نشد.", show_alert=True)
+        await notify_callback(update.callback_query, "کاربر پیدا نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     try:
         card = await asyncio.to_thread(
@@ -592,10 +592,7 @@ async def _handle_query_prepare(
             ),
         )
     except CardPreparationError:
-        await update.callback_query.answer(
-            "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.",
-            show_alert=True,
-        )
+        await notify_callback(update.callback_query, "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     footer = (
         f"{_word_query_usage_text(user_row)}\n\n"
@@ -621,16 +618,17 @@ async def _handle_query_prepare(
         )
     except BadRequest as exc:
         if "not modified" in str(exc).casefold():
-            await _answer_callback_safely(
+            await notify_callback(
                 update.callback_query,
                 "ترجمه‌ها قبلاً آماده شده‌اند.",
+                intent=CallbackNoticeIntent.INFO,
             )
         else:
             logger.exception("failed to edit prepared query card")
-            await _answer_callback_safely(
+            await notify_callback(
                 update.callback_query,
                 "نمایش ترجمه‌ها انجام نشد؛ لطفاً دوباره امتحان کنید.",
-                show_alert=True,
+                intent=CallbackNoticeIntent.IMPORTANT_ERROR,
             )
         return
-    await _answer_callback_safely(update.callback_query, "ترجمه‌ها آماده شدند.")
+    await notify_callback(update.callback_query, "ترجمه‌ها آماده شدند.", intent=CallbackNoticeIntent.SUCCESS)

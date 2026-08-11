@@ -19,6 +19,10 @@ PRODUCTION_SOURCES = [
     Path("config"),
 ]
 
+# The notification module is the sole production location allowed to call
+# Telegram's low-level CallbackQuery.answer interface.
+CALLBACK_NOTIFICATION_MODULE = Path("services/utils/callback_notifications.py")
+
 
 def _production_py_files():
     """Yield every production .py file (bot.py + handlers/services/config)."""
@@ -27,6 +31,17 @@ def _production_py_files():
             yield target
         elif target.is_dir():
             yield from sorted(target.rglob("*.py"))
+
+
+def _direct_answer_calls_in_tree(tree: ast.AST) -> list[int]:
+    """Return line numbers for low-level ``.answer()`` calls in a module."""
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "answer"
+    ]
 
 
 def _defined_names(tree: ast.AST) -> set[str]:
@@ -593,6 +608,26 @@ class TestCallbackWiring(unittest.TestCase):
                 for s in sorted(symbols):
                     msg += f"  from {module} import {s}\n"
             self.fail(msg)
+
+    def test_callback_answers_only_exist_in_notification_module(self):
+        """Callback presentation must not leak Telegram flags into callers."""
+        offending: list[str] = []
+        for path in _production_py_files():
+            if path == CALLBACK_NOTIFICATION_MODULE:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+            for line in _direct_answer_calls_in_tree(tree):
+                offending.append(f"{path}:{line}")
+        self.assertEqual(
+            offending,
+            [],
+            "direct .answer() calls must use notify_callback instead:\n"
+            + "\n".join(offending),
+        )
+
+    def test_callback_answer_guard_detects_direct_call(self):
+        tree = ast.parse("async def handler(query):\n    await query.answer()\n")
+        self.assertEqual(_direct_answer_calls_in_tree(tree), [2])
 
     def test_reverse_wiring_detects_deleted_handler(self):
         """Regression: the reverse-direction check must actually catch the
