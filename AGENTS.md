@@ -517,14 +517,8 @@ meaningful code or product change, and follow it exactly.
 
 ## 9. Product Scope Guardrails
 
-The current next user-facing direction is custom-word query improvement:
-visible quota, idempotent "Add to review", and removal of the separate manual
-save action from the primary flow. Reliability and data correctness take
-priority over additional premium features.
-
-Do not introduce payment automation, groups, leaderboards, AI images, broad
-analytics, or advanced placement testing unless the user explicitly moves
-them into scope through `ROADMAP.md`.
+For product direction, consult the locked plans and theme indexes, GitHub
+Issues, and `ROADMAP.md`. This file is not a roadmap.
 
 ## 10. OpenCode Skills, Subagents, and Plan Persistence
 
@@ -621,10 +615,18 @@ The Independent Review Subagent requirement (§5) is satisfied by
 ### 10.4 Plan persistence rule
 
 When a locked plan begins execution, the agent MUST persist the full plan with
-per-phase/step progress status to `.opencode/plans/plan*.md`, and update it
-after each implementation step. This keeps the plan complete and current so
-that continuation after context compaction or in a new chat produces correct
-results, not corrupted or gap-filled outcomes.
+per-phase/step progress status to `.opencode/plans/<theme>/plan-*.md`, register
+it in that theme's `index.md`, and cross-reference it in the global
+`.opencode/plans/TICKETS.md` register. Update the plan STATE line, theme index,
+and global ticket entry after each implementation step. This keeps the plan
+complete and current so that continuation after context compaction or in a new
+chat produces correct results, not corrupted or gap-filled outcomes.
+
+The global ticket register is a cross-reference only: GitHub Issues remain the
+canonical source for issue state, `project_status.json` remains canonical for
+phase and decision status, and plan files remain canonical for implementation
+details. Never silently renumber a plan's internal tickets; record the mapping
+in `TICKETS.md` instead.
 
 For complex/thorough tasks with nuances and critical module changes (schema
 migrations, callback routing, module boundary changes, multi-file refactors),
@@ -660,6 +662,13 @@ locked rules below.
 
 Full mechanics: `parallel-work-guard` skill. Seam registry: `SEAMS.md` (same
 skill folder).
+
+Before creating or starting work in a parallel branch or worktree, the agent
+MUST load `parallel-work-guard`, resolve the shared claims file from the common
+Git directory, check every affected canonical seam in `SEAMS.md`, and record a
+claim after the contract reaches `GATE STATUS: LOCKED`. A dirty or unrelated
+worktree MUST NOT be overwritten; propagate shared documentation changes only
+through a clean, explicit update or a later owner-approved synchronization.
 
 <!-- [opencode-setup:end] -->
 
