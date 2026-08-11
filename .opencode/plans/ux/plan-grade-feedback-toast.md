@@ -9,7 +9,7 @@ github_issue: 308
 status: in-progress
 ---
 
-STATE: phase 1/1 - status: in-progress - focus: inspect the grade callback, write focused tests, and implement the locked feedback behavior.
+STATE: phase 1/1 - status: implemented (awaiting PR/merge) - commit 5263ed7 - success grade uses notify_callback(intent=SUCCESS); errors use IMPORTANT_ERROR.
 
 # Grade-Feedback-Toast
 
