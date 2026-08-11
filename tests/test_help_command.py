@@ -71,6 +71,29 @@ class HelpBuildersTest(unittest.TestCase):
         kb = _back_keyboard()
         self.assertEqual(kb.inline_keyboard[0][0].callback_data, "help:back")
 
+    def test_about_is_first_visible_section_for_everyone(self):
+        with patch("handlers.help_command.is_owner", return_value=False):
+            visible = _visible_sections(123)
+        self.assertEqual(visible[0]["id"], "about")
+        self.assertIn("درباره هم‌زبان", visible[0]["label"])
+        # Visible to owners too (not owner-only / not hidden).
+        with patch("handlers.help_command.is_owner", return_value=True):
+            visible_owner = _visible_sections(1)
+        self.assertEqual(visible_owner[0]["id"], "about")
+
+    def test_about_detail_renders_bold_and_goals(self):
+        detail = _build_section_detail("about")
+        # Title heading is bold.
+        self.assertIn("*درباره هم‌زبان*", detail)
+        # Guillemet-marked spans become MarkdownV2 bold; raw guillemets gone.
+        self.assertIn("*درووود\\! من هم‌زبانم*", detail)
+        self.assertIn("*همه‌چیز در این سفر شخصی‌سازی شده‌ست:*", detail)
+        self.assertNotIn("\u00ab", detail)
+        self.assertNotIn("\u00bb", detail)
+        # Goals use the owner-approved examples; technical terms avoided.
+        self.assertIn("مهاجرت", detail)
+        self.assertIn("کنکور", detail)
+
     def test_hidden_section_excluded_from_panel_for_all(self):
         with patch("handlers.help_command.is_owner", return_value=False):
             kb = _panel_keyboard(1)
