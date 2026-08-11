@@ -22,6 +22,42 @@ author_url: https://github.com/Ham3dParsa
 1. All logical gaps, uncertainties, decision points in the proposed change
 2. Assess callback routing impact: does it affect `callback_data` strings, `callback_router` dispatch, sub-router actions, or keyboard construction? If yes, the test plan section of the locked contract MUST specify a wiring integrity test.
 
+## Conditional Skill Injection (triage before PRESENT)
+
+After step 1 (STOP and identify gaps), ask the owner **2–3 triage questions**
+before loading any additional skill. No skill is loaded speculatively.
+
+For fast-track changes (typos, docs, comments, formatting, test-only), skip
+the full triage and ask a single abbreviated confirmation instead:
+"Any additional skills needed beyond the default?" This catches edge cases
+where a doc/tooling change also touches a callback prefix, schema, or new
+module boundary without running the full behavioral triage.
+
+Ask via the `question` tool with `multiple: true`:
+
+1. **"Are you working in parallel or in another session?"**
+   - Yes → load `parallel-work-guard`
+   - No → skip
+
+2. **"Does this change introduce a new module, refactor an interface, or require interface design?"**
+   - Yes → load `codebase-design` (global skill at `~/.config/opencode/skills/codebase-design`)
+   - If rules are not yet locked → also load `grill-to-spec`
+   - No → skip both
+
+3. **"Is this a behavioral change touching a handler, database, quota, callback, or AI contract?"**
+   - Yes → load `integration-test-proto` + `tdd-enforcement`
+   - No → skip
+
+**After GATE STATUS = LOCKED:**
+- Always load `plan-persistence` (write plan file).
+- Load `documentation-protocol` only if the change touched docs/status/roadmap.
+
+**Before any commit:**
+- Always load `hamzaban-validation` (full suite for behavioral changes, lightweight path for doc/tooling-only changes) + `pre-commit-gate` + `git-protocol`.
+
+No other skill is loaded unless its trigger fires. This list is exhaustive for
+the gate sequence.
+
 ### PRESENT each as a numbered rule
 For each gap/uncertainty/decision:
 - Recommended option (with rationale)
@@ -81,7 +117,7 @@ Only for strictly non-behavioral changes:
 - Adding tests that don't change production logic
 - Formatting/whitespace-only diffs
 
-To use: state under `<SYSTEM_GATE>` what the change is, why non-behavioral, and that it proceeds without locked contract. Does NOT apply if ANY ambiguity about learner-facing behavior, persistence, quotas, scheduling, or module boundaries.
+To use: state under `<SYSTEM_GATE>` what the change is, why non-behavioral, and that it proceeds without locked contract. Does NOT apply if ANY ambiguity about learner-facing behavior, persistence, quotas, scheduling, or module boundaries. For fast-track changes, skip the full 3-question behavioral triage; instead ask a single abbreviated confirmation — "Any additional skills needed beyond the default?" — to catch edge cases where a doc/tooling change also touches a callback prefix, schema, or new module boundary.
 
 ## Owner Experience Note (AGENTS.md §2.4)
 Owner is not a professional developer. Explain options in plain language:

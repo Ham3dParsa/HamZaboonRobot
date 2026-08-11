@@ -407,12 +407,28 @@ until none remain. If the reviewer surfaces a genuine ambiguity or product
 decision, the implementing agent MUST halt and ask the owner per §2.4.
 Trivial, non-behavioral changes (typos, comments, docs) skip this step.
 
+### Reviewer tier (cheap model for trivial edits)
+
+| Change scope | Reviewer required? | Default model |
+|---|---|---|
+| Trivial (1–2 line behavioral swap, doc/string fix) | Skip subagent, OR run on cheap model | Tencent Hy3 (free) via Kilo Gateway |
+| Schema / callback / quota / AI / multi-file | Full independent review | Override to a stronger model per run |
+| Non-behavioral (typos, comments, docs, formatting) | Skip (fast-track) | N/A |
+
+The `hamzaboon-reviewer` agent defaults to the cheap Tencent Hy3 model via Kilo Gateway. For
+risky changes (schema, callbacks, quotas, AI), the invoking agent should pass
+a stronger model at invocation time. The reviewer remains read-only
+(`edit: deny`, `bash` limited to `ruff`/`pytest`/`git diff`/`git log`/`grep`)
+regardless of model tier.
+
 ## 6. Required Validation
 
-The full validation suite (unit tests, compile check, ruff F821/F811, dashboard
-regeneration, `git diff --check`) and its exact commands (Windows PowerShell and
-Linux/macOS variants) live in the `hamzaban-validation` skill — load it before
-committing or creating a PR. All five steps must pass before commit.
+The validation skill (`hamzaban-validation`) has two tiers. Choose based on change scope:
+
+- **Full suite** (behavioral changes — handlers, DB, callbacks, AI, quotas, schemas, production `.py`): `pytest`, `compile_all.py`, `ruff F821/F811`, `generate_dashboard.py`, `git diff --check`.
+- **Lightweight path** (non-behavioral changes — docs, skills, agents, plans, formatting, comments, test-only): `git diff --check` only.
+
+Load `hamzaban-validation` before committing or creating a PR and select the appropriate tier. CI always runs the full suite; the lightweight path is a local-only optimization.
 
 **Locked test worker rule:** local runs MUST use `python -m pytest tests/ -n 14`
 (the machine has 24 logical cores; `-n 14` is the fast-and-stable count, ~2x
@@ -546,28 +562,58 @@ exactly. Loading a skill and ignoring its rules is a compliance violation.
 
 ### 10.2 Skills map (mandatory load triggers)
 
-| Skill (repo-local `.opencode/skills/`) | Load when | Enforces |
-|---|---|---|
-| `contract-lock-gate` | any code change is proposed | AGENTS.md §2.4 pre-implementation gate |
-| `parallel-work-guard` | starting parallel work / new branch or worktree | Claim registry + seam-collision check (§10.5) |
-| `git-protocol` | any git/gh operation is proposed or run | AGENTS.md §7 git/PR/gh/security discipline + Error Recovery |
-| `hamzaban-validation` | preparing to commit / validate | AGENTS.md §6 full validation suite |
-| `pre-commit-gate` | before any commit | AGENTS.md §7 pre-commit checklist |
-| `integration-test-proto` | behavioral change (callbacks, handlers, DB, quotas, AI) | Integration Test Protocol (§6) |
-| `callback-wiring` | adding/changing callback prefixes or keyboards | Callback Routing Map (§3) + wiring guards |
-| `persian-formatting` | adding/changing user-facing text | MarkdownV2 escaping contract (§3) |
-| `audit-workflow` | asked to audit/review the project | AGENTS.md §4 audit workflow |
-| `documentation-protocol` | after a meaningful code/product change | AGENTS.md §8 doc update protocol |
-| `plan-persistence` | plan locked / after each implementation step | Plan persistence + archive rule (§10.4) |
-| `graphify-index` | structural queries / large refactors | Graphify knowledge-graph usage |
-| `grill-to-spec` | plan finalization before execution | Grill → spec → contract-lock discipline |
-| `spec-to-tickets` | complex task needs per-phase breakdown | Tracer-bullet tickets + per-phase plans |
-| `tdd-enforcement` | during implementation phases | Test-first discipline (§5) |
-| `bug-diagnosis` | debugging failure / test failure / CI failure | Systematic diagnose → fix loop (§7) |
-| `i18n-accessibility` | auditing/adding RTL/bidi, `lang`/`dir`, mixed-direction forms, icon mirroring | i18n + RTL accessibility audit (WCAG 3.1) |
-| `core-web-vitals` | asked to improve LCP/INP/CLS or page experience | Core Web Vitals optimization + checklist |
-| `frontend-ui-engineering` | building/modifying UI components, pages, or interfaces | Production-quality, accessible, responsive UI |
-| `reviewing-interface-quality` | asked to review/audit/critique an interface or as a pre-ship UI gate | Evidence-based interface quality review |
+Skills are loaded **lazily on trigger only**. No skill is pre-injected. When a
+trigger matches, loading is mandatory; when it does not match, the skill is not
+loaded. Each row below has a single conditional trigger sentence.
+
+| Skill | Load when |
+|---|---|
+| `contract-lock-gate` | User proposes any code change. |
+| `parallel-work-guard` | Working in parallel or creating a branch/worktree. |
+| `git-protocol` | Any git or gh command is proposed or run. |
+| `hamzaban-validation` | Preparing to commit or before PR creation. |
+| `pre-commit-gate` | Immediately before creating a commit. |
+| `integration-test-proto` | Behavioral change: callbacks, handlers, DB writes, quotas, or AI. |
+| `callback-wiring` | Adding or changing a callback_data prefix or keyboard. |
+| `persian-formatting` | Adding or changing learner-facing Persian text. |
+| `audit-workflow` | Asked to audit or review the project. |
+| `documentation-protocol` | A meaningful code or product change touched docs, status, roadmap, or module structure. |
+| `plan-persistence` | A plan is locked and execution begins, or after each implementation step. |
+| `grill-to-spec` | Plan needs ambiguity resolution and spec synthesis before execution. |
+| `tdd-enforcement` | Writing new logic or modifying existing behavior during implementation. |
+| `bug-diagnosis` | Debugging a failure, test failure, or CI failure. |
+| `codebase-design` | Designing or refactoring a module's interface (global skill at `~/.config/opencode/skills/codebase-design`). |
+| `i18n-accessibility` | Auditing or adding RTL/bidi, `lang`/`dir`, mixed-direction forms, or icon mirroring. |
+| `core-web-vitals` | Asked to improve LCP/INP/CLS or page experience. |
+| `frontend-ui-engineering` | Building or modifying UI components, pages, or interfaces. |
+| `reviewing-interface-quality` | Asked to review, audit, or critique an interface, or as a pre-ship UI gate. |
+| `graphify-index` | Structural queries or large refactors needing symbol relationship queries. |
+| `spec-to-tickets` | A complex task needs per-phase breakdown before execution. |
+| `reviewing-security` | Reviewing code for security before merging or shipping, or when a change touches untrusted input, auth, secrets, SQL, subprocess, paths, or outbound requests. |
+| `evolving-apis-and-schemas` | Changing anything other systems or stored data depend on: schema, API, enum, queue format, migration. |
+| `investigating-performance` | Something is too slow, uses too much memory/CPU, degrades under load, or times out. |
+| `frontend-design` | Building or reshaping visual design direction, typography, or layout choices. |
+| `writing-for-agents` | Creating or editing skills, AGENTS.md, CLAUDE.md, or other agent-facing docs. |
+| `grilling` | The user wants to stress-test a plan, decision, or idea. |
+| `research` | The user wants a topic researched and findings captured as Markdown. |
+| `prototype` | The user wants to sanity-check a state model, logic, or UI with a throwaway prototype. |
+| `domain-modeling` | Pinning down domain terminology or recording an architectural decision. |
+| `resolving-merge-conflicts` | Resolving an in-progress git merge/rebase conflict. |
+| `wizard` | Provisioning infrastructure, setting up credentials, or running a one-off migration where only a human can perform steps. |
+| `testing-webapps` | Testing local web applications with Playwright. |
+| `python-pro` | Building Python 3.11+ apps needing type safety, async, or robust error handling. |
+| `test-master` | Writing unit/integration/E2E tests, test strategies, or analyzing coverage. |
+| `code-reviewer` | Reviewing a PR or codebase for bugs, security, smells, and architecture. |
+| `debugging-wizard` | Parsing error messages, tracing stack traces, or analyzing logs to isolate bugs. |
+| `accessibility` | Improving web accessibility or auditing WCAG compliance. |
+| `subagent-driven-development` | Executing implementation plans with independent tasks in the current session. |
+| `verifying-before-completion` | About to claim work is complete, fixed, or passing, before committing or creating PRs. |
+| `receiving-code-review` | Receiving code review feedback and implementing suggestions. |
+| `requesting-code-review` | Completing tasks or implementing major features and wanting verification. |
+| `executing-plans` | Executing a written implementation plan in the current session. |
+| `writing-plans` | Having a spec or requirements for a multi-step task before touching code. |
+| `using-git-worktrees` | Starting feature work needing isolation from the current workspace. |
+| `git-commit` | Creating a git commit with conventional commit message analysis. |
 
 Global general skills (shared, `~/.config/opencode/skills/`): TDD, systematic
 debugging, executing-plans, verifying-before-completion, writing-plans,
@@ -582,10 +628,6 @@ MattPocock workflow skills are installed globally and load lazily when their
 trigger matches. Follow his workflow for the parts HamZaban does not already
 lock down with a repo-local gate:
 
-- Model-invocable (auto-load via the `skill` tool when the topic matches):
-  `diagnosing-bugs`, `code-review`, `tdd`, `research`, `prototype`,
-  `domain-modeling`, `codebase-design`, `resolving-merge-conflicts`, `wizard`,
-  `grilling`, `writing-for-agents`.
 - Owner-triggered slash commands (only fire when the human types them, mirroring
   MattPocock's `disable-model-invocation` skills): `/grill-me`, `/grill-with-docs`,
   `/to-spec`, `/to-tickets`, `/triage`, `/implement`, `/handoff`, `/teach`,
