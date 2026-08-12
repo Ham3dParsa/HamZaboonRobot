@@ -1349,12 +1349,14 @@ def render() -> str:
     ps = json.loads(PROJECT_STATUS_PATH.read_text(encoding="utf-8"))
     phases: list[dict] = ps.get("phases", [])
     decisions: list[dict] = ps.get("decisions", [])
-    # Use the last commit date (deterministic) so the committed html
-    # footer matches CI's regeneration regardless of the runner's local clock.
+    # Scope the date to the last commit that touched project_status.json, not the
+    # overall last commit. This keeps the committed html footer stable across
+    # unrelated commits/merges and across days, so CI's `git diff --exit-code`
+    # only flags a real project_status.json <-> html desync (issue #321).
     try:
         import subprocess
         result = subprocess.run(
-            ["git", "log", "-1", "--format=%ci"],
+            ["git", "log", "-1", "--format=%ci", "--", str(PROJECT_STATUS_PATH.name)],
             capture_output=True, text=True, cwd=BASE
         )
         commit_date = result.stdout.strip().split()[0] if result.returncode == 0 and result.stdout.strip() else datetime.now(timezone.utc).date().isoformat()
