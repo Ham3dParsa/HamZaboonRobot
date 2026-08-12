@@ -8,7 +8,7 @@ Scope: Admin AI Preset panel audit fixes (R1–R15, F1/F2) + R16 (reasoning-effo
 |------|-------|------------|--------|
 | `plan-ai-preset-audit-fixes.md` | 1..7 | — | in-progress |
 | `plan-ai-preset-audit-fixes-phase-01-cosmetic.md` | 1 | — | complete* |
-| `plan-ai-preset-audit-fixes-phase-02-db-correctness.md` | 2 | R2 before R14 | pending |
+| `plan-ai-preset-audit-fixes-phase-02-db-correctness.md` | 2 | R2 before R14 | in-progress (impl+tests done, committing) |
 | `plan-ai-preset-audit-fixes-phase-03-handlers-ux.md` | 3 | Phase 2, Phase 1 | pending |
 | `plan-ai-preset-audit-fixes-phase-04-builtin-removal.md` | 4 | Phase 2 | pending |
 | `plan-ai-preset-audit-fixes-phase-05-secure-keys.md` | 5 | Phase 2, Phase 4 | pending |

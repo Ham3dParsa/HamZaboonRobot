@@ -318,7 +318,7 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
 
     # ======== AI Settings awaiting handlers ========
 
-    if awaiting.startswith("admin_group_batch_key:") or awaiting.startswith("admin_group_set_label:") or awaiting.startswith("admin_group_manager_rename:") or awaiting.startswith("ai_fallback_rank:"):
+    if awaiting.startswith("admin_group_batch_key:") or awaiting.startswith("admin_group_set_label:") or awaiting.startswith("admin_group_manager_rename:") or awaiting.startswith("ai_fallback_rank:") or awaiting.startswith("ai_preset_create_priority:"):
         await _handle_ai_text_input(update, context, awaiting, text)
         return
 

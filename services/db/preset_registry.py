@@ -19,6 +19,10 @@ def get_preset(name: str) -> dict | None:
     return dict(row) if row else None
 
 
+class NoActivePresetError(Exception):
+    """Raised when no enabled preset exists to serve as the active AI preset."""
+
+
 def get_active_preset_name() -> str:
     if get_bool_setting("ai_fallback_active", False):
         return get_setting("ai_fallback_preset", "gapgpt_gemini_lite")
@@ -26,11 +30,20 @@ def get_active_preset_name() -> str:
 
 
 def get_active_preset() -> dict:
+    """Return the active preset, raising rather than returning {} when none exists.
+
+    No silent empty dict: callers that cannot fall back must surface the
+    absence of an enabled preset as an explicit error (R10).
+    """
     name = get_active_preset_name()
     preset = get_preset(name)
-    if not preset:
-        preset = get_preset(_first_enabled_name())
-    return preset or {}
+    if preset and preset.get("enabled", 1):
+        return preset
+    name = _first_enabled_name()
+    preset = get_preset(name)
+    if preset and preset.get("enabled", 1):
+        return preset
+    raise NoActivePresetError("no enabled AI preset available")
 
 
 def set_preset(
@@ -48,6 +61,8 @@ def set_preset(
     max_output_tokens: int = 4096,
     is_custom: int = 1,
     is_emergency: int = 0,
+    priority: int = 0,
+    enabled: int = 1,
     input_cost_per_million: float | None = None,
     output_cost_per_million: float | None = None,
     in_fallback_chain: int = 1,
@@ -70,8 +85,8 @@ def set_preset(
                 if collision:
                     raise ValueError(f"preset name already exists: {name}")
             conn.execute(
-                "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, is_emergency, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, is_emergency, priority, enabled, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(name) DO UPDATE SET "
                 "base_url=excluded.base_url, model=excluded.model, api_key=excluded.api_key, "
                 "daily_batch_size=excluded.daily_batch_size, "
@@ -79,7 +94,8 @@ def set_preset(
                 "max_tpm=excluded.max_tpm, max_daily_req=excluded.max_daily_req, "
                 "timeout_seconds=excluded.timeout_seconds, temperature=excluded.temperature, "
                 "max_output_tokens=excluded.max_output_tokens, is_custom=excluded.is_custom, "
-                "is_emergency=excluded.is_emergency, "
+                "is_emergency=excluded.is_emergency, priority=excluded.priority, "
+                "enabled=excluded.enabled, "
                 "input_cost_per_million=excluded.input_cost_per_million, "
                 "output_cost_per_million=excluded.output_cost_per_million, "
                 "in_fallback_chain=excluded.in_fallback_chain, "
@@ -99,6 +115,8 @@ def set_preset(
                     max_output_tokens,
                     is_custom,
                     is_emergency,
+                    priority,
+                    enabled,
                     input_cost_per_million,
                     output_cost_per_million,
                     in_fallback_chain,
@@ -253,6 +271,10 @@ def delete_preset(name: str) -> bool:
         cursor = conn.execute(
             "DELETE FROM ai_presets WHERE name=?", (name,)
         )
+        conn.execute(
+            "UPDATE settings SET value='' WHERE key='ai_fallback_preset' AND value=?",
+            (name,),
+        )
         conn.commit()
         return cursor.rowcount > 0
 
@@ -397,6 +419,22 @@ def get_hourly_usage(preset_name: str, hours_back: int = 24) -> tuple[int, int]:
     return (row["req"], row["tok"])
 
 
+def prune_preset_hourly_usage(hours_back: int = 24):
+    """Delete preset_hourly_usage rows older than a rolling window (R13).
+
+    Keeping only the last `hours_back` hours bounds the RPD accounting so stale
+    rows never hold the per-preset daily cap open or closed wrongly.
+    """
+    cutoff = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=hours_back)).isoformat()
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "DELETE FROM preset_hourly_usage WHERE hour_bucket < ?",
+            (cutoff[:13],),
+        )
+        conn.commit()
+
+
 def increment_hourly_usage(preset_name: str, hour_bucket: str, req_count: int = 1, token_count: int = 0):
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -478,9 +516,17 @@ def set_preset_priority(name: str, priority: int):
 
 
 def set_preset_enabled(name: str, enabled: bool):
+    want = 1 if enabled else 0
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        conn.execute("UPDATE ai_presets SET enabled=? WHERE name=?", (1 if enabled else 0, name))
+        if not enabled:
+            remaining = conn.execute(
+                "SELECT COUNT(*) AS c FROM ai_presets WHERE enabled=1"
+            ).fetchone()["c"]
+            if remaining <= 1:
+                conn.rollback()
+                raise ValueError("cannot disable the last enabled preset")
+        conn.execute("UPDATE ai_presets SET enabled=? WHERE name=?", (want, name))
         conn.commit()
 
 
@@ -489,3 +535,43 @@ def set_preset_emergency(name: str, is_emergency: bool):
         conn.execute("BEGIN IMMEDIATE")
         conn.execute("UPDATE ai_presets SET is_emergency=? WHERE name=?", (1 if is_emergency else 0, name))
         conn.commit()
+
+
+def insert_preset_at_rank(name: str, target_rank: int, *, as_emergency: bool = False):
+    """Place an existing preset so it occupies ``target_rank`` among the enabled
+    normal (non-emergency) in-fallback-chain presets, densifying the group.
+
+    Used by the R14 create flow so "top"/"bottom"/manual-value always yield the
+    intended fallback-chain position with dense priorities (0,1,2,...). The
+    preset row MUST already exist (the caller creates it first via ``set_preset``);
+    this function only renumbers the existing enabled normal group so the target
+    preset ends up at exactly ``target_rank`` (0-based). The target may be
+    disabled at insert time; it is still placed at the requested rank so enabling
+    it later routes it there.
+    Emergency rows are never renumbered here.
+    """
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            rows = conn.execute(
+                "SELECT name FROM ai_presets "
+                "WHERE enabled=1 AND is_emergency=? AND in_fallback_chain=1 "
+                "ORDER BY priority ASC, name ASC",
+                (1 if as_emergency else 0,),
+            ).fetchall()
+            names = [r["name"] for r in rows if r["name"] != name]
+            count = len(names)
+            if not (0 <= target_rank <= count):
+                conn.rollback()
+                raise ValueError(f"target_rank {target_rank} out of range [0, {count}]")
+
+            names.insert(target_rank, name)
+            for i, n in enumerate(names):
+                conn.execute(
+                    "UPDATE ai_presets SET priority=? WHERE name=?",
+                    (i, n),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
