@@ -45,6 +45,16 @@ separate concepts and must not be conflated.
 
 <!-- _Status data is maintained in `project_status.json`; see `issues/project_status.html` for the visual dashboard._ -->
 
+## Product Layers (MVP / Measurement / Future Bets)
+
+This roadmap is organized around three concerns. The discipline is that real-user evidence — not feature enthusiasm — drives the roadmap forward.
+
+- **Layer 1 — Core MVP (phases 1–6):** prove the loop — a user arrives, does a study session, learns something useful, reviews it, returns. This is the active build. "Stable" here does **not** mean feature-complete; it means the core loop is reliable enough that observed user behavior reflects product value rather than breakage: onboarding works, sessions start, cards generate and display correctly, SRS and review scheduling work, sessions complete without serious crashes, data is not corrupted, and AI cost stays controlled.
+- **Companion — Measurement (runs concurrently with Layer 1, not after it):** from the first real user, capture the minimum signal needed to judge whether the Core MVP loop is actually valuable — e.g. onboarding completion, study start/complete, cards shown, words saved, reviews completed, returns, drop-off points, and AI cost. This is deliberately lightweight (a small set of lifecycle events), not a deferred analytics platform. It must exist during the MVP because the purpose of an MVP is to learn from real-user behavior.
+- **Layer 3 — Future Bets (Phase 7, "Later product phases", deferred items):** gamification beyond streak, quizzes, social, advanced personalization, richer plans, additional AI surfaces. Until real-user data exists, these are **hypotheses, not roadmap commitments**. Trigger-gated items (e.g. content pooling at `DAU ≥ 50`) already encode this rule.
+
+**Rule:** do not promote a Layer 3 item into active work on speculation. Measurement accompanies the MVP from day one; it is not a later phase. Real-user signal — not the volume of features built — decides what gets built next.
+
 ## Roadmap Board
 
 ### Done
