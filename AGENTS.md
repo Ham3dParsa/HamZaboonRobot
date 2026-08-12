@@ -568,6 +568,18 @@ Skills are loaded **lazily on trigger only**. No skill is pre-injected. When a
 trigger matches, loading is mandatory; when it does not match, the skill is not
 loaded. Each row below has a single conditional trigger sentence.
 
+**Skill-registry snapshot note:** The `available_skills` registry is a **session-start
+snapshot** of the on-disk skill definitions. If a skill that exists on disk fails to load
+(`Skill "<name>" not found`), do NOT re-debug the skill file — request a registry reload or
+restart the opencode session, then retry. This is a known tooling artifact, not a skill defect.
+
+**`gh api` JSON parsing:** PowerShell redirects prepend a UTF-8 BOM, so
+`gh api ... | python -c "json.load(sys.stdin)"` raises
+`JSONDecodeError: Unexpected UTF-8 BOM`. Use the repo helper `scripts/ghjson.py` instead:
+`gh api ... | python scripts/ghjson.py` (pretty-print) or
+`gh api ... | python scripts/ghjson.py .body` (extract a dotted path). It decodes `utf-8-sig`
+and needs no third-party dependencies.
+
 | Skill | Load when |
 |---|---|
 | `contract-lock-gate` | User proposes any code change. |
