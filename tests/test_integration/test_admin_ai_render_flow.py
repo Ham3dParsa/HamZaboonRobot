@@ -137,6 +137,67 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         self.assertNotIn("مصرف روزانه", text)
         self.assertRegex(text, r"[🔋🪫]")
 
+    def test_fallback_panel_status_primary(self):
+        """R8: fallback panel shows «🎯 Primary Active» when fallback is off."""
+        from handlers.admin import _handle_admin_callback
+
+        db.set_fallback_active(False)
+        update = self._make_callback_update("admin:ai_fallback")
+        ctx = self._make_context()
+        asyncio.run(_handle_admin_callback(update, ctx, "ai_fallback"))
+
+        text = self._rendered_text(update)
+        self.assertIn("🎯 Primary Active", text)
+        self.assertNotIn("🔴", text)
+        self.assertNotIn("🟢", text)
+
+    def test_fallback_panel_status_normal_tier(self):
+        """R8: fallback on with a normal-tier preset → «🎯 Fallback ACTIVE»."""
+        from handlers.admin import _handle_admin_callback
+
+        db.set_preset(
+            "backup_normal",
+            base_url="https://api.example.com",
+            model="gpt-test",
+            api_key="test",
+            is_custom=1,
+            is_emergency=0,
+        )
+        db.set_setting("ai_fallback_preset", "backup_normal")
+        db.set_fallback_active(True)
+        update = self._make_callback_update("admin:ai_fallback")
+        ctx = self._make_context()
+        asyncio.run(_handle_admin_callback(update, ctx, "ai_fallback"))
+
+        text = self._rendered_text(update)
+        self.assertIn("🎯 Fallback ACTIVE", text)
+        self.assertNotIn("🛡️", text)
+        self.assertNotIn("🔴", text)
+
+    def test_fallback_panel_status_emergency_tier(self):
+        """R8: fallback on with an emergency-tier preset → «🎯 🛡️ Emergency
+        ACTIVE», combining live-routing and critical-tier markers."""
+        from handlers.admin import _handle_admin_callback
+
+        db.set_preset(
+            "backup_emergency",
+            base_url="https://api.example.com",
+            model="gpt-test",
+            api_key="test",
+            is_custom=1,
+            is_emergency=1,
+        )
+        db.set_setting("ai_fallback_preset", "backup_emergency")
+        db.set_fallback_active(True)
+        update = self._make_callback_update("admin:ai_fallback")
+        ctx = self._make_context()
+        asyncio.run(_handle_admin_callback(update, ctx, "ai_fallback"))
+
+        text = self._rendered_text(update)
+        self.assertIn("🎯 🛡️ Emergency ACTIVE", text)
+        self.assertNotIn("🔴", text)
+        self.assertNotIn("🟢", text)
+
 
 if __name__ == "__main__":
     unittest.main()

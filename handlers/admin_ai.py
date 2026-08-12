@@ -1298,9 +1298,17 @@ async def _custom_test_step_preset(update: Update, context: ContextTypes.DEFAULT
 async def _show_ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show fallback configuration panel."""
     status = db.get_fallback_status()
+    if status["fallback_active"]:
+        active = db.get_preset(str(status["fallback_preset"])) or {}
+        if bool(active.get("is_emergency", 0)):
+            status_label = "🎯 🛡️ Emergency ACTIVE"
+        else:
+            status_label = "🎯 Fallback ACTIVE"
+    else:
+        status_label = "🎯 Primary Active"
     text = (
         "🔄 <b>مدیریت پیش‌تنظیم پشتیبان (Fallback)</b>\n\n"
-        f"Status: {'🔴 Fallback ACTIVE' if status['fallback_active'] else '🟢 Primary Active'}\n"
+        f"Status: {status_label}\n"
         f"Primary: {html_escape(str(status['primary_preset']))}\n"
         f"Fallback: {html_escape(str(status['fallback_preset']))}\n"
         f"Consecutive Failures: {status['consecutive_failures']}\n"
