@@ -27,6 +27,7 @@ This is disclosed reference — loaded only when parallel-work-guard fires.
 | 14 | Scheduling/Quota | services/scheduling.py | daily_session_budget(), consume_session_slot(), release_session_slot() |
 | 15 | Telegram Callback Notifications | services/utils/callback_notifications.py | notify_callback(query, text, intent=...) |
 | 16 | Custom-word input validation | services/utils/validation.py | validate_word_query(text, language) |
+| 17 | Custom-word query orchestration | services/word_query.py (core) + bot.py ask-word block + handlers/user.py `_handle_query_prepare` + handlers/srs_handler.py `_handle_query_add` + config/keyboards.py `query_result_keyboard` | ask(), prepare(), toggle_save(); callbacks `query:prepare:`, `query:add:` |
 
 ## Shared Resource Registries (non-seam collision surfaces)
 
