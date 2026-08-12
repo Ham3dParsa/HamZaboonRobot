@@ -5,12 +5,19 @@ model: "Tencent: Hy3 (free)"
 temperature: 0.1
 permission:
   edit: deny
+  read: allow
+  grep: allow
+  glob: allow
   bash:
     "*": deny
     "python -m ruff check *": allow
     "python -m pytest tests/ -n *": allow
     "git diff*": allow
     "git log*": allow
+    "git status*": allow
+    "git rev-parse*": allow
+    "git show*": allow
+    "git worktree list": allow
     "grep *": allow
   webfetch: deny
   websearch: deny
@@ -34,5 +41,9 @@ Findings must include:
 Verification tools (read-only):
 - Focused tests, greps, wiring scans (`tests/test_wiring.py`, `tests/test_dead_code_guard.py`)
 - No production DB writes; use test snapshots only
+- Locate the review target first: run `git worktree list`, `git rev-parse --show-toplevel`,
+  and `git status` to confirm you are inside the feature worktree (not `main`) BEFORE any
+  `git diff <ref>`. If `git diff <ref>` returns no output, you are likely in the wrong tree —
+  re-locate with `git worktree list` rather than guessing the commit graph.
 
 Escalation: If genuine ambiguity or product decision surfaces, HALT and flag for owner decision per AGENTS.md §2.4 fallback.
