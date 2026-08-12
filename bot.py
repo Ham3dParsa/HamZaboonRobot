@@ -390,7 +390,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode=ParseMode.MARKDOWN_V2,
                     reply_markup=query_result_keyboard(
                         result.token,
-                        row["target_lang"] if row else "en",
+                        row["target_lang"],
                         show_translations=show_translations,
                         show_pronounce=show_pronounce,
                     ),
@@ -402,7 +402,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log.info(
                 "custom word query delivered user_id=%s lang=%s",
                 user_id,
-                row["target_lang"] if row else "en",
+                row["target_lang"],
             )
             await _send_with_retry(
                 context.bot,

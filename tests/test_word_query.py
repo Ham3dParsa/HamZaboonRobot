@@ -121,6 +121,29 @@ class WordQueryAskTest(unittest.TestCase):
             self.assertEqual(result.show_pronounce, True)
             self.assertIsInstance(result, AskResult)
 
+    def test_usage_text_reflects_post_reservation_count(self):
+        # The displayed usage count must be read from a FRESH row after the
+        # quota was reserved, not the pre-reservation snapshot (off-by-one bug).
+        with patch("services.word_query.db") as db, patch(
+            "services.word_query.validate_word_query", return_value=None
+        ):
+            db.reserve_word_query.return_value = True
+            db.create_query_result.return_value = "tok123"
+            db.should_show_pronounce.return_value = True
+            from config import _app_today
+            before = self._complete_user()  # words_asked_today = 3
+            after = self._complete_user()
+            after["words_asked_today"] = 4  # reserve incremented it
+            after["words_asked_date"] = _app_today()  # today, so the count is used
+            db.get_user.side_effect = [before, after]
+            import asyncio
+
+            result = asyncio.run(
+                ask(user_id=1, text="apple", generate_card=_ok_generate)
+            )
+            self.assertEqual(result.kind, "ok")
+            self.assertIn("4/", result.usage_text, "usage must show the post-reserve count")
+
     def test_empty_ai_card_is_not_persisted_and_quota_released(self):
         with patch("services.word_query.db") as db, patch(
             "services.word_query.validate_word_query", return_value=None

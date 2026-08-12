@@ -300,12 +300,13 @@ async def ask(
         db.release_word_query(user_id)
         return AskResult(kind="persist_error")
 
-    show_pronounce = db.should_show_pronounce(user_id, user_row)
+    usage_row = db.get_user(user_id)
+    show_pronounce = db.should_show_pronounce(user_id, usage_row)
     return AskResult(
         kind="ok",
         token=query_token,
         card_data=data,
         show_pronounce=show_pronounce,
         show_translations=True,
-        usage_text=_format_usage(user_row, limit),
+        usage_text=_format_usage(usage_row, limit),
     )
