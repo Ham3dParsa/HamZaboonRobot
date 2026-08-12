@@ -94,7 +94,7 @@ async def _show_plan_view(update: Update, context: ContextTypes.DEFAULT_TYPE, na
         return await _show_plan_list(update, context)
     status = "✅ فعال" if plan.get("is_active") else "⭕ غیرفعال"
     text = (
-        f"💳 <b>{plan.get('display_name')} ({plan.get('name')})</b>\n"
+        f"💳 <b>{html.escape(str(plan.get('display_name')))} ({html.escape(str(plan.get('name')))})</b>\n"
         f"وضعیت: {status}\n\n"
         f"• قیمت: {plan.get('price'):,} تومان\n"
         f"• سهمیه سؤال روزانه (جستجوی دستی واژه): {plan.get('query_quota')}\n"
@@ -133,7 +133,7 @@ async def _show_plan_wizard_field(update: Update, context: ContextTypes.DEFAULT_
     label = PLAN_WIZARD_FIELD_LABELS.get(field_name, field_name)
     field_hint = PLAN_WIZARD_FIELD_HINTS.get(field_name, "")
 
-    message = f"✏️ <b>ویرایش پلن {name} — گام {field_idx + 1} از {TOTAL_PLAN_WIZARD_FIELDS}</b>\n"
+    message = f"✏️ <b>ویرایش پلن {html.escape(str(name))} — گام {field_idx + 1} از {TOTAL_PLAN_WIZARD_FIELDS}</b>\n"
     if group_header:
         message += f"\n{group_header}\n"
     if group_hint:
@@ -236,14 +236,14 @@ async def _show_plan_wizard_summary(update: Update, context: ContextTypes.DEFAUL
     wizard = context.user_data.get("plan_full_edit", {})
     values = wizard.get("values", {})
     plan = db.get_plan(name) or {}
-    lines = [f"📋 <b>خلاصه تغییرات برای {plan.get('display_name', name)}</b>\n"]
+    lines = [f"📋 <b>خلاصه تغییرات برای {html.escape(str(plan.get('display_name', name)))}</b>\n"]
     changed = 0
     for field_name in PLAN_WIZARD_FIELDS:
         if field_name in values:
             new_val = values[field_name]
             old_val = plan.get(field_name, "—")
             label = PLAN_WIZARD_FIELD_LABELS.get(field_name, field_name)
-            lines.append(f"• <b>{label}</b>: {old_val} → {new_val}")
+            lines.append(f"• <b>{html.escape(str(label))}</b>: {html.escape(str(old_val))} → {html.escape(str(new_val))}")
             changed += 1
     if not changed:
         lines.append("هیچ تغییری اعمال نشد.")

@@ -110,8 +110,8 @@ IBTN_AI_FALLBACK = "🔄 پیش‌تنظیم پشتیبان (Fallback)"
 IBTN_FALLBACK_CHAIN = "⛓️ زنجیره فال‌بک"
 
 # --- Admin – AI Presets ---
-IBTN_ACTIVATE = "✅ فعال کردن"
-IBTN_ACTIVATE_THIS = "✅ فعال کردن این پیش‌تنظیم"
+IBTN_ACTIVATE = "🎯 فعال کردن"
+IBTN_ACTIVATE_THIS = "🎯 فعال کردن این پیش‌تنظیم"
 IBTN_DEACTIVATE = "⛔ غیرفعال کردن"
 IBTN_EDIT = "✏️ ویرایش"
 IBTN_DELETE = "🗑 حذف"
@@ -144,7 +144,7 @@ IBTN_FIELD_TEMPERATURE = "🌡 Temperature"
 IBTN_FIELD_MAX_TOKENS = "📝 Max Tokens"
 IBTN_FIELD_MAX_TPM = "🔢 حد توکن در دقیقه (TPM)"
 IBTN_FIELD_DAILY_REQ = "📊 سقف درخواست روزانه"
-IBTN_FIELD_IS_EMERGENCY = "🚨 پریست اضطراری"
+IBTN_FIELD_IS_EMERGENCY = "🛡️ پریست اضطراری"
 IBTN_FIELD_NAME = "✏️ نام پریست"
 IBTN_FIELD_INPUT_COST = "💵 هزینه ورودی ($/1M توکن)"
 IBTN_FIELD_OUTPUT_COST = "💵 هزینه خروجی ($/1M توکن)"
@@ -819,8 +819,8 @@ def fallback_chain_keyboard(chain: list[dict]) -> InlineKeyboardMarkup:
     rows = []
     for rank, preset in enumerate(chain, 1):
         name = preset.get("name", "?")
-        emoji = "🚨" if preset.get("is_emergency") else "📊"
-        status_icon = "🟢" if preset.get("enabled", 1) else "🔴"
+        emoji = "🛡️" if preset.get("is_emergency") else "📊"
+        status_icon = "🟢" if preset.get("enabled", 1) else "⚪"
         row = [
             InlineKeyboardButton(f"{rank}. {emoji} {name} {status_icon}", callback_data="admin:noop"),
             InlineKeyboardButton("⬆", callback_data=f"admin:fallback:move_up:{preset_token(name)}"),
@@ -829,7 +829,7 @@ def fallback_chain_keyboard(chain: list[dict]) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🎯", callback_data=f"admin:fallback:rank:{preset_token(name)}"),
         ]
         if not preset.get("is_emergency"):
-            row.append(InlineKeyboardButton("🚨", callback_data=f"admin:fallback:set_emergency:{preset_token(name)}"))
+            row.append(InlineKeyboardButton("🛡️", callback_data=f"admin:fallback:set_emergency:{preset_token(name)}"))
         rows.append(row)
     rows.append([InlineKeyboardButton(IBTN_CONSUMPTION_DETAILS, callback_data="admin:fallback:usage_details")])
     rows.append([InlineKeyboardButton(IBTN_HELP_FALLBACK, callback_data="admin:help:fallback_chain")])

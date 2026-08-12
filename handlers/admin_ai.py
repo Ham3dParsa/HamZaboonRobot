@@ -186,6 +186,29 @@ def _detect_key_groups() -> list[dict]:
     return groups
 
 
+def _render_preset_brief(preset: dict, active_name: str) -> str:
+    """Render one brief, HTML-escaped preset line for list/chain views (R6/R8).
+
+    Pure synchronous renderer (no awaits): every list site calls it inline to
+    build an HTML parse_mode message without wrapping a coroutine. Emoji per the
+    UI/UX dictionary: 🟢/⚪ toggle reflects the enabled state, and the ``[tags]``
+    suffix marks 🎯 active preset, 🛡️ emergency tier, and custom. The name is
+    escaped for ``ParseMode.HTML``. Single shared implementation so every list
+    site renders identically.
+    """
+    name = preset.get("name", "?")
+    toggle = "🟢" if preset.get("enabled", 1) else "⚪"
+    tags = []
+    if name == active_name:
+        tags.append("🎯")
+    if preset.get("is_emergency"):
+        tags.append("🛡️")
+    if preset.get("is_custom"):
+        tags.append("custom")
+    suffix = (f" [{' '.join(tags)}]" if tags else "")
+    return f"{toggle} <b>{html_escape(str(name))}</b>{suffix}"
+
+
 async def _show_linear_presets(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
     """Show paginated linear preset list."""
     all_presets = db.get_presets()
@@ -199,10 +222,8 @@ async def _show_linear_presets(update: Update, context: ContextTypes.DEFAULT_TYP
 
     lines = ["📋 <b>لیست پیش‌تنظیم‌ها</b>\n"]
     for p in page_presets:
-        marker = " ✅" if p["name"] == active_name else ""
-        custom = " (custom)" if p.get("is_custom") else ""
         lines.append(
-            f"{marker} <b>{html_escape(p['name'])}</b>{custom}\n"
+            f"{_render_preset_brief(p, active_name)}\n"
             f"   Model: {html_escape(str(p.get('model', '—')))}\n"
             f"   URL: {html_escape(str(p.get('base_url', '—')))}\n"
             f"   Batch: {p.get('daily_batch_size', 6)} | Concurrency: {p.get('max_concurrency', 2)} | RPM: {p.get('max_rpm', 30)}"
@@ -796,8 +817,7 @@ async def _handle_group_view(update: Update, context: ContextTypes.DEFAULT_TYPE,
     lines.append(f"🔑 کلید: {html_escape(target['masked_key'])}")
     lines.append(f"تعداد: {target['count']} preset\n")
     for p in presets:
-        marker = " ✅" if p["name"] == active_name else ""
-        lines.append(f"{marker} <b>{html_escape(p['name'])}</b> — {html_escape(str(p.get('model', '—')))}")
+        lines.append(f"{_render_preset_brief(p, active_name)} — {html_escape(str(p.get('model', '—')))}")
 
     text = "\n".join(lines)
 
@@ -1381,8 +1401,8 @@ async def _show_help_fallback_chain(update: Update, context: ContextTypes.DEFAUL
         "پریست‌های با in_fallback_chain=0 در زنجیره نمایش داده نمی‌شوند.\n\n"
         "<b>دکمه‌ها:</b>\n"
         "• ⬆/⬇: جابه‌جایی دستی (تغییر priority)\n"
-        "• 🟢/🔴: فعال/غیرفعال کردن پریست\n"
-        "• 🚨: تبدیل به پریست اضطراری\n"
+        "• 🟢/⚪: فعال/غیرفعال کردن پریست\n"
+        "• 🛡️: تبدیل به پریست اضطراری\n"
         "• 🎯: پرش به رتبه دلخواه در گروه\n\n"
         "پریست اضطراری همیشه بعد از همه پریست‌های عادی امتحان می‌شود."
     )
@@ -1407,7 +1427,7 @@ async def _show_fallback_chain(update: Update, context: ContextTypes.DEFAULT_TYP
     for i, preset in enumerate(chain):
         name = preset.get("name", "?")
         is_emergency = preset.get("is_emergency", 0)
-        status = "🚨 اضطراری" if is_emergency else "✅ فعال"
+        status = "🛡️ اضطراری" if is_emergency else "🟢 فعال"
         text += f"{i+1}. <b>{html_escape(name)}</b> — {status}\n"
 
     await _edit_or_send(
@@ -1420,12 +1440,12 @@ async def _show_fallback_chain(update: Update, context: ContextTypes.DEFAULT_TYP
 async def _show_fallback_usage_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show daily consumption for all presets."""
     presets = db.get_presets()
-    lines = ["📊 <b>مصرف روزانه پریست‌ها</b>\n\n"]
+    lines = ["📊 <b>مصرف ۲۴ ساعته پریست‌ها</b>\n\n"]
     for p in presets:
         name = p["name"]
         req_count, token_count = db.get_hourly_usage(name, hours_back=24)
         max_daily = p.get("max_daily_req", 0)
-        status = "🟢" if req_count < max_daily or max_daily == 0 else "🔴"
+        status = "🔋" if req_count < max_daily or max_daily == 0 else "🪫"
         daily_str = f"{req_count}/{max_daily}" if max_daily > 0 else f"{req_count}/∞"
         lines.append(f"{status} <b>{html_escape(name)}</b>: {daily_str} req, {token_count} توکن")
 

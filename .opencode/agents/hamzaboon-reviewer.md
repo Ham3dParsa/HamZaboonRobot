@@ -1,7 +1,6 @@
 ---
 description: Independent read-only code review — standards, spec compliance, wiring integrity
 mode: subagent
-model: "Tencent: Hy3 (free)"
 temperature: 0.1
 permission:
   edit: deny
