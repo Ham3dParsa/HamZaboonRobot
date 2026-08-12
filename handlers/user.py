@@ -546,9 +546,6 @@ async def _handle_query_prepare(
         return
 
     user_row = result.user_row
-    if not user_row:
-        await notify_callback(update.callback_query, "کاربر پیدا نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-        return
     footer = (
         f"{word_query_usage_text(user_row)}\n\n"
         "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."

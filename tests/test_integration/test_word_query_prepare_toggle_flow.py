@@ -83,6 +83,15 @@ class WordQueryPrepareToggleFlowTests(unittest.TestCase):
         if prepare_card is None:
             prepare_card = self.card
         self._edit_mock = AsyncMock()
+        # The patched `_prepare_cached_card` is exposed as self._prepare_mock so
+        # tests can assert it was (or was NOT) called — proving the early-exit
+        # path rather than asserting on its return value (which never fires).
+        patch_kwargs = (
+            {"side_effect": prepare_side_effect}
+            if prepare_side_effect is not None
+            else {"return_value": prepare_card}
+        )
+        self._prepare_mock = MagicMock(**patch_kwargs)
         stack = contextlib.ExitStack()
         stack.enter_context(
             patch.object(
@@ -90,13 +99,8 @@ class WordQueryPrepareToggleFlowTests(unittest.TestCase):
                 return_value=prepared,
             )
         )
-        patch_kwargs = (
-            {"side_effect": prepare_side_effect}
-            if prepare_side_effect is not None
-            else {"return_value": prepare_card}
-        )
         stack.enter_context(
-            patch.object(user_handlers, "_prepare_cached_card", **patch_kwargs)
+            patch.object(user_handlers, "_prepare_cached_card", new=self._prepare_mock)
         )
         stack.enter_context(
             patch.object(user_handlers, "_edit_with_retry", new=self._edit_mock)
@@ -127,10 +131,9 @@ class WordQueryPrepareToggleFlowTests(unittest.TestCase):
         token = db.create_query_result(1, "hello", "hello", "en", self.card)
         update = self._make_prepare_update()
         context = self._prepare_context()
-        prep_card = MagicMock()
-        with self._patchers(prepare_card=prep_card, prepared=True):
+        with self._patchers(prepared=True):
             asyncio.run(user_handlers._handle_query_prepare(update, context, token))
-        prep_card.assert_not_called()  # AI step skipped when already prepared
+        self._prepare_mock.assert_not_called()  # AI step skipped when already prepared
         self.assertNotIn("query_kb_" + token, context.user_data)
 
     def test_prepare_expired_notifies(self):

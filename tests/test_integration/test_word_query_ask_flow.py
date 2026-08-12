@@ -242,6 +242,38 @@ class WordQueryAskFlowTests(unittest.TestCase):
             "an undelivered card must release the reserved word-query quota (#306)",
         )
 
+    def test_registration_required_blocks_unregistered_and_sends_start(self):
+        # Incomplete profile: drop target_lang so the single pipeline gate fires.
+        with db.get_conn() as conn:
+            conn.execute("UPDATE users SET target_lang=NULL WHERE user_id=1")
+            conn.commit()
+        ai_mock = AsyncMock()
+        update = self._make_update("apple")
+        context = self._make_context()
+        with patch.object(bot, "is_owner", return_value=False), \
+             patch.object(bot, "_call_ai_limited", new=ai_mock), \
+             patch.object(bot, "_start_llm_wait_state", new=AsyncMock(return_value=None)), \
+             patch.object(bot, "_finish_llm_wait_state", new=AsyncMock()):
+            asyncio.run(bot.text_router(update, context))
+        ai_mock.assert_not_called()
+        self.assertEqual(self._words_asked(), 0, "registration gate must not reserve quota")
+        self.assertIsNone(
+            context.user_data.get("awaiting"), "awaiting cleared on registration gate"
+        )
+        sent = context.bot.send_message.call_args.kwargs["text"]
+        self.assertIn("ثبت‌نام", sent, "must point the learner to /start")
+
+    def test_persist_error_releases_quota_and_sends_retry(self):
+        # AI returns a card with no usable "word" -> ask refuses to persist it.
+        card_no_word = {"fa_meaning": "بی‌محتوا"}
+        context = self._run(
+            call_ai_limited=card_no_word,
+            prepare_cached_card=card_no_word,
+        )
+        self.assertEqual(self._words_asked(), 0, "persist_error must release quota")
+        sent = context.bot.send_message.call_args.kwargs["text"]
+        self.assertIn("ذخیره", sent, "must explain the result was not stored")
+
 
 if __name__ == "__main__":
     unittest.main()

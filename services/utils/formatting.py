@@ -2,6 +2,8 @@ import html
 import json
 import re
 
+from config import _app_today, daily_word_query_limit_for_plan
+
 SRS_HIDDEN_INSTRUCTION = (
     "⏰ مرور فاصله‌دار: معنی و مثال‌ها را از حفظ یادآوری کن — "
     "هر بار که از حافظه استفاده می‌کنی، واژه در ذهنت عمیق‌تر می‌شود. "
@@ -171,12 +173,14 @@ def _phonetic_lines(value: str | dict) -> list[str]:
 def word_query_usage_text(row: dict) -> str:
     """Return the today's word-query usage summary line for a users row.
 
-    Pure formatter, the single source for the learner-facing usage line used by
-    the word-query reply, the settings panel, and the status command. Mirrors
-    the historical logic in handlers/user.py so all callers stay in sync.
-    """
-    from config import _app_today, daily_word_query_limit_for_plan
+    Single source for the learner-facing usage line used by the word-query
+    reply (bot.py) and the prepare handler (handlers/user.py). Mirrors the
+    historical logic in handlers/user.py so all callers stay in sync.
 
+    This is NOT a pure formatter: it reads the plan spec from the DB via
+    ``daily_word_query_limit_for_plan`` to resolve the per-plan quota, so the
+    caller must pass an already-fetched users row.
+    """
     used = row["words_asked_today"] or 0
     if row["words_asked_date"] != _app_today():
         used = 0

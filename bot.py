@@ -263,7 +263,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # --- build the rate-limited 2-step generator (handler owns Telegram infra) ---
             deadline = time.monotonic() + ASK_WORD_AI_TIMEOUT_SECONDS
 
-            async def generate_card(*, system_prompt, user_prompt, request_kind, user_id, plan):
+            async def generate_card(*, system_prompt, user_prompt, request_kind, user_id, plan, lang):
                 # The wait-state wraps ONLY the AI pipeline, so invalid input and
                 # quota-exhausted never flash a misleading "thinking" message.
                 wait_message = await _start_llm_wait_state(
@@ -289,7 +289,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         asyncio.to_thread(
                             _prepare_cached_card,
                             data,
-                            lang=row["target_lang"],
+                            lang=lang,
                             user_id=user_id,
                             plan=plan or "free",
                             source="custom_word",
@@ -304,9 +304,6 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result = await word_query.ask(
                 user_id,
                 text,
-                lang=row["target_lang"] if row else "en",
-                level=row["level"] if row else "...",
-                plan=row["plan"] if row else "free",
                 generate_card=generate_card,
             )
 
@@ -315,8 +312,25 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await _send_with_retry(
                     context.bot,
                     update.effective_chat.id,
-                    f"{_WORD_QUERY_ERROR_MESSAGES[result.error_key]}\n\nچه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟",
+                    f"{_WORD_QUERY_ERROR_MESSAGES.get(result.error_key, 'این ورودی قابل قبول نیست.')}\n\nچه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟",
                     reply_markup=awaiting_inline_keyboard(),
+                )
+                return
+            if result.kind == "registration_required":
+                context.user_data["awaiting"] = None
+                await _send_with_retry(
+                    context.bot,
+                    update.effective_chat.id,
+                    "اول باید با دستور /start ثبت‌نامت رو کامل کنی.",
+                    reply_markup=main_menu(is_owner(user_id)),
+                )
+                return
+            if result.kind == "persist_error":
+                await _send_with_retry(
+                    context.bot,
+                    update.effective_chat.id,
+                    "نتیجه درست شد ولی ذخیره‌ش نشد؛ دوباره امتحان کن.",
+                    reply_markup=main_menu(is_owner(user_id)),
                 )
                 return
             if result.kind == "quota_exhausted":
