@@ -34,16 +34,28 @@ def _split_path(path: str) -> list[str]:
     return parts
 
 
+def _apply_segment(node, seg: str):
+    if "[" not in seg:
+        return node[seg]
+    name, rest = seg.split("[", 1)
+    if name:
+        node = node[name]
+    for idx_str in rest.rstrip("]").split("]["):
+        try:
+            idx = int(idx_str)
+        except ValueError:
+            raise ValueError(f"invalid array index {idx_str!r} in path segment {seg!r}")
+        try:
+            node = node[idx]
+        except (IndexError, TypeError) as exc:
+            raise type(exc)(f"index {idx} out of range in {seg!r}: {exc}")
+    return node
+
+
 def _navigate(data, path: str):
     node = data
-    for part in _split_path(path):
-        if part.endswith("]") and "[" in part:
-            name, idx = part[:-1].split("[", 1)
-            if name:
-                node = node[name]
-            node = node[int(idx)]
-        else:
-            node = node[part]
+    for seg in _split_path(path):
+        node = _apply_segment(node, seg)
     return node
 
 
@@ -57,6 +69,10 @@ def main() -> None:
         sys.exit(1)
     try:
         text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        print(f"ghjson: stdin is not valid UTF-8: {exc}", file=sys.stderr)
+        sys.exit(1)
+    try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
         print(f"ghjson: stdin is not valid JSON: {exc}", file=sys.stderr)
