@@ -37,6 +37,8 @@ def _split_path(path: str) -> list[str]:
 def _apply_segment(node, seg: str):
     if "[" not in seg:
         return node[seg]
+    if not seg.endswith("]") or seg.count("[") != seg.count("]"):
+        raise ValueError(f"unclosed or unbalanced bracket in path segment {seg!r}")
     name, rest = seg.split("[", 1)
     if name:
         node = node[name]

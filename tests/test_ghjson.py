@@ -57,6 +57,18 @@ def test_navigate_bad_index_diagnostic():
     assert "invalid array index" in str(exc.value)
 
 
+def test_navigate_unclosed_bracket_rejected():
+    with pytest.raises(ValueError) as exc:
+        _navigate(SAMPLE, "a[0")
+    assert "unclosed" in str(exc.value) or "unbalanced" in str(exc.value)
+
+
+def test_navigate_unbalanced_nested_bracket_rejected():
+    with pytest.raises(ValueError) as exc:
+        _navigate(SAMPLE, "a[0][1")
+    assert "unclosed" in str(exc.value) or "unbalanced" in str(exc.value)
+
+
 def _run(args, stdin):
     proc = subprocess.run(
         [sys.executable, "scripts/ghjson.py", *args],
