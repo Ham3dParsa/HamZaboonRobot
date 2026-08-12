@@ -85,7 +85,7 @@ def main() -> None:
         try:
             node = _navigate(data, path) if path else data
         except (KeyError, IndexError, TypeError, ValueError) as exc:
-            print(f"ghjson: path {path!r} not found: {exc}", file=sys.stderr)
+            print(f"ghjson: path {path!r}: {exc}", file=sys.stderr)
             sys.exit(1)
         if isinstance(node, (dict, list)):
             print(json.dumps(node, ensure_ascii=False, indent=2))
