@@ -16,7 +16,7 @@ import os
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone  # noqa: F401  (kept for potential future use)
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
@@ -1349,20 +1349,10 @@ def render() -> str:
     ps = json.loads(PROJECT_STATUS_PATH.read_text(encoding="utf-8"))
     phases: list[dict] = ps.get("phases", [])
     decisions: list[dict] = ps.get("decisions", [])
-    # Scope the date to the last commit that touched project_status.json, not the
-    # overall last commit. This keeps the committed html footer stable across
-    # unrelated commits/merges and across days, so CI's `git diff --exit-code`
-    # only flags a real project_status.json <-> html desync (issue #321).
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["git", "log", "-1", "--format=%ci", "--", str(PROJECT_STATUS_PATH.name)],
-            capture_output=True, text=True, cwd=BASE
-        )
-        commit_date = result.stdout.strip().split()[0] if result.returncode == 0 and result.stdout.strip() else datetime.now(timezone.utc).date().isoformat()
-    except Exception:
-        commit_date = datetime.now(timezone.utc).date().isoformat()
-    today = commit_date
+    # The footer must NOT embed any calendar/commit date: a time-derived value
+    # drifts across days and unrelated commits, which breaks CI's
+    # `git diff --exit-code issues/project_status.html` (issue #321). The HTML is
+    # a pure function of project_status.json, so regeneration is always identical.
     json_data = json.dumps(ps, ensure_ascii=False)
 
     parts = [
@@ -1384,7 +1374,7 @@ def render() -> str:
         _render_phases_section(phases),
         _render_decisions_section(decisions),
         "</main>",
-        _render_footer(today),
+        _render_footer(),
         "<script>",
         JS.strip(),
         "</script>",
@@ -1630,10 +1620,10 @@ def _render_decision_row(decision: dict) -> str:
     )
 
 
-def _render_footer(today: str) -> str:
+def _render_footer() -> str:
     return (
         '<div class="footer">'
-        f"<p>Generated on {today} from <code>project_status.json</code></p>"
+        "<p>Generated from <code>project_status.json</code></p>"
         "<p>Issue detail lives on "
         '<a href="https://github.com/Ham3dParsa/HamZaboonRobot/issues">GitHub Issues</a>. '
         'Edit <code>project_status.json</code> and re-run <code>python scripts/generate_dashboard.py</code>.</p>'
