@@ -229,7 +229,18 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             reply_markup=admin_awaiting_inline_keyboard(),
         )
     elif action == "show_settings":
-        preset = db.get_active_preset()
+        try:
+            preset = db.get_active_preset()
+        except db.NoActivePresetError:
+            await _edit_or_send(
+                update,
+                context,
+                "🤖 هیچ پیش‌تنظیم فعالی وجود ندارد. برای استفاده از هوش مصنوعی، "
+                "یک پیش‌تنظیم بسازید و فعال کنید.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data="admin:back")]]),
+            )
+            return
         raw_key = db.resolve_preset_key(preset)
         if len(raw_key) > 12:
             masked = raw_key[:6] + "…" + raw_key[-4:]
@@ -318,7 +329,7 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
 
     # ======== AI Settings awaiting handlers ========
 
-    if awaiting.startswith("admin_group_batch_key:") or awaiting.startswith("admin_group_set_label:") or awaiting.startswith("admin_group_manager_rename:") or awaiting.startswith("ai_fallback_rank:"):
+    if awaiting.startswith("admin_group_batch_key:") or awaiting.startswith("admin_group_set_label:") or awaiting.startswith("admin_group_manager_rename:") or awaiting.startswith("ai_fallback_rank:") or awaiting.startswith("ai_preset_create_priority:"):
         await _handle_ai_text_input(update, context, awaiting, text)
         return
 

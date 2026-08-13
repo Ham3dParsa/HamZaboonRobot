@@ -167,11 +167,15 @@ def _llm_cost_percent(numerator: int | float, denominator: int | float) -> str:
 
 
 def _llm_cost_status_icon(outcome: object) -> str:
+    # R8 emoji dictionary (global): ✅/❌/⚠️ = result / system warnings
+    # (health). 🟢/⚫ are ON/OFF toggles only and must never mark an outcome.
+    # Billed failure = hard error (financial loss) -> ❌; zero-cost failure =
+    # warning (failed but no money lost) -> ⚠️.
     return {
-        "success": "🟢",
-        "failure_billed": "🔴",
-        "failure_zero_cost": "⚪",
-    }.get(str(outcome), "⚪")
+        "success": "✅",
+        "failure_billed": "❌",
+        "failure_zero_cost": "⚠️",
+    }.get(str(outcome), "❌")
 
 
 def _llm_cost_report_text(state: dict[str, object]) -> str:
@@ -202,8 +206,8 @@ def _llm_cost_report_text(state: dict[str, object]) -> str:
         f"📨 Requests: {request_count:,}",
         f"💳 Spend: {_llm_cost_currency_text(cost_usd, cost_toman)}",
         f"🪙 Avg cost/request: {_llm_cost_currency_text(avg_cost, avg_cost * db.get_llm_cost_profile()['usd_to_toman_rate'])}",
-        f"🟢 Success rate: {success_rate} ({success_count:,})",
-        f"🔴 Billed failure rate: {billed_failure_rate} ({billed_failures:,})",
+        f"✅ Success rate: {success_rate} ({success_count:,})",
+        f"❌ Billed failure rate: {billed_failure_rate} ({billed_failures:,})",
         "",
         f"🧮 Tokens: prompt {prompt_tokens:,} • completion {completion_tokens:,} • total {total_tokens:,}",
         f"⏱ Avg latency: {round(float(avg_latency), 1) if avg_latency is not None else 0.0} ms",
@@ -214,13 +218,16 @@ def _llm_cost_report_text(state: dict[str, object]) -> str:
             [
                 "",
                 "⚠️ Attention required",
-                f"💸 Billed failures: {billed_failures:,} "
+                f"💵 Billed failures: {billed_failures:,} "
                 f"({_llm_cost_currency_text(billed_failure_cost_usd, billed_failure_cost_toman)})",
-                f"⚪ Zero-cost failures: {zero_cost_failures:,}",
+                f"⚠️ Zero-cost failures: {zero_cost_failures:,}",
             ]
         )
     else:
-        lines.extend(["", "🟢 System health: no billable failures"])
+        lines.extend(["", "✅ System health: no billable failures"])
+
+    lines.append("")
+    lines.append("راهنما: ✅ = موفق | ❌ = خطای هزینه‌دار | ⚠️ = خطای بدون هزینه")
 
     projection = None
     if state.get("range") == "mtd":

@@ -75,7 +75,18 @@ _FIELD_HELP = {
 
 async def _show_ai_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Main AI settings panel."""
-    active_preset = db.get_active_preset()
+    try:
+        active_preset = db.get_active_preset()
+    except db.NoActivePresetError:
+        await _edit_or_send(
+            update, context,
+            "🤖 <b>تنظیمات هوش مصنوعی</b>\n\n"
+            "⚠️ هیچ پیش‌تنظیم فعالی وجود ندارد.\n"
+            "برای استفاده از هوش مصنوعی، از بخش «پیش‌تنظیم‌ها» یک پیش‌تنظیم بسازید و فعال کنید.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=ai_settings_keyboard(),
+        )
+        return
     fallback_status = db.get_fallback_status()
 
     text = (
@@ -186,6 +197,29 @@ def _detect_key_groups() -> list[dict]:
     return groups
 
 
+def _render_preset_brief(preset: dict, active_name: str) -> str:
+    """Render one brief, HTML-escaped preset line for list/chain views (R6/R8).
+
+    Pure synchronous renderer (no awaits): every list site calls it inline to
+    build an HTML parse_mode message without wrapping a coroutine. Emoji per the
+    UI/UX dictionary: 🟢/⚫ toggle reflects the enabled state, and the ``[tags]``
+    suffix marks 🎯 active preset, 🛡️ emergency tier, and custom. The name is
+    escaped for ``ParseMode.HTML``. Single shared implementation so every list
+    site renders identically.
+    """
+    name = preset.get("name", "?")
+    toggle = "🟢" if preset.get("enabled", 1) else "⚫"
+    tags = []
+    if name == active_name:
+        tags.append("🎯")
+    if preset.get("is_emergency"):
+        tags.append("🛡️")
+    if preset.get("is_custom"):
+        tags.append("custom")
+    suffix = (f" [{' '.join(tags)}]" if tags else "")
+    return f"{toggle} <b>{html_escape(str(name))}</b>{suffix}"
+
+
 async def _show_linear_presets(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
     """Show paginated linear preset list."""
     all_presets = db.get_presets()
@@ -199,10 +233,8 @@ async def _show_linear_presets(update: Update, context: ContextTypes.DEFAULT_TYP
 
     lines = ["📋 <b>لیست پیش‌تنظیم‌ها</b>\n"]
     for p in page_presets:
-        marker = " ✅" if p["name"] == active_name else ""
-        custom = " (custom)" if p.get("is_custom") else ""
         lines.append(
-            f"{marker} <b>{html_escape(p['name'])}</b>{custom}\n"
+            f"{_render_preset_brief(p, active_name)}\n"
             f"   Model: {html_escape(str(p.get('model', '—')))}\n"
             f"   URL: {html_escape(str(p.get('base_url', '—')))}\n"
             f"   Batch: {p.get('daily_batch_size', 6)} | Concurrency: {p.get('max_concurrency', 2)} | RPM: {p.get('max_rpm', 30)}"
@@ -796,8 +828,7 @@ async def _handle_group_view(update: Update, context: ContextTypes.DEFAULT_TYPE,
     lines.append(f"🔑 کلید: {html_escape(target['masked_key'])}")
     lines.append(f"تعداد: {target['count']} preset\n")
     for p in presets:
-        marker = " ✅" if p["name"] == active_name else ""
-        lines.append(f"{marker} <b>{html_escape(p['name'])}</b> — {html_escape(str(p.get('model', '—')))}")
+        lines.append(f"{_render_preset_brief(p, active_name)} — {html_escape(str(p.get('model', '—')))}")
 
     text = "\n".join(lines)
 
@@ -1028,17 +1059,263 @@ async def _handle_ai_preset_new_name(update: Update, context: ContextTypes.DEFAU
         await update.message.reply_text("این نام از قبل وجود دارد.", reply_markup=awaiting_inline_keyboard())
         return
 
-    # Create empty custom preset
-    db.set_preset(name=name, is_custom=1)
+    # Begin the create flow: remember the pending name, then ask for priority.
+    context.user_data["preset_create"] = {"name": name}
     context.user_data.pop("awaiting", None)
-    await update.message.reply_text(f"پیش‌تنظیم <b>{html_escape(name)}</b> ایجاد شد. اکنون می‌توانید فیلدها را ویرایش کنید.", parse_mode=ParseMode.HTML)
-    await _edit_ai_preset(update, context, name)
+    await _show_create_priority(update, context)
+
+
+# ======== R14 Create Flow ========
+
+CREATE_PRIORITY_PROMPT = (
+    "🎯 <b>اولویت در زنجیره فال‌بک</b>\n\n"
+    "جایگاه پیش‌تنظیم جدید در زنجیره فال‌بک را انتخاب کنید:\n"
+    "• <b>بالا (مقدم)</b> — اولین نفری که امتحان می‌شود\n"
+    "• <b>پایین (کم‌اولویت)</b> — آخرین نفری که امتحان می‌شود\n"
+    "• <b>دستی</b> — عدد اولویت دلخواه وارد کنید"
+)
+
+
+async def _show_create_priority(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Prompt for the new preset's fallback-chain priority (R14)."""
+    state = context.user_data.setdefault("preset_create", {})
+    name = state.get("name", "")
+    buttons = [
+        [
+            InlineKeyboardButton("🔝 بالا (مقدم)", callback_data="admin:ai_preset:create:priority:top"),
+        ],
+        [
+            InlineKeyboardButton("🔢 عدد دستی", callback_data="admin:ai_preset:create:priority:manual"),
+            InlineKeyboardButton("⬇️ پایین (کم‌اولویت)", callback_data="admin:ai_preset:create:priority:bottom"),
+        ],
+        [InlineKeyboardButton("❌ لغو", callback_data="admin:ai_settings")],
+    ]
+    await _edit_or_send(
+        update, context,
+        f"➕ <b>ایجاد پیش‌تنظیم جدید</b> — <code>{html_escape(name)}</code>\n\n" + CREATE_PRIORITY_PROMPT,
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def _show_create_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Prompt for enabled status + a lightweight ping test (R14)."""
+    state = context.user_data.setdefault("preset_create", {})
+    name = state.get("name", "")
+    buttons = [
+        [
+            InlineKeyboardButton("🟢 فعال", callback_data="admin:ai_preset:create:status:on"),
+            InlineKeyboardButton("⚫ غیرفعال", callback_data="admin:ai_preset:create:status:off"),
+        ],
+        [
+            InlineKeyboardButton("🔁 تست اتصال سبک", callback_data="admin:ai_preset:create:test"),
+        ],
+        [InlineKeyboardButton("❌ لغو", callback_data="admin:ai_settings")],
+    ]
+    await _edit_or_send(
+        update, context,
+        f"⚙️ <b>وضعیت پیش‌تنظیم</b> — <code>{html_escape(name)}</code>\n\n"
+        "پیش‌تنظیم جدید به‌صورت <b>غیرفعال</b> ساخته می‌شود و تا وقتی آگاهانه فعالش نکنید، "
+        "هیچ درخواستی را سرو نمی‌کند. وضعیت را انتخاب کنید (می‌توانید پیش از آن اتصال را تست کنید):",
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def _finish_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Persist the new preset and show the create summary (R14)."""
+    state = context.user_data.setdefault("preset_create", {})
+    name = state.get("name", "")
+    if not name:
+        # Guard against a lost/stale create state (e.g. tapping a stale summary
+        # or toggle button without having entered a name) creating a preset with
+        # an empty primary key.
+        await notify_callback(update.callback_query, "جلسه ساخت پیش‌تنظیم منقضی شده", intent=CallbackNoticeIntent.INFO)
+        context.user_data.pop("preset_create", None)
+        context.user_data.pop("awaiting", None)
+        await _show_ai_presets(update, context)
+        return
+    enabled = state.get("enabled", 0)
+    rank = state.get("rank", _normal_chain_count())
+    max_rank = _normal_chain_count()
+    if rank < 0:
+        rank = 0
+    elif rank > max_rank:
+        rank = max_rank
+    db.set_preset(name=name, is_custom=1, enabled=int(enabled))
+    try:
+        db.insert_preset_at_rank(name, int(rank))
+    except ValueError:
+        rank = max_rank
+        db.insert_preset_at_rank(name, int(rank))
+    context.user_data.pop("awaiting", None)
+    preset = db.get_preset(name)
+    status = "🟢 فعال" if preset.get("enabled", 0) else "⚫ غیرفعال"
+    buttons = [
+        [
+            InlineKeyboardButton("🔁 تست اتصال", callback_data="admin:ai_preset:create:test"),
+            InlineKeyboardButton("🔄 تغییر وضعیت", callback_data="admin:ai_preset:create:toggle_enable"),
+        ],
+        [
+            InlineKeyboardButton("✏️ ادامه ویرایش کامل", callback_data=f"admin:ai_preset:full_edit:{_preset_ref(name)}"),
+        ],
+        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_presets")],
+    ]
+    await _edit_or_send(
+        update, context,
+        f"✅ <b>پیش‌تنظیم ساخته شد</b> — <code>{html_escape(name)}</code>\n\n"
+        f"• وضعیت: {status}\n"
+        f"• اولویت زنجیره: <code>{preset.get('priority', 0)}</code>\n"
+        f"• سفارشی: بله\n\n"
+        "می‌توانید اتصال را تست کنید، وضعیت را تغییر دهید، یا مستقیم وارد ویرایش کامل شوید.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+def _normal_chain_count() -> int:
+    """Number of enabled normal (non-emergency) in-fallback presets (R14)."""
+    return sum(1 for p in db.get_fallback_chain_presets() if not p.get("is_emergency"))
+
+
+async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lightweight ping test of the pending (or just-created) preset (R14)."""
+    state = context.user_data.get("preset_create", {})
+    name = state.get("name", "")
+    preset = db.get_preset(name)
+    await notify_callback(update.callback_query, "در حال تست اتصال...", intent=CallbackNoticeIntent.INFO)
+    if preset and (preset.get("base_url") or preset.get("model") or preset.get("api_key")):
+        result = await asyncio.to_thread(
+            ai.test_connection,
+            base_url=preset.get("base_url", ""),
+            api_key=db.resolve_preset_key(preset),
+            model=preset.get("model", ""),
+            timeout=preset.get("timeout_seconds", 30.0),
+        )
+        if result["success"]:
+            body = f"✅ <b>اتصال موفق</b>\nتأخیر: {result['latency_ms']} ms"
+        else:
+            body = f"❌ <b>خطا در اتصال</b>\nخطا: {html_escape(str(result.get('error_message', '')))}"
+    else:
+        body = (
+            "⚠️ <b>تست اتصال برای پیش‌تنظیم تازه</b>\n\n"
+            "این پیش‌تنظیم هنوز base_url / model / api_key ندارد، پس اتصال واقعی "
+            "امکان‌پذیر نیست. ابتدا فیلدها را در ویرایش کامل پر کنید، سپس تست بگیرید.\n"
+            "این صرفاً یک یادآوری است و مشکلی در ساخت پیش‌تنظیم نیست."
+        )
+    buttons = [
+        [
+            InlineKeyboardButton("🔄 تغییر وضعیت", callback_data="admin:ai_preset:create:toggle_enable"),
+        ],
+        [
+            InlineKeyboardButton("✏️ ادامه ویرایش کامل", callback_data=f"admin:ai_preset:full_edit:{_preset_ref(name)}"),
+        ],
+        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_presets")],
+    ]
+    await _edit_or_send(update, context, body, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def _handle_create_toggle_enable(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Flip the just-created preset's enabled state from the summary (R14)."""
+    state = context.user_data.setdefault("preset_create", {})
+    name = state.get("name", "")
+    preset = db.get_preset(name)
+    if not preset:
+        await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    new_enabled = not preset.get("enabled", 0)
+    try:
+        db.set_preset_enabled(name, new_enabled)
+    except ValueError:
+        await notify_callback(
+            update.callback_query,
+            "نمی‌توان آخرین پیش‌تنظیم فعال را غیرفعال کرد.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
+    state["enabled"] = int(new_enabled)
+    await _finish_create(update, context)
+
+
+async def _handle_create_priority_choice(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, choice: str
+):
+    """Apply the priority choice, then move to the status prompt (R14)."""
+    state = context.user_data.setdefault("preset_create", {})
+    if choice == "top":
+        state["rank"] = 0
+        await _show_create_status(update, context)
+    elif choice == "bottom":
+        state["rank"] = _normal_chain_count()
+        await _show_create_status(update, context)
+    elif choice == "manual":
+        context.user_data["awaiting"] = f"ai_preset_create_priority:{state.get('name', '')}"
+        await update.callback_query.edit_message_text(
+            "🔢 <b>عدد اولویت دستی</b> را وارد کنید (عدد کمتر = اولویت بیشتر):",
+            parse_mode=ParseMode.HTML,
+            reply_markup=admin_awaiting_inline_keyboard(),
+        )
+    else:
+        await notify_callback(update.callback_query, "انتخاب نامعتبر", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+
+
+async def _handle_create_priority_manual(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    """Apply a manually-entered priority number (R14)."""
+    state = context.user_data.setdefault("preset_create", {})
+    try:
+        rank = int(text.strip())
+    except ValueError:
+        context.user_data["awaiting"] = f"ai_preset_create_priority:{state.get('name', '')}"
+        await update.message.reply_text("لطفاً یک عدد معتبر وارد کنید.", reply_markup=admin_awaiting_inline_keyboard())
+        return
+    max_rank = _normal_chain_count()
+    if rank < 0:
+        context.user_data["awaiting"] = f"ai_preset_create_priority:{state.get('name', '')}"
+        await update.message.reply_text("عدد اولویت نمی‌تواند منفی باشد.", reply_markup=admin_awaiting_inline_keyboard())
+        return
+    if rank > max_rank:
+        # Clamp to the lowest slot so a value beyond the current chain size is
+        # simply appended last instead of causing a broken ValueError mid-flow.
+        rank = max_rank
+        await update.message.reply_text(
+            f"عدد واردشده از جایگاه‌های قابل استفاده بیشتر بود؛ پیش‌تنظیم در آخرین جایگاه (رتبه {max_rank}) قرار می‌گیرد."
+        )
+    state["rank"] = rank
+    context.user_data.pop("awaiting", None)
+    await _show_create_status(update, context)
+
+
+async def _handle_create_status_choice(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, choice: str
+):
+    """Record the enabled status then persist and show the summary (R14)."""
+    state = context.user_data.setdefault("preset_create", {})
+    state["enabled"] = 1 if choice == "on" else 0
+    context.user_data.pop("awaiting", None)
+    await _finish_create(update, context)
+
+
+def _preset_ref(name: str) -> str:
+    from services.utils.callback_codec import preset_token
+    return preset_token(name)
 
 
 async def _test_ai_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Test current AI connection."""
     await notify_callback(update.callback_query, "در حال تست اتصال...", intent=CallbackNoticeIntent.INFO)
-    active = db.get_active_preset()
+    try:
+        active = db.get_active_preset()
+    except db.NoActivePresetError:
+        await _edit_or_send(
+            update, context,
+            "⚠️ هیچ پیش‌تنظیم فعالی برای تست اتصال وجود ندارد.\n"
+            "اول یک پیش‌تنظیم را فعال کنید (یا در پنل AI یک پیش‌تنظیم جدید بسازید).",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("↩️ بازگشت به تنظیمات AI", callback_data="admin:ai_settings")]
+            ]),
+        )
+        return
     result = await asyncio.to_thread(
         ai.test_connection,
         base_url=active.get("base_url", ""),
@@ -1151,7 +1428,20 @@ async def _custom_test_step_target(update: Update, context: ContextTypes.DEFAULT
     state["step"] = "target"
     context.user_data["custom_test_state"] = state
 
-    active_preset = db.get_active_preset()
+    try:
+        active_preset = db.get_active_preset()
+    except db.NoActivePresetError:
+        await _edit_or_send(
+            update, context,
+            "⚠️ هیچ پیش‌تنظیم فعالی برای تست «جدید» وجود ندارد.\n"
+            "اول یک پیش‌تنظیم را فعال کنید یا فقط گزینه «پیش‌تنظیم کاندیدا» را انتخاب کنید.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔸 پیش‌تنظیم کاندیدا", callback_data="admin:ai_custom_test:target:candidate")],
+                [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
+            ]),
+        )
+        return
     buttons = [
         [InlineKeyboardButton("🔹 پیکربندی فعلی", callback_data="admin:ai_custom_test:target:current")],
         [InlineKeyboardButton("🔸 پیش‌تنظیم کاندیدا", callback_data="admin:ai_custom_test:target:candidate")],
@@ -1184,6 +1474,19 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     results = []
 
     if target in ("current", "ab"):
+        try:
+            active_preset = db.get_active_preset()
+        except db.NoActivePresetError:
+            await _edit_or_send(
+                update, context,
+                "⚠️ هیچ پیش‌تنظیم فعالی برای تست «پیکربندی فعلی» وجود ندارد.\n"
+                "ابتدا یک پیش‌تنظیم را فعال کنید.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
+                ]),
+            )
+            return
         result = await asyncio.to_thread(
             ai.custom_test_card,
             system_prompt=system_prompt,
@@ -1191,7 +1494,7 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
             lang=lang,
             goal=goal,
             level=level,
-            preset=db.get_active_preset(),
+            preset=active_preset,
         )
         results.append(("Current Config", result))
 
@@ -1278,9 +1581,17 @@ async def _custom_test_step_preset(update: Update, context: ContextTypes.DEFAULT
 async def _show_ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show fallback configuration panel."""
     status = db.get_fallback_status()
+    if status["fallback_active"]:
+        active = db.get_preset(str(status["fallback_preset"])) or {}
+        if bool(active.get("is_emergency", 0)):
+            status_label = "🎯 🛡️ Emergency ACTIVE"
+        else:
+            status_label = "🎯 Fallback ACTIVE"
+    else:
+        status_label = "🎯 Primary Active"
     text = (
         "🔄 <b>مدیریت پیش‌تنظیم پشتیبان (Fallback)</b>\n\n"
-        f"Status: {'🔴 Fallback ACTIVE' if status['fallback_active'] else '🟢 Primary Active'}\n"
+        f"Status: {status_label}\n"
         f"Primary: {html_escape(str(status['primary_preset']))}\n"
         f"Fallback: {html_escape(str(status['fallback_preset']))}\n"
         f"Consecutive Failures: {status['consecutive_failures']}\n"
@@ -1381,8 +1692,8 @@ async def _show_help_fallback_chain(update: Update, context: ContextTypes.DEFAUL
         "پریست‌های با in_fallback_chain=0 در زنجیره نمایش داده نمی‌شوند.\n\n"
         "<b>دکمه‌ها:</b>\n"
         "• ⬆/⬇: جابه‌جایی دستی (تغییر priority)\n"
-        "• 🟢/🔴: فعال/غیرفعال کردن پریست\n"
-        "• 🚨: تبدیل به پریست اضطراری\n"
+        "• 🟢/⚫: فعال/غیرفعال کردن پریست\n"
+        "• 🛡️: تبدیل به پریست اضطراری\n"
         "• 🎯: پرش به رتبه دلخواه در گروه\n\n"
         "پریست اضطراری همیشه بعد از همه پریست‌های عادی امتحان می‌شود."
     )
@@ -1407,7 +1718,7 @@ async def _show_fallback_chain(update: Update, context: ContextTypes.DEFAULT_TYP
     for i, preset in enumerate(chain):
         name = preset.get("name", "?")
         is_emergency = preset.get("is_emergency", 0)
-        status = "🚨 اضطراری" if is_emergency else "✅ فعال"
+        status = "🛡️ اضطراری" if is_emergency else "🟢 فعال"
         text += f"{i+1}. <b>{html_escape(name)}</b> — {status}\n"
 
     await _edit_or_send(
@@ -1420,12 +1731,12 @@ async def _show_fallback_chain(update: Update, context: ContextTypes.DEFAULT_TYP
 async def _show_fallback_usage_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show daily consumption for all presets."""
     presets = db.get_presets()
-    lines = ["📊 <b>مصرف روزانه پریست‌ها</b>\n\n"]
+    lines = ["📊 <b>مصرف ۲۴ ساعته پریست‌ها</b>\n\n"]
     for p in presets:
         name = p["name"]
         req_count, token_count = db.get_hourly_usage(name, hours_back=24)
         max_daily = p.get("max_daily_req", 0)
-        status = "🟢" if req_count < max_daily or max_daily == 0 else "🔴"
+        status = "🔋" if req_count < max_daily or max_daily == 0 else "🪫"
         daily_str = f"{req_count}/{max_daily}" if max_daily > 0 else f"{req_count}/∞"
         lines.append(f"{status} <b>{html_escape(name)}</b>: {daily_str} req, {token_count} توکن")
 
@@ -1541,6 +1852,16 @@ async def handle_ai_callback(
         await _delete_ai_preset(update, context, preset_name)
     elif action == "ai_preset:add":
         await _add_ai_preset(update, context)
+    elif action.startswith("ai_preset:create:priority:"):
+        choice = action.split(":", 3)[3]
+        await _handle_create_priority_choice(update, context, choice)
+    elif action.startswith("ai_preset:create:status:"):
+        choice = action.split(":", 3)[3]
+        await _handle_create_status_choice(update, context, choice)
+    elif action == "ai_preset:create:test":
+        await _handle_create_test(update, context)
+    elif action == "ai_preset:create:toggle_enable":
+        await _handle_create_toggle_enable(update, context)
     elif action.startswith("ai_preset:page:"):
         page = int(action.split(":", 2)[2])
         await _show_linear_presets(update, context, page)
@@ -1688,6 +2009,10 @@ async def _handle_ai_text_input(
             context.user_data.pop("awaiting", None)
             await update.message.reply_text("انصراف از تغییر نام.")
         await _show_group_manager(update, context)
+        return
+
+    if awaiting.startswith("ai_preset_create_priority:"):
+        await _handle_create_priority_manual(update, context, text)
         return
 
     if awaiting.startswith("ai_fallback_rank:"):

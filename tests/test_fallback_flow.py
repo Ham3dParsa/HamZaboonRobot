@@ -37,6 +37,10 @@ class FallbackChainTests(unittest.TestCase):
         # Clean seed presets so only our test presets exist
         for p in db.get_presets():
             db.delete_preset(p["name"])
+        # Reset module-global limiter state so failure/backoff counters do not
+        # leak between test methods that reuse the same short preset names.
+        from services.ai import llm_services
+        llm_services._get_limiter_for_preset._states = {}
 
     def tearDown(self):
         db.DB_PATH = self.previous_db_path

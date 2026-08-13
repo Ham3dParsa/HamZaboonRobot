@@ -336,6 +336,53 @@ class PlanManagerFlowTest(unittest.TestCase):
         self.assertEqual(ctx.user_data["awaiting"], "admin_plan_full_edit:free:1")
         msg.reply_text.assert_called_once()
 
+    def test_plan_view_escapes_display_name(self):
+        """R15: the plan detail view must HTML-escape the display_name/name so a
+        stored value containing HTML is rendered inert, not injected."""
+        from handlers.admin import _handle_admin_callback
+
+        db.upsert_plan(
+            "escaped",
+            display_name="پلن <b>تست</b> & 'x'",
+            price=0,
+            query_quota=1,
+            max_sessions=1,
+            cards_per_session=1,
+        )
+        update = self._make_callback_update("admin:plans:view:escaped")
+        ctx = self._make_context()
+        asyncio.run(_handle_admin_callback(update, ctx, "plans:view:escaped"))
+
+        call = update.callback_query.edit_message_text.call_args
+        rendered = call.kwargs.get("text") or call[0][0]
+        self.assertIn("&lt;b&gt;", rendered)
+        self.assertNotIn("<b>تست</b>", rendered)
+
+    def test_plan_wizard_summary_escapes_display_name_and_values(self):
+        """R15: the wizard summary must escape the plan display_name and any
+        typed old/new values containing HTML special characters."""
+        from handlers.admin import _show_plan_wizard_summary
+
+        # Simulate an in-progress wizard where a typed value contains HTML.
+        ctx = self._make_context()
+        ctx.user_data["plan_full_edit"] = {
+            "plan": "silver",
+            "field_idx": 1,
+            "values": {"display_name": "نقره <i>ویژه</i>"},
+        }
+        ctx.user_data["awaiting"] = "admin_plan_full_edit:silver:1"
+        update = self._make_callback_update("admin:plans:noop")
+        asyncio.run(_show_plan_wizard_summary(update, ctx, "silver"))
+
+        call = update.callback_query.edit_message_text.call_args
+        rendered = call.kwargs.get("text") or call[0][0]
+        # display_name (new val) escaped.
+        self.assertIn("&lt;i&gt;", rendered)
+        self.assertNotIn("<i>ویژه</i>", rendered)
+        # The summary line for display_name and its old/new arrow appear.
+        self.assertIn("→", rendered)
+        self.assertIn("نقره‌ای", rendered)
+
     def test_plan_set_active_toggles(self):
         from handlers.admin import _handle_admin_callback
 

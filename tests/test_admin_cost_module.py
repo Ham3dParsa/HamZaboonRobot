@@ -5,6 +5,8 @@ monolith and bot.py import the cost functions from this module. Behavior is
 unchanged.
 """
 
+import os
+import tempfile
 import unittest
 
 from config.keyboards import (
@@ -18,6 +20,8 @@ from config.keyboards import (
 )
 from handlers import admin
 from handlers import admin_cost
+from services import db
+from services.db import schema as db_schema
 
 _COST_FUNCTIONS = (
     "_handle_cost_text_input",
@@ -75,6 +79,49 @@ class TestAdminCostModule(unittest.TestCase):
             key=lambda s: s.lower(),
         )
         self.assertEqual(sorted(admin_cost.__all__, key=lambda s: s.lower()), expected)
+
+
+class TestCostReportEmojiR8(unittest.TestCase):
+    """R8 is global: the cost dashboard must follow the emoji dictionary.
+
+    🟢/⚫ are ON/OFF toggles only and must never mark an outcome; success uses
+    ✅, a billed failure is a hard error (❌), and a zero-cost failure is a
+    warning (⚠️). 🔴/🟢/⚫ must not appear as outcome markers.
+    """
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.previous_db_path = db.DB_PATH
+        self.previous_db_schema_path = db_schema.DB_PATH
+        new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db.DB_PATH = new_path
+        db_schema.DB_PATH = new_path
+        db.init_db()
+        db.create_user_if_needed(1, "learner")
+
+    def tearDown(self):
+        db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
+        self.tempdir.cleanup()
+
+    def test_status_icon_mapping(self):
+        self.assertEqual(admin_cost._llm_cost_status_icon("success"), "✅")
+        self.assertEqual(admin_cost._llm_cost_status_icon("failure_billed"), "❌")
+        self.assertEqual(admin_cost._llm_cost_status_icon("failure_zero_cost"), "⚠️")
+        # Unknown outcomes must not silently become a toggle emoji.
+        self.assertEqual(admin_cost._llm_cost_status_icon("weird"), "❌")
+
+    def test_report_text_uses_r8_emoji_and_no_toggle_markers(self):
+        text = admin_cost._llm_cost_report_text(admin_cost._llm_cost_default_state())
+        self.assertIn("✅ Success rate", text)
+        self.assertIn("❌ Billed failure rate", text)
+        # Outcome markers must not reuse the ON/OFF toggle emoji.
+        self.assertNotIn("🟢", text)
+        self.assertNotIn("⚫", text)
+        self.assertNotIn("🔴", text)
+        self.assertNotIn("⚪", text)
+        # Legend reflects the R8 mapping.
+        self.assertIn("راهنما: ✅ = موفق | ❌ = خطای هزینه‌دار | ⚠️ = خطای بدون هزینه", text)
 
 
 if __name__ == "__main__":

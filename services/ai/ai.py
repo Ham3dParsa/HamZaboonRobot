@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 def _client(preset: dict | None = None) -> OpenAI:
     """Create an OpenAI client using the given preset or active settings."""
     if preset is None:
-        preset = db.get_active_preset() or {}
+        preset = db.get_active_preset()
     base_url = preset.get("base_url", "") or DEFAULT_AI_BASE_URL
     api_key = db.resolve_preset_key(preset)
     if not api_key:
@@ -40,7 +40,7 @@ def _client(preset: dict | None = None) -> OpenAI:
 
 def _model(preset: dict | None = None) -> str:
     if preset is None:
-        preset = db.get_active_preset() or {}
+        preset = db.get_active_preset()
     if preset.get("model"):
         return preset["model"]
     return db.get_setting("ai_model", DEFAULT_AI_MODEL)

@@ -18,6 +18,33 @@ class AIRequestTimedOut(Exception):
     """Raised when a preset attempt exceeds the caller-provided deadline."""
 
 
+# Consecutive failures before a preset is temporarily sidelined (backoff), and
+# the length of that backoff window. Owner decision (R13): ALL failures count
+# (429, connection drop, timeout, etc.), and after the window a preset recovers
+# so routing can return to the preferred/highest-priority target.
+FAILURE_THRESHOLD = 3
+BACKOFF_SECONDS = 60
+
+# Prune-at-most-once-per-hour guard for the R13 hourly-usage window. Pruning
+# is a write transaction; on the quota hot path this must not fire on every
+# preset per request, so it is throttled to ~1x/hour per process.
+_PRUNE_INTERVAL_SECONDS = 3600
+_prune_lock = threading.Lock()
+_last_hourly_prune: float = 0.0
+
+
+def _maybe_prune_hourly_usage():
+    """Run the R13 prune at most once per hour per process."""
+    global _last_hourly_prune
+    now = time.monotonic()
+    if now - _last_hourly_prune < _PRUNE_INTERVAL_SECONDS:
+        return
+    with _prune_lock:
+        if now - _last_hourly_prune >= _PRUNE_INTERVAL_SECONDS:
+            db.prune_preset_hourly_usage(hours_back=24)
+            _last_hourly_prune = now
+
+
 def _get_active_preset() -> dict:
     """Get the currently active AI preset (considers fallback)."""
     return db.get_active_preset()
@@ -36,15 +63,29 @@ def _get_limiter_for_preset(preset: dict):
             "token_times": deque(),
             "token_lock": threading.Lock(),
             "consecutive_failures": 0,
+            "backoff_until": 0.0,
         }
     return _get_limiter_for_preset._states[key]
 
 
+def _preset_in_backoff(limiter: dict, now: float | None = None) -> bool:
+    """True while a preset is temporarily sidelined after a failure streak."""
+    if now is None:
+        now = time.monotonic()
+    return bool(limiter["backoff_until"]) and now < limiter["backoff_until"]
+
+
 def _is_daily_exhausted(preset: dict) -> bool:
-    """Check if a preset has reached its daily request cap."""
+    """Check if a preset has reached its 24h request cap (RPD, owner-fixed scope).
+
+    Counts only successful provider calls (usage is recorded only on success),
+    prunes rows older than the 24h window first so stale data can't wrongly hold
+    the cap open or closed, and performs the read + cap decision atomically.
+    """
     max_daily = preset.get("max_daily_req", 0)
     if max_daily <= 0:
         return False
+    _maybe_prune_hourly_usage()
     req_count, _ = db.get_hourly_usage(preset["name"], hours_back=24)
     return req_count >= max_daily
 
@@ -128,6 +169,13 @@ def _call_ai_limited(function, *args, deadline=None, **kwargs):
 
         _raise_if_deadline_exceeded()
 
+        limiter = _get_limiter_for_preset(preset)
+        if _preset_in_backoff(limiter):
+            if i + 1 < len(chain):
+                _log_switch(current_name, chain[i + 1].get("name", "?"), "temporary backoff")
+            logger.info("Skipping preset in backoff: %s", current_name)
+            continue
+
         if _is_preset_rate_limited(preset):
             if i + 1 < len(chain):
                 _log_switch(current_name, chain[i + 1].get("name", "?"), "rate-limited")
@@ -155,36 +203,35 @@ def _call_ai_limited(function, *args, deadline=None, **kwargs):
             result = function(*args, preset=preset, **kwargs)
 
             limiter["consecutive_failures"] = 0
+            limiter["backoff_until"] = 0.0
             _log_preset_usage(preset, result)
             return result
 
         except AIRequestTimedOut:
             raise
 
-        except ai.RateLimitError as exc:
-            logger.warning("Preset %s rate-limited (429), skipping: %s", current_name, exc)
-            last_error = exc
-            if i + 1 < len(chain):
-                _log_switch(current_name, chain[i + 1].get("name", "?"), f"rate-limited (429): {exc}")
-            continue
-
         except Exception as exc:
             limiter["consecutive_failures"] += 1
             last_error = exc
-            if limiter["consecutive_failures"] >= 2:
-                logger.warning("Preset %s failed consecutively, skipping: %s", current_name, exc)
-                if i + 1 < len(chain):
-                    _log_switch(current_name, chain[i + 1].get("name", "?"), f"consecutive failure: {exc}")
-                continue
-            raise
+            if limiter["consecutive_failures"] >= FAILURE_THRESHOLD:
+                limiter["backoff_until"] = time.monotonic() + BACKOFF_SECONDS
+                limiter["consecutive_failures"] = 0
+                logger.warning(
+                    "Preset %s reached %d failures, sidelined for %ds: %s",
+                    current_name, FAILURE_THRESHOLD, BACKOFF_SECONDS, exc,
+                )
+            if i + 1 < len(chain):
+                _log_switch(current_name, chain[i + 1].get("name", "?"), f"failure: {exc}")
+            continue
 
         finally:
             limiter["slots"].release()
 
-    raise AllPresetsExhausted(
-        f"All enabled presets exhausted. Last error: {last_error}" if last_error
-        else "All enabled presets exhausted"
-    )
+    if last_error is not None:
+        raise AllPresetsExhausted(
+            f"All enabled presets exhausted. Last error: {last_error}"
+        ) from last_error
+    raise AllPresetsExhausted("All enabled presets exhausted")
 
 
 def _ask_batch_limited(*args, **kwargs):

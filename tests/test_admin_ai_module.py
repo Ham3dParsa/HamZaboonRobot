@@ -53,6 +53,7 @@ _FUNCTIONS = (
     "_handle_group_set_label",
     "_handle_group_view",
     "_key_hash",
+    "_render_preset_brief",
     "_run_custom_test",
     "_save_ai_preset",
     "_show_ai_fallback",
@@ -124,6 +125,43 @@ class TestAdminAiModule(unittest.TestCase):
 
     def test_edit_ai_preset_resolves_through_admin(self):
         self.assertIs(admin._edit_ai_preset, admin_ai._edit_ai_preset)
+
+
+class TestRenderPresetBrief(unittest.TestCase):
+    """Unit coverage for the shared ``_render_preset_brief`` (R6/R8)."""
+
+    @staticmethod
+    def _call(preset: dict, active_name: str) -> str:
+        return admin_ai._render_preset_brief(preset, active_name)
+
+    def test_disabled_uses_wire_emoji(self):
+        text = self._call({"name": "p1", "enabled": 0}, "p1")
+        self.assertTrue(text.startswith("⚫"))
+
+    def test_enabled_uses_green_toggle(self):
+        text = self._call({"name": "p1", "enabled": 1}, "other")
+        self.assertTrue(text.startswith("🟢"))
+
+    def test_active_preset_marked_with_target_emoji(self):
+        text = self._call({"name": "p1", "enabled": 1}, "p1")
+        self.assertIn("🎯", text)
+
+    def test_emergency_tier_uses_shield(self):
+        text = self._call({"name": "p1", "enabled": 1, "is_emergency": 1}, "other")
+        self.assertIn("🛡️", text)
+
+    def test_custom_tag_present(self):
+        text = self._call({"name": "p1", "enabled": 1, "is_custom": 1}, "p1")
+        self.assertIn("custom", text)
+
+    def test_name_is_html_escaped(self):
+        text = self._call({"name": "p<1>", "enabled": 1}, "other")
+        self.assertIn("&lt;", text)
+
+    def test_no_stray_space_without_tags(self):
+        text = self._call({"name": "p1", "enabled": 1}, "other")
+        self.assertFalse(text.endswith("]"))
+        self.assertFalse(text.endswith(" "))
 
 
 if __name__ == "__main__":
