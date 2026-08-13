@@ -12,4 +12,5 @@
 | AI-PRESET-FIX (phase 1 of 7) | `presets/plan-ai-preset-audit-fixes.md` | #330 | `fix/ai-preset-audit-findings` | complete (PR #333 merged) |
 | AI-PRESET-FIX (phase 2 of 7) | `presets/plan-ai-preset-audit-fixes.md` | #330 | `fix/ai-preset-audit-findings` | complete (PR #333 merged, R1/R2/R10/R12/R13/R14) |
 | AI-PRESET-FIX (phase 3 of 7) | `presets/plan-ai-preset-audit-fixes-phase-03-handlers-ux.md` | #330 | `feat/ai-preset-handlers-ux` | complete (PR pending, R3/R4/R5/R7) |
-| AI-PRESET-FIX (phase 4 of 7) | `presets/plan-ai-preset-audit-fixes-phase-04-builtin-removal.md` | #330 | `feat/ai-preset-phase4-builtin-removal` | in-progress (impl+tests done, PR pending) |
+| AI-PRESET-FIX (phase 4 of 7) | `presets/plan-ai-preset-audit-fixes-phase-04-builtin-removal.md` | #330 | next branch | pending — next up |
+| SRS-STAGED-REVEAL (spec) | `session/plan-srs-staged-reveal-spec.md` | #338 | pending (deferred) | locked-spec — implement after AI-preset seams + FSRS T09 |
