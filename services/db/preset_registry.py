@@ -300,6 +300,46 @@ def delete_preset(name: str) -> bool:
         return cursor.rowcount > 0
 
 
+def clone_preset(name: str, new_name: str, is_custom_override: bool | None = None) -> str:
+    """Clone an existing preset to a new name, copying all fields except name.
+
+    Raises ValueError if the source is missing or the target name already
+    exists. The clone inherits the source's enabled/priority state so it can
+    never start routing without an explicit owner choice. ``is_custom_override``,
+    when given, forces the clone's ``is_custom`` value (used so duplicating any
+    preset yields an immediately editable custom clone).
+    """
+    src = get_preset(name)
+    if not src:
+        raise ValueError(f"source preset not found: {name}")
+    if get_preset(new_name) is not None:
+        raise ValueError(f"preset name already exists: {new_name}")
+    field_names = (
+        "base_url", "model", "api_key", "daily_batch_size", "max_concurrency",
+        "max_rpm", "max_tpm", "max_daily_req", "timeout_seconds", "temperature",
+        "max_output_tokens", "is_custom", "is_emergency", "priority", "enabled",
+        "input_cost_per_million", "output_cost_per_million", "in_fallback_chain",
+        "group_label",
+    )
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            placeholders = ", ".join("?" for _ in field_names)
+            columns = ", ".join(field_names)
+            values = [src.get(f) for f in field_names]
+            if is_custom_override is not None:
+                values[field_names.index("is_custom")] = int(bool(is_custom_override))
+            conn.execute(
+                f"INSERT INTO ai_presets(name, {columns}) VALUES (?, {placeholders})",
+                (new_name, *values),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    return new_name
+
+
 def activate_preset(name: str) -> bool:
     preset = get_preset(name)
     if not preset:
