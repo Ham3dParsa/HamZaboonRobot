@@ -82,6 +82,7 @@ from services.db.words import (
     get_pre_first_exposure_words,
     grade_word_review,
     grade_first_exposure,
+    GradeResult,
 )
 
 

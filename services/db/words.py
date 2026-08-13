@@ -1,6 +1,17 @@
 import json
 import datetime
-from services.db.schema import get_conn, _today, _utc_now
+from dataclasses import dataclass
+from services.db.schema import get_conn, _today, _utc_now, _app_timezone
+from services.fsrs_core import (
+    DEFAULT_FSRS_CONFIG,
+    compute_interval,
+    compute_retrievability,
+    initial_difficulty,
+    initial_stability_first_exposure,
+    short_term_stability,
+    update_difficulty,
+    update_stability,
+)
 
 
 def _normalize_word(word: str) -> str:
@@ -191,9 +202,166 @@ def get_pre_first_exposure_words(user_id):
         ).fetchall()
 
 
+@dataclass(frozen=True)
+class GradeResult:
+    ok: bool
+    reason: str = ""
+    next_review_at: datetime.datetime | None = None
+    interval_seconds: int | None = None
+
+
+def _validate_grade(grade: int) -> None:
+    if grade not in (1, 2, 3, 4):
+        raise ValueError(f"invalid grade: {grade!r}")
+
+
+def _parse_utc(value: str) -> datetime.datetime:
+    return datetime.datetime.fromisoformat(value)
+
+
+def _schedule(stability: float, now: datetime.datetime):
+    interval_days = compute_interval(stability, config=DEFAULT_FSRS_CONFIG)
+    if interval_days < 1.0:
+        next_review_at = now + datetime.timedelta(days=interval_days)
+        interval_seconds = int(interval_days * 86400)
+    else:
+        interval_days = max(1, round(interval_days))
+        next_review_at = now + datetime.timedelta(days=interval_days)
+        interval_seconds = int(interval_days * 86400)
+    return next_review_at, interval_seconds
+
+
+def _apply_scheduling_fields(
+    conn,
+    word_id: int,
+    user_id: int,
+    stability: float,
+    difficulty: float,
+    now,
+    next_review_at,
+    next_review: str,
+    first_exposure_done: int | None = None,
+) -> None:
+    if first_exposure_done is not None:
+        conn.execute(
+            "UPDATE saved_words SET "
+            "first_exposure_done=?, last_review_at=?, next_review_at=?, next_review=?, "
+            "stability=?, difficulty=?, "
+            "review_status='idle', review_requested_at=NULL, retry_at=NULL, "
+            "srs_retry_attempts=0 "
+            "WHERE id=? AND user_id=?",
+            (
+                first_exposure_done,
+                now.isoformat(),
+                next_review_at.isoformat(),
+                next_review,
+                stability,
+                difficulty,
+                word_id,
+                user_id,
+            ),
+        )
+    else:
+        conn.execute(
+            "UPDATE saved_words SET "
+            "last_review_at=?, next_review_at=?, next_review=?, "
+            "stability=?, difficulty=?, "
+            "review_status='idle', review_requested_at=NULL, retry_at=NULL, "
+            "srs_retry_attempts=0 "
+            "WHERE id=? AND user_id=?",
+            (
+                now.isoformat(),
+                next_review_at.isoformat(),
+                next_review,
+                stability,
+                difficulty,
+                word_id,
+                user_id,
+            ),
+        )
+
+
 def grade_word_review(word_id, grade, user_id):
-    return True
+    """Deep, atomic regular-review transition.
+
+    Enforces ``(word_id, user_id)`` ownership inside the same immediate
+    transaction that reads and updates scheduling state. Never partially
+    mutates the row on expected failure. Does not write ``review_events``
+    (telemetry wiring lives in Phase 05 handler integration).
+    """
+    _validate_grade(grade)
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM saved_words WHERE id=? AND user_id=?",
+            (word_id, user_id),
+        ).fetchone()
+        if row is None:
+            conn.rollback()
+            return GradeResult(ok=False, reason="not_found")
+        if not row["first_exposure_done"] or not row["last_review_at"]:
+            conn.rollback()
+            return GradeResult(ok=False, reason="wrong_state")
+
+        now = _utc_now()
+        s_old = row["stability"] or 0.1
+        d_old = row["difficulty"] or 5.0
+        last_review = _parse_utc(row["last_review_at"])
+        elapsed_days = (now - last_review).total_seconds() / 86400
+
+        d_new = update_difficulty(d_old, grade)
+        if elapsed_days < 1:
+            s_new = short_term_stability(s_old, grade)
+        else:
+            r = compute_retrievability(elapsed_days, s_old)
+            s_new = update_stability(d_old, s_old, r, grade)
+
+        next_review_at, interval_seconds = _schedule(s_new, now)
+        next_review = next_review_at.astimezone(_app_timezone).date().isoformat()
+        _apply_scheduling_fields(
+            conn, word_id, user_id, s_new, d_new, now, next_review_at, next_review
+        )
+        conn.commit()
+        return GradeResult(
+            ok=True,
+            next_review_at=next_review_at,
+            interval_seconds=interval_seconds,
+        )
 
 
 def grade_first_exposure(word_id, grade, user_id):
-    return True
+    """Deep, atomic first-exposure transition.
+
+    Precondition: ``first_exposure_done = 0``. Familiarity-based stability
+    seeds the schedule. Ownership + state guards run inside the same immediate
+    transaction as the update, so expected failures never partially mutate.
+    """
+    _validate_grade(grade)
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM saved_words WHERE id=? AND user_id=?",
+            (word_id, user_id),
+        ).fetchone()
+        if row is None:
+            conn.rollback()
+            return GradeResult(ok=False, reason="not_found")
+        if row["first_exposure_done"]:
+            conn.rollback()
+            return GradeResult(ok=False, reason="wrong_state")
+
+        now = _utc_now()
+        s = initial_stability_first_exposure(grade)
+        d = initial_difficulty(grade)
+        next_review_at, interval_seconds = _schedule(s, now)
+        next_review = next_review_at.astimezone(_app_timezone).date().isoformat()
+        _apply_scheduling_fields(
+            conn, word_id, user_id, s, d, now, next_review_at, next_review,
+            first_exposure_done=1,
+        )
+        conn.commit()
+        return GradeResult(
+            ok=True,
+            next_review_at=next_review_at,
+            interval_seconds=interval_seconds,
+        )
