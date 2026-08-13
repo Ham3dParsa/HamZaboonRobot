@@ -336,7 +336,6 @@
         <span class="chip" data-filter="enabled" title="فقط پریست‌های روشن">روشن</span>
         <span class="chip" data-filter="chain" title="فقط پریست‌های داخل زنجیره فال‌بک">در زنجیره</span>
         <span class="chip" data-filter="emergency" title="فقط پریست‌های اضطراری">اضطراری</span>
-        <span class="chip" data-filter="custom" title="فقط پریست‌های سفارشی">سفارشی</span>
       </div>
       <button class="btn btn-sm" id="reveal-all-btn" title="نمایش یا مخفی‌سازی کلید API همه پریست‌ها">👁️ کلیدها</button>
       <button class="btn btn-primary btn-sm" id="add-preset-btn" title="ایجاد پریست جدید">+ جدید</button>
@@ -602,7 +601,6 @@ function applyFilters() {
   else if (activeFilter === 'enabled') data = data.filter(p => p.enabled);
   else if (activeFilter === 'chain') data = data.filter(p => p.in_fallback_chain);
   else if (activeFilter === 'emergency') data = data.filter(p => p.is_emergency);
-  else if (activeFilter === 'custom') data = data.filter(p => p.is_custom);
   data.sort((a, b) => {
     let va = a[sortKey] ?? '', vb = b[sortKey] ?? '';
     if (typeof va === 'string') va = va.toLowerCase();
@@ -883,7 +881,6 @@ function showDetailPanel(idx, startInEdit) {
       <div class="panel-field"><label>in_fallback_chain</label><div class="value">${fmtBool(p.in_fallback_chain)}</div></div>
       <div class="panel-field"><label>is_emergency</label><div class="value">${fmtBool(p.is_emergency)}</div></div>
       <div class="panel-field"><label>group_label</label><div class="value">${p.group_label || '\u2014'}</div></div>
-      <div class="panel-field"><label>is_custom</label><div class="value">${fmtBool(p.is_custom)}</div></div>
       <hr style="border-color:var(--border);margin:12px 0">
       <div class="panel-field"><label>max_concurrency</label><div class="value">${p.max_concurrency}</div></div>
       <div class="panel-field"><label>max_rpm</label><div class="value">${p.max_rpm}</div></div>
@@ -952,7 +949,6 @@ function showDetailPanel(idx, startInEdit) {
           <div class="panel-field"><label>priority</label>${i('priority','number',p.priority,1)}</div>
           <div class="panel-field"><label>in_fallback_chain</label>${i('in_fallback_chain','bool',p.in_fallback_chain)}</div>
           <div class="panel-field"><label>is_emergency</label>${i('is_emergency','bool',p.is_emergency)}</div>
-          <div class="panel-field"><label>is_custom</label>${i('is_custom','bool',p.is_custom)}</div>
         </div>
       </details>
       <details class="edit-group" open>
@@ -981,7 +977,7 @@ function showDetailPanel(idx, startInEdit) {
     });
     document.getElementById('panel-save-btn').addEventListener('click', async () => {
       const update = {};
-      const boolFields = ['enabled','in_fallback_chain','is_emergency','is_custom'];
+      const boolFields = ['enabled','in_fallback_chain','is_emergency'];
       const numFields = ['priority','max_concurrency','max_rpm','max_tpm','daily_batch_size','temperature','input_cost_per_million','output_cost_per_million'];
       const strFields = ['name','model','base_url','api_key','group_label'];
 

@@ -21,6 +21,10 @@ class ClonePresetApiTest(unittest.TestCase):
         db.DB_PATH = new_path
         db_schema.DB_PATH = new_path
         db.init_db()
+        # A second enabled preset keeps the DB in a realistic state: Phase 4
+        # removed auto-seeded builtins, so a disabled preset must coexist with
+        # at least one other enabled preset for the R12 guard to permit it.
+        db.set_preset(name="enabled_other", base_url="https://example.com/v1", model="m")
         db.set_preset(
             name=cls.SOURCE,
             base_url="https://example.com/v1",
@@ -38,9 +42,9 @@ class ClonePresetApiTest(unittest.TestCase):
             group_label="g",
             input_cost_per_million=0.5,
             output_cost_per_million=1.5,
+            enabled=0,
         )
         db.set_preset_priority(cls.SOURCE, 4)
-        db.set_preset_enabled(cls.SOURCE, False)
         cls.client = app.test_client()
 
     @classmethod
@@ -76,7 +80,7 @@ class ClonePresetApiTest(unittest.TestCase):
         self.assertEqual(p["output_cost_per_million"], 1.5)
         self.assertEqual(p["priority"], 4)
         self.assertEqual(p["enabled"], 0)
-        self.assertEqual(p["is_custom"], 1)
+        self.assertNotIn("is_custom", p, "is_custom column must be gone")
 
     def test_clone_default_name_uses_suffix(self):
         resp = self.client.post(f"/api/presets/{self.SOURCE}/clone", json={})

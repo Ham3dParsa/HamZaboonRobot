@@ -199,6 +199,10 @@ class AiPresetsMigrationsTests(unittest.TestCase):
                 )
             """)
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('ai_primary_preset', 'gapgpt_gemini_lite')")
+            conn.execute(
+                "INSERT INTO ai_presets(name, base_url, model, api_key, is_custom, priority) "
+                "VALUES ('legacy_hp', 'https://x', 'gpt-test', '$HpOF_API_KEY', 1, 3)"
+            )
             conn.commit()
         finally:
             conn.close()
@@ -209,6 +213,16 @@ class AiPresetsMigrationsTests(unittest.TestCase):
         cols = self._get_columns("ai_presets")
         for col_name in ("input_cost_per_million", "output_cost_per_million", "group_label", "in_fallback_chain"):
             self.assertIn(col_name, cols, f"Column {col_name} not added by migration")
+        # Phase 4: the obsolete is_custom column must be dropped on upgrade,
+        # and every prior row must survive (becoming an ordinary preset).
+        self.assertNotIn("is_custom", cols, "is_custom column must be dropped by migration")
+        with db_module.get_conn() as conn:
+            row = conn.execute(
+                "SELECT name, base_url, model, api_key, priority FROM ai_presets WHERE name='legacy_hp'"
+            ).fetchone()
+        self.assertIsNotNone(row, "prior-schema row must be preserved by the migration")
+        self.assertEqual(row["base_url"], "https://x")
+        self.assertEqual(row["priority"], 3)
         llm_cols = self._get_columns("llm_requests")
         self.assertIn("preset_name", llm_cols, "preset_name not added to llm_requests")
 

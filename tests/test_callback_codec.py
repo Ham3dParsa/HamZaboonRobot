@@ -38,7 +38,7 @@ class AiPresetCallbackByteLimitTest(unittest.TestCase):
     LONG_NAME = "my_very_long_custom_preset_name_for_testing_overflow"
 
     def _preset(self, name: str) -> dict:
-        return {"name": name, "is_custom": 1, "model": "m", "base_url": "u"}
+        return {"name": name, "model": "m", "base_url": "u"}
 
     def test_edit_field_callbacks_under_64(self):
         preset = self._preset(self.LONG_NAME)
@@ -81,7 +81,7 @@ class _ScratchDbTestCase(unittest.TestCase):
         db.init_db()
         for p in db.get_presets():
             db.delete_preset(p["name"])
-        db.set_preset(name="my_preset", base_url="https://x", model="m", is_custom=1)
+        db.set_preset(name="my_preset", base_url="https://x", model="m")
         db.set_preset(name="g", base_url="https://x", model="m", group_label="پشتیبان رایگان")
 
     def tearDown(self):

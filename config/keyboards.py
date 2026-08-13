@@ -117,8 +117,6 @@ IBTN_EDIT = "✏️ ویرایش"
 IBTN_DELETE = "🗑 حذف"
 IBTN_DELETE_CONFIRM = "✅ بله، حذف کن"
 IBTN_DELETE_CANCEL = "❌ انصراف"
-IBTN_EDIT_FORK = "✏️ ویرایش (fork)"
-IBTN_EDIT_COPY = "✏️ ویرایش (ایجاد کپی سفارشی)"
 IBTN_DUPLICATE = "📑 کپی (Duplicate)"
 IBTN_ADD_CUSTOM = "➕ افزودن پیش‌تنظیم سفارشی"
 IBTN_SAVE_PRESET = "✅ ذخیره پیش‌تنظیم"
@@ -709,21 +707,15 @@ def ai_presets_list_keyboard(
         for p in presets:
             name = p["name"]
             is_active = "✅ " if name == active_name else ""
-            is_custom = p.get("is_custom", 0)
             label = f"{is_active}{name}"
-            if is_custom:
-                label += " (custom)"
             rows.append([
                 InlineKeyboardButton(label, callback_data=f"admin:ai_preset:view:{preset_token(name)}"),
             ])
             action_row = []
             if name != active_name:
                 action_row.append(InlineKeyboardButton(IBTN_ACTIVATE, callback_data=f"admin:ai_preset:activate:{preset_token(name)}"))
-            if is_custom:
-                action_row.append(InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:ai_preset:edit:{preset_token(name)}"))
-                action_row.append(InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{preset_token(name)}"))
-            else:
-                action_row.append(InlineKeyboardButton(IBTN_EDIT_FORK, callback_data=f"admin:ai_preset:edit:{preset_token(name)}"))
+            action_row.append(InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:ai_preset:edit:{preset_token(name)}"))
+            action_row.append(InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{preset_token(name)}"))
             if action_row:
                 rows.append(action_row)
         # Pagination
@@ -748,15 +740,11 @@ def ai_preset_view_keyboard(preset: dict, active_name: str) -> InlineKeyboardMar
     """View/edit a specific preset."""
     from services.utils.callback_codec import preset_token
     name = preset["name"]
-    is_custom = preset.get("is_custom", 0)
     rows = []
     if name != active_name:
         rows.append([InlineKeyboardButton(IBTN_ACTIVATE_THIS, callback_data=f"admin:ai_preset:activate:{preset_token(name)}")])
-    if is_custom:
-        rows.append([InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:ai_preset:edit:{preset_token(name)}")])
-        rows.append([InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{preset_token(name)}")])
-    else:
-        rows.append([InlineKeyboardButton(IBTN_EDIT_COPY, callback_data=f"admin:ai_preset:edit:{preset_token(name)}")])
+    rows.append([InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:ai_preset:edit:{preset_token(name)}")])
+    rows.append([InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{preset_token(name)}")])
     rows.append([InlineKeyboardButton(IBTN_DUPLICATE, callback_data=f"admin:ai_preset:duplicate:{preset_token(name)}")])
     rows.append([InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_presets")])
     return InlineKeyboardMarkup(rows)
@@ -795,7 +783,7 @@ def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None) -> Inl
         rows.append([
             InlineKeyboardButton(f"{label}{suffix}", callback_data=f"admin:ai_preset:edit_field:{preset_ref}:{alias_field(key)}"),
         ])
-    if preset and preset.get("is_custom") and preset.get("group_label"):
+    if preset and preset.get("group_label"):
         rows.append([
             InlineKeyboardButton(IBTN_DETACH_GROUP, callback_data=f"admin:ai_preset:detach_group:{preset_ref}"),
         ])

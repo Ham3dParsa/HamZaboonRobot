@@ -243,7 +243,6 @@ def init_db(path: str | None = None):
                 timeout_seconds REAL DEFAULT 30.0,
                 temperature REAL DEFAULT 0.6,
                 max_output_tokens INTEGER DEFAULT 4096,
-                is_custom INTEGER DEFAULT 0,
                 priority INTEGER DEFAULT 0,
                 enabled INTEGER DEFAULT 1,
                 is_emergency INTEGER DEFAULT 0
@@ -428,7 +427,7 @@ def init_db(path: str | None = None):
                 conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('ai_primary_preset', ?)", (first["name"],))
         existing_fallback = conn.execute("SELECT value FROM settings WHERE key='ai_fallback_preset'").fetchone()
         if not existing_fallback:
-            conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('ai_fallback_preset', 'gapgpt_gemini_lite')")
+            conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('ai_fallback_preset', '')")
 
         llm_request_columns = {
             row["name"]
@@ -511,8 +510,8 @@ def _init_ai_presets_table(conn):
     """Create ai_presets table and run migrations.
 
     Does NOT auto-seed or modify existing presets — all preset management is
-    manual through the AI Preset Manager tool or the admin panel.
-    Only seeds default presets on a completely empty table (fresh database).
+    manual through the AI Preset Manager tool or the admin panel. A fresh
+    database starts with zero presets.
     """
     conn.execute(
         """
@@ -529,7 +528,6 @@ def _init_ai_presets_table(conn):
             timeout_seconds REAL DEFAULT 30.0,
             temperature REAL DEFAULT 0.6,
             max_output_tokens INTEGER DEFAULT 4096,
-            is_custom INTEGER DEFAULT 0,
             priority INTEGER DEFAULT 0,
             enabled INTEGER DEFAULT 1,
             is_emergency INTEGER DEFAULT 0
@@ -584,23 +582,47 @@ def _init_ai_presets_table(conn):
         );
         """
     )
-    # Seed default presets only on first run (empty table).
-    count = conn.execute("SELECT COUNT(*) as c FROM ai_presets").fetchone()["c"]
-    if count == 0:
-        from services.ai.ai_presets import seed_presets as get_builtins
-        for p in get_builtins():
-            conn.execute(
-                "INSERT INTO ai_presets("
-                "name, base_url, model, api_key, "
-                "daily_batch_size, max_concurrency, max_rpm, "
-                "max_tpm, max_daily_req, timeout_seconds, "
-                "temperature, max_output_tokens, is_custom, "
-                "priority, enabled, is_emergency, "
-                "input_cost_per_million, output_cost_per_million, "
-                "group_label, in_fallback_chain"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                p,
-            )
+    # Phase 4 migration: drop the now-obsolete is_custom column. Existing DBs
+    # (created before Phase 4) may still have it; a fresh DB never does. Because
+    # SQLite cannot always DROP COLUMN portably, rebuild the table without the
+    # column when it is present. All rows are preserved (they become ordinary
+    # presets). We rebuild with the full new column set and copy every remaining
+    # column by name so migrated columns (costs, group_label, in_fallback_chain,
+    # etc.) are never lost.
+    _cols = {row["name"] for row in conn.execute("PRAGMA table_info(ai_presets)").fetchall()}
+    if "is_custom" in _cols:
+        _keep = [c for c in _cols if c != "is_custom"]
+        _cols_sql = ", ".join(_keep)
+        conn.execute("ALTER TABLE ai_presets RENAME TO ai_presets_old")
+        conn.execute(
+            """
+            CREATE TABLE ai_presets (
+                name TEXT PRIMARY KEY,
+                base_url TEXT,
+                model TEXT,
+                api_key TEXT NOT NULL DEFAULT '',
+                daily_batch_size INTEGER DEFAULT 6,
+                max_concurrency INTEGER DEFAULT 2,
+                max_rpm INTEGER DEFAULT 30,
+                max_tpm INTEGER DEFAULT 0,
+                max_daily_req INTEGER DEFAULT 0,
+                timeout_seconds REAL DEFAULT 30.0,
+                temperature REAL DEFAULT 0.6,
+                max_output_tokens INTEGER DEFAULT 4096,
+                priority INTEGER DEFAULT 0,
+                enabled INTEGER DEFAULT 1,
+                is_emergency INTEGER DEFAULT 0,
+                input_cost_per_million REAL,
+                output_cost_per_million REAL,
+                group_label TEXT DEFAULT '',
+                in_fallback_chain INTEGER DEFAULT 1
+            );
+            """
+        )
+        conn.execute(
+            f"INSERT INTO ai_presets({_cols_sql}) SELECT {_cols_sql} FROM ai_presets_old"
+        )
+        conn.execute("DROP TABLE ai_presets_old")
     # Data fix (R3A): historical databases seeded before the "$ENV" convention
     # stored the HpOF env-var name bare (e.g. "HpOF_API_KEY" without the "$"
     # prefix), so resolve_api_key treated it as a literal key and the provider
