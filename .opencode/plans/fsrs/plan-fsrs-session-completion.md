@@ -235,6 +235,7 @@ handler state, tests, and documentation only.
 - 2026-08-09: Plan persisted in build mode; implementation initially blocked pending owner decision and admin-AI PR completion.
 - 2026-08-09: Owner instructed implementation; PR #287 verified merged; isolated branch/worktree created from `origin/main` at `6ab4d40`; baseline `python -m pytest tests/ -n 14` passed (594 tests).
 - 2026-08-13: Rule 14 locked (manual/Word-Query tier-2 ordering, owner custom answer). Phase 04 committed `f7d35be`; Phase 05 committed `be97597` (guards + relative time; owner locked telemetry log-and-continue and 23.5-24h formatter boundary). PR #336 CI green; full suite 847+153 green. Phases 1-5 implemented; awaiting Kilo review and Phase 6 release gate.
+- 2026-08-13: Owner accepted Kilo's `enable_short_term` finding as a deliberate Rule-7 decision: production keeps the library default `True`; the standalone simulators (`tools/Fsrs_simulation_v5`, `tools/fsrs-replay`) are outdated research tools and are intentionally left hard-coding `False`. Also fixed Kilo perf suggestion (single `_row_effective_due` parse per due row) and `project_status.json` Phase-3b wiring row.
 
 ## Blocked Questions
 

@@ -206,12 +206,11 @@ def _row_elapsed_days(row, now: datetime.datetime, eff_due) -> float:
     return max(0.0, (now - base).total_seconds() / 86400)
 
 
-def _row_priority_key(row, now: datetime.datetime):
+def _row_priority_key(row, now: datetime.datetime, eff_due):
     """DSR priority sort key: R ASC, difficulty DESC, due ASC, id ASC."""
     s = row["stability"] if row["stability"] is not None else 0.1
     s = s if s > 0 else 1e-9
     d = row["difficulty"] if row["difficulty"] is not None else 5.0
-    eff_due = _row_effective_due(row, now)
     elapsed = _row_elapsed_days(row, now, eff_due)
     r = compute_retrievability(elapsed, s)
     return (r, -d, eff_due, row["id"])
@@ -238,8 +237,13 @@ def due_words_for_user(user_id: int):
             (user_id,),
         ).fetchall()
     now = _utc_now()
-    eligible = [r for r in rows if _row_effective_due(r, now) is not None]
-    return sorted(eligible, key=lambda r: _row_priority_key(r, now))
+    eligible = []
+    for r in rows:
+        eff_due = _row_effective_due(r, now)
+        if eff_due is not None:
+            eligible.append((r, eff_due))
+    eligible.sort(key=lambda pair: _row_priority_key(pair[0], now, pair[1]))
+    return [pair[0] for pair in eligible]
 
 
 def get_saved_word(word_id: int, user_id: int | None = None):
