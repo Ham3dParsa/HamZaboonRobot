@@ -41,9 +41,12 @@ from config.keyboards import (
     ai_fallback_keyboard,
     fallback_chain_keyboard,
     IBTN_FULL_EDIT_NEXT,
+    IBTN_FULL_EDIT_BACK,
     IBTN_FULL_EDIT_SKIP,
     IBTN_FULL_EDIT_CANCEL_WIZARD,
     IBTN_FULL_EDIT_SAVE_ALL,
+    IBTN_DELETE_CONFIRM,
+    IBTN_DELETE_CANCEL,
     IBTN_GROUP_BATCH_KEY,
     IBTN_GROUP_SET_LABEL,
 )
@@ -525,11 +528,16 @@ async def _start_full_edit_wizard(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, field_idx: int, preset: dict):
-    """Display a wizard field with prompt and navigation."""
+    """Display a wizard field with prompt, Current (stored) and Draft (in-progress) values, and navigation."""
     field_name = WIZARD_FIELDS[field_idx]
     current = preset.get(field_name, "")
     if current is None:
         current = ""
+    current_str = str(current)
+
+    wizard = context.user_data.get("full_edit", {})
+    draft = wizard.get("values", {}).get(field_name)
+    draft_str = str(draft) if draft is not None else None
 
     group_header = WIZARD_GROUP_HEADERS.get(field_idx, "")
     label = WIZARD_FIELD_LABELS.get(field_name, field_name)
@@ -539,8 +547,12 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if group_header:
         message += f"\n{group_header}\n"
     message += f"\n<b>{html_escape(label)}</b>"
-    if current:
-        message += f"\nمقدار فعلی: <code>{html_escape(str(current))}</code>"
+    if draft is not None:
+        message += f"\nپیشنویس (در انتظار ذخیره): <code>{html_escape(draft_str)}</code>"
+    if current_str:
+        message += f"\nمقدار فعلی: <code>{html_escape(current_str)}</code>"
+    else:
+        message += "\nمقدار فعلی: <i>خالی</i>"
     if help_text:
         message += f"\n\n💡 {help_text}"
     message += "\n\nمقدار جدید را ارسال کنید (یا خالی = رد کردن):"
@@ -548,6 +560,8 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
     from services.utils.callback_codec import preset_token
     preset_ref = preset_token(preset_name)
     buttons = []
+    if field_idx > 0:
+        buttons.append(InlineKeyboardButton(IBTN_FULL_EDIT_BACK, callback_data=f"admin:ai_preset:full_edit_back:{preset_ref}"))
     if field_idx < TOTAL_WIZARD_FIELDS - 1:
         buttons.append(InlineKeyboardButton(IBTN_FULL_EDIT_NEXT, callback_data=f"admin:ai_preset:full_edit_next:{preset_ref}"))
     buttons.append(InlineKeyboardButton(IBTN_FULL_EDIT_SKIP, callback_data=f"admin:ai_preset:full_edit_skip:{preset_ref}"))
@@ -711,6 +725,25 @@ async def _handle_full_edit_pick_group(update: Update, context: ContextTypes.DEF
 async def _handle_full_edit_skip(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
     """Skip current field and advance."""
     await _handle_full_edit_next(update, context, preset_name)
+
+
+async def _handle_full_edit_back(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+    """R5: move back one field without saving current. Disabled on the first field."""
+    wizard = context.user_data.get("full_edit", {})
+    if wizard.get("preset") != preset_name:
+        await notify_callback(update.callback_query, "ویزارد منقضی شده", intent=CallbackNoticeIntent.INFO)
+        return
+
+    current_idx = wizard.get("field_idx", 0)
+    if current_idx <= 0:
+        await notify_callback(update.callback_query, "در گام اول هستید", intent=CallbackNoticeIntent.INFO)
+        return
+
+    prev_idx = current_idx - 1
+    wizard["field_idx"] = prev_idx
+    preset = db.get_preset(preset_name)
+    context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:{prev_idx}"
+    await _show_wizard_field(update, context, preset_name, prev_idx, preset or {})
 
 
 async def _handle_full_edit_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
@@ -1017,7 +1050,7 @@ async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
 
 
 async def _delete_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
-    """Delete a preset (forbidden for the currently active one)."""
+    """R3: first step of two-step delete — show an inline confirmation."""
     preset = db.get_preset(preset_name)
     if not preset:
         await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
@@ -1028,9 +1061,58 @@ async def _delete_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         await notify_callback(update.callback_query, "نمی‌توان پیش‌تنظیم فعال را حذف کرد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
+    from services.utils.callback_codec import preset_token
+    preset_ref = preset_token(preset_name)
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(IBTN_DELETE_CONFIRM, callback_data=f"admin:ai_preset:confirm_delete_yes:{preset_ref}"),
+            InlineKeyboardButton(IBTN_DELETE_CANCEL, callback_data=f"admin:ai_preset:confirm_delete_no:{preset_ref}"),
+        ],
+        [InlineKeyboardButton(BTN_BACK, callback_data=f"admin:ai_preset:view:{preset_ref}")],
+    ])
+    await _edit_or_send(
+        update, context,
+        f"⚠️ <b>آیا از حذف پیش‌تنظیم «{html_escape(preset_name)}» مطمئنید؟</b>\nاین عمل بازگشت‌پذیر نیست.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboard,
+    )
+
+
+async def _confirm_delete_yes(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+    """R3: second step — actually delete after owner confirmed."""
+    preset = db.get_preset(preset_name)
+    if not preset:
+        await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    active_name = db.get_active_preset_name()
+    if preset_name == active_name:
+        await notify_callback(update.callback_query, "نمی‌توان پیش‌تنظیم فعال را حذف کرد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
     db.delete_preset(preset_name)
     await notify_callback(update.callback_query, f"پیش‌تنظیم {preset_name} حذف شد", intent=CallbackNoticeIntent.SUCCESS)
     await _show_ai_presets(update, context)
+
+
+async def _confirm_delete_no(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+    """R3: cancel delete — return to the preset detail view."""
+    await notify_callback(update.callback_query, "حذف لغو شد", intent=CallbackNoticeIntent.INFO)
+    await _show_ai_preset_view(update, context, preset_name)
+
+
+async def _duplicate_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+    """R4: clone a preset into a new name; default `<old> (copy)`, then offer a rename."""
+    preset = db.get_preset(preset_name)
+    if not preset:
+        await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    new_name = f"{preset_name} (copy)"
+    try:
+        db.clone_preset(preset_name, new_name, is_custom_override=True)
+    except ValueError as exc:
+        await notify_callback(update.callback_query, str(exc), intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    await notify_callback(update.callback_query, f"نسخه کپی «{new_name}» ساخته شد", intent=CallbackNoticeIntent.SUCCESS)
+    await _show_ai_preset_view(update, context, new_name)
 
 
 async def _add_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1728,27 +1810,58 @@ async def _show_fallback_chain(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 
-async def _show_fallback_usage_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show daily consumption for all presets."""
-    presets = db.get_presets()
-    lines = ["📊 <b>مصرف ۲۴ ساعته پریست‌ها</b>\n\n"]
-    for p in presets:
+USAGE_PAGE_SIZE = 5
+
+
+def _usage_rows() -> list[tuple[str, str, str]]:
+    """Return (status_icon, name, detail) rows ordered by (is_custom, name)."""
+    rows = []
+    for p in db.get_presets():
         name = p["name"]
         req_count, token_count = db.get_hourly_usage(name, hours_back=24)
         max_daily = p.get("max_daily_req", 0)
         status = "🔋" if req_count < max_daily or max_daily == 0 else "🪫"
         daily_str = f"{req_count}/{max_daily}" if max_daily > 0 else f"{req_count}/∞"
-        lines.append(f"{status} <b>{html_escape(name)}</b>: {daily_str} req, {token_count} توکن")
+        rows.append((status, name, f"{daily_str} req, {token_count} توکن"))
+    return rows
 
-    text = "\n".join(lines) if len(lines) > 1 else "هیچ داده‌ای یافت نشد."
 
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("↩️ بازگشت به زنجیره", callback_data="admin:fallback_chain")]
-        ])
-    )
+def _usage_page_keyboard(page: int, total_pages: int) -> InlineKeyboardMarkup:
+    buttons = []
+    if page > 0:
+        buttons.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"admin:fallback:usage_page:{page - 1}:prev"))
+    if page < total_pages - 1:
+        buttons.append(InlineKeyboardButton("بعدی ▶️", callback_data=f"admin:fallback:usage_page:{page + 1}:next"))
+    rows = [buttons] if buttons else []
+    rows.append([InlineKeyboardButton("↩️ بازگشت به زنجیره", callback_data="admin:fallback_chain")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _render_usage_page(page: int) -> tuple[str, InlineKeyboardMarkup]:
+    rows = _usage_rows()
+    total = len(rows)
+    total_pages = max(1, (total + USAGE_PAGE_SIZE - 1) // USAGE_PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+    if total == 0:
+        return "هیچ داده‌ای یافت نشد.", _usage_page_keyboard(0, 1)
+    start = page * USAGE_PAGE_SIZE
+    slice_rows = rows[start:start + USAGE_PAGE_SIZE]
+    lines = [f"📊 <b>مصرف ۲۴ ساعته پریست‌ها</b> (صفحه {page + 1}/{total_pages})\n"]
+    for status, name, detail in slice_rows:
+        lines.append(f"{status} <b>{html_escape(name)}</b>: {detail}")
+    return "\n".join(lines), _usage_page_keyboard(page, total_pages)
+
+
+async def _show_fallback_usage_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """R7: Show daily consumption for all presets, paginated."""
+    text, keyboard = _render_usage_page(0)
+    await _edit_or_send(update, context, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
+async def _show_usage_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int):
+    """R7: show a specific usage page."""
+    text, keyboard = _render_usage_page(page)
+    await _edit_or_send(update, context, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 
 async def _handle_fallback_rank(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
@@ -1811,6 +1924,11 @@ async def handle_ai_callback(
         if len(parts) >= 3:
             preset_name = _resolve_preset_ref(parts[2])
             await _handle_full_edit_next(update, context, preset_name)
+    elif action.startswith("ai_preset:full_edit_back:"):
+        parts = action.split(":", 3)
+        if len(parts) >= 3:
+            preset_name = _resolve_preset_ref(parts[2])
+            await _handle_full_edit_back(update, context, preset_name)
     elif action.startswith("ai_preset:full_edit_skip:"):
         parts = action.split(":", 3)
         if len(parts) >= 3:
@@ -1850,6 +1968,15 @@ async def handle_ai_callback(
     elif action.startswith("ai_preset:delete:"):
         preset_name = _resolve_preset_ref(action.split(":", 2)[2])
         await _delete_ai_preset(update, context, preset_name)
+    elif action.startswith("ai_preset:confirm_delete_yes:"):
+        preset_name = _resolve_preset_ref(action.split(":", 2)[2])
+        await _confirm_delete_yes(update, context, preset_name)
+    elif action.startswith("ai_preset:confirm_delete_no:"):
+        preset_name = _resolve_preset_ref(action.split(":", 2)[2])
+        await _confirm_delete_no(update, context, preset_name)
+    elif action.startswith("ai_preset:duplicate:"):
+        preset_name = _resolve_preset_ref(action.split(":", 2)[2])
+        await _duplicate_ai_preset(update, context, preset_name)
     elif action == "ai_preset:add":
         await _add_ai_preset(update, context)
     elif action.startswith("ai_preset:create:priority:"):
@@ -1944,6 +2071,13 @@ async def handle_ai_callback(
         await _handle_fallback_rank(update, context, name)
     elif action == "fallback:usage_details":
         await _show_fallback_usage_details(update, context)
+    elif action.startswith("fallback:usage_page:"):
+        parts = action.split(":")
+        try:
+            page = int(parts[2])
+        except (ValueError, IndexError):
+            page = 0
+        await _show_usage_page(update, context, page)
     elif action == "help:presets":
         await _show_help_presets(update, context)
     elif action == "help:fallback_chain":

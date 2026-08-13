@@ -310,6 +310,7 @@ from services.db.cost_tracking import (
 from services.db.preset_registry import (
     activate_preset,
     clear_group_label,
+    clone_preset,
     delete_group_key,
     delete_preset,
     get_active_preset,

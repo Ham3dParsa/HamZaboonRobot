@@ -115,8 +115,11 @@ IBTN_ACTIVATE_THIS = "🎯 فعال کردن این پیش‌تنظیم"
 IBTN_DEACTIVATE = "⛔ غیرفعال کردن"
 IBTN_EDIT = "✏️ ویرایش"
 IBTN_DELETE = "🗑 حذف"
+IBTN_DELETE_CONFIRM = "✅ بله، حذف کن"
+IBTN_DELETE_CANCEL = "❌ انصراف"
 IBTN_EDIT_FORK = "✏️ ویرایش (fork)"
 IBTN_EDIT_COPY = "✏️ ویرایش (ایجاد کپی سفارشی)"
+IBTN_DUPLICATE = "📑 کپی (Duplicate)"
 IBTN_ADD_CUSTOM = "➕ افزودن پیش‌تنظیم سفارشی"
 IBTN_SAVE_PRESET = "✅ ذخیره پیش‌تنظیم"
 IBTN_DETACH_GROUP = "🚫 حذف از گروه"
@@ -754,6 +757,7 @@ def ai_preset_view_keyboard(preset: dict, active_name: str) -> InlineKeyboardMar
         rows.append([InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{preset_token(name)}")])
     else:
         rows.append([InlineKeyboardButton(IBTN_EDIT_COPY, callback_data=f"admin:ai_preset:edit:{preset_token(name)}")])
+    rows.append([InlineKeyboardButton(IBTN_DUPLICATE, callback_data=f"admin:ai_preset:duplicate:{preset_token(name)}")])
     rows.append([InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_presets")])
     return InlineKeyboardMarkup(rows)
 
