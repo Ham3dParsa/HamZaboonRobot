@@ -209,6 +209,9 @@ class GradeResult:
     next_review_at: datetime.datetime | None = None
     interval_seconds: int | None = None
 
+    def __bool__(self) -> bool:
+        return self.ok
+
 
 def _validate_grade(grade: int) -> None:
     if grade not in (1, 2, 3, 4):
@@ -216,18 +219,22 @@ def _validate_grade(grade: int) -> None:
 
 
 def _parse_utc(value: str) -> datetime.datetime:
-    return datetime.datetime.fromisoformat(value)
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    dt = datetime.datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt
 
 
 def _schedule(stability: float, now: datetime.datetime):
     interval_days = compute_interval(stability, config=DEFAULT_FSRS_CONFIG)
     if interval_days < 1.0:
         next_review_at = now + datetime.timedelta(days=interval_days)
-        interval_seconds = int(interval_days * 86400)
     else:
         interval_days = max(1, round(interval_days))
         next_review_at = now + datetime.timedelta(days=interval_days)
-        interval_seconds = int(interval_days * 86400)
+    interval_seconds = int((next_review_at - now).total_seconds())
     return next_review_at, interval_seconds
 
 
@@ -241,44 +248,35 @@ def _apply_scheduling_fields(
     next_review_at,
     next_review: str,
     first_exposure_done: int | None = None,
-) -> None:
+) -> int:
+    assignments = [
+        "last_review_at=?",
+        "next_review_at=?",
+        "next_review=?",
+        "stability=?",
+        "difficulty=?",
+        "review_status='idle'",
+        "review_requested_at=NULL",
+        "retry_at=NULL",
+        "srs_retry_attempts=0",
+    ]
+    params = [
+        now.isoformat(),
+        next_review_at.isoformat(),
+        next_review,
+        stability,
+        difficulty,
+    ]
     if first_exposure_done is not None:
-        conn.execute(
-            "UPDATE saved_words SET "
-            "first_exposure_done=?, last_review_at=?, next_review_at=?, next_review=?, "
-            "stability=?, difficulty=?, "
-            "review_status='idle', review_requested_at=NULL, retry_at=NULL, "
-            "srs_retry_attempts=0 "
-            "WHERE id=? AND user_id=?",
-            (
-                first_exposure_done,
-                now.isoformat(),
-                next_review_at.isoformat(),
-                next_review,
-                stability,
-                difficulty,
-                word_id,
-                user_id,
-            ),
-        )
-    else:
-        conn.execute(
-            "UPDATE saved_words SET "
-            "last_review_at=?, next_review_at=?, next_review=?, "
-            "stability=?, difficulty=?, "
-            "review_status='idle', review_requested_at=NULL, retry_at=NULL, "
-            "srs_retry_attempts=0 "
-            "WHERE id=? AND user_id=?",
-            (
-                now.isoformat(),
-                next_review_at.isoformat(),
-                next_review,
-                stability,
-                difficulty,
-                word_id,
-                user_id,
-            ),
-        )
+        assignments.insert(0, "first_exposure_done=?")
+        params.insert(0, first_exposure_done)
+    cursor = conn.execute(
+        "UPDATE saved_words SET "
+        + ", ".join(assignments)
+        + " WHERE id=? AND user_id=?",
+        (*params, word_id, user_id),
+    )
+    return cursor.rowcount
 
 
 def grade_word_review(word_id, grade, user_id):
@@ -304,10 +302,10 @@ def grade_word_review(word_id, grade, user_id):
             return GradeResult(ok=False, reason="wrong_state")
 
         now = _utc_now()
-        s_old = row["stability"] or 0.1
-        d_old = row["difficulty"] or 5.0
+        s_old = row["stability"] if row["stability"] is not None else 0.1
+        d_old = row["difficulty"] if row["difficulty"] is not None else 5.0
         last_review = _parse_utc(row["last_review_at"])
-        elapsed_days = (now - last_review).total_seconds() / 86400
+        elapsed_days = max(0.0, (now - last_review).total_seconds() / 86400)
 
         d_new = update_difficulty(d_old, grade)
         if elapsed_days < 1:
@@ -318,9 +316,12 @@ def grade_word_review(word_id, grade, user_id):
 
         next_review_at, interval_seconds = _schedule(s_new, now)
         next_review = next_review_at.astimezone(_app_timezone).date().isoformat()
-        _apply_scheduling_fields(
+        rowcount = _apply_scheduling_fields(
             conn, word_id, user_id, s_new, d_new, now, next_review_at, next_review
         )
+        if rowcount == 0:
+            conn.rollback()
+            return GradeResult(ok=False, reason="not_found")
         conn.commit()
         return GradeResult(
             ok=True,
@@ -355,10 +356,13 @@ def grade_first_exposure(word_id, grade, user_id):
         d = initial_difficulty(grade)
         next_review_at, interval_seconds = _schedule(s, now)
         next_review = next_review_at.astimezone(_app_timezone).date().isoformat()
-        _apply_scheduling_fields(
+        rowcount = _apply_scheduling_fields(
             conn, word_id, user_id, s, d, now, next_review_at, next_review,
             first_exposure_done=1,
         )
+        if rowcount == 0:
+            conn.rollback()
+            return GradeResult(ok=False, reason="not_found")
         conn.commit()
         return GradeResult(
             ok=True,

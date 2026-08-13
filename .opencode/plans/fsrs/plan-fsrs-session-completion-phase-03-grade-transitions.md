@@ -4,10 +4,10 @@ description: Implement timestamp-aware first-exposure and regular-review FSRS st
 created: 2026-08-09
 base_commit: pending-phase-02-merge
 branch: feat/phase-3b-fsrs-scheduling
-status: implementing
+status: in-progress
 ---
 
-STATE: phase 3/6 — status: implementing — GradeResult + both grade transactions implemented, tests green, review approved; branch NOT mergeable until Phases 4-5
+STATE: phase 3/6 — status: in-progress — GradeResult + both grade transactions implemented, tests green, review approved; branch NOT mergeable until Phases 4-5
 
 # Ticket 03 — FSRS Grade Transitions
 

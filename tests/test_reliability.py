@@ -243,19 +243,31 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertTrue(db.add_saved_word(1, "world", "en", card))
         row = db.get_saved_word(1, user_id=1)
         word_id = row["id"]
-        with db.get_conn() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            conn.execute(
-                "UPDATE saved_words SET first_exposure_done=1, "
-                "last_review_at=? WHERE id=? AND user_id=?",
-                ("2026-08-01T10:00:00+00:00", word_id, 1),
-            )
-            conn.commit()
+        fixed_now = dt.datetime(2026, 8, 13, 10, 0, 0).replace(tzinfo=dt.timezone.utc)
         for grade in (1, 2, 3, 4):
-            result = db.grade_word_review(word_id, grade, 1)
+            with db.get_conn() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute(
+                    "UPDATE saved_words SET first_exposure_done=1, "
+                    "last_review_at=?, stability=?, difficulty=? "
+                    "WHERE id=? AND user_id=?",
+                    (
+                        "2026-08-01T10:00:00+00:00",
+                        5.0,
+                        5.0,
+                        word_id,
+                        1,
+                    ),
+                )
+                conn.commit()
+            with patch("services.db.words._utc_now", return_value=fixed_now):
+                result = db.grade_word_review(word_id, grade, 1)
             self.assertTrue(result.ok, f"grade {grade} should succeed")
             self.assertIsNotNone(result.next_review_at, f"grade {grade} schedules a due")
             self.assertIsNotNone(result.interval_seconds, f"grade {grade} reports interval")
+            persisted = db.get_saved_word(word_id, user_id=1)
+            self.assertGreater(persisted["stability"], 0.0, f"grade {grade} persists stability")
+            self.assertIsNotNone(persisted["next_review_at"], f"grade {grade} persists next_review_at")
 
     def test_surgical_card_patches_update_only_requested_fields(self):
         db.create_user_if_needed(1, "learner")

@@ -35,15 +35,22 @@ def _aware(dt: datetime.datetime) -> datetime.datetime:
     return dt
 
 
-def _seed_first_exposure_word(user_id: int = 1, grade: int = 2) -> int:
+def _seed_first_exposure_word(user_id: int = 1) -> int:
     db.add_saved_word(user_id, "hello", "en", {"word": "hello"})
     with db.get_conn() as conn:
         return conn.execute(
-            "SELECT id FROM saved_words WHERE user_id=?", (user_id,)
+            "SELECT id FROM saved_words WHERE user_id=? ORDER BY id DESC LIMIT 1",
+            (user_id,),
         ).fetchone()["id"]
 
 
-def _mark_regular(word_id: int, user_id: int = 1, last_review: datetime.datetime | None = None):
+def _mark_regular(
+    word_id: int,
+    user_id: int = 1,
+    last_review: datetime.datetime | None = None,
+    stability: float | None = 5.0,
+    difficulty: float | None = 5.0,
+):
     """Flip a word into the regular-review state (first_exposure_done=1 +
     last_review_at present) for grade_word_review tests."""
     with db.get_conn() as conn:
@@ -59,8 +66,8 @@ def _mark_regular(word_id: int, user_id: int = 1, last_review: datetime.datetime
                 last_review.isoformat() if last_review else None,
                 None,
                 None,
-                5.0,
-                5.0,
+                stability,
+                difficulty,
                 word_id,
                 user_id,
             ),
@@ -120,6 +127,20 @@ class FsrsGradeRequestTests(unittest.TestCase):
         res = db.grade_first_exposure(word_id, 2, 2)
         self.assertFalse(res.ok)
         self.assertEqual(res.reason, "not_found")
+        row = db.get_saved_word(word_id, user_id=1)
+        self.assertEqual(row["first_exposure_done"], 0)
+        self.assertIsNone(row["next_review_at"])
+
+    def test_review_foreign_owner_returns_not_found(self):
+        word_id = _seed_first_exposure_word(user_id=1)
+        _mark_regular(word_id)
+        before = db.get_saved_word(word_id, user_id=1)
+        res = db.grade_word_review(word_id, 2, 2)
+        self.assertFalse(res.ok)
+        self.assertEqual(res.reason, "not_found")
+        after = db.get_saved_word(word_id, user_id=1)
+        self.assertEqual(before["stability"], after["stability"])
+        self.assertEqual(before["next_review_at"], after["next_review_at"])
 
     # ---- wrong state ----
     def test_first_exposure_on_done_returns_wrong_state(self):
@@ -162,15 +183,19 @@ class FsrsFirstExposureTransitionTests(unittest.TestCase):
         interval_days = compute_interval(s)
         self.assertGreater(interval_days, 0.0)
         self.assertLess(interval_days, 1.0)
-        expected_timestamp = self.now + datetime.timedelta(days=interval_days)
-        self.assertAlmostEqual(
-            (res.next_review_at - self.now).total_seconds(),
-            interval_days * 86400,
-            delta=300,
+        self.assertEqual(res.interval_seconds, int(interval_days * 86400))
+        self.assertEqual(
+            res.next_review_at,
+            self.now + datetime.timedelta(days=interval_days),
         )
-        self.assertIsNotNone(res.interval_seconds)
+        self.assertEqual(
+            res.interval_seconds,
+            int((res.next_review_at - self.now).total_seconds()),
+        )
         row = db.get_saved_word(word_id, user_id=1)
         self.assertEqual(row["first_exposure_done"], 1)
+        self.assertEqual(row["next_review_at"], res.next_review_at.isoformat())
+        self.assertEqual(row["last_review_at"], self.now.isoformat())
 
     def test_first_exposure_grade2_persists_fsrs_stability_and_rounded_day(self):
         word_id = _seed_first_exposure_word()
@@ -220,7 +245,6 @@ class FsrsReviewTransitionTests(unittest.TestCase):
 
     def test_later_review_feeds_retrievability_chain(self):
         word_id = _seed_first_exposure_word()
-        interval = compute_interval(5.0)
         last = _aware(datetime.datetime(2026, 8, 1, 10, 0, 0))  # 12 days prior
         _mark_regular(word_id, last_review=last)
         with patch("services.db.words._utc_now", return_value=self.now):
@@ -232,9 +256,28 @@ class FsrsReviewTransitionTests(unittest.TestCase):
         s_old = 5.0
         r = compute_retrievability(elapsed_days, s_old)
         s_new_expected = update_stability(d_old, s_old, r, 3)
+        interval_expected = max(1.0, round(compute_interval(s_new_expected)))
         row = db.get_saved_word(word_id, user_id=1)
         self.assertAlmostEqual(row["difficulty"], d_new, places=6)
         self.assertAlmostEqual(row["stability"], s_new_expected, places=6)
+        self.assertEqual(
+            res.next_review_at,
+            self.now + datetime.timedelta(days=interval_expected),
+        )
+        self.assertEqual(res.interval_seconds, int(interval_expected * 86400))
+
+    def test_grade1_lapse_through_review_clamps_stability(self):
+        word_id = _seed_first_exposure_word()
+        last = _aware(datetime.datetime(2026, 7, 1, 10, 0, 0))  # long elapsed
+        _mark_regular(word_id, last_review=last, stability=3.0)
+        with patch("services.db.words._utc_now", return_value=self.now):
+            res = db.grade_word_review(word_id, 1, 1)
+        self.assertTrue(res.ok)
+        row = db.get_saved_word(word_id, user_id=1)
+        self.assertLess(row["stability"], 3.0)
+        self.assertGreaterEqual(row["stability"], 0.01)
+        self.assertIsNotNone(row["next_review_at"])
+        self.assertIsNotNone(row["next_review"])
 
     def test_review_clears_transient_state(self):
         word_id = _seed_first_exposure_word()
