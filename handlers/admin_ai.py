@@ -547,7 +547,7 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if group_header:
         message += f"\n{group_header}\n"
     message += f"\n<b>{html_escape(label)}</b>"
-    if draft is not None:
+    if draft not in (None, ""):
         message += f"\nپیشنویس (در انتظار ذخیره): <code>{html_escape(draft_str)}</code>"
     if current_str:
         message += f"\nمقدار فعلی: <code>{html_escape(current_str)}</code>"
