@@ -339,5 +339,59 @@ class R14InsertPresetAtRankTest(_Phase2ScratchDbTestCase):
             db.insert_preset_at_rank("bad", 5)
 
 
+class R4ClonePresetTest(_Phase2ScratchDbTestCase):
+    """Kilo R4 (Phase 3): db.clone_preset copies all fields except name."""
+
+    def test_clone_copies_all_configured_fields(self):
+        self._make_preset(
+            "src",
+            base_url="https://api.example/v1",
+            model="gpt-x",
+            api_key="sk-abc",
+            daily_batch_size=7,
+            max_concurrency=3,
+            max_rpm=45,
+            max_tpm=1000,
+            max_daily_req=50,
+            timeout_seconds=15.0,
+            temperature=0.4,
+            max_output_tokens=2048,
+            is_emergency=1,
+            priority=2,
+            input_cost_per_million=1.5,
+            output_cost_per_million=2.5,
+            in_fallback_chain=1,
+        )
+        new_name = db.clone_preset("src", "src_copy")
+        self.assertEqual(new_name, "src_copy")
+        got = db.get_preset("src_copy")
+        src = db.get_preset("src")
+        for field in ("base_url", "model", "api_key", "daily_batch_size",
+                      "max_concurrency", "max_rpm", "max_tpm", "max_daily_req",
+                      "timeout_seconds", "temperature", "max_output_tokens",
+                      "is_emergency", "priority", "input_cost_per_million",
+                      "output_cost_per_million", "in_fallback_chain"):
+            self.assertEqual(got[field], src[field], f"{field} must be copied")
+        self.assertEqual(got["name"], "src_copy")
+
+    def test_clone_default_copy_in_fallback_disabled(self):
+        self._make_preset("anchor")
+        self._make_preset("s2", priority=1, enabled=0)
+        db.clone_preset("s2", "s2_copy")
+        got = db.get_preset("s2_copy")
+        # A clone must not be enabled-without-explicit-choice; it inherits the
+        # source's enabled state so it can't suddenly start routing.
+        self.assertEqual(got["enabled"], 0)
+
+    def test_clone_name_collision_raises(self):
+        self._make_preset("sc", base_url="https://x", model="m", is_custom=1)
+        with self.assertRaises(ValueError):
+            db.clone_preset("sc", "sc")
+
+    def test_clone_missing_source_raises(self):
+        with self.assertRaises(ValueError):
+            db.clone_preset("ghost", "ghost_copy")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -24,6 +24,7 @@ COST_TRACKING_EXPORTS = [
 PRESET_REGISTRY_EXPORTS = [
     "activate_preset",
     "clear_group_label",
+    "clone_preset",
     "delete_preset",
     "get_active_preset",
     "get_active_preset_name",

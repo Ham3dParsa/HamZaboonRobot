@@ -1,5 +1,7 @@
 # Phase 02 — DB correctness (R1, R2, R10, R12, R13, R14)
 
+**STATUS: complete** — merged via squash `a38841a` (PR #333, 2026-08-13). R1/R2/R10/R12/R13/R14 implemented, full suite 792 passed, CI green, Kilo re-review passed.
+
 - **Blocking edges:** R2 (`priority` column) before R14 (create uses priority); R1 ordering before Phase 06 (R17 failover).
 - **Scope (files):**
   - `services/db/preset_registry.py` — R1 single order source (`get_fallback_chain_presets` + swap within tier + `set_emergency` flips only target); R2 add `priority` to `set_preset`; R10 `get_active_preset` hard-error + owner alert when none/disabled; R12 guards (rename collision via `previous_name`, emergency-flip-one, no-disable-last, repair `ai_fallback_preset` on delete); R13 atomic quota reserve + prune >24h + count failure only if usage/partial; R14 create defaults disabled+lowest + status/priority prompt + inline test.

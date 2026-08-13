@@ -6,7 +6,7 @@ base_commit: 8166c9c
 branch: fix/ai-preset-audit-findings
 status: in-progress
 ---
-STATE: phase 1/7 — status: in-progress (Phase 1 impl + focused tests done; reviewer + full validation pending) — next: Phase 2 (R1,R2,R10,R12,R13,R14)
+STATE: phase 3/7 — status: complete (PR #334 squash 1d297db + follow-up #335 2f128df; R3,R4,R5,R7 impl+tests+CI+Kilo-pass) — next: Phase 4 (F1 builtin/is_custom removal)
 
 # Contract Lock — Admin AI Preset Panel fixes
 
