@@ -216,7 +216,7 @@ def _row_priority_key(row, now: datetime.datetime, eff_due):
     return (r, -d, eff_due, row["id"])
 
 
-def due_words_for_user(user_id: int):
+def due_words_for_user(user_id: int, lang: str | None = None):
     grace_deadline = (
         _utc_now() - datetime.timedelta(hours=48)
     ).isoformat()
@@ -229,13 +229,17 @@ def due_words_for_user(user_id: int):
             (user_id, grace_deadline),
         )
         conn.commit()
-        rows = conn.execute(
+        query = (
             "SELECT * FROM saved_words WHERE user_id=? "
             "AND COALESCE(first_exposure_done, 0)=1 "
             "AND COALESCE(review_status, 'idle')!='pending' "
-            "AND retry_at IS NULL ",
-            (user_id,),
-        ).fetchall()
+            "AND retry_at IS NULL "
+        )
+        params: list[object] = [user_id]
+        if lang:
+            query += " AND lang=? "
+            params.append(lang)
+        rows = conn.execute(query, params).fetchall()
     now = _utc_now()
     eligible = []
     for r in rows:
@@ -258,13 +262,19 @@ def get_saved_word(word_id: int, user_id: int | None = None):
 
 # ---------- توابع جدید (پوسته) ----------
 
-def get_pre_first_exposure_words(user_id):
+def get_pre_first_exposure_words(user_id, lang: str | None = None):
+    query = (
+        "SELECT * FROM saved_words WHERE user_id=? AND first_exposure_done=0 "
+    )
+    params: list[object] = [user_id]
+    if lang:
+        query += " AND lang=? "
+        params.append(lang)
+    query += (
+        "ORDER BY CASE WHEN entry_source='manual' THEN 0 ELSE 1 END, added_at ASC"
+    )
     with get_conn() as conn:
-        return conn.execute(
-            "SELECT * FROM saved_words WHERE user_id=? AND first_exposure_done=0 "
-            "ORDER BY CASE WHEN entry_source='manual' THEN 0 ELSE 1 END, added_at ASC",
-            (user_id,),
-        ).fetchall()
+        return conn.execute(query, params).fetchall()
 
 
 @dataclass(frozen=True)

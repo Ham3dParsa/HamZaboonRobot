@@ -43,7 +43,7 @@ def build_session_list(
     nodes: list[Any] = []
 
     # Materialize Tier 1
-    due = due_words_for_user(user_id) or []
+    due = due_words_for_user(user_id, target_lang) or []
     for row in due:
         if len(nodes) >= max_nodes:
             break
@@ -58,7 +58,7 @@ def build_session_list(
 
     # Materialize Tier 2
     if len(nodes) < max_nodes:
-        fe = get_pre_first_exposure_words(user_id) or []
+        fe = get_pre_first_exposure_words(user_id, target_lang) or []
         for row in fe:
             if len(nodes) >= max_nodes:
                 break

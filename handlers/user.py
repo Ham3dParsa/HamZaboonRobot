@@ -478,7 +478,7 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _edit_or_send(update, context, "اول باید /start رو بزنی.")
         await notify_callback(update.callback_query)
         return
-    due = db.due_words_for_user(user_id)
+    due = db.due_words_for_user(user_id, row["target_lang"])
     quota = db.get_quota_status(user_id)
     text = (
         f"🌐 زبان: {language_label(row['target_lang'])}\n"

@@ -235,6 +235,41 @@ class ReliabilityPersistenceTests(unittest.TestCase):
             due = db.due_words_for_user(1)
             self.assertEqual(len(due), 1)
 
+    def test_session_queue_filters_by_language(self):
+        db.create_user_if_needed(1, "learner")
+        # Saved words in two different languages for the same user.
+        db.add_saved_word(1, "hello", "en")
+        db.add_saved_word(1, "bonjour", "fr")
+
+        # Tier 2 (pre-first-exposure) respects the language filter.
+        self.assertEqual(
+            [r["word"] for r in db.get_pre_first_exposure_words(1, "en")],
+            ["hello"],
+        )
+        self.assertEqual(
+            [r["word"] for r in db.get_pre_first_exposure_words(1, "fr")],
+            ["bonjour"],
+        )
+        # Legacy call without a language still returns all rows.
+        self.assertEqual(len(db.get_pre_first_exposure_words(1)), 2)
+
+        # Promote only the English word to a due (Tier 1) review.
+        row = db.get_saved_word(1, user_id=1)
+        with db.get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "UPDATE saved_words SET first_exposure_done=1 WHERE id=? AND user_id=?",
+                (row["id"], 1),
+            )
+            conn.commit()
+        with patch("services.db.words._today", return_value=dt.date.fromisoformat(row["next_review"])):
+            # Due queue is scoped to the active target language only.
+            self.assertEqual(
+                [r["word"] for r in db.due_words_for_user(1, "en")],
+                ["hello"],
+            )
+            self.assertEqual(db.due_words_for_user(1, "fr"), [])
+
     def test_grade_word_review_accepts_all_grades(self):
         db.create_user_if_needed(1, "learner")
         card = {
