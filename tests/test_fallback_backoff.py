@@ -170,7 +170,12 @@ class KiloChainingAndPruneThrottleTests(_BackoffIsolatedDb):
     def test_prune_throttled_to_once_per_hour(self, _):
         import services.ai.llm_services as ls
 
-        with patch.object(ls, "db") as mock_db:
+        # Drive the throttle on a controlled monotonic clock so the assertion
+        # does not depend on how long this process/worker has been alive (CI
+        # runners boot monotonic near 0, which would skip the first prune).
+        with patch.object(ls, "db") as mock_db, patch.object(
+            ls.time, "monotonic", return_value=10_000.0
+        ):
             pruner = mock_db.prune_preset_hourly_usage
             mock_db.get_hourly_usage.return_value = (0, 0)
             # First call hits the DB.
