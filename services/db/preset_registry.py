@@ -102,8 +102,6 @@ def set_preset(
                 "max_output_tokens=excluded.max_output_tokens",
                 "is_custom=excluded.is_custom",
                 "is_emergency=excluded.is_emergency",
-                "input_cost_per_million=excluded.input_cost_per_million",
-                "output_cost_per_million=excluded.output_cost_per_million",
                 "in_fallback_chain=excluded.in_fallback_chain",
                 "group_label=excluded.group_label",
             ]
@@ -111,6 +109,10 @@ def set_preset(
                 conflict_sets.append("priority=excluded.priority")
             if enabled is not None:
                 conflict_sets.append("enabled=excluded.enabled")
+            if input_cost_per_million is not None:
+                conflict_sets.append("input_cost_per_million=excluded.input_cost_per_million")
+            if output_cost_per_million is not None:
+                conflict_sets.append("output_cost_per_million=excluded.output_cost_per_million")
             conn.execute(
                 "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, is_emergency, priority, enabled, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "

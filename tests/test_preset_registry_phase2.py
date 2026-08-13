@@ -113,6 +113,23 @@ class R1PartialEditPreservesStateTest(_Phase2ScratchDbTestCase):
         self.assertEqual(got["priority"], 9)
         self.assertEqual(got["enabled"], 0)
 
+    def test_partial_edit_preserves_stored_costs(self):
+        self._make_preset("anchor")
+        self._make_preset("c", input_cost_per_million=1.5, output_cost_per_million=2.5)
+        # Omitting costs must NOT NULL them out (mirrors the priority/enabled guard).
+        db.set_preset(name="c", base_url="https://new", model="m2", is_custom=1)
+        got = db.get_preset("c")
+        self.assertEqual(got["input_cost_per_million"], 1.5, "input cost must survive a partial edit")
+        self.assertEqual(got["output_cost_per_million"], 2.5, "output cost must survive a partial edit")
+
+    def test_explicit_costs_still_applied(self):
+        self._make_preset("d", input_cost_per_million=1.0)
+        db.set_preset(name="d", base_url="https://x4", model="m4", is_custom=1,
+                      input_cost_per_million=3.0, output_cost_per_million=4.0)
+        got = db.get_preset("d")
+        self.assertEqual(got["input_cost_per_million"], 3.0)
+        self.assertEqual(got["output_cost_per_million"], 4.0)
+
 
 class R2NoDisableLastGuardTest(_Phase2ScratchDbTestCase):
     """Kilo R2: the no-disable-last guard must exclude the target preset, so a
