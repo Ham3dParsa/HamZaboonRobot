@@ -7,7 +7,9 @@ branch: multiple-see-release-boundaries
 status: in-progress
 ---
 
-STATE: phase 1/6 — status: in-progress — focus: Ticket 01 pre-commit gate
+STATE: phase 5/6 — status: in-progress — Phases 1-5 committed on
+`feat/phase-3b-fsrs-scheduling`; PR #336 CI green (label, test 3.10, test 3.13);
+awaiting Kilo review + Phase 6 release gate before merge
 
 # FSRS Session Completion — Locked Spec and Main Plan
 
@@ -232,6 +234,7 @@ handler state, tests, and documentation only.
 - 2026-08-09: Contract locked; `/to-tickets` breakdown approved.
 - 2026-08-09: Plan persisted in build mode; implementation initially blocked pending owner decision and admin-AI PR completion.
 - 2026-08-09: Owner instructed implementation; PR #287 verified merged; isolated branch/worktree created from `origin/main` at `6ab4d40`; baseline `python -m pytest tests/ -n 14` passed (594 tests).
+- 2026-08-13: Rule 14 locked (manual/Word-Query tier-2 ordering, owner custom answer). Phase 04 committed `f7d35be`; Phase 05 committed `be97597` (guards + relative time; owner locked telemetry log-and-continue and 23.5-24h formatter boundary). PR #336 CI green; full suite 847+153 green. Phases 1-5 implemented; awaiting Kilo review and Phase 6 release gate.
 
 ## Blocked Questions
 
