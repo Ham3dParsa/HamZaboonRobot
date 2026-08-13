@@ -187,12 +187,12 @@
         "v3 Engine migration Phase 2: purged v2.8 push-based SRS (delivery_queue, scheduler, push jobs)",
         "v3 Engine migration Phase 2: scaffolded v3 pull-based engine skeleton (srs_engine.py, study_handler.py, golden button)",
         "FSRS-6 migration Phase 1: session engine shell merged (services/session/, grading, study_handler, 4-button UI; B1 completion crash fixed)",
-        "FSRS-6 migration Phase 3a: daily_cards -> saved_words migration + schema columns (first_exposure_done, stability, difficulty); PR #252 open (CI green)"
+        "FSRS-6 migration Phase 3a: daily_cards -> saved_words migration + schema columns (first_exposure_done, stability, difficulty); PR #252 open (CI green)",
+        "FSRS-6 migration Phase 3b: wire FSRS scheduling (grade_word_review, due_words_for_user, get_pre_first_exposure_words consume fsrs_core.py; atomic GradeResult transitions, exact-timestamp due selection with DSR priority, handler/UX integration) merged via PR #336"
       ],
       "in_progress": [
         "FSRS-6 migration Phase 2: origin backfill verified; remove stale daily/review/old-SRS flows and DROP daily_cards table",
-        "v3 Engine migration Phase 3: 3-Tier Priority Queue core implementation",
-        "FSRS-6 migration Phase 3b: wire FSRS scheduling implemented on feat/phase-3b-fsrs-scheduling (grade_word_review, due_words_for_user, get_pre_first_exposure_words consume fsrs_core.py); PR #336 CI green, awaiting release merge"
+        "v3 Engine migration Phase 3: 3-Tier Priority Queue core implementation"
       ],
       "todo": [
         "FSRS-6 migration Phase 3b+: AI Tier-3 generation via generate_tier3_node()",

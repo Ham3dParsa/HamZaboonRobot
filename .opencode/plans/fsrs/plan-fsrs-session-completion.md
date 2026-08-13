@@ -7,9 +7,9 @@ branch: multiple-see-release-boundaries
 status: in-progress
 ---
 
-STATE: phase 5/6 — status: in-progress — Phases 1-5 committed on
-`feat/phase-3b-fsrs-scheduling`; PR #336 CI green (label, test 3.10, test 3.13);
-awaiting Kilo review + Phase 6 release gate before merge
+STATE: phase 5/6 — status: MERGED — Phases 1-5 committed and merged via PR #336
+(squash `f77214c` on main); all checks green; T09 (release/docs reconciliation)
+remains in progress
 
 # FSRS Session Completion — Locked Spec and Main Plan
 
