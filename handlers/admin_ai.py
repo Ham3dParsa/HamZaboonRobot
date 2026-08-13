@@ -537,7 +537,7 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     wizard = context.user_data.get("full_edit", {})
     draft = wizard.get("values", {}).get(field_name)
-    draft_str = str(draft) if draft is not None else None
+    draft_str = str(draft).strip() if draft is not None else None
 
     group_header = WIZARD_GROUP_HEADERS.get(field_idx, "")
     label = WIZARD_FIELD_LABELS.get(field_name, field_name)
@@ -547,7 +547,7 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if group_header:
         message += f"\n{group_header}\n"
     message += f"\n<b>{html_escape(label)}</b>"
-    if draft is not None:
+    if draft_str:
         message += f"\nپیشنویس (در انتظار ذخیره): <code>{html_escape(draft_str)}</code>"
     if current_str:
         message += f"\nمقدار فعلی: <code>{html_escape(current_str)}</code>"

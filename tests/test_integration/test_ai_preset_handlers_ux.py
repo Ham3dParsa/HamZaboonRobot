@@ -144,6 +144,48 @@ class AiPresetEditBackFlowTest(_Phase3AiPresetFlowBase):
         markup = up.callback_query.edit_message_text.call_args.kwargs["reply_markup"].to_json()
         self.assertNotIn("full_edit_back", markup)
 
+    def test_wizard_empty_draft_not_rendered(self):
+        # A draft of "" must not render a meaningless empty "پیشنویس" line.
+        from handlers.admin_ai import _show_wizard_field, WIZARD_FIELDS
+
+        self._make_preset("drafty", base_url="https://x")
+        preset = db.get_preset("drafty")
+        ctx = self._make_context()
+        ctx.user_data["full_edit"] = {"preset": "drafty", "field_idx": 0,
+                                      "values": {WIZARD_FIELDS[0]: ""}}
+        update = self._make_callback_update("x")
+        asyncio.run(_show_wizard_field(update, ctx, "drafty", 0, preset))
+        text = update.callback_query.edit_message_text.call_args.args[0]
+        self.assertNotIn("پیشنویس", text)
+
+    def test_wizard_whitespace_draft_not_rendered(self):
+        # A whitespace-only draft must not render a near-empty "پیشنویس" line.
+        from handlers.admin_ai import _show_wizard_field, WIZARD_FIELDS
+
+        self._make_preset("drafty_ws", base_url="https://x")
+        preset = db.get_preset("drafty_ws")
+        ctx = self._make_context()
+        ctx.user_data["full_edit"] = {"preset": "drafty_ws", "field_idx": 0,
+                                      "values": {WIZARD_FIELDS[0]: "   "}}
+        update = self._make_callback_update("x")
+        asyncio.run(_show_wizard_field(update, ctx, "drafty_ws", 0, preset))
+        text = update.callback_query.edit_message_text.call_args.args[0]
+        self.assertNotIn("پیشنویس", text)
+
+    def test_wizard_nonempty_draft_rendered(self):
+        from handlers.admin_ai import _show_wizard_field, WIZARD_FIELDS
+
+        self._make_preset("drafty2", base_url="https://x")
+        preset = db.get_preset("drafty2")
+        ctx = self._make_context()
+        ctx.user_data["full_edit"] = {"preset": "drafty2", "field_idx": 0,
+                                      "values": {WIZARD_FIELDS[0]: "my draft"}}
+        update = self._make_callback_update("x")
+        asyncio.run(_show_wizard_field(update, ctx, "drafty2", 0, preset))
+        text = update.callback_query.edit_message_text.call_args.args[0]
+        self.assertIn("پیشنویس", text)
+        self.assertIn("my draft", text)
+
 
 class AiPresetUsagePaginationTest(_Phase3AiPresetFlowBase):
     """R7: fallback usage details are paginated per_page=5 with prev/next."""
