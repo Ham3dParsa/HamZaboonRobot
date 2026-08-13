@@ -149,5 +149,37 @@ class CountAllFailuresBackoffTests(_BackoffIsolatedDb):
         self.assertEqual(result, {"preset": "pa"}, "preferred preset should recover")
 
 
+class KiloChainingAndPruneThrottleTests(_BackoffIsolatedDb):
+    """Kilo R4 / R6: AllPresetsExhausted chains the last error, and the R13
+    hourly-usage prune is throttled (not a write on every quota check)."""
+
+    @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
+    def test_exhaustion_chains_last_error(self, _):
+        _seed([{"name": "pa", "priority": 0}])
+
+        def boom(*a, **k):
+            raise KeyError("broken_preset_field")
+
+        with self.assertRaises(AllPresetsExhausted) as cm:
+            _call_ai_limited(boom, request_kind="grammar_tip")
+        self.assertIsNotNone(cm.exception.__cause__)
+        self.assertIsInstance(cm.exception.__cause__, KeyError)
+        self.assertIn("broken_preset_field", str(cm.exception))
+
+    @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
+    def test_prune_throttled_to_once_per_hour(self, _):
+        import services.ai.llm_services as ls
+
+        with patch.object(ls, "db") as mock_db:
+            pruner = mock_db.prune_preset_hourly_usage
+            mock_db.get_hourly_usage.return_value = (0, 0)
+            # First call hits the DB.
+            ls._last_hourly_prune = 0.0
+            ls._is_daily_exhausted(preset={"name": "pa", "max_daily_req": 5})
+            # A second call within the hour must NOT prune again.
+            ls._is_daily_exhausted(preset={"name": "pa", "max_daily_req": 5})
+            self.assertEqual(pruner.call_count, 1, "prune must run at most once per hour")
+
+
 if __name__ == "__main__":
     unittest.main()

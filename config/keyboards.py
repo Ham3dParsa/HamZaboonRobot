@@ -820,7 +820,7 @@ def fallback_chain_keyboard(chain: list[dict]) -> InlineKeyboardMarkup:
     for rank, preset in enumerate(chain, 1):
         name = preset.get("name", "?")
         emoji = "🛡️" if preset.get("is_emergency") else "📊"
-        status_icon = "🟢" if preset.get("enabled", 1) else "⚪"
+        status_icon = "🟢" if preset.get("enabled", 1) else "⚫"
         row = [
             InlineKeyboardButton(f"{rank}. {emoji} {name} {status_icon}", callback_data="admin:noop"),
             InlineKeyboardButton("⬆", callback_data=f"admin:fallback:move_up:{preset_token(name)}"),

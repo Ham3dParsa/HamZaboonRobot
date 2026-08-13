@@ -7,8 +7,8 @@ STATE: phase 1/1 — status: complete (impl + tests; awaiting reviewer + full su
   - `handlers/admin_ai.py` — R6 shared render fix (both list sites → clean `🟢 name [tags]`); R8 apply emoji dictionary to templates A–D + list/chain views; R9 relabel usage to «مصرف ۲۴ ساعته».
   - `handlers/admin_cost.py` — R8 legend on cost dashboard.
   - `handlers/admin_plans.py` — R15 `html.escape` on `display_name`/`name`/`old_val`/`new_val`.
-  - `config/keyboards.py` — R8 emoji in buttons per dictionary (🛡️/🎯/🟢⚪).
+  - `config/keyboards.py` — R8 emoji in buttons per dictionary (🛡️/🎯/🟢⚫).
 - **Tests:** `tests/test_formatting.py` (escape); `tests/test_integration/test_admin_*.py` (render snapshots); `tests/test_wiring.py` only if callbacks change (none here).
 - **Gates:** R6, R8, R9, R15.
 - **Wiring rows:** AI Config (render) update; Cost (legend) update; Plans (escape) update.
-- **Acceptance:** no stray space in lists; 🟢/⚪ toggle + 🛡️ emergency + 🔋/🪫 quota + ✅/❌ health applied per dictionary; usage label «مصرف ۲۴ ساعته»; plan texts escaped.
+- **Acceptance:** no stray space in lists; 🟢/⚫ toggle + 🛡️ emergency + 🔋/🪫 quota + ✅/❌ health applied per dictionary; usage label «مصرف ۲۴ ساعته»; plan texts escaped.

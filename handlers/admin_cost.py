@@ -168,7 +168,7 @@ def _llm_cost_percent(numerator: int | float, denominator: int | float) -> str:
 
 def _llm_cost_status_icon(outcome: object) -> str:
     # R8 emoji dictionary (global): ✅/❌/⚠️ = result / system warnings
-    # (health). 🟢/⚪ are ON/OFF toggles only and must never mark an outcome.
+    # (health). 🟢/⚫ are ON/OFF toggles only and must never mark an outcome.
     # Billed failure = hard error (financial loss) -> ❌; zero-cost failure =
     # warning (failed but no money lost) -> ⚠️.
     return {

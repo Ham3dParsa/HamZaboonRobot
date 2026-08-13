@@ -136,7 +136,7 @@ class TestRenderPresetBrief(unittest.TestCase):
 
     def test_disabled_uses_wire_emoji(self):
         text = self._call({"name": "p1", "enabled": 0}, "p1")
-        self.assertTrue(text.startswith("⚪"))
+        self.assertTrue(text.startswith("⚫"))
 
     def test_enabled_uses_green_toggle(self):
         text = self._call({"name": "p1", "enabled": 1}, "other")

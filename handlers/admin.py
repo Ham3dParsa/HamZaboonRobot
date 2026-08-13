@@ -229,7 +229,18 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             reply_markup=admin_awaiting_inline_keyboard(),
         )
     elif action == "show_settings":
-        preset = db.get_active_preset()
+        try:
+            preset = db.get_active_preset()
+        except db.NoActivePresetError:
+            await _edit_or_send(
+                update,
+                context,
+                "🤖 هیچ پیش‌تنظیم فعالی وجود ندارد. برای استفاده از هوش مصنوعی، "
+                "یک پیش‌تنظیم بسازید و فعال کنید.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data="admin:back")]]),
+            )
+            return
         raw_key = db.resolve_preset_key(preset)
         if len(raw_key) > 12:
             masked = raw_key[:6] + "…" + raw_key[-4:]

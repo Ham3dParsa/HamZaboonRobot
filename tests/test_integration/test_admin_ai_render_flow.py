@@ -198,6 +198,23 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         self.assertNotIn("🔴", text)
         self.assertNotIn("🟢", text)
 
+    def test_ai_settings_no_active_preset_shows_notice(self):
+        """Kilo R5: the AI settings panel must not crash when no active preset exists;
+        it shows a Persian notice instead of degrading to a ghost default."""
+        from handlers.admin import _handle_admin_callback
+
+        # Make sure no preset is enabled.
+        for p in db.get_presets():
+            db.delete_preset(p["name"])
+
+        update = self._make_callback_update("admin:ai_settings")
+        ctx = self._make_context()
+        # Must not raise NoActivePresetError.
+        asyncio.run(_handle_admin_callback(update, ctx, "ai_settings"))
+
+        text = self._rendered_text(update)
+        self.assertIn("پیش‌تنظیم فعالی وجود ندارد", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -61,8 +61,8 @@ def set_preset(
     max_output_tokens: int = 4096,
     is_custom: int = 1,
     is_emergency: int = 0,
-    priority: int = 0,
-    enabled: int = 1,
+    priority: int | None = None,
+    enabled: int | None = None,
     input_cost_per_million: float | None = None,
     output_cost_per_million: float | None = None,
     in_fallback_chain: int = 1,
@@ -84,22 +84,37 @@ def set_preset(
                 ).fetchone()
                 if collision:
                     raise ValueError(f"preset name already exists: {name}")
+            # On conflict, only overwrite priority/enabled when the caller
+            # explicitly passes them (None = preserve the existing stored value,
+            # so partial edits can't silently reset a preset's chain position or
+            # re-enable a disabled preset). New rows use 0 / disabled-by-default.
+            conflict_sets = [
+                "base_url=excluded.base_url",
+                "model=excluded.model",
+                "api_key=excluded.api_key",
+                "daily_batch_size=excluded.daily_batch_size",
+                "max_concurrency=excluded.max_concurrency",
+                "max_rpm=excluded.max_rpm",
+                "max_tpm=excluded.max_tpm",
+                "max_daily_req=excluded.max_daily_req",
+                "timeout_seconds=excluded.timeout_seconds",
+                "temperature=excluded.temperature",
+                "max_output_tokens=excluded.max_output_tokens",
+                "is_custom=excluded.is_custom",
+                "is_emergency=excluded.is_emergency",
+                "input_cost_per_million=excluded.input_cost_per_million",
+                "output_cost_per_million=excluded.output_cost_per_million",
+                "in_fallback_chain=excluded.in_fallback_chain",
+                "group_label=excluded.group_label",
+            ]
+            if priority is not None:
+                conflict_sets.append("priority=excluded.priority")
+            if enabled is not None:
+                conflict_sets.append("enabled=excluded.enabled")
             conn.execute(
                 "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, is_emergency, priority, enabled, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(name) DO UPDATE SET "
-                "base_url=excluded.base_url, model=excluded.model, api_key=excluded.api_key, "
-                "daily_batch_size=excluded.daily_batch_size, "
-                "max_concurrency=excluded.max_concurrency, max_rpm=excluded.max_rpm, "
-                "max_tpm=excluded.max_tpm, max_daily_req=excluded.max_daily_req, "
-                "timeout_seconds=excluded.timeout_seconds, temperature=excluded.temperature, "
-                "max_output_tokens=excluded.max_output_tokens, is_custom=excluded.is_custom, "
-                "is_emergency=excluded.is_emergency, priority=excluded.priority, "
-                "enabled=excluded.enabled, "
-                "input_cost_per_million=excluded.input_cost_per_million, "
-                "output_cost_per_million=excluded.output_cost_per_million, "
-                "in_fallback_chain=excluded.in_fallback_chain, "
-                "group_label=excluded.group_label",
+                f"ON CONFLICT(name) DO UPDATE SET {', '.join(conflict_sets)}",
                 (
                     name,
                     base_url,
@@ -115,8 +130,8 @@ def set_preset(
                     max_output_tokens,
                     is_custom,
                     is_emergency,
-                    priority,
-                    enabled,
+                    0 if priority is None else priority,
+                    1 if enabled is None else enabled,
                     input_cost_per_million,
                     output_cost_per_million,
                     in_fallback_chain,
@@ -273,6 +288,10 @@ def delete_preset(name: str) -> bool:
         )
         conn.execute(
             "UPDATE settings SET value='' WHERE key='ai_fallback_preset' AND value=?",
+            (name,),
+        )
+        conn.execute(
+            "UPDATE settings SET value='' WHERE key='ai_primary_preset' AND value=?",
             (name,),
         )
         conn.commit()
@@ -520,10 +539,14 @@ def set_preset_enabled(name: str, enabled: bool):
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
         if not enabled:
+            # Only refuse when disabling would leave the target as the sole
+            # remaining enabled preset. Exclude the target itself so a no-op
+            # disable (already disabled / nonexistent) never faults.
             remaining = conn.execute(
-                "SELECT COUNT(*) AS c FROM ai_presets WHERE enabled=1"
+                "SELECT COUNT(*) AS c FROM ai_presets WHERE enabled=1 AND name != ?",
+                (name,),
             ).fetchone()["c"]
-            if remaining <= 1:
+            if remaining <= 0:
                 conn.rollback()
                 raise ValueError("cannot disable the last enabled preset")
         conn.execute("UPDATE ai_presets SET enabled=? WHERE name=?", (want, name))

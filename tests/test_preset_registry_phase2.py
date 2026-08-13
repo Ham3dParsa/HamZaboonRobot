@@ -43,9 +43,9 @@ class _Phase2ScratchDbTestCase(unittest.TestCase):
     def _make_preset_enabled(self, name: str, **kwargs):
         """Create a preset via set_preset, then optionally adjust its enabled state.
 
-        set_preset has no `enabled` param; the enabled column is toggled through
-        set_preset_enabled, which enforces the no-disable-last guard (R12). So the
-        caller must keep at least one preset enabled.
+        set_preset accepts an `enabled` param (None kept as-is), but the
+        no-disable-last guard lives in set_preset_enabled (R12), so the caller
+        must keep at least one preset enabled.
         """
         enable = kwargs.pop("enabled", 1)
         defaults = {"base_url": "https://x", "model": "m", "is_custom": 1}
@@ -81,6 +81,89 @@ class R2PriorityInSetPresetTest(_Phase2ScratchDbTestCase):
         self._make_preset("defaulted")
         got = db.get_preset("defaulted")
         self.assertEqual(got["priority"], 0)
+
+
+class R1PartialEditPreservesStateTest(_Phase2ScratchDbTestCase):
+    """Kilo R1: set_preset must not wipe priority/enabled on a partial edit.
+
+    Callers that omit priority/enabled must preserve the stored values instead of
+    silently re-enabling a disabled preset or resetting its chain position.
+    """
+
+    def test_partial_edit_preserves_priority_and_disabled(self):
+        self._make_preset("anchor")
+        self._make_preset("p", priority=4)
+        db.set_preset_enabled("p", False)
+        # Omitting priority/enabled must NOT touch them.
+        db.set_preset(name="p", base_url="https://new", model="m2", is_custom=1)
+        got = db.get_preset("p")
+        self.assertEqual(got["priority"], 4)
+        self.assertEqual(got["enabled"], 0, "disabled preset must stay disabled after a partial edit")
+
+    def test_partial_edit_preserves_enabled_without_disable_flag(self):
+        self._make_preset("q", priority=2)
+        db.set_preset(name="q", base_url="https://x2", model="m3", is_custom=1)
+        got = db.get_preset("q")
+        self.assertEqual(got["enabled"], 1, "an enabled preset stays enabled when priority/enabled omitted")
+
+    def test_explicit_priority_and_enabled_still_applied(self):
+        self._make_preset("r", priority=1)
+        db.set_preset(name="r", base_url="https://x3", model="m4", is_custom=1, priority=9, enabled=0)
+        got = db.get_preset("r")
+        self.assertEqual(got["priority"], 9)
+        self.assertEqual(got["enabled"], 0)
+
+
+class R2NoDisableLastGuardTest(_Phase2ScratchDbTestCase):
+    """Kilo R2: the no-disable-last guard must exclude the target preset, so a
+    no-op disable (already-disabled or nonexistent) succeeds."""
+
+    def _single_enabled(self, name: str) -> int:
+        with db.get_conn() as conn:
+            return conn.execute(
+                "SELECT COUNT(*) AS c FROM ai_presets WHERE enabled=1 AND name != ?",
+                (name,),
+            ).fetchone()["c"]
+
+    def test_noop_disable_of_already_disabled_succeeds(self):
+        self._make_preset("keep_on")
+        self._make_preset("already_off")
+        db.set_preset_enabled("already_off", False)
+        # No-op disable must not raise (the last-enabled preset is still on).
+        db.set_preset_enabled("already_off", False)
+        self.assertEqual(db.get_preset("already_off")["enabled"], 0)
+
+    def test_noop_disable_of_nonexistent_succeeds(self):
+        self._make_preset("keep_on")
+        db.set_preset_enabled("ghost", False)
+
+    def test_last_enabled_preset_still_refused(self):
+        self._make_preset("only")
+        with self.assertRaises(ValueError):
+            db.set_preset_enabled("only", False)
+
+    def test_disabling_one_of_two_allowed(self):
+        self._make_preset("a")
+        self._make_preset("b")
+        db.set_preset_enabled("a", False)
+        self.assertEqual(db.get_preset("a")["enabled"], 0)
+        self.assertEqual(db.get_preset("b")["enabled"], 1)
+
+
+class R3DeleteRepairsPrimaryTest(_Phase2ScratchDbTestCase):
+    """Kilo R3: deleting a preset must also clear an orphaned ai_primary_preset ref."""
+
+    def _set_primary(self, name: str):
+        db.activate_preset(name)
+
+    def test_delete_clears_primary_reference(self):
+        self._make_preset("p1")
+        self._make_preset("p2")
+        self._set_primary("p1")
+        from services.db.settings import get_setting
+        self.assertEqual(get_setting("ai_primary_preset"), "p1")
+        db.delete_preset("p1")
+        self.assertEqual(get_setting("ai_primary_preset"), "", "deleted preset's primary ref must be cleared")
 
 
 class R10NoSilentEmptyActivePresetTest(_Phase2ScratchDbTestCase):
@@ -182,12 +265,27 @@ class R13aPruneAndRPCTest(_Phase2ScratchDbTestCase):
             )
             conn.commit()
 
+    def _full_hour_bucket(self, offset_hours: float) -> str:
+        """UTC hour bucket for a timestamp offset hours from now."""
+        from datetime import datetime, timedelta, timezone
+        when = datetime.now(timezone.utc) - timedelta(hours=offset_hours)
+        return when.strftime("%Y-%m-%dT%H:00:00")
+
+    def _row_count(self) -> int:
+        from services.db.schema import get_conn
+        with get_conn() as conn:
+            return conn.execute(
+                "SELECT COUNT(*) AS c FROM preset_hourly_usage WHERE preset_name='pa'"
+            ).fetchone()["c"]
+
     def test_prune_removes_rows_older_than_window_keeps_recent(self):
-        self._insert_usage("pa", "2000-01-01T00:00:00")
-        self._insert_usage("pa", "2099-01-01T00:00:00")
+        # A 25h-old row is inside the year-long read window but outside the 24h
+        # prune window, so pruning must delete it from the table.
+        self._insert_usage("pa", self._full_hour_bucket(25))
+        self._insert_usage("pa", self._full_hour_bucket(0))
+        self.assertEqual(self._row_count(), 2)
         db.prune_preset_hourly_usage(hours_back=24)
-        req, _ = db.get_hourly_usage("pa", hours_back=8766)
-        self.assertEqual(req, 1, "only the stale row should be pruned")
+        self.assertEqual(self._row_count(), 1, "the ~25h-old row must be pruned from the table")
 
 
 class R14InsertPresetAtRankTest(_Phase2ScratchDbTestCase):

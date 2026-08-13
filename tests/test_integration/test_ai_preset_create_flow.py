@@ -174,6 +174,31 @@ class AiPresetCreateFlowTest(unittest.TestCase):
         )
         self.assertEqual(created["priority"], max_rank, "out-of-range manual rank clamps to last slot")
 
+    def test_finish_create_guards_empty_state_no_row_created(self):
+        """Kilo R7: a lost/stale create state must not persist an empty-PK preset."""
+        from services import db as sdb
+
+        before = len(sdb.get_presets())
+        self._new_flow()
+        # No name was ever entered; drive _finish_create via a stale status choice.
+        self._callback("ai_preset:create:status:on")
+        self.assertEqual(len(sdb.get_presets()), before, "no empty-primary-key preset row may be created")
+
+    def test_finish_create_guards_missing_row(self):
+        """Kilo R7: a toggle on a deleted preset must not recreate an empty row."""
+        from services import db as sdb
+
+        self._new_flow()
+        self._enter_name("gone_preset")
+        self._callback("ai_preset:create:priority:bottom")
+        self._callback("ai_preset:create:status:on")
+        self.assertIsNotNone(sdb.get_preset("gone_preset"))
+        sdb.delete_preset("gone_preset")
+        before = len(sdb.get_presets())
+        # A stale toggle button still in the chat re-enters the summary step.
+        self._callback("ai_preset:create:toggle_enable")
+        self.assertEqual(len(sdb.get_presets()), before, "must not recreate a deleted preset")
+
 
 if __name__ == "__main__":
     unittest.main()

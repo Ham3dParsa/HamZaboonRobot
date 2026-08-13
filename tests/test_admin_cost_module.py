@@ -84,9 +84,9 @@ class TestAdminCostModule(unittest.TestCase):
 class TestCostReportEmojiR8(unittest.TestCase):
     """R8 is global: the cost dashboard must follow the emoji dictionary.
 
-    🟢/⚪ are ON/OFF toggles only and must never mark an outcome; success uses
+    🟢/⚫ are ON/OFF toggles only and must never mark an outcome; success uses
     ✅, a billed failure is a hard error (❌), and a zero-cost failure is a
-    warning (⚠️). 🔴/🟢/⚪ must not appear as outcome markers.
+    warning (⚠️). 🔴/🟢/⚫ must not appear as outcome markers.
     """
 
     def setUp(self):
@@ -117,8 +117,9 @@ class TestCostReportEmojiR8(unittest.TestCase):
         self.assertIn("❌ Billed failure rate", text)
         # Outcome markers must not reuse the ON/OFF toggle emoji.
         self.assertNotIn("🟢", text)
-        self.assertNotIn("⚪", text)
+        self.assertNotIn("⚫", text)
         self.assertNotIn("🔴", text)
+        self.assertNotIn("⚪", text)
         # Legend reflects the R8 mapping.
         self.assertIn("راهنما: ✅ = موفق | ❌ = خطای هزینه‌دار | ⚠️ = خطای بدون هزینه", text)
 

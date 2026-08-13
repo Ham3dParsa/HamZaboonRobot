@@ -25,6 +25,25 @@ class AIRequestTimedOut(Exception):
 FAILURE_THRESHOLD = 3
 BACKOFF_SECONDS = 60
 
+# Prune-at-most-once-per-hour guard for the R13 hourly-usage window. Pruning
+# is a write transaction; on the quota hot path this must not fire on every
+# preset per request, so it is throttled to ~1x/hour per process.
+_PRUNE_INTERVAL_SECONDS = 3600
+_prune_lock = threading.Lock()
+_last_hourly_prune: float = 0.0
+
+
+def _maybe_prune_hourly_usage():
+    """Run the R13 prune at most once per hour per process."""
+    global _last_hourly_prune
+    now = time.monotonic()
+    if now - _last_hourly_prune < _PRUNE_INTERVAL_SECONDS:
+        return
+    with _prune_lock:
+        if now - _last_hourly_prune >= _PRUNE_INTERVAL_SECONDS:
+            db.prune_preset_hourly_usage(hours_back=24)
+            _last_hourly_prune = now
+
 
 def _get_active_preset() -> dict:
     """Get the currently active AI preset (considers fallback)."""
@@ -66,7 +85,7 @@ def _is_daily_exhausted(preset: dict) -> bool:
     max_daily = preset.get("max_daily_req", 0)
     if max_daily <= 0:
         return False
-    db.prune_preset_hourly_usage(hours_back=24)
+    _maybe_prune_hourly_usage()
     req_count, _ = db.get_hourly_usage(preset["name"], hours_back=24)
     return req_count >= max_daily
 
@@ -208,10 +227,11 @@ def _call_ai_limited(function, *args, deadline=None, **kwargs):
         finally:
             limiter["slots"].release()
 
-    raise AllPresetsExhausted(
-        f"All enabled presets exhausted. Last error: {last_error}" if last_error
-        else "All enabled presets exhausted"
-    )
+    if last_error is not None:
+        raise AllPresetsExhausted(
+            f"All enabled presets exhausted. Last error: {last_error}"
+        ) from last_error
+    raise AllPresetsExhausted("All enabled presets exhausted")
 
 
 def _ask_batch_limited(*args, **kwargs):

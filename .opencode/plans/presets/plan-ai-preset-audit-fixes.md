@@ -42,7 +42,7 @@ Seam claim: acquired 2026-08-12 for seams Persistence / Telegram UI→Admin / AI
 
 | Emoji | Meaning | Rule |
 |---|---|---|
-| 🟢 / ⚪ | ON / OFF (toggle) | never ✅/❌ for on/off |
+| 🟢 / ⚫ | ON / OFF (toggle) | never ✅/❌ for on/off |
 | ✅ / ❌ / ⚠️ | connection-test result & system warnings | health only |
 | 🎯 | active preset (live routing) | replaces ★ |
 | 🛡️ | emergency tier | 🚨 reserved for system-down only |
