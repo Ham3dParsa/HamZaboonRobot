@@ -265,7 +265,7 @@ class TestFSRSConfig(unittest.TestCase):
         self.assertEqual(DEFAULT_FSRS_CONFIG.name, "default")
 
     def test_config_enable_short_term_default(self):
-        self.assertFalse(DEFAULT_FSRS_CONFIG.enable_short_term)
+        self.assertTrue(DEFAULT_FSRS_CONFIG.enable_short_term)
 
     def test_config_from_custom_w_alters_retrievability(self):
         """Change w20 from 0.1542 to 0.3; at R(S=10, t=1) values diverge."""

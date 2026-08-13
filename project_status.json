@@ -191,10 +191,10 @@
       ],
       "in_progress": [
         "FSRS-6 migration Phase 2: origin backfill verified; remove stale daily/review/old-SRS flows and DROP daily_cards table",
-        "v3 Engine migration Phase 3: 3-Tier Priority Queue core implementation"
+        "v3 Engine migration Phase 3: 3-Tier Priority Queue core implementation",
+        "FSRS-6 migration Phase 3b: wire FSRS scheduling implemented on feat/phase-3b-fsrs-scheduling (grade_word_review, due_words_for_user, get_pre_first_exposure_words consume fsrs_core.py); PR #336 CI green, awaiting release merge"
       ],
       "todo": [
-        "FSRS-6 migration Phase 3b: wire FSRS scheduling (grade_word_review, due_words_for_user, get_pre_first_exposure_words consume fsrs_core.py)",
         "FSRS-6 migration Phase 3b+: AI Tier-3 generation via generate_tier3_node()",
         "Remove migration SQL v3_cleanup.sql after Phase 6 is released",
         "Design the premium reward surface"

@@ -20,6 +20,10 @@ from services.ai import llm_services
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
 
+_NOW_ISO = "2026-01-01T00:00:00+00:00"
+_NOW_ISO_EARLY = "2025-12-25T00:00:00+00:00"
+
+
 class ReliabilityPersistenceTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
@@ -243,11 +247,31 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertTrue(db.add_saved_word(1, "world", "en", card))
         row = db.get_saved_word(1, user_id=1)
         word_id = row["id"]
+        fixed_now = dt.datetime(2026, 8, 13, 10, 0, 0).replace(tzinfo=dt.timezone.utc)
         for grade in (1, 2, 3, 4):
-            self.assertTrue(
-                db.grade_word_review(word_id, grade, 1),
-                f"grade_word_review should return True for grade={grade}",
-            )
+            with db.get_conn() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute(
+                    "UPDATE saved_words SET first_exposure_done=1, "
+                    "last_review_at=?, stability=?, difficulty=? "
+                    "WHERE id=? AND user_id=?",
+                    (
+                        "2026-08-01T10:00:00+00:00",
+                        5.0,
+                        5.0,
+                        word_id,
+                        1,
+                    ),
+                )
+                conn.commit()
+            with patch("services.db.words._utc_now", return_value=fixed_now):
+                result = db.grade_word_review(word_id, grade, 1)
+            self.assertTrue(result.ok, f"grade {grade} should succeed")
+            self.assertIsNotNone(result.next_review_at, f"grade {grade} schedules a due")
+            self.assertIsNotNone(result.interval_seconds, f"grade {grade} reports interval")
+            persisted = db.get_saved_word(word_id, user_id=1)
+            self.assertGreater(persisted["stability"], 0.0, f"grade {grade} persists stability")
+            self.assertIsNotNone(persisted["next_review_at"], f"grade {grade} persists next_review_at")
 
     def test_surgical_card_patches_update_only_requested_fields(self):
         db.create_user_if_needed(1, "learner")
@@ -445,6 +469,234 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertEqual([card["word"] for card in stored], [f"word-{i}" for i in range(6)])
 
 
+class Phase4DueSelectionAndPriorityTests(unittest.TestCase):
+    """Phase 04 — exact-timestamp due selection and DSR priority ordering."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.previous_db_path = db.DB_PATH
+        self.previous_db_schema_path = db_schema.DB_PATH
+        new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db.DB_PATH = new_path
+        db_schema.DB_PATH = new_path
+        db.init_db()
+        db.create_user_if_needed(1, "learner")
+
+    def tearDown(self):
+        db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
+        self.tempdir.cleanup()
+
+    def _make_due(self, word, **overrides):
+        """Insert a due Tier-1 card (first_exposure_done=1) with overridable fields."""
+        db.add_saved_word(1, word, "en")
+        with db.get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT id FROM saved_words WHERE user_id=1 AND word=?", (word,)
+            ).fetchone()
+            w_id = row["id"]
+            fields = {
+                "first_exposure_done": 1,
+                "last_review_at": "2026-01-01T00:00:00+00:00",
+                "next_review_at": "2026-01-01T00:00:00+00:00",
+                "stability": 1.0,
+                "difficulty": 5.0,
+            }
+            fields.update(overrides)
+            assignments = ", ".join(f"{k}=?" for k in fields)
+            conn.execute(
+                f"UPDATE saved_words SET {assignments} WHERE id=? AND user_id=?",
+                (*fields.values(), w_id, 1),
+            )
+            conn.commit()
+        return w_id
+
+    def test_future_exact_timestamp_excluded(self):
+        with patch("services.db.words._utc_now", return_value=dt.datetime(
+            2026, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc
+        )):
+            self._make_due("future", next_review_at="2026-01-01T12:00:01+00:00")
+            self.assertEqual(db.due_words_for_user(1), [])
+
+    def test_boundary_exact_timestamp_included(self):
+        with patch("services.db.words._utc_now", return_value=dt.datetime(
+            2026, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc
+        )):
+            self._make_due("boundary", next_review_at="2026-01-01T12:00:00+00:00")
+            due = db.due_words_for_user(1)
+            self.assertEqual(len(due), 1)
+            self.assertEqual(due[0]["word"], "boundary")
+
+    def test_legacy_date_fallback_when_timestamp_null(self):
+        with patch("services.db.words._utc_now", return_value=dt.datetime(
+            2026, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc
+        )), patch("services.db.words._today", return_value=dt.date(2026, 1, 1)):
+            self._make_due("legacy", next_review_at=None, next_review="2026-01-01")
+            due = db.due_words_for_user(1)
+            self.assertEqual([r["word"] for r in due], ["legacy"])
+
+    def test_legacy_future_date_excluded(self):
+        with patch("services.db.words._utc_now", return_value=dt.datetime(
+            2026, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc
+        )), patch("services.db.words._today", return_value=dt.date(2026, 1, 1)):
+            self._make_due("legacy-future", next_review_at=None, next_review="2026-01-02")
+            self.assertEqual(db.due_words_for_user(1), [])
+
+    def test_first_exposure_and_retry_filters_preserved(self):
+        with patch("services.db.words._utc_now", return_value=dt.datetime(
+            2026, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc
+        )), patch("services.db.words._today", return_value=dt.date(2026, 1, 1)):
+            not_exposed = self._make_due("not-exposed", first_exposure_done=0)
+            retry = self._make_due("retry", retry_at="2026-01-01T11:00:00+00:00")
+            pending = self._make_due(
+                "pending", review_status="pending", review_requested_at="2026-01-01T10:00:00+00:00"
+            )
+            due = db.due_words_for_user(1)
+            words = {r["word"] for r in due}
+            self.assertNotIn("not-exposed", words)
+            self.assertNotIn("retry", words)
+            self.assertNotIn("pending", words)
+
+    def test_lower_retrievability_prioritized(self):
+        now = dt.datetime(2026, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc)
+        base = (now - dt.timedelta(days=3)).isoformat()
+        with patch("services.db.words._utc_now", return_value=now), patch(
+            "services.db.words._today", return_value=dt.date(2026, 1, 1)
+        ):
+            # Same elapsed, same difficulty, different stability -> lower R first.
+            self._make_due(
+                "low-stab", last_review_at=base, stability=1.0, difficulty=5.0,
+                next_review_at="2026-01-01T11:00:00+00:00",
+            )
+            self._make_due(
+                "high-stab", last_review_at=base, stability=10.0, difficulty=5.0,
+                next_review_at="2026-01-01T11:00:00+00:00",
+            )
+            due = db.due_words_for_user(1)
+            self.assertEqual(due[0]["word"], "low-stab")
+
+    def test_higher_difficulty_tiebreaker(self):
+        now = dt.datetime(2026, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc)
+        base = (now - dt.timedelta(days=3)).isoformat()
+        with patch("services.db.words._utc_now", return_value=now), patch(
+            "services.db.words._today", return_value=dt.date(2026, 1, 1)
+        ):
+            self._make_due(
+                "easy", last_review_at=base, stability=5.0, difficulty=2.0,
+                next_review_at="2026-01-01T11:00:00+00:00",
+            )
+            self._make_due(
+                "hard", last_review_at=base, stability=5.0, difficulty=8.0,
+                next_review_at="2026-01-01T11:00:00+00:00",
+            )
+            due = db.due_words_for_user(1)
+            self.assertEqual(due[0]["word"], "hard")
+
+    def test_older_due_instant_prioritized(self):
+        now = dt.datetime(2026, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc)
+        base = (now - dt.timedelta(days=3)).isoformat()
+        with patch("services.db.words._utc_now", return_value=now), patch(
+            "services.db.words._today", return_value=dt.date(2026, 1, 1)
+        ):
+            self._make_due(
+                "newer-due", last_review_at=base, stability=5.0, difficulty=5.0,
+                next_review_at="2026-01-01T11:00:00+00:00",
+            )
+            self._make_due(
+                "older-due", last_review_at=base, stability=5.0, difficulty=5.0,
+                next_review_at="2026-01-01T10:00:00+00:00",
+            )
+            due = db.due_words_for_user(1)
+            self.assertEqual(due[0]["word"], "older-due")
+
+    def test_lower_id_final_tiebreaker(self):
+        now = dt.datetime(2026, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc)
+        base = (now - dt.timedelta(days=3)).isoformat()
+        with patch("services.db.words._utc_now", return_value=now), patch(
+            "services.db.words._today", return_value=dt.date(2026, 1, 1)
+        ):
+            first = self._make_due(
+                "first-id", last_review_at=base, stability=5.0, difficulty=5.0,
+                next_review_at="2026-01-01T11:00:00+00:00",
+            )
+            self._make_due(
+                "second-id", last_review_at=base, stability=5.0, difficulty=5.0,
+                next_review_at="2026-01-01T11:00:00+00:00",
+            )
+            due = db.due_words_for_user(1)
+            self.assertEqual([r["id"] for r in due], [first, first + 1])
+
+    def test_zero_stability_does_not_crash(self):
+        now = dt.datetime(2026, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc)
+        base = (now - dt.timedelta(days=3)).isoformat()
+        with patch("services.db.words._utc_now", return_value=now), patch(
+            "services.db.words._today", return_value=dt.date(2026, 1, 1)
+        ):
+            self._make_due(
+                "zero-stab", last_review_at=base, stability=0.0, difficulty=5.0,
+                next_review_at="2026-01-01T11:00:00+00:00",
+            )
+            due = db.due_words_for_user(1)
+            self.assertEqual(len(due), 1)
+
+    def test_fractional_elapsed_uses_hours_not_day_truncation(self):
+        # Same-day due (elapsed < 1 day) must compute a real R: among two
+        # same-day cards with equal stability/difficulty, the one that has
+        # been exposed longer (lower R) must sort first. A day-truncated
+        # elapsed (0 or full-day) would tie them and fall to the id tiebreak,
+        # failing this assertion.
+        now = dt.datetime(2026, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc)
+        with patch("services.db.words._utc_now", return_value=now), patch(
+            "services.db.words._today", return_value=dt.date(2026, 1, 1)
+        ):
+            self._make_due(
+                "same-day-short", last_review_at="2026-01-01T11:00:00+00:00",
+                stability=5.0, difficulty=5.0,
+                next_review_at="2026-01-01T11:30:00+00:00",
+            )
+            self._make_due(
+                "same-day-long", last_review_at="2026-01-01T06:00:00+00:00",
+                stability=5.0, difficulty=5.0,
+                next_review_at="2026-01-01T11:30:00+00:00",
+            )
+            due = db.due_words_for_user(1)
+            # longer elapsed -> lower R -> higher priority -> first
+            self.assertEqual(due[0]["word"], "same-day-long")
+            self.assertEqual({r["word"] for r in due}, {"same-day-short", "same-day-long"})
+
+    def test_tier2_manual_words_before_legacy_auto(self):
+        now = _NOW_ISO  # defined below
+        with db.get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "INSERT INTO saved_words (user_id, word, lang, normalized_word, "
+                "entry_source, first_exposure_done, added_at) "
+                "VALUES (1,'auto-late','en','auto-late','legacy_daily',0,?)",
+                (now,),
+            )
+            conn.execute(
+                "INSERT INTO saved_words (user_id, word, lang, normalized_word, "
+                "entry_source, first_exposure_done, added_at) "
+                "VALUES (1,'auto-early','en','auto-early','legacy_daily',0,?)",
+                (_NOW_ISO_EARLY,),
+            )
+            conn.execute(
+                "INSERT INTO saved_words (user_id, word, lang, normalized_word, "
+                "entry_source, first_exposure_done, added_at) "
+                "VALUES (1,'manual-late','en','manual-late','manual',0,?)",
+                (now,),
+            )
+            conn.execute(
+                "INSERT INTO saved_words (user_id, word, lang, normalized_word, "
+                "entry_source, first_exposure_done, added_at) "
+                "VALUES (1,'manual-early','en','manual-early','manual',0,?)",
+                (_NOW_ISO_EARLY,),
+            )
+            conn.commit()
+        # manual group first (added_at ASC), then legacy AUTO group (added_at ASC)
+        words = [r["word"] for r in db.get_pre_first_exposure_words(1)]
+        self.assertEqual(words, ["manual-early", "manual-late", "auto-early", "auto-late"])
 
 
 class CallbackAnswerTests(unittest.IsolatedAsyncioTestCase):

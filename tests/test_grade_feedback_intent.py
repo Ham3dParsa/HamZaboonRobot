@@ -82,6 +82,8 @@ class GradeFeedbackIntentTests(unittest.TestCase):
 
     # --- Success: regular review (grade 3) ---
     def test_srs_review_success_uses_success_intent(self):
+        # Regular review only succeeds on an exposed card; expose it first.
+        self.assertTrue(db.grade_first_exposure(self.word_id, 3, 1).ok)
         query = self._query()
         update = self._update(query)
         ctx = self._context()

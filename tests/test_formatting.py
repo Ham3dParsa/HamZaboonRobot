@@ -1,5 +1,10 @@
 import unittest
-from services.utils.formatting import escape_mdv2, escape_mdv2_code, html_escape
+from services.utils.formatting import (
+    escape_mdv2,
+    escape_mdv2_code,
+    format_next_review_text,
+    html_escape,
+)
 
 
 PERSIAN_ENGLISH_MIXED = (
@@ -106,3 +111,60 @@ class TestHtmlEscape(unittest.TestCase):
     def test_falsy_non_strings_are_stringified(self):
         self.assertEqual(html_escape(0), "0")
         self.assertEqual(html_escape(False), "False")
+
+
+class TestNextReviewText(unittest.TestCase):
+    """format_next_review_text renders the locked Persian relative-time copy."""
+
+    def test_sub_day_hours(self):
+        # 5h interval -> "حدود ۵ ساعت دیگر"
+        self.assertEqual(
+            format_next_review_text(5 * 3600),
+            "ثبت شد؛ مرور بعدی: حدود ۵ ساعت دیگر.",
+        )
+
+    def test_one_day_rounded_is_farda(self):
+        # 24h exactly -> "فردا"
+        self.assertEqual(
+            format_next_review_text(24 * 3600),
+            "ثبت شد؛ مرور بعدی: فردا.",
+        )
+
+    def test_multi_day_rounds_days(self):
+        # 3 days -> "۳ روز دیگر"
+        self.assertEqual(
+            format_next_review_text(3 * 24 * 3600),
+            "ثبت شد؛ مرور بعدی: ۳ روز دیگر.",
+        )
+
+    def test_sub_hour_floor_at_one_hour(self):
+        # 30 minutes -> floor to "حدود ۱ ساعت دیگر" (never 0)
+        self.assertEqual(
+            format_next_review_text(1800),
+            "ثبت شد؛ مرور بعدی: حدود ۱ ساعت دیگر.",
+        )
+
+    def test_none_falls_back_to_generic_copy(self):
+        self.assertEqual(
+            format_next_review_text(None),
+            "ثبت شد؛ مرور بعدی زمان‌بندی شد.",
+        )
+
+    def test_zero_interval_generic_copy(self):
+        self.assertEqual(
+            format_next_review_text(0),
+            "ثبت شد؛ مرور بعدی زمان‌بندی شد.",
+        )
+
+    def test_just_below_24h_uses_hours_form(self):
+        # 23.7h is still a sub-24h interval -> hours form (boundary fix).
+        self.assertEqual(
+            format_next_review_text(int(23.7 * 3600)),
+            "ثبت شد؛ مرور بعدی: حدود ۲۴ ساعت دیگر.",
+        )
+
+    def test_exactly_24h_is_farda(self):
+        self.assertEqual(
+            format_next_review_text(24 * 3600),
+            "ثبت شد؛ مرور بعدی: فردا.",
+        )

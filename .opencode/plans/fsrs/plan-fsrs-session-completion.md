@@ -7,7 +7,9 @@ branch: multiple-see-release-boundaries
 status: in-progress
 ---
 
-STATE: phase 1/6 — status: in-progress — focus: Ticket 01 pre-commit gate
+STATE: phase 5/6 — status: in-progress — Phases 1-5 committed on
+`feat/phase-3b-fsrs-scheduling`; PR #336 CI green (label, test 3.10, test 3.13);
+awaiting Kilo review + Phase 6 release gate before merge
 
 # FSRS Session Completion — Locked Spec and Main Plan
 
@@ -71,6 +73,7 @@ latest `origin/main`.
 | 11 | Due priority | Retrievability ASC, difficulty DESC, due timestamp ASC, ID ASC | Overdue-only; ID-only; unstable DB order | Deterministic DSR priority with difficulty used only after equal retrievability | Owner custom answer: higher difficulty is more urgent on equal R | LOCKED |
 | 12 | Session/quota interaction | Same-day card appears in a later session; no current-session requeue; no quota bypass | Bonus session; current-session requeue | Uses current DB-driven 2-5 sessions/day and avoids quota/product expansion | "Due in a later session"; "Do not bypass quotas" | LOCKED |
 | 13 | AI cost | No new AI calls or tokens | Any new generation/validation request | FSRS scheduling remains provider-independent | Locked scope conclusion | LOCKED |
+| 14 | Tier-2 ordering | Manual/Word-Query (`entry_source='manual'`) cards before legacy AUTO before first exposure; `added_at ASC` within each group | Keep added_at ASC only | Manual-first within each group | Prioritizes user-initiated Word-Query cards; AUTO cards surface after | Owner custom: "manual cards originated from word query have more priority since asked and added by user" (2026-08-13) | LOCKED |
 
 ## Amended Previous Decisions
 
@@ -231,6 +234,8 @@ handler state, tests, and documentation only.
 - 2026-08-09: Contract locked; `/to-tickets` breakdown approved.
 - 2026-08-09: Plan persisted in build mode; implementation initially blocked pending owner decision and admin-AI PR completion.
 - 2026-08-09: Owner instructed implementation; PR #287 verified merged; isolated branch/worktree created from `origin/main` at `6ab4d40`; baseline `python -m pytest tests/ -n 14` passed (594 tests).
+- 2026-08-13: Rule 14 locked (manual/Word-Query tier-2 ordering, owner custom answer). Phase 04 committed `f7d35be`; Phase 05 committed `be97597` (guards + relative time; owner locked telemetry log-and-continue and 23.5-24h formatter boundary). PR #336 CI green; full suite 847+153 green. Phases 1-5 implemented; awaiting Kilo review and Phase 6 release gate.
+- 2026-08-13: Owner accepted Kilo's `enable_short_term` finding as a deliberate Rule-7 decision: production keeps the library default `True`; the standalone simulators (`tools/Fsrs_simulation_v5`, `tools/fsrs-replay`) are outdated research tools and are intentionally left hard-coding `False`. Also fixed Kilo perf suggestion (single `_row_effective_due` parse per due row) and `project_status.json` Phase-3b wiring row.
 
 ## Blocked Questions
 

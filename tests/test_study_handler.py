@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from services import db
 from services.db import schema as db_schema
-from handlers import study_handler
 from handlers.study_handler import (
     SessionState,
     advance_session,
@@ -304,7 +303,6 @@ class TestAdvanceSession(_BaseStudyHandlerTest):
 
     @patch("handlers.study_handler.generate_tier3_node", return_value=None)
     def test_session_complete_when_no_nodes(self, mock_tier3):
-        from services.session import SessionNode
         state = self._make_state([], total_cards=3)
         ctx = self._context()
         ctx.user_data["current_session"] = state
@@ -317,7 +315,6 @@ class TestAdvanceSession(_BaseStudyHandlerTest):
     @patch("handlers.study_handler.generate_tier3_node", return_value=None)
     def test_session_complete_with_remaining_slots_in_context(self, mock_tier3):
         """B1 fix: tier3_context with remaining_slots must not crash generate_tier3_node."""
-        from services.session import SessionNode
         # Simulate a session that had fewer than max_nodes cards (common case)
         # tier3_context will include remaining_slots > 0 from build_session_list
         state = self._make_state([], total_cards=2)
@@ -479,6 +476,9 @@ class TestStudyStartEntryPoints(_BaseStudyHandlerTest):
         # armed (test_reliability sets bot._telegram_offline=True and never
         # restores it). Reset so callback_router reaches the grade handler.
         bot._telegram_offline = False
+        # A Tier-1 srs_review node only exists for an exposed card; expose it
+        # first (Phase-05 handler refuses to record a review on an unexposed card).
+        self.assertTrue(db.grade_first_exposure(word_id, 3, 1).ok)
         grade_update = MagicMock()
         grade_update.effective_user.id = 1
         grade_update.callback_query = MagicMock()

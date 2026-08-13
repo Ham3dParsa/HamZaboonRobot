@@ -4,10 +4,11 @@ description: Integrate GradeResult into Telegram grading, relative Persian time,
 created: 2026-08-09
 base_commit: same-behavior-branch-after-phase-04
 branch: feat/phase-3b-fsrs-scheduling
-status: blocked
+status: done
 ---
 
-STATE: phase 5/6 — status: blocked — focus: wait for grading and due-priority phases on behavior branch
+STATE: phase 5/6 — status: done — committed; full suite 847+153 green;
+independent review clean after owner-locked telemetry + boundary decisions
 
 # Ticket 05 — Handler, UX, and Integration
 
@@ -97,9 +98,15 @@ free=2, bronze=3, silver=3, gold=4, emerald=5 sessions/day
 Scheduling commits before `record_review_event`. If telemetry fails:
 
 - The saved-word schedule remains advanced.
-- The handler follows the existing error path.
+- The failure is **logged and swallowed** (`_record_event_guarded`): the
+  streak, SUCCESS toast, and session advance still run, so learning progress
+  is never blocked by analytics persistence (master Rule 10).
 - A missing event is logged/reviewable, but the card is not shown repeatedly
   merely because analytics persistence failed.
+
+> Owner decision (2026-08-13): "Log & continue" — master Rule 10 wins over the
+> phase-05 plan's earlier "handler follows the existing error path" wording.
+> That wording is superseded; the handler must not propagate telemetry errors.
 
 ## Callback/Wiring Rows
 
@@ -135,13 +142,13 @@ transitions.
 
 | Step | Action | Status | Evidence |
 |---|---|---|---|
-| 1 | Rewrite invalid fixtures and add failing integration tests | blocked | — |
-| 2 | Add relative-time formatter tests and implementation | pending | — |
-| 3 | Integrate GradeResult into first-exposure handler | pending | — |
-| 4 | Integrate GradeResult into regular-review handler | pending | — |
-| 5 | Add later-session/quota/telemetry-failure integration coverage | pending | — |
-| 6 | Run focused handler/wiring/formatting tests | pending | — |
-| 7 | Mark behavior branch mergeable only after all Phase 3-5 tests pass | pending | — |
+| 1 | Rewrite invalid fixtures and add failing integration tests | done | test_srs_staged_reveal + integration updated to valid exposed fixtures |
+| 2 | Add relative-time formatter tests and implementation | done | `format_next_review_text` + 8 tests (incl. 23.5-24h boundary) |
+| 3 | Integrate GradeResult into first-exposure handler | done | `if not result.ok` guard |
+| 4 | Integrate GradeResult into regular-review handler | done | `if not result.ok` guard |
+| 5 | Add later-session/quota/telemetry-failure integration coverage | done | LaterSessionAndTelemetryTest + grade_feedback_intent updated |
+| 6 | Run focused handler/wiring/formatting tests | done | 194 focused green; full suite 847+153 green |
+| 7 | Mark behavior branch mergeable only after all Phase 3-5 tests pass | pending | Phase 6 release gate |
 
 ## Acceptance Criteria
 

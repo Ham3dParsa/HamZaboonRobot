@@ -76,7 +76,7 @@ class FSRSConfig:
     first_exposure_stability: MappingProxyType = field(default_factory=lambda: FIRST_EXPOSURE_STABILITY)
     desired_retention: float = DESIRED_RETENTION_DEFAULT
     maximum_interval: int = 365
-    enable_short_term: bool = False
+    enable_short_term: bool = True
     name: str = "default"
 
 

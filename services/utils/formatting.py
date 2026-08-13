@@ -14,6 +14,27 @@ SRS_HIDDEN_INSTRUCTION = (
 SRS_REVEAL_QUESTION = "🧠 آیا واقعاً درست به یادش آوردی، یا می‌خواهی باز هم یادآوری شود?"
 
 
+def format_next_review_text(interval_seconds: int | None) -> str:
+    """Persian relative next-review toast for successful grades (Rule 9).
+
+    ``interval_seconds`` is the exact scheduled interval. Display rounds:
+       < 24h    -> «حدود N ساعت دیگر»
+       = 1 day  -> «فردا»
+       > 1 day  -> «N روز دیگر»
+    A missing or zero interval falls back to a neutral scheduling line.
+    The full toast carries the learner-facing copy verbatim for testability.
+    """
+    if not interval_seconds:
+        return "ثبت شد؛ مرور بعدی زمان‌بندی شد."
+    if interval_seconds < 86400:
+        hours = max(1, round(interval_seconds / 3600))
+        return f"ثبت شد؛ مرور بعدی: حدود {to_persian_digits(hours)} ساعت دیگر."
+    days = round(interval_seconds / 86400)
+    if days <= 1:
+        return "ثبت شد؛ مرور بعدی: فردا."
+    return f"ثبت شد؛ مرور بعدی: {to_persian_digits(days)} روز دیگر."
+
+
 def escape_mdv2(text: str) -> str:
     """Escape کامل‌تر برای MarkdownV2"""
     if not text:

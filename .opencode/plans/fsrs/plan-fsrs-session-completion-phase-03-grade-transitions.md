@@ -4,10 +4,10 @@ description: Implement timestamp-aware first-exposure and regular-review FSRS st
 created: 2026-08-09
 base_commit: pending-phase-02-merge
 branch: feat/phase-3b-fsrs-scheduling
-status: blocked
+status: in-progress
 ---
 
-STATE: phase 3/6 — status: blocked — focus: wait for timestamp schema merge; do not merge this phase without Phases 4-5
+STATE: phase 3/6 — status: in-progress — GradeResult + both grade transactions implemented, tests green, review approved; branch NOT mergeable until Phases 4-5
 
 # Ticket 03 — FSRS Grade Transitions
 
@@ -139,12 +139,12 @@ srs_retry_attempts = 0
 
 | Step | Action | Status | Evidence |
 |---|---|---|---|
-| 1 | Create behavior branch from Phase 2 merge | blocked | — |
-| 2 | Delete/replace vacuous grading expectations with failing state tests | pending | — |
-| 3 | Enable short-term config and implement `GradeResult` | pending | — |
-| 4 | Implement first-exposure transaction | pending | — |
-| 5 | Implement regular-review transaction | pending | — |
-| 6 | Run focused core/DB grading tests | pending | — |
+| 1 | Create behavior branch from Phase 2 merge | done | feat/phase-3b-fsrs-scheduling from 946c268 |
+| 2 | Delete/replace vacuous grading expectations with failing state tests | done | tests/test_fsrs_grade_transitions.py RED (12 fail) |
+| 3 | Enable short-term config and implement `GradeResult` | done | fsrs_core default True; GradeResult + helpers in words.py |
+| 4 | Implement first-exposure transaction | done | grade_first_exposure atomic, Rule A genesis |
+| 5 | Implement regular-review transaction | done | grade_word_review atomic, short-term/long-term chain |
+| 6 | Run focused core/DB grading tests | done | 111 passed; full suite 821 + 153 subtests green; review APPROVED |
 | 7 | Continue directly to Phase 4 without merging | pending | — |
 
 ## Acceptance Criteria
