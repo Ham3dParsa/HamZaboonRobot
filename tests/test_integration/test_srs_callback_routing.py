@@ -75,12 +75,23 @@ class CallbackRoutingTest(unittest.TestCase):
 
         from bot import callback_router
 
+        # A regular-review grade on an unexposed card is a harmless wrong_state:
+        # the router still reaches the handler, but no telemetry/advance occurs.
+        update = self._make_update(f"srs:3:1:{word_id}")
+        ctx = self._make_context()
+        asyncio.run(callback_router(update, ctx))
+        self.assertEqual(self._events(), [])
+        self.assertTrue(update.callback_query.answer.await_count >= 1)
+
+        # Expose the card, then a regular review persists a grade + event.
+        self.assertTrue(db.grade_first_exposure(word_id, 3, 1).ok)
         update = self._make_update(f"srs:3:1:{word_id}")
         ctx = self._make_context()
         asyncio.run(callback_router(update, ctx))
         events = self._events()
-        self.assertTrue(len(events) >= 1, "Expected at least one review event")
+        self.assertEqual(len(events), 1, "Expected exactly one review event")
         self.assertEqual(events[-1]["grade"], 3)
+        self.assertEqual(events[-1]["activity_type"], "srs_review")
 
     def test_invalid_grade_value_rejected(self):
         from bot import callback_router
@@ -289,6 +300,123 @@ class QueryAddEntrySourceTest(unittest.TestCase):
                 "SELECT entry_source FROM saved_words WHERE user_id=1 AND word='world'"
             ).fetchone()
         self.assertEqual(row["entry_source"], "manual")
+
+
+class LaterSessionAndTelemetryTest(unittest.TestCase):
+    """Phase-05 integration: exact-due later-session and telemetry separation."""
+
+    def setUp(self):
+        import bot
+
+        self.offline_patcher = patch.object(bot, "_telegram_offline", False)
+        self.offline_patcher.start()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.previous_db_path = db.DB_PATH
+        self.previous_db_schema_path = db_schema.DB_PATH
+        new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db.DB_PATH = new_path
+        db_schema.DB_PATH = new_path
+        db.init_db()
+        db.create_user_if_needed(1, "learner")
+        db.set_user_lang_goal(1, "en", "general")
+        db.set_user_level(1, "beginner")
+
+    def tearDown(self):
+        self.offline_patcher.stop()
+        db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
+        self.tempdir.cleanup()
+
+    def _make_due_card(self, word, next_review_at):
+        card = {
+            "word": word,
+            "fa_meaning": "م",
+            "fa_explanation": "ت",
+            "examples": ["A!"],
+            "example_translations": ["م!"],
+        }
+        db.add_saved_word(1, word, "en", card)
+        with db.get_conn() as conn:
+            row = conn.execute(
+                "SELECT id FROM saved_words WHERE user_id=1 AND word=?", (word,)
+            ).fetchone()
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "UPDATE saved_words SET first_exposure_done=1, "
+                "last_review_at=?, next_review_at=?, stability=2.0, "
+                "difficulty=5.0, review_status='idle' WHERE id=? AND user_id=?",
+                ("2026-01-01T00:00:00+00:00", next_review_at, row["id"], 1),
+            )
+            conn.commit()
+        return row["id"]
+
+    def test_card_absent_before_exact_due_then_present_after(self):
+        """Rule 7/12: exact-timestamp due — same-day card appears only after due."""
+        import datetime as dt
+
+        now = dt.datetime(2026, 1, 5, 12, 0, 0, tzinfo=dt.timezone.utc)
+        word_id = self._make_due_card(
+            "later", "2026-01-05T16:00:00+00:00",
+        )
+        with patch("services.db.words._utc_now", return_value=now), patch(
+            "services.db.words._today", return_value=dt.date(2026, 1, 5)
+        ):
+            due_now = [r["word"] for r in db.due_words_for_user(1)]
+            self.assertNotIn("later", due_now, "must not appear before exact due")
+        later = dt.datetime(2026, 1, 5, 16, 0, 0, tzinfo=dt.timezone.utc)
+        with patch("services.db.words._utc_now", return_value=later), patch(
+            "services.db.words._today", return_value=dt.date(2026, 1, 5)
+        ):
+            due_later = [r["word"] for r in db.due_words_for_user(1)]
+            self.assertIn("later", due_later, "must appear in a later session after due")
+
+    def test_telemetry_failure_keeps_schedule_committed(self):
+        """Rule 10: scheduling commits before review_events; a telemetry failure
+        is logged and swallowed so learning progress (streak/toast/advance) is
+        not blocked and the advanced schedule is never rolled back."""
+        from handlers.srs_handler import _handle_srs_review
+
+        word_id = self._make_due_card("tel", "2026-01-01T00:00:00+00:00")
+        with db.get_conn() as conn:
+            row = conn.execute(
+                "SELECT next_review_at FROM saved_words WHERE id=?", (word_id,)
+            ).fetchone()
+            self.assertIsNotNone(row["next_review_at"])
+
+        query = MagicMock()
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        query.message = MagicMock()
+        update = MagicMock()
+        update.effective_user.id = 1
+        update.callback_query = query
+        ctx = MagicMock()
+        ctx.user_data = {}
+
+        with patch(
+            "services.db.words._utc_now",
+            return_value=__import__("datetime").datetime(2026, 1, 1, 12, 0, 0, tzinfo=__import__("datetime").timezone.utc),
+        ):
+            with patch.object(db, "record_review_event", side_effect=RuntimeError("analytics down")):
+                # Must NOT raise: the failure is logged and swallowed.
+                asyncio.run(_handle_srs_review(update, 3, "1", str(word_id), ctx))
+
+        with db.get_conn() as conn:
+            row = conn.execute(
+                "SELECT last_review_at, next_review_at, review_status "
+                "FROM saved_words WHERE id=?", (word_id,)
+            ).fetchone()
+        self.assertIsNotNone(row["last_review_at"], "schedule was advanced")
+        self.assertIsNotNone(row["next_review_at"], "next review persisted")
+        self.assertEqual(row["review_status"], "idle")
+        with db.get_conn() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) c FROM review_events WHERE word_id=?", (word_id,)
+            ).fetchone()["c"]
+        self.assertEqual(count, 0, "failed telemetry wrote no event, but schedule held")
+        # Learning progress is not blocked: the success toast and session advance
+        # still run despite the swallowed telemetry failure.
+        self.assertTrue(query.answer.await_count >= 1)
 
 
 if __name__ == "__main__":

@@ -12,10 +12,34 @@ from config import USER_ACTIVITY
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _user_activity_line
 from services.session import resolve_grade
+from services.utils.formatting import format_next_review_text
 from config.keyboards import query_result_keyboard
 from handlers.study_handler import advance_session
 
 logger = logging.getLogger(__name__)
+
+
+def _grade_error_text(reason: str) -> str:
+    """Persian copy for a failed GradeResult (Rule 8: expected errors alert)."""
+    if reason == "not_found":
+        return "این واژه در مرور شما پیدا نشد."
+    if reason == "wrong_state":
+        return "این واژه در وضعیت مرور نیست؛ دوباره از جلسهٔ مطالعه شروع کنید."
+    return "ثبت نشد؛ دوباره تلاش کنید."
+
+
+def _record_event_guarded(*args, **kwargs):
+    """Persist a review event without blocking learning progress (Rule 10).
+
+    Scheduling has already committed before this call. A telemetry failure
+    (e.g. a DB lock burst) is logged and swallowed so the streak, success toast,
+    and session advance still run — the card is not re-shown merely because
+    analytics persistence failed.
+    """
+    try:
+        db.record_review_event(*args, **kwargs)
+    except Exception:
+        logger.exception("record_review_event failed word_id=%s user_id=%s", kwargs.get("word_id"), kwargs.get("user_id"))
 
 
 def _log_ua(update: Update, action: str, outcome: str):
@@ -81,22 +105,26 @@ async def _handle_srs_review(
     if user_id != target_user_id:
         await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
-    row = db.get_saved_word(word_id, user_id=user_id)
-    if not row:
-        await notify_callback(update.callback_query, "این واژه در مرور شما پیدا نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-        return
     resolved = resolve_grade("srs_review", grade)
-    db.grade_word_review(word_id, resolved, user_id)
+    result = db.grade_word_review(word_id, resolved, user_id)
+    if not result.ok:
+        # Expected failure: do NOT record telemetry, touch streak, or advance.
+        await notify_callback(
+            update.callback_query,
+            _grade_error_text(result.reason),
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
     shown_at = context.user_data.pop(f"card_shown_at_{word_id}", None)
     response_time_ms = None
     if shown_at is not None:
         elapsed = time.time() - shown_at
         response_time_ms = max(0, int(elapsed * 1000))
-    db.record_review_event(
-        word_id,
-        user_id,
-        resolved,
-        "srs_review",
+    _record_event_guarded(
+        word_id=word_id,
+        user_id=user_id,
+        grade=resolved,
+        activity_type="srs_review",
         grade_source="direct_button",
         raw_signal=json.dumps({"button_value": grade}),
         response_time_ms=response_time_ms,
@@ -104,7 +132,7 @@ async def _handle_srs_review(
     db.touch_streak(user_id)
     await notify_callback(
         update.callback_query,
-        "ثبت شد؛ مرور بعدی زمان‌بندی شد.",
+        format_next_review_text(result.interval_seconds),
         intent=CallbackNoticeIntent.SUCCESS,
     )
     _log_ua(update, action="srs_review", outcome=f"grade_{grade}")
@@ -136,25 +164,33 @@ async def _handle_first_exposure_grade(
     if user_id != target_user_id:
         await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
-    row = db.get_saved_word(word_id, user_id=user_id)
-    if not row:
-        await notify_callback(update.callback_query, "این واژه در مرور شما پیدا نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-        return
     resolved = resolve_grade("first_exposure", grade)
-    db.grade_first_exposure(word_id, resolved, user_id)
+    result = db.grade_first_exposure(word_id, resolved, user_id)
+    if not result.ok:
+        # Expected failure (e.g. double tap): no telemetry, streak, or advance.
+        await notify_callback(
+            update.callback_query,
+            _grade_error_text(result.reason),
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
     # response_time_ms intentionally omitted for first-exposure:
     # there is no recall attempt, just a familiarity rating, so
     # the signal is not comparable to regular-review response time.
-    db.record_review_event(
-        word_id,
-        user_id,
-        resolved,
-        "first_exposure",
+    _record_event_guarded(
+        word_id=word_id,
+        user_id=user_id,
+        grade=resolved,
+        activity_type="first_exposure",
         grade_source="direct_button",
         raw_signal=json.dumps({"button_value": grade}),
         response_time_ms=None,
     )
     db.touch_streak(user_id)
-    await notify_callback(update.callback_query, "ثبت شد.", intent=CallbackNoticeIntent.SUCCESS)
+    await notify_callback(
+        update.callback_query,
+        format_next_review_text(result.interval_seconds),
+        intent=CallbackNoticeIntent.SUCCESS,
+    )
     _log_ua(update, action="first_exposure", outcome=f"grade_{grade}")
     await advance_session(update, context)

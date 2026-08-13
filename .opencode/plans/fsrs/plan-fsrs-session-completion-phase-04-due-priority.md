@@ -4,11 +4,10 @@ description: Select exact timestamp-due Tier-1 cards and order them deterministi
 created: 2026-08-09
 base_commit: same-behavior-branch-after-phase-03
 branch: feat/phase-3b-fsrs-scheduling
-status: implementing
+status: done
 ---
 
-STATE: phase 4/6 — status: implementing — owner locked rule 14 (2026-08-13);
-TDD RED+GREEN complete (12 tests); awaiting independent review before commit
+STATE: phase 4/6 — status: done — committed f7d35be; 12 tests green; full suite 835+153 green; independent review clean
 
 # Ticket 04 — Due Selection and DSR Priority
 
@@ -104,7 +103,7 @@ owner specified. The final date/ID keys make ordering restart-safe and testable.
 | 3 | Replace overdue SQL ordering with DSR Python ordering | done | `due_words_for_user` sorts in Python |
 | 4 | Update session-engine mocks/expectations only where behavior changed | done | No change needed; assembly tests mock these functions |
 | 5 | Run focused DB/session tests | done | 12/12 green; 140 focused; 835 full suite + subtests green |
-| 6 | Continue directly to Phase 5 without merging | pending | — |
+| 6 | Continue directly to Phase 5 without merging | pending | proceed to Phase 05 plan |
 
 ## Acceptance Criteria
 
