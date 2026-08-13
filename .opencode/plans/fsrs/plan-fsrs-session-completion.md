@@ -71,6 +71,7 @@ latest `origin/main`.
 | 11 | Due priority | Retrievability ASC, difficulty DESC, due timestamp ASC, ID ASC | Overdue-only; ID-only; unstable DB order | Deterministic DSR priority with difficulty used only after equal retrievability | Owner custom answer: higher difficulty is more urgent on equal R | LOCKED |
 | 12 | Session/quota interaction | Same-day card appears in a later session; no current-session requeue; no quota bypass | Bonus session; current-session requeue | Uses current DB-driven 2-5 sessions/day and avoids quota/product expansion | "Due in a later session"; "Do not bypass quotas" | LOCKED |
 | 13 | AI cost | No new AI calls or tokens | Any new generation/validation request | FSRS scheduling remains provider-independent | Locked scope conclusion | LOCKED |
+| 14 | Tier-2 ordering | Manual/Word-Query (`entry_source='manual'`) cards before legacy AUTO before first exposure; `added_at ASC` within each group | Keep added_at ASC only | Manual-first within each group | Prioritizes user-initiated Word-Query cards; AUTO cards surface after | Owner custom: "manual cards originated from word query have more priority since asked and added by user" (2026-08-13) | LOCKED |
 
 ## Amended Previous Decisions
 

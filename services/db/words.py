@@ -157,8 +157,67 @@ def update_saved_word_fields(
         return True
 
 
+def _row_effective_due(row, now: datetime.datetime):
+    """Return the exact due instant for an eligible due row, else None.
+
+    ``next_review_at`` (exact UTC) wins when present; otherwise fall back to
+    the legacy ``next_review`` date compared against the APP_TIMEZONE day. The
+    returned value is a timezone-aware UTC ``datetime`` usable both for
+    eligibility and as an ordering key.
+    """
+    raw_ts = row["next_review_at"]
+    if raw_ts:
+        try:
+            ts = _parse_utc(raw_ts)
+        except (TypeError, ValueError):
+            ts = None
+        if ts is not None:
+            return ts if ts <= now else None
+    raw_date = row["next_review"]
+    if raw_date:
+        try:
+            day = datetime.date.fromisoformat(raw_date)
+        except (TypeError, ValueError):
+            return None
+        if day <= _today():
+            start_local = datetime.datetime.combine(
+                day, datetime.time.min, tzinfo=_app_timezone
+            )
+            return start_local.astimezone(datetime.timezone.utc)
+    return None
+
+
+def _row_elapsed_days(row, now: datetime.datetime, eff_due) -> float:
+    """Fractional elapsed days used to compute retrievability for ordering.
+
+    Prefers the real time since ``last_review_at``; falls back to time since
+    the effective due instant so rows lacking a review timestamp still obtain
+    a deterministic (non-crashing) R without day-truncation of same-day cards.
+    """
+    last = row["last_review_at"]
+    try:
+        base = _parse_utc(last) if last else None
+    except (TypeError, ValueError):
+        base = None
+    if base is None:
+        base = eff_due
+    if base is None:
+        return 0.0
+    return max(0.0, (now - base).total_seconds() / 86400)
+
+
+def _row_priority_key(row, now: datetime.datetime):
+    """DSR priority sort key: R ASC, difficulty DESC, due ASC, id ASC."""
+    s = row["stability"] if row["stability"] is not None else 0.1
+    s = s if s > 0 else 1e-9
+    d = row["difficulty"] if row["difficulty"] is not None else 5.0
+    eff_due = _row_effective_due(row, now)
+    elapsed = _row_elapsed_days(row, now, eff_due)
+    r = compute_retrievability(elapsed, s)
+    return (r, -d, eff_due, row["id"])
+
+
 def due_words_for_user(user_id: int):
-    today = _today().isoformat()
     grace_deadline = (
         _utc_now() - datetime.timedelta(hours=48)
     ).isoformat()
@@ -171,14 +230,16 @@ def due_words_for_user(user_id: int):
             (user_id, grace_deadline),
         )
         conn.commit()
-        return conn.execute(
-            "SELECT * FROM saved_words WHERE user_id=? AND next_review<=? "
+        rows = conn.execute(
+            "SELECT * FROM saved_words WHERE user_id=? "
             "AND COALESCE(first_exposure_done, 0)=1 "
             "AND COALESCE(review_status, 'idle')!='pending' "
-            "AND retry_at IS NULL "
-            "ORDER BY (julianday('now') - julianday(next_review)) DESC",
-            (user_id, today),
+            "AND retry_at IS NULL ",
+            (user_id,),
         ).fetchall()
+    now = _utc_now()
+    eligible = [r for r in rows if _row_effective_due(r, now) is not None]
+    return sorted(eligible, key=lambda r: _row_priority_key(r, now))
 
 
 def get_saved_word(word_id: int, user_id: int | None = None):
@@ -197,7 +258,7 @@ def get_pre_first_exposure_words(user_id):
     with get_conn() as conn:
         return conn.execute(
             "SELECT * FROM saved_words WHERE user_id=? AND first_exposure_done=0 "
-            "ORDER BY added_at ASC",
+            "ORDER BY CASE WHEN entry_source='manual' THEN 0 ELSE 1 END, added_at ASC",
             (user_id,),
         ).fetchall()
 

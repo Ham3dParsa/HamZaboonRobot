@@ -4,10 +4,11 @@ description: Select exact timestamp-due Tier-1 cards and order them deterministi
 created: 2026-08-09
 base_commit: same-behavior-branch-after-phase-03
 branch: feat/phase-3b-fsrs-scheduling
-status: blocked
+status: implementing
 ---
 
-STATE: phase 4/6 — status: blocked — focus: wait for Phase 3 transition helpers on behavior branch
+STATE: phase 4/6 — status: implementing — owner locked rule 14 (2026-08-13);
+TDD RED+GREEN complete (12 tests); awaiting independent review before commit
 
 # Ticket 04 — Due Selection and DSR Priority
 
@@ -20,7 +21,11 @@ STATE: phase 4/6 — status: blocked — focus: wait for Phase 3 transition help
 
 ## Contract Rules
 
-Rules 7, 11, and 12.
+Rules 7, 11, and 12, plus **owner-locked rule 14** (2026-08-13): Tier-2
+ordering prioritizes **manual/Word-Query** saves (`entry_source='manual'`)
+before **legacy AUTO** (`entry_source='legacy_daily'`), with `added_at ASC`
+within each group. Rationale (owner): user-initiated Word-Query cards carry
+more priority since the learner asked for them.
 
 ## Scope
 
@@ -28,7 +33,8 @@ Rules 7, 11, and 12.
 |---|---|
 | `services/db/words.py` | Update `due_words_for_user` timestamp eligibility and fallback |
 | `services/db/words.py` | Add private pure DSR ordering helper(s) |
-| Focused DB tests | Prove filters, timestamp boundary, fallback, and full sort key |
+| `services/db/words.py` | Tier-2 manual-first ordering in `get_pre_first_exposure_words` |
+| Focused DB tests | Prove filters, timestamp boundary, fallback, full sort key, Tier-2 order |
 | Session-engine tests | Preserve Tier-1 before Tier-2 assembly behavior |
 
 ## Eligibility Contract
@@ -93,11 +99,11 @@ owner specified. The final date/ID keys make ordering restart-safe and testable.
 
 | Step | Action | Status | Evidence |
 |---|---|---|---|
-| 1 | Write failing timestamp/filter/order tests | blocked | — |
-| 2 | Implement effective-due and elapsed helpers | pending | — |
-| 3 | Replace overdue SQL ordering with DSR Python ordering | pending | — |
-| 4 | Update session-engine mocks/expectations only where behavior changed | pending | — |
-| 5 | Run focused DB/session tests | pending | — |
+| 1 | Write failing timestamp/filter/order tests | done | 12 tests, RED confirmed |
+| 2 | Implement effective-due and elapsed helpers | done | `_row_effective_due`, `_row_elapsed_days`, `_row_priority_key` |
+| 3 | Replace overdue SQL ordering with DSR Python ordering | done | `due_words_for_user` sorts in Python |
+| 4 | Update session-engine mocks/expectations only where behavior changed | done | No change needed; assembly tests mock these functions |
+| 5 | Run focused DB/session tests | done | 12/12 green; 140 focused; 835 full suite + subtests green |
 | 6 | Continue directly to Phase 5 without merging | pending | — |
 
 ## Acceptance Criteria
