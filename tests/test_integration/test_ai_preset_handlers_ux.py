@@ -158,6 +158,20 @@ class AiPresetEditBackFlowTest(_Phase3AiPresetFlowBase):
         text = update.callback_query.edit_message_text.call_args.args[0]
         self.assertNotIn("پیشنویس", text)
 
+    def test_wizard_whitespace_draft_not_rendered(self):
+        # A whitespace-only draft must not render a near-empty "پیشنویس" line.
+        from handlers.admin_ai import _show_wizard_field, WIZARD_FIELDS
+
+        self._make_preset("drafty_ws", base_url="https://x")
+        preset = db.get_preset("drafty_ws")
+        ctx = self._make_context()
+        ctx.user_data["full_edit"] = {"preset": "drafty_ws", "field_idx": 0,
+                                      "values": {WIZARD_FIELDS[0]: "   "}}
+        update = self._make_callback_update("x")
+        asyncio.run(_show_wizard_field(update, ctx, "drafty_ws", 0, preset))
+        text = update.callback_query.edit_message_text.call_args.args[0]
+        self.assertNotIn("پیشنویس", text)
+
     def test_wizard_nonempty_draft_rendered(self):
         from handlers.admin_ai import _show_wizard_field, WIZARD_FIELDS
 
