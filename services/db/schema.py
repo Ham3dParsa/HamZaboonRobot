@@ -25,6 +25,40 @@ _LEGACY_DAILY_TABLES = frozenset(
     {"daily_cards", "daily_progress", "daily_card_sessions"}
 )
 
+# Canonical ai_presets column set. This is the single source of truth for the
+# table definition, reused by every CREATE so the fresh-DB schema and the
+# table-rebuild migration can never drift.
+_AI_PRESETS_COLUMNS = (
+    "name TEXT PRIMARY KEY",
+    "base_url TEXT",
+    "model TEXT",
+    "api_key TEXT NOT NULL DEFAULT ''",
+    "daily_batch_size INTEGER DEFAULT 6",
+    "max_concurrency INTEGER DEFAULT 2",
+    "max_rpm INTEGER DEFAULT 30",
+    "max_tpm INTEGER DEFAULT 0",
+    "max_daily_req INTEGER DEFAULT 0",
+    "timeout_seconds REAL DEFAULT 30.0",
+    "temperature REAL DEFAULT 0.6",
+    "max_output_tokens INTEGER DEFAULT 4096",
+    "priority INTEGER DEFAULT 0",
+    "enabled INTEGER DEFAULT 1",
+    "is_emergency INTEGER DEFAULT 0",
+    "input_cost_per_million REAL",
+    "output_cost_per_million REAL",
+    "group_label TEXT DEFAULT ''",
+    "in_fallback_chain INTEGER DEFAULT 1",
+)
+
+
+def _ai_presets_create_sql(if_not_exists: bool = False) -> str:
+    """Return a CREATE TABLE statement for ai_presets from the canonical column
+    set (single source of truth), so the fresh schema and the rebuild migration
+    can never drift. The rebuild uses a plain CREATE (no IF NOT EXISTS)."""
+    cols = ",\n                ".join(_AI_PRESETS_COLUMNS)
+    prefix = "CREATE TABLE IF NOT EXISTS " if if_not_exists else "CREATE TABLE "
+    return f"{prefix}ai_presets (\n                {cols}\n            );"
+
 
 def _today() -> datetime.date:
     return datetime.datetime.now(_app_timezone).date()
@@ -229,23 +263,6 @@ def init_db(path: str | None = None):
                 revealed_before_answer INTEGER NOT NULL DEFAULT 0,
                 outcome TEXT NOT NULL,
                 created_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS ai_presets (
-                name TEXT PRIMARY KEY,
-                base_url TEXT,
-                model TEXT,
-                api_key TEXT NOT NULL DEFAULT '',
-                daily_batch_size INTEGER DEFAULT 6,
-                max_concurrency INTEGER DEFAULT 2,
-                max_rpm INTEGER DEFAULT 30,
-                max_tpm INTEGER DEFAULT 0,
-                max_daily_req INTEGER DEFAULT 0,
-                timeout_seconds REAL DEFAULT 30.0,
-                temperature REAL DEFAULT 0.6,
-                max_output_tokens INTEGER DEFAULT 4096,
-                priority INTEGER DEFAULT 0,
-                enabled INTEGER DEFAULT 1,
-                is_emergency INTEGER DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS preset_hourly_usage (
                 preset_name TEXT NOT NULL,
@@ -513,27 +530,7 @@ def _init_ai_presets_table(conn):
     manual through the AI Preset Manager tool or the admin panel. A fresh
     database starts with zero presets.
     """
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ai_presets (
-            name TEXT PRIMARY KEY,
-            base_url TEXT,
-            model TEXT,
-            api_key TEXT NOT NULL DEFAULT '',
-            daily_batch_size INTEGER DEFAULT 6,
-            max_concurrency INTEGER DEFAULT 2,
-            max_rpm INTEGER DEFAULT 30,
-            max_tpm INTEGER DEFAULT 0,
-            max_daily_req INTEGER DEFAULT 0,
-            timeout_seconds REAL DEFAULT 30.0,
-            temperature REAL DEFAULT 0.6,
-            max_output_tokens INTEGER DEFAULT 4096,
-            priority INTEGER DEFAULT 0,
-            enabled INTEGER DEFAULT 1,
-            is_emergency INTEGER DEFAULT 0
-        );
-        """
-    )
+    conn.execute(_ai_presets_create_sql(if_not_exists=True))
     # Migrate missing columns for existing databases
     preset_columns = {
         row["name"]
@@ -593,34 +590,15 @@ def _init_ai_presets_table(conn):
     if "is_custom" in _cols:
         _keep = [c for c in _cols if c != "is_custom"]
         _cols_sql = ", ".join(_keep)
-        conn.execute("ALTER TABLE ai_presets RENAME TO ai_presets_old")
-        conn.execute(
-            """
-            CREATE TABLE ai_presets (
-                name TEXT PRIMARY KEY,
-                base_url TEXT,
-                model TEXT,
-                api_key TEXT NOT NULL DEFAULT '',
-                daily_batch_size INTEGER DEFAULT 6,
-                max_concurrency INTEGER DEFAULT 2,
-                max_rpm INTEGER DEFAULT 30,
-                max_tpm INTEGER DEFAULT 0,
-                max_daily_req INTEGER DEFAULT 0,
-                timeout_seconds REAL DEFAULT 30.0,
-                temperature REAL DEFAULT 0.6,
-                max_output_tokens INTEGER DEFAULT 4096,
-                priority INTEGER DEFAULT 0,
-                enabled INTEGER DEFAULT 1,
-                is_emergency INTEGER DEFAULT 0,
-                input_cost_per_million REAL,
-                output_cost_per_million REAL,
-                group_label TEXT DEFAULT '',
-                in_fallback_chain INTEGER DEFAULT 1
-            );
-            """
+        # api_key is NOT NULL in the canonical schema; coerce any legacy NULL to
+        # '' so the INSERT can never raise IntegrityError and block startup.
+        _sel_sql = ", ".join(
+            "COALESCE(api_key, '')" if c == "api_key" else c for c in _keep
         )
+        conn.execute("ALTER TABLE ai_presets RENAME TO ai_presets_old")
+        conn.execute(_ai_presets_create_sql())
         conn.execute(
-            f"INSERT INTO ai_presets({_cols_sql}) SELECT {_cols_sql} FROM ai_presets_old"
+            f"INSERT INTO ai_presets({_cols_sql}) SELECT {_sel_sql} FROM ai_presets_old"
         )
         conn.execute("DROP TABLE ai_presets_old")
     # Data fix (R3A): historical databases seeded before the "$ENV" convention
