@@ -132,7 +132,7 @@ class WordQueryAskFlowTests(unittest.TestCase):
         combined = "\n".join(self._sent_texts(context))
         self.assertIn("سلام", combined)
         self.assertIn("به منوی اصلی برگشتی", combined)
-        # The reply includes the usage line and a query_result_keyboard.
+        # The card carries a query_result_keyboard; usage lives in the closing message.
         markups = self._sent_markups(context)
         card_markup = next(
             (m for m in markups if m is not None and hasattr(m, "inline_keyboard")),
@@ -145,14 +145,53 @@ class WordQueryAskFlowTests(unittest.TestCase):
             for b in row
         ]
         self.assertTrue(
+            any(p.startswith("query:add:") for p in prefixes),
+            "delivered card must keep the add-to-review button",
+        )
+        self.assertFalse(
             any(p.startswith("query:prepare:") for p in prefixes),
-            "delivered card must keep the translations button",
+            "delivered card must not emit the removed translations button (R2/R3)",
         )
         # The query_kb token was persisted into user_data.
         query_tokens = [
             k for k in context.user_data if str(k).startswith("query_kb_")
         ]
         self.assertEqual(len(query_tokens), 1, "one query_kb_ token stored")
+
+    def test_card_renders_translation_spoilers_and_closing_has_usage(self):
+        """R1+R6 — translations show ON by default as spoilers; usage moves to closing."""
+        context = self._run(
+            call_ai_limited=self.card,
+            prepare_cached_card=self.card,
+        )
+        texts = self._sent_texts(context)
+        markups = self._sent_markups(context)
+        # The card is the message carrying the query_result_keyboard (query:add:);
+        # the closing message carries the main-menu markup and the return-to-menu line.
+        card_text = None
+        closing_text = None
+        for text, markup in zip(texts, markups):
+            if markup is None or not hasattr(markup, "inline_keyboard"):
+                continue
+            has_add = any(
+                b.callback_data.startswith("query:add:")
+                for row in markup.inline_keyboard
+                for b in row
+            )
+            if has_add:
+                card_text = text
+        closing_text = next(
+            (t for t in texts if "به منوی اصلی برگشتی" in t), None
+        )
+        self.assertIsNotNone(card_text, "card message not found")
+        self.assertIsNotNone(closing_text, "closing message not found")
+        # R1: translations render as MarkdownV2 spoilers with the prepared label.
+        self.assertIn("مثال\u200cها \\+ ترجمه", card_text, "R1: label reflects translations-prepared")
+        self.assertIn("||سلام\\!||", card_text, "R1: example translation renders as a spoiler")
+        # R6: usage line is NOT in the card footer, but IS in the closing message.
+        self.assertNotIn("استفاده امروز", card_text, "R6: usage must not be in the card footer")
+        self.assertIn("استفاده امروز", closing_text, "R6: usage must be in the closing message")
+        self.assertIn("به منوی اصلی برگشتی", closing_text, "R6: closing keeps the return-to-menu line")
 
     def test_quota_exhausted_sends_quota_message_and_skips_ai(self):
         # Reserve returns False -> ask() returns quota_exhausted without AI.

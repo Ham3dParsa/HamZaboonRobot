@@ -4,10 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from services.utils.validation import ERR_INVALID_CHARS
 from services.word_query import (
     AskResult,
-    PrepareResult,
     ToggleResult,
     ask,
-    prepare,
     toggle_save,
 )
 
@@ -235,85 +233,6 @@ class WordQueryAskTest(unittest.TestCase):
             self.assertEqual(result.kind, "ai_error")
             db.release_word_query.assert_called_once()
             db.create_query_result.assert_not_called()
-
-
-class WordQueryPrepareTest(unittest.TestCase):
-    async def _run(self, db, token="tok123", prepare_card=None, row=None):
-        if row is not None:
-            db.get_query_result.return_value = row
-        return await prepare(
-            token=token,
-            user_id=1,
-            prepare_card=prepare_card,
-        )
-
-    def test_expired_when_row_missing(self):
-        with patch("services.word_query.db") as db:
-            db.get_query_result.return_value = None
-            import asyncio
-
-            result = asyncio.run(self._run(db, row=None))
-            # get_query_result returned None -> expired
-            self.assertEqual(result.kind, "expired")
-
-    def test_not_found_when_user_missing(self):
-        with patch("services.word_query.db") as db:
-            db.get_query_result.return_value = {
-                "token": "tok1",
-                "lang": "fa",
-                "word": "apple",
-                "result_json": '{"word":"apple"}',
-            }
-            db.get_user.return_value = None
-            import asyncio
-
-            result = asyncio.run(self._run(db, token="tok1"))
-            self.assertEqual(result.kind, "not_found")
-
-    def test_card_prep_error(self):
-        from services.utils.formatting import CardPreparationError
-
-        async def bad(card, **kwargs):
-            raise CardPreparationError()
-
-        with patch("services.word_query.db") as db:
-            db.get_query_result.return_value = {
-                "token": "tok1",
-                "lang": "fa",
-                "word": "apple",
-                "result_json": '{"word":"apple"}',
-            }
-            db.get_user.return_value = {"id": 1, "plan": "free"}
-            import asyncio
-
-            result = asyncio.run(self._run(db, prepare_card=bad))
-            self.assertEqual(result.kind, "card_prep_error")
-
-    def test_ok_re_renders_prepared_card(self):
-        async def enrich(card, persist_patch=None, **kwargs):
-            card["fa_translations"] = ["ترجمه1"]
-            if persist_patch:
-                persist_patch({"fa_translations": card["fa_translations"]})
-            return card
-
-        with patch("services.word_query.db") as db:
-            db.get_query_result.return_value = {
-                "token": "tok1",
-                "lang": "fa",
-                "word": "apple",
-                "result_json": '{"word":"apple"}',
-            }
-            db.get_user.return_value = {"id": 1, "plan": "free"}
-            db.should_show_pronounce.return_value = True
-            import asyncio
-
-            result = asyncio.run(self._run(db, prepare_card=enrich))
-            self.assertEqual(result.kind, "ok")
-            self.assertEqual(result.card_data["fa_translations"], ["ترجمه1"])
-            db.update_query_result_fields.assert_called_once()
-            self.assertEqual(result.show_translations, False)
-            self.assertEqual(result.show_pronounce, True)
-            self.assertIsInstance(result, PrepareResult)
 
 
 class WordQueryToggleTest(unittest.TestCase):

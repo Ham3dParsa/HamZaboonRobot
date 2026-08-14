@@ -131,11 +131,6 @@ async def _edit_or_send(update: Update, context: ContextTypes.DEFAULT_TYPE, text
     return await update.message.reply_text(text, **kwargs)
 
 
-def _message_has_prepared_translations(update: Update) -> bool:
-    message = update.callback_query.message
-    return bool(message and "ترجمه‌ی مثال‌ها" in (message.text or ""))
-
-
 def _reset_telegram_cb():
     import bot
     bot._telegram_offline = False

@@ -34,7 +34,6 @@ IBTN_BRIEF = "خلاصه"
 IBTN_DETAILED = "کامل"
 
 # --- Daily Cards & Review ---
-IBTN_TRANSLATIONS = "✦ ترجمه مثال‌ها"
 
 # --- SRS 4-Grade (Review: recall-based) ---
 IBTN_SRS_AGAIN_REVIEW = "یادم نیامد ⭕"
@@ -299,7 +298,6 @@ def query_result_keyboard(
     token: str,
     lang: str | None = None,
     *,
-    show_translations: bool = False,
     show_pronounce: bool = False,
     saved: bool = False,
 ) -> InlineKeyboardMarkup:
@@ -312,13 +310,6 @@ def query_result_keyboard(
             callback_data=f"query:add:{token}",
         )
     ]
-    if show_translations:
-        buttons.append(
-            InlineKeyboardButton(
-                IBTN_TRANSLATIONS,
-                callback_data=f"query:prepare:{token}",
-            )
-        )
     rows = [buttons]
     if show_pronounce:
         rows.append([

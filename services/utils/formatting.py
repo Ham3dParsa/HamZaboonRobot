@@ -195,8 +195,8 @@ def word_query_usage_text(row: dict) -> str:
     """Return the today's word-query usage summary line for a users row.
 
     Single source for the learner-facing usage line used by the word-query
-    reply (bot.py) and the prepare handler (handlers/user.py). Mirrors the
-    historical logic in handlers/user.py so all callers stay in sync.
+    closing reply (bot.py). Mirrors the historical logic in handlers/user.py so
+    all callers stay in sync.
 
     This is NOT a pure formatter: it reads the plan spec from the DB via
     ``daily_word_query_limit_for_plan`` to resolve the per-plan quota, so the

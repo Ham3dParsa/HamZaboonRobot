@@ -3,15 +3,13 @@
 Owns the full word-query flow behind a small, Telegram-free interface:
 
 - ``ask``          : validate -> reserve quota -> AI card (2-step pipeline) -> persist -> result
-- ``prepare``      : re-run card preparation (translations) and persist back, returning the
-                     enriched card for the handler to re-render with translations_prepared=True
 - ``toggle_save``  : idempotently save/remove the word in the review box
 
 This module has NO Telegram imports. It composes ``services/db`` functions and
 ``services.utils.validation``; it composes but does not duplicate them (Rule 6).
 All Telegram threading / rate-limiter / deadline machinery is injected by the
-handler as ``generate_card`` / ``prepare_card`` callables (Rules 1 and 5), so
-the service stays pure orchestration and remains unit-testable with fakes.
+handler as a ``generate_card`` callable (Rule 1), so the service stays pure
+orchestration and remains unit-testable with fakes.
 
 Quota pairing invariant (the #306 guarantee): every path that reserves must
 release on failure. ``ask`` releases on each AI-pipeline failure kind it owns.
@@ -59,26 +57,8 @@ class AskResult:
     token: Optional[str] = None
     card_data: Optional[dict] = None
     show_pronounce: Optional[bool] = None
-    show_translations: bool = True
     usage_text: Optional[str] = None
     error_key: Optional[str] = None
-
-
-@dataclass(frozen=True)
-class PrepareResult:
-    """Outcome of a ``prepare`` (translations re-render).
-
-    kinds: ``ok | expired | not_found | card_prep_error``
-    """
-
-    kind: str
-    token: Optional[str] = None
-    card_data: Optional[dict] = None
-    lang: Optional[str] = None
-    show_translations: bool = True
-    show_pronounce: bool = True
-    saved: bool = False
-    user_row: Optional[dict] = None
 
 
 @dataclass(frozen=True)
@@ -148,59 +128,6 @@ async def toggle_save(token: str, user_id: int) -> ToggleResult:
         message=message,
         token=row["token"],
         lang=row["lang"],
-    )
-
-
-async def prepare(token: str, user_id: int, *, prepare_card: Callable[..., Awaitable[dict]]) -> PrepareResult:
-    """Re-run card preparation (translations) for the query behind ``token``.
-
-    ``prepare_card`` is an injected async callable (handler-provided) that wraps
-    ``services.ai.llm_services._prepare_cached_card`` with a ``persist_patch``
-    writing prepared translations back to the query_results row.
-
-    Returns the enriched card so the handler re-renders with
-    ``translations_prepared=True``. ``show_translations=False`` matches current
-    behavior (translations are rendered as part of the prepared card, not a toggle).
-    """
-    row = db.get_query_result(token, user_id=user_id)
-    if not row:
-        return PrepareResult(kind="expired")
-
-    user_row = db.get_user(user_id)
-    if not user_row:
-        return PrepareResult(kind="not_found")
-
-    try:
-        saved = bool(row["saved_at"])
-    except (KeyError, IndexError, TypeError):
-        saved = bool(row.get("saved_at", False)) if isinstance(row, dict) else False
-    try:
-        card = json.loads(row["result_json"])
-    except (TypeError, json.JSONDecodeError):
-        card = None
-
-    try:
-        card = await prepare_card(
-            card,
-            lang=row["lang"],
-            user_id=user_id,
-            plan=user_row["plan"] or "free",
-            source="custom_word",
-            persist_patch=lambda patch: db.update_query_result_fields(token, user_id, patch),
-        )
-    except CardPreparationError:
-        return PrepareResult(kind="card_prep_error")
-
-    show_pronounce = db.should_show_pronounce(user_id, user_row)
-    return PrepareResult(
-        kind="ok",
-        token=row["token"],
-        card_data=card,
-        lang=row["lang"],
-        show_translations=False,
-        show_pronounce=show_pronounce,
-        saved=saved,
-        user_row=user_row,
     )
 
 
@@ -307,6 +234,5 @@ async def ask(
         token=query_token,
         card_data=data,
         show_pronounce=show_pronounce,
-        show_translations=True,
         usage_text=_format_usage(usage_row, limit),
     )

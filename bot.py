@@ -145,7 +145,6 @@ from handlers.user import (
     on_level_changed,
     ask_for_ask_word,
     show_status,
-    _handle_query_prepare,
     _show_settings_menu,
 )
 
@@ -366,10 +365,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
-            show_translations = True
             show_pronounce = bool(result.show_pronounce)
             context.user_data[f"query_kb_{result.token}"] = {
-                "show_translations": show_translations,
                 "show_pronounce": show_pronounce,
             }
             phon_lines = _phonetic_lines(result.card_data.get("phonetic", ""))
@@ -380,18 +377,15 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     update.effective_chat.id,
                     format_card(
                         result.card_data,
-                        footer=(
-                            f"{result.usage_text}\n\n"
-                            "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
-                        ),
+                        footer="برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن.",
                         presentation=_user_presentation(row),
+                        translations_prepared=True,
                         phonetic_lines=phon_lines,
                     ),
                     parse_mode=ParseMode.MARKDOWN_V2,
                     reply_markup=query_result_keyboard(
                         result.token,
                         row["target_lang"],
-                        show_translations=show_translations,
                         show_pronounce=show_pronounce,
                     ),
                 )
@@ -407,7 +401,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _send_with_retry(
                 context.bot,
                 update.effective_chat.id,
-                "به منوی اصلی برگشتی 🙂",
+                f"{result.usage_text}\n\nبه منوی اصلی برگشتی 🙂",
                 reply_markup=main_menu(is_owner(user_id)),
             )
             return
@@ -448,7 +442,6 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (
             "study:start",
             "query:add:",
-            "query:prepare:",
             "presentation:",
             "flow:",
             "srs:",
@@ -531,8 +524,6 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await on_level_changed(update, context, level)
         else:
             await on_level_selected(update, context, level)
-    elif data.startswith("query:prepare:"):
-        await _handle_query_prepare(update, context, data.split(":", 2)[2])
     elif data.startswith("query:add:"):
         parts = data.split(":", 2)
         if len(parts) != 3:
