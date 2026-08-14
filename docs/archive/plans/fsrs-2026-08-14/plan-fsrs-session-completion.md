@@ -4,12 +4,12 @@ description: Finish Phase 2b cleanup and Phase 3b timestamp-aware FSRS schedulin
 created: 2026-08-09
 base_commit: 6ab4d40eb3eb5754387c31c4ce5cad32a3ea445b
 branch: multiple-see-release-boundaries
-status: in-progress
+status: complete
 ---
 
-STATE: phase 5/6 — status: MERGED — Phases 1-5 committed and merged via PR #336
-(squash `f77214c` on main); all checks green; T09 (release/docs reconciliation)
-remains in progress
+STATE: phase 6/6 — status: COMPLETE — Phases 1-5 merged via PR #300/#318/#336;
+T09 release/docs reconciliation and plan archiving complete; live smoke test
+handled informally by owner (5 sessions worked)
 
 # FSRS Session Completion — Locked Spec and Main Plan
 
@@ -240,3 +240,22 @@ handler state, tests, and documentation only.
 ## Blocked Questions
 
 None. Ticket 01 is in progress.
+
+## Final Verdict
+
+```text
+Done:
+- Phases 1-5 merged and CI green: Phase 2b cleanup (PR #300), origin backfill
+  (PR #304), timestamp schema (PR #318), coherent FSRS behavior Phases 3-5
+  (PR #336, squash f77214c). T09 docs reconciliation and plan archiving complete.
+Deliberately Not Done:
+- No production code, handler, DB, schema, or config changed in the docs-only pass.
+- No seam claim created or acquired (parallel-work-guard); no Persistence /
+  Telegram UI->Admin / Telegram UI->AI Config seam touched.
+Deferred:
+- Legacy `next_review` removal deferred for rollback compatibility.
+- Phase 3b+ AI Tier-3 generation (`generate_tier3_node()`) remains a stub.
+- Formal live smoke-testing remains the owner's informal follow-up (5 sessions worked).
+Uncertain:
+- None.
+```

@@ -7,7 +7,7 @@ branch: feat/saved-word-origin
 status: complete
 ---
 
-STATE: phase 1/3 - status: complete - focus: deployed and verified before Phase 2b cleanup
+STATE: complete — origin backfill deployed (PR #304) and verified live; daily tables subsequently purged by PR #300. Archived with the completed FSRS chain.
 
 # Saved-Word Origin Backfill
 

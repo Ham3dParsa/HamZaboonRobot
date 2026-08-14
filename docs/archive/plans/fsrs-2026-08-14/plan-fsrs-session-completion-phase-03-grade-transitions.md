@@ -7,7 +7,7 @@ branch: feat/phase-3b-fsrs-scheduling
 status: in-progress
 ---
 
-STATE: phase 3/6 — status: in-progress — GradeResult + both grade transactions implemented, tests green, review approved; branch NOT mergeable until Phases 4-5
+STATE: phase 3/6 — status: complete — merged with Phases 4-5 as PR #336 (squash f77214c)
 
 # Ticket 03 — FSRS Grade Transitions
 

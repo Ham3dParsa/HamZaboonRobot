@@ -7,7 +7,7 @@ branch: feat/phase-3b-fsrs-scheduling
 status: done
 ---
 
-STATE: phase 4/6 — status: done — committed f7d35be; 12 tests green; full suite 835+153 green; independent review clean
+STATE: phase 4/6 — status: complete — committed f7d35be; 12 tests green; merged with Phases 3+5 as PR #336
 
 # Ticket 04 — Due Selection and DSR Priority
 

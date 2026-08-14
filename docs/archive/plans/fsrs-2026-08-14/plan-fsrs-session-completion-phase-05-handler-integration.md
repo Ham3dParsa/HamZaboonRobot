@@ -7,7 +7,7 @@ branch: feat/phase-3b-fsrs-scheduling
 status: done
 ---
 
-STATE: phase 5/6 — status: done — committed; full suite 847+153 green;
+STATE: phase 5/6 — status: complete — committed; full suite 847+153 green; merged with Phases 3-4 as PR #336
 independent review clean after owner-locked telemetry + boundary decisions
 
 # Ticket 05 — Handler, UX, and Integration

@@ -7,7 +7,7 @@ branch: feat/phase-2b-drop-daily-tables
 status: in-progress
 ---
 
-STATE: phase 1/6 — status: in-progress — focus: PR #300 resolved merge pre-commit gate
+STATE: phase 1/6 — status: complete — merged as PR #300; daily tables purged after origin backfill
 
 # Ticket 01 — Phase 2b Daily Schema Purge
 
