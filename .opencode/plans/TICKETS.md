@@ -12,6 +12,8 @@
 | T09 (release/docs) | `fsrs/plan-fsrs-session-completion-phase-06-release.md` | #309 | multiple-see-main-plan | complete — docs reconciled, dashboard regenerated, plans archived; live smoke test owner-informally handled (5 sessions worked) |
 | AI-PRESET-FIX (phase 1 of 7) | `presets/plan-ai-preset-audit-fixes.md` | #330 | `fix/ai-preset-audit-findings` | complete (PR #333 merged) |
 | AI-PRESET-FIX (phase 2 of 7) | `presets/plan-ai-preset-audit-fixes.md` | #330 | `fix/ai-preset-audit-findings` | complete (PR #333 merged, R1/R2/R10/R12/R13/R14) |
-| AI-PRESET-FIX (phase 3 of 7) | `presets/plan-ai-preset-audit-fixes-phase-03-handlers-ux.md` | #330 | `feat/ai-preset-handlers-ux` | complete (PR pending, R3/R4/R5/R7) |
-| AI-PRESET-FIX (phase 4 of 7) | `presets/plan-ai-preset-audit-fixes-phase-04-builtin-removal.md` | #330 | next branch | pending — next up |
+| AI-PRESET-FIX (phase 3 of 7) | `presets/plan-ai-preset-audit-fixes-phase-03-handlers-ux.md` | #330 | `feat/ai-preset-handlers-ux` | complete (PR #334/#335 merged, R3/R4/R5/R7) |
+| AI-PRESET-FIX (phase 4 of 7) | `presets/plan-ai-preset-audit-fixes-phase-04-builtin-removal.md` | #330 | `feat/ai-preset-phase4-builtin-removal` | complete (PR #337 merged) |
+| AI-PRESET-FIX (phase 5 of 7) | `presets/plan-ai-preset-audit-fixes-phase-05-secure-keys.md` | #330 | `feat/ai-preset-secure-keys` | in-progress — R11/F2 encrypted-at-rest keys |
 | SRS-STAGED-REVEAL (spec) | `session/plan-srs-staged-reveal-spec.md` | #338 | pending (deferred) | locked-spec — implement after AI-preset seams + FSRS T09 |
+| WORD-QUERY-CONSISTENCY (phase 1) | `ux/plan-word-query-card-consistency.md` | #340 | pending | locked-spec — R1-R6 green, R7-R8 deferred on Persistence seam |
