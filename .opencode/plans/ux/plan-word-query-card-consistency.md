@@ -7,7 +7,7 @@ branch: pending
 status: locked-spec
 ---
 
-STATE: phase 1/2 — status: LOCKED SPEC — phase 1 (R1-R6) green to implement; phase 2 (R7-R8) deferred on Persistence seam
+STATE: phase 2/2 — status: IN PROGRESS — phase 1 (R1-R6) shipped (#341); phase 2 (R7-R8) implementing on feat/word-query-dup-retention (#344). See phase-02 sub-plan.
 
 # Spec — Word-Query Output Pipeline & Final Message Structure
 

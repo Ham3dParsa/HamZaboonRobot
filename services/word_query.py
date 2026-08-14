@@ -49,8 +49,11 @@ _MSG_NOT_FOUND = "کاربر پیدا نشد."
 class AskResult:
     """Outcome of an ``ask``. ``kind`` drives the handler's reply branch.
 
-    kinds: ``ok | invalid_input | registration_required | quota_exhausted |
-    ai_timeout | ai_error | card_prep_error | persist_error``
+    kinds: ``ok | duplicate | invalid_input | registration_required |
+    quota_exhausted | ai_timeout | ai_error | card_prep_error | persist_error``
+
+    ``duplicate`` (R7): a prior unexpired card exists; the handler offers the
+    retrieve-vs-new choice. No quota reserved, no AI called.
     """
 
     kind: str
@@ -73,6 +76,24 @@ class ToggleResult:
     message: str = ""
     token: Optional[str] = None
     lang: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class RetrieveResult:
+    """A retrievable prior card for a repeated word query (R7).
+
+    ``kind`` is ``ok`` when a prior unexpired card exists; the caller offers the
+    retrieve-vs-new choice. This is a free path — no quota is reserved and no AI
+    is called.
+    """
+
+    kind: str
+    token: Optional[str] = None
+    card_data: Optional[dict] = None
+    lang: Optional[str] = None
+    word: Optional[str] = None
+    query_text: Optional[str] = None
+    usage_text: Optional[str] = None
 
 
 def _format_usage(row: dict, limit: int) -> str:
@@ -131,11 +152,44 @@ async def toggle_save(token: str, user_id: int) -> ToggleResult:
     )
 
 
+def find_duplicate(user_id: int, text: str, lang: str) -> Optional[RetrieveResult]:
+    """Return a retrievable prior card for the same user + lang + normalized text.
+
+    Pure DB read (R7a): no quota reserved, no AI call. Returns ``None`` when no
+    unexpired prior card exists (the normal ask proceeds). Corrupt stored JSON is
+    treated as no duplicate so the user can still ask fresh.
+    """
+    row = db.find_unexpired_query(user_id, text, lang)
+    if not row:
+        return None
+    try:
+        card_data = json.loads(row["result_json"])
+    except (TypeError, json.JSONDecodeError):
+        logger.warning("corrupt result_json token=%s in find_duplicate", row["token"])
+        return None
+    user_row = db.get_user(user_id)
+    usage_text = None
+    if user_row:
+        user_row = dict(user_row)
+        limit = daily_word_query_limit_for_plan(user_row.get("plan") or "free")
+        usage_text = _format_usage(user_row, limit)
+    return RetrieveResult(
+        kind="ok",
+        token=row["token"],
+        card_data=card_data,
+        lang=row["lang"],
+        word=row["word"],
+        query_text=row["query_text"],
+        usage_text=usage_text,
+    )
+
+
 async def ask(
     user_id: int,
     text: str,
     *,
     generate_card: Callable[..., Awaitable[dict]],
+    skip_duplicate: bool = False,
 ) -> AskResult:
     """Full word-query flow: registration guard -> validate -> reserve quota -> AI -> persist.
 
@@ -174,6 +228,14 @@ async def ask(
     error_key = validate_word_query(text, lang)
     if error_key:
         return AskResult(kind="invalid_input", error_key=error_key)
+
+    dup = find_duplicate(user_id, text, lang)
+    if dup is not None and not skip_duplicate:
+        # R7: a prior unexpired card exists for this user+lang+word. Offer the
+        # retrieve-vs-new choice WITHOUT reserving quota or calling AI. The
+        # retrieve-vs-new "new" path sets skip_duplicate so the explicit fresh
+        # ask is not re-bounced onto the same prior card.
+        return AskResult(kind="duplicate", token=dup.token)
 
     limit = daily_word_query_limit_for_plan(plan)
     reserved = db.reserve_word_query(

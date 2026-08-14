@@ -321,6 +321,26 @@ def query_result_keyboard(
     return InlineKeyboardMarkup(rows)
 
 
+def query_duplicate_keyboard(token: str) -> InlineKeyboardMarkup:
+    """Two-button retrieve-vs-new choice when a repeated word is asked (R7b).
+
+    ``query:dup:new`` re-runs the ask (quota + AI); ``query:dup:reuse`` re-renders
+    the stored prior card for free.
+    """
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "درخواست جدید (مصرف سهمیه)",
+                callback_data=f"query:dup:new:{token}",
+            ),
+            InlineKeyboardButton(
+                "بازیابی کارت قبلی",
+                callback_data=f"query:dup:reuse:{token}",
+            ),
+        ]
+    ])
+
+
 def get_review_keyboard(
     user_id: int,
     word_id: int,
