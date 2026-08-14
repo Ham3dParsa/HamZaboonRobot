@@ -267,10 +267,9 @@ class QueryAddToggleFlowTests(unittest.TestCase):
         update = self._make_update()
         context = MagicMock()
         # Render-time flags are stored in user_data; the toggle must preserve the
-        # translations + pronounce buttons when it edits the card.
+        # pronounce button when it edits the card (translations button removed, R2/R3).
         context.user_data = {
             f"query_kb_{self.token}": {
-                "show_translations": True,
                 "show_pronounce": True,
             }
         }
@@ -288,9 +287,9 @@ class QueryAddToggleFlowTests(unittest.TestCase):
             db.get_query_result(self.token, user_id=1)["saved_at"],
             "save sets the saved marker",
         )
-        self.assertTrue(
+        self.assertFalse(
             any(c.startswith("query:prepare:") for c in saved_calls),
-            "toggle edit must preserve the translations button",
+            "toggle edit must not emit the removed translations button",
         )
         self.assertTrue(
             any(c.startswith("tts:pronounce:q:") for c in saved_calls),
@@ -370,11 +369,13 @@ class TTSGateShowPronounceFlowTests(unittest.TestCase):
     """Rule H+J — the 🔊 pronounce button is decided by ONE shared helper.
 
     Regression coverage for the Kilo warning on PR #316: the delivered-card gate
-    (bot.py text_router), the prepare path (handlers.user._handle_query_prepare),
-    and the study session previously computed ``show_pronounce`` independently, so
-    a free user granted ``tts_access="all"`` saw the button on some cards but not
-    others. These tests pin the handler wiring (not just the helper) so the bug
-    path stays guarded, including the owner bypass.
+    (bot.py text_router) and the study session previously computed
+    ``show_pronounce`` independently, so a free user granted ``tts_access="all"`
+    saw the button on some cards but not others. These tests pin the handler
+    wiring (not just the helper) so the bug path stays guarded, including the
+    owner bypass. The ask-word path must also persist ``show_pronounce`` at
+    ask-time so the follow-up toggle re-render keeps the 🔊 button (the old
+    prepare path was removed in #340 R3).
     """
 
     def setUp(self):
@@ -461,23 +462,16 @@ class TTSGateShowPronounceFlowTests(unittest.TestCase):
             "owner bypass (stored free plan) must still see the 🔊 button under tts=premium",
         )
 
-    def test_query_prepare_persists_correct_show_pronounce_for_free_tts_all(self):
-        from handlers import user as user_handlers
-
+    def test_ask_word_persists_show_pronounce_for_free_tts_all(self):
         db.set_setting("tts_access", "all")
-        token = db.create_query_result(1, "hello", "hello", "en", self.card)
-        update = MagicMock()
-        update.effective_user.id = 1
-        update.callback_query.answer = AsyncMock()
-        context = MagicMock()
-        context.user_data = {}
-        with patch.object(user_handlers, "_message_has_prepared_translations", return_value=False), \
-             patch.object(user_handlers, "_prepare_cached_card", return_value=self.card), \
-             patch.object(user_handlers, "_edit_with_retry", new=AsyncMock()):
-            asyncio.run(user_handlers._handle_query_prepare(update, context, token))
+        context = self._run_text_router()
+        query_kb = {
+            k: v for k, v in context.user_data.items() if str(k).startswith("query_kb_")
+        }
+        self.assertEqual(len(query_kb), 1, "one query_kb_ token stored")
         self.assertTrue(
-            context.user_data[f"query_kb_{token}"]["show_pronounce"],
-            "prepare path must persist show_pronounce=True for a free user with tts_access=all",
+            next(iter(query_kb.values()))["show_pronounce"],
+            "ask-word path must persist show_pronounce=True for a free user with tts_access=all",
         )
 
 

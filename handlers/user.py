@@ -5,11 +5,9 @@ import time
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
-from telegram.error import BadRequest
 
 from services.ai import ai
 from services import db
-from services import word_query
 from services.ai import prompts
 from config.catalog import (
     GOALS,
@@ -39,18 +37,14 @@ from config import (
 from services.utils.formatting import (
     escape_mdv2,
     escape_mdv2_code,
-    format_card,
     word_query_usage_text,
-    _phonetic_lines,
 )
-from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
+from services.utils.callback_notifications import notify_callback
 from services.utils.helpers import (
     _edit_or_send,
-    _edit_with_retry,
     _exit_awaiting_flow,
     _finish_llm_wait_state,
     _is_cancel_input,
-    _message_has_prepared_translations,
     _send_with_retry,
     _start_llm_wait_state,
     _user_activity_line,
@@ -66,14 +60,13 @@ from config.keyboards import (
     settings_back_keyboard,
     awaiting_reply_keyboard,
     awaiting_inline_keyboard,
-    query_result_keyboard,
     BTN_ASK_WORD,
     BTN_ADMIN,
     BTN_SETTINGS,
     BTN_CANCEL,
     BTN_BACK,
 )
-from services.ai.llm_services import _call_ai_limited, _prepare_cached_card
+from services.ai.llm_services import _call_ai_limited
 
 logger = logging.getLogger(__name__)
 
@@ -514,78 +507,3 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 # ---------------- Callback handlers ----------------
-
-
-async def _handle_query_prepare(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    token: str,
-):
-    user_id = update.effective_user.id
-    _log_user_activity(update, action="query_translate", outcome="requested")
-    if _message_has_prepared_translations(update):
-        await notify_callback(update.callback_query, "ترجمه‌ها آماده شده‌اند.", intent=CallbackNoticeIntent.SUCCESS)
-        return
-
-    async def prepare_card(card, **kwargs):
-        return await asyncio.to_thread(_prepare_cached_card, card, **kwargs)
-
-    result = await word_query.prepare(
-        token,
-        user_id,
-        prepare_card=prepare_card,
-    )
-    if result.kind == "expired":
-        await notify_callback(update.callback_query, "این نتیجه منقضی شده یا در دسترس نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-        return
-    if result.kind == "not_found":
-        await notify_callback(update.callback_query, "کاربر پیدا نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-        return
-    if result.kind == "card_prep_error":
-        await notify_callback(update.callback_query, "این کارت فعلاً با اطمینان آماده نشد؛ بعداً دوباره امتحان کنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-        return
-
-    user_row = result.user_row
-    footer = (
-        f"{word_query_usage_text(user_row)}\n\n"
-        "برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن."
-    )
-    phon_lines = _phonetic_lines(result.card_data.get("phonetic", ""))
-    context.user_data[f"query_kb_{result.token}"] = {
-        "show_translations": False,
-        "show_pronounce": result.show_pronounce,
-    }
-    try:
-        await _edit_with_retry(
-            update.callback_query,
-            format_card(
-                result.card_data,
-                footer=footer,
-                presentation=_user_presentation(user_row),
-                translations_prepared=True,
-                phonetic_lines=phon_lines,
-            ),
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=query_result_keyboard(
-                result.token, result.lang,
-                show_translations=False,
-                show_pronounce=result.show_pronounce,
-                saved=result.saved,
-            ),
-        )
-    except BadRequest as exc:
-        if "not modified" in str(exc).casefold():
-            await notify_callback(
-                update.callback_query,
-                "ترجمه‌ها قبلاً آماده شده‌اند.",
-                intent=CallbackNoticeIntent.INFO,
-            )
-        else:
-            logger.exception("failed to edit prepared query card")
-            await notify_callback(
-                update.callback_query,
-                "نمایش ترجمه‌ها انجام نشد؛ لطفاً دوباره امتحان کنید.",
-                intent=CallbackNoticeIntent.IMPORTANT_ERROR,
-            )
-        return
-    await notify_callback(update.callback_query, "ترجمه‌ها آماده شدند.", intent=CallbackNoticeIntent.SUCCESS)

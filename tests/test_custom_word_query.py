@@ -197,11 +197,13 @@ class CustomWordQueryTests(unittest.TestCase):
         self.assertEqual(callbacks, ["srs:1:123:456", "srs:2:123:456", "srs:3:123:456", "srs:4:123:456"])
         self.assertTrue(all(len(callback) < 64 for callback in callbacks))
 
-    def test_translation_prepare_controls_are_scoped(self):
-        query = query_result_keyboard("a" * 32, show_translations=True)
-        self.assertEqual(
-            query.inline_keyboard[0][1].callback_data,
-            f"query:prepare:{'a' * 32}",
+    def test_query_result_keyboard_adds_and_scopes(self):
+        query = query_result_keyboard("a" * 32, show_pronounce=True)
+        flat = [b.callback_data for row in query.inline_keyboard for b in row]
+        self.assertEqual(flat, [f"query:add:{'a' * 32}", f"tts:pronounce:q:{'a' * 32}"])
+        self.assertFalse(
+            any(c.startswith("query:prepare:") for c in flat),
+            "the removed translations (query:prepare:) button must not be emitted",
         )
         srs = get_review_keyboard(123, 456)
         self.assertEqual(

@@ -76,7 +76,6 @@ async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     markup = query_result_keyboard(
         result.token,
         result.lang,
-        show_translations=kb_state.get("show_translations", False),
         show_pronounce=kb_state.get("show_pronounce", False),
         saved=result.saved,
     )

@@ -216,7 +216,7 @@ Keep responsibilities aligned with the current module boundaries:
 - `services/`: Domain services.
   - `services/db/`: SQLite schema, migrations, transactions, persistence, quotas, daily-card state, delivery queue state, saved-word state, and plan-spec state. `services/db/__init__.py` is a thin re-export façade + shared helpers; `schema.py` owns schema/migrations, `plans.py` seeds and CRUDs the `plans` table, `settings.py` owns settings accessors, `cost_tracking.py` owns LLM cost analytics, and `preset_registry.py` owns AI preset/fallback/hourly-usage logic.
   - `services/fsrs_core.py`: Pure FSRS-6 engine (w0-w20 constants, DSR formulas, no side effects).
-  - `services/word_query.py`: Pure orchestration core for the custom-word query flow — `ask` (validate→reserve→AI→persist), `prepare` (toggle translations view), `toggle_save` (save/remove saved word). Stateless functions over `services/db/*` + `validation`; no Telegram imports. Handlers (`bot.py` ask-word block, `handlers/user.py` prepare, `handlers/srs_handler.py` toggle) stay thin adapters.
+  - `services/word_query.py`: Pure orchestration core for the custom-word query flow — `ask` (validate→reserve→AI→persist), `toggle_save` (save/remove saved word). Stateless functions over `services/db/*` + `validation`; no Telegram imports. Handlers (`bot.py` ask-word block, `handlers/srs_handler.py` toggle) stay thin adapters.
   - `services/ai/`: OpenAI-compatible client, provider settings, JSON extraction, AI response validation, system prompts, AI content generation, and provider presets.
   - `services/utils/`: Utility modules.
     - `services/utils/callback_notifications.py`: Deep callback-query notification seam; semantic intent mapping, empty acknowledgements, and expected Telegram callback-answer failure handling.
@@ -361,6 +361,14 @@ For a non-trivial task:
 1. Implement on current branch (or stash changes); run full validation (§6).
 2. **Create a fresh feature branch from the latest `origin/main`** using
    convention: `type/short-desc` (e.g., `feat/custom-words`, `fix/collision-retry`).
+   The branch is the unit of work (git-protocol, §7). For the **working copy**,
+   prefer a **git worktree** (via the `using-git-worktrees` skill) instead of the
+   shared main workspace whenever parallel work is active or workspace isolation
+   is needed — so the other session's untracked files and this feature's edits
+   never mix in one directory. The branch-name convention and §7 git protocol are
+   unchanged; worktree location is only a checkout-isolation detail. Run the
+   parallel-work-guard seam check (§10.5) before locking the contract and before
+   starting work in any parallel branch/worktree.
 3. **Write focused unit tests** in `tests/` for any new logic, edge cases,
    database schema changes, or callback routing changes. For any change that
    touches `callback_data` strings, `callback_router` dispatch conditions, or
