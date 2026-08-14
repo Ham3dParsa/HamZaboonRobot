@@ -365,13 +365,13 @@ For a non-trivial task:
 2. **Create a fresh feature branch from the latest `origin/main`** using
    convention: `type/short-desc` (e.g., `feat/custom-words`, `fix/collision-retry`).
    The branch is the unit of work (git-protocol, §7). For the **working copy**,
-   prefer a **git worktree** (via the `using-git-worktrees` skill) instead of the
-   shared main workspace whenever parallel work is active or workspace isolation
-   is needed — so the other session's untracked files and this feature's edits
-   never mix in one directory. The branch-name convention and §7 git protocol are
-   unchanged; worktree location is only a checkout-isolation detail. Run the
-   parallel-work-guard seam check (§10.5) before locking the contract and before
-   starting work in any parallel branch/worktree.
+   **must** use an isolated **git worktree** (via the `using-git-worktrees` skill)
+   instead of the shared main workspace — so the other session's untracked files
+   and this feature's edits never mix in one directory. The branch-name
+   convention and §7 git protocol are unchanged; worktree location is only a
+   checkout-isolation detail. Run the parallel-work-guard seam check (§10.5)
+   before locking the contract and before starting work in any parallel
+   branch/worktree.
 3. **Write focused unit tests** in `tests/` for any new logic, edge cases,
    database schema changes, or callback routing changes. For any change that
    touches `callback_data` strings, `callback_router` dispatch conditions, or
