@@ -1,6 +1,6 @@
 # Plan — Session-Engine Landing + Stale Flow Removal + SRS Reset
 
-**Status:** `> STATUS: active`
+**Status:** `> STATUS: complete — stale daily/review/old-SRS flows and daily tables removed via PR #300 (origin backfill PR #304)`
 **Cutover strategy:** Sequential PRs (Phase 1 merges the engine; Phase 2 removes stale flows; Phase 3 applies the reset)
 **References:**
 - `docs/plans/fsrs/plan_fsrs_migration_v2.md` — the FSRS-6 migration plan (Phases 0–1c marked complete on the branch)

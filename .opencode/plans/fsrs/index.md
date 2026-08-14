@@ -5,36 +5,34 @@ scope: Complete the FSRS session engine after daily-card migration, including pe
 
 ## Plans & Dependency Edges
 
-| Plan | Phase | Depends On | Status |
-|---|---|---|---|
-| `plan-fsrs-session-completion.md` | 0..6 | Admin-AI audit PR merged | `in-progress` |
-| `plan-saved-word-origin-backfill.md` | prerequisite | Deployed before Phase 1 cleanup | `complete` |
-| `plan-fsrs-session-completion-phase-01-daily-schema-purge.md` | 1 | Origin backfill deployed and verified | `complete` (PR #300 merged) |
-| `plan-fsrs-session-completion-phase-02-timestamp-schema.md` | 2 | Phase 1 merged and verified | `complete` (PR #318 merged) |
-| `plan-fsrs-session-completion-phase-03-grade-transitions.md` | 3 | Phase 2 merged and verified | `complete` (PR #336 merged) |
-| `plan-fsrs-session-completion-phase-04-due-priority.md` | 4 | Phase 3 complete on behavior branch | `complete` (PR #336 merged) |
-| `plan-fsrs-session-completion-phase-05-handler-integration.md` | 5 | Phases 3-4 complete | `complete` (PR #336 merged) |
-| `plan-fsrs-session-completion-phase-06-release.md` | 6 | Phases 1-5 complete | `in-progress` (T09 release gate) |
+No active implementation plan in this theme. The FSRS session-completion chain
+(phases 1-6) is complete and merged; all implementation plans are archived to
+`docs/archive/plans/fsrs-2026-08-14/` (see links below). The only remaining FSRS
+work is Phase 3b+ (AI Tier-3 `generate_tier3_node()` stub), tracked as a todo in
+`project_status.json`; the separate staged-reveal/display-toggle spec remains
+active at `.opencode/plans/session/plan-srs-staged-reveal-spec.md` (issue #338).
+
+## Archived Plans (docs/archive/plans/fsrs-2026-08-14/)
+
+| Plan | Phase | Final status |
+|---|---|---|
+| `plan-fsrs-session-completion.md` | 0..6 | complete — Phases 1-5 merged; T09 done; archived |
+| `plan-saved-word-origin-backfill.md` | prerequisite | complete (PR #304, deployed 2026-08-10) |
+| `plan-fsrs-session-completion-phase-01-daily-schema-purge.md` | 1 | complete (PR #300 merged) |
+| `plan-fsrs-session-completion-phase-02-timestamp-schema.md` | 2 | complete (PR #318 merged) |
+| `plan-fsrs-session-completion-phase-03-grade-transitions.md` | 3 | complete (PR #336 merged) |
+| `plan-fsrs-session-completion-phase-04-due-priority.md` | 4 | complete (PR #336 merged) |
+| `plan-fsrs-session-completion-phase-05-handler-integration.md` | 5 | complete (PR #336 merged) |
+| `plan-fsrs-session-completion-phase-06-release.md` | 6 | complete — T09 release gate; live smoke test owner-informally handled (5 sessions worked) |
 
 ## Release Boundaries
 
-| PR | Included phases | Merge condition |
-|---|---|---|
-| Phase 2b cleanup | 1 | Origin backfill verified live; offline migration checks, focused tests, full validation, independent review |
-| Timestamp expansion | 2 | Fresh/upgrade schema tests and anomaly-reset evidence |
-| FSRS behavior | 3-5 | All three complete together; never merge partial behavior |
-| Documentation/release | 6 | Documentation accompanies relevant PRs; final status reconciliation follows verified merge |
+Phases 1-5 landed as: Phase 2b cleanup (PR #300), origin backfill (PR #304),
+timestamp schema (PR #318), and the coherent FSRS behavior Phases 3-5 (PR #336).
+The T09 release/docs reconciliation and this archive are the final step.
 
 ## Deferred Contract
 
-The legacy `saved_words.next_review` date column remains in this plan and is
-dual-written for rollback compatibility. A future contract may remove it only
-after deployed evidence shows all rows and readers use `next_review_at`.
-
-## Completed Dependency Edge
-
-The saved-word origin backfill merged as PR #304 and ran against the live
-database on 2026-08-10. Verification recorded
-`entry_source_backfilled='1'`, 510 `legacy_daily` rows, 22 `manual` rows, and
-562 source `daily_cards` rows before cleanup. Phase 2b therefore removes the
-temporary backfill block while dropping the obsolete daily tables.
+The legacy `saved_words.next_review` date column remains dual-written for
+rollback compatibility; a future contract may remove it after deployed evidence
+shows all rows and readers use `next_review_at`.

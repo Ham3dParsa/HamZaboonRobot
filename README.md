@@ -79,24 +79,21 @@ git diff --check
   قدیمی daily از مسیر runtime حذف شده‌اند.
 - UX مرور از بازخورد ۲-دکمه‌ای قدیمی به یک UI چهار-دکمه‌ای FSRS (Again/Hard/Good/Easy)
   ارتقا یافته — gradeها به‌صورت کامل برای FSRS-6 ثبت می‌شوند.
-- فرمول short-term stability در هسته وجود دارد اما به‌صورت پیش‌فرض غیرفعال است
-  (قابل فعال‌سازی از طریق پیکربندی `enable_short_term` در FSRS config).
+- فرمول short-term stability به‌صورت پیش‌فرض فعال است (`enable_short_term=True`):
+  مرور در همان روز از `short_term_stability` استفاده می‌کند و اولین exposure دیگر به
+  فاصله‌ی یک روزه محدود نیست.
 - یادآورها و نشان دادن کارتِ کامل (بدون نیاز به فراخوانی AI جدید) بر مبنای
   داده‌های ذخیره‌شده انجام می‌شود؛ پیشرفت فاصله‌ها تنها پس از تعامل کاربر advance می‌شود.
 
 ### وضعیت مهاجرت و کارهای باقی‌مانده FSRS (خلاصه از project_status.json)
-- وضعیت کلی فازها: فازهای مربوط به schema/validation، پشتیبانی زبان و تولید کنترل‌شده
-  تکمیل شده‌اند؛ فازهای مربوط به Query capture و SRS در حال انجام هستند و
-  فاز مربوط به delivery/concurrency/data lifecycle نیز در حال انجام است.
-- موارد انجام‌شده مرتبط با FSRS در `project_status.json`:
-  - shell موتور session و UI چهار-دکمه‌ای FSRS مرج شده (Phase 1).
-  - مهاجرت `daily_cards` به `saved_words` و ستون‌های schema برای FSRS اضافه شده
-    و جریان‌های runtime قدیمی daily حذف شده‌اند.
-- کارهای باقی‌مانده (Phase 6 todo + docs/plans):
-  - سیم‌کشی کامل scheduling/SRS (توابعی مانند `grade_word_review`, `due_words_for_user`,
-    `get_pre_first_exposure_words`) تا از `fsrs_core.py` استفاده کنند و آینده‌ی reminder‌ها
-    و زمان‌بندی را محاسبه کنند.
-  - Tier-3 تولید AI (generate_tier3_node) و نهایی‌سازی اولویت‌بندی سه‌مرحله‌ای session engine.
+- زنجیره‌ی مهاجرت FSRS-6 تکمیل شده است: purge جدول‌ها و جریان‌های قدیمی daily (PR #300،
+  با origin backfill در PR #304)، schema زمان‌بندی timestamp (PR #318) و سیم‌کشی رفتار FSRS
+  شامل انتقال‌های اتمی `GradeResult`، انتخاب سررسید با اولویت DSR و یکپارچگی handler/UX
+  (PR #336) همگی مرج شده‌اند.
+- short-term mode به‌صورت سراسری فعال است؛ اولین exposure دیگر به یک روز محدود نیست و
+  سررسید همان روز در جلسه‌ی بعدی بررسی می‌شود (بدون عبور از سهمیه).
+- کار باقی‌مانده (Phase 3b+):
+  - Tier-3 تولید AI (`generate_tier3_node`) — در حال حاضر stub است.
 
 ## محدودیت‌های عمدی MVP
 

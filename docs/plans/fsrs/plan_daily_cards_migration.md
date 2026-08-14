@@ -1,6 +1,6 @@
 # Plan — Migrate Daily Cards to Session Engine (Tier 2 First-Exposure)
 
-**Status:** `> STATUS: Phase 3a complete (PR #252, CI green)`
+**Status:** `> STATUS: complete — origin backfill deployed (PR #304, 2026-08-10), daily tables purged (PR #300), timestamp schema added (PR #318)`
 **Related:** `docs/plans/fsrs/plan_fsrs_session_cleanup.md` (Phase 3), `docs/plans/fsrs/plan_fsrs_migration_v2.md`
 **Target:** Solve "empty session for existing users" by converting `daily_cards` → `saved_words` as first-exposure cards.
 

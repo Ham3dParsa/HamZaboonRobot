@@ -188,10 +188,11 @@
         "v3 Engine migration Phase 2: scaffolded v3 pull-based engine skeleton (srs_engine.py, study_handler.py, golden button)",
         "FSRS-6 migration Phase 1: session engine shell merged (services/session/, grading, study_handler, 4-button UI; B1 completion crash fixed)",
         "FSRS-6 migration Phase 3a: daily_cards -> saved_words migration + schema columns (first_exposure_done, stability, difficulty); PR #252 open (CI green)",
-        "FSRS-6 migration Phase 3b: wire FSRS scheduling (grade_word_review, due_words_for_user, get_pre_first_exposure_words consume fsrs_core.py; atomic GradeResult transitions, exact-timestamp due selection with DSR priority, handler/UX integration) merged via PR #336"
+        "FSRS-6 migration Phase 3b: wire FSRS scheduling (grade_word_review, due_words_for_user, get_pre_first_exposure_words consume fsrs_core.py; atomic GradeResult transitions, exact-timestamp due selection with DSR priority, handler/UX integration) merged via PR #336",
+        "FSRS-6 migration Phase 2: stale daily/review/old-SRS flows removed and daily_cards table dropped via PR #300; saved-word origin backfill deployed via PR #304 (510 legacy_daily, 22 manual)",
+        "FSRS-6 migration timestamp schema: UTC last_review_at/next_review_at columns with anomaly reset via PR #318"
       ],
       "in_progress": [
-        "FSRS-6 migration Phase 2: origin backfill verified; remove stale daily/review/old-SRS flows and DROP daily_cards table",
         "v3 Engine migration Phase 3: 3-Tier Priority Queue core implementation"
       ],
       "todo": [

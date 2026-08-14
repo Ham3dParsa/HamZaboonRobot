@@ -1,6 +1,6 @@
 # FSRS-6 Migration Plan v2 — Architecture-Locked, Modular Implementation
 
-**Status:** ✅ Architecture locked — Phase 1 (0–1g) merged 2026-08-02/03; Phases 1a/1c partial (FSRS DB wiring + Tier-3 AI stubbed for Phase 3b), Phase 2 pending after Phase 3a migration
+**Status:** ✅ Architecture locked — Phase 1 (0–1g) merged 2026-08-02/03. Phases 2b/3b FSRS chain merged: Phase 2b stale-flow cleanup via PR #300 (origin backfill PR #304 deployed 2026-08-10), timestamp schema via PR #318, and the coherent FSRS behavior (Phases 3–5: atomic `GradeResult` transitions, exact-timestamp DSR-priority due selection, manual-first tier-2 ordering, handler/UX integration) via PR #336. Remaining only Phase 3b+ (AI Tier-3 `generate_tier3_node()` stub).
 **Cutover strategy:** Atomic (bot is OFF; all changes land in one deployment)
 **References:**
 - `docs/FSRS_v6.md` — Complete FSRS-6 algorithm reference
