@@ -241,13 +241,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data="admin:back")]]),
             )
             return
-        raw_key = db.resolve_preset_key(preset)
-        if len(raw_key) > 12:
-            masked = raw_key[:6] + "…" + raw_key[-4:]
-        elif raw_key:
-            masked = "***"
-        else:
-            masked = "—"
+        masked = db.mask_key(db.resolve_preset_key(preset))
         from services.utils.formatting import html_escape
         await _edit_or_send(
             update,

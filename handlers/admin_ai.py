@@ -56,7 +56,7 @@ MAX_GROUP_LABEL_LEN = 40
 
 _FIELD_HELP = {
     "name": "نام یکتای پریست. فقط حروف انگلیسی (a-z)، اعداد (0-9) و زیرخط (_) مجاز است. بعد از ذخیره قابل تغییر نیست.",
-    "api_key": "کلید API سرویس‌دهنده. می‌توانید مقدار ثابت (sk-...) یا متغیر محیطی (مثلاً $MY_KEY) وارد کنید.",
+    "api_key": "کلید API سرویس‌دهنده (مثلاً sk-...). این کلید به‌صورت رمزنگاری‌شده در پایگاه داده ذخیره می‌شود.",
     "base_url": "آدرس سرور سازگار با OpenAI. نمونه: https://api.example.com/v1",
     "model": "نام دقیق مدل. نمونه: gpt-4o-mini یا gemini-2.0-flash-lite",
     "max_concurrency": "تعداد درخواست‌هایی که هم‌زمان به این سرویس‌دهنده فرستاده می‌شود. عدد ۲ یا ۳ معمول است.",
@@ -182,7 +182,7 @@ def _detect_key_groups() -> list[dict]:
         if not resolved:
             resolved = "__no_key__"
         if resolved not in groups_map:
-            masked = (resolved[:6] + "…" + resolved[-4:]) if len(resolved) > 12 else resolved
+            masked = db.mask_key(resolved) if resolved != "__no_key__" else resolved
             groups_map[resolved] = {
                 "resolved_key": resolved,
                 "masked_key": masked,
@@ -293,8 +293,7 @@ async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYP
     active_name = db.get_active_preset_name()
     is_active = preset_name == active_name
 
-    raw_key = preset.get("api_key", "")
-    masked_key = (raw_key[:6] + "…" + raw_key[-4:]) if len(raw_key) > 12 else ("—" if not raw_key else "***")
+    masked_key = db.mask_key(db.resolve_preset_key(preset))
 
     from services.db import get_preset_cost as _get_preset_cost
     cost = _get_preset_cost(preset_name)
@@ -364,7 +363,7 @@ async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TY
     field_labels = {
         "base_url": "Base URL",
         "model": "Model Name",
-        "api_key": "API Key (env: $VAR_NAME or literal)",
+        "api_key": "API Key (literal; stored encrypted)",
         "daily_batch_size": "Batch Size (integer)",
         "max_concurrency": "Concurrency (integer)",
         "max_rpm": "RPM Limit (integer)",
@@ -802,25 +801,29 @@ async def _handle_full_edit_save(update: Update, context: ContextTypes.DEFAULT_T
     new_name = values.get("name", preset_name)
     rename = new_name != preset_name
 
-    db.set_preset(
-        name=new_name,
-        base_url=values.get("base_url", preset.get("base_url", "")),
-        model=values.get("model", preset.get("model", "")),
-        api_key=values.get("api_key", preset.get("api_key", "")),
-        daily_batch_size=int(values.get("daily_batch_size", preset.get("daily_batch_size", 6))),
-        max_concurrency=int(values.get("max_concurrency", preset.get("max_concurrency", 2))),
-        max_rpm=int(values.get("max_rpm", preset.get("max_rpm", 30))),
-        max_tpm=int(values.get("max_tpm", preset.get("max_tpm", 0))),
-        max_daily_req=int(values.get("max_daily_req", preset.get("max_daily_req", 0))),
-        timeout_seconds=float(values.get("timeout_seconds", preset.get("timeout_seconds", 30.0))),
-        temperature=float(values.get("temperature", preset.get("temperature", 0.6))),
-        max_output_tokens=int(values.get("max_output_tokens", preset.get("max_output_tokens", 4096))),
-        is_emergency=int(values.get("is_emergency", preset.get("is_emergency", 0))),
-        input_cost_per_million=values.get("input_cost_per_million", preset.get("input_cost_per_million")),
-        output_cost_per_million=values.get("output_cost_per_million", preset.get("output_cost_per_million")),
-        in_fallback_chain=int(values.get("in_fallback_chain", preset.get("in_fallback_chain", 1))),
-        group_label=values.get("group_label", preset.get("group_label", "")),
-    )
+    try:
+        db.set_preset(
+            name=new_name,
+            base_url=values.get("base_url", preset.get("base_url", "")),
+            model=values.get("model", preset.get("model", "")),
+            api_key=values.get("api_key", preset.get("api_key", "")),
+            daily_batch_size=int(values.get("daily_batch_size", preset.get("daily_batch_size", 6))),
+            max_concurrency=int(values.get("max_concurrency", preset.get("max_concurrency", 2))),
+            max_rpm=int(values.get("max_rpm", preset.get("max_rpm", 30))),
+            max_tpm=int(values.get("max_tpm", preset.get("max_tpm", 0))),
+            max_daily_req=int(values.get("max_daily_req", preset.get("max_daily_req", 0))),
+            timeout_seconds=float(values.get("timeout_seconds", preset.get("timeout_seconds", 30.0))),
+            temperature=float(values.get("temperature", preset.get("temperature", 0.6))),
+            max_output_tokens=int(values.get("max_output_tokens", preset.get("max_output_tokens", 4096))),
+            is_emergency=int(values.get("is_emergency", preset.get("is_emergency", 0))),
+            input_cost_per_million=values.get("input_cost_per_million", preset.get("input_cost_per_million")),
+            output_cost_per_million=values.get("output_cost_per_million", preset.get("output_cost_per_million")),
+            in_fallback_chain=int(values.get("in_fallback_chain", preset.get("in_fallback_chain", 1))),
+            group_label=values.get("group_label", preset.get("group_label", "")),
+        )
+    except db.MasterKeyRequiredError:
+        await notify_callback(update.callback_query, "برای ذخیره کلید API باید AI_MASTER_KEY در سرور پیکربندی شود.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
 
     if rename:
         db.delete_preset(preset_name)
@@ -1030,6 +1033,9 @@ async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
         )
     except ValueError:
         await notify_callback(update.callback_query, "این نام هم‌اکنون توسط پیش‌تنظیم دیگری استفاده می‌شود.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    except db.MasterKeyRequiredError:
+        await notify_callback(update.callback_query, "برای ذخیره کلید API باید AI_MASTER_KEY در سرور پیکربندی شود.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     # The database transaction already removed the old row when renamed.
@@ -1734,7 +1740,7 @@ async def _show_help_presets(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "هر پریست یک تنظیمات کامل برای اتصال به یک سرویس‌دهنده AI است.\n\n"
         "<b>فیلدهای اصلی:</b>\n"
         "• name: نام یکتای پریست (فقط حروف انگلیسی، اعداد، زیرخط)\n"
-        "• api_key: کلید API (مقدار ثابت یا متغیر محیطی $VAR)\n"
+        "• api_key: کلید API (مقدار ثابت؛ به‌صورت رمزنگاری‌شده ذخیره می‌شود)\n"
         "• base_url: آدرس سرور (سازگار با OpenAI)\n"
         "• model: نام دقیق مدل\n\n"
         "<b>محدودیت‌ها:</b>\n"
@@ -2095,7 +2101,12 @@ async def _handle_ai_text_input(
         groups = _detect_key_groups()
         target = next((g for g in groups if g["key_hash"] == key_hash), None)
         if target:
-            db.set_preset_api_key_batch(target["names"], text.strip())
+            try:
+                db.set_preset_api_key_batch(target["names"], text.strip())
+            except db.MasterKeyRequiredError:
+                context.user_data.pop("awaiting", None)
+                await update.message.reply_text("برای ذخیره کلید API باید AI_MASTER_KEY در سرور پیکربندی شود.")
+                return
         context.user_data.pop("awaiting", None)
         await update.message.reply_text("✅ کلید API برای همه اعضای گروه به‌روز شد.")
         await _show_grouped_presets(update, context)

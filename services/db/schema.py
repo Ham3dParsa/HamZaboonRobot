@@ -508,6 +508,12 @@ def init_db(path: str | None = None):
                         (legacy_api_key["value"], active_name_val),
                     )
 
+        # Phase 5 (R3): encrypt any API keys still at rest as plaintext or
+        # "$ENV" references (see _encrypt_key_columns). Runs after the legacy
+        # settings->preset sync so a copied legacy key is also encrypted, and
+        # before the destructive cleanup commit below.
+        _encrypt_key_columns(conn)
+
         # Commit all additive migrations before the destructive cleanup so a
         # failure in DROP COLUMN/TABLE rolls back the destructive transaction.
         conn.commit()
@@ -613,6 +619,56 @@ def _init_ai_presets_table(conn):
         "AND api_key = 'HpOF_API_KEY'"
     )
     conn.commit()
+
+
+def _encrypt_key_columns(conn):
+    """Phase 5 (R3): encrypt API keys at rest across all storage sites.
+
+    Converts any still-plaintext or ``$ENV`` reference stored in
+    ``ai_presets.api_key``, ``preset_groups.api_key``, and ``settings.ai_api_key``
+    into Fernet ciphertext. Idempotent: a value that already decrypts under the
+    current master key is left untouched (so an unchanged re-run, a plaintext
+    value, or a token from a *previous* key after rotation are all handled by
+    ``encrypt_for_storage``). A ``$ENV`` reference is resolved to the real
+    environment value before encryption; if the env var is unset the stored
+    value becomes empty (R3). Fail-closed: when no master key is configured we
+    MUST NOT destroy existing values, so the migration is skipped entirely and
+    re-runs once a key is added.
+    """
+    from services.db.key_crypto import encrypt_for_storage, _fernet
+
+    if _fernet() is None:
+        return
+
+    def _encrypt(raw: str) -> str:
+        if not raw:
+            return ""
+        if raw.startswith("$"):
+            return encrypt_for_storage(os.getenv(raw[1:], "") or "")
+        return encrypt_for_storage(raw)
+
+    for row in conn.execute("SELECT name, api_key FROM ai_presets").fetchall():
+        enc = _encrypt(row["api_key"] or "")
+        if enc != (row["api_key"] or ""):
+            conn.execute(
+                "UPDATE ai_presets SET api_key=? WHERE name=?", (enc, row["name"])
+            )
+    for row in conn.execute(
+        "SELECT group_label, api_key FROM preset_groups"
+    ).fetchall():
+        enc = _encrypt(row["api_key"] or "")
+        if enc != (row["api_key"] or ""):
+            conn.execute(
+                "UPDATE preset_groups SET api_key=? WHERE group_label=?",
+                (enc, row["group_label"]),
+            )
+    row = conn.execute("SELECT value FROM settings WHERE key='ai_api_key'").fetchone()
+    if row:
+        enc = _encrypt(row["value"] or "")
+        if enc != (row["value"] or ""):
+            conn.execute(
+                "UPDATE settings SET value=? WHERE key='ai_api_key'", (enc,)
+            )
 
 
 def _init_config_tests_table(conn):

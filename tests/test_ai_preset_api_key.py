@@ -1,28 +1,34 @@
-"""Tests for the ai_presets api_key R3 fix.
+"""Tests for the ai_presets api_key R3 fix and Phase 5 encryption.
 
 Covers:
 - R3A: the idempotent schema migration that prefixes "$" to the historical
   bare "HpOF_API_KEY" stored on the 4 HP presets (on an upgrade from the
   prior schema AND on a fresh DB), without touching other keys.
-- R3B: resolve_api_key warn-on-invalid hardening (logs on a mis-stored bare
-  env-name, stays silent for valid "$ENV" refs and plausible literal keys,
-  never throws).
+- Phase 5 (R4): resolve_api_key now decrypts the stored Fernet ciphertext.
+  The "$ENV" indirection and the warn-on-invalid-literal guard are gone; a
+  non-ciphertext value fails closed to ``''`` (never throws, never logs the
+  literal key).
 """
 
 from __future__ import annotations
 
-import logging
 import os
 import sqlite3
 import tempfile
 import unittest
+from unittest import mock
+
+import config
 
 from services import db as db_module
 from services.db import schema as db_schema
+from services.db import key_crypto
 from services.ai import ai_presets
 
 
 _HP_NAMES = ("g3_6_f_HP", "g3_5_f_HP", "g3_5_FL_HP", "g3_1_FL_HP")
+
+TEST_MASTER_KEY = "sd4H8UUr5ONYISGXcx468OQwFaUxaktNGGTPs9TBESg="
 
 
 class _ScratchDbTestCase(unittest.TestCase):
@@ -44,6 +50,16 @@ class _ScratchDbTestCase(unittest.TestCase):
 
 class PresetApiKeyMigrationTest(_ScratchDbTestCase):
     """R3A — the idempotent "$" prefix migration."""
+
+    def setUp(self):
+        super().setUp()
+        # These legacy tests assert the raw "$ENV" prefix migration result.
+        # Run them without a master key so the Phase 5 encryption migration is
+        # skipped and the "$" value is left intact (the conftest provides a
+        # default master key otherwise).
+        self._patcher = mock.patch.object(config, "AI_MASTER_KEY", "")
+        self._patcher.start()
+        self.addCleanup(self._patcher.stop)
 
     def _seed_bare_hp_keys(self):
         """Create the ai_presets table and insert the HP presets with the
@@ -142,39 +158,73 @@ class PresetApiKeyMigrationTest(_ScratchDbTestCase):
         self.assertEqual(gap, "$GAPGPT_API_KEY")
 
 
-class ResolveApiKeyHardeningTest(_ScratchDbTestCase):
-    """R3B — warn-on-invalid guard in resolve_api_key."""
+class ResolveApiKeyPhase5Test(_ScratchDbTestCase):
+    """Phase 5 (R4) — resolve_api_key decrypts ciphertext, fails closed."""
 
-    def test_env_ref_resolves(self):
+    def _with_master_key(self, key: str = TEST_MASTER_KEY):
+        p = mock.patch.object(config, "AI_MASTER_KEY", key)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_empty_returns_empty(self):
+        self._with_master_key()
+        self.assertEqual(ai_presets.resolve_api_key(""), "")
+        self.assertEqual(ai_presets.resolve_api_key({"api_key": ""}), "")
+
+    def test_ciphertext_roundtrips_to_plaintext(self):
+        self._with_master_key()
+        plain = "sk-real-secret-1234567890"
+        token = key_crypto.encrypt_secret(plain)
+        self.assertEqual(ai_presets.resolve_api_key(token), plain)
+        self.assertEqual(ai_presets.resolve_api_key({"api_key": token}), plain)
+
+    def test_plaintext_fails_closed_and_does_not_log_literal(self):
+        self._with_master_key()
+        plain = "sk-this-was-never-encrypted-12345"
+        with self.assertLogs(key_crypto.log.name, level="WARNING") as cm:
+            result = ai_presets.resolve_api_key(plain)
+        self.assertEqual(result, "")
+        self.assertFalse(any(plain in m for m in cm.output), "must not log the literal")
+
+    def test_env_reference_no_longer_resolves(self):
+        """The '$ENV' indirection is gone (R4): a '$' string is not ciphertext,
+        so it fails closed to '' regardless of the environment."""
+        self._with_master_key()
         os.environ["HZ_TEST_KEY"] = "sekrit"
         self.addCleanup(os.environ.pop, "HZ_TEST_KEY", None)
-        self.assertEqual(ai_presets.resolve_api_key("$HZ_TEST_KEY"), "sekrit")
+        self.assertEqual(ai_presets.resolve_api_key("$HZ_TEST_KEY"), "")
 
-    def test_valid_literal_key_no_warning(self):
-        with self.assertNoLogs(ai_presets.log.name, level=logging.WARNING):
-            self.assertEqual(
-                ai_presets.resolve_api_key("sk-abcdefghijklmnopqrstuvwxyz0123456789"),
-                "sk-abcdefghijklmnopqrstuvwxyz0123456789",
-            )
+    def test_missing_master_key_returns_empty(self):
+        self._with_master_key("")
+        self.assertEqual(ai_presets.resolve_api_key("not-a-valid-token"), "")
 
-    def test_long_token_literal_no_warning(self):
-        long_key = "ix_" + "a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0"
-        with self.assertNoLogs(ai_presets.log.name, level=logging.WARNING):
-            self.assertEqual(ai_presets.resolve_api_key(long_key), long_key)
 
-    def test_bare_env_name_warns_but_returns(self):
-        """A bare 'HpOF_API_KEY' (no '$') must warn but still return the raw
-        value (no throw), preserving fallback-chain behavior."""
-        with self.assertLogs(ai_presets.log.name, level=logging.WARNING) as cm:
-            result = ai_presets.resolve_api_key("HpOF_API_KEY")
-        self.assertEqual(result, "HpOF_API_KEY")
-        self.assertTrue(any("HpOF_API_KEY" in m for m in cm.output))
-        self.assertTrue(any("not a '$ENV' reference" in m for m in cm.output))
+class AiClientEnvFallbackTest(_ScratchDbTestCase):
+    """Phase 5 (R4/R1) — env-only deployments still resolve without a master key.
 
-    def test_empty_returns_empty_no_warning(self):
-        with self.assertNoLogs(ai_presets.log.name, level=logging.WARNING):
-            self.assertEqual(ai_presets.resolve_api_key(""), "")
-            self.assertEqual(ai_presets.resolve_api_key({"api_key": ""}), "")
+    When the active preset has no key and the stored ai_api_key setting is
+    undecryptable (no AI_MASTER_KEY configured), the documented AI_API_KEY env
+    var must still be used as the plaintext fallback.
+    """
+
+    def _no_master_key(self):
+        p = mock.patch.object(config, "AI_MASTER_KEY", "")
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_env_only_fallback_resolves_without_master_key(self):
+        self._no_master_key()
+        db_module.init_db()
+        import services.ai.ai as ai_module
+
+        captor = mock.MagicMock()
+        with mock.patch.object(ai_module, "DEFAULT_AI_API_KEY", "env-only-secret-123"):
+            with mock.patch("services.ai.ai.OpenAI", captor):
+                ai_module._client(
+                    {"base_url": "", "api_key": "", "model": "", "timeout_seconds": 30}
+                )
+        captor.assert_called_once()
+        self.assertEqual(captor.call_args.kwargs["api_key"], "env-only-secret-123")
 
 
 if __name__ == "__main__":

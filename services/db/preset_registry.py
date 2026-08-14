@@ -5,6 +5,7 @@ import datetime as _dt
 from services.db.schema import get_conn, _utc_now
 from services.db.settings import get_bool_setting, get_setting
 from services.ai.ai_presets import resolve_api_key
+from services.db.key_crypto import encrypt_for_storage
 
 
 def get_presets() -> list[dict]:
@@ -83,6 +84,10 @@ def set_preset(
                 ).fetchone()
                 if collision:
                     raise ValueError(f"preset name already exists: {name}")
+            # Encrypt at the write seam: an unchanged edit passes the token that
+            # is already at rest (encrypt_for_storage is idempotent on Fernet
+            # tokens), while a new plaintext key is encrypted before storing.
+            stored_key = encrypt_for_storage(api_key)
             # On conflict, only overwrite priority/enabled when the caller
             # explicitly passes them (None = preserve the existing stored value,
             # so partial edits can't silently reset a preset's chain position or
@@ -119,7 +124,7 @@ def set_preset(
                     name,
                     base_url,
                     model,
-                    api_key,
+                    stored_key,
                     daily_batch_size,
                     max_concurrency,
                     max_rpm,
@@ -156,12 +161,13 @@ def set_preset(
 
 
 def set_preset_api_key_batch(names: list[str], new_key: str):
+    stored_key = encrypt_for_storage(new_key)
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
         placeholders = ",".join("?" for _ in names)
         conn.execute(
             f"UPDATE ai_presets SET api_key=? WHERE name IN ({placeholders})",
-            (new_key, *names),
+            (stored_key, *names),
         )
         conn.commit()
 
@@ -242,7 +248,7 @@ def set_group_key(label: str, api_key: str):
         conn.execute(
             "INSERT INTO preset_groups(group_label, api_key) VALUES (?, ?) "
             "ON CONFLICT(group_label) DO UPDATE SET api_key=excluded.api_key",
-            (label, api_key),
+            (label, encrypt_for_storage(api_key)),
         )
         conn.commit()
 
@@ -263,13 +269,15 @@ def delete_group_key(label: str):
 
 
 def resolve_preset_key(preset: dict) -> str:
-    """Resolve a preset's effective API key to a real value.
+    """Resolve a preset's effective API key to a real plaintext value.
 
     Precedence: the preset's own `api_key` (if non-empty), else the shared key
-    of its `group_label` (if the group has one), else empty. The chosen raw
-    value (a `$ENV` reference or a literal token) is then resolved by the pure
-    `resolve_api_key`. Backward-compatible: when a preset owns its key and no
-    group key exists, this returns the same value as `resolve_api_key(preset)`.
+    of its `group_label` (if the group has one), else empty. The chosen stored
+    value is Fernet ciphertext (Phase 5) and is decrypted by `resolve_api_key`.
+    Fail-closed: returns ``''`` if no key exists, the master key is missing, or
+    the stored token cannot be decrypted. Backward-compatible: when a preset
+    owns its key and no group key exists, this returns the same value as
+    `resolve_api_key(preset)`.
     """
     raw = preset.get("api_key", "") or ""
     if not raw:

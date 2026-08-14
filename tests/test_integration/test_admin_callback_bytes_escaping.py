@@ -15,8 +15,13 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import config
+
 from services import db
 from services.db import schema as db_schema
+from services.db import key_crypto
+
+TEST_MASTER_KEY = "sd4H8UUr5ONYISGXcx468OQwFaUxaktNGGTPs9TBESg="
 
 # A long custom preset name (within the 60-char R11 cap) that overflows raw callbacks.
 LONG_NAME = "x" * 60
@@ -353,6 +358,9 @@ class PerPresetGroupDetachmentTest(unittest.TestCase):
         self.new_path = os.path.join(self.tempdir.name, "test.sqlite")
         db.DB_PATH = self.new_path
         db_schema.DB_PATH = self.new_path
+        self._master = patch("config.AI_MASTER_KEY", TEST_MASTER_KEY)
+        self._master.start()
+        self.addCleanup(self._master.stop)
         db.init_db()
         db.create_user_if_needed(1, "owner")
         for name in ("target_preset", "peer_preset", "ungrouped_preset"):
@@ -384,6 +392,9 @@ class PerPresetGroupDetachmentTest(unittest.TestCase):
         db.DB_PATH = self.previous_db_path
         db_schema.DB_PATH = self.previous_schema_path
         self.tempdir.cleanup()
+
+    def _dec(self, token):
+        return key_crypto.decrypt_secret(token) if token else token
 
     def _callback_update(self):
         query = MagicMock()
@@ -546,7 +557,7 @@ class PerPresetGroupDetachmentTest(unittest.TestCase):
             )
         )
 
-        self.assertEqual(db.get_group_key("shared group"), "$SHARED_GROUP_KEY")
+        self.assertEqual(self._dec(db.get_group_key("shared group")), "$SHARED_GROUP_KEY")
 
     def test_saved_detach_with_rename_deletes_the_orphaned_shared_key(self):
         from handlers.admin import _handle_admin_callback
@@ -611,7 +622,7 @@ class PerPresetGroupDetachmentTest(unittest.TestCase):
 
         self.assertEqual(db.get_preset("solo_preset")["group_label"], "solo group")
         self.assertIsNone(db.get_preset("renamed_solo"))
-        self.assertEqual(db.get_group_key("solo group"), "$SOLO_GROUP_KEY")
+        self.assertEqual(self._dec(db.get_group_key("solo group")), "$SOLO_GROUP_KEY")
 
     def test_full_edit_is_blocked_while_detach_is_pending(self):
         from handlers.admin import _handle_admin_callback
