@@ -189,5 +189,33 @@ class ResolveApiKeyPhase5Test(_ScratchDbTestCase):
         self.assertEqual(ai_presets.resolve_api_key("not-a-valid-token"), "")
 
 
+class AiClientEnvFallbackTest(_ScratchDbTestCase):
+    """Phase 5 (R4/R1) — env-only deployments still resolve without a master key.
+
+    When the active preset has no key and the stored ai_api_key setting is
+    undecryptable (no AI_MASTER_KEY configured), the documented AI_API_KEY env
+    var must still be used as the plaintext fallback.
+    """
+
+    def _no_master_key(self):
+        p = mock.patch.object(config, "AI_MASTER_KEY", "")
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_env_only_fallback_resolves_without_master_key(self):
+        self._no_master_key()
+        db_module.init_db()
+        import services.ai.ai as ai_module
+
+        captor = mock.MagicMock()
+        with mock.patch.object(ai_module, "DEFAULT_AI_API_KEY", "env-only-secret-123"):
+            with mock.patch("services.ai.ai.OpenAI", captor):
+                ai_module._client(
+                    {"base_url": "", "api_key": "", "model": "", "timeout_seconds": 30}
+                )
+        captor.assert_called_once()
+        self.assertEqual(captor.call_args.kwargs["api_key"], "env-only-secret-123")
+
+
 if __name__ == "__main__":
     unittest.main()

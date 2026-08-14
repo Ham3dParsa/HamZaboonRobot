@@ -101,14 +101,38 @@ def encrypt_for_storage(value: str) -> str:
 
     Write APIs take the intended stored value. A user typing a new key passes
     plaintext; but an unchanged edit hands back the token that is already at
-    rest (Fernet tokens always begin with ``gAAAA``), which must not be
-    encrypted a second time. Treating an existing Fernet token as already-stored
-    makes writes idempotent and safe. Fail-closed like ``encrypt_secret``:
-    empty input stays empty, and a plaintext key is never stored when no master
-    key is configured.
+    rest, which must not be encrypted a second time. Idempotency is validated
+    by attempting a real decrypt under the current master key rather than by
+    sniffing a prefix: a value that decrypts is already valid ciphertext and is
+    returned unchanged, while a value that does not (plaintext, or a token
+    encrypted under a *previous* key after rotation) is encrypted fresh. Fail
+    -closed: empty input stays empty, and nothing is stored when no master key
+    is configured.
     """
     if not value:
         return ""
-    if value.startswith("gAAAA"):
+    f = _fernet()
+    if f is None:
+        # No master key configured: never destroy an existing value and never
+        # invent a key. Pass the input through unchanged so a ciphertext handed
+        # back by an unchanged edit is preserved (the deployment is
+        # misconfigured and fail-closed at resolution time anyway).
         return value
-    return encrypt_secret(value)
+    try:
+        # Already valid ciphertext under the current master key -> idempotent,
+        # no re-encryption. This is how an unchanged edit (passing back the
+        # already-at-rest token) and a freshly encrypted token both pass
+        # through cleanly.
+        f.decrypt(value.encode())
+        return value
+    except InvalidToken:
+        # Not decryptable under the current key. If it looks like a Fernet
+        # token it is ciphertext from a *previous* master key (rotation) or a
+        # corrupt token: leave it untouched. We must NOT re-wrap it, because
+        # that would hide the old ciphertext inside a new token and make it
+        # undecryptable to the real key. The resolver then fails closed and the
+        # admin re-enters the key. A genuine plaintext key (no token prefix) is
+        # encrypted fresh.
+        if value.startswith("gAAAA"):
+            return value
+        return f.encrypt(value.encode()).decode()

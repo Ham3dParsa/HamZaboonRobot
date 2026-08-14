@@ -626,27 +626,26 @@ def _encrypt_key_columns(conn):
 
     Converts any still-plaintext or ``$ENV`` reference stored in
     ``ai_presets.api_key``, ``preset_groups.api_key``, and ``settings.ai_api_key``
-    into Fernet ciphertext. Idempotent: values already encrypted (Fernet tokens
-    begin with ``gAAAA``) are skipped. A ``$ENV`` reference is resolved to the
-    real environment value before encryption (empty when the env var is unset).
-    Fail-closed: if no master key is configured, ``encrypt_secret`` returns
-    ``''`` so the UPDATE is skipped and existing values are never destroyed —
-    they stay intact (though unusable) until a key is configured and startup
-    re-runs.
+    into Fernet ciphertext. Idempotent: a value that already decrypts under the
+    current master key is left untouched (so an unchanged re-run, a plaintext
+    value, or a token from a *previous* key after rotation are all handled by
+    ``encrypt_for_storage``). A ``$ENV`` reference is resolved to the real
+    environment value before encryption; if the env var is unset the stored
+    value becomes empty (R3). Fail-closed: when no master key is configured we
+    MUST NOT destroy existing values, so the migration is skipped entirely and
+    re-runs once a key is added.
     """
-    from services.db.key_crypto import encrypt_secret
+    from services.db.key_crypto import encrypt_for_storage, _fernet
+
+    if _fernet() is None:
+        return
 
     def _encrypt(raw: str) -> str:
-        if not raw or raw.startswith("gAAAA"):
-            return raw
-        source = raw
+        if not raw:
+            return ""
         if raw.startswith("$"):
-            source = os.getenv(raw[1:], "")
-        enc = encrypt_secret(source)
-        # Only write when a real encryption happened; otherwise leave the
-        # stored value untouched (never destroy a $ENV ref or plaintext when
-        # the master key is missing or the env ref is unresolved).
-        return enc if enc else raw
+            return encrypt_for_storage(os.getenv(raw[1:], "") or "")
+        return encrypt_for_storage(raw)
 
     for row in conn.execute("SELECT name, api_key FROM ai_presets").fetchall():
         enc = _encrypt(row["api_key"] or "")

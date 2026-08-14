@@ -112,15 +112,35 @@ class EncryptForStorageTest(_MasterKeyTestCase):
         token = key_crypto.encrypt_secret("sk-secret-123456789")
         self.assertEqual(key_crypto.encrypt_for_storage(token), token)
 
+    def test_gAAAA_like_value_without_current_key_is_preserved(self):
+        # A value that looks like a Fernet token but is not decryptable under
+        # the current key (e.g. from a rotated master key) must be preserved,
+        # never re-wrapped into an undecryptable double layer (Kilo R2).
+        looks_like = "gAAAAAsuspicious-literal-that-is-not-real-ciphertext"
+        stored = key_crypto.encrypt_for_storage(looks_like)
+        self.assertEqual(stored, looks_like)
+
+    def test_rotated_master_key_old_ciphertext_preserved_not_wrapped(self):
+        # A token encrypted under a previous key cannot be recovered (we only
+        # have the bytes), so it is preserved untouched; it must NOT be wrapped
+        # inside a new token that hides the old ciphertext.
+        old_key = "sd4H8UUr5ONYISGXcx468OQwFaUxaktNGGTPs9TBESg="
+        new_key = "GqaCOB9C1WdWdsG7jGaHFfbowq69GViyVRpbYTiAM-M="
+        token_old = key_crypto.Fernet(old_key.encode()).encrypt(
+            b"sk-rotated-secret-123456"
+        ).decode()
+        with mock.patch.object(config, "AI_MASTER_KEY", new_key):
+            stored = key_crypto.encrypt_for_storage(token_old)
+        self.assertEqual(stored, token_old)
+
 
 class EncryptForStorageNoMasterKeyTest(MissingMasterKeyTest):
-    def test_plaintext_not_stored_when_no_master_key(self):
-        with self.assertLogs(key_crypto.log.name, level=logging.WARNING):
-            self.assertEqual(key_crypto.encrypt_for_storage("sk-plain-123456789"), "")
-
-    def test_ciphertext_passed_through_even_without_master_key(self):
-        # A token already at rest must never be re-encrypted or wiped just
-        # because the master key is momentarily absent.
+    def test_input_passed_through_without_master_key(self):
+        # No master key: never invent a key, never destroy an existing value.
+        # The input is preserved unchanged (resolution fails closed later).
+        self.assertEqual(
+            key_crypto.encrypt_for_storage("sk-plain-123456789"), "sk-plain-123456789"
+        )
         token = "gAAAAA-this-looks-like-an-existing-token"
         self.assertEqual(key_crypto.encrypt_for_storage(token), token)
 
