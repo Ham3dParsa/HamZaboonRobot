@@ -66,13 +66,21 @@ class _Phase3AiPresetFlowBase(unittest.TestCase):
         return update
 
     def _make_preset(self, name: str, **kwargs):
-        defaults = {"base_url": "https://x", "model": "m", "is_custom": 1, "priority": 0}
+        defaults = {"base_url": "https://x", "model": "m", "priority": 0}
         defaults.update(kwargs)
         db.set_preset(name=name, **defaults)
 
 
 class AiPresetDeleteConfirmFlowTest(_Phase3AiPresetFlowBase):
     """R3: deleting a custom preset requires a two-step inline confirm."""
+
+    def setUp(self):
+        super().setUp()
+        # Phase 4 (R3: no auto-seed): seed a separate active preset so the
+        # presets under test are never the active preset (which the R6 guard
+        # blocks from deletion).
+        db.set_preset("active_preset", base_url="https://x", model="m")
+        db.set_setting("ai_primary_preset", "active_preset")
 
     def test_first_delete_tap_shows_confirm_not_deletion(self):
         self._make_preset("victim")
@@ -116,14 +124,15 @@ class AiPresetDuplicateFlowTest(_Phase3AiPresetFlowBase):
         markup = up.callback_query.edit_message_text.call_args.kwargs["reply_markup"].to_json()
         self.assertIn("ai_preset:duplicate:", markup)
 
-    def test_duplicate_forces_clone_is_custom(self):
-        # Even when duplicating a non-custom (built-in-like) preset, the clone
-        # must be is_custom=1 so it is immediately editable in the UI.
-        self._make_preset("builtin_like", is_custom=0)
-        self._callback(f"ai_preset:duplicate:{db_resolve('builtin_like')}")
-        clone = db.get_preset("builtin_like (copy)")
+    def test_duplicate_clone_preserves_enabled_state(self):
+        # A clone inherits the source's enabled state so it can never start
+        # routing without an explicit owner choice.
+        self._make_preset("disabled_src", enabled=0)
+        self._callback(f"ai_preset:duplicate:{db_resolve('disabled_src')}")
+        clone = db.get_preset("disabled_src (copy)")
         self.assertIsNotNone(clone)
-        self.assertEqual(clone["is_custom"], 1, "duplicate must force is_custom=1")
+        self.assertEqual(clone["enabled"], 0, "clone must inherit disabled state")
+        self.assertNotIn("is_custom", clone, "is_custom column must be gone")
 
 
 class AiPresetEditBackFlowTest(_Phase3AiPresetFlowBase):
@@ -204,6 +213,10 @@ class AiPresetUsagePaginationTest(_Phase3AiPresetFlowBase):
         self.assertIn("صفحه 1/", text)
 
     def test_usage_page_next_advances(self):
+        # Phase 4 (R3: no auto-seed): seed extra "noise" presets so the target
+        # presets fall on a later page and pagination navigation is exercised.
+        for i in range(10):
+            self._make_preset(f"noise_{i}")
         for i in range(7):
             self._make_preset(f"preset_{i}")
         # The handler treats the callback number as an absolute 0-based page

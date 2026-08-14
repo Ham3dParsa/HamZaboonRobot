@@ -48,7 +48,7 @@ class _Phase2ScratchDbTestCase(unittest.TestCase):
         must keep at least one preset enabled.
         """
         enable = kwargs.pop("enabled", 1)
-        defaults = {"base_url": "https://x", "model": "m", "is_custom": 1}
+        defaults = {"base_url": "https://x", "model": "m"}
         defaults.update(kwargs)
         db.set_preset(name=name, **defaults)
         if bool(enable) != 1:
@@ -73,7 +73,7 @@ class R2PriorityInSetPresetTest(_Phase2ScratchDbTestCase):
 
     def test_priority_persisted_on_conflict_upsert(self):
         self._make_preset("upsert", priority=1)
-        db.set_preset(name="upsert", base_url="https://x", model="m", is_custom=1, priority=7)
+        db.set_preset(name="upsert", base_url="https://x", model="m", priority=7)
         got = db.get_preset("upsert")
         self.assertEqual(got["priority"], 7)
 
@@ -95,20 +95,20 @@ class R1PartialEditPreservesStateTest(_Phase2ScratchDbTestCase):
         self._make_preset("p", priority=4)
         db.set_preset_enabled("p", False)
         # Omitting priority/enabled must NOT touch them.
-        db.set_preset(name="p", base_url="https://new", model="m2", is_custom=1)
+        db.set_preset(name="p", base_url="https://new", model="m2")
         got = db.get_preset("p")
         self.assertEqual(got["priority"], 4)
         self.assertEqual(got["enabled"], 0, "disabled preset must stay disabled after a partial edit")
 
     def test_partial_edit_preserves_enabled_without_disable_flag(self):
         self._make_preset("q", priority=2)
-        db.set_preset(name="q", base_url="https://x2", model="m3", is_custom=1)
+        db.set_preset(name="q", base_url="https://x2", model="m3")
         got = db.get_preset("q")
         self.assertEqual(got["enabled"], 1, "an enabled preset stays enabled when priority/enabled omitted")
 
     def test_explicit_priority_and_enabled_still_applied(self):
         self._make_preset("r", priority=1)
-        db.set_preset(name="r", base_url="https://x3", model="m4", is_custom=1, priority=9, enabled=0)
+        db.set_preset(name="r", base_url="https://x3", model="m4", priority=9, enabled=0)
         got = db.get_preset("r")
         self.assertEqual(got["priority"], 9)
         self.assertEqual(got["enabled"], 0)
@@ -117,14 +117,14 @@ class R1PartialEditPreservesStateTest(_Phase2ScratchDbTestCase):
         self._make_preset("anchor")
         self._make_preset("c", input_cost_per_million=1.5, output_cost_per_million=2.5)
         # Omitting costs must NOT NULL them out (mirrors the priority/enabled guard).
-        db.set_preset(name="c", base_url="https://new", model="m2", is_custom=1)
+        db.set_preset(name="c", base_url="https://new", model="m2")
         got = db.get_preset("c")
         self.assertEqual(got["input_cost_per_million"], 1.5, "input cost must survive a partial edit")
         self.assertEqual(got["output_cost_per_million"], 2.5, "output cost must survive a partial edit")
 
     def test_explicit_costs_still_applied(self):
         self._make_preset("d", input_cost_per_million=1.0)
-        db.set_preset(name="d", base_url="https://x4", model="m4", is_custom=1,
+        db.set_preset(name="d", base_url="https://x4", model="m4",
                       input_cost_per_million=3.0, output_cost_per_million=4.0)
         got = db.get_preset("d")
         self.assertEqual(got["input_cost_per_million"], 3.0)
@@ -216,7 +216,6 @@ class R12GuardsTest(_Phase2ScratchDbTestCase):
                 name="dst",
                 base_url="https://x",
                 model="m",
-                is_custom=1,
                 previous_name="src",
             )
 
@@ -384,7 +383,7 @@ class R4ClonePresetTest(_Phase2ScratchDbTestCase):
         self.assertEqual(got["enabled"], 0)
 
     def test_clone_name_collision_raises(self):
-        self._make_preset("sc", base_url="https://x", model="m", is_custom=1)
+        self._make_preset("sc", base_url="https://x", model="m")
         with self.assertRaises(ValueError):
             db.clone_preset("sc", "sc")
 

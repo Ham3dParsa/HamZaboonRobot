@@ -42,9 +42,19 @@ class AiPresetCreateFlowTest(unittest.TestCase):
             base_url="https://api.example.com",
             model="gpt-test",
             api_key="test",
-            is_custom=1,
             priority=0,
         )
+        # Phase 4 (R3: no auto-seed): seed a deep-enough fallback chain so the
+        # manual-priority tests can enter ranks that exceed the previous empty
+        # chain without being clamped to max_rank.
+        for i in range(1, 7):
+            db.set_preset(
+                f"chain_{i}",
+                base_url="https://api.example.com",
+                model="gpt-test",
+                api_key="test",
+                in_fallback_chain=1,
+            )
         self.owner_patcher = patch("handlers.admin.is_owner", return_value=True)
         self.owner_patcher.start()
         self.addCleanup(self.owner_patcher.stop)

@@ -43,7 +43,7 @@ class HandlerBuiltCallbackByteLimitTest(unittest.TestCase):
         db_schema.DB_PATH = self.new_path
         db.init_db()
         db.create_user_if_needed(1, "owner")
-        db.set_preset(name=LONG_NAME, base_url="https://x", model="m", api_key="sk-123", is_custom=1)
+        db.set_preset(name=LONG_NAME, base_url="https://x", model="m", api_key="sk-123")
         self.owner_patcher = patch("handlers.admin.is_owner", return_value=True)
         self.owner_patcher.start()
         self.addCleanup(self.owner_patcher.stop)
@@ -91,7 +91,7 @@ class HandlerBuiltCallbackByteLimitTest(unittest.TestCase):
     def test_edit_field_under_64_with_long_name(self):
         """ai_preset_edit_keyboard callbacks must stay under 64 with a 60-char name."""
         from config.keyboards import ai_preset_edit_keyboard
-        preset = {"name": LONG_NAME, "is_custom": 1, "model": "m", "base_url": "u"}
+        preset = {"name": LONG_NAME, "model": "m", "base_url": "u"}
         markup = ai_preset_edit_keyboard(LONG_NAME, preset)
         for cb in _collect(markup.inline_keyboard):
             self.assertLessEqual(len(cb.encode("utf-8")), 64, cb)
@@ -109,7 +109,7 @@ class AiConnectionEscapingTest(unittest.TestCase):
         db_schema.DB_PATH = self.new_path
         db.init_db()
         db.create_user_if_needed(1, "owner")
-        db.set_preset(name="custom_gpt", base_url="https://x", model="m", api_key="sk-123", is_custom=1)
+        db.set_preset(name="custom_gpt", base_url="https://x", model="m", api_key="sk-123")
         db.set_setting("ai_primary_preset", "custom_gpt")
         self.owner_patcher = patch("handlers.admin.is_owner", return_value=True)
         self.owner_patcher.start()
@@ -171,19 +171,17 @@ class GroupLabelCallbackSafetyTest(unittest.TestCase):
         db_schema.DB_PATH = self.new_path
         db.init_db()
         db.create_user_if_needed(1, "owner")
-        db.set_preset(name="custom_preset", base_url="https://x", model="m", is_custom=1)
+        db.set_preset(name="custom_preset", base_url="https://x", model="m")
         db.set_preset(
             name="grouped_preset",
             base_url="https://x",
             model="m",
-            is_custom=1,
             group_label="legacy label",
         )
         db.set_preset(
             name="hash_like_grouped_preset",
             base_url="https://x",
             model="m",
-            is_custom=1,
             group_label="abcdef123456",
         )
         self.owner_patcher = patch("handlers.admin.is_owner", return_value=True)
@@ -362,21 +360,18 @@ class PerPresetGroupDetachmentTest(unittest.TestCase):
                 name=name,
                 base_url="https://x",
                 model="m",
-                is_custom=1,
                 group_label="shared group" if name != "ungrouped_preset" else "",
             )
         db.set_preset(
             name="solo_preset",
             base_url="https://x",
             model="m",
-            is_custom=1,
             group_label="solo group",
         )
         db.set_preset(
             name="000000000000",
             base_url="https://x",
             model="m",
-            is_custom=1,
             group_label="hash-named group",
         )
         db.set_group_key("shared group", "$SHARED_GROUP_KEY")
@@ -667,7 +662,6 @@ class PerPresetGroupDetachmentTest(unittest.TestCase):
             name="claimed_name",
             base_url="https://protected",
             model="protected-model",
-            is_custom=1,
             group_label="protected group",
         )
 

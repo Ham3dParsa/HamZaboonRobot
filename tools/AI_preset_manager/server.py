@@ -61,7 +61,6 @@ def _serialize_preset(p, active_name: str | None, chain_names: set | None = None
         "api_key_resolved": resolved,
         "enabled": bool(p["enabled"]),
         "priority": p.get("priority", 0),
-        "is_custom": bool(p.get("is_custom", 0)),
         "is_emergency": bool(p.get("is_emergency", 0)),
         "in_fallback_chain": bool(p.get("in_fallback_chain", 1)),
         "group_label": p.get("group_label", "") or "",
@@ -79,7 +78,7 @@ def _serialize_preset(p, active_name: str | None, chain_names: set | None = None
 
 _ALLOWED_FIELDS = {
     "name", "model", "base_url", "api_key", "enabled", "priority",
-    "is_custom", "is_emergency", "in_fallback_chain",
+    "is_emergency", "in_fallback_chain",
     "group_label", "max_concurrency", "max_rpm", "max_tpm",
     "daily_batch_size", "temperature",
     "input_cost_per_million", "output_cost_per_million",
@@ -166,7 +165,6 @@ def create_preset():
         base_url=data.get("base_url", ""),
         model=data.get("model", ""),
         api_key=data.get("api_key", ""),
-        is_custom=1,
     )
     return jsonify({"ok": True})
 
@@ -273,7 +271,6 @@ def clone_preset(name):
         base_url=p.get("base_url", ""),
         model=p.get("model", ""),
         api_key=p.get("api_key", ""),
-        is_custom=1,
         is_emergency=bool(p.get("is_emergency", 0)),
         in_fallback_chain=bool(p.get("in_fallback_chain", 1)),
         group_label=p.get("group_label", "") or "",

@@ -15,7 +15,6 @@ import sys
 import time
 
 from services import db
-from services.ai import ai_presets
 from tools.benchmark.runner import (
     run_preset_benchmark,
     delete_benchmark_data,
@@ -176,8 +175,6 @@ Examples:
         presets = []
         for name in args.presets:
             p = db.get_preset(name)
-            if not p:
-                p = ai_presets.get_builtin_preset(name)
             if not p:
                 print(f"⚠️  پریست '{name}' یافت نشد. رد شد.", file=sys.stderr)
                 continue

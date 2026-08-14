@@ -150,9 +150,11 @@ class TestRenderPresetBrief(unittest.TestCase):
         text = self._call({"name": "p1", "enabled": 1, "is_emergency": 1}, "other")
         self.assertIn("🛡️", text)
 
-    def test_custom_tag_present(self):
+    def test_no_custom_tag_after_builtin_removal(self):
+        # Phase 4: the is_custom concept is gone; a preset brief must never
+        # render a "custom" tag, even if a legacy dict carries the key.
         text = self._call({"name": "p1", "enabled": 1, "is_custom": 1}, "p1")
-        self.assertIn("custom", text)
+        self.assertNotIn("custom", text)
 
     def test_name_is_html_escaped(self):
         text = self._call({"name": "p<1>", "enabled": 1}, "other")

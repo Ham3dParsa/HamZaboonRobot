@@ -36,7 +36,6 @@ class CustomTestPromptFlowTest(unittest.TestCase):
             base_url="https://api.example.com",
             model="gpt-test",
             api_key="test",
-            is_custom=0,
         )
         self.owner_patcher = patch("handlers.admin.is_owner", return_value=True)
         self.owner_patcher.start()

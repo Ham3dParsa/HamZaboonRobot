@@ -92,17 +92,13 @@ class PresetApiKeyMigrationTest(_ScratchDbTestCase):
         for row in rows:
             self.assertEqual(row["api_key"], "$HpOF_API_KEY")
 
-    def test_fresh_db_has_env_refs(self):
-        """A fresh DB must seed the HP presets with the '$' env reference."""
+    def test_fresh_db_has_no_autoseeded_presets(self):
+        """Phase 4: a fresh DB must NOT auto-seed any preset rows; the admin
+        panel is the sole source of preset configuration."""
         db_module.init_db()
         with db_module.get_conn() as conn:
-            rows = conn.execute(
-                "SELECT name, api_key FROM ai_presets WHERE api_key LIKE '%HpOF%' "
-                "ORDER BY name"
-            ).fetchall()
-        self.assertGreater(len(rows), 0, "fresh DB must seed HpOF presets")
-        for row in rows:
-            self.assertEqual(row["api_key"], "$HpOF_API_KEY", row["name"])
+            rows = conn.execute("SELECT COUNT(*) as c FROM ai_presets").fetchone()
+        self.assertEqual(rows["c"], 0, "fresh DB must not auto-seed presets")
 
     def test_migration_does_not_touch_other_keys(self):
         """Other presets (custom literal keys, ELI/GAPGPT '$' refs) must be

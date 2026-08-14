@@ -9,7 +9,7 @@ from services.ai.ai_presets import resolve_api_key
 
 def get_presets() -> list[dict]:
     with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM ai_presets ORDER BY is_custom, name").fetchall()
+        rows = conn.execute("SELECT * FROM ai_presets ORDER BY name").fetchall()
     return [dict(row) for row in rows]
 
 
@@ -25,8 +25,8 @@ class NoActivePresetError(Exception):
 
 def get_active_preset_name() -> str:
     if get_bool_setting("ai_fallback_active", False):
-        return get_setting("ai_fallback_preset", "gapgpt_gemini_lite")
-    return get_setting("ai_primary_preset", _first_enabled_name())
+        return get_setting("ai_fallback_preset", "") or (_first_enabled_name() or "")
+    return get_setting("ai_primary_preset", "") or (_first_enabled_name() or "")
 
 
 def get_active_preset() -> dict:
@@ -59,7 +59,6 @@ def set_preset(
     timeout_seconds: float = 30.0,
     temperature: float = 0.6,
     max_output_tokens: int = 4096,
-    is_custom: int = 1,
     is_emergency: int = 0,
     priority: int | None = None,
     enabled: int | None = None,
@@ -100,7 +99,6 @@ def set_preset(
                 "timeout_seconds=excluded.timeout_seconds",
                 "temperature=excluded.temperature",
                 "max_output_tokens=excluded.max_output_tokens",
-                "is_custom=excluded.is_custom",
                 "is_emergency=excluded.is_emergency",
                 "in_fallback_chain=excluded.in_fallback_chain",
                 "group_label=excluded.group_label",
@@ -114,8 +112,8 @@ def set_preset(
             if output_cost_per_million is not None:
                 conflict_sets.append("output_cost_per_million=excluded.output_cost_per_million")
             conn.execute(
-                "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_custom, is_emergency, priority, enabled, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_emergency, priority, enabled, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 f"ON CONFLICT(name) DO UPDATE SET {', '.join(conflict_sets)}",
                 (
                     name,
@@ -130,7 +128,6 @@ def set_preset(
                     timeout_seconds,
                     temperature,
                     max_output_tokens,
-                    is_custom,
                     is_emergency,
                     0 if priority is None else priority,
                     1 if enabled is None else enabled,
@@ -300,14 +297,12 @@ def delete_preset(name: str) -> bool:
         return cursor.rowcount > 0
 
 
-def clone_preset(name: str, new_name: str, is_custom_override: bool | None = None) -> str:
+def clone_preset(name: str, new_name: str) -> str:
     """Clone an existing preset to a new name, copying all fields except name.
 
     Raises ValueError if the source is missing or the target name already
     exists. The clone inherits the source's enabled/priority state so it can
-    never start routing without an explicit owner choice. ``is_custom_override``,
-    when given, forces the clone's ``is_custom`` value (used so duplicating any
-    preset yields an immediately editable custom clone).
+    never start routing without an explicit owner choice.
     """
     src = get_preset(name)
     if not src:
@@ -317,7 +312,7 @@ def clone_preset(name: str, new_name: str, is_custom_override: bool | None = Non
     field_names = (
         "base_url", "model", "api_key", "daily_batch_size", "max_concurrency",
         "max_rpm", "max_tpm", "max_daily_req", "timeout_seconds", "temperature",
-        "max_output_tokens", "is_custom", "is_emergency", "priority", "enabled",
+        "max_output_tokens", "is_emergency", "priority", "enabled",
         "input_cost_per_million", "output_cost_per_million", "in_fallback_chain",
         "group_label",
     )
@@ -327,8 +322,6 @@ def clone_preset(name: str, new_name: str, is_custom_override: bool | None = Non
             placeholders = ", ".join("?" for _ in field_names)
             columns = ", ".join(field_names)
             values = [src.get(f) for f in field_names]
-            if is_custom_override is not None:
-                values[field_names.index("is_custom")] = int(bool(is_custom_override))
             conn.execute(
                 f"INSERT INTO ai_presets(name, {columns}) VALUES (?, {placeholders})",
                 (new_name, *values),
@@ -449,19 +442,19 @@ def reset_consecutive_failures():
         conn.commit()
 
 
-def _first_enabled_name() -> str:
+def _first_enabled_name() -> str | None:
     with get_conn() as conn:
         row = conn.execute(
             "SELECT name FROM ai_presets WHERE enabled=1 AND is_emergency=0 ORDER BY priority ASC, name ASC LIMIT 1"
         ).fetchone()
-    return row["name"] if row else "google_35_flash_hpof"
+    return row["name"] if row else None
 
 
 def get_fallback_status() -> dict:
     return {
         "fallback_active": get_bool_setting("ai_fallback_active", False),
         "primary_preset": get_setting("ai_primary_preset", _first_enabled_name()),
-        "fallback_preset": get_setting("ai_fallback_preset", "gapgpt_gemini_lite"),
+        "fallback_preset": get_setting("ai_fallback_preset", "") or (_first_enabled_name() or ""),
         "fallback_since": get_setting("ai_fallback_since", ""),
         "consecutive_failures": int(get_setting("ai_consecutive_failures", "0")),
     }

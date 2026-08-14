@@ -161,9 +161,13 @@ Completed on the current main branch:
 - Admin AI Preset panel audit rework (#330): Phase 1 cosmetic (R6/R8/R9/R15),
   Phase 2 DB correctness (R1/R2/R10/R12/R13/R14) — both in PR #333; Phase 3
   handlers/UX (R3 delete confirm, R4 duplicate preset, R5 wizard back +
-  current/draft display, R7 usage pagination) in PR #334 (+ follow-up #335).
-  Remaining: Phase 4 (is_custom/builtin removal, #330 F1), Phase 5 (secure
-  keys), Phase 6 (activation=preferred), Phase 7 (reasoning-effort).
+  current/draft display, R7 usage pagination) in PR #334 (+ follow-up #335);
+  Phase 4 builtin/is_custom removal (drop is_custom column via table-rebuild
+  migration, delete BUILTIN_PRESETS/seed helpers, no auto-seed, remove
+  fallback literal defaults and is_custom guards, full sweep of schema,
+  preset_registry, ai_presets, admin_ai, keyboards, tools, tests). Remaining:
+  Phase 5 (secure keys), Phase 6 (activation=preferred), Phase 7
+  (reasoning-effort).
 - Integration tests for fallback chain behavior.
 - Blocked-user detection to prevent wasted AI and Telegram API calls on
   users who have blocked the bot (#210).

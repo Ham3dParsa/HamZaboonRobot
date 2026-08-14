@@ -68,18 +68,35 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         active ✅ marker and correct toggle emoji."""
         from handlers.admin import _handle_admin_callback
 
+        db.set_preset(
+            "render_primary",
+            base_url="https://api.example.com",
+            model="gpt-test",
+            is_emergency=1,
+            enabled=1,
+        )
+        db.set_setting("ai_primary_preset", "render_primary")
+
         update = self._make_callback_update("admin:ai_presets")
         ctx = self._make_context()
         asyncio.run(_handle_admin_callback(update, ctx, "ai_presets"))
 
         text = self._rendered_text(update)
-        # The seeded emergency preset sits on page 1 and is deterministic.
-        self.assertIn("🟢 <b>gapgpt_gemini_lite</b>", text)
+        # The emergency preset sits on page 1 and is deterministic.
+        self.assertIn("🟢 <b>render_primary</b>", text)
         self.assertNotIn("✅", text)
 
     def test_linear_presets_marks_active_with_target_emoji(self):
         """R8: the shorthand loses no 🎯 for the active preset on its page."""
         from handlers.admin import _handle_admin_callback
+
+        db.set_preset(
+            "render_active",
+            base_url="https://api.example.com",
+            model="gpt-test",
+            enabled=1,
+        )
+        db.set_setting("ai_primary_preset", "render_active")
 
         active = db.get_active_preset_name()
         # Find the page index that holds the active preset.
@@ -105,7 +122,6 @@ class AdminAiRenderFlowTest(unittest.TestCase):
             base_url="https://api.example.com",
             model="gpt-test",
             api_key="test",
-            is_custom=1,
         )
         update = self._make_callback_update("admin:fallback_chain")
         ctx = self._make_context()
@@ -125,7 +141,6 @@ class AdminAiRenderFlowTest(unittest.TestCase):
             base_url="https://api.example.com",
             model="gpt-test",
             api_key="test",
-            is_custom=1,
             max_daily_req=5,
         )
         update = self._make_callback_update("admin:fallback:usage_details")
@@ -160,7 +175,6 @@ class AdminAiRenderFlowTest(unittest.TestCase):
             base_url="https://api.example.com",
             model="gpt-test",
             api_key="test",
-            is_custom=1,
             is_emergency=0,
         )
         db.set_setting("ai_fallback_preset", "backup_normal")
@@ -184,7 +198,6 @@ class AdminAiRenderFlowTest(unittest.TestCase):
             base_url="https://api.example.com",
             model="gpt-test",
             api_key="test",
-            is_custom=1,
             is_emergency=1,
         )
         db.set_setting("ai_fallback_preset", "backup_emergency")

@@ -18,7 +18,6 @@ def _seed_test_presets(presets_data: list[dict]):
             base_url=p.get("base_url", "http://test.local/v1"),
             model=p.get("model", "test-model"),
             api_key=p.get("api_key", "sk-test"),
-            is_custom=1,
             is_emergency=p.get("is_emergency", 0),
             in_fallback_chain=p.get("in_fallback_chain", 1),
         )

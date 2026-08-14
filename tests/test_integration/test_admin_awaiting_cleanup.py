@@ -28,7 +28,7 @@ class AdminAwaitingCleanupTest(unittest.TestCase):
         db_schema.DB_PATH = self.new_path
         db.init_db()
         db.create_user_if_needed(1, "owner")
-        db.set_preset(name="custom_gpt", base_url="https://x", model="m", is_custom=1)
+        db.set_preset(name="custom_gpt", base_url="https://x", model="m")
         self.owner_patcher = patch("handlers.admin.is_owner", return_value=True)
         self.owner_patcher.start()
         self.addCleanup(self.owner_patcher.stop)
@@ -96,7 +96,7 @@ class ShowSettingsMaskingTest(unittest.TestCase):
         db_schema.DB_PATH = self.new_path
         db.init_db()
         db.create_user_if_needed(1, "owner")
-        db.set_preset(name="custom_gpt", base_url="https://x", model="m", api_key="sk-123", is_custom=1)
+        db.set_preset(name="custom_gpt", base_url="https://x", model="m", api_key="sk-123")
         db.set_setting("ai_primary_preset", "custom_gpt")
         self.owner_patcher = patch("handlers.admin.is_owner", return_value=True)
         self.owner_patcher.start()

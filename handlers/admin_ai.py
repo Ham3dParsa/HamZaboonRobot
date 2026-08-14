@@ -217,8 +217,6 @@ def _render_preset_brief(preset: dict, active_name: str) -> str:
         tags.append("🎯")
     if preset.get("is_emergency"):
         tags.append("🛡️")
-    if preset.get("is_custom"):
-        tags.append("custom")
     suffix = (f" [{' '.join(tags)}]" if tags else "")
     return f"{toggle} <b>{html_escape(str(name))}</b>{suffix}"
 
@@ -294,7 +292,6 @@ async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYP
 
     active_name = db.get_active_preset_name()
     is_active = preset_name == active_name
-    is_custom = preset.get("is_custom", 0)
 
     raw_key = preset.get("api_key", "")
     masked_key = (raw_key[:6] + "…" + raw_key[-4:]) if len(raw_key) > 12 else ("—" if not raw_key else "***")
@@ -339,8 +336,8 @@ async def _activate_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
     """Show field edit options for a preset."""
     preset = db.get_preset(preset_name)
-    if not preset or not preset.get("is_custom"):
-        await notify_callback(update.callback_query, "فقط پیش‌تنظیم‌های custom قابل ویرایش‌اند", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+    if not preset:
+        await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     text = f"✏️ <b>ویرایش پیش‌تنظیم: {html_escape(preset_name)}</b>\nانتخاب فیلد برای تغییر:"
@@ -518,8 +515,8 @@ async def _start_full_edit_wizard(update: Update, context: ContextTypes.DEFAULT_
         return
 
     preset = db.get_preset(preset_name)
-    if not preset or not preset.get("is_custom"):
-        await notify_callback(update.callback_query, "فقط پیش‌تنظیم‌های custom قابل ویرایش‌اند", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+    if not preset:
+        await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     context.user_data["full_edit"] = {"preset": preset_name, "field_idx": 0, "values": {}}
@@ -818,7 +815,6 @@ async def _handle_full_edit_save(update: Update, context: ContextTypes.DEFAULT_T
         timeout_seconds=float(values.get("timeout_seconds", preset.get("timeout_seconds", 30.0))),
         temperature=float(values.get("temperature", preset.get("temperature", 0.6))),
         max_output_tokens=int(values.get("max_output_tokens", preset.get("max_output_tokens", 4096))),
-        is_custom=1,
         is_emergency=int(values.get("is_emergency", preset.get("is_emergency", 0))),
         input_cost_per_million=values.get("input_cost_per_million", preset.get("input_cost_per_million")),
         output_cost_per_million=values.get("output_cost_per_million", preset.get("output_cost_per_million")),
@@ -976,7 +972,7 @@ async def _detach_ai_preset_group(update: Update, context: ContextTypes.DEFAULT_
         return
 
     preset = db.get_preset(preset_name)
-    if not preset or not preset.get("is_custom"):
+    if not preset:
         await notify_callback(update.callback_query, "پیش‌تنظیم قابل ویرایش یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     if not preset.get("group_label"):
@@ -1024,7 +1020,6 @@ async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
             timeout_seconds=float(edits.get("timeout_seconds", preset.get("timeout_seconds", 30.0))),
             temperature=float(edits.get("temperature", preset.get("temperature", 0.6))),
             max_output_tokens=int(edits.get("max_output_tokens", preset.get("max_output_tokens", 4096))),
-            is_custom=1,
             is_emergency=int(edits.get("is_emergency", preset.get("is_emergency", 0))),
             input_cost_per_million=edits.get("input_cost_per_million", preset.get("input_cost_per_million")),
             output_cost_per_million=edits.get("output_cost_per_million", preset.get("output_cost_per_million")),
@@ -1107,7 +1102,7 @@ async def _duplicate_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     new_name = f"{preset_name} (copy)"
     try:
-        db.clone_preset(preset_name, new_name, is_custom_override=True)
+        db.clone_preset(preset_name, new_name)
     except ValueError as exc:
         await notify_callback(update.callback_query, str(exc), intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
@@ -1224,7 +1219,7 @@ async def _finish_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rank = 0
     elif rank > max_rank:
         rank = max_rank
-    db.set_preset(name=name, is_custom=1, enabled=int(enabled))
+    db.set_preset(name=name, enabled=int(enabled))
     try:
         db.insert_preset_at_rank(name, int(rank))
     except ValueError:
@@ -1814,7 +1809,7 @@ USAGE_PAGE_SIZE = 5
 
 
 def _usage_rows() -> list[tuple[str, str, str]]:
-    """Return (status_icon, name, detail) rows ordered by (is_custom, name)."""
+    """Return (status_icon, name, detail) rows ordered by name."""
     rows = []
     for p in db.get_presets():
         name = p["name"]
