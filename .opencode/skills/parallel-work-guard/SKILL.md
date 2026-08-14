@@ -90,8 +90,10 @@ parallel-capable environment. It is the isolation contract on top of §5/§7.
    workspace clean.
 4. **Claim** — when the Contract Lock reaches GATE STATUS: LOCKED, acquire the
    claim: `powershell scripts/claim_seam.ps1 -Command acquire -Branch <branch> -Seams <s1,s2> -RuleIds <r1,r2>`.
-   (PowerShell 5.1 comma-arg quirk: call the script with the array args, never a
-   naive comma-separated invocation.)
+   Pass `-Seams`/`-RuleIds` as **comma-separated strings** — the script declares
+   `[string]$Seams`/`[string]$RuleIds` and splits on `,`. Do **not** pass a
+   PowerShell array, which coerces to a `[string]` (space-joined) and merges the
+   seams into one corrupted value.
 5. **Implement** — do all edits and tests inside the worktree. Never stage or
    commit from the primary workspace.
 6. **Validate & commit** — full validation (§6), explicit `git add <files>`,
