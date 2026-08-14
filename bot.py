@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import json
 import logging
 import math
 import threading
@@ -61,6 +62,7 @@ from config.keyboards import (
     awaiting_reply_keyboard,
     awaiting_inline_keyboard,
     query_result_keyboard,
+    query_duplicate_keyboard,
     BTN_STUDY_SESSION,
     BTN_ASK_WORD,
     BTN_ADMIN,
@@ -71,6 +73,7 @@ from config.keyboards import (
 
 from services.utils.formatting import (
     format_card,
+    word_query_usage_text,
     _phonetic_lines,
 )
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
@@ -234,6 +237,301 @@ _AI_BUSY_MESSAGE = "هوش مصنوعی الان شلوغه؛ کمی بعد دو
 _offline_notice_sent: set[int] = set()  # chat_ids notified in the current offline window
 
 
+# ---------------- مسیر پرسش واژه (ask_word) ----------------
+
+async def _send_query_card(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    row: dict,
+    token: str,
+    card_data: dict,
+    show_pronounce: bool,
+    saved: bool = False,
+):
+    """Render + send a word-query card with the add-to-review keyboard.
+
+    Shared by the fresh-ask (ok) path and the free retrieve path (R7c), so both
+    surfaces render identically. ``show_pronounce`` is supplied by the caller
+    (the fresh path forwards ``AskResult.show_pronounce``; the reuse path
+    computes it once) to avoid a redundant setting read per send. ``saved``
+    reflects whether the learner already saved this card (reuse path), so the
+    toggle button is labeled correctly and a tap removes rather than re-adds.
+    Raises on Telegram send failure (the fresh-ask caller then releases its
+    reserved quota).
+    """
+    context.user_data[f"query_kb_{token}"] = {"show_pronounce": show_pronounce}
+    phon_lines = _phonetic_lines(card_data.get("phonetic", ""))
+    await _send_with_retry(
+        context.bot,
+        update.effective_chat.id,
+        format_card(
+            card_data,
+            footer="برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن.",
+            presentation=_user_presentation(row),
+            translations_prepared=True,
+            phonetic_lines=phon_lines,
+        ),
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=query_result_keyboard(
+            token,
+            row["target_lang"],
+            show_pronounce=show_pronounce,
+            saved=saved,
+        ),
+    )
+
+
+async def _send_query_closing(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    usage_text: str,
+):
+    """Send the closing usage + return-to-menu message (R6/R7c)."""
+    await _send_with_retry(
+        context.bot,
+        update.effective_chat.id,
+        f"{usage_text}\n\nبه منوی اصلی برگشتی 🙂",
+        reply_markup=main_menu(is_owner(user_id)),
+    )
+
+
+async def _process_ask_word(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    row: dict,
+    text: str,
+    skip_duplicate: bool = False,
+):
+    """Full ask_word flow: duplicate check -> validate -> quota -> AI -> deliver.
+
+    ``row`` is the caller-provided user row (already fetched). Drives
+    ``services.word_query.ask``, which owns validation, quota reservation, the
+    AI 2-step pipeline and persistence, and branches on ``AskResult.kind``.
+    """
+    limit = daily_word_query_limit_for_plan(row["plan"] if row else "free")
+
+    # --- build the rate-limited 2-step generator (handler owns Telegram infra) ---
+    deadline = time.monotonic() + ASK_WORD_AI_TIMEOUT_SECONDS
+
+    async def generate_card(*, system_prompt, user_prompt, request_kind, user_id, plan, lang):
+        # The wait-state wraps ONLY the AI pipeline, so invalid input and
+        # quota-exhausted never flash a misleading "thinking" message.
+        wait_message = await _start_llm_wait_state(
+            update,
+            context,
+            "⏳ دارم معنی و توضیحش رو پیدا می‌کنم…",
+        )
+        try:
+            data = await asyncio.wait_for(
+                asyncio.to_thread(
+                    _call_ai_limited,
+                    ai.ask_card,
+                    system_prompt,
+                    user_prompt=user_prompt,
+                    request_kind=request_kind,
+                    user_id=user_id,
+                    plan=plan,
+                    deadline=deadline,
+                ),
+                timeout=max(0.0, deadline - time.monotonic()),
+            )
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    _prepare_cached_card,
+                    data,
+                    lang=lang,
+                    user_id=user_id,
+                    plan=plan or "free",
+                    source="custom_word",
+                    persist_patch=lambda patch: True,
+                    deadline=deadline,
+                ),
+                timeout=max(0.0, deadline - time.monotonic()),
+            )
+        finally:
+            await _finish_llm_wait_state(wait_message)
+
+    result = await word_query.ask(
+        user_id,
+        text,
+        generate_card=generate_card,
+        skip_duplicate=skip_duplicate,
+    )
+
+    if result.kind == "duplicate":
+        # R7: a prior unexpired card exists — offer retrieve-vs-new. No quota/AI.
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            "این واژه رو قبلاً پرسیدی. می‌خوای کارت جدیدی بسازی یا همون کارت قبلی رو ببینی؟",
+            reply_markup=query_duplicate_keyboard(result.token),
+        )
+        return
+    if result.kind == "invalid_input":
+        context.user_data["awaiting"] = "ask_word"
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            f"{_WORD_QUERY_ERROR_MESSAGES.get(result.error_key, 'این ورودی قابل قبول نیست.')}\n\nچه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟",
+            reply_markup=awaiting_inline_keyboard(),
+        )
+        return
+    if result.kind == "registration_required":
+        context.user_data["awaiting"] = None
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            "اول باید با دستور /start ثبت‌نامت رو کامل کنی.",
+            reply_markup=main_menu(is_owner(user_id)),
+        )
+        return
+    if result.kind == "persist_error":
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            "نتیجه درست شد ولی ذخیره‌ش نشد؛ دوباره امتحان کن.",
+            reply_markup=main_menu(is_owner(user_id)),
+        )
+        return
+    if result.kind == "quota_exhausted":
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            f"سقف روزانه‌ی پرسش واژه‌ی پلن شما ({limit} بار) تموم شده.",
+            reply_markup=main_menu(is_owner(user_id)),
+        )
+        return
+    if result.kind == "ai_timeout":
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            _AI_BUSY_MESSAGE,
+            reply_markup=main_menu(is_owner(user_id)),
+        )
+        return
+    if result.kind == "ai_error":
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            "مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.",
+            reply_markup=main_menu(is_owner(user_id)),
+        )
+        return
+    if result.kind == "card_prep_error":
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            "این کارت نتونست با اطمینان آماده بشه؛ لطفاً بعداً دوباره امتحان کن.",
+            reply_markup=main_menu(is_owner(user_id)),
+        )
+        return
+
+    # ok — deliver the card, releasing the reserved quota only if it was not sent.
+    delivered = False
+    try:
+        await _send_query_card(
+            update, context, user_id, row, result.token, result.card_data, result.show_pronounce
+        )
+        delivered = True
+    finally:
+        if not delivered:
+            db.release_word_query(user_id)
+    log.info(
+        "custom word query delivered user_id=%s lang=%s",
+        user_id,
+        row["target_lang"],
+    )
+    await _send_query_closing(update, context, user_id, result.usage_text)
+
+
+async def _clear_duplicate_choice(update: Update):
+    """Remove the retrieve-vs-new buttons so an offer can be answered once (R7).
+
+    Prevents repeat taps on a stale choice message from re-charging quota/AI
+    (a 30-day-tappable offer). Swallows ``BadRequest`` when the markup is already
+    gone (e.g. the message was deleted).
+    """
+    try:
+        await update.callback_query.message.edit_reply_markup(reply_markup=None)
+    except BadRequest:
+        pass
+
+
+async def _handle_query_dup_new(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str):
+    """query:dup:new — the learner chose a fresh card for a repeated word.
+
+    Re-runs the normal ask using the prior card's stored query_text (no quota or
+    AI has been spent yet on this choice). The prior card must still exist.
+    """
+    user_id = update.effective_user.id
+    prior = db.get_query_result(token, user_id=user_id)
+    if not prior:
+        await notify_callback(update.callback_query, "این نتیجه منقضی شده یا در دسترس نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    row = db.get_user(user_id)
+    if not row or not row["onboarded"]:
+        await notify_callback(update.callback_query, "ابتدا /start را بزنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    await _clear_duplicate_choice(update)
+    # Ack immediately so the button stops loading while the fresh AI ask runs.
+    await notify_callback(update.callback_query)
+    # Mirror text_router: the ok path is terminal (card + closing return to the
+    # menu), so awaiting is reset here; the invalid_input path re-arms itself.
+    context.user_data["awaiting"] = None
+    await _process_ask_word(update, context, user_id, row, prior["query_text"], skip_duplicate=True)
+
+
+async def _handle_query_dup_reuse(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str):
+    """query:dup:reuse — the learner chose the prior card. Free: no quota, no AI.
+
+    Re-renders the stored result_json with translations prepared, then sends the
+    closing usage message, exactly like a fresh-ask delivery (R7c).
+    """
+    user_id = update.effective_user.id
+    row = db.get_user(user_id)
+    if not row or not row["onboarded"]:
+        await notify_callback(update.callback_query, "ابتدا /start را بزنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    prior = db.get_query_result(token, user_id=user_id)
+    if not prior:
+        await notify_callback(update.callback_query, "این نتیجه منقضی شده یا در دسترس نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    try:
+        card_data = json.loads(prior["result_json"])
+    except (TypeError, json.JSONDecodeError):
+        await notify_callback(update.callback_query, "این نتیجه در دسترس نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    # Guard against empty/legacy-shaped stored cards so format_card never renders
+    # empty bold markers or raises on a missing field under MarkdownV2.
+    if not isinstance(card_data, dict) or not card_data.get("word") or not card_data.get("fa_meaning"):
+        await notify_callback(update.callback_query, "این نتیجه در دسترس نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    await _clear_duplicate_choice(update)
+    usage_text = word_query_usage_text(row)
+    show_pronounce = bool(db.should_show_pronounce(user_id, row))
+    saved = bool(prior["saved_at"])
+    await _send_query_card(update, context, user_id, row, token, card_data, show_pronounce, saved=saved)
+    await _send_query_closing(update, context, user_id, usage_text)
+    await notify_callback(update.callback_query, "کارت قبلی بازیابی شد.", intent=CallbackNoticeIntent.SUCCESS_TOAST)
+
+
+async def _handle_query_dup_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """query:dup:cancel — the learner declined both options; return to the menu."""
+    user_id = update.effective_user.id
+    context.user_data["awaiting"] = None
+    await _clear_duplicate_choice(update)
+    await _send_with_retry(
+        context.bot,
+        update.effective_chat.id,
+        "به منوی اصلی برگشتی 🙂",
+        reply_markup=main_menu(is_owner(user_id)),
+    )
+    await notify_callback(update.callback_query, "انجام شد.", intent=CallbackNoticeIntent.INFO)
+
+
 # ---------------- روتر پیام‌های متنی (منو + حالت‌های در انتظار ورودی) ----------------
 
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -257,153 +555,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if awaiting == "ask_word":
             row = db.get_user(user_id)
-            limit = daily_word_query_limit_for_plan(row["plan"] if row else "free")
-
-            # --- build the rate-limited 2-step generator (handler owns Telegram infra) ---
-            deadline = time.monotonic() + ASK_WORD_AI_TIMEOUT_SECONDS
-
-            async def generate_card(*, system_prompt, user_prompt, request_kind, user_id, plan, lang):
-                # The wait-state wraps ONLY the AI pipeline, so invalid input and
-                # quota-exhausted never flash a misleading "thinking" message.
-                wait_message = await _start_llm_wait_state(
-                    update,
-                    context,
-                    "⏳ دارم معنی و توضیحش رو پیدا می‌کنم…",
-                )
-                try:
-                    data = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            _call_ai_limited,
-                            ai.ask_card,
-                            system_prompt,
-                            user_prompt=user_prompt,
-                            request_kind=request_kind,
-                            user_id=user_id,
-                            plan=plan,
-                            deadline=deadline,
-                        ),
-                        timeout=max(0.0, deadline - time.monotonic()),
-                    )
-                    return await asyncio.wait_for(
-                        asyncio.to_thread(
-                            _prepare_cached_card,
-                            data,
-                            lang=lang,
-                            user_id=user_id,
-                            plan=plan or "free",
-                            source="custom_word",
-                            persist_patch=lambda patch: True,
-                            deadline=deadline,
-                        ),
-                        timeout=max(0.0, deadline - time.monotonic()),
-                    )
-                finally:
-                    await _finish_llm_wait_state(wait_message)
-
-            result = await word_query.ask(
-                user_id,
-                text,
-                generate_card=generate_card,
-            )
-
-            if result.kind == "invalid_input":
-                context.user_data["awaiting"] = "ask_word"
-                await _send_with_retry(
-                    context.bot,
-                    update.effective_chat.id,
-                    f"{_WORD_QUERY_ERROR_MESSAGES.get(result.error_key, 'این ورودی قابل قبول نیست.')}\n\nچه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟",
-                    reply_markup=awaiting_inline_keyboard(),
-                )
-                return
-            if result.kind == "registration_required":
-                context.user_data["awaiting"] = None
-                await _send_with_retry(
-                    context.bot,
-                    update.effective_chat.id,
-                    "اول باید با دستور /start ثبت‌نامت رو کامل کنی.",
-                    reply_markup=main_menu(is_owner(user_id)),
-                )
-                return
-            if result.kind == "persist_error":
-                await _send_with_retry(
-                    context.bot,
-                    update.effective_chat.id,
-                    "نتیجه درست شد ولی ذخیره‌ش نشد؛ دوباره امتحان کن.",
-                    reply_markup=main_menu(is_owner(user_id)),
-                )
-                return
-            if result.kind == "quota_exhausted":
-                await _send_with_retry(
-                    context.bot,
-                    update.effective_chat.id,
-                    f"سقف روزانه‌ی پرسش واژه‌ی پلن شما ({limit} بار) تموم شده.",
-                    reply_markup=main_menu(is_owner(user_id)),
-                )
-                return
-            if result.kind == "ai_timeout":
-                await _send_with_retry(
-                    context.bot,
-                    update.effective_chat.id,
-                    _AI_BUSY_MESSAGE,
-                    reply_markup=main_menu(is_owner(user_id)),
-                )
-                return
-            if result.kind == "ai_error":
-                await _send_with_retry(
-                    context.bot,
-                    update.effective_chat.id,
-                    "مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.",
-                    reply_markup=main_menu(is_owner(user_id)),
-                )
-                return
-            if result.kind == "card_prep_error":
-                await _send_with_retry(
-                    context.bot,
-                    update.effective_chat.id,
-                    "این کارت نتونست با اطمینان آماده بشه؛ لطفاً بعداً دوباره امتحان کن.",
-                    reply_markup=main_menu(is_owner(user_id)),
-                )
-                return
-
-            show_pronounce = bool(result.show_pronounce)
-            context.user_data[f"query_kb_{result.token}"] = {
-                "show_pronounce": show_pronounce,
-            }
-            phon_lines = _phonetic_lines(result.card_data.get("phonetic", ""))
-            delivered = False
-            try:
-                await _send_with_retry(
-                    context.bot,
-                    update.effective_chat.id,
-                    format_card(
-                        result.card_data,
-                        footer="برای افزودن این واژه به مرور، از دکمه‌ی زیر استفاده کن.",
-                        presentation=_user_presentation(row),
-                        translations_prepared=True,
-                        phonetic_lines=phon_lines,
-                    ),
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                    reply_markup=query_result_keyboard(
-                        result.token,
-                        row["target_lang"],
-                        show_pronounce=show_pronounce,
-                    ),
-                )
-                delivered = True
-            finally:
-                if not delivered:
-                    db.release_word_query(user_id)
-            log.info(
-                "custom word query delivered user_id=%s lang=%s",
-                user_id,
-                row["target_lang"],
-            )
-            await _send_with_retry(
-                context.bot,
-                update.effective_chat.id,
-                f"{result.usage_text}\n\nبه منوی اصلی برگشتی 🙂",
-                reply_markup=main_menu(is_owner(user_id)),
-            )
+            await _process_ask_word(update, context, user_id, row, text)
             return
 
         if is_admin_awaiting(awaiting):
@@ -442,6 +594,9 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (
             "study:start",
             "query:add:",
+            "query:dup:new:",
+            "query:dup:reuse:",
+            "query:dup:cancel",
             "presentation:",
             "flow:",
             "srs:",
@@ -530,6 +685,20 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         await _handle_query_add(update, context, parts[2])
+    elif data.startswith("query:dup:new:"):
+        parts = data.split(":", 3)
+        if len(parts) != 4:
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        await _handle_query_dup_new(update, context, parts[3])
+    elif data.startswith("query:dup:reuse:"):
+        parts = data.split(":", 3)
+        if len(parts) != 4:
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        await _handle_query_dup_reuse(update, context, parts[3])
+    elif data == "query:dup:cancel":
+        await _handle_query_dup_cancel(update, context)
     elif data == "settings:lang":
         await change_lang_start(update, context)
     elif data == "settings:goal":
@@ -738,6 +907,20 @@ async def primary_retry_job(context: ContextTypes.DEFAULT_TYPE):
         log.exception("Primary retry job failed")
 
 
+async def cleanup_query_results_job(context: ContextTypes.DEFAULT_TYPE):
+    """Periodically purge expired query_results (30-day retention, R8b).
+
+    A dedicated repeating job so retention enforcement does not depend on owner
+    configuration (the owner-gated primary retry job would not run when no owner
+    is configured). Cheap, idempotent, and safe: saved_words is the permanent
+    store, so clearing expired query_results loses nothing.
+    """
+    try:
+        await asyncio.to_thread(db.cleanup_expired_query_results)
+    except Exception:
+        log.exception("query_results cleanup job failed")
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     log.exception("Unhandled exception while processing update", exc_info=context.error)
     callback_query = getattr(update, "callback_query", None)
@@ -773,6 +956,13 @@ def main():
             connection_health_job,
             interval=CONNECTION_HEALTH_INTERVAL_SECONDS,
             first=CONNECTION_HEALTH_INTERVAL_SECONDS,
+        )
+        # R8b: retention enforcement must not depend on owner config, so the
+        # query_results purge is its own repeating job outside the owner gate.
+        app.job_queue.run_repeating(
+            cleanup_query_results_job,
+            interval=1800,
+            first=1800,
         )
         if OWNER_ID != 0:
             app.job_queue.run_repeating(

@@ -14,6 +14,7 @@ import sqlite3
 import stat
 import tempfile
 import shutil
+import unicodedata
 from contextlib import closing
 
 # ---------------------------------------------------------------------------
@@ -136,13 +137,26 @@ def _query_result_expired(row) -> bool:
     return row is not None and row["expires_at"] <= _utc_now().isoformat()
 
 
+def _normalize_query_text(text: str) -> str:
+    """Normalize the dedup key exactly as saved words are normalized (R7a).
+
+    ``unicodedata.NFC`` folds canonically-equivalent codepoints (e.g. precomposed
+    vs decomposed accents) and ``casefold()`` lowercases in a Unicode-aware way,
+    matching ``schema._normalize_word`` (``" ".join(...).casefold()``) so the
+    duplicate match and the saved-words store agree. Whitespace is collapsed to a
+    single space. Used identically on insert and lookup so a prior card is found
+    for case/Unicode variants instead of re-spending quota + AI.
+    """
+    return " ".join(unicodedata.normalize("NFC", text).split()).casefold()
+
+
 def create_query_result(
     user_id: int,
     query_text: str,
     word: str,
     lang: str,
     result_data: dict,
-    ttl_seconds: int = 24 * 60 * 60,
+    ttl_seconds: int = 30 * 24 * 60 * 60,
 ) -> str:
     token = secrets.token_hex(16)
     now = _utc_now()
@@ -156,7 +170,7 @@ def create_query_result(
             (
                 token,
                 user_id,
-                " ".join(query_text.split()),
+                _normalize_query_text(query_text),
                 " ".join(word.split()),
                 lang,
                 json.dumps(result_data, ensure_ascii=False),
@@ -179,6 +193,27 @@ def get_query_result(token: str, user_id: int | None = None, include_expired: bo
     if row and not include_expired and _query_result_expired(row):
         return None
     return row
+
+
+def find_unexpired_query(user_id: int, query_text: str, lang: str):
+    """Return the most recent unexpired query_result for the same user + lang +
+    normalized query_text, or None.
+
+    R7a dedup key: the stored ``query_text`` column is normalized on insert via
+    ``_normalize_query_text`` (NFC + casefold + whitespace-collapse), so this
+    lookup normalizes the incoming text the same way and matches exactly. Runs
+    before quota/AI, so the caller can offer retrieve-vs-new for a word the user
+    already asked.
+    """
+    normalized = _normalize_query_text(query_text)
+    now = _utc_now().isoformat()
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM query_results "
+            "WHERE user_id=? AND lang=? AND query_text=? AND expires_at>? "
+            "ORDER BY created_at DESC LIMIT 1",
+            (user_id, lang, normalized, now),
+        ).fetchone()
 
 
 def mark_query_result_saved(token: str, saved_word_id: int | None = None):
