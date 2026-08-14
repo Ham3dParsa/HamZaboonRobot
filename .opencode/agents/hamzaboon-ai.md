@@ -20,7 +20,7 @@ Strict rules:
 - Keep explicit AI timeout (configured in `services/ai/ai.py`).
 - JSON extraction & validation mandatory for every AI response — reject malformed JSON.
 - System prompts live in `services/ai/prompts.py`; content generation in `llm_services.py`.
-- API key storage pattern: `ai_presets` DB stores `$ENV_VAR` names (e.g., `$HpOF_API_KEY`), never raw keys. `resolve_api_key()` reads from environment at runtime. Document new env vars in `.env.example` under "AI PRESET API KEYS".
+- API key storage pattern: every API key (preset `api_key`, `preset_groups.api_key`, `settings.ai_api_key`) is stored **encrypted at rest** via `services/db/key_crypto.py` (Fernet, `AI_MASTER_KEY` env var), fail-closed. `resolve_api_key()` (now in `services/ai/ai_presets.py`) merely decrypts a stored token; it no longer resolves `$ENV` references (removed in Phase 5 / R4). Document any new env var in `.env.example`.
 - Cached/pooled content preferred over new AI calls. Flag any change that measurably increases per-user/day AI call volume.
 - Token budget cap per test run = 1000 tokens (when `AI_TEST_REAL=true`).
 - Learner-facing educational content must remain AI-generated through existing prompt/validation flow — never hard-coded lesson content.

@@ -1,16 +1,22 @@
 import os
 import tempfile
 import unittest
+from unittest import mock
+
+import config
 
 from services import db
 from services.db import schema as db_schema
 from tools.AI_preset_manager.server import app
+
+TEST_MASTER_KEY = "sd4H8UUr5ONYISGXcx468OQwFaUxaktNGGTPs9TBESg="
 
 
 class ClonePresetApiTest(unittest.TestCase):
     """Regression tests for the AI Preset Manager clone endpoint."""
 
     SOURCE = "src_preset"
+    SOURCE_KEY = "sk-clone-source-plain-123456789"
 
     @classmethod
     def setUpClass(cls):
@@ -20,6 +26,8 @@ class ClonePresetApiTest(unittest.TestCase):
         cls._prev_db_schema = db_schema.DB_PATH
         db.DB_PATH = new_path
         db_schema.DB_PATH = new_path
+        cls._master = mock.patch.object(config, "AI_MASTER_KEY", TEST_MASTER_KEY)
+        cls._master.start()
         db.init_db()
         # A second enabled preset keeps the DB in a realistic state: Phase 4
         # removed auto-seeded builtins, so a disabled preset must coexist with
@@ -29,7 +37,7 @@ class ClonePresetApiTest(unittest.TestCase):
             name=cls.SOURCE,
             base_url="https://example.com/v1",
             model="test-model",
-            api_key="$TEST_KEY",
+            api_key=cls.SOURCE_KEY,
             temperature=0.7,
             max_output_tokens=2048,
             timeout_seconds=12.5,
@@ -51,6 +59,7 @@ class ClonePresetApiTest(unittest.TestCase):
     def tearDownClass(cls):
         db.DB_PATH = cls._prev_db
         db_schema.DB_PATH = cls._prev_db_schema
+        cls._master.stop()
         cls.tempdir.cleanup()
 
     def test_clone_copies_all_settings(self):
@@ -65,7 +74,9 @@ class ClonePresetApiTest(unittest.TestCase):
         self.assertIsNotNone(p)
         self.assertEqual(p["base_url"], "https://example.com/v1")
         self.assertEqual(p["model"], "test-model")
-        self.assertEqual(p["api_key"], "$TEST_KEY")
+        self.assertNotEqual(p["api_key"], self.SOURCE_KEY)
+        self.assertTrue(p["api_key"].startswith("gAAAA"))
+        self.assertEqual(db.resolve_preset_key(p), self.SOURCE_KEY)
         self.assertEqual(p["temperature"], 0.7)
         self.assertEqual(p["max_output_tokens"], 2048)
         self.assertEqual(p["timeout_seconds"], 12.5)

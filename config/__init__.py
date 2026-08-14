@@ -10,6 +10,11 @@ DEFAULT_AI_BASE_URL = os.getenv("AI_BASE_URL", "https://api.gapgpt.app/v1")
 DEFAULT_AI_API_KEY = os.getenv("AI_API_KEY", "")
 DEFAULT_AI_MODEL = os.getenv("AI_MODEL", "gapgpt-qwen-3.6")
 
+# Fernet master key for encrypting API keys at rest (Phase 5, R11/F2). Must be
+# a valid 32-byte url-safe base64 Fernet key (see `.env.example`). When unset,
+# API-key encryption is fail-closed: keys cannot be encrypted or decrypted.
+AI_MASTER_KEY = os.getenv("AI_MASTER_KEY", "")
+
 DB_PATH = os.getenv("DB_PATH", "hamzaban.db")
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Tehran")
 

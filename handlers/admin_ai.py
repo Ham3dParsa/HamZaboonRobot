@@ -56,7 +56,7 @@ MAX_GROUP_LABEL_LEN = 40
 
 _FIELD_HELP = {
     "name": "نام یکتای پریست. فقط حروف انگلیسی (a-z)، اعداد (0-9) و زیرخط (_) مجاز است. بعد از ذخیره قابل تغییر نیست.",
-    "api_key": "کلید API سرویس‌دهنده. می‌توانید مقدار ثابت (sk-...) یا متغیر محیطی (مثلاً $MY_KEY) وارد کنید.",
+    "api_key": "کلید API سرویس‌دهنده (مثلاً sk-...). این کلید به‌صورت رمزنگاری‌شده در پایگاه داده ذخیره می‌شود.",
     "base_url": "آدرس سرور سازگار با OpenAI. نمونه: https://api.example.com/v1",
     "model": "نام دقیق مدل. نمونه: gpt-4o-mini یا gemini-2.0-flash-lite",
     "max_concurrency": "تعداد درخواست‌هایی که هم‌زمان به این سرویس‌دهنده فرستاده می‌شود. عدد ۲ یا ۳ معمول است.",
@@ -182,7 +182,7 @@ def _detect_key_groups() -> list[dict]:
         if not resolved:
             resolved = "__no_key__"
         if resolved not in groups_map:
-            masked = (resolved[:6] + "…" + resolved[-4:]) if len(resolved) > 12 else resolved
+            masked = db.mask_key(resolved) if resolved != "__no_key__" else resolved
             groups_map[resolved] = {
                 "resolved_key": resolved,
                 "masked_key": masked,
@@ -293,8 +293,7 @@ async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYP
     active_name = db.get_active_preset_name()
     is_active = preset_name == active_name
 
-    raw_key = preset.get("api_key", "")
-    masked_key = (raw_key[:6] + "…" + raw_key[-4:]) if len(raw_key) > 12 else ("—" if not raw_key else "***")
+    masked_key = db.mask_key(db.resolve_preset_key(preset))
 
     from services.db import get_preset_cost as _get_preset_cost
     cost = _get_preset_cost(preset_name)
@@ -364,7 +363,7 @@ async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TY
     field_labels = {
         "base_url": "Base URL",
         "model": "Model Name",
-        "api_key": "API Key (env: $VAR_NAME or literal)",
+        "api_key": "API Key (literal; stored encrypted)",
         "daily_batch_size": "Batch Size (integer)",
         "max_concurrency": "Concurrency (integer)",
         "max_rpm": "RPM Limit (integer)",
@@ -1734,7 +1733,7 @@ async def _show_help_presets(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "هر پریست یک تنظیمات کامل برای اتصال به یک سرویس‌دهنده AI است.\n\n"
         "<b>فیلدهای اصلی:</b>\n"
         "• name: نام یکتای پریست (فقط حروف انگلیسی، اعداد، زیرخط)\n"
-        "• api_key: کلید API (مقدار ثابت یا متغیر محیطی $VAR)\n"
+        "• api_key: کلید API (مقدار ثابت؛ به‌صورت رمزنگاری‌شده ذخیره می‌شود)\n"
         "• base_url: آدرس سرور (سازگار با OpenAI)\n"
         "• model: نام دقیق مدل\n\n"
         "<b>محدودیت‌ها:</b>\n"

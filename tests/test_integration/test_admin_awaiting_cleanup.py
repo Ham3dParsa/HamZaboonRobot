@@ -12,8 +12,12 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import config
+
 from services import db
 from services.db import schema as db_schema
+
+TEST_MASTER_KEY = "sd4H8UUr5ONYISGXcx468OQwFaUxaktNGGTPs9TBESg="
 
 
 class AdminAwaitingCleanupTest(unittest.TestCase):
@@ -94,6 +98,9 @@ class ShowSettingsMaskingTest(unittest.TestCase):
         self.new_path = os.path.join(self.tempdir.name, "test.sqlite")
         db.DB_PATH = self.new_path
         db_schema.DB_PATH = self.new_path
+        self._master = patch("config.AI_MASTER_KEY", TEST_MASTER_KEY)
+        self._master.start()
+        self.addCleanup(self._master.stop)
         db.init_db()
         db.create_user_if_needed(1, "owner")
         db.set_preset(name="custom_gpt", base_url="https://x", model="m", api_key="sk-123")
@@ -119,6 +126,29 @@ class ShowSettingsMaskingTest(unittest.TestCase):
         rendered = update.callback_query.edit_message_text.call_args[0][0]
         self.assertIn("***", rendered)
         self.assertNotIn("sk-123", rendered)
+
+    def test_long_key_masks_resolved_plaintext_not_ciphertext(self):
+        """Phase 5: a long key is stored encrypted, and the settings view masks
+        the resolved plaintext (first6…last4), never the raw key or its
+        ciphertext."""
+        from handlers.admin import _handle_admin_callback
+
+        long_key = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
+        db.set_preset(name="long_preset", base_url="https://x", model="m", api_key=long_key)
+        db.set_setting("ai_primary_preset", "long_preset")
+
+        stored = db.get_preset("long_preset")["api_key"]
+        self.assertTrue(stored.startswith("gAAAA"), "key must be stored encrypted")
+        self.assertNotEqual(stored, long_key)
+
+        ctx = self._make_context()
+        update = self._make_callback_update("admin:show_settings")
+        asyncio.run(_handle_admin_callback(update, ctx, "show_settings"))
+
+        rendered = update.callback_query.edit_message_text.call_args[0][0]
+        self.assertIn("sk-abc…6789", rendered)
+        self.assertNotIn(long_key, rendered)
+        self.assertNotIn(stored, rendered)
 
     def _make_callback_update(self, data: str, user_id: int = 1):
         query = MagicMock()

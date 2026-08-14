@@ -29,7 +29,11 @@ def _client(preset: dict | None = None) -> OpenAI:
     base_url = preset.get("base_url", "") or DEFAULT_AI_BASE_URL
     api_key = db.resolve_preset_key(preset)
     if not api_key:
-        api_key = db.get_setting("ai_api_key", DEFAULT_AI_API_KEY)
+        stored = db.get_setting("ai_api_key", DEFAULT_AI_API_KEY)
+        # The legacy ai_api_key setting is stored encrypted at rest (Phase 5);
+        # decrypt it like any preset key. Fail-closed: '' on missing/invalid
+        # master key or a bad token, never a literal.
+        api_key = db.decrypt_secret(stored) if stored else ""
     timeout = preset.get("timeout_seconds", AI_TIMEOUT_SECONDS)
     return OpenAI(
         base_url=base_url,

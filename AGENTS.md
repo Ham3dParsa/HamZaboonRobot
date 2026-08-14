@@ -287,14 +287,17 @@ Preserve these established contracts when changing runtime code:
   requests whenever the existing state model supports it.
 - Do not expose API keys, bot tokens, or other secrets in code, logs, tests,
   commits, issue evidence, or PR descriptions.
-- **API key storage pattern:** The `ai_presets` database stores environment
-  variable names (e.g., `$HpOF_API_KEY`) instead of actual key values. At
-  runtime `resolve_api_key()` in `services/ai/ai_presets.py` reads the real
-  value from the environment. This keeps secrets out of the database. When
-  adding or editing presets, use `$UPPERCASE_NAME` references — never paste
-  a raw key into the database unless the owner explicitly instructs otherwise.
-  Document any new env var reference in `.env.example` under the
-  "AI PRESET API KEYS" section.
+- **API key storage pattern:** All AI API keys (preset `api_key`, group
+  `preset_groups.api_key`, and the legacy `settings.ai_api_key`) are stored
+  **encrypted at rest** using the `cryptography` Fernet cipher, protected by
+  the `AI_MASTER_KEY` environment variable. The deep module
+  `services/db/key_crypto.py` owns encryption/decryption/masking
+  (`encrypt_for_storage`, `decrypt_secret`, `mask_key`); every write crosses
+  the encrypt seam and every resolve crosses the decrypt seam. Behavior is
+  **fail-closed**: a missing/invalid master key means nothing is encrypted and
+  nothing resolves (empty key), never a plain key in the DB or in logs. The
+  `$ENV` reference indirection was removed in Phase 5 (R4). New env vars are
+  documented in `.env.example`; `AI_MASTER_KEY` is required.
 - SQLite concurrency: all write operations must use context managers with
   immediate/exclusive transactions where write contention is possible, to
   avoid `database is locked` errors during concurrent Telegram callback
