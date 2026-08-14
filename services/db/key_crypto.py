@@ -123,7 +123,7 @@ def mask_key(plaintext: str) -> str:
     return "***"
 
 
-def encrypt_for_storage(value: str, *, fail_closed: bool = True) -> str:
+def encrypt_for_storage(value: str) -> str:
     """Encrypt ``value`` for persistence, unless it is already ciphertext.
 
     Write APIs take the intended stored value. A user typing a new key passes
@@ -136,23 +136,21 @@ def encrypt_for_storage(value: str, *, fail_closed: bool = True) -> str:
     - Raw plaintext (no tag) is encrypted and tagged ``v1:``.
 
     Fail-closed: empty input stays empty. When no master key is configured and
-    the value is a *new* plaintext key, ``fail_closed`` (default True) raises
-    ``MasterKeyRequiredError`` so a plain key is never written; the
-    non-destructive migration path passes ``fail_closed=False`` to preserve
-    existing values untouched (resolution fails closed later).
+    the value is a *new* plaintext key, ``MasterKeyRequiredError`` is raised so
+    a plain key is never written. (The non-destructive migration path guards
+    itself by early-returning when no master key is configured, so it never
+    needs this write seam to pass plaintext through.)
     """
     if not value:
         return ""
     f = _fernet()
     if f is None:
         # No master key configured: never invent a key. A tagged ciphertext is
-        # preserved (unchanged edit / non-destructive migration). A raw
-        # plaintext key must not be persisted, so fail closed by default.
+        # preserved (unchanged edit); a raw plaintext key must not be
+        # persisted, so fail closed.
         if value.startswith(VERSION_PREFIX):
             return value
-        if fail_closed:
-            raise MasterKeyRequiredError()
-        return value
+        raise MasterKeyRequiredError()
     if value.startswith(VERSION_PREFIX):
         # Already tagged ciphertext: idempotent, no re-encryption. If it does
         # not decrypt under the current key (rotation), preserve it untouched —

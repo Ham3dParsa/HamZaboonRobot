@@ -160,15 +160,6 @@ class EncryptForStorageNoMasterKeyTest(MissingMasterKeyTest):
             "v1:this-looks-like-existing-ciphertext",
         )
 
-    def test_plaintext_fail_closed_false_passes_through(self):
-        # Non-destructive migration path: when a master key is absent, a raw
-        # value is preserved unchanged (resolution fails closed later) rather
-        # than raising.
-        self.assertEqual(
-            key_crypto.encrypt_for_storage("sk-plain-123456789", fail_closed=False),
-            "sk-plain-123456789",
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

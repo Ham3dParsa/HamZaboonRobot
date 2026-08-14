@@ -644,8 +644,8 @@ def _encrypt_key_columns(conn):
         if not raw:
             return ""
         if raw.startswith("$"):
-            return encrypt_for_storage(os.getenv(raw[1:], "") or "", fail_closed=False)
-        return encrypt_for_storage(raw, fail_closed=False)
+            return encrypt_for_storage(os.getenv(raw[1:], "") or "")
+        return encrypt_for_storage(raw)
 
     for row in conn.execute("SELECT name, api_key FROM ai_presets").fetchall():
         enc = _encrypt(row["api_key"] or "")
