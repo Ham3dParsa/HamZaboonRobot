@@ -141,13 +141,7 @@ class WordQueryDuplicateOrchestrationTests(unittest.TestCase):
         with patch.object(word_query.db, "find_unexpired_query", wraps=db.find_unexpired_query) as lu:
             dup = word_query.find_duplicate(1, "hello", "en")
             lu.assert_called_once()
-        self.assertIsNotNone(dup)
-        self.assertEqual(dup.kind, "ok")
-        self.assertEqual(dup.token, token)
-        self.assertEqual(dup.card_data["fa_meaning"], "سلام")
-        self.assertEqual(dup.lang, "en")
-        self.assertEqual(dup.query_text, "hello")
-        self.assertIsNotNone(dup.usage_text)
+        self.assertEqual(dup, token)
 
     def test_find_duplicate_returns_none_for_corrupt_json(self):
         db.create_query_result(1, "hello", "hello", "en", self._card())

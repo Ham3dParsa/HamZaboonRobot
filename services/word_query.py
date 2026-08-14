@@ -78,24 +78,6 @@ class ToggleResult:
     lang: Optional[str] = None
 
 
-@dataclass(frozen=True)
-class RetrieveResult:
-    """A retrievable prior card for a repeated word query (R7).
-
-    ``kind`` is ``ok`` when a prior unexpired card exists; the caller offers the
-    retrieve-vs-new choice. This is a free path — no quota is reserved and no AI
-    is called.
-    """
-
-    kind: str
-    token: Optional[str] = None
-    card_data: Optional[dict] = None
-    lang: Optional[str] = None
-    word: Optional[str] = None
-    query_text: Optional[str] = None
-    usage_text: Optional[str] = None
-
-
 def _format_usage(row: dict, limit: int) -> str:
     """Return the usage summary line for a user row, or fallback when absent."""
     if not row:
@@ -152,36 +134,25 @@ async def toggle_save(token: str, user_id: int) -> ToggleResult:
     )
 
 
-def find_duplicate(user_id: int, text: str, lang: str) -> Optional[RetrieveResult]:
-    """Return a retrievable prior card for the same user + lang + normalized text.
+def find_duplicate(user_id: int, text: str, lang: str) -> Optional[str]:
+    """Return the token of a retrievable prior card, or ``None``.
 
-    Pure DB read (R7a): no quota reserved, no AI call. Returns ``None`` when no
-    unexpired prior card exists (the normal ask proceeds). Corrupt stored JSON is
-    treated as no duplicate so the user can still ask fresh.
+    A prior card is the most recent unexpired query_result for the same user +
+    lang + normalized ``text`` (R7a). Pure DB read (no quota, no AI); returns
+    the token so the caller can offer retrieve-vs-new. Corrupt stored JSON is
+    treated as no duplicate so the user can still ask fresh. The caller re-reads
+    the row by token only when the learner actually taps a button, because the
+    callback is stateless (it carries just the token).
     """
     row = db.find_unexpired_query(user_id, text, lang)
     if not row:
         return None
     try:
-        card_data = json.loads(row["result_json"])
+        json.loads(row["result_json"])
     except (TypeError, json.JSONDecodeError):
         logger.warning("corrupt result_json token=%s in find_duplicate", row["token"])
         return None
-    user_row = db.get_user(user_id)
-    usage_text = None
-    if user_row:
-        user_row = dict(user_row)
-        limit = daily_word_query_limit_for_plan(user_row.get("plan") or "free")
-        usage_text = _format_usage(user_row, limit)
-    return RetrieveResult(
-        kind="ok",
-        token=row["token"],
-        card_data=card_data,
-        lang=row["lang"],
-        word=row["word"],
-        query_text=row["query_text"],
-        usage_text=usage_text,
-    )
+    return row["token"]
 
 
 async def ask(
@@ -235,7 +206,7 @@ async def ask(
         # retrieve-vs-new choice WITHOUT reserving quota or calling AI. The
         # retrieve-vs-new "new" path sets skip_duplicate so the explicit fresh
         # ask is not re-bounced onto the same prior card.
-        return AskResult(kind="duplicate", token=dup.token)
+        return AskResult(kind="duplicate", token=dup)
 
     limit = daily_word_query_limit_for_plan(plan)
     reserved = db.reserve_word_query(

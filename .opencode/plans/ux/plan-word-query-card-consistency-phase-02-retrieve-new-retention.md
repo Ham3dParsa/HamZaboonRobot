@@ -32,8 +32,9 @@ STATE: phase 2/2 — status: in-progress — focus: #344 R7/R8 implemented, test
    - New `find_unexpired_query(user_id, query_text, lang)` -> most recent unexpired
      row, matching on normalized `query_text` (R7a).
 2. `services/word_query.py`
-   - New `RetrieveResult` dataclass + `find_duplicate(user_id, text, lang)` (pure
-     DB read; corrupt JSON -> None).
+   - New `find_duplicate(user_id, text, lang) -> Optional[str]` (pure DB read;
+     returns the prior card token; corrupt JSON -> None). Caller re-reads the
+     row by token only when the learner taps a button (stateless callback).
    - `ask()` returns `AskResult(kind="duplicate", token=...)` when a prior card
      exists AND `skip_duplicate` is False. `skip_duplicate=True` lets the
      explicit "new card" path avoid re-bouncing onto the same prior card.
@@ -56,8 +57,8 @@ STATE: phase 2/2 — status: in-progress — focus: #344 R7/R8 implemented, test
   - 30-day default TTL; explicit ttl override retained.
   - `find_unexpired_query` matches normalized text + user + lang; ignores
     expired / different user / different lang; returns most recent.
-  - `find_duplicate` returns None on no prior / corrupt JSON; returns prior card
-    without AI.
+  - `find_duplicate` returns the prior token on match; None on no prior /
+    corrupt JSON (no AI).
 - `tests/test_integration/test_word_query_duplicate_flow.py` — R7b/R7c end-to-end:
   - Retype word -> 2-button choice, no quota, no AI.
   - `query:dup:reuse` -> free re-render of stored card, no quota/AI.
