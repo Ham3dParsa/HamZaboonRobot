@@ -247,15 +247,18 @@ async def _send_query_card(
     token: str,
     card_data: dict,
     show_pronounce: bool,
+    saved: bool = False,
 ):
     """Render + send a word-query card with the add-to-review keyboard.
 
     Shared by the fresh-ask (ok) path and the free retrieve path (R7c), so both
     surfaces render identically. ``show_pronounce`` is supplied by the caller
     (the fresh path forwards ``AskResult.show_pronounce``; the reuse path
-    computes it once) to avoid a redundant setting read per send. Raises on
-    Telegram send failure (the fresh-ask caller then releases its reserved
-    quota).
+    computes it once) to avoid a redundant setting read per send. ``saved``
+    reflects whether the learner already saved this card (reuse path), so the
+    toggle button is labeled correctly and a tap removes rather than re-adds.
+    Raises on Telegram send failure (the fresh-ask caller then releases its
+    reserved quota).
     """
     context.user_data[f"query_kb_{token}"] = {"show_pronounce": show_pronounce}
     phon_lines = _phonetic_lines(card_data.get("phonetic", ""))
@@ -274,6 +277,7 @@ async def _send_query_card(
             token,
             row["target_lang"],
             show_pronounce=show_pronounce,
+            saved=saved,
         ),
     )
 
@@ -508,7 +512,8 @@ async def _handle_query_dup_reuse(update: Update, context: ContextTypes.DEFAULT_
     await _clear_duplicate_choice(update)
     usage_text = word_query_usage_text(row)
     show_pronounce = bool(db.should_show_pronounce(user_id, row))
-    await _send_query_card(update, context, user_id, row, token, card_data, show_pronounce)
+    saved = bool(prior["saved_at"])
+    await _send_query_card(update, context, user_id, row, token, card_data, show_pronounce, saved=saved)
     await _send_query_closing(update, context, user_id, usage_text)
     await notify_callback(update.callback_query, "کارت قبلی بازیابی شد.", intent=CallbackNoticeIntent.SUCCESS_TOAST)
 

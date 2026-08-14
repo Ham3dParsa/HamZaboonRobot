@@ -150,6 +150,16 @@ class WordQueryDuplicateFlowTests(unittest.TestCase):
                         prefixes.append(b.callback_data)
         return prefixes
 
+    def _markup_labels(self, context):
+        labels = []
+        for call in context.bot.send_message.call_args_list:
+            markup = call.kwargs.get("reply_markup")
+            if markup is not None and hasattr(markup, "inline_keyboard"):
+                for row in markup.inline_keyboard:
+                    for b in row:
+                        labels.append(b.text)
+        return labels
+
     def test_retype_word_offers_two_button_choice_without_quota_or_ai(self):
         # First ask consumes quota + AI.
         ctx1 = self._context()
@@ -285,6 +295,27 @@ class WordQueryDuplicateFlowTests(unittest.TestCase):
         ctx = self._context()
         self._run_cb(f"query:dup:reuse:{token}", ctx)
         self.assertEqual(ctx.bot.send_message.call_count, 0, "expired card must not be rendered")
+
+    def test_reuse_shows_remove_button_when_card_already_saved(self):
+        """CRITICAL R7c — a retrieved already-saved card must show "remove", not "save".
+
+        Otherwise the learner taps what looks like «ذخیره» and the toggle deletes
+        their saved word + FSRS state.
+        """
+        self._run_text("hello", self._context(), ai_return=self.card)
+        token = self._last_token()
+        db.mark_query_result_saved(token, 1)
+        self._run_text("hello", self._context())
+        ctx = self._context()
+        with patch.object(bot, "is_owner", return_value=False), \
+             patch.object(bot, "_call_ai_limited", new=AsyncMock()), \
+             patch.object(bot, "_prepare_cached_card", new=AsyncMock()):
+            self._run_cb(f"query:dup:reuse:{token}", ctx)
+        labels = self._markup_labels(ctx)
+        self.assertTrue(
+            any("حذف از جعبه مرور" in l for l in labels),
+            "reused saved card must render the remove button, got %r" % labels,
+        )
 
     def test_duplicate_cancel_returns_to_main_menu(self):
         """R7b — the learner can decline both options and return to the menu."""
