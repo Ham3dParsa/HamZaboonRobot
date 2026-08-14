@@ -573,7 +573,7 @@ class TestCallbackWiring(unittest.TestCase):
             )
 
         handlers = _collect_router_handlers()
-        for survivor in ("study:start", "srs:fe", "srs", "query:add", "query:dup:new", "query:dup:reuse"):
+        for survivor in ("study:start", "srs:fe", "srs", "query:add", "query:dup:new", "query:dup:reuse", "query:dup:cancel"):
             self.assertTrue(
                 _prefix_matches_handler(survivor, handlers),
                 f"surviving Phase 2a route '{survivor}' is not routed",

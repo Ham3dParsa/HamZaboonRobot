@@ -14,6 +14,7 @@ import sqlite3
 import stat
 import tempfile
 import shutil
+import unicodedata
 from contextlib import closing
 
 # ---------------------------------------------------------------------------
@@ -136,6 +137,19 @@ def _query_result_expired(row) -> bool:
     return row is not None and row["expires_at"] <= _utc_now().isoformat()
 
 
+def _normalize_query_text(text: str) -> str:
+    """Normalize the dedup key exactly as saved words are normalized (R7a).
+
+    ``unicodedata.NFC`` folds canonically-equivalent codepoints (e.g. precomposed
+    vs decomposed accents) and ``casefold()`` lowercases in a Unicode-aware way,
+    matching ``schema._normalize_word`` (``" ".join(...).casefold()``) so the
+    duplicate match and the saved-words store agree. Whitespace is collapsed to a
+    single space. Used identically on insert and lookup so a prior card is found
+    for case/Unicode variants instead of re-spending quota + AI.
+    """
+    return " ".join(unicodedata.normalize("NFC", text).split()).casefold()
+
+
 def create_query_result(
     user_id: int,
     query_text: str,
@@ -156,7 +170,7 @@ def create_query_result(
             (
                 token,
                 user_id,
-                " ".join(query_text.split()),
+                _normalize_query_text(query_text),
                 " ".join(word.split()),
                 lang,
                 json.dumps(result_data, ensure_ascii=False),
@@ -185,12 +199,13 @@ def find_unexpired_query(user_id: int, query_text: str, lang: str):
     """Return the most recent unexpired query_result for the same user + lang +
     normalized query_text, or None.
 
-    R7a dedup key: the stored ``query_text`` column is already whitespace-
-    normalized on insert (``" ".join(text.split())``), so this lookup normalizes
-    the incoming text the same way and matches exactly. Runs before quota/AI, so
-    the caller can offer retrieve-vs-new for a word the user already asked.
+    R7a dedup key: the stored ``query_text`` column is normalized on insert via
+    ``_normalize_query_text`` (NFC + casefold + whitespace-collapse), so this
+    lookup normalizes the incoming text the same way and matches exactly. Runs
+    before quota/AI, so the caller can offer retrieve-vs-new for a word the user
+    already asked.
     """
-    normalized = " ".join(query_text.split())
+    normalized = _normalize_query_text(query_text)
     now = _utc_now().isoformat()
     with get_conn() as conn:
         return conn.execute(

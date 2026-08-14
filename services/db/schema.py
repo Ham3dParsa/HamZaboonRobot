@@ -223,6 +223,8 @@ def init_db(path: str | None = None):
                 saved_at TEXT,
                 saved_word_id INTEGER
             );
+            CREATE INDEX IF NOT EXISTS query_results_user_lang_text_idx
+                ON query_results(user_id, lang, query_text);
             CREATE TABLE IF NOT EXISTS grammar_tips (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,

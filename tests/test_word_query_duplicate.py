@@ -109,6 +109,28 @@ class QueryResultRetentionTests(unittest.TestCase):
         row = db.find_unexpired_query(1, "hello", "en")
         self.assertEqual(row["token"], newer)
 
+    def test_find_unexpired_query_is_case_insensitive(self):
+        """R7a — case variants match the same prior card (casefold, like saved words)."""
+        db.create_query_result(1, "Book", "book", "en", self._card())
+        self.assertIsNotNone(db.find_unexpired_query(1, "book", "en"))
+        self.assertIsNotNone(db.find_unexpired_query(1, "BOOK", "en"))
+
+    def test_find_unexpired_query_normalizes_unicode_nfc(self):
+        """R7a — NFC/NFD-equivalent text matches the same prior card."""
+        nfd = "cafe\u0301"  # decomposed e + combining acute
+        nfc = "caf\u00e9"  # precomposed é
+        db.create_query_result(1, nfd, "café", "en", self._card())
+        self.assertIsNotNone(db.find_unexpired_query(1, nfc, "en"))
+
+    def test_cleanup_expired_query_results_removes_old_rows_keeps_recent(self):
+        """R8b — the purge deletes only expired query_results; saved words persist."""
+        recent = db.create_query_result(1, "hello", "hello", "en", self._card())
+        old = db.create_query_result(1, "world", "world", "en", self._card())
+        self._force_expiry(old)
+        db.cleanup_expired_query_results()
+        self.assertIsNotNone(db.get_query_result(recent, user_id=1))
+        self.assertIsNone(db.get_query_result(old, user_id=1, include_expired=True))
+
 
 class WordQueryDuplicateOrchestrationTests(unittest.TestCase):
     def setUp(self):

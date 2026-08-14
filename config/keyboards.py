@@ -50,6 +50,9 @@ IBTN_SRS_EASY_FE = "کاملاً بلدمش 🟪"
 # --- Query / Word Lookup ---
 IBTN_ADD_TO_REVIEW = "ذخیره در جعبه مرور"
 IBTN_REMOVE_FROM_REVIEW = "حذف از جعبه مرور"
+IBTN_QUERY_DUP_NEW = "درخواست جدید (مصرف سهمیه)"
+IBTN_QUERY_DUP_REUSE = "بازیابی کارت قبلی"
+IBTN_QUERY_DUP_CANCEL = "انصراف / بازگشت به منو"
 
 # --- Pronunciation ---
 IBTN_PRONOUNCE = "🔊 تلفظ"
@@ -322,22 +325,29 @@ def query_result_keyboard(
 
 
 def query_duplicate_keyboard(token: str) -> InlineKeyboardMarkup:
-    """Two-button retrieve-vs-new choice when a repeated word is asked (R7b).
+    """Retrieve-vs-new choice with an exit, when a repeated word is asked (R7b).
 
     ``query:dup:new`` re-runs the ask (quota + AI); ``query:dup:reuse`` re-renders
-    the stored prior card for free.
+    the stored prior card for free; ``query:dup:cancel`` returns to the menu so the
+    learner always has an exit.
     """
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
-                "درخواست جدید (مصرف سهمیه)",
+                IBTN_QUERY_DUP_NEW,
                 callback_data=f"query:dup:new:{token}",
             ),
             InlineKeyboardButton(
-                "بازیابی کارت قبلی",
+                IBTN_QUERY_DUP_REUSE,
                 callback_data=f"query:dup:reuse:{token}",
             ),
-        ]
+        ],
+        [
+            InlineKeyboardButton(
+                IBTN_QUERY_DUP_CANCEL,
+                callback_data="query:dup:cancel",
+            ),
+        ],
     ])
 
 

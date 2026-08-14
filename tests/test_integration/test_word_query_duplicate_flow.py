@@ -13,7 +13,9 @@ Behavior spec (locked, R7): retrieve is free; a fresh card consumes quota/AI.
 """
 
 import asyncio
+import datetime
 import os
+import sqlite3
 import tempfile
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -64,7 +66,7 @@ class WordQueryDuplicateFlowTests(unittest.TestCase):
         update.effective_chat = chat
         return update
 
-    def _cb_update(self, data):
+    def _cb_update(self, data, user_id=1):
         query = MagicMock()
         query.data = data
         query.answer = AsyncMock()
@@ -77,7 +79,7 @@ class WordQueryDuplicateFlowTests(unittest.TestCase):
         chat.id = 1
         chat.send_action = AsyncMock()
         update = MagicMock()
-        update.effective_user.id = 1
+        update.effective_user.id = user_id
         update.callback_query = query
         update.effective_message = message
         update.effective_chat = chat
@@ -112,10 +114,22 @@ class WordQueryDuplicateFlowTests(unittest.TestCase):
                 p.stop()
         return ai_mock
 
-    def _run_cb(self, data, context):
-        update = self._cb_update(data)
+    def _run_cb(self, data, context, user_id=1):
+        update = self._cb_update(data, user_id=user_id)
         asyncio.run(bot.callback_router(update, context))
         return update
+
+    def _force_expiry(self, token):
+        past = (db._utc_now() - datetime.timedelta(days=1)).isoformat()
+        conn = sqlite3.connect(db.DB_PATH)
+        try:
+            conn.execute(
+                "UPDATE query_results SET expires_at=? WHERE token=?",
+                (past, token),
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     def _words_asked(self):
         return db.get_user(1)["words_asked_today"]
@@ -218,6 +232,96 @@ class WordQueryDuplicateFlowTests(unittest.TestCase):
             asyncio.run(bot.callback_router(update, ctx2))
         ai.assert_called()
         self.assertEqual(self._words_asked(), asked_before + 1, "fresh ask consumes one quota")
+
+    def test_reuse_rejects_another_users_token(self):
+        """R7c — a prior card is scoped to its owner; another user cannot retrieve it."""
+        self._run_text("hello", self._context(), ai_return=self.card)
+        token = self._last_token()
+        # Onboard a second learner.
+        db.create_user_if_needed(2, "learner")
+        db.set_user_lang_goal(2, "en", "general")
+        db.set_user_level(2, "beginner")
+        with db.get_conn() as conn:
+            conn.execute("UPDATE users SET onboarded=1 WHERE user_id=2")
+            conn.commit()
+        ctx = self._context()
+        self._run_cb(f"query:dup:reuse:{token}", ctx, user_id=2)
+        self.assertEqual(ctx.bot.send_message.call_count, 0, "no card rendered for foreign token")
+        self.assertEqual(self._words_asked(), 1, "foreign tap must not change quota")
+
+    def test_reuse_guards_corrupt_json(self):
+        """R7c — corrupt stored JSON is rejected without crashing or rendering."""
+        self._run_text("hello", self._context(), ai_return=self.card)
+        token = self._last_token()
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE query_results SET result_json='not-json' WHERE token=?",
+                (token,),
+            )
+            conn.commit()
+        ctx = self._context()
+        self._run_cb(f"query:dup:reuse:{token}", ctx)
+        self.assertEqual(ctx.bot.send_message.call_count, 0, "no card rendered for corrupt data")
+
+    def test_reuse_guards_non_dict_json(self):
+        """R7c — a non-dict result (e.g. legacy row) is rejected, not rendered."""
+        self._run_text("hello", self._context(), ai_return=self.card)
+        token = self._last_token()
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE query_results SET result_json='[1,2,3]' WHERE token=?",
+                (token,),
+            )
+            conn.commit()
+        ctx = self._context()
+        self._run_cb(f"query:dup:reuse:{token}", ctx)
+        self.assertEqual(ctx.bot.send_message.call_count, 0, "no card rendered for non-dict data")
+
+    def test_reuse_handles_prior_card_expired_between_offer_and_tap(self):
+        """R7c — an offer whose card expires before the tap shows an error, not a stale card."""
+        self._run_text("hello", self._context(), ai_return=self.card)
+        token = self._last_token()
+        self._force_expiry(token)
+        ctx = self._context()
+        self._run_cb(f"query:dup:reuse:{token}", ctx)
+        self.assertEqual(ctx.bot.send_message.call_count, 0, "expired card must not be rendered")
+
+    def test_duplicate_cancel_returns_to_main_menu(self):
+        """R7b — the learner can decline both options and return to the menu."""
+        self._run_text("hello", self._context(), ai_return=self.card)
+        ctx = self._context()
+        update = self._cb_update("query:dup:cancel")
+        asyncio.run(bot.callback_router(update, ctx))
+        texts = [c.kwargs.get("text") for c in ctx.bot.send_message.call_args_list]
+        self.assertTrue(any("به منوی اصلی برگشتی" in t for t in texts if t), "main menu shown")
+        self.assertFalse(ctx.user_data.get("awaiting"), "no lingering awaiting state")
+
+    def test_choice_keyboard_cleared_after_reuse_tap(self):
+        """R7b — after a choice is made, the offer's buttons are removed to stop repeat taps."""
+        self._run_text("hello", self._context(), ai_return=self.card)
+        token = self._last_token()
+        self._run_text("hello", self._context())
+        update = self._cb_update(f"query:dup:reuse:{token}")
+        with patch.object(bot, "is_owner", return_value=False), \
+             patch.object(bot, "_call_ai_limited", new=AsyncMock()), \
+             patch.object(bot, "_prepare_cached_card", new=AsyncMock()):
+            asyncio.run(bot.callback_router(update, self._context()))
+        update.callback_query.message.edit_reply_markup.assert_awaited_with(reply_markup=None)
+
+    def test_duplicate_new_acks_callback(self):
+        """R7b — the new-card path acknowledges the callback so the button stops loading."""
+        self._run_text("hello", self._context(), ai_return=self.card)
+        token = self._last_token()
+        update = self._cb_update(f"query:dup:new:{token}")
+        ctx = self._context()
+        with patch.object(bot, "is_owner", return_value=False), \
+             patch.object(bot, "_start_llm_wait_state", new=AsyncMock(return_value=None)), \
+             patch.object(bot, "_finish_llm_wait_state", new=AsyncMock()), \
+             patch.object(bot, "_call_ai_limited", new=MagicMock(return_value=self.card)), \
+             patch.object(bot, "_prepare_cached_card", new=MagicMock(return_value=self.card)):
+            asyncio.run(bot.callback_router(update, ctx))
+        update.callback_query.answer.assert_awaited()
+        self.assertFalse(ctx.user_data.get("awaiting"), "fresh ask leaves no lingering awaiting")
 
 
 if __name__ == "__main__":

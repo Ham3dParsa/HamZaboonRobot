@@ -246,14 +246,17 @@ async def _send_query_card(
     row: dict,
     token: str,
     card_data: dict,
+    show_pronounce: bool,
 ):
     """Render + send a word-query card with the add-to-review keyboard.
 
     Shared by the fresh-ask (ok) path and the free retrieve path (R7c), so both
-    surfaces render identically. Raises on Telegram send failure (the fresh-ask
-    caller then releases its reserved quota).
+    surfaces render identically. ``show_pronounce`` is supplied by the caller
+    (the fresh path forwards ``AskResult.show_pronounce``; the reuse path
+    computes it once) to avoid a redundant setting read per send. Raises on
+    Telegram send failure (the fresh-ask caller then releases its reserved
+    quota).
     """
-    show_pronounce = bool(db.should_show_pronounce(user_id, row))
     context.user_data[f"query_kb_{token}"] = {"show_pronounce": show_pronounce}
     phon_lines = _phonetic_lines(card_data.get("phonetic", ""))
     await _send_with_retry(
@@ -273,7 +276,6 @@ async def _send_query_card(
             show_pronounce=show_pronounce,
         ),
     )
-    return show_pronounce
 
 
 async def _send_query_closing(
@@ -426,7 +428,9 @@ async def _process_ask_word(
     # ok — deliver the card, releasing the reserved quota only if it was not sent.
     delivered = False
     try:
-        await _send_query_card(update, context, user_id, row, result.token, result.card_data)
+        await _send_query_card(
+            update, context, user_id, row, result.token, result.card_data, result.show_pronounce
+        )
         delivered = True
     finally:
         if not delivered:
@@ -437,6 +441,19 @@ async def _process_ask_word(
         row["target_lang"],
     )
     await _send_query_closing(update, context, user_id, result.usage_text)
+
+
+async def _clear_duplicate_choice(update: Update):
+    """Remove the retrieve-vs-new buttons so an offer can be answered once (R7).
+
+    Prevents repeat taps on a stale choice message from re-charging quota/AI
+    (a 30-day-tappable offer). Swallows ``BadRequest`` when the markup is already
+    gone (e.g. the message was deleted).
+    """
+    try:
+        await update.callback_query.message.edit_reply_markup(reply_markup=None)
+    except BadRequest:
+        pass
 
 
 async def _handle_query_dup_new(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str):
@@ -454,7 +471,12 @@ async def _handle_query_dup_new(update: Update, context: ContextTypes.DEFAULT_TY
     if not row or not row["onboarded"]:
         await notify_callback(update.callback_query, "ابتدا /start را بزنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
-    context.user_data["awaiting"] = "ask_word"
+    await _clear_duplicate_choice(update)
+    # Ack immediately so the button stops loading while the fresh AI ask runs.
+    await notify_callback(update.callback_query)
+    # Mirror text_router: the ok path is terminal (card + closing return to the
+    # menu), so awaiting is reset here; the invalid_input path re-arms itself.
+    context.user_data["awaiting"] = None
     await _process_ask_word(update, context, user_id, row, prior["query_text"], skip_duplicate=True)
 
 
@@ -478,13 +500,31 @@ async def _handle_query_dup_reuse(update: Update, context: ContextTypes.DEFAULT_
     except (TypeError, json.JSONDecodeError):
         await notify_callback(update.callback_query, "این نتیجه در دسترس نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
-    if not isinstance(card_data, dict):
+    # Guard against empty/legacy-shaped stored cards so format_card never renders
+    # empty bold markers or raises on a missing field under MarkdownV2.
+    if not isinstance(card_data, dict) or not card_data.get("word") or not card_data.get("fa_meaning"):
         await notify_callback(update.callback_query, "این نتیجه در دسترس نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
+    await _clear_duplicate_choice(update)
     usage_text = word_query_usage_text(row)
-    await _send_query_card(update, context, user_id, row, token, card_data)
+    show_pronounce = bool(db.should_show_pronounce(user_id, row))
+    await _send_query_card(update, context, user_id, row, token, card_data, show_pronounce)
     await _send_query_closing(update, context, user_id, usage_text)
     await notify_callback(update.callback_query, "کارت قبلی بازیابی شد.", intent=CallbackNoticeIntent.SUCCESS_TOAST)
+
+
+async def _handle_query_dup_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """query:dup:cancel — the learner declined both options; return to the menu."""
+    user_id = update.effective_user.id
+    context.user_data["awaiting"] = None
+    await _clear_duplicate_choice(update)
+    await _send_with_retry(
+        context.bot,
+        update.effective_chat.id,
+        "به منوی اصلی برگشتی 🙂",
+        reply_markup=main_menu(is_owner(user_id)),
+    )
+    await notify_callback(update.callback_query, "انجام شد.", intent=CallbackNoticeIntent.INFO)
 
 
 # ---------------- روتر پیام‌های متنی (منو + حالت‌های در انتظار ورودی) ----------------
@@ -551,6 +591,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "query:add:",
             "query:dup:new:",
             "query:dup:reuse:",
+            "query:dup:cancel",
             "presentation:",
             "flow:",
             "srs:",
@@ -651,6 +692,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         await _handle_query_dup_reuse(update, context, parts[3])
+    elif data == "query:dup:cancel":
+        await _handle_query_dup_cancel(update, context)
     elif data == "settings:lang":
         await change_lang_start(update, context)
     elif data == "settings:goal":
@@ -857,9 +900,16 @@ async def primary_retry_job(context: ContextTypes.DEFAULT_TYPE):
         await asyncio.to_thread(_retry_primary_preset)
     except Exception:
         log.exception("Primary retry job failed")
-    # R8b: the same cadence purges expired query_results (30-day retention). The
-    # DB call is cheap and idempotent; saved_words is the permanent store, so
-    # clearing expired query_results loses nothing.
+
+
+async def cleanup_query_results_job(context: ContextTypes.DEFAULT_TYPE):
+    """Periodically purge expired query_results (30-day retention, R8b).
+
+    A dedicated repeating job so retention enforcement does not depend on owner
+    configuration (the owner-gated primary retry job would not run when no owner
+    is configured). Cheap, idempotent, and safe: saved_words is the permanent
+    store, so clearing expired query_results loses nothing.
+    """
     try:
         await asyncio.to_thread(db.cleanup_expired_query_results)
     except Exception:
@@ -901,6 +951,13 @@ def main():
             connection_health_job,
             interval=CONNECTION_HEALTH_INTERVAL_SECONDS,
             first=CONNECTION_HEALTH_INTERVAL_SECONDS,
+        )
+        # R8b: retention enforcement must not depend on owner config, so the
+        # query_results purge is its own repeating job outside the owner gate.
+        app.job_queue.run_repeating(
+            cleanup_query_results_job,
+            interval=1800,
+            first=1800,
         )
         if OWNER_ID != 0:
             app.job_queue.run_repeating(
