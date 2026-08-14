@@ -396,11 +396,11 @@ class Phase5KeyEncryptionMigrationTests(unittest.TestCase):
 
         stored = self._stored_preset_key(name)
         self.assertNotEqual(stored, "sk-literal-secret-9876543210")
-        self.assertTrue(stored.startswith("gAAAA"))
+        self.assertTrue(stored.startswith("v1:"))
         self.assertEqual(key_crypto.decrypt_secret(stored), "sk-literal-secret-9876543210")
 
         setting = self._stored_setting()
-        self.assertTrue(setting.startswith("gAAAA"))
+        self.assertTrue(setting.startswith("v1:"))
         self.assertEqual(key_crypto.decrypt_secret(setting), "sk-settings-secret-123456789")
 
     def test_env_reference_is_resolved_then_encrypted(self):
@@ -423,7 +423,7 @@ class Phase5KeyEncryptionMigrationTests(unittest.TestCase):
         self._set_plaintext_keys(name, "sk-literal-secret-9876543210", "sk-sec")
         db_module.init_db()
         first = self._stored_preset_key(name)
-        self.assertTrue(first.startswith("gAAAA"))
+        self.assertTrue(first.startswith("v1:"))
         db_module.init_db()
         second = self._stored_preset_key(name)
         self.assertEqual(first, second)

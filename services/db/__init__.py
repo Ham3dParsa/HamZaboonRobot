@@ -346,6 +346,7 @@ from services.db.preset_registry import (
 
 # ---------- API-key encryption at rest (Phase 5) ----------
 from services.db.key_crypto import (
+    MasterKeyRequiredError,
     decrypt_secret,
     encrypt_for_storage,
     encrypt_secret,

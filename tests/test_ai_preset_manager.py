@@ -75,7 +75,7 @@ class ClonePresetApiTest(unittest.TestCase):
         self.assertEqual(p["base_url"], "https://example.com/v1")
         self.assertEqual(p["model"], "test-model")
         self.assertNotEqual(p["api_key"], self.SOURCE_KEY)
-        self.assertTrue(p["api_key"].startswith("gAAAA"))
+        self.assertTrue(p["api_key"].startswith("v1:"))
         self.assertEqual(db.resolve_preset_key(p), self.SOURCE_KEY)
         self.assertEqual(p["temperature"], 0.7)
         self.assertEqual(p["max_output_tokens"], 2048)

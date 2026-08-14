@@ -138,7 +138,7 @@ class ShowSettingsMaskingTest(unittest.TestCase):
         db.set_setting("ai_primary_preset", "long_preset")
 
         stored = db.get_preset("long_preset")["api_key"]
-        self.assertTrue(stored.startswith("gAAAA"), "key must be stored encrypted")
+        self.assertTrue(stored.startswith("v1:"), "key must be stored encrypted")
         self.assertNotEqual(stored, long_key)
 
         ctx = self._make_context()

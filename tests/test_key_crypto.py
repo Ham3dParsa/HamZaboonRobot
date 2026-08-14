@@ -63,6 +63,14 @@ class DecryptSecretTest(_MasterKeyTestCase):
         self.assertEqual(result, "")
         self.assertTrue(any("decrypt" in m for m in cm.output))
 
+    def test_tagged_but_invalid_ciphertext_fails_closed(self):
+        # A v1:-tagged value that is not valid Fernet ciphertext under the
+        # current key must fail closed to '' with a warning, never the literal.
+        with self.assertLogs(key_crypto.log.name, level=logging.WARNING) as cm:
+            result = key_crypto.decrypt_secret("v1:this-is-not-real-ciphertext")
+        self.assertEqual(result, "")
+        self.assertFalse(any("this-is-not-real-ciphertext" in m for m in cm.output))
+
 
 class MissingMasterKeyTest(unittest.TestCase):
     """Fail-closed when AI_MASTER_KEY is absent (Rule 1, Rule 6)."""
@@ -102,47 +110,64 @@ class EncryptForStorageTest(_MasterKeyTestCase):
     def test_empty_input_stays_empty(self):
         self.assertEqual(key_crypto.encrypt_for_storage(""), "")
 
-    def test_plaintext_is_encrypted(self):
+    def test_plaintext_is_encrypted_and_tagged(self):
         stored = key_crypto.encrypt_for_storage("sk-plain-secret-123456789")
         self.assertNotEqual(stored, "sk-plain-secret-123456789")
-        self.assertTrue(stored.startswith("gAAAA"))
+        self.assertTrue(stored.startswith(key_crypto.VERSION_PREFIX))
         self.assertEqual(key_crypto.decrypt_secret(stored), "sk-plain-secret-123456789")
+
+    def test_plaintext_starting_with_fernet_prefix_is_still_encrypted(self):
+        # Kilo SUGGESTION: a raw key that happens to begin with the Fernet
+        # prefix must be encrypted fresh (tagged v1:), never passed through as
+        # plaintext because it is not tagged by this module.
+        raw = "gAAAAAsuspicious-literal-that-is-not-real-ciphertext"
+        stored = key_crypto.encrypt_for_storage(raw)
+        self.assertTrue(stored.startswith(key_crypto.VERSION_PREFIX))
+        self.assertNotEqual(stored, raw)
+        self.assertEqual(key_crypto.decrypt_secret(stored), raw)
 
     def test_already_encrypted_token_is_passed_through(self):
         token = key_crypto.encrypt_secret("sk-secret-123456789")
         self.assertEqual(key_crypto.encrypt_for_storage(token), token)
 
-    def test_gAAAA_like_value_without_current_key_is_preserved(self):
-        # A value that looks like a Fernet token but is not decryptable under
-        # the current key (e.g. from a rotated master key) must be preserved,
-        # never re-wrapped into an undecryptable double layer (Kilo R2).
-        looks_like = "gAAAAAsuspicious-literal-that-is-not-real-ciphertext"
-        stored = key_crypto.encrypt_for_storage(looks_like)
-        self.assertEqual(stored, looks_like)
-
     def test_rotated_master_key_old_ciphertext_preserved_not_wrapped(self):
-        # A token encrypted under a previous key cannot be recovered (we only
-        # have the bytes), so it is preserved untouched; it must NOT be wrapped
-        # inside a new token that hides the old ciphertext.
+        # A v1:-tagged token encrypted under a previous key is preserved
+        # untouched; it must NOT be re-wrapped into an undecryptable double
+        # layer (the resolver fails closed and the admin re-enters).
         old_key = "sd4H8UUr5ONYISGXcx468OQwFaUxaktNGGTPs9TBESg="
         new_key = "GqaCOB9C1WdWdsG7jGaHFfbowq69GViyVRpbYTiAM-M="
-        token_old = key_crypto.Fernet(old_key.encode()).encrypt(
-            b"sk-rotated-secret-123456"
-        ).decode()
+        token_old = key_crypto.VERSION_PREFIX + key_crypto.Fernet(
+            old_key.encode()
+        ).encrypt(b"sk-rotated-secret-123456").decode()
         with mock.patch.object(config, "AI_MASTER_KEY", new_key):
             stored = key_crypto.encrypt_for_storage(token_old)
         self.assertEqual(stored, token_old)
 
 
 class EncryptForStorageNoMasterKeyTest(MissingMasterKeyTest):
-    def test_input_passed_through_without_master_key(self):
-        # No master key: never invent a key, never destroy an existing value.
-        # The input is preserved unchanged (resolution fails closed later).
+    def test_plaintext_without_master_key_raises(self):
+        # Kilo CRITICAL: never persist a raw plaintext key when no master key
+        # is configured — fail closed by raising instead of writing plaintext.
+        with self.assertLogs(key_crypto.log.name, level=logging.WARNING):
+            with self.assertRaises(key_crypto.MasterKeyRequiredError):
+                key_crypto.encrypt_for_storage("sk-plain-123456789")
+
+    def test_tagged_without_master_key_preserved(self):
+        # A v1:-tagged ciphertext is preserved even without a master key
+        # (unchanged edit / non-destructive migration).
         self.assertEqual(
-            key_crypto.encrypt_for_storage("sk-plain-123456789"), "sk-plain-123456789"
+            key_crypto.encrypt_for_storage("v1:this-looks-like-existing-ciphertext"),
+            "v1:this-looks-like-existing-ciphertext",
         )
-        token = "gAAAAA-this-looks-like-an-existing-token"
-        self.assertEqual(key_crypto.encrypt_for_storage(token), token)
+
+    def test_plaintext_fail_closed_false_passes_through(self):
+        # Non-destructive migration path: when a master key is absent, a raw
+        # value is preserved unchanged (resolution fails closed later) rather
+        # than raising.
+        self.assertEqual(
+            key_crypto.encrypt_for_storage("sk-plain-123456789", fail_closed=False),
+            "sk-plain-123456789",
+        )
 
 
 if __name__ == "__main__":

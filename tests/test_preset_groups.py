@@ -105,7 +105,7 @@ class GroupCrdTest(_ScratchDbTestCase):
         self.assertIsNone(preset_registry.get_group_key("g"))
         preset_registry.set_group_key("g", "group-secret-123456")
         stored = preset_registry.get_group_key("g")
-        self.assertTrue(stored.startswith("gAAAA"))
+        self.assertTrue(stored.startswith("v1:"))
         self.assertEqual(key_crypto.decrypt_secret(stored), "group-secret-123456")
         preset_registry.delete_group_key("g")
         self.assertIsNone(preset_registry.get_group_key("g"))

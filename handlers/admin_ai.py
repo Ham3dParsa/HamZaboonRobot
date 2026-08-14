@@ -801,25 +801,29 @@ async def _handle_full_edit_save(update: Update, context: ContextTypes.DEFAULT_T
     new_name = values.get("name", preset_name)
     rename = new_name != preset_name
 
-    db.set_preset(
-        name=new_name,
-        base_url=values.get("base_url", preset.get("base_url", "")),
-        model=values.get("model", preset.get("model", "")),
-        api_key=values.get("api_key", preset.get("api_key", "")),
-        daily_batch_size=int(values.get("daily_batch_size", preset.get("daily_batch_size", 6))),
-        max_concurrency=int(values.get("max_concurrency", preset.get("max_concurrency", 2))),
-        max_rpm=int(values.get("max_rpm", preset.get("max_rpm", 30))),
-        max_tpm=int(values.get("max_tpm", preset.get("max_tpm", 0))),
-        max_daily_req=int(values.get("max_daily_req", preset.get("max_daily_req", 0))),
-        timeout_seconds=float(values.get("timeout_seconds", preset.get("timeout_seconds", 30.0))),
-        temperature=float(values.get("temperature", preset.get("temperature", 0.6))),
-        max_output_tokens=int(values.get("max_output_tokens", preset.get("max_output_tokens", 4096))),
-        is_emergency=int(values.get("is_emergency", preset.get("is_emergency", 0))),
-        input_cost_per_million=values.get("input_cost_per_million", preset.get("input_cost_per_million")),
-        output_cost_per_million=values.get("output_cost_per_million", preset.get("output_cost_per_million")),
-        in_fallback_chain=int(values.get("in_fallback_chain", preset.get("in_fallback_chain", 1))),
-        group_label=values.get("group_label", preset.get("group_label", "")),
-    )
+    try:
+        db.set_preset(
+            name=new_name,
+            base_url=values.get("base_url", preset.get("base_url", "")),
+            model=values.get("model", preset.get("model", "")),
+            api_key=values.get("api_key", preset.get("api_key", "")),
+            daily_batch_size=int(values.get("daily_batch_size", preset.get("daily_batch_size", 6))),
+            max_concurrency=int(values.get("max_concurrency", preset.get("max_concurrency", 2))),
+            max_rpm=int(values.get("max_rpm", preset.get("max_rpm", 30))),
+            max_tpm=int(values.get("max_tpm", preset.get("max_tpm", 0))),
+            max_daily_req=int(values.get("max_daily_req", preset.get("max_daily_req", 0))),
+            timeout_seconds=float(values.get("timeout_seconds", preset.get("timeout_seconds", 30.0))),
+            temperature=float(values.get("temperature", preset.get("temperature", 0.6))),
+            max_output_tokens=int(values.get("max_output_tokens", preset.get("max_output_tokens", 4096))),
+            is_emergency=int(values.get("is_emergency", preset.get("is_emergency", 0))),
+            input_cost_per_million=values.get("input_cost_per_million", preset.get("input_cost_per_million")),
+            output_cost_per_million=values.get("output_cost_per_million", preset.get("output_cost_per_million")),
+            in_fallback_chain=int(values.get("in_fallback_chain", preset.get("in_fallback_chain", 1))),
+            group_label=values.get("group_label", preset.get("group_label", "")),
+        )
+    except db.MasterKeyRequiredError:
+        await notify_callback(update.callback_query, "برای ذخیره کلید API باید AI_MASTER_KEY در سرور پیکربندی شود.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
 
     if rename:
         db.delete_preset(preset_name)
@@ -1029,6 +1033,9 @@ async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
         )
     except ValueError:
         await notify_callback(update.callback_query, "این نام هم‌اکنون توسط پیش‌تنظیم دیگری استفاده می‌شود.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    except db.MasterKeyRequiredError:
+        await notify_callback(update.callback_query, "برای ذخیره کلید API باید AI_MASTER_KEY در سرور پیکربندی شود.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     # The database transaction already removed the old row when renamed.
@@ -2094,7 +2101,12 @@ async def _handle_ai_text_input(
         groups = _detect_key_groups()
         target = next((g for g in groups if g["key_hash"] == key_hash), None)
         if target:
-            db.set_preset_api_key_batch(target["names"], text.strip())
+            try:
+                db.set_preset_api_key_batch(target["names"], text.strip())
+            except db.MasterKeyRequiredError:
+                context.user_data.pop("awaiting", None)
+                await update.message.reply_text("برای ذخیره کلید API باید AI_MASTER_KEY در سرور پیکربندی شود.")
+                return
         context.user_data.pop("awaiting", None)
         await update.message.reply_text("✅ کلید API برای همه اعضای گروه به‌روز شد.")
         await _show_grouped_presets(update, context)

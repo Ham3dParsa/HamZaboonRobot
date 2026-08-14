@@ -51,6 +51,16 @@ class _ScratchDbTestCase(unittest.TestCase):
 class PresetApiKeyMigrationTest(_ScratchDbTestCase):
     """R3A — the idempotent "$" prefix migration."""
 
+    def setUp(self):
+        super().setUp()
+        # These legacy tests assert the raw "$ENV" prefix migration result.
+        # Run them without a master key so the Phase 5 encryption migration is
+        # skipped and the "$" value is left intact (the conftest provides a
+        # default master key otherwise).
+        self._patcher = mock.patch.object(config, "AI_MASTER_KEY", "")
+        self._patcher.start()
+        self.addCleanup(self._patcher.stop)
+
     def _seed_bare_hp_keys(self):
         """Create the ai_presets table and insert the HP presets with the
         historical bare env-name value (as found in production before R3A)."""
