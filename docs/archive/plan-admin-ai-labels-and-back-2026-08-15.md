@@ -4,10 +4,10 @@ description: Fix admin_ai preset field-label inconsistency (#342) and field-edit
 created: 2026-08-15
 base_commit: b735c5d
 branch: fix/admin-ai-labels-and-back
-status: in-progress
+status: complete
 ---
 
-STATE: phase 1/3 — status: in-progress — focus: write failing tests (label canonicalization + back-button routing) then implement
+STATE: complete — merged via PR #352 (2b1315f). All steps done; independent review clean; Kilo No Issues Found.
 
 ## Locked Contract (owner confirmed "locked" 2026-08-15)
 
@@ -29,16 +29,25 @@ Dependency & Wiring Map (from gate): no new callback prefixes; no router/keyboar
 
 - [x] Gate locked (R1-R4 chosen; owner "locked").
 - [x] Seam claim acquired: Seams 8 (override) + 12 (parallel-work-claims.json).
-- [ ] Step 1 — write failing tests (RED):
+- [x] Step 1 — write failing tests (RED):
   - field-edit Back (`flow:back`) resumes preset-edit menu and keeps `preset_edits` (no wipe).
   - create-name error retry uses `admin_awaiting_inline_keyboard` (back stays in admin panel).
   - full-edit wizard validation-error retry re-renders wizard field with custom nav buttons (does not abort via flow:back).
   - confirmation message shows canonical label, not raw `field_name`; wizard uses canonical labels.
-- [ ] Step 2 — implement R1/R2 canonical labels.
-- [ ] Step 3 — implement R3 field-edit back -> awaiting.
-- [ ] Step 4 — implement R4 (create-name retries, full-edit error retry).
-- [ ] Independent review (hamzaboon-reviewer) clean.
-- [ ] Validation suite + wiring guards + commit + PR (links #342, #343).
+- [x] Step 2 — implement R1/R2 canonical labels.
+- [x] Step 3 — implement R3 field-edit back -> awaiting.
+- [x] Step 4 — implement R4 (create-name retries, full-edit error retry).
+- [x] Independent review (hamzaboon-reviewer) clean.
+- [x] Validation suite + wiring guards + commit + PR (links #342, #343).
+
+## Post-review (Kilo)
+
+- [x] Remove `WIZARD_FIELD_LABELS = FIELD_LABELS` alias; call sites use `FIELD_LABELS` directly.
+- [x] Document the `awaiting_inline_keyboard()` Cancel/Back semantics (R3) at the keyboard switch.
+
+## Completion
+
+- Merged: PR #352 (squash `2b1315f`). Issues #342/#343 resolved. Full suite 897 passed; Kilo No Issues Found.
 
 ## Blocked Questions
 
