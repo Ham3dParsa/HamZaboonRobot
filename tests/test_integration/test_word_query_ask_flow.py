@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import bot
 from services import db
 from services.db import schema as db_schema
-from services.utils.formatting import CardPreparationError
+from services.utils.formatting import ASK_WORD_PROMPT, CardPreparationError
 from telegram.error import NetworkError
 
 
@@ -312,6 +312,37 @@ class WordQueryAskFlowTests(unittest.TestCase):
         self.assertEqual(self._words_asked(), 0, "persist_error must release quota")
         sent = context.bot.send_message.call_args.kwargs["text"]
         self.assertIn("ذخیره", sent, "must explain the result was not stored")
+
+
+    def test_ask_word_entry_prompt_uses_card_framing(self):
+        """Issue #357: entry prompt must frame the feature as building a card."""
+        import handlers.user as user_handlers
+
+        update = self._make_update("anything")
+        context = self._make_context()
+        asyncio.run(user_handlers.ask_for_ask_word(update, context))
+        self.assertTrue(
+            context.bot.send_message.called, "ask_for_ask_word must send a prompt"
+        )
+        prompt = context.bot.send_message.call_args.kwargs["text"]
+        # Bind the test to the constant so a per-file drift is caught here too.
+        self.assertIn(ASK_WORD_PROMPT, prompt, "entry prompt must use the shared constant")
+        self.assertNotIn(
+            "معنی/توضیح بدم", prompt, "must not frame as 'give the meaning/explanation'"
+        )
+
+    def test_invalid_input_reprompt_uses_card_framing(self):
+        """Issue #357: the invalid-input re-prompt (bot.py) must use new wording."""
+        # "!!!" is punctuation-only -> validate_word_query returns ERR_INVALID_CHARS.
+        ai_mock = MagicMock(side_effect=AssertionError("AI must not run for invalid input"))
+        context = self._run(text="!!!", call_ai_limited=ai_mock)
+        sent = "\n".join(self._sent_texts(context))
+        ai_mock.assert_not_called()
+        # Bind the test to the constant so the bot.py copy cannot drift silently.
+        self.assertIn(ASK_WORD_PROMPT, sent, "re-prompt must use the shared constant")
+        self.assertNotIn(
+            "معنی/توضیح بدم", sent, "re-prompt must not use the old definition framing"
+        )
 
 
 if __name__ == "__main__":

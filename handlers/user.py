@@ -35,6 +35,7 @@ from config import (
     is_owner,
 )
 from services.utils.formatting import (
+    ASK_WORD_PROMPT,
     escape_mdv2,
     escape_mdv2_code,
     word_query_usage_text,
@@ -459,7 +460,7 @@ async def ask_for_ask_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_with_retry(
         context.bot,
         update.effective_chat.id,
-        f"{usage_text}\n\nچه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟",
+        f"{usage_text}\n\n{ASK_WORD_PROMPT}",
         reply_markup=awaiting_reply_keyboard(),
     )
 

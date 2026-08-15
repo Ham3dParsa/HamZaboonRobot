@@ -6,6 +6,7 @@ import re
 
 from config import _app_today, daily_word_query_limit_for_plan
 from config.catalog import language_label
+from services.utils.validation import _CUSTOM_WORD_MAX_WORDS
 
 # SRS staged-reveal prompt engine (#338). Front-stage prompt types follow the
 # locked spec §2B; all learner-facing copy is pinned here verbatim so tests
@@ -461,6 +462,15 @@ def _phonetic_lines(value: str | dict) -> list[str]:
     if ipa:
         return [f"`{escape_mdv2_code(str(ipa))}`"]
     return []
+
+
+# Single source of truth for the ask-word entry / re-prompt copy (issue #357).
+# The per-word cap is interpolated from the validator so the learner-facing
+# copy cannot drift from services/utils/validation._CUSTOM_WORD_MAX_WORDS.
+ASK_WORD_PROMPT = (
+    "✨ دوست داری چه واژه یا عبارتی رو یاد بگیری تا برات کارتشو بسازم؟\n"
+    f"(برای مثال: یک کلمه‌ی جدید، اصطلاح یا فعل — حداکثر {_CUSTOM_WORD_MAX_WORDS} کلمه)"
+)
 
 
 def word_query_usage_text(row: dict) -> str:
