@@ -18,3 +18,4 @@
 | SRS-STAGED-REVEAL (spec) | `session/plan-srs-staged-reveal-spec.md` | #338 | pending (deferred) | locked-spec — implement after AI-preset seams + FSRS T09 |
 | WORD-QUERY-CONSISTENCY (phase 1) | `ux/plan-word-query-card-consistency.md` | #340 | done | R1-R6 shipped (#341) |
 | WORD-QUERY-DUP-RETENTION (phase 2) | `ux/plan-word-query-card-consistency-phase-02-retrieve-new-retention.md` | #344 | in-progress | R7-R8 implemented, tests green, pending review/PR |
+| ADMIN-AI-LABELS-BACK | `presets/plan-admin-ai-labels-and-back.md` | #342, #343 | `fix/admin-ai-labels-and-back` | in-progress — canonical labels + back-button/systemic keyboard fixes |

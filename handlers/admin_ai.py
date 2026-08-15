@@ -75,6 +75,29 @@ _FIELD_HELP = {
     "group_label": "برچسب دلخواه برای گروه‌بندی پریست‌هایی که کلید API مشترک دارند. نمونه: «سرویس‌دهنده اصلی» یا «پشتیبان رایگان»",
 }
 
+# Canonical all-English short label map. Single source of truth for the
+# single-field edit prompt, the confirmation message, and the full-edit wizard.
+FIELD_LABELS = {
+    "base_url": "Base URL",
+    "model": "Model",
+    "api_key": "API Key",
+    "daily_batch_size": "Batch Size",
+    "max_concurrency": "Concurrency",
+    "max_rpm": "RPM Limit",
+    "max_tpm": "Max TPM",
+    "max_daily_req": "Max Daily Requests",
+    "timeout_seconds": "Timeout (s)",
+    "temperature": "Temperature",
+    "max_output_tokens": "Max Output Tokens",
+    "is_emergency": "Is Emergency",
+    "name": "Preset Name",
+    "priority": "Priority",
+    "input_cost_per_million": "Input Cost $/1M",
+    "output_cost_per_million": "Output Cost $/1M",
+    "in_fallback_chain": "In Fallback Chain",
+    "group_label": "Group Label",
+}
+
 
 async def _show_ai_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Main AI settings panel."""
@@ -360,29 +383,9 @@ async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TY
         current = ""
     context.user_data["awaiting"] = f"ai_preset_edit:{preset_name}:{field_name}"
 
-    field_labels = {
-        "base_url": "Base URL",
-        "model": "Model Name",
-        "api_key": "API Key (literal; stored encrypted)",
-        "daily_batch_size": "Batch Size (integer)",
-        "max_concurrency": "Concurrency (integer)",
-        "max_rpm": "RPM Limit (integer)",
-        "max_tpm": "Max TPM (integer, 0 = unlimited)",
-        "max_daily_req": "Max Daily Requests (integer, 0 = unlimited)",
-        "timeout_seconds": "Timeout in seconds (float)",
-        "temperature": "Temperature (0.0-2.0)",
-        "max_output_tokens": "Max Output Tokens (integer)",
-        "is_emergency": "Is Emergency (0 or 1)",
-        "name": "Preset Name (a-z, 0-9, _)",
-        "input_cost_per_million": "Input Cost $/1M tokens (empty = global)",
-        "output_cost_per_million": "Output Cost $/1M tokens (empty = global)",
-        "in_fallback_chain": "In Fallback Chain (0 or 1)",
-        "group_label": "Group Label (any text)",
-    }
-
     help_text = _FIELD_HELP.get(field_name, "")
     message = (
-        f"✏️ <b>{html_escape(field_labels.get(field_name, field_name))}</b>\n"
+        f"✏️ <b>{html_escape(FIELD_LABELS.get(field_name, field_name))}</b>\n"
         f"مقدار فعلی: <code>{html_escape(str(current))}</code>\n\n"
         f"مقدار جدید را ارسال کنید:"
     )
@@ -392,7 +395,12 @@ async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TY
     await _edit_or_send(
         update, context, message,
         parse_mode=ParseMode.HTML,
-        reply_markup=admin_awaiting_inline_keyboard()
+        # awaiting_inline_keyboard() -> flow:back resumes the preset-edit menu
+        # (preserves preset_edits); flow:cancel discards only this preset's
+        # edits. This aligns with the field-edit error-retry prompts. Note: this
+        # intentionally differs from admin_awaiting_inline_keyboard(), whose
+        # admin:cancel wiped ALL preset_edits (contract R3, owner-approved).
+        reply_markup=awaiting_inline_keyboard()
     )
 
 
@@ -462,7 +470,7 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
     context.user_data.pop("awaiting", None)
 
     await update.message.reply_text(
-        f"✅ <b>{html_escape(field_name)}</b> برای پیش‌تنظیم <b>{html_escape(preset_name)}</b> ثبت شد.",
+        f"✅ <b>{html_escape(FIELD_LABELS.get(field_name, field_name))}</b> برای پیش‌تنظیم <b>{html_escape(preset_name)}</b> ثبت شد.",
         parse_mode=ParseMode.HTML
     )
     await _edit_ai_preset(update, context, preset_name)
@@ -481,27 +489,6 @@ WIZARD_GROUP_HEADERS = {
     4: "🔒 — گروه محدودیت‌ها (Limits):",
     12: "⛓️ — گروه فال‌بک (Fallback):",
     15: "💰 — گروه هزینه و برچسب (Cost & Label):",
-}
-
-WIZARD_FIELD_LABELS = {
-    "name": "نام پریست",
-    "api_key": "API Key",
-    "base_url": "Base URL",
-    "model": "Model",
-    "max_concurrency": "Concurrency",
-    "max_rpm": "RPM Limit",
-    "max_tpm": "حد توکن در دقیقه (TPM)",
-    "daily_batch_size": "Batch Size",
-    "max_daily_req": "سقف درخواست روزانه",
-    "timeout_seconds": "Timeout (s)",
-    "temperature": "Temperature",
-    "max_output_tokens": "Max Output Tokens",
-    "priority": "اولویت (Priority)",
-    "is_emergency": "پریست اضطراری",
-    "in_fallback_chain": "حضور در زنجیره فال‌بک",
-    "input_cost_per_million": "هزینه ورودی ($/1M)",
-    "output_cost_per_million": "هزینه خروجی ($/1M)",
-    "group_label": "برچسب گروه",
 }
 
 TOTAL_WIZARD_FIELDS = len(WIZARD_FIELDS)
@@ -536,7 +523,7 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
     draft_str = str(draft).strip() if draft is not None else None
 
     group_header = WIZARD_GROUP_HEADERS.get(field_idx, "")
-    label = WIZARD_FIELD_LABELS.get(field_name, field_name)
+    label = FIELD_LABELS.get(field_name, field_name)
     help_text = _FIELD_HELP.get(field_name, "")
 
     message = f"✏️ <b>ویرایش کامل — گام {field_idx + 1} از {TOTAL_WIZARD_FIELDS}</b>\n"
@@ -660,7 +647,7 @@ async def _handle_full_edit_input(update: Update, context: ContextTypes.DEFAULT_
         result = _validate_wizard_value(field_name, raw, preset_name)
         if result is None:
             context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:{field_idx}"
-            await update.message.reply_text("فرمت نامعتبر. لطفاً مقدار معتبر بفرستید.", reply_markup=awaiting_inline_keyboard())
+            await _show_wizard_field(update, context, preset_name, field_idx, preset)
             return
         wizard["values"][field_name] = result[0]
 
@@ -762,7 +749,7 @@ async def _show_wizard_summary(update: Update, context: ContextTypes.DEFAULT_TYP
         if field_name in values:
             new_val = values[field_name]
             old_val = preset.get(field_name, "—")
-            label = WIZARD_FIELD_LABELS.get(field_name, field_name)
+            label = FIELD_LABELS.get(field_name, field_name)
             lines.append(f"• <b>{html_escape(label)}</b>: {html_escape(str(old_val))} → {html_escape(str(new_val))}")
             changed += 1
 
@@ -1133,13 +1120,13 @@ async def _handle_ai_preset_new_name(update: Update, context: ContextTypes.DEFAU
     name = text.strip().lower().replace(" ", "_")
     if not name or not all(c.isalnum() or c == "_" for c in name) or len(name) > MAX_PRESET_NAME_LEN:
         context.user_data["awaiting"] = "ai_preset_new_name"
-        await update.message.reply_text("نام نامعتبر. فقط حروف، اعداد و زیرخط مجاز است و حداکثر ۶۰ کاراکتر.", reply_markup=awaiting_inline_keyboard())
+        await update.message.reply_text("نام نامعتبر. فقط حروف، اعداد و زیرخط مجاز است و حداکثر ۶۰ کاراکتر.", reply_markup=admin_awaiting_inline_keyboard())
         return
 
     existing = db.get_preset(name)
     if existing:
         context.user_data["awaiting"] = "ai_preset_new_name"
-        await update.message.reply_text("این نام از قبل وجود دارد.", reply_markup=awaiting_inline_keyboard())
+        await update.message.reply_text("این نام از قبل وجود دارد.", reply_markup=admin_awaiting_inline_keyboard())
         return
 
     # Begin the create flow: remember the pending name, then ask for priority.
