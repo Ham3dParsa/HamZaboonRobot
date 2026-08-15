@@ -6,9 +6,10 @@ Phase 1e implementation — FSRS-6 4-grade session flow.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -28,7 +29,11 @@ from config.keyboards import (
 )
 from services import db
 from services.session import SessionNode, build_session_list, generate_tier3_node
-from services.scheduling import consume_session_slot, release_session_slot
+from services.scheduling import (
+    consume_session_slot,
+    release_session_slot,
+    _today_str,
+)
 from services.utils.formatting import (
     NEW_CARD_BADGE,
     _phonetic_lines,
@@ -57,6 +62,76 @@ class SessionState:
     tier3_context: dict
     study_msg_id: int | None
     plan: str
+
+
+# ---------------------------------------------------------------------------
+# Persistence helpers — restart-safe session recovery (Bug 1)
+# ---------------------------------------------------------------------------
+
+def _state_to_json(state: SessionState) -> str:
+    """Serialize a session state to a JSON string for the study_sessions row."""
+    return json.dumps(
+        {
+            "nodes": [asdict(node) for node in state.nodes],
+            "total_cards": state.total_cards,
+            "tier3_context": state.tier3_context,
+            "study_msg_id": state.study_msg_id,
+            "plan": state.plan,
+        }
+    )
+
+
+def _state_from_json(raw: str) -> SessionState:
+    """Rebuild a SessionState from its JSON serialization."""
+    data = json.loads(raw)
+    return SessionState(
+        nodes=[SessionNode(**node) for node in data["nodes"]],
+        total_cards=data["total_cards"],
+        tier3_context=data["tier3_context"],
+        study_msg_id=data["study_msg_id"],
+        plan=data["plan"],
+    )
+
+
+def _persist_session(user_id: int, state: SessionState) -> None:
+    """Persist the active session keyed by the user's app-day (Rule 1/2)."""
+    db.save_study_session(user_id, _app_day_str(), _state_to_json(state))
+
+
+def _clear_persisted_session(user_id: int) -> None:
+    db.clear_study_session(user_id)
+
+
+def _restore_persisted_session(user_id: int) -> SessionState | None:
+    """Load a same-day persisted session after a restart, or None.
+
+    Rule 2: a persisted session whose date is not today is discarded (the row
+    is cleared) so the user starts a fresh session with normal quota flow.
+    """
+    row = db.load_study_session(user_id)
+    if row is None:
+        return None
+    session_date, state_json = row
+    if session_date != _app_day_str():
+        _clear_persisted_session(user_id)
+        return None
+    try:
+        state = _state_from_json(state_json)
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        logger.exception(
+            "corrupt persisted study session user_id=%s", user_id
+        )
+        _clear_persisted_session(user_id)
+        return None
+    if not state.nodes:
+        _clear_persisted_session(user_id)
+        return None
+    return state
+
+
+def _app_day_str() -> str:
+    """Today's app-day string (shared with scheduling quota keys)."""
+    return _today_str()
 
 
 # ---------------------------------------------------------------------------
@@ -116,55 +191,14 @@ async def handle_study_start(
     # --- resume existing session (Decision 30: don't double-count slots) ---
     existing = context.user_data.get("current_session")
     if existing is not None and existing.nodes:
-        await _reply_or_answer(
-            update,
-            context,
-            "جلسه‌ی قبلی ادامه داده می‌شه.",
-            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
-        )
-        state = existing
-        try:
-            node = state.nodes[0]
-            user_id = node.activity_meta.get("user_id", 0)
-            text, keyboard = _build_card_text_and_keyboard(
-                node, state, user_id, user_data=context.user_data,
-            )
+        await _resume_existing_session(update, context, existing, user_id)
+        return
 
-            # Deactivate the previous card message (if it still exists) so its
-            # grade buttons are replaced by a single "not active" button. If
-            # the message was already deleted/lost, this fails harmlessly.
-            if state.study_msg_id:
-                try:
-                    await context.bot.edit_message_reply_markup(
-                        chat_id=update.effective_chat.id,
-                        message_id=state.study_msg_id,
-                        reply_markup=study_inactive_keyboard(),
-                    )
-                except BadRequest:
-                    # Stale message already gone — nothing to inactivate.
-                    logger.info(
-                        "resume: prior study message gone; sending fresh card user_id=%s",
-                        user_id,
-                    )
-                except Exception:
-                    logger.exception(
-                        "handle_study_start inactivate-old-card failed user_id=%s",
-                        user_id,
-                    )
-
-            # Always send a fresh, active card so the user can continue even if
-            # the original card message was deleted or lost.
-            msg = await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=text,
-                reply_markup=keyboard,
-                parse_mode=ParseMode.MARKDOWN_V2,
-            )
-            state.study_msg_id = msg.message_id
-        except Exception:
-            logger.exception(
-                "handle_study_start resume render failed user_id=%s", user_id
-            )
+    # --- restart recovery: a same-day session persisted to the DB (Bug 1) ---
+    restored = _restore_persisted_session(user_id)
+    if restored is not None:
+        context.user_data["current_session"] = restored
+        await _resume_existing_session(update, context, restored, user_id)
         return
 
     # --- quota check (Decision 30: once at top, before build) ---
@@ -211,6 +245,11 @@ async def handle_study_start(
 
     # --- render first card ---
     try:
+        # Persist BEFORE rendering so a DB failure is surfaced before any card
+        # reaches the screen (owner decision 2026-08-15). The first card has no
+        # study_msg_id yet; the next advance persists the updated id. On failure
+        # the row is cleared and the slot released.
+        _persist_session(user_id, state)
         await _render_and_send_first_card(state, update, context)
     except Exception:
         logger.exception(
@@ -218,11 +257,73 @@ async def handle_study_start(
         )
         release_session_slot(user_id)
         context.user_data.pop("current_session", None)
+        _clear_persisted_session(user_id)
         await _reply_or_answer(
             update,
             context,
             "خطا در آماده‌سازی جلسه — دوباره امتحان کن.",
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+
+
+async def _resume_existing_session(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    state: SessionState,
+    user_id: int,
+) -> None:
+    """Re-render the active session's first card (in-memory or restored).
+
+    Deactivates the previous card message (if still present), sends a fresh
+    active card, and re-persists the session with the new message id.
+    """
+    await _reply_or_answer(
+        update,
+        context,
+        "جلسه‌ی قبلی ادامه داده می‌شه.",
+        intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+    )
+    try:
+        node = state.nodes[0]
+        text, keyboard = _build_card_text_and_keyboard(
+            node, state, user_id, user_data=context.user_data,
+        )
+
+        # Deactivate the previous card message (if it still exists) so its
+        # grade buttons are replaced by a single "not active" button. If
+        # the message was already deleted/lost, this fails harmlessly.
+        if state.study_msg_id:
+            try:
+                await context.bot.edit_message_reply_markup(
+                    chat_id=update.effective_chat.id,
+                    message_id=state.study_msg_id,
+                    reply_markup=study_inactive_keyboard(),
+                )
+            except BadRequest:
+                # Stale message already gone — nothing to inactivate.
+                logger.info(
+                    "resume: prior study message gone; sending fresh card user_id=%s",
+                    user_id,
+                )
+            except Exception:
+                logger.exception(
+                    "handle_study_start inactivate-old-card failed user_id=%s",
+                    user_id,
+                )
+
+        # Always send a fresh, active card so the user can continue even if
+        # the original card message was deleted or lost.
+        msg = await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=text,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+        state.study_msg_id = msg.message_id
+        _persist_session(user_id, state)
+    except Exception:
+        logger.exception(
+            "handle_study_start resume render failed user_id=%s", user_id
         )
 
 
@@ -428,6 +529,7 @@ async def advance_session(
         return
 
     chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
 
     try:
         # pop next node
@@ -437,7 +539,6 @@ async def advance_session(
         # try next node
         if state.nodes:
             node = state.nodes[0]
-            user_id = node.activity_meta.get("user_id", 0)
             text, keyboard = _build_card_text_and_keyboard(
                 node, state, user_id, user_data=context.user_data,
             )
@@ -448,6 +549,7 @@ async def advance_session(
                 reply_markup=keyboard,
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
+            _persist_session(user_id, state)
             return
 
         # Tiers 1+2 exhausted — attempt Tier 3 (Decision 26: stub returns None).
@@ -458,7 +560,6 @@ async def advance_session(
             if tier3_node is not None:
                 state.nodes.append(tier3_node)
                 state.total_cards += 1
-                user_id = tier3_node.activity_meta.get("user_id", 0)
                 text, keyboard = _build_card_text_and_keyboard(
                     tier3_node, state, user_id, user_data=context.user_data,
                 )
@@ -469,9 +570,14 @@ async def advance_session(
                     reply_markup=keyboard,
                     parse_mode=ParseMode.MARKDOWN_V2,
                 )
+                _persist_session(user_id, state)
                 return
 
-        # session complete
+        # session complete — clear the persisted row BEFORE sending the
+        # completion message so a crash/timeout in this window can't leave a
+        # re-gradable last node behind (owner decision 2026-08-15).
+        context.user_data.pop("current_session", None)
+        _clear_persisted_session(user_id)
         completion = escape_mdv2("جلسه مطالعه تموم شد! 🎉")
         await context.bot.edit_message_text(
             text=f"*{completion}*",
@@ -479,10 +585,9 @@ async def advance_session(
             message_id=state.study_msg_id,
             parse_mode=ParseMode.MARKDOWN_V2,
         )
-        context.user_data.pop("current_session", None)
 
     except Exception:
-        logger.exception("advance_session failed user_id=%s chat_id=%s", user_id if state.nodes else "?", chat_id)
+        logger.exception("advance_session failed user_id=%s chat_id=%s", user_id, chat_id)
         try:
             error_msg = escape_mdv2("خطا در بارگذاری کارت بعدی — لطفاً جلسه‌ی مطالعه را دوباره شروع کنید")
             await context.bot.send_message(

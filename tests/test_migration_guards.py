@@ -93,6 +93,7 @@ EXPECTED_TABLES = {
     "preset_hourly_usage",
     "config_tests",
     "plans",
+    "study_sessions",
 }
 
 # Tables that MUST NOT exist after init_db().

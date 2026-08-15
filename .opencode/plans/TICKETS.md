@@ -23,3 +23,4 @@
 | ADMIN-AI-LABELS-BACK | `presets/plan-admin-ai-labels-and-back.md` | #342, #343 | `fix/admin-ai-labels-and-back` | complete (PR #352 merged as 2b1315f); archived to docs/archive/ |
 | AI-MASTER-KEY-ROTATION (deferred) | `security/plan-ai-master-key-rotation.md` | #354 | pending (deferred) | R1/R2/R4 locked 2026-08-15; blocked on feat/srs-staged-reveal Seam 1 |
 | CARD-MODES (FE + review staged/immediate) | `session/plan-card-modes.md` | #338 (ext.) | `feat/card-modes-t2-t3-render` → `-t4-t5-admin` → `-t6-t7-user` | locked 2026-08-15 — T1 MERGED (#361, `d5a6652`); T2+T3 MERGED (#362, `4d5ecff`); delivery = 4 PRs; PR 3/4 (T4+T5) and PR 4/4 (T6+T7) pending |
+| STUDY-SESSION-RESTART (Bug 1) | `session/plan-study-session-restart-persistence.md` | #363 | `fix/session-restart-persistence` | resolved — implementation + independent review done; PR pending; seamed 1+5 |

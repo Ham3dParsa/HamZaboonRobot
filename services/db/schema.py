@@ -284,6 +284,12 @@ def init_db(path: str | None = None):
                 result TEXT,
                 created_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS study_sessions (
+                user_id INTEGER PRIMARY KEY,
+                session_date TEXT NOT NULL,
+                state_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             """
         )
         columns = {
