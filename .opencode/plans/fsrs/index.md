@@ -7,7 +7,7 @@ scope: Complete the FSRS session engine after daily-card migration, including pe
 
 | Plan | Phase | Depends On | Status |
 |------|-------|------------|--------|
-| `plan-srs-staged-reveal-phase-01-implementation.md` | 1..3 | FSRS phases 1-6 (merged), AI-preset seams released, spec LOCKED (#338) | `in-progress` |
+| `plan-srs-staged-reveal-phase-01-implementation.md` | 1..3 | FSRS phases 1-6 (merged), AI-preset seams released, spec LOCKED (#338) | Phase 1 `complete` (PR #353 merged 2026-08-15); Phases 2-3 pending |
 
 The FSRS session-completion chain (phases 1-6) is complete and merged; all implementation plans are archived to
 `docs/archive/plans/fsrs-2026-08-14/` (see links below). The only remaining FSRS
