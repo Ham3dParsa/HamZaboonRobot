@@ -21,3 +21,4 @@
 | WORD-QUERY-CONSISTENCY (phase 1) | `ux/plan-word-query-card-consistency.md` | #340 | done | R1-R6 shipped (#341) |
 | WORD-QUERY-DUP-RETENTION (phase 2) | `ux/plan-word-query-card-consistency-phase-02-retrieve-new-retention.md` | #344 | in-progress | R7-R8 implemented, tests green, pending review/PR |
 | ADMIN-AI-LABELS-BACK | `presets/plan-admin-ai-labels-and-back.md` | #342, #343 | `fix/admin-ai-labels-and-back` | complete (PR #352 merged as 2b1315f); archived to docs/archive/ |
+| AI-MASTER-KEY-ROTATION (deferred) | `security/plan-ai-master-key-rotation.md` | #354 | pending (deferred) | R1/R2/R4 locked 2026-08-15; blocked on feat/srs-staged-reveal Seam 1 |
