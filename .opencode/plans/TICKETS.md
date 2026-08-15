@@ -22,4 +22,4 @@
 | WORD-QUERY-DUP-RETENTION (phase 2) | `ux/plan-word-query-card-consistency-phase-02-retrieve-new-retention.md` | #344 | in-progress | R7-R8 implemented, tests green, pending review/PR |
 | ADMIN-AI-LABELS-BACK | `presets/plan-admin-ai-labels-and-back.md` | #342, #343 | `fix/admin-ai-labels-and-back` | complete (PR #352 merged as 2b1315f); archived to docs/archive/ |
 | AI-MASTER-KEY-ROTATION (deferred) | `security/plan-ai-master-key-rotation.md` | #354 | pending (deferred) | R1/R2/R4 locked 2026-08-15; blocked on feat/srs-staged-reveal Seam 1 |
-| CARD-MODES (FE + review staged/immediate) | `session/plan-card-modes.md` | #338 (ext.) | `feat/card-modes-t1-db-core` → `-t2-t3-render` → `-t4-t5-admin` → `-t6-t7-user` | locked 2026-08-15 — T1 committed `1f01de2`, PR 1/4 = #361 open; T2..T7 drafted; delivery = 4 PRs |
+| CARD-MODES (FE + review staged/immediate) | `session/plan-card-modes.md` | #338 (ext.) | `feat/card-modes-t2-t3-render` → `-t4-t5-admin` → `-t6-t7-user` | locked 2026-08-15 — T1 MERGED (#361, `d5a6652`); T2+T3 in progress (PR 2/4); delivery = 4 PRs |

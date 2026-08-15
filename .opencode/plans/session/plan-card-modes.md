@@ -7,7 +7,7 @@ branch: feat/card-modes-t1-db-core (PR 1/4 = T1)
 status: locked
 ---
 
-STATE: phase 1/1 — status: locked — T1 (DB core) committed `1f01de2`, PR 1/4 open (#361) — next: T2+T3 (render branches, PR 2/4) after #361 merges
+STATE: phase 1/1 — status: locked — T1 (DB core) MERGED (#361, `d5a6652`), claim released — next: T2+T3 (render branches, PR 2/4) in worktree
 
 ## Contract (GATE: LOCKED — owner confirmed 2026-08-15; "adjustment" was process-only: design per the right skills + merge PR #356, both satisfied)
 
