@@ -411,6 +411,14 @@ class TestStagedRevealRender(_BaseStudyHandlerTest):
         )
         self.assertNotIn(f"revealed_{word_id}", user_data)
 
+    def test_session_progress_footer_is_single_source(self):
+        """The progress footer is shared between the study render and the
+        reveal/back-stage render (Kilo review #3) — same digits, no drift."""
+        from handlers.study_handler import session_progress_footer
+        node = self._review_node(self._word_id())
+        state = self._state(node)
+        self.assertEqual(session_progress_footer(state, 1), "نشست ۰ | کارت ۱ از ۱")
+
     def test_first_exposure_node_renders_badge_and_full_card(self):
         from handlers.study_handler import _build_card_text_and_keyboard
         word_id = self._word_id()

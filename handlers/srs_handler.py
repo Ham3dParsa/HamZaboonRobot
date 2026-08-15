@@ -22,7 +22,7 @@ from services.utils.formatting import (
     format_srs_back_stage,
 )
 from config.keyboards import query_result_keyboard, get_review_keyboard
-from handlers.study_handler import _session_number, advance_session
+from handlers.study_handler import advance_session, session_progress_footer
 
 logger = logging.getLogger(__name__)
 
@@ -95,18 +95,6 @@ async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     await notify_callback(update.callback_query, result.message, intent=CallbackNoticeIntent.SUCCESS_TOAST)
 
 
-def _session_progress_footer(state, user_id: int) -> str:
-    """Progress footer for a session card, mirroring study_handler's line."""
-    from services.utils.formatting import to_persian_digits
-    remaining = len(state.nodes)
-    n = state.total_cards - remaining + 1
-    m = state.total_cards
-    return (
-        f"نشست {to_persian_digits(_session_number(user_id))}"
-        f" | کارت {to_persian_digits(n)} از {to_persian_digits(m)}"
-    )
-
-
 async def _handle_srs_reveal(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -114,7 +102,7 @@ async def _handle_srs_reveal(
     word_id_text: str,
 ) -> None:
     """Reveal the front stage: turn the same message into the back stage with
-    the 4-grade review keyboard (#338 §2B). Idempotent per card."""
+    the 4-grade review keyboard (#338 §2B). Idempotent per card presentation."""
     try:
         target_user_id = int(target_user_id_text)
         word_id = int(word_id_text)
@@ -135,13 +123,26 @@ async def _handle_srs_reveal(
         await notify_callback(update.callback_query)
         return
 
+    state = context.user_data.get("current_session")
+    node = state.nodes[0] if state and state.nodes else None
+    if (
+        node is None
+        or node.activity_type != "srs_review"
+        or node.source_id != word_id
+    ):
+        # Stale reveal button (superseded session or message): never render a
+        # different card onto the active session message (Kilo review #1).
+        await notify_callback(
+            update.callback_query, "این پیام دیگر معتبر نیست.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
+
     word_row = db.get_saved_word(word_id, user_id)
     card_data = _saved_word_card(word_row) if word_row else {}
     toggles = db.get_display_toggles(user_id)
     phonetic_lines = _phonetic_lines(card_data.get("phonetic", ""))
-
-    state = context.user_data.get("current_session")
-    footer = _session_progress_footer(state, user_id) if state and state.nodes else ""
+    footer = session_progress_footer(state, user_id)
     days = days_since_review(word_row["last_review_at"] if word_row else None)
     badge = format_review_badge(days) if days is not None else ""
     text = format_srs_back_stage(
@@ -155,20 +156,43 @@ async def _handle_srs_reveal(
         user_id, word_id, show_pronounce=db.should_show_pronounce(user_id),
     )
 
-    msg_id = state.study_msg_id if state and state.study_msg_id else None
-    if msg_id is None:
+    msg_id = state.study_msg_id
+    if not msg_id:
         await notify_callback(
             update.callback_query, "این پیام دیگر معتبر نیست.",
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         return
-    await context.bot.edit_message_text(
-        text=text,
-        chat_id=update.effective_chat.id,
-        message_id=msg_id,
-        reply_markup=keyboard,
-        parse_mode=ParseMode.MARKDOWN_V2,
-    )
+    try:
+        await context.bot.edit_message_text(
+            text=text,
+            chat_id=update.effective_chat.id,
+            message_id=msg_id,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+    except BadRequest as exc:
+        # Message already gone or unchanged — give feedback instead of crashing
+        # the callback (Kilo review #2).
+        if "not modified" in str(exc).casefold():
+            await notify_callback(update.callback_query)
+            return
+        logger.warning(
+            "srs reveal edit failed user_id=%s word_id=%s: %s",
+            user_id, word_id, exc,
+        )
+        await notify_callback(
+            update.callback_query, "این پیام دیگر معتبر نیست.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
+    except Exception:
+        logger.exception("srs reveal edit failed user_id=%s word_id=%s", user_id, word_id)
+        await notify_callback(
+            update.callback_query, "این پیام دیگر معتبر نیست.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
     context.user_data[f"revealed_{word_id}"] = True
     await notify_callback(update.callback_query)
 

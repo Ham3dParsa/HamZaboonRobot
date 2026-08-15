@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from services import db
 from services.db import schema as db_schema
 from handlers import srs_handler
+from telegram.error import BadRequest
 from config.catalog import DISPLAY_TOGGLE_DEFAULTS
 from services.utils import formatting as fmt
 from config.keyboards import get_review_keyboard, get_first_exposure_keyboard, get_srs_front_keyboard
@@ -411,3 +412,58 @@ class TestRevealHandler(unittest.TestCase):
         ctx.bot.edit_message_text.assert_not_awaited()
         call_args = update.callback_query.answer.call_args
         self.assertIn("معتبر نیست", call_args[0][0])
+
+    def test_reveal_rejects_word_not_in_active_session(self):
+        # A word that exists but is not the current session node must be
+        # rejected so a stale button can never desync the session card.
+        db.add_saved_word(1, "world", "en", {"word": "world"})
+        with db.get_conn() as conn:
+            other_id = conn.execute(
+                "SELECT id FROM saved_words WHERE word='world'"
+            ).fetchone()["id"]
+        update = self._update()
+        ctx = self._context()
+        asyncio.run(srs_handler._handle_srs_reveal(update, ctx, "1", str(other_id)))
+        ctx.bot.edit_message_text.assert_not_awaited()
+        call_args = update.callback_query.answer.call_args
+        self.assertIn("معتبر نیست", call_args[0][0])
+
+    def test_reveal_rejects_first_exposure_node_mismatch(self):
+        # A reveal callback for a word whose session node is a first-exposure
+        # card is also stale (no staging on the FE path).
+        from services.session import SessionNode
+        fe_node = SessionNode(
+            activity_type="first_exposure", source_tier=1,
+            card_data={"word": "hello"}, source_id=self.word_id,
+            activity_meta={"user_id": 1}, grade_policy_ref="first_exposure",
+        )
+        ctx = self._context()
+        ctx.user_data["current_session"] = SessionState(
+            nodes=[fe_node], total_cards=1, tier3_context={},
+            study_msg_id=777, plan="free",
+        )
+        update = self._update()
+        asyncio.run(srs_handler._handle_srs_reveal(update, ctx, "1", str(self.word_id)))
+        ctx.bot.edit_message_text.assert_not_awaited()
+
+    def test_reveal_edit_error_is_surfaced_not_crashed(self):
+        update = self._update()
+        ctx = self._context()
+        ctx.bot.edit_message_text = AsyncMock(
+            side_effect=BadRequest("message to edit not found")
+        )
+        asyncio.run(srs_handler._handle_srs_reveal(update, ctx, "1", str(self.word_id)))
+        call_args = update.callback_query.answer.call_args
+        self.assertIn("معتبر نیست", call_args[0][0])
+        self.assertNotIn(f"revealed_{self.word_id}", ctx.user_data)
+
+    def test_reveal_not_modified_is_answered_silently(self):
+        update = self._update()
+        ctx = self._context()
+        ctx.bot.edit_message_text = AsyncMock(
+            side_effect=BadRequest("message is not modified")
+        )
+        asyncio.run(srs_handler._handle_srs_reveal(update, ctx, "1", str(self.word_id)))
+        ctx.bot.edit_message_text.assert_awaited_once()
+        update.callback_query.answer.assert_awaited_once()
+        self.assertNotIn(f"revealed_{self.word_id}", ctx.user_data)

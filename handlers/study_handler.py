@@ -251,6 +251,18 @@ async def _render_and_send_first_card(
     state.study_msg_id = msg.message_id
 
 
+def session_progress_footer(state, user_id: int) -> str:
+    """Progress footer for a session card — single source of truth shared by
+    the study render and the reveal/back-stage render (Kilo review #3)."""
+    remaining = len(state.nodes)
+    n = state.total_cards - remaining + 1
+    m = state.total_cards
+    return (
+        f"نشست {to_persian_digits(_session_number(user_id))}"
+        f" | کارت {to_persian_digits(n)} از {to_persian_digits(m)}"
+    )
+
+
 def _build_card_text_and_keyboard(
     node: SessionNode,
     state: SessionState,
@@ -269,13 +281,7 @@ def _build_card_text_and_keyboard(
     card_data.setdefault("word", node.card_data.get("word", ""))
 
     phonetic_lines = _phonetic_lines(card_data.get("phonetic", ""))
-    remaining = len(state.nodes)
-    n = state.total_cards - remaining + 1
-    m = state.total_cards
-    progress = (
-        f"نشست {to_persian_digits(_session_number(user_id))}"
-        f" | کارت {to_persian_digits(n)} از {to_persian_digits(m)}"
-    )
+    progress = session_progress_footer(state, user_id)
 
     # keyboard + text by activity type
     if node.activity_type == "first_exposure":
