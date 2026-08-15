@@ -1,4 +1,4 @@
-﻿"""Focused regression checks for the standalone financial-model dashboard."""
+"""Focused regression checks for the standalone financial-model dashboard."""
 
 
 

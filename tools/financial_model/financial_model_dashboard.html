@@ -3392,7 +3392,8 @@
 
         const creditPacks = computed(() => inp.value.creditPacks || []);
 
-        const creditPackSalesShareSum = computed(() => creditPacks.value.reduce((s, p) => s + (Number(p.salesSharePct) || 0), 0));
+        // مجموع سهم فروش فقط روی بسته‌های فعال — همان پایه‌ای که نرمال‌سازی و شبیه‌سازی استفاده می‌کنند
+        const creditPackSalesShareSum = computed(() => creditPacks.value.filter(p => p.active !== false).reduce((s, p) => s + (Math.max(0, Number(p.salesSharePct) || 0)), 0));
 
         const creditPackPricePerQuery = (p) => {
 
