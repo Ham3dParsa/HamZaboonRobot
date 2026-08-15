@@ -7,7 +7,7 @@ branch: fix/session-restart-persistence
 status: in-progress
 ---
 
-STATE: phase 1/1 — status: resolved — contract LOCKED 2026-08-15 (Rule 1 Option A: SQLite `study_sessions` table; Rule 2 Option A: resume only if persisted day == today). Seams 1+5 claimed. T1+T2 GREEN; full suite 1036 passed; independent reviewer no must-fix; owner decisions applied (clear before completion message, persist before render). PR pending.
+STATE: phase 1/1 — status: complete — contract LOCKED 2026-08-15 (Rule 1 Option A: SQLite `study_sessions` table; Rule 2 Option A: resume only if persisted day == today). Seams 1+5 claimed, released after merge. T1+T2 GREEN; full suite 1036 passed; independent reviewer no must-fix; owner decisions applied (clear before completion message, persist before render). Merged PR #364 (0fdec76, 2026-08-15). Issue #363 resolved.
 
 ## Contract (GATE: LOCKED — owner chose both A options 2026-08-15)
 
