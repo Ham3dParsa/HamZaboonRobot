@@ -694,7 +694,7 @@ over cached cards, not an AI or database-schema format change, and
 ### Phase 5: Custom-Word Queries and Spaced-Repetition Capture
 
 **Status:** In progress
-**Done:** Quota visibility, persistent query identity, idempotent Add to review, complete cached review payloads, and duplicate word-query retrieve-vs-new with 30-day retention (#344, merged via #345).
+**Done:** Quota visibility, persistent query identity, idempotent Add to review, and complete cached review payloads.
 **In progress:** DB-driven plan specs — plan limits (daily sessions, cards per session, word-query quota) live in the `plans` DB table (free/bronze/silver/gold/emerald), seeded on first run and editable via the admin plan-manager wizard; env-var plan limits removed.
 **To-do:** Finish the remaining custom-word UX and review-entry acceptance criteria.
 
