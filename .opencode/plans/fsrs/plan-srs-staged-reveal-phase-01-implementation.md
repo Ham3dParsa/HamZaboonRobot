@@ -7,7 +7,7 @@ branch: feat/srs-staged-reveal
 status: in-progress
 ---
 
-STATE: phase 1/3 — status: in-progress — R6 (physical delete) + R9 (explanation = high-value) + PHONETIC-KNOB clarified & LOCKED (2026-08-15); Phase-1 RED tests written & confirmed RED (2026-08-15); GREEN implemented & PASSING (2026-08-15) — full suite 926 passed/162 subtests; ruff F821/F811 clean; compile_all clean; dashboard regenerated — pending independent review + commit/PR
+STATE: phase 1/3 — status: in-progress — R6 (physical delete) + R9 (explanation = high-value) + PHONETIC-KNOB clarified & LOCKED (2026-08-15); Phase-1 RED→GREEN complete (2026-08-15); independent review (hamzaboon-reviewer) no confirmed findings; Kilo review clean (No Issues Found, 2026-08-15); full suite 927 passed/162 subtests; ruff/compile/diff-check clean; PR #353 open — all CI + Kilo green — AWAITING OWNER MERGE
 
 ## Phonetic-knob decision (owner, 2026-08-15)
 
