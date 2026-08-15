@@ -376,7 +376,7 @@ async def _process_ask_word(
         await _send_with_retry(
             context.bot,
             update.effective_chat.id,
-            f"{_WORD_QUERY_ERROR_MESSAGES.get(result.error_key, 'این ورودی قابل قبول نیست.')}\n\nچه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟",
+            f"{_WORD_QUERY_ERROR_MESSAGES.get(result.error_key, 'این ورودی قابل قبول نیست.')}\n\n✨ دوست داری چه واژه یا عبارتی رو یاد بگیری تا برات کارتشو بسازم؟\n(برای مثال: یک کلمه‌ی جدید، اصطلاح یا فعل)",
             reply_markup=awaiting_inline_keyboard(),
         )
         return

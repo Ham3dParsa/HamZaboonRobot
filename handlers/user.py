@@ -459,7 +459,7 @@ async def ask_for_ask_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_with_retry(
         context.bot,
         update.effective_chat.id,
-        f"{usage_text}\n\nچه واژه یا عبارتی رو می‌خوای معنی/توضیح بدم؟",
+        f"{usage_text}\n\n✨ دوست داری چه واژه یا عبارتی رو یاد بگیری تا برات کارتشو بسازم؟\n(برای مثال: یک کلمه‌ی جدید، اصطلاح یا فعل)",
         reply_markup=awaiting_reply_keyboard(),
     )
 

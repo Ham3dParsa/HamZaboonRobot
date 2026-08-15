@@ -314,5 +314,34 @@ class WordQueryAskFlowTests(unittest.TestCase):
         self.assertIn("ذخیره", sent, "must explain the result was not stored")
 
 
+    def test_ask_word_entry_prompt_uses_card_framing(self):
+        """Issue #357: entry prompt must frame the feature as building a card."""
+        import handlers.user as user_handlers
+
+        update = self._make_update("anything")
+        context = self._make_context()
+        asyncio.run(user_handlers.ask_for_ask_word(update, context))
+        self.assertTrue(
+            context.bot.send_message.called, "ask_for_ask_word must send a prompt"
+        )
+        prompt = context.bot.send_message.call_args.kwargs["text"]
+        self.assertIn("دوست داری چه واژه", prompt, "must invite learning")
+        self.assertIn("کارتشو بسازم", prompt, "must say it builds a card")
+        self.assertIn("برای مثال", prompt, "must give a vocab example")
+        self.assertNotIn(
+            "معنی/توضیح بدم", prompt, "must not frame as 'give the meaning/explanation'"
+        )
+
+    def test_invalid_input_reprompt_uses_card_framing(self):
+        """Issue #357: the invalid-input re-prompt (bot.py) must use new wording."""
+        # "!!!" has no letters -> validate_word_query returns an error key.
+        context = self._run(text="!!!")
+        sent = "\n".join(self._sent_texts(context))
+        self.assertIn("دوست داری چه واژه", sent, "re-prompt must use card framing")
+        self.assertNotIn(
+            "معنی/توضیح بدم", sent, "re-prompt must not use the old definition framing"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
