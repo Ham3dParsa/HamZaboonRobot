@@ -183,13 +183,21 @@ def _example_has_word(example: str, word: str) -> bool:
     ) is not None
 
 
-def _blank_example(example: str, word: str) -> str:
-    """Replace the exact word in the example with the hidden-word token (R3)."""
+def _blank_word(text: str, word: str, count: int = 0) -> str:
+    """Replace exact occurrences of the answer word with the hidden token.
+
+    ``count`` mirrors ``re.sub``: 0 replaces all (used by front-stage hints so
+    the answer never leaks), 1 replaces the first occurrence (used to blank the
+    fill_blank example, R3). Word-boundary + case-insensitive, same as the
+    eligibility matcher ``_example_has_word``.
+    """
+    if not text or not word:
+        return text
     return re.sub(
         rf"(?<!\w){re.escape(word)}(?!\w)",
         "? ? ?",
-        example,
-        count=1,
+        text,
+        count=count,
         flags=re.IGNORECASE,
     )
 
@@ -318,18 +326,20 @@ def format_srs_front_stage(
         ]
         chosen = matching[rng.randrange(len(matching))]
         lines.append(
-            f"\n✦ {escape_mdv2(_blank_example(chosen, card_data.get('word')))}"
+            f"\n✦ {escape_mdv2(_blank_word(chosen, card_data.get('word'), count=1))}"
         )
-        hint = _fill_blank_hint(card_data, toggles)
-        if hint:
+        hint = _blank_word(_fill_blank_hint(card_data, toggles), card_data.get("word", ""))
+        if hint and hint.strip():
             lines.append(f"\n{escape_mdv2(hint)}")
     elif prompt_type == "meaning":
         meaning = card_data.get("fa_meaning", "")
         lines.append(f"\n{escape_mdv2(f'🧠 چه واژه‌ای به معنای «{meaning}» است؟')}")
         if toggles.get("explanation") and card_data.get("fa_explanation"):
-            lines.append(
-                f"\n{escape_mdv2('راهنما: ' + str(card_data.get('fa_explanation')))}"
+            hint = _blank_word(
+                str(card_data.get("fa_explanation")), card_data.get("word", "")
             )
+            if hint and hint.strip():
+                lines.append(f"\n{escape_mdv2('راهنما: ' + hint)}")
     elif prompt_type == "synonym":
         syn_items, ant_items = _draw_synonym_items(card_data, toggles, rng)
         lines.append(f"\n{escape_mdv2(_synonym_instruct(syn_items, ant_items))}")
@@ -351,11 +361,11 @@ def format_srs_back_stage(
     *,
     toggles: dict[str, bool],
     phonetic_lines: list[str] | None = None,
-    badge: str = "",
     footer: str = "",
 ) -> str:
     """Render the revealed back stage: full card gated by the display-toggles
-    (§8 always full detail; each section respects its toggle)."""
+    (§8 always full detail; each section respects its toggle). The review badge
+    lives on the pre-reveal front stage only (owner bug report 2026-08-15)."""
     word = escape_mdv2(card_data.get("word", ""))
     fa_meaning = escape_mdv2(card_data.get("fa_meaning", ""))
     fa_expl = escape_mdv2(card_data.get("fa_explanation", ""))
@@ -363,8 +373,6 @@ def format_srs_back_stage(
     lines = [f"*{word}*"]
     if phonetic_lines:
         lines.extend(phonetic_lines)
-    if badge:
-        lines.append(f"\n{escape_mdv2(badge)}")
 
     lines.append(f"\n✤ *{fa_meaning}*")
     if fa_expl and toggles.get("explanation"):

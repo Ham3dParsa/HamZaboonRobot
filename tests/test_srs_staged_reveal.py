@@ -379,6 +379,16 @@ class TestRevealHandler(unittest.TestCase):
         # Reveal marker stashed for Phase 3 telemetry.
         self.assertTrue(ctx.user_data[f"revealed_{self.word_id}"])
 
+    def test_reveal_back_stage_omits_review_badge(self):
+        """The review badge belongs to the pre-reveal front stage only (owner
+        bug report 2026-08-15); the revealed back stage must not repeat it."""
+        update = self._update()
+        ctx = self._context()
+        asyncio.run(srs_handler._handle_srs_reveal(update, ctx, "1", str(self.word_id)))
+        text = ctx.bot.edit_message_text.call_args.kwargs["text"]
+        self.assertNotIn("آخرین مرور", text)
+        self.assertIn("سلام", text)
+
     def test_reveal_rejects_another_user(self):
         update = self._update(user_id=2)
         ctx = self._context()
