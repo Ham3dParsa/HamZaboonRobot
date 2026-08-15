@@ -14,7 +14,7 @@
 | AI-PRESET-FIX (phase 2 of 7) | `presets/plan-ai-preset-audit-fixes.md` | #330 | `fix/ai-preset-audit-findings` | complete (PR #333 merged, R1/R2/R10/R12/R13/R14) |
 | AI-PRESET-FIX (phase 3 of 7) | `presets/plan-ai-preset-audit-fixes-phase-03-handlers-ux.md` | #330 | `feat/ai-preset-handlers-ux` | complete (PR #334/#335 merged, R3/R4/R5/R7) |
 | AI-PRESET-FIX (phase 4 of 7) | `presets/plan-ai-preset-audit-fixes-phase-04-builtin-removal.md` | #330 | `feat/ai-preset-phase4-builtin-removal` | complete (PR #337 merged) |
-| AI-PRESET-FIX (phase 5 of 7) | `presets/plan-ai-preset-audit-fixes-phase-05-secure-keys.md` | #330 | `feat/ai-preset-secure-keys` | in-progress — R11/F2 encrypted-at-rest keys |
+| AI-PRESET-FIX (phase 5 of 7) | `presets/plan-ai-preset-audit-fixes-phase-05-secure-keys.md` | #330 | `feat/ai-preset-secure-keys` | complete (PR #339 merged); archived to docs/archive/ |
 | SRS-STAGED-REVEAL (spec) | `session/plan-srs-staged-reveal-spec.md` | #338 | pending (deferred) | locked-spec — implement after AI-preset seams + FSRS T09 |
-| WORD-QUERY-CONSISTENCY (phase 1) | `ux/plan-word-query-card-consistency.md` | #340 | done | R1-R6 shipped (#341) |
-| WORD-QUERY-DUP-RETENTION (phase 2) | `ux/plan-word-query-card-consistency-phase-02-retrieve-new-retention.md` | #344 | in-progress | R7-R8 implemented, tests green, pending review/PR |
+| WORD-QUERY-CONSISTENCY (phase 1) | `ux/plan-word-query-card-consistency.md` | #340 | pending | locked-spec — R1-R6 green, R7-R8 deferred on Persistence seam |
+| DB-HARDENING | `db/plan-db-hardening.md` | — | pending | waiting — 6 rules owner-approved but NOT locked; blocked by parallel seam claims (feat/word-query-dup-retention, feat/srs-staged-reveal). Implement after both merge. |

@@ -165,9 +165,11 @@ Completed on the current main branch:
   Phase 4 builtin/is_custom removal (drop is_custom column via table-rebuild
   migration, delete BUILTIN_PRESETS/seed helpers, no auto-seed, remove
   fallback literal defaults and is_custom guards, full sweep of schema,
-  preset_registry, ai_presets, admin_ai, keyboards, tools, tests). Remaining:
-  Phase 5 (secure keys), Phase 6 (activation=preferred), Phase 7
-  (reasoning-effort).
+  preset_registry, ai_presets, admin_ai, keyboards, tools, tests). Phase 5
+  (secure keys, R11/F2) complete — encrypted-at-rest API keys via Fernet
+  `AI_MASTER_KEY` in PR #339 (v1: ciphertext marker, fail-closed writes,
+  migration resolves $ENV refs). Remaining: Phase 6 (activation=preferred),
+  Phase 7 (reasoning-effort).
 - Integration tests for fallback chain behavior.
 - Blocked-user detection to prevent wasted AI and Telegram API calls on
   users who have blocked the bot (#210).
@@ -692,7 +694,7 @@ over cached cards, not an AI or database-schema format change, and
 ### Phase 5: Custom-Word Queries and Spaced-Repetition Capture
 
 **Status:** In progress
-**Done:** Quota visibility, persistent query identity, idempotent Add to review, and complete cached review payloads.
+**Done:** Quota visibility, persistent query identity, idempotent Add to review, complete cached review payloads, and duplicate word-query retrieve-vs-new with 30-day retention (#344, merged via #345).
 **In progress:** DB-driven plan specs — plan limits (daily sessions, cards per session, word-query quota) live in the `plans` DB table (free/bronze/silver/gold/emerald), seeded on first run and editable via the admin plan-manager wizard; env-var plan limits removed.
 **To-do:** Finish the remaining custom-word UX and review-entry acceptance criteria.
 

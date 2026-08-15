@@ -6,7 +6,7 @@ base_commit: 8166c9c
 branch: fix/ai-preset-audit-findings
 status: in-progress
 ---
-STATE: phase 3/7 — status: complete (PR #334 squash 1d297db + follow-up #335 2f128df; R3,R4,R5,R7 impl+tests+CI+Kilo-pass) — next: Phase 4 (F1 builtin/is_custom removal)
+STATE: phase 5/7 — status: complete (PR #339 merged 0d9a491; R11/F2 encrypted-at-rest keys, v1: marker + MasterKeyRequiredError added in Kilo loop) — next: Phase 6 (R17 activation/preferred)
 
 # Contract Lock — Admin AI Preset Panel fixes
 
