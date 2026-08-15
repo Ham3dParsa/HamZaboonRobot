@@ -7,7 +7,7 @@ branch: feat/srs-staged-reveal
 status: implementing
 ---
 
-STATE: phase 2/3 — status: IMPLEMENTING — PR #355 open (feat/srs-staged-reveal @ `1a26ad2`), CI green (label, test 3.10/3.13, Kilo review pass); awaiting owner squash-merge, then post-merge cleanup + Phase 3 — 2026-08-15
+STATE: phase 2/3 — status: IMPLEMENTING — PR #355 open (feat/srs-staged-reveal @ `c1a4395`), CI green (label, test 3.10/3.13); Kilo review clean (all 3 findings resolved, "Merge"); awaiting owner squash-merge, then post-merge cleanup + Phase 3 — 2026-08-15
 
 ## Blocking edges
 
