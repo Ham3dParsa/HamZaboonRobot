@@ -3,15 +3,15 @@ name: plan-card-modes
 description: Admin-configurable staged/immediate card mode for first-exposure and review cards, with 3-level precedence (user → plan → admin-global → built-in default).
 created: 2026-08-15
 base_commit: cd35c5a
-branch: TBD (feat/card-modes-fe-review)
-status: planned
+branch: feat/card-modes-t1-db-core (PR 1/4 = T1)
+status: locked
 ---
 
-STATE: phase 1/1 — status: planned — focus: contract final confirmation pending, then T1 DB core → T2-T3 flows → T4-T6 UI → T7 tests/docs
+STATE: phase 1/1 — status: locked — T1 (DB core) committed `1f01de2`, PR 1/4 open (#361) — next: T2+T3 (render branches, PR 2/4) after #361 merges
 
-## Contract (GATE: PENDING owner final confirmation — owner selected "Adjust the contract", 2026-08-15; no concrete changes supplied yet)
+## Contract (GATE: LOCKED — owner confirmed 2026-08-15; "adjustment" was process-only: design per the right skills + merge PR #356, both satisfied)
 
-Locked so far (owner choices 2026-08-15):
+Locked rules (owner choices 2026-08-15):
 
 - **Rule 1 — FE card flow:** first-exposure cards use the 2-stage reveal pattern (front stage via the same randomized prompt engine as due cards + «کارت جدید ✨» badge + reveal → toggle-based full card + FE grade grid). Default `staged`.
 - **Rule 2 — Review card mode:** parallel `staged`/`immediate` switch for non-FE cards (`staged` default; `immediate` = full card + grade grid, no reveal).
@@ -20,6 +20,19 @@ Locked so far (owner choices 2026-08-15):
 - **Rule 5 — Per-plan:** FE + review modes as two fields in the admin plan wizard (`admin_plans.py`).
 - **Rule 6 — Per-user + gating:** user-facing controls for both card types; each card type's control availability (`all` vs `premium`) is an admin setting, default `premium`.
 - **Design decisions (owner 2026-08-15):** per-user control gating is admin-configurable per card type separately; per-plan mode added to the plan wizard. Feature ships per `codebase-design` (deep resolver module) and TDD.
+
+## Delivery strategy (owner-approved 2026-08-15)
+
+Per-ticket commits inside **4 reviewable PRs** (each independently mergable):
+
+| PR | Tickets | Seams | Branch | Content |
+|---|---|---|---|---|
+| 1/4 | T1 | 1 | `feat/card-modes-t1-db-core` | DB schema + canonical registry + accessors + `resolve_card_mode`/`resolve_card_mode_gate` |
+| 2/4 | T2+T3 | 5, 6 | `feat/card-modes-t2-t3-render` | FE staged flow + review mode render branches |
+| 3/4 | T4+T5 | 8 | `feat/card-modes-t4-t5-admin` | Admin-global modes/gates UI + plan-wizard fields |
+| 4/4 | T6+T7 | 7 (coordinated with `feat/per-language-goals`) | `feat/card-modes-t6-t7-user` | Per-user gated controls + final tests/docs |
+
+No module refactors — every change extends existing modules in place. Each PR carries its own tests + wiring updates (T7's integration/docs finish last).
 
 ## Data model
 
@@ -31,10 +44,10 @@ Locked so far (owner choices 2026-08-15):
 ## Tickets
 
 ### T1 — DB schema + canonical registry + accessors + resolver (deep module core)
-- **Backend:** `init_db` migrations (`PRAGMA table_info` + `ALTER TABLE ADD COLUMN`, schema.py:287-311) for the 4 columns on **both** fresh CREATE and upgraded DBs; `CARD_TYPES`/`CARD_MODES`/gate constants; `upsert_plan` + `_PLAN_COLUMNS` extended (plans.py); accessors `set_user_card_mode`, `set_plan_card_mode`, global via `set_setting`; **deep resolver** `resolve_card_mode(user_id, card_type, row=None)` and `resolve_card_mode_gate(card_type)` in `services/db/users.py` (mirrors `get_display_toggles` users.py:38).
-- **DB interactions:** writes via `BEGIN IMMEDIATE`; all DB work completes before any `await`; unknown stored modes fall through (no crash).
-- **Tests:** `tests/test_db_migrations.py` (fresh + upgraded), `tests/test_migration_guards.py`, resolver precedence/fall-through/validation unit tests, canonical-registry consistency test (mirrors `test_config.py` toggle-fields test).
-- **Acceptance:** resolver returns `staged`/`immediate` by the full precedence; a corrupt stored value falls through; migrations idempotent on fresh + upgraded DBs.
+- **Backend:** `init_db` migrations (`PRAGMA table_info` + `ALTER TABLE ADD COLUMN`, schema.py:287-311) for the 4 columns on **both** fresh CREATE and upgraded DBs; `CARD_TYPES`/`CARD_MODES`/gate constants; `set_plan_card_mode` targeted UPDATE in `users.py` (deep module; **`upsert_plan`/`_PLAN_COLUMNS` deliberately NOT extended here** — edit preserves modes, new plans get NULL fall-through; wizard integration lands in T5); accessors `set_user_card_mode`, `set_plan_card_mode`, `set_global_card_mode`, `set_card_mode_gate`; **deep resolver** `resolve_card_mode(user_id, card_type, row=None)` and `resolve_card_mode_gate(card_type)` + `card_mode_available(user_id, card_type, row=None)` in `services/db/users.py` (mirrors `get_display_toggles` users.py:38 / `should_show_pronounce` gate pattern).
+- **DB interactions:** writes via `BEGIN IMMEDIATE`; all DB work completes before any `await`; unknown stored modes fall through at every level (no crash).
+- **Tests:** `tests/test_db_migrations.py` (fresh + upgraded), `tests/test_migration_guards.py`, `tests/test_card_modes.py` resolver precedence/fall-through/validation unit tests, canonical-registry consistency test.
+- **Acceptance:** resolver returns `staged`/`immediate` by the full precedence; a corrupt stored value at any level falls through; migrations idempotent on fresh + upgraded DBs; `upsert_plan` edit preserves modes / new plans have NULL modes (reviewer S3).
 
 ### T2 — FE staged flow (render + reveal widening + immediate mode)
 - **Frontend:** `study_handler._build_card_text_and_keyboard` FE branch consults `resolve_card_mode(user_id, "first_exposure")`:
@@ -79,4 +92,6 @@ Locked so far (owner choices 2026-08-15):
 
 ## Known edges
 - Admin flipping a mode mid-session: a stale reveal button still renders the back stage safely (no crash, no orphan card) — documented, acceptable.
+- A deactivated plan's stored mode still applies for its users (`get_plan` has no active filter, matching `should_show_pronounce`) — consistent, recorded (reviewer S7).
+- `services/db/__init__.py` façade does not re-export the new card-mode symbols yet; add re-exports when the first frontend consumer (T2) lands (reviewer S6).
 - Zero AI calls; no token/cost impact.
