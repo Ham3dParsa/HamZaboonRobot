@@ -395,6 +395,11 @@ async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TY
     await _edit_or_send(
         update, context, message,
         parse_mode=ParseMode.HTML,
+        # awaiting_inline_keyboard() -> flow:back resumes the preset-edit menu
+        # (preserves preset_edits); flow:cancel discards only this preset's
+        # edits. This aligns with the field-edit error-retry prompts. Note: this
+        # intentionally differs from admin_awaiting_inline_keyboard(), whose
+        # admin:cancel wiped ALL preset_edits (contract R3, owner-approved).
         reply_markup=awaiting_inline_keyboard()
     )
 
@@ -486,8 +491,6 @@ WIZARD_GROUP_HEADERS = {
     15: "💰 — گروه هزینه و برچسب (Cost & Label):",
 }
 
-WIZARD_FIELD_LABELS = FIELD_LABELS
-
 TOTAL_WIZARD_FIELDS = len(WIZARD_FIELDS)
 
 
@@ -520,7 +523,7 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
     draft_str = str(draft).strip() if draft is not None else None
 
     group_header = WIZARD_GROUP_HEADERS.get(field_idx, "")
-    label = WIZARD_FIELD_LABELS.get(field_name, field_name)
+    label = FIELD_LABELS.get(field_name, field_name)
     help_text = _FIELD_HELP.get(field_name, "")
 
     message = f"✏️ <b>ویرایش کامل — گام {field_idx + 1} از {TOTAL_WIZARD_FIELDS}</b>\n"
@@ -746,7 +749,7 @@ async def _show_wizard_summary(update: Update, context: ContextTypes.DEFAULT_TYP
         if field_name in values:
             new_val = values[field_name]
             old_val = preset.get(field_name, "—")
-            label = WIZARD_FIELD_LABELS.get(field_name, field_name)
+            label = FIELD_LABELS.get(field_name, field_name)
             lines.append(f"• <b>{html_escape(label)}</b>: {html_escape(str(old_val))} → {html_escape(str(new_val))}")
             changed += 1
 
