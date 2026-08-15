@@ -35,8 +35,8 @@ from services.utils.formatting import (
     _saved_word_card,
     days_since_review,
     escape_mdv2,
-    format_card,
     format_review_badge,
+    format_srs_back_stage,
     format_srs_front_stage,
     select_srs_prompt_type,
     to_persian_digits,
@@ -285,17 +285,28 @@ def _build_card_text_and_keyboard(
 
     # keyboard + text by activity type
     if node.activity_type == "first_exposure":
-        # Full card immediately, with the new-card badge (R5). No staging.
-        keyboard = get_first_exposure_keyboard(user_id, word_id)
-        text = format_card(
+        return _render_first_exposure(
+            node, word_id, word_row, card_data, phonetic_lines,
+            progress, user_id, user_data,
+        )
+
+    # srs_review: mode-aware render.
+    if db.resolve_card_mode(user_id, "review") == "immediate":
+        # Immediate: full card + review grade grid directly (no front/reveal,
+        # no prompt stash) — CARD-MODES Rule 2.
+        toggles = db.get_display_toggles(user_id)
+        keyboard = get_review_keyboard(
+            user_id, word_id, show_pronounce=db.should_show_pronounce(user_id),
+        )
+        text = format_srs_back_stage(
             card_data,
-            footer=progress,
+            toggles=toggles,
             phonetic_lines=phonetic_lines,
-            badge=NEW_CARD_BADGE,
+            footer=progress,
         )
         return text, keyboard
 
-    # srs_review: staged reveal — hidden front stage + reveal action.
+    # Staged (default): hidden front stage + reveal action.
     toggles = db.get_display_toggles(user_id)
     prompt_type = select_srs_prompt_type(card_data, toggles)
     if user_data is not None:
@@ -309,7 +320,6 @@ def _build_card_text_and_keyboard(
         word_row["last_review_at"] if word_row is not None else None
     )
     badge = format_review_badge(days) if days is not None else ""
-    show_pronounce = db.should_show_pronounce(user_id)
     keyboard = get_srs_front_keyboard(user_id, word_id)
     text = format_srs_front_stage(
         card_data,
@@ -317,6 +327,54 @@ def _build_card_text_and_keyboard(
         toggles=toggles,
         phonetic_lines=phonetic_lines,
         badge=badge,
+        footer=progress,
+    )
+    return text, keyboard
+
+
+def _render_first_exposure(
+    node: SessionNode,
+    word_id: int,
+    word_row,
+    card_data: dict,
+    phonetic_lines: list[str],
+    progress: str,
+    user_id: int,
+    user_data: dict | None,
+) -> tuple[str, object]:
+    """Render a first-exposure card per the resolved card mode (CARD-MODES T2).
+
+    ``staged`` (default, Rule 1): hidden front stage via the shared randomized
+    prompt engine + «کارت جدید ✨» badge + reveal action, stashing the prompt
+    telemetry keys just like the review front stage.
+    ``immediate``: full card + badge + the FE grade grid directly (owner lock
+    2026-08-15: the badge stays visible in immediate mode).
+    """
+    if db.resolve_card_mode(user_id, "first_exposure") == "staged":
+        toggles = db.get_display_toggles(user_id)
+        prompt_type = select_srs_prompt_type(card_data, toggles)
+        if user_data is not None:
+            user_data.pop(f"revealed_{word_id}", None)
+            user_data[f"prompt_type_{word_id}"] = prompt_type
+            user_data[f"card_shown_at_{word_id}"] = time.time()
+        keyboard = get_srs_front_keyboard(user_id, word_id)
+        text = format_srs_front_stage(
+            card_data,
+            prompt_type,
+            toggles=toggles,
+            phonetic_lines=phonetic_lines,
+            badge=NEW_CARD_BADGE,
+            footer=progress,
+        )
+        return text, keyboard
+
+    keyboard = get_first_exposure_keyboard(user_id, word_id)
+    toggles = db.get_display_toggles(user_id)
+    text = format_srs_back_stage(
+        card_data,
+        toggles=toggles,
+        phonetic_lines=phonetic_lines,
+        badge=NEW_CARD_BADGE,
         footer=progress,
     )
     return text, keyboard

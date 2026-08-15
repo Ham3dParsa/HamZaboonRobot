@@ -316,13 +316,18 @@ class BackStageRenderingTests(unittest.TestCase):
         self.assertIn("🧠 با دکمه‌های توصیفی زیر یادآوری خود را ثبت کنید\\.", text)
         self.assertIn("پیشرفت ۲ از ۵", text)
 
-    def test_back_stage_rejects_badge_parameter(self):
-        """The review badge lives on the pre-reveal front stage only (owner
-        bug report 2026-08-15); the back stage has no badge support."""
-        with self.assertRaises(TypeError):
-            fmt.format_srs_back_stage(
-                _card(), toggles=ALL_TOGGLES_ON, badge="⏰ آخرین مرور"
-            )
+    def test_back_stage_renders_optional_badge(self):
+        """``badge`` is an optional back-stage parameter (CARD-MODES owner lock
+        2026-08-15: the «کارت جدید ✨» badge stays visible in FE immediate mode).
+        It renders right after the word/phonetic; empty means no badge."""
+        text = fmt.format_srs_back_stage(
+            _card(), toggles=ALL_TOGGLES_ON, badge="کارت جدید ✨"
+        )
+        self.assertIn("*read*", text)
+        self.assertIn("کارت جدید ✨", text)
+        self.assertIn("✤ *خواندن*", text)
+        no_badge = fmt.format_srs_back_stage(_card(), toggles=ALL_TOGGLES_ON)
+        self.assertNotIn("کارت جدید ✨", no_badge)
 
     def test_back_stage_sections_gated_by_toggles(self):
         off_syns = dict(ALL_TOGGLES_ON)

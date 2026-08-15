@@ -75,6 +75,18 @@ from services.db.users import (
     find_user,
     set_user_blocked,
     reset_user_blocked,
+    CARD_TYPES,
+    CARD_MODES,
+    CARD_MODE_GATES,
+    DEFAULT_CARD_MODE,
+    DEFAULT_CARD_MODE_GATE,
+    resolve_card_mode,
+    resolve_card_mode_gate,
+    card_mode_available,
+    set_user_card_mode,
+    set_plan_card_mode,
+    set_global_card_mode,
+    set_card_mode_gate,
 )
 
 from services.db.words import (

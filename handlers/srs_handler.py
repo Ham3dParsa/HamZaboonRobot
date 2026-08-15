@@ -19,7 +19,11 @@ from services.utils.formatting import (
     format_next_review_text,
     format_srs_back_stage,
 )
-from config.keyboards import query_result_keyboard, get_review_keyboard
+from config.keyboards import (
+    query_result_keyboard,
+    get_first_exposure_keyboard,
+    get_review_keyboard,
+)
 from handlers.study_handler import advance_session, session_progress_footer
 
 logger = logging.getLogger(__name__)
@@ -125,7 +129,7 @@ async def _handle_srs_reveal(
     node = state.nodes[0] if state and state.nodes else None
     if (
         node is None
-        or node.activity_type != "srs_review"
+        or node.activity_type not in ("srs_review", "first_exposure")
         or node.source_id != word_id
     ):
         # Stale reveal button (superseded session or message): never render a
@@ -147,9 +151,14 @@ async def _handle_srs_reveal(
         phonetic_lines=phonetic_lines,
         footer=footer,
     )
-    keyboard = get_review_keyboard(
-        user_id, word_id, show_pronounce=db.should_show_pronounce(user_id),
-    )
+    if node.activity_type == "first_exposure":
+        # CARD-MODES Rule 1: a staged first-exposure card reveals onto the FE
+        # familiarity grade grid, not the recall-based review grid.
+        keyboard = get_first_exposure_keyboard(user_id, word_id)
+    else:
+        keyboard = get_review_keyboard(
+            user_id, word_id, show_pronounce=db.should_show_pronounce(user_id),
+        )
 
     msg_id = state.study_msg_id
     if not msg_id:

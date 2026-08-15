@@ -419,19 +419,83 @@ class TestStagedRevealRender(_BaseStudyHandlerTest):
         state = self._state(node)
         self.assertEqual(session_progress_footer(state, 1), "نشست ۰ | کارت ۱ از ۱")
 
-    def test_first_exposure_node_renders_badge_and_full_card(self):
+    def test_first_exposure_staged_renders_front_stage_with_badge_and_reveal(self):
+        """CARD-MODES Rule 1: FE cards default to the 2-stage reveal pattern —
+        hidden front stage + «کارت جدید ✨» badge + reveal action (no grades yet)."""
         from handlers.study_handler import _build_card_text_and_keyboard
+        from services.utils import formatting as fmt
+        word_id = self._word_id()
+        with patch.object(fmt.random, "randrange", return_value=0):
+            text, keyboard = _build_card_text_and_keyboard(
+                self._fe_node(word_id), self._state(self._fe_node(word_id)), 1
+            )
+        self.assertIn("کارت جدید ✨", text)
+        self.assertNotIn("سلام", text)
+        self.assertIn("نمایش پاسخ", text)
+        callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+        self.assertEqual(callbacks, [f"srs:reveal:1:{word_id}"])
+        self.assertNotIn("آخرین مرور", text)
+
+    def test_first_exposure_staged_stashes_prompt_type_and_shown_at(self):
+        """CARD-MODES Rule 1: the FE staged front stage stashes the same prompt
+        telemetry keys as the review front stage."""
+        from handlers.study_handler import _build_card_text_and_keyboard
+        word_id = self._word_id()
+        user_data = {}
+        _build_card_text_and_keyboard(
+            self._fe_node(word_id), self._state(self._fe_node(word_id)),
+            1, user_data=user_data,
+        )
+        self.assertIn(f"prompt_type_{word_id}", user_data)
+        self.assertIn(f"card_shown_at_{word_id}", user_data)
+
+    def test_first_exposure_staged_re_render_re_arms_reveal(self):
+        """CARD-MODES Rule 1: a fresh FE front stage clears a stale reveal marker."""
+        from handlers.study_handler import _build_card_text_and_keyboard
+        word_id = self._word_id()
+        user_data = {f"revealed_{word_id}": True}
+        _build_card_text_and_keyboard(
+            self._fe_node(word_id), self._state(self._fe_node(word_id)),
+            1, user_data=user_data,
+        )
+        self.assertNotIn(f"revealed_{word_id}", user_data)
+
+    def test_first_exposure_immediate_renders_full_card_with_badge_and_grid(self):
+        """CARD-MODES Rule 1 + owner lock: immediate mode shows the full card,
+        keeps the «کارت جدید ✨» badge, and drops straight onto the FE grade grid."""
+        from handlers.study_handler import _build_card_text_and_keyboard
+        db.set_global_card_mode("first_exposure", "immediate")
         word_id = self._word_id()
         text, keyboard = _build_card_text_and_keyboard(
             self._fe_node(word_id), self._state(self._fe_node(word_id)), 1
         )
-        # Full card + the new-card badge (R5); keyboard stays the FE grid.
         self.assertIn("کارت جدید ✨", text)
         self.assertIn("سلام", text)
         self.assertIn("Hello there", text)
         callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
         self.assertTrue(all(cb.startswith("srs:fe:") for cb in callbacks))
-        self.assertNotIn("آخرین مرور", text)
+        self.assertNotIn("نمایش پاسخ", text)  # no reveal sub-instruction in immediate mode
+
+    def test_review_immediate_renders_full_card_with_grid_no_stash(self):
+        """CARD-MODES Rule 2: review immediate mode renders the full card +
+        review grade grid directly, with no front stage and no prompt stash."""
+        from handlers.study_handler import _build_card_text_and_keyboard
+        db.set_global_card_mode("review", "immediate")
+        word_id = self._word_id()
+        user_data = {}
+        text, keyboard = _build_card_text_and_keyboard(
+            self._review_node(word_id), self._state(self._review_node(word_id)),
+            1, user_data=user_data,
+        )
+        self.assertIn("سلام", text)
+        self.assertNotIn("نمایش پاسخ", text)
+        callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+        self.assertEqual(callbacks, [
+            f"srs:1:1:{word_id}", f"srs:2:1:{word_id}",
+            f"srs:3:1:{word_id}", f"srs:4:1:{word_id}",
+        ])
+        self.assertNotIn(f"prompt_type_{word_id}", user_data)
+        self.assertNotIn(f"card_shown_at_{word_id}", user_data)
 
     def test_advance_session_renders_front_stage_for_next_review_node(self):
         from handlers.study_handler import _build_card_text_and_keyboard

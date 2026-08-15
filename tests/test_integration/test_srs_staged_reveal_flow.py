@@ -1,8 +1,10 @@
-"""Integration flow for #338 Phase 2 — staged review rendering, reveal, grade.
+"""Integration flow for #338 Phase 2 + CARD-MODES T2/T3.
 
 Drives the real callback_router + handlers through the full user journey:
 study start -> front stage -> reveal -> back stage + grades -> grade -> advance,
-and the first-exposure path (full card + new-card badge -> grade -> advance).
+plus the first-exposure staged path (front + new-card badge -> reveal -> FE
+grade grid -> grade -> advance) and the immediate-mode variants for both card
+types (full card + grade grid directly, no reveal).
 """
 
 from __future__ import annotations
@@ -154,10 +156,63 @@ class StagedRevealFlowTest(unittest.TestCase):
         self.assertEqual(events[-1]["activity_type"], "srs_review")
         self.assertNotIn("current_session", ctx.user_data)  # session completed
 
-    def test_first_exposure_flow_full_card_badge_grade_advance(self):
+    def test_first_exposure_staged_flow_front_reveal_grade_advance(self):
+        """CARD-MODES Rule 1: default staged FE flow — hidden front stage with
+        badge + reveal -> back stage + FE grade grid -> grade -> advance."""
+        from handlers.study_handler import handle_study_start
+        from bot import callback_router
+        from services.utils import formatting as fmt
+
+        word_id = self._seed_word("hello", expose=False)
+        node = self._node("first_exposure", word_id)
+
+        with patch("handlers.study_handler.build_session_list",
+                   return_value=([node], {"user_id": 1, "remaining_slots": 0})):
+            ctx = self._context()
+            with patch.object(fmt.random, "randrange", return_value=0):
+                asyncio.run(handle_study_start(self._study_update(), ctx))
+
+        # Front stage sent: badge present, meaning hidden, reveal action, no grades.
+        front = ctx.bot.send_message.call_args.kwargs["text"]
+        self.assertIn("کارت جدید ✨", front)
+        self.assertNotIn("سلام", front)
+        front_kb = ctx.bot.send_message.call_args.kwargs["reply_markup"]
+        front_cbs = [b.callback_data for row in front_kb.inline_keyboard for b in row]
+        self.assertEqual(front_cbs, [f"srs:reveal:1:{word_id}"])
+        self.assertTrue(ctx.user_data.get(f"prompt_type_{word_id}"))
+        self.assertTrue(ctx.user_data.get(f"card_shown_at_{word_id}"))
+
+        # Reveal: same message (999) becomes the back stage with FE grade grid.
+        ctx.bot.edit_message_text.reset_mock()
+        reveal_update = self._callback_update(f"srs:reveal:1:{word_id}")
+        asyncio.run(callback_router(reveal_update, ctx))
+        ctx.bot.edit_message_text.assert_awaited_once()
+        back_kwargs = ctx.bot.edit_message_text.call_args.kwargs
+        self.assertEqual(back_kwargs["message_id"], 999)
+        self.assertIn("سلام", back_kwargs["text"])
+        back_kb = back_kwargs["reply_markup"]
+        back_cbs = [b.callback_data for row in back_kb.inline_keyboard for b in row]
+        self.assertEqual(back_cbs, [
+            f"srs:fe:1:1:{word_id}", f"srs:fe:2:1:{word_id}",
+            f"srs:fe:3:1:{word_id}", f"srs:fe:4:1:{word_id}",
+        ])
+        self.assertTrue(ctx.user_data.get(f"revealed_{word_id}"))
+
+        # Grade the familiarity rating; session advances to completion.
+        grade_update = self._callback_update(f"srs:fe:3:1:{word_id}")
+        asyncio.run(callback_router(grade_update, ctx))
+        events = self._events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[-1]["activity_type"], "first_exposure")
+        self.assertNotIn("current_session", ctx.user_data)  # session completed
+
+    def test_first_exposure_immediate_flow_full_card_grade_advance(self):
+        """CARD-MODES Rule 1: immediate FE mode shows the full card with badge
+        and drops straight onto the FE grade grid (no front/reveal)."""
         from handlers.study_handler import handle_study_start
         from bot import callback_router
 
+        db.set_global_card_mode("first_exposure", "immediate")
         word_id = self._seed_word("hello", expose=False)
         node = self._node("first_exposure", word_id)
 
@@ -166,13 +221,16 @@ class StagedRevealFlowTest(unittest.TestCase):
             ctx = self._context()
             asyncio.run(handle_study_start(self._study_update(), ctx))
 
-        # Full card + new-card badge on the FE path.
+        # Full card + badge + FE grade grid immediately; no reveal action.
         front = ctx.bot.send_message.call_args.kwargs["text"]
         self.assertIn("کارت جدید ✨", front)
         self.assertIn("سلام", front)
         front_kb = ctx.bot.send_message.call_args.kwargs["reply_markup"]
         front_cbs = [b.callback_data for row in front_kb.inline_keyboard for b in row]
-        self.assertTrue(all(cb.startswith("srs:fe:") for cb in front_cbs))
+        self.assertEqual(front_cbs, [
+            f"srs:fe:1:1:{word_id}", f"srs:fe:2:1:{word_id}",
+            f"srs:fe:3:1:{word_id}", f"srs:fe:4:1:{word_id}",
+        ])
 
         # Grade the familiarity rating; session advances to completion.
         grade_update = self._callback_update(f"srs:fe:3:1:{word_id}")
@@ -180,6 +238,42 @@ class StagedRevealFlowTest(unittest.TestCase):
         events = self._events()
         self.assertEqual(len(events), 1)
         self.assertEqual(events[-1]["activity_type"], "first_exposure")
+        self.assertNotIn("current_session", ctx.user_data)  # session completed
+
+    def test_review_immediate_flow_full_card_grade_advance(self):
+        """CARD-MODES Rule 2: review immediate mode renders the full card +
+        review grade grid directly (no front/reveal, no prompt stash)."""
+        from handlers.study_handler import handle_study_start
+        from bot import callback_router
+
+        db.set_global_card_mode("review", "immediate")
+        word_id = self._seed_word("hello", expose=True)
+        node = self._node("srs_review", word_id)
+
+        with patch("handlers.study_handler.build_session_list",
+                   return_value=([node], {"user_id": 1, "remaining_slots": 0})):
+            ctx = self._context()
+            asyncio.run(handle_study_start(self._study_update(), ctx))
+
+        # Full card + review grade grid immediately; no reveal action, no stash.
+        front = ctx.bot.send_message.call_args.kwargs["text"]
+        self.assertIn("سلام", front)
+        self.assertNotIn("نمایش پاسخ", front)
+        front_kb = ctx.bot.send_message.call_args.kwargs["reply_markup"]
+        front_cbs = [b.callback_data for row in front_kb.inline_keyboard for b in row]
+        self.assertEqual(front_cbs, [
+            f"srs:1:1:{word_id}", f"srs:2:1:{word_id}",
+            f"srs:3:1:{word_id}", f"srs:4:1:{word_id}",
+        ])
+        self.assertNotIn(f"prompt_type_{word_id}", ctx.user_data)
+        self.assertNotIn(f"card_shown_at_{word_id}", ctx.user_data)
+
+        # Grade; session advances to completion.
+        grade_update = self._callback_update(f"srs:3:1:{word_id}")
+        asyncio.run(callback_router(grade_update, ctx))
+        events = self._events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[-1]["activity_type"], "srs_review")
         self.assertNotIn("current_session", ctx.user_data)  # session completed
 
 
