@@ -4,10 +4,10 @@ description: Execution plan for #338 Phase 2 — session-flow staging: review fr
 created: 2026-08-15
 base_commit: dce5bc8
 branch: feat/srs-staged-reveal
-status: planned
+status: implementing
 ---
 
-STATE: phase 2/3 — status: PLANNED — tickets drafted (spec-to-tickets, 2026-08-15); blocking edge = Phase 1 merged (PR #353, `c920edb`) — DONE
+STATE: phase 2/3 — status: IMPLEMENTING — gate LOCKED (2026-08-15, Rule 1 reveal-in-place, Rule 2 delete→P3); P2-T1..T4 implemented TDD (RED tests → GREEN); full suite green (950 passed); validation passed; pending independent review + commit/PR — 2026-08-15
 
 ## Blocking edges
 

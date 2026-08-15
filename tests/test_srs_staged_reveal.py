@@ -15,7 +15,8 @@ from services.db import schema as db_schema
 from handlers import srs_handler
 from config.catalog import DISPLAY_TOGGLE_DEFAULTS
 from services.utils import formatting as fmt
-from config.keyboards import get_review_keyboard, get_first_exposure_keyboard
+from config.keyboards import get_review_keyboard, get_first_exposure_keyboard, get_srs_front_keyboard
+from handlers.study_handler import SessionState
 
 
 ALL_TOGGLES_ON = dict(DISPLAY_TOGGLE_DEFAULTS)
@@ -287,3 +288,126 @@ class SrsHandlerFlowTests(unittest.TestCase):
         events = self._events()
         self.assertEqual(len(events), 1)  # only one FE event
         self.assertEqual(advance.await_count, 1)  # only first tap advanced
+
+
+class TestRevealHandler(unittest.TestCase):
+    """Phase 2 (#338): the reveal action turns the front stage into the back
+    stage on the same message and swaps in the 4-grade review keyboard."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.previous_db_path = db.DB_PATH
+        self.previous_schema_db_path = db_schema.DB_PATH
+        new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db.DB_PATH = new_path
+        db_schema.DB_PATH = new_path
+        db.init_db()
+        db.create_user_if_needed(1, "learner")
+        db.set_user_lang_goal(1, "en", "general")
+        db.set_user_level(1, "beginner")
+        card = {
+            "word": "hello",
+            "phonetic": "/həˈloʊ/",
+            "fa_meaning": "سلام",
+            "fa_explanation": "برای سلام.",
+            "examples": ["Hello!"],
+            "example_translations": ["سلام!"],
+            "synonyms": ["hi"],
+            "antonyms": [],
+            "grammar_tip": "نکته",
+        }
+        db.add_saved_word(1, "hello", "en", card)
+        with db.get_conn() as conn:
+            self.word_id = conn.execute(
+                "SELECT id FROM saved_words WHERE user_id=1"
+            ).fetchone()["id"]
+        self.assertTrue(db.grade_first_exposure(self.word_id, 3, 1).ok)
+        from services.session import SessionNode
+        node = SessionNode(
+            activity_type="srs_review", source_tier=1,
+            card_data={"word": "hello"}, source_id=self.word_id,
+            activity_meta={"user_id": 1}, grade_policy_ref="srs_review",
+        )
+        self.state = SessionState(
+            nodes=[node], total_cards=1, tier3_context={},
+            study_msg_id=777, plan="free",
+        )
+
+    def tearDown(self):
+        db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_schema_db_path
+        self.tempdir.cleanup()
+
+    def _update(self, user_id=1):
+        query = MagicMock()
+        query.answer = AsyncMock()
+        query.message = MagicMock()
+        update = MagicMock()
+        update.effective_user.id = user_id
+        update.effective_chat.id = 100
+        update.callback_query = query
+        return update
+
+    def _context(self):
+        ctx = MagicMock()
+        ctx.user_data = {"current_session": self.state}
+        ctx.bot = MagicMock()
+        ctx.bot.edit_message_text = AsyncMock()
+        return ctx
+
+    def test_reveal_edits_same_message_to_back_stage(self):
+        update = self._update()
+        ctx = self._context()
+        asyncio.run(srs_handler._handle_srs_reveal(update, ctx, "1", str(self.word_id)))
+        ctx.bot.edit_message_text.assert_awaited_once()
+        kwargs = ctx.bot.edit_message_text.call_args.kwargs
+        self.assertEqual(kwargs["message_id"], 777)  # same in-place message
+        text = kwargs["text"]
+        self.assertIn("سلام", text)
+        self.assertIn("Hello", text)
+        self.assertIn("مترادف", text)
+        self.assertIn("نکته", text)
+        self.assertIn("ثبت", text)  # post-reveal instruction
+        # Grade keyboard swapped in.
+        markup = kwargs["reply_markup"]
+        callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
+        self.assertEqual(callbacks, [
+            f"srs:1:1:{self.word_id}", f"srs:2:1:{self.word_id}",
+            f"srs:3:1:{self.word_id}", f"srs:4:1:{self.word_id}",
+        ])
+        # Reveal marker stashed for Phase 3 telemetry.
+        self.assertTrue(ctx.user_data[f"revealed_{self.word_id}"])
+
+    def test_reveal_rejects_another_user(self):
+        update = self._update(user_id=2)
+        ctx = self._context()
+        asyncio.run(srs_handler._handle_srs_reveal(update, ctx, "1", str(self.word_id)))
+        ctx.bot.edit_message_text.assert_not_awaited()
+        call_args = update.callback_query.answer.call_args
+        self.assertIn("کاربر دیگری", call_args[0][0])
+
+    def test_reveal_idempotent_when_already_revealed(self):
+        update = self._update()
+        ctx = self._context()
+        asyncio.run(srs_handler._handle_srs_reveal(update, ctx, "1", str(self.word_id)))
+        ctx.bot.edit_message_text.reset_mock()
+        asyncio.run(srs_handler._handle_srs_reveal(update, ctx, "1", str(self.word_id)))
+        ctx.bot.edit_message_text.assert_not_awaited()
+
+    def test_back_stage_respects_explanation_toggle_off(self):
+        db.set_display_toggle(1, "explanation", False)
+        update = self._update()
+        ctx = self._context()
+        asyncio.run(srs_handler._handle_srs_reveal(update, ctx, "1", str(self.word_id)))
+        text = ctx.bot.edit_message_text.call_args.kwargs["text"]
+        self.assertNotIn("برای سلام", text)
+
+    def test_reveal_without_session_state_is_rejected(self):
+        update = self._update()
+        ctx = self._context()
+        ctx.user_data = {}  # no active session
+        ctx.bot.edit_message_text = AsyncMock()
+        asyncio.run(srs_handler._handle_srs_reveal(update, ctx, "1", str(self.word_id)))
+        ctx.bot.edit_message_text.assert_not_awaited()
+        call_args = update.callback_query.answer.call_args
+        self.assertIn("معتبر نیست", call_args[0][0])

@@ -1,3 +1,4 @@
+import datetime
 import html
 import json
 import random
@@ -29,6 +30,25 @@ SRS_HINT_MEANING = "💡 راهنما: به معنای «{meaning}»"
 def format_review_badge(days: int) -> str:
     """Learner-facing review badge for the staged-reveal front/back stages (R5)."""
     return f"⏰ آخرین مرور: {to_persian_digits(days)} روز پیش"
+
+
+def days_since_review(last_review_at: str | None, now=None) -> int | None:
+    """Whole days elapsed since the last review timestamp (R5 review badge).
+
+    ``last_review_at`` is a UTC ISO-8601 string from ``saved_words``. A missing
+    or unparseable timestamp returns None (callers then omit the badge). ``now``
+    is injectable for tests; the live clock is used otherwise.
+    """
+    if not last_review_at:
+        return None
+    try:
+        last = datetime.datetime.fromisoformat(last_review_at)
+    except (TypeError, ValueError):
+        return None
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=datetime.timezone.utc)
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    return max(0, int((now - last).total_seconds() // 86400))
 
 
 def format_next_review_text(interval_seconds: int | None) -> str:
@@ -97,6 +117,7 @@ def format_card(
     presentation: str = "detailed",
     translations_prepared: bool = False,
     phonetic_lines: list[str] | None = None,
+    badge: str = "",
 ) -> str:
     if presentation not in {"brief", "detailed"}:
         raise ValueError("presentation must be 'brief' or 'detailed'")
@@ -109,6 +130,9 @@ def format_card(
 
     if phonetic_lines:
         lines.extend(phonetic_lines)
+
+    if badge:
+        lines.append(f"\n{escape_mdv2(badge)}")
 
     lines.append(f"\n✤ *{fa_meaning}*")
 

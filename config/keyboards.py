@@ -46,6 +46,7 @@ IBTN_SRS_AGAIN_FE = "کاملاً ناآشناام 🟥"
 IBTN_SRS_HARD_FE = "کمی آشناام 🟨"
 IBTN_SRS_GOOD_FE = "آشنایی خوب 🟩"
 IBTN_SRS_EASY_FE = "کاملاً بلدمش 🟪"
+IBTN_SRS_REVEAL = "👁 نمایش پاسخ"
 
 # --- Query / Word Lookup ---
 IBTN_ADD_TO_REVIEW = "ذخیره در جعبه مرور"
@@ -394,6 +395,26 @@ def get_review_keyboard(
             )
         ])
     return InlineKeyboardMarkup(rows)
+
+
+def get_srs_front_keyboard(
+    user_id: int,
+    word_id: int,
+) -> InlineKeyboardMarkup:
+    """Returns the staged-reveal front keyboard for a regular review card.
+
+    The learner first reads the hidden front-stage prompt, then taps the reveal
+    action to open the back stage + grade buttons (#338 §2B). The delete row is
+    deferred to Phase 3 (#338 P3-T2).
+    """
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                IBTN_SRS_REVEAL,
+                callback_data=f"srs:reveal:{user_id}:{word_id}",
+            )
+        ],
+    ])
 
 
 def get_first_exposure_keyboard(

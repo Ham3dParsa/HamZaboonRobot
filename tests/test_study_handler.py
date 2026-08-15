@@ -291,6 +291,186 @@ class TestHandleStudyStart(_BaseStudyHandlerTest):
         self.assertEqual(ctx.user_data["current_session"].study_msg_id, 999)
 
 
+class TestStagedRevealRender(_BaseStudyHandlerTest):
+    """Phase 2 (#338): review nodes render the hidden front stage; FE nodes
+    render the full card with the new-card badge."""
+
+    def _card(self):
+        return {
+            "word": "hello",
+            "phonetic": "/həˈloʊ/",
+            "fa_meaning": "سلام",
+            "fa_explanation": "درود هنگام دیدار",
+            "synonyms": ["hi"],
+            "antonyms": ["bye"],
+            "examples": ["Hello there!"],
+            "example_translations": ["سلام!"],
+            "grammar_tip": "یک نکته",
+        }
+
+    def _review_node(self, word_id):
+        from services.session import SessionNode
+        return SessionNode(
+            activity_type="srs_review", source_tier=1,
+            card_data={"word": "hello"}, source_id=word_id,
+            activity_meta={"user_id": 1}, grade_policy_ref="srs_review",
+        )
+
+    def _fe_node(self, word_id):
+        from services.session import SessionNode
+        return SessionNode(
+            activity_type="first_exposure", source_tier=1,
+            card_data={"word": "hello"}, source_id=word_id,
+            activity_meta={"user_id": 1}, grade_policy_ref="first_exposure",
+        )
+
+    def _state(self, node):
+        return SessionState(
+            nodes=[node], total_cards=1, tier3_context={},
+            study_msg_id=42, plan="free",
+        )
+
+    def _word_id(self):
+        self.assertTrue(db.add_saved_word(1, "hello", "en", self._card()))
+        with db.get_conn() as conn:
+            return conn.execute(
+                "SELECT id FROM saved_words WHERE word='hello'"
+            ).fetchone()["id"]
+
+    def test_review_node_renders_front_stage(self):
+        from handlers.study_handler import _build_card_text_and_keyboard
+        from services.utils import formatting as fmt
+        word_id = self._word_id()
+        # Force the "standard" prompt so the meaning stays hidden deterministically.
+        with patch.object(fmt.random, "randrange", return_value=0):
+            text, keyboard = _build_card_text_and_keyboard(
+                self._review_node(word_id), self._state(self._review_node(word_id)), 1
+            )
+        # Hidden front stage: meaning, examples, synonym items and grammar tip hidden.
+        self.assertNotIn("سلام", text)
+        self.assertNotIn("Hello there", text)
+        self.assertNotIn("hi", text)
+        self.assertNotIn("نکته‌ی گرامری", text)
+        # Word + phonetic are shown for the standard prompt.
+        self.assertIn("hello", text)
+        # Sub-instruction + progress footer are present (R4/R5).
+        self.assertIn("نمایش پاسخ", text)
+        self.assertIn("نشست", text)
+        # Front keyboard carries the reveal action only.
+        callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+        self.assertEqual(callbacks, [f"srs:reveal:1:{word_id}"])
+
+    def test_review_front_stage_shows_badge_when_last_reviewed(self):
+        from handlers.study_handler import _build_card_text_and_keyboard
+        from services.utils import formatting as fmt
+        word_id = self._word_id()
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE saved_words SET last_review_at = ? WHERE id = ?",
+                ("2026-08-01T00:00:00+00:00", word_id),
+            )
+            conn.commit()
+        with patch.object(fmt.random, "randrange", return_value=0):
+            text, _ = _build_card_text_and_keyboard(
+                self._review_node(word_id), self._state(self._review_node(word_id)), 1
+            )
+        self.assertIn("آخرین مرور", text)
+
+    def test_review_front_stage_always_shows_sub_instruction_and_footer(self):
+        """Prompt-independent invariants: whatever prompt type is drawn, the
+        front stage carries the reveal sub-instruction and the progress footer."""
+        from handlers.study_handler import _build_card_text_and_keyboard
+        word_id = self._word_id()
+        text, _ = _build_card_text_and_keyboard(
+            self._review_node(word_id), self._state(self._review_node(word_id)), 1
+        )
+        self.assertIn("نمایش پاسخ", text)
+        self.assertIn("نشست", text)
+        self.assertNotIn("نکته‌ی گرامری", text)
+
+    def test_review_node_stashes_prompt_type_and_shown_at(self):
+        from handlers.study_handler import _build_card_text_and_keyboard
+        word_id = self._word_id()
+        user_data = {}
+        _build_card_text_and_keyboard(
+            self._review_node(word_id), self._state(self._review_node(word_id)),
+            1, user_data=user_data,
+        )
+        self.assertIn(f"prompt_type_{word_id}", user_data)
+        self.assertIn(f"card_shown_at_{word_id}", user_data)
+
+    def test_front_stage_re_render_re_arms_reveal(self):
+        """A fresh front-stage presentation clears a stale reveal marker so the
+        same word can be revealed again in a later session (#338 §2B)."""
+        from handlers.study_handler import _build_card_text_and_keyboard
+        word_id = self._word_id()
+        user_data = {f"revealed_{word_id}": True}  # stale marker from an earlier session
+        _build_card_text_and_keyboard(
+            self._review_node(word_id), self._state(self._review_node(word_id)),
+            1, user_data=user_data,
+        )
+        self.assertNotIn(f"revealed_{word_id}", user_data)
+
+    def test_first_exposure_node_renders_badge_and_full_card(self):
+        from handlers.study_handler import _build_card_text_and_keyboard
+        word_id = self._word_id()
+        text, keyboard = _build_card_text_and_keyboard(
+            self._fe_node(word_id), self._state(self._fe_node(word_id)), 1
+        )
+        # Full card + the new-card badge (R5); keyboard stays the FE grid.
+        self.assertIn("کارت جدید ✨", text)
+        self.assertIn("سلام", text)
+        self.assertIn("Hello there", text)
+        callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+        self.assertTrue(all(cb.startswith("srs:fe:") for cb in callbacks))
+        self.assertNotIn("آخرین مرور", text)
+
+    def test_advance_session_renders_front_stage_for_next_review_node(self):
+        from handlers.study_handler import _build_card_text_and_keyboard
+        from services.utils import formatting as fmt
+        self.assertTrue(db.add_saved_word(1, "hello", "en", self._card()))
+        self.assertTrue(db.add_saved_word(1, "world", "en", {**self._card(), "word": "world"}))
+        with db.get_conn() as conn:
+            hello_id = conn.execute("SELECT id FROM saved_words WHERE word='hello'").fetchone()["id"]
+            world_id = conn.execute("SELECT id FROM saved_words WHERE word='world'").fetchone()["id"]
+        node1 = self._review_node(hello_id)
+        node2 = self._review_node(world_id)
+        state = SessionState(
+            nodes=[node1, node2], total_cards=2, tier3_context={},
+            study_msg_id=999, plan="free",
+        )
+        ctx = self._context()
+        ctx.user_data["current_session"] = state
+        update = self._update()
+        with patch.object(fmt.random, "randrange", return_value=0):
+            asyncio.run(advance_session(update, ctx))
+        self.assertEqual(len(state.nodes), 1)
+        rendered = ctx.bot.edit_message_text.call_args.kwargs.get("text") or ""
+        self.assertIn("نمایش پاسخ", rendered)
+        self.assertNotIn("جهان", rendered)  # world's meaning hidden on front
+        markup = ctx.bot.edit_message_text.call_args.kwargs["reply_markup"]
+        callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
+        self.assertEqual(callbacks, [f"srs:reveal:1:{world_id}"])
+
+    def test_resume_renders_front_stage_for_review_node(self):
+        from services.utils import formatting as fmt
+        word_id = self._word_id()
+        node = self._review_node(word_id)
+        state = SessionState(
+            nodes=[node], total_cards=1, tier3_context={},
+            study_msg_id=42, plan="free",
+        )
+        ctx = self._context()
+        ctx.bot.edit_message_reply_markup = AsyncMock()
+        ctx.user_data["current_session"] = state
+        update = self._update()
+        with patch.object(fmt.random, "randrange", return_value=0):
+            asyncio.run(handle_study_start(update, ctx))
+        rendered = ctx.bot.send_message.call_args.kwargs.get("text") or ""
+        self.assertIn("نمایش پاسخ", rendered)
+        self.assertNotIn("سلام", rendered)
+
+
 class TestAdvanceSession(_BaseStudyHandlerTest):
     def _make_state(self, nodes, total_cards=None):
         return SessionState(
@@ -424,6 +604,7 @@ class TestStudyStartEntryPoints(_BaseStudyHandlerTest):
         self, mock_build, mock_tier3
     ):
         from services.session import SessionNode
+        from services.utils import formatting as fmt
         card = {
             "word": "hello",
             "phonetic": "/həˈloʊ/",
@@ -447,7 +628,8 @@ class TestStudyStartEntryPoints(_BaseStudyHandlerTest):
 
         update = self._update()
         ctx = self._context()
-        asyncio.run(handle_study_start(update, ctx))
+        with patch.object(fmt.random, "randrange", return_value=0):
+            asyncio.run(handle_study_start(update, ctx))
 
         # Rendering must decode the stored JSON string from a real
         # sqlite3.Row (add_saved_word stores card_data as JSON text).
@@ -463,9 +645,11 @@ class TestStudyStartEntryPoints(_BaseStudyHandlerTest):
         # string, so their presence means the real sqlite3.Row was decoded.
         self.assertIn("hello", rendered)
         self.assertIn("/həˈloʊ/", rendered)
-        self.assertIn("سلام", rendered)
-        # Full card via format_card — the hidden SRS instruction is not shown.
-        self.assertNotIn("مرور فاصله", rendered)
+        # Review nodes now render the hidden front stage (#338): the meaning,
+        # example and grammar tip are NOT revealed until the reveal action.
+        self.assertNotIn("سلام", rendered)
+        self.assertNotIn("Hello there", rendered)
+        self.assertIn("نمایش پاسخ", rendered)
         # Persian-digit progress footer (pipe escaped by MarkdownV2).
         self.assertIn("نشست ۱ \\| کارت ۱ از ۱", rendered)
 
