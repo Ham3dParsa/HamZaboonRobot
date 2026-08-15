@@ -7,7 +7,13 @@ branch: feat/srs-staged-reveal
 status: planned
 ---
 
-STATE: phase 3/3 — status: PLANNED — tickets drafted (spec-to-tickets, 2026-08-15); blocking edge = Phase 2 merged
+STATE: phase 3/3 — status: PLANNED — tickets drafted (spec-to-tickets, 2026-08-15); blocking edge = Phase 2 merged; owner decisions LOCKED (2026-08-15) on toggle gating, presentation removal, delete scope
+
+## Locked owner decisions (2026-08-15)
+
+1. **Toggle gating:** display toggles are **premium-only** for now — the per-user toggle UI is gated like the `presentation` setting it replaces (non-premium users get default rendering, no toggle UI). The R10 resolution + admin-global defaults still apply to all users; only the user-facing toggle editing is premium-gated.
+2. **Presentation removal:** the old brief/detailed `presentation` setting is **fully removed** — `settings:presentation` route, `presentation:set:` callback (bot.py), `set_presentation_preference`, `presentation_settings_keyboard`, and its premium-gate text all removed and replaced by the toggle UI. Legacy `presentation_preference` column stays (unread) per spec §8; removed symbols added to `tests/test_dead_code_guard.py` BANNED_SYMBOLS.
+3. **Delete scope:** the `🗑 حذف کارت` button is available on **both** review front-stage cards AND first-exposure (new) cards.
 
 ## Blocking edges
 
@@ -36,15 +42,15 @@ STATE: phase 3/3 — status: PLANNED — tickets drafted (spec-to-tickets, 2026-
 
 ### P3-T2 — Delete-with-confirm (R6)
 - **Blocking:** Phase 2 (front keyboard exists; `srs:reveal:` flow).
-- **Scope:** `config/keyboards.py` — `get_srs_delete_confirm_keyboard(user_id, word_id)` (`بله حذف شود` → `srs:delete:yes:`, `انصراف` → `srs:delete:no:`); add `🗑 حذف کارت از جعبه مرور` row to `get_srs_front_keyboard`. `services/db/words.py::delete_saved_word(word_id, user_id)` — physical `DELETE FROM saved_words WHERE id=? AND user_id=?` (normalized, idempotent). `bot.py` routes `srs:delete:` / `srs:delete:yes:` / `srs:delete:no:`. Handlers in `srs_handler.py`: `_handle_srs_delete` (ownership guard → confirm message + confirm keyboard); `_handle_srs_delete_yes` (delete row → toast → pop node/`advance_session`); `_handle_srs_delete_no` (re-render the front stage on the same message).
-- **Tests:** `tests/test_wiring.py` (3 new prefixes); `tests/test_srs_staged_reveal.py` — confirm shown, yes deletes row + advances, no restores front stage, double-tap idempotent; integration flow.
+- **Scope:** `config/keyboards.py` — `get_srs_delete_confirm_keyboard(user_id, word_id)` (`بله حذف شود` → `srs:delete:yes:`, `انصراف` → `srs:delete:no:`); add `🗑 حذف کارت از جعبه مرور` row to **both** `get_srs_front_keyboard` (review) and `get_first_exposure_keyboard` (new cards — owner decision 2026-08-15). `services/db/words.py::delete_saved_word(word_id, user_id)` — physical `DELETE FROM saved_words WHERE id=? AND user_id=?` (normalized, idempotent). `bot.py` routes `srs:delete:` / `srs:delete:yes:` / `srs:delete:no:`. Handlers in `srs_handler.py`: `_handle_srs_delete` (ownership guard → confirm message + confirm keyboard); `_handle_srs_delete_yes` (delete row → toast → pop node/`advance_session`); `_handle_srs_delete_no` (re-render the front stage on the same message).
+- **Tests:** `tests/test_wiring.py` (3 new prefixes); `tests/test_srs_staged_reveal.py` — confirm shown, yes deletes row + advances, no restores front stage, double-tap idempotent; delete reachable from review AND first-exposure cards; integration flow.
 - **Gates:** R6.
 - **Wiring rows:** `srs:delete:` / `srs:delete:yes:` / `srs:delete:no:` → handlers (bot.py callback_router); keyboard rows in `config/keyboards.py`.
 
-### P3-T3 — Per-user toggle editing UI (R7/R9)
+### P3-T3 — Per-user toggle editing UI (R7/R9, premium-gated)
 - **Blocking:** none (toggle accessors on `main`).
-- **Scope:** `handlers/user.py` + `bot.py` settings routing — replace/absorb the `settings:presentation` flow with a display-toggle submenu (one button per field). Toggle via `db.set_display_toggle`; turning OFF a high-value field (explanation, synonyms, antonyms, examples) shows the R9 warning popup (`خاموش کردن نمایش این مورد کیفیت و غنای تجربه آموزشی را کاهش میدهد. باز هم خاموشش میکنید؟ بله / انصراف`) before applying; low-value fields (phonetic, grammar_tip, example_translations) toggle directly.
-- **Tests:** user-settings integration tests; wiring for new settings prefixes; `tests/test_dead_code_guard.py` BANNED_SYMBOLS += removed presentation symbols (see Open Questions).
+- **Scope:** `handlers/user.py` + `bot.py` settings routing — replace the `settings:presentation` flow with a **premium-gated** display-toggle submenu (one button per field); non-premium users see no toggle UI (or the previous premium-gate message). Toggle via `db.set_display_toggle`; turning OFF a high-value field (explanation, synonyms, antonyms, examples) shows the R9 warning popup (`خاموش کردن نمایش این مورد کیفیت و غنای تجربه آموزشی را کاهش میدهد. باز هم خاموشش میکنید؟ بله / انصراف`) before applying; low-value fields (phonetic, grammar_tip, example_translations) toggle directly. **Remove fully:** `settings:presentation` route, `presentation:set:` callback, `set_presentation_preference`, `presentation_settings_keyboard`, premium-gate text (owner decision 2026-08-15).
+- **Tests:** user-settings integration tests; wiring for new settings prefixes; `tests/test_dead_code_guard.py` BANNED_SYMBOLS += removed presentation symbols; premium-gate test (free plan cannot open toggles; silver/gold can).
 - **Gates:** R7, R9.
 - **Wiring rows:** new `settings:toggles:*` (or `settings:display:*`) prefixes → user handlers.
 
@@ -67,8 +73,6 @@ STATE: phase 3/3 — status: PLANNED — tickets drafted (spec-to-tickets, 2026-
 - Per-user toggles editable with R9 warning on high-value off; admin-global defaults + forced override work per R10 precedence.
 - All §6 checks green; independent review + Kilo clean; PR merged.
 
-## Open questions (resolve via contract-lock before Phase 3 implementation)
+## Open questions
 
-1. **Toggle premium gating:** the current `presentation` setting is premium-only. Should display toggles be available to all plans, or premium-only like the setting they replace? (Recommended: available to all plans — toggles are the replacement UX and the spec does not gate them.)
-2. **Presentation-setting removal scope (R7):** replace means remove — `settings:presentation` entry, `presentation:set:` callback, `set_presentation_preference`, `presentation_settings_keyboard`, and the premium gate text all become dead → dead-code guard entries. Confirm.
-3. **Delete button scope:** spec §2B lists `🗑 حذف کارت` on the review front stage only. Keep first-exposure cards non-deletable (recommended), or also add delete to first-exposure?
+All previously-open questions resolved by the owner (2026-08-15): toggle gating = premium-only; presentation setting fully removed; delete button on both review + first-exposure cards.
