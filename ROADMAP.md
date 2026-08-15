@@ -991,6 +991,10 @@ a separate lesson system.
   plan/user/model/outcome filters, price overrides, monthly projections, and
   a compact English overview with KPI hierarchy, failure alerts, ranked
   breakdowns, optional recent requests, and range presets.
+- An in-progress study session is now persisted to SQLite (`study_sessions`)
+  and resumed after a bot restart within the same app-day, instead of building
+  a fresh session and consuming an extra daily slot (owner report 2026-08-15,
+  issue #363). Overnight sessions are discarded and a fresh session is built.
 
 ## Out of Scope for the Current MVP
 

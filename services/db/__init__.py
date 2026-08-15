@@ -101,6 +101,12 @@ from services.db.words import (
     GradeResult,
 )
 
+from services.db.sessions import (
+    save_study_session,
+    load_study_session,
+    clear_study_session,
+)
+
 
 logger = logging.getLogger(__name__)
 _RESTORE_CORE_TABLES = frozenset(
