@@ -187,6 +187,8 @@ def init_db(path: str | None = None):
                 presentation_preference TEXT,
                 display_toggles TEXT,
                 display_toggles_forced TEXT,
+                first_exposure_mode TEXT,
+                review_mode TEXT,
                 onboarded INTEGER DEFAULT 0,
                 created_at TEXT
             );
@@ -303,6 +305,8 @@ def init_db(path: str | None = None):
             "presentation_preference": "TEXT",
             "display_toggles": "TEXT",
             "display_toggles_forced": "TEXT",
+            "first_exposure_mode": "TEXT",
+            "review_mode": "TEXT",
         }
         for name, definition in user_columns.items():
             if name not in columns:
@@ -409,6 +413,10 @@ def init_db(path: str | None = None):
             "llm_output_cost_usd_per_million": str(LLM_OUTPUT_COST_USD_PER_MILLION),
             "usd_to_toman_rate": str(USD_TO_TOMAN_RATE),
             "display_toggle_defaults": json.dumps(DISPLAY_TOGGLE_DEFAULTS),
+            "first_exposure_mode": "staged",
+            "review_mode": "staged",
+            "first_exposure_mode_gate": "premium",
+            "review_mode_gate": "premium",
         }
         for k, v in defaults.items():
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
@@ -711,10 +719,19 @@ def _init_plans_table(conn):
             max_sessions INTEGER NOT NULL DEFAULT 1,
             cards_per_session INTEGER NOT NULL DEFAULT 1,
             is_active INTEGER NOT NULL DEFAULT 1,
-            sort_order INTEGER NOT NULL DEFAULT 0
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            first_exposure_mode TEXT,
+            review_mode TEXT
         );
         """
     )
+    plan_columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(plans)").fetchall()
+    }
+    for col in ("first_exposure_mode", "review_mode"):
+        if col not in plan_columns:
+            conn.execute(f"ALTER TABLE plans ADD COLUMN {col} TEXT")
     count = conn.execute("SELECT COUNT(*) AS c FROM plans").fetchone()["c"]
     if count == 0:
         from services.db.plans import DEFAULT_PLANS

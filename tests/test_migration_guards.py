@@ -35,6 +35,20 @@ EXPECTED_COLUMNS = {
         "presentation_preference",
         "display_toggles",        # NOTE: added in #338 Phase 1 display-toggle migration
         "display_toggles_forced", # NOTE: added in #338 Phase 1 display-toggle migration
+        "first_exposure_mode",    # NOTE: added in CARD-MODES T1 (card-mode feature)
+        "review_mode",            # NOTE: added in CARD-MODES T1 (card-mode feature)
+    },
+    "plans": {
+        "name",
+        "display_name",
+        "price",
+        "query_quota",
+        "max_sessions",
+        "cards_per_session",
+        "is_active",
+        "sort_order",
+        "first_exposure_mode",    # NOTE: added in CARD-MODES T1 (card-mode feature)
+        "review_mode",            # NOTE: added in CARD-MODES T1 (card-mode feature)
     },
     "saved_words": {
         "id",
@@ -78,6 +92,7 @@ EXPECTED_TABLES = {
     "ai_presets",
     "preset_hourly_usage",
     "config_tests",
+    "plans",
 }
 
 # Tables that MUST NOT exist after init_db().
