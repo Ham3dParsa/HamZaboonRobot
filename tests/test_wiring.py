@@ -543,10 +543,9 @@ class TestCallbackWiring(unittest.TestCase):
         )
 
     def test_phase2_stale_callbacks_removed_and_survivors_routed(self):
-        """Phase 2a: the stale daily/review/SRS-prepare/reveal callback
-        prefixes must be gone from keyboards, and the surviving routes
-        (srs:fe:, study:start, query:add:) must still resolve in the
-        callback_router."""
+        """Phase 2a: the stale daily/review/SRS-prepare callback prefixes must
+        be gone from keyboards, and the surviving routes (srs:fe:, srs:reveal:,
+        study:start, query:add:) must still resolve in the callback_router."""
         kbd_text = Path("config/keyboards.py").read_text(encoding="utf-8")
         for removed in (
             "daily:prepare",
@@ -558,7 +557,6 @@ class TestCallbackWiring(unittest.TestCase):
             "review:page",
             "review:noop",
             "srs:prepare",
-            "srs:reveal",
             "daily_review_menu_keyboard",
             "daily_review_dates_keyboard",
             "daily_card_keyboard",
@@ -573,10 +571,10 @@ class TestCallbackWiring(unittest.TestCase):
             )
 
         handlers = _collect_router_handlers()
-        for survivor in ("study:start", "srs:fe", "srs", "query:add", "query:dup:new", "query:dup:reuse", "query:dup:cancel"):
+        for survivor in ("study:start", "srs:fe", "srs:reveal", "srs", "query:add", "query:dup:new", "query:dup:reuse", "query:dup:cancel"):
             self.assertTrue(
                 _prefix_matches_handler(survivor, handlers),
-                f"surviving Phase 2a route '{survivor}' is not routed",
+                f"surviving route '{survivor}' is not routed",
             )
 
     # ------------------------------------------------------------------

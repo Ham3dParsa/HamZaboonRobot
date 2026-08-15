@@ -131,10 +131,6 @@ BANNED_SYMBOLS: dict[str, str] = {
         "removed by FSRS migration Phase 2: legacy review-history paging replaced by "
         "the saved-words FSRS flow"
     ),
-    "_handle_srs_reveal": (
-        "removed by FSRS migration Phase 2: staged-reveal callback replaced by the "
-        "4-grade review flow"
-    ),
     "_handle_srs_prepare": (
         "removed by FSRS migration Phase 2: SRS prepare callback replaced by the "
         "4-grade review flow"

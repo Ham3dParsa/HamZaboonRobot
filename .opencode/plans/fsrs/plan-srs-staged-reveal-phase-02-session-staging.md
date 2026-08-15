@@ -4,10 +4,10 @@ description: Execution plan for #338 Phase 2 — session-flow staging: review fr
 created: 2026-08-15
 base_commit: dce5bc8
 branch: feat/srs-staged-reveal
-status: planned
+status: implementing
 ---
 
-STATE: phase 2/3 — status: PLANNED — tickets drafted (spec-to-tickets, 2026-08-15); blocking edge = Phase 1 merged (PR #353, `c920edb`) — DONE
+STATE: phase 2/3 — status: IMPLEMENTING — PR #355 open (feat/srs-staged-reveal @ `c1a4395`), CI green (label, test 3.10/3.13); Kilo review clean (all 3 findings resolved, "Merge"); awaiting owner squash-merge, then post-merge cleanup + Phase 3 — 2026-08-15
 
 ## Blocking edges
 

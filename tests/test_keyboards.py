@@ -6,6 +6,8 @@ from config.keyboards import (
     admin_awaiting_inline_keyboard,
     get_review_keyboard,
     get_first_exposure_keyboard,
+    get_srs_front_keyboard,
+    IBTN_SRS_REVEAL,
     lang_inline_keyboard,
     goal_inline_keyboard,
     level_inline_keyboard,
@@ -195,6 +197,21 @@ class TestReviewKeyboard(unittest.TestCase):
                 self.assertIn(parts[1], {"1", "2", "3", "4"})  # grade 1-4
                 self.assertEqual(parts[2], "123")
                 self.assertEqual(parts[3], "456")
+
+
+class TestSrsFrontKeyboard(unittest.TestCase):
+    def test_front_review_keyboard_has_reveal_button(self):
+        markup = get_srs_front_keyboard(123, 456)
+        rows = markup.inline_keyboard
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][0].text, IBTN_SRS_REVEAL)
+        self.assertEqual(rows[0][0].callback_data, "srs:reveal:123:456")
+
+    def test_front_keyboard_callback_under_srs_prefix(self):
+        markup = get_srs_front_keyboard(1, 10)
+        cb = markup.inline_keyboard[0][0].callback_data
+        self.assertTrue(cb.startswith("srs:"))
+        self.assertEqual(cb.split(":")[0:2], ["srs", "reveal"])
 
 
 class TestFirstExposureKeyboard(unittest.TestCase):

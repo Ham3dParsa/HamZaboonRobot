@@ -158,6 +158,7 @@ from handlers.study_handler import handle_study_inactive, handle_study_start
 from handlers.srs_handler import (
     _handle_first_exposure_grade,
     _handle_query_add,
+    _handle_srs_reveal,
     _handle_srs_review,
 )
 
@@ -719,6 +720,12 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await notify_callback(update.callback_query)
     elif data.startswith("llm:"):
         await _handle_llm_callback(update, context, data)
+    elif data.startswith("srs:reveal:"):
+        parts = data.split(":")
+        if len(parts) != 4:
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        await _handle_srs_reveal(update, context, parts[2], parts[3])
     elif data.startswith("srs:fe:"):
         parts = data.split(":")
         if len(parts) != 5:

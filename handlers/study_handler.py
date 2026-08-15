@@ -7,6 +7,7 @@ Phase 1e implementation — FSRS-6 4-grade session flow.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 
 from telegram import Update
@@ -22,16 +23,22 @@ from config import (
 from config.keyboards import (
     get_first_exposure_keyboard,
     get_review_keyboard,
+    get_srs_front_keyboard,
     study_inactive_keyboard,
 )
 from services import db
 from services.session import SessionNode, build_session_list, generate_tier3_node
 from services.scheduling import consume_session_slot, release_session_slot
 from services.utils.formatting import (
+    NEW_CARD_BADGE,
     _phonetic_lines,
     _saved_word_card,
+    days_since_review,
     escape_mdv2,
     format_card,
+    format_review_badge,
+    format_srs_front_stage,
+    select_srs_prompt_type,
     to_persian_digits,
 )
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
@@ -119,7 +126,9 @@ async def handle_study_start(
         try:
             node = state.nodes[0]
             user_id = node.activity_meta.get("user_id", 0)
-            text, keyboard = _build_card_text_and_keyboard(node, state, user_id)
+            text, keyboard = _build_card_text_and_keyboard(
+                node, state, user_id, user_data=context.user_data,
+            )
 
             # Deactivate the previous card message (if it still exists) so its
             # grade buttons are replaced by a single "not active" button. If
@@ -230,7 +239,9 @@ async def _render_and_send_first_card(
     node = state.nodes[0]
     chat_id = update.effective_chat.id
     user_id = node.activity_meta.get("user_id", 0)
-    text, keyboard = _build_card_text_and_keyboard(node, state, user_id)
+    text, keyboard = _build_card_text_and_keyboard(
+        node, state, user_id, user_data=context.user_data,
+    )
     msg = await context.bot.send_message(
         chat_id=chat_id,
         text=text,
@@ -240,39 +251,74 @@ async def _render_and_send_first_card(
     state.study_msg_id = msg.message_id
 
 
+def session_progress_footer(state, user_id: int) -> str:
+    """Progress footer for a session card — single source of truth shared by
+    the study render and the reveal/back-stage render (Kilo review #3)."""
+    remaining = len(state.nodes)
+    n = state.total_cards - remaining + 1
+    m = state.total_cards
+    return (
+        f"نشست {to_persian_digits(_session_number(user_id))}"
+        f" | کارت {to_persian_digits(n)} از {to_persian_digits(m)}"
+    )
+
+
 def _build_card_text_and_keyboard(
     node: SessionNode,
     state: SessionState,
     user_id: int,
+    user_data: dict | None = None,
 ) -> tuple[str, object]:
-    """Fetch card data, build formatted text + keyboard for a session node."""
+    """Fetch card data, build formatted text + keyboard for a session node.
+
+    ``user_data`` is the per-user context dict; when provided the render stashes
+    the chosen prompt type and the front-stage shown-at timestamp so the Phase 3
+    telemetry layer can record them at grade time (#338 R8/R12).
+    """
     word_id = node.source_id or 0
     word_row = db.get_saved_word(word_id, user_id)
     card_data = _saved_word_card(word_row) if word_row else {}
     card_data.setdefault("word", node.card_data.get("word", ""))
 
-    # keyboard from activity type
-    if node.activity_type == "first_exposure":
-        keyboard = get_first_exposure_keyboard(user_id, word_id)
-    else:
-        show_pronounce = db.should_show_pronounce(user_id)
-        keyboard = get_review_keyboard(user_id, word_id, show_pronounce=show_pronounce)
-
-    # format text — full card content via the shared formatter
     phonetic_lines = _phonetic_lines(card_data.get("phonetic", ""))
-    remaining = len(state.nodes)
-    n = state.total_cards - remaining + 1
-    m = state.total_cards
-    progress = (
-        f"نشست {to_persian_digits(_session_number(user_id))}"
-        f" | کارت {to_persian_digits(n)} از {to_persian_digits(m)}"
-    )
-    text = format_card(
-        card_data,
-        footer=progress,
-        phonetic_lines=phonetic_lines,
-    )
+    progress = session_progress_footer(state, user_id)
 
+    # keyboard + text by activity type
+    if node.activity_type == "first_exposure":
+        # Full card immediately, with the new-card badge (R5). No staging.
+        keyboard = get_first_exposure_keyboard(user_id, word_id)
+        text = format_card(
+            card_data,
+            footer=progress,
+            phonetic_lines=phonetic_lines,
+            badge=NEW_CARD_BADGE,
+        )
+        return text, keyboard
+
+    # srs_review: staged reveal — hidden front stage + reveal action.
+    toggles = db.get_display_toggles(user_id)
+    prompt_type = select_srs_prompt_type(card_data, toggles)
+    if user_data is not None:
+        # Re-arm the reveal action: a fresh front-stage presentation (new
+        # session, resume, or a repeated word) must accept reveal again even if
+        # this word was revealed in an earlier presentation (#338 §2B idempotency).
+        user_data.pop(f"revealed_{word_id}", None)
+        user_data[f"prompt_type_{word_id}"] = prompt_type
+        user_data[f"card_shown_at_{word_id}"] = time.time()
+    days = days_since_review(
+        word_row["last_review_at"] if word_row is not None else None
+    )
+    badge = format_review_badge(days) if days is not None else ""
+    show_pronounce = db.should_show_pronounce(user_id)
+    keyboard = get_srs_front_keyboard(user_id, word_id)
+    text = format_srs_front_stage(
+        card_data,
+        prompt_type,
+        toggles=toggles,
+        phonetic_lines=phonetic_lines,
+        badge=badge,
+        footer=progress,
+    )
     return text, keyboard
 
 
@@ -337,7 +383,9 @@ async def advance_session(
         if state.nodes:
             node = state.nodes[0]
             user_id = node.activity_meta.get("user_id", 0)
-            text, keyboard = _build_card_text_and_keyboard(node, state, user_id)
+            text, keyboard = _build_card_text_and_keyboard(
+                node, state, user_id, user_data=context.user_data,
+            )
             await context.bot.edit_message_text(
                 text=text,
                 chat_id=chat_id,
@@ -357,7 +405,7 @@ async def advance_session(
                 state.total_cards += 1
                 user_id = tier3_node.activity_meta.get("user_id", 0)
                 text, keyboard = _build_card_text_and_keyboard(
-                    tier3_node, state, user_id,
+                    tier3_node, state, user_id, user_data=context.user_data,
                 )
                 await context.bot.edit_message_text(
                     text=text,
