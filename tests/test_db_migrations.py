@@ -83,8 +83,11 @@ class AiPresetsMigrationsTests(unittest.TestCase):
         for col_name in (
             "name", "display_name", "price", "query_quota",
             "max_sessions", "cards_per_session", "is_active", "sort_order",
+            "first_exposure_mode", "review_mode",
         ):
             self.assertIn(col_name, cols, f"Missing plans column {col_name}")
+        self.assertIsNone(cols["first_exposure_mode"]["dflt_value"])
+        self.assertIsNone(cols["review_mode"]["dflt_value"])
 
     def test_fresh_db_seeds_default_plans(self):
         db_module.init_db()

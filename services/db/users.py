@@ -2,9 +2,33 @@ import datetime
 import json
 
 from config.catalog import DISPLAY_TOGGLE_DEFAULTS, DISPLAY_TOGGLE_FIELDS
-from services.db.plans import valid_plan_name
+from services.db.plans import get_plan, valid_plan_name
 from services.db.schema import get_conn, _today, _utc_now, _current_daily_count, _can_consume_daily_count
-from services.db.settings import get_display_toggle_defaults
+from services.db.settings import get_display_toggle_defaults, get_setting, set_setting
+
+# Canonical card-mode registry (CARD-MODES feature, locked 2026-08-15). Single
+# source of truth for card types, modes, and availability gates — consumed by
+# storage, the resolvers below, admin settings, plan wizard, and user controls.
+CARD_TYPES = ("first_exposure", "review")
+CARD_MODES = ("staged", "immediate")
+CARD_MODE_GATES = ("all", "premium")
+DEFAULT_CARD_MODE = "staged"
+DEFAULT_CARD_MODE_GATE = "premium"
+
+
+def _validate_card_type(card_type: str) -> None:
+    if card_type not in CARD_TYPES:
+        raise ValueError(f"Unknown card type: {card_type}")
+
+
+def _validate_card_mode(mode: str) -> None:
+    if mode not in CARD_MODES:
+        raise ValueError(f"Unknown card mode: {mode}")
+
+
+def _validate_card_mode_gate(gate: str) -> None:
+    if gate not in CARD_MODE_GATES:
+        raise ValueError(f"Unknown card-mode gate: {gate}")
 
 
 def get_user(user_id: int):
@@ -115,6 +139,105 @@ def should_show_pronounce(user_id: int, row=None) -> bool:
     if plan in PREMIUM_PLANS:
         return True
     return tts_setting == "all"
+
+
+def _sanitize_mode(value) -> str | None:
+    """Return a valid card mode or None so unknown stored values fall through."""
+    if value in CARD_MODES:
+        return value
+    return None
+
+
+def resolve_card_mode(user_id: int, card_type: str, row=None) -> str:
+    """Resolve the effective card mode for a user and card type (CARD-MODES R4).
+
+    Precedence: user override > plan value > admin-global > built-in
+    ``DEFAULT_CARD_MODE``. Unknown stored values fall through to the next
+    level (never crash). ``row`` is an optional pre-fetched users row reused to
+    avoid an extra SELECT (callers that already hold one pass it in).
+    """
+    _validate_card_type(card_type)
+    if row is None:
+        row = get_user(user_id)
+    if row:
+        user_mode = _sanitize_mode(row[f"{card_type}_mode"])
+        if user_mode:
+            return user_mode
+        plan = get_plan(row["plan"] or "free")
+        if plan:
+            plan_mode = _sanitize_mode(plan[f"{card_type}_mode"])
+            if plan_mode:
+                return plan_mode
+    global_mode = get_setting(f"{card_type}_mode", "")
+    return _sanitize_mode(global_mode) or DEFAULT_CARD_MODE
+
+
+def resolve_card_mode_gate(card_type: str) -> str:
+    """Return the admin-global availability gate for a card type (CARD-MODES R6)."""
+    _validate_card_type(card_type)
+    gate = get_setting(f"{card_type}_mode_gate", "")
+    if gate in CARD_MODE_GATES:
+        return gate
+    return DEFAULT_CARD_MODE_GATE
+
+
+def card_mode_available(user_id: int, card_type: str, row=None) -> bool:
+    """Whether a user may use the per-user control for ``card_type`` (R6).
+
+    ``all`` → everyone; ``premium`` → paid plans only. Mirrors
+    ``should_show_pronounce``'s gate semantics.
+    """
+    from config import PREMIUM_PLANS, _user_plan
+    gate = resolve_card_mode_gate(card_type)
+    if gate == "all":
+        return True
+    if row is None:
+        row = get_user(user_id)
+    if not row:
+        return False
+    return _user_plan(row) in PREMIUM_PLANS
+
+
+def set_user_card_mode(user_id: int, card_type: str, mode: str):
+    """Persist a user's own card-mode override (wins over plan/global)."""
+    _validate_card_type(card_type)
+    _validate_card_mode(mode)
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            f"UPDATE users SET {card_type}_mode=? WHERE user_id=?",
+            (mode, user_id),
+        )
+        conn.commit()
+
+
+def set_plan_card_mode(plan_name: str, card_type: str, mode: str):
+    """Persist a per-plan card-mode value (wins over the admin-global mode)."""
+    _validate_card_type(card_type)
+    _validate_card_mode(mode)
+    if not valid_plan_name(plan_name):
+        raise ValueError(f"Unknown plan: {plan_name}")
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            f"UPDATE plans SET {card_type}_mode=? WHERE name=?",
+            (mode, plan_name),
+        )
+        conn.commit()
+
+
+def set_global_card_mode(card_type: str, mode: str):
+    """Persist the admin-global card mode for a card type."""
+    _validate_card_type(card_type)
+    _validate_card_mode(mode)
+    set_setting(f"{card_type}_mode", mode)
+
+
+def set_card_mode_gate(card_type: str, gate: str):
+    """Persist the admin-global availability gate for a card type."""
+    _validate_card_type(card_type)
+    _validate_card_mode_gate(gate)
+    set_setting(f"{card_type}_mode_gate", gate)
 
 
 def get_quota_status(user_id: int) -> dict | None:
