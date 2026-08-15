@@ -45,7 +45,7 @@ IBTN_SRS_EASY_REVIEW = "خیلی راحت بود 🟣"
 IBTN_SRS_AGAIN_FE = "کاملاً ناآشناام 🟥"
 IBTN_SRS_HARD_FE = "کمی آشناام 🟨"
 IBTN_SRS_GOOD_FE = "آشنایی خوب 🟩"
-IBTN_SRS_EASY_FE = "کاملاً بلدمش 🟪"
+IBTN_SRS_EASY_FE = "کاملاً بلدم 🟪"
 IBTN_SRS_REVEAL = "👁 نمایش پاسخ"
 
 # --- Query / Word Lookup ---
