@@ -2804,7 +2804,8 @@
 
                 price: typeof p.price === 'number' ? p.price : (base && base.price) || 0,
 
-                callsPerDay: p.id === 'free' ? 0 : (typeof p.callsPerDay === 'number' ? p.callsPerDay : (base && base.callsPerDay) || 3),
+                // توجه: مقدار ۰ برای سهمیهٔ روزانهٔ یک پلنِ پولی معتبر است؛ پیش‌فرض نباید آن را به ۳ بازنشانی کند
+                callsPerDay: p.id === 'free' ? 0 : (typeof p.callsPerDay === 'number' ? p.callsPerDay : (base && typeof base.callsPerDay === 'number' ? base.callsPerDay : 3)),
 
                 initialCount: typeof p.initialCount === 'number' ? p.initialCount : (base && base.initialCount) || 0,
 

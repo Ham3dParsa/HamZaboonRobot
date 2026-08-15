@@ -437,3 +437,21 @@ def test_selected_plan_editor_keeps_commercial_fields_editable():
     # analysis table still edits the same plans (both editors share the source)
 
     assert 'data-plan-analysis="price"' in html
+
+
+def test_credit_pack_share_sum_counts_only_active_packs():
+
+    html = _html()
+
+    # the displayed sales-share mix must match the normalize/simulation base (active packs only),
+    # so deactivating a pack cannot inflate the shown total or block "normalize" from reaching 100%
+    assert "creditPacks.value.filter(p => p.active !== false).reduce((s, p) => s + (Math.max(0, Number(p.salesSharePct) || 0)), 0)" in html
+
+
+def test_callsperday_preserves_intentional_zero_over_falsy_default():
+
+    html = _html()
+
+    # a paid plan's intentional 0 daily quota must NOT be reset to 3 by the falsy `||` default
+    # (Kilo review: the prior `(base && base.callsPerDay) || 3` treated 0 as falsy)
+    assert "typeof base.callsPerDay === 'number' ? base.callsPerDay : 3" in html
