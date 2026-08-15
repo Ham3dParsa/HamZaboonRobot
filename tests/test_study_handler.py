@@ -472,6 +472,7 @@ class TestStagedRevealRender(_BaseStudyHandlerTest):
         self.assertIn("کارت جدید ✨", text)
         self.assertIn("سلام", text)
         self.assertIn("Hello there", text)
+        self.assertIn("ترجمه", text)  # Rule 3: example translations follow the toggle
         callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
         self.assertTrue(all(cb.startswith("srs:fe:") for cb in callbacks))
         self.assertNotIn("نمایش پاسخ", text)  # no reveal sub-instruction in immediate mode

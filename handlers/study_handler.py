@@ -286,8 +286,7 @@ def _build_card_text_and_keyboard(
     # keyboard + text by activity type
     if node.activity_type == "first_exposure":
         return _render_first_exposure(
-            node, word_id, word_row, card_data, phonetic_lines,
-            progress, user_id, user_data,
+            word_id, card_data, phonetic_lines, progress, user_id, user_data,
         )
 
     # srs_review: mode-aware render.
@@ -333,9 +332,7 @@ def _build_card_text_and_keyboard(
 
 
 def _render_first_exposure(
-    node: SessionNode,
     word_id: int,
-    word_row,
     card_data: dict,
     phonetic_lines: list[str],
     progress: str,

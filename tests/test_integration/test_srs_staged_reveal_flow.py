@@ -190,6 +190,7 @@ class StagedRevealFlowTest(unittest.TestCase):
         back_kwargs = ctx.bot.edit_message_text.call_args.kwargs
         self.assertEqual(back_kwargs["message_id"], 999)
         self.assertIn("سلام", back_kwargs["text"])
+        self.assertIn("ترجمه", back_kwargs["text"])  # Rule 3: translations follow toggle
         back_kb = back_kwargs["reply_markup"]
         back_cbs = [b.callback_data for row in back_kb.inline_keyboard for b in row]
         self.assertEqual(back_cbs, [
