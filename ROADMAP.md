@@ -165,9 +165,11 @@ Completed on the current main branch:
   Phase 4 builtin/is_custom removal (drop is_custom column via table-rebuild
   migration, delete BUILTIN_PRESETS/seed helpers, no auto-seed, remove
   fallback literal defaults and is_custom guards, full sweep of schema,
-  preset_registry, ai_presets, admin_ai, keyboards, tools, tests). Remaining:
-  Phase 5 (secure keys), Phase 6 (activation=preferred), Phase 7
-  (reasoning-effort).
+  preset_registry, ai_presets, admin_ai, keyboards, tools, tests). Phase 5
+  (secure keys, R11/F2) complete — encrypted-at-rest API keys via Fernet
+  `AI_MASTER_KEY` in PR #339 (v1: ciphertext marker, fail-closed writes,
+  migration resolves $ENV refs). Remaining: Phase 6 (activation=preferred),
+  Phase 7 (reasoning-effort).
 - Integration tests for fallback chain behavior.
 - Blocked-user detection to prevent wasted AI and Telegram API calls on
   users who have blocked the bot (#210).
