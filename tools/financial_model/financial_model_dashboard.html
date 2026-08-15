@@ -1,2314 +1,4951 @@
 <!DOCTYPE html>
+
 <html lang="fa" dir="rtl">
+
 <head>
+
   <meta charset="UTF-8">
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
   <title>داشبورد مالی هم‌زبان</title>
 
+
+
   <!-- Fonts -->
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
+
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
   <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
+
+
   <!-- Tailwind CSS -->
+
   <script src="https://cdn.tailwindcss.com"></script>
+
   <script>
+
     tailwind.config = {
+
       theme: {
+
         extend: {
+
           colors: {
+
             ink: "#101828", inkSoft: "#344054", paper: "#FAF8F4", card: "#FFFFFF", line: "#E7E3DA",
+
             turquoise: "#0D9488", turquoiseDeep: "#0F766E", turquoiseSoft: "#CCFBF1",
+
             amber: "#D97706", amberSoft: "#FEF3C7", rose: "#DC2626", roseSoft: "#FEE2E2",
+
             emerald: "#059669", emeraldSoft: "#D1FAE5", indigoSoft: "#E0E7FF",
+
             gold: "#EAB308", bronze: "#CD7F32"
+
           },
+
           fontFamily: { sans: ['Vazirmatn', 'sans-serif'] }
+
         }
+
       }
+
     }
+
   </script>
 
-  <!-- Vue 3 & Chart.js & Lucide Icons -->
+
+
+  <!-- Vue 3 & Chart.js & Lucide Icons & Floating UI -->
+
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <script src="https://unpkg.com/lucide@latest"></script>
 
+  <script src="https://cdn.jsdelivr.net/npm/@floating-ui/core@1.6.0/dist/floating-ui.core.umd.min.js"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/@floating-ui/dom@1.6.11/dist/floating-ui.dom.umd.js"></script>
+
+
+
   <style>
+
     body { background-color: #FAF8F4; color: #101828; -webkit-tap-highlight-color: transparent; }
+
     * { box-sizing: border-box; }
+
     [v-cloak] { display: none !important; }
 
+
+
     .hz-slider {
+
       -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px;
+
       background: linear-gradient(90deg, #0D9488 0%, #E7E3DA 0%); outline: none;
+
     }
+
     .hz-slider::-webkit-slider-thumb {
-      -webkit-appearance: none; appearance: none; width: 18px; height: 18px;
+
+      -webkit-appearance: none; appearance: none; width: 24px; height: 24px;
+
       border-radius: 50%; background: #0F766E; border: 3px solid #fff;
+
       box-shadow: 0 1px 4px rgba(15,118,110,0.4); cursor: pointer;
+
     }
+
+    .hz-slider::-moz-range-thumb {
+
+      width: 24px; height: 24px; border-radius: 50%; background: #0F766E;
+
+      border: 3px solid #fff; box-shadow: 0 1px 4px rgba(15,118,110,0.4); cursor: pointer;
+
+    }
+
+    @media (max-width: 1023px) {
+
+      .hz-slider::-webkit-slider-thumb { width: 32px; height: 32px; }
+
+      .hz-slider::-moz-range-thumb { width: 32px; height: 32px; }
+
+    }
+
     .girih-header {
+
       background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.14) 1px, transparent 0);
+
       background-size: 18px 18px;
+
     }
+
     .hz-scroll::-webkit-scrollbar { height: 6px; width: 6px; }
+
     .hz-scroll::-webkit-scrollbar-track { background: #FAF8F4; border-radius: 999px; }
+
     .hz-scroll::-webkit-scrollbar-thumb { background: #E7E3DA; border-radius: 999px; }
+
     .hz-scroll::-webkit-scrollbar-thumb:hover { background: #0D9488; }
 
+
+
     .hz-tip-enter-active, .hz-tip-leave-active { transition: opacity .12s ease, transform .12s ease; }
+
     .hz-tip-enter-from, .hz-tip-leave-to { opacity: 0; transform: translateY(4px); }
+
+
+
+    .accordion-grid { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .3s ease; }
+
+    .accordion-grid.open { grid-template-rows: 1fr; }
+
+    .accordion-inner { overflow: hidden; min-height: 0; }
+
+    @media (prefers-reduced-motion: reduce) {
+
+      .accordion-grid { transition: none; }
+
+    }
+
   </style>
+
 </head>
+
 <body class="min-h-screen w-full selection:bg-turquoiseSoft selection:text-turquoiseDeep">
 
-  <div id="app" v-cloak class="flex flex-col min-h-screen pb-24 lg:pb-28 relative">
+
+
+  <div id="app" v-cloak class="flex flex-col min-h-screen pb-24 lg:pb-0 relative">
+
+
 
     <!-- ========== Top Header ========== -->
+
     <header class="girih-header bg-ink text-white sticky top-0 z-40 shadow-md">
+
       <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-10 py-4 lg:py-5 flex items-center justify-between gap-4">
+
         <div class="flex items-center gap-3">
+
           <div class="bg-turquoise p-2 rounded-xl text-white shadow-inner">
+
             <i data-lucide="piggy-bank" class="w-5 h-5 sm:w-6 sm:h-6"></i>
+
           </div>
+
           <div>
+
             <h1 class="text-lg sm:text-2xl font-extrabold flex items-center gap-2">داشبورد مالی هم‌زبان</h1>
+
             <p dir="ltr" class="text-[10px] sm:text-[11px] opacity-60 font-medium mt-0.5 text-right sm:text-left tracking-wide">HamZaboon Financial Model</p>
+
           </div>
+
         </div>
+
+
 
         <div class="hidden lg:flex items-center gap-2 mr-auto ml-4">
+
           <button @click="exportJSON" class="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2 transition-colors bg-white/10 hover:bg-white/20">
+
             <i data-lucide="download" class="w-4 h-4"></i> خروجی JSON
+
           </button>
+
           <button @click="triggerImport" class="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2 transition-colors bg-white/10 hover:bg-white/20">
+
             <i data-lucide="upload" class="w-4 h-4"></i> ورودی JSON
+
           </button>
+
           <button @click="reset" class="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2 transition-colors bg-white/10 hover:bg-white/20">
+
             <i data-lucide="refresh-cw" class="w-4 h-4"></i> بازیابی
+
           </button>
+
         </div>
+
         <input ref="fileInput" type="file" accept="application/json" class="hidden" @change="importJSON">
+
       </div>
+
     </header>
 
-    <!-- ========== Desktop Floating Glass Dock ========== -->
-    <nav class="hidden lg:flex fixed bottom-6 left-1/2 -translate-x-1/2 z-50 items-center gap-1 bg-white/70 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(16,24,40,0.18)] rounded-full px-2 py-2">
-      <button @click="activeTab = 'inputs'" :class="activeTab === 'inputs' ? 'bg-ink text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-4 py-2.5 rounded-full transition-all flex items-center gap-2 text-sm font-medium">
-        <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> تنظیمات
-      </button>
-      <button @click="activeTab = 'dashboard'" :class="activeTab === 'dashboard' ? 'bg-ink text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-4 py-2.5 rounded-full transition-all flex items-center gap-2 text-sm font-medium">
-        <i data-lucide="layout-dashboard" class="w-4 h-4"></i> داشبورد
-      </button>
-      <button @click="activeTab = 'marketing'" :class="activeTab === 'marketing' ? 'bg-indigo-600 text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-4 py-2.5 rounded-full transition-all flex items-center gap-2 text-sm font-medium">
-        <i data-lucide="lightbulb" class="w-4 h-4"></i> بازاریابی
-      </button>
-      <button @click="activeTab = 'guide'" :class="activeTab === 'guide' ? 'bg-turquoiseDeep text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-4 py-2.5 rounded-full transition-all flex items-center gap-2 text-sm font-medium">
-        <i data-lucide="book-open" class="w-4 h-4"></i> راهنما
-      </button>
-    </nav>
+
+
+    <!-- ========== Desktop Sidebar Navigation ========== -->
+
+    <aside class="hidden lg:flex fixed top-[84px] bottom-0 right-0 z-30 flex-col bg-card/90 backdrop-blur-2xl border border-line border-r-0 rounded-l-2xl shadow-[0_8px_32px_rgba(16,24,40,0.12)] transition-[width] duration-300"
+
+           :class="sidebarCollapsed ? 'w-20' : 'w-64'">
+
+      <div class="flex items-center pt-4 px-2 pb-2">
+
+        <button @click="toggleSidebar" :title="sidebarCollapsed ? 'باز کردن منو' : 'بستن منو'" :aria-expanded="!sidebarCollapsed" :aria-label="sidebarCollapsed ? 'باز کردن منو' : 'بستن منو'" class="p-2 rounded-lg text-inkSoft hover:bg-paper transition-colors mx-auto">
+
+          <i :data-lucide="sidebarCollapsed ? 'chevrons-right' : 'chevrons-left'" class="w-5 h-5"></i>
+
+        </button>
+
+      </div>
+
+      <nav class="flex flex-col gap-1 px-2 pb-4 mt-1 flex-1" aria-label="منوی اصلی داشبورد">
+
+        <button v-for="item in navItems" :key="item.key" @click="activeTab = item.key"
+
+                :title="sidebarCollapsed ? item.label : null" :aria-current="activeTab === item.key ? 'page' : null"
+
+                class="flex items-center gap-3 rounded-xl px-3 py-3 transition-all text-sm font-medium"
+
+                :class="[activeTab === item.key ? navActiveClass(item.key) : 'text-inkSoft hover:bg-black/5', sidebarCollapsed ? 'justify-center px-0' : '']">
+
+          <i :data-lucide="item.icon" class="w-5 h-5 shrink-0"></i>
+
+          <span v-if="!sidebarCollapsed" class="truncate">{{ item.label }}</span>
+
+        </button>
+
+      </nav>
+
+    </aside>
+
+
 
     <!-- ========== Main Body ========== -->
-    <main class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-10 py-6 grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6 items-start flex-1 w-full">
+
+    <main class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-10 py-6 grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6 items-start flex-1 w-full" :style="desktopContentPad">
+
+
 
       <!-- ===== INPUTS COLUMN ===== -->
-      <div v-show="activeTab === 'inputs' || (isDesktop && activeTab === 'dashboard')" class="flex flex-col gap-4 lg:sticky lg:top-[90px]">
+
+      <div v-show="activeTab === 'inputs'" class="flex flex-col gap-4 lg:sticky lg:top-[90px]">
+
         <div class="lg:hidden flex items-center gap-2">
+
           <button @click="exportJSON" class="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium rounded-xl px-3 py-2.5 bg-card border border-line text-inkSoft">
+
             <i data-lucide="download" class="w-4 h-4"></i> خروجی JSON
+
           </button>
+
           <button @click="triggerImport" class="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium rounded-xl px-3 py-2.5 bg-card border border-line text-inkSoft">
+
             <i data-lucide="upload" class="w-4 h-4"></i> ورودی JSON
+
           </button>
+
         </div>
+
         <div class="bg-card border border-line rounded-2xl p-3 shadow-sm">
+
           <div class="flex items-center gap-2 mb-3 text-[13px] font-bold text-inkSoft">
+
             <i data-lucide="users-2" class="w-4 h-4 text-turquoiseDeep"></i> استراتژی ورودی کاربران
+
           </div>
+
           <div class="flex bg-paper p-1 rounded-xl text-[11px] font-medium border border-line">
+
             <button @click="inp.inputMode = 'conversion'" :class="inp.inputMode === 'conversion' ? 'bg-white shadow text-turquoiseDeep border border-line/50' : 'text-inkSoft'" class="flex-1 py-2 rounded-lg transition">
+
               بر اساس نرخ تبدیل
+
             </button>
+
             <button @click="inp.inputMode = 'manual'" :class="inp.inputMode === 'manual' ? 'bg-white shadow text-turquoiseDeep border border-line/50' : 'text-inkSoft'" class="flex-1 py-2 rounded-lg transition">
+
               ورود دستی آمار
+
             </button>
+
           </div>
+
         </div>
+
+
 
         <section-card title="پلن‌ها و تعداد کاربران" en="Plans & Users" icon="users">
+
           <template v-if="inp.inputMode === 'conversion'">
+
             <number-field label="کل کاربران فعال (MAU)" en="Total Users" v-model="inp.mau" :min="100" :max="50000" :step="100" unit="نفر"></number-field>
+
             <number-field label="نرخ تبدیل به پولی" en="Conversion Rate" v-model="inp.convBase" :min="1" :max="15" :step="0.5" unit="٪"></number-field>
+
             <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-emeraldSoft/50 text-emerald font-bold rounded-xl mt-2 border border-emeraldSoft">
-              <span>سهم پلن‌ها (تنظیم در «قیمت و سهم پلن‌ها»)</span>
+
+               <span>سهم پلن‌ها (قابل ویرایش در جدول تحلیلی یا «مدیریت پلن‌ها»)</span>
+
               <span dir="ltr">{{ paidPlansShareSum }}٪</span>
+
             </div>
+
           </template>
+
           <template v-else>
+
             <div v-for="p in inp.plans" :key="p.id" class="mb-3 pb-3 border-b border-dashed border-line last:border-0 last:mb-0 last:pb-0">
+
               <div class="text-[13px] font-bold mb-2">{{ p.name }} <span dir="ltr" class="text-[10px] opacity-60">{{ p.nameEn }}</span></div>
+
               <number-field label="تعداد کاربر" v-model.number="p.initialCount" :min="0" :max="20000" :step="10"></number-field>
+
             </div>
+
           </template>
+
         </section-card>
+
+
 
         <section-card title="قیمت و سهم — نمای تحلیلی" en="Pricing & Share — Analysis" icon="tags" :default-open="false">
-          <p class="text-[10px] text-inkSoft/70 leading-relaxed mb-3">این بخش فقط‌خواندنی است. تعریف و ویرایش پلن‌ها در «مدیریت پلن‌ها» و بسته‌های Query در «مدیریت بسته‌های اعتبار» انجام می‌شود.</p>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+
+            <div class="flex items-center gap-2.5 p-2.5 rounded-xl bg-turquoiseSoft/40 border border-turquoiseSoft text-turquoiseDeep">
+
+              <i data-lucide="tags" class="w-4 h-4 flex-shrink-0"></i>
+
+              <div class="text-[10px] font-bold leading-tight">
+
+                پلن‌ها
+
+                <div class="font-normal opacity-80">همین جدول — قیمت، سهمیه و سهم</div>
+
+              </div>
+
+            </div>
+
+            <div class="flex items-center gap-2.5 p-2.5 rounded-xl bg-indigoSoft/50 border border-indigo-200 text-indigo-900">
+
+              <i data-lucide="ticket" class="w-4 h-4 flex-shrink-0"></i>
+
+              <div class="text-[10px] font-bold leading-tight flex-1 min-w-0">
+
+                بسته‌های Query
+
+                <div class="font-normal opacity-80">مدیریت مستقل</div>
+
+              </div>
+
+              <button type="button" @click="gotoMarketing" class="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold transition-colors flex-shrink-0">مدیریت</button>
+
+            </div>
+
+          </div>
+
           <div class="text-[11px] font-bold text-inkSoft mb-2">پلن‌ها</div>
+
           <div class="overflow-x-auto hz-scroll border border-line rounded-xl mb-3">
-            <table class="w-full min-w-[560px] text-[10px]">
+
+            <table class="w-full min-w-[760px] text-[10px] tabular-nums">
+
               <thead class="bg-paper text-inkSoft"><tr>
+
                 <th class="p-2 text-right">پلن</th><th class="p-2 text-right">نوع</th><th class="p-2 text-right">قیمت</th>
+
                 <th class="p-2 text-right">سهمیه AI</th><th class="p-2 text-right">ترکیب ارتقا</th>
+
               </tr></thead>
+
               <tbody>
+
                 <tr v-for="p in inp.plans" :key="p.id" class="border-t border-line/60">
+
                   <td class="p-2 font-bold">{{ p.name }} <span dir="ltr" class="opacity-50">{{ p.nameEn }}</span></td>
+
                   <td class="p-2">{{ p.id === 'free' ? 'رایگان' : 'پولی' }}</td>
-                  <td class="p-2" dir="ltr">{{ p.id === 'free' ? '—' : format(p.price) }} تومان</td>
-                  <td class="p-2" dir="ltr">{{ format(p.callsPerDay) }} / روز</td>
-                  <td class="p-2" dir="ltr">{{ p.id === 'free' ? '—' : Math.round(p.sharePct || 0) + '٪' }}</td>
+
+                  <td class="p-2">
+
+                    <template v-if="p.id !== 'free'">
+
+                      <div class="flex items-center gap-1" dir="ltr">
+
+                        <input type="number" v-model.number="p.price" min="0" max="3000000" step="1000"
+
+                               data-plan-analysis="price" :aria-label="'قیمت پلن ' + p.name"
+
+                               @change="clampPlanField(p, 'price', 0, 3000000)"
+
+                               class="w-28 min-h-[44px] rounded-lg bg-paper border border-line px-2 py-2 text-[10px] font-bold text-ink text-left outline-none focus:border-turquoiseDeep transition">
+
+                        <span class="text-[9px] text-inkSoft/70 whitespace-nowrap">تومان</span>
+
+                      </div>
+
+                      <div class="text-[9px] text-inkSoft/70 mt-1" dir="ltr">{{ format(p.price) }} تومان</div>
+
+                    </template>
+
+                    <span v-else class="text-inkSoft/60" dir="ltr">—</span>
+
+                  </td>
+
+                  <td class="p-2">
+
+                    <template v-if="p.id !== 'free'">
+
+                      <div class="flex items-center gap-1" dir="ltr">
+
+                        <input type="number" v-model.number="p.callsPerDay" min="0" max="100" step="1"
+
+                               data-plan-analysis="quota" :aria-label="'سهمیه AI پلن ' + p.name"
+
+                               @change="clampPlanField(p, 'callsPerDay', 0, 100)"
+
+                               class="w-20 min-h-[44px] rounded-lg bg-paper border border-line px-2 py-2 text-[10px] font-bold text-ink text-left outline-none focus:border-turquoiseDeep transition">
+
+                        <span class="text-[9px] text-inkSoft/70 whitespace-nowrap">/ روز</span>
+
+                      </div>
+
+                    </template>
+
+                    <span v-else class="text-left" dir="ltr">{{ format(p.callsPerDay) }} / روز</span>
+
+                  </td>
+
+                  <td class="p-2">
+
+                    <template v-if="p.id !== 'free'">
+
+                      <div class="flex items-center gap-1" dir="ltr">
+
+                        <input type="number" v-model.number="p.sharePct" min="0" max="100" step="1"
+
+                               data-plan-analysis="share" :aria-label="'ترکیب ارتقای پلن ' + p.name"
+
+                               class="w-20 min-h-[44px] rounded-lg bg-paper border border-line px-2 py-2 text-[10px] font-bold text-turquoiseDeep text-left outline-none focus:border-turquoiseDeep transition"
+
+                               @change="autoBalanceShare(p.id, $event.target.value)">
+
+                        <span class="text-[9px] text-inkSoft/70">٪</span>
+
+                      </div>
+
+                    </template>
+
+                    <span v-else class="text-inkSoft/60" dir="ltr">—</span>
+
+                  </td>
+
                 </tr>
+
               </tbody>
+
             </table>
+
           </div>
+
           <div class="flex items-center justify-between text-[10px] px-3 py-2 bg-turquoiseSoft/40 text-turquoiseDeep font-bold rounded-xl border border-turquoiseSoft mb-4">
+
             <span>مجموع ترکیب ارتقای پلن‌های پولی</span><span dir="ltr">{{ paidPlansShareSum }}٪</span>
+
           </div>
+
           <div class="text-[11px] font-bold text-inkSoft mb-2">بسته‌های اعتبار Query</div>
+
           <div v-if="creditPacks.length" class="overflow-x-auto hz-scroll border border-line rounded-xl">
-            <table class="w-full min-w-[620px] text-[10px]">
+
+            <table class="w-full min-w-[620px] text-[10px] tabular-nums">
+
               <thead class="bg-paper text-inkSoft"><tr>
+
                 <th class="p-2 text-right">بسته</th><th class="p-2 text-right">قیمت</th><th class="p-2 text-right">اعتبار</th>
+
                 <th class="p-2 text-right">قیمت هر Query</th><th class="p-2 text-right">سهم فروش</th><th class="p-2 text-right">ماه اول</th>
+
               </tr></thead>
+
               <tbody>
+
                 <tr v-for="p in creditPacks" :key="p.id" class="border-t border-line/60">
+
                   <td class="p-2 font-bold">{{ p.name }} <span v-if="!p.active" class="text-rose">(غیرفعال)</span></td>
-                  <td class="p-2" dir="ltr">{{ format(p.price) }} تومان</td>
-                  <td class="p-2" dir="ltr">{{ format(p.credits) }}</td>
-                  <td class="p-2" dir="ltr">{{ format(creditPackPricePerQuery(p), 0) }} تومان</td>
-                  <td class="p-2" dir="ltr">{{ Math.round(p.salesSharePct || 0) }}٪</td>
-                  <td class="p-2" dir="ltr">{{ format(packSalesM1(p)) }} فروش</td>
+
+                  <td class="p-2 text-left" dir="ltr">{{ format(p.price) }} تومان</td>
+
+                  <td class="p-2 text-left" dir="ltr">{{ format(p.credits) }}</td>
+
+                  <td class="p-2 text-left" dir="ltr">{{ format(creditPackPricePerQuery(p), 0) }} تومان</td>
+
+                  <td class="p-2 text-left" dir="ltr">{{ Math.round(p.salesSharePct || 0) }}٪</td>
+
+                  <td class="p-2 text-left" dir="ltr">{{ format(packSalesM1(p)) }} فروش</td>
+
                 </tr>
+
               </tbody>
+
             </table>
+
           </div>
+
           <div class="flex items-center justify-between text-[10px] px-3 py-2 bg-indigoSoft/60 text-indigo-900 font-bold rounded-xl mt-3 border border-indigo-200">
+
             <span>مجموع ترکیب فروش بسته‌های Query</span><span dir="ltr">{{ creditPackSalesShareSum }}٪</span>
+
           </div>
+
         </section-card>
+
+
 
         <section-card title="قیمت و هزینه AI" en="Pricing & AI" icon="wallet">
+
           <number-field label="هزینه هر فراخوانی AI" en="Cost per Call" v-model="inp.aiCostPerCallUSD" :min="0.0001" :max="0.002" :step="0.00005" unit="$"></number-field>
+
           <number-field label="نرخ دلار به تومان" v-model="inp.exchangeRate" :min="50000" :max="300000" :step="1000" unit="تومان"></number-field>
-          <p class="text-[10px] text-inkSoft/70 leading-relaxed mt-1">قیمت و سهمیهٔ پلن‌ها در مدیریت پلن‌ها و قیمت و سهم فروش بسته‌های Query در مدیریت بسته‌های اعتبار تنظیم می‌شود؛ این نمای تحلیلی فقط‌خواندنی است.</p>
+
+          <p class="text-[10px] text-inkSoft/70 leading-relaxed mt-1">قیمت، سهمیه و ترکیب ارتقای پلن‌ها از جدول تحلیلی بالا یا «مدیریت پلن‌ها» قابل ویرایش است؛ قیمت و سهم فروش بسته‌های Query در «مدیریت بسته‌های اعتبار» تنظیم می‌شود.</p>
+
         </section-card>
+
+
 
         <section-card title="مدل AI و هزینه واقعی" en="AI Model & Cost" icon="cpu">
-          <div class="mb-4">
+
+          <div class="mb-6">
+
             <div class="text-[12px] font-bold text-inkSoft mb-1.5">انتخاب مدل</div>
+
             <div class="flex bg-paper p-1 rounded-xl text-[11px] font-medium border border-line">
+
               <button @click="setModelChoice('cheap')" :class="getTierOf('cheap') ? 'bg-white shadow text-turquoiseDeep border border-line/50' : 'text-inkSoft'" class="flex-1 py-2 rounded-lg transition" :disabled="inp.modelChoice === 'custom'">اقتصادی</button>
+
               <button @click="setModelChoice('mid')" :class="getTierOf('mid') ? 'bg-white shadow text-turquoiseDeep border border-line/50' : 'text-inkSoft'" class="flex-1 py-2 rounded-lg transition" :disabled="inp.modelChoice === 'custom'">متوسط</button>
+
               <button @click="setModelChoice('strong')" :class="getTierOf('strong') ? 'bg-white shadow text-turquoiseDeep border border-line/50' : 'text-inkSoft'" class="flex-1 py-2 rounded-lg transition" :disabled="inp.modelChoice === 'custom'">قوی</button>
+
             </div>
+
             <div class="text-[10px] opacity-60 mt-1.5 leading-relaxed">اقتصادی = DeepSeek و Gemma؛ متوسط = Gemini Flash-Lite؛ قوی = Gemini Flash. قیمت‌ها به ازای ۱ میلیون توکن.</div>
+
           </div>
-          <div class="mb-4">
+
+          <div class="mb-6">
+
             <div class="text-[12px] font-bold text-inkSoft mb-1.5">مدل دقیق</div>
+
             <select v-model="inp.modelChoice" class="w-full bg-paper border border-line rounded-xl px-3 py-2.5 text-[12px] outline-none focus:border-turquoiseDeep transition">
+
               <optgroup v-for="tier in ['cheap','mid','strong']" :key="tier" :label="TIER_LABEL[tier]">
+
                 <option v-for="id in TIER_MODELS[tier]" :key="id" :value="id">{{ MODEL_PRICING[id].label }} — ${{ format(MODEL_PRICING[id].in, 2) }}/${{ format(MODEL_PRICING[id].out, 2) }}</option>
+
               </optgroup>
+
               <option value="custom">دلخواه — ورود دستی قیمت</option>
+
             </select>
+
           </div>
-          <div v-if="inp.modelChoice === 'custom'" class="mb-4">
+
+          <div v-if="inp.modelChoice === 'custom'" class="mb-6">
+
             <number-field label="قیمت ورودی دلخواه (به ازای ۱ میلیون توکن)" v-model="inp.customInUSD" :min="0.01" :max="50" :step="0.01" unit="$"></number-field>
+
             <number-field label="قیمت خروجی دلخواه (به ازای ۱ میلیون توکن)" v-model="inp.customOutUSD" :min="0.01" :max="100" :step="0.01" unit="$"></number-field>
+
             <div v-if="!customPricesValid" class="text-[10px] text-rose px-3 py-2 bg-rose/10 rounded-xl mt-1">قیمت دلخواه نامعتبر است؛ تا تکمیل هر دو فیلد، از قیمت مدل قبلی استفاده می‌شود.</div>
+
           </div>
+
           <number-field label="توکن ورودی هر فراخوانی" v-model="inp.inputTokensPerCall" :min="200" :max="2000" :step="50" unit="توکن"></number-field>
+
           <number-field label="توکن خروجی هر فراخوانی" v-model="inp.outputTokensPerCall" :min="50" :max="600" :step="10" unit="توکن"></number-field>
+
           <number-field label="صرفه‌جویی کش پرامپت" en="Cache Saving" v-model="inp.cacheSavingPct" :min="0" :max="90" :step="5" unit="٪"></number-field>
+
           <number-field label="کاهش سالانه هزینه AI" en="Annual Decline" v-model="inp.annualCostDeclinePct" :min="0" :max="70" :step="5" unit="٪"></number-field>
+
           <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-turquoiseSoft/40 text-turquoiseDeep font-bold rounded-xl mt-2 border border-turquoiseSoft">
+
             <span>قیمت مؤثر هر فراخوانی (با کش)</span>
+
             <span dir="ltr">${{ format(aiCallPriceUSD, 5) }}</span>
+
           </div>
+
           <div class="mt-4">
+
             <button @click="toggleModelTable" class="w-full flex items-center justify-between group">
+
               <span class="text-[12px] font-bold text-inkSoft">قیمت واقعی مدل‌ها (دلار به ازای ۱ میلیون توکن)</span>
+
               <i data-lucide="chevron-down" class="w-4 h-4 text-inkSoft transition-transform" :style="{ transform: modelTableOpen ? 'rotate(180deg)' : 'rotate(0deg)' }"></i>
+
             </button>
+
             <div v-show="modelTableOpen">
-            <table class="w-full text-[11px] border border-line rounded-xl overflow-hidden">
+
+            <table class="w-full text-[11px] border border-line rounded-xl overflow-hidden tabular-nums">
+
               <thead class="bg-paper text-inkSoft">
+
                 <tr>
+
                   <th class="p-2 text-right">مدل</th>
+
                   <th class="p-2 text-right">دسته</th>
+
                   <th class="p-2 text-right">ورودی $</th>
+
                   <th class="p-2 text-right">خروجی $</th>
+
                 </tr>
+
               </thead>
+
               <tbody>
+
                 <template v-for="tier in ['cheap','mid','strong']" :key="tier">
+
                   <tr v-for="id in TIER_MODELS[tier]" :key="id" class="border-t border-line/60">
+
                     <td class="p-2">{{ MODEL_PRICING[id].label }}</td>
+
                     <td class="p-2">{{ TIER_LABEL[tier] }}</td>
-                    <td class="p-2" dir="ltr">${{ format(MODEL_PRICING[id].in, 2) }}</td>
-                  <td class="p-2" dir="ltr">${{ format(MODEL_PRICING[id].out, 2) }}</td>
+
+                    <td class="p-2 text-left" dir="ltr">${{ format(MODEL_PRICING[id].in, 2) }}</td>
+
+                   <td class="p-2 text-left" dir="ltr">${{ format(MODEL_PRICING[id].out, 2) }}</td>
+
                 </tr>
+
               </template>
+
               </tbody>
+
             </table>
+
             </div>
+
           </div>
+
         </section-card>
+
+
 
         <section-card title="هزینه‌های مالی و ثابت" en="Financial & Fixed Costs" icon="landmark" :default-open="false">
+
           <number-field label="کارمزد درگاه پرداخت" en="Payment Fee" v-model="inp.paymentFeePct" :min="0" :max="6" :step="0.1" unit="٪"></number-field>
+
           <number-field label="مالیات بر ارزش افزوده" en="VAT" v-model="inp.vatPct" :min="0" :max="20" :step="1" unit="٪"></number-field>
+
           <hr class="my-3 border-dashed border-line">
+
           <number-field label="هزینه ثابت ماهانه (هاست/حقوق)" en="Fixed Opex" v-model="inp.fixedOpexMonthly" :min="0" :max="500000000" :step="1000000" unit="تومان"></number-field>
+
           <number-field label="بودجه تبلیغات ماهانه" en="Ad Budget" v-model="inp.monthlyAdBudget" :min="0" :max="200000000" :step="500000" unit="تومان"></number-field>
+
           <number-field label="CAC هر کاربر جدید" en="CAC / New User" v-model="inp.cacPerNewUser" :min="0" :max="5000000" :step="10000" unit="تومان"></number-field>
+
           <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-turquoiseSoft/40 text-turquoiseDeep font-bold rounded-xl border border-turquoiseSoft">
+
             <span>CAC ترکیبی (زنده از بودجهٔ تبلیغات)</span>
+
             <span dir="ltr">{{ format(effectiveCACPerNewUser) }} تومان</span>
+
           </div>
+
           <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-white/70 text-indigo-900 font-bold rounded-xl border border-line mt-1">
+
             <span>CAC دستی</span>
+
             <span dir="ltr">{{ (inp.cacPerNewUser || 0) > 0 ? format(inp.cacPerNewUser) : '—' }} تومان</span>
+
           </div>
+
           <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-white/70 text-indigo-900 font-bold rounded-xl border border-line mt-1">
+
             <span>CAC تخمینی از بودجهٔ تبلیغات</span>
+
             <span dir="ltr">{{ format(autoCACPerNewUser) }} تومان</span>
+
           </div>
+
           <p class="text-[10px] text-inkSoft/70 leading-relaxed mt-1">اگر فیلد دستی ۰ باشد، CAC ترکیبی از بودجهٔ تبلیغات ماهانه و ثبت‌نام‌های غیرارجاعیِ ماه اول محاسبه می‌شود. این اعداد را برای بازبینی کنار هم مقایسه کنید.</p>
+
           <number-field label="سهم ثبت‌نام‌های ارجاعی" en="Referral Share" v-model="inp.referralShareOfSignups" :min="0" :max="50" :step="1" unit="٪"></number-field>
+
         </section-card>
+
+
 
         <section-card title="رشد و ریزش" en="Growth & Churn" icon="trending-up" :default-open="false">
+
           <number-field label="تعداد ماه‌های پیش‌بینی" v-model="inp.projectionMonths" :min="3" :max="36" :step="1" unit="ماه"></number-field>
+
           <number-field label="نرخ ریزش ماهانهٔ کاربران پولی" v-model="inp.paidChurnRate" :min="1" :max="30" :step="0.5" unit="٪"></number-field>
+
           <number-field label="نرخ ریزش ماهانهٔ کاربران رایگان" v-model="inp.freeChurnRate" :min="3" :max="25" :step="0.5" unit="٪"></number-field>
+
           <number-field label="ریزش غیرارادی (پیش‌پرداخت/نبود خودکار)" en="Involuntary Churn" v-model="inp.involuntaryChurnPct" :min="0" :max="30" :step="1" unit="٪"></number-field>
+
           <number-field label="بازقیمت‌گذاری سالانه" en="Annual Price Increase" v-model="inp.annualPriceIncreasePct" :min="0" :max="60" :step="1" unit="٪"></number-field>
+
           <number-field label="نرخ جذب ماهانه (٪ از کل کاربران)" en="Acquisition Rate" v-model="inp.acquisitionRate" :min="0" :max="25" :step="0.5" unit="٪"></number-field>
+
           <hr class="my-3 border-dashed border-line">
+
           <div class="text-[11px] font-bold text-inkSoft mb-2">نرخ تبدیل به پولی و رشد کاربر جدید — به تفکیک سناریو</div>
+
           <div class="grid grid-cols-3 gap-2 mb-2">
+
             <div class="text-[10px] text-rose font-bold text-center">بدبینانه</div>
+
             <div class="text-[10px] text-turquoiseDeep font-bold text-center">پایه</div>
+
             <div class="text-[10px] text-emerald font-bold text-center">خوش‌بینانه</div>
+
           </div>
+
           <number-field label="نرخ تبدیل — پایه" v-model="inp.convBase" :min="1" :max="15" :step="0.5" unit="٪"></number-field>
+
           <number-field label="نرخ تبدیل — بدبینانه" v-model="inp.convPessimistic" :min="0.5" :max="15" :step="0.5" unit="٪"></number-field>
+
           <number-field label="نرخ تبدیل — خوش‌بینانه" v-model="inp.convOptimistic" :min="1" :max="20" :step="0.5" unit="٪"></number-field>
+
           <hr class="my-3 border-dashed border-line">
+
           <number-field label="رشد کاربر جدید — پایه" v-model="inp.signupGrowthRateBase" :min="0" :max="20" :step="0.5" unit="٪"></number-field>
+
           <number-field label="رشد کاربر جدید — بدبینانه" v-model="inp.signupGrowthRatePessimistic" :min="0" :max="15" :step="0.5" unit="٪"></number-field>
+
           <number-field label="رشد کاربر جدید — خوش‌بینانه" v-model="inp.signupGrowthRateOptimistic" :min="0" :max="25" :step="0.5" unit="٪"></number-field>
+
         </section-card>
+
       </div>
+
+
 
       <!-- ===== DASHBOARD COLUMN ===== -->
-      <div v-show="activeTab === 'dashboard' || (isDesktop && activeTab === 'inputs')" class="flex flex-col gap-6 min-w-0">
+
+      <div v-show="activeTab === 'dashboard'" class="flex flex-col gap-6 min-w-0">
+
         <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+
           <kpi-card title="سود خالص ماهانه" en="Net Profit" icon="wallet" :tone="m1.netProfit >= 0 ? 'emerald' : 'rose'" :value="m1.netProfit" type="toman" sub="درآمد خالص - هزینه AI - CAC - هزینه ثابت" :help="KPI_HELP.netProfit"></kpi-card>
+
           <kpi-card title="حاشیه سود" en="Profit Margin" icon="percent" :tone="m1.margin >= 0 ? 'turquoise' : 'rose'" :value="m1.margin" type="percent" sub="سود خالص تقسیم بر درآمد خالص" :help="KPI_HELP.margin"></kpi-card>
+
           <kpi-card title="LTV کاربران پولی" en="Avg. LTV" icon="users" tone="indigo" :value="avgLTV" type="toman" sub="حاشیه مشارکت تقسیم بر ریزش مؤثر" :help="KPI_HELP.ltv"></kpi-card>
+
           <kpi-card title="نقطه سر‌به‌سر" en="Break-even" icon="piggy-bank" tone="amber" :value="breakEvenUsers" type="number" sub="کاربر پولی برای پوشش هزینهٔ ثابت" :help="KPI_HELP.breakEven"></kpi-card>
+
           <kpi-card title="درآمد خالص (MRR)" en="Net Revenue" icon="trending-up" tone="emerald" :value="m1.netRevenue" type="toman" sub="بعد از کارمزد درگاه و VAT" :help="KPI_HELP.netRevenue"></kpi-card>
+
           <kpi-card title="درآمد بسته‌های Query" en="Query Pack Revenue" icon="ticket" tone="indigo" :value="m1.packNetRevenue" type="toman" sub="درآمد خالص خریدهای یک‌باره در ماه اول" :help="KPI_HELP.netRevenue"></kpi-card>
+
           <kpi-card title="هزینه کل AI" en="Total AI Cost" icon="wallet" tone="rose" :value="m1.aiCostToman" type="toman" :sub="'$' + format(m1.aiCostUSD, 2)" :help="KPI_HELP.aiCost"></kpi-card>
+
           <kpi-card title="هزینه AI هر کاربر رایگان" en="Cost / Free User" icon="users" tone="rose" :value="costFreeUser" type="toman" sub="در ماه" :help="KPI_HELP.costFreeUser"></kpi-card>
+
           <kpi-card :title="'سود خالص در ماه ' + inp.projectionMonths" en="Future Profit" icon="line-chart" :tone="mLast.netProfit >= 0 ? 'emerald' : 'rose'" :value="mLast.netProfit" type="toman" :help="KPI_HELP.futureProfit"></kpi-card>
+
         </div>
+
+
 
         <!-- ===== P6: نقدینگی و شاخص‌های تکمیلی ===== -->
+
         <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+
           <kpi-card title="نقدینگی تجمعی (ماه آخر)" en="Cumulative Cash" icon="landmark" :tone="cumulativeCash >= 0 ? 'emerald' : 'rose'" :value="cumulativeCash" type="toman" sub="مجموع سود/زیان ماه‌به‌ماه" :help="KPI_HELP.cumulativeCash"></kpi-card>
+
           <kpi-card title="Runway (باند سوخت)" en="Runway" icon="timer" :tone="runwayMonths === Infinity || runwayMonths >= 12 ? 'emerald' : 'rose'" :value="runwayMonths === Infinity ? '∞' : Math.round(runwayMonths)" type="number" sub="ماه تا پایان نقدینگی" :help="KPI_HELP.runway"></kpi-card>
+
           <kpi-card title="بازپرداخت CAC" en="CAC Payback" icon="refresh-ccw" tone="turquoise" :value="cacPaybackMonths" type="number" sub="ماه تا بازگشت هزینهٔ جذب" :help="KPI_HELP.cacPayback"></kpi-card>
+
           <kpi-card title="نگه‌داشت ماهانه (D30)" en="D30 Retention" icon="heart-handshake" tone="indigo" :value="d30RetentionPct" type="percent" sub="بر اساس ریزش مؤثر پولی" :help="KPI_HELP.d30Retention"></kpi-card>
+
           <kpi-card title="درآمد سالانه (ARR)" en="ARR" icon="calendar" tone="emerald" :value="arrToman" type="toman" sub="MRR × 12" :help="KPI_HELP.arr"></kpi-card>
+
           <kpi-card title="حاشیه مشارکت هر کاربر پولی" en="Contribution / Paid User" icon="coffee" tone="amber" :value="contributionPerPaidUser" type="toman" sub="درآمد - هزینه AI - مالیات/کارمزد" :help="KPI_HELP.contributionPerPaid"></kpi-card>
+
           <kpi-card title="ریزش مؤثر پولی" en="Effective Paid Churn" icon="arrow-down-right" :tone="effPaidChurnPct <= 15 ? 'emerald' : 'rose'" :value="effPaidChurnPct" type="percent" sub="اختیاری + غیرارادی - اثر تکنیک‌ها" :help="KPI_HELP.effPaidChurn"></kpi-card>
+
           <kpi-card title="امتیاز سلامت مدل" en="Model Health" icon="activity" :tone="healthScore >= 60 ? 'emerald' : (healthScore >= 30 ? 'amber' : 'rose')" :value="healthScore" type="number" sub="از ۱۰۰" :help="KPI_HELP.healthScore"></kpi-card>
+
         </div>
+
+
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
           <div class="bg-card border border-line rounded-2xl p-4 shadow-sm">
+
             <div class="mb-4 flex items-center justify-between gap-2">
+
               <div class="text-[13px] font-bold text-ink">ترکیب درآمد، هزینه و سود <span dir="ltr" class="text-[10px] opacity-60 text-inkSoft ml-1">Revenue vs Cost</span></div>
+
               <button @click="toggleChart('bar')" title="باز/بسته" class="p-1.5 rounded-lg text-inkSoft hover:bg-paper transition-colors flex-shrink-0">
+
                 <i data-lucide="chevron-down" class="w-4 h-4 transition-transform" :style="{ transform: chartOpen.bar ? 'rotate(180deg)' : 'rotate(0deg)' }"></i>
+
               </button>
+
             </div>
-            <div v-show="chartOpen.bar" class="relative h-[240px] w-full"><canvas id="barChart"></canvas></div>
+
+            <div class="accordion-grid" :class="{ open: chartOpen.bar }">
+
+              <div class="accordion-inner"><div class="relative h-[240px] w-full"><canvas id="barChart"></canvas></div></div>
+
+            </div>
+
           </div>
+
           <div class="bg-card border border-line rounded-2xl p-4 shadow-sm">
+
             <div class="mb-4 flex items-center justify-between gap-2">
+
               <div class="text-[13px] font-bold text-ink">سهم هزینهٔ AI به تفکیک پلن <span dir="ltr" class="text-[10px] opacity-60 text-inkSoft ml-1">Cost Share</span></div>
+
               <button @click="toggleChart('pie')" title="باز/بسته" class="p-1.5 rounded-lg text-inkSoft hover:bg-paper transition-colors flex-shrink-0">
+
                 <i data-lucide="chevron-down" class="w-4 h-4 transition-transform" :style="{ transform: chartOpen.pie ? 'rotate(180deg)' : 'rotate(0deg)' }"></i>
+
               </button>
+
             </div>
-            <div v-show="chartOpen.pie" class="relative h-[240px] w-full flex justify-center"><canvas id="pieChart"></canvas></div>
+
+            <div class="accordion-grid" :class="{ open: chartOpen.pie }">
+
+              <div class="accordion-inner"><div class="relative h-[240px] w-full flex justify-center"><canvas id="pieChart"></canvas></div></div>
+
+            </div>
+
           </div>
+
         </div>
 
+
+
         <div class="bg-card border border-line rounded-2xl p-4 shadow-sm">
+
           <div class="mb-4 flex items-center justify-between gap-2">
+
             <div class="text-[13px] font-bold text-ink">روند پیش‌بینی سود خالص (سناریوها) <span dir="ltr" class="text-[10px] opacity-60 text-inkSoft ml-1">Profit Trend Projection</span></div>
+
             <button @click="toggleChart('line')" title="باز/بسته" class="p-1.5 rounded-lg text-inkSoft hover:bg-paper transition-colors flex-shrink-0">
+
               <i data-lucide="chevron-down" class="w-4 h-4 transition-transform" :style="{ transform: chartOpen.line ? 'rotate(180deg)' : 'rotate(0deg)' }"></i>
+
             </button>
+
           </div>
-          <div v-show="chartOpen.line" class="relative h-[280px] w-full"><canvas id="lineChart"></canvas></div>
+
+          <div class="accordion-grid" :class="{ open: chartOpen.line }">
+
+            <div class="accordion-inner"><div class="relative h-[280px] w-full"><canvas id="lineChart"></canvas></div></div>
+
+          </div>
+
         </div>
 
+
+
         <div class="bg-card border border-line rounded-2xl p-4 shadow-sm">
+
           <div class="mb-4 flex items-center justify-between gap-2">
+
             <div class="text-[13px] font-bold text-ink">روند رشد کاربران (MAU) <span dir="ltr" class="text-[10px] opacity-60 text-inkSoft ml-1">User Growth</span></div>
+
             <button @click="toggleChart('growth')" title="باز/بسته" class="p-1.5 rounded-lg text-inkSoft hover:bg-paper transition-colors flex-shrink-0">
+
               <i data-lucide="chevron-down" class="w-4 h-4 transition-transform" :style="{ transform: chartOpen.growth ? 'rotate(180deg)' : 'rotate(0deg)' }"></i>
+
             </button>
+
           </div>
-          <div v-show="chartOpen.growth" class="relative h-[280px] w-full"><canvas id="growthChart"></canvas></div>
+
+          <div class="accordion-grid" :class="{ open: chartOpen.growth }">
+
+            <div class="accordion-inner"><div class="relative h-[280px] w-full"><canvas id="growthChart"></canvas></div></div>
+
+          </div>
+
         </div>
+
+
 
         <div class="bg-card border border-line rounded-2xl p-4 shadow-sm overflow-hidden flex flex-col">
+
           <div class="mb-4 flex items-center justify-between">
+
             <div class="text-[13px] font-bold text-ink flex items-center gap-2">
+
               <i data-lucide="table" class="w-4 h-4 text-turquoiseDeep"></i>
+
               جزئیات پیش‌بینی ماه به ماه
+
             </div>
+
           </div>
-          <div class="overflow-x-auto hz-scroll pb-2">
-            <table class="w-full text-right text-[11px] sm:text-xs whitespace-nowrap">
+
+          <div class="overflow-x-auto overflow-y-auto max-h-[560px] hz-scroll pb-2">
+
+            <table class="forecast-table w-full text-right text-[11px] sm:text-xs whitespace-nowrap tabular-nums">
+
               <thead>
+
                   <tr class="bg-paper text-inkSoft border-b border-line">
-                    <th class="p-3 font-bold rounded-tr-lg">زمان</th>
-                    <th v-for="(p, pi) in inp.plans" :key="p.id" class="p-3" :class="pi === 0 ? 'text-inkSoft' : (COLORS[p.id] ? 'font-medium' : '')" :style="pi > 0 && COLORS[p.id] ? { color: COLORS[p.id] } : {}">{{ p.name }}</th>
-                    <th class="p-3 font-bold border-r border-line/50">کل کاربران</th>
-                    <th class="p-3 border-r border-line/50">درآمد خالص</th>
-                    <th class="p-3">هزینه AI</th>
-                    <th class="p-3">CAC</th>
-                    <th class="p-3">هزینه ثابت</th>
-                    <th class="p-3 font-bold rounded-tl-lg">سود خالص</th>
+
+                    <th class="sticky top-0 right-0 z-30 bg-paper p-3 font-bold rounded-tr-lg">زمان</th>
+
+                    <th v-for="(p, pi) in inp.plans" :key="p.id" class="sticky top-0 z-10 bg-paper p-3" :class="pi === 0 ? 'text-inkSoft' : (COLORS[p.id] ? 'font-medium' : '')" :style="pi > 0 && COLORS[p.id] ? { color: COLORS[p.id] } : {}">{{ p.name }}</th>
+
+                    <th class="sticky top-0 z-10 bg-paper p-3 font-bold border-r border-line/50">کل کاربران</th>
+
+                    <th class="sticky top-0 z-10 bg-paper p-3 border-r border-line/50 text-left">درآمد خالص</th>
+
+                    <th class="sticky top-0 z-10 bg-paper p-3 text-left">هزینه AI</th>
+
+                    <th class="sticky top-0 z-10 bg-paper p-3 text-left">CAC</th>
+
+                    <th class="sticky top-0 z-10 bg-paper p-3 text-left">هزینه ثابت</th>
+
+                    <th class="sticky top-0 z-10 bg-paper p-3 font-bold rounded-tl-lg text-left">سود خالص</th>
+
                   </tr>
+
               </thead>
+
               <tbody class="divide-y divide-line/40">
+
                 <tr v-for="(row, idx) in baseSeries" :key="row.month" class="hover:bg-paper/50 transition-colors">
-                  <td class="p-3 font-bold text-inkSoft">ماه {{ row.month }}</td>
-                  <td v-for="p in inp.plans" :key="p.id" class="p-3" :class="p.id === 'free' ? '' : 'font-medium'">{{ format(row.counts[p.id] || 0) }} نفر</td>
-                  <td class="p-3 font-bold border-r border-line/50">
+
+                  <td class="sticky right-0 z-20 bg-card p-3 font-bold text-inkSoft">ماه {{ row.month }}</td>
+
+                  <td v-for="p in inp.plans" :key="p.id" class="p-3 text-left" :class="p.id === 'free' ? '' : 'font-medium'">{{ format(row.counts[p.id] || 0) }} نفر</td>
+
+                  <td class="p-3 font-bold border-r border-line/50 text-left">
+
                     {{ format(row.total) }} نفر
+
                     <span v-if="idx > 0" :class="row.total >= baseSeries[idx-1].total ? 'text-emerald' : 'text-rose'" class="text-[10px] font-bold" dir="ltr">
+
                       ({{ row.total >= baseSeries[idx-1].total ? '+' : '' }}{{ format(row.total - baseSeries[idx-1].total) }})
+
                     </span>
+
                   </td>
-                  <td class="p-3 font-medium text-emerald border-r border-line/50">{{ format(row.netRevenue) }} تومان</td>
-                  <td class="p-3 font-medium text-rose">{{ format(row.aiCostToman) }} تومان</td>
-                  <td class="p-3 font-medium text-rose">{{ format(row.cacToman + row.trialCACToman) }} تومان</td>
-                  <td class="p-3 font-medium text-amber">{{ format(row.fixedToman) }} تومان</td>
-                  <td class="p-3 font-extrabold" :class="row.netProfit >= 0 ? 'text-emerald' : 'text-rose'" dir="ltr"><span dir="rtl">{{ format(row.netProfit) }} تومان</span></td>
+
+                  <td class="p-3 font-medium text-emerald border-r border-line/50 text-left">{{ format(row.netRevenue) }} تومان</td>
+
+                  <td class="p-3 font-medium text-rose text-left">{{ format(row.aiCostToman) }} تومان</td>
+
+                  <td class="p-3 font-medium text-rose text-left">{{ format(row.cacToman + row.trialCACToman) }} تومان</td>
+
+                  <td class="p-3 font-medium text-amber text-left">{{ format(row.fixedToman) }} تومان</td>
+
+                  <td class="p-3 font-extrabold text-left" :class="row.netProfit >= 0 ? 'text-emerald' : 'text-rose'" dir="ltr"><span dir="rtl">{{ format(row.netProfit) }} تومان</span></td>
+
                 </tr>
+
               </tbody>
+
             </table>
+
           </div>
+
         </div>
+
+
 
         <!-- ===== P6: حساسیت (تورنادو) ===== -->
+
         <div class="bg-card border border-line rounded-2xl p-5 shadow-sm">
+
           <div class="mb-4 flex items-center justify-between">
+
             <div class="text-[13px] font-bold text-ink flex items-center gap-2">
+
               <i data-lucide="wind" class="w-4 h-4 text-turquoiseDeep"></i>
+
               حساسیت سود خالص به محرک‌ها (تأثیر +۱۰٪)
+
             </div>
+
             <span class="text-[10px] opacity-50">بر مبنای ماه آخر</span>
+
           </div>
+
           <div class="flex flex-col gap-2">
+
             <div v-for="s in sensitivity" :key="s.key" class="flex items-center gap-3 text-[11px]">
+
               <span class="w-28 flex-shrink-0 font-bold text-inkSoft">{{ s.label }}</span>
+
               <div class="flex-1 h-2 rounded-full bg-paper border border-line overflow-hidden">
+
                 <div class="h-full rounded-full transition-all" :class="s.up >= 0 ? 'bg-emerald' : 'bg-rose'" :style="{ width: Math.min(100, Math.abs(s.up)) + '%' }"></div>
+
               </div>
+
               <span dir="ltr" class="w-16 text-right font-bold" :class="s.up >= 0 ? 'text-emerald' : 'text-rose'">{{ format(s.up, 1) }}٪</span>
+
             </div>
+
           </div>
+
           <p class="text-[10px] opacity-50 mt-3 leading-relaxed">افزایش ۱۰٪ی هر محرک چه تغییری در سود خالص ماه آخر ایجاد می‌کند؛ میله‌های بلندتر یعنی حساسیت بیشتر.</p>
+
         </div>
+
       </div>
+
+
 
       <!-- ===== MARKETING & GROWTH TAB ===== -->
+
       <div v-show="activeTab === 'marketing'" class="lg:col-span-2 flex flex-col gap-6">
 
+
+
         <div class="bg-gradient-to-br from-indigoSoft to-purple-100 border border-indigo-200 rounded-2xl p-5 shadow-sm">
+
           <h2 class="text-lg font-bold text-indigo-900 mb-2 flex items-center gap-2">
+
             <i data-lucide="rocket" class="w-5 h-5"></i> ایده‌های بازاریابی و تبدیل (Growth & Conversion)
+
           </h2>
+
           <p class="text-xs text-indigo-800/70 mb-1">هر تکنیک را می‌توانید فعال/غیرفعال کنید، بسازید، ویرایش یا حذف کنید؛ شدت اثر تخمینی‌اش را روی نرخ تبدیل، ریزش یا رشد ثبت‌نام تنظیم کنید — این عدد مستقیماً در محاسبات داشبورد اعمال می‌شود.</p>
+
           <p class="text-[10px] text-indigo-800/50 mb-5">این درصدها تخمینی هستند، نه دادهٔ واقعی؛ بعد از جمع‌آوری آمار واقعی کاربران قابل کالیبره‌کردن‌اند.</p>
 
+
+
           <div class="flex flex-wrap gap-2 mb-4 text-[11px] font-bold">
+
             <div class="px-3 py-1.5 rounded-lg bg-white/70 text-indigo-900">مجموع اثر فعال روی تبدیل: <span dir="ltr">+{{ format(totalConversionBoost,1) }}٪</span></div>
+
             <div class="px-3 py-1.5 rounded-lg bg-white/70 text-indigo-900">کاهش ریزش فعال: <span dir="ltr">-{{ format(totalChurnReduction,1) }}٪</span></div>
+
             <div class="px-3 py-1.5 rounded-lg bg-white/70 text-indigo-900">تقویت رشد ثبت‌نام: <span dir="ltr">+{{ format(totalSignupBoost,1) }}٪</span></div>
+
             <div class="px-3 py-1.5 rounded-lg bg-rose/10 text-rose">هزینهٔ CAC تریال (ماه ۱): <span dir="ltr">{{ format(trialCACToman) }} تومان</span></div>
+
             <div class="px-3 py-1.5 rounded-lg bg-rose/10 text-rose">CAC جذب ماهانه: <span dir="ltr">{{ format(m1.cacToman) }} تومان</span></div>
+
             <div class="px-3 py-1.5 rounded-lg bg-turquoise/10 text-turquoiseDeep">CAC مؤثر هر کاربر: <span dir="ltr">{{ format(effectiveCACPerNewUser) }} تومان</span></div>
+
             <div class="px-3 py-1.5 rounded-lg bg-white/70 text-indigo-900">CAC تخمینی از بودجهٔ تبلیغات: <span dir="ltr">{{ format(autoCACPerNewUser) }} تومان</span></div>
+
             <div class="px-3 py-1.5 rounded-lg bg-turquoise/10 text-turquoiseDeep">سهم ارجاعی از ثبت‌نام‌ها: <span dir="ltr">{{ inp.referralShareOfSignups }}٪</span></div>
+
             <button @click="openAddTechnique" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors inline-flex items-center gap-1.5">
+
               <i data-lucide="plus" class="w-3.5 h-3.5"></i> افزودن تکنیک
+
             </button>
+
           </div>
+
+
 
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
             <div v-for="t in inp.marketingTechniques" :key="t.id"
+
                  class="bg-white/80 p-4 rounded-xl border flex flex-col" :class="t.enabled ? 'border-indigo-300' : 'border-white'">
+
               <div class="flex items-start justify-between gap-3 mb-2">
+
                 <h3 class="font-bold text-indigo-900 text-sm flex items-center gap-1.5 flex-1 min-w-0">
+
                   <i :data-lucide="t.icon" class="w-4 h-4 flex-shrink-0"></i>
+
                   <span class="truncate">{{ t.title }}</span>
+
                 </h3>
+
                 <div class="flex items-center gap-1 flex-shrink-0">
+
                   <button @click="openEditTechnique(t)" title="ویرایش" class="p-1.5 rounded-lg text-indigo-700 hover:bg-indigo-100 transition-colors">
+
                     <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+
                   </button>
+
                   <button @click="deleteTechnique(t)" title="حذف" class="p-1.5 rounded-lg text-rose hover:bg-roseSoft transition-colors">
+
                     <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+
                   </button>
+
                   <button @click="t.enabled = !t.enabled"
+
                           class="w-11 h-6 rounded-full transition-colors relative"
+
                           :class="t.enabled ? 'bg-indigo-600' : 'bg-gray-300'">
+
                     <span class="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all"
+
                           :class="t.enabled ? 'right-0.5' : 'right-5'"></span>
+
                   </button>
+
                 </div>
+
               </div>
+
               <p class="text-xs text-indigo-800/70 leading-relaxed mb-3 flex-1">{{ t.desc }}</p>
+
               <div v-if="t.enabled" class="space-y-2 pt-2 border-t border-dashed border-indigo-100">
+
                 <div class="flex items-center gap-3">
+
                   <span class="text-[10px] font-bold text-indigo-900 w-24 flex-shrink-0">
+
                     {{ t.effectType === 'churn_reduction' ? 'کاهش ریزش' : (t.effectType === 'signup_boost' ? 'تقویت ثبت‌نام' : 'اثر روی تبدیل') }}
+
                   </span>
+
                   <input type="range" v-model.number="t.effect" :min="t.min" :max="t.max" :step="t.step" class="hz-slider flex-1">
+
                   <span dir="ltr" class="text-[11px] font-bold text-indigo-900 w-12 text-left">{{ t.effect }}٪</span>
+
                 </div>
+
                 <div v-if="t.eligibleShare !== undefined" class="flex flex-col gap-1">
+
                   <div class="flex items-center gap-3">
+
                     <span class="text-[10px] font-bold text-indigo-900 w-24 flex-shrink-0">سهم واجدین شرط</span>
+
                     <input type="range" v-model.number="t.eligibleShare" :min="t.eligibleMin || 5" :max="t.eligibleMax || 30" :step="1" class="hz-slider flex-1">
+
                     <span dir="ltr" class="text-[11px] font-bold text-indigo-900 w-12 text-left">{{ t.eligibleShare }}٪</span>
+
                   </div>
+
                   <div class="text-[9px] text-indigo-800/50 font-medium">تریال رایگان {{ t.trialDays || 3 }} روزهٔ {{ techniqueTrialName(t) }} — هزینهٔ AI آن به‌عنوان CAC کسر می‌شود.</div>
+
                 </div>
+
               </div>
+
             </div>
+
           </div>
+
         </div>
 
+
+
         <div class="bg-card border border-line rounded-2xl p-5 shadow-sm">
+
           <div class="flex items-center justify-between mb-4 border-b pb-3 gap-2">
+
             <h2 class="text-lg font-bold text-ink flex items-center gap-2">
+
               <i data-lucide="list-checks" class="w-5 h-5 text-turquoiseDeep"></i> مدیریت پلن‌ها، تعریف و یادداشت‌های تفکیکی
+
             </h2>
+
             <button @click="addPlan" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold transition-colors inline-flex items-center gap-1.5">
+
               <i data-lucide="plus" class="w-3.5 h-3.5"></i> افزودن پلن
+
             </button>
+
           </div>
+
           <p class="text-[10px] text-inkSoft/70 mb-4 leading-relaxed">پلن‌ها را تعریف، نام/قیمت/سهمیه/سهم را ویرایش و یادداشت تفکیکی هر پلن را نگهداری کنید. تغییرات بلافاصله در محاسبات داشبورد اعمال می‌شود. سهم‌ها به‌صورت خودکار روی ۱۰۰٪ متوازن می‌شوند؛ پلن رایگان همیشه index 0 است.</p>
-          <div class="flex flex-col gap-4">
-             <div v-for="(p, idx) in inp.plans" :key="p.id"
-                  class="bg-paper/60 border border-line/80 rounded-xl p-4 flex flex-col gap-3"
-                  :style="p.id !== 'free' ? { borderInlineStart: '3px solid ' + (PLAN_COLORS[idx] || '#0D9488') } : {}">
-               <div class="flex items-center justify-between gap-2">
-                 <div class="flex items-center gap-2 flex-1 min-w-0">
-                   <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :style="{ background: (PLAN_COLORS[idx] || '#0D9488') }"></span>
-                   <span class="text-[10px] font-bold text-inkSoft bg-card border border-line rounded-lg px-2 py-1 flex-shrink-0" :class="p.id === 'free' ? 'text-turquoiseDeep' : ''">{{ p.id === 'free' ? 'رایگان' : 'پلن ' + idx }}</span>
-                   <input v-model="p.name" type="text" class="bg-card border border-line rounded-lg px-2 py-1.5 text-[12px] font-bold outline-none focus:border-turquoiseDeep transition flex-1 min-w-0">
-                 </div>
-                 <button v-if="p.id !== 'free'" @click="removePlan(p)" title="حذف پلن" class="p-1.5 rounded-lg text-rose hover:bg-roseSoft transition-colors flex-shrink-0">
-                   <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                 </button>
-                 <span v-else class="text-[10px] font-bold text-inkSoft/60 bg-paper border border-line rounded-lg px-2 py-1 flex-shrink-0">پلن رایگان ثابت</span>
-               </div>
-               <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                 <div>
-                   <label class="text-[10px] font-bold text-inkSoft block mb-1">نام انگلیسی</label>
-                   <input v-model="p.nameEn" type="text" dir="ltr" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-turquoiseDeep transition">
-                 </div>
-                 <div v-if="p.id !== 'free'">
-                   <label class="text-[10px] font-bold text-inkSoft block mb-1">قیمت (تومان)</label>
-                   <input v-model.number="p.price" type="number" min="0" step="1000" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-turquoiseDeep transition">
-                 </div>
-               </div>
-               <div v-if="p.id !== 'free'" class="grid grid-cols-2 gap-2.5 pt-3 border-t border-dashed border-line/70">
-                 <div>
-                   <label class="text-[10px] font-bold text-inkSoft block mb-1">سهمیه روزانه</label>
-                   <input v-model.number="p.callsPerDay" type="number" min="0" max="100" step="1" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-turquoiseDeep transition">
-                 </div>
-                 <div>
-                   <label class="text-[10px] font-bold text-inkSoft block mb-1">سهم آپگرید — {{ Math.round(p.sharePct) }}٪</label>
-                   <input type="range" v-model.number="p.sharePct" :min="0" :max="100" :step="1" class="hz-slider w-full mt-2.5" @input="autoBalanceShare(p.id, $event.target.value)">
-                 </div>
-               </div>
-               <div class="pt-3 border-t border-dashed border-line/70">
-                 <label class="text-[10px] font-bold text-inkSoft block mb-1">یادداشت تفکیکی پلن</label>
-                 <textarea v-model="p.notes" rows="2" class="w-full bg-card border border-line rounded-lg p-2.5 text-[11px] text-inkSoft outline-none focus:border-turquoiseDeep transition"></textarea>
-               </div>
-             </div>
+
+          <div class="flex flex-col gap-3">
+
+            <div class="flex flex-wrap gap-2">
+
+              <button v-for="(p, idx) in inp.plans" :key="'sel-' + p.id" type="button" @click="selectedPlanId = p.id"
+
+                      class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border transition-colors"
+
+                      :class="selectedPlanId === p.id ? 'bg-ink text-white border-ink' : 'bg-card border-line text-inkSoft hover:bg-paper'"
+
+                      :style="selectedPlanId === p.id ? {} : { borderInlineStart: '3px solid ' + (PLAN_COLORS[idx] || '#0D9488') }">
+
+                <span class="w-2 h-2 rounded-full" :style="{ background: (PLAN_COLORS[idx] || '#0D9488') }"></span>
+
+                {{ p.name }}
+
+              </button>
+
+            </div>
+
+            <div v-if="selectedPlanView.plan"
+
+                 class="bg-paper/60 border border-line/80 rounded-xl p-4 flex flex-col gap-3"
+
+                 :style="selectedPlanView.plan.id !== 'free' ? { borderInlineStart: '3px solid ' + (PLAN_COLORS[selectedPlanView.idx] || '#0D9488') } : {}">
+
+              <div class="flex items-center justify-between gap-2">
+
+                <div class="flex items-center gap-2 flex-1 min-w-0">
+
+                  <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :style="{ background: (PLAN_COLORS[selectedPlanView.idx] || '#0D9488') }"></span>
+
+                  <span class="text-[10px] font-bold text-inkSoft bg-card border border-line rounded-lg px-2 py-1 flex-shrink-0" :class="selectedPlanView.plan.id === 'free' ? 'text-turquoiseDeep' : ''">{{ selectedPlanView.plan.id === 'free' ? 'رایگان' : 'پلن ' + selectedPlanView.idx }}</span>
+
+                  <input v-model="selectedPlanView.plan.name" type="text" class="bg-card border border-line rounded-lg px-2 py-1.5 text-[12px] font-bold outline-none focus:border-turquoiseDeep transition flex-1 min-w-0">
+
+                </div>
+
+                <button v-if="selectedPlanView.plan.id !== 'free'" @click="removePlan(selectedPlanView.plan)" title="حذف پلن" class="p-1.5 rounded-lg text-rose hover:bg-roseSoft transition-colors flex-shrink-0">
+
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+
+                </button>
+
+                <span v-else class="text-[10px] font-bold text-inkSoft/60 bg-paper border border-line rounded-lg px-2 py-1 flex-shrink-0">پلن رایگان ثابت</span>
+
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+
+                <div>
+
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">نام انگلیسی</label>
+
+                  <input v-model="selectedPlanView.plan.nameEn" type="text" dir="ltr" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-turquoiseDeep transition">
+
+                </div>
+
+                <div v-if="selectedPlanView.plan.id !== 'free'">
+
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">قیمت (تومان)</label>
+
+                  <input v-model.number="selectedPlanView.plan.price" type="number" min="0" max="3000000" step="1000" dir="ltr" @change="clampPlanField(selectedPlanView.plan, 'price', 0, 3000000)" class="w-full min-h-[44px] bg-card border border-line rounded-lg px-2 py-2 text-[11px] outline-none focus:border-turquoiseDeep transition">
+
+                </div>
+
+              </div>
+
+              <div v-if="selectedPlanView.plan.id !== 'free'" class="grid grid-cols-2 gap-2.5 pt-3 border-t border-dashed border-line/70">
+
+                <div>
+
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">سهمیه روزانه</label>
+
+                  <input v-model.number="selectedPlanView.plan.callsPerDay" type="number" min="0" max="100" step="1" dir="ltr" @change="clampPlanField(selectedPlanView.plan, 'callsPerDay', 0, 100)" class="w-full min-h-[44px] bg-card border border-line rounded-lg px-2 py-2 text-[11px] outline-none focus:border-turquoiseDeep transition">
+
+                </div>
+
+                <div>
+
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">سهم آپگرید — {{ Math.round(selectedPlanView.plan.sharePct) }}٪</label>
+
+                  <input type="range" v-model.number="selectedPlanView.plan.sharePct" :min="0" :max="100" :step="1" class="hz-slider w-full mt-2.5" @input="autoBalanceShare(selectedPlanView.plan.id, $event.target.value)">
+
+                </div>
+
+              </div>
+
+              <div class="pt-3 border-t border-dashed border-line/70">
+
+                <label class="text-[10px] font-bold text-inkSoft block mb-1">یادداشت تفکیکی پلن</label>
+
+                <textarea v-model="selectedPlanView.plan.notes" rows="2" class="w-full bg-card border border-line rounded-lg p-2.5 text-[11px] text-inkSoft outline-none focus:border-turquoiseDeep transition"></textarea>
+
+              </div>
+
+            </div>
+
           </div>
+
           <div class="flex items-center justify-between text-[11px] px-3 py-2 bg-turquoiseSoft/40 text-turquoiseDeep font-bold rounded-xl mt-4 border border-turquoiseSoft">
+
             <span>مجموع سهم پلن‌های پولی</span>
+
             <span dir="ltr">{{ paidPlansShareSum }}٪</span>
+
           </div>
+
         </div>
+
+
 
         <div class="bg-card border border-line rounded-2xl p-5 shadow-sm">
+
           <div class="flex items-center justify-between mb-4 border-b pb-3 gap-2">
+
             <h2 class="text-lg font-bold text-ink flex items-center gap-2">
+
               <i data-lucide="ticket" class="w-5 h-5 text-indigo-600"></i> مدیریت بسته‌های اعتبار Query
+
             </h2>
+
             <button @click="addCreditPack" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold transition-colors inline-flex items-center gap-1.5">
+
               <i data-lucide="plus" class="w-3.5 h-3.5"></i> افزودن بسته
+
             </button>
-          </div>
-          <p class="text-[10px] text-inkSoft/70 mb-4 leading-relaxed">بسته‌های Query محصولی مستقل از پلن هستند: پرداخت یک‌باره، اعتبارهای بدون انقضا، و مخصوص کاربران رایگان. این بخش منبع اصلی ویرایش بسته‌هاست؛ انتقال اعتبار کاربر به پلن پریمیوم فقط یک فرض شبیه‌سازی است و در ربات اجرا نمی‌شود.</p>
-          <div class="bg-indigoSoft/40 border border-indigo-200 rounded-xl p-3 mb-4">
-            <div class="text-[11px] font-bold text-indigo-900 mb-2">فرضیات تقاضا و مصرف — با نویز محدود و قابل تکرار</div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-3">
-              <number-field label="نرخ خرید کاربران رایگان" en="Free-user purchase rate" v-model="inp.creditPackPurchaseRatePct" :min="0" :max="20" :step="0.1" unit="٪ / ماه"></number-field>
-              <number-field label="تقویت خرید مجدد" en="Repeat-purchase uplift" v-model="inp.creditPackRepeatRatePct" :min="0" :max="100" :step="5" unit="٪"></number-field>
-              <number-field label="نویز خرید ماهانه" en="Purchase noise" v-model="inp.creditPackPurchaseNoisePct" :min="0" :max="50" :step="1" unit="±٪"></number-field>
-              <number-field label="نرخ مصرف اعتبار در ماه" en="Credit consumption rate" v-model="inp.creditPackConsumptionRatePct" :min="0" :max="100" :step="5" unit="٪"></number-field>
-              <number-field label="نویز مصرف ماهانه" en="Consumption noise" v-model="inp.creditPackConsumptionNoisePct" :min="0" :max="50" :step="1" unit="±٪"></number-field>
-              <number-field label="بذر تصادفی سناریو" en="Scenario seed" v-model="inp.creditPackRandomSeed" :min="1" :max="999999" :step="1"></number-field>
-            </div>
-            <div class="text-[10px] text-indigo-900/70 leading-relaxed">نرخ خرید روی کاربران رایگان ماه شروع ماه اعمال می‌شود. نویز فقط برای واقع‌گرایی شبیه‌سازی است و با بذر ثابت، مقایسهٔ سناریوها تکرارپذیر می‌ماند.</div>
+
           </div>
 
-          <div class="flex flex-col gap-4">
-            <div v-for="(p, idx) in inp.creditPacks" :key="p.id" class="bg-indigoSoft/20 border rounded-xl p-4 flex flex-col gap-3" :class="p.active ? 'border-indigo-200' : 'border-line opacity-70'">
-              <div class="flex items-center justify-between gap-2">
-                <div class="flex items-center gap-2 flex-1 min-w-0">
-                  <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :style="{ background: p.active ? '#4F46E5' : '#98A2B3' }"></span>
-                  <input v-model="p.name" type="text" class="bg-card border border-line rounded-lg px-2 py-1.5 text-[12px] font-bold outline-none focus:border-indigo-600 transition flex-1 min-w-0">
-                  <span class="text-[10px] font-bold text-indigo-900/70 bg-white/70 border border-indigo-200 rounded-lg px-2 py-1 flex-shrink-0" dir="ltr">{{ p.nameEn }}</span>
-                </div>
-                <div class="flex items-center gap-1 flex-shrink-0">
-                  <button @click="p.active = !p.active" :aria-pressed="p.active" :title="p.active ? 'غیرفعال‌کردن بسته' : 'فعال‌کردن بسته'" class="px-2 py-1 rounded-lg text-[10px] font-bold transition-colors" :class="p.active ? 'bg-emeraldSoft text-emerald' : 'bg-paper text-inkSoft'">{{ p.active ? 'فعال' : 'غیرفعال' }}</button>
-                  <button @click="removeCreditPack(p)" title="حذف بسته" class="p-1.5 rounded-lg text-rose hover:bg-roseSoft transition-colors">
-                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                  </button>
-                </div>
-              </div>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <div>
-                  <label class="text-[10px] font-bold text-inkSoft block mb-1">نام انگلیسی</label>
-                  <input v-model="p.nameEn" type="text" dir="ltr" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-indigo-600 transition">
-                </div>
-                <div>
-                  <label class="text-[10px] font-bold text-inkSoft block mb-1">قیمت (تومان)</label>
-                  <input v-model.number="p.price" type="number" min="0" step="1000" dir="ltr" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-indigo-600 transition">
-                </div>
-                <div>
-                  <label class="text-[10px] font-bold text-inkSoft block mb-1">تعداد اعتبار Query</label>
-                  <input v-model.number="p.credits" type="number" min="1" max="10000" step="1" dir="ltr" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-indigo-600 transition">
-                </div>
-                <div>
-                  <label class="text-[10px] font-bold text-inkSoft block mb-1">سهم فروش بسته</label>
-                  <div class="flex items-center gap-2">
-                    <input type="range" v-model.number="p.salesSharePct" min="0" max="100" step="1" class="hz-slider flex-1">
-                    <span class="w-12 text-left text-[11px] font-bold text-indigo-700" dir="ltr">{{ Math.round(p.salesSharePct || 0) }}٪</span>
-                  </div>
-                </div>
-              </div>
-              <div class="flex flex-wrap items-center gap-2 text-[10px] font-bold">
-                <span class="px-2.5 py-1.5 rounded-lg bg-white/70 border border-indigo-200 text-indigo-900">قیمت مؤثر: <b dir="ltr">{{ format(creditPackPricePerQuery(p), 0) }} تومان / Query</b></span>
-                <span class="px-2.5 py-1.5 rounded-lg bg-white/70 border border-line text-inkSoft">اعتبارها منقضی نمی‌شوند</span>
-                <span class="px-2.5 py-1.5 rounded-lg bg-white/70 border border-line text-inkSoft">درآمد ماه اول: <b dir="ltr">{{ format(packRevenueM1(p)) }} تومان</b></span>
-              </div>
-              <div class="pt-3 border-t border-dashed border-indigo-200/70">
-                <label class="text-[10px] font-bold text-inkSoft block mb-1">یادداشت تفکیکی بسته</label>
-                <textarea v-model="p.notes" rows="2" class="w-full bg-card border border-line rounded-lg p-2.5 text-[11px] text-inkSoft outline-none focus:border-indigo-600 transition"></textarea>
-              </div>
+          <p class="text-[10px] text-inkSoft/70 mb-4 leading-relaxed">بسته‌های Query محصولی مستقل از پلن هستند: پرداخت یک‌باره، اعتبارهای بدون انقضا، و مخصوص کاربران رایگان. این بخش منبع اصلی ویرایش بسته‌هاست؛ انتقال اعتبار کاربر به پلن پریمیوم فقط یک فرض شبیه‌سازی است و در ربات اجرا نمی‌شود.</p>
+
+          <div class="bg-indigoSoft/40 border border-indigo-200 rounded-xl p-3 mb-4">
+
+            <div class="text-[11px] font-bold text-indigo-900 mb-2">فرضیات تقاضا و مصرف — با نویز محدود و قابل تکرار</div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-3">
+
+              <number-field label="نرخ خرید کاربران رایگان" en="Free-user purchase rate" v-model="inp.creditPackPurchaseRatePct" :min="0" :max="20" :step="0.1" unit="٪ / ماه"></number-field>
+
+              <number-field label="تقویت خرید مجدد" en="Repeat-purchase uplift" v-model="inp.creditPackRepeatRatePct" :min="0" :max="100" :step="5" unit="٪"></number-field>
+
+              <number-field label="نویز خرید ماهانه" en="Purchase noise" v-model="inp.creditPackPurchaseNoisePct" :min="0" :max="50" :step="1" unit="±٪"></number-field>
+
+              <number-field label="نرخ مصرف اعتبار در ماه" en="Credit consumption rate" v-model="inp.creditPackConsumptionRatePct" :min="0" :max="100" :step="5" unit="٪"></number-field>
+
+              <number-field label="نویز مصرف ماهانه" en="Consumption noise" v-model="inp.creditPackConsumptionNoisePct" :min="0" :max="50" :step="1" unit="±٪"></number-field>
+
+              <number-field label="بذر تصادفی سناریو" en="Scenario seed" v-model="inp.creditPackRandomSeed" :min="1" :max="999999" :step="1"></number-field>
+
             </div>
+
+            <div class="text-[10px] text-indigo-900/70 leading-relaxed">نرخ خرید روی کاربران رایگان ماه شروع ماه اعمال می‌شود. نویز فقط برای واقع‌گرایی شبیه‌سازی است و با بذر ثابت، مقایسهٔ سناریوها تکرارپذیر می‌ماند.</div>
+
           </div>
+
+
+
+          <div class="flex flex-col gap-4">
+
+            <div v-for="(p, idx) in inp.creditPacks" :key="p.id" class="bg-indigoSoft/20 border rounded-xl p-4 flex flex-col gap-3" :class="p.active ? 'border-indigo-200' : 'border-line opacity-70'">
+
+              <div class="flex items-center justify-between gap-2">
+
+                <div class="flex items-center gap-2 flex-1 min-w-0">
+
+                  <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :style="{ background: p.active ? '#4F46E5' : '#98A2B3' }"></span>
+
+                  <input v-model="p.name" type="text" class="bg-card border border-line rounded-lg px-2 py-1.5 text-[12px] font-bold outline-none focus:border-indigo-600 transition flex-1 min-w-0">
+
+                  <span class="text-[10px] font-bold text-indigo-900/70 bg-white/70 border border-indigo-200 rounded-lg px-2 py-1 flex-shrink-0" dir="ltr">{{ p.nameEn }}</span>
+
+                </div>
+
+                <div class="flex items-center gap-1 flex-shrink-0">
+
+                  <button @click="p.active = !p.active" :aria-pressed="p.active" :title="p.active ? 'غیرفعال‌کردن بسته' : 'فعال‌کردن بسته'" class="px-2 py-1 rounded-lg text-[10px] font-bold transition-colors" :class="p.active ? 'bg-emeraldSoft text-emerald' : 'bg-paper text-inkSoft'">{{ p.active ? 'فعال' : 'غیرفعال' }}</button>
+
+                  <button @click="removeCreditPack(p)" title="حذف بسته" class="p-1.5 rounded-lg text-rose hover:bg-roseSoft transition-colors">
+
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+
+                  </button>
+
+                </div>
+
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+
+                <div>
+
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">نام انگلیسی</label>
+
+                  <input v-model="p.nameEn" type="text" dir="ltr" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-indigo-600 transition">
+
+                </div>
+
+                <div>
+
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">قیمت (تومان)</label>
+
+                  <input v-model.number="p.price" type="number" min="0" step="1000" dir="ltr" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-indigo-600 transition">
+
+                </div>
+
+                <div>
+
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">تعداد اعتبار Query</label>
+
+                  <input v-model.number="p.credits" type="number" min="1" max="10000" step="1" dir="ltr" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-indigo-600 transition">
+
+                </div>
+
+                <div>
+
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">سهم فروش بسته</label>
+
+                  <div class="flex items-center gap-2">
+
+                    <input type="range" v-model.number="p.salesSharePct" min="0" max="100" step="1" class="hz-slider flex-1">
+
+                    <span class="w-12 text-left text-[11px] font-bold text-indigo-700" dir="ltr">{{ Math.round(p.salesSharePct || 0) }}٪</span>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2 text-[10px] font-bold">
+
+                <span class="px-2.5 py-1.5 rounded-lg bg-white/70 border border-indigo-200 text-indigo-900">قیمت مؤثر: <b dir="ltr">{{ format(creditPackPricePerQuery(p), 0) }} تومان / Query</b></span>
+
+                <span class="px-2.5 py-1.5 rounded-lg bg-white/70 border border-line text-inkSoft">اعتبارها منقضی نمی‌شوند</span>
+
+                <span class="px-2.5 py-1.5 rounded-lg bg-white/70 border border-line text-inkSoft">درآمد ماه اول: <b dir="ltr">{{ format(packRevenueM1(p)) }} تومان</b></span>
+
+              </div>
+
+              <div class="pt-3 border-t border-dashed border-indigo-200/70">
+
+                <label class="text-[10px] font-bold text-inkSoft block mb-1">یادداشت تفکیکی بسته</label>
+
+                <textarea v-model="p.notes" rows="2" class="w-full bg-card border border-line rounded-lg p-2.5 text-[11px] text-inkSoft outline-none focus:border-indigo-600 transition"></textarea>
+
+              </div>
+
+            </div>
+
+          </div>
+
           <div class="flex items-center justify-between text-[11px] px-3 py-2 rounded-xl mt-4 border font-bold" :class="creditPackSalesShareSum === 100 ? 'bg-indigoSoft/50 text-indigo-900 border-indigo-200' : 'bg-amberSoft text-amber-900 border-amber-200'">
+
             <span>مجموع ترکیب فروش بسته‌ها</span>
+
             <span dir="ltr">{{ creditPackSalesShareSum }}٪ <button v-if="creditPackSalesShareSum !== 100" @click="normalizeCreditPackShares" class="underline mr-2">نرمال‌سازی</button></span>
+
           </div>
+
         </div>
+
+
 
       </div>
+
+
 
       <!-- ===== GUIDE COLUMN ===== -->
+
       <div v-show="activeTab === 'guide'" class="lg:col-span-2 flex flex-col gap-4">
+
         <div class="bg-card border border-line rounded-2xl p-5 shadow-sm">
+
           <h2 class="text-[15px] font-bold text-turquoiseDeep mb-4 border-b pb-2 flex items-center gap-2">
+
             <i data-lucide="book-open" class="w-5 h-5"></i> راهنمای شاخص‌ها
+
           </h2>
 
+
+
           <!-- ضعیف‌ترین شاخص (بر اساس امتیاز سلامت) -->
+
           <div class="flex items-start gap-3 rounded-xl border p-3 mb-4 transition"
+
                :class="weakIndicator.score < 10 ? 'bg-rose/10 border-rose/30' : weakIndicator.score < 20 ? 'bg-amber/10 border-amber/30' : 'bg-emerald/10 border-emerald/30'">
+
             <i data-lucide="activity" class="w-5 h-5 shrink-0 mt-0.5"
+
                :class="weakIndicator.score < 10 ? 'text-rose' : weakIndicator.score < 20 ? 'text-amber-500' : 'text-emerald-600'"></i>
+
             <div class="text-[12px] leading-relaxed">
+
               <div class="font-bold text-ink mb-1">
+
                 ضعیف‌ترین شاخص فعلی: {{ weakIndicator.label }}
+
                 <span class="text-[10px] font-normal opacity-70">({{ weakIndicator.hint }})</span>
+
               </div>
+
               <div class="text-inkSoft">{{ weakIndicator.improve }}</div>
+
               <div class="mt-1 text-[10px] opacity-70">امتیاز سلامت مدل در حال حاضر: <b>{{ healthScore }}</b> از ۱۰۰ — روی همین شاخص تمرکز کنید تا سریع‌ترین پیشرفت را ببینید.</div>
+
             </div>
+
           </div>
 
+
+
           <div class="space-y-4 text-[12px] leading-relaxed text-inkSoft">
+
             <div class="bg-paper p-3 rounded-xl border border-line">
+
               <strong class="text-ink block mb-1">استراتژی تبدیل (MAU):</strong>
+
               به جای ورود دستی، تعداد کل کاربران اپلیکیشن را می‌دهید و سیستم با نرخ تبدیل خریداران را تفکیک می‌کند.
+
               <span class="block mt-1 text-[11px] bg-card border border-line rounded-lg px-2 py-1.5">
+
                 مثال: با ورودی فعلی، از {{ format(inp.mau) }} کاربر ماهانه، ماه اول حدود {{ format(paidUsersM1) }} کاربر پولی دارید و بقیه رایگان می‌مانند.
+
               </span>
+
             </div>
+
             <div class="bg-paper p-3 rounded-xl border border-line">
+
               <strong class="text-ink block mb-1">ارزش طول عمر (LTV):</strong>
+
               نشان می‌دهد یک کاربر پولی قبل از اینکه ریزش کند، در مجموع چند تومان حاشیهٔ مشارکت برای شما دارد. حاشیهٔ مشارکت = درآمد خالص (بعد از کارمزد درگاه و VAT) منهای هزینهٔ AI و سهم‌ها.
+
               <span class="block mt-1 text-[11px] bg-card border border-line rounded-lg px-2 py-1.5">
+
                 مثال: با ریزش مؤثر {{ format(effPaidChurnPct, 1) }}٪ و حاشیهٔ ماهانهٔ {{ format(contributionPerPaidUser) }} تومان، LTV هر کاربر پولی ≈ <b>{{ format(avgLTV) }}</b> تومان است.
+
               </span>
+
             </div>
+
             <div class="bg-paper p-3 rounded-xl border border-line">
+
               <strong class="text-ink block mb-1">نقطه سر‌به‌سر (Break-even):</strong>
+
               حداقل تعداد مشترک پولی که برای پوشش هزینه‌های ثابت ماهانه (هاست، حقوق، تبلیغات) لازم دارید؛ بر اساس حاشیهٔ مشارکت هر کاربر پولی.
+
               <span class="block mt-1 text-[11px] bg-card border border-line rounded-lg px-2 py-1.5">
+
                 مثال: برای پوشش هزینهٔ ثابت فعلی، باید حداقل <b>{{ format(breakEvenUsers) }}</b> کاربر پولی داشته باشید.
+
               </span>
+
             </div>
+
             <div class="bg-paper p-3 rounded-xl border border-line">
+
               <strong class="text-ink block mb-1">بازپرداخت CAC:</strong>
+
               چند ماه طول می‌کشد تا حاشیهٔ مشارکت یک کاربر جدید، هزینهٔ جذب او (CAC) را جبران کند. عدد کمتر بهتر است.
+
               <span class="block mt-1 text-[11px] bg-card border border-line rounded-lg px-2 py-1.5">
+
                 مثال: با CAC هر کاربر {{ format(inp.cacPerNewUser) }} تومان و حاشیهٔ ماهانهٔ {{ format(contributionPerPaidUser) }} تومان، بازپرداخت ≈ <b>{{ format(cacPaybackMonths, 1) }}</b> ماه است (زیر ۱۲ ماه معقول در نظر گرفته می‌شود).
+
               </span>
+
             </div>
+
             <div class="bg-paper p-3 rounded-xl border border-line">
+
               <strong class="text-ink block mb-1">تکنیک‌های بازاریابی (تب بازاریابی):</strong>
+
               هر تکنیک با روشن‌کردنش، درصد تخمینی‌اش را روی نرخ تبدیل یا ریزش اعمال می‌کند و بلافاصله در نمودارها و جدول اثر می‌گذارد. عدد «CAC تریال» هزینهٔ روزهای رایگان {{ trialPlanName }} برای همان سهم از کاربران جدید است که فعالیت بالا نشان داده‌اند. با دکمهٔ «افزودن تکنیک» می‌توانید تکنیک‌های سفارشی خودتان را بسازید، ویرایش یا حذف کنید؛ هر تکنیک می‌تواند اختیاری تریال رایگان هم داشته باشد که هزینه‌اش به‌عنوان CAC کسر می‌شود.
+
               <span class="block mt-1 text-[11px] bg-card border border-line rounded-lg px-2 py-1.5">
+
                 مثال: هزینهٔ AI برای تریال‌های فعال در ماه اول ≈ <b>{{ format(trialCACToman) }}</b> تومان از سود کسر شده است.
+
               </span>
+
             </div>
+
             <div class="bg-paper p-3 rounded-xl border border-line">
+
               <strong class="text-ink block mb-1">نقدینگی و Runway:</strong>
+
               نقدینگی تجمعی مجموع سود/زیان ماه‌به‌ماه است و Runway می‌گوید با همین روند چند ماه تا تمام‌شدن پول فرصت دارید.
+
               <span class="block mt-1 text-[11px] bg-card border border-line rounded-lg px-2 py-1.5">
+
                 مثال: نقدینگی در پایان ماه {{ inp.projectionMonths }} ≈ <b>{{ format(cumulativeCash) }}</b> تومان و باند سوخت ≈ <b>{{ runwayMonths === Infinity ? '∞ (سودده)' : Math.round(runwayMonths) + ' ماه' }}</b> است.
+
               </span>
+
             </div>
+
             <div class="bg-paper p-3 rounded-xl border border-line">
+
               <strong class="text-ink block mb-1">امتیاز سلامت مدل:</strong>
+
               خلاصهٔ سلامت کسب‌وکار از ۱۰۰ بر اساس حاشیهٔ سود، نسبت LTV به CAC، ریزش، باند نقدینگی و سود ماه اول.
+
               <span class="block mt-1 text-[11px] bg-card border border-line rounded-lg px-2 py-1.5">
+
                 مثال: امتیاز فعلی <b>{{ healthScore }}</b> از ۱۰۰ است — هر شاخصی که امتیاز کمتری از ۲۰ بگیرد در کادر رنگی بالا برجسته می‌شود.
+
               </span>
+
             </div>
+
             <div class="bg-paper p-3 rounded-xl border border-line">
+
               <strong class="text-ink block mb-1">ستون «کل کاربران» در جدول:</strong>
+
               مجموع رایگان+پولی هر ماه، همراه با تغییر نسبت به ماه قبل. «نرخ جذب ماهانه» درصدی از کل کاربرانِ همان ماه (MAU) است که به جمع اضافه می‌شود؛ پس رشد واقعی کاربران — نه فقط تبدیل داخلی آن‌ها به پولی — این‌جا قابل مشاهده است و با بزرگ‌شدن جامعه مقیاس‌پذیر می‌ماند.
+
             </div>
+
             <div class="bg-paper p-3 rounded-xl border border-line">
+
               <strong class="text-ink block mb-1">خروجی/ورودی JSON:</strong>
+
               علاوه بر ذخیرهٔ خودکار در همین مرورگر، می‌توانید کل تنظیمات را به یک فایل JSON بگیرید یا از یک فایل قبلی بازیابی کنید — مفید برای نگه‌داشتن چند سناریوی جداگانه یا انتقال بین دستگاه‌ها.
+
             </div>
+
           </div>
+
           <button @click="reset" class="w-full mt-4 flex items-center justify-center gap-2 bg-rose/10 text-rose font-bold py-3 rounded-xl transition hover:bg-rose/20 lg:hidden">
+
             <i data-lucide="refresh-ccw" class="w-4 h-4"></i> بازیابی تنظیمات اولیه
+
           </button>
+
         </div>
+
       </div>
+
+
 
     </main>
 
+
+
     <!-- ========== Marketing Technique Modal ========== -->
+
     <div v-if="showTechModal" class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" @click.self="closeTechModal">
+
       <div class="bg-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl shadow-2xl border border-line max-h-[92vh] overflow-y-auto hz-scroll">
+
         <div class="p-5 flex flex-col gap-4">
+
           <div class="flex items-center justify-between border-b border-dashed border-line pb-3">
+
             <h3 class="text-[15px] font-bold text-indigo-900 flex items-center gap-2">
+
               <i data-lucide="settings-2" class="w-4 h-4 text-indigo-600"></i>
+
               {{ editingTechId ? 'ویرایش تکنیک بازاریابی' : 'افزودن تکنیک بازاریابی' }}
+
             </h3>
+
             <button @click="closeTechModal" class="p-1.5 rounded-lg text-inkSoft hover:bg-paper transition-colors">
+
               <i data-lucide="x" class="w-4 h-4"></i>
+
             </button>
+
           </div>
+
+
 
           <div class="flex flex-col gap-3 text-[12px]">
+
             <div>
+
               <label class="font-bold text-inkSoft block mb-1">عنوان تکنیک <span class="text-rose">*</span></label>
+
               <input v-model.trim="techForm.title" type="text" placeholder="مثلاً: یادآوری شبانهٔ استریک" class="w-full bg-paper border border-line rounded-xl px-3 py-2.5 text-[12px] outline-none focus:border-indigo-500 transition">
+
             </div>
+
             <div>
+
               <label class="font-bold text-inkSoft block mb-1">آیکن</label>
+
               <div class="flex flex-wrap gap-1.5">
+
                 <button v-for="ic in iconOptions" :key="ic" @click="techForm.icon = ic"
+
                         class="w-9 h-9 rounded-xl flex items-center justify-center border transition-colors"
+
                         :class="techForm.icon === ic ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-paper text-inkSoft border-line hover:border-indigo-400'">
+
                   <i :data-lucide="ic" class="w-4 h-4"></i>
+
                 </button>
+
               </div>
+
             </div>
+
             <div>
+
               <label class="font-bold text-inkSoft block mb-1">شرح / توضیح</label>
+
               <textarea v-model="techForm.desc" rows="2" placeholder="این تکنیک چه می‌کند؟" class="w-full bg-paper border border-line rounded-xl px-3 py-2.5 text-[12px] outline-none focus:border-indigo-500 transition"></textarea>
+
             </div>
+
             <div>
+
               <label class="font-bold text-inkSoft block mb-1">نوع اثر</label>
+
               <select v-model="techForm.effectType" @change="onEffectTypeChange" class="w-full bg-paper border border-line rounded-xl px-3 py-2.5 text-[12px] outline-none focus:border-indigo-500 transition">
+
                 <option value="conversion">اثر روی نرخ تبدیل (افزایش فروش)</option>
+
                 <option value="churn_reduction">کاهش ریزش (نگه‌داشتن کاربران پولی)</option>
+
                 <option value="signup_boost">تقویت رشد ثبت‌نام (کاربر جدید)</option>
+
               </select>
+
               <p class="text-[10px] text-inkSoft/70 mt-1 leading-relaxed">این گزینه تعیین می‌کند اثر تکنیک روی کدام پارامتر مدل اعمال شود: نرخ تبدیل به پولی، ریزش ماهانهٔ پولی، یا نرخ رشد کاربران جدید.</p>
+
             </div>
+
             <div>
+
               <label class="font-bold text-inkSoft block mb-1">شدت اثر — {{ techForm.effect }}٪</label>
+
               <input type="range" v-model.number="techForm.effect" :min="techForm.min" :max="techForm.max" :step="techForm.step" class="hz-slider w-full">
+
               <p class="text-[10px] text-inkSoft/70 mt-1 leading-relaxed">مقدار درصدی که این تکنیک فعال به پارامتر انتخاب‌شده اضافه (یا از ریزش کم) می‌کند؛ به‌صورت مستقیم در محاسبات ماه‌به‌ماه اعمال می‌شود.</p>
+
             </div>
+
             <div class="bg-paper border border-line rounded-xl p-3 flex flex-col gap-2">
+
               <label class="flex items-center gap-2 font-bold text-inkSoft cursor-pointer">
+
                 <input type="checkbox" v-model="techForm.hasTrial" class="accent-indigo-600 w-4 h-4">
+
                 این تکنیک تریال رایگان دارد (هزینهٔ AI آن به‌عنوان CAC کسر می‌شود)
+
               </label>
+
               <p class="text-[10px] text-inkSoft/70 leading-relaxed -mt-1">برای تکنیک‌هایی مثل «تریال معکوس»: فقط سهمی از کاربران جدید، چند روز {{ trialPlanName }} رایگان دریافت می‌کنند و هزینهٔ AI همان بازه از سود کسر می‌شود.</p>
+
               <div v-if="techForm.hasTrial" class="flex flex-col gap-3 pt-1 border-t border-dashed border-line">
+
                 <div>
+
                   <label class="font-bold text-inkSoft block mb-1">سهم کاربران واجد شرط — {{ techForm.eligibleShare }}٪</label>
+
                   <input type="range" v-model.number="techForm.eligibleShare" :min="5" :max="30" :step="1" class="hz-slider w-full">
+
                   <p class="text-[10px] text-inkSoft/70 mt-1">درصدی از کاربران جدیدِ هر ماه که مشمول این تریال می‌شوند (معمولاً فعال‌ترین‌ها).</p>
+
                 </div>
+
                 <div>
+
                   <label class="font-bold text-inkSoft block mb-1">تعداد روز تریال</label>
+
                   <input v-model.number="techForm.trialDays" type="number" min="1" max="7" step="1" class="w-full bg-card border border-line rounded-xl px-3 py-2 text-[12px] outline-none focus:border-indigo-500 transition">
+
                 </div>
+
                 <div>
+
                   <label class="font-bold text-inkSoft block mb-1">پلن تریال</label>
+
                   <select v-model="techForm.trialPlanId" class="w-full bg-card border border-line rounded-xl px-3 py-2 text-[12px] outline-none focus:border-indigo-500 transition">
+
                     <option :value="null">پلن برتر (پولی با بیشترین سهمیهٔ روزانه)</option>
+
                     <option v-for="p in paidPlans" :key="p.id" :value="p.id">{{ p.name }}</option>
+
                   </select>
+
                   <p class="text-[10px] text-inkSoft/70 mt-1">هزینهٔ AI روزهای تریال با سهمیهٔ روزانهٔ همین پلن محاسبه می‌شود.</p>
+
                 </div>
+
               </div>
+
             </div>
+
           </div>
+
+
 
           <div class="flex gap-2 pt-1">
+
             <button @click="saveTechnique" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-bold py-2.5 rounded-xl transition-colors">
+
               {{ editingTechId ? 'ذخیره تغییرات' : 'افزودن تکنیک' }}
+
             </button>
+
             <button @click="closeTechModal" class="flex-1 bg-paper hover:bg-line/40 text-inkSoft text-[13px] font-bold py-2.5 rounded-xl transition-colors">انصراف</button>
+
           </div>
+
         </div>
+
       </div>
+
     </div>
+
+
 
     <!-- ========== Mobile Floating Pill Dock ========== -->
-    <nav class="lg:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 bg-white/70 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(16,24,40,0.18)] rounded-full px-2 py-1.5">
-      <button @click="activeTab = 'inputs'" :class="activeTab === 'inputs' ? 'bg-ink text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-3 py-2 rounded-full transition-all flex items-center gap-1.5 text-[11px] font-medium">
+
+    <nav class="lg:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 bg-white/70 backdrop-blur-2xl border border-white/60 shadow-[0_8px_32px_rgba(16,24,40,0.18)] rounded-full px-3 py-2">
+
+      <button @click="activeTab = 'inputs'" :class="activeTab === 'inputs' ? 'bg-ink text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-4 py-2.5 rounded-full transition-all flex items-center gap-1.5 text-[11px] font-medium">
+
         <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i> تنظیمات
+
       </button>
-      <button @click="activeTab = 'dashboard'" :class="activeTab === 'dashboard' ? 'bg-ink text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-3 py-2 rounded-full transition-all flex items-center gap-1.5 text-[11px] font-medium">
+
+      <button @click="activeTab = 'dashboard'" :class="activeTab === 'dashboard' ? 'bg-ink text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-4 py-2.5 rounded-full transition-all flex items-center gap-1.5 text-[11px] font-medium">
+
         <i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i> داشبورد
+
       </button>
-      <button @click="activeTab = 'marketing'" :class="activeTab === 'marketing' ? 'bg-indigo-600 text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-3 py-2 rounded-full transition-all flex items-center gap-1.5 text-[11px] font-medium">
+
+      <button @click="activeTab = 'marketing'" :class="activeTab === 'marketing' ? 'bg-indigo-600 text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-4 py-2.5 rounded-full transition-all flex items-center gap-1.5 text-[11px] font-medium">
+
         <i data-lucide="lightbulb" class="w-3.5 h-3.5"></i> بازاریابی
+
       </button>
-      <button @click="activeTab = 'guide'" :class="activeTab === 'guide' ? 'bg-turquoiseDeep text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-3 py-2 rounded-full transition-all flex items-center gap-1.5 text-[11px] font-medium">
+
+      <button @click="activeTab = 'guide'" :class="activeTab === 'guide' ? 'bg-turquoiseDeep text-white shadow' : 'text-inkSoft hover:bg-black/5'" class="px-4 py-2.5 rounded-full transition-all flex items-center gap-1.5 text-[11px] font-medium">
+
         <i data-lucide="book-open" class="w-3.5 h-3.5"></i> راهنما
+
       </button>
+
     </nav>
 
+
+
     <!-- ========== Export/Import section-selection modals (Vue inline templates) ========== -->
+
     <template v-if="exportSelecting" class="fixed inset-0 z-[90] flex items-center justify-center p-4">
+
       <div class="fixed inset-0 bg-ink/40 backdrop-blur-sm" @click="closeExportModal"></div>
+
       <div class="relative bg-card border border-line rounded-2xl shadow-xl w-full max-w-md overflow-hidden" dir="rtl">
+
         <div class="flex items-center justify-between px-5 py-4 border-b border-line">
+
           <h3 class="text-[15px] font-bold text-ink flex items-center gap-2">
+
             <i data-lucide="download" class="w-4 h-4 text-turquoiseDeep"></i> انتخاب بخش‌ها برای خروجی
+
           </h3>
+
           <button @click="closeExportModal" class="p-1.5 rounded-lg text-inkSoft hover:bg-paper transition-colors">
+
             <i data-lucide="x" class="w-4 h-4"></i>
+
           </button>
+
         </div>
+
         <div class="px-5 py-4 flex flex-col gap-2.5">
+
           <label v-for="s in EXPORT_SECTIONS" :key="s.id" class="flex items-center gap-3 p-3 rounded-xl border border-line/70 hover:border-turquoiseDeep/40 transition-colors cursor-pointer">
+
             <input type="checkbox" v-model="selectedSections[s.id]" class="accent-turquoiseDeep w-4 h-4">
+
             <span class="flex-1">
+
               <span class="text-[13px] font-bold text-ink block">{{ s.label }}</span>
+
               <span dir="ltr" class="text-[10px] text-inkSoft/70 text-right block">{{ s.en }}</span>
+
             </span>
+
           </label>
+
         </div>
+
         <div class="px-5 py-4 border-t border-line flex gap-2">
+
           <button @click="doExport" class="flex-1 bg-turquoiseDeep hover:bg-turquoise text-white text-[13px] font-bold py-2.5 rounded-xl transition-colors">صدور انتخاب‌شده</button>
+
           <button @click="closeExportModal" class="flex-1 bg-paper hover:bg-line/40 text-inkSoft text-[13px] font-bold py-2.5 rounded-xl transition-colors">انصراف</button>
+
         </div>
+
       </div>
+
     </template>
+
+
 
     <template v-if="importSelecting" class="fixed inset-0 z-[90] flex items-center justify-center p-4">
+
       <div class="fixed inset-0 bg-ink/40 backdrop-blur-sm" @click="closeImportModal"></div>
+
       <div class="relative bg-card border border-line rounded-2xl shadow-xl w-full max-w-md overflow-hidden" dir="rtl">
+
         <div class="flex items-center justify-between px-5 py-4 border-b border-line">
+
           <h3 class="text-[15px] font-bold text-ink flex items-center gap-2">
+
             <i data-lucide="upload" class="w-4 h-4 text-turquoiseDeep"></i> انتخاب بخش‌ها برای ورودی
+
           </h3>
+
           <button @click="closeImportModal" class="p-1.5 rounded-lg text-inkSoft hover:bg-paper transition-colors">
+
             <i data-lucide="x" class="w-4 h-4"></i>
+
           </button>
+
         </div>
+
         <div class="px-5 py-4 flex flex-col gap-2.5">
+
           <label v-for="s in EXPORT_SECTIONS" :key="s.id" class="flex items-center gap-3 p-3 rounded-xl border border-line/70 hover:border-turquoiseDeep/40 transition-colors cursor-pointer">
+
             <input type="checkbox" v-model="selectedSections[s.id]" class="accent-turquoiseDeep w-4 h-4">
+
             <span class="flex-1">
+
               <span class="text-[13px] font-bold text-ink block">{{ s.label }}</span>
+
               <span dir="ltr" class="text-[10px] text-inkSoft/70 text-right block">{{ s.en }}</span>
+
             </span>
+
           </label>
+
         </div>
+
         <div class="px-5 py-4 border-t border-line flex gap-2">
+
           <button @click="doImport" class="flex-1 bg-turquoiseDeep hover:bg-turquoise text-white text-[13px] font-bold py-2.5 rounded-xl transition-colors">واردکردن انتخاب‌شده</button>
+
           <button @click="closeImportModal" class="flex-1 bg-paper hover:bg-line/40 text-inkSoft text-[13px] font-bold py-2.5 rounded-xl transition-colors">انصراف</button>
+
         </div>
+
       </div>
+
     </template>
+
   </div>
 
+
+
   <!-- ==================== VUE TEMPLATES ==================== -->
+
   <script type="text/x-template" id="tpl-section">
+
     <div class="rounded-2xl overflow-hidden bg-card border border-line shadow-sm mb-4">
+
       <button @click="open = !open" class="w-full flex items-center justify-between px-4 py-3 bg-paper transition-colors hover:bg-line/30">
+
         <span class="flex items-center gap-2 font-bold text-[14px] text-ink">
+
           <i :data-lucide="icon" class="w-4 h-4 text-turquoiseDeep"></i>
+
           {{ title }}
+
         </span>
+
         <i data-lucide="chevron-down" class="w-4 h-4 transition-transform text-inkSoft" :style="{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }"></i>
+
       </button>
+
       <div v-show="open" class="px-4 py-4"><slot></slot></div>
+
     </div>
+
   </script>
+
+
 
   <script type="text/x-template" id="tpl-number">
+
     <div class="mb-4 last:mb-0">
+
       <div class="flex items-center justify-between mb-1.5">
+
         <span class="text-[12px] font-bold text-inkSoft inline-flex items-center gap-1.5">
+
           {{ label }} <span v-if="en" dir="ltr" class="text-[0.8em] opacity-55 font-medium tracking-wide">{{ en }}</span>
+
         </span>
+
       </div>
+
       <div class="flex items-center gap-2">
+
         <input type="range" :min="min" :max="max" :step="step" v-model.number="localValue" class="hz-slider flex-1" :style="{ background: sliderBg }">
+
         <div class="flex items-center gap-1 rounded-lg px-2 py-1.5 bg-paper border border-line">
+
           <input type="number" :min="min" :max="max" :step="step" v-model.number="localValue" dir="ltr" class="bg-transparent outline-none text-left w-16 text-[13px] font-bold text-ink" style="font-variant-numeric: tabular-nums;">
+
           <span v-if="unit" class="text-[10px] font-medium opacity-70 whitespace-nowrap">{{ unit }}</span>
+
         </div>
+
       </div>
+
     </div>
+
   </script>
+
+
 
   <script type="text/x-template" id="tpl-kpi">
-    <div class="rounded-2xl p-4 flex flex-col gap-2 bg-card border border-line shadow-sm relative overflow-visible" @mouseenter="showHelp = true" @mouseleave="showHelp = false" @click="onTap">
+
+    <div ref="cardEl" class="rounded-2xl p-4 flex flex-col gap-2 bg-card border border-line shadow-sm relative overflow-visible" @mouseenter="onHover(true)" @mouseleave="onHover(false)" @click="onTap">
+
       <div class="flex items-start justify-between relative z-10">
+
         <span class="text-[11px] font-bold text-inkSoft inline-flex items-center gap-1 flex-wrap">
+
           {{ title }}
+
           <span v-if="help" class="inline-flex items-center gap-0.5 text-[9px] font-normal opacity-60 cursor-help">
+
             <i data-lucide="circle-help" class="w-3 h-3"></i> توضیح
+
           </span>
+
         </span>
+
         <span class="rounded-lg p-1.5 shrink-0" :style="colorStyle.iconBg">
+
           <i :data-lucide="icon" class="w-4 h-4" :style="colorStyle.iconFg"></i>
+
         </span>
+
       </div>
+
       <div class="text-lg sm:text-xl font-extrabold relative z-10" :style="colorStyle.text" style="font-variant-numeric: tabular-nums;">
+
         <span dir="ltr" class="inline-flex items-baseline gap-1">
+
           <template v-if="type === 'toman'">
+
             {{ format(value) }} <span class="text-[0.55em] opacity-70 font-bold">تومان</span>
+
           </template>
+
           <template v-else-if="type === 'percent'">
+
             {{ format(value, 1) }} <span class="text-[0.7em] opacity-70 font-bold">٪</span>
+
           </template>
+
           <template v-else>
+
             {{ format(value) }}
+
           </template>
+
         </span>
+
       </div>
+
       <div v-if="sub" class="text-[9px] sm:text-[10px] font-medium opacity-60 relative z-10">{{ sub }}</div>
 
-      <div class="absolute left-1/2 -translate-x-1/2 top-[calc(100%+6px)] z-[70] w-72 sm:w-96 max-w-[90vw]" dir="rtl">
+
+
+      <div ref="tipEl" class="z-[70] w-72 sm:w-96 max-w-[90vw]" :style="tipPosition" dir="rtl">
+
         <transition name="hz-tip">
+
           <div v-if="showHelp && help" class="bg-ink text-white rounded-2xl p-4 shadow-xl border border-white/10">
+
             <div class="flex items-center gap-2 mb-2">
+
               <i data-lucide="circle-help" class="w-4 h-4 text-turquoiseSoft shrink-0"></i>
+
               <div class="font-bold text-[13px]">{{ help.title }}</div>
+
             </div>
+
             <div class="text-[11.5px] leading-relaxed opacity-90 mb-3">{{ help.meaning }}</div>
+
             <div class="mb-2">
+
               <div class="text-[10px] font-bold text-amber-300 mb-1 flex items-center gap-1"><i data-lucide="settings-2" class="w-3 h-3"></i> عوامل مؤثر:</div>
+
               <ul class="text-[11px] leading-relaxed opacity-85 space-y-0.5 pr-4 list-disc">
+
                 <li v-for="f in help.factors" :key="f">{{ f }}</li>
+
               </ul>
+
             </div>
+
             <div>
+
               <div class="text-[10px] font-bold text-emerald-300 mb-1 flex items-center gap-1"><i data-lucide="trending-up" class="w-3 h-3"></i> راه‌های بهبود:</div>
+
               <ul class="text-[11px] leading-relaxed opacity-85 space-y-0.5 pr-4 list-disc">
+
                 <li v-for="i in help.improve" :key="i">{{ i }}</li>
+
               </ul>
+
             </div>
+
             <div class="text-[9px] opacity-40 mt-2 pt-2 border-t border-white/10">{{ help.hint || 'اعداد از محاسبات این مدل محاسبه می‌شوند و با تغییر ورودی‌ها به‌روز می‌شوند.' }}</div>
+
           </div>
+
         </transition>
+
       </div>
+
     </div>
+
   </script>
 
+
+
   <!-- ==================== VUE LOGIC ==================== -->
+
   <script>
+
     const COLORS = {
+
       ink: "#101828", inkSoft: "#344054", paper: "#FAF8F4", card: "#FFFFFF", line: "#E7E3DA",
+
       turquoise: "#0D9488", turquoiseDeep: "#0F766E", turquoiseSoft: "#CCFBF1",
+
       amber: "#D97706", amberSoft: "#FEF3C7", rose: "#DC2626", roseSoft: "#FEE2E2",
+
       emerald: "#059669", emeraldSoft: "#D1FAE5", indigo: "#4F46E5", indigoSoft: "#E0E7FF",
+
       gold: "#EAB308", bronze: "#CD7F32"
+
     };
+
+
 
     // پالت رنگ پلن‌ها برای نمودار دایره‌ای — با شناسهٔ پلن یا اندیس رنگ می‌شود
+
     const PLAN_COLORS = ['#0F766E', '#CD7F32', '#94A3B8', '#EAB308', '#059669', '#4F46E5', '#DC2626', '#0D9488', '#D97706', '#7C3AED', '#E11D48', '#0EA5E9'];
 
+
+
     // قیمت مدل‌های LLM (دلار به ازای ۱ میلیون توکن ورودی/خروجی) — آگوست ۲۰۲۶، قیمت‌های رسمی ارائه‌دهندگان
+
     const MODEL_PRICING = {
+
       'deepseek-v4-flash': { label: 'DeepSeek V4 Flash', in: 0.14, out: 0.28, tier: 'cheap' },
+
       'gemma-4-26b-a4b-it': { label: 'Gemma 4 26B A4B', in: 0.15, out: 0.60, tier: 'cheap' },
+
       'gemma-4-31b-it': { label: 'Gemma 4 31B', in: 0.15, out: 0.60, tier: 'cheap' },
+
       'gemini-flash-lite-latest': { label: 'Gemini Flash Lite (latest)', in: 0.25, out: 1.50, tier: 'mid' },
+
       'gemini-3.1-flash-lite': { label: 'Gemini 3.1 Flash Lite', in: 0.25, out: 1.50, tier: 'mid' },
+
       'gemini-3.5-flash-lite': { label: 'Gemini 3.5 Flash Lite', in: 0.30, out: 2.50, tier: 'mid' },
+
       'gemini-3.5-flash': { label: 'Gemini 3.5 Flash', in: 1.50, out: 9.00, tier: 'strong' },
+
       'gemini-3.6-flash': { label: 'Gemini 3.6 Flash', in: 1.50, out: 7.50, tier: 'strong' }
+
     };
+
     // مدل پیش‌فرض هر دسته (برای دکمه‌های اقتصادی/متوسط/قوی و برگشت امن)
+
     const TIER_DEFAULT_MODEL = { cheap: 'deepseek-v4-flash', mid: 'gemini-3.1-flash-lite', strong: 'gemini-3.5-flash' };
+
     const TIER_MODELS = {
+
       cheap: ['deepseek-v4-flash', 'gemma-4-26b-a4b-it', 'gemma-4-31b-it'],
+
       mid: ['gemini-flash-lite-latest', 'gemini-3.1-flash-lite', 'gemini-3.5-flash-lite'],
+
       strong: ['gemini-3.5-flash', 'gemini-3.6-flash']
+
     };
+
     const TIER_LABEL = { cheap: 'اقتصادی', mid: 'متوسط', strong: 'قوی' };
+
     // تفکیک انتخاب به قیمت واقعی: کلید دسته، شناسهٔ مدل یا «دلخواه» با قیمت دستی
+
     const resolveModelPricing = (choice, customInUSD, customOutUSD, lastNonCustom) => {
+
       if (choice === 'custom') {
+
         const cin = Number(customInUSD), cout = Number(customOutUSD);
+
         if (isFinite(cin) && cin > 0 && isFinite(cout) && cout > 0) {
+
           return { label: 'دلخواه', in: cin, out: cout, tier: 'custom' };
+
         }
+
         choice = lastNonCustom;
+
       }
+
       return MODEL_PRICING[choice] || MODEL_PRICING[TIER_DEFAULT_MODEL[choice]] || MODEL_PRICING[TIER_DEFAULT_MODEL.mid];
+
     };
+
+
 
     // توضیح هر شاخص: معنی، عوامل مؤثر و راه‌های بهبود — هم در tooltip و هم در بخش راهنما استفاده می‌شود
+
     const KPI_HELP = {
+
       netProfit: {
+
         title: 'سود خالص ماهانه',
+
         meaning: 'درآمد خالص (بعد از کسر کارمزد درگاه و VAT) منهای هزینهٔ AI، هزینهٔ جذب کاربر (CAC) و هزینهٔ ثابت ماهانه. عدد مثبت یعنی کسب‌وکار در این ماه سود کرده است.',
+
         factors: ['تعداد کاربران پولی هر پلن', 'قیمت پلن‌ها', 'هزینهٔ AI هر فراخوانی', 'کارمزد درگاه و مالیات', 'CAC و هزینه‌های ثابت'],
+
         improve: ['افزایش نرخ تبدیل رایگان به پولی', 'کاهش ریزش مؤثر پولی', 'انتخاب مدل ارزان‌تر یا فعال‌کردن کش پرامپت', 'کاهش هزینهٔ ثابت', 'تنظیم قیمت پلن‌ها']
+
       },
+
       margin: {
+
         title: 'حاشیه سود',
+
         meaning: 'درصدی از درآمد خالص که به‌صورت سود باقی می‌ماند. حاشیهٔ مثبت یعنی هر تومان درآمد، سودی هم به همراه دارد.',
+
         factors: ['قیمت پلن‌ها', 'هزینهٔ AI', 'هزینه‌های ثابت', 'کارمزد درگاه و مالیات'],
+
         improve: ['قیمت‌گذاری بهتر پلن‌ها', 'کاهش هزینهٔ AI هر کاربر', 'کاهش هزینه‌های ثابت', 'بهینه‌سازی کارمزد/مالیات']
+
       },
+
       ltv: {
+
         title: 'LTV کاربران پولی',
+
         meaning: 'میانگین حاشیهٔ مشارکتی که یک کاربر پولی در طول عمرش قبل از ریزش تولید می‌کند. مهم‌ترین معیار سلامت واحد اقتصاد.',
+
         factors: ['قیمت پلن', 'هزینهٔ AI هر کاربر', 'ریزش مؤثر پولی', 'سهم هر پلن از کاربران'],
+
         improve: ['کاهش ریزش (اختیاری و غیرارادی)', 'افزایش قیمت پلن‌های پرمصرف', 'کاهش هزینهٔ AI هر کاربر', 'ترویج آپسل به پلن‌های بالاتر']
+
       },
+
       breakEven: {
+
         title: 'نقطه سر‌به‌سر',
+
         meaning: 'تعداد کاربران پولی که برای پوشش هزینه‌های ثابت ماهانه لازم است. عدد کوچک‌تر یعنی رسیدن به سودآوری آسان‌تر.',
+
         factors: ['هزینهٔ ثابت ماهانه', 'حاشیهٔ مشارکت هر کاربر پولی'],
+
         improve: ['کاهش هزینهٔ ثابت', 'افزایش حاشیهٔ مشارکت (قیمت بالاتر یا هزینهٔ AI کمتر)']
+
       },
+
       netRevenue: {
+
         title: 'درآمد خالص (MRR)',
+
         meaning: 'درآمد ماهانهٔ کاربران پولی بعد از کسر کارمزد درگاه و VAT؛ پولی که واقعاً به دست می‌آید.',
+
         factors: ['تعداد کاربران پولی', 'قیمت پلن‌ها', 'کارمزد درگاه', 'مالیات بر ارزش افزوده'],
+
         improve: ['افزایش کاربران پولی', 'قیمت‌گذاری بهتر', 'انتخاب درگاه با کارمزد کمتر', 'بررسی معافیت آموزشی مالیات']
+
       },
+
       aiCost: {
+
         title: 'هزینه کل AI',
+
         meaning: 'مجموع هزینهٔ ماهانهٔ فراخوانی‌های AI همهٔ کاربران (رایگان و پولی) به تومان.',
+
         factors: ['تعداد کاربران', 'سهمیهٔ روزانهٔ هر پلن', 'قیمت هر فراخوانی', 'نرخ ارز'],
+
         improve: ['انتخاب مدل ارزان‌تر', 'فعال‌کردن کش پرامپت', 'کاهش سهمیهٔ کاربران رایگان', 'بهینه‌سازی توکن‌ها']
+
       },
+
       costFreeUser: {
+
         title: 'هزینه AI هر کاربر رایگان',
+
         meaning: 'هزینهٔ AI که یک کاربر رایگان در ماه برای شما ایجاد می‌کند. اگر بالا باشد، کاربران رایگان پرهزینه می‌شوند.',
+
         factors: ['سهمیهٔ روزانهٔ رایگان', 'قیمت هر فراخوانی', 'نرخ ارز'],
+
         improve: ['کاهش سهمیهٔ رایگان', 'مدل ارزان‌تر برای محتوای رایگان', 'دیوار پرداخت ظرفیتی (سقف FSRS)']
+
       },
+
       futureProfit: {
+
         title: 'سود خالص در ماه پایانی',
+
         meaning: 'سود یا زیان پیش‌بینی‌شده در ماهِ پایانی بازهٔ پروژه؛ نتیجهٔ جمع رشد، ریزش، قیمت و هزینه‌ها در طول زمان.',
+
         factors: ['رشد کاربران جدید', 'ریزش', 'بازقیمت‌گذاری', 'کاهش هزینهٔ AI', 'CAC'],
+
         improve: ['بهبود نرخ تبدیل و جذب', 'کنترل ریزش', 'افزایش قیمت در سال دوم', 'کاهش هزینهٔ AI در طول زمان']
+
       },
+
       cumulativeCash: {
+
         title: 'نقدینگی تجمعی',
+
         meaning: 'مجموع سود/زیان ماهانه از ابتدای پروژه تا ماه آخر؛ وضعیت کلی نقدینگی کسب‌وکار. منفی شدن یعنی پول در حال تمام شدن است.',
+
         factors: ['همهٔ سودهای ماهانه', 'بودجهٔ تبلیغات', 'هزینه‌های ثابت'],
+
         improve: ['بهبود سود ماهانه', 'کنترل بودجهٔ تبلیغات', 'تأمین مالی/سرمایه‌گذاری']
+
       },
+
       runway: {
+
         title: 'Runway (باند سوخت)',
+
         meaning: 'چند ماه با نقدینگی فعلی و مصرف ماهانه می‌توانید قبل از تمام‌شدن پول ادامه دهید. ∞ یعنی ماهانه سودده هستید.',
+
         factors: ['نقدینگی تجمعی', 'مصرف ماهانه (زیان)'],
+
         improve: ['کاهش زیان ماهانه', 'افزایش درآمد', 'جذب سرمایه یا کاهش هزینه‌ها']
+
       },
+
       cacPayback: {
+
         title: 'بازپرداخت CAC',
+
         meaning: 'چند ماه طول می‌کشد تا حاشیهٔ مشارکت یک کاربر جدید هزینهٔ جذب او (CAC) را جبران کند. کوتاه‌تر بهتر است.',
+
         factors: ['CAC هر کاربر جدید', 'حاشیهٔ مشارکت هر کاربر پولی'],
+
         improve: ['کاهش CAC (ارجاع، رشد ارگانیک)', 'افزایش حاشیهٔ مشارکت', 'تمرکز روی کانال‌های جذب ارزان']
+
       },
+
       d30Retention: {
+
         title: 'نگه‌داشت ماهانه (D30)',
+
         meaning: 'درصد کاربران پولی که بعد از ۳۰ روز هنوز مشترک هستند؛ معادل ۱۰۰ منهای ریزش مؤثر.',
+
         factors: ['ریزش اختیاری', 'ریزش غیرارادی (پیش‌پرداخت)', 'اثر تکنیک‌های نگه‌داشت'],
+
         improve: ['کاهش ریزش با تکنیک win-back', 'خودکارسازی پرداخت برای ریزش غیرارادی', 'افزایش ارزش دریافتی کاربر']
+
       },
+
       arr: {
+
         title: 'درآمد سالانه (ARR)',
+
         meaning: 'درآمد سالانهٔ تکرارشونده = درآمد خالص ماه اول × ۱۲؛ مقیاس سالانهٔ درآمد برای مقایسه با استانداردهای SaaS.',
+
         factors: ['MRR (درآمد خالص ماهانه)'],
+
         improve: ['بهبود MRR', 'پیشنهاد پلن سالانه با تخفیف برای نقدینگی بهتر']
+
       },
+
       contributionPerPaid: {
+
         title: 'حاشیه مشارکت هر کاربر پولی',
+
         meaning: 'پولی که بعد از کسر هزینه‌های متغیر (کارمزد، مالیات، هزینهٔ AI) از هر کاربر پولی در ماه می‌ماند؛ پایهٔ محاسبهٔ LTV و سربه‌سر.',
+
         factors: ['قیمت پلن', 'کارمزد درگاه و مالیات', 'هزینهٔ AI هر کاربر'],
+
         improve: ['قیمت بالاتر', 'مدل ارزان‌تر', 'ترکیب بهتر پلن‌ها (سهم بیشتر از پلن‌های گران)']
+
       },
+
       effPaidChurn: {
+
         title: 'ریزش مؤثر پولی',
+
         meaning: 'درصد کاربران پولی که هر ماه از دست می‌دهید = ریزش اختیاری + ریزش غیرارادی − اثر تکنیک‌های کاهش ریزش. پایهٔ محاسبهٔ LTV و نگه‌داشت.',
+
         factors: ['نرخ ریزش اختیاری', 'ریزش غیرارادی (پیش‌پرداخت/نبود خودکار)', 'اثر تکنیک‌های بازاریابی'],
+
         improve: ['کاهش ریزش اختیاری با ارزش بیشتر', 'خودکارسازی پرداخت', 'فعال‌کردن تکنیک‌های کاهش ریزش']
+
       },
+
       healthScore: {
+
         title: 'امتیاز سلامت مدل',
+
         meaning: 'خلاصهٔ کلی سلامت کسب‌وکار از ۱۰۰، بر اساس حاشیهٔ سود، نسبت LTV به CAC، ریزش، نقدینگی و سودآوری ماهانه.',
+
         factors: ['حاشیه سود', 'LTV نسبت به CAC', 'ریزش مؤثر', 'Runway', 'سودآوری ماهانه'],
+
         improve: ['بهبود شاخص‌های پایهٔ بالا', 'مرتب‌سازی اولویت‌ها روی ضعیف‌ترین شاخص']
+
       }
+
     };
+
+
 
     const DEFAULTS = {
+
       inputMode: 'conversion',
+
       mau: 2000,
+
       convBase: 3.0,
+
       convPessimistic: 1.5,
+
       convOptimistic: 6.0,
+
       exchangeRate: 192000,
+
       periodDays: 30,
+
       projectionMonths: 12,
+
       paidChurnRate: 7.8,
+
       // --- پلن‌ها (منبع واحد حقیقت: قیمت، سهم، سهمیه روزانه، تعداد اولیه، یادداشت) ---
+
       // پلن «رایگان» همیشه index 0 است. سهم (sharePct) فقط برای پلن‌های پولی معنا دارد و مجموع آن‌ها باید ۱۰۰ شود.
+
       plans: [
+
         { id: 'free', name: 'رایگان', nameEn: 'Free', price: 0, callsPerDay: 0, initialCount: 1500, sharePct: 0, notes: 'امکانات پایه بدون سهمیهٔ Query AI' },
+
         { id: 'bronze', name: 'برنز', nameEn: 'Bronze', price: 49000, callsPerDay: 4, initialCount: 150, sharePct: 40, notes: 'محافظ استریک + تلفظ صوتی (TTS) نامحدود + گزارش پیشرفت + مرور معکوس' },
+
         { id: 'silver', name: 'نقره‌ای', nameEn: 'Silver', price: 199000, callsPerDay: 7, initialCount: 250, sharePct: 35, notes: 'شروع یادگیری فعال (مکالمه بر اساس جلسات هفته)' },
+
         { id: 'gold', name: 'طلایی', nameEn: 'Gold', price: 359000, callsPerDay: 12, initialCount: 100, sharePct: 15, notes: 'کوییزهای گرامری و درک مطلب پیشرفته' },
+
         { id: 'emerald', name: 'زمرد', nameEn: 'Emerald', price: 499000, callsPerDay: 20, initialCount: 50, sharePct: 10, notes: 'غوطه‌وری کامل و نامحدود' }
+
       ],
+
       // --- بسته‌های اعتبار Query (محصول مستقل از پلن؛ اعتبارها منقضی نمی‌شوند) ---
+
       creditPacks: [
+
         { id: 'query40', name: 'Query 40', nameEn: 'Query 40', price: 9000, credits: 40, salesSharePct: 60, active: true, nonExpiring: true, notes: 'بستهٔ ورودی کم‌ریسک برای کاربران رایگان' },
+
         { id: 'query100', name: 'Query 100', nameEn: 'Query 100', price: 19000, credits: 100, salesSharePct: 40, active: true, nonExpiring: true, notes: 'بستهٔ حجمی با قیمت مؤثر کمتر برای هر پرسش' }
+
       ],
+
       creditPackPurchaseRatePct: 2.0,    // ٪ کاربران رایگان که در ماه بسته می‌خرند
+
       creditPackRepeatRatePct: 20,       // ٪ افزایش تقاضا برای خرید مجدد در برآورد ماهانه
+
       creditPackPurchaseNoisePct: 15,    // دامنهٔ نویز خرید ماهانه، به‌صورت ±٪
+
       creditPackConsumptionRatePct: 65,  // ٪ اعتبارهای در دسترس که در ماه مصرف می‌شوند
+
       creditPackConsumptionNoisePct: 10, // دامنهٔ نویز مصرف ماهانه، به‌صورت ±٪
+
       creditPackRandomSeed: 42,          // بذر ثابت برای مقایسهٔ سناریوها
+
       // --- رشد کاربران (نرخ جذب به صورت درصدی از کل کاربرانِ همان ماه) ---
+
       acquisitionRate: 10,        // ٪ از کل کاربران (MAU) که هر ماه به جمع رایگان اضافه می‌شوند
+
       freeChurnRate: 10,          // ٪ ریزش ماهانه کاربران رایگان (قبلاً هاردکد ۱۰٪)
+
       signupGrowthRateBase: 4,
+
       signupGrowthRatePessimistic: 1.5,
+
       signupGrowthRateOptimistic: 7,
+
       // --- هزینه‌های مالی و ثابت (P&L واقعی) ---
+
       paymentFeePct: 1.5,         // کارمزد درگاه (زیبال ~۱٪، زرین‌پال ~۰.۵٪، بین‌المللی ۳–۵٪)
+
       vatPct: 10,                 // ارزش افزودهٔ خدمات دیجیتال (آستانهٔ ۰٪ برای آموزش، حساسیت)
+
       fixedOpexMonthly: 0,        // هزینه ثابت ماهانه: هاست، نگه‌داری، حقوق (تومان)
+
       cacPerNewUser: 0,           // هزینه جذب هر کاربر رایگان (تومان) — پیش‌فرض ۰؛ اگر ۰ باشد از CAC ترکیبیِ زنده استفاده می‌شود
+
       monthlyAdBudget: 0,         // بودجه تبلیغات ماهانه (تومان)
+
       referralShareOfSignups: 10, // ٪ ثبت‌نام‌های ارجاعی (CAC نزدیک صفر)
+
       involuntaryChurnPct: 10,    // ریزش غیرارادی به‌خاطر پیش‌پرداخت/نبود خودپرداخت خودکار
+
       annualPriceIncreasePct: 25, // بازقیمت‌گذاری سالانه در نوروز (فیلیمو +۲۰٪، فیلما +۲۶٪)
+
       // --- مدل AI (انتخاب مدل، توکن، کش و کاهش سالانه هزینه) ---
+
       modelChoice: 'gemini-3.1-flash-lite', // شناسه مدل واقعی (یا custom) — پیش‌فرض: مدل متوسط
+
       lastModelChoice: 'gemini-3.1-flash-lite', // آخرین انتخاب غیردلخواه برای برگشت امن
+
       customInUSD: 0.25,          // قیمت ورودی دلخواه (دلار به ازای ۱ میلیون توکن)
+
       customOutUSD: 1.50,         // قیمت خروجی دلخواه (دلار به ازای ۱ میلیون توکن)
+
       inputTokensPerCall: 700,
+
       outputTokensPerCall: 120,
+
       cacheSavingPct: 40,         // صرفه‌جویی کش پرامپت (۵۰–۹۰٪ تخفیف ورودی، ~۴۰٪ کل)
+
       annualCostDeclinePct: 40,   // کاهش سالانه قیمت AI (~۱۰x در سال برای هم‌کیفیت)
+
       aiCostPerCallUSD: 0.0003,   // معادل محاسبه‌شده (mid + کش ۴۰٪) برای سازگاری با داده ذخیره‌شده
+
       // --- ایده‌های بازاریابی: هرکدام قابل فعال/غیرفعال‌سازی با اثر قابل‌تنظیم روی مدل مالی ---
+
       marketingTechniques: [
+
         {
+
           id: 'streakRescue', title: 'نجات لحظه‌ای استریک', icon: 'flame', enabled: true,
+
           desc: 'ساعت ۲۲ شب، اگر کاربر رایگان تعامل نکرده بود: «استریک ۲۰ روزه‌ات تا ۲ ساعت دیگه می‌سوزه! برنز رو بگیر تا محافظ استریک نجاتت بده.» (برای جلوگیری از خستگی کاربر، حداکثر چندبار در ماه برای هر کاربر ارسال شود.)',
+
           effectType: 'conversion', effect: 1.2, min: 0, max: 3, step: 0.1
+
         },
+
         {
+
           id: 'reverseTrial', title: 'تریال معکوس ۳ روزه (فقط کاربران فعال)', icon: 'timer', enabled: true,
+
           desc: 'ورود کاربر جدیدِ «پرتلاش» (فعالیت بالا در روزهای اول) = ۳ روز پلن برتر رایگان؛ روز چهارم به رایگان سقوط می‌کند. چون فقط زیرمجموعه‌ای از کاربران رایگان مشمول‌اند، سهم واجدین شرط را دقیق تعریف می‌کنیم تا هزینهٔ AI آن (CAC) واقعی بماند.',
+
           effectType: 'conversion', effect: 2.5, min: 0, max: 4, step: 0.1,
+
           eligibleShare: 15, eligibleMin: 5, eligibleMax: 30, trialDays: 3
+
         },
+
         {
+
           id: 'smartDiscount', title: 'تخفیف هوشمند به کاربران بسیار فعال', icon: 'sparkles', enabled: true,
+
           desc: 'اگر کاربر رایگان در ۱۴ روز اول بالای ۱۲ روز فعال بود اما خرید نکرد: کد تخفیف ۳۰٪ به مدت ۴۸ ساعت برای نقره‌ای. هدفمند، نه برای همه.',
+
           effectType: 'conversion', effect: 0.9, min: 0, max: 3, step: 0.1
+
         },
+
         {
+
           id: 'capacityWall', title: 'دیوار پرداخت ظرفیتی (سقف FSRS)', icon: 'brain-circuit', enabled: true,
+
           desc: 'کاربر رایگان به ۲۰۰ کلمهٔ تثبیت‌شده می‌رسد؛ مرور قبلی رایگان می‌ماند اما افزودن کلمهٔ جدید نیاز به برنز دارد.',
+
           effectType: 'conversion', effect: 2.5, min: 0, max: 4, step: 0.1
+
         },
+
         {
+
           id: 'streakMilestone', title: 'پاداش استریک و بیش‌فروشی', icon: 'gift', enabled: true,
+
           desc: 'رسیدن به ۳۰ روز استریک = هدیهٔ ۳ روز پلن برتر، برای نمایش امکانات پلن‌های بالاتر. سقف تعداد دفعات در سال لازم دارد.',
+
           effectType: 'conversion', effect: 0.7, min: 0, max: 2, step: 0.1
+
         },
+
         {
+
           id: 'lossAversionContent', title: 'زیان‌گریزی محتوایی', icon: 'trending-down', enabled: false,
+
           desc: '«۱۲ کلمهٔ این هفته آماده مرورن، اما سقف رایگان فقط ۳ تاش رو نشون می‌ده» — نمایش عدد دقیق فرصت ازدست‌رفته به‌جای پیام کلی.',
+
           effectType: 'conversion', effect: 0.8, min: 0, max: 2, step: 0.1
+
         },
+
         {
+
           id: 'socialProof', title: 'اثبات اجتماعی هم‌سطحان', icon: 'users-round', enabled: false,
+
           desc: '«۷۳٪ از هم‌سطحان تو (همین زبان و سطح) پلن نقره‌ای دارند» — بر اساس توزیع واقعی پلن در دیتابیس.',
+
           effectType: 'conversion', effect: 0.6, min: 0, max: 2, step: 0.1
+
         },
+
         {
+
           id: 'timeLock', title: 'قفل زمانیِ جلسهٔ بعدی', icon: 'hourglass', enabled: false,
+
           desc: 'کاربر رایگان جلسهٔ بعدی SRS را فقط بعد از چند ساعت انتظار می‌بیند مگر آپگرید کند (نسخهٔ ملایمِ hearts دولینگو).',
+
           effectType: 'conversion', effect: 1.0, min: 0, max: 3, step: 0.1
+
         },
+
         {
+
           id: 'winBack', title: 'بازگرداندن کاربران ریزش‌کرده', icon: 'rotate-ccw', enabled: false,
+
           desc: 'یک پیام یک‌بارهٔ بعد از لغو اشتراک: «۵۰٪ تخفیف ۷ روزه برای بازگشت» — کاهش نرخ ریزش مؤثر پولی.',
+
           effectType: 'churn_reduction', effect: 0.8, min: 0, max: 3, step: 0.1
+
         },
+
         {
+
           id: 'referral', title: 'دعوت از دوستان (Referral)', icon: 'user-plus', enabled: false,
+
           desc: 'هر دعوت موفق = ۳ روز رایگان پلن برنز برای هر دو نفر. هم‌زمان کاربران جدید واقعی اضافه می‌کند و CAC را کاهش می‌دهد.',
+
           effectType: 'signup_boost', effect: 1.5, min: 0, max: 5, step: 0.1
+
         },
+
         {
+
           id: 'anchorPricing', title: 'Anchor آشکار در پیام فروش', icon: 'anchor', enabled: false,
+
           desc: 'نمایش پلن زمرد کنار پلن نقره‌ای در پیام تبلیغاتی خودِ ربات (نه فقط در صفحهٔ قیمت) تا نقره‌ای «منطقی» به‌نظر برسد.',
+
           effectType: 'conversion', effect: 0.5, min: 0, max: 2, step: 0.1
+
         }
+
       ],
+
       marketing: {
+
         trial: "۱. تریال ۳ روزهٔ پلن برتر برای ورود اولیه کاربر تا به سرعت بالا عادت کند.\n۲. هدیه ۳ روزه به عنوان پاداش رسیدن به استریک ۳۰ روزه.",
+
         capacity: "تعیین سقف برای حافظه: وقتی کاربر ۲۰۰ کلمه تثبیت‌شده (FSRS > 30 days) داشت، ربات پیام می‌دهد: «حافظه شما پر شده است! برای نگهداری دیتابیس کلمات بیشتر، پلن برنز را تهیه کنید.»"
+
       }
+
     };
 
+
+
     // --- بخش‌های انتخابی صدور/وارد کردن JSON ---
+
     const EXPORT_SECTIONS = [
+
       {
+
         id: 'simulation', label: 'شبیه‌سازی مالی', en: 'Financial Simulation',
+
         keys: ['inputMode','mau','convBase','convPessimistic','convOptimistic',
+
           'exchangeRate','periodDays','projectionMonths','paidChurnRate','freeChurnRate',
+
           'signupGrowthRateBase','signupGrowthRatePessimistic','signupGrowthRateOptimistic',
+
           'involuntaryChurnPct','annualPriceIncreasePct','acquisitionRate']
+
       },
+
       {
+
         id: 'financial', label: 'هزینه‌ها و ثابت', en: 'Financial & Fixed',
+
         keys: ['paymentFeePct','vatPct','fixedOpexMonthly','cacPerNewUser','monthlyAdBudget','referralShareOfSignups']
+
       },
+
       {
+
         id: 'aiModel', label: 'مدل AI', en: 'AI Model',
+
         keys: ['modelChoice','lastModelChoice','customInUSD','customOutUSD',
+
           'inputTokensPerCall','outputTokensPerCall','cacheSavingPct','annualCostDeclinePct','aiCostPerCallUSD']
+
       },
+
       {
+
         id: 'plans', label: 'پلن‌ها (تعریف و یادداشت)', en: 'Plans & Notes',
+
         keys: ['plans']
+
       },
+
       {
+
         id: 'creditPacks', label: 'بسته‌های اعتبار Query', en: 'Query Credit Packs',
+
         keys: ['creditPacks','creditPackPurchaseRatePct','creditPackRepeatRatePct',
+
           'creditPackPurchaseNoisePct','creditPackConsumptionRatePct',
+
           'creditPackConsumptionNoisePct','creditPackRandomSeed']
+
       },
+
       {
+
         id: 'marketing', label: 'کارزارهای بازرگانی و تکنیک‌ها', en: 'Marketing Campaigns',
+
         keys: ['marketingTechniques','marketing']
+
       }
+
     ];
 
-    const { createApp, ref, computed, watch, onMounted, nextTick } = Vue;
+
+
+    const { createApp, ref, computed, watch, onMounted, onBeforeUnmount, nextTick } = Vue;
+
+
 
     const app = createApp({
+
       setup() {
+
         // مهاجرت داده‌های قدیمی: حذف پارامتر مطلقِ حذف‌شده و تضمین وجود acquisitionRate
+
         const sanitizeLoaded = (data) => {
+
           const d = { ...data };
+
           if ('newUsersMonth1' in d) delete d.newUsersMonth1;
+
           if (typeof d.acquisitionRate !== 'number') d.acquisitionRate = DEFAULTS.acquisitionRate;
+
           if (!Array.isArray(d.marketingTechniques)) d.marketingTechniques = DEFAULTS.marketingTechniques;
+
           // مهاجرت از دادهٔ قدیمی با کلیدهای تختِ پلن به آرایهٔ plans (افزودن/حذف پلن ها از این پس)
+
           if (!Array.isArray(d.plans)) {
+
             const bk = (v, fb) => typeof v === 'number' ? v : fb;
+
             const bks = (v, fb) => typeof v === 'string' && v !== '' ? v : fb;
+
             d.plans = [
+
               { id: 'free', name: 'رایگان', nameEn: 'Free', price: 0, callsPerDay: 0, initialCount: bk(d.free0, 1500), sharePct: 0, notes: bks(d.notes && d.notes.free, DEFAULTS.plans[0].notes) },
+
               { id: 'bronze', name: 'برنز', nameEn: 'Bronze', price: bk(d.bronzePrice, 49000), callsPerDay: bk(d.bronzeCallsPerDay, 4), initialCount: bk(d.bronze0, 150), sharePct: bk(d.bronzeShare, 40), notes: bks(d.notes && d.notes.bronze, DEFAULTS.plans[1].notes) },
+
               { id: 'silver', name: 'نقره‌ای', nameEn: 'Silver', price: bk(d.silverPrice, 199000), callsPerDay: bk(d.silverCallsPerDay, 7), initialCount: bk(d.silver0, 250), sharePct: bk(d.silverShare, 35), notes: bks(d.notes && d.notes.silver, DEFAULTS.plans[2].notes) },
+
               { id: 'gold', name: 'طلایی', nameEn: 'Gold', price: bk(d.goldPrice, 359000), callsPerDay: bk(d.goldCallsPerDay, 12), initialCount: bk(d.gold0, 100), sharePct: bk(d.goldShare, 15), notes: bks(d.notes && d.notes.gold, DEFAULTS.plans[3].notes) },
+
               { id: 'emerald', name: 'زمرد', nameEn: 'Emerald', price: bk(d.emeraldPrice, 499000), callsPerDay: bk(d.emeraldCallsPerDay, 20), initialCount: bk(d.emerald0, 50), sharePct: Math.max(0, 100 - bk(d.bronzeShare, 40) - bk(d.silverShare, 35) - bk(d.goldShare, 15)), notes: bks(d.notes && d.notes.emerald, DEFAULTS.plans[4].notes) }
+
             ];
+
             // حذف کلیدهای تختِ قدیمی برای جلوگیری از رجوع مجدد
+
             ['free0','bronze0','silver0','gold0','emerald0',
+
              'bronzePrice','silverPrice','goldPrice','emeraldPrice',
+
              'freeCallsPerDay','bronzeCallsPerDay','silverCallsPerDay','goldCallsPerDay','emeraldCallsPerDay',
+
              'bronzeShare','silverShare','goldShare','notes'].forEach(k => delete d[k]);
+
           } else {
+
             // تضمین اسکیمای هر پلن و نرمال‌سازی sharePct برای پلن رایگان
+
             d.plans = d.plans.map(p => {
+
               const base = DEFAULTS.plans.find(b => b.id === p.id);
+
               return {
+
                 id: p.id, name: p.name || (base && base.name) || 'پلن',
+
                 nameEn: p.nameEn || (base && base.nameEn) || '',
+
                 price: typeof p.price === 'number' ? p.price : (base && base.price) || 0,
+
                 callsPerDay: p.id === 'free' ? 0 : (typeof p.callsPerDay === 'number' ? p.callsPerDay : (base && base.callsPerDay) || 3),
+
                 initialCount: typeof p.initialCount === 'number' ? p.initialCount : (base && base.initialCount) || 0,
+
                 sharePct: p.id === 'free' ? 0 : (typeof p.sharePct === 'number' ? p.sharePct : 0),
+
                 notes: typeof p.notes === 'string' ? p.notes : (base && base.notes) || ''
+
               };
+
             }).filter(Boolean);
+
             if (d.plans.length === 0) d.plans = DEFAULTS.plans.map(p => ({ ...p }));
+
           }
+
           // تضمین وجود پلن رایگان (قانون ۲): اگر در لیست نیست، اولین پلن نقش آن را می‌گیرد
+
           if (!d.plans.some(p => p.id === 'free') && d.plans.length) {
+
             d.plans[0].id = 'free';
+
             d.plans[0].sharePct = 0;
+
           }
+
           // پلن رایگان سهمیهٔ پیش‌فرض Query AI ندارد؛ اعتبار Query فقط از بستهٔ مستقل خریداری می‌شود.
+
           d.plans = d.plans.map(p => p.id === 'free' ? { ...p, callsPerDay: 0 } : p);
+
           // مهاجرت امنِ مدل جدید بسته‌های اعتبار از دادهٔ ذخیره‌شدهٔ قدیمی.
+
           const defaultPacks = DEFAULTS.creditPacks || [];
+
           if (!Array.isArray(d.creditPacks)) {
+
             d.creditPacks = defaultPacks.map(p => ({ ...p }));
+
           } else {
+
             d.creditPacks = d.creditPacks.map(p => {
+
               const base = defaultPacks.find(b => b.id === p.id);
+
               return {
+
                 id: p.id || (base && base.id) || `query-${Date.now()}`,
+
                 name: p.name || (base && base.name) || 'بستهٔ Query',
+
                 nameEn: p.nameEn || (base && base.nameEn) || 'Query Pack',
+
                 price: typeof p.price === 'number' ? p.price : (base && base.price) || 0,
+
                 credits: typeof p.credits === 'number' ? p.credits : (base && base.credits) || 0,
+
                 salesSharePct: typeof p.salesSharePct === 'number' ? p.salesSharePct : (base && base.salesSharePct) || 0,
+
                 active: p.active !== false,
+
                 nonExpiring: p.nonExpiring !== false,
+
                 notes: typeof p.notes === 'string' ? p.notes : (base && base.notes) || ''
+
               };
+
             }).filter(p => p && p.id);
+
             if (d.creditPacks.length === 0) d.creditPacks = defaultPacks.map(p => ({ ...p }));
+
           }
+
           // پشتیبان‌گیری از فیلدهای جدید (کاربرانی که دادهٔ قدیمی دارند)
+
           const numericExtra = ['paymentFeePct','vatPct','fixedOpexMonthly','cacPerNewUser','monthlyAdBudget',
+
             'referralShareOfSignups','involuntaryChurnPct','annualPriceIncreasePct',
+
             'inputTokensPerCall','outputTokensPerCall','cacheSavingPct','annualCostDeclinePct',
+
             'creditPackPurchaseRatePct','creditPackRepeatRatePct','creditPackConsumptionRatePct',
+
             'creditPackPurchaseNoisePct','creditPackConsumptionNoisePct','creditPackRandomSeed'];
+
           for (const k of numericExtra) if (typeof d[k] !== 'number') d[k] = DEFAULTS[k];
+
           if (typeof d.modelChoice !== 'string') d.modelChoice = DEFAULTS.modelChoice;
+
           // سازگاری با دادهٔ قدیمی: کلیدهای دسته (cheap/mid/strong) به مدل پیش‌فرض آن دسته نرمال می‌شوند
+
           if (TIER_DEFAULT_MODEL[d.modelChoice]) d.modelChoice = TIER_DEFAULT_MODEL[d.modelChoice];
+
           if (typeof d.lastModelChoice !== 'string' || d.lastModelChoice === 'custom') d.lastModelChoice = DEFAULTS.lastModelChoice;
+
           if (TIER_DEFAULT_MODEL[d.lastModelChoice]) d.lastModelChoice = TIER_DEFAULT_MODEL[d.lastModelChoice];
+
           if (typeof d.customInUSD !== 'number' || d.customInUSD <= 0) d.customInUSD = DEFAULTS.customInUSD;
+
           if (typeof d.customOutUSD !== 'number' || d.customOutUSD <= 0) d.customOutUSD = DEFAULTS.customOutUSD;
+
           return d;
+
         };
 
+
+
         // کپی عمیقِ آرایه‌های قابل ویرایش تا DEFAULTS آلوده نشوند و reset درست باشد.
+
         const freshDefaults = () => ({
+
           ...DEFAULTS,
+
           plans: DEFAULTS.plans.map(p => ({ ...p })),
+
           creditPacks: DEFAULTS.creditPacks.map(p => ({ ...p }))
+
         });
 
+
+
         let initialData = freshDefaults();
+
         try {
+
           const savedData = localStorage.getItem('hamzaboon_financial_model_v2');
+
           if (savedData) {
+
             initialData = { ...initialData, ...sanitizeLoaded(JSON.parse(savedData)) };
+
           }
+
         } catch (e) {
+
           console.error("Could not load saved data", e);
+
         }
 
+
+
         const inp = ref(initialData);
+
         const activeTab = ref('dashboard');
+
+        const selectedPlanId = ref(inp.value.plans[0] ? inp.value.plans[0].id : null);
+
+        const selectedPlanView = computed(() => {
+
+          const idx = inp.value.plans.findIndex(p => p.id === selectedPlanId.value);
+
+          const i = idx >= 0 ? idx : 0;
+
+          return { plan: inp.value.plans[i] || null, idx: i };
+
+        });
+
         const isDesktop = ref(window.innerWidth >= 1024);
+
         const fileInput = ref(null);
+
+
+
+        // --- ناوبری کناری دسکتاپ: وضعیت باز/بسته در حافظهٔ مرورگر ذخیره می‌شود ---
+
+        const SIDEBAR_KEY = 'hamzaboon_financial_model_sidebar_collapsed';
+
+        let sidebarInitial = false;
+
+        try { sidebarInitial = localStorage.getItem(SIDEBAR_KEY) === '1'; } catch (e) {}
+
+        const sidebarCollapsed = ref(sidebarInitial);
+
+        const toggleSidebar = () => {
+
+          sidebarCollapsed.value = !sidebarCollapsed.value;
+
+          try { localStorage.setItem(SIDEBAR_KEY, sidebarCollapsed.value ? '1' : '0'); } catch (e) {}
+
+        };
+
+        const navItems = [
+
+          { key: 'inputs', label: 'تنظیمات', icon: 'sliders-horizontal' },
+
+          { key: 'dashboard', label: 'داشبورد', icon: 'layout-dashboard' },
+
+          { key: 'marketing', label: 'بازاریابی', icon: 'lightbulb' },
+
+          { key: 'guide', label: 'راهنما', icon: 'book-open' }
+
+        ];
+
+        const navActiveClass = (key) =>
+
+          key === 'marketing' ? 'bg-indigo-600 text-white shadow'
+
+          : key === 'guide' ? 'bg-turquoiseDeep text-white shadow'
+
+          : 'bg-ink text-white shadow';
+
+        const desktopContentPad = computed(() =>
+
+          isDesktop.value ? { paddingRight: sidebarCollapsed.value ? '8rem' : '18rem' } : {});
+
+
 
         let charts = {};
 
+
+
         const CHART_OPEN_KEY = 'hamzaboon_financial_model_chart_open';
+
         const defaultChartOpen = { bar: true, pie: true, line: true, growth: true };
+
         const loadChartOpen = () => {
+
           try {
+
             const saved = JSON.parse(localStorage.getItem(CHART_OPEN_KEY) || '{}');
+
             return { ...defaultChartOpen, ...saved };
+
           } catch (e) {
+
             return { ...defaultChartOpen };
+
           }
+
         };
+
         const chartOpen = ref(loadChartOpen());
+
         const toggleChart = (key) => {
+
           chartOpen.value[key] = !chartOpen.value[key];
+
           try { localStorage.setItem(CHART_OPEN_KEY, JSON.stringify(chartOpen.value)); } catch (e) {}
+
           nextTick().then(() => { Object.values(charts).forEach(c => c && c.resize()); });
+
         };
+
+
 
         const modelTableOpen = ref(false);
+
         const toggleModelTable = () => { modelTableOpen.value = !modelTableOpen.value; };
 
+
+
         const reset = () => {
+
           localStorage.removeItem('hamzaboon_financial_model_v2');
+
           localStorage.removeItem(CHART_OPEN_KEY);
+
           inp.value = freshDefaults();
+
           chartOpen.value = { ...defaultChartOpen };
+
           if (!isDesktop.value) activeTab.value = 'dashboard';
+
         };
+
+
 
         // درون‌ریزی/بیرون‌ریزی JSON با انتخاب بخش‌ها (شبیه‌سازی، هزینه‌ها، AI، پلن‌ها، بازاریابی)
+
         const exportSelecting = ref(false);
+
         const importSelecting = ref(false);
+
         const pendingImportData = ref(null);
+
         const selectedSections = ref({});
+
         const resetSectionSelection = () => {
+
           const sel = {};
+
           EXPORT_SECTIONS.forEach(s => { sel[s.id] = true; });
+
           selectedSections.value = sel;
+
         };
+
         resetSectionSelection();
 
+
+
         const openExportModal = () => {
+
           resetSectionSelection();
+
           exportSelecting.value = true;
+
         };
+
+
 
         const doExport = () => {
+
           const out = {};
+
           EXPORT_SECTIONS.forEach(s => {
+
             if (!selectedSections.value[s.id]) return;
+
             if (s.id === 'plans') {
+
               out.plans = inp.value.plans;
+
               return;
+
             }
+
             if (s.id === 'creditPacks') {
+
               out.creditPacks = inp.value.creditPacks;
+
               s.keys.filter(k => k !== 'creditPacks').forEach(k => { if (k in inp.value) out[k] = inp.value[k]; });
+
               return;
+
             }
+
             s.keys.forEach(k => { if (k in inp.value) out[k] = inp.value[k]; });
+
           });
+
           const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+
           const url = URL.createObjectURL(blob);
+
           const a = document.createElement('a');
+
           const stamp = new Date().toISOString().slice(0, 10);
+
           a.href = url;
+
           a.download = `hamzaboon-financial-model-${stamp}.json`;
+
           a.click();
+
           URL.revokeObjectURL(url);
+
           exportSelecting.value = false;
+
         };
+
         const closeExportModal = () => { exportSelecting.value = false; };
 
+
+
         const triggerImport = () => { if (fileInput.value) fileInput.value.click(); };
+
         // نگه‌داری نام قبلی برای سازگاری با دکمه‌های header/mobile
+
         const exportJSON = openExportModal;
 
+
+
         const importJSON = (e) => {
+
           const file = e.target.files && e.target.files[0];
+
           if (!file) return;
+
           const reader = new FileReader();
+
           reader.onload = (ev) => {
+
             try {
+
               pendingImportData.value = JSON.parse(ev.target.result);
+
               resetSectionSelection();
+
               importSelecting.value = true;
+
             } catch (err) {
+
               alert('فایل JSON نامعتبر است.');
+
             } finally {
+
               e.target.value = '';
+
             }
+
           };
+
           reader.readAsText(file);
+
         };
+
         const doImport = () => {
+
           const parsed = pendingImportData.value;
+
           if (!parsed) { importSelecting.value = false; return; }
+
           const merged = { ...inp.value };
+
           // بخش‌های پایه که همیشه در `sanitizeLoaded` بازسازی می‌شوند
+
           EXPORT_SECTIONS.forEach(s => {
+
             if (!selectedSections.value[s.id]) return;
+
             if (s.id === 'plans') {
+
               if (Array.isArray(parsed.plans)) {
+
                 merged.plans = parsed.plans.map(p => ({ ...p }));
+
               } else {
+
                 // سازگاری با خروجی نسخهٔ قبلی (کلیدهای تخت و بدون plans):
+
                 // کلیدهای تخت را کپی و plans فعلی را حذف می‌کنیم تا `sanitizeLoaded` مهاجرت قدیمی را اجرا کند
+
                 const flatPlanKeys = ['free0','bronze0','silver0','gold0','emerald0',
+
                   'bronzePrice','silverPrice','goldPrice','emeraldPrice',
+
                   'freeCallsPerDay','bronzeCallsPerDay','silverCallsPerDay','goldCallsPerDay','emeraldCallsPerDay',
+
                   'bronzeShare','silverShare','goldShare','notes'];
+
                 const hasOldFlatPlans = flatPlanKeys.some(k => k in parsed);
+
                 if (hasOldFlatPlans) {
+
                   flatPlanKeys.forEach(k => { if (k in parsed) merged[k] = parsed[k]; });
+
                   delete merged.plans;
+
                 }
+
               }
+
             } else if (s.id === 'creditPacks') {
+
               if (Array.isArray(parsed.creditPacks)) {
+
                 merged.creditPacks = parsed.creditPacks.map(p => ({ ...p }));
+
               }
+
               s.keys.filter(k => k !== 'creditPacks').forEach(k => {
+
                 if (k in parsed) merged[k] = parsed[k];
+
               });
+
             } else {
+
               s.keys.forEach(k => { if (k in parsed) merged[k] = parsed[k]; });
+
             }
+
           });
+
           try {
+
             inp.value = { ...DEFAULTS, ...sanitizeLoaded(merged) };
+
           } catch (err) {
+
             alert('فایل JSON ناسازگار است؛ هیچ تغییری اعمال نشد.');
+
           }
+
           importSelecting.value = false;
+
           pendingImportData.value = null;
+
         };
+
         const closeImportModal = () => { importSelecting.value = false; };
 
+
+
         const format = (v, dec = 0) => {
+
           if (!isFinite(v)) return 0;
+
           return new Intl.NumberFormat('en-US', { maximumFractionDigits: dec, minimumFractionDigits: dec }).format(v);
+
         };
+
+
 
         // جمع اثر تکنیک‌های فعالِ بازاریابی روی مدل مالی (Rule 3)
+
         const getMarketingEffects = (params) => {
+
           let convBoost = 0, churnReduction = 0, signupBoost = 0;
+
           (params.marketingTechniques || []).forEach(t => {
+
             if (!t.enabled) return;
+
             if (t.effectType === 'conversion') convBoost += Number(t.effect) || 0;
+
             else if (t.effectType === 'churn_reduction') churnReduction += Number(t.effect) || 0;
+
             else if (t.effectType === 'signup_boost') signupBoost += Number(t.effect) || 0;
+
           });
+
           return { convBoost, churnReduction, signupBoost };
+
         };
+
+
 
         // هزینهٔ CAC تریال معکوس: مجموع سهم کاربرانِ «واجد شرط» از کاربران جدیدِ هر ماه در همهٔ تکنیک‌های تریالی فعال
+
         // هر تکنیک می‌تواند پلن تریال خودش را انتخاب کند؛ پیش‌فرض: پولی با بیشترین سهمیهٔ روزانه
+
         const resolveTrialPlan = (technique, plans) => {
+
           const paidPlans = (plans || []).filter(p => p.id !== 'free');
+
           if (technique && technique.trialPlanId) {
+
             const chosen = paidPlans.find(p => p.id === technique.trialPlanId);
+
             if (chosen) return chosen;
+
           }
+
           if (!paidPlans.length) return { callsPerDay: 12, name: 'پلن برتر' };
+
           return paidPlans.reduce((a, b) => ((b.callsPerDay || 0) > (a.callsPerDay || 0) ? b : a), { callsPerDay: 0 });
+
         };
+
         const getTrialCACPerNewUser = (params) => {
+
           // قیمت مؤثر هر فراخوانی با کش (همانند computeSeries) برای انسجام بین تریال و مدل اصلی
+
           const mPricing = resolveModelPricing(params.modelChoice, params.customInUSD, params.customOutUSD, params.lastModelChoice);
+
           const cacheFactor = 1 - (params.cacheSavingPct || 0) / 100;
+
           const effectiveCallUSD = ((params.inputTokensPerCall || 700) * mPricing.in + (params.outputTokensPerCall || 120) * mPricing.out) / 1e6 * cacheFactor;
+
           let costWeightedSum = 0, shareSum = 0;
+
           (params.marketingTechniques || []).forEach(t => {
+
             if (!t.enabled || t.eligibleShare === undefined) return;
+
             const days = Math.max(1, Number(t.trialDays) || 3);
+
             const share = Math.max(0, Number(t.eligibleShare) || 0) / 100;
+
             const plan = resolveTrialPlan(t, params.plans);
+
             const trialCallsPerDay = Number.isFinite(plan.callsPerDay) ? plan.callsPerDay : 12;
+
             const costPerUser = days * trialCallsPerDay * effectiveCallUSD * params.exchangeRate;
+
             costWeightedSum += costPerUser * share;
+
             shareSum += share;
+
           });
+
           if (shareSum <= 0) return { costPerUser: 0, eligibleShare: 0 };
+
           return { costPerUser: costWeightedSum / shareSum, eligibleShare: shareSum };
+
         };
+
+
 
         // --- پلن‌ها: سهم‌ها و توابع مدیریتی ---
+
         const paidPlans = computed(() => (inp.value.plans || []).filter(p => p.id !== 'free'));
+
         const paidPlansShareSum = computed(() => paidPlans.value.reduce((s, p) => s + (Number(p.sharePct) || 0), 0));
-        const paidPlanShare = (p) => Math.round(Number(p.sharePct) || 0);
+
         const creditPacks = computed(() => inp.value.creditPacks || []);
+
         const creditPackSalesShareSum = computed(() => creditPacks.value.reduce((s, p) => s + (Number(p.salesSharePct) || 0), 0));
+
         const creditPackPricePerQuery = (p) => {
+
           const credits = Number(p && p.credits) || 0;
+
           return credits > 0 ? (Number(p.price) || 0) / credits : 0;
-        };
-        const packSalesM1 = (p) => {
-          const row = m1.value || {};
-          const totalCredits = (row.creditsSold || 0);
-          const totalPackCredits = creditPacks.value.reduce((s, x) => s + (Number(x.credits) || 0) * (Number(x.salesSharePct) || 0), 0);
-          if (!p || totalPackCredits <= 0) return 0;
-          return totalCredits * ((Number(p.credits) || 0) * (Number(p.salesSharePct) || 0) / totalPackCredits) / Math.max(1, Number(p.credits) || 1);
-        };
-        const packRevenueM1 = (p) => {
-          const totalRevenue = Number(m1.value && m1.value.packGrossRevenue) || 0;
-          const totalWeightedShare = creditPacks.value.reduce((s, x) => s + (Number(x.salesSharePct) || 0), 0) || 1;
-          return totalRevenue * ((Number(p && p.salesSharePct) || 0) / totalWeightedShare);
-        };
-        const normalizeCreditPackShares = () => {
-          const packs = inp.value.creditPacks || [];
-          const active = packs.filter(p => p.active !== false);
-          if (!active.length) return;
-          const currentSum = active.reduce((s, p) => s + Math.max(0, Number(p.salesSharePct) || 0), 0);
-          if (currentSum > 0) {
-            active.forEach(p => { p.salesSharePct = Math.round((Math.max(0, Number(p.salesSharePct) || 0) / currentSum) * 100); });
-          } else {
-            active.forEach(p => { p.salesSharePct = Math.round(100 / active.length); });
-          }
-          const drift = 100 - active.reduce((s, p) => s + p.salesSharePct, 0);
-          if (drift !== 0) active[active.length - 1].salesSharePct += drift;
-          inp.value.creditPacks = [...packs];
-        };
-        const addCreditPack = () => {
-          const base = {
-            id: 'query' + Date.now().toString(36), name: 'بستهٔ Query جدید', nameEn: 'New Query Pack',
-            price: 9000, credits: 40, salesSharePct: 0, active: true, nonExpiring: true, notes: ''
-          };
-          inp.value.creditPacks.push(base);
-          normalizeCreditPackShares();
-        };
-        const removeCreditPack = (p) => {
-          if (!p) return;
-          if (!confirm(`بستهٔ «${p.name}» حذف شود؟`)) return;
-          inp.value.creditPacks = inp.value.creditPacks.filter(x => x.id !== p.id);
-          normalizeCreditPackShares();
-        };
-        // پلن تریال یک تکنیک خاص: پلن انتخاب‌شدهٔ آن تکنیک، یا پیش‌فرض پولیِ با بیشترین سهمیه (گزارش پویا)
-        const techniqueTrialName = (t) => {
-          const plan = resolveTrialPlan(t, inp.value.plans || []);
-          return (plan && plan.name) ? plan.name : 'پلن برتر';
-        };
-        // پلن تریال کلی (برای متن‌های عمومی): پولی با بیشترین سهمیهٔ روزانه
-        const trialPlanName = computed(() => {
-          const paid = (inp.value.plans || []).filter(p => p.id !== 'free');
-          const top = paid.reduce((a, b) => ((b.callsPerDay || 0) > (a.callsPerDay || 0) ? b : a), { callsPerDay: 0 });
-          return top && top.name ? top.name : 'پلن برتر';
-        });
-        // متوازن‌سازی نسبی: با تغییر سهم یک پلن، بقیه به‌نسبت سهم قبلی خود تنظیم می‌شوند تا مجموع ۱۰۰ بماند
-        const autoBalanceShare = (changedId, rawVal) => {
-          const paid = inp.value.plans.filter(p => p.id !== 'free');
-          const changed = paid.find(p => p.id === changedId);
-          if (!changed) return;
-          const newShare = Math.max(0, Math.min(100, Number(rawVal) || 0));
-          const others = paid.filter(p => p.id !== changedId);
-          const otherSum = others.reduce((s, p) => s + (Number(p.sharePct) || 0), 0);
-          if (others.length === 0 || otherSum === 0) {
-            // تنها پلن پولی است یا بقیه سهم ۰ دارند: این پلن کل ۱۰۰٪ را می‌گیرد تا مجموع ۱۰۰ بماند
-            changed.sharePct = 100;
-          } else {
-            const remaining = 100 - newShare;
-            others.forEach(p => {
-              p.sharePct = Math.round((Number(p.sharePct) || 0) / otherSum * remaining);
-            });
-            // رفع خطای گرد‌کردن
-            const drift = remaining - others.reduce((s, p) => s + p.sharePct, 0);
-            if (drift !== 0) others[others.length - 1].sharePct += drift;
-            changed.sharePct = newShare;
-          }
-          inp.value.plans = [...inp.value.plans];
-        };
-        const addPlan = () => {
-          const base = { id: 'p' + Date.now().toString(36), name: 'پلن جدید', nameEn: 'New Plan',
-            price: 100000, callsPerDay: 5, initialCount: 10, sharePct: 0, notes: '' };
-          inp.value.plans.push(base);
-          // توزیع مجدد سهم‌ها روی پلن‌های پولی
-          const paid = inp.value.plans.filter(p => p.id !== 'free');
-          const n = paid.length;
-          paid.forEach(p => p.sharePct = Math.round(100 / n));
-          const drift = 100 - paid.reduce((s, p) => s + p.sharePct, 0);
-          if (drift !== 0 && paid.length) paid[paid.length - 1].sharePct += drift;
-          inp.value.plans = [...inp.value.plans];
-        };
-        const removePlan = (p) => {
-          if (!p || p.id === 'free') return;
-          if (!confirm(`پلن «${p.name}» حذف شود؟`)) return;
-          inp.value.plans = inp.value.plans.filter(x => x.id !== p.id);
-          const paid = inp.value.plans.filter(x => x.id !== 'free');
-          // توزیع نسبی سهم‌ها پس از حذف: وزن‌های باقی‌مانده به‌نسبت سهم قبلی‌شان بزرگ می‌شوند تا مجموع ۱۰۰ بماند
-          if (paid.length) {
-            const currentSum = paid.reduce((s, x) => s + (Number(x.sharePct) || 0), 0);
-            if (currentSum > 0) {
-              paid.forEach(x => x.sharePct = Math.round((Number(x.sharePct) || 0) / currentSum * 100));
-              const drift = 100 - paid.reduce((s, x) => s + x.sharePct, 0);
-              if (drift !== 0) paid[paid.length - 1].sharePct += drift;
-            } else {
-              // همه سهم‌ها ۰ بودند (حالت لبه): تقسیم مساوی
-              paid.forEach(x => x.sharePct = Math.round(100 / paid.length));
-              const drift = 100 - paid.reduce((s, x) => s + x.sharePct, 0);
-              if (drift !== 0) paid[paid.length - 1].sharePct += drift;
-            }
-          }
-          inp.value.plans = [...inp.value.plans];
+
         };
 
-        // --- CRUD تکنیک‌های بازاریابی ---
-        const iconOptions = ['flame', 'timer', 'sparkles', 'gift', 'brain-circuit', 'trending-down', 'users-round', 'hourglass', 'rotate-ccw', 'user-plus', 'anchor', 'rocket', 'megaphone', 'target', 'zap', 'hand-coins', 'party-popper', 'heart', 'star'];
-        const boundsByType = {
-          conversion: { min: 0, max: 4, step: 0.1 },
-          churn_reduction: { min: 0, max: 3, step: 0.1 },
-          signup_boost: { min: 0, max: 5, step: 0.1 }
+        const packSalesM1 = (p) => {
+
+          const row = m1.value || {};
+
+          const totalCredits = (row.creditsSold || 0);
+
+          const totalPackCredits = creditPacks.value.reduce((s, x) => s + (Number(x.credits) || 0) * (Number(x.salesSharePct) || 0), 0);
+
+          if (!p || totalPackCredits <= 0) return 0;
+
+          return totalCredits * ((Number(p.credits) || 0) * (Number(p.salesSharePct) || 0) / totalPackCredits) / Math.max(1, Number(p.credits) || 1);
+
         };
+
+        const packRevenueM1 = (p) => {
+
+          const totalRevenue = Number(m1.value && m1.value.packGrossRevenue) || 0;
+
+          const totalWeightedShare = creditPacks.value.reduce((s, x) => s + (Number(x.salesSharePct) || 0), 0) || 1;
+
+          return totalRevenue * ((Number(p && p.salesSharePct) || 0) / totalWeightedShare);
+
+        };
+
+        const normalizeCreditPackShares = () => {
+
+          const packs = inp.value.creditPacks || [];
+
+          const active = packs.filter(p => p.active !== false);
+
+          if (!active.length) return;
+
+          const currentSum = active.reduce((s, p) => s + Math.max(0, Number(p.salesSharePct) || 0), 0);
+
+          if (currentSum > 0) {
+
+            active.forEach(p => { p.salesSharePct = Math.round((Math.max(0, Number(p.salesSharePct) || 0) / currentSum) * 100); });
+
+          } else {
+
+            active.forEach(p => { p.salesSharePct = Math.round(100 / active.length); });
+
+          }
+
+          const drift = 100 - active.reduce((s, p) => s + p.salesSharePct, 0);
+
+          if (drift !== 0) active[active.length - 1].salesSharePct += drift;
+
+          inp.value.creditPacks = [...packs];
+
+        };
+
+        const addCreditPack = () => {
+
+          const base = {
+
+            id: 'query' + Date.now().toString(36), name: 'بستهٔ Query جدید', nameEn: 'New Query Pack',
+
+            price: 9000, credits: 40, salesSharePct: 0, active: true, nonExpiring: true, notes: ''
+
+          };
+
+          inp.value.creditPacks.push(base);
+
+          normalizeCreditPackShares();
+
+        };
+
+        const removeCreditPack = (p) => {
+
+          if (!p) return;
+
+          if (!confirm(`بستهٔ «${p.name}» حذف شود؟`)) return;
+
+          inp.value.creditPacks = inp.value.creditPacks.filter(x => x.id !== p.id);
+
+          normalizeCreditPackShares();
+
+        };
+
+        // پلن تریال یک تکنیک خاص: پلن انتخاب‌شدهٔ آن تکنیک، یا پیش‌فرض پولیِ با بیشترین سهمیه (گزارش پویا)
+
+        const techniqueTrialName = (t) => {
+
+          const plan = resolveTrialPlan(t, inp.value.plans || []);
+
+          return (plan && plan.name) ? plan.name : 'پلن برتر';
+
+        };
+
+        // پلن تریال کلی (برای متن‌های عمومی): پولی با بیشترین سهمیهٔ روزانه
+
+        const trialPlanName = computed(() => {
+
+          const paid = (inp.value.plans || []).filter(p => p.id !== 'free');
+
+          const top = paid.reduce((a, b) => ((b.callsPerDay || 0) > (a.callsPerDay || 0) ? b : a), { callsPerDay: 0 });
+
+          return top && top.name ? top.name : 'پلن برتر';
+
+        });
+
+        // متوازن‌سازی نسبی: با تغییر سهم یک پلن، بقیه به‌نسبت سهم قبلی خود تنظیم می‌شوند تا مجموع ۱۰۰ بماند
+
+        const autoBalanceShare = (changedId, rawVal) => {
+
+          const paid = inp.value.plans.filter(p => p.id !== 'free');
+
+          const changed = paid.find(p => p.id === changedId);
+
+          if (!changed) return;
+
+          const newShare = Math.max(0, Math.min(100, Number(rawVal) || 0));
+
+          const others = paid.filter(p => p.id !== changedId);
+
+          const otherSum = others.reduce((s, p) => s + (Number(p.sharePct) || 0), 0);
+
+          if (others.length === 0 || otherSum === 0) {
+
+            // تنها پلن پولی است یا بقیه سهم ۰ دارند: این پلن کل ۱۰۰٪ را می‌گیرد تا مجموع ۱۰۰ بماند
+
+            changed.sharePct = 100;
+
+          } else {
+
+            const remaining = 100 - newShare;
+
+            others.forEach(p => {
+
+              p.sharePct = Math.round((Number(p.sharePct) || 0) / otherSum * remaining);
+
+            });
+
+            // رفع خطای گرد‌کردن
+
+            const drift = remaining - others.reduce((s, p) => s + p.sharePct, 0);
+
+            if (drift !== 0) others[others.length - 1].sharePct += drift;
+
+            changed.sharePct = newShare;
+
+          }
+
+          inp.value.plans = [...inp.value.plans];
+
+        };
+
+        const clampPlanField = (plan, field, min, max) => {
+
+          const value = Number(plan[field]);
+
+          plan[field] = Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : min;
+
+        };
+
+        const addPlan = () => {
+
+          const base = { id: 'p' + Date.now().toString(36), name: 'پلن جدید', nameEn: 'New Plan',
+
+            price: 100000, callsPerDay: 5, initialCount: 10, sharePct: 0, notes: '' };
+
+          inp.value.plans.push(base);
+
+          // توزیع مجدد سهم‌ها روی پلن‌های پولی
+
+          const paid = inp.value.plans.filter(p => p.id !== 'free');
+
+          const n = paid.length;
+
+          paid.forEach(p => p.sharePct = Math.round(100 / n));
+
+          const drift = 100 - paid.reduce((s, p) => s + p.sharePct, 0);
+
+          if (drift !== 0 && paid.length) paid[paid.length - 1].sharePct += drift;
+
+          inp.value.plans = [...inp.value.plans];
+
+          selectedPlanId.value = base.id;
+
+        };
+
+        const removePlan = (p) => {
+
+          if (!p || p.id === 'free') return;
+
+          if (!confirm(`پلن «${p.name}» حذف شود؟`)) return;
+
+          inp.value.plans = inp.value.plans.filter(x => x.id !== p.id);
+
+          const paid = inp.value.plans.filter(x => x.id !== 'free');
+
+          // توزیع نسبی سهم‌ها پس از حذف: وزن‌های باقی‌مانده به‌نسبت سهم قبلی‌شان بزرگ می‌شوند تا مجموع ۱۰۰ بماند
+
+          if (paid.length) {
+
+            const currentSum = paid.reduce((s, x) => s + (Number(x.sharePct) || 0), 0);
+
+            if (currentSum > 0) {
+
+              paid.forEach(x => x.sharePct = Math.round((Number(x.sharePct) || 0) / currentSum * 100));
+
+              const drift = 100 - paid.reduce((s, x) => s + x.sharePct, 0);
+
+              if (drift !== 0) paid[paid.length - 1].sharePct += drift;
+
+            } else {
+
+              // همه سهم‌ها ۰ بودند (حالت لبه): تقسیم مساوی
+
+              paid.forEach(x => x.sharePct = Math.round(100 / paid.length));
+
+              const drift = 100 - paid.reduce((s, x) => s + x.sharePct, 0);
+
+              if (drift !== 0) paid[paid.length - 1].sharePct += drift;
+
+            }
+
+          }
+
+          inp.value.plans = [...inp.value.plans];
+
+          selectedPlanId.value = inp.value.plans[0] ? inp.value.plans[0].id : null;
+
+        };
+
+        const gotoMarketing = () => { activeTab.value = 'marketing'; };
+
+
+
+        // --- CRUD تکنیک‌های بازاریابی ---
+
+        const iconOptions = ['flame', 'timer', 'sparkles', 'gift', 'brain-circuit', 'trending-down', 'users-round', 'hourglass', 'rotate-ccw', 'user-plus', 'anchor', 'rocket', 'megaphone', 'target', 'zap', 'hand-coins', 'party-popper', 'heart', 'star'];
+
+        const boundsByType = {
+
+          conversion: { min: 0, max: 4, step: 0.1 },
+
+          churn_reduction: { min: 0, max: 3, step: 0.1 },
+
+          signup_boost: { min: 0, max: 5, step: 0.1 }
+
+        };
+
         const showTechModal = ref(false);
+
         const editingTechId = ref(null);
+
         const techForm = ref({ title: '', icon: 'megaphone', desc: '', effectType: 'conversion', effect: 1, min: 0, max: 3, step: 0.1, hasTrial: false, eligibleShare: 15, trialDays: 3, trialPlanId: null });
+
+
 
         const genTechId = () => 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
+
+
         const openAddTechnique = () => {
+
           editingTechId.value = null;
+
           techForm.value = { title: '', icon: 'megaphone', desc: '', effectType: 'conversion', effect: 1, min: 0, max: 3, step: 0.1, hasTrial: false, eligibleShare: 15, trialDays: 3, trialPlanId: null };
+
           showTechModal.value = true;
+
           nextTick().then(() => lucide.createIcons());
+
         };
+
+
 
         const openEditTechnique = (t) => {
+
           editingTechId.value = t.id;
+
           const b = boundsByType[t.effectType] || boundsByType.conversion;
+
           const trialPlanId = t.trialPlanId ?? null;
+
           const paidPlanIds = paidPlans.value.map(p => p.id);
+
           techForm.value = {
+
             title: t.title || '', icon: t.icon || 'megaphone', desc: t.desc || '',
+
             effectType: t.effectType || 'conversion',
+
             effect: t.effect ?? 1, min: t.min ?? b.min, max: t.max ?? b.max, step: t.step ?? b.step,
+
             hasTrial: t.eligibleShare !== undefined,
+
             eligibleShare: t.eligibleShare ?? 15, trialDays: t.trialDays ?? 3,
+
             trialPlanId: (trialPlanId && paidPlanIds.includes(trialPlanId)) ? trialPlanId : null
+
           };
+
           showTechModal.value = true;
+
           nextTick().then(() => lucide.createIcons());
+
         };
+
+
 
         const onEffectTypeChange = () => {
+
           const b = boundsByType[techForm.value.effectType] || boundsByType.conversion;
+
           techForm.value.min = b.min; techForm.value.max = b.max; techForm.value.step = b.step;
+
         };
+
+
 
         const saveTechnique = () => {
+
           const f = techForm.value;
+
           if (!f.title || !f.title.trim()) { alert('عنوان تکنیک را وارد کنید.'); return; }
+
           const prev = editingTechId.value ? inp.value.marketingTechniques.find(x => x.id === editingTechId.value) : null;
+
           const card = {
+
             id: editingTechId.value || genTechId(),
+
             title: f.title.trim(),
+
             icon: f.icon || 'megaphone',
+
             desc: f.desc.trim() || '—',
+
             effectType: f.effectType,
+
             effect: Number(f.effect) || 0,
+
             min: Number(f.min) || 0, max: Number(f.max) || 3, step: Number(f.step) || 0.1,
+
             enabled: prev ? !!prev.enabled : true
+
           };
+
           if (f.hasTrial) {
+
             card.eligibleShare = Number(f.eligibleShare) || 15;
+
             card.eligibleMin = 5; card.eligibleMax = 30;
+
             card.trialDays = Math.max(1, Number(f.trialDays) || 3);
+
             const paidPlanIds = paidPlans.value.map(p => p.id);
+
             card.trialPlanId = (f.trialPlanId && paidPlanIds.includes(f.trialPlanId)) ? f.trialPlanId : null;
+
           }
+
           if (editingTechId.value) {
+
             const idx = inp.value.marketingTechniques.findIndex(x => x.id === editingTechId.value);
+
             if (idx !== -1) inp.value.marketingTechniques.splice(idx, 1, card);
+
           } else {
+
             inp.value.marketingTechniques.push(card);
+
           }
+
           showTechModal.value = false;
+
           editingTechId.value = null;
+
           nextTick().then(() => lucide.createIcons());
+
         };
 
+
+
         const deleteTechnique = (t) => {
+
           if (!confirm('این تکنیک حذف شود؟')) return;
+
           const idx = inp.value.marketingTechniques.findIndex(x => x.id === t.id);
+
           if (idx !== -1) inp.value.marketingTechniques.splice(idx, 1);
+
           nextTick().then(() => lucide.createIcons());
+
         };
+
+
 
         const closeTechModal = () => { showTechModal.value = false; editingTechId.value = null; };
 
+
+
         // نویزِ قطعی و محدود برای مقایسهٔ منصفانهٔ سناریوها؛ یک seed ثابت خروجی تکرارپذیر می‌دهد.
+
         const seededNoise = (seed, monthIndex, channel = 0) => {
+
           const raw = Math.sin((Number(seed) || 1) * 12.9898 + (monthIndex + 1) * 78.233 + channel * 37.719) * 43758.5453;
+
           return (raw - Math.floor(raw)) * 2 - 1;
+
         };
+
+
 
         const computeSeries = (params, convRate, growthRate) => {
+
           // پلن‌ها: آرایهٔ واحد حقیقت — index 0 همیشه رایگان است
+
           const plans = params.plans || [];
+
           // پلنِ جذب (free): همیشه index 0 است؛ اگر حذف شد، اولین پلن به‌عنوان سطل ثبت‌نام‌های جدید عمل می‌کند
+
           const freePlan = plans.find(p => p.id === 'free') || plans[0] || { id: 'free', callsPerDay: 3 };
+
           const paidPlans = plans.filter(p => p.id !== freePlan.id);
+
           // سهم مجموع پلن‌های پولی (برای توزیع آپگریدها)؛ اگر ۰ بود یک پلن پولی نداریم
+
           const totalPaidShare = paidPlans.reduce((s, p) => s + (p.sharePct || 0), 0) || 1;
 
+
+
           // شمارندهٔ کاربران به تفکیک پلن (کلید: شناسه پلن)
+
           let counts = {};
+
           plans.forEach(p => counts[p.id] = 0);
+
           if (params.inputMode === 'conversion') {
+
             const upgrades = params.mau * (convRate / 100);
+
             paidPlans.forEach(p => counts[p.id] = upgrades * (p.sharePct || 0) / totalPaidShare);
+
             counts[freePlan.id] = Math.max(0, params.mau - upgrades);
+
           } else {
+
             plans.forEach(p => counts[p.id] = p.initialCount || 0);
+
           }
+
           const { convBoost, churnReduction, signupBoost } = getMarketingEffects(params);
+
           const effConvRate = Math.max(0, convRate + convBoost);
+
           // ریزش مؤثر پولی = ریزش اختیاری + ریزش غیرارادی (پیش‌پرداخت/نبود خودکار) منهای اثر تکنیک‌ها
+
           const effPaidChurn = Math.max(0, (params.paidChurnRate || 7.8) + (params.involuntaryChurnPct || 0) - churnReduction);
+
           const { costPerUser: trialCostPerUser, eligibleShare: trialEligibleShare } = getTrialCACPerNewUser(params);
+
           const mPricing = resolveModelPricing(params.modelChoice, params.customInUSD, params.customOutUSD, params.lastModelChoice);
+
           const rawCallUSD = ((params.inputTokensPerCall || 700) * mPricing.in + (params.outputTokensPerCall || 120) * mPricing.out) / 1e6;
+
           // صرفه‌جویی کش و کاهش سالانهٔ هزینه — ماهانه به‌صورت نمایی اعمال می‌شود
+
           const cacheFactor = 1 - (params.cacheSavingPct || 0) / 100;
+
           const annualDecline = (params.annualCostDeclinePct || 0) / 100;
+
           const renewal = (params.annualPriceIncreasePct || 0) / 100;
+
           const feePct = (params.paymentFeePct || 0) / 100;
+
           const vatPct = (params.vatPct || 0) / 100;
+
           const fixedOpex = (params.fixedOpexMonthly || 0);
+
           const adBudget = (params.monthlyAdBudget || 0);
+
           const cacManual = (params.cacPerNewUser || 0);
+
           const referralShare = (params.referralShareOfSignups || 0) / 100;
+
           const creditPacks = (params.creditPacks || []).filter(p => p && p.active !== false && (p.credits || 0) > 0);
+
           const creditPackShareTotal = creditPacks.reduce((s, p) => s + Math.max(0, Number(p.salesSharePct) || 0), 0) || 1;
+
           let outstandingCreditBalance = 0;
 
+
+
           const rows = [];
+
           for (let t = 0; t < params.projectionMonths; t++) {
+
             // بازقیمت‌گذاری سالانه: از سال دوم، قیمت‌ها طبق ضریب تجدید می‌شوند
+
             const priceIdx = Math.pow(1 + renewal, Math.floor(t / 12));
+
             const aiCallPrice = rawCallUSD * cacheFactor * Math.pow(1 - annualDecline, t / 12);
 
+
+
             // --- نقطه شروع ماه: پایهٔ همان ماه (پیش از ورودی‌های جدید این ماه) ---
+
             const start = { ...counts };
+
             const planGrossRevenue = paidPlans.reduce((s, p) => s + (start[p.id] || 0) * (p.price || 0) * priceIdx, 0);
+
             // بسته‌های Query خرید یک‌باره‌اند؛ نرخ خرید و نرخ مصرف نویز محدود اما تکرارپذیر دارند.
+
             const freeUsers = Math.max(0, start[freePlan.id] || 0);
+
             const purchaseNoise = seededNoise(params.creditPackRandomSeed, t, 1) * ((params.creditPackPurchaseNoisePct || 0) / 100);
+
             const consumptionNoise = seededNoise(params.creditPackRandomSeed, t, 2) * ((params.creditPackConsumptionNoisePct || 0) / 100);
+
             const purchaseRate = Math.max(0, (params.creditPackPurchaseRatePct || 0) / 100) * Math.max(0, 1 + purchaseNoise);
+
             const repeatRate = Math.max(0, (params.creditPackRepeatRatePct || 0) / 100);
+
             const packBuyers = freeUsers * purchaseRate * (1 + repeatRate);
+
             const packSales = creditPacks.map(p => {
+
               const share = Math.max(0, Number(p.salesSharePct) || 0) / creditPackShareTotal;
+
               const units = packBuyers * share;
+
               return { ...p, units, creditsSold: units * Math.max(0, Number(p.credits) || 0) };
+
             });
+
             const creditsSold = packSales.reduce((s, p) => s + p.creditsSold, 0);
+
             const packGrossRevenue = packSales.reduce((s, p) => s + p.units * (p.price || 0) * priceIdx, 0);
+
             const availableCreditBalance = outstandingCreditBalance + creditsSold;
+
             const consumptionRate = Math.max(0, Math.min(1, (params.creditPackConsumptionRatePct || 0) / 100 * Math.max(0, 1 + consumptionNoise)));
+
             const creditsConsumed = Math.min(availableCreditBalance, availableCreditBalance * consumptionRate);
+
             outstandingCreditBalance = Math.max(0, availableCreditBalance - creditsConsumed);
+
             const grossRevenue = planGrossRevenue + packGrossRevenue;
+
             const feeToman = Math.round(grossRevenue * feePct);
+
             const vatToman = Math.round(grossRevenue * vatPct);
+
             const netRevenue = grossRevenue - feeToman - vatToman;
+
             const packRevenueShare = grossRevenue > 0 ? packGrossRevenue / grossRevenue : 0;
+
             const packFeeToman = Math.round(feeToman * packRevenueShare);
+
             const packVatToman = Math.round(vatToman * packRevenueShare);
+
             const packNetRevenue = Math.round(packGrossRevenue - packFeeToman - packVatToman);
 
+
+
             const aiCalls = plans.reduce((s, p) => s + (start[p.id] || 0) * (p.callsPerDay || 0), 0) * params.periodDays;
+
             const planAiCostToman = Math.round(aiCalls * aiCallPrice * params.exchangeRate);
+
             const queryAiCostToman = Math.round(creditsConsumed * aiCallPrice * params.exchangeRate);
+
             const aiCostToman = planAiCostToman + queryAiCostToman;
+
             const currentTotal = plans.reduce((s, p) => s + (start[p.id] || 0), 0);
+
             // ثبت‌نام‌های جدید ماه (پایهٔ ماه قبل + رشد نمایی) — ورودی همین ماه، تبدیل از ماه بعد
+
             const newSignups = currentTotal * (params.acquisitionRate / 100) * Math.pow(1 + (growthRate + signupBoost) / 100, t);
+
             // CAC مؤثر: اگر فیلد دستی ۰ باشد، از بودجهٔ تبلیغات و ثبت‌نام‌های جدید «CAC ترکیبی» محاسبه می‌شود
+
             const paidNewSignups = Math.max(0, newSignups * (1 - referralShare));
+
             const cacPerNewUser = cacManual > 0
+
               ? cacManual
+
               : (adBudget > 0 && paidNewSignups > 0 ? adBudget / paidNewSignups : 0);
+
             const cacToman = Math.round(paidNewSignups * cacPerNewUser);
+
             const trialCACToman = Math.round(newSignups * trialEligibleShare * trialCostPerUser);
 
+
+
             // حاشیه مشارکت = درآمد خالص - هزینه AI - CAC تریال - CAC جذب؛ سود خالص = حاشیه - هزینه ثابت
+
             const contributionMargin = Math.round(netRevenue - aiCostToman - trialCACToman - cacToman);
+
             const fixedToman = fixedOpex + adBudget;
+
             const netProfit = contributionMargin - fixedToman;
+
             const rowCounts = {};
+
             plans.forEach(p => rowCounts[p.id] = Math.round(start[p.id] || 0));
+
             rows.push({
+
               month: t + 1,
+
               counts: rowCounts,
+
               free: rowCounts[freePlan.id] || 0,
+
               total: Math.round(currentTotal),
+
               newSignups: Math.round(newSignups),
+
               grossRevenue: Math.round(grossRevenue), netRevenue, feeToman, vatToman,
+
               planGrossRevenue: Math.round(planGrossRevenue), packGrossRevenue: Math.round(packGrossRevenue),
+
               planNetRevenue: Math.round(netRevenue - packNetRevenue), packNetRevenue,
+
               packBuyers: Math.round(packBuyers), creditsSold: Math.round(creditsSold),
+
               creditsConsumed: Math.round(creditsConsumed), outstandingCredits: Math.round(outstandingCreditBalance),
+
               planAiCostToman, queryAiCostToman,
+
               aiCostToman, aiCostUSD: (aiCalls + creditsConsumed) * aiCallPrice, cacToman, trialCACToman, fixedToman,
+
               contributionMargin, netProfit, margin: netRevenue > 0 ? (netProfit / netRevenue) * 100 : 0
+
             });
+
             // --- ورودی جدید ماه جاری، فقط به رایگان اضافه می‌شود ---
+
             // تبدیل (upgrade) از پایهٔ ماه جاری محاسبه می‌شود؛ کاربران جدیدِ این ماه از ماه بعد تبدیل می‌شوند
+
             const monthlyUpgrades = (start[freePlan.id] || 0) * (effConvRate / 100);
+
             // ریزش روی پایهٔ شروع ماه (پیش از افزودن آپگریدها) اعمال می‌شود
+
             const freeChurn = (start[freePlan.id] || 0) * ((params.freeChurnRate || 10) / 100);
+
             counts[freePlan.id] = Math.max(0, (start[freePlan.id] || 0) + newSignups - monthlyUpgrades - freeChurn);
+
             paidPlans.forEach(p => {
+
               const churn = (start[p.id] || 0) * (effPaidChurn / 100);
+
               counts[p.id] = Math.max(0, (start[p.id] || 0) + monthlyUpgrades * (p.sharePct || 0) / totalPaidShare - churn);
+
             });
+
           }
+
           return rows;
+
         };
+
+
 
         const baseSeries = computed(() => computeSeries(inp.value, inp.value.convBase, inp.value.signupGrowthRateBase));
+
         const pSeries = computed(() => computeSeries(inp.value, inp.value.convPessimistic, inp.value.signupGrowthRatePessimistic));
+
         const oSeries = computed(() => computeSeries(inp.value, inp.value.convOptimistic, inp.value.signupGrowthRateOptimistic));
 
+
+
         const totalConversionBoost = computed(() => getMarketingEffects(inp.value).convBoost);
+
         const totalChurnReduction = computed(() => getMarketingEffects(inp.value).churnReduction);
+
         const totalSignupBoost = computed(() => getMarketingEffects(inp.value).signupBoost);
+
         const trialCACToman = computed(() => (baseSeries.value[0] || {}).trialCACToman || 0);
+
         const m1 = computed(() => baseSeries.value[0] || {});
+
         const mLast = computed(() => baseSeries.value[baseSeries.value.length - 1] || {});
 
+
+
         // قیمت مؤثر هر فراخوانی AI (با کش) — پایهٔ ماه اول
+
         const aiCallPriceUSD = computed(() => {
+
           const mPricing = resolveModelPricing(inp.value.modelChoice, inp.value.customInUSD, inp.value.customOutUSD, inp.value.lastModelChoice);
+
           const raw = ((inp.value.inputTokensPerCall || 700) * mPricing.in + (inp.value.outputTokensPerCall || 120) * mPricing.out) / 1e6;
+
           return raw * (1 - (inp.value.cacheSavingPct || 0) / 100);
+
         });
+
+
 
         // اعتبارسنجی قیمت دلخواه: هر دو فیلد باید عدد مثبت باشند
+
         const customPricesValid = computed(() => {
+
           const cin = Number(inp.value.customInUSD);
+
           const cout = Number(inp.value.customOutUSD);
+
           return isFinite(cin) && cin > 0 && isFinite(cout) && cout > 0;
+
         });
+
+
 
         // تغییر انتخاب از دکمه‌های دسته: نگه‌داری آخرین انتخاب غیردلخواه برای برگشت امن
+
         const setModelChoice = (tier) => {
+
           const id = TIER_DEFAULT_MODEL[tier];
+
           inp.value.modelChoice = id;
+
           inp.value.lastModelChoice = id;
+
         };
+
+
 
         // آیا انتخاب فعلی به دستهٔ داده‌شده تعلق دارد؟ (دلخواه → هیچ دکمه‌ای فعال نیست)
+
         const getTierOf = (tier) => {
+
           if (inp.value.modelChoice === 'custom') return false;
+
           const key = MODEL_PRICING[inp.value.modelChoice] ? inp.value.modelChoice : TIER_DEFAULT_MODEL[inp.value.modelChoice];
+
           const m = MODEL_PRICING[key];
+
           return !!m && m.tier === tier;
+
         };
 
+
+
         // هنگام انتخاب از منوی کشویی، آخرین انتخاب غیردلخواه را برای برگشت امن نگه می‌داریم
+
         watch(() => inp.value.modelChoice, (v) => {
+
           if (v !== 'custom') inp.value.lastModelChoice = v;
+
         });
+
+
 
         // حاشیه مشارکت هر کاربر پولی (درآمد خالص - هزینهٔ AI - سهم مالیات/کارمزد) به تفکیک پلن
+
         const perTierContribution = computed(() => {
+
           const fx = inp.value.exchangeRate;
+
           const feeVat = (inp.value.paymentFeePct || 0) / 100 + (inp.value.vatPct || 0) / 100;
+
           const m1Counts = m1.value.counts || {};
+
           return (inp.value.plans || [])
+
             .filter(p => p.id !== 'free')
+
             .map(p => ({ n: m1Counts[p.id] || 0, p: p.price, c: p.callsPerDay, name: p.name }));
+
         });
+
+
 
         const paidUsersM1 = computed(() => {
+
           const m1Counts = m1.value.counts || {};
+
           return (inp.value.plans || []).filter(p => p.id !== 'free').reduce((s, p) => s + (m1Counts[p.id] || 0), 0);
+
         });
 
+
+
         // حاشیه مشارکت وزنی هر کاربر پولی (تومان در ماه)
+
         const contributionPerPaidUser = computed(() => {
+
           const fx = inp.value.exchangeRate;
+
           const feeVat = (inp.value.paymentFeePct || 0) / 100 + (inp.value.vatPct || 0) / 100;
+
           let totalN = 0, totalContribution = 0;
+
           for (const tier of perTierContribution.value) {
+
             if (tier.n <= 0) continue;
+
             const aiPerUser = tier.c * inp.value.periodDays * aiCallPriceUSD.value * fx;
+
             const contribution = tier.p * (1 - feeVat) - aiPerUser;
+
             totalN += tier.n; totalContribution += contribution * tier.n;
+
           }
+
           return totalN > 0 ? totalContribution / totalN : 0;
+
         });
+
+
 
         const effPaidChurnPct = computed(() => Math.max(0, (inp.value.paidChurnRate || 0) + (inp.value.involuntaryChurnPct || 0) - totalChurnReduction.value));
 
+
+
         // نقطهٔ سر‌به‌سر واقعی: کاربران پولی موردنیاز برای پوشش هزینه‌های ثابت
+
         const breakEvenUsers = computed(() => {
+
           const fixedMonthly = (inp.value.fixedOpexMonthly || 0) + (inp.value.monthlyAdBudget || 0);
+
           const cpm = contributionPerPaidUser.value;
+
           if (cpm <= 0) return Infinity;
+
           return Math.ceil(fixedMonthly / cpm);
+
         });
+
+
 
         // هزینهٔ AI هر کاربر به تفکیک پلن (ماهانه، تومان)
+
         const planCostPerUser = computed(() => {
+
           const fx = inp.value.exchangeRate;
+
           const map = {};
+
           (inp.value.plans || []).forEach(p => {
+
             map[p.id] = Math.round((p.callsPerDay || 0) * inp.value.periodDays * aiCallPriceUSD.value * fx);
+
           });
+
           return map;
+
         });
+
         const costFreeUser = computed(() => planCostPerUser.value.free || 0);
+
         // هزینهٔ AI کل ماه اول به تفکیک پلن (برای نمودار دایره‌ای)
+
         const planCostTotalM1 = computed(() => {
+
           const m1Counts = m1.value.counts || {};
+
           return (inp.value.plans || []).map(p => ({
+
             id: p.id, name: p.name,
+
             cost: Math.round((m1Counts[p.id] || 0) * (planCostPerUser.value[p.id] || 0))
+
           }));
+
         });
+
+
 
         const avgLTV = computed(() => {
+
           const churn = effPaidChurnPct.value / 100;
+
           if (churn === 0) return 0;
+
           const wMargin = contributionPerPaidUser.value;
+
           if (wMargin <= 0) return 0;
+
           return Math.round(wMargin / churn);
+
         });
+
+
 
         // --- P6: دید نقدینگی و KPIهای تکمیلی ---
+
         const cashSeries = computed(() => {
+
           let cum = 0;
+
           return baseSeries.value.map(r => (cum += r.netProfit));
+
         });
+
         const cumulativeCash = computed(() => cashSeries.value.length ? cashSeries.value[cashSeries.value.length - 1] : 0);
+
         const monthlyBurn = computed(() => Math.abs(Math.min(0, m1.value.netProfit)));
+
         const runwayMonths = computed(() => {
+
           const cash = cumulativeCash.value;
+
           if (cash >= 0) return Infinity;
+
           const burn = monthlyBurn.value;
+
           return burn > 0 ? Math.abs(cash) / burn : Infinity;
+
         });
+
         const arrToman = computed(() => m1.value.netRevenue * 12);
+
         // CAC مؤثر: اگر فیلد دستی ۰ باشد، از بودجهٔ تبلیغات و ثبت‌نام‌های غیرارجاعیِ ماه اول «CAC ترکیبی» محاسبه می‌شود
+
         const effectiveCACPerNewUser = computed(() => {
+
           if ((inp.value.cacPerNewUser || 0) > 0) return inp.value.cacPerNewUser;
+
           const adBudget = inp.value.monthlyAdBudget || 0;
+
           const paidShare = Math.max(0, 1 - (inp.value.referralShareOfSignups || 0) / 100);
+
           const paidSignups = (m1.value.newSignups || 0) * paidShare;
+
           return (adBudget > 0 && paidSignups > 0) ? adBudget / paidSignups : 0;
+
         });
+
         // R5: نمایش کنار هم — تخمین زنده از بودجهٔ تبلیغات (مستقل از فیلد دستی) برای بازبینی CAC
+
         const autoCACPerNewUser = computed(() => {
+
           const adBudget = inp.value.monthlyAdBudget || 0;
+
           const paidShare = Math.max(0, 1 - (inp.value.referralShareOfSignups || 0) / 100);
+
           const paidSignups = (m1.value.newSignups || 0) * paidShare;
+
           return (adBudget > 0 && paidSignups > 0) ? adBudget / paidSignups : 0;
+
         });
+
         const cacPaybackMonths = computed(() => {
+
           const cac = effectiveCACPerNewUser.value;
+
           const cpm = contributionPerPaidUser.value;
+
           if (cac <= 0 || cpm <= 0) return 0;
+
           return cac / cpm;
+
         });
+
         const d30RetentionPct = computed(() => Math.max(0, 100 - effPaidChurnPct.value));
+
         // امتیاز سلامت مدل: مجموع شاخص‌های کلیدی
+
         const healthScore = computed(() => {
+
           const cac = effectiveCACPerNewUser.value;
+
           let s = 0;
+
           if ((m1.value.margin || 0) >= 10) s += 20;
+
           else if ((m1.value.margin || 0) >= 0) s += 10;
+
           if (avgLTV.value > 0 && cac > 0 && avgLTV.value / cac >= 3) s += 20;
+
           else if (avgLTV.value > 0) s += 10;
+
           if (effPaidChurnPct.value <= 15) s += 20;
+
           else if (effPaidChurnPct.value <= 25) s += 10;
+
           if (runwayMonths.value >= 12 || runwayMonths.value === Infinity) s += 20;
+
           else if (runwayMonths.value >= 6) s += 10;
+
           if ((m1.value.netProfit || 0) >= 0) s += 20;
+
           return s;
+
         });
+
+
 
         // ضعیف‌ترین شاخص بر اساس همان زیرمؤلفه‌های امتیاز سلامت (برای راهنمای فعّال)
+
         const weakIndicator = computed(() => {
+
           const ltvCac = effectiveCACPerNewUser.value > 0 ? (avgLTV.value / effectiveCACPerNewUser.value) : 0;
+
           const comps = [
+
             {
+
               key: 'margin', label: 'حاشیه سود',
+
               score: (m1.value.margin || 0) >= 10 ? 20 : (m1.value.margin || 0) >= 0 ? 10 : 0,
+
               hint: (m1.value.margin || 0) >= 10 ? 'حاشیه سود سالم (بیش از ۱۰٪)' : (m1.value.margin || 0) >= 0 ? 'حاشیه سود مثبت اما کم (زیر ۱۰٪)' : 'حاشیه سود منفی',
+
               improve: 'قیمت پلن‌ها را بالا ببرید یا هزینهٔ AI هر فراخوانی را کاهش دهید.'
+
             },
+
             {
+
               key: 'ltv', label: 'نسبت LTV به CAC',
+
               score: ltvCac >= 3 ? 20 : ltvCac > 0 ? 10 : 0,
+
               hint: ltvCac >= 3 ? 'نسبت LTV به CAC سالم (۳+)' : ltvCac > 0 ? `نسبت LTV به CAC پایین (${format(ltvCac, 1)})` : 'LTV یا CAC معتبر نداریم',
+
               improve: 'CAC را کم کنید (بازاریابی ارگانیک) یا حاشیهٔ مشارکت را بالا ببرید.'
+
             },
+
             {
+
               key: 'churn', label: 'ریزش پولی',
+
               score: effPaidChurnPct.value <= 15 ? 20 : effPaidChurnPct.value <= 25 ? 10 : 0,
+
               hint: effPaidChurnPct.value <= 15 ? 'ریزش پولی کم' : effPaidChurnPct.value <= 25 ? 'ریزش پولی متوسط' : 'ریزش پولی زیاد',
+
               improve: 'تکنیک‌های کاهش ریزش را فعال کنید یا خودکارسازی پرداخت را به‌کار بگیرید.'
+
             },
+
             {
+
               key: 'runway', label: 'باند نقدینگی (Runway)',
+
               score: runwayMonths.value >= 12 || runwayMonths.value === Infinity ? 20 : runwayMonths.value >= 6 ? 10 : 0,
+
               hint: runwayMonths.value === Infinity ? 'ماهانه سودده هستید' : `باند نقدینگی ${Math.round(runwayMonths.value)} ماه`,
+
               improve: 'زیان ماهانه را کم کنید یا نقدینگی را از طریق تأمین مالی بالا ببرید.'
+
             },
+
             {
+
               key: 'profit', label: 'سود ماهانه',
+
               score: (m1.value.netProfit || 0) >= 0 ? 20 : 0,
+
               hint: (m1.value.netProfit || 0) >= 0 ? 'ماه اول سودده' : 'ماه اول زیانده',
+
               improve: 'نرخ تبدیل یا قیمت پلن‌ها را بالا ببرید و هزینه‌های ثابت را کنترل کنید.'
+
             }
+
           ];
+
           return comps.reduce((min, c) => (c.score < min.score ? c : min));
+
         });
+
+
 
         // حساسیت (تورنادو): تأثیر ±۱۰٪ هر محرک بر سود خالص ماه آخر
+
         const sensitivity = computed(() => {
+
           const keys = [
+
             ['convBase', 'نرخ تبدیل', 'convRate'],
+
             ['paidChurnRate', 'ریزش پولی', 'paidChurnRate'],
+
             ['cacPerNewUser', 'CAC', 'cacPerNewUser'],
+
             ['exchangeRate', 'نرخ ارز', 'exchangeRate'],
+
             ['inputTokensPerCall', 'توکن ورودی AI', 'inputTokensPerCall']
+
           ];
+
           const baseVal = mLast.value.netProfit;
+
           const fx = (p, key) => {
+
             const alt = { ...inp.value, [key]: (inp.value[key] || 0) * 1.1 };
+
             return (computeSeries(alt, alt.convBase, alt.signupGrowthRateBase).slice(-1)[0] || {}).netProfit || 0;
+
           };
+
           return keys.map(([key, label]) => ({
+
             key, label,
+
             up: baseVal !== 0 ? ((fx(inp, key) - baseVal) / Math.abs(baseVal)) * 100 : 0
+
           })).sort((a, b) => Math.abs(b.up) - Math.abs(a.up));
+
         });
+
+
 
         const updateCharts = () => {
+
           if (!charts.bar) return;
+
           charts.bar.data.datasets[0].data = [m1.value.planNetRevenue, m1.value.packNetRevenue, m1.value.aiCostToman, m1.value.fixedToman, m1.value.netProfit];
+
           charts.bar.update();
 
+
+
           charts.pie.data.labels = planCostTotalM1.value.map(x => x.name);
+
           charts.pie.data.datasets[0].data = planCostTotalM1.value.map(x => x.cost);
+
           charts.pie.data.datasets[0].backgroundColor = planCostTotalM1.value.map((x, i) => COLORS[x.id] || PLAN_COLORS[i % PLAN_COLORS.length]);
+
           charts.pie.update();
 
+
+
           charts.line.data.labels = baseSeries.value.map(r => `ماه ${r.month}`);
+
           charts.line.data.datasets[0].data = pSeries.value.map(r => r.netProfit);
+
           charts.line.data.datasets[1].data = baseSeries.value.map(r => r.netProfit);
+
           charts.line.data.datasets[2].data = oSeries.value.map(r => r.netProfit);
+
           charts.line.update();
 
+
+
           charts.growth.data.labels = baseSeries.value.map(r => `ماه ${r.month}`);
+
           charts.growth.data.datasets[0].data = pSeries.value.map(r => r.total);
+
           charts.growth.data.datasets[1].data = baseSeries.value.map(r => r.total);
+
           charts.growth.data.datasets[2].data = oSeries.value.map(r => r.total);
+
           charts.growth.data.datasets[3].data = baseSeries.value.map(r => r.newSignups);
+
           charts.growth.update();
+
         };
+
+
 
         watch(inp, (newVal) => {
+
           localStorage.setItem('hamzaboon_financial_model_v2', JSON.stringify(newVal));
+
           updateCharts();
+
         }, { deep: true });
 
+
+
         watch(activeTab, async (val) => {
+
            if(val === 'dashboard') { await nextTick(); updateCharts(); }
+
            await nextTick(); lucide.createIcons();
+
         });
+
+
 
         onMounted(() => {
+
           Chart.defaults.font.family = 'Vazirmatn'; Chart.defaults.color = COLORS.inkSoft;
+
           window.addEventListener('resize', () => { isDesktop.value = window.innerWidth >= 1024; });
 
+
+
           charts.bar = new Chart(document.getElementById('barChart'), {
+
             type: 'bar',
+
             data: {
+
               labels: ['درآمد پلن‌ها', 'درآمد بسته Query', 'هزینه AI', 'هزینه ثابت', 'سود خالص'],
+
               datasets: [{ data: [0,0,0,0,0], backgroundColor: [COLORS.emerald, COLORS.indigo, COLORS.rose, COLORS.amber, COLORS.turquoise], borderRadius: 6 }]
+
             },
+
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+
           });
+
+
 
           charts.pie = new Chart(document.getElementById('pieChart'), {
+
             type: 'doughnut',
+
             data: {
+
               labels: (inp.value.plans || []).map(p => p.name),
+
               datasets: [{
+
                 data: (inp.value.plans || []).map(() => 0),
+
                 backgroundColor: (inp.value.plans || []).map((p, i) => COLORS[p.id] || PLAN_COLORS[i % PLAN_COLORS.length]),
+
                 borderWidth: 0, hoverOffset: 4
+
               }]
+
             },
+
             options: { responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { position: 'bottom', labels: { font: { size: 10, family: 'Vazirmatn' } } } } }
+
           });
+
+
 
           charts.line = new Chart(document.getElementById('lineChart'), {
+
             type: 'line',
+
             data: {
+
               labels: [],
+
               datasets: [
+
                 { label: 'بدبینانه', data: [], borderColor: COLORS.rose, tension: 0.4, borderWidth: 2, pointRadius: 0 },
+
                 { label: 'پایه (مبنا)', data: [], borderColor: COLORS.turquoiseDeep, tension: 0.4, borderWidth: 3, pointRadius: 0 },
+
                 { label: 'خوش‌بینانه', data: [], borderColor: COLORS.emerald, tension: 0.4, borderWidth: 2, pointRadius: 0 }
+
               ]
+
             },
+
             options: {
+
               responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+
               plugins: { legend: { position: 'top', align: 'end', labels: { font: { size: 11, family: 'Vazirmatn' } } } },
+
               scales: { y: { grid: { borderDash: [4, 4] } }, x: { grid: { display: false } } }
+
             }
+
           });
+
+
 
           charts.growth = new Chart(document.getElementById('growthChart'), {
+
             type: 'bar',
+
             data: {
+
               labels: [],
+
               datasets: [
+
                 { type: 'line', label: 'بدبینانه', data: [], borderColor: COLORS.rose, tension: 0.4, borderWidth: 2, pointRadius: 0, yAxisID: 'y' },
+
                 { type: 'line', label: 'پایه (مبنا)', data: [], borderColor: COLORS.turquoiseDeep, tension: 0.4, borderWidth: 3, pointRadius: 0, yAxisID: 'y' },
+
                 { type: 'line', label: 'خوش‌بینانه', data: [], borderColor: COLORS.emerald, tension: 0.4, borderWidth: 2, pointRadius: 0, yAxisID: 'y' },
+
                 { type: 'bar', label: 'ثبت‌نام جدید (پایه)', data: [], backgroundColor: 'rgba(13,148,136,0.18)', borderColor: COLORS.turquoise, borderWidth: 1, borderRadius: 4, yAxisID: 'y1', order: 4 }
+
               ]
+
             },
+
             options: {
+
               responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+
               plugins: { legend: { position: 'top', align: 'end', labels: { font: { size: 11, family: 'Vazirmatn' } } } },
+
               scales: {
+
                 y: { position: 'left', grid: { borderDash: [4, 4] }, title: { display: true, text: 'کل کاربران', font: { size: 10, family: 'Vazirmatn' } } },
+
                 y1: { position: 'right', grid: { display: false }, title: { display: true, text: 'ثبت‌نام جدید', font: { size: 10, family: 'Vazirmatn' } } },
+
                 x: { grid: { display: false } }
+
               }
+
             }
+
           });
 
+
+
           updateCharts();
+
           lucide.createIcons({ observe: true });
+
         });
+
+
 
         return {
+
           inp, activeTab, isDesktop, reset, format, m1, mLast, breakEvenUsers, costFreeUser, avgLTV, baseSeries,
+
           fileInput, exportJSON, triggerImport, importJSON,
+
           exportSelecting, importSelecting, selectedSections, EXPORT_SECTIONS,
+
           openExportModal, doExport, closeExportModal, doImport, closeImportModal,
+
           chartOpen, toggleChart, modelTableOpen, toggleModelTable,
+
+          sidebarCollapsed, toggleSidebar, navItems, navActiveClass, desktopContentPad,
+
           totalConversionBoost, totalChurnReduction, totalSignupBoost, trialCACToman,
+
           contributionPerPaidUser, paidUsersM1, effPaidChurnPct, aiCallPriceUSD,
+
           cumulativeCash, runwayMonths, arrToman, cacPaybackMonths, d30RetentionPct, healthScore, sensitivity, cashSeries,
+
           weakIndicator, KPI_HELP,
+
           MODEL_PRICING, TIER_MODELS, TIER_LABEL, setModelChoice, getTierOf, customPricesValid,
+
           showTechModal, techForm, iconOptions, openAddTechnique, openEditTechnique, saveTechnique,
+
           deleteTechnique, closeTechModal, onEffectTypeChange,
+
           COLORS, PLAN_COLORS,
-          paidPlans, paidPlansShareSum, paidPlanShare, autoBalanceShare, addPlan, removePlan,
+
+           paidPlans, paidPlansShareSum, autoBalanceShare, clampPlanField, addPlan, removePlan, gotoMarketing, selectedPlanView, selectedPlanId,
+
           creditPacks, creditPackSalesShareSum, creditPackPricePerQuery, packSalesM1, packRevenueM1,
+
           normalizeCreditPackShares, addCreditPack, removeCreditPack,
+
           effectiveCACPerNewUser, autoCACPerNewUser, planCostPerUser, planCostTotalM1, trialPlanName, techniqueTrialName
+
         };
+
       }
+
     });
+
+
 
     app.component('section-card', {
+
       template: '#tpl-section',
+
       props: { title: String, en: String, icon: String, defaultOpen: { type: Boolean, default: true } },
+
       setup(props) {
+
         const open = ref(props.defaultOpen);
+
         watch(open, async () => { await Vue.nextTick(); lucide.createIcons(); });
+
         return { open };
+
       }
+
     });
+
+
 
     app.component('number-field', {
+
       template: '#tpl-number',
+
       props: ['modelValue', 'label', 'en', 'min', 'max', 'step', 'unit'],
+
       emits: ['update:modelValue'],
+
       setup(props, { emit }) {
+
         const localValue = computed({ get: () => props.modelValue, set: (val) => emit('update:modelValue', val || 0) });
+
         const sliderBg = computed(() => {
+
           const pct = ((localValue.value - props.min) / (props.max - props.min)) * 100;
+
           return `linear-gradient(90deg, #E7E3DA ${100-pct}%, #0D9488 ${100-pct}%)`;
+
         });
+
         return { localValue, sliderBg };
+
       }
+
     });
+
+
 
     app.component('kpi-card', {
+
       template: '#tpl-kpi',
+
       props: ['title', 'en', 'icon', 'value', 'tone', 'sub', 'type', 'help'],
+
       setup(props) {
+
         const format = (v, dec = 0) => {
+
           if (!isFinite(v)) return 0;
+
           return new Intl.NumberFormat('en-US', { maximumFractionDigits: dec, minimumFractionDigits: dec }).format(v);
+
         };
+
         const colorStyle = computed(() => {
+
           const map = {
+
             emerald: { iconBg: 'background: #D1FAE5;', iconFg: 'color: #059669;', text: 'color: #059669;' },
+
             rose: { iconBg: 'background: #FEE2E2;', iconFg: 'color: #DC2626;', text: 'color: #DC2626;' },
+
             indigo: { iconBg: 'background: #E0E7FF;', iconFg: 'color: #4F46E5;', text: 'color: #4F46E5;' },
+
             turquoise: { iconBg: 'background: #CCFBF1;', iconFg: 'color: #0F766E;', text: 'color: #0F766E;' },
+
             amber: { iconBg: 'background: #FEF3C7;', iconFg: 'color: #D97706;', text: 'color: #D97706;' },
+
             ink: { iconBg: 'background: #F2F4F7;', iconFg: 'color: #101828;', text: 'color: #101828;' }
+
           };
+
           return map[props.tone] || map.ink;
+
         });
-        // hover روی دسکتاپ؛ لمس/کلیک روی موبایل
+
+        // hover روی دسکتاپ؛ لمس/کلیک روی موبایل — موقعیتاب با Floating UI و دوری از لبهٔ صفحه
+
         const showHelp = ref(false);
+
         const canHover = window.matchMedia && window.matchMedia('(hover: hover)').matches;
-        const onTap = () => {
-          if (!canHover) showHelp.value = !showHelp.value;
+
+        const cardEl = ref(null);
+
+        const tipEl = ref(null);
+
+        let tipCleanup = null;
+
+        const tipPosition = ref({ position: 'fixed', left: '0px', top: '0px', visibility: 'hidden' });
+
+        const positionTip = () => {
+
+          if (!cardEl.value || !tipEl.value || typeof FloatingUIDOM === 'undefined') return;
+
+          if (tipCleanup) tipCleanup();
+
+          tipCleanup = FloatingUIDOM.autoUpdate(cardEl.value, tipEl.value, () => {
+
+            FloatingUIDOM.computePosition(cardEl.value, tipEl.value, {
+
+              strategy: 'fixed',
+
+              placement: 'bottom',
+
+              middleware: [
+
+                FloatingUIDOM.offset(10),
+
+                FloatingUIDOM.flip({ padding: 8 }),
+
+                FloatingUIDOM.shift({ padding: 8 })
+
+              ]
+
+            }).then(({ x, y }) => {
+
+              tipPosition.value = { position: 'fixed', left: x + 'px', top: y + 'px', visibility: 'visible' };
+
+            });
+
+          });
+
         };
-        return { format, colorStyle, showHelp, onTap };
+
+        const openTip = () => {
+
+          if (!props.help) return;
+
+          positionTip();
+
+          showHelp.value = true;
+
+        };
+
+        const cleanupTip = () => {
+
+          if (tipCleanup) { tipCleanup(); tipCleanup = null; }
+
+        };
+
+        const closeTip = () => {
+
+          showHelp.value = false;
+
+          cleanupTip();
+
+        };
+
+        onBeforeUnmount(cleanupTip);
+
+        const onHover = (entering) => {
+
+          if (!canHover || !props.help) return;
+
+          if (entering) openTip(); else closeTip();
+
+        };
+
+        const onTap = () => {
+
+          if (!props.help) return;
+
+          if (canHover) return;
+
+          if (showHelp.value) closeTip(); else openTip();
+
+        };
+
+        return { format, colorStyle, showHelp, onHover, onTap, cardEl, tipEl, tipPosition };
+
       }
+
     });
 
+
+
     app.mount('#app');
+
   </script>
+
 </body>
+
 </html>
