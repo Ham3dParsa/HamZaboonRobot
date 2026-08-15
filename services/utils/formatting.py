@@ -344,7 +344,7 @@ def format_srs_back_stage(
 
     lines.append(f"\n✤ *{fa_meaning}*")
     if fa_expl and toggles.get("explanation"):
-        lines.append(fa_expl)
+        lines.append(f"\n{fa_expl}")
 
     if toggles.get("synonyms"):
         syn = (
