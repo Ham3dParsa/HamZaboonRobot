@@ -12,6 +12,12 @@ def get_user(user_id: int):
         return conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
 
 
+def _as_bool(value) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
 def _decode_toggles(raw: str | None) -> dict[str, bool]:
     """Decode a display-toggles JSON column, keeping only known fields."""
     if not raw:
@@ -23,7 +29,7 @@ def _decode_toggles(raw: str | None) -> dict[str, bool]:
     if not isinstance(data, dict):
         return {}
     return {
-        key: bool(value)
+        key: _as_bool(value)
         for key, value in data.items()
         if key in DISPLAY_TOGGLE_FIELDS
     }
@@ -61,7 +67,7 @@ def set_display_toggle(user_id: int, field: str, enabled: bool):
             "SELECT display_toggles FROM users WHERE user_id=?", (user_id,)
         ).fetchone()
         current = _decode_toggles(row["display_toggles"]) if row else {}
-        current[field] = bool(enabled)
+        current[field] = _as_bool(enabled)
         conn.execute(
             "UPDATE users SET display_toggles=? WHERE user_id=?",
             (json.dumps(current), user_id),
@@ -78,7 +84,7 @@ def set_display_toggle_forced(user_id: int, field: str, enabled: bool):
             "SELECT display_toggles_forced FROM users WHERE user_id=?", (user_id,)
         ).fetchone()
         current = _decode_toggles(row["display_toggles_forced"]) if row else {}
-        current[field] = bool(enabled)
+        current[field] = _as_bool(enabled)
         conn.execute(
             "UPDATE users SET display_toggles_forced=? WHERE user_id=?",
             (json.dumps(current), user_id),

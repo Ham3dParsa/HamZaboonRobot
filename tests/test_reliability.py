@@ -503,6 +503,15 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         db.set_display_toggle_forced(1, "synonyms", True)
         self.assertTrue(db.get_display_toggles(1)["synonyms"])
 
+    def test_display_toggle_string_values_normalized(self):
+        db.create_user_if_needed(1, "learner")
+        db.set_display_toggle(1, "phonetic", "false")
+        self.assertFalse(db.get_display_toggles(1)["phonetic"])
+        db.set_display_toggle_forced(1, "grammar_tip", "true")
+        self.assertTrue(db.get_display_toggles(1)["grammar_tip"])
+        db.set_display_toggle_forced(1, "grammar_tip", "off")
+        self.assertFalse(db.get_display_toggles(1)["grammar_tip"])
+
     def test_display_toggle_unknown_fields_rejected(self):
         db.create_user_if_needed(1, "learner")
         with self.assertRaises(ValueError):
