@@ -363,10 +363,12 @@ def format_srs_back_stage(
     toggles: dict[str, bool],
     phonetic_lines: list[str] | None = None,
     footer: str = "",
+    badge: str = "",
 ) -> str:
     """Render the revealed back stage: full card gated by the display-toggles
     (§8 always full detail; each section respects its toggle). The review badge
-    lives on the pre-reveal front stage only (owner bug report 2026-08-15)."""
+    lives on the pre-reveal front stage only (owner bug report 2026-08-15);
+    ``badge`` is optional for the first-exposure immediate mode (owner lock)."""
     word = escape_mdv2(card_data.get("word", ""))
     fa_meaning = escape_mdv2(card_data.get("fa_meaning", ""))
     fa_expl = escape_mdv2(card_data.get("fa_explanation", ""))
@@ -374,6 +376,9 @@ def format_srs_back_stage(
     lines = [f"*{word}*"]
     if phonetic_lines:
         lines.extend(phonetic_lines)
+
+    if badge:
+        lines.append(f"\n{escape_mdv2(badge)}")
 
     lines.append(f"\n✤ *{fa_meaning}*")
     if fa_expl and toggles.get("explanation"):

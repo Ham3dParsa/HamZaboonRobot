@@ -438,9 +438,9 @@ class TestRevealHandler(unittest.TestCase):
         call_args = update.callback_query.answer.call_args
         self.assertIn("معتبر نیست", call_args[0][0])
 
-    def test_reveal_rejects_first_exposure_node_mismatch(self):
-        # A reveal callback for a word whose session node is a first-exposure
-        # card is also stale (no staging on the FE path).
+    def test_reveal_first_exposure_node_renders_fe_grade_grid(self):
+        # CARD-MODES Rule 1: a staged first-exposure card reveals onto the
+        # familiarity-based FE grade grid, not the recall-based review grid.
         from services.session import SessionNode
         fe_node = SessionNode(
             activity_type="first_exposure", source_tier=1,
@@ -454,7 +454,14 @@ class TestRevealHandler(unittest.TestCase):
         )
         update = self._update()
         asyncio.run(srs_handler._handle_srs_reveal(update, ctx, "1", str(self.word_id)))
-        ctx.bot.edit_message_text.assert_not_awaited()
+        ctx.bot.edit_message_text.assert_awaited_once()
+        markup = ctx.bot.edit_message_text.call_args.kwargs["reply_markup"]
+        callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
+        self.assertEqual(callbacks, [
+            f"srs:fe:1:1:{self.word_id}", f"srs:fe:2:1:{self.word_id}",
+            f"srs:fe:3:1:{self.word_id}", f"srs:fe:4:1:{self.word_id}",
+        ])
+        self.assertIn(f"revealed_{self.word_id}", ctx.user_data)
 
     def test_reveal_edit_error_is_surfaced_not_crashed(self):
         update = self._update()
