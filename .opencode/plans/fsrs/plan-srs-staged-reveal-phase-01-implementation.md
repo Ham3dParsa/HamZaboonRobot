@@ -44,6 +44,7 @@ Files: `handlers/study_handler.py`, `config/keyboards.py`, `bot.py` router.
 - first_exposure → full card directly (badge `کارت جدید ✨`).
 - New callbacks: `srs:reveal:`, `srs:delete:`, `srs:delete:yes:`, `srs:delete:no:`.
 - RED: `tests/test_wiring.py`, `tests/test_study_handler.py`, `tests/test_integration/test_srs_staged_reveal_flow.py`.
+- **Ticket breakdown:** `plan-srs-staged-reveal-phase-02-session-staging.md` (P2-T1..T4).
 
 ### Phase 3 — SRS handler telemetry + delete + user/admin toggle UI
 Files: `handlers/srs_handler.py`, `handlers/user.py`, `handlers/admin.py`.
@@ -51,6 +52,7 @@ Files: `handlers/srs_handler.py`, `handlers/user.py`, `handlers/admin.py`.
 - Delete with confirm (R6): permanent remove-from-review.
 - Per-user toggle editing + warning popup (R7/R9); admin-global defaults + optional override (R10).
 - RED: `tests/test_srs_staged_reveal.py`, admin integration tests, wiring.
+- **Ticket breakdown:** `plan-srs-staged-reveal-phase-03-telemetry-delete-toggle-ui.md` (P3-T1..T5).
 
 ## Verification gates
 `tests/test_wiring.py` (new srs: prefixes), `tests/test_dead_code_guard.py` (orphaned `format_srs_prompt`), `tests/test_formatting.py`, full §6 suite.
