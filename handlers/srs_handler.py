@@ -16,9 +16,7 @@ from services.session import resolve_grade
 from services.utils.formatting import (
     _saved_word_card,
     _phonetic_lines,
-    days_since_review,
     format_next_review_text,
-    format_review_badge,
     format_srs_back_stage,
 )
 from config.keyboards import query_result_keyboard, get_review_keyboard
@@ -143,13 +141,10 @@ async def _handle_srs_reveal(
     toggles = db.get_display_toggles(user_id)
     phonetic_lines = _phonetic_lines(card_data.get("phonetic", ""))
     footer = session_progress_footer(state, user_id)
-    days = days_since_review(word_row["last_review_at"] if word_row else None)
-    badge = format_review_badge(days) if days is not None else ""
     text = format_srs_back_stage(
         card_data,
         toggles=toggles,
         phonetic_lines=phonetic_lines,
-        badge=badge,
         footer=footer,
     )
     keyboard = get_review_keyboard(

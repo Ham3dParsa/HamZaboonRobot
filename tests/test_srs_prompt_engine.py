@@ -179,6 +179,19 @@ class FrontStageRenderingTests(unittest.TestCase):
         )
         self.assertIn("💡 راهنما: به معنای «خواندن»", text)
 
+    def test_fill_blank_hint_blanks_answer_word(self):
+        """A hint that itself contains the answer word must never leak it
+        (owner bug report 2026-08-15) — the word is blanked like an example."""
+        card = _card(synonyms=["read"], antonyms=[])
+        text = fmt.format_srs_front_stage(
+            card,
+            "fill_blank",
+            toggles=ALL_TOGGLES_ON,
+            rng=random.Random(1),
+        )
+        self.assertIn("💡 راهنما: مترادف ? ? ?", text)
+        self.assertNotIn("مترادف read", text)
+
     def test_meaning_prompt_shows_meaning_and_explanation_hint(self):
         text = fmt.format_srs_front_stage(
             _card(),
@@ -194,6 +207,21 @@ class FrontStageRenderingTests(unittest.TestCase):
         text = fmt.format_srs_front_stage(_card(), "meaning", toggles=off)
         self.assertIn("چه واژه‌ای به معنای «خواندن» است؟", text)
         self.assertNotIn("راهنما:", text)
+
+    def test_meaning_prompt_blanks_answer_word_in_explanation_hint(self):
+        """The meaning hint is the explanation; if the answer word appears
+        inside it, the word is blanked so the front stage never leaks it
+        (owner bug report 2026-08-15)."""
+        card = _card(fa_explanation="read به معنی مطالعه کردن است.")
+        text = fmt.format_srs_front_stage(card, "meaning", toggles=ALL_TOGGLES_ON)
+        self.assertIn("راهنما: ? ? ? به معنی مطالعه کردن است\\.", text)
+        self.assertNotIn("read", text)
+
+    def test_meaning_prompt_hint_blanks_every_occurrence_of_answer_word(self):
+        card = _card(fa_explanation="read و read هر دو به مطالعه اشاره دارند.")
+        text = fmt.format_srs_front_stage(card, "meaning", toggles=ALL_TOGGLES_ON)
+        self.assertIn("? ? ? و ? ? ? هر دو", text)
+        self.assertNotIn("read", text)
 
     def test_direct_translate_uses_dynamic_language_name(self):
         text_de = fmt.format_srs_front_stage(_card(), "direct_translate", toggles=ALL_TOGGLES_ON, lang="de")
@@ -287,6 +315,14 @@ class BackStageRenderingTests(unittest.TestCase):
         self.assertIn("✍️ *نکته‌ی گرامری:*", text)
         self.assertIn("🧠 با دکمه‌های توصیفی زیر یادآوری خود را ثبت کنید\\.", text)
         self.assertIn("پیشرفت ۲ از ۵", text)
+
+    def test_back_stage_rejects_badge_parameter(self):
+        """The review badge lives on the pre-reveal front stage only (owner
+        bug report 2026-08-15); the back stage has no badge support."""
+        with self.assertRaises(TypeError):
+            fmt.format_srs_back_stage(
+                _card(), toggles=ALL_TOGGLES_ON, badge="⏰ آخرین مرور"
+            )
 
     def test_back_stage_sections_gated_by_toggles(self):
         off_syns = dict(ALL_TOGGLES_ON)
