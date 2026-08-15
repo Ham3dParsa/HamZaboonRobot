@@ -161,13 +161,18 @@ async def _show_log_level_settings(update: Update, context: ContextTypes.DEFAULT
     await _edit_or_send(update, context, text, reply_markup=log_level_keyboard(current))
 
 
+def _phonetic_ipa_default() -> bool:
+    """Admin-global phonetic display-toggle default (single source of truth)."""
+    return db.get_display_toggle_defaults().get("phonetic", True)
+
+
 def _phonetic_settings_text() -> str:
-    settings = db.get_phonetic_display_settings()
+    ipa = _phonetic_ipa_default()
     tts_access = db.get_setting("tts_access", "premium")
     tts_labels = {"none": "❌ غیرفعال", "premium": "🥈 نقره‌ای و طلایی", "all": "✅ همه"}
     return (
         "تنظیم نمایش تلفظ‌ها:\n"
-        f"IPA: {'روشن' if settings['ipa'] else 'خاموش'}\n"
+        f"IPA: {'روشن' if ipa else 'خاموش'}\n"
         f"🔊 تلفظ صوتی: {tts_labels.get(tts_access, tts_access)}"
     )
 
@@ -199,25 +204,21 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             update,
             context,
             _phonetic_settings_text(),
-            reply_markup=phonetic_settings_keyboard(db.get_phonetic_display_settings()),
+            reply_markup=phonetic_settings_keyboard({"ipa": _phonetic_ipa_default()}),
         )
         await notify_callback(update.callback_query, "تنظیم شد.", intent=CallbackNoticeIntent.SUCCESS)
     elif action.startswith("phonetics:"):
         _, setting = action.split(":", 1)
-        key_map = {
-            "ipa": "phonetic_show_ipa",
-        }
-        setting_key = key_map.get(setting)
-        if not setting_key:
+        if setting != "ipa":
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
-        current = db.get_bool_setting(setting_key, True)
-        db.set_bool_setting(setting_key, not current)
+        current = _phonetic_ipa_default()
+        db.set_display_toggle_defaults({"phonetic": not current})
         await _edit_or_send(
             update,
             context,
             _phonetic_settings_text(),
-            reply_markup=phonetic_settings_keyboard(db.get_phonetic_display_settings()),
+            reply_markup=phonetic_settings_keyboard({"ipa": _phonetic_ipa_default()}),
         )
         await notify_callback(update.callback_query, "تنظیم شد.", intent=CallbackNoticeIntent.SUCCESS)
     elif action == "broadcast":
@@ -250,7 +251,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             f"📋 مدل: <b>{html_escape(str(preset.get('model', '—'))) }</b>\n"
             f"🌐 Base URL: <b>{html_escape(str(preset.get('base_url', '—'))) }</b>\n"
             f"🔑 API Key: <code>{html_escape(masked)}</code>\n"
-            f"🗣 IPA: {'روشن' if db.get_bool_setting('phonetic_show_ipa', True) else 'خاموش'}",
+            f"🗣 IPA: {'روشن' if _phonetic_ipa_default() else 'خاموش'}",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data="admin:back")]]),
         )

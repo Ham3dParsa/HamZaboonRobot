@@ -19,6 +19,8 @@ from services.utils import callback_notifications
 from services.ai import llm_services
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
+from config.catalog import DISPLAY_TOGGLE_FIELDS as _TOGGLE_FIELDS
+
 
 _NOW_ISO = "2026-01-01T00:00:00+00:00"
 _NOW_ISO_EARLY = "2025-12-25T00:00:00+00:00"
@@ -471,6 +473,86 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         db.set_plan(1, "silver")
         db.set_presentation_preference(1, "brief")
         self.assertEqual(db.get_user(1)["presentation_preference"], "brief")
+
+    def test_phonetic_show_ipa_settings_key_removed(self):
+        """The legacy admin phonetic knob is gone; the display-toggle defaults
+        row replaces it and seeds all fields True (#338 phonetic-knob decision)."""
+        self.assertEqual(db.get_setting("phonetic_show_ipa", ""), "")
+        defaults = db.get_display_toggle_defaults()
+        self.assertIn("phonetic", defaults)
+        self.assertTrue(defaults["phonetic"])
+        self.assertEqual(set(defaults), set(_TOGGLE_FIELDS))
+
+    def test_display_toggle_storage_and_precedence(self):
+        db.create_user_if_needed(1, "learner")
+        defaults = db.get_display_toggles(1)
+        for field in _TOGGLE_FIELDS:
+            self.assertTrue(defaults[field], field)
+
+        db.set_display_toggle_defaults({"synonyms": False})
+        self.assertFalse(db.get_display_toggles(1)["synonyms"])
+
+        db.set_display_toggle(1, "synonyms", True)
+        self.assertTrue(db.get_display_toggles(1)["synonyms"])
+        self.assertTrue(db.get_display_toggles(1)["examples"])
+
+        db.set_display_toggle_forced(1, "synonyms", False)
+        self.assertFalse(db.get_display_toggles(1)["synonyms"])
+        self.assertTrue(db.get_display_toggles(1)["examples"])
+
+        db.set_display_toggle_forced(1, "synonyms", True)
+        self.assertTrue(db.get_display_toggles(1)["synonyms"])
+
+    def test_display_toggle_unknown_fields_rejected(self):
+        db.create_user_if_needed(1, "learner")
+        with self.assertRaises(ValueError):
+            db.set_display_toggle(1, "nope", True)
+        with self.assertRaises(ValueError):
+            db.set_display_toggle_forced(1, "nope", True)
+        with self.assertRaises(ValueError):
+            db.set_display_toggle_defaults({"nope": True})
+
+    def test_display_toggle_columns_migrate_from_legacy_schema(self):
+        os.remove(db.DB_PATH)
+        with db.get_conn() as conn:
+            conn.execute(
+                """
+                CREATE TABLE users (
+                    user_id INTEGER PRIMARY KEY,
+                    username TEXT,
+                    target_lang TEXT,
+                    goal TEXT,
+                    level TEXT NOT NULL DEFAULT 'beginner',
+                    plan TEXT DEFAULT 'free',
+                    streak INTEGER DEFAULT 0,
+                    last_active_date TEXT,
+                    words_asked_today INTEGER DEFAULT 0,
+                    words_asked_date TEXT,
+                    grammar_tips_asked_today INTEGER DEFAULT 0,
+                    grammar_tips_asked_date TEXT,
+                    optional_daily_limit INTEGER,
+                    preferred_delivery_minute INTEGER,
+                    active_window_start_minute INTEGER,
+                    active_window_end_minute INTEGER,
+                    presentation_preference TEXT,
+                    onboarded INTEGER DEFAULT 0,
+                    created_at TEXT
+                )
+                """
+            )
+            conn.commit()
+        db.init_db()
+        with db.get_conn() as conn:
+            columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(users)").fetchall()
+            }
+        self.assertIn("display_toggles", columns)
+        self.assertIn("display_toggles_forced", columns)
+        db.create_user_if_needed(1, "learner")
+        db.set_display_toggle(1, "phonetic", False)
+        self.assertFalse(db.get_display_toggles(1)["phonetic"])
+        self.assertTrue(db.get_display_toggles(1)["examples"])
 
     def test_recent_grammar_tip_titles_are_language_scoped(self):
         db.create_user_if_needed(1, "learner")

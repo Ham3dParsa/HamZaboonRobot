@@ -52,10 +52,11 @@ PRESET_REGISTRY_EXPORTS = [
 
 SETTINGS_EXPORTS = [
     "get_bool_setting",
+    "get_display_toggle_defaults",
     "get_llm_cost_profile",
-    "get_phonetic_display_settings",
     "get_setting",
     "set_bool_setting",
+    "set_display_toggle_defaults",
     "set_llm_cost_profile",
     "set_setting",
 ]

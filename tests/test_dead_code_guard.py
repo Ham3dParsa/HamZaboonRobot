@@ -217,6 +217,27 @@ BANNED_SYMBOLS: dict[str, str] = {
         "removed by architecture deepening finding #2: dead keyboard with a latent "
         "catalog import error; inline _custom_test_step_lang is the canonical path"
     ),
+    "format_srs_prompt": (
+        "removed by #338 SRS staged-reveal: single hidden-instruction prompt replaced "
+        "by the randomized prompt engine (format_srs_front_stage / format_srs_back_stage)"
+    ),
+    "SRS_HIDDEN_INSTRUCTION": (
+        "removed by #338 SRS staged-reveal: generic spaced-repetition intro replaced "
+        "by per-prompt-type instruct strings in the staged-reveal engine"
+    ),
+    "SRS_REVEAL_QUESTION": (
+        "removed by #338 SRS staged-reveal: post-reveal text is SRS_POST_REVEAL and "
+        "grading moved to the grade buttons"
+    ),
+    "get_phonetic_display_settings": (
+        "removed by #338 phonetic-knob decision (owner, 2026-08-15): dead/ambiguous "
+        "legacy admin knob never consumed by the render path; the phonetic display "
+        "toggle is the single source of truth via display-toggle defaults"
+    ),
+    "DEFAULT_PHONETIC_SHOW_IPA": (
+        "removed by #338 phonetic-knob decision (owner, 2026-08-15): env knob replaced "
+        "by the admin-global phonetic display-toggle default"
+    ),
 }
 
 # Symbols that are intentionally retained even though they are no longer

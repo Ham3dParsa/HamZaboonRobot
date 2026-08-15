@@ -46,6 +46,7 @@ from services.db.plans import (
 
 from services.db.users import (
     get_user,
+    get_display_toggles,
     get_quota_status,
     should_show_pronounce,
     create_user_if_needed,
@@ -54,6 +55,8 @@ from services.db.users import (
     set_presentation_preference,
     set_user_lang,
     set_user_goal,
+    set_display_toggle,
+    set_display_toggle_forced,
     touch_streak,
     can_ask_word,
     reserve_word_query,
@@ -120,10 +123,11 @@ from services.db.reviews import (
 
 from services.db.settings import (
     get_bool_setting,
+    get_display_toggle_defaults,
     get_llm_cost_profile,
-    get_phonetic_display_settings,
     get_setting,
     set_bool_setting,
+    set_display_toggle_defaults,
     set_llm_cost_profile,
     set_setting,
 )

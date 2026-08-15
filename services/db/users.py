@@ -1,12 +1,89 @@
 import datetime
+import json
 
+from config.catalog import DISPLAY_TOGGLE_DEFAULTS, DISPLAY_TOGGLE_FIELDS
 from services.db.plans import valid_plan_name
 from services.db.schema import get_conn, _today, _utc_now, _current_daily_count, _can_consume_daily_count
+from services.db.settings import get_display_toggle_defaults
 
 
 def get_user(user_id: int):
     with get_conn() as conn:
         return conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+
+
+def _decode_toggles(raw: str | None) -> dict[str, bool]:
+    """Decode a display-toggles JSON column, keeping only known fields."""
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {
+        key: bool(value)
+        for key, value in data.items()
+        if key in DISPLAY_TOGGLE_FIELDS
+    }
+
+
+def get_display_toggles(user_id: int, row=None) -> dict[str, bool]:
+    """Resolve a user's effective display toggles (R10).
+
+    Precedence: admin-forced per-user > per-user override > admin-global
+    defaults > built-in catalog defaults. ``row`` is an optional pre-fetched
+    users row (callers that already hold one pass it in to avoid an extra
+    SELECT); it is re-fetched when omitted. A missing user still resolves to
+    the defaults so the session engine can always render a prompt (R11).
+    """
+    effective = dict(get_display_toggle_defaults())
+    if row is None:
+        row = get_user(user_id)
+    if row:
+        effective.update(_decode_toggles(row["display_toggles"]))
+        effective.update(_decode_toggles(row["display_toggles_forced"]))
+    return {field: effective.get(field, DISPLAY_TOGGLE_DEFAULTS[field]) for field in DISPLAY_TOGGLE_FIELDS}
+
+
+def _validate_toggle_field(field: str) -> None:
+    if field not in DISPLAY_TOGGLE_FIELDS:
+        raise ValueError(f"Unknown display-toggle field: {field}")
+
+
+def set_display_toggle(user_id: int, field: str, enabled: bool):
+    """Set a user's own display-toggle override (wins over admin defaults)."""
+    _validate_toggle_field(field)
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT display_toggles FROM users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        current = _decode_toggles(row["display_toggles"]) if row else {}
+        current[field] = bool(enabled)
+        conn.execute(
+            "UPDATE users SET display_toggles=? WHERE user_id=?",
+            (json.dumps(current), user_id),
+        )
+        conn.commit()
+
+
+def set_display_toggle_forced(user_id: int, field: str, enabled: bool):
+    """Set an admin-forced per-user display toggle (wins over user override)."""
+    _validate_toggle_field(field)
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT display_toggles_forced FROM users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        current = _decode_toggles(row["display_toggles_forced"]) if row else {}
+        current[field] = bool(enabled)
+        conn.execute(
+            "UPDATE users SET display_toggles_forced=? WHERE user_id=?",
+            (json.dumps(current), user_id),
+        )
+        conn.commit()
 
 
 def should_show_pronounce(user_id: int, row=None) -> bool:

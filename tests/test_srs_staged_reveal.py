@@ -13,8 +13,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from services import db
 from services.db import schema as db_schema
 from handlers import srs_handler
-from services.utils.formatting import format_card, format_srs_prompt
+from config.catalog import DISPLAY_TOGGLE_DEFAULTS
+from services.utils import formatting as fmt
 from config.keyboards import get_review_keyboard, get_first_exposure_keyboard
+
+
+ALL_TOGGLES_ON = dict(DISPLAY_TOGGLE_DEFAULTS)
 
 
 class SrsKeyboardTests(unittest.TestCase):
@@ -45,15 +49,19 @@ class SrsPromptRenderingTests(unittest.TestCase):
             "grammar_tip": "یک نکته.",
         }
 
-    def test_hidden_prompt_hides_meaning_examples_and_tip(self):
-        text = format_srs_prompt(self._card())
+    def test_standard_front_stage_hides_meaning_examples_and_tip(self):
+        text = fmt.format_srs_front_stage(
+            self._card(),
+            "standard",
+            toggles=ALL_TOGGLES_ON,
+        )
         self.assertIn("hello", text)
         self.assertNotIn("سلام", text)
         self.assertNotIn("Hello there", text)
         self.assertNotIn("یک نکته", text)
 
-    def test_revealed_card_shows_full_content(self):
-        text = format_card(self._card(), presentation="detailed")
+    def test_back_stage_shows_full_content(self):
+        text = fmt.format_srs_back_stage(self._card(), toggles=ALL_TOGGLES_ON)
         self.assertIn("سلام", text)
         self.assertIn("Hello there", text)
         self.assertIn("یک نکته", text)

@@ -1,17 +1,34 @@
 import html
 import json
+import random
 import re
 
 from config import _app_today, daily_word_query_limit_for_plan
+from config.catalog import language_label
 
-SRS_HIDDEN_INSTRUCTION = (
-    "⏰ مرور فاصله‌دار: معنی و مثال‌ها را از حفظ یادآوری کن — "
-    "هر بار که از حافظه استفاده می‌کنی، واژه در ذهنت عمیق‌تر می‌شود. "
-    "بعد از یادآوری، با ۴ دکمه ارزیابی کن: "
-    "یادم نیامد / سخت بود / خوب بود / خیلی راحت بود."
+# SRS staged-reveal prompt engine (#338). Front-stage prompt types follow the
+# locked spec §2B; all learner-facing copy is pinned here verbatim so tests
+# and the UI can never drift.
+SRS_PROMPT_TYPES = ("standard", "fill_blank", "meaning", "synonym", "direct_translate")
+
+SRS_HIDDEN_HEADER = "? ? ?"
+SRS_FRONT_SUB_INSTRUCTION = (
+    "👇 دکمه‌ی «نمایش پاسخ» را بزن؛ سپس صادقانه با دکمه‌ها به یادآوری‌ات نمره بده."
 )
+SRS_POST_REVEAL = "🧠 با دکمه‌های توصیفی زیر یادآوری خود را ثبت کنید."
+NEW_CARD_BADGE = "کارت جدید ✨"
+SRS_INSTRUCT_STANDARD = (
+    "🧠 از حافظه‌ات استفاده کن تا معنا، مترادف‌ها و متضادهای این واژه را یادآوری کنی."
+)
+SRS_INSTRUCT_FILL_BLANK = "🧠 واژه جا افتاده در این جمله را به یاد بیاور:"
+SRS_HINT_SYNONYM = "💡 راهنما: مترادف {item}"
+SRS_HINT_ANTONYM = "💡 راهنما: متضاد {item}"
+SRS_HINT_MEANING = "💡 راهنما: به معنای «{meaning}»"
 
-SRS_REVEAL_QUESTION = "🧠 آیا واقعاً درست به یادش آوردی، یا می‌خواهی باز هم یادآوری شود?"
+
+def format_review_badge(days: int) -> str:
+    """Learner-facing review badge for the staged-reveal front/back stages (R5)."""
+    return f"⏰ آخرین مرور: {to_persian_digits(days)} روز پیش"
 
 
 def format_next_review_text(interval_seconds: int | None) -> str:
@@ -133,17 +150,240 @@ def format_card(
     return "\n".join(lines)
 
 
-def format_srs_prompt(data: dict, *, phonetic_lines: list[str] | None = None) -> str:
-    """Render the first (hidden) SRS reminder screen.
+def _example_has_word(example: str, word: str) -> bool:
+    """True when the example contains the exact word (word-boundary, R3)."""
+    if not example or not word:
+        return False
+    return re.search(
+        rf"(?<!\w){re.escape(word)}(?!\w)", example, re.IGNORECASE
+    ) is not None
 
-    Shows only the prompt word and phonetic so the learner can self-test before
-    revealing the meaning, examples, and grammar tip.
+
+def _blank_example(example: str, word: str) -> str:
+    """Replace the exact word in the example with the hidden-word token (R3)."""
+    return re.sub(
+        rf"(?<!\w){re.escape(word)}(?!\w)",
+        "? ? ?",
+        example,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+
+
+def _fill_blank_hint(card_data: dict, toggles: dict[str, bool]) -> str:
+    """Local-DB hint for the fill_blank prompt, synonym → antonym → meaning."""
+    if toggles.get("synonyms") and card_data.get("synonyms"):
+        return SRS_HINT_SYNONYM.format(item=card_data["synonyms"][0])
+    if toggles.get("antonyms") and card_data.get("antonyms"):
+        return SRS_HINT_ANTONYM.format(item=card_data["antonyms"][0])
+    if card_data.get("fa_meaning"):
+        return SRS_HINT_MEANING.format(meaning=card_data["fa_meaning"])
+    return ""
+
+
+def _join_guillemets(items: list[str]) -> str:
+    return "«" + "» و «".join(str(item) for item in items) + "»"
+
+
+def _synonym_instruct(syn_items: list[str], ant_items: list[str]) -> str:
+    """Prompt sentence built from the drawn set (R2: only-synonyms /
+    only-antonyms / both sentence styles)."""
+    if syn_items and ant_items:
+        return (
+            f"🧠 چه واژه‌ای مترادف‌های {_join_guillemets(syn_items)} "
+            f"و متضادهای {_join_guillemets(ant_items)} دارد؟"
+        )
+    if syn_items:
+        return f"🧠 چه واژه‌ای مترادف‌های {_join_guillemets(syn_items)} دارد؟"
+    return f"🧠 چه واژه‌ای متضادهای {_join_guillemets(ant_items)} دارد؟"
+
+
+def _draw_synonym_items(
+    card_data: dict, toggles: dict[str, bool], rng
+) -> tuple[list[str], list[str]]:
+    """Draw 2-3 items from the combined *visible* set and split by category."""
+    synonyms = card_data.get("synonyms") or []
+    antonyms = card_data.get("antonyms") or []
+    visible_syn = list(synonyms) if toggles.get("synonyms") else []
+    visible_ant = list(antonyms) if toggles.get("antonyms") else []
+    combined = visible_syn + visible_ant
+    if not combined:
+        return [], []
+    draw_count = min(len(combined), rng.randint(2, 3))
+    drawn = rng.sample(combined, draw_count)
+    return (
+        [item for item in drawn if item in visible_syn],
+        [item for item in drawn if item in visible_ant],
+    )
+
+
+def eligible_srs_prompt_types(
+    card_data: dict, toggles: dict[str, bool]
+) -> list[str]:
+    """Return the prompt types eligible for a card under the given toggles (R11).
+
+    Follows the spec §2B ordering. ``standard`` only needs the word, so a bare
+    card always keeps the pool non-empty; ``meaning``/``direct_translate`` need
+    only ``fa_meaning``. ``fill_blank`` requires an example containing the exact
+    word (R3); ``synonym`` requires a non-empty combined *visible* set (R2).
     """
-    word = escape_mdv2(data.get("word", ""))
+    eligible: list[str] = []
+    if card_data.get("word"):
+        eligible.append("standard")
+    if toggles.get("examples") and any(
+        _example_has_word(example, card_data.get("word"))
+        for example in (card_data.get("examples") or [])
+    ):
+        eligible.append("fill_blank")
+    if card_data.get("fa_meaning"):
+        eligible.append("meaning")
+        eligible.append("direct_translate")
+    visible_syn = toggles.get("synonyms") and bool(card_data.get("synonyms"))
+    visible_ant = toggles.get("antonyms") and bool(card_data.get("antonyms"))
+    if visible_syn or visible_ant:
+        eligible.append("synonym")
+    return eligible
+
+
+def select_srs_prompt_type(
+    card_data: dict, toggles: dict[str, bool], rng=None
+) -> str:
+    """Pick one eligible prompt type via the injectable RNG (system in prod)."""
+    eligible = eligible_srs_prompt_types(card_data, toggles)
+    if not eligible:
+        return "standard"
+    return eligible[(rng or random).randrange(len(eligible))]
+
+
+def format_srs_front_stage(
+    card_data: dict,
+    prompt_type: str,
+    *,
+    toggles: dict[str, bool],
+    phonetic_lines: list[str] | None = None,
+    badge: str = "",
+    footer: str = "",
+    lang: str = "",
+    rng=None,
+) -> str:
+    """Render the hidden front stage for one prompt type (R4 sub-instruction +
+    footer on every stage; badges per R5)."""
+    rng = rng or random
+    lines: list[str] = []
+    if prompt_type == "standard":
+        word = escape_mdv2(card_data.get("word", ""))
+        lines.append(f"*{word}*")
+        if phonetic_lines:
+            lines.extend(phonetic_lines)
+    elif prompt_type in ("fill_blank", "meaning", "synonym", "direct_translate"):
+        lines.append(SRS_HIDDEN_HEADER)
+    else:
+        raise ValueError(f"Unknown SRS prompt type: {prompt_type}")
+
+    if badge:
+        lines.append(f"\n{escape_mdv2(badge)}")
+
+    if prompt_type == "standard":
+        lines.append(f"\n{escape_mdv2(SRS_INSTRUCT_STANDARD)}")
+    elif prompt_type == "fill_blank":
+        lines.append(f"\n{escape_mdv2(SRS_INSTRUCT_FILL_BLANK)}")
+        matching = [
+            example
+            for example in (card_data.get("examples") or [])
+            if _example_has_word(example, card_data.get("word"))
+        ]
+        chosen = matching[rng.randrange(len(matching))]
+        lines.append(
+            f"\n✦ {escape_mdv2(_blank_example(chosen, card_data.get('word')))}"
+        )
+        hint = _fill_blank_hint(card_data, toggles)
+        if hint:
+            lines.append(f"\n{escape_mdv2(hint)}")
+    elif prompt_type == "meaning":
+        meaning = card_data.get("fa_meaning", "")
+        lines.append(f"\n{escape_mdv2(f'🧠 چه واژه‌ای به معنای «{meaning}» است؟')}")
+        if toggles.get("explanation") and card_data.get("fa_explanation"):
+            lines.append(
+                f"\n{escape_mdv2('راهنما: ' + str(card_data.get('fa_explanation')))}"
+            )
+    elif prompt_type == "synonym":
+        syn_items, ant_items = _draw_synonym_items(card_data, toggles, rng)
+        lines.append(f"\n{escape_mdv2(_synonym_instruct(syn_items, ant_items))}")
+    elif prompt_type == "direct_translate":
+        lang_label = language_label(lang)
+        meaning = card_data.get("fa_meaning", "")
+        lines.append(
+            f"\n{escape_mdv2(f'🧠 معادل {lang_label} «{meaning}» را به یاد بیاور.')}"
+        )
+
+    lines.append(f"\n{escape_mdv2(SRS_FRONT_SUB_INSTRUCTION)}")
+    if footer:
+        lines.append(f"\n{escape_mdv2(footer)}")
+    return "\n".join(lines)
+
+
+def format_srs_back_stage(
+    card_data: dict,
+    *,
+    toggles: dict[str, bool],
+    phonetic_lines: list[str] | None = None,
+    badge: str = "",
+    footer: str = "",
+) -> str:
+    """Render the revealed back stage: full card gated by the display-toggles
+    (§8 always full detail; each section respects its toggle)."""
+    word = escape_mdv2(card_data.get("word", ""))
+    fa_meaning = escape_mdv2(card_data.get("fa_meaning", ""))
+    fa_expl = escape_mdv2(card_data.get("fa_explanation", ""))
+
     lines = [f"*{word}*"]
     if phonetic_lines:
         lines.extend(phonetic_lines)
-    lines.append(f"\n{escape_mdv2(SRS_HIDDEN_INSTRUCTION)}")
+    if badge:
+        lines.append(f"\n{escape_mdv2(badge)}")
+
+    lines.append(f"\n✤ *{fa_meaning}*")
+    if fa_expl and toggles.get("explanation"):
+        lines.append(fa_expl)
+
+    if toggles.get("synonyms"):
+        syn = (
+            "، ".join(
+                escape_mdv2(item) for item in (card_data.get("synonyms") or [])
+            )
+            or "—"
+        )
+        lines.append(f"\n🟢 *مترادف:* {syn}")
+    if toggles.get("antonyms"):
+        ant = (
+            "، ".join(
+                escape_mdv2(item) for item in (card_data.get("antonyms") or [])
+            )
+            or "—"
+        )
+        lines.append(f"🔴 *متضاد:* {ant}")
+
+    if toggles.get("examples"):
+        examples = (card_data.get("examples") or [])[:2]
+        translations = (card_data.get("example_translations") or [])[:2]
+        translations_visible = toggles.get("example_translations")
+        label = escape_mdv2(
+            "مثال‌ها + ترجمه" if translations_visible else "مثال‌ها"
+        )
+        lines.append(f"\n📝 *{label}:*")
+        for index, example in enumerate(examples):
+            lines.append(f"✦ {escape_mdv2(example)}")
+            if translations_visible and index < len(translations):
+                lines.append(f"||{escape_mdv2(translations[index])}||")
+
+    if toggles.get("grammar_tip") and card_data.get("grammar_tip"):
+        lines.append(
+            f"\n✍️ *نکته‌ی گرامری:*\n{escape_mdv2(card_data.get('grammar_tip'))}"
+        )
+
+    lines.append(f"\n{escape_mdv2(SRS_POST_REVEAL)}")
+    if footer:
+        lines.append(f"\n{escape_mdv2(footer)}")
     return "\n".join(lines)
 
 
