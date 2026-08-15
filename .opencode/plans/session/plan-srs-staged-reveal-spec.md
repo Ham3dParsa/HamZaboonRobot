@@ -7,7 +7,7 @@ branch: pending
 status: locked-spec
 ---
 
-STATE: phase 0/0 — status: LOCKED SPEC — focus: implemented only after AI-preset releases Persistence/Admin seams + FSRS T09 closes
+STATE: phase 0/0 — status: IMPLEMENTING — gates closed (AI-preset seams released, FSRS T09 closed); see fsrs/plan-srs-staged-reveal-phase-01-implementation.md
 
 # Technical Spec — SRS Study Session UX/UI & Staged Reveal Architecture
 
@@ -27,7 +27,7 @@ Dependency & Wiring Map is in §6.
 | R3 | fill_blank: **search both examples, pick one containing the exact word**; if neither has it verbatim, **fall back** to standard/meaning/direct_translate | owner custom |
 | R4 | sub-instruction (`👇 ...`) + progress footer shown on **all** front stages and the back stage (match mock) | A |
 | R5 | FE badge: `کارت جدید ✨` in badge slot + footer. Review badge: `⏰ آخرین مرور: X روز پیش` (no «مرور فاصله‌دار» prefix) | owner custom |
-| R6 | Delete card = **permanent remove-from-review with a confirm step** | B |
+| R6 | Delete card = **permanent remove-from-review with a confirm step** — physically deletes the `saved_words` row (consistent with word-query remove behavior; #350 pool is bulk-generated, independent of individual learner cards) | B |
 | R7 | **Full granular display-toggle system** (per-user + admin-global) **replaces** brief/detailed. Warning for high-value toggles; prompt pool follows toggles | A |
 | R8 | Record `prompt_type` + `revealed` flag in `review_events.raw_signal` | A |
 | R9 | Warning UX: confirm popup «خاموش کردن نمایش این مورد کیفیت و غنای تجربه آموزشی را کاهش می‌دهد. باز هم خاموشش می‌کنید؟ بله / انصراف»; user may proceed after warning | owner custom |
@@ -106,9 +106,10 @@ All dynamic values pass through `escape_mdv2`/`escape_mdv2_code` (centralized, p
 - **Replaces** the existing `presentation_preference` (brief/detailed) via migration.
 - Per-user toggleable fields; admin-global defaults; user override wins; optional admin override (confirm + warn).
 - Toggleable: explanation, synonyms, antonyms, examples, example translations, grammar tip, IPA/phonetic.
-- High-value toggles (examples, synonyms/antonyms) → confirm popup (R9).
+- High-value toggles (examples, synonyms/antonyms, **explanation**) → confirm popup (R9).
 - Low-value (phonetic, grammar tip, example translations) → no warning.
 - Prompt pool follows toggles (e.g., synonyms off ⇒ no `synonym` prompt; examples off ⇒ no `fill_blank`).
+- **Clarification (2026-08-15):** the synonym/antonym prompt draws from the still-visible set — `synonyms` off alone leaves the prompt using only antonyms (`only-antonyms` sentence style); turning BOTH off removes the prompt type.
 - Toggleable fields must be designed so the session engine can always render a minimal prompt (R11).
 
 ## 6. Dependency & Wiring Map
@@ -121,7 +122,7 @@ All dynamic values pass through `escape_mdv2`/`escape_mdv2_code` (centralized, p
 | `services/utils/formatting.py` | `format_card`, orphaned `format_srs_prompt` | **update** | new prompt engine replaces orphaned code; back-stage renderer |
 | `config/keyboards.py` | review/FE keyboards | **update** | add reveal + delete (confirm) callbacks; keep `srs:`/`srs:fe:` prefixes |
 | `bot.py` `callback_router` | routes `srs:`, `srs:fe:` | **update** | add new prefixes (reveal, delete, delete-confirm) |
-| `services/db/schema.py` + `settings.py` | `presentation_preference` | **update** | display-toggle storage (migration); **Persistence seam** |
+| `services/db/schema.py` + `settings.py` | `presentation_preference` | **update** | display-toggle storage (migration); **Persistence seam** — JSON columns `display_toggles` (per-user) + `display_toggles_forced` (admin-forced) on `users`, plus `display_toggle_defaults` row in `settings` (admin-global); legacy `presentation_preference` column kept but no longer read (§8) |
 | `handlers/user.py` | settings panel | **update** | per-user toggle editing + warning |
 | `handlers/admin.py` (+ sub-router) | admin panel | **update** | admin-global defaults + optional override; **Admin seam** |
 | `services/ai/ai.py` `card_data` | has all fields | **keep** | no AI-call change; data already sufficient |
@@ -138,4 +139,4 @@ All dynamic values pass through `escape_mdv2`/`escape_mdv2_code` (centralized, p
 ## 8. Blocked / Deferred
 
 - **Implementation** deferred until AI-preset releases Persistence + Admin seams (parallel-work-guard) and FSRS T09 closes.
-- **Back-stage always full detail** (R7 chose the toggle system, not brief/detailed respect for back stage).
+- ~~**Back-stage always full detail**~~ — CLARIFIED & LOCKED (2026-08-15, owner): the back stage **respects the display toggles** like the front stage; sections a user disabled are hidden on the reveal too (otherwise phonetic/explanation toggles would have no visible effect).

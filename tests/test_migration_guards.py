@@ -33,6 +33,8 @@ EXPECTED_COLUMNS = {
         "onboarded",
         "bot_blocked",
         "presentation_preference",
+        "display_toggles",        # NOTE: added in #338 Phase 1 display-toggle migration
+        "display_toggles_forced", # NOTE: added in #338 Phase 1 display-toggle migration
     },
     "saved_words": {
         "id",

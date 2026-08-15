@@ -114,6 +114,32 @@ LEVELS = {
 
 DEFAULT_LEVEL = "beginner"
 
+# Canonical display-toggle registry (#338 R7/R9/R10/R11). The learner can
+# toggle each field on/off per-user; admin-global defaults and an admin
+# per-user override layer on top. Prompt-pool eligibility reads these same
+# fields (e.g. synonyms off removes the `synonym` prompt), so the registry
+# must stay the single source of truth consumed by storage, menus, prompts,
+# and validation.
+DISPLAY_TOGGLE_FIELDS = (
+    "explanation",
+    "synonyms",
+    "antonyms",
+    "examples",
+    "example_translations",
+    "grammar_tip",
+    "phonetic",
+)
+
+HIGH_VALUE_TOGGLES = frozenset(
+    {"explanation", "synonyms", "antonyms", "examples"}
+)
+
+LOW_VALUE_TOGGLES = frozenset(
+    {"phonetic", "grammar_tip", "example_translations"}
+)
+
+DISPLAY_TOGGLE_DEFAULTS = {field: True for field in DISPLAY_TOGGLE_FIELDS}
+
 
 def language_label(code: str) -> str:
     option = LANGUAGES.get(code)
@@ -170,3 +196,10 @@ def validate_catalog() -> None:
             or not option.prompt_guidance
         ):
             raise ValueError(f"invalid level catalog entry: {code}")
+    if (
+        HIGH_VALUE_TOGGLES | LOW_VALUE_TOGGLES != set(DISPLAY_TOGGLE_FIELDS)
+        or HIGH_VALUE_TOGGLES & LOW_VALUE_TOGGLES
+    ):
+        raise ValueError("display-toggle high/low partition must cover DISPLAY_TOGGLE_FIELDS")
+    if set(DISPLAY_TOGGLE_DEFAULTS) != set(DISPLAY_TOGGLE_FIELDS):
+        raise ValueError("DISPLAY_TOGGLE_DEFAULTS must cover every DISPLAY_TOGGLE_FIELD")

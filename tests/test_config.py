@@ -15,6 +15,13 @@ from config import (
     plan_display_name,
     presentation_for_user,
 )
+from config.catalog import (
+    DISPLAY_TOGGLE_DEFAULTS,
+    DISPLAY_TOGGLE_FIELDS,
+    HIGH_VALUE_TOGGLES,
+    LOW_VALUE_TOGGLES,
+    validate_catalog,
+)
 
 
 class ConfigTests(unittest.TestCase):
@@ -92,6 +99,38 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(presentation_for_user("free", "brief"), "detailed")
         self.assertEqual(presentation_for_user("silver", "unknown"), "detailed")
         self.assertEqual(presentation_for_user("silver", None), "detailed")
+
+
+class DisplayToggleCatalogTests(unittest.TestCase):
+    def test_toggle_fields_are_exhaustive_and_unique(self):
+        self.assertEqual(
+            set(DISPLAY_TOGGLE_FIELDS),
+            {
+                "explanation",
+                "synonyms",
+                "antonyms",
+                "examples",
+                "example_translations",
+                "grammar_tip",
+                "phonetic",
+            },
+        )
+        self.assertEqual(len(DISPLAY_TOGGLE_FIELDS), len(set(DISPLAY_TOGGLE_FIELDS)))
+
+    def test_high_and_low_value_toggles_partition_the_field_set(self):
+        self.assertEqual(
+            HIGH_VALUE_TOGGLES | LOW_VALUE_TOGGLES,
+            set(DISPLAY_TOGGLE_FIELDS),
+        )
+        self.assertEqual(HIGH_VALUE_TOGGLES & LOW_VALUE_TOGGLES, set())
+
+    def test_defaults_cover_all_fields_and_are_all_true(self):
+        self.assertEqual(set(DISPLAY_TOGGLE_DEFAULTS), set(DISPLAY_TOGGLE_FIELDS))
+        for field in DISPLAY_TOGGLE_FIELDS:
+            self.assertTrue(DISPLAY_TOGGLE_DEFAULTS[field], field)
+
+    def test_validate_catalog_passes_with_toggle_registry(self):
+        validate_catalog()
 
 
 if __name__ == "__main__":

@@ -6,14 +6,13 @@ import datetime
 import secrets
 from contextlib import contextmanager
 
-from config.catalog import DEFAULT_LEVEL
+from config.catalog import DEFAULT_LEVEL, DISPLAY_TOGGLE_DEFAULTS
 
 from config import (
     DB_PATH,
     DEFAULT_AI_API_KEY,
     DEFAULT_AI_BASE_URL,
     DEFAULT_AI_MODEL,
-    DEFAULT_PHONETIC_SHOW_IPA,
     LLM_INPUT_COST_USD_PER_MILLION,
     LLM_OUTPUT_COST_USD_PER_MILLION,
     APP_TZ,
@@ -186,6 +185,8 @@ def init_db(path: str | None = None):
                 active_window_start_minute INTEGER,
                 active_window_end_minute INTEGER,
                 presentation_preference TEXT,
+                display_toggles TEXT,
+                display_toggles_forced TEXT,
                 onboarded INTEGER DEFAULT 0,
                 created_at TEXT
             );
@@ -300,6 +301,8 @@ def init_db(path: str | None = None):
             "grammar_tips_asked_today": "INTEGER DEFAULT 0",
             "grammar_tips_asked_date": "TEXT",
             "presentation_preference": "TEXT",
+            "display_toggles": "TEXT",
+            "display_toggles_forced": "TEXT",
         }
         for name, definition in user_columns.items():
             if name not in columns:
@@ -405,7 +408,7 @@ def init_db(path: str | None = None):
             "llm_input_cost_usd_per_million": str(LLM_INPUT_COST_USD_PER_MILLION),
             "llm_output_cost_usd_per_million": str(LLM_OUTPUT_COST_USD_PER_MILLION),
             "usd_to_toman_rate": str(USD_TO_TOMAN_RATE),
-            "phonetic_show_ipa": "true" if DEFAULT_PHONETIC_SHOW_IPA else "false",
+            "display_toggle_defaults": json.dumps(DISPLAY_TOGGLE_DEFAULTS),
         }
         for k, v in defaults.items():
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
