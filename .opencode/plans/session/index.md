@@ -8,6 +8,7 @@ scope: SRS study-session UX — staged reveal, randomized prompts, and the granu
 | Plan | Phase | Depends On | Status |
 |---|---|---|---|
 | `plan-srs-staged-reveal-spec.md` | spec | FSRS phase-06 release (T09 live smoke) + AI-preset branch releasing Persistence/Admin seams | `locked-spec` |
+| `plan-card-modes.md` | 1 | `session/plan-srs-staged-reveal-spec.md` (renderers/prompt engine); PR #356 (`fix/srs-front-hint-leak`) — merged `233534d`, seam 6 free | `planned` |
 
 ## Release Boundaries
 
