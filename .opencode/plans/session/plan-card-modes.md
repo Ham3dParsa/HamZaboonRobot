@@ -7,7 +7,7 @@ branch: feat/card-modes-t1-db-core (PR 1/4 = T1)
 status: locked
 ---
 
-STATE: phase 1/1 — status: locked — T1 (DB core) MERGED (#361, `d5a6652`), claim released — next: T2+T3 (render branches, PR 2/4) in worktree
+STATE: phase 1/1 — status: locked — T1 (DB core) MERGED (#361, `d5a6652`); T2+T3 MERGED (#362, `4d5ecff`), seams 5+6 released; delivery PR 3/4 (T4+T5 admin, seam 8) and PR 4/4 (T6+T7 user, seam 7) pending
 
 ## Contract (GATE: LOCKED — owner confirmed 2026-08-15; "adjustment" was process-only: design per the right skills + merge PR #356, both satisfied)
 
@@ -51,17 +51,17 @@ No module refactors — every change extends existing modules in place. Each PR 
 
 ### T2 — FE staged flow (render + reveal widening + immediate mode)
 - **Frontend:** `study_handler._build_card_text_and_keyboard` FE branch consults `resolve_card_mode(user_id, "first_exposure")`:
-  - `staged`: `format_srs_front_stage` + `NEW_CARD_BADGE` + `get_srs_front_keyboard` (reveal) + stash `prompt_type_`/`card_shown_at_`;
-  - `immediate`: `format_srs_back_stage` + `get_first_exposure_keyboard` directly.
+  - `staged`: `format_srs_front_stage` + `NEW_CARD_BADGE` + `get_srs_front_keyboard` (reveal) + stash `prompt_type_`/`card_shown_at_` + pop `revealed_` (re-arm);
+  - `immediate`: `format_srs_back_stage` + `NEW_CARD_BADGE` + `get_first_exposure_keyboard` directly (owner lock 2026-08-15: badge stays visible in immediate mode → `format_srs_back_stage` gained optional `badge` param).
 - **Reveal:** `srs_handler._handle_srs_reveal` widened to accept `first_exposure` nodes (active-session node validation kept) → `format_srs_back_stage` + `get_first_exposure_keyboard`.
-- **DB:** no new writes; reads `resolve_card_mode`.
-- **Tests:** unit + `tests/test_integration/test_*_flow.py` FE staged (front → reveal → grades) and FE immediate flows.
-- **Acceptance:** new cards reveal in 2 stages by default; example translations shown per user toggle (Rule 3); immediate mode renders full card + grades.
+- **DB:** no new writes; reads `resolve_card_mode`; façade `services/db/__init__.py` re-exports the card-mode symbols (reviewer S6, first consumer T2).
+- **Tests:** unit + `tests/test_integration/test_srs_staged_reveal_flow.py` FE staged (front → reveal → FE grades → advance) and FE immediate flows.
+- **Acceptance:** new cards reveal in 2 stages by default; example translations shown per user toggle (Rule 3); immediate mode renders full card + grades. ✅ done 2026-08-15 (full suite 1020 passed).
 
 ### T3 — Review card mode
 - **Frontend:** review branch consults `resolve_card_mode(user_id, "review")`: `staged` = today's behavior; `immediate` = `format_srs_back_stage` + `get_review_keyboard` directly (no front/reveal, no prompt stash).
 - **Tests:** unit + integration review immediate flow.
-- **Acceptance:** review cards honor the mode; staged path unchanged.
+- **Acceptance:** review cards honor the mode; staged path unchanged. ✅ done 2026-08-15 (full suite 1020 passed).
 
 ### T4 — Admin-global UI (modes + gates)
 - **Frontend:** two rows + two gates in `admin.py` `_show_settings` (mirror `phonetics:` pattern admin.py:202-223); callbacks `admin:fe_mode:set:*`, `admin:review_mode:set:*`, `admin:fe_gate:*`, `admin:review_gate:*`; keyboards in `config/keyboards.py`.
