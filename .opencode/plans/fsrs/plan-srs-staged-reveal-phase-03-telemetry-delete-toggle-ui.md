@@ -7,7 +7,7 @@ branch: feat/srs-staged-reveal
 status: planned
 ---
 
-STATE: phase 3/3 — status: PLANNED — tickets drafted (spec-to-tickets, 2026-08-15); blocking edge = Phase 2 merged; owner decisions LOCKED (2026-08-15) on toggle gating, presentation removal, delete scope
+STATE: phase 3/3 — status: PLANNED — tickets drafted (spec-to-tickets, 2026-08-15); blocking edge = Phase 2 merged (PR #355, `7cba7a6`, DONE); owner decisions LOCKED (2026-08-15) on toggle gating, presentation removal, delete scope; open questions all resolved — awaiting Phase 3 contract-lock gate
 
 ## Locked owner decisions (2026-08-15)
 
@@ -17,7 +17,7 @@ STATE: phase 3/3 — status: PLANNED — tickets drafted (spec-to-tickets, 2026-
 
 ## Blocking edges
 
-1. Phase 2 merged (front/back staging + `srs:reveal:` + prompt_type/shown_at stash).
+1. Phase 2 merged (front/back staging + `srs:reveal:` + prompt_type/shown_at stash) — PR #355 (`7cba7a6`).
 2. Phase 1 display-toggle storage/resolution already on `main` (`get_display_toggles`, `set_display_toggle`, `set_display_toggle_forced`, `set_display_toggle_defaults`).
 3. Work in an isolated worktree from `origin/main`; run `parallel-work-guard` before locking.
 

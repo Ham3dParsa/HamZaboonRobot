@@ -7,7 +7,7 @@ branch: pending
 status: locked-spec
 ---
 
-STATE: phase 0/0 — status: IMPLEMENTING — gates closed (AI-preset seams released, FSRS T09 closed); see fsrs/plan-srs-staged-reveal-phase-01-implementation.md
+STATE: phase 0/0 — status: IMPLEMENTING — Phases 1-2 MERGED (PR #353 `c920edb`, PR #355 `7cba7a6`, 2026-08-15); Phase 3 pending per fsrs/plan-srs-staged-reveal-phase-03-telemetry-delete-toggle-ui.md
 
 # Technical Spec — SRS Study Session UX/UI & Staged Reveal Architecture
 

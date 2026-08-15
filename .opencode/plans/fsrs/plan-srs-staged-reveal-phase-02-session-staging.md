@@ -4,10 +4,10 @@ description: Execution plan for #338 Phase 2 — session-flow staging: review fr
 created: 2026-08-15
 base_commit: dce5bc8
 branch: feat/srs-staged-reveal
-status: implementing
+status: complete
 ---
 
-STATE: phase 2/3 — status: IMPLEMENTING — PR #355 open (feat/srs-staged-reveal @ `c1a4395`), CI green (label, test 3.10/3.13); Kilo review clean (all 3 findings resolved, "Merge"); awaiting owner squash-merge, then post-merge cleanup + Phase 3 — 2026-08-15
+STATE: phase 2/3 — status: COMPLETE — PR #355 merged 2026-08-15 (`7cba7a6`); P2-T1..T4 shipped with TDD tests + integration flow; Kilo review clean ("Merge"); claim released, worktree removed. Next: Phase 3 (telemetry/delete/toggle UI) per phase-03 plan — 2026-08-15
 
 ## Blocking edges
 

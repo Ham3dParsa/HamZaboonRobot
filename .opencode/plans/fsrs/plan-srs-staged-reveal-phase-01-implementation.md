@@ -7,7 +7,7 @@ branch: feat/srs-staged-reveal
 status: in-progress
 ---
 
-STATE: phase 1/3 — status: MERGED via PR #353 (squash `c920edb`, 2026-08-15) — R6 (physical delete) + R9 (explanation = high-value) + PHONETIC-KNOB clarified & LOCKED (2026-08-15); Phase-1 RED→GREEN complete; independent review (hamzaboon-reviewer) no confirmed findings; Kilo review clean (No Issues Found); full suite 927 passed/162 subtests; ruff/compile/diff-check clean — Phase 2/3 pending
+STATE: phase 1/3 — status: MERGED via PR #353 (squash `c920edb`, 2026-08-15) — R6 (physical delete) + R9 (explanation = high-value) + PHONETIC-KNOB clarified & LOCKED (2026-08-15); Phase-1 RED→GREEN complete; independent review (hamzaboon-reviewer) no confirmed findings; Kilo review clean (No Issues Found); full suite 927 passed/162 subtests; ruff/compile/diff-check clean — Phase 2 MERGED via PR #355 (`7cba7a6`, 2026-08-15); Phase 3 pending
 
 ## Phonetic-knob decision (owner, 2026-08-15)
 
