@@ -138,10 +138,12 @@ async def _invoke_and_ensure_answered(
     token = reset_callback_answered()
     try:
         await handler(update, context, action)
-    finally:
-        # Read the answered flag before restoring the token so the post-handler
-        # fallback below sees whether the handler already acknowledged.
+        # Read the answered flag here (inside try) so the post-handler fallback
+        # below sees whether the handler already acknowledged the callback.
         answered = is_callback_answered()
-    if not answered:
-        await notify_callback(update.callback_query)
-    restore_callback_answered(token)
+        if not answered:
+            await notify_callback(update.callback_query)
+    finally:
+        # Always restore the flag so a raised exception cannot leak state into
+        # the next dispatch in this task.
+        restore_callback_answered(token)
