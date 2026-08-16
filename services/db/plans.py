@@ -11,7 +11,11 @@ fresh database; armed rows are managed by the admin plan-manager wizard.
 
 from __future__ import annotations
 
+import logging
+
 from services.db.schema import get_conn, transaction
+
+logger = logging.getLogger(__name__)
 
 # name -> (display_name, price_toman, query_quota, max_sessions, cards_per_session, sort_order)
 DEFAULT_PLANS: dict[str, tuple[str, int, int, int, int, int]] = {
@@ -99,3 +103,39 @@ def set_plan_active(name: str, active: bool) -> bool:
             (1 if active else 0, name),
         )
     return True
+
+
+def plan_spec(plan: str) -> dict:
+    """Return the armed plan spec dict, falling back to free defaults.
+
+    R2/R7: a missing or deactivated plan resolves to the 'free' spec. This is
+    the single source of per-plan quota semantics; config delegates here (R5).
+    """
+    try:
+        spec = get_plan(plan)
+        if spec and spec.get("is_active", 1):
+            return spec
+    except Exception as exc:
+        logger.warning(
+            "plan_spec: failed to read plan %r; falling back to free: %s", plan, exc
+        )
+    display, price, query, sessions, cards, _ = DEFAULT_PLANS["free"]
+    return {
+        "display_name": display, "price": price,
+        "query_quota": query, "max_sessions": sessions,
+        "cards_per_session": cards, "is_active": 1,
+    }
+
+
+def is_premium(plan: str) -> bool:
+    """Return True if `plan` is a premium tier (silver/gold/emerald)."""
+    from config import PREMIUM_PLANS
+    return plan in PREMIUM_PLANS
+
+
+def effective_plan(plan: str, bypass_limits: bool = False) -> str:
+    """Return the effective plan name after limit-bypass resolution."""
+    if bypass_limits:
+        return "gold"
+    from config import PLANS
+    return plan if plan in PLANS else "free"

@@ -72,31 +72,13 @@ PREMIUM_PLANS = frozenset({"silver", "gold", "emerald"})
 
 
 def _plan_spec(plan: str) -> dict:
-    """Return the armed plan spec dict, falling back to free defaults.
+    """Return the armed plan spec dict.
 
-    Reads lazily from the DB to avoid a config->db import cycle. R2/R7: a
-    missing or deactivated plan resolves to the 'free' spec.
+    Thin delegate to ``plans.plan_spec``, the single owner of per-plan quota
+    semantics (R5). R2/R7: a missing or deactivated plan resolves to 'free'.
     """
-    try:
-        from services.db.plans import get_plan
-        spec = get_plan(plan)
-        if spec and spec.get("is_active", 1):
-            return spec
-    except Exception:
-        pass
-    try:
-        from services.db.plans import DEFAULT_PLANS
-        display, price, query, sessions, cards, _ = DEFAULT_PLANS["free"]
-        return {
-            "display_name": display, "price": price,
-            "query_quota": query, "max_sessions": sessions,
-            "cards_per_session": cards, "is_active": 1,
-        }
-    except Exception:
-        return {
-            "display_name": plan, "price": 0, "query_quota": 2,
-            "max_sessions": 2, "cards_per_session": 3, "is_active": 1,
-        }
+    from services.db.plans import plan_spec
+    return plan_spec(plan)
 
 
 def max_sessions_for_plan(plan: str) -> int:
@@ -121,13 +103,13 @@ def daily_word_query_limit_for_plan(plan: str) -> int:
 
 
 def effective_plan(plan: str, bypass_limits: bool = False) -> str:
-    if bypass_limits:
-        return "gold"
-    return plan if plan in PLANS else "free"
+    from services.db.plans import effective_plan as _effective_plan
+    return _effective_plan(plan, bypass_limits)
 
 
 def presentation_for_user(plan: str, preference: str | None) -> str:
-    if plan not in PREMIUM_PLANS:
+    from services.db.plans import is_premium
+    if not is_premium(plan):
         return DEFAULT_PRESENTATION
     if preference not in {"brief", "detailed"}:
         return DEFAULT_PRESENTATION
