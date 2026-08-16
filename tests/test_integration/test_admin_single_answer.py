@@ -71,6 +71,23 @@ class AdminSingleAnswerTest(unittest.IsolatedAsyncioTestCase):
 
         query.answer.assert_awaited_once()
 
+    async def test_bare_admin_token_hits_unknown_fallback(self):
+        """A malformed bare 'admin' (no sub-action colon) must reach the unknown
+        fallback, not dispatch a handler with an empty action (Kilo WARNING fix)."""
+        update, query = self._callback_update()
+        context = self._context()
+
+        with patch("services.routing.is_owner", return_value=True):
+            await dispatch(update, context, "admin")
+
+        query.answer.assert_awaited_once()
+        # The unknown fallback uses the "عملیات ناموفق بود." error toast.
+        answered_text = (
+            query.answer.call_args.kwargs.get("text")
+            or query.answer.call_args.args[0]
+        )
+        self.assertEqual(answered_text, "عملیات ناموفق بود.")
+
     async def test_non_owner_admin_callback_single_answer(self):
         """A non-owner admin callback is rejected once, not twice."""
         update, query = self._callback_update(user_id=1234)
