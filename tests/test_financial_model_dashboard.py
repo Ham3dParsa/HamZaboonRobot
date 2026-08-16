@@ -198,7 +198,7 @@ def test_dashboard_surfaces_credit_pack_revenue_separately():
 
 
 
-    assert "m1.packNetRevenue" in html
+    assert "m1.value.packNetRevenue" in html
 
     assert "planNetRevenue" in html
 
@@ -302,23 +302,29 @@ def test_slider_thumb_is_24px_with_32px_mobile_variant():
 
 
 
-def test_kpi_tooltips_use_floating_ui_not_static_absolute():
+def test_dashboard_kpis_use_hero_and_sectioned_layout():
 
     html = _html()
 
 
 
-    assert "@floating-ui/core@1.6.0" in html
+    # redesign: dashboard surfaces KPIs via a hero row + sectioned stat groups
 
-    assert "cdn.jsdelivr.net/npm/@floating-ui/dom" in html
+    assert 'id="tpl-hero-kpi"' in html
 
-    assert "FloatingUIDOM.autoUpdate" in html
+    assert 'id="tpl-stat-row"' in html
 
-    assert "FloatingUIDOM.flip" in html
+    assert 'tpl-hero-kpi :hero-kpis="heroKpis"' in html
 
-    assert "FloatingUIDOM.shift" in html
+    assert 'tpl-stat-row v-for="g in statGroups"' in html
 
-    assert "absolute left-1/2 -translate-x-1/2 top-[calc(100%+6px)]" not in html
+    assert "const heroKpis = computed" in html
+
+    assert "const statGroups = computed" in html
+
+    # per-KPI hover tooltips (Floating UI) were consolidated out of the dashboard
+
+    assert "FloatingUIDOM.autoUpdate" not in html
 
 
 
@@ -398,41 +404,45 @@ def test_pricing_guidance_is_an_operational_strip_with_query_pack_action():
 
 
 
-def test_plan_management_uses_one_plan_editor_with_transient_selection():
+def test_plan_management_uses_tier_cards_per_plan():
 
     html = _html()
 
 
 
-    # one-plan-at-a-time selector + selected editor, not a repeated card per plan
+    # every plan renders as its own editable tier card (no single-select editor)
 
-    assert "selectedPlanId = p.id" in html
+    assert 'v-for="(p, idx) in inp.plans" :key="p.id"' in html
 
-    assert "selectedPlanView.plan" in html
+    assert "selectedPlanId = p.id" not in html
 
-    # the old open-card-per-plan loop used :key="p.id"; the selector uses :key="'sel-'+p.id"
+    assert "selectedPlanView.plan" not in html
 
-    assert 'v-for="(p, idx) in inp.plans" :key="p.id"' not in html
+    # add / remove controls are present per card
+
+    assert "@click=\"addPlan\"" in html
+
+    assert "@click=\"removePlan(p)\"" in html
 
 
 
 
 
-def test_selected_plan_editor_keeps_commercial_fields_editable():
+def test_plan_tier_cards_keep_commercial_fields_editable():
 
     html = _html()
 
 
 
-    # commercial fields remain editable in the selected plan editor
+    # commercial fields remain editable, bound directly to each plan object
 
-    assert "clampPlanField(selectedPlanView.plan, 'price', 0, 3000000)" in html
+    assert "clampPlanField(p, 'price', 0, 3000000)" in html
 
-    assert "clampPlanField(selectedPlanView.plan, 'callsPerDay', 0, 100)" in html
+    assert "clampPlanField(p, 'callsPerDay', 0, 100)" in html
 
-    assert "v-model.number=\"selectedPlanView.plan.callsPerDay\"" in html
+    assert "v-model.number=\"p.callsPerDay\"" in html
 
-    assert "autoBalanceShare(selectedPlanView.plan.id, $event.target.value)" in html
+    assert "autoBalanceShare(p.id, $event.target.value)" in html
 
     # analysis table still edits the same plans (both editors share the source)
 
