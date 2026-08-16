@@ -162,6 +162,25 @@ def get_conn(path: str | None = None):
             conn.close()
 
 
+@contextmanager
+def transaction(path: str | None = None):
+    """Single atomicity seam: immediate-transaction write context.
+
+    Wraps ``get_conn`` + ``BEGIN IMMEDIATE`` and commits on clean exit or rolls
+    back on any exception. Callers never manage commit/rollback themselves —
+    this is the one place atomic-write policy lives. Use it for every write
+    that may contend (quota reservations, delivery queue, saved words, plans).
+    """
+    with get_conn(path) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield conn
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+
+
 def init_db(path: str | None = None):
     with get_conn(path) as conn:
         _require_daily_cards_migrated(conn)

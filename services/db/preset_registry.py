@@ -2,7 +2,7 @@
 
 import datetime as _dt
 
-from services.db.schema import get_conn, _utc_now
+from services.db.schema import get_conn, transaction, _utc_now
 from services.db.settings import get_bool_setting, get_setting
 from services.ai.ai_presets import resolve_api_key
 from services.db.key_crypto import encrypt_for_storage
@@ -71,116 +71,106 @@ def set_preset(
     previous_name: str | None = None,
     remove_orphaned_group_key: bool = False,
 ):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            source_name = previous_name or name
-            previous = conn.execute(
-                "SELECT group_label FROM ai_presets WHERE name=?", (source_name,)
+    with transaction() as conn:
+        source_name = previous_name or name
+        previous = conn.execute(
+            "SELECT group_label FROM ai_presets WHERE name=?", (source_name,)
+        ).fetchone()
+        if previous_name and previous_name != name:
+            collision = conn.execute(
+                "SELECT 1 FROM ai_presets WHERE name=?", (name,)
             ).fetchone()
-            if previous_name and previous_name != name:
-                collision = conn.execute(
-                    "SELECT 1 FROM ai_presets WHERE name=?", (name,)
-                ).fetchone()
-                if collision:
-                    raise ValueError(f"preset name already exists: {name}")
-            # Encrypt at the write seam: an unchanged edit passes the token that
-            # is already at rest (encrypt_for_storage is idempotent on Fernet
-            # tokens), while a new plaintext key is encrypted before storing.
-            stored_key = encrypt_for_storage(api_key)
-            # On conflict, only overwrite priority/enabled when the caller
-            # explicitly passes them (None = preserve the existing stored value,
-            # so partial edits can't silently reset a preset's chain position or
-            # re-enable a disabled preset). New rows use 0 / disabled-by-default.
-            conflict_sets = [
-                "base_url=excluded.base_url",
-                "model=excluded.model",
-                "api_key=excluded.api_key",
-                "daily_batch_size=excluded.daily_batch_size",
-                "max_concurrency=excluded.max_concurrency",
-                "max_rpm=excluded.max_rpm",
-                "max_tpm=excluded.max_tpm",
-                "max_daily_req=excluded.max_daily_req",
-                "timeout_seconds=excluded.timeout_seconds",
-                "temperature=excluded.temperature",
-                "max_output_tokens=excluded.max_output_tokens",
-                "is_emergency=excluded.is_emergency",
-                "in_fallback_chain=excluded.in_fallback_chain",
-                "group_label=excluded.group_label",
-            ]
-            if priority is not None:
-                conflict_sets.append("priority=excluded.priority")
-            if enabled is not None:
-                conflict_sets.append("enabled=excluded.enabled")
-            if input_cost_per_million is not None:
-                conflict_sets.append("input_cost_per_million=excluded.input_cost_per_million")
-            if output_cost_per_million is not None:
-                conflict_sets.append("output_cost_per_million=excluded.output_cost_per_million")
-            conn.execute(
-                "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_emergency, priority, enabled, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                f"ON CONFLICT(name) DO UPDATE SET {', '.join(conflict_sets)}",
-                (
-                    name,
-                    base_url,
-                    model,
-                    stored_key,
-                    daily_batch_size,
-                    max_concurrency,
-                    max_rpm,
-                    max_tpm,
-                    max_daily_req,
-                    timeout_seconds,
-                    temperature,
-                    max_output_tokens,
-                    is_emergency,
-                    0 if priority is None else priority,
-                    1 if enabled is None else enabled,
-                    input_cost_per_million,
-                    output_cost_per_million,
-                    in_fallback_chain,
-                    group_label,
-                ),
-            )
-            if previous_name and previous_name != name:
-                conn.execute("DELETE FROM ai_presets WHERE name=?", (previous_name,))
-            old_label = previous["group_label"] if previous else ""
-            if remove_orphaned_group_key and old_label and old_label != group_label:
-                remaining_member = conn.execute(
-                    "SELECT 1 FROM ai_presets WHERE group_label=? LIMIT 1",
-                    (old_label,),
-                ).fetchone()
-                if not remaining_member:
-                    conn.execute(
-                        "DELETE FROM preset_groups WHERE group_label=?", (old_label,)
-                    )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+            if collision:
+                raise ValueError(f"preset name already exists: {name}")
+        # Encrypt at the write seam: an unchanged edit passes the token that
+        # is already at rest (encrypt_for_storage is idempotent on Fernet
+        # tokens), while a new plaintext key is encrypted before storing.
+        stored_key = encrypt_for_storage(api_key)
+        # On conflict, only overwrite priority/enabled when the caller
+        # explicitly passes them (None = preserve the existing stored value,
+        # so partial edits can't silently reset a preset's chain position or
+        # re-enable a disabled preset). New rows use 0 / disabled-by-default.
+        conflict_sets = [
+            "base_url=excluded.base_url",
+            "model=excluded.model",
+            "api_key=excluded.api_key",
+            "daily_batch_size=excluded.daily_batch_size",
+            "max_concurrency=excluded.max_concurrency",
+            "max_rpm=excluded.max_rpm",
+            "max_tpm=excluded.max_tpm",
+            "max_daily_req=excluded.max_daily_req",
+            "timeout_seconds=excluded.timeout_seconds",
+            "temperature=excluded.temperature",
+            "max_output_tokens=excluded.max_output_tokens",
+            "is_emergency=excluded.is_emergency",
+            "in_fallback_chain=excluded.in_fallback_chain",
+            "group_label=excluded.group_label",
+        ]
+        if priority is not None:
+            conflict_sets.append("priority=excluded.priority")
+        if enabled is not None:
+            conflict_sets.append("enabled=excluded.enabled")
+        if input_cost_per_million is not None:
+            conflict_sets.append("input_cost_per_million=excluded.input_cost_per_million")
+        if output_cost_per_million is not None:
+            conflict_sets.append("output_cost_per_million=excluded.output_cost_per_million")
+        conn.execute(
+            "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_emergency, priority, enabled, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            f"ON CONFLICT(name) DO UPDATE SET {', '.join(conflict_sets)}",
+            (
+                name,
+                base_url,
+                model,
+                stored_key,
+                daily_batch_size,
+                max_concurrency,
+                max_rpm,
+                max_tpm,
+                max_daily_req,
+                timeout_seconds,
+                temperature,
+                max_output_tokens,
+                is_emergency,
+                0 if priority is None else priority,
+                1 if enabled is None else enabled,
+                input_cost_per_million,
+                output_cost_per_million,
+                in_fallback_chain,
+                group_label,
+            ),
+        )
+        if previous_name and previous_name != name:
+            conn.execute("DELETE FROM ai_presets WHERE name=?", (previous_name,))
+        old_label = previous["group_label"] if previous else ""
+        if remove_orphaned_group_key and old_label and old_label != group_label:
+            remaining_member = conn.execute(
+                "SELECT 1 FROM ai_presets WHERE group_label=? LIMIT 1",
+                (old_label,),
+            ).fetchone()
+            if not remaining_member:
+                conn.execute(
+                    "DELETE FROM preset_groups WHERE group_label=?", (old_label,)
+                )
 
 
 def set_preset_api_key_batch(names: list[str], new_key: str):
     stored_key = encrypt_for_storage(new_key)
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         placeholders = ",".join("?" for _ in names)
         conn.execute(
             f"UPDATE ai_presets SET api_key=? WHERE name IN ({placeholders})",
             (stored_key, *names),
         )
-        conn.commit()
 
 
 def set_preset_group_label_batch(names: list[str], label: str):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         placeholders = ",".join("?" for _ in names)
         conn.execute(
             f"UPDATE ai_presets SET group_label=? WHERE name IN ({placeholders})",
             (label, *names),
         )
-        conn.commit()
 
 
 def get_group_labels() -> list[dict]:
@@ -196,61 +186,47 @@ def get_group_labels() -> list[dict]:
 def rename_group_label(old_label: str, new_label: str):
     if old_label == new_label:
         return
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            conn.execute(
-                "UPDATE ai_presets SET group_label=? WHERE group_label=?",
-                (new_label, old_label),
-            )
-            # Keep any shared group key consistent with the renamed label.
-            # If the target label already owns a key, it wins (merge, keep target's
-            # key); otherwise the source key carries over. Never crash on the PK.
-            conn.execute(
-                "INSERT OR IGNORE INTO preset_groups(group_label, api_key) "
-                "SELECT ?, api_key FROM preset_groups WHERE group_label=?",
-                (new_label, old_label),
-            )
-            conn.execute(
-                "DELETE FROM preset_groups WHERE group_label=?",
-                (old_label,),
-            )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+    with transaction() as conn:
+        conn.execute(
+            "UPDATE ai_presets SET group_label=? WHERE group_label=?",
+            (new_label, old_label),
+        )
+        # Keep any shared group key consistent with the renamed label.
+        # If the target label already owns a key, it wins (merge, keep target's
+        # key); otherwise the source key carries over. Never crash on the PK.
+        conn.execute(
+            "INSERT OR IGNORE INTO preset_groups(group_label, api_key) "
+            "SELECT ?, api_key FROM preset_groups WHERE group_label=?",
+            (new_label, old_label),
+        )
+        conn.execute(
+            "DELETE FROM preset_groups WHERE group_label=?",
+            (old_label,),
+        )
 
 
 def clear_group_label(label: str):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            conn.execute(
-                "UPDATE ai_presets SET group_label='' WHERE group_label=?",
-                (label,),
-            )
-            # Remove the now-orphaned shared group key (no preset references it).
-            conn.execute(
-                "DELETE FROM preset_groups WHERE group_label=?",
-                (label,),
-            )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+    with transaction() as conn:
+        conn.execute(
+            "UPDATE ai_presets SET group_label='' WHERE group_label=?",
+            (label,),
+        )
+        # Remove the now-orphaned shared group key (no preset references it).
+        conn.execute(
+            "DELETE FROM preset_groups WHERE group_label=?",
+            (label,),
+        )
 
 
 # ---------- Group Shared Keys ----------
 
 def set_group_key(label: str, api_key: str):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "INSERT INTO preset_groups(group_label, api_key) VALUES (?, ?) "
             "ON CONFLICT(group_label) DO UPDATE SET api_key=excluded.api_key",
             (label, encrypt_for_storage(api_key)),
         )
-        conn.commit()
 
 
 def get_group_key(label: str) -> str | None:
@@ -262,10 +238,8 @@ def get_group_key(label: str) -> str | None:
 
 
 def delete_group_key(label: str):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute("DELETE FROM preset_groups WHERE group_label=?", (label,))
-        conn.commit()
 
 
 def resolve_preset_key(preset: dict) -> str:
@@ -288,8 +262,7 @@ def resolve_preset_key(preset: dict) -> str:
 
 
 def delete_preset(name: str) -> bool:
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         cursor = conn.execute(
             "DELETE FROM ai_presets WHERE name=?", (name,)
         )
@@ -301,7 +274,6 @@ def delete_preset(name: str) -> bool:
             "UPDATE settings SET value='' WHERE key='ai_primary_preset' AND value=?",
             (name,),
         )
-        conn.commit()
         return cursor.rowcount > 0
 
 
@@ -324,20 +296,14 @@ def clone_preset(name: str, new_name: str) -> str:
         "input_cost_per_million", "output_cost_per_million", "in_fallback_chain",
         "group_label",
     )
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            placeholders = ", ".join("?" for _ in field_names)
-            columns = ", ".join(field_names)
-            values = [src.get(f) for f in field_names]
-            conn.execute(
-                f"INSERT INTO ai_presets(name, {columns}) VALUES (?, {placeholders})",
-                (new_name, *values),
-            )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+    with transaction() as conn:
+        placeholders = ", ".join("?" for _ in field_names)
+        columns = ", ".join(field_names)
+        values = [src.get(f) for f in field_names]
+        conn.execute(
+            f"INSERT INTO ai_presets(name, {columns}) VALUES (?, {placeholders})",
+            (new_name, *values),
+        )
     return new_name
 
 
@@ -345,8 +311,7 @@ def activate_preset(name: str) -> bool:
     preset = get_preset(name)
     if not preset:
         return False
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "INSERT INTO settings(key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -370,7 +335,6 @@ def activate_preset(name: str) -> bool:
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 ("ai_api_key", preset["api_key"]),
             )
-        conn.commit()
     return True
 
 
@@ -389,65 +353,55 @@ def get_preset_cost(preset_name: str) -> dict:
 # ---------- Fallback State Management ----------
 
 def set_fallback_active(active: bool, fallback_preset: str | None = None):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
+    with transaction() as conn:
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            ("ai_fallback_active", "true" if active else "false"),
+        )
+        if active:
             conn.execute(
                 "INSERT INTO settings(key, value) VALUES (?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                ("ai_fallback_active", "true" if active else "false"),
+                ("ai_fallback_since", _utc_now().isoformat()),
             )
-            if active:
+            if fallback_preset:
                 conn.execute(
                     "INSERT INTO settings(key, value) VALUES (?, ?) "
                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                    ("ai_fallback_since", _utc_now().isoformat()),
+                    ("ai_fallback_preset", fallback_preset),
                 )
-                if fallback_preset:
-                    conn.execute(
-                        "INSERT INTO settings(key, value) VALUES (?, ?) "
-                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                        ("ai_fallback_preset", fallback_preset),
-                    )
-            else:
-                conn.execute(
-                    "INSERT INTO settings(key, value) VALUES (?, ?) "
-                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                    ("ai_fallback_since", ""),
-                )
-                conn.execute(
-                    "INSERT INTO settings(key, value) VALUES (?, ?) "
-                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                    ("ai_consecutive_failures", "0"),
-                )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+        else:
+            conn.execute(
+                "INSERT INTO settings(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ("ai_fallback_since", ""),
+            )
+            conn.execute(
+                "INSERT INTO settings(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ("ai_consecutive_failures", "0"),
+            )
 
 
 def increment_consecutive_failures() -> int:
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         current = int(get_setting("ai_consecutive_failures", "0")) + 1
         conn.execute(
             "INSERT INTO settings(key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             ("ai_consecutive_failures", str(current)),
         )
-        conn.commit()
         return current
 
 
 def reset_consecutive_failures():
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "INSERT INTO settings(key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             ("ai_consecutive_failures", "0"),
         )
-        conn.commit()
 
 
 def _first_enabled_name() -> str | None:
@@ -488,18 +442,15 @@ def prune_preset_hourly_usage(hours_back: int = 24):
     rows never hold the per-preset daily cap open or closed wrongly.
     """
     cutoff = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=hours_back)).isoformat()
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "DELETE FROM preset_hourly_usage WHERE hour_bucket < ?",
             (cutoff[:13],),
         )
-        conn.commit()
 
 
 def increment_hourly_usage(preset_name: str, hour_bucket: str, req_count: int = 1, token_count: int = 0):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "INSERT INTO preset_hourly_usage(preset_name, hour_bucket, request_count, token_count) "
             "VALUES (?, ?, ?, ?) "
@@ -508,7 +459,6 @@ def increment_hourly_usage(preset_name: str, hour_bucket: str, req_count: int = 
             "token_count=token_count+excluded.token_count",
             (preset_name, hour_bucket, req_count, token_count),
         )
-        conn.commit()
 
 
 # ---------- Preset Management ----------
@@ -532,8 +482,7 @@ def get_fallback_chain_presets() -> list[dict]:
 
 def reindex_preset_priority(name: str, target_rank: int, group_is_emergency: bool):
     target_idx = target_rank - 1
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         rows = conn.execute(
             "SELECT name, priority FROM ai_presets "
             "WHERE enabled=1 AND is_emergency=? AND in_fallback_chain=1 "
@@ -543,44 +492,33 @@ def reindex_preset_priority(name: str, target_rank: int, group_is_emergency: boo
 
         count = len(rows)
         if not (1 <= target_rank <= count):
-            conn.rollback()
             raise ValueError(f"target_rank {target_rank} out of range [1, {count}]")
 
         names = [r["name"] for r in rows]
         current_idx = names.index(name) if name in names else -1
         if current_idx == -1:
-            conn.rollback()
             raise ValueError(f"preset {name} not found in group")
         if current_idx == target_idx:
-            conn.commit()
             return
 
         item = rows.pop(current_idx)
         rows.insert(target_idx, item)
 
-        try:
-            for i, row in enumerate(rows):
-                conn.execute(
-                    "UPDATE ai_presets SET priority=? WHERE name=?",
-                    (i, row["name"]),
-                )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+        for i, row in enumerate(rows):
+            conn.execute(
+                "UPDATE ai_presets SET priority=? WHERE name=?",
+                (i, row["name"]),
+            )
 
 
 def set_preset_priority(name: str, priority: int):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute("UPDATE ai_presets SET priority=? WHERE name=?", (priority, name))
-        conn.commit()
 
 
 def set_preset_enabled(name: str, enabled: bool):
     want = 1 if enabled else 0
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         if not enabled:
             # Only refuse when disabling would leave the target as the sole
             # remaining enabled preset. Exclude the target itself so a no-op
@@ -590,17 +528,13 @@ def set_preset_enabled(name: str, enabled: bool):
                 (name,),
             ).fetchone()["c"]
             if remaining <= 0:
-                conn.rollback()
                 raise ValueError("cannot disable the last enabled preset")
         conn.execute("UPDATE ai_presets SET enabled=? WHERE name=?", (want, name))
-        conn.commit()
 
 
 def set_preset_emergency(name: str, is_emergency: bool):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute("UPDATE ai_presets SET is_emergency=? WHERE name=?", (1 if is_emergency else 0, name))
-        conn.commit()
 
 
 def insert_preset_at_rank(name: str, target_rank: int, *, as_emergency: bool = False):
@@ -616,28 +550,21 @@ def insert_preset_at_rank(name: str, target_rank: int, *, as_emergency: bool = F
     it later routes it there.
     Emergency rows are never renumbered here.
     """
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            rows = conn.execute(
-                "SELECT name FROM ai_presets "
-                "WHERE enabled=1 AND is_emergency=? AND in_fallback_chain=1 "
-                "ORDER BY priority ASC, name ASC",
-                (1 if as_emergency else 0,),
-            ).fetchall()
-            names = [r["name"] for r in rows if r["name"] != name]
-            count = len(names)
-            if not (0 <= target_rank <= count):
-                conn.rollback()
-                raise ValueError(f"target_rank {target_rank} out of range [0, {count}]")
+    with transaction() as conn:
+        rows = conn.execute(
+            "SELECT name FROM ai_presets "
+            "WHERE enabled=1 AND is_emergency=? AND in_fallback_chain=1 "
+            "ORDER BY priority ASC, name ASC",
+            (1 if as_emergency else 0,),
+        ).fetchall()
+        names = [r["name"] for r in rows if r["name"] != name]
+        count = len(names)
+        if not (0 <= target_rank <= count):
+            raise ValueError(f"target_rank {target_rank} out of range [0, {count}]")
 
-            names.insert(target_rank, name)
-            for i, n in enumerate(names):
-                conn.execute(
-                    "UPDATE ai_presets SET priority=? WHERE name=?",
-                    (i, n),
-                )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+        names.insert(target_rank, name)
+        for i, n in enumerate(names):
+            conn.execute(
+                "UPDATE ai_presets SET priority=? WHERE name=?",
+                (i, n),
+            )

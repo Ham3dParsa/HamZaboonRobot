@@ -1,7 +1,7 @@
 import json
 import datetime
 from dataclasses import dataclass
-from services.db.schema import get_conn, _today, _utc_now, _app_timezone
+from services.db.schema import get_conn, transaction, _today, _utc_now, _app_timezone
 from services.fsrs_core import (
     DEFAULT_FSRS_CONFIG,
     compute_interval,
@@ -37,8 +37,7 @@ def add_saved_word(
         if isinstance(card_data, dict)
         else None
     )
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         cursor = conn.execute(
             "INSERT OR IGNORE INTO saved_words("
             "user_id, word, lang, normalized_word, card_data, "
@@ -62,7 +61,6 @@ def add_saved_word(
                 "WHERE user_id=? AND lang=? AND normalized_word=?",
                 (serialized_card, user_id, lang, normalized_word),
             )
-        conn.commit()
         return cursor.rowcount == 1
 
 
@@ -82,8 +80,7 @@ def toggle_review_word(
     normalized_word = _normalize_word(word)
     if not normalized_word:
         return "removed"
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         existing = conn.execute(
             "SELECT id FROM saved_words "
             "WHERE user_id=? AND lang=? AND normalized_word=?",
@@ -91,7 +88,6 @@ def toggle_review_word(
         ).fetchone()
         if existing is not None:
             conn.execute("DELETE FROM saved_words WHERE id=?", (existing["id"],))
-            conn.commit()
             return "removed"
 
         clean_word = " ".join(word.split())
@@ -118,7 +114,6 @@ def toggle_review_word(
                 entry_source,
             ),
         )
-        conn.commit()
         return "saved"
 
 
@@ -127,8 +122,7 @@ def update_saved_word_fields(
     user_id: int,
     patch: dict,
 ) -> bool:
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         row = conn.execute(
             "SELECT word, card_data FROM saved_words WHERE id=? AND user_id=?",
             (word_id, user_id),
@@ -153,7 +147,6 @@ def update_saved_word_fields(
                 user_id,
             ),
         )
-        conn.commit()
         return True
 
 
@@ -220,15 +213,13 @@ def due_words_for_user(user_id: int, lang: str | None = None):
     grace_deadline = (
         _utc_now() - datetime.timedelta(hours=48)
     ).isoformat()
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "UPDATE saved_words SET review_status='idle', review_requested_at=NULL "
             "WHERE user_id=? AND review_status='pending' "
             "AND review_requested_at IS NOT NULL AND review_requested_at<=?",
             (user_id, grace_deadline),
         )
-        conn.commit()
         query = (
             "SELECT * FROM saved_words WHERE user_id=? "
             "AND COALESCE(first_exposure_done, 0)=1 "
@@ -363,8 +354,7 @@ def grade_word_review(word_id, grade, user_id):
     (telemetry wiring lives in Phase 05 handler integration).
     """
     _validate_grade(grade)
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         row = conn.execute(
             "SELECT * FROM saved_words WHERE id=? AND user_id=?",
             (word_id, user_id),
@@ -397,7 +387,6 @@ def grade_word_review(word_id, grade, user_id):
         if rowcount == 0:
             conn.rollback()
             return GradeResult(ok=False, reason="not_found")
-        conn.commit()
         return GradeResult(
             ok=True,
             next_review_at=next_review_at,
@@ -413,8 +402,7 @@ def grade_first_exposure(word_id, grade, user_id):
     transaction as the update, so expected failures never partially mutate.
     """
     _validate_grade(grade)
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         row = conn.execute(
             "SELECT * FROM saved_words WHERE id=? AND user_id=?",
             (word_id, user_id),
@@ -438,7 +426,6 @@ def grade_first_exposure(word_id, grade, user_id):
         if rowcount == 0:
             conn.rollback()
             return GradeResult(ok=False, reason="not_found")
-        conn.commit()
         return GradeResult(
             ok=True,
             next_review_at=next_review_at,

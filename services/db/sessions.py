@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 
-from services.db.schema import get_conn, _utc_now
+from services.db.schema import get_conn, transaction, _utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +21,7 @@ def save_study_session(
     user_id: int, session_date: str, state_json: str
 ) -> None:
     """Persist (or overwrite) the user's active study-session blob."""
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "INSERT INTO study_sessions(user_id, session_date, state_json, updated_at) "
             "VALUES (?, ?, ?, ?) "
@@ -32,7 +31,6 @@ def save_study_session(
             "updated_at=excluded.updated_at",
             (user_id, session_date, state_json, _utc_now().isoformat()),
         )
-        conn.commit()
 
 
 def load_study_session(
@@ -53,9 +51,7 @@ def load_study_session(
 
 def clear_study_session(user_id: int) -> None:
     """Remove the user's persisted session row (no-op when absent)."""
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "DELETE FROM study_sessions WHERE user_id=?", (user_id,)
         )
-        conn.commit()

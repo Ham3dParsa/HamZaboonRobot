@@ -11,7 +11,7 @@ fresh database; armed rows are managed by the admin plan-manager wizard.
 
 from __future__ import annotations
 
-from services.db.schema import get_conn
+from services.db.schema import get_conn, transaction
 
 # name -> (display_name, price_toman, query_quota, max_sessions, cards_per_session, sort_order)
 DEFAULT_PLANS: dict[str, tuple[str, int, int, int, int, int]] = {
@@ -67,8 +67,7 @@ def upsert_plan(
     is_active: int = 1,
 ) -> None:
     """Insert or update a plan spec (admin plan-manager wizard)."""
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             f"INSERT INTO plans({_PLAN_COLUMNS}) "
             f"VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
@@ -88,18 +87,15 @@ def upsert_plan(
                 int(sort_order),
             ),
         )
-        conn.commit()
 
 
 def set_plan_active(name: str, active: bool) -> bool:
     """Toggle a plan's is_active flag. Returns False if plan does not exist."""
     if not valid_plan_name(name):
         return False
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "UPDATE plans SET is_active=? WHERE name=?",
             (1 if active else 0, name),
         )
-        conn.commit()
     return True

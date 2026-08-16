@@ -3,7 +3,7 @@ import json
 
 from config.catalog import DISPLAY_TOGGLE_DEFAULTS, DISPLAY_TOGGLE_FIELDS
 from services.db.plans import get_plan, valid_plan_name
-from services.db.schema import get_conn, _today, _utc_now, _current_daily_count, _can_consume_daily_count
+from services.db.schema import get_conn, transaction, _today, _utc_now, _current_daily_count, _can_consume_daily_count
 from services.db.settings import get_display_toggle_defaults, get_setting, set_setting
 
 # Canonical card-mode registry (CARD-MODES feature, locked 2026-08-15). Single
@@ -85,8 +85,7 @@ def _validate_toggle_field(field: str) -> None:
 def set_display_toggle(user_id: int, field: str, enabled: bool):
     """Set a user's own display-toggle override (wins over admin defaults)."""
     _validate_toggle_field(field)
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         row = conn.execute(
             "SELECT display_toggles FROM users WHERE user_id=?", (user_id,)
         ).fetchone()
@@ -96,14 +95,12 @@ def set_display_toggle(user_id: int, field: str, enabled: bool):
             "UPDATE users SET display_toggles=? WHERE user_id=?",
             (json.dumps(current), user_id),
         )
-        conn.commit()
 
 
 def set_display_toggle_forced(user_id: int, field: str, enabled: bool):
     """Set an admin-forced per-user display toggle (wins over user override)."""
     _validate_toggle_field(field)
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         row = conn.execute(
             "SELECT display_toggles_forced FROM users WHERE user_id=?", (user_id,)
         ).fetchone()
@@ -113,7 +110,6 @@ def set_display_toggle_forced(user_id: int, field: str, enabled: bool):
             "UPDATE users SET display_toggles_forced=? WHERE user_id=?",
             (json.dumps(current), user_id),
         )
-        conn.commit()
 
 
 def should_show_pronounce(user_id: int, row=None) -> bool:
@@ -202,13 +198,11 @@ def set_user_card_mode(user_id: int, card_type: str, mode: str):
     """Persist a user's own card-mode override (wins over plan/global)."""
     _validate_card_type(card_type)
     _validate_card_mode(mode)
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             f"UPDATE users SET {card_type}_mode=? WHERE user_id=?",
             (mode, user_id),
         )
-        conn.commit()
 
 
 def set_plan_card_mode(plan_name: str, card_type: str, mode: str):
@@ -217,13 +211,11 @@ def set_plan_card_mode(plan_name: str, card_type: str, mode: str):
     _validate_card_mode(mode)
     if not valid_plan_name(plan_name):
         raise ValueError(f"Unknown plan: {plan_name}")
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             f"UPDATE plans SET {card_type}_mode=? WHERE name=?",
             (mode, plan_name),
         )
-        conn.commit()
 
 
 def set_global_card_mode(card_type: str, mode: str):
@@ -269,73 +261,60 @@ def get_quota_status(user_id: int) -> dict | None:
 
 
 def create_user_if_needed(user_id: int, username: str):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "INSERT OR IGNORE INTO users(user_id, username, created_at) VALUES (?, ?, ?)",
             (user_id, username, _utc_now().isoformat()),
         )
-        conn.commit()
 
 
 def set_user_lang_goal(user_id: int, lang: str, goal: str):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "UPDATE users SET target_lang=?, goal=? WHERE user_id=?",
             (lang, goal, user_id),
         )
-        conn.commit()
 
 
 def set_user_level(user_id: int, level: str):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "UPDATE users SET level=?, onboarded=1 WHERE user_id=?",
             (level, user_id),
         )
-        conn.commit()
 
 
 def set_presentation_preference(user_id: int, preference: str):
     if preference not in {"brief", "detailed"}:
         raise ValueError(f"Unknown presentation preference: {preference}")
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "UPDATE users SET presentation_preference=? WHERE user_id=?",
             (preference, user_id),
         )
-        conn.commit()
 
 
 def set_user_lang(user_id: int, lang: str):
     """تغییر فقط زبان"""
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "UPDATE users SET target_lang=? WHERE user_id=?",
             (lang, user_id),
         )
-        conn.commit()
 
 
 def set_user_goal(user_id: int, goal: str):
     """تغییر فقط هدف"""
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "UPDATE users SET goal=? WHERE user_id=?",
             (goal, user_id),
         )
-        conn.commit()
 
 
 def touch_streak(user_id: int) -> int:
     today = _today().isoformat()
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         row = conn.execute(
             "SELECT streak, last_active_date FROM users WHERE user_id=?", (user_id,)
         ).fetchone()
@@ -351,7 +330,6 @@ def touch_streak(user_id: int) -> int:
             "UPDATE users SET streak=?, last_active_date=? WHERE user_id=?",
             (new_streak, today, user_id),
         )
-        conn.commit()
         return new_streak
 
 
@@ -372,8 +350,7 @@ def can_ask_word(user_id: int, daily_limit: int, bypass_limits: bool = False) ->
 
 
 def reserve_word_query(user_id: int, daily_limit: int, bypass_limits: bool = False) -> bool:
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         row = conn.execute(
             "SELECT words_asked_today, words_asked_date FROM users WHERE user_id=?",
             (user_id,),
@@ -388,20 +365,17 @@ def reserve_word_query(user_id: int, daily_limit: int, bypass_limits: bool = Fal
             "UPDATE users SET words_asked_today=?, words_asked_date=? WHERE user_id=?",
             (asked + 1, today, user_id),
         )
-        conn.commit()
         return True
 
 
 def release_word_query(user_id: int):
     today = _today().isoformat()
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "UPDATE users SET words_asked_today=MAX(words_asked_today - 1, 0) "
             "WHERE user_id=? AND words_asked_date=?",
             (user_id, today),
         )
-        conn.commit()
 
 
 def can_ask_grammar_tip(user_id: int, daily_limit: int, bypass_limits: bool = False) -> bool:
@@ -421,8 +395,7 @@ def can_ask_grammar_tip(user_id: int, daily_limit: int, bypass_limits: bool = Fa
 
 
 def reserve_grammar_tip(user_id: int, daily_limit: int, bypass_limits: bool = False) -> bool:
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         row = conn.execute(
             "SELECT grammar_tips_asked_today, grammar_tips_asked_date FROM users WHERE user_id=?",
             (user_id,),
@@ -437,21 +410,18 @@ def reserve_grammar_tip(user_id: int, daily_limit: int, bypass_limits: bool = Fa
             "UPDATE users SET grammar_tips_asked_today=?, grammar_tips_asked_date=? WHERE user_id=?",
             (asked + 1, today, user_id),
         )
-        conn.commit()
         return True
 
 
 def release_grammar_tip(user_id: int):
     today = _today().isoformat()
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "UPDATE users SET grammar_tips_asked_today="
             "MAX(grammar_tips_asked_today - 1, 0) "
             "WHERE user_id=? AND grammar_tips_asked_date=?",
             (user_id, today),
         )
-        conn.commit()
 
 
 def all_active_users():
@@ -513,10 +483,8 @@ def count_llm_requests_since(date: str) -> int:
 def set_plan(user_id: int, plan: str):
     if not valid_plan_name(plan):
         raise ValueError(f"Unknown plan: {plan}")
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute("UPDATE users SET plan=? WHERE user_id=?", (plan, user_id))
-        conn.commit()
 
 
 def find_user(identifier: str):
@@ -533,14 +501,10 @@ def find_user(identifier: str):
 
 
 def set_user_blocked(user_id: int):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute("UPDATE users SET bot_blocked=1 WHERE user_id=?", (user_id,))
-        conn.commit()
 
 
 def reset_user_blocked(user_id: int):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute("UPDATE users SET bot_blocked=0 WHERE user_id=?", (user_id,))
-        conn.commit()
