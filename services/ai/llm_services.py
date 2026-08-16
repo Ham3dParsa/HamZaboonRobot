@@ -3,7 +3,7 @@ import threading
 import time
 from collections import deque
 
-from services.ai import ai
+from services.ai import ai, preset_fields
 from services import db
 from services.utils.formatting import CardPreparationError
 
@@ -142,7 +142,7 @@ def _is_daily_exhausted(preset: dict) -> bool:
     prunes rows older than the 24h window first so stale data can't wrongly hold
     the cap open or closed, and performs the read + cap decision atomically.
     """
-    max_daily = preset.get("max_daily_req", 0)
+    max_daily = preset_fields.resolve(preset, "max_daily_req")
     if max_daily <= 0:
         return False
     _maybe_prune_hourly_usage()
@@ -376,7 +376,7 @@ def _retry_primary_preset():
         base_url=preset.get("base_url", ""),
         api_key=api_key,
         model=preset.get("model", ""),
-        timeout=preset.get("timeout_seconds", 30.0),
+        timeout=preset_fields.resolve(preset, "timeout_seconds"),
     )
     if result["success"]:
         db.set_bool_setting("ai_fallback_active", False)

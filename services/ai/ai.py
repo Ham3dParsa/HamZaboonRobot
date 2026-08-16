@@ -17,7 +17,7 @@ from config import (
     COST,
 )
 from services import db
-from services.ai import prompts
+from services.ai import preset_fields, prompts
 
 log = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ def create_client(preset: dict | None = None, *, api_key_override: str | None = 
     """
     if preset is None:
         preset = db.get_active_preset()
-    base_url = preset.get("base_url", "") or DEFAULT_AI_BASE_URL
+    base_url = preset_fields.resolve(preset, "base_url")
     # A falsy override (empty string) is treated as "not provided" so the caller
     # falls through to the fail-closed key resolution instead of sending an
     # explicit empty key (SUGGESTION from review: never bypass resolution with
@@ -44,7 +44,7 @@ def create_client(preset: dict | None = None, *, api_key_override: str | None = 
         if api_key_override
         else db.resolve_preset_key(preset)
     )
-    timeout = preset.get("timeout_seconds", AI_TIMEOUT_SECONDS)
+    timeout = preset_fields.resolve(preset, "timeout_seconds")
     return OpenAI(
         base_url=base_url,
         api_key=api_key,
@@ -137,8 +137,8 @@ def custom_test_card(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=preset.get("temperature", AI_TEMPERATURE) if preset else AI_TEMPERATURE,
-            max_tokens=preset.get("max_output_tokens", AI_MAX_OUTPUT_TOKENS) if preset else AI_MAX_OUTPUT_TOKENS,
+            temperature=preset_fields.resolve(preset or {}, "temperature"),
+            max_tokens=preset_fields.resolve(preset or {}, "max_output_tokens"),
         )
         telemetry["usage"] = resp.usage
         telemetry["latency_ms"] = (time.monotonic() - started) * 1000
@@ -615,8 +615,8 @@ def _request_json(
     """یک تماس با مدل زبانی می‌گیرد و انتظار دارد خروجی JSON خام باشد."""
     client = _client(preset)
     model = _model(preset)
-    temp = preset.get("temperature", AI_TEMPERATURE) if preset else AI_TEMPERATURE
-    mtokens = preset.get("max_output_tokens", AI_MAX_OUTPUT_TOKENS) if preset else AI_MAX_OUTPUT_TOKENS
+    temp = preset_fields.resolve(preset or {}, "temperature")
+    mtokens = preset_fields.resolve(preset or {}, "max_output_tokens")
     started = time.monotonic()
     telemetry = telemetry if telemetry is not None else {}
     telemetry["model"] = model

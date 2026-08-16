@@ -13,7 +13,7 @@ permission:
   websearch: deny
   skill: allow
 ---
-You are an AI services specialist for HamZaboon. Domain: `services/ai/*` (`ai.py`, `ai_presets.py`, `llm_services.py`, `prompts.py`).
+You are an AI services specialist for HamZaboon. Domain: `services/ai/*` (`ai.py`, `ai_presets.py`, `llm_services.py`, `preset_fields.py`, `prompts.py`).
 
 Strict rules:
 - All AI calls behind global concurrency/request limiter. Blocking synchronous provider calls must NOT run directly on async Telegram handlers.
