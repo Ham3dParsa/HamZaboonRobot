@@ -36,7 +36,13 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from config import is_owner
-from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
+from services.utils.callback_notifications import (
+    CallbackNoticeIntent,
+    is_callback_answered,
+    notify_callback,
+    reset_callback_answered,
+    restore_callback_answered,
+)
 
 # A registered callback handler: async (update, context, action) -> None.
 CallbackHandler = Callable[[Update, ContextTypes.DEFAULT_TYPE, str], Awaitable[None]]
@@ -60,14 +66,17 @@ def register(prefix: str, handler: CallbackHandler, *, owner_only: bool = False)
 def _longest_match(data: str) -> _Route | None:
     """Return the registered route whose prefix best matches *data*.
 
-    A prefix matches if *data* equals it or starts with ``prefix + ":"``.
-    Among matches, the longest prefix wins so that more-specific routes
-    (e.g. ``admin:ai_preset:view:``) shadow their broader parents.
+    A prefix matches only when *data* starts with ``prefix + ":"`` (e.g.
+    ``admin:back`` matches the ``admin`` route). Bare tokens with no trailing
+    colon (a malformed ``admin`` / ``llm`` with no sub-action) intentionally do
+    NOT match, so they fall through to the unknown-prefix fallback and produce the
+    standard error toast rather than dispatching with an empty action. This keeps
+    the pre-refactor behavior for malformed input.
     """
     best: _Route | None = None
     for route in ROUTES:
         prefix = route[0]
-        if data == prefix or data.startswith(prefix + ":"):
+        if data.startswith(prefix + ":"):
             if best is None or len(prefix) > len(best[0]):
                 best = route
     return best
@@ -101,7 +110,7 @@ async def dispatch(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str
         )
         return
 
-    action = data[len(prefix):].lstrip(":") if data != prefix else ""
+    action = data[len(prefix):].lstrip(":")
     await _invoke_and_ensure_answered(update, context, action, handler)
 
 
@@ -114,26 +123,25 @@ async def _invoke_and_ensure_answered(
     """Call a matched handler and guarantee exactly one callback answer (R8/B1).
 
     A router and its leaf handler may both attempt to acknowledge the callback
-    (the B1 double-notify bug). To keep the single-answer contract without
-    touching the shared ``notify_callback`` seam or every individual leaf branch,
-    we locally track whether ``query.answer`` was invoked during the handler
-    call. If the handler already answered, we do nothing; otherwise we provide
-    the sole answer for leaf branches that only edit a message. The wrapper is
-    restored on exit so the query object is never mutated beyond the call.
+    (the B1 double-notify bug). Every callback acknowledgement flows through the
+    shared ``notify_callback`` seam, which records whether it answered the
+    callback in a per-dispatch ``contextvars`` flag. We read that flag here: if
+    the handler already answered, we do nothing; otherwise we provide the sole
+    answer for leaf branches that only edit a message.
+
+    Tracking lives in the seam (not via a per-call ``query.answer`` monkeypatch)
+    so the live Telegram query object is never mutated and concurrent dispatches
+    stay isolated per async task (addresses the Kilo review SUGGESTION on
+    routing.py:132). The flag is reset before the handler and restored afterwards
+    so a raised exception cannot leak state into the next dispatch.
     """
-    query = update.callback_query
-    answered = {"done": False}
-    real_answer = query.answer
-
-    async def _tracking_answer(*args, **kwargs):
-        answered["done"] = True
-        return await real_answer(*args, **kwargs)
-
-    query.answer = _tracking_answer
+    token = reset_callback_answered()
     try:
         await handler(update, context, action)
     finally:
-        query.answer = real_answer
-
-    if not answered["done"]:
-        await notify_callback(query)
+        # Read the answered flag before restoring the token so the post-handler
+        # fallback below sees whether the handler already acknowledged.
+        answered = is_callback_answered()
+    if not answered:
+        await notify_callback(update.callback_query)
+    restore_callback_answered(token)
