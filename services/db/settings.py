@@ -1,17 +1,11 @@
 """Settings accessors for the database layer."""
 
-import json
-
 from config import (
     LLM_INPUT_COST_USD_PER_MILLION,
     LLM_OUTPUT_COST_USD_PER_MILLION,
     USD_TO_TOMAN_RATE,
 )
-from config.catalog import (
-    DISPLAY_TOGGLE_DEFAULTS,
-    DISPLAY_TOGGLE_FIELDS,
-    settings_key,
-)
+from config.catalog import settings_key
 
 from services.db.schema import get_conn, transaction
 
@@ -49,39 +43,22 @@ def set_bool_setting(key: str, value: bool):
 
 
 def get_display_toggle_defaults() -> dict[str, bool]:
-    """Admin-global display-toggle defaults (R10), always complete.
+    """Admin-global display-toggle defaults (R10).
 
-    Stored values are merged over the built-in catalog defaults so the result
-    always carries every DISPLAY_TOGGLE_FIELD and unknown/stale keys are
-    ignored.
+    Thin delegate to ``services.db.display_toggles`` (R3) — the single owner of
+    display-toggle state and precedence resolution.
     """
-    effective = dict(DISPLAY_TOGGLE_DEFAULTS)
-    raw = get_setting(DISPLAY_TOGGLE_DEFAULTS_KEY, "")
-    if raw:
-        try:
-            stored = json.loads(raw)
-        except (TypeError, json.JSONDecodeError):
-            stored = None
-        if isinstance(stored, dict):
-            for key, value in stored.items():
-                if key in DISPLAY_TOGGLE_FIELDS:
-                    effective[key] = bool(value)
-    return effective
+    from services.db.display_toggles import get_global_defaults
+    return get_global_defaults()
 
 
 def set_display_toggle_defaults(values: dict[str, bool]):
     """Merge per-field admin-global display-toggle defaults (R10).
 
-    Only known DISPLAY_TOGGLE_FIELDS are accepted; anything else raises so a
-    mistyped admin edit can never silently no-op.
+    Thin delegate to ``services.db.display_toggles`` (R3).
     """
-    unknown = set(values) - set(DISPLAY_TOGGLE_FIELDS)
-    if unknown:
-        raise ValueError(f"Unknown display-toggle field(s): {', '.join(sorted(unknown))}")
-    merged = get_display_toggle_defaults()
-    for key, value in values.items():
-        merged[key] = bool(value)
-    set_setting(DISPLAY_TOGGLE_DEFAULTS_KEY, json.dumps(merged))
+    from services.db.display_toggles import set_global_defaults
+    return set_global_defaults(values)
 
 
 def get_llm_cost_profile() -> dict[str, float]:
