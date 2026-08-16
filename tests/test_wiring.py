@@ -729,7 +729,7 @@ class TestCallbackWiring(unittest.TestCase):
         to it), the router would silently drop it — exactly the ``ai_fallback_rank:``
         gap this finding fixes. This guard makes that impossible to miss.
         """
-        from handlers.admin import is_admin_awaiting
+        from handlers.flows import is_admin_awaiting
 
         keys = _collect_admin_awaiting_keys()
         self.assertGreater(len(keys), 0, "no admin awaiting keys collected")

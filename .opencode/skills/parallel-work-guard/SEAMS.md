@@ -18,7 +18,7 @@ This is disclosed reference — loaded only when parallel-work-guard fires.
 | 6 | Telegram UI -> SRS Grading | handlers/srs_handler.py | _handle_srs_review(), _handle_first_exposure_grade() |
 | 7 | Telegram UI -> User Domain | handlers/user.py | cmd_start, ask_for_ask_word, send_grammar_tip, on_lang_selected |
 | 16 | Telegram UI -> Help | handlers/help_command.py | send_help_panel(), handle_help_callback() |
-| 8 | Telegram UI -> Admin | handlers/admin.py | open_admin_panel, _handle_admin_callback, _handle_admin_text_input |
+| 8 | Telegram UI -> Admin | handlers/admin.py | open_admin_panel, _handle_admin_callback, _register_admin_flows() |
 | 9 | Telegram UI -> Stats | handlers/admin_stats.py | handle_admin_stats |
 | 10 | Telegram UI -> Plans | handlers/admin_plans.py | handle_plan_callback, _start_plan_wizard, _show_plan_list |
 | 11 | Telegram UI -> Cost | handlers/admin_cost.py | handle_cost_callback, _show_llm_cost_dashboard |
@@ -29,6 +29,7 @@ This is disclosed reference — loaded only when parallel-work-guard fires.
 | 16 | Custom-word input validation | services/utils/validation.py | validate_word_query(text, language) |
 | 17 | Custom-word query orchestration | services/word_query.py (core) + bot.py `_process_ask_word` / `_handle_query_dup_new` / `_handle_query_dup_reuse` / `_handle_query_dup_cancel` + handlers/srs_handler.py `_handle_query_add` + config/keyboards.py `query_result_keyboard` + `query_duplicate_keyboard` | ask(), toggle_save(), find_duplicate(); callback `query:add:`, `query:dup:new:`, `query:dup:reuse:`, `query:dup:cancel` (the old `query:prepare:`/prepare() path was removed in #340 R3) |
 | 18 | Display-toggle store | services/db/display_toggles.py | DisplayToggleService.get_effective(), set_user_toggle(), set_forced(), get_global_defaults(), set_global_defaults(); settings key `display_toggle_defaults` (J0.2 registry-backed). users.py/settings.py are thin delegates. |
+| 19 | Awaiting Text-Input Flow Registry | handlers/flows.py | register_flow(), resolve_flow(), text_router(), is_admin_awaiting() |
 
 ## Shared Resource Registries (non-seam collision surfaces)
 

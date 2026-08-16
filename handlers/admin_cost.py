@@ -443,7 +443,8 @@ async def _handle_cost_text_input(
     """Route LLM-cost / pricing text-input awaiting states to their handlers.
 
     Mirrors the inline blocks that previously lived in the admin monolith's
-    ``_handle_admin_text_input``. Behavior and awaiting strings are unchanged.
+    text-input dispatch. Registered in handlers/flows.py (R2). Behavior and
+    awaiting strings are unchanged.
     """
     if awaiting == "llm_cost_user":
         if text.casefold() in {"all", "همه", "none", "null"}:

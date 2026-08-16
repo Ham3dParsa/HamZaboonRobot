@@ -95,30 +95,16 @@ from config.keyboards import (
 logger = logging.getLogger(__name__)
 _app_timezone = APP_TZ
 
-# Single source of truth for "is this user_data['awaiting'] an admin flow state".
-# Every admin awaiting key — set across handlers/admin.py and its domain
-# submodules — is covered here so the router never silently drops a new key
-# (this is the root-cause fix for the ai_fallback_rank: routing gap, Finding #6).
-_ADMIN_AWAITING_PREFIXES = (
-    "admin_",            # admin_set_plan, admin_broadcast, admin_restore,
-                         # admin_plan_full_edit:, admin_ai_preset_new_name,
-                         # admin_group_batch_key:, admin_group_set_label:,
-                         # admin_group_manager_rename:
-    "ai_preset_",        # ai_preset_new_name, ai_preset_edit:, ai_preset_full_edit:
-    "ai_custom_test_",   # ai_custom_test_prompt
-    "ai_fallback_rank:",  # ai_fallback_rank:{preset_name}
-    "llm_cost_",         # llm_cost_user, llm_cost_model
-    "llm_price_",        # llm_price_input, llm_price_output, llm_price_rate
-)
+# Admin awaiting flows are registered in handlers/flows.py (R2) by each owning
+# module at import time. is_admin_awaiting (imported by bot.py and the wiring
+# guard from handlers.flows) delegates to that registry so bot.py never
+# hard-codes a prefix list (and can never miss a key again). This replaces the
+# old _ADMIN_AWAITING_PREFIXES allowlist (root-cause fix for Finding #6).
+from handlers.flows import register_flow  # noqa: E402
 
-
-def is_admin_awaiting(awaiting: str) -> bool:
-    """Return True if *awaiting* is an admin-panel text-input flow state.
-
-    Centralizes the admin awaiting-key namespace so bot.py's text_router no
-    longer hard-codes a prefix list (and can never miss a key again).
-    """
-    return bool(awaiting) and awaiting.startswith(_ADMIN_AWAITING_PREFIXES)
+#: Guard so _register_admin_flows() (import-time + test-triggered) never
+#: duplicates flow entries in the central registry.
+_ADMIN_FLOWS_REGISTERED = False
 
 
 async def open_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -301,16 +287,23 @@ async def handle_flow_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await notify_callback(update.callback_query, "فعلاً چیزی برای لغو نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
 
 
-async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE, awaiting: str, text: str):
-    if awaiting in {"llm_cost_user", "llm_cost_model", "llm_price_input", "llm_price_output", "llm_price_rate"}:
-        await _handle_cost_text_input(update, context, awaiting, text)
-        return
+def _register_admin_flows() -> None:
+    """Register every admin-domain awaiting flow with the central registry.
 
-    if awaiting == "admin_set_plan":
+    Prefixes map to the domain sub-router handlers (cost/plans/ai) or to small
+    local adapters for the exact-key infra flows (broadcast/restore/set_plan).
+    The registry owns longest-prefix routing, so no manual ``startswith``
+    dispatch survives here.
+    """
+    global _ADMIN_FLOWS_REGISTERED
+    if _ADMIN_FLOWS_REGISTERED:
+        return
+    _ADMIN_FLOWS_REGISTERED = True
+
+    async def _handle_plans_set_plan(update, context, awaiting, text):
         await _handle_plans_text_input(update, context, text)
-        return
 
-    if awaiting == "admin_broadcast":
+    async def _handle_admin_broadcast(update, context, awaiting, text):
         users = db.all_active_users()
         sent = 0
         for u in users:
@@ -320,59 +313,71 @@ async def _handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT
             except Exception:
                 logger.exception("Broadcast failed for user %s", u["user_id"])
         await update.message.reply_text(f"پیام برای {sent} کاربر ارسال شد.")
-        return
 
-    # ======== AI Settings awaiting handlers ========
-
-    if awaiting.startswith("admin_group_batch_key:") or awaiting.startswith("admin_group_set_label:") or awaiting.startswith("admin_group_manager_rename:") or awaiting.startswith("ai_fallback_rank:") or awaiting.startswith("ai_preset_create_priority:"):
-        await _handle_ai_text_input(update, context, awaiting, text)
-        return
-
-    if awaiting == "ai_preset_new_name":
-        await _handle_ai_preset_new_name(update, context, text)
-        return
-
-    if awaiting.startswith("ai_preset_edit:"):
-        # format: ai_preset_edit:preset_name:field_name
-        parts = awaiting.split(":", 2)
-        if len(parts) == 3:
-            await _handle_ai_preset_field_input(update, context, parts[1], parts[2], text)
-        return
-
-    if awaiting.startswith("admin_plan_full_edit:"):
-        # format: admin_plan_full_edit:plan_name:field_idx
-        parts = awaiting.split(":", 3)
-        if len(parts) == 3:
-            plan_name, field_idx = parts[1], parts[2]
-            await _handle_plan_wizard_input(update, context, plan_name, int(field_idx), text)
-        return
-
-    if awaiting.startswith("ai_preset_full_edit:"):
-        # format: ai_preset_full_edit:preset_name:field_idx
-        parts = awaiting.split(":", 3)
-        if len(parts) == 3:
-            preset_name, field_idx = parts[1], parts[2]
-            await _handle_full_edit_input(update, context, preset_name, int(field_idx), text)
-        return
-
-    if awaiting == "ai_custom_test_prompt":
-        state = context.user_data.setdefault("custom_test_state", {})
-        state["prompt"] = text
-        context.user_data["custom_test_state"] = state
-        await _custom_test_step_lang(update, context)
-        return
-
-    if awaiting == "admin_restore":
+    async def _handle_admin_restore(update, context, awaiting, text):
         context.user_data["awaiting"] = None
         await update.message.reply_text(
             "لطفاً یک فایل دیتابیس (.db) آپلود کنید.\n"
             "دوباره /restore را بزنید.",
         )
-        return
 
-    if awaiting == "admin_ai_preset_new_name":
+    async def _handle_ai_preset_name(update, context, awaiting, text):
         await _handle_ai_preset_new_name(update, context, text)
-        return
+
+    async def _handle_custom_test_prompt(update, context, awaiting, text):
+        state = context.user_data.setdefault("custom_test_state", {})
+        state["prompt"] = text
+        context.user_data["custom_test_state"] = state
+        await _custom_test_step_lang(update, context)
+
+    async def _handle_ai_preset_edit(update, context, awaiting, text):
+        parts = awaiting.split(":", 2)
+        if len(parts) == 3:
+            await _handle_ai_preset_field_input(update, context, parts[1], parts[2], text)
+
+    async def _handle_cost_text(update, context, awaiting, text):
+        await _handle_cost_text_input(update, context, awaiting, text)
+
+    async def _handle_ai_text(update, context, awaiting, text):
+        await _handle_ai_text_input(update, context, awaiting, text)
+
+    async def _handle_plan_full_edit(update, context, awaiting, text):
+        parts = awaiting.split(":", 3)
+        if len(parts) == 3:
+            plan_name, field_idx = parts[1], parts[2]
+            await _handle_plan_wizard_input(update, context, plan_name, int(field_idx), text)
+
+    async def _handle_ai_full_edit(update, context, awaiting, text):
+        parts = awaiting.split(":", 3)
+        if len(parts) == 3:
+            preset_name, field_idx = parts[1], parts[2]
+            await _handle_full_edit_input(update, context, preset_name, int(field_idx), text)
+
+    for key in ("llm_cost_user", "llm_cost_model", "llm_price_input", "llm_price_output", "llm_price_rate"):
+        register_flow(key, _handle_cost_text)
+
+    register_flow("admin_set_plan", _handle_plans_set_plan)
+    register_flow("admin_broadcast", _handle_admin_broadcast)
+    register_flow("admin_restore", _handle_admin_restore)
+    register_flow("ai_preset_new_name", _handle_ai_preset_name)
+    register_flow("admin_ai_preset_new_name", _handle_ai_preset_name)
+    register_flow("ai_custom_test_prompt", _handle_custom_test_prompt)
+
+    for prefix in (
+        "admin_group_batch_key:",
+        "admin_group_set_label:",
+        "admin_group_manager_rename:",
+        "ai_fallback_rank:",
+        "ai_preset_create_priority:",
+    ):
+        register_flow(prefix, _handle_ai_text)
+
+    register_flow("ai_preset_edit:", _handle_ai_preset_edit)
+    register_flow("admin_plan_full_edit:", _handle_plan_full_edit)
+    register_flow("ai_preset_full_edit:", _handle_ai_full_edit)
+
+
+_register_admin_flows()
 
 
 # ======== AI Settings Panel Handlers ========

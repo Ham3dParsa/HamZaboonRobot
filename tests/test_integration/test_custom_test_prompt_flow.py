@@ -20,7 +20,7 @@ from services.db import schema as db_schema
 
 
 class CustomTestPromptFlowTest(unittest.TestCase):
-    """Custom-test wizard routed through _handle_admin_callback/_handle_admin_text_input."""
+    """Custom-test wizard routed through _handle_admin_callback / handlers.flows text_router."""
 
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
@@ -75,7 +75,8 @@ class CustomTestPromptFlowTest(unittest.TestCase):
 
     def _run_full_wizard(self, ctx, typed_prompt: str):
         """Drive prompt text + lang/goal/level/target callbacks to _run_custom_test."""
-        from handlers.admin import _handle_admin_callback, _handle_admin_text_input
+        from handlers.admin import _handle_admin_callback
+        from handlers.flows import text_router as flows_text_router
 
         # Step 1: start wizard -> awaiting ai_custom_test_prompt
         start = self._make_callback_update("admin:ai_custom_test")
@@ -84,7 +85,7 @@ class CustomTestPromptFlowTest(unittest.TestCase):
 
         # Step 2: type the prompt (BUG-2 target)
         text_upd = self._make_text_update(typed_prompt)
-        asyncio.run(_handle_admin_text_input(text_upd, ctx, "ai_custom_test_prompt", typed_prompt))
+        asyncio.run(flows_text_router(text_upd, ctx, "ai_custom_test_prompt", typed_prompt))
         self.assertNotIn("awaiting", ctx.user_data)
 
         # Step 3-6: lang/goal/level/target callbacks
