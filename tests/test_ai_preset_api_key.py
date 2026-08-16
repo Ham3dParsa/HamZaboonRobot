@@ -233,6 +233,31 @@ class AiClientEnvFallbackTest(_ScratchDbTestCase):
             src = inspect.getsource(getattr(ai_module, name))
             self.assertIn("create_client", src)
 
+    def test_empty_override_falls_through_to_resolved_key(self):
+        """A blank api_key_override must not bypass key resolution (review SUGGESTION)."""
+        self._no_master_key()
+        db_module.init_db()
+        import services.ai.ai as ai_module
+
+        resolved_key = "resolved-from-preset"
+        with mock.patch.object(ai_module, "db") as db_mock:
+            db_mock.get_active_preset.return_value = {
+                "base_url": "",
+                "model": "",
+                "timeout_seconds": 30,
+            }
+            db_mock.resolve_preset_key.return_value = resolved_key
+            captor = mock.MagicMock()
+            with mock.patch("services.ai.ai.OpenAI", captor):
+                # Empty override (""): treated as "not provided" -> resolved key.
+                ai_module.create_client(
+                    {"base_url": "", "api_key": "", "model": "", "timeout_seconds": 30},
+                    api_key_override="",
+                )
+        captor.assert_called_once()
+        self.assertEqual(captor.call_args.kwargs["api_key"], resolved_key)
+        db_mock.resolve_preset_key.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -50,9 +50,11 @@ class LimiterStore:
         key = preset.get("name", "default")
         state = self._states.get(key)
         if state is None:
+            capacity = self._max_concurrency(preset)
             state = {
-                "slots": threading.BoundedSemaphore(self._max_concurrency(preset)),
-                "slots_capacity": self._max_concurrency(preset),
+                "slots": threading.BoundedSemaphore(capacity),
+                "slots_capacity": capacity,
+                "in_flight": 0,
                 "request_times": deque(),
                 "request_lock": threading.Lock(),
                 "token_times": deque(),
@@ -62,10 +64,15 @@ class LimiterStore:
             }
             self._states[key] = state
         else:
-            # BUG-5: reflect an admin edit to max_concurrency immediately by
-            # rebuilding the semaphore when the configured value changed.
+            # BUG-5: an admin edit to max_concurrency must take effect. We only
+            # swap the semaphore when nothing is in flight, so we never release
+            # a permit onto a detached instance and never let effective
+            # concurrency overshoot the new limit mid-swap (the in-flight
+            # permits live on the old semaphore). A shrink while requests are
+            # in flight is deferred until they drain; the old (larger) limit
+            # simply stays in effect briefly.
             desired = self._max_concurrency(preset)
-            if desired != state["slots_capacity"]:
+            if desired != state["slots_capacity"] and state["in_flight"] == 0:
                 state["slots"] = threading.BoundedSemaphore(desired)
                 state["slots_capacity"] = desired
         return state
@@ -76,15 +83,18 @@ class LimiterStore:
 
     @staticmethod
     def _max_concurrency(preset: dict) -> int:
-        return int(preset.get("max_concurrency", 2))
+        raw = preset.get("max_concurrency")
+        return int(raw) if raw is not None else 2
 
     @staticmethod
     def _max_rpm(preset: dict) -> int:
-        return int(preset.get("max_rpm", 30))
+        raw = preset.get("max_rpm")
+        return int(raw) if raw is not None else 30
 
     @staticmethod
     def _max_tpm(preset: dict) -> int:
-        return int(preset.get("max_tpm", 0))
+        raw = preset.get("max_tpm")
+        return int(raw) if raw is not None else 0
 
 
 # Module-level default store. Tests inject their own instance.
@@ -250,6 +260,7 @@ def _call_ai_limited(function, *args, deadline=None, **kwargs):
             if i + 1 < len(chain):
                 _log_switch(current_name, chain[i + 1].get("name", "?"), "concurrency slot timeout (30s)")
             continue
+        limiter["in_flight"] += 1
 
         try:
             while True:
@@ -289,6 +300,7 @@ def _call_ai_limited(function, *args, deadline=None, **kwargs):
             continue
 
         finally:
+            limiter["in_flight"] = max(0, limiter["in_flight"] - 1)
             slot.release()
 
     if last_error is not None:

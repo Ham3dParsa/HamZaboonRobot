@@ -141,6 +141,53 @@ class LazyLimiterLimitsTest(_LimiterIsolatedDb):
         preset["max_rpm"] = 3
         self.assertEqual(llm_services._limiter_store._max_rpm(preset), 3)
 
+    def test_shrink_is_deferred_while_requests_in_flight(self):
+        store = llm_services.get_limiter_store()
+        preset = _seed_preset("pd", max_concurrency=5)
+        state = store.limiter_for(preset)
+        self.assertEqual(state["slots_capacity"], 5)
+        in_flight_slots = state["slots"]
+
+        # Simulate 3 requests currently in flight on the old semaphore.
+        state["in_flight"] = 3
+
+        # Admin shrinks to 2 while requests are in flight: the swap must be
+        # deferred so we never release onto a detached semaphore or overshoot
+        # the new limit mid-swap.
+        db_module.set_preset(
+            name="pd",
+            base_url="http://test.local/v1",
+            model="test-model",
+            api_key="sk-test",
+            max_concurrency=2,
+            is_emergency=0,
+            in_fallback_chain=1,
+        )
+        preset = db_module.get_preset("pd")
+        deferred = store.limiter_for(preset)
+        self.assertEqual(deferred["slots_capacity"], 5)
+        self.assertIs(deferred["slots"], in_flight_slots)
+
+        # Once in-flight requests drain, the next acquisition applies the shrink.
+        deferred["in_flight"] = 0
+        applied = store.limiter_for(preset)
+        self.assertEqual(applied["slots_capacity"], 2)
+
+    def test_max_limits_harden_against_none_columns(self):
+        # A NULL DB column surfaces as None; the helpers must not raise
+        # TypeError and must fall back to their defaults.
+        preset = {"name": "pn", "max_concurrency": None, "max_rpm": None, "max_tpm": None}
+        self.assertEqual(llm_services.LimiterStore._max_concurrency(preset), 2)
+        self.assertEqual(llm_services.LimiterStore._max_rpm(preset), 30)
+        self.assertEqual(llm_services.LimiterStore._max_tpm(preset), 0)
+
+        # Zero is a valid explicit value and must be preserved (not collapsed
+        # to the default).
+        zero = {"name": "pz", "max_concurrency": 0, "max_rpm": 0, "max_tpm": 0}
+        self.assertEqual(llm_services.LimiterStore._max_concurrency(zero), 0)
+        self.assertEqual(llm_services.LimiterStore._max_rpm(zero), 0)
+        self.assertEqual(llm_services.LimiterStore._max_tpm(zero), 0)
+
 
 class CompactDecisionUnificationTest(unittest.TestCase):
     """Rule 4 (F4) — one compact decision and a shared prompt prelude."""

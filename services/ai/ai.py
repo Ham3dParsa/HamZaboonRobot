@@ -35,9 +35,13 @@ def create_client(preset: dict | None = None, *, api_key_override: str | None = 
     if preset is None:
         preset = db.get_active_preset()
     base_url = preset.get("base_url", "") or DEFAULT_AI_BASE_URL
+    # A falsy override (empty string) is treated as "not provided" so the caller
+    # falls through to the fail-closed key resolution instead of sending an
+    # explicit empty key (SUGGESTION from review: never bypass resolution with
+    # a blank override).
     api_key = (
         api_key_override
-        if api_key_override is not None
+        if api_key_override
         else db.resolve_preset_key(preset)
     )
     timeout = preset.get("timeout_seconds", AI_TIMEOUT_SECONDS)
