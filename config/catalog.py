@@ -140,6 +140,26 @@ LOW_VALUE_TOGGLES = frozenset(
 
 DISPLAY_TOGGLE_DEFAULTS = {field: True for field in DISPLAY_TOGGLE_FIELDS}
 
+# Canonical identifier-namespace registry. Maps a stable namespace name to the
+# dict whose keys are the stable learner-facing identifiers for that family.
+# This is the single enumeration of catalog identifier namespaces so the
+# `catalog-identifiers` seam can be claimed, enumerated, and validated
+# precisely (SEAMS.md "Catalog identifiers").
+CATALOG_NAMESPACES = {
+    "languages": LANGUAGES,
+    "goals": GOALS,
+    "levels": LEVELS,
+}
+
+
+def catalog_namespace(name: str) -> dict:
+    """Return the catalog identifier dict for a namespace name.
+
+    Raises KeyError for unknown namespaces so callers fail fast rather than
+    silently reading an empty or wrong namespace.
+    """
+    return CATALOG_NAMESPACES[name]
+
 
 def language_label(code: str) -> str:
     option = LANGUAGES.get(code)
@@ -203,3 +223,14 @@ def validate_catalog() -> None:
         raise ValueError("display-toggle high/low partition must cover DISPLAY_TOGGLE_FIELDS")
     if set(DISPLAY_TOGGLE_DEFAULTS) != set(DISPLAY_TOGGLE_FIELDS):
         raise ValueError("DISPLAY_TOGGLE_DEFAULTS must cover every DISPLAY_TOGGLE_FIELD")
+    expected_namespaces = {"languages", "goals", "levels"}
+    if set(CATALOG_NAMESPACES) != expected_namespaces:
+        raise ValueError(
+            "CATALOG_NAMESPACES must expose exactly the canonical identifier namespaces"
+        )
+    for name in expected_namespaces:
+        entries = CATALOG_NAMESPACES[name]
+        if not entries or not all(
+            code == option.code for code, option in entries.items()
+        ):
+            raise ValueError(f"catalog namespace {name!r} must be code-keyed and non-empty")
