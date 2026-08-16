@@ -32,7 +32,20 @@ class SettingsKeyRegistryTest(unittest.TestCase):
         meta = settings_key("display_toggle_defaults")
         self.assertEqual(meta["key"], "display_toggle_defaults")
         self.assertEqual(meta["type"], "json")
-        self.assertIs(meta["default"], DISPLAY_TOGGLE_DEFAULTS)
+        # settings_key returns a COPY of the default; value equals the canonical
+        # DISPLAY_TOGGLE_DEFAULTS but must not be the same object (no identity).
+        self.assertEqual(meta["default"], DISPLAY_TOGGLE_DEFAULTS)
+        self.assertIsNot(meta["default"], DISPLAY_TOGGLE_DEFAULTS)
+
+    def test_returned_dict_and_default_are_not_shared(self):
+        # Mutating what settings_key returns must not corrupt the canonical
+        # process-wide registry entry (the "WARNING: by-reference" finding).
+        meta = settings_key("display_toggle_defaults")
+        meta["extra"] = "mutated"
+        meta["default"] = {}
+        canonical = settings_key("display_toggle_defaults")
+        self.assertNotIn("extra", canonical)
+        self.assertEqual(canonical["default"], DISPLAY_TOGGLE_DEFAULTS)
 
     def test_pattern_keys_resolve_for_known_card_types(self):
         for card_type in ("first_exposure", "review"):
@@ -46,7 +59,6 @@ class SettingsKeyRegistryTest(unittest.TestCase):
                     self.assertEqual(meta["default"], expected)
 
     def test_unknown_key_raises_keyerror(self):
-        # Non-pattern unknown key.
         with self.assertRaises(KeyError):
             settings_key("this_is_not_a_real_key")
         # Pattern-shaped unknown (not a canonical card type) must also fail fast.
@@ -56,16 +68,12 @@ class SettingsKeyRegistryTest(unittest.TestCase):
             settings_key("x_mode_gate")
 
     def test_validate_settings_keys_passes(self):
-        # Structural validation must not raise.
         validate_settings_keys()
 
     def test_validate_catalog_chain_passes(self):
-        # settings_key validation is folded into the catalog validation chain.
         validate_catalog()
 
     def test_consumer_key_matches_registry(self):
-        # The settings.py accessor sources its key from the registry, so the
-        # literal string stays canonical and single-sourced.
         self.assertEqual(
             settings_module.DISPLAY_TOGGLE_DEFAULTS_KEY,
             settings_key("display_toggle_defaults")["key"],

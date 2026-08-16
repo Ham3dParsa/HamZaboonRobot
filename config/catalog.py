@@ -210,7 +210,14 @@ def settings_key(name: str) -> dict:
     reading an empty or wrong key.
     """
     if name in SETTINGS_KEYS:
-        return SETTINGS_KEYS[name]
+        # Return a copy (never the registry entry) so callers cannot mutate the
+        # canonical SETTINGS_KEYS entry, and copy nested mutable defaults so the
+        # shared DISPLAY_TOGGLE_DEFAULTS dict can never be corrupted. Pattern keys
+        # below already return a copy via dict(meta), keeping the contract symmetric.
+        meta = dict(SETTINGS_KEYS[name])
+        if isinstance(meta.get("default"), dict):
+            meta["default"] = dict(meta["default"])
+        return meta
     for tmpl, meta in SETTINGS_KEYS.items():
         if not meta.get("pattern"):
             continue
@@ -240,6 +247,13 @@ def validate_settings_keys() -> None:
             raise ValueError(f"settings key entry {key!r} missing 'key'")
         if meta["type"] not in valid_types:
             raise ValueError(f"settings key {key!r} has invalid type {meta['type']!r}")
+        if meta.get("pattern"):
+            tmpl = meta["key"]
+            if "{card_type}" not in tmpl:
+                raise ValueError(f"pattern settings key {key!r} must contain '{{card_type}}'")
+            _p, _s = tmpl.split("{card_type}", 1)
+            if not _s:
+                raise ValueError(f"pattern settings key {key!r} must have a non-empty suffix")
 
 
 def language_label(code: str) -> str:
