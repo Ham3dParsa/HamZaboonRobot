@@ -7,11 +7,17 @@ from config import (
     LLM_OUTPUT_COST_USD_PER_MILLION,
     USD_TO_TOMAN_RATE,
 )
-from config.catalog import DISPLAY_TOGGLE_DEFAULTS, DISPLAY_TOGGLE_FIELDS
+from config.catalog import (
+    DISPLAY_TOGGLE_DEFAULTS,
+    DISPLAY_TOGGLE_FIELDS,
+    settings_key,
+)
 
 from services.db.schema import get_conn, transaction
 
-DISPLAY_TOGGLE_DEFAULTS_KEY = "display_toggle_defaults"
+# Sourced from the canonical settings-key registry (J0.2) so the literal key
+# string has exactly one definition; consumers should prefer settings_key().
+DISPLAY_TOGGLE_DEFAULTS_KEY = settings_key("display_toggle_defaults")["key"]
 
 
 def get_setting(key: str, default: str = "") -> str:
