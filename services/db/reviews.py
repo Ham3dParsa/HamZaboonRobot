@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from services.db.schema import get_conn, _utc_now
+from services.db.schema import transaction, _utc_now
 
 
 # review_events columns: id, word_id, user_id, revealed_before_answer,
@@ -34,8 +34,7 @@ def record_review_event(
     grade>=2       → outcome="recalled"    (success, including Hard)
     """
     outcome = "recalled" if grade >= 2 else "again"
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "INSERT INTO review_events "
             "(word_id, user_id, grade, activity_type, grade_source, "
@@ -53,4 +52,3 @@ def record_review_event(
                 _utc_now().isoformat(),
             ),
         )
-        conn.commit()

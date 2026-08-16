@@ -22,6 +22,7 @@ from contextlib import closing
 # ---------------------------------------------------------------------------
 from services.db.schema import (
     get_conn,
+    transaction,
     database_lock,
     _LEGACY_DAILY_TABLES,
     init_db,
@@ -183,8 +184,7 @@ def create_query_result(
     token = secrets.token_hex(16)
     now = _utc_now()
     expires_at = now + datetime.timedelta(seconds=ttl_seconds)
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "INSERT INTO query_results("
             "token, user_id, query_text, word, lang, result_json, created_at, expires_at"
@@ -200,7 +200,6 @@ def create_query_result(
                 expires_at.isoformat(),
             ),
         )
-        conn.commit()
     return token
 
 
@@ -239,24 +238,20 @@ def find_unexpired_query(user_id: int, query_text: str, lang: str):
 
 
 def mark_query_result_saved(token: str, saved_word_id: int | None = None):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "UPDATE query_results SET saved_at=COALESCE(saved_at, ?), "
             "saved_word_id=COALESCE(saved_word_id, ?) WHERE token=?",
             (_utc_now().isoformat(), saved_word_id, token),
         )
-        conn.commit()
 
 
 def clear_query_result_saved(token: str):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "UPDATE query_results SET saved_at=NULL, saved_word_id=NULL WHERE token=?",
             (token,),
         )
-        conn.commit()
 
 
 def update_query_result_fields(
@@ -264,8 +259,7 @@ def update_query_result_fields(
     user_id: int,
     patch: dict,
 ) -> bool:
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         row = conn.execute(
             "SELECT result_json FROM query_results WHERE token=? AND user_id=?",
             (token, user_id),
@@ -283,18 +277,15 @@ def update_query_result_fields(
             "UPDATE query_results SET result_json=? WHERE token=? AND user_id=?",
             (json.dumps(result_data, ensure_ascii=False), token, user_id),
         )
-        conn.commit()
         return True
 
 
 def cleanup_expired_query_results():
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "DELETE FROM query_results WHERE expires_at<?",
             (_utc_now().isoformat(),),
         )
-        conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -313,8 +304,7 @@ def add_grammar_tip(
     title = " ".join(title.split())
     if not title:
         return
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "INSERT INTO grammar_tips("
             "user_id, tip_date, title, lang, goal, level, tip_json, created_at, provenance"
@@ -331,7 +321,6 @@ def add_grammar_tip(
                 provenance,
             ),
         )
-        conn.commit()
 
 
 def recent_grammar_tip_titles(
@@ -413,8 +402,7 @@ from services.db.key_crypto import (
 # ---------- Config Tests Audit ----------
 
 def log_config_test(test_type: str, preset_name: str, prompt: str, result: dict):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "INSERT INTO config_tests(test_type, preset_name, prompt, result, created_at) VALUES (?, ?, ?, ?, ?)",
             (
@@ -425,7 +413,6 @@ def log_config_test(test_type: str, preset_name: str, prompt: str, result: dict)
                 _utc_now().isoformat(),
             ),
         )
-        conn.commit()
 
 
 # ---------- Backup / Restore ----------

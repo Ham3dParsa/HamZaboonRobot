@@ -9,7 +9,7 @@ from config import (
 )
 from config.catalog import DISPLAY_TOGGLE_DEFAULTS, DISPLAY_TOGGLE_FIELDS
 
-from services.db.schema import get_conn
+from services.db.schema import get_conn, transaction
 
 DISPLAY_TOGGLE_DEFAULTS_KEY = "display_toggle_defaults"
 
@@ -21,14 +21,12 @@ def get_setting(key: str, default: str = "") -> str:
 
 
 def set_setting(key: str, value: str):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "INSERT INTO settings(key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, value),
         )
-        conn.commit()
 
 
 def get_bool_setting(key: str, default: bool = False) -> bool:
@@ -98,8 +96,7 @@ def set_llm_cost_profile(
     output_cost_usd_per_million: float,
     usd_to_toman_rate: float,
 ):
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "INSERT INTO settings(key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -115,4 +112,3 @@ def set_llm_cost_profile(
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             ("usd_to_toman_rate", str(usd_to_toman_rate)),
         )
-        conn.commit()

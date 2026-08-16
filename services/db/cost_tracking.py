@@ -2,7 +2,7 @@
 
 import secrets
 
-from services.db.schema import get_conn, _today, _utc_now
+from services.db.schema import get_conn, transaction, _today, _utc_now
 
 
 def add_llm_request(
@@ -33,8 +33,7 @@ def add_llm_request(
     cost_toman = cost_usd * float(usd_to_toman_rate)
     request_id = secrets.token_hex(16)
     now = _utc_now()
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         conn.execute(
             "INSERT INTO llm_requests("
             "request_id, created_at, request_date, user_id, plan, request_kind, model, "
@@ -65,16 +64,13 @@ def add_llm_request(
                 preset_name,
             ),
         )
-        conn.commit()
     return request_id
 
 
 def delete_llm_requests(filters: dict[str, object] | None = None) -> int:
     where, params = _llm_request_filters_where(filters or {})
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         cursor = conn.execute(f"DELETE FROM llm_requests{where}", params)
-        conn.commit()
     return cursor.rowcount
 
 
