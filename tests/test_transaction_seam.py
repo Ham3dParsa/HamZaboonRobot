@@ -4,10 +4,10 @@ These lock the atomicity contract of ``services.db.schema.transaction``:
 
 1. A clean block exit commits the immediate transaction (writes persist).
 2. An exception inside the block rolls the transaction back (no partial write).
-3. The nine write modules use the single ``transaction()`` seam for every write
-   instead of scattering raw ``BEGIN IMMEDIATE ... commit()`` — the "replace,
-   don't layer" spec from the R1 deep-module design. (The schema migration's own
-   additive-then-destructive commit boundary is deliberately excluded.)
+3. The ten write modules use the single ``transaction()`` seam for every write
+    instead of scattering raw ``BEGIN IMMEDIATE ... commit()`` — the "replace,
+    don't layer" spec from the R1 deep-module design. (The schema migration's own
+    additive-then-destructive commit boundary is deliberately excluded.)
 """
 
 import os
@@ -30,6 +30,7 @@ WRITE_MODULES = [
     "services.db.settings",
     "services.db.cost_tracking",
     "services.db.reviews",
+    "services.db.display_toggles",
 ]
 
 
