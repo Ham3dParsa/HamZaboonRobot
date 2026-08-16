@@ -465,3 +465,33 @@ async def auto_backup_job(context: ContextTypes.DEFAULT_TYPE):
             logger.info("Auto-backup saved: %s", backup_path)
     except Exception as exc:
         logger.exception("Auto-backup failed: %s", exc)
+
+
+# ======== Registry registration (R1, coarse) ========
+#
+# The admin and LLM-cost domains are registered as coarse routes in the central
+# callback registry (services/routing.py). dispatch() performs the owner gate
+# (admin is owner-only) and passes the sub-action (the remainder after the
+# matched prefix) to each handler. This keeps the existing sub-router if/elif
+# chains (admin_stats / admin_plans / admin_cost / admin_ai) intact while
+# removing the duplicate empty-ack that used to fire in bot.py (the B1 fix).
+
+
+async def _route_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Adapter: rebuild the full ``llm:...`` data expected by ``_handle_llm_callback``."""
+    await _handle_llm_callback(update, context, f"llm:{action}")
+
+
+def register_admin_routes() -> None:
+    """Register the admin and LLM-cost domains into the central routing registry.
+
+    Called at import time so the registry is populated before any callback is
+    routed. Idempotent: re-registration overwrites the same prefixes.
+    """
+    from services.routing import register
+
+    register("admin", _handle_admin_callback, owner_only=True)
+    register("llm", _route_llm)
+
+
+register_admin_routes()

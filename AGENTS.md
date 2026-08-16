@@ -157,8 +157,9 @@ learner-facing behavior, persistence, quotas, scheduling, or module boundaries.
 Keep responsibilities aligned with the current module boundaries:
 
 - `bot.py`: Thin entry point; Telegram handlers, callback routing, jobs, delivery orchestration, and user-facing formatting.
+- `services/routing.py`: **Central callback routing registry** (R1). Exports `ROUTES`, `register(prefix, handler, owner_only=False)`, and `dispatch(update, context, data)` with longest-prefix match, owner-gate, and the R8/B1 single-answer guarantee (`_invoke_and_ensure_answered`). Admin (`admin:`/`llm:`) domains are registered here from `handlers/admin.py` at import time; the callback answer is collapsible to exactly one `query.answer` per callback.
 - `handlers/`: Telegram handler modules.
-  - `handlers/admin.py`: Admin panel **thin dispatcher** — owner gate, callback routing (`_handle_admin_callback`) by prefix to the domain sub-routers below, text-input awaiting dispatch (`_handle_admin_text_input`), and admin-infra handlers (backup/restore, broadcast, phonetic / log-level / user-activity settings).
+  - `handlers/admin.py`: Admin panel **thin dispatcher** — registers the coarse `admin` (owner-gated) and `llm` routes in `services/routing`, delegates `admin:` to `_handle_admin_callback` by prefix to the domain sub-routers below, text-input awaiting dispatch (`_handle_admin_text_input`), and admin-infra handlers (backup/restore, broadcast, phonetic / log-level / user-activity settings).
   - `handlers/admin_stats.py`: Admin **stats** sub-router (`handle_admin_stats`).
   - `handlers/admin_plans.py`: Admin **plans** sub-router (`handle_plan_callback`), plan wizard, plan keyboards.
   - `handlers/admin_cost.py`: Admin **LLM cost / pricing** sub-router (`handle_cost_callback`, `_handle_llm_callback`).

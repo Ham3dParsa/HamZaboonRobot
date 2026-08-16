@@ -122,11 +122,11 @@ from services.ai.llm_services import (
     _retry_primary_preset,
 )
 
+from services.routing import dispatch as routing_dispatch
+
 from handlers.admin import (
     open_admin_panel,
-    _handle_admin_callback,
     _handle_admin_text_input,
-    _handle_llm_callback,
     is_admin_awaiting,
     handle_flow_back,
     cmd_backup,
@@ -592,6 +592,15 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     db.reset_user_blocked(update.effective_user.id)
     data = update.callback_query.data
+
+    # Admin and LLM-cost callbacks are routed through the central registry
+    # (services/routing.py), which guarantees exactly one answer per callback
+    # (the B1 double-notify fix). Dispatching here, before the allowlist empty
+    # ack below, removes the redundant bare ack these prefixes used to receive.
+    if data.startswith("admin:") or data.startswith("llm:"):
+        await routing_dispatch(update, context, data)
+        return
+
     if not data.startswith(
         (
             "study:start",
@@ -719,8 +728,6 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await notify_callback(update.callback_query, "بسته شد.", intent=CallbackNoticeIntent.INFO)
         except BadRequest:
             await notify_callback(update.callback_query)
-    elif data.startswith("llm:"):
-        await _handle_llm_callback(update, context, data)
     elif data.startswith("srs:reveal:"):
         parts = data.split(":")
         if len(parts) != 4:
@@ -757,8 +764,6 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _handle_tts_pronounce(update, context, data.split(":", 2)[2])
     elif data.startswith("help:"):
         await handle_help_callback(update, context, data)
-    elif data.startswith("admin:"):
-        await _handle_admin_callback(update, context, data.split(":", 1)[1])
     else:
         log.warning("Unhandled callback data in recognized prefix: %s", data)
         await notify_callback(
