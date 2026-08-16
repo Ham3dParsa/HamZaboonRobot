@@ -1,10 +1,12 @@
 import unittest
 
 from config.catalog import (
+    CATALOG_NAMESPACES,
     DEFAULT_LEVEL,
     GOALS,
     LANGUAGES,
     LEVELS,
+    catalog_namespace,
     goal_label,
     language_label,
     level_cefr,
@@ -19,6 +21,22 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(set(LANGUAGES), {option.code for option in LANGUAGES.values()})
         self.assertEqual(set(GOALS), {option.code for option in GOALS.values()})
         self.assertEqual(set(LEVELS), {option.code for option in LEVELS.values()})
+
+    def test_catalog_namespace_registry_enumerates_identifiers(self):
+        self.assertEqual(
+            set(CATALOG_NAMESPACES), {"languages", "goals", "levels"}
+        )
+        self.assertIs(CATALOG_NAMESPACES["languages"], LANGUAGES)
+        self.assertIs(CATALOG_NAMESPACES["goals"], GOALS)
+        self.assertIs(CATALOG_NAMESPACES["levels"], LEVELS)
+        self.assertEqual(catalog_namespace("languages"), LANGUAGES)
+        self.assertEqual(catalog_namespace("goals"), GOALS)
+        self.assertEqual(catalog_namespace("levels"), LEVELS)
+        with self.assertRaises(KeyError):
+            catalog_namespace("retired")
+
+    def test_catalog_namespace_registry_is_validate_catalog_consistent(self):
+        validate_catalog()
 
     def test_unknown_values_have_controlled_fallbacks(self):
         self.assertEqual(language_label("retired"), "retired")
