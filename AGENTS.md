@@ -275,6 +275,35 @@ trigger matches):
 4. Owner merges via **Squash and merge**; on explicit "merge it", the agent may `gh pr merge --squash` after confirming CI passes. Then clean up the worktree, delete the branch, release the parallel claim, and update issues/ROADMAP per §2 + §8.
 5. Do not combine unrelated user-facing features, broad refactors, and issue cleanup in one PR; record out-of-scope issues instead.
 
+### Kilo Code Review PR Loop
+
+Every PR triggers an automated **Kilo Code Review** (comment + a `Kilo Code
+Review` check). Follow this loop for every behavioral PR:
+
+1. **Before opening the PR**, rebase the worktree onto the latest `origin/main`
+   if it has diverged (`git fetch origin` + rebase), so the PR is clean.
+2. Make the **PR body informative**: summary, the locked rules/decisions, what
+   changed, review comments addressed (if any), test evidence, and the source
+   report/issue. Do not rely on the bare commit message.
+3. **Address every Kilo comment** (CRITICAL/WARNING must be fixed or explicitly
+   waived with rationale; SUGGESTIONS should be fixed or justified). Push a
+   follow-up commit; do not force-push over the review.
+4. **Wait for Kilo to re-review, then fetch the comment delta.** Important:
+   Kilo does **NOT** always post a brand-new comment after you push fixes —
+   sometimes it only updates its prior review/check. Always re-fetch the review
+   (and the `Kilo Code Review` check status) to read the delta, rather than
+   waiting for a fresh comment to appear.
+5. When the Kilo comments are **fixed/addressed via your subsequent commit(s)**
+   and the `Kilo Code Review` check passes (and CI is green), **Merge** (squash
+   per step 4 above). Do not leave the PR open waiting for a new comment that
+   may never come.
+6. **Post-merge**: clean up the worktree, delete the branch (remote + local),
+   release the parallel-work claim, update plans/ROADMAP/issues per §2 + §8, and
+   **rebase onto `origin/main`** before starting the next dependent job.
+
+This loop lives in `writing-for-agents` spirit: it is the canonical, repeatable
+PR-review routine; bake it into every AI-track / architecture-deepening job.
+
 ### Independent Review Subagent (mandatory for non-trivial changes)
 
 Before committing any change that affects behavior, persistence, quotas,
