@@ -108,7 +108,8 @@ def effective_plan(plan: str, bypass_limits: bool = False) -> str:
 
 
 def presentation_for_user(plan: str, preference: str | None) -> str:
-    if plan not in PREMIUM_PLANS:
+    from services.db.plans import is_premium
+    if not is_premium(plan):
         return DEFAULT_PRESENTATION
     if preference not in {"brief", "detailed"}:
         return DEFAULT_PRESENTATION

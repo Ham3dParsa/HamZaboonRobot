@@ -11,7 +11,11 @@ fresh database; armed rows are managed by the admin plan-manager wizard.
 
 from __future__ import annotations
 
+import logging
+
 from services.db.schema import get_conn, transaction
+
+logger = logging.getLogger(__name__)
 
 # name -> (display_name, price_toman, query_quota, max_sessions, cards_per_session, sort_order)
 DEFAULT_PLANS: dict[str, tuple[str, int, int, int, int, int]] = {
@@ -111,8 +115,10 @@ def plan_spec(plan: str) -> dict:
         spec = get_plan(plan)
         if spec and spec.get("is_active", 1):
             return spec
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "plan_spec: failed to read plan %r; falling back to free: %s", plan, exc
+        )
     display, price, query, sessions, cards, _ = DEFAULT_PLANS["free"]
     return {
         "display_name": display, "price": price,
