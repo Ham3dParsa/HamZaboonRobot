@@ -301,7 +301,8 @@ async def _handle_plans_text_input(
     """Route plan text-input awaiting states (``admin_set_plan``) to their handler.
 
     Mirrors the inline block that previously lived in the admin monolith's
-    ``_handle_admin_text_input``. Behavior and awaiting strings are unchanged.
+    text-input dispatch. Registered in handlers/flows.py (R2). Behavior and
+    awaiting strings are unchanged.
     """
     parts = text.split()
     if len(parts) != 2 or not db.valid_plan_name(parts[1].lower()):

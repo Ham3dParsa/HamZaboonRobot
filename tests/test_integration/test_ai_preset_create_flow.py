@@ -100,10 +100,10 @@ class AiPresetCreateFlowTest(unittest.TestCase):
         return self._text(self.flow_ctx, "admin_ai_preset_new_name", name)
 
     def _text(self, ctx, awaiting: str, text: str):
-        from handlers.admin import _handle_admin_text_input as text_input
+        from handlers.flows import text_router as flows_text_router
 
         update = self._make_message_update(text)
-        asyncio.run(text_input(update, ctx, awaiting, text))
+        asyncio.run(flows_text_router(update, ctx, awaiting, text))
         return update
 
     def _callback(self, action: str):

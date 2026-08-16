@@ -97,88 +97,87 @@ class TestAiPresetNewNameReArm(unittest.IsolatedAsyncioTestCase):
 
 
 class TestTextRouterPrefixDispatch(unittest.IsolatedAsyncioTestCase):
-    """bot.py text_router must dispatch ai_preset_* and ai_custom_test_* awaiting values."""
+    """bot.py text_router must dispatch admin awaiting values through the central
+    flows registry (R2) — the single source of truth for awaiting-key routing."""
 
     def _import_text_router(self):
         import importlib, bot as bot_module
         importlib.reload(bot_module)
         return bot_module.text_router
 
-    async def test_router_dispatches_ai_preset_new_name(self):
-        """Check that text_router's condition matches ai_preset_new_name."""
+    async def _route(self, awaiting: str, text: str = "value"):
+        from handlers.admin import _register_admin_flows  # triggers registration
+        _register_admin_flows()
+        from handlers.flows import text_router
+        update = _make_update(user_id=1, text=text)
+        context = _make_context()
+        context.user_data["awaiting"] = awaiting
+        await text_router(update, context, awaiting, text)
+        return update, context
+
+    async def test_ai_preset_new_name_registered(self):
+        with patch("handlers.admin._handle_ai_preset_new_name", new=AsyncMock()) as mock_fn:
+            await self._route("ai_preset_new_name")
+            mock_fn.assert_awaited_once()
+
+    async def test_ai_preset_edit_registered(self):
+        with patch("handlers.admin._handle_ai_preset_field_input", new=AsyncMock()) as mock_fn:
+            await self._route("ai_preset_edit:test:model", "gpt-4")
+            mock_fn.assert_awaited_once()
+
+    async def test_ai_custom_test_prompt_registered(self):
+        with patch("handlers.admin._custom_test_step_lang", new=AsyncMock()) as mock_fn:
+            await self._route("ai_custom_test_prompt", "my prompt")
+            mock_fn.assert_awaited_once()
+
+    async def test_llm_cost_user_registered(self):
+        with patch("handlers.admin._handle_cost_text_input", new=AsyncMock()) as mock_fn:
+            await self._route("llm_cost_user")
+            mock_fn.assert_awaited_once()
+
+    async def test_ai_fallback_rank_registered(self):
+        """Regression guard for the Finding #6 routing gap: ai_fallback_rank:
+        must route to _handle_ai_text_input."""
+        from handlers.admin import _register_admin_flows
+        _register_admin_flows()
+        from handlers.flows import text_router
+        update = _make_update(user_id=1, text="2")
+        context = _make_context()
+        context.user_data["awaiting"] = "ai_fallback_rank:gpt"
+        with patch("handlers.admin._handle_ai_text_input", new=AsyncMock()) as mock_fn:
+            with patch("handlers.admin.db") as mock_db:
+                mock_db.get_preset.return_value = {"name": "gpt", "is_emergency": 0}
+                await text_router(update, context, "ai_fallback_rank:gpt", "2")
+            mock_fn.assert_awaited_once()
+
+    async def test_admin_set_plan_registered(self):
+        with patch("handlers.admin._handle_plans_text_input", new=AsyncMock()) as mock_fn:
+            await self._route("admin_set_plan")
+            mock_fn.assert_awaited_once()
+
+    async def test_admin_plan_full_edit_registered(self):
+        with patch("handlers.admin._handle_plan_wizard_input", new=AsyncMock()) as mock_fn:
+            await self._route("admin_plan_full_edit:silver:0", "نقره‌ای")
+            mock_fn.assert_awaited_once()
+
+    async def test_admin_ai_preset_new_name_registered(self):
+        with patch("handlers.admin._handle_ai_preset_new_name", new=AsyncMock()) as mock_fn:
+            await self._route("admin_ai_preset_new_name")
+            mock_fn.assert_awaited_once()
+
+    async def test_router_forwards_admin_awaiting_to_flows(self):
+        """bot.text_router must forward an admin awaiting value to flows.text_router."""
         from bot import text_router
         update = _make_update(user_id=1, text="my_preset")
         context = _make_context()
         context.user_data["awaiting"] = "ai_preset_new_name"
         with patch("bot.db.reset_user_blocked"):
             with patch("bot.is_owner", return_value=True):
-                with patch("handlers.admin._handle_ai_preset_new_name", new=AsyncMock()) as mock_fn:
+                with patch("bot.flows_text_router", new=AsyncMock()) as mock_fn:
                     with patch("handlers.admin.db") as mock_db:
                         mock_db.get_preset.return_value = None
                         await text_router(update, context)
-                    mock_fn.assert_called_once()
-
-    async def test_router_dispatches_ai_preset_edit(self):
-        from bot import text_router
-        update = _make_update(user_id=1, text="gpt-4")
-        context = _make_context()
-        context.user_data["awaiting"] = "ai_preset_edit:test:model"
-        with patch("bot.db.reset_user_blocked"):
-            with patch("bot.is_owner", return_value=True):
-                with patch("handlers.admin._handle_ai_preset_field_input", new=AsyncMock()) as mock_fn:
-                    with patch("handlers.admin.db") as mock_db:
-                        mock_db.get_preset.return_value = {"name": "test"}
-                        await text_router(update, context)
-                    mock_fn.assert_called_once()
-
-    async def test_router_dispatches_ai_custom_test_prompt(self):
-        from bot import text_router
-        update = _make_update(user_id=1, text="my prompt")
-        context = _make_context()
-        context.user_data["awaiting"] = "ai_custom_test_prompt"
-        with patch("bot.db.reset_user_blocked"):
-            with patch("bot.is_owner", return_value=True):
-                with patch("handlers.admin._custom_test_step_lang", new=AsyncMock()) as mock_fn:
-                    with patch("handlers.admin.db") as mock_db:
-                        await text_router(update, context)
-                    mock_fn.assert_called_once()
-
-    async def test_router_dispatches_llm_cost_user(self):
-        from bot import text_router
-        update = _make_update(user_id=1, text="all")
-        context = _make_context()
-        context.user_data["awaiting"] = "llm_cost_user"
-        with patch("bot.db.reset_user_blocked"):
-            with patch("bot.is_owner", return_value=True):
-                with patch("handlers.admin._handle_cost_text_input", new=AsyncMock()) as mock_fn:
-                    with patch("handlers.admin.db") as mock_db:
-                        await text_router(update, context)
-                    mock_fn.assert_called_once()
-
-    async def test_dispatcher_routes_ai_fallback_rank(self):
-        from handlers.admin import _handle_admin_text_input
-        update = _make_update(user_id=1, text="2")
-        context = _make_context()
-        with patch("handlers.admin._handle_ai_text_input", new=AsyncMock()) as mock_fn:
-            with patch("handlers.admin.db") as mock_db:
-                mock_db.get_preset.return_value = {"name": "gpt", "is_emergency": 0}
-                await _handle_admin_text_input(update, context, "ai_fallback_rank:gpt", "2")
-            mock_fn.assert_called_once()
-
-    async def test_router_dispatches_ai_fallback_rank_via_is_admin_awaiting(self):
-        """text_router must now route ai_fallback_rank: through _handle_admin_text_input
-        to _handle_ai_text_input (regression guard for the Finding #6 routing gap)."""
-        from bot import text_router
-        update = _make_update(user_id=1, text="2")
-        context = _make_context()
-        context.user_data["awaiting"] = "ai_fallback_rank:gpt"
-        with patch("bot.db.reset_user_blocked"):
-            with patch("bot.is_owner", return_value=True):
-                with patch("handlers.admin._handle_ai_text_input", new=AsyncMock()) as mock_fn:
-                    with patch("handlers.admin.db") as mock_db:
-                        mock_db.get_preset.return_value = {"name": "gpt", "is_emergency": 0}
-                        await text_router(update, context)
-                    mock_fn.assert_called_once()
+                    mock_fn.assert_awaited_once()
 
     async def test_router_rejects_nonowner_admin_flows(self):
         """Non-owner with admin_ awaiting must be rejected."""
@@ -187,10 +186,10 @@ class TestTextRouterPrefixDispatch(unittest.IsolatedAsyncioTestCase):
         context = _make_context()
         context.user_data["awaiting"] = "admin_set_plan"
         with patch("bot.db.reset_user_blocked"):
-            with patch("handlers.admin._handle_admin_text_input", new=AsyncMock()) as mock_fn:
+            with patch("bot.flows_text_router", new=AsyncMock()) as mock_fn:
                 with patch("handlers.admin.is_owner", return_value=False):
                     await text_router(update, context)
-                mock_fn.assert_not_called()
+                mock_fn.assert_not_awaited()
 
     async def test_callback_router_routes_flow_back_to_handle_flow_back(self):
         """callback_router(data='flow:back') must delegate to handle_flow_back."""

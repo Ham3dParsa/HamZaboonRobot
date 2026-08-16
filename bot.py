@@ -126,14 +126,13 @@ from services.routing import dispatch as routing_dispatch
 
 from handlers.admin import (
     open_admin_panel,
-    _handle_admin_text_input,
-    is_admin_awaiting,
     handle_flow_back,
     cmd_backup,
     cmd_restore,
     handle_restore_doc,
     auto_backup_job,
 )
+from handlers.flows import is_admin_awaiting, text_router as flows_text_router
 
 from handlers.user import (
     cmd_start,
@@ -561,7 +560,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         if is_admin_awaiting(awaiting):
-            await _handle_admin_text_input(update, context, awaiting, text)
+            await flows_text_router(update, context, awaiting, text)
             return
 
     # مسیر دکمه‌های منوی اصلی

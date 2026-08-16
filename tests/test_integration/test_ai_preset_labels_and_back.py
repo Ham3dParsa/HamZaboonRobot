@@ -2,7 +2,7 @@
 and the field-edit back-button / keyboard-consistency fixes (#343, systemic).
 
 Dispatches through the real ``_handle_admin_callback`` -> ``handle_ai_callback``
-and ``_handle_admin_text_input`` paths and asserts Telegram output, the emitted
+and the handlers.flows text_router path and asserts Telegram output, the emitted
 keyboard callback prefixes, and user_data state.
 """
 
@@ -85,10 +85,10 @@ class _AiPresetLabelsAndBackBase(unittest.TestCase):
         return update
 
     def _text(self, awaiting: str, text: str):
-        from handlers.admin import _handle_admin_text_input as text_input
+        from handlers.flows import text_router as flows_text_router
 
         update = self._make_message_update(text)
-        asyncio.run(text_input(update, self.flow_ctx, awaiting, text))
+        asyncio.run(flows_text_router(update, self.flow_ctx, awaiting, text))
         return update
 
     def _markup(self, call_args):

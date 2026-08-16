@@ -110,9 +110,10 @@ class PlanManagerFlowTest(unittest.TestCase):
 
     def test_plan_wizard_text_input_dispatches_through_awaiting(self):
         """Text entered during the wizard must be routed through the real
-        awaiting dispatch in _handle_admin_text_input (regression for the
+        awaiting dispatch in handlers.flows (regression for the
         broken admin_plan_full_edit: parse)."""
-        from handlers.admin import _handle_admin_callback, _handle_admin_text_input
+        from handlers.admin import _handle_admin_callback
+        from handlers.flows import text_router as flows_text_router
 
         update = self._make_callback_update("admin:plans:edit:silver")
         ctx = self._make_context()
@@ -126,7 +127,7 @@ class PlanManagerFlowTest(unittest.TestCase):
         upd.message = msg
         upd.callback_query = None
         asyncio.run(
-            _handle_admin_text_input(upd, ctx, "admin_plan_full_edit:silver:0", "نقره‌ای ویژه")
+            flows_text_router(upd, ctx, "admin_plan_full_edit:silver:0", "نقره‌ای ویژه")
         )
         # The dispatch must advance the wizard, not swallow the message.
         self.assertEqual(ctx.user_data["awaiting"], "admin_plan_full_edit:silver:1")
@@ -396,7 +397,7 @@ class PlanManagerFlowTest(unittest.TestCase):
     # admin_set_plan DB-backed validation
     # ------------------------------------------------------------------
     def test_admin_set_plan_accepts_any_db_plan(self):
-        from handlers.admin import _handle_admin_text_input
+        from handlers.flows import text_router as flows_text_router
 
         db.set_user_lang_goal(1, "en", "general")
 
@@ -407,7 +408,7 @@ class PlanManagerFlowTest(unittest.TestCase):
         update.message = msg
         ctx = self._make_context()
 
-        asyncio.run(_handle_admin_text_input(update, ctx, "admin_set_plan", "1 emerald"))
+        asyncio.run(flows_text_router(update, ctx, "admin_set_plan", "1 emerald"))
         self.assertEqual(db.get_user(1)["plan"], "emerald")
         msg.reply_text.assert_called()
 
