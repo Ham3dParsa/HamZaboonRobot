@@ -11,7 +11,6 @@
   <title>داشبورد مالی هم‌زبان</title>
 
 
-
   <!-- Fonts -->
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -19,7 +18,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
   <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
 
 
   <!-- Tailwind CSS -->
@@ -59,7 +57,6 @@
   </script>
 
 
-
   <!-- Vue 3 & Chart.js & Lucide Icons & Floating UI -->
 
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
@@ -73,7 +70,6 @@
   <script src="https://cdn.jsdelivr.net/npm/@floating-ui/dom@1.6.11/dist/floating-ui.dom.umd.js"></script>
 
 
-
   <style>
 
     body { background-color: #FAF8F4; color: #101828; -webkit-tap-highlight-color: transparent; }
@@ -81,7 +77,6 @@
     * { box-sizing: border-box; }
 
     [v-cloak] { display: none !important; }
-
 
 
     .hz-slider {
@@ -135,11 +130,9 @@
     .hz-scroll::-webkit-scrollbar-thumb:hover { background: #0D9488; }
 
 
-
     .hz-tip-enter-active, .hz-tip-leave-active { transition: opacity .12s ease, transform .12s ease; }
 
     .hz-tip-enter-from, .hz-tip-leave-to { opacity: 0; transform: translateY(4px); }
-
 
 
     .accordion-grid { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .3s ease; }
@@ -161,9 +154,7 @@
 <body class="min-h-screen w-full selection:bg-turquoiseSoft selection:text-turquoiseDeep">
 
 
-
   <div id="app" v-cloak class="flex flex-col min-h-screen pb-24 lg:pb-0 relative">
-
 
 
     <!-- ========== Top Header ========== -->
@@ -189,7 +180,6 @@
           </div>
 
         </div>
-
 
 
         <div class="hidden lg:flex items-center gap-2 mr-auto ml-4">
@@ -219,7 +209,6 @@
       </div>
 
     </header>
-
 
 
     <!-- ========== Desktop Sidebar Navigation ========== -->
@@ -259,12 +248,10 @@
     </aside>
 
 
-
     <!-- ========== Main Body ========== -->
 
     <main class="max-w-[1440px] mx-auto px-4 sm:px-6 py-6 flex-1 w-full transition-all duration-300"
           :class="sidebarCollapsed ? 'lg:pr-24' : 'lg:pr-72'">
-
 
 
       <!-- ===== INPUTS COLUMN ===== -->
@@ -314,7 +301,6 @@
         </div>
 
 
-
         <section-card title="پلن‌ها و تعداد کاربران" en="Plans & Users" icon="users">
 
           <template v-if="inp.inputMode === 'conversion'">
@@ -346,7 +332,6 @@
           </template>
 
         </section-card>
-
 
 
         <section-card title="قیمت و سهم — نمای تحلیلی" en="Pricing & Share — Analysis" icon="tags" :default-open="false">
@@ -542,7 +527,6 @@
         </section-card>
 
 
-
         <section-card title="قیمت و هزینه AI" en="Pricing & AI" icon="wallet">
 
           <number-field label="هزینه هر فراخوانی AI" en="Cost per Call" v-model="inp.aiCostPerCallUSD" :min="0.0001" :max="0.002" :step="0.00005" unit="$"></number-field>
@@ -552,7 +536,6 @@
           <p class="text-[10px] text-inkSoft/70 leading-relaxed mt-1">قیمت، سهمیه و ترکیب ارتقای پلن‌ها از جدول تحلیلی بالا یا «مدیریت پلن‌ها» قابل ویرایش است؛ قیمت و سهم فروش بسته‌های Query در «مدیریت بسته‌های اعتبار» تنظیم می‌شود.</p>
 
         </section-card>
-
 
 
         <section-card title="مدل AI و هزینه واقعی" en="AI Model & Cost" icon="cpu">
@@ -678,7 +661,6 @@
         </section-card>
 
 
-
         <section-card title="هزینه‌های مالی و ثابت" en="Financial & Fixed Costs" icon="landmark" :default-open="false">
 
           <number-field label="کارمزد درگاه پرداخت" en="Payment Fee" v-model="inp.paymentFeePct" :min="0" :max="6" :step="0.1" unit="٪"></number-field>
@@ -722,7 +704,6 @@
           <number-field label="سهم ثبت‌نام‌های ارجاعی" en="Referral Share" v-model="inp.referralShareOfSignups" :min="0" :max="50" :step="1" unit="٪"></number-field>
 
         </section-card>
-
 
 
         <section-card title="رشد و ریزش" en="Growth & Churn" icon="trending-up" :default-open="false">
@@ -772,7 +753,6 @@
       </div>
 
 
-
       <!-- ===== DASHBOARD COLUMN ===== -->
 
       <div v-show="activeTab === 'dashboard'" class="flex flex-col gap-6 min-w-0">
@@ -780,7 +760,6 @@
         <tpl-hero-kpi :hero-kpis="heroKpis"></tpl-hero-kpi>
 
         <tpl-stat-row v-for="g in statGroups" :key="g.key" :group="g"></tpl-stat-row>
-
 
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -832,7 +811,6 @@
         </div>
 
 
-
         <div class="bg-card border border-line rounded-2xl p-4 shadow-sm">
 
           <div class="mb-4 flex items-center justify-between gap-2">
@@ -856,7 +834,6 @@
         </div>
 
 
-
         <div class="bg-card border border-line rounded-2xl p-4 shadow-sm">
 
           <div class="mb-4 flex items-center justify-between gap-2">
@@ -878,7 +855,6 @@
           </div>
 
         </div>
-
 
 
         <div class="bg-card border border-line rounded-2xl p-4 shadow-sm overflow-hidden flex flex-col">
@@ -964,7 +940,6 @@
         </div>
 
 
-
         <!-- ===== P6: حساسیت (تورنادو) ===== -->
 
         <div class="bg-card border border-line rounded-2xl p-5 shadow-sm">
@@ -1008,11 +983,9 @@
       </div>
 
 
-
       <!-- ===== MARKETING & GROWTH TAB ===== -->
 
       <div v-show="activeTab === 'marketing'" class="lg:col-span-2 flex flex-col gap-6">
-
 
 
         <div class="bg-gradient-to-br from-indigoSoft to-purple-100 border border-indigo-200 rounded-2xl p-5 shadow-sm">
@@ -1026,7 +999,6 @@
           <p class="text-xs text-indigo-800/70 mb-1">هر تکنیک را می‌توانید فعال/غیرفعال کنید، بسازید، ویرایش یا حذف کنید؛ شدت اثر تخمینی‌اش را روی نرخ تبدیل، ریزش یا رشد ثبت‌نام تنظیم کنید — این عدد مستقیماً در محاسبات داشبورد اعمال می‌شود.</p>
 
           <p class="text-[10px] text-indigo-800/50 mb-5">این درصدها تخمینی هستند، نه دادهٔ واقعی؛ بعد از جمع‌آوری آمار واقعی کاربران قابل کالیبره‌کردن‌اند.</p>
-
 
 
           <div class="flex flex-wrap gap-2 mb-4 text-[11px] font-bold">
@@ -1054,7 +1026,6 @@
             </button>
 
           </div>
-
 
 
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1144,7 +1115,6 @@
           </div>
 
         </div>
-
 
 
         <div class="bg-card border border-line rounded-2xl p-5 shadow-sm">
@@ -1258,7 +1228,6 @@
         </div>
 
 
-
         <div class="bg-card border border-line rounded-2xl p-5 shadow-sm">
 
           <div class="flex items-center justify-between mb-4 border-b pb-3 gap-2">
@@ -1302,7 +1271,6 @@
             <div class="text-[10px] text-indigo-900/70 leading-relaxed">نرخ خرید روی کاربران رایگان ماه شروع ماه اعمال می‌شود. نویز فقط برای واقع‌گرایی شبیه‌سازی است و با بذر ثابت، مقایسهٔ سناریوها تکرارپذیر می‌ماند.</div>
 
           </div>
-
 
 
           <div class="flex flex-col gap-4">
@@ -1410,9 +1378,7 @@
         </div>
 
 
-
       </div>
-
 
 
       <!-- ===== GUIDE COLUMN ===== -->
@@ -1426,7 +1392,6 @@
             <i data-lucide="book-open" class="w-5 h-5"></i> راهنمای شاخص‌ها
 
           </h2>
-
 
 
           <!-- ضعیف‌ترین شاخص (بر اساس امتیاز سلامت) -->
@@ -1456,7 +1421,6 @@
             </div>
 
           </div>
-
 
 
           <div class="space-y-4 text-[12px] leading-relaxed text-inkSoft">
@@ -1588,9 +1552,7 @@
       </div>
 
 
-
     </main>
-
 
 
     <!-- ========== Marketing Technique Modal ========== -->
@@ -1618,7 +1580,6 @@
             </button>
 
           </div>
-
 
 
           <div class="flex flex-col gap-3 text-[12px]">
@@ -1742,7 +1703,6 @@
           </div>
 
 
-
           <div class="flex gap-2 pt-1">
 
             <button @click="saveTechnique" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-bold py-2.5 rounded-xl transition-colors">
@@ -1760,7 +1720,6 @@
       </div>
 
     </div>
-
 
 
     <!-- ========== Mobile Floating Pill Dock ========== -->
@@ -1792,7 +1751,6 @@
       </button>
 
     </nav>
-
 
 
     <!-- ========== Export/Import section-selection modals (Vue inline templates) ========== -->
@@ -1850,7 +1808,6 @@
     </template>
 
 
-
     <template v-if="importSelecting" class="fixed inset-0 z-[90] flex items-center justify-center p-4">
 
       <div class="fixed inset-0 bg-ink/40 backdrop-blur-sm" @click="closeImportModal"></div>
@@ -1906,7 +1863,6 @@
   </div>
 
 
-
   <!-- ==================== VUE TEMPLATES ==================== -->
 
   <script type="text/x-template" id="tpl-section">
@@ -1932,7 +1888,6 @@
     </div>
 
   </script>
-
 
 
   <script type="text/x-template" id="tpl-number">
@@ -1968,11 +1923,6 @@
   </script>
 
 
-
-
-
-
-
     <!-- Hero KPI Row: Top-level summary metrics -->
     <template id="tpl-hero-kpi">
       <div class="flex flex-wrap gap-3 mb-6">
@@ -1985,11 +1935,6 @@
             <div class="text-[11px] text-inkSoft font-medium mb-0.5">{{ kpi.label }}</div>
             <div class="text-xl font-bold text-ink tracking-tight">{{ kpi.value }}</div>
             <div v-if="kpi.sub" class="text-[10px] text-inkSoft/60 mt-0.5">{{ kpi.sub }}</div>
-          </div>
-          <div v-if="kpi.trend !== undefined" class="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-               :class="kpi.trend >= 0 ? 'text-emerald-700 bg-emerald-50' : 'text-rose-700 bg-rose-50'">
-            <span v-if="kpi.trend >= 0">+{{ kpi.trend }}%</span>
-            <span v-else>{{ kpi.trend }}%</span>
           </div>
         </div>
       </div>
@@ -2036,11 +1981,9 @@
     };
 
 
-
     // پالت رنگ پلن‌ها برای نمودار دایره‌ای — با شناسهٔ پلن یا اندیس رنگ می‌شود
 
     const PLAN_COLORS = ['#0F766E', '#CD7F32', '#94A3B8', '#EAB308', '#059669', '#4F46E5', '#DC2626', '#0D9488', '#D97706', '#7C3AED', '#E11D48', '#0EA5E9'];
-
 
 
     // قیمت مدل‌های LLM (دلار به ازای ۱ میلیون توکن ورودی/خروجی) — آگوست ۲۰۲۶، قیمت‌های رسمی ارائه‌دهندگان
@@ -2102,207 +2045,6 @@
       return MODEL_PRICING[choice] || MODEL_PRICING[TIER_DEFAULT_MODEL[choice]] || MODEL_PRICING[TIER_DEFAULT_MODEL.mid];
 
     };
-
-
-
-    // توضیح هر شاخص: معنی، عوامل مؤثر و راه‌های بهبود — هم در tooltip و هم در بخش راهنما استفاده می‌شود
-
-    const KPI_HELP = {
-
-      netProfit: {
-
-        title: 'سود خالص ماهانه',
-
-        meaning: 'درآمد خالص (بعد از کسر کارمزد درگاه و VAT) منهای هزینهٔ AI، هزینهٔ جذب کاربر (CAC) و هزینهٔ ثابت ماهانه. عدد مثبت یعنی کسب‌وکار در این ماه سود کرده است.',
-
-        factors: ['تعداد کاربران پولی هر پلن', 'قیمت پلن‌ها', 'هزینهٔ AI هر فراخوانی', 'کارمزد درگاه و مالیات', 'CAC و هزینه‌های ثابت'],
-
-        improve: ['افزایش نرخ تبدیل رایگان به پولی', 'کاهش ریزش مؤثر پولی', 'انتخاب مدل ارزان‌تر یا فعال‌کردن کش پرامپت', 'کاهش هزینهٔ ثابت', 'تنظیم قیمت پلن‌ها']
-
-      },
-
-      margin: {
-
-        title: 'حاشیه سود',
-
-        meaning: 'درصدی از درآمد خالص که به‌صورت سود باقی می‌ماند. حاشیهٔ مثبت یعنی هر تومان درآمد، سودی هم به همراه دارد.',
-
-        factors: ['قیمت پلن‌ها', 'هزینهٔ AI', 'هزینه‌های ثابت', 'کارمزد درگاه و مالیات'],
-
-        improve: ['قیمت‌گذاری بهتر پلن‌ها', 'کاهش هزینهٔ AI هر کاربر', 'کاهش هزینه‌های ثابت', 'بهینه‌سازی کارمزد/مالیات']
-
-      },
-
-      ltv: {
-
-        title: 'LTV کاربران پولی',
-
-        meaning: 'میانگین حاشیهٔ مشارکتی که یک کاربر پولی در طول عمرش قبل از ریزش تولید می‌کند. مهم‌ترین معیار سلامت واحد اقتصاد.',
-
-        factors: ['قیمت پلن', 'هزینهٔ AI هر کاربر', 'ریزش مؤثر پولی', 'سهم هر پلن از کاربران'],
-
-        improve: ['کاهش ریزش (اختیاری و غیرارادی)', 'افزایش قیمت پلن‌های پرمصرف', 'کاهش هزینهٔ AI هر کاربر', 'ترویج آپسل به پلن‌های بالاتر']
-
-      },
-
-      breakEven: {
-
-        title: 'نقطه سر‌به‌سر',
-
-        meaning: 'تعداد کاربران پولی که برای پوشش هزینه‌های ثابت ماهانه لازم است. عدد کوچک‌تر یعنی رسیدن به سودآوری آسان‌تر.',
-
-        factors: ['هزینهٔ ثابت ماهانه', 'حاشیهٔ مشارکت هر کاربر پولی'],
-
-        improve: ['کاهش هزینهٔ ثابت', 'افزایش حاشیهٔ مشارکت (قیمت بالاتر یا هزینهٔ AI کمتر)']
-
-      },
-
-      netRevenue: {
-
-        title: 'درآمد خالص (MRR)',
-
-        meaning: 'درآمد ماهانهٔ کاربران پولی بعد از کسر کارمزد درگاه و VAT؛ پولی که واقعاً به دست می‌آید.',
-
-        factors: ['تعداد کاربران پولی', 'قیمت پلن‌ها', 'کارمزد درگاه', 'مالیات بر ارزش افزوده'],
-
-        improve: ['افزایش کاربران پولی', 'قیمت‌گذاری بهتر', 'انتخاب درگاه با کارمزد کمتر', 'بررسی معافیت آموزشی مالیات']
-
-      },
-
-      aiCost: {
-
-        title: 'هزینه کل AI',
-
-        meaning: 'مجموع هزینهٔ ماهانهٔ فراخوانی‌های AI همهٔ کاربران (رایگان و پولی) به تومان.',
-
-        factors: ['تعداد کاربران', 'سهمیهٔ روزانهٔ هر پلن', 'قیمت هر فراخوانی', 'نرخ ارز'],
-
-        improve: ['انتخاب مدل ارزان‌تر', 'فعال‌کردن کش پرامپت', 'کاهش سهمیهٔ کاربران رایگان', 'بهینه‌سازی توکن‌ها']
-
-      },
-
-      costFreeUser: {
-
-        title: 'هزینه AI هر کاربر رایگان',
-
-        meaning: 'هزینهٔ AI که یک کاربر رایگان در ماه برای شما ایجاد می‌کند. اگر بالا باشد، کاربران رایگان پرهزینه می‌شوند.',
-
-        factors: ['سهمیهٔ روزانهٔ رایگان', 'قیمت هر فراخوانی', 'نرخ ارز'],
-
-        improve: ['کاهش سهمیهٔ رایگان', 'مدل ارزان‌تر برای محتوای رایگان', 'دیوار پرداخت ظرفیتی (سقف FSRS)']
-
-      },
-
-      futureProfit: {
-
-        title: 'سود خالص در ماه پایانی',
-
-        meaning: 'سود یا زیان پیش‌بینی‌شده در ماهِ پایانی بازهٔ پروژه؛ نتیجهٔ جمع رشد، ریزش، قیمت و هزینه‌ها در طول زمان.',
-
-        factors: ['رشد کاربران جدید', 'ریزش', 'بازقیمت‌گذاری', 'کاهش هزینهٔ AI', 'CAC'],
-
-        improve: ['بهبود نرخ تبدیل و جذب', 'کنترل ریزش', 'افزایش قیمت در سال دوم', 'کاهش هزینهٔ AI در طول زمان']
-
-      },
-
-      cumulativeCash: {
-
-        title: 'نقدینگی تجمعی',
-
-        meaning: 'مجموع سود/زیان ماهانه از ابتدای پروژه تا ماه آخر؛ وضعیت کلی نقدینگی کسب‌وکار. منفی شدن یعنی پول در حال تمام شدن است.',
-
-        factors: ['همهٔ سودهای ماهانه', 'بودجهٔ تبلیغات', 'هزینه‌های ثابت'],
-
-        improve: ['بهبود سود ماهانه', 'کنترل بودجهٔ تبلیغات', 'تأمین مالی/سرمایه‌گذاری']
-
-      },
-
-      runway: {
-
-        title: 'Runway (باند سوخت)',
-
-        meaning: 'چند ماه با نقدینگی فعلی و مصرف ماهانه می‌توانید قبل از تمام‌شدن پول ادامه دهید. ∞ یعنی ماهانه سودده هستید.',
-
-        factors: ['نقدینگی تجمعی', 'مصرف ماهانه (زیان)'],
-
-        improve: ['کاهش زیان ماهانه', 'افزایش درآمد', 'جذب سرمایه یا کاهش هزینه‌ها']
-
-      },
-
-      cacPayback: {
-
-        title: 'بازپرداخت CAC',
-
-        meaning: 'چند ماه طول می‌کشد تا حاشیهٔ مشارکت یک کاربر جدید هزینهٔ جذب او (CAC) را جبران کند. کوتاه‌تر بهتر است.',
-
-        factors: ['CAC هر کاربر جدید', 'حاشیهٔ مشارکت هر کاربر پولی'],
-
-        improve: ['کاهش CAC (ارجاع، رشد ارگانیک)', 'افزایش حاشیهٔ مشارکت', 'تمرکز روی کانال‌های جذب ارزان']
-
-      },
-
-      d30Retention: {
-
-        title: 'نگه‌داشت ماهانه (D30)',
-
-        meaning: 'درصد کاربران پولی که بعد از ۳۰ روز هنوز مشترک هستند؛ معادل ۱۰۰ منهای ریزش مؤثر.',
-
-        factors: ['ریزش اختیاری', 'ریزش غیرارادی (پیش‌پرداخت)', 'اثر تکنیک‌های نگه‌داشت'],
-
-        improve: ['کاهش ریزش با تکنیک win-back', 'خودکارسازی پرداخت برای ریزش غیرارادی', 'افزایش ارزش دریافتی کاربر']
-
-      },
-
-      arr: {
-
-        title: 'درآمد سالانه (ARR)',
-
-        meaning: 'درآمد سالانهٔ تکرارشونده = درآمد خالص ماه اول × ۱۲؛ مقیاس سالانهٔ درآمد برای مقایسه با استانداردهای SaaS.',
-
-        factors: ['MRR (درآمد خالص ماهانه)'],
-
-        improve: ['بهبود MRR', 'پیشنهاد پلن سالانه با تخفیف برای نقدینگی بهتر']
-
-      },
-
-      contributionPerPaid: {
-
-        title: 'حاشیه مشارکت هر کاربر پولی',
-
-        meaning: 'پولی که بعد از کسر هزینه‌های متغیر (کارمزد، مالیات، هزینهٔ AI) از هر کاربر پولی در ماه می‌ماند؛ پایهٔ محاسبهٔ LTV و سربه‌سر.',
-
-        factors: ['قیمت پلن', 'کارمزد درگاه و مالیات', 'هزینهٔ AI هر کاربر'],
-
-        improve: ['قیمت بالاتر', 'مدل ارزان‌تر', 'ترکیب بهتر پلن‌ها (سهم بیشتر از پلن‌های گران)']
-
-      },
-
-      effPaidChurn: {
-
-        title: 'ریزش مؤثر پولی',
-
-        meaning: 'درصد کاربران پولی که هر ماه از دست می‌دهید = ریزش اختیاری + ریزش غیرارادی − اثر تکنیک‌های کاهش ریزش. پایهٔ محاسبهٔ LTV و نگه‌داشت.',
-
-        factors: ['نرخ ریزش اختیاری', 'ریزش غیرارادی (پیش‌پرداخت/نبود خودکار)', 'اثر تکنیک‌های بازاریابی'],
-
-        improve: ['کاهش ریزش اختیاری با ارزش بیشتر', 'خودکارسازی پرداخت', 'فعال‌کردن تکنیک‌های کاهش ریزش']
-
-      },
-
-      healthScore: {
-
-        title: 'امتیاز سلامت مدل',
-
-        meaning: 'خلاصهٔ کلی سلامت کسب‌وکار از ۱۰۰، بر اساس حاشیهٔ سود، نسبت LTV به CAC، ریزش، نقدینگی و سودآوری ماهانه.',
-
-        factors: ['حاشیه سود', 'LTV نسبت به CAC', 'ریزش مؤثر', 'Runway', 'سودآوری ماهانه'],
-
-        improve: ['بهبود شاخص‌های پایهٔ بالا', 'مرتب‌سازی اولویت‌ها روی ضعیف‌ترین شاخص']
-
-      }
-
-    };
-
 
 
     const DEFAULTS = {
@@ -2544,7 +2286,6 @@
     };
 
 
-
     // --- بخش‌های انتخابی صدور/وارد کردن JSON ---
 
     const EXPORT_SECTIONS = [
@@ -2612,9 +2353,7 @@
     ];
 
 
-
     const { createApp, ref, computed, watch, onMounted, onBeforeUnmount, nextTick } = Vue;
-
 
 
     const app = createApp({
@@ -2787,7 +2526,6 @@
         };
 
 
-
         // کپی عمیقِ آرایه‌های قابل ویرایش تا DEFAULTS آلوده نشوند و reset درست باشد.
 
         const freshDefaults = () => ({
@@ -2799,7 +2537,6 @@
           creditPacks: DEFAULTS.creditPacks.map(p => ({ ...p }))
 
         });
-
 
 
         let initialData = freshDefaults();
@@ -2821,7 +2558,6 @@
         }
 
 
-
         const inp = ref(initialData);
 
         const activeTab = ref('dashboard');
@@ -2830,7 +2566,6 @@
         const isDesktop = ref(window.innerWidth >= 1024);
 
         const fileInput = ref(null);
-
 
 
         // --- ناوبری کناری دسکتاپ: وضعیت باز/بسته در حافظهٔ مرورگر ذخیره می‌شود ---
@@ -2871,12 +2606,8 @@
 
           : 'bg-ink text-white shadow';
 
-        const desktopContentPad = computed(() => ({}));
-
-
 
         let charts = {};
-
 
 
         const CHART_OPEN_KEY = 'hamzaboon_financial_model_chart_open';
@@ -2912,11 +2643,9 @@
         };
 
 
-
         const modelTableOpen = ref(false);
 
         const toggleModelTable = () => { modelTableOpen.value = !modelTableOpen.value; };
-
 
 
         const reset = () => {
@@ -2932,7 +2661,6 @@
           if (!isDesktop.value) activeTab.value = 'dashboard';
 
         };
-
 
 
         // درون‌ریزی/بیرون‌ریزی JSON با انتخاب بخش‌ها (شبیه‌سازی، هزینه‌ها، AI، پلن‌ها، بازاریابی)
@@ -2958,7 +2686,6 @@
         resetSectionSelection();
 
 
-
         const openExportModal = () => {
 
           resetSectionSelection();
@@ -2966,7 +2693,6 @@
           exportSelecting.value = true;
 
         };
-
 
 
         const doExport = () => {
@@ -3022,13 +2748,11 @@
         const closeExportModal = () => { exportSelecting.value = false; };
 
 
-
         const triggerImport = () => { if (fileInput.value) fileInput.value.click(); };
 
         // نگه‌داری نام قبلی برای سازگاری با دکمه‌های header/mobile
 
         const exportJSON = openExportModal;
-
 
 
         const importJSON = (e) => {
@@ -3152,7 +2876,6 @@
         const closeImportModal = () => { importSelecting.value = false; };
 
 
-
         const format = (v, dec = 0) => {
 
           if (!isFinite(v)) return 0;
@@ -3160,7 +2883,6 @@
           return new Intl.NumberFormat('en-US', { maximumFractionDigits: dec, minimumFractionDigits: dec }).format(v);
 
         };
-
 
 
         // جمع اثر تکنیک‌های فعالِ بازاریابی روی مدل مالی (Rule 3)
@@ -3184,7 +2906,6 @@
           return { convBoost, churnReduction, signupBoost };
 
         };
-
 
 
         // هزینهٔ CAC تریال معکوس: مجموع سهم کاربرانِ «واجد شرط» از کاربران جدیدِ هر ماه در همهٔ تکنیک‌های تریالی فعال
@@ -3246,7 +2967,6 @@
           return { costPerUser: costWeightedSum / shareSum, eligibleShare: shareSum };
 
         };
-
 
 
         // --- پلن‌ها: سهم‌ها و توابع مدیریتی ---
@@ -3493,7 +3213,6 @@
         const gotoMarketing = () => { activeTab.value = 'marketing'; };
 
 
-
         // --- CRUD تکنیک‌های بازاریابی ---
 
         const iconOptions = ['flame', 'timer', 'sparkles', 'gift', 'brain-circuit', 'trending-down', 'users-round', 'hourglass', 'rotate-ccw', 'user-plus', 'anchor', 'rocket', 'megaphone', 'target', 'zap', 'hand-coins', 'party-popper', 'heart', 'star'];
@@ -3515,9 +3234,7 @@
         const techForm = ref({ title: '', icon: 'megaphone', desc: '', effectType: 'conversion', effect: 1, min: 0, max: 3, step: 0.1, hasTrial: false, eligibleShare: 15, trialDays: 3, trialPlanId: null });
 
 
-
         const genTechId = () => 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-
 
 
         const openAddTechnique = () => {
@@ -3531,7 +3248,6 @@
           nextTick().then(() => lucide.createIcons());
 
         };
-
 
 
         const openEditTechnique = (t) => {
@@ -3567,7 +3283,6 @@
         };
 
 
-
         const onEffectTypeChange = () => {
 
           const b = boundsByType[techForm.value.effectType] || boundsByType.conversion;
@@ -3575,7 +3290,6 @@
           techForm.value.min = b.min; techForm.value.max = b.max; techForm.value.step = b.step;
 
         };
-
 
 
         const saveTechnique = () => {
@@ -3641,7 +3355,6 @@
         };
 
 
-
         const deleteTechnique = (t) => {
 
           if (!confirm('این تکنیک حذف شود؟')) return;
@@ -3655,9 +3368,7 @@
         };
 
 
-
         const closeTechModal = () => { showTechModal.value = false; editingTechId.value = null; };
-
 
 
         // نویزِ قطعی و محدود برای مقایسهٔ منصفانهٔ سناریوها؛ یک seed ثابت خروجی تکرارپذیر می‌دهد.
@@ -3669,7 +3380,6 @@
           return (raw - Math.floor(raw)) * 2 - 1;
 
         };
-
 
 
         const computeSeries = (params, convRate, growthRate) => {
@@ -3687,7 +3397,6 @@
           // سهم مجموع پلن‌های پولی (برای توزیع آپگریدها)؛ اگر ۰ بود یک پلن پولی نداریم
 
           const totalPaidShare = paidPlans.reduce((s, p) => s + (p.sharePct || 0), 0) || 1;
-
 
 
           // شمارندهٔ کاربران به تفکیک پلن (کلید: شناسه پلن)
@@ -3751,7 +3460,6 @@
           let outstandingCreditBalance = 0;
 
 
-
           const rows = [];
 
           for (let t = 0; t < params.projectionMonths; t++) {
@@ -3761,7 +3469,6 @@
             const priceIdx = Math.pow(1 + renewal, Math.floor(t / 12));
 
             const aiCallPrice = rawCallUSD * cacheFactor * Math.pow(1 - annualDecline, t / 12);
-
 
 
             // --- نقطه شروع ماه: پایهٔ همان ماه (پیش از ورودی‌های جدید این ماه) ---
@@ -3823,7 +3530,6 @@
             const packNetRevenue = Math.round(packGrossRevenue - packFeeToman - packVatToman);
 
 
-
             const aiCalls = plans.reduce((s, p) => s + (start[p.id] || 0) * (p.callsPerDay || 0), 0) * params.periodDays;
 
             const planAiCostToman = Math.round(aiCalls * aiCallPrice * params.exchangeRate);
@@ -3851,7 +3557,6 @@
             const cacToman = Math.round(paidNewSignups * cacPerNewUser);
 
             const trialCACToman = Math.round(newSignups * trialEligibleShare * trialCostPerUser);
-
 
 
             // حاشیه مشارکت = درآمد خالص - هزینه AI - CAC تریال - CAC جذب؛ سود خالص = حاشیه - هزینه ثابت
@@ -3923,13 +3628,11 @@
         };
 
 
-
         const baseSeries = computed(() => computeSeries(inp.value, inp.value.convBase, inp.value.signupGrowthRateBase));
 
         const pSeries = computed(() => computeSeries(inp.value, inp.value.convPessimistic, inp.value.signupGrowthRatePessimistic));
 
         const oSeries = computed(() => computeSeries(inp.value, inp.value.convOptimistic, inp.value.signupGrowthRateOptimistic));
-
 
 
         const totalConversionBoost = computed(() => getMarketingEffects(inp.value).convBoost);
@@ -3945,7 +3648,6 @@
         const mLast = computed(() => baseSeries.value[baseSeries.value.length - 1] || {});
 
 
-
         // قیمت مؤثر هر فراخوانی AI (با کش) — پایهٔ ماه اول
 
         const aiCallPriceUSD = computed(() => {
@@ -3957,7 +3659,6 @@
           return raw * (1 - (inp.value.cacheSavingPct || 0) / 100);
 
         });
-
 
 
         // اعتبارسنجی قیمت دلخواه: هر دو فیلد باید عدد مثبت باشند
@@ -3973,7 +3674,6 @@
         });
 
 
-
         // تغییر انتخاب از دکمه‌های دسته: نگه‌داری آخرین انتخاب غیردلخواه برای برگشت امن
 
         const setModelChoice = (tier) => {
@@ -3985,7 +3685,6 @@
           inp.value.lastModelChoice = id;
 
         };
-
 
 
         // آیا انتخاب فعلی به دستهٔ داده‌شده تعلق دارد؟ (دلخواه → هیچ دکمه‌ای فعال نیست)
@@ -4003,7 +3702,6 @@
         };
 
 
-
         // هنگام انتخاب از منوی کشویی، آخرین انتخاب غیردلخواه را برای برگشت امن نگه می‌داریم
 
         watch(() => inp.value.modelChoice, (v) => {
@@ -4011,7 +3709,6 @@
           if (v !== 'custom') inp.value.lastModelChoice = v;
 
         });
-
 
 
         // حاشیه مشارکت هر کاربر پولی (درآمد خالص - هزینهٔ AI - سهم مالیات/کارمزد) به تفکیک پلن
@@ -4033,7 +3730,6 @@
         });
 
 
-
         const paidUsersM1 = computed(() => {
 
           const m1Counts = m1.value.counts || {};
@@ -4041,7 +3737,6 @@
           return (inp.value.plans || []).filter(p => p.id !== 'free').reduce((s, p) => s + (m1Counts[p.id] || 0), 0);
 
         });
-
 
 
         // حاشیه مشارکت وزنی هر کاربر پولی (تومان در ماه)
@@ -4071,9 +3766,7 @@
         });
 
 
-
         const effPaidChurnPct = computed(() => Math.max(0, (inp.value.paidChurnRate || 0) + (inp.value.involuntaryChurnPct || 0) - totalChurnReduction.value));
-
 
 
         // نقطهٔ سر‌به‌سر واقعی: کاربران پولی موردنیاز برای پوشش هزینه‌های ثابت
@@ -4089,7 +3782,6 @@
           return Math.ceil(fixedMonthly / cpm);
 
         });
-
 
 
         // هزینهٔ AI هر کاربر به تفکیک پلن (ماهانه، تومان)
@@ -4129,7 +3821,6 @@
         });
 
 
-
         const avgLTV = computed(() => {
 
           const churn = effPaidChurnPct.value / 100;
@@ -4143,7 +3834,6 @@
           return Math.round(wMargin / churn);
 
         });
-
 
 
         // --- P6: دید نقدینگی و KPIهای تکمیلی ---
@@ -4409,7 +4099,6 @@
         });
 
 
-
         // حساسیت (تورنادو): تأثیر ±۱۰٪ هر محرک بر سود خالص ماه آخر
 
         const sensitivity = computed(() => {
@@ -4449,7 +4138,6 @@
         });
 
 
-
         const updateCharts = () => {
 
           if (!charts.bar) return;
@@ -4457,7 +4145,6 @@
           charts.bar.data.datasets[0].data = [m1.value.planNetRevenue, m1.value.packNetRevenue, m1.value.aiCostToman, m1.value.fixedToman, m1.value.netProfit];
 
           charts.bar.update();
-
 
 
           charts.pie.data.labels = planCostTotalM1.value.map(x => x.name);
@@ -4469,7 +4156,6 @@
           charts.pie.update();
 
 
-
           charts.line.data.labels = baseSeries.value.map(r => `ماه ${r.month}`);
 
           charts.line.data.datasets[0].data = pSeries.value.map(r => r.netProfit);
@@ -4479,7 +4165,6 @@
           charts.line.data.datasets[2].data = oSeries.value.map(r => r.netProfit);
 
           charts.line.update();
-
 
 
           charts.growth.data.labels = baseSeries.value.map(r => `ماه ${r.month}`);
@@ -4497,7 +4182,6 @@
         };
 
 
-
         watch(inp, (newVal) => {
 
           localStorage.setItem('hamzaboon_financial_model_v2', JSON.stringify(newVal));
@@ -4505,7 +4189,6 @@
           updateCharts();
 
         }, { deep: true });
-
 
 
         watch(activeTab, async (val) => {
@@ -4517,13 +4200,11 @@
         });
 
 
-
         onMounted(() => {
 
           Chart.defaults.font.family = 'Vazirmatn'; Chart.defaults.color = COLORS.inkSoft;
 
           window.addEventListener('resize', () => { isDesktop.value = window.innerWidth >= 1024; });
-
 
 
           charts.bar = new Chart(document.getElementById('barChart'), {
@@ -4541,7 +4222,6 @@
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
 
           });
-
 
 
           charts.pie = new Chart(document.getElementById('pieChart'), {
@@ -4567,7 +4247,6 @@
             options: { responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { position: 'bottom', labels: { font: { size: 10, family: 'Vazirmatn' } } } } }
 
           });
-
 
 
           charts.line = new Chart(document.getElementById('lineChart'), {
@@ -4601,7 +4280,6 @@
             }
 
           });
-
 
 
           charts.growth = new Chart(document.getElementById('growthChart'), {
@@ -4647,13 +4325,11 @@
           });
 
 
-
           updateCharts();
 
           lucide.createIcons({ observe: true });
 
         });
-
 
 
         return {
@@ -4668,7 +4344,7 @@
 
           chartOpen, toggleChart, modelTableOpen, toggleModelTable,
 
-          sidebarCollapsed, toggleSidebar, navItems, navActiveClass, desktopContentPad,
+          sidebarCollapsed, toggleSidebar, navItems, navActiveClass,
 
           totalConversionBoost, totalChurnReduction, totalSignupBoost, trialCACToman,
 
@@ -4676,7 +4352,7 @@
 
           cumulativeCash, runwayMonths, arrToman, cacPaybackMonths, d30RetentionPct, healthScore, sensitivity, cashSeries,
 
-          weakIndicator, KPI_HELP,
+          weakIndicator,
 
           MODEL_PRICING, TIER_MODELS, TIER_LABEL, setModelChoice, getTierOf, customPricesValid,
 
@@ -4701,7 +4377,6 @@
     });
 
 
-
     app.component('section-card', {
 
       template: '#tpl-section',
@@ -4719,7 +4394,6 @@
       }
 
     });
-
 
 
     app.component('number-field', {
@@ -4747,7 +4421,6 @@
       }
 
     });
-
 
 
     app.component('tpl-hero-kpi', {

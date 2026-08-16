@@ -230,7 +230,6 @@ def test_desktop_dock_was_replaced_by_collapsible_sidebar():
 
     assert "hamzaboon_financial_model_sidebar_collapsed" in html
 
-    assert "desktopContentPad" in html
 
 
 
