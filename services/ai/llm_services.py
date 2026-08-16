@@ -33,6 +33,69 @@ _prune_lock = threading.Lock()
 _last_hourly_prune: float = 0.0
 
 
+class LimiterStore:
+    """Explicit, injectable state for the AI limiter (R7/F7, BUG-5).
+
+    Replaces the hidden ``_get_limiter_for_preset._states`` function-attribute
+    dict. Limits (RPM/TPM/concurrency) are read **lazily from the preset on
+    each acquisition** so admin edits apply immediately instead of only at the
+    first request (BUG-5). State is keyed by preset name and is resettable in
+    tests.
+    """
+
+    def __init__(self):
+        self._states: dict[str, dict] = {}
+
+    def limiter_for(self, preset: dict) -> dict:
+        key = preset.get("name", "default")
+        state = self._states.get(key)
+        if state is None:
+            state = {
+                "slots": threading.BoundedSemaphore(self._max_concurrency(preset)),
+                "slots_capacity": self._max_concurrency(preset),
+                "request_times": deque(),
+                "request_lock": threading.Lock(),
+                "token_times": deque(),
+                "token_lock": threading.Lock(),
+                "consecutive_failures": 0,
+                "backoff_until": 0.0,
+            }
+            self._states[key] = state
+        else:
+            # BUG-5: reflect an admin edit to max_concurrency immediately by
+            # rebuilding the semaphore when the configured value changed.
+            desired = self._max_concurrency(preset)
+            if desired != state["slots_capacity"]:
+                state["slots"] = threading.BoundedSemaphore(desired)
+                state["slots_capacity"] = desired
+        return state
+
+    def reset(self) -> None:
+        """Drop all per-preset limiter state (test/restart seam)."""
+        self._states.clear()
+
+    @staticmethod
+    def _max_concurrency(preset: dict) -> int:
+        return int(preset.get("max_concurrency", 2))
+
+    @staticmethod
+    def _max_rpm(preset: dict) -> int:
+        return int(preset.get("max_rpm", 30))
+
+    @staticmethod
+    def _max_tpm(preset: dict) -> int:
+        return int(preset.get("max_tpm", 0))
+
+
+# Module-level default store. Tests inject their own instance.
+_limiter_store = LimiterStore()
+
+
+def get_limiter_store() -> LimiterStore:
+    """Return the module-level limiter store (injectable in tests)."""
+    return _limiter_store
+
+
 def _maybe_prune_hourly_usage():
     """Run the R13 prune at most once per hour per process."""
     global _last_hourly_prune
@@ -50,22 +113,9 @@ def _get_active_preset() -> dict:
     return db.get_active_preset()
 
 
-def _get_limiter_for_preset(preset: dict):
-    """Create or reuse limiter state for a preset."""
-    key = preset.get("name", "default")
-    if not hasattr(_get_limiter_for_preset, "_states"):
-        _get_limiter_for_preset._states = {}
-    if key not in _get_limiter_for_preset._states:
-        _get_limiter_for_preset._states[key] = {
-            "slots": threading.BoundedSemaphore(preset.get("max_concurrency", 2)),
-            "request_times": deque(),
-            "request_lock": threading.Lock(),
-            "token_times": deque(),
-            "token_lock": threading.Lock(),
-            "consecutive_failures": 0,
-            "backoff_until": 0.0,
-        }
-    return _get_limiter_for_preset._states[key]
+def _get_limiter_for_preset(preset: dict) -> dict:
+    """Return (and lazily create) the limiter state dict for a preset."""
+    return _limiter_store.limiter_for(preset)
 
 
 def _preset_in_backoff(limiter: dict, now: float | None = None) -> bool:
@@ -91,11 +141,15 @@ def _is_daily_exhausted(preset: dict) -> bool:
 
 
 def _is_preset_rate_limited(preset: dict) -> bool:
-    """Check if a preset is currently rate-limited (RPM, TPM, or daily cap)."""
+    """Check if a preset is currently rate-limited (RPM, TPM, or daily cap).
+
+    RPM/TPM limits are read lazily from the preset on each call so admin edits
+    apply immediately (BUG-5).
+    """
     limiter = _get_limiter_for_preset(preset)
     now = time.monotonic()
-    max_rpm = preset.get("max_rpm", 30)
-    max_tpm = preset.get("max_tpm", 0)
+    max_rpm = _limiter_store._max_rpm(preset)
+    max_tpm = _limiter_store._max_tpm(preset)
     # RPM check
     with limiter["request_lock"]:
         while limiter["request_times"] and now - limiter["request_times"][0] >= 60:
@@ -118,8 +172,13 @@ def _is_preset_rate_limited(preset: dict) -> bool:
 
 
 def _log_preset_usage(preset: dict, result):
-    """Record usage for a preset after a successful request."""
-    telemetry = getattr(result, "_telemetry", {}) if hasattr(result, "_telemetry") else {}
+    """Record usage for a preset after a successful request.
+
+    Reads real token usage from the ``TrackedResult`` telemetry (BUG-1), so
+    ``token_count`` is the actual provider usage rather than always 0 and the
+    TPM cap is enforced.
+    """
+    telemetry = result.telemetry if isinstance(result, ai.TrackedResult) else {}
     total_tokens = 0
     usage = telemetry.get("usage")
     if usage:
@@ -183,7 +242,11 @@ def _call_ai_limited(function, *args, deadline=None, **kwargs):
             continue
 
         limiter = _get_limiter_for_preset(preset)
-        if not limiter["slots"].acquire(timeout=30):
+        # Capture the semaphore instance we actually acquire so an admin edit
+        # that rebuilds the limiter's semaphore mid-flight cannot make the
+        # finally-block release a different (never-acquired) semaphore.
+        slot = limiter["slots"]
+        if not slot.acquire(timeout=30):
             if i + 1 < len(chain):
                 _log_switch(current_name, chain[i + 1].get("name", "?"), "concurrency slot timeout (30s)")
             continue
@@ -195,7 +258,7 @@ def _call_ai_limited(function, *args, deadline=None, **kwargs):
                 with limiter["request_lock"]:
                     while limiter["request_times"] and now - limiter["request_times"][0] >= 60:
                         limiter["request_times"].popleft()
-                    if len(limiter["request_times"]) < preset.get("max_rpm", 30):
+                    if len(limiter["request_times"]) < _limiter_store._max_rpm(preset):
                         limiter["request_times"].append(now)
                         break
                 time.sleep(0.25)
@@ -205,7 +268,8 @@ def _call_ai_limited(function, *args, deadline=None, **kwargs):
             limiter["consecutive_failures"] = 0
             limiter["backoff_until"] = 0.0
             _log_preset_usage(preset, result)
-            return result
+            value = result.value if isinstance(result, ai.TrackedResult) else result
+            return value
 
         except AIRequestTimedOut:
             raise
@@ -225,7 +289,7 @@ def _call_ai_limited(function, *args, deadline=None, **kwargs):
             continue
 
         finally:
-            limiter["slots"].release()
+            slot.release()
 
     if last_error is not None:
         raise AllPresetsExhausted(

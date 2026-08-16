@@ -89,7 +89,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         kwargs = client.chat.completions.create.call_args.kwargs
         self.assertEqual(kwargs["temperature"], ai.AI_TEMPERATURE)
         self.assertEqual(kwargs["max_tokens"], ai.AI_MAX_OUTPUT_TOKENS)
-        self.assertEqual(result["title"], "Adjectives")
+        self.assertEqual(result.value["title"], "Adjectives")
         self.assertIn("30 tok", logs.output[0])
         row = db.recent_llm_requests(limit=1)[0]
         self.assertEqual(row["user_id"], 1)

@@ -18,7 +18,7 @@ def generate_and_insert_card(lang, goal, level, dry_run=True):
     
     # 2. Call LLM and validate using the bot's own logic
     try:
-        card_dict = ai.ask_card(system_prompt, user_prompt="بساز.")
+        card_dict = ai.ask_card(system_prompt, user_prompt="بساز.").value
     except Exception as e:
         print(f"Error generating card: {e}")
         return

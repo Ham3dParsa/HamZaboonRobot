@@ -4,6 +4,7 @@ import os
 import re
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 
 from openai import OpenAI
 
@@ -12,7 +13,6 @@ from config import (
     AI_TEMPERATURE,
     AI_TIMEOUT_SECONDS,
     DEFAULT_AI_BASE_URL,
-    DEFAULT_AI_API_KEY,
     DEFAULT_AI_MODEL,
     COST,
 )
@@ -22,27 +22,35 @@ from services.ai import prompts
 log = logging.getLogger(__name__)
 
 
-def _client(preset: dict | None = None) -> OpenAI:
-    """Create an OpenAI client using the given preset or active settings."""
+def create_client(preset: dict | None = None, *, api_key_override: str | None = None) -> OpenAI:
+    """Create an OpenAI client for a preset (or the active settings).
+
+    This is the single seam for constructing an OpenAI client. API keys are
+    resolved **only** through ``db.resolve_preset_key(preset)``, which is
+    fail-closed: a missing master key or absent preset key resolves to ``""``
+    and never to a plaintext fallback (BUG-2). The explicit ``api_key_override``
+    is reserved for admin connection probes (``test_connection``) where the
+    caller intentionally supplies credentials to test; it is never inferred.
+    """
     if preset is None:
         preset = db.get_active_preset()
     base_url = preset.get("base_url", "") or DEFAULT_AI_BASE_URL
-    api_key = db.resolve_preset_key(preset)
-    if not api_key:
-        stored = db.get_setting("ai_api_key", "")
-        # The legacy ai_api_key setting is stored encrypted at rest (Phase 5);
-        # decrypt it like any preset key. If the stored setting is absent or
-        # undecryptable (e.g. no master key configured), fall back to the
-        # documented AI_API_KEY env var as plaintext so env-only deployments
-        # keep working. Fail-closed to "" only when nothing is configured.
-        resolved = db.decrypt_secret(stored) if stored else ""
-        api_key = resolved or DEFAULT_AI_API_KEY
+    api_key = (
+        api_key_override
+        if api_key_override is not None
+        else db.resolve_preset_key(preset)
+    )
     timeout = preset.get("timeout_seconds", AI_TIMEOUT_SECONDS)
     return OpenAI(
         base_url=base_url,
         api_key=api_key,
         timeout=timeout,
     )
+
+
+def _client(preset: dict | None = None) -> OpenAI:
+    """Thin compatibility alias delegating to the single ``create_client`` seam."""
+    return create_client(preset)
 
 
 def _model(preset: dict | None = None) -> str:
@@ -59,8 +67,16 @@ def test_connection(
     model: str,
     timeout: float = AI_TIMEOUT_SECONDS,
 ) -> dict:
-    """Lightweight connection test (not tracked in llm_requests)."""
-    client = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
+    """Lightweight connection test (not tracked in llm_requests).
+
+    Routes client construction through ``create_client`` so the connection
+    probe shares the same fail-closed/key-resolution seam (BUG-3). The
+    ``api_key`` here is the explicit override the caller intends to test.
+    """
+    client = create_client(
+        {"base_url": base_url, "model": model, "timeout_seconds": timeout},
+        api_key_override=api_key,
+    )
     started = time.monotonic()
     try:
         resp = client.chat.completions.create(
@@ -274,12 +290,16 @@ def _call_tracked(
     to ``_log_llm_request`` (the ``llm_requests`` table); a test-only caller
     may pass a different writer (e.g. to the ``config_tests`` table) so that
     throwaway/test calls do not pollute the cost dashboard.
+
+    Returns a ``TrackedResult`` wrapping the value and the telemetry so the
+    AI limiter can read real token usage (BUG-1). Callers that do not need the
+    telemetry read ``.value``.
     """
     telemetry: dict[str, object] = {}
     error: Exception | None = None
     writer = log_target if log_target is not None else _log_llm_request
     try:
-        return fn(telemetry)
+        value = fn(telemetry)
     except Exception as exc:
         error = exc
         raise
@@ -296,10 +316,25 @@ def _call_tracked(
             preset=preset,
             error=error,
         )
+    return TrackedResult(value=value, telemetry=telemetry)
 
 
 class RateLimitError(Exception):
     """Raised when an AI provider returns HTTP 429 (rate limited)."""
+
+
+@dataclass
+class TrackedResult:
+    """Return value of a tracked AI call, carrying its telemetry.
+
+    The limiter reads ``.telemetry`` to apply real TPM enforcement (BUG-1) and
+    unwraps ``.value`` before handing the result to callers, so the public
+    functions keep returning their plain dict/list value to callers while the
+    token usage stays visible to the quota layer.
+    """
+
+    value: object
+    telemetry: dict[str, object] = field(default_factory=dict)
 
 
 class CardValidationError(ValueError):
@@ -541,7 +576,7 @@ def repair_card(
     user_id: int | None = None,
     plan: str | None = None,
     preset: dict | None = None,
-) -> dict:
+) -> TrackedResult:
     def _run(telemetry: dict[str, object]) -> dict:
         value = _request_json(
             prompts.card_repair_system_prompt(lang, card, fields),
@@ -614,7 +649,7 @@ def ask_json(
     user_id: int | None = None,
     plan: str | None = None,
     preset: dict | None = None,
-) -> dict:
+) -> TrackedResult:
     def _run(telemetry: dict[str, object]) -> dict:
         value = _request_json(
             system_prompt,
@@ -646,7 +681,7 @@ def ask_card(
     user_id: int | None = None,
     plan: str | None = None,
     preset: dict | None = None,
-) -> dict:
+) -> TrackedResult:
     def _run(telemetry: dict[str, object]) -> dict:
         value = _request_json(
             system_prompt,
@@ -735,7 +770,7 @@ def ask_batch(
     user_id: int | None = None,
     plan: str | None = None,
     preset: dict | None = None,
-) -> list[dict]:
+) -> TrackedResult:
     def _run(telemetry: dict[str, object]) -> list[dict]:
         diagnostics: dict[str, int] = {}
         rejection_reasons: dict[str, int] = {}

@@ -200,11 +200,13 @@ class ResolveApiKeyPhase5Test(_ScratchDbTestCase):
 
 
 class AiClientEnvFallbackTest(_ScratchDbTestCase):
-    """Phase 5 (R4/R1) — env-only deployments still resolve without a master key.
+    """BUG-2 — env-only deployments FAIL CLOSED (never fall back to plaintext).
 
-    When the active preset has no key and the stored ai_api_key setting is
-    undecryptable (no AI_MASTER_KEY configured), the documented AI_API_KEY env
-    var must still be used as the plaintext fallback.
+    Client construction resolves the API key solely through the encrypt/decrypt
+    seam (``db.resolve_preset_key``). When the active preset has no key and no
+    ``AI_MASTER_KEY`` is configured, the resolution is empty — never a
+    plaintext env-key fallback. The single ``create_client`` seam (which
+    ``test_connection`` also routes through) must surface that empty key.
     """
 
     def _no_master_key(self):
@@ -212,19 +214,24 @@ class AiClientEnvFallbackTest(_ScratchDbTestCase):
         p.start()
         self.addCleanup(p.stop)
 
-    def test_env_only_fallback_resolves_without_master_key(self):
+    def test_env_only_resolves_fail_closed_without_master_key(self):
         self._no_master_key()
         db_module.init_db()
         import services.ai.ai as ai_module
 
         captor = mock.MagicMock()
-        with mock.patch.object(ai_module, "DEFAULT_AI_API_KEY", "env-only-secret-123"):
-            with mock.patch("services.ai.ai.OpenAI", captor):
-                ai_module._client(
-                    {"base_url": "", "api_key": "", "model": "", "timeout_seconds": 30}
-                )
+        with mock.patch("services.ai.ai.OpenAI", captor):
+            ai_module.create_client(
+                {"base_url": "", "api_key": "", "model": "", "timeout_seconds": 30}
+            )
         captor.assert_called_once()
-        self.assertEqual(captor.call_args.kwargs["api_key"], "env-only-secret-123")
+        self.assertEqual(captor.call_args.kwargs["api_key"], "")
+        # create_client is the only client seam; _client and test_connection
+        # must route through it so the fail-closed contract holds everywhere.
+        import inspect
+        for name in ("_client", "test_connection"):
+            src = inspect.getsource(getattr(ai_module, name))
+            self.assertIn("create_client", src)
 
 
 if __name__ == "__main__":

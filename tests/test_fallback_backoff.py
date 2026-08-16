@@ -44,10 +44,10 @@ class _BackoffIsolatedDb(unittest.TestCase):
         db.init_db()
         for existing in db.get_presets():
             db.delete_preset(existing["name"])
-        llm_services._get_limiter_for_preset._states = {}
+        llm_services.get_limiter_store().reset()
 
     def tearDown(self):
-        llm_services._get_limiter_for_preset._states = {}
+        llm_services.get_limiter_store().reset()
         db.DB_PATH = self.t0
         db_schema.DB_PATH = self.t1
         self.tempdir.cleanup()

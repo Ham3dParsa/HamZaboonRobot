@@ -1539,7 +1539,9 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
 
     await notify_callback(update.callback_query, "در حال اجرای تست...", intent=CallbackNoticeIntent.INFO)
 
-    system_prompt = prompts.daily_batch_system_prompt(lang, goal, level, compact=False)
+    system_prompt = prompts.daily_batch_system_prompt(
+        lang, goal, level, compact=prompts.card_output_is_compact()
+    )
 
     results = []
 
