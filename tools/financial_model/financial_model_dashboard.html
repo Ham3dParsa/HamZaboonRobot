@@ -11,7 +11,6 @@
   <title>داشبورد مالی هم‌زبان</title>
 
 
-
   <!-- Fonts -->
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -19,7 +18,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
   <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
 
 
   <!-- Tailwind CSS -->
@@ -59,20 +57,13 @@
   </script>
 
 
-
-  <!-- Vue 3 & Chart.js & Lucide Icons & Floating UI -->
+  <!-- Vue 3 & Chart.js & Lucide Icons -->
 
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <script src="https://unpkg.com/lucide@latest"></script>
-
-  <script src="https://cdn.jsdelivr.net/npm/@floating-ui/core@1.6.0/dist/floating-ui.core.umd.min.js"></script>
-
-  <script src="https://cdn.jsdelivr.net/npm/@floating-ui/dom@1.6.11/dist/floating-ui.dom.umd.js"></script>
-
-
 
   <style>
 
@@ -81,7 +72,6 @@
     * { box-sizing: border-box; }
 
     [v-cloak] { display: none !important; }
-
 
 
     .hz-slider {
@@ -134,14 +124,6 @@
 
     .hz-scroll::-webkit-scrollbar-thumb:hover { background: #0D9488; }
 
-
-
-    .hz-tip-enter-active, .hz-tip-leave-active { transition: opacity .12s ease, transform .12s ease; }
-
-    .hz-tip-enter-from, .hz-tip-leave-to { opacity: 0; transform: translateY(4px); }
-
-
-
     .accordion-grid { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .3s ease; }
 
     .accordion-grid.open { grid-template-rows: 1fr; }
@@ -161,9 +143,7 @@
 <body class="min-h-screen w-full selection:bg-turquoiseSoft selection:text-turquoiseDeep">
 
 
-
   <div id="app" v-cloak class="flex flex-col min-h-screen pb-24 lg:pb-0 relative">
-
 
 
     <!-- ========== Top Header ========== -->
@@ -189,7 +169,6 @@
           </div>
 
         </div>
-
 
 
         <div class="hidden lg:flex items-center gap-2 mr-auto ml-4">
@@ -219,7 +198,6 @@
       </div>
 
     </header>
-
 
 
     <!-- ========== Desktop Sidebar Navigation ========== -->
@@ -259,16 +237,15 @@
     </aside>
 
 
-
     <!-- ========== Main Body ========== -->
 
-    <main class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-10 py-6 grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6 items-start flex-1 w-full" :style="desktopContentPad">
-
+    <main class="max-w-[1440px] mx-auto px-4 sm:px-6 py-6 flex-1 w-full transition-all duration-300"
+          :class="sidebarCollapsed ? 'lg:pr-24' : 'lg:pr-72'">
 
 
       <!-- ===== INPUTS COLUMN ===== -->
 
-      <div v-show="activeTab === 'inputs'" class="flex flex-col gap-4 lg:sticky lg:top-[90px]">
+      <div v-show="activeTab === 'inputs'" class="flex flex-col gap-4">
 
         <div class="lg:hidden flex items-center gap-2">
 
@@ -313,7 +290,6 @@
         </div>
 
 
-
         <section-card title="پلن‌ها و تعداد کاربران" en="Plans & Users" icon="users">
 
           <template v-if="inp.inputMode === 'conversion'">
@@ -345,7 +321,6 @@
           </template>
 
         </section-card>
-
 
 
         <section-card title="قیمت و سهم — نمای تحلیلی" en="Pricing & Share — Analysis" icon="tags" :default-open="false">
@@ -541,7 +516,6 @@
         </section-card>
 
 
-
         <section-card title="قیمت و هزینه AI" en="Pricing & AI" icon="wallet">
 
           <number-field label="هزینه هر فراخوانی AI" en="Cost per Call" v-model="inp.aiCostPerCallUSD" :min="0.0001" :max="0.002" :step="0.00005" unit="$"></number-field>
@@ -551,7 +525,6 @@
           <p class="text-[10px] text-inkSoft/70 leading-relaxed mt-1">قیمت، سهمیه و ترکیب ارتقای پلن‌ها از جدول تحلیلی بالا یا «مدیریت پلن‌ها» قابل ویرایش است؛ قیمت و سهم فروش بسته‌های Query در «مدیریت بسته‌های اعتبار» تنظیم می‌شود.</p>
 
         </section-card>
-
 
 
         <section-card title="مدل AI و هزینه واقعی" en="AI Model & Cost" icon="cpu">
@@ -677,7 +650,6 @@
         </section-card>
 
 
-
         <section-card title="هزینه‌های مالی و ثابت" en="Financial & Fixed Costs" icon="landmark" :default-open="false">
 
           <number-field label="کارمزد درگاه پرداخت" en="Payment Fee" v-model="inp.paymentFeePct" :min="0" :max="6" :step="0.1" unit="٪"></number-field>
@@ -721,7 +693,6 @@
           <number-field label="سهم ثبت‌نام‌های ارجاعی" en="Referral Share" v-model="inp.referralShareOfSignups" :min="0" :max="50" :step="1" unit="٪"></number-field>
 
         </section-card>
-
 
 
         <section-card title="رشد و ریزش" en="Growth & Churn" icon="trending-up" :default-open="false">
@@ -771,57 +742,13 @@
       </div>
 
 
-
       <!-- ===== DASHBOARD COLUMN ===== -->
 
       <div v-show="activeTab === 'dashboard'" class="flex flex-col gap-6 min-w-0">
 
-        <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+        <tpl-hero-kpi :hero-kpis="heroKpis"></tpl-hero-kpi>
 
-          <kpi-card title="سود خالص ماهانه" en="Net Profit" icon="wallet" :tone="m1.netProfit >= 0 ? 'emerald' : 'rose'" :value="m1.netProfit" type="toman" sub="درآمد خالص - هزینه AI - CAC - هزینه ثابت" :help="KPI_HELP.netProfit"></kpi-card>
-
-          <kpi-card title="حاشیه سود" en="Profit Margin" icon="percent" :tone="m1.margin >= 0 ? 'turquoise' : 'rose'" :value="m1.margin" type="percent" sub="سود خالص تقسیم بر درآمد خالص" :help="KPI_HELP.margin"></kpi-card>
-
-          <kpi-card title="LTV کاربران پولی" en="Avg. LTV" icon="users" tone="indigo" :value="avgLTV" type="toman" sub="حاشیه مشارکت تقسیم بر ریزش مؤثر" :help="KPI_HELP.ltv"></kpi-card>
-
-          <kpi-card title="نقطه سر‌به‌سر" en="Break-even" icon="piggy-bank" tone="amber" :value="breakEvenUsers" type="number" sub="کاربر پولی برای پوشش هزینهٔ ثابت" :help="KPI_HELP.breakEven"></kpi-card>
-
-          <kpi-card title="درآمد خالص (MRR)" en="Net Revenue" icon="trending-up" tone="emerald" :value="m1.netRevenue" type="toman" sub="بعد از کارمزد درگاه و VAT" :help="KPI_HELP.netRevenue"></kpi-card>
-
-          <kpi-card title="درآمد بسته‌های Query" en="Query Pack Revenue" icon="ticket" tone="indigo" :value="m1.packNetRevenue" type="toman" sub="درآمد خالص خریدهای یک‌باره در ماه اول" :help="KPI_HELP.netRevenue"></kpi-card>
-
-          <kpi-card title="هزینه کل AI" en="Total AI Cost" icon="wallet" tone="rose" :value="m1.aiCostToman" type="toman" :sub="'$' + format(m1.aiCostUSD, 2)" :help="KPI_HELP.aiCost"></kpi-card>
-
-          <kpi-card title="هزینه AI هر کاربر رایگان" en="Cost / Free User" icon="users" tone="rose" :value="costFreeUser" type="toman" sub="در ماه" :help="KPI_HELP.costFreeUser"></kpi-card>
-
-          <kpi-card :title="'سود خالص در ماه ' + inp.projectionMonths" en="Future Profit" icon="line-chart" :tone="mLast.netProfit >= 0 ? 'emerald' : 'rose'" :value="mLast.netProfit" type="toman" :help="KPI_HELP.futureProfit"></kpi-card>
-
-        </div>
-
-
-
-        <!-- ===== P6: نقدینگی و شاخص‌های تکمیلی ===== -->
-
-        <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
-
-          <kpi-card title="نقدینگی تجمعی (ماه آخر)" en="Cumulative Cash" icon="landmark" :tone="cumulativeCash >= 0 ? 'emerald' : 'rose'" :value="cumulativeCash" type="toman" sub="مجموع سود/زیان ماه‌به‌ماه" :help="KPI_HELP.cumulativeCash"></kpi-card>
-
-          <kpi-card title="Runway (باند سوخت)" en="Runway" icon="timer" :tone="runwayMonths === Infinity || runwayMonths >= 12 ? 'emerald' : 'rose'" :value="runwayMonths === Infinity ? '∞' : Math.round(runwayMonths)" type="number" sub="ماه تا پایان نقدینگی" :help="KPI_HELP.runway"></kpi-card>
-
-          <kpi-card title="بازپرداخت CAC" en="CAC Payback" icon="refresh-ccw" tone="turquoise" :value="cacPaybackMonths" type="number" sub="ماه تا بازگشت هزینهٔ جذب" :help="KPI_HELP.cacPayback"></kpi-card>
-
-          <kpi-card title="نگه‌داشت ماهانه (D30)" en="D30 Retention" icon="heart-handshake" tone="indigo" :value="d30RetentionPct" type="percent" sub="بر اساس ریزش مؤثر پولی" :help="KPI_HELP.d30Retention"></kpi-card>
-
-          <kpi-card title="درآمد سالانه (ARR)" en="ARR" icon="calendar" tone="emerald" :value="arrToman" type="toman" sub="MRR × 12" :help="KPI_HELP.arr"></kpi-card>
-
-          <kpi-card title="حاشیه مشارکت هر کاربر پولی" en="Contribution / Paid User" icon="coffee" tone="amber" :value="contributionPerPaidUser" type="toman" sub="درآمد - هزینه AI - مالیات/کارمزد" :help="KPI_HELP.contributionPerPaid"></kpi-card>
-
-          <kpi-card title="ریزش مؤثر پولی" en="Effective Paid Churn" icon="arrow-down-right" :tone="effPaidChurnPct <= 15 ? 'emerald' : 'rose'" :value="effPaidChurnPct" type="percent" sub="اختیاری + غیرارادی - اثر تکنیک‌ها" :help="KPI_HELP.effPaidChurn"></kpi-card>
-
-          <kpi-card title="امتیاز سلامت مدل" en="Model Health" icon="activity" :tone="healthScore >= 60 ? 'emerald' : (healthScore >= 30 ? 'amber' : 'rose')" :value="healthScore" type="number" sub="از ۱۰۰" :help="KPI_HELP.healthScore"></kpi-card>
-
-        </div>
-
+        <tpl-stat-row v-for="g in statGroups" :key="g.key" :group="g"></tpl-stat-row>
 
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -873,7 +800,6 @@
         </div>
 
 
-
         <div class="bg-card border border-line rounded-2xl p-4 shadow-sm">
 
           <div class="mb-4 flex items-center justify-between gap-2">
@@ -897,7 +823,6 @@
         </div>
 
 
-
         <div class="bg-card border border-line rounded-2xl p-4 shadow-sm">
 
           <div class="mb-4 flex items-center justify-between gap-2">
@@ -919,7 +844,6 @@
           </div>
 
         </div>
-
 
 
         <div class="bg-card border border-line rounded-2xl p-4 shadow-sm overflow-hidden flex flex-col">
@@ -1005,7 +929,6 @@
         </div>
 
 
-
         <!-- ===== P6: حساسیت (تورنادو) ===== -->
 
         <div class="bg-card border border-line rounded-2xl p-5 shadow-sm">
@@ -1049,11 +972,9 @@
       </div>
 
 
-
       <!-- ===== MARKETING & GROWTH TAB ===== -->
 
       <div v-show="activeTab === 'marketing'" class="lg:col-span-2 flex flex-col gap-6">
-
 
 
         <div class="bg-gradient-to-br from-indigoSoft to-purple-100 border border-indigo-200 rounded-2xl p-5 shadow-sm">
@@ -1067,7 +988,6 @@
           <p class="text-xs text-indigo-800/70 mb-1">هر تکنیک را می‌توانید فعال/غیرفعال کنید، بسازید، ویرایش یا حذف کنید؛ شدت اثر تخمینی‌اش را روی نرخ تبدیل، ریزش یا رشد ثبت‌نام تنظیم کنید — این عدد مستقیماً در محاسبات داشبورد اعمال می‌شود.</p>
 
           <p class="text-[10px] text-indigo-800/50 mb-5">این درصدها تخمینی هستند، نه دادهٔ واقعی؛ بعد از جمع‌آوری آمار واقعی کاربران قابل کالیبره‌کردن‌اند.</p>
-
 
 
           <div class="flex flex-wrap gap-2 mb-4 text-[11px] font-bold">
@@ -1095,7 +1015,6 @@
             </button>
 
           </div>
-
 
 
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1187,7 +1106,6 @@
         </div>
 
 
-
         <div class="bg-card border border-line rounded-2xl p-5 shadow-sm">
 
           <div class="flex items-center justify-between mb-4 border-b pb-3 gap-2">
@@ -1208,45 +1126,25 @@
 
           <p class="text-[10px] text-inkSoft/70 mb-4 leading-relaxed">پلن‌ها را تعریف، نام/قیمت/سهمیه/سهم را ویرایش و یادداشت تفکیکی هر پلن را نگهداری کنید. تغییرات بلافاصله در محاسبات داشبورد اعمال می‌شود. سهم‌ها به‌صورت خودکار روی ۱۰۰٪ متوازن می‌شوند؛ پلن رایگان همیشه index 0 است.</p>
 
-          <div class="flex flex-col gap-3">
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
 
-            <div class="flex flex-wrap gap-2">
-
-              <button v-for="(p, idx) in inp.plans" :key="'sel-' + p.id" type="button" @click="selectedPlanId = p.id"
-
-                      class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border transition-colors"
-
-                      :class="selectedPlanId === p.id ? 'bg-ink text-white border-ink' : 'bg-card border-line text-inkSoft hover:bg-paper'"
-
-                      :style="selectedPlanId === p.id ? {} : { borderInlineStart: '3px solid ' + (PLAN_COLORS[idx] || '#0D9488') }">
-
-                <span class="w-2 h-2 rounded-full" :style="{ background: (PLAN_COLORS[idx] || '#0D9488') }"></span>
-
-                {{ p.name }}
-
-              </button>
-
-            </div>
-
-            <div v-if="selectedPlanView.plan"
-
+            <div v-for="(p, idx) in inp.plans" :key="p.id"
                  class="bg-paper/60 border border-line/80 rounded-xl p-4 flex flex-col gap-3"
-
-                 :style="selectedPlanView.plan.id !== 'free' ? { borderInlineStart: '3px solid ' + (PLAN_COLORS[selectedPlanView.idx] || '#0D9488') } : {}">
+                 :style="p.id !== 'free' ? { borderInlineStart: '3px solid ' + (PLAN_COLORS[idx] || '#0D9488') } : {}">
 
               <div class="flex items-center justify-between gap-2">
 
                 <div class="flex items-center gap-2 flex-1 min-w-0">
 
-                  <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :style="{ background: (PLAN_COLORS[selectedPlanView.idx] || '#0D9488') }"></span>
+                  <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :style="{ background: (PLAN_COLORS[idx] || '#0D9488') }"></span>
 
-                  <span class="text-[10px] font-bold text-inkSoft bg-card border border-line rounded-lg px-2 py-1 flex-shrink-0" :class="selectedPlanView.plan.id === 'free' ? 'text-turquoiseDeep' : ''">{{ selectedPlanView.plan.id === 'free' ? 'رایگان' : 'پلن ' + selectedPlanView.idx }}</span>
+                  <span class="text-[10px] font-bold text-inkSoft bg-card border border-line rounded-lg px-2 py-1 flex-shrink-0" :class="p.id === 'free' ? 'text-turquoiseDeep' : ''">{{ p.id === 'free' ? 'رایگان' : 'پلن ' + idx }}</span>
 
-                  <input v-model="selectedPlanView.plan.name" type="text" class="bg-card border border-line rounded-lg px-2 py-1.5 text-[12px] font-bold outline-none focus:border-turquoiseDeep transition flex-1 min-w-0">
+                  <input v-model="p.name" type="text" class="bg-card border border-line rounded-lg px-2 py-1.5 text-[12px] font-bold outline-none focus:border-turquoiseDeep transition flex-1 min-w-0">
 
                 </div>
 
-                <button v-if="selectedPlanView.plan.id !== 'free'" @click="removePlan(selectedPlanView.plan)" title="حذف پلن" class="p-1.5 rounded-lg text-rose hover:bg-roseSoft transition-colors flex-shrink-0">
+                <button v-if="p.id !== 'free'" @click="removePlan(p)" title="حذف پلن" class="p-1.5 rounded-lg text-rose hover:bg-roseSoft transition-colors flex-shrink-0">
 
                   <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
 
@@ -1262,35 +1160,35 @@
 
                   <label class="text-[10px] font-bold text-inkSoft block mb-1">نام انگلیسی</label>
 
-                  <input v-model="selectedPlanView.plan.nameEn" type="text" dir="ltr" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-turquoiseDeep transition">
+                  <input v-model="p.nameEn" type="text" dir="ltr" class="w-full bg-card border border-line rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-turquoiseDeep transition">
 
                 </div>
 
-                <div v-if="selectedPlanView.plan.id !== 'free'">
+                <div v-if="p.id !== 'free'">
 
                   <label class="text-[10px] font-bold text-inkSoft block mb-1">قیمت (تومان)</label>
 
-                  <input v-model.number="selectedPlanView.plan.price" type="number" min="0" max="3000000" step="1000" dir="ltr" @change="clampPlanField(selectedPlanView.plan, 'price', 0, 3000000)" class="w-full min-h-[44px] bg-card border border-line rounded-lg px-2 py-2 text-[11px] outline-none focus:border-turquoiseDeep transition">
+                  <input v-model.number="p.price" type="number" min="0" max="3000000" step="1000" dir="ltr" @change="clampPlanField(p, 'price', 0, 3000000)" class="w-full min-h-[44px] bg-card border border-line rounded-lg px-2 py-2 text-[11px] outline-none focus:border-turquoiseDeep transition">
 
                 </div>
 
               </div>
 
-              <div v-if="selectedPlanView.plan.id !== 'free'" class="grid grid-cols-2 gap-2.5 pt-3 border-t border-dashed border-line/70">
+              <div v-if="p.id !== 'free'" class="grid grid-cols-2 gap-2.5 pt-3 border-t border-dashed border-line/70">
 
                 <div>
 
                   <label class="text-[10px] font-bold text-inkSoft block mb-1">سهمیه روزانه</label>
 
-                  <input v-model.number="selectedPlanView.plan.callsPerDay" type="number" min="0" max="100" step="1" dir="ltr" @change="clampPlanField(selectedPlanView.plan, 'callsPerDay', 0, 100)" class="w-full min-h-[44px] bg-card border border-line rounded-lg px-2 py-2 text-[11px] outline-none focus:border-turquoiseDeep transition">
+                  <input v-model.number="p.callsPerDay" type="number" min="0" max="100" step="1" dir="ltr" @change="clampPlanField(p, 'callsPerDay', 0, 100)" class="w-full min-h-[44px] bg-card border border-line rounded-lg px-2 py-2 text-[11px] outline-none focus:border-turquoiseDeep transition">
 
                 </div>
 
                 <div>
 
-                  <label class="text-[10px] font-bold text-inkSoft block mb-1">سهم آپگرید — {{ Math.round(selectedPlanView.plan.sharePct) }}٪</label>
+                  <label class="text-[10px] font-bold text-inkSoft block mb-1">سهم آپگرید — {{ Math.round(p.sharePct) }}٪</label>
 
-                  <input type="range" v-model.number="selectedPlanView.plan.sharePct" :min="0" :max="100" :step="1" class="hz-slider w-full mt-2.5" @input="autoBalanceShare(selectedPlanView.plan.id, $event.target.value)">
+                  <input type="range" v-model.number="p.sharePct" :min="0" :max="100" :step="1" class="hz-slider w-full mt-2.5" @input="autoBalanceShare(p.id, $event.target.value)">
 
                 </div>
 
@@ -1300,7 +1198,7 @@
 
                 <label class="text-[10px] font-bold text-inkSoft block mb-1">یادداشت تفکیکی پلن</label>
 
-                <textarea v-model="selectedPlanView.plan.notes" rows="2" class="w-full bg-card border border-line rounded-lg p-2.5 text-[11px] text-inkSoft outline-none focus:border-turquoiseDeep transition"></textarea>
+                <textarea v-model="p.notes" rows="2" class="w-full bg-card border border-line rounded-lg p-2.5 text-[11px] text-inkSoft outline-none focus:border-turquoiseDeep transition"></textarea>
 
               </div>
 
@@ -1317,7 +1215,6 @@
           </div>
 
         </div>
-
 
 
         <div class="bg-card border border-line rounded-2xl p-5 shadow-sm">
@@ -1363,7 +1260,6 @@
             <div class="text-[10px] text-indigo-900/70 leading-relaxed">نرخ خرید روی کاربران رایگان ماه شروع ماه اعمال می‌شود. نویز فقط برای واقع‌گرایی شبیه‌سازی است و با بذر ثابت، مقایسهٔ سناریوها تکرارپذیر می‌ماند.</div>
 
           </div>
-
 
 
           <div class="flex flex-col gap-4">
@@ -1471,9 +1367,7 @@
         </div>
 
 
-
       </div>
-
 
 
       <!-- ===== GUIDE COLUMN ===== -->
@@ -1487,7 +1381,6 @@
             <i data-lucide="book-open" class="w-5 h-5"></i> راهنمای شاخص‌ها
 
           </h2>
-
 
 
           <!-- ضعیف‌ترین شاخص (بر اساس امتیاز سلامت) -->
@@ -1517,7 +1410,6 @@
             </div>
 
           </div>
-
 
 
           <div class="space-y-4 text-[12px] leading-relaxed text-inkSoft">
@@ -1649,9 +1541,7 @@
       </div>
 
 
-
     </main>
-
 
 
     <!-- ========== Marketing Technique Modal ========== -->
@@ -1679,7 +1569,6 @@
             </button>
 
           </div>
-
 
 
           <div class="flex flex-col gap-3 text-[12px]">
@@ -1803,7 +1692,6 @@
           </div>
 
 
-
           <div class="flex gap-2 pt-1">
 
             <button @click="saveTechnique" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-bold py-2.5 rounded-xl transition-colors">
@@ -1821,7 +1709,6 @@
       </div>
 
     </div>
-
 
 
     <!-- ========== Mobile Floating Pill Dock ========== -->
@@ -1853,7 +1740,6 @@
       </button>
 
     </nav>
-
 
 
     <!-- ========== Export/Import section-selection modals (Vue inline templates) ========== -->
@@ -1911,7 +1797,6 @@
     </template>
 
 
-
     <template v-if="importSelecting" class="fixed inset-0 z-[90] flex items-center justify-center p-4">
 
       <div class="fixed inset-0 bg-ink/40 backdrop-blur-sm" @click="closeImportModal"></div>
@@ -1967,7 +1852,6 @@
   </div>
 
 
-
   <!-- ==================== VUE TEMPLATES ==================== -->
 
   <script type="text/x-template" id="tpl-section">
@@ -1993,7 +1877,6 @@
     </div>
 
   </script>
-
 
 
   <script type="text/x-template" id="tpl-number">
@@ -2029,116 +1912,44 @@
   </script>
 
 
-
-  <script type="text/x-template" id="tpl-kpi">
-
-    <div ref="cardEl" class="rounded-2xl p-4 flex flex-col gap-2 bg-card border border-line shadow-sm relative overflow-visible" @mouseenter="onHover(true)" @mouseleave="onHover(false)" @click="onTap">
-
-      <div class="flex items-start justify-between relative z-10">
-
-        <span class="text-[11px] font-bold text-inkSoft inline-flex items-center gap-1 flex-wrap">
-
-          {{ title }}
-
-          <span v-if="help" class="inline-flex items-center gap-0.5 text-[9px] font-normal opacity-60 cursor-help">
-
-            <i data-lucide="circle-help" class="w-3 h-3"></i> توضیح
-
-          </span>
-
-        </span>
-
-        <span class="rounded-lg p-1.5 shrink-0" :style="colorStyle.iconBg">
-
-          <i :data-lucide="icon" class="w-4 h-4" :style="colorStyle.iconFg"></i>
-
-        </span>
-
-      </div>
-
-      <div class="text-lg sm:text-xl font-extrabold relative z-10" :style="colorStyle.text" style="font-variant-numeric: tabular-nums;">
-
-        <span dir="ltr" class="inline-flex items-baseline gap-1">
-
-          <template v-if="type === 'toman'">
-
-            {{ format(value) }} <span class="text-[0.55em] opacity-70 font-bold">تومان</span>
-
-          </template>
-
-          <template v-else-if="type === 'percent'">
-
-            {{ format(value, 1) }} <span class="text-[0.7em] opacity-70 font-bold">٪</span>
-
-          </template>
-
-          <template v-else>
-
-            {{ format(value) }}
-
-          </template>
-
-        </span>
-
-      </div>
-
-      <div v-if="sub" class="text-[9px] sm:text-[10px] font-medium opacity-60 relative z-10">{{ sub }}</div>
-
-
-
-      <div ref="tipEl" class="z-[70] w-72 sm:w-96 max-w-[90vw]" :style="tipPosition" dir="rtl">
-
-        <transition name="hz-tip">
-
-          <div v-if="showHelp && help" class="bg-ink text-white rounded-2xl p-4 shadow-xl border border-white/10">
-
-            <div class="flex items-center gap-2 mb-2">
-
-              <i data-lucide="circle-help" class="w-4 h-4 text-turquoiseSoft shrink-0"></i>
-
-              <div class="font-bold text-[13px]">{{ help.title }}</div>
-
-            </div>
-
-            <div class="text-[11.5px] leading-relaxed opacity-90 mb-3">{{ help.meaning }}</div>
-
-            <div class="mb-2">
-
-              <div class="text-[10px] font-bold text-amber-300 mb-1 flex items-center gap-1"><i data-lucide="settings-2" class="w-3 h-3"></i> عوامل مؤثر:</div>
-
-              <ul class="text-[11px] leading-relaxed opacity-85 space-y-0.5 pr-4 list-disc">
-
-                <li v-for="f in help.factors" :key="f">{{ f }}</li>
-
-              </ul>
-
-            </div>
-
-            <div>
-
-              <div class="text-[10px] font-bold text-emerald-300 mb-1 flex items-center gap-1"><i data-lucide="trending-up" class="w-3 h-3"></i> راه‌های بهبود:</div>
-
-              <ul class="text-[11px] leading-relaxed opacity-85 space-y-0.5 pr-4 list-disc">
-
-                <li v-for="i in help.improve" :key="i">{{ i }}</li>
-
-              </ul>
-
-            </div>
-
-            <div class="text-[9px] opacity-40 mt-2 pt-2 border-t border-white/10">{{ help.hint || 'اعداد از محاسبات این مدل محاسبه می‌شوند و با تغییر ورودی‌ها به‌روز می‌شوند.' }}</div>
-
+    <!-- Hero KPI Row: Top-level summary metrics -->
+    <template id="tpl-hero-kpi">
+      <div class="flex flex-wrap gap-3 mb-6">
+        <div v-for="kpi in heroKpis" :key="kpi.key"
+             class="flex-1 min-w-[180px] bg-white rounded-xl border border-line px-5 py-4 flex items-center gap-4 shadow-sm">
+          <div class="w-10 h-10 rounded-lg flex items-center justify-center" :class="kpi.bgClass">
+            <i :data-lucide="kpi.icon" class="w-5 h-5" :class="kpi.iconClass"></i>
           </div>
-
-        </transition>
-
+          <div class="flex-1 min-w-0">
+            <div class="text-[11px] text-inkSoft font-medium mb-0.5">{{ kpi.label }}</div>
+            <div class="text-xl font-bold text-ink tracking-tight">{{ kpi.value }}</div>
+            <div v-if="kpi.sub" class="text-[10px] text-inkSoft/60 mt-0.5">{{ kpi.sub }}</div>
+          </div>
+        </div>
       </div>
+    </template>
 
-    </div>
-
-  </script>
-
-
+    <!-- Stat Row: Reusable grouped metric display -->
+    <template id="tpl-stat-row">
+      <div class="bg-white rounded-xl border border-line p-5 mb-4">
+        <div class="flex items-center gap-2 mb-3">
+          <i :data-lucide="group.icon" class="w-4 h-4 text-inkSoft/50"></i>
+          <h3 class="text-sm font-bold text-ink">{{ group.title }}</h3>
+          <div v-if="group.badge" class="text-[10px] font-semibold px-2 py-0.5 rounded-full ml-auto"
+               :class="group.badge.class">{{ group.badge.text }}</div>
+        </div>
+        <div class="grid gap-3" :class="group.cols || 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'">
+          <div v-for="stat in group.items" :key="stat.key" class="flex flex-col">
+            <div class="text-[10px] text-inkSoft/60 font-medium mb-1 flex items-center gap-1">
+              <span>{{ stat.label }}</span>
+              <i v-if="stat.hint" :data-lucide="stat.hint" class="w-3 h-3 opacity-40"></i>
+            </div>
+            <div class="text-base font-bold text-ink" :class="stat.valueClass || ''">{{ stat.value }}</div>
+            <div v-if="stat.sub" class="text-[10px] text-inkSoft/50 mt-0.5">{{ stat.sub }}</div>
+          </div>
+        </div>
+      </div>
+    </template>
 
   <!-- ==================== VUE LOGIC ==================== -->
 
@@ -2159,11 +1970,9 @@
     };
 
 
-
     // پالت رنگ پلن‌ها برای نمودار دایره‌ای — با شناسهٔ پلن یا اندیس رنگ می‌شود
 
     const PLAN_COLORS = ['#0F766E', '#CD7F32', '#94A3B8', '#EAB308', '#059669', '#4F46E5', '#DC2626', '#0D9488', '#D97706', '#7C3AED', '#E11D48', '#0EA5E9'];
-
 
 
     // قیمت مدل‌های LLM (دلار به ازای ۱ میلیون توکن ورودی/خروجی) — آگوست ۲۰۲۶، قیمت‌های رسمی ارائه‌دهندگان
@@ -2225,207 +2034,6 @@
       return MODEL_PRICING[choice] || MODEL_PRICING[TIER_DEFAULT_MODEL[choice]] || MODEL_PRICING[TIER_DEFAULT_MODEL.mid];
 
     };
-
-
-
-    // توضیح هر شاخص: معنی، عوامل مؤثر و راه‌های بهبود — هم در tooltip و هم در بخش راهنما استفاده می‌شود
-
-    const KPI_HELP = {
-
-      netProfit: {
-
-        title: 'سود خالص ماهانه',
-
-        meaning: 'درآمد خالص (بعد از کسر کارمزد درگاه و VAT) منهای هزینهٔ AI، هزینهٔ جذب کاربر (CAC) و هزینهٔ ثابت ماهانه. عدد مثبت یعنی کسب‌وکار در این ماه سود کرده است.',
-
-        factors: ['تعداد کاربران پولی هر پلن', 'قیمت پلن‌ها', 'هزینهٔ AI هر فراخوانی', 'کارمزد درگاه و مالیات', 'CAC و هزینه‌های ثابت'],
-
-        improve: ['افزایش نرخ تبدیل رایگان به پولی', 'کاهش ریزش مؤثر پولی', 'انتخاب مدل ارزان‌تر یا فعال‌کردن کش پرامپت', 'کاهش هزینهٔ ثابت', 'تنظیم قیمت پلن‌ها']
-
-      },
-
-      margin: {
-
-        title: 'حاشیه سود',
-
-        meaning: 'درصدی از درآمد خالص که به‌صورت سود باقی می‌ماند. حاشیهٔ مثبت یعنی هر تومان درآمد، سودی هم به همراه دارد.',
-
-        factors: ['قیمت پلن‌ها', 'هزینهٔ AI', 'هزینه‌های ثابت', 'کارمزد درگاه و مالیات'],
-
-        improve: ['قیمت‌گذاری بهتر پلن‌ها', 'کاهش هزینهٔ AI هر کاربر', 'کاهش هزینه‌های ثابت', 'بهینه‌سازی کارمزد/مالیات']
-
-      },
-
-      ltv: {
-
-        title: 'LTV کاربران پولی',
-
-        meaning: 'میانگین حاشیهٔ مشارکتی که یک کاربر پولی در طول عمرش قبل از ریزش تولید می‌کند. مهم‌ترین معیار سلامت واحد اقتصاد.',
-
-        factors: ['قیمت پلن', 'هزینهٔ AI هر کاربر', 'ریزش مؤثر پولی', 'سهم هر پلن از کاربران'],
-
-        improve: ['کاهش ریزش (اختیاری و غیرارادی)', 'افزایش قیمت پلن‌های پرمصرف', 'کاهش هزینهٔ AI هر کاربر', 'ترویج آپسل به پلن‌های بالاتر']
-
-      },
-
-      breakEven: {
-
-        title: 'نقطه سر‌به‌سر',
-
-        meaning: 'تعداد کاربران پولی که برای پوشش هزینه‌های ثابت ماهانه لازم است. عدد کوچک‌تر یعنی رسیدن به سودآوری آسان‌تر.',
-
-        factors: ['هزینهٔ ثابت ماهانه', 'حاشیهٔ مشارکت هر کاربر پولی'],
-
-        improve: ['کاهش هزینهٔ ثابت', 'افزایش حاشیهٔ مشارکت (قیمت بالاتر یا هزینهٔ AI کمتر)']
-
-      },
-
-      netRevenue: {
-
-        title: 'درآمد خالص (MRR)',
-
-        meaning: 'درآمد ماهانهٔ کاربران پولی بعد از کسر کارمزد درگاه و VAT؛ پولی که واقعاً به دست می‌آید.',
-
-        factors: ['تعداد کاربران پولی', 'قیمت پلن‌ها', 'کارمزد درگاه', 'مالیات بر ارزش افزوده'],
-
-        improve: ['افزایش کاربران پولی', 'قیمت‌گذاری بهتر', 'انتخاب درگاه با کارمزد کمتر', 'بررسی معافیت آموزشی مالیات']
-
-      },
-
-      aiCost: {
-
-        title: 'هزینه کل AI',
-
-        meaning: 'مجموع هزینهٔ ماهانهٔ فراخوانی‌های AI همهٔ کاربران (رایگان و پولی) به تومان.',
-
-        factors: ['تعداد کاربران', 'سهمیهٔ روزانهٔ هر پلن', 'قیمت هر فراخوانی', 'نرخ ارز'],
-
-        improve: ['انتخاب مدل ارزان‌تر', 'فعال‌کردن کش پرامپت', 'کاهش سهمیهٔ کاربران رایگان', 'بهینه‌سازی توکن‌ها']
-
-      },
-
-      costFreeUser: {
-
-        title: 'هزینه AI هر کاربر رایگان',
-
-        meaning: 'هزینهٔ AI که یک کاربر رایگان در ماه برای شما ایجاد می‌کند. اگر بالا باشد، کاربران رایگان پرهزینه می‌شوند.',
-
-        factors: ['سهمیهٔ روزانهٔ رایگان', 'قیمت هر فراخوانی', 'نرخ ارز'],
-
-        improve: ['کاهش سهمیهٔ رایگان', 'مدل ارزان‌تر برای محتوای رایگان', 'دیوار پرداخت ظرفیتی (سقف FSRS)']
-
-      },
-
-      futureProfit: {
-
-        title: 'سود خالص در ماه پایانی',
-
-        meaning: 'سود یا زیان پیش‌بینی‌شده در ماهِ پایانی بازهٔ پروژه؛ نتیجهٔ جمع رشد، ریزش، قیمت و هزینه‌ها در طول زمان.',
-
-        factors: ['رشد کاربران جدید', 'ریزش', 'بازقیمت‌گذاری', 'کاهش هزینهٔ AI', 'CAC'],
-
-        improve: ['بهبود نرخ تبدیل و جذب', 'کنترل ریزش', 'افزایش قیمت در سال دوم', 'کاهش هزینهٔ AI در طول زمان']
-
-      },
-
-      cumulativeCash: {
-
-        title: 'نقدینگی تجمعی',
-
-        meaning: 'مجموع سود/زیان ماهانه از ابتدای پروژه تا ماه آخر؛ وضعیت کلی نقدینگی کسب‌وکار. منفی شدن یعنی پول در حال تمام شدن است.',
-
-        factors: ['همهٔ سودهای ماهانه', 'بودجهٔ تبلیغات', 'هزینه‌های ثابت'],
-
-        improve: ['بهبود سود ماهانه', 'کنترل بودجهٔ تبلیغات', 'تأمین مالی/سرمایه‌گذاری']
-
-      },
-
-      runway: {
-
-        title: 'Runway (باند سوخت)',
-
-        meaning: 'چند ماه با نقدینگی فعلی و مصرف ماهانه می‌توانید قبل از تمام‌شدن پول ادامه دهید. ∞ یعنی ماهانه سودده هستید.',
-
-        factors: ['نقدینگی تجمعی', 'مصرف ماهانه (زیان)'],
-
-        improve: ['کاهش زیان ماهانه', 'افزایش درآمد', 'جذب سرمایه یا کاهش هزینه‌ها']
-
-      },
-
-      cacPayback: {
-
-        title: 'بازپرداخت CAC',
-
-        meaning: 'چند ماه طول می‌کشد تا حاشیهٔ مشارکت یک کاربر جدید هزینهٔ جذب او (CAC) را جبران کند. کوتاه‌تر بهتر است.',
-
-        factors: ['CAC هر کاربر جدید', 'حاشیهٔ مشارکت هر کاربر پولی'],
-
-        improve: ['کاهش CAC (ارجاع، رشد ارگانیک)', 'افزایش حاشیهٔ مشارکت', 'تمرکز روی کانال‌های جذب ارزان']
-
-      },
-
-      d30Retention: {
-
-        title: 'نگه‌داشت ماهانه (D30)',
-
-        meaning: 'درصد کاربران پولی که بعد از ۳۰ روز هنوز مشترک هستند؛ معادل ۱۰۰ منهای ریزش مؤثر.',
-
-        factors: ['ریزش اختیاری', 'ریزش غیرارادی (پیش‌پرداخت)', 'اثر تکنیک‌های نگه‌داشت'],
-
-        improve: ['کاهش ریزش با تکنیک win-back', 'خودکارسازی پرداخت برای ریزش غیرارادی', 'افزایش ارزش دریافتی کاربر']
-
-      },
-
-      arr: {
-
-        title: 'درآمد سالانه (ARR)',
-
-        meaning: 'درآمد سالانهٔ تکرارشونده = درآمد خالص ماه اول × ۱۲؛ مقیاس سالانهٔ درآمد برای مقایسه با استانداردهای SaaS.',
-
-        factors: ['MRR (درآمد خالص ماهانه)'],
-
-        improve: ['بهبود MRR', 'پیشنهاد پلن سالانه با تخفیف برای نقدینگی بهتر']
-
-      },
-
-      contributionPerPaid: {
-
-        title: 'حاشیه مشارکت هر کاربر پولی',
-
-        meaning: 'پولی که بعد از کسر هزینه‌های متغیر (کارمزد، مالیات، هزینهٔ AI) از هر کاربر پولی در ماه می‌ماند؛ پایهٔ محاسبهٔ LTV و سربه‌سر.',
-
-        factors: ['قیمت پلن', 'کارمزد درگاه و مالیات', 'هزینهٔ AI هر کاربر'],
-
-        improve: ['قیمت بالاتر', 'مدل ارزان‌تر', 'ترکیب بهتر پلن‌ها (سهم بیشتر از پلن‌های گران)']
-
-      },
-
-      effPaidChurn: {
-
-        title: 'ریزش مؤثر پولی',
-
-        meaning: 'درصد کاربران پولی که هر ماه از دست می‌دهید = ریزش اختیاری + ریزش غیرارادی − اثر تکنیک‌های کاهش ریزش. پایهٔ محاسبهٔ LTV و نگه‌داشت.',
-
-        factors: ['نرخ ریزش اختیاری', 'ریزش غیرارادی (پیش‌پرداخت/نبود خودکار)', 'اثر تکنیک‌های بازاریابی'],
-
-        improve: ['کاهش ریزش اختیاری با ارزش بیشتر', 'خودکارسازی پرداخت', 'فعال‌کردن تکنیک‌های کاهش ریزش']
-
-      },
-
-      healthScore: {
-
-        title: 'امتیاز سلامت مدل',
-
-        meaning: 'خلاصهٔ کلی سلامت کسب‌وکار از ۱۰۰، بر اساس حاشیهٔ سود، نسبت LTV به CAC، ریزش، نقدینگی و سودآوری ماهانه.',
-
-        factors: ['حاشیه سود', 'LTV نسبت به CAC', 'ریزش مؤثر', 'Runway', 'سودآوری ماهانه'],
-
-        improve: ['بهبود شاخص‌های پایهٔ بالا', 'مرتب‌سازی اولویت‌ها روی ضعیف‌ترین شاخص']
-
-      }
-
-    };
-
 
 
     const DEFAULTS = {
@@ -2667,7 +2275,6 @@
     };
 
 
-
     // --- بخش‌های انتخابی صدور/وارد کردن JSON ---
 
     const EXPORT_SECTIONS = [
@@ -2735,9 +2342,7 @@
     ];
 
 
-
     const { createApp, ref, computed, watch, onMounted, onBeforeUnmount, nextTick } = Vue;
-
 
 
     const app = createApp({
@@ -2910,7 +2515,6 @@
         };
 
 
-
         // کپی عمیقِ آرایه‌های قابل ویرایش تا DEFAULTS آلوده نشوند و reset درست باشد.
 
         const freshDefaults = () => ({
@@ -2922,7 +2526,6 @@
           creditPacks: DEFAULTS.creditPacks.map(p => ({ ...p }))
 
         });
-
 
 
         let initialData = freshDefaults();
@@ -2944,27 +2547,14 @@
         }
 
 
-
         const inp = ref(initialData);
 
         const activeTab = ref('dashboard');
 
-        const selectedPlanId = ref(inp.value.plans[0] ? inp.value.plans[0].id : null);
-
-        const selectedPlanView = computed(() => {
-
-          const idx = inp.value.plans.findIndex(p => p.id === selectedPlanId.value);
-
-          const i = idx >= 0 ? idx : 0;
-
-          return { plan: inp.value.plans[i] || null, idx: i };
-
-        });
 
         const isDesktop = ref(window.innerWidth >= 1024);
 
         const fileInput = ref(null);
-
 
 
         // --- ناوبری کناری دسکتاپ: وضعیت باز/بسته در حافظهٔ مرورگر ذخیره می‌شود ---
@@ -3005,14 +2595,8 @@
 
           : 'bg-ink text-white shadow';
 
-        const desktopContentPad = computed(() =>
-
-          isDesktop.value ? { paddingRight: sidebarCollapsed.value ? '8rem' : '18rem' } : {});
-
-
 
         let charts = {};
-
 
 
         const CHART_OPEN_KEY = 'hamzaboon_financial_model_chart_open';
@@ -3048,11 +2632,9 @@
         };
 
 
-
         const modelTableOpen = ref(false);
 
         const toggleModelTable = () => { modelTableOpen.value = !modelTableOpen.value; };
-
 
 
         const reset = () => {
@@ -3068,7 +2650,6 @@
           if (!isDesktop.value) activeTab.value = 'dashboard';
 
         };
-
 
 
         // درون‌ریزی/بیرون‌ریزی JSON با انتخاب بخش‌ها (شبیه‌سازی، هزینه‌ها، AI، پلن‌ها، بازاریابی)
@@ -3094,7 +2675,6 @@
         resetSectionSelection();
 
 
-
         const openExportModal = () => {
 
           resetSectionSelection();
@@ -3102,7 +2682,6 @@
           exportSelecting.value = true;
 
         };
-
 
 
         const doExport = () => {
@@ -3158,13 +2737,11 @@
         const closeExportModal = () => { exportSelecting.value = false; };
 
 
-
         const triggerImport = () => { if (fileInput.value) fileInput.value.click(); };
 
         // نگه‌داری نام قبلی برای سازگاری با دکمه‌های header/mobile
 
         const exportJSON = openExportModal;
-
 
 
         const importJSON = (e) => {
@@ -3288,7 +2865,6 @@
         const closeImportModal = () => { importSelecting.value = false; };
 
 
-
         const format = (v, dec = 0) => {
 
           if (!isFinite(v)) return 0;
@@ -3296,7 +2872,6 @@
           return new Intl.NumberFormat('en-US', { maximumFractionDigits: dec, minimumFractionDigits: dec }).format(v);
 
         };
-
 
 
         // جمع اثر تکنیک‌های فعالِ بازاریابی روی مدل مالی (Rule 3)
@@ -3320,7 +2895,6 @@
           return { convBoost, churnReduction, signupBoost };
 
         };
-
 
 
         // هزینهٔ CAC تریال معکوس: مجموع سهم کاربرانِ «واجد شرط» از کاربران جدیدِ هر ماه در همهٔ تکنیک‌های تریالی فعال
@@ -3382,7 +2956,6 @@
           return { costPerUser: costWeightedSum / shareSum, eligibleShare: shareSum };
 
         };
-
 
 
         // --- پلن‌ها: سهم‌ها و توابع مدیریتی ---
@@ -3582,8 +3155,6 @@
 
           inp.value.plans = [...inp.value.plans];
 
-          selectedPlanId.value = base.id;
-
         };
 
         const removePlan = (p) => {
@@ -3626,12 +3197,9 @@
 
           inp.value.plans = [...inp.value.plans];
 
-          selectedPlanId.value = inp.value.plans[0] ? inp.value.plans[0].id : null;
-
         };
 
         const gotoMarketing = () => { activeTab.value = 'marketing'; };
-
 
 
         // --- CRUD تکنیک‌های بازاریابی ---
@@ -3655,9 +3223,7 @@
         const techForm = ref({ title: '', icon: 'megaphone', desc: '', effectType: 'conversion', effect: 1, min: 0, max: 3, step: 0.1, hasTrial: false, eligibleShare: 15, trialDays: 3, trialPlanId: null });
 
 
-
         const genTechId = () => 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-
 
 
         const openAddTechnique = () => {
@@ -3671,7 +3237,6 @@
           nextTick().then(() => lucide.createIcons());
 
         };
-
 
 
         const openEditTechnique = (t) => {
@@ -3707,7 +3272,6 @@
         };
 
 
-
         const onEffectTypeChange = () => {
 
           const b = boundsByType[techForm.value.effectType] || boundsByType.conversion;
@@ -3715,7 +3279,6 @@
           techForm.value.min = b.min; techForm.value.max = b.max; techForm.value.step = b.step;
 
         };
-
 
 
         const saveTechnique = () => {
@@ -3781,7 +3344,6 @@
         };
 
 
-
         const deleteTechnique = (t) => {
 
           if (!confirm('این تکنیک حذف شود؟')) return;
@@ -3795,9 +3357,7 @@
         };
 
 
-
         const closeTechModal = () => { showTechModal.value = false; editingTechId.value = null; };
-
 
 
         // نویزِ قطعی و محدود برای مقایسهٔ منصفانهٔ سناریوها؛ یک seed ثابت خروجی تکرارپذیر می‌دهد.
@@ -3809,7 +3369,6 @@
           return (raw - Math.floor(raw)) * 2 - 1;
 
         };
-
 
 
         const computeSeries = (params, convRate, growthRate) => {
@@ -3827,7 +3386,6 @@
           // سهم مجموع پلن‌های پولی (برای توزیع آپگریدها)؛ اگر ۰ بود یک پلن پولی نداریم
 
           const totalPaidShare = paidPlans.reduce((s, p) => s + (p.sharePct || 0), 0) || 1;
-
 
 
           // شمارندهٔ کاربران به تفکیک پلن (کلید: شناسه پلن)
@@ -3891,7 +3449,6 @@
           let outstandingCreditBalance = 0;
 
 
-
           const rows = [];
 
           for (let t = 0; t < params.projectionMonths; t++) {
@@ -3901,7 +3458,6 @@
             const priceIdx = Math.pow(1 + renewal, Math.floor(t / 12));
 
             const aiCallPrice = rawCallUSD * cacheFactor * Math.pow(1 - annualDecline, t / 12);
-
 
 
             // --- نقطه شروع ماه: پایهٔ همان ماه (پیش از ورودی‌های جدید این ماه) ---
@@ -3963,7 +3519,6 @@
             const packNetRevenue = Math.round(packGrossRevenue - packFeeToman - packVatToman);
 
 
-
             const aiCalls = plans.reduce((s, p) => s + (start[p.id] || 0) * (p.callsPerDay || 0), 0) * params.periodDays;
 
             const planAiCostToman = Math.round(aiCalls * aiCallPrice * params.exchangeRate);
@@ -3991,7 +3546,6 @@
             const cacToman = Math.round(paidNewSignups * cacPerNewUser);
 
             const trialCACToman = Math.round(newSignups * trialEligibleShare * trialCostPerUser);
-
 
 
             // حاشیه مشارکت = درآمد خالص - هزینه AI - CAC تریال - CAC جذب؛ سود خالص = حاشیه - هزینه ثابت
@@ -4063,13 +3617,11 @@
         };
 
 
-
         const baseSeries = computed(() => computeSeries(inp.value, inp.value.convBase, inp.value.signupGrowthRateBase));
 
         const pSeries = computed(() => computeSeries(inp.value, inp.value.convPessimistic, inp.value.signupGrowthRatePessimistic));
 
         const oSeries = computed(() => computeSeries(inp.value, inp.value.convOptimistic, inp.value.signupGrowthRateOptimistic));
-
 
 
         const totalConversionBoost = computed(() => getMarketingEffects(inp.value).convBoost);
@@ -4085,7 +3637,6 @@
         const mLast = computed(() => baseSeries.value[baseSeries.value.length - 1] || {});
 
 
-
         // قیمت مؤثر هر فراخوانی AI (با کش) — پایهٔ ماه اول
 
         const aiCallPriceUSD = computed(() => {
@@ -4097,7 +3648,6 @@
           return raw * (1 - (inp.value.cacheSavingPct || 0) / 100);
 
         });
-
 
 
         // اعتبارسنجی قیمت دلخواه: هر دو فیلد باید عدد مثبت باشند
@@ -4113,7 +3663,6 @@
         });
 
 
-
         // تغییر انتخاب از دکمه‌های دسته: نگه‌داری آخرین انتخاب غیردلخواه برای برگشت امن
 
         const setModelChoice = (tier) => {
@@ -4125,7 +3674,6 @@
           inp.value.lastModelChoice = id;
 
         };
-
 
 
         // آیا انتخاب فعلی به دستهٔ داده‌شده تعلق دارد؟ (دلخواه → هیچ دکمه‌ای فعال نیست)
@@ -4143,7 +3691,6 @@
         };
 
 
-
         // هنگام انتخاب از منوی کشویی، آخرین انتخاب غیردلخواه را برای برگشت امن نگه می‌داریم
 
         watch(() => inp.value.modelChoice, (v) => {
@@ -4151,7 +3698,6 @@
           if (v !== 'custom') inp.value.lastModelChoice = v;
 
         });
-
 
 
         // حاشیه مشارکت هر کاربر پولی (درآمد خالص - هزینهٔ AI - سهم مالیات/کارمزد) به تفکیک پلن
@@ -4173,7 +3719,6 @@
         });
 
 
-
         const paidUsersM1 = computed(() => {
 
           const m1Counts = m1.value.counts || {};
@@ -4181,7 +3726,6 @@
           return (inp.value.plans || []).filter(p => p.id !== 'free').reduce((s, p) => s + (m1Counts[p.id] || 0), 0);
 
         });
-
 
 
         // حاشیه مشارکت وزنی هر کاربر پولی (تومان در ماه)
@@ -4211,9 +3755,7 @@
         });
 
 
-
         const effPaidChurnPct = computed(() => Math.max(0, (inp.value.paidChurnRate || 0) + (inp.value.involuntaryChurnPct || 0) - totalChurnReduction.value));
-
 
 
         // نقطهٔ سر‌به‌سر واقعی: کاربران پولی موردنیاز برای پوشش هزینه‌های ثابت
@@ -4229,7 +3771,6 @@
           return Math.ceil(fixedMonthly / cpm);
 
         });
-
 
 
         // هزینهٔ AI هر کاربر به تفکیک پلن (ماهانه، تومان)
@@ -4269,7 +3810,6 @@
         });
 
 
-
         const avgLTV = computed(() => {
 
           const churn = effPaidChurnPct.value / 100;
@@ -4283,7 +3823,6 @@
           return Math.round(wMargin / churn);
 
         });
-
 
 
         // --- P6: دید نقدینگی و KPIهای تکمیلی ---
@@ -4389,6 +3928,90 @@
         });
 
 
+        // --- چیدمان جدید داشبورد: ردیف KPI بالای صفحه + گروه‌های بخش‌بندی‌شده ---
+
+        const heroKpis = computed(() => ([
+          {
+            key: 'netProfit',
+            label: 'سود خالص ماهانه',
+            value: `${format(m1.value.netProfit)} تومان`,
+            sub: m1.value.netProfit >= 0 ? 'سودآور' : 'زیان‌ده',
+            icon: 'wallet',
+            bgClass: m1.value.netProfit >= 0 ? 'bg-emerald-50' : 'bg-rose-50',
+            iconClass: m1.value.netProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'
+          },
+          {
+            key: 'margin',
+            label: 'حاشیه سود',
+            value: `${format(m1.value.margin, 1)}٪`,
+            icon: 'percent',
+            bgClass: m1.value.margin >= 0 ? 'bg-turquoiseSoft' : 'bg-rose-50',
+            iconClass: m1.value.margin >= 0 ? 'text-turquoiseDeep' : 'text-rose-600'
+          },
+          {
+            key: 'netRevenue',
+            label: 'درآمد خالص (MRR)',
+            value: `${format(m1.value.netRevenue)} تومان`,
+            icon: 'trending-up',
+            bgClass: 'bg-emerald-50',
+            iconClass: 'text-emerald-600'
+          },
+          {
+            key: 'breakEven',
+            label: 'نقطه سر‌به‌سر',
+            value: breakEvenUsers.value === Infinity ? '∞' : `${format(breakEvenUsers.value)} نفر`,
+            sub: 'کاربر پولی',
+            icon: 'piggy-bank',
+            bgClass: 'bg-amber-50',
+            iconClass: 'text-amber-600'
+          }
+        ]));
+
+        const statGroups = computed(() => ([
+          {
+            key: 'unit',
+            title: 'واحد اقتصادی',
+            icon: 'users',
+            items: [
+              { key: 'ltv', label: 'LTV کاربران پولی', value: `${format(avgLTV.value)} تومان`, sub: 'حاشیه مشارکت ÷ ریزش مؤثر' },
+              { key: 'contrib', label: 'حاشیه مشارکت / کاربر پولی', value: `${format(contributionPerPaidUser.value)} تومان` },
+              { key: 'freeCost', label: 'هزینه AI هر کاربر رایگان', value: `${format(costFreeUser.value)} تومان`, sub: 'در ماه' },
+              { key: 'aiCost', label: 'هزینه کل AI', value: `${format(m1.value.aiCostToman)} تومان`, sub: `$${format(m1.value.aiCostUSD, 2)}` }
+            ]
+          },
+          {
+            key: 'liquidity',
+            title: 'نقدینگی و پایداری',
+            icon: 'landmark',
+            items: [
+              { key: 'cumCash', label: 'نقدینگی تجمعی', value: `${format(cumulativeCash.value)} تومان` },
+              { key: 'runway', label: 'Runway (باند سوخت)', value: runwayMonths.value === Infinity ? '∞' : format(Math.round(runwayMonths.value)), sub: 'ماه تا پایان نقدینگی' },
+              { key: 'cacPayback', label: 'بازپرداخت CAC', value: `${format(cacPaybackMonths.value, 1)} ماه` },
+              { key: 'arr', label: 'درآمد سالانه (ARR)', value: `${format(arrToman.value)} تومان`, sub: 'MRR × ۱۲' }
+            ]
+          },
+          {
+            key: 'growth',
+            title: 'رشد و نگه‌داشت',
+            icon: 'trending-up',
+            items: [
+              { key: 'd30', label: 'نگه‌داشت ماهانه (D30)', value: `${format(d30RetentionPct.value, 1)}٪` },
+              { key: 'churn', label: 'ریزش مؤثر پولی', value: `${format(effPaidChurnPct.value, 1)}٪` },
+              { key: 'future', label: `سود خالص در ماه ${inp.value.projectionMonths}`, value: `${format(mLast.value.netProfit)} تومان` },
+              { key: 'health', label: 'امتیاز سلامت مدل', value: `${format(healthScore.value)}/۱۰۰` }
+            ]
+          },
+          {
+            key: 'pack',
+            title: 'درآمد بسته‌های Query',
+            icon: 'ticket',
+            cols: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+            items: [
+              { key: 'packRev', label: 'درآمد بسته‌های Query', value: `${format(m1.value.packNetRevenue)} تومان`, sub: 'خریدهای یک‌باره — ماه اول' }
+            ]
+          }
+        ]));
+
 
         // ضعیف‌ترین شاخص بر اساس همان زیرمؤلفه‌های امتیاز سلامت (برای راهنمای فعّال)
 
@@ -4465,7 +4088,6 @@
         });
 
 
-
         // حساسیت (تورنادو): تأثیر ±۱۰٪ هر محرک بر سود خالص ماه آخر
 
         const sensitivity = computed(() => {
@@ -4505,7 +4127,6 @@
         });
 
 
-
         const updateCharts = () => {
 
           if (!charts.bar) return;
@@ -4513,7 +4134,6 @@
           charts.bar.data.datasets[0].data = [m1.value.planNetRevenue, m1.value.packNetRevenue, m1.value.aiCostToman, m1.value.fixedToman, m1.value.netProfit];
 
           charts.bar.update();
-
 
 
           charts.pie.data.labels = planCostTotalM1.value.map(x => x.name);
@@ -4525,7 +4145,6 @@
           charts.pie.update();
 
 
-
           charts.line.data.labels = baseSeries.value.map(r => `ماه ${r.month}`);
 
           charts.line.data.datasets[0].data = pSeries.value.map(r => r.netProfit);
@@ -4535,7 +4154,6 @@
           charts.line.data.datasets[2].data = oSeries.value.map(r => r.netProfit);
 
           charts.line.update();
-
 
 
           charts.growth.data.labels = baseSeries.value.map(r => `ماه ${r.month}`);
@@ -4553,7 +4171,6 @@
         };
 
 
-
         watch(inp, (newVal) => {
 
           localStorage.setItem('hamzaboon_financial_model_v2', JSON.stringify(newVal));
@@ -4561,7 +4178,6 @@
           updateCharts();
 
         }, { deep: true });
-
 
 
         watch(activeTab, async (val) => {
@@ -4573,13 +4189,11 @@
         });
 
 
-
         onMounted(() => {
 
           Chart.defaults.font.family = 'Vazirmatn'; Chart.defaults.color = COLORS.inkSoft;
 
           window.addEventListener('resize', () => { isDesktop.value = window.innerWidth >= 1024; });
-
 
 
           charts.bar = new Chart(document.getElementById('barChart'), {
@@ -4597,7 +4211,6 @@
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
 
           });
-
 
 
           charts.pie = new Chart(document.getElementById('pieChart'), {
@@ -4623,7 +4236,6 @@
             options: { responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { position: 'bottom', labels: { font: { size: 10, family: 'Vazirmatn' } } } } }
 
           });
-
 
 
           charts.line = new Chart(document.getElementById('lineChart'), {
@@ -4657,7 +4269,6 @@
             }
 
           });
-
 
 
           charts.growth = new Chart(document.getElementById('growthChart'), {
@@ -4703,7 +4314,6 @@
           });
 
 
-
           updateCharts();
 
           lucide.createIcons({ observe: true });
@@ -4711,10 +4321,9 @@
         });
 
 
-
         return {
 
-          inp, activeTab, isDesktop, reset, format, m1, mLast, breakEvenUsers, costFreeUser, avgLTV, baseSeries,
+          inp, activeTab, isDesktop, reset, format, m1, mLast, breakEvenUsers, costFreeUser, avgLTV, baseSeries, heroKpis, statGroups,
 
           fileInput, exportJSON, triggerImport, importJSON,
 
@@ -4724,7 +4333,7 @@
 
           chartOpen, toggleChart, modelTableOpen, toggleModelTable,
 
-          sidebarCollapsed, toggleSidebar, navItems, navActiveClass, desktopContentPad,
+          sidebarCollapsed, toggleSidebar, navItems, navActiveClass,
 
           totalConversionBoost, totalChurnReduction, totalSignupBoost, trialCACToman,
 
@@ -4732,7 +4341,7 @@
 
           cumulativeCash, runwayMonths, arrToman, cacPaybackMonths, d30RetentionPct, healthScore, sensitivity, cashSeries,
 
-          weakIndicator, KPI_HELP,
+          weakIndicator,
 
           MODEL_PRICING, TIER_MODELS, TIER_LABEL, setModelChoice, getTierOf, customPricesValid,
 
@@ -4742,7 +4351,7 @@
 
           COLORS, PLAN_COLORS,
 
-           paidPlans, paidPlansShareSum, autoBalanceShare, clampPlanField, addPlan, removePlan, gotoMarketing, selectedPlanView, selectedPlanId,
+           paidPlans, paidPlansShareSum, autoBalanceShare, clampPlanField, addPlan, removePlan, gotoMarketing,
 
           creditPacks, creditPackSalesShareSum, creditPackPricePerQuery, packSalesM1, packRevenueM1,
 
@@ -4755,7 +4364,6 @@
       }
 
     });
-
 
 
     app.component('section-card', {
@@ -4775,7 +4383,6 @@
       }
 
     });
-
 
 
     app.component('number-field', {
@@ -4805,143 +4412,16 @@
     });
 
 
-
-    app.component('kpi-card', {
-
-      template: '#tpl-kpi',
-
-      props: ['title', 'en', 'icon', 'value', 'tone', 'sub', 'type', 'help'],
-
-      setup(props) {
-
-        const format = (v, dec = 0) => {
-
-          if (!isFinite(v)) return 0;
-
-          return new Intl.NumberFormat('en-US', { maximumFractionDigits: dec, minimumFractionDigits: dec }).format(v);
-
-        };
-
-        const colorStyle = computed(() => {
-
-          const map = {
-
-            emerald: { iconBg: 'background: #D1FAE5;', iconFg: 'color: #059669;', text: 'color: #059669;' },
-
-            rose: { iconBg: 'background: #FEE2E2;', iconFg: 'color: #DC2626;', text: 'color: #DC2626;' },
-
-            indigo: { iconBg: 'background: #E0E7FF;', iconFg: 'color: #4F46E5;', text: 'color: #4F46E5;' },
-
-            turquoise: { iconBg: 'background: #CCFBF1;', iconFg: 'color: #0F766E;', text: 'color: #0F766E;' },
-
-            amber: { iconBg: 'background: #FEF3C7;', iconFg: 'color: #D97706;', text: 'color: #D97706;' },
-
-            ink: { iconBg: 'background: #F2F4F7;', iconFg: 'color: #101828;', text: 'color: #101828;' }
-
-          };
-
-          return map[props.tone] || map.ink;
-
-        });
-
-        // hover روی دسکتاپ؛ لمس/کلیک روی موبایل — موقعیتاب با Floating UI و دوری از لبهٔ صفحه
-
-        const showHelp = ref(false);
-
-        const canHover = window.matchMedia && window.matchMedia('(hover: hover)').matches;
-
-        const cardEl = ref(null);
-
-        const tipEl = ref(null);
-
-        let tipCleanup = null;
-
-        const tipPosition = ref({ position: 'fixed', left: '0px', top: '0px', visibility: 'hidden' });
-
-        const positionTip = () => {
-
-          if (!cardEl.value || !tipEl.value || typeof FloatingUIDOM === 'undefined') return;
-
-          if (tipCleanup) tipCleanup();
-
-          tipCleanup = FloatingUIDOM.autoUpdate(cardEl.value, tipEl.value, () => {
-
-            FloatingUIDOM.computePosition(cardEl.value, tipEl.value, {
-
-              strategy: 'fixed',
-
-              placement: 'bottom',
-
-              middleware: [
-
-                FloatingUIDOM.offset(10),
-
-                FloatingUIDOM.flip({ padding: 8 }),
-
-                FloatingUIDOM.shift({ padding: 8 })
-
-              ]
-
-            }).then(({ x, y }) => {
-
-              tipPosition.value = { position: 'fixed', left: x + 'px', top: y + 'px', visibility: 'visible' };
-
-            });
-
-          });
-
-        };
-
-        const openTip = () => {
-
-          if (!props.help) return;
-
-          positionTip();
-
-          showHelp.value = true;
-
-        };
-
-        const cleanupTip = () => {
-
-          if (tipCleanup) { tipCleanup(); tipCleanup = null; }
-
-        };
-
-        const closeTip = () => {
-
-          showHelp.value = false;
-
-          cleanupTip();
-
-        };
-
-        onBeforeUnmount(cleanupTip);
-
-        const onHover = (entering) => {
-
-          if (!canHover || !props.help) return;
-
-          if (entering) openTip(); else closeTip();
-
-        };
-
-        const onTap = () => {
-
-          if (!props.help) return;
-
-          if (canHover) return;
-
-          if (showHelp.value) closeTip(); else openTip();
-
-        };
-
-        return { format, colorStyle, showHelp, onHover, onTap, cardEl, tipEl, tipPosition };
-
-      }
-
+    app.component('tpl-hero-kpi', {
+      template: '#tpl-hero-kpi',
+      props: ['heroKpis']
     });
 
+
+    app.component('tpl-stat-row', {
+      template: '#tpl-stat-row',
+      props: ['group']
+    });
 
 
     app.mount('#app');
