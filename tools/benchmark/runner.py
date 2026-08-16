@@ -158,7 +158,7 @@ def _attempt_one_word(
             user_id=0,
             plan="benchmark",
             preset=preset,
-        )
+        ).value
         latency_ms = (time.monotonic() - start) * 1000
         return WordAttempt(
             word=word,
@@ -290,7 +290,7 @@ def _run_batched(
             user_id=0,
             plan="benchmark",
             preset=preset,
-        )
+        ).value
         result.batch_latency_ms = (time.monotonic() - start) * 1000
         result.batch_card_count = len(cards)
 

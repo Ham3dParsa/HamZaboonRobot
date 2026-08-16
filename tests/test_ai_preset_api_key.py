@@ -200,11 +200,13 @@ class ResolveApiKeyPhase5Test(_ScratchDbTestCase):
 
 
 class AiClientEnvFallbackTest(_ScratchDbTestCase):
-    """Phase 5 (R4/R1) — env-only deployments still resolve without a master key.
+    """BUG-2 — env-only deployments FAIL CLOSED (never fall back to plaintext).
 
-    When the active preset has no key and the stored ai_api_key setting is
-    undecryptable (no AI_MASTER_KEY configured), the documented AI_API_KEY env
-    var must still be used as the plaintext fallback.
+    Client construction resolves the API key solely through the encrypt/decrypt
+    seam (``db.resolve_preset_key``). When the active preset has no key and no
+    ``AI_MASTER_KEY`` is configured, the resolution is empty — never a
+    plaintext env-key fallback. The single ``create_client`` seam (which
+    ``test_connection`` also routes through) must surface that empty key.
     """
 
     def _no_master_key(self):
@@ -212,19 +214,49 @@ class AiClientEnvFallbackTest(_ScratchDbTestCase):
         p.start()
         self.addCleanup(p.stop)
 
-    def test_env_only_fallback_resolves_without_master_key(self):
+    def test_env_only_resolves_fail_closed_without_master_key(self):
         self._no_master_key()
         db_module.init_db()
         import services.ai.ai as ai_module
 
         captor = mock.MagicMock()
-        with mock.patch.object(ai_module, "DEFAULT_AI_API_KEY", "env-only-secret-123"):
+        with mock.patch("services.ai.ai.OpenAI", captor):
+            ai_module.create_client(
+                {"base_url": "", "api_key": "", "model": "", "timeout_seconds": 30}
+            )
+        captor.assert_called_once()
+        self.assertEqual(captor.call_args.kwargs["api_key"], "")
+        # create_client is the only client seam; _client and test_connection
+        # must route through it so the fail-closed contract holds everywhere.
+        import inspect
+        for name in ("_client", "test_connection"):
+            src = inspect.getsource(getattr(ai_module, name))
+            self.assertIn("create_client", src)
+
+    def test_empty_override_falls_through_to_resolved_key(self):
+        """A blank api_key_override must not bypass key resolution (review SUGGESTION)."""
+        self._no_master_key()
+        db_module.init_db()
+        import services.ai.ai as ai_module
+
+        resolved_key = "resolved-from-preset"
+        with mock.patch.object(ai_module, "db") as db_mock:
+            db_mock.get_active_preset.return_value = {
+                "base_url": "",
+                "model": "",
+                "timeout_seconds": 30,
+            }
+            db_mock.resolve_preset_key.return_value = resolved_key
+            captor = mock.MagicMock()
             with mock.patch("services.ai.ai.OpenAI", captor):
-                ai_module._client(
-                    {"base_url": "", "api_key": "", "model": "", "timeout_seconds": 30}
+                # Empty override (""): treated as "not provided" -> resolved key.
+                ai_module.create_client(
+                    {"base_url": "", "api_key": "", "model": "", "timeout_seconds": 30},
+                    api_key_override="",
                 )
         captor.assert_called_once()
-        self.assertEqual(captor.call_args.kwargs["api_key"], "env-only-secret-123")
+        self.assertEqual(captor.call_args.kwargs["api_key"], resolved_key)
+        db_mock.resolve_preset_key.assert_called_once()
 
 
 if __name__ == "__main__":

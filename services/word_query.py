@@ -28,7 +28,6 @@ from typing import Awaitable, Callable, Optional
 logger = logging.getLogger(__name__)
 
 from config import (
-    AI_CARD_OUTPUT_FORMAT,
     OWNER_BYPASS_LIMITS,
     daily_word_query_limit_for_plan,
     is_owner,
@@ -89,14 +88,14 @@ def _build_system_prompt(lang: str, level: str) -> str:
     """Build the custom-word system prompt matching bot.py's current call.
 
     The AI card's output-format decision (compact vs full JSON schema) comes
-    from the environment setting ``AI_CARD_OUTPUT_FORMAT``, exactly as bot.py
-    reads it today. The per-user display preference (brief/detailed) is
+    from the single ``prompts.card_output_is_compact()`` helper, exactly as
+    bot.py reads it today. The per-user display preference (brief/detailed) is
     on-screen only and stays handler-side.
     """
     return prompts.custom_word_system_prompt(
         lang,
         level,
-        compact=(AI_CARD_OUTPUT_FORMAT == "compact_json"),
+        compact=prompts.card_output_is_compact(),
     )
 
 

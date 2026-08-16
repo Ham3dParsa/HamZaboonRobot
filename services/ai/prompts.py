@@ -7,6 +7,7 @@
 
 import json
 
+from config import AI_CARD_OUTPUT_FORMAT
 from config.catalog import (
     example_language_label,
     goal_hint,
@@ -23,12 +24,31 @@ _JSON_RULES = (
 )
 
 
-def _language_guidance(lang: str) -> str:
-    return language_guidance(lang)
+def card_output_is_compact() -> bool:
+    """Single source for the card output-format decision (F4).
+
+    The compact-vs-full card JSON decision was previously duplicated across
+    call sites. It now lives here so every prompt builder and admin custom-test
+    agrees on one value.
+    """
+    return AI_CARD_OUTPUT_FORMAT == "compact_json"
 
 
-def _level_guidance(level: str) -> str:
-    return level_prompt_guidance(level)
+def build_prompt_prelude(lang: str, goal: str, level: str) -> str:
+    """Shared prompt header consumed by the daily-card builder (F4).
+
+    Centralizes the language/goal/level guidance block that the daily-card
+    prompt uses. Other builders keep their distinct layout (per their prompt
+    contract) but all call the same centralized catalog guidance functions.
+    """
+    goal_fa = goal_label(goal)
+    level_name = level_label(level)
+    return (
+        f"هدف کاربر: {goal_fa}. سطح کاربر: {level_name}.\n\n"
+        f"{goal_hint(goal)}\n"
+        f"{level_prompt_guidance(level)}\n"
+        f"{language_guidance(lang)}\n"
+    )
 
 
 def _card_schema(lang_fa: str, example_lang: str, *, compact: bool) -> str:
@@ -94,8 +114,6 @@ def daily_card_system_prompt(
     compact: bool = False,
 ) -> str:
     lang_fa = language_label(lang)
-    goal_fa = goal_label(goal)
-    level_name = level_label(level)
 
     # متن پویا برای مثال‌ها
     example_lang = example_language_label(lang)
@@ -110,12 +128,7 @@ def daily_card_system_prompt(
             )
 
     return f"""تو معلم خصوصی زبان {lang_fa} برای فارسی‌زبانان هستی.
-هدف کاربر: {goal_fa}. سطح کاربر: {level_name}.
-
-{goal_hint(goal)}
-{_level_guidance(level)}
-{_language_guidance(lang)}
-
+{build_prompt_prelude(lang, goal, level)}
 هر بار یک واژهٔ مفید، کاربردی و نسبتاً رایج (نه خیلی ساده، نه خیلی نادر) انتخاب کن.
 {avoid_hint}
 خروجی را **دقیقاً** به صورت JSON خام بده و هیچ چیز دیگری ننویس:
@@ -147,8 +160,8 @@ def daily_batch_system_prompt(
 
     return f"""تو معلم خصوصی زبان {lang_fa} برای فارسی‌زبانان هستی.
 هدف کاربر: {goal_fa}. سطح کاربر: {level_name}.
-{_level_guidance(level)}
-{_language_guidance(lang)}
+{level_prompt_guidance(level)}
+{language_guidance(lang)}
 
 دقیقاً {card_count} کارت واژه‌ای مستقل و غیرتکراری بساز.
 {avoid_hint}
@@ -175,8 +188,8 @@ def custom_word_system_prompt(
 
 کاربر ممکن است واژه یا عبارتی به زبان {lang_fa} یا به فارسی بفرستد. 
 اگر فارسی بود، معادل مناسب آن را در زبان {lang_fa} پیدا کن.
-{_level_guidance(level)}
-{_language_guidance(lang)}
+{level_prompt_guidance(level)}
+{language_guidance(lang)}
 
 خروجی را **دقیقاً** با این ساختار JSON بده و هیچ چیز دیگری ننویس:
 
@@ -207,8 +220,8 @@ def grammar_tip_system_prompt(
     return f"""تو معلم گرامر زبان {lang_fa} برای زبان‌آموزان فارسی‌زبان با هدف «{goal_fa}» و سطح «{level_name}» هستی.
 
 یک نکته‌ی گرامری کوتاه، کاربردی و نسبتاً تازه (نه خیلی پایه، نه خیلی پیچیده) انتخاب کن.
-{_level_guidance(level)}
-{_language_guidance(lang)}
+{level_prompt_guidance(level)}
+{language_guidance(lang)}
 {avoid_hint}
 
 خروجی را **دقیقاً** با این ساختار JSON بده و هیچ چیز دیگری ننویس:
