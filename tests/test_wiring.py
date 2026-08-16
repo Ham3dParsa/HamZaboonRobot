@@ -313,6 +313,33 @@ def _collect_all_callback_prefixes() -> set[str]:
     return prefixes
 
 
+def _collect_registry_prefixes() -> set[str]:
+    """Extract coarse prefixes registered in the central routing registry.
+
+    Domains routed through ``services.routing`` (R1) are covered by their
+    registered prefixes (e.g. ``admin`` / ``llm``) rather than an inline
+    ``callback_router`` branch, so the forward wiring guard must recognize them.
+    """
+    prefixes: set[str] = set()
+    for filepath in _production_py_files():
+        try:
+            tree = ast.parse(filepath.read_text(encoding="utf-8-sig"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            # register("admin", _handle_admin_callback, owner_only=True)
+            if isinstance(func, ast.Name) and func.id == "register":
+                if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                    prefixes.add(node.args[0].value)
+                for kw in node.keywords:
+                    if kw.arg == "prefix" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                        prefixes.add(kw.value.value)
+    return prefixes
+
+
 def _collect_router_handlers() -> set[str]:
     """Extract callback handler patterns from bot.py callback_router."""
     handlers: set[str] = set()
@@ -345,6 +372,10 @@ def _collect_router_handlers() -> set[str]:
 
     for match in re.finditer(r'data\.startswith\("([^"]+)"\)', text):
         handlers.add(match.group(1))
+
+    # Domains routed through the central registry (R1) satisfy the forward guard
+    # via their registered coarse prefixes.
+    handlers |= _collect_registry_prefixes()
 
     return handlers
 

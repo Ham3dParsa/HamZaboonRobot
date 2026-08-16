@@ -15,5 +15,6 @@ scope: Safe admin AI-preset callback flows and per-preset group management.
 | `plan-callback-notifications-phase-01-module-tests.md` | 1 | none | complete |
 | `plan-callback-notifications-phase-02-migration.md` | 2 | phase 1 | complete |
 | `plan-callback-notifications-phase-03-guards-handoff.md` | 3 | phase 2 | in-progress |
+| `plan-routing-registry-jc1.md` | 1..2 | none | in-progress |
 
 Completed pr287 plan archived as `docs/archive/plan-pr287-kilo-followups-2026-08-09.md`.
