@@ -96,10 +96,11 @@ logger = logging.getLogger(__name__)
 _app_timezone = APP_TZ
 
 # Admin awaiting flows are registered in handlers/flows.py (R2) by each owning
-# module at import time. is_admin_awaiting delegates to that registry so bot.py
-# never hard-codes a prefix list (and can never miss a key again). This replaces
-# the old _ADMIN_AWAITING_PREFIXES allowlist (root-cause fix for Finding #6).
-from handlers.flows import register_flow, is_admin_awaiting  # noqa: E402,F401
+# module at import time. is_admin_awaiting (imported by bot.py and the wiring
+# guard from handlers.flows) delegates to that registry so bot.py never
+# hard-codes a prefix list (and can never miss a key again). This replaces the
+# old _ADMIN_AWAITING_PREFIXES allowlist (root-cause fix for Finding #6).
+from handlers.flows import register_flow  # noqa: E402
 
 #: Guard so _register_admin_flows() (import-time + test-triggered) never
 #: duplicates flow entries in the central registry.

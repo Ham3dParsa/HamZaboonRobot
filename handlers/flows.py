@@ -36,8 +36,11 @@ FlowHandler = Callable[
 class AwaitingFlow:
     """One registered awaiting text-input flow.
 
-    ``prefix`` is matched with ``startswith``; longer prefixes win so specific
-    states (e.g. ``ai_preset_edit:``) never collide with generic ones.
+    A ``prefix`` ending in ``:`` is matched with ``startswith`` (a namespace
+    carrying extra state, e.g. ``ai_preset_edit:``); any other ``prefix`` is an
+    exact-key match (e.g. ``admin_broadcast``), preserving the old ``==``/``in``
+    semantics so a stray suffix can never widen a flow like ``admin_broadcast``.
+    Longer prefixes win so specific states never collide with generic ones.
     """
 
     prefix: str
@@ -54,11 +57,24 @@ def register_flow(prefix: str, handler: FlowHandler) -> None:
     _FLOWS.append(AwaitingFlow(prefix, handler))
 
 
+def _matches(awaiting: str, flow: AwaitingFlow) -> bool:
+    """True if *awaiting* matches *flow* under exact-key vs prefix semantics."""
+    if flow.prefix.endswith(":"):
+        return awaiting.startswith(flow.prefix)
+    return awaiting == flow.prefix
+
+
 def resolve_flow(awaiting: str) -> AwaitingFlow | None:
-    """Return the longest-prefix flow matching *awaiting*, or None."""
+    """Return the best matching flow for *awaiting*, or None.
+
+    Exact keys (no trailing ``:``) are matched with ``==``; ``:``-suffixed
+    prefixes with ``startswith`` (longest prefix wins). This mirrors the old
+    dispatch's exact ``==``/``in`` and ``startswith`` branches, so a stray
+    suffix cannot widen an exact-state flow.
+    """
     best: AwaitingFlow | None = None
     for flow in _FLOWS:
-        if awaiting.startswith(flow.prefix):
+        if _matches(awaiting, flow):
             if best is None or len(flow.prefix) > len(best.prefix):
                 best = flow
     return best

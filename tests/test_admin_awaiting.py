@@ -165,6 +165,16 @@ class TestTextRouterPrefixDispatch(unittest.IsolatedAsyncioTestCase):
             await self._route("admin_ai_preset_new_name")
             mock_fn.assert_awaited_once()
 
+    async def test_exact_key_not_widened_by_stray_suffix(self):
+        """Kilo WARNING guard: an exact-key flow (admin_broadcast) must NOT be
+        matched by a stray-suffix value (admin_broadcastX). Only : namespace
+        prefixes widen; exact keys preserve old == semantics."""
+        from handlers.flows import resolve_flow
+        flow = resolve_flow("admin_broadcast")
+        self.assertIsNotNone(flow)
+        self.assertIsNone(resolve_flow("admin_broadcastX"), "exact key widened by suffix")
+        self.assertIsNotNone(resolve_flow("ai_preset_edit:test:model"), "namespace prefix should match")
+
     async def test_router_forwards_admin_awaiting_to_flows(self):
         """bot.text_router must forward an admin awaiting value to flows.text_router."""
         from bot import text_router
@@ -293,7 +303,7 @@ class TestIsAdminAwaiting(unittest.IsolatedAsyncioTestCase):
     (Finding #6). It must recognize every admin awaiting key and reject user keys."""
 
     def test_known_admin_keys_return_true(self):
-        from handlers.admin import is_admin_awaiting
+        from handlers.flows import is_admin_awaiting
         for key in (
             "admin_set_plan", "admin_broadcast", "admin_restore",
             "admin_plan_full_edit:silver:0", "admin_ai_preset_new_name",
@@ -307,12 +317,12 @@ class TestIsAdminAwaiting(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(is_admin_awaiting(key), key)
 
     def test_non_admin_keys_return_false(self):
-        from handlers.admin import is_admin_awaiting
+        from handlers.flows import is_admin_awaiting
         for key in ("ask_word", "", "flow:back", "stats", "llm:usage", "srs:fe", "user_settings"):
             self.assertFalse(is_admin_awaiting(key), key)
 
     def test_empty_and_none_return_false(self):
-        from handlers.admin import is_admin_awaiting
+        from handlers.flows import is_admin_awaiting
         self.assertFalse(is_admin_awaiting(""))
         self.assertFalse(is_admin_awaiting(None))
 
