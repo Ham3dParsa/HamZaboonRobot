@@ -41,6 +41,7 @@ from services.utils.formatting import (
     word_query_usage_text,
 )
 from services.utils.callback_notifications import notify_callback
+from services.send_pretty import Message, bold, say, send
 from services.utils.helpers import (
     _edit_or_send,
     _exit_awaiting_flow,
@@ -140,15 +141,17 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    welcome_text = "سلام! 👋 به *هم‌زبان* خوش اومدی.\nاول بگو داری چه زبونی یاد می‌گیری؟"
-    welcome_text = escape_mdv2(welcome_text)
+    welcome = Message()
+    welcome.add_line(
+        "سلام! 👋 به ", bold("هم‌زبان"), " خوش اومدی."
+    )
+    welcome.add_line("اول بگو داری چه زبونی یاد می‌گیری؟")
 
-    await _send_with_retry(
-        context.bot,
+    await send(
         update.effective_chat.id,
-        welcome_text,
-        parse_mode=ParseMode.MARKDOWN_V2,
-        reply_markup=lang_inline_keyboard(),
+        welcome,
+        bot=context.bot,
+        keyboard=lang_inline_keyboard(),
     )
 
 
@@ -156,15 +159,16 @@ async def on_lang_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, l
     _log_user_activity(update, action="onboard_lang", outcome=f"lang={lang}")
     context.user_data["pending_lang"] = lang
     lang_name = language_label(lang)
-    text = f"زبان انتخابی: *{lang_name}* ✅\nحالا هدفت از یادگیری چیه؟"
-    text = escape_mdv2(text)
 
-    await _edit_or_send(
+    text = Message()
+    text.add_line("زبان انتخابی: ", bold(lang_name), " ✅")
+    text.add_line("حالا هدفت از یادگیری چیه؟")
+
+    await say(
         update,
         context,
         text,
-        parse_mode=ParseMode.MARKDOWN_V2,
-        reply_markup=goal_inline_keyboard(),
+        keyboard=goal_inline_keyboard(),
     )
 
 
@@ -192,18 +196,15 @@ async def on_level_selected(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     level_name = level_label(level)
     cefr = level_cefr(level)
 
-    text = f"عالی! سطح تو *{level_name}* ({cefr}) ثبت شد."
-    text_to_send = text.replace("*", "@@@")
-    text_to_send = escape_mdv2(text_to_send)
-    text_to_send = text_to_send.replace("@@@", "*")
+    text = Message()
+    text.add_line("عالی! سطح تو ", bold(level_name), f" ({cefr}) ثبت شد.")
 
-    logger.debug(f"Sending message: {text_to_send}")
+    logger.debug(f"Sending message: {text.render()}")
 
-    await _edit_or_send(
+    await say(
         update,
         context,
-        text_to_send,
-        parse_mode=ParseMode.MARKDOWN_V2,
+        text,
     )
     await _send_with_retry(
         context.bot,
