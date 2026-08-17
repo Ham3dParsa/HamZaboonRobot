@@ -328,6 +328,34 @@ class AdminAiRenderFlowTest(unittest.TestCase):
             text = self._rendered_text(update)
             self.assertIn("❓ <b>راهنمای", text)
 
+    def test_confirm_screens_escape_preset_name_in_bold(self):
+        """T8-last: the save-confirm and delete-confirm screens render the
+        preset name inside a bold span and escape dynamic values."""
+        from handlers.admin_ai import _confirm_save_preset, _delete_ai_preset
+
+        db.set_preset("confirm<g", base_url="https://api.example.com", model="gpt", api_key="test", enabled=0)
+
+        # save-confirm: needs pending edits
+        ctx = self._make_context()
+        ctx.user_data["preset_edits"] = {"confirm<g": {"model": "x"}}
+        update = self._make_callback_update("admin:ai_preset:confirm_save:confirm<g")
+        asyncio.run(_confirm_save_preset(update, ctx, "confirm<g"))
+        save_text = self._rendered_text(update)
+        self.assertIn("آیا از ذخیره تغییرات برای «confirm&lt;g» مطمئنید؟", save_text)
+        self.assertNotIn("«confirm<g»", save_text)
+
+        # delete-confirm: preset must not be active
+        db.set_setting("ai_primary_preset", "confirm<g")
+        # override active to a different preset so delete is allowed
+        db.set_preset("confirm_active", base_url="https://api.example.com", model="gpt", api_key="test")
+        db.set_setting("ai_primary_preset", "confirm_active")
+        ctx2 = self._make_context()
+        update2 = self._make_callback_update("admin:ai_preset:delete:confirm<g")
+        asyncio.run(_delete_ai_preset(update2, ctx2, "confirm<g"))
+        del_text = self._rendered_text(update2)
+        self.assertIn("آیا از حذف پیش‌تنظیم «confirm&lt;g» مطمئنید؟", del_text)
+        self.assertNotIn("«confirm<g»", del_text)
+
     def test_usage_details_relabeled_and_uses_quota_emoji(self):
         """R9/R8: usage panel header is «مصرف ۲۴ ساعته» and quota rows use
         🔋/🪫 per the emoji dictionary."""

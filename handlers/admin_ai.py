@@ -14,7 +14,6 @@ import re
 from urllib.parse import quote, unquote
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from services import db
@@ -27,7 +26,6 @@ from services.ai import ai
 from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send
-from services.utils.formatting import html_escape
 from services.send_pretty import Backend, Message, RawFormat, bold, code, italic, plain, say
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
@@ -978,12 +976,9 @@ async def _confirm_save_preset(update: Update, context: ContextTypes.DEFAULT_TYP
             InlineKeyboardButton(IBTN_SAVE_CANCEL, callback_data=f"admin:ai_preset:confirm_save_no:{preset_ref}"),
         ]
     ])
-    await _edit_or_send(
-        update, context,
-        f"⚠️ <b>آیا از ذخیره تغییرات برای «{html_escape(preset_name)}» مطمئنید؟</b>",
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboard,
-    )
+    msg = Message()
+    msg.add_line(plain("⚠️ "), bold(f"آیا از ذخیره تغییرات برای «{preset_name}» مطمئنید؟"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=keyboard)
 
 
 async def _discard_all_preset_changes(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
@@ -1096,12 +1091,10 @@ async def _delete_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         ],
         [InlineKeyboardButton(BTN_BACK, callback_data=f"admin:ai_preset:view:{preset_ref}")],
     ])
-    await _edit_or_send(
-        update, context,
-        f"⚠️ <b>آیا از حذف پیش‌تنظیم «{html_escape(preset_name)}» مطمئنید؟</b>\nاین عمل بازگشت‌پذیر نیست.",
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboard,
-    )
+    msg = Message()
+    msg.add_line(plain("⚠️ "), bold(f"آیا از حذف پیش‌تنظیم «{preset_name}» مطمئنید؟"))
+    msg.add_line(plain("این عمل بازگشت‌پذیر نیست."))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=keyboard)
 
 
 async def _confirm_delete_yes(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
