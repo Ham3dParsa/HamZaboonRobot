@@ -39,6 +39,10 @@ _PLANS: dict[str, _PlanSpec] = {
 # Feature -> minimum rank that unlocks it. A plan enables a feature when its
 # rank is >= the feature's min rank; lower tiers inherit nothing, higher tiers
 # inherit automatically. This is the ONLY feature-gate definition in the app.
+#
+# TODO(#389): future paid-TTS features (voice/accent selection,
+# sample-sentence audio) will be added here as their gates are defined — this
+# is the single source of truth; do NOT scatter rank/premium checks elsewhere.
 _FEATURE_MIN_RANK: dict[str, int] = {
     "pronounce":    0,   # free to all (locked product decision, 2026-08-17)
     "card_modes":   2,   # silver+
