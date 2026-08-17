@@ -20,10 +20,10 @@ from services.utils.callback_notifications import CallbackNoticeIntent, notify_c
 from services.utils.formatting import escape_mdv2
 from services.utils.helpers import _edit_or_send, _send_with_retry
 
-# Static, hardcoded learner-facing literals. The whole template is escaped via
-# escape_mdv2; sentinels (@@BOT@@ / @@START@@) are MDV2-safe and replaced after
-# escaping with already-escaped fragments, so the result is always valid
-# MarkdownV2. There are no dynamic (AI/DB/user) values in help content.
+# Static, hardcoded learner-facing literals. Sentinels (@@BOT@@ / @@START@@)
+# and guillemets (« ») are tokenized into spans by _render_help_template, which
+# scopes escaping to leaf content — the result is always valid MarkdownV2.
+# There are no dynamic (AI/DB/user) values in help content.
 _HELP_INTRO = (
     "سلام! من @@BOT@@ هستم — رباتی که با هوش مصنوعی بهت واژه، مثال و نکته‌ی "
     "گرامری یاد می‌ده و با مرور فاصله‌دار کمکت می‌کنه که چیزایی که یاد گرفتی "
@@ -34,8 +34,8 @@ _HELP_INTRO = (
     "برای جزئیات هر بخش، دکمه‌ی مربوطه رو بزن 👇"
 )
 
-# id, button label, bold heading, body — all raw Persian (escaped at build).
-# Bold emphasis inside a body uses guillemets (« ») — see _apply_bold.
+# id, button label, bold heading, body — all raw Persian (tokenized at build).
+# Bold emphasis inside a body uses guillemets (« ») — see _help_guillemets.
 HELP_SECTIONS = [
     {
         "id": "about",
@@ -141,30 +141,91 @@ def _visible_sections(user_id: int) -> list[dict]:
 
 
 def _build_intro() -> str:
-    # Escape the whole template (covers literal . ! ( ) etc.), then inject
-    # the already-escaped fragments. The '*' bold markers are added around the
-    # bot name after escaping, so they stay as literal MarkdownV2 markers.
-    escaped = escape_mdv2(_HELP_INTRO)
-    bot = "*" + escape_mdv2("هم‌زبان") + "*"
-    start = escape_mdv2("/start")
-    return escaped.replace("@@BOT@@", bot).replace("@@START@@", start)
+    """Render the help intro via the span tree (R3).
+
+    The old ``@@BOT@@`` / ``@@START@@`` sentinels and the guillemet-based
+    ``_apply_bold`` are gone: bold/code emphasis is expressed structurally, so
+    escaping is scoped to leaf content and the resulting MarkdownV2 is always
+    valid regardless of ``.`` ``!`` ``(`` ``)`` in the static text.
+    """
+    return _render_help_template(_HELP_INTRO)
 
 
-def _apply_bold(text: str) -> str:
-    # Help content is static. Authors mark bold spans with guillemets (« »)
-    # which are NOT MarkdownV2 special chars, so they survive escape_mdv2
-    # untouched and are converted to literal bold markers (*) only after
-    # escaping. This keeps the body safe to interpolate while still allowing
-    # emphasis without leaking unescaped markdown.
-    return text.replace("\u00ab", "*").replace("\u00bb", "*")
+def _render_help_template(template: str) -> str:
+    """Tokenize a help template (with ``@@BOT@@`` / ``@@START@@`` sentinels and
+    guillemet pairs « ») into spans and render them to MarkdownV2.
+
+    Static text is emitted as ``plain()`` (escaped); ``@@BOT@@`` becomes a bold
+    span of the bot name, ``@@START@@`` a ``code`` span, and a guillemet pair
+    wraps its content in a ``bold`` span. Returns the final MarkdownV2 string.
+    """
+    from services.send_pretty import Message, bold, code, plain
+
+    spans = _help_spans(template)
+    msg = Message()
+    msg.add_line(*spans)
+    return msg.render()
+
+
+def _help_spans(template: str) -> list:
+    """Convert a help template into a flat list of span leaves.
+
+    Single-pass tokenizer: splits on ``@@BOT@@`` then ``@@START@@``, and converts
+    guillemet pairs (« … ») into ``bold`` spans within each segment. Returns a
+    flat list of spans ready for ``Message.add_line``.
+    """
+    from services.send_pretty import bold, code, plain
+
+    tokens: list = []
+
+    def push_bold(inner: str) -> None:
+        tokens.append(bold(inner))
+
+    def push_plain(text: str) -> None:
+        tokens.append(plain(text))
+
+    def push_start() -> None:
+        tokens.append(code("/start"))
+
+    # Split on the BOT sentinel.
+    bot_parts = template.split("@@BOT@@")
+    for i, part in enumerate(bot_parts):
+        if i > 0:
+            tokens.append(bold("هم‌زبان"))
+        # Within the segment, split on the START sentinel.
+        start_parts = part.split("@@START@@")
+        for j, seg in enumerate(start_parts):
+            if j > 0:
+                push_start()
+            _help_guillemets(seg, push_plain, push_bold)
+
+    return tokens
+
+
+def _help_guillemets(text: str, push_plain, push_bold) -> None:
+    """Emit spans for one segment, converting guillemet pairs to bold."""
+    if not text:
+        return
+    for k, chunk in enumerate(text.split("\u00ab")):
+        if k == 0:
+            if chunk:
+                push_plain(chunk)
+            continue
+        if "\u00bb" in chunk:
+            inner, rest = chunk.split("\u00bb", 1)
+            push_bold(inner)
+            if rest:
+                push_plain(rest)
+        else:
+            push_plain("\u00ab" + chunk)
 
 
 def _build_section_detail(section_id: str) -> str | None:
+    """Render a help section as a bold title + tokenized body (R3)."""
     for section in HELP_SECTIONS:
         if section["id"] == section_id:
-            title = escape_mdv2(section["title"])
-            body = _apply_bold(escape_mdv2(section["body"]))
-            return f"*{title}*\n\n{body}"
+            body = _render_help_template(section["body"])
+            return f"*{escape_mdv2(section['title'])}*\n\n{body}"
     return None
 
 

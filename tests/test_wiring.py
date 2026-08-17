@@ -658,6 +658,38 @@ class TestCallbackWiring(unittest.TestCase):
         tree = ast.parse("async def handler(query):\n    await query.answer()\n")
         self.assertEqual(_direct_answer_calls_in_tree(tree), [2])
 
+    def test_telegram_slots_only_owned_and_consumed_by_deep_module(self):
+        """The global concurrency slot is defined in helpers.py and must be
+        consumed only by the deep send_pretty module; bot.py's connection-health
+        job is a grandfathered exception. Any other module reaching for it
+        bypasses the retry/slot seam and must be routed through send_pretty.
+        """
+        allowed = {
+            Path("services/utils/helpers.py"),  # owner (defines the slot)
+            Path("services/send_pretty.py"),  # deep consumer (R3)
+            Path("bot.py"),  # grandfathered connection-health job
+        }
+        offenders: list[str] = []
+        for path in _production_py_files():
+            if path in allowed:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Name)
+                    and node.id == "_telegram_slots"
+                ) or (
+                    isinstance(node, ast.Attribute)
+                    and node.attr == "_telegram_slots"
+                ):
+                    offenders.append(f"{path}:{getattr(node, 'lineno', '?')}")
+        self.assertEqual(
+            offenders,
+            [],
+            "direct _telegram_slots usage must route through send_pretty:\n"
+            + "\n".join(offenders),
+        )
+
     def test_reverse_wiring_detects_deleted_handler(self):
         """Regression: the reverse-direction check must actually catch the
         failure it exists to prevent, using the real helpers.
@@ -729,6 +761,10 @@ class TestCallbackWiring(unittest.TestCase):
         to it), the router would silently drop it — exactly the ``ai_fallback_rank:``
         gap this finding fixes. This guard makes that impossible to miss.
         """
+        # Import handlers.admin to trigger _register_admin_flows() (the flows
+        # registry is populated at admin-module import time), so this guard is
+        # self-contained and does not depend on full-suite import ordering.
+        import handlers.admin  # noqa: F401
         from handlers.flows import is_admin_awaiting
 
         keys = _collect_admin_awaiting_keys()
