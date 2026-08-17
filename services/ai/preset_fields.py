@@ -134,12 +134,6 @@ def write_value(preset: Mapping, name: str):
     back to the plain ``write_default`` — never the env ``config_default``.
     """
     return _stored_or_default(preset, name, write_default(name))
-    meta = preset_field(name)
-    if name in preset and preset[name] not in (None, ""):
-        return preset[name]
-    if meta.get("config_default") is not None:
-        return meta["config_default"]
-    return meta["write_default"]
 
 
 def validate(preset: Mapping) -> None:
