@@ -15,6 +15,7 @@ _TTS_CACHE_DIR = Path("tts_cache")
 #: learning target, so it is intentionally absent from LANGUAGES and handled as
 #: an explicit exception here.
 _UI_VOICE_FA = "fa-IR-DilaraNeural"
+assert _UI_VOICE_FA, "Persian (fa) TTS voice must be non-empty"
 
 _VOICES: dict[str, dict[str, str]] = {}
 _VOICES_LOADED = False
