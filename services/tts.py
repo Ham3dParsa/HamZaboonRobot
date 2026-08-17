@@ -9,19 +9,31 @@ from config.catalog import LANGUAGES
 
 _TTS_CACHE_DIR = Path("tts_cache")
 
-_FALLBACK_VOICES = {
-    "en": "en-US-JennyNeural",
-    "es": "es-ES-ElviraNeural",
-    "ar": "ar-SA-ZariyahNeural",
-    "fr": "fr-FR-DeniseNeural",
-    "de": "de-DE-KatjaNeural",
-    "tr": "tr-TR-EmelNeural",
-    "he": "he-IL-HilaNeural",
-    "fa": "fa-IR-DilaraNeural",
-}
+#: Default Edge TTS voice per language lives on each catalog LanguageOption
+#: (config/catalog.py). This is the sole voice source; adding a language needs a
+#: single catalog edit. ``fa`` (Persian) is the *interface* language, not a
+#: learning target, so it is intentionally absent from LANGUAGES and handled as
+#: an explicit exception here.
+_UI_VOICE_FA = "fa-IR-DilaraNeural"
+assert _UI_VOICE_FA, "Persian (fa) TTS voice must be non-empty"
 
 _VOICES: dict[str, dict[str, str]] = {}
 _VOICES_LOADED = False
+
+
+def voice_for(lang: str) -> str:
+    """Return the default Edge TTS voice for a language code.
+
+    Sources the canonical catalog voice for each learning language; falls back
+    to English for unknown codes. Persian (``fa``) is a documented special case
+    because it is the interface language, not a learning target.
+    """
+    option = LANGUAGES.get(lang)
+    if option is not None and option.voice:
+        return option.voice
+    if lang == "fa":
+        return _UI_VOICE_FA
+    return LANGUAGES["en"].voice
 
 
 async def _ensure_voices():
@@ -40,10 +52,10 @@ async def _ensure_voices():
 def _default_voice(lang: str) -> str:
     pool = _VOICES.get(lang)
     if not pool:
-        return _FALLBACK_VOICES.get(lang, "en-US-JennyNeural")
-    fallback = _FALLBACK_VOICES.get(lang)
-    if fallback and fallback in pool:
-        return fallback
+        return voice_for(lang)
+    preferred = voice_for(lang)
+    if preferred in pool:
+        return preferred
     return next(iter(pool))
 
 

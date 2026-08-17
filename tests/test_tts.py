@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from config.catalog import LANGUAGES
 from services import tts
 
 
@@ -67,6 +68,27 @@ class TtsVoiceSelectionTests(unittest.TestCase):
         tts._VOICES_LOADED = True
         voice = tts._default_voice("fa")
         self.assertEqual(voice, "fa-IR-FaridNeural")
+
+
+class TtsVoiceForTests(unittest.TestCase):
+    def test_every_catalog_language_has_a_voice(self):
+        for code, option in LANGUAGES.items():
+            with self.subTest(code=code):
+                self.assertTrue(option.voice, f"language {code!r} missing a TTS voice")
+
+    def test_voice_for_returns_catalog_voice(self):
+        for code, option in LANGUAGES.items():
+            with self.subTest(code=code):
+                self.assertEqual(tts.voice_for(code), option.voice)
+        self.assertEqual(tts.voice_for("fa"), "fa-IR-DilaraNeural")
+
+    def test_ui_voice_fa_is_valid(self):
+        self.assertTrue(tts._UI_VOICE_FA)
+        self.assertTrue(tts._UI_VOICE_FA.startswith("fa-"))
+
+    def test_voice_for_falls_back_to_english_for_unknown(self):
+        self.assertEqual(tts.voice_for("xx"), "en-US-JennyNeural")
+        self.assertEqual(tts.voice_for(""), "en-US-JennyNeural")
 
 
 class TtsPronounceTests(unittest.TestCase):
