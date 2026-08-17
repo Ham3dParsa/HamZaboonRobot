@@ -339,13 +339,17 @@ def _render_plain(children: tuple[Span, ...]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_content(content, raw: RawFormat | None):
+def _resolve_content(
+    content, raw: RawFormat | None, backend: Backend = Backend.MDV2
+):
     """Return (text, parse_mode) from a Message or a raw pre-formatted string.
 
     ``raw`` MUST be declared (never guessed). When ``raw`` is None, ``content``
-    is a ``Message`` and is rendered with the active backend. ``raw`` is only
-    valid for a pre-formatted string; passing it with a ``Message`` is a caller
-    bug and fails loudly rather than emitting an object repr.
+    is a ``Message`` and is rendered with the active backend (default MDV2).
+    ``raw`` is only valid for a pre-formatted string; passing it with a
+    ``Message`` is a caller bug and fails loudly rather than emitting an object
+    repr. ``backend`` is ignored when ``raw`` is supplied (the raw string
+    declares its own format).
     """
     if raw is not None:
         if isinstance(content, Message):
@@ -358,7 +362,6 @@ def _resolve_content(content, raw: RawFormat | None):
         raise TypeError(
             "content must be a Message, or pass raw=<format> for a pre-formatted string"
         )
-    backend = Backend.MDV2
     return content.render(backend), _parse_mode_for(backend)
 
 
@@ -369,10 +372,11 @@ async def send(
     bot,
     keyboard: InlineKeyboardMarkup | None = None,
     raw: RawFormat | None = None,
+    backend: Backend = Backend.MDV2,
     **kwargs,
 ):
     """Send a new message, routing through the shared retry/slot seam."""
-    text, parse_mode = _resolve_content(content, raw)
+    text, parse_mode = _resolve_content(content, raw, backend)
     markup = keyboard
     if markup is None and isinstance(content, Message):
         markup = content.keyboard
@@ -391,17 +395,20 @@ async def say(
     mode: str = "auto",
     keyboard: InlineKeyboardMarkup | None = None,
     raw: RawFormat | None = None,
+    backend: Backend = Backend.MDV2,
     **kwargs,
 ):
     """Edit the callback message when a callback is present, else send new.
 
     ``mode="auto"`` edits when ``update.callback_query`` is set, otherwise sends.
     ``mode="edit"`` forces an edit; ``mode="send"`` forces a new message.
+    ``backend`` selects the render standard for ``Message`` content (default
+    MDV2); ignored when ``raw`` is supplied.
     BadRequest fallback ("message is not modified" / "not found") reuses the
     existing edit-then-fall-back-to-send semantics, routing through the retry
     seam.
     """
-    text, parse_mode = _resolve_content(content, raw)
+    text, parse_mode = _resolve_content(content, raw, backend)
     markup = keyboard
     if markup is None and isinstance(content, Message):
         markup = content.keyboard
