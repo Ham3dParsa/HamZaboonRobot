@@ -28,7 +28,7 @@ from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send
 from services.utils.formatting import html_escape
-from services.send_pretty import Backend, Message, bold, code, plain, say
+from services.send_pretty import Backend, Message, bold, plain, say
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
     BTN_BACK,
