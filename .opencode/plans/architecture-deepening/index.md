@@ -1,10 +1,11 @@
 # Theme: architecture-deepening
 
-STATE: DB track COMPLETE (J-A1 #371, J-A2 #372, J-A3 #377 all MERGED, 2026-08-17). AI track + Routing track owned by other sessions (see plan-2026-08-16-architecture-deepening.md).
+STATE: DB track (11-job roadmap) COMPLETE (J-A1 #371, J-A2 #372, J-A3 #377 MERGED). DB **continuation pipeline** (13 tickets A2-1..A2-13) tracked in plan-2026-08-17-db-remaining.md. AI track + Routing track owned by other sessions (see plan-2026-08-16-architecture-deepening.md).
 
 Plans:
 - plan-2026-08-16-architecture-deepening.md — main 11-job roadmap (DB / AI / Routing tracks), parallel-work-guard compliant.
 - plan-2026-08-16-db-track.md — DB track COMPLETE (J-A1 #371, J-A2 #372, J-A3 #377 all MERGED).
+- plan-2026-08-17-db-remaining.md — DB continuation SERIAL pipeline (13 tickets A2-1..A2-13).
 
 Cross-reference: ../../plans/TICKETS.md#arch-deepening
 

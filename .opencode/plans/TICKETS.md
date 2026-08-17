@@ -25,3 +25,16 @@
 | CARD-MODES (FE + review staged/immediate) | `session/plan-card-modes.md` | #338 (ext.) | `feat/card-modes-t2-t3-render` → `-t4-t5-admin` → `-t6-t7-user` | locked 2026-08-15 — T1 MERGED (#361, `d5a6652`); T2+T3 MERGED (#362, `4d5ecff`); delivery = 4 PRs; PR 3/4 (T4+T5) and PR 4/4 (T6+T7) pending |
 | STUDY-SESSION-RESTART (Bug 1) | `session/plan-study-session-restart-persistence.md` | #363 | `fix/session-restart-persistence` | complete (PR #364 merged 0fdec76); seam 1+5 released |
 | R3-SEND-PRETTY (T1–T7) | `callbacks/plan-send-pretty-span-tree-r3.md` | — | `refactor/send-pretty` | in-progress (2026-08-17) — T1/T3/T4/T5 drafted; T2/T6/T7 pending; T8 (admin_ai, seam 12) HELD for j-B2 merge, separate follow-up PR |
+| A2-1 (BN1) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-concurrency` (planned) | planned (gate pending; PR #372 merged) |
+| A2-2 (BUG-B3/BN4) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-concurrency` (planned) | planned |
+| A2-3 (R2) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-normalize` (planned) | planned |
+| A2-4 (BUG-B1) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-normalize` (planned) | planned |
+| A2-5 (R6) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-presets` (planned) | planned |
+| A2-6 (R7) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-presets` (planned) | planned |
+| A2-7 (R8) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-presets` (planned) | planned |
+| A2-8 (R9) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-cardmode` (planned) | planned |
+| A2-9 (R10) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-cardmode` (planned) | planned |
+| A2-10 (R11) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-integration` (planned) | planned |
+| A2-11 (BN2) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-integration` (planned) | planned |
+| A2-12 (BN3) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-integration` (planned) | planned |
+| A2-13 (BUG-B4) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-integration` (planned) | planned (seam #17 + serialize vs word-query worktrees) |
