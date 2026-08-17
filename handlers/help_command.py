@@ -14,7 +14,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from config import is_owner
+from config import feature_audience, is_owner
 from config.keyboards import main_menu
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.formatting import escape_mdv2
@@ -110,9 +110,9 @@ HELP_SECTIONS = [
         "label": "🔊 تلفظ (TTS)",
         "title": "تلفظ (TTS)",
         "body": (
-            "برای واژه‌ها و مثال‌ها تلفظ صوتی پخش می‌شه. این قابلیت بسته به "
-            "تنظیمات ربات، معمولاً برای پلن‌های نقره‌ای و طلایی فعاله. دکمه‌ی 🔊 "
-            "توی کارت‌های واژه نشون داده می‌شه."
+            "برای واژه‌ها و مثال‌ها تلفظ صوتی پخش می‌شه. این قابلیت "
+            f"{feature_audience('pronounce')} فعاله، مگر اینکه مالک ربات اون رو "
+            "خاموش کرده باشه. دکمه‌ی 🔊 توی کارت‌های واژه نشون داده می‌شه."
         ),
     },
     {

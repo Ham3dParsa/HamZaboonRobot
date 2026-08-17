@@ -234,6 +234,16 @@ BANNED_SYMBOLS: dict[str, str] = {
         "removed by #338 phonetic-knob decision (owner, 2026-08-15): env knob replaced "
         "by the admin-global phonetic display-toggle default"
     ),
+    "PLANS": (
+        "removed by J-B6 plan-identity leaf (config/plan_identity.py, 2026-08-17): "
+        "duplicate plan-name map superseded by the canonical _PLANS registry + "
+        "valid_plans()/plan_label(); config and services/db/plans.py now delegate to it"
+    ),
+    "PREMIUM_PLANS": (
+        "removed by J-B6 plan-identity leaf (config/plan_identity.py, 2026-08-17): "
+        "parallel premium-tier frozenset superseded by _PLANS premium flag + "
+        "is_premium()/has_feature()"
+    ),
 }
 
 # Symbols that are intentionally retained even though they are no longer

@@ -6,8 +6,6 @@ from services import db
 from services.db import schema as db_schema
 
 from config import (
-    PLANS,
-    PREMIUM_PLANS,
     cards_per_session_for_plan,
     daily_card_count_for_plan,
     daily_word_query_limit_for_plan,
@@ -77,21 +75,12 @@ class ConfigTests(unittest.TestCase):
             cards_per_session_for_plan("free"),
         )
 
-    def test_plan_codes_and_labels(self):
-        self.assertEqual(
-            set(PLANS),
-            {"free", "bronze", "silver", "gold", "emerald"},
-        )
+    def test_plan_display_names(self):
         self.assertEqual(plan_display_name("free"), "رایگان")
         self.assertEqual(plan_display_name("bronze"), "برنزی")
         self.assertEqual(plan_display_name("silver"), "نقره‌ای")
         self.assertEqual(plan_display_name("gold"), "طلایی")
         self.assertEqual(plan_display_name("emerald"), "زمردی")
-
-    def test_premium_plans_include_paid_tiers(self):
-        self.assertTrue({"silver", "gold", "emerald"} <= PREMIUM_PLANS)
-        self.assertNotIn("free", PREMIUM_PLANS)
-        self.assertNotIn("bronze", PREMIUM_PLANS)
 
     def test_presentation_preference_requires_premium_and_valid_values(self):
         self.assertEqual(presentation_for_user("silver", "brief"), "brief")

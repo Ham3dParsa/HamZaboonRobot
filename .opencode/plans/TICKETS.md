@@ -38,3 +38,4 @@
 | A2-11 (BN2) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-integration` (planned) | planned |
 | A2-12 (BN3) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-integration` (planned) | planned |
 | A2-13 (BUG-B4) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-integration` (planned) | planned (seam #17 + serialize vs word-query worktrees) |
+| J-B6 (R5/F5) | `architecture-deepening/plan-2026-08-17-jb6-plan-identity.md` | — | `refactor/plan-identity` | PR open (code complete, full suite green) |

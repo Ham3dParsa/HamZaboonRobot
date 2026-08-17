@@ -58,17 +58,7 @@ OWNER_BYPASS_LIMITS = os.getenv("OWNER_BYPASS_LIMITS", "false").lower() in {
     "yes",
 }
 
-# Canonical plan name -> learner-facing label (Rule 2; the DB display_name is
-# authoritative at runtime for admin-edited labels, but this map provides the
-# stable code-name fallback and set membership).
-PLANS = {
-    "free": "رایگان",
-    "bronze": "برنزی",
-    "silver": "نقره‌ای",
-    "gold": "طلایی",
-    "emerald": "زمردی",
-}
-PREMIUM_PLANS = frozenset({"silver", "gold", "emerald"})
+from config.plan_identity import feature_audience, has_feature, plan_label
 
 
 def _plan_spec(plan: str) -> dict:
@@ -91,7 +81,7 @@ def cards_per_session_for_plan(plan: str) -> int:
 
 def plan_display_name(plan: str) -> str:
     display = _plan_spec(plan).get("display_name")
-    return display or PLANS.get(plan, plan)
+    return display or plan_label(plan)
 
 
 def daily_card_count_for_plan(plan: str) -> int:
@@ -108,8 +98,7 @@ def effective_plan(plan: str, bypass_limits: bool = False) -> str:
 
 
 def presentation_for_user(plan: str, preference: str | None) -> str:
-    from services.db.plans import is_premium
-    if not is_premium(plan):
+    if not has_feature(plan, "presentation"):
         return DEFAULT_PRESENTATION
     if preference not in {"brief", "detailed"}:
         return DEFAULT_PRESENTATION

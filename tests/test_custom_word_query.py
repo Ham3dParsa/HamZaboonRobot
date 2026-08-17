@@ -144,12 +144,15 @@ class CustomWordQueryTests(unittest.TestCase):
         self.assertTrue(db.should_show_pronounce(1), "free user sees 🔊 when tts=all")
 
         db.set_setting("tts_access", "premium")
-        self.assertFalse(db.should_show_pronounce(1), "free user hidden when tts=premium")
-        self._set_plan(1, "gold")
-        self.assertTrue(db.should_show_pronounce(1), "premium user sees 🔊 when tts=premium")
+        # Pronounce is free to all plans (locked J-B6 decision, 2026-08-17), so the
+        # admin tts_access gate alone decides: "none" hides, everything else shows.
+        self.assertTrue(
+            db.should_show_pronounce(1),
+            "pronounce is free to every plan, so 🔊 shows for a free user under tts=premium",
+        )
 
         db.set_setting("tts_access", "none")
-        self.assertFalse(db.should_show_pronounce(1), "none hides 🔊 even for premium")
+        self.assertFalse(db.should_show_pronounce(1), "none hides 🔊")
 
     def test_should_show_pronounce_false_for_unknown_user(self):
         self.assertFalse(db.should_show_pronounce(999999))
@@ -169,10 +172,8 @@ class CustomWordQueryTests(unittest.TestCase):
         self._set_plan(1, "free")
         db.set_setting("tts_access", "premium")
         row = db.get_user(1)
-        self.assertFalse(
-            db.should_show_pronounce(1, row),
-            "free stored plan with tts=premium stays hidden even when a row is passed",
-        )
+        # Pronounce is free to every plan, so a passed free row still shows 🔊.
+        self.assertTrue(db.should_show_pronounce(1, row))
         premium_row = dict(row, plan="gold")
         self.assertTrue(
             db.should_show_pronounce(1, premium_row),

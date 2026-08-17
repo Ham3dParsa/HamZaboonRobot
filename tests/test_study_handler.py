@@ -491,9 +491,12 @@ class TestStagedRevealRender(_BaseStudyHandlerTest):
         self.assertIn("سلام", text)
         self.assertNotIn("نمایش پاسخ", text)
         callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+        # Pronounce is free to every plan (J-B6, 2026-08-17), so the review grid is
+        # followed by the 🔊 button for the default free test user.
         self.assertEqual(callbacks, [
             f"srs:1:1:{word_id}", f"srs:2:1:{word_id}",
             f"srs:3:1:{word_id}", f"srs:4:1:{word_id}",
+            f"tts:pronounce:s:1:{word_id}",
         ])
         self.assertNotIn(f"prompt_type_{word_id}", user_data)
         self.assertNotIn(f"card_shown_at_{word_id}", user_data)

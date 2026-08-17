@@ -24,8 +24,6 @@ from config import (
     ASK_WORD_AI_TIMEOUT_SECONDS,
     DEFAULT_PRESENTATION,
     OWNER_BYPASS_LIMITS,
-    PLANS,
-    PREMIUM_PLANS,
     USER_ACTIVITY,
     _app_today,
     _user_presentation,
@@ -34,6 +32,7 @@ from config import (
     effective_daily_allowance,
     is_owner,
 )
+from config.plan_identity import has_feature
 from services.utils.formatting import (
     ASK_WORD_PROMPT,
     escape_mdv2,
@@ -256,7 +255,7 @@ async def change_presentation_start(update: Update, context: ContextTypes.DEFAUL
         await notify_callback(update.callback_query)
         return
     current = _user_presentation(row)
-    if (row["plan"] or "free") not in PREMIUM_PLANS:
+    if not has_feature(row["plan"] or "free", "presentation"):
         await _edit_or_send(
             update,
             context,

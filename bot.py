@@ -26,18 +26,16 @@ from config import (
     APP_TZ,
     ASK_WORD_AI_TIMEOUT_SECONDS,
     CONNECTION_HEALTH_INTERVAL_SECONDS,
-    PREMIUM_PLANS,
     daily_word_query_limit_for_plan,
     effective_daily_allowance,
-    presentation_for_user,
     _app_today,
     _user_presentation,
-    _user_plan,
     is_owner,
     LOG_LEVEL,
     COST,
     USER_ACTIVITY,
 )
+from config.plan_identity import has_feature
 from services import db
 from services.ai import ai
 from services import tts
@@ -646,7 +644,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not row or not row["onboarded"]:
             await notify_callback(update.callback_query, "ابتدا /start را بزنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
-        if (row["plan"] or "free") not in PREMIUM_PLANS:
+        if not has_feature(row["plan"] or "free", "presentation"):
             await notify_callback(update.callback_query, "این تنظیم فقط برای کاربران پریمیوم فعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         db.set_presentation_preference(user_id, preference)
@@ -841,11 +839,11 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     tts_access = db.get_setting("tts_access", "premium")
+    # TODO(#389): with pronounce free, the admin tts_access "premium" option now
+    # behaves identically to "all" (only "none" differs); the redundant option
+    # itself is tracked for a possible collapse to on/off there.
     if tts_access == "none":
         await notify_callback(update.callback_query, "تلفظ غیرفعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-        return
-    if tts_access == "premium" and _user_plan(row) not in PREMIUM_PLANS:
-        await notify_callback(update.callback_query, "این قابلیت فقط برای کاربران نقره‌ای و طلایی فعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     word = None
