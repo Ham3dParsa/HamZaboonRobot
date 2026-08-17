@@ -881,13 +881,14 @@ async def _handle_group_view(update: Update, context: ContextTypes.DEFAULT_TYPE,
     presets = [db.get_preset(n) for n in names if db.get_preset(n)]
     active_name = db.get_active_preset_name()
 
-    lines = [f"📁 <b>گروه: {html_escape(str(target.get('label') or target['masked_key']))}</b>\n"]
-    lines.append(f"🔑 کلید: {html_escape(target['masked_key'])}")
-    lines.append(f"تعداد: {target['count']} preset\n")
+    msg = Message()
+    msg.add_line(plain("📁 "), bold("گروه: " + str(target.get('label') or target['masked_key'])))
+    msg.add_line()
+    msg.add_line(plain("🔑 کلید: "), plain(str(target['masked_key'])))
+    msg.add_line(plain("تعداد: "), plain(str(target['count'])), plain(" preset"))
+    msg.add_line()
     for p in presets:
-        lines.append(f"{_render_preset_brief(p, active_name)} — {html_escape(str(p.get('model', '—')))}")
-
-    text = "\n".join(lines)
+        msg.add_line(*_preset_brief_spans(p, active_name), plain(" — "), plain(str(p.get('model', '—'))))
 
     buttons = [
         [
@@ -896,8 +897,7 @@ async def _handle_group_view(update: Update, context: ContextTypes.DEFAULT_TYPE,
         ],
         [InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_presets")],
     ]
-    keyboard = InlineKeyboardMarkup(buttons)
-    await _edit_or_send(update, context, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _handle_group_batch_key(update: Update, context: ContextTypes.DEFAULT_TYPE, key_hash: str):
@@ -923,13 +923,16 @@ async def _handle_group_set_label(update: Update, context: ContextTypes.DEFAULT_
 async def _show_group_manager(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show group manager — list all group_labels with preset counts."""
     groups = db.get_group_labels()
-    lines = ["🏷️ <b>مدیریت گروه‌ها</b>\n\n"]
+    msg = Message()
+    msg.add_line(plain("🏷️ "), bold("مدیریت گروه‌ها"))
+    msg.add_line()
     if not groups:
-        lines.append("هیچ گروهی تعریف نشده است.\nبرای گروه‌بندی، از فیلد group_label استفاده کنید.")
+        msg.add_line(plain("هیچ گروهی تعریف نشده است."))
+        msg.add_line(plain("برای گروه‌بندی، از فیلد group_label استفاده کنید."))
     else:
         for g in groups:
-            lines.append(f"• <b>{html_escape(g['label'])}</b> — {g['count']} پریست")
-    lines.append("")
+            msg.add_line(plain("• "), bold(str(g['label'])), plain(f" — {g['count']} پریست"))
+    msg.add_line()
 
     buttons = []
     from services.utils.callback_codec import label_token
@@ -940,19 +943,16 @@ async def _show_group_manager(update: Update, context: ContextTypes.DEFAULT_TYPE
         ])
     buttons.append([InlineKeyboardButton(IBTN_BACK, callback_data="admin:ai_settings")])
 
-    await _edit_or_send(update, context, "".join(lines), parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _handle_group_manager_rename(update: Update, context: ContextTypes.DEFAULT_TYPE, label: str):
     """Start rename flow for a group label."""
     context.user_data["awaiting"] = f"admin_group_manager_rename:{quote(label)}"
-    await _edit_or_send(
-        update, context,
-        f"✏️ نام جدید برای گروه <b>{html_escape(label)}</b> را ارسال کنید:\n"
-        "(خالی = انصراف)",
-        parse_mode=ParseMode.HTML,
-        reply_markup=admin_awaiting_inline_keyboard(),
-    )
+    msg = Message()
+    msg.add_line(plain("✏️ نام جدید برای گروه "), bold(str(label)), plain(" را ارسال کنید:"))
+    msg.add_line(plain("(خالی = انصراف)"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=admin_awaiting_inline_keyboard())
 
 
 async def _handle_group_manager_clear(update: Update, context: ContextTypes.DEFAULT_TYPE, label: str):

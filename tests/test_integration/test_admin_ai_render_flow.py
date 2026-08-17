@@ -172,6 +172,21 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         self.assertIn("<code>my&lt;gpt&gt;</code>", text)
         self.assertNotIn("<code>my<gpt></code>", text)
 
+    def test_group_manager_puts_each_group_on_own_line(self):
+        """T8e: the group-manager list renders one group per line (fixes the
+        legacy ``"".join`` gluing where rows ran together)."""
+        from handlers.admin import _handle_admin_callback
+
+        db.set_preset("grp_a", base_url="https://api.example.com", model="gpt", group_label="گ<ا")
+        db.set_preset("grp_b", base_url="https://api.example.com", model="gpt", group_label="g2")
+
+        update = self._make_callback_update("admin:ai_preset:group_manager")
+        ctx = self._make_context()
+        asyncio.run(_handle_admin_callback(update, ctx, "ai_preset:group_manager"))
+
+        text = self._rendered_text(update)
+        self.assertIn("• <b>گ&lt;ا</b> — 1 پریست\n• <b>g2</b> — 1 پریست", text)
+
     def test_fallback_chain_uses_emergency_and_active_emoji(self):
         """R8: the fallback chain render shows 🛡️ for emergency and 🟢 for a
         normal enabled preset (no legacy ✅/🚨 markers)."""
