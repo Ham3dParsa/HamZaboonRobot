@@ -81,6 +81,11 @@ class TestSpanRenderHTML(unittest.TestCase):
             '<a href="https://x.test/?a=b&amp;c">گل</a>',
         )
 
+    def test_newline_span_html_emits_literal_newline(self):
+        msg = Message()
+        msg.add_line(plain("a"), nl(), plain("b"))
+        self.assertEqual(msg.render(Backend.HTML), "a\nb")
+
 
 class TestSpanRenderPlain(unittest.TestCase):
     def test_strips_all_markup(self):

@@ -310,7 +310,7 @@ def _render_html(children: tuple[Span, ...]) -> str:
         elif isinstance(span, Quote):
             parts.append("<blockquote>" + _render_html(span.children) + "</blockquote>")
         elif isinstance(span, Newline):
-            parts.append("<br/>")
+            parts.append("\n")
         else:  # pragma: no cover - defensive
             raise TypeError(f"Unsupported span type for HTML: {type(span).__name__}")
     return "".join(parts)
