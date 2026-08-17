@@ -28,7 +28,7 @@ from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send
 from services.utils.formatting import html_escape
-from services.send_pretty import Backend, Message, bold, code, italic, plain, say
+from services.send_pretty import Backend, Message, RawFormat, bold, code, italic, plain, say
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
     BTN_BACK,
@@ -1287,6 +1287,7 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
     name = state.get("name", "")
     preset = db.get_preset(name)
     await notify_callback(update.callback_query, "در حال تست اتصال...", intent=CallbackNoticeIntent.INFO)
+    msg = Message()
     if preset and (preset.get("base_url") or preset.get("model") or preset.get("api_key")):
         result = await asyncio.to_thread(
             ai.test_connection,
@@ -1295,7 +1296,6 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
             model=preset.get("model", ""),
             timeout=preset_fields.resolve(preset, "timeout_seconds"),
         )
-        msg = Message()
         if result["success"]:
             msg.add_line(plain("✅ "), bold("اتصال موفق"))
             msg.add_line(plain("تأخیر: "), plain(str(result['latency_ms'])), plain(" ms"))
@@ -1303,7 +1303,6 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
             msg.add_line(plain("❌ "), bold("خطا در اتصال"))
             msg.add_line(plain("خطا: "), plain(str(result.get('error_message', ''))))
     else:
-        msg = Message()
         msg.add_line(plain("⚠️ "), bold("تست اتصال برای پیش‌تنظیم تازه"))
         msg.add_line()
         msg.add_line(
@@ -1697,25 +1696,21 @@ async def _show_ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status_label = "🎯 Fallback ACTIVE"
     else:
         status_label = "🎯 Primary Active"
-    text = (
-        "🔄 <b>مدیریت پیش‌تنظیم پشتیبان (Fallback)</b>\n\n"
-        f"Status: {status_label}\n"
-        f"Primary: {html_escape(str(status['primary_preset']))}\n"
-        f"Fallback: {html_escape(str(status['fallback_preset']))}\n"
-        f"Consecutive Failures: {status['consecutive_failures']}\n"
-    )
+    msg = Message()
+    msg.add_line(plain("🔄 "), bold("مدیریت پیش‌تنظیم پشتیبان (Fallback)"))
+    msg.add_line()
+    msg.add_line(plain("Status: "), plain(status_label))
+    msg.add_line(plain("Primary: "), plain(str(status['primary_preset'])))
+    msg.add_line(plain("Fallback: "), plain(str(status['fallback_preset'])))
+    msg.add_line(plain("Consecutive Failures: "), plain(str(status['consecutive_failures'])))
     if status["fallback_active"] and status["fallback_since"]:
-        text += f"Fallback Since: {html_escape(str(status['fallback_since'][:19]))}\n"
+        msg.add_line(plain("Fallback Since: "), plain(str(status['fallback_since'][:19])))
 
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=ai_fallback_keyboard(
-            status["primary_preset"],
-            status["fallback_preset"],
-            status["fallback_preset"] if status["fallback_active"] else status["primary_preset"]
-        )
-    )
+    await say(update, context, msg, backend=Backend.HTML, keyboard=ai_fallback_keyboard(
+        status["primary_preset"],
+        status["fallback_preset"],
+        status["fallback_preset"] if status["fallback_active"] else status["primary_preset"]
+    ))
 
 
 async def _handle_ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
@@ -1817,23 +1812,22 @@ async def _show_help_fallback_chain(update: Update, context: ContextTypes.DEFAUL
 async def _show_fallback_chain(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show and manage the fallback chain order."""
     chain = db.get_fallback_chain_presets()
-    text = (
-        "⛓️ <b>زنجیره فال‌بک</b>\n\n"
-        "ترتیب: پریست‌های عادی (is_emergency=0) بر اساس priority (از کم به زیاد)، "
-        "سپس پریست‌های اضطراری (is_emergency=1).\n"
-        "پریست‌های با in_fallback_chain=0 در این زنجیره نمایش داده نمی‌شوند.\n\n"
+    msg = Message()
+    msg.add_line(plain("⛓️ "), bold("زنجیره فال‌بک"))
+    msg.add_line()
+    msg.add_line(
+        plain("ترتیب: پریست‌های عادی (is_emergency=0) بر اساس priority (از کم به زیاد)، "),
+        plain("سپس پریست‌های اضطراری (is_emergency=1)."),
     )
+    msg.add_line(plain("پریست‌های با in_fallback_chain=0 در این زنجیره نمایش داده نمی‌شوند."))
+    msg.add_line()
     for i, preset in enumerate(chain):
         name = preset.get("name", "?")
         is_emergency = preset_fields.resolve(preset, "is_emergency")
         status = "🛡️ اضطراری" if is_emergency else "🟢 فعال"
-        text += f"{i+1}. <b>{html_escape(name)}</b> — {status}\n"
+        msg.add_line(plain(f"{i+1}. "), bold(str(name)), plain(f" — {status}"))
 
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=fallback_chain_keyboard(chain)
-    )
+    await say(update, context, msg, backend=Backend.HTML, keyboard=fallback_chain_keyboard(chain))
 
 
 USAGE_PAGE_SIZE = 5
@@ -1872,22 +1866,24 @@ def _render_usage_page(page: int) -> tuple[str, InlineKeyboardMarkup]:
         return "هیچ داده‌ای یافت نشد.", _usage_page_keyboard(0, 1)
     start = page * USAGE_PAGE_SIZE
     slice_rows = rows[start:start + USAGE_PAGE_SIZE]
-    lines = [f"📊 <b>مصرف ۲۴ ساعته پریست‌ها</b> (صفحه {page + 1}/{total_pages})\n"]
+    msg = Message()
+    msg.add_line(plain("📊 "), bold("مصرف ۲۴ ساعته پریست‌ها"), plain(f" (صفحه {page + 1}/{total_pages})"))
+    msg.add_line()
     for status, name, detail in slice_rows:
-        lines.append(f"{status} <b>{html_escape(name)}</b>: {detail}")
-    return "\n".join(lines), _usage_page_keyboard(page, total_pages)
+        msg.add_line(plain(status), plain(" "), bold(str(name)), plain(": "), plain(detail))
+    return msg.render(Backend.HTML), _usage_page_keyboard(page, total_pages)
 
 
 async def _show_fallback_usage_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """R7: Show daily consumption for all presets, paginated."""
     text, keyboard = _render_usage_page(0)
-    await _edit_or_send(update, context, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await say(update, context, text, raw=RawFormat.HTML, keyboard=keyboard)
 
 
 async def _show_usage_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int):
     """R7: show a specific usage page."""
     text, keyboard = _render_usage_page(page)
-    await _edit_or_send(update, context, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await say(update, context, text, raw=RawFormat.HTML, keyboard=keyboard)
 
 
 async def _handle_fallback_rank(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):

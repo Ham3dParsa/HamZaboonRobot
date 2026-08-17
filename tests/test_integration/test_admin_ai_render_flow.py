@@ -172,6 +172,57 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         self.assertIn("<code>my&lt;gpt&gt;</code>", text)
         self.assertNotIn("<code>my<gpt></code>", text)
 
+    def test_create_priority_escapes_name_in_code(self):
+        """T8d/Kilo: the create-priority screen shows the pending name inside a
+        ``<code>`` span and escapes dynamic values."""
+        from handlers.admin_ai import _show_create_priority
+
+        ctx = self._make_context()
+        ctx.user_data["preset_create"] = {"name": "my<gpt>"}
+        update = self._make_callback_update("admin:ai_preset:create:priority:manual")
+        asyncio.run(_show_create_priority(update, ctx))
+
+        text = self._rendered_text(update)
+        self.assertIn("— <code>my&lt;gpt&gt;</code>", text)
+        self.assertNotIn("— <code>my<gpt></code>", text)
+
+    def test_create_status_escapes_name_in_code(self):
+        """T8d/Kilo: the create-status screen shows the pending name inside a
+        ``<code>`` span and escapes dynamic values."""
+        from handlers.admin_ai import _show_create_status
+
+        ctx = self._make_context()
+        ctx.user_data["preset_create"] = {"name": "my<gpt>"}
+        update = self._make_callback_update("admin:ai_preset:create:status:on")
+        asyncio.run(_show_create_status(update, ctx))
+
+        text = self._rendered_text(update)
+        self.assertIn("— <code>my&lt;gpt&gt;</code>", text)
+        self.assertNotIn("— <code>my<gpt></code>", text)
+
+    def test_group_view_escapes_label_and_key(self):
+        """T8e/Kilo: the group-detail view escapes the group label and masked
+        key when they contain angle brackets."""
+        from handlers.admin import _handle_admin_callback
+        from handlers.admin_ai import _key_hash
+
+        api_key = "sk-a<&b"
+        db.set_preset(
+            "grp_esc",
+            base_url="https://api.example.com",
+            model="gpt",
+            api_key=api_key,
+            group_label="گ<ا",
+        )
+        kh = _key_hash(api_key)
+        update = self._make_callback_update(f"admin:ai_preset:group:{kh}")
+        ctx = self._make_context()
+        asyncio.run(_handle_admin_callback(update, ctx, f"ai_preset:group:{kh}"))
+
+        text = self._rendered_text(update)
+        self.assertIn("گروه: گ&lt;ا", text)
+        self.assertNotIn("گروه: گ<ا", text)
+
     def test_group_manager_puts_each_group_on_own_line(self):
         """T8e: the group-manager list renders one group per line (fixes the
         legacy ``"".join`` gluing where rows ran together)."""
@@ -205,6 +256,22 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         text = self._rendered_text(update)
         self.assertIn("🟢", text)
         self.assertNotIn("🚨", text)
+
+    def test_fallback_panel_renders_html_and_escapes_preset(self):
+        """T8f: the fallback panel renders via spans (HTML bold title) and
+        escapes a preset name containing angle brackets."""
+        from handlers.admin import _handle_admin_callback
+
+        db.set_setting("ai_primary_preset", "a<b")
+        db.set_setting("ai_fallback_preset", "f&c")
+        update = self._make_callback_update("admin:ai_fallback")
+        ctx = self._make_context()
+        asyncio.run(_handle_admin_callback(update, ctx, "ai_fallback"))
+
+        text = self._rendered_text(update)
+        self.assertIn("🔄 <b>مدیریت پیش‌تنظیم پشتیبان (Fallback)</b>", text)
+        self.assertIn("Primary: a&lt;b", text)
+        self.assertIn("Fallback: f&amp;c", text)
 
     def test_usage_details_relabeled_and_uses_quota_emoji(self):
         """R9/R8: usage panel header is «مصرف ۲۴ ساعته» and quota rows use
