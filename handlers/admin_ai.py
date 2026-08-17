@@ -28,6 +28,7 @@ from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send
 from services.utils.formatting import html_escape
+from services.send_pretty import Backend, Message, bold, code, plain, say
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
     BTN_BACK,
@@ -104,33 +105,41 @@ async def _show_ai_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         active_preset = db.get_active_preset()
     except db.NoActivePresetError:
-        await _edit_or_send(
-            update, context,
-            "🤖 <b>تنظیمات هوش مصنوعی</b>\n\n"
-            "⚠️ هیچ پیش‌تنظیم فعالی وجود ندارد.\n"
-            "برای استفاده از هوش مصنوعی، از بخش «پیش‌تنظیم‌ها» یک پیش‌تنظیم بسازید و فعال کنید.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=ai_settings_keyboard(),
-        )
+        msg = Message()
+        msg.add_line(plain("🤖 "), bold("تنظیمات هوش مصنوعی"))
+        msg.add_line()
+        msg.add_line(plain("⚠️ هیچ پیش‌تنظیم فعالی وجود ندارد."))
+        msg.add_line(plain("برای استفاده از هوش مصنوعی، از بخش «پیش‌تنظیم‌ها» یک پیش‌تنظیم بسازید و فعال کنید."))
+        msg.set_keyboard(ai_settings_keyboard())
+        await say(update, context, msg, backend=Backend.HTML)
         return
     fallback_status = db.get_fallback_status()
 
-    text = (
-        "🤖 <b>تنظیمات هوش مصنوعی</b>\n\n"
-        f"<b>پیش‌تنظیم فعال:</b> {html_escape(str(active_preset.get('name', 'gapgpt')))}\n"
-        f"<b>مدل:</b> {html_escape(str(active_preset.get('model', '—')))}\n"
-        f"<b>Base URL:</b> {html_escape(str(active_preset.get('base_url', '—')))}\n"
-        f"<b>Batch Size:</b> {preset_fields.resolve(active_preset, 'daily_batch_size')}\n"
-        f"<b>Concurrency:</b> {preset_fields.resolve(active_preset, 'max_concurrency')}\n"
-        f"<b>RPM Limit:</b> {preset_fields.resolve(active_preset, 'max_rpm')}\n\n"
-    )
+    msg = Message()
+    msg.add_line(plain("🤖 "), bold("تنظیمات هوش مصنوعی"))
+    msg.add_line()
+    msg.add_line(bold("پیش‌تنظیم فعال:"), plain(" " + str(active_preset.get("name", "gapgpt"))))
+    msg.add_line(bold("مدل:"), plain(" " + str(active_preset.get("model", "—"))))
+    msg.add_line(bold("Base URL:"), plain(" " + str(active_preset.get("base_url", "—"))))
+    msg.add_line(bold("Batch Size:"), plain(" " + str(preset_fields.resolve(active_preset, "daily_batch_size"))))
+    msg.add_line(bold("Concurrency:"), plain(" " + str(preset_fields.resolve(active_preset, "max_concurrency"))))
+    msg.add_line(bold("RPM Limit:"), plain(" " + str(preset_fields.resolve(active_preset, "max_rpm"))))
+    msg.add_line()
 
     if fallback_status.get("fallback_active"):
-        text += (
-            f"⚠️ <b>Fallback ACTIVE</b> since {html_escape(str(fallback_status.get('fallback_since', '?')))}\n"
-            f"Primary: {html_escape(str(fallback_status.get('primary_preset', '—')))} → "
-            f"Fallback: {html_escape(str(fallback_status.get('fallback_preset', '—')))}\n\n"
+        msg.add_line(
+            plain("⚠️ "),
+            bold("Fallback ACTIVE"),
+            plain(" since "),
+            plain(str(fallback_status.get("fallback_since", "?"))),
         )
+        msg.add_line(
+            plain("Primary: "),
+            plain(str(fallback_status.get("primary_preset", "—"))),
+            plain(" → Fallback: "),
+            plain(str(fallback_status.get("fallback_preset", "—"))),
+        )
+        msg.add_line()
 
     # Last successful preset per request kind (Rule #2)
     try:
@@ -143,15 +152,15 @@ async def _show_ai_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "GROUP BY request_kind HAVING created_at = MAX(created_at)"
             ).fetchall()
         tracking = {row["request_kind"]: row["preset_name"] or "—" for row in last_rows}
-        text += "📇 <b>آخرین درخواست‌ها:</b>\n"
-        text += f"  Daily: {html_escape(tracking.get('daily_batch', '—'))}\n"
-        text += f"  Grammar: {html_escape(tracking.get('grammar_tip', '—'))}\n"
-        text += f"  Word: {html_escape(tracking.get('custom_word', '—'))}\n"
+        msg.add_line(plain("📇 "), bold("آخرین درخواست‌ها:"))
+        msg.add_line(plain("  Daily: "), plain(str(tracking.get("daily_batch", "—"))))
+        msg.add_line(plain("  Grammar: "), plain(str(tracking.get("grammar_tip", "—"))))
+        msg.add_line(plain("  Word: "), plain(str(tracking.get("custom_word", "—"))))
     except Exception:
         pass
 
-    keyboard = ai_settings_keyboard()
-    await _edit_or_send(update, context, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    msg.set_keyboard(ai_settings_keyboard())
+    await say(update, context, msg, backend=Backend.HTML)
 
 
 async def _show_ai_presets(update: Update, context: ContextTypes.DEFAULT_TYPE):

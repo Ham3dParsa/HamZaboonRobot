@@ -7,7 +7,7 @@ branch: refactor/admin-ai-spans
 status: in-progress
 ---
 
-STATE: phase 1/N — status: in-progress — focus: T8-PRE DONE, next T8a (settings/overview)
+STATE: phase 2/N — status: in-progress — focus: T8a DONE, next T8b (presets list/view)
 
 ## Contract lock (owner 2026-08-17, GATE LOCKED)
 - R1: T8 split into sub-tickets T8a..T8h (each a commit/PR, like R3).
@@ -33,8 +33,9 @@ STATE: phase 1/N — status: in-progress — focus: T8-PRE DONE, next T8a (setti
 - T7 — 13 direct bypass sites (study/srs/admin/admin_plans) → send()/say(). DEFERRED.
 
 ## Progress
-- T8-PRE DONE — added `backend=Backend.MDV2` param to `say()`/`send()` + `_resolve_content`; 4 new tests (say HTML, say edit HTML, send HTML, default MDV2). Full suite 1134 passed, compile/ruff/dashboard/diff-check clean. (uncommitted)
-- T8a PENDING
+- T8-PRE DONE — added `backend=Backend.MDV2` param to `say()`/`send()` + `_resolve_content`; 4 new tests (say HTML, say edit HTML, send HTML, default MDV2). Full suite 1134 passed, compile/ruff/dashboard/diff-check clean. (committed 1b332fd)
+- T8a DONE — `_show_ai_settings` + no-active notice → spans (Message + Backend.HTML), byte-exact HTML preserved (bold labels, emoji 🤖/⚠️/📇, "Fallback:" prefix, trailing-space after `:</b>`). New integration test `test_ai_settings_with_active_preset_renders_html_bold` (escapes `<x>`). Full suite 1135 passed. (uncommitted)
+- T8b PENDING
 - T8b PENDING
 - T8c PENDING
 - T8d PENDING

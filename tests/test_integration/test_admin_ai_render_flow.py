@@ -228,6 +228,32 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         text = self._rendered_text(update)
         self.assertIn("پیش‌تنظیم فعالی وجود ندارد", text)
 
+    def test_ai_settings_with_active_preset_renders_html_bold(self):
+        """T8a: the settings panel renders HTML bold via send_pretty spans, with
+        the dynamic values escaped and the bold labels byte-identical to the
+        pre-migration HTML output."""
+        from handlers.admin import _handle_admin_callback
+
+        db.set_preset(
+            "span_active",
+            base_url="https://api.example.com",
+            model="gpt-test <x>",
+            enabled=1,
+        )
+        db.set_setting("ai_primary_preset", "span_active")
+
+        update = self._make_callback_update("admin:ai_settings")
+        ctx = self._make_context()
+        asyncio.run(_handle_admin_callback(update, ctx, "ai_settings"))
+
+        text = self._rendered_text(update)
+        # Bold labels stay HTML.
+        self.assertIn("<b>تنظیمات هوش مصنوعی</b>", text)
+        self.assertIn("<b>پیش‌تنظیم فعال:</b> span_active", text)
+        # Dynamic value with a reserved HTML char is escaped by the renderer.
+        self.assertIn("gpt-test &lt;x&gt;", text)
+        self.assertNotIn("gpt-test <x>", text)
+
 
 if __name__ == "__main__":
     unittest.main()
