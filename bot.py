@@ -840,8 +840,8 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
 
     tts_access = db.get_setting("tts_access", "premium")
     # TODO(#389): with pronounce free, the admin tts_access "premium" option now
-    # behaves identically to "all" (only "none" differs); the admin label and
-    # help text still say silver/gold-only and must be reconciled there.
+    # behaves identically to "all" (only "none" differs); the redundant option
+    # itself is tracked for a possible collapse to on/off there.
     if tts_access == "none":
         await notify_callback(update.callback_query, "تلفظ غیرفعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return

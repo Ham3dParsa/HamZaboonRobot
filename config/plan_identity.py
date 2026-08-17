@@ -82,3 +82,22 @@ def has_feature(plan: str, feature: str) -> bool:
     # int() keeps the comparison fail-closed if a malformed (e.g. string) rank
     # slips past the (un-enforced at runtime) _PlanSpec typing.
     return int(entry["rank"]) >= min_rank
+
+
+def feature_audience(feature: str) -> str:
+    """Persian phrase naming which plans are entitled to ``feature``.
+
+    Derived from ``_FEATURE_MIN_RANK`` + ``_PLANS`` ranks (ascending), so admin
+    labels and learner-facing help text can mirror the live gate without
+    hardcoding tier claims that drift out of sync (#390). Unknown features
+    return an empty string.
+    """
+    min_rank = _FEATURE_MIN_RANK.get(feature)
+    if min_rank is None:
+        return ""
+    tiers = [entry["label"] for entry in _PLANS.values() if entry["rank"] >= min_rank]
+    if not tiers:
+        return ""
+    if len(tiers) == len(_PLANS):
+        return "برای همه پلن‌ها"
+    return "برای پلن‌های " + " و ".join(tiers)

@@ -58,7 +58,7 @@ OWNER_BYPASS_LIMITS = os.getenv("OWNER_BYPASS_LIMITS", "false").lower() in {
     "yes",
 }
 
-from config.plan_identity import has_feature, plan_label
+from config.plan_identity import feature_audience, has_feature, plan_label
 
 
 def _plan_spec(plan: str) -> dict:

@@ -9,7 +9,7 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from config import APP_TZ, DB_PATH, is_owner
+from config import APP_TZ, DB_PATH, feature_audience, is_owner
 from services import db
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send, _exit_awaiting_flow, _send_with_retry
@@ -155,7 +155,15 @@ def _phonetic_ipa_default() -> bool:
 def _phonetic_settings_text() -> str:
     ipa = _phonetic_ipa_default()
     tts_access = db.get_setting("tts_access", "premium")
-    tts_labels = {"none": "❌ غیرفعال", "premium": "🥈 نقره‌ای و طلایی", "all": "✅ همه"}
+    # Labels mirror the live feature gate (feature_audience) so they never drift
+    # from config/plan_identity.py (#390); pronounce is free, so both on-options
+    # read as on-for-all and only "none" differs.
+    _tts_audience = feature_audience("pronounce")
+    tts_labels = {
+        "none": "❌ غیرفعال",
+        "premium": f"✅ فعال ({_tts_audience})",
+        "all": f"✅ فعال ({_tts_audience})",
+    }
     return (
         "تنظیم نمایش تلفظ‌ها:\n"
         f"IPA: {'روشن' if ipa else 'خاموش'}\n"

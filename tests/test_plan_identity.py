@@ -10,6 +10,7 @@ import unittest
 
 from config.plan_identity import (
     _PLANS,
+    feature_audience,
     has_feature,
     is_premium,
     plan_label,
@@ -83,6 +84,18 @@ class PlanIdentityTests(unittest.TestCase):
                 order[len(order) - len(granted):],
                 f"feature '{feature}' is not a rank suffix (non-monotonic)",
             )
+
+    def test_feature_audience_derives_from_live_gate(self):
+        """Admin/help copy must mirror the live gate, not hardcoded tiers (#390).
+        A free feature names every plan; a paid one names the entitled tiers in
+        ascending rank order; an unknown feature yields an empty string."""
+        self.assertEqual(feature_audience("pronounce"), "برای همه پلن‌ها")
+        self.assertEqual(
+            feature_audience("card_modes"),
+            "برای پلن‌های نقره‌ای و طلایی و زمردی",
+        )
+        self.assertEqual(feature_audience("presentation"), feature_audience("card_modes"))
+        self.assertEqual(feature_audience("unknown_feature"), "")
 
 
 if __name__ == "__main__":
