@@ -21,7 +21,10 @@ deferred to a dedicated cleanup PR. T8 (admin_ai screens, seam 12) HELD for j-B2
 - T6 PENDING — learner renderer Message factories. **DEFERRED by owner (2026-08-17): follow-up PR.**
 - T7 PENDING — 13 direct bypass sites. **DEFERRED by owner (2026-08-17): follow-up PR.**
 - **THIS PR = T1–T5 only** (owner confirmed 2026-08-17: "Defer T6+T7").
-- T8 NOT IN THIS PR — admin_ai screens (seam 12), held for j-B2.
+- T8 NOT IN THIS PR — admin_ai screens (seam 12), held for j-B2. **j-B2 merged (7be8f3f) — T8 can be a follow-up PR now.**
+
+## PR status
+- PR #385 opened (refactor/send-pretty, T1–T5). Rebased onto origin/main (j-B2 base). Full suite green. Awaiting Kilo review loop.
 
 ## Scope (locked contract — R3) — ticket-based execution
 - **Execution model (owner 2026-08-17):** decompose the full deep-module leap into small
