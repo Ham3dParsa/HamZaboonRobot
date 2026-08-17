@@ -97,9 +97,17 @@ def write_default(name: str):
 def resolve(preset: Mapping, name: str):
     """Return a field's value from the preset, or its canonical default.
 
-    For env-configurable fields (``config_default`` present), an absent/empty
-    preset value falls back to the config constant so environment overrides keep
-    working. Other fields fall back to ``write_default``.
+    This is a **read-side** helper: the returned value is used for display or an
+    AI call, never persisted back. For env-configurable fields (``config_default``
+    present), an absent/empty preset value falls back to the config constant so
+    environment overrides keep working. Other fields fall back to ``write_default``.
+
+    ``config_default`` is therefore intentionally inert for real presets: the
+    write path (``set_preset`` and the admin edit-save flows) persists concrete
+    non-empty ``write_default`` values, so env is applied dynamically at call
+    time rather than frozen at write time. Write paths must use ``preset.get(
+    field, write_default(field))`` (preserve stored value, fall back to the DB
+    default) and must NOT call ``resolve``, which would snapshot the env constant.
     """
     meta = preset_field(name)
     if name in preset and preset[name] not in (None, ""):
