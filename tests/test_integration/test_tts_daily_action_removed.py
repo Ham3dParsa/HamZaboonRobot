@@ -132,6 +132,33 @@ class TtsDailyActionRemovalTest(unittest.IsolatedAsyncioTestCase):
         pronounce.assert_awaited_once_with("world", "en")
         send_voice.assert_awaited_once()
 
+    async def test_free_user_tts_premium_delivers_voice(self):
+        """Pronounce is free to every plan (J-B6, 2026-08-17): a free user
+        under tts_access=premium must still receive voice, not be blocked by a
+        plan gate (handler-level delivery coverage, not just button rendering)."""
+        from bot import callback_router
+        import bot
+
+        with db.get_conn() as conn:
+            conn.execute("UPDATE users SET plan='free' WHERE user_id=1")
+            conn.commit()
+        db.set_setting("tts_access", "premium")
+
+        db.add_saved_word(1, "world", "en", {"word": "world"})
+        word_id = db.get_saved_word(1, user_id=1)["id"]
+        voice_path = Path(self.tempdir.name) / "voice.mp3"
+        voice_path.write_bytes(b"voice")
+        update, context = self._callback(f"tts:pronounce:s:1:{word_id}")
+
+        with (
+            patch.object(bot.tts, "pronounce", AsyncMock(return_value=voice_path)) as pronounce,
+            patch.object(bot, "_send_voice_with_retry", AsyncMock()) as send_voice,
+        ):
+            await callback_router(update, context)
+
+        pronounce.assert_awaited_once_with("world", "en")
+        send_voice.assert_awaited_once()
+
     @staticmethod
     def _callback(data: str):
         query = MagicMock()

@@ -75,4 +75,6 @@ def has_feature(plan: str, feature: str) -> bool:
     min_rank = _FEATURE_MIN_RANK.get(feature)
     if min_rank is None:
         return False
-    return entry["rank"] >= min_rank
+    # int() keeps the comparison fail-closed if a malformed (e.g. string) rank
+    # slips past the (un-enforced at runtime) _PlanSpec typing.
+    return int(entry["rank"]) >= min_rank

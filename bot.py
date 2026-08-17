@@ -30,7 +30,6 @@ from config import (
     effective_daily_allowance,
     _app_today,
     _user_presentation,
-    _user_plan,
     is_owner,
     LOG_LEVEL,
     COST,
