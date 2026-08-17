@@ -168,13 +168,30 @@ class TestDeliveryVerbs(unittest.IsolatedAsyncioTestCase):
         update = MagicMock()
         update.callback_query = None
         update.effective_chat.id = 123
+        msg = MagicMock()
+        msg.reply_text = AsyncMock(return_value="sent")
+        update.message = msg
         ctx = MagicMock()
-        msg = Message()
-        msg.add_line(plain("hello"))
+        text = Message()
+        text.add_line(plain("hello"))
+        result = await say(update, ctx, text)
+        self.assertEqual(result, "sent")
+        args, kwargs = msg.reply_text.call_args
+        self.assertEqual(args[0], "hello")
+        self.assertEqual(kwargs["parse_mode"], "MarkdownV2")
+
+    async def test_say_sends_new_message_when_no_message_present(self):
+        update = MagicMock()
+        update.callback_query = None
+        update.effective_chat.id = 123
+        update.message = None
+        ctx = MagicMock()
+        text = Message()
+        text.add_line(plain("hello"))
         with patch(
             "services.send_pretty._send_with_retry", new=AsyncMock(return_value="sent")
         ) as send_retry:
-            result = await say(update, ctx, msg)
+            result = await say(update, ctx, text)
         self.assertEqual(result, "sent")
         _, kwargs = send_retry.call_args
         self.assertEqual(kwargs["parse_mode"], "MarkdownV2")

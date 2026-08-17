@@ -412,4 +412,9 @@ async def say(
                 return await notify_callback(query)
             logger.info("callback edit failed; sending replacement message")
             return await _send_with_retry(context.bot, update.effective_chat.id, text, **kwargs)
+    # No callback: reply to the source message when present (preserves the
+    # legacy _edit_or_send semantics for text-awaiting flows); otherwise send a
+    # plain new message.
+    if update.message is not None and mode != "edit":
+        return await update.message.reply_text(text, **kwargs)
     return await _send_with_retry(context.bot, update.effective_chat.id, text, **kwargs)
