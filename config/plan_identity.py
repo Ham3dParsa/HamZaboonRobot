@@ -14,10 +14,21 @@ No other module may hold a parallel plan dictionary or a parallel feature gate.
 
 from __future__ import annotations
 
+from typing import TypedDict
+
+
+class _PlanSpec(TypedDict):
+    """Precise shape of a single plan-identity entry."""
+
+    label: str
+    premium: bool
+    rank: int
+
+
 # Plan code -> metadata. ``rank`` orders tiers low->high (0 = free base);
 # ``premium`` marks the paid tiers. Features inherit automatically from the
 # ``_FEATURE_MIN_RANK`` map, so a new tier never silently misses a feature.
-_PLANS: dict[str, dict[str, object]] = {
+_PLANS: dict[str, _PlanSpec] = {
     "free":    {"label": "رایگان",  "premium": False, "rank": 0},
     "bronze":  {"label": "برنزی",   "premium": False, "rank": 1},
     "silver":  {"label": "نقره‌ای", "premium": True,  "rank": 2},
@@ -64,4 +75,4 @@ def has_feature(plan: str, feature: str) -> bool:
     min_rank = _FEATURE_MIN_RANK.get(feature)
     if min_rank is None:
         return False
-    return int(entry["rank"]) >= min_rank
+    return entry["rank"] >= min_rank

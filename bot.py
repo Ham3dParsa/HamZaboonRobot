@@ -843,9 +843,6 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
     if tts_access == "none":
         await notify_callback(update.callback_query, "تلفظ غیرفعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
-    if tts_access == "premium" and not has_feature(_user_plan(row), "pronounce"):
-        await notify_callback(update.callback_query, "این قابلیت فقط برای کاربران نقره‌ای و طلایی فعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-        return
 
     word = None
     lang = None
