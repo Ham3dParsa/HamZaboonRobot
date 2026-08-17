@@ -273,6 +273,49 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         self.assertIn("Primary: a&lt;b", text)
         self.assertIn("Fallback: f&amp;c", text)
 
+    def test_custom_test_results_escapes_card_fields(self):
+        """T8g: the custom-test results render bold labels + escaped card fields
+        (no manual html_escape left in the handler path)."""
+        from handlers import admin_ai
+        from handlers.admin_ai import _run_custom_test
+
+        ctx = self._make_context()
+        ctx.user_data["custom_test_state"] = {
+            "prompt": "p", "lang": "en", "goal": "general", "level": "beginner",
+        }
+        with patch.object(admin_ai.ai, "custom_test_card", return_value={
+            "word": "w<m", "fa_meaning": "م&ا", "examples": "['a','b']"
+        }), patch("handlers.admin_ai.prompts.daily_batch_system_prompt", return_value="SYS"):
+            update = self._make_callback_update("admin:ai_custom_test:target:candidate")
+            asyncio.run(_run_custom_test(update, ctx, "candidate"))
+
+        text = self._rendered_text(update)
+        self.assertIn("<b>Candidate (gapgpt)</b>", text)
+        self.assertIn("Word: w&lt;m", text)
+        self.assertIn("Meaning: م&amp;ا", text)
+        self.assertNotIn("Word: w<m", text)
+
+    def test_ai_connection_result_escapes_model_and_error(self):
+        """T8g: the AI connection result renders bold title + escaped model/error
+        fields (no manual html_escape left in the handler path)."""
+        from handlers import admin_ai
+        from handlers.admin_ai import _test_ai_connection
+
+        ctx = self._make_context()
+        db.set_preset("conn_active", base_url="https://api.example.com", model="gpt", api_key="test", enabled=1)
+        db.set_setting("ai_primary_preset", "conn_active")
+        with patch.object(admin_ai.ai, "test_connection", return_value={
+            "success": True, "latency_ms": 42, "model": "g<m", "usage": "t&k",
+        }):
+            update = self._make_callback_update("admin:ai_test_connection")
+            asyncio.run(_test_ai_connection(update, ctx))
+
+        text = self._rendered_text(update)
+        self.assertIn("✅ <b>اتصال موفق</b>", text)
+        self.assertIn("Model: g&lt;m", text)
+        self.assertIn("Tokens: t&amp;k", text)
+        self.assertNotIn("Model: g<m", text)
+
     def test_usage_details_relabeled_and_uses_quota_emoji(self):
         """R9/R8: usage panel header is «مصرف ۲۴ ساعته» and quota rows use
         🔋/🪫 per the emoji dictionary."""

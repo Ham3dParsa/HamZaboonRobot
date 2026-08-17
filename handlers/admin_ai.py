@@ -1411,15 +1411,12 @@ async def _test_ai_connection(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         active = db.get_active_preset()
     except db.NoActivePresetError:
-        await _edit_or_send(
-            update, context,
-            "⚠️ هیچ پیش‌تنظیم فعالی برای تست اتصال وجود ندارد.\n"
-            "اول یک پیش‌تنظیم را فعال کنید (یا در پنل AI یک پیش‌تنظیم جدید بسازید).",
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("↩️ بازگشت به تنظیمات AI", callback_data="admin:ai_settings")]
-            ]),
-        )
+        msg = Message()
+        msg.add_line(plain("⚠️ "), plain("هیچ پیش‌تنظیم فعالی برای تست اتصال وجود ندارد."))
+        msg.add_line(plain("اول یک پیش‌تنظیم را فعال کنید (یا در پنل AI یک پیش‌تنظیم جدید بسازید)."))
+        await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
+            [InlineKeyboardButton("↩️ بازگشت به تنظیمات AI", callback_data="admin:ai_settings")]
+        ]))
         return
     result = await asyncio.to_thread(
         ai.test_connection,
@@ -1429,28 +1426,21 @@ async def _test_ai_connection(update: Update, context: ContextTypes.DEFAULT_TYPE
         timeout=preset_fields.resolve(active, "timeout_seconds"),
     )
 
+    msg = Message()
     if result["success"]:
-        text = (
-            f"✅ <b>اتصال موفق</b>\n"
-            f"Latency: {result['latency_ms']} ms\n"
-            f"Model: {html_escape(str(result.get('model', '')))}\n"
-            f"Tokens: {html_escape(str(result.get('usage', '')))}"
-        )
+        msg.add_line(plain("✅ "), bold("اتصال موفق"))
+        msg.add_line(plain("Latency: "), plain(str(result['latency_ms'])), plain(" ms"))
+        msg.add_line(plain("Model: "), plain(str(result.get('model', ''))))
+        msg.add_line(plain("Tokens: "), plain(str(result.get('usage', ''))))
     else:
-        text = (
-            f"❌ <b>خطا در اتصال</b>\n"
-            f"Error: {html_escape(str(result.get('error_class', '')))}: {html_escape(str(result.get('error_message', '')))}\n"
-            f"Latency: {result['latency_ms']} ms"
-        )
+        msg.add_line(plain("❌ "), bold("خطا در اتصال"))
+        msg.add_line(plain("Error: "), plain(str(result.get('error_class', ''))), plain(": "), plain(str(result.get('error_message', ''))))
+        msg.add_line(plain("Latency: "), plain(str(result['latency_ms'])), plain(" ms"))
 
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔁 تست مجدد", callback_data="admin:ai_test_connection")],
-            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
-        ])
-    )
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔁 تست مجدد", callback_data="admin:ai_test_connection")],
+        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
+    ]))
 
 
 # ======== Custom Test Wizard ========
@@ -1460,14 +1450,12 @@ async def _start_custom_test_wizard(update: Update, context: ContextTypes.DEFAUL
     context.user_data["custom_test_state"] = {"step": "prompt"}
     context.user_data["awaiting"] = "ai_custom_test_prompt"
 
-    await _edit_or_send(
-        update, context,
-        "🧪 <b>تست سفارشی کارت</b>\n\n"
-        "مرحله ۱/۵: پرامپت سیستم (یا متن تست) را وارد کنید:\n"
-        "<i>مثال: یک کارت واژگان برای سطح مبتدی بساز</i>",
-        parse_mode=ParseMode.HTML,
-        reply_markup=admin_awaiting_inline_keyboard()
-    )
+    msg = Message()
+    msg.add_line(plain("🧪 "), bold("تست سفارشی کارت"))
+    msg.add_line()
+    msg.add_line(plain("مرحله ۱/۵: پرامپت سیستم (یا متن تست) را وارد کنید:"))
+    msg.add_line(italic("مثال: یک کارت واژگان برای سطح مبتدی بساز"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=admin_awaiting_inline_keyboard())
 
 
 async def _custom_test_step_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1480,13 +1468,11 @@ async def _custom_test_step_lang(update: Update, context: ContextTypes.DEFAULT_T
         [InlineKeyboardButton(opt.name_fa, callback_data=f"admin:ai_custom_test:lang:{opt.code}")]
         for opt in LANGUAGES.values()
     ]
-    await _edit_or_send(
-        update, context,
-        "🧪 <b>تست سفارشی - مرحله ۲/۵</b>\n\n"
-        "زبان مقصد را انتخاب کنید:",
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+    msg = Message()
+    msg.add_line(plain("🧪 "), bold("تست سفارشی - مرحله ۲/۵"))
+    msg.add_line()
+    msg.add_line(plain("زبان مقصد را انتخاب کنید:"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _custom_test_step_goal(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str):
@@ -1499,13 +1485,11 @@ async def _custom_test_step_goal(update: Update, context: ContextTypes.DEFAULT_T
         [InlineKeyboardButton(opt.name_fa, callback_data=f"admin:ai_custom_test:goal:{opt.code}")]
         for opt in GOALS.values()
     ]
-    await _edit_or_send(
-        update, context,
-        "🧪 <b>تست سفارشی - مرحله ۳/۵</b>\n\n"
-        "هدف یادگیری را انتخاب کنید:",
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+    msg = Message()
+    msg.add_line(plain("🧪 "), bold("تست سفارشی - مرحله ۳/۵"))
+    msg.add_line()
+    msg.add_line(plain("هدف یادگیری را انتخاب کنید:"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _custom_test_step_level(update: Update, context: ContextTypes.DEFAULT_TYPE, goal: str):
@@ -1518,13 +1502,11 @@ async def _custom_test_step_level(update: Update, context: ContextTypes.DEFAULT_
         [InlineKeyboardButton(f"{opt.name_fa} ({opt.cefr})", callback_data=f"admin:ai_custom_test:level:{opt.code}")]
         for opt in LEVELS.values()
     ]
-    await _edit_or_send(
-        update, context,
-        "🧪 <b>تست سفارشی - مرحله ۴/۵</b>\n\n"
-        "سطح زبان را انتخاب کنید:",
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+    msg = Message()
+    msg.add_line(plain("🧪 "), bold("تست سفارشی - مرحله ۴/۵"))
+    msg.add_line()
+    msg.add_line(plain("سطح زبان را انتخاب کنید:"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _custom_test_step_target(update: Update, context: ContextTypes.DEFAULT_TYPE, level: str):
@@ -1536,16 +1518,13 @@ async def _custom_test_step_target(update: Update, context: ContextTypes.DEFAULT
     try:
         active_preset = db.get_active_preset()
     except db.NoActivePresetError:
-        await _edit_or_send(
-            update, context,
-            "⚠️ هیچ پیش‌تنظیم فعالی برای تست «جدید» وجود ندارد.\n"
-            "اول یک پیش‌تنظیم را فعال کنید یا فقط گزینه «پیش‌تنظیم کاندیدا» را انتخاب کنید.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔸 پیش‌تنظیم کاندیدا", callback_data="admin:ai_custom_test:target:candidate")],
-                [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
-            ]),
-        )
+        msg = Message()
+        msg.add_line(plain("⚠️ "), plain("هیچ پیش‌تنظیم فعالی برای تست «جدید» وجود ندارد."))
+        msg.add_line(plain("اول یک پیش‌تنظیم را فعال کنید یا فقط گزینه «پیش‌تنظیم کاندیدا» را انتخاب کنید."))
+        await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔸 پیش‌تنظیم کاندیدا", callback_data="admin:ai_custom_test:target:candidate")],
+            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
+        ]))
         return
     buttons = [
         [InlineKeyboardButton("🔹 پیکربندی فعلی", callback_data="admin:ai_custom_test:target:current")],
@@ -1553,15 +1532,13 @@ async def _custom_test_step_target(update: Update, context: ContextTypes.DEFAULT
         [InlineKeyboardButton("⚖️ مقایسه A/B", callback_data="admin:ai_custom_test:target:ab")],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
     ]
-    await _edit_or_send(
-        update, context,
-        "🧪 <b>تست سفارشی - مرحله ۵/۵</b>\n\n"
-        "هدف تست را انتخاب کنید:\n"
-        f"- فعلی: {html_escape(str(active_preset.get('name', 'gapgpt')))}\n"
-        f"- کاندیدا: پیش‌تنظیم دیگری را انتخاب کنید",
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+    msg = Message()
+    msg.add_line(plain("🧪 "), bold("تست سفارشی - مرحله ۵/۵"))
+    msg.add_line()
+    msg.add_line(plain("هدف تست را انتخاب کنید:"))
+    msg.add_line(plain("- فعلی: "), plain(str(active_preset.get('name', 'gapgpt'))))
+    msg.add_line(plain("- کاندیدا: پیش‌تنظیم دیگری را انتخاب کنید"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, target: str):
@@ -1584,15 +1561,12 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         try:
             active_preset = db.get_active_preset()
         except db.NoActivePresetError:
-            await _edit_or_send(
-                update, context,
-                "⚠️ هیچ پیش‌تنظیم فعالی برای تست «پیکربندی فعلی» وجود ندارد.\n"
-                "ابتدا یک پیش‌تنظیم را فعال کنید.",
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
-                ]),
-            )
+            msg = Message()
+            msg.add_line(plain("⚠️ "), plain("هیچ پیش‌تنظیم فعالی برای تست «پیکربندی فعلی» وجود ندارد."))
+            msg.add_line(plain("ابتدا یک پیش‌تنظیم را فعال کنید."))
+            await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
+                [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
+            ]))
             return
         result = await asyncio.to_thread(
             ai.custom_test_card,
@@ -1620,25 +1594,22 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         results.append((f"Candidate ({candidate_name})", result))
 
     # Format results
-    lines = ["🧪 <b>نتیجه تست سفارشی</b>\n"]
+    msg = Message()
+    msg.add_line(plain("🧪 "), bold("نتیجه تست سفارشی"))
     for label, card in results:
-        lines.append(f"<b>{html_escape(label)}</b>")
-        lines.append(f"Word: {html_escape(str(card.get('word', '?')))}")
-        lines.append(f"Meaning: {html_escape(str(card.get('fa_meaning', '?')))}")
-        lines.append(f"Examples: {html_escape(str(card.get('examples', [])))}")
-        lines.append("")
+        msg.add_line()
+        msg.add_line(bold(str(label)))
+        msg.add_line(plain("Word: "), plain(str(card.get('word', '?'))))
+        msg.add_line(plain("Meaning: "), plain(str(card.get('fa_meaning', '?'))))
+        msg.add_line(plain("Examples: "), plain(str(card.get('examples', []))))
 
-    lines.append("🧪 این تست روی پیکربندی پیش‌تنظیم اجرا شد، نه مسیر تولید.")
+    msg.add_line()
+    msg.add_line(plain("🧪 این تست روی پیکربندی پیش‌تنظیم اجرا شد، نه مسیر تولید."))
 
-    await _edit_or_send(
-        update, context,
-        "\n".join(lines),
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔁 تست مجدد", callback_data="admin:ai_custom_test")],
-            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
-        ])
-    )
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔁 تست مجدد", callback_data="admin:ai_custom_test")],
+        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
+    ]))
     context.user_data.pop("custom_test_state", None)
 
 
@@ -1677,13 +1648,11 @@ async def _custom_test_step_preset(update: Update, context: ContextTypes.DEFAULT
         for p in presets
     ]
     buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_custom_test")])
-    await _edit_or_send(
-        update, context,
-        "🧪 <b>تست سفارشی - انتخاب پیش‌تنظیم</b>\n\n"
-        "پیش‌تنظیم کاندیدا را انتخاب کنید:",
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+    msg = Message()
+    msg.add_line(plain("🧪 "), bold("تست سفارشی - انتخاب پیش‌تنظیم"))
+    msg.add_line()
+    msg.add_line(plain("پیش‌تنظیم کاندیدا را انتخاب کنید:"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 async def _show_ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show fallback configuration panel."""

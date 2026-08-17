@@ -7,7 +7,7 @@ branch: refactor/admin-ai-spans
 status: in-progress
 ---
 
-STATE: phase 7/N — status: in-progress — focus: T8f DONE, next T8g (custom test); Newline/HTML fix 694b3ae; group-manager gluing fix owner-approved; Kilo comments 3799335711/5716/410496 addressed (escape tests + hoisted msg + group-view escape test) + reviewer R3 gap (usage-page callers → say/raw)
+STATE: phase 8/N — status: in-progress — focus: T8g DONE, next T8h (help screens); Newline/HTML fix 694b3ae; group-manager gluing fix owner-approved; Kilo comments 3799335711/5716/410496 addressed + reviewer R3 gap
 
 ## Contract lock (owner 2026-08-17, GATE LOCKED)
 - R1: T8 split into sub-tickets T8a..T8h (each a commit/PR, like R3).
@@ -40,7 +40,7 @@ STATE: phase 7/N — status: in-progress — focus: T8f DONE, next T8g (custom t
 - T8d DONE — `_add_ai_preset` / `_show_create_priority` / `_show_create_status` / `_finish_create` / `_handle_create_test` / `_handle_create_priority_choice` (manual) → spans. Byte-exact verified (add/priority/status/finish/test_success/test_fail/test_fresh/manual). Deleted now-dead `CREATE_PRIORITY_PROMPT`. New integration test `test_create_finish_escapes_name_in_code`. Full suite 1138 passed. (uncommitted)
 - T8e DONE — `_handle_group_view` / `_show_group_manager` / `_handle_group_manager_rename` → spans. Byte-exact verified (group_view after adding blank line; rename MATCH). Owner-approved behavior fix: `_show_group_manager` now puts each group on its own line (was glued by `"".join`). New integration test `test_group_manager_puts_each_group_on_own_line`. Full suite 1140 passed. (uncommitted)
 - T8f DONE — `_show_ai_fallback` / `_show_fallback_chain` / `_render_usage_page` (usage details + usage page) → spans. Byte-exact verified (fallback/chain/usage MATCH, only trailing-newline diffs which are invisible). New integration test `test_fallback_panel_renders_html_and_escapes_preset`. Full suite 1141 passed. (uncommitted)
-- T8g PENDING
+- T8g DONE — custom-test wizard HTML screens → spans: `_start_custom_test_wizard`, `_custom_test_step_lang`/`_goal`/`_level`/`_target` (both branches), `_run_custom_test` (error + results), `_custom_test_step_preset`, **plus `_test_ai_connection`** (reviewer-flagged scope gap, converted too). Byte-exact verified (headers, results, start_wizard, ai_connection success/fail all MATCH). New integration tests `test_custom_test_results_escapes_card_fields` + `test_ai_connection_result_escapes_model_and_error`. Full suite 1146 passed. (uncommitted)
 - T8h PENDING
 - T8-last PENDING
 
