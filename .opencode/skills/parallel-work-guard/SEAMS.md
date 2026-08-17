@@ -50,7 +50,7 @@ study_sessions
 Settings keys are not claimable in this version. They remain a known collision
 surface because the flat key-value store has no central registry and keys are
 scattered across services/db/settings.py, services/db/preset_registry.py,
-services/ai/ai.py, services/ai/llm_services.py, handlers/admin.py,
+services/ai/ai.py, services/ai/llm_services.py, services/ai/preset_fields.py, handlers/admin.py,
 handlers/study_handler.py, bot.py, and services/scheduling.py. The dynamic
 pattern sessions_used_{session_slug} also requires a canonical inventory or
 namespace policy before settings claims can provide precise resource names.

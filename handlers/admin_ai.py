@@ -24,7 +24,7 @@ from services.utils.callback_codec import (
     resolve_preset_token,
 )
 from services.ai import ai
-from services.ai import prompts
+from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send
 from services.utils.formatting import html_escape
@@ -120,9 +120,9 @@ async def _show_ai_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>پیش‌تنظیم فعال:</b> {html_escape(str(active_preset.get('name', 'gapgpt')))}\n"
         f"<b>مدل:</b> {html_escape(str(active_preset.get('model', '—')))}\n"
         f"<b>Base URL:</b> {html_escape(str(active_preset.get('base_url', '—')))}\n"
-        f"<b>Batch Size:</b> {active_preset.get('daily_batch_size', 6)}\n"
-        f"<b>Concurrency:</b> {active_preset.get('max_concurrency', 2)}\n"
-        f"<b>RPM Limit:</b> {active_preset.get('max_rpm', 30)}\n\n"
+        f"<b>Batch Size:</b> {preset_fields.resolve(active_preset, 'daily_batch_size')}\n"
+        f"<b>Concurrency:</b> {preset_fields.resolve(active_preset, 'max_concurrency')}\n"
+        f"<b>RPM Limit:</b> {preset_fields.resolve(active_preset, 'max_rpm')}\n\n"
     )
 
     if fallback_status.get("fallback_active"):
@@ -261,7 +261,7 @@ async def _show_linear_presets(update: Update, context: ContextTypes.DEFAULT_TYP
             f"{_render_preset_brief(p, active_name)}\n"
             f"   Model: {html_escape(str(p.get('model', '—')))}\n"
             f"   URL: {html_escape(str(p.get('base_url', '—')))}\n"
-            f"   Batch: {p.get('daily_batch_size', 6)} | Concurrency: {p.get('max_concurrency', 2)} | RPM: {p.get('max_rpm', 30)}"
+            f"   Batch: {preset_fields.resolve(p, 'daily_batch_size')} | Concurrency: {preset_fields.resolve(p, 'max_concurrency')} | RPM: {preset_fields.resolve(p, 'max_rpm')}"
         )
 
     if total_pages > 1:
@@ -328,12 +328,12 @@ async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYP
         f"Model: {html_escape(str(preset.get('model', '—')))}\n"
         f"Base URL: {html_escape(str(preset.get('base_url', '—')))}\n"
         f"API Key: {html_escape(masked_key)}\n"
-        f"Daily Batch Size: {preset.get('daily_batch_size', 6)}\n"
-        f"Max Concurrency: {preset.get('max_concurrency', 2)}\n"
-        f"Max RPM: {preset.get('max_rpm', 30)}\n"
-        f"Timeout: {preset.get('timeout_seconds', 30)}s\n"
-        f"Temperature: {preset.get('temperature', 0.6)}\n"
-        f"Max Output Tokens: {preset.get('max_output_tokens', 4096)}\n"
+        f"Daily Batch Size: {preset_fields.resolve(preset, 'daily_batch_size')}\n"
+        f"Max Concurrency: {preset_fields.resolve(preset, 'max_concurrency')}\n"
+        f"Max RPM: {preset_fields.resolve(preset, 'max_rpm')}\n"
+        f"Timeout: {preset_fields.resolve(preset, 'timeout_seconds')}s\n"
+        f"Temperature: {preset_fields.resolve(preset, 'temperature')}\n"
+        f"Max Output Tokens: {preset_fields.resolve(preset, 'max_output_tokens')}\n"
         f"Input Cost: {input_cost_str} $/1M\n"
         f"Output Cost: {output_cost_str} $/1M\n"
     )
@@ -793,20 +793,20 @@ async def _handle_full_edit_save(update: Update, context: ContextTypes.DEFAULT_T
             name=new_name,
             base_url=values.get("base_url", preset.get("base_url", "")),
             model=values.get("model", preset.get("model", "")),
-            api_key=values.get("api_key", preset.get("api_key", "")),
-            daily_batch_size=int(values.get("daily_batch_size", preset.get("daily_batch_size", 6))),
-            max_concurrency=int(values.get("max_concurrency", preset.get("max_concurrency", 2))),
-            max_rpm=int(values.get("max_rpm", preset.get("max_rpm", 30))),
-            max_tpm=int(values.get("max_tpm", preset.get("max_tpm", 0))),
-            max_daily_req=int(values.get("max_daily_req", preset.get("max_daily_req", 0))),
-            timeout_seconds=float(values.get("timeout_seconds", preset.get("timeout_seconds", 30.0))),
-            temperature=float(values.get("temperature", preset.get("temperature", 0.6))),
-            max_output_tokens=int(values.get("max_output_tokens", preset.get("max_output_tokens", 4096))),
-            is_emergency=int(values.get("is_emergency", preset.get("is_emergency", 0))),
-            input_cost_per_million=values.get("input_cost_per_million", preset.get("input_cost_per_million")),
-            output_cost_per_million=values.get("output_cost_per_million", preset.get("output_cost_per_million")),
-            in_fallback_chain=int(values.get("in_fallback_chain", preset.get("in_fallback_chain", 1))),
-            group_label=values.get("group_label", preset.get("group_label", "")),
+            api_key=values.get("api_key", preset_fields.resolve(preset, "api_key")),
+            daily_batch_size=int(values.get("daily_batch_size", preset_fields.resolve(preset, "daily_batch_size"))),
+            max_concurrency=int(values.get("max_concurrency", preset_fields.resolve(preset, "max_concurrency"))),
+            max_rpm=int(values.get("max_rpm", preset_fields.resolve(preset, "max_rpm"))),
+            max_tpm=int(values.get("max_tpm", preset_fields.resolve(preset, "max_tpm"))),
+            max_daily_req=int(values.get("max_daily_req", preset_fields.resolve(preset, "max_daily_req"))),
+            timeout_seconds=float(values.get("timeout_seconds", preset_fields.write_value(preset, "timeout_seconds"))),
+            temperature=float(values.get("temperature", preset_fields.write_value(preset, "temperature"))),
+            max_output_tokens=int(values.get("max_output_tokens", preset_fields.write_value(preset, "max_output_tokens"))),
+            is_emergency=int(values.get("is_emergency", preset_fields.resolve(preset, "is_emergency"))),
+            input_cost_per_million=values.get("input_cost_per_million", preset_fields.resolve(preset, "input_cost_per_million")),
+            output_cost_per_million=values.get("output_cost_per_million", preset_fields.resolve(preset, "output_cost_per_million")),
+            in_fallback_chain=int(values.get("in_fallback_chain", preset_fields.resolve(preset, "in_fallback_chain"))),
+            group_label=values.get("group_label", preset_fields.resolve(preset, "group_label")),
         )
     except db.MasterKeyRequiredError:
         await notify_callback(update.callback_query, "برای ذخیره کلید API باید AI_MASTER_KEY در سرور پیکربندی شود.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
@@ -1001,20 +1001,20 @@ async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
             name=new_name,
             base_url=edits.get("base_url", preset.get("base_url", "")),
             model=edits.get("model", preset.get("model", "")),
-            api_key=edits.get("api_key", preset.get("api_key", "")),
-            daily_batch_size=int(edits.get("daily_batch_size", preset.get("daily_batch_size", 6))),
-            max_concurrency=int(edits.get("max_concurrency", preset.get("max_concurrency", 2))),
-            max_rpm=int(edits.get("max_rpm", preset.get("max_rpm", 30))),
-            max_tpm=int(edits.get("max_tpm", preset.get("max_tpm", 0))),
-            max_daily_req=int(edits.get("max_daily_req", preset.get("max_daily_req", 0))),
-            timeout_seconds=float(edits.get("timeout_seconds", preset.get("timeout_seconds", 30.0))),
-            temperature=float(edits.get("temperature", preset.get("temperature", 0.6))),
-            max_output_tokens=int(edits.get("max_output_tokens", preset.get("max_output_tokens", 4096))),
-            is_emergency=int(edits.get("is_emergency", preset.get("is_emergency", 0))),
-            input_cost_per_million=edits.get("input_cost_per_million", preset.get("input_cost_per_million")),
-            output_cost_per_million=edits.get("output_cost_per_million", preset.get("output_cost_per_million")),
-            in_fallback_chain=int(edits.get("in_fallback_chain", preset.get("in_fallback_chain", 1))),
-            group_label=edits.get("group_label", preset.get("group_label", "")),
+            api_key=edits.get("api_key", preset_fields.resolve(preset, "api_key")),
+            daily_batch_size=int(edits.get("daily_batch_size", preset_fields.resolve(preset, "daily_batch_size"))),
+            max_concurrency=int(edits.get("max_concurrency", preset_fields.resolve(preset, "max_concurrency"))),
+            max_rpm=int(edits.get("max_rpm", preset_fields.resolve(preset, "max_rpm"))),
+            max_tpm=int(edits.get("max_tpm", preset_fields.resolve(preset, "max_tpm"))),
+            max_daily_req=int(edits.get("max_daily_req", preset_fields.resolve(preset, "max_daily_req"))),
+            timeout_seconds=float(edits.get("timeout_seconds", preset_fields.write_value(preset, "timeout_seconds"))),
+            temperature=float(edits.get("temperature", preset_fields.write_value(preset, "temperature"))),
+            max_output_tokens=int(edits.get("max_output_tokens", preset_fields.write_value(preset, "max_output_tokens"))),
+            is_emergency=int(edits.get("is_emergency", preset_fields.resolve(preset, "is_emergency"))),
+            input_cost_per_million=edits.get("input_cost_per_million", preset_fields.resolve(preset, "input_cost_per_million")),
+            output_cost_per_million=edits.get("output_cost_per_million", preset_fields.resolve(preset, "output_cost_per_million")),
+            in_fallback_chain=int(edits.get("in_fallback_chain", preset_fields.resolve(preset, "in_fallback_chain"))),
+            group_label=edits.get("group_label", preset_fields.resolve(preset, "group_label")),
             previous_name=preset_name,
             remove_orphaned_group_key=removing_group,
         )
@@ -1260,7 +1260,7 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
             base_url=preset.get("base_url", ""),
             api_key=db.resolve_preset_key(preset),
             model=preset.get("model", ""),
-            timeout=preset.get("timeout_seconds", 30.0),
+            timeout=preset_fields.resolve(preset, "timeout_seconds"),
         )
         if result["success"]:
             body = f"✅ <b>اتصال موفق</b>\nتأخیر: {result['latency_ms']} ms"
@@ -1391,7 +1391,7 @@ async def _test_ai_connection(update: Update, context: ContextTypes.DEFAULT_TYPE
         base_url=active.get("base_url", ""),
         api_key=db.resolve_preset_key(active),
         model=active.get("model", ""),
-        timeout=active.get("timeout_seconds", 30.0),
+        timeout=preset_fields.resolve(active, "timeout_seconds"),
     )
 
     if result["success"]:
@@ -1655,7 +1655,7 @@ async def _show_ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status = db.get_fallback_status()
     if status["fallback_active"]:
         active = db.get_preset(str(status["fallback_preset"])) or {}
-        if bool(active.get("is_emergency", 0)):
+        if bool(preset_fields.resolve(active, "is_emergency")):
             status_label = "🎯 🛡️ Emergency ACTIVE"
         else:
             status_label = "🎯 Fallback ACTIVE"
@@ -1789,7 +1789,7 @@ async def _show_fallback_chain(update: Update, context: ContextTypes.DEFAULT_TYP
     )
     for i, preset in enumerate(chain):
         name = preset.get("name", "?")
-        is_emergency = preset.get("is_emergency", 0)
+        is_emergency = preset_fields.resolve(preset, "is_emergency")
         status = "🛡️ اضطراری" if is_emergency else "🟢 فعال"
         text += f"{i+1}. <b>{html_escape(name)}</b> — {status}\n"
 
@@ -1809,7 +1809,7 @@ def _usage_rows() -> list[tuple[str, str, str]]:
     for p in db.get_presets():
         name = p["name"]
         req_count, token_count = db.get_hourly_usage(name, hours_back=24)
-        max_daily = p.get("max_daily_req", 0)
+        max_daily = preset_fields.resolve(p, "max_daily_req")
         status = "🔋" if req_count < max_daily or max_daily == 0 else "🪫"
         daily_str = f"{req_count}/{max_daily}" if max_daily > 0 else f"{req_count}/∞"
         rows.append((status, name, f"{daily_str} req, {token_count} توکن"))
@@ -1861,10 +1861,10 @@ async def _handle_fallback_rank(update: Update, context: ContextTypes.DEFAULT_TY
         await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
-    group_is_emergency = bool(preset.get("is_emergency", 0))
+    group_is_emergency = bool(preset_fields.resolve(preset, "is_emergency"))
     group_label = "اضطراری" if group_is_emergency else "عادی"
     chain = db.get_fallback_chain_presets()
-    group_chain = [p for p in chain if bool(p.get("is_emergency", 0)) == group_is_emergency]
+    group_chain = [p for p in chain if bool(preset_fields.resolve(p, "is_emergency")) == group_is_emergency]
     max_rank = len(group_chain)
 
     context.user_data["awaiting"] = f"ai_fallback_rank:{preset_name}"
@@ -2157,7 +2157,7 @@ async def _handle_ai_text_input(
         if not preset:
             await update.message.reply_text("پیش‌تنظیم یافت نشد")
             return
-        group_is_emergency = bool(preset.get("is_emergency", 0))
+        group_is_emergency = bool(preset_fields.resolve(preset, "is_emergency"))
         chain = db.get_fallback_chain_presets()
         count = len(chain)
         try:

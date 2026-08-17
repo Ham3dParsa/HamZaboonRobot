@@ -5,6 +5,7 @@ import datetime as _dt
 from services.db.schema import get_conn, transaction, _utc_now
 from services.db.settings import get_bool_setting, get_setting
 from services.ai.ai_presets import resolve_api_key
+from services.ai import preset_fields as _pf
 from services.db.key_crypto import encrypt_for_storage
 
 
@@ -38,35 +39,35 @@ def get_active_preset() -> dict:
     """
     name = get_active_preset_name()
     preset = get_preset(name)
-    if preset and preset.get("enabled", 1):
+    if preset and _pf.resolve(preset, "enabled"):
         return preset
     name = _first_enabled_name()
     preset = get_preset(name)
-    if preset and preset.get("enabled", 1):
+    if preset and _pf.resolve(preset, "enabled"):
         return preset
     raise NoActivePresetError("no enabled AI preset available")
 
 
 def set_preset(
     name: str,
-    base_url: str = "",
-    model: str = "",
-    api_key: str = "",
-    daily_batch_size: int = 6,
-    max_concurrency: int = 2,
-    max_rpm: int = 30,
-    max_tpm: int = 0,
-    max_daily_req: int = 0,
-    timeout_seconds: float = 30.0,
-    temperature: float = 0.6,
-    max_output_tokens: int = 4096,
-    is_emergency: int = 0,
+    base_url: str = _pf.write_default("base_url"),
+    model: str = _pf.write_default("model"),
+    api_key: str = _pf.write_default("api_key"),
+    daily_batch_size: int = _pf.write_default("daily_batch_size"),
+    max_concurrency: int = _pf.write_default("max_concurrency"),
+    max_rpm: int = _pf.write_default("max_rpm"),
+    max_tpm: int = _pf.write_default("max_tpm"),
+    max_daily_req: int = _pf.write_default("max_daily_req"),
+    timeout_seconds: float = _pf.write_default("timeout_seconds"),
+    temperature: float = _pf.write_default("temperature"),
+    max_output_tokens: int = _pf.write_default("max_output_tokens"),
+    is_emergency: int = _pf.write_default("is_emergency"),
     priority: int | None = None,
     enabled: int | None = None,
-    input_cost_per_million: float | None = None,
-    output_cost_per_million: float | None = None,
-    in_fallback_chain: int = 1,
-    group_label: str = "",
+    input_cost_per_million: float | None = _pf.write_default("input_cost_per_million"),
+    output_cost_per_million: float | None = _pf.write_default("output_cost_per_million"),
+    in_fallback_chain: int = _pf.write_default("in_fallback_chain"),
+    group_label: str = _pf.write_default("group_label"),
     *,
     previous_name: str | None = None,
     remove_orphaned_group_key: bool = False,
