@@ -232,15 +232,13 @@ def _detect_key_groups() -> list[dict]:
     return groups
 
 
-def _render_preset_brief(preset: dict, active_name: str) -> str:
-    """Render one brief, HTML-escaped preset line for list/chain views (R6/R8).
+def _preset_brief_spans(preset: dict, active_name: str) -> list:
+    """Return the span list for one brief preset line (single source of truth).
 
-    Pure synchronous renderer (no awaits): every list site calls it inline to
-    build an HTML parse_mode message without wrapping a coroutine. Emoji per the
-    UI/UX dictionary: 🟢/⚫ toggle reflects the enabled state, and the ``[tags]``
-    suffix marks 🎯 active preset, 🛡️ emergency tier, and custom. The name is
-    escaped for ``ParseMode.HTML``. Single shared implementation so every list
-    site renders identically.
+    Pure synchronous renderer (no awaits). Emoji per the UI/UX dictionary:
+    🟢/⚫ toggle reflects the enabled state, and the ``[tags]`` suffix marks
+    🎯 active preset, 🛡️ emergency tier, and custom. Every list/chain site
+    consumes these spans so each renders identically (R6/R8).
     """
     name = preset.get("name", "?")
     toggle = "🟢" if preset.get("enabled", 1) else "⚫"
@@ -249,8 +247,21 @@ def _render_preset_brief(preset: dict, active_name: str) -> str:
         tags.append("🎯")
     if preset.get("is_emergency"):
         tags.append("🛡️")
-    suffix = (f" [{' '.join(tags)}]" if tags else "")
-    return f"{toggle} <b>{html_escape(str(name))}</b>{suffix}"
+    spans = [plain(f"{toggle} "), bold(str(name))]
+    if tags:
+        spans.append(plain(f" [{' '.join(tags)}]"))
+    return spans
+
+
+def _render_preset_brief(preset: dict, active_name: str) -> str:
+    """Render one brief, HTML-escaped preset line (R6/R8) from the shared spans.
+
+    Builds the HTML string from ``_preset_brief_spans`` so the linear and
+    chain sites share one source of truth for the brief render.
+    """
+    msg = Message()
+    msg.add_line(*_preset_brief_spans(preset, active_name))
+    return msg.render(Backend.HTML)
 
 
 async def _show_linear_presets(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
@@ -269,17 +280,7 @@ async def _show_linear_presets(update: Update, context: ContextTypes.DEFAULT_TYP
     msg.add_line()
     msg.add_line()
     for p in page_presets:
-        name = p.get("name", "?")
-        toggle = "🟢" if p.get("enabled", 1) else "⚫"
-        tags = []
-        if name == active_name:
-            tags.append("🎯")
-        if p.get("is_emergency"):
-            tags.append("🛡️")
-        brief = [plain(f"{toggle} "), bold(str(name))]
-        if tags:
-            brief.append(plain(f" [{' '.join(tags)}]"))
-        msg.add_line(*brief)
+        msg.add_line(*_preset_brief_spans(p, active_name))
         msg.add_line(plain("   Model: "), plain(str(p.get("model", "—"))))
         msg.add_line(plain("   URL: "), plain(str(p.get("base_url", "—"))))
         msg.add_line(
