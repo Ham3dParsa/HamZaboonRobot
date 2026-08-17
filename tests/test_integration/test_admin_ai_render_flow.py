@@ -155,6 +155,23 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         self.assertIn("<code>gpt &lt;m&gt;</code>", text)
         self.assertNotIn("<code>gpt <m></code>", text)
 
+    def test_create_finish_escapes_name_in_code(self):
+        """T8d: the create-finish summary shows the preset name inside a
+        ``<code>`` span and escapes dynamic values (no manual html_escape left
+        in the handler path)."""
+        from handlers.admin_ai import _finish_create
+
+        ctx = self._make_context()
+        ctx.user_data["preset_create"] = {"name": "my<gpt>"}
+        ctx.user_data["awaiting"] = None
+        db.set_preset("my<gpt>", enabled=0)
+        update = self._make_callback_update("admin:ai_preset:create:status:on")
+        asyncio.run(_finish_create(update, ctx))
+
+        text = self._rendered_text(update)
+        self.assertIn("<code>my&lt;gpt&gt;</code>", text)
+        self.assertNotIn("<code>my<gpt></code>", text)
+
     def test_fallback_chain_uses_emergency_and_active_emoji(self):
         """R8: the fallback chain render shows 🛡️ for emergency and 🟢 for a
         normal enabled preset (no legacy ✅/🚨 markers)."""

@@ -1144,13 +1144,11 @@ async def _duplicate_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYP
 async def _add_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Create a new custom preset - start with name input."""
     context.user_data["awaiting"] = "admin_ai_preset_new_name"
-    await _edit_or_send(
-        update, context,
-        "➕ <b>ایجاد پیش‌تنظیم جدید</b>\n\n"
-        "نام پیش‌تنظیم را وارد کنید (مثال: my_openai):",
-        parse_mode=ParseMode.HTML,
-        reply_markup=admin_awaiting_inline_keyboard()
-    )
+    msg = Message()
+    msg.add_line(plain("➕ "), bold("ایجاد پیش‌تنظیم جدید"))
+    msg.add_line()
+    msg.add_line(plain("نام پیش‌تنظیم را وارد کنید (مثال: my_openai):"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=admin_awaiting_inline_keyboard())
 
 
 async def _handle_ai_preset_new_name(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
@@ -1175,14 +1173,6 @@ async def _handle_ai_preset_new_name(update: Update, context: ContextTypes.DEFAU
 
 # ======== R14 Create Flow ========
 
-CREATE_PRIORITY_PROMPT = (
-    "🎯 <b>اولویت در زنجیره فال‌بک</b>\n\n"
-    "جایگاه پیش‌تنظیم جدید در زنجیره فال‌بک را انتخاب کنید:\n"
-    "• <b>بالا (مقدم)</b> — اولین نفری که امتحان می‌شود\n"
-    "• <b>پایین (کم‌اولویت)</b> — آخرین نفری که امتحان می‌شود\n"
-    "• <b>دستی</b> — عدد اولویت دلخواه وارد کنید"
-)
-
 
 async def _show_create_priority(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Prompt for the new preset's fallback-chain priority (R14)."""
@@ -1198,12 +1188,16 @@ async def _show_create_priority(update: Update, context: ContextTypes.DEFAULT_TY
         ],
         [InlineKeyboardButton("❌ لغو", callback_data="admin:ai_settings")],
     ]
-    await _edit_or_send(
-        update, context,
-        f"➕ <b>ایجاد پیش‌تنظیم جدید</b> — <code>{html_escape(name)}</code>\n\n" + CREATE_PRIORITY_PROMPT,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons),
-    )
+    msg = Message()
+    msg.add_line(plain("➕ "), bold("ایجاد پیش‌تنظیم جدید"), plain(" — "), code(str(name)))
+    msg.add_line()
+    msg.add_line(plain("🎯 "), bold("اولویت در زنجیره فال‌بک"))
+    msg.add_line()
+    msg.add_line(plain("جایگاه پیش‌تنظیم جدید در زنجیره فال‌بک را انتخاب کنید:"))
+    msg.add_line(plain("• "), bold("بالا (مقدم)"), plain(" — اولین نفری که امتحان می‌شود"))
+    msg.add_line(plain("• "), bold("پایین (کم‌اولویت)"), plain(" — آخرین نفری که امتحان می‌شود"))
+    msg.add_line(plain("• "), bold("دستی"), plain(" — عدد اولویت دلخواه وارد کنید"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _show_create_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1220,14 +1214,16 @@ async def _show_create_status(update: Update, context: ContextTypes.DEFAULT_TYPE
         ],
         [InlineKeyboardButton("❌ لغو", callback_data="admin:ai_settings")],
     ]
-    await _edit_or_send(
-        update, context,
-        f"⚙️ <b>وضعیت پیش‌تنظیم</b> — <code>{html_escape(name)}</code>\n\n"
-        "پیش‌تنظیم جدید به‌صورت <b>غیرفعال</b> ساخته می‌شود و تا وقتی آگاهانه فعالش نکنید، "
-        "هیچ درخواستی را سرو نمی‌کند. وضعیت را انتخاب کنید (می‌توانید پیش از آن اتصال را تست کنید):",
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons),
+    msg = Message()
+    msg.add_line(plain("⚙️ "), bold("وضعیت پیش‌تنظیم"), plain(" — "), code(str(name)))
+    msg.add_line()
+    msg.add_line(
+        plain("پیش‌تنظیم جدید به‌صورت "), bold("غیرفعال"),
+        plain(" ساخته می‌شود و تا وقتی آگاهانه فعالش نکنید، "
+              "هیچ درخواستی را سرو نمی‌کند. وضعیت را انتخاب کنید "
+              "(می‌توانید پیش از آن اتصال را تست کنید):"),
     )
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _finish_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1269,16 +1265,15 @@ async def _finish_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_presets")],
     ]
-    await _edit_or_send(
-        update, context,
-        f"✅ <b>پیش‌تنظیم ساخته شد</b> — <code>{html_escape(name)}</code>\n\n"
-        f"• وضعیت: {status}\n"
-        f"• اولویت زنجیره: <code>{preset.get('priority', 0)}</code>\n"
-        f"• سفارشی: بله\n\n"
-        "می‌توانید اتصال را تست کنید، وضعیت را تغییر دهید، یا مستقیم وارد ویرایش کامل شوید.",
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons),
-    )
+    msg = Message()
+    msg.add_line(plain("✅ "), bold("پیش‌تنظیم ساخته شد"), plain(" — "), code(str(name)))
+    msg.add_line()
+    msg.add_line(plain("• وضعیت: "), plain(status))
+    msg.add_line(plain("• اولویت زنجیره: "), code(str(preset.get('priority', 0))))
+    msg.add_line(plain("• سفارشی: بله"))
+    msg.add_line()
+    msg.add_line(plain("می‌توانید اتصال را تست کنید، وضعیت را تغییر دهید، یا مستقیم وارد ویرایش کامل شوید."))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 def _normal_chain_count() -> int:
@@ -1300,17 +1295,22 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
             model=preset.get("model", ""),
             timeout=preset_fields.resolve(preset, "timeout_seconds"),
         )
+        msg = Message()
         if result["success"]:
-            body = f"✅ <b>اتصال موفق</b>\nتأخیر: {result['latency_ms']} ms"
+            msg.add_line(plain("✅ "), bold("اتصال موفق"))
+            msg.add_line(plain("تأخیر: "), plain(str(result['latency_ms'])), plain(" ms"))
         else:
-            body = f"❌ <b>خطا در اتصال</b>\nخطا: {html_escape(str(result.get('error_message', '')))}"
+            msg.add_line(plain("❌ "), bold("خطا در اتصال"))
+            msg.add_line(plain("خطا: "), plain(str(result.get('error_message', ''))))
     else:
-        body = (
-            "⚠️ <b>تست اتصال برای پیش‌تنظیم تازه</b>\n\n"
-            "این پیش‌تنظیم هنوز base_url / model / api_key ندارد، پس اتصال واقعی "
-            "امکان‌پذیر نیست. ابتدا فیلدها را در ویرایش کامل پر کنید، سپس تست بگیرید.\n"
-            "این صرفاً یک یادآوری است و مشکلی در ساخت پیش‌تنظیم نیست."
+        msg = Message()
+        msg.add_line(plain("⚠️ "), bold("تست اتصال برای پیش‌تنظیم تازه"))
+        msg.add_line()
+        msg.add_line(
+            plain("این پیش‌تنظیم هنوز base_url / model / api_key ندارد، پس اتصال واقعی "
+                  "امکان‌پذیر نیست. ابتدا فیلدها را در ویرایش کامل پر کنید، سپس تست بگیرید.")
         )
+        msg.add_line(plain("این صرفاً یک یادآوری است و مشکلی در ساخت پیش‌تنظیم نیست."))
     buttons = [
         [
             InlineKeyboardButton("🔄 تغییر وضعیت", callback_data="admin:ai_preset:create:toggle_enable"),
@@ -1320,7 +1320,7 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
         ],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_presets")],
     ]
-    await _edit_or_send(update, context, body, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _handle_create_toggle_enable(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1358,11 +1358,9 @@ async def _handle_create_priority_choice(
         await _show_create_status(update, context)
     elif choice == "manual":
         context.user_data["awaiting"] = f"ai_preset_create_priority:{state.get('name', '')}"
-        await update.callback_query.edit_message_text(
-            "🔢 <b>عدد اولویت دستی</b> را وارد کنید (عدد کمتر = اولویت بیشتر):",
-            parse_mode=ParseMode.HTML,
-            reply_markup=admin_awaiting_inline_keyboard(),
-        )
+        msg = Message()
+        msg.add_line(plain("🔢 "), bold("عدد اولویت دستی"), plain(" را وارد کنید (عدد کمتر = اولویت بیشتر):"))
+        await say(update, context, msg, backend=Backend.HTML, keyboard=admin_awaiting_inline_keyboard())
     else:
         await notify_callback(update.callback_query, "انتخاب نامعتبر", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
 

@@ -7,7 +7,7 @@ branch: refactor/admin-ai-spans
 status: in-progress
 ---
 
-STATE: phase 4/N — status: in-progress — focus: T8c DONE, next T8d (create wizard)
+STATE: phase 5/N — status: in-progress — focus: T8d DONE, next T8e (group manager); Newline/HTML bug fix (R2 lock) committed in 694b3ae
 
 ## Contract lock (owner 2026-08-17, GATE LOCKED)
 - R1: T8 split into sub-tickets T8a..T8h (each a commit/PR, like R3).
@@ -37,7 +37,7 @@ STATE: phase 4/N — status: in-progress — focus: T8c DONE, next T8d (create w
 - T8a DONE — `_show_ai_settings` + no-active notice → spans (Message + Backend.HTML), byte-exact HTML preserved (bold labels, emoji 🤖/⚠️/📇, "Fallback:" prefix, trailing-space after `:</b>`). New integration test `test_ai_settings_with_active_preset_renders_html_bold` (escapes `<x>`). Full suite 1135 passed. (committed e378857)
 - T8b DONE — `_show_linear_presets` / `_show_grouped_presets` / `_show_ai_preset_view` → spans; byte-exact verified (multipage MATCH, single-page only trailing-newline diff = invisible). Kilo SUGGESTION addressed in 8cb1170: extracted shared `_preset_brief_spans` (single source of truth) used by linear list; `_render_preset_brief` builds HTML from same spans (byte-identical verified). Full suite 1136 passed. (committed 5c9e4d9 + 8cb1170)
 - T8c DONE — `_edit_ai_preset` / `_edit_ai_preset_field` / `_handle_ai_preset_field_input` (success msg) / `_show_wizard_field` / `_show_wizard_summary` → spans (added `code`, `italic` imports). Byte-exact verified (wizard draft/current/help/group, summary). Fixed ZWNJ regression in draft label (`پیش‌نویس`→`پیشنویس`). New integration test `test_field_edit_prompt_escapes_current_in_code`. Full suite 1137 passed. (uncommitted)
-- T8d PENDING
+- T8d DONE — `_add_ai_preset` / `_show_create_priority` / `_show_create_status` / `_finish_create` / `_handle_create_test` / `_handle_create_priority_choice` (manual) → spans. Byte-exact verified (add/priority/status/finish/test_success/test_fail/test_fresh/manual). Deleted now-dead `CREATE_PRIORITY_PROMPT`. New integration test `test_create_finish_escapes_name_in_code`. Full suite 1138 passed. (uncommitted)
 - T8e PENDING
 - T8f PENDING
 - T8g PENDING
