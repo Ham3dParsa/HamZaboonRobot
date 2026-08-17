@@ -2,14 +2,17 @@ import os
 import tempfile
 import unittest
 
+from config.plan_identity import is_premium
 from services import db
 from services.db import schema as db_schema
-from services.db.plans import effective_plan, is_premium, plan_spec
+from services.db.plans import effective_plan, plan_spec
 
 
 class PlanSemanticsTests(unittest.TestCase):
-    """Lock R5: plan semantics live in plans.py; a missing/inactive/unreadable
-    plan resolves to the 'free' spec; effective_plan bypass -> gold."""
+    """Lock R5: plan quota semantics live in plans.py; a missing/inactive/
+    unreadable plan resolves to the 'free' spec; effective_plan bypass -> gold.
+    Plan *identity* (set membership / premium tiering) lives in the
+    config/plan_identity.py leaf (J-B6); is_premium is imported from there."""
 
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()

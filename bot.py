@@ -26,10 +26,8 @@ from config import (
     APP_TZ,
     ASK_WORD_AI_TIMEOUT_SECONDS,
     CONNECTION_HEALTH_INTERVAL_SECONDS,
-    PREMIUM_PLANS,
     daily_word_query_limit_for_plan,
     effective_daily_allowance,
-    presentation_for_user,
     _app_today,
     _user_presentation,
     _user_plan,
@@ -38,6 +36,7 @@ from config import (
     COST,
     USER_ACTIVITY,
 )
+from config.plan_identity import has_feature
 from services import db
 from services.ai import ai
 from services import tts
@@ -646,7 +645,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not row or not row["onboarded"]:
             await notify_callback(update.callback_query, "ابتدا /start را بزنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
-        if (row["plan"] or "free") not in PREMIUM_PLANS:
+        if not has_feature(row["plan"] or "free", "presentation"):
             await notify_callback(update.callback_query, "این تنظیم فقط برای کاربران پریمیوم فعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         db.set_presentation_preference(user_id, preference)
@@ -844,7 +843,7 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
     if tts_access == "none":
         await notify_callback(update.callback_query, "تلفظ غیرفعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
-    if tts_access == "premium" and _user_plan(row) not in PREMIUM_PLANS:
+    if tts_access == "premium" and not has_feature(_user_plan(row), "pronounce"):
         await notify_callback(update.callback_query, "این قابلیت فقط برای کاربران نقره‌ای و طلایی فعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 

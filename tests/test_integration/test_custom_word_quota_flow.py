@@ -445,12 +445,14 @@ class TTSGateShowPronounceFlowTests(unittest.TestCase):
             "free user with tts_access=all must see the 🔊 button on the delivered card",
         )
 
-    def test_text_router_free_user_with_tts_premium_hides_pronounce(self):
+    def test_text_router_free_user_with_tts_premium_sees_pronounce(self):
+        # Pronounce is free to every plan (locked J-B6 decision, 2026-08-17), so a
+        # free user sees 🔊 under tts_access=premium; only "none" hides the button.
         db.set_setting("tts_access", "premium")
         context = self._run_text_router()
-        self.assertFalse(
+        self.assertTrue(
             self._delivered_card_has_pronounce(context),
-            "free user with tts_access=premium must NOT see the 🔊 button",
+            "free user with tts_access=premium must see the 🔊 button (pronounce is free)",
         )
 
     def test_text_router_owner_bypass_sees_pronounce_with_stored_free_plan(self):

@@ -178,7 +178,7 @@ Keep responsibilities aligned with the current module boundaries:
   - `services/tts.py`: Text-to-Speech generation (Edge TTS).
   - `services/session/`: Pure FSRS session engine. `__init__.py` (`build_session_list()`, `generate_tier3_node()`, `SessionNode`); `assembly.py` (3-tier assembler; `generate_tier3_node()` is a stub pending Phase 3b+); `grade_policy.py` (`GradePolicy`, `GRADE_POLICIES`, `resolve_grade()`).
   - `handlers/study_handler.py`: Study-session handler (`handle_study_start()`, `advance_session()`).
-- `config/`: `config/__init__.py` (environment/deployment settings; not a second learner-option registry), `config/catalog.py` (canonical language/goal/level metadata), `config/keyboards.py` (menus + callback identifiers).
+- `config/`: `config/__init__.py` (environment/deployment settings; not a second learner-option registry), `config/catalog.py` (canonical language/goal/level metadata), `config/plan_identity.py` (canonical plan set membership, premium tiering, learner-facing labels, and feature-gating via `_FEATURE_MIN_RANK` — pure stdlib leaf, single source of truth for `valid_plans`/`is_premium`/`plan_label`/`has_feature`), `config/keyboards.py` (menus + callback identifiers).
 - `tests/test_integration/`: Handler-level integration tests. `tests/test_integration/helpers.py` shared helpers.
 - `.github/workflows/ci.yml`: CI — lint, compile, tests, dashboard generation, whitespace checks on push/PR to `main`.
 

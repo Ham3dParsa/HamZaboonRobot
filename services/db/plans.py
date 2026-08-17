@@ -127,15 +127,9 @@ def plan_spec(plan: str) -> dict:
     }
 
 
-def is_premium(plan: str) -> bool:
-    """Return True if `plan` is a premium tier (silver/gold/emerald)."""
-    from config import PREMIUM_PLANS
-    return plan in PREMIUM_PLANS
-
-
 def effective_plan(plan: str, bypass_limits: bool = False) -> str:
     """Return the effective plan name after limit-bypass resolution."""
     if bypass_limits:
         return "gold"
-    from config import PLANS
-    return plan if plan in PLANS else "free"
+    from config.plan_identity import valid_plans
+    return plan if plan in valid_plans() else "free"

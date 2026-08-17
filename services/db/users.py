@@ -61,14 +61,16 @@ def set_display_toggle_forced(user_id: int, field: str, enabled: bool):
 def should_show_pronounce(user_id: int, row=None) -> bool:
     """Whether the 🔊 pronounce button is shown for a user.
 
-    Honors the admin ``tts_access`` setting (none/premium/all): none → False;
-    a paid plan → True; otherwise True only when tts_access == "all". Single
-    source of truth for every card/button so the admin toggle never drifts.
+    Pronounce is free to every plan (J-B6, 2026-08-17); the only gate is the
+    admin ``tts_access`` setting: ``none`` → False, anything else → True.
+    Single source of truth for every card/button so the admin toggle never
+    drifts.
 
     ``row`` is an optional pre-fetched users row (callers that already hold it
     pass it in to avoid an extra SELECT); it is re-fetched when omitted.
     """
-    from config import PREMIUM_PLANS, _user_plan
+    from config import _user_plan
+    from config.plan_identity import has_feature
     from services.db.settings import get_setting
     if row is None:
         row = get_user(user_id)
@@ -78,9 +80,7 @@ def should_show_pronounce(user_id: int, row=None) -> bool:
     tts_setting = get_setting("tts_access", "premium")
     if tts_setting == "none":
         return False
-    if plan in PREMIUM_PLANS:
-        return True
-    return tts_setting == "all"
+    return has_feature(plan, "pronounce")
 
 
 def _sanitize_mode(value) -> str | None:
@@ -129,7 +129,8 @@ def card_mode_available(user_id: int, card_type: str, row=None) -> bool:
     ``all`` → everyone; ``premium`` → paid plans only. Mirrors
     ``should_show_pronounce``'s gate semantics.
     """
-    from config import PREMIUM_PLANS, _user_plan
+    from config import _user_plan
+    from config.plan_identity import has_feature
     gate = resolve_card_mode_gate(card_type)
     if gate == "all":
         return True
@@ -137,7 +138,7 @@ def card_mode_available(user_id: int, card_type: str, row=None) -> bool:
         row = get_user(user_id)
     if not row:
         return False
-    return _user_plan(row) in PREMIUM_PLANS
+    return has_feature(_user_plan(row), "card_modes")
 
 
 def set_user_card_mode(user_id: int, card_type: str, mode: str):
