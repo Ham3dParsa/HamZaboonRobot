@@ -3,6 +3,7 @@ import logging
 import re
 
 from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
 
@@ -116,19 +117,24 @@ async def _exit_awaiting_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def _edit_or_send(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, **kwargs):
-    if update.callback_query:
-        try:
-            return await update.callback_query.edit_message_text(text, **kwargs)
-        except BadRequest as e:
-            if "message is not modified" in str(e).lower():
-                return await notify_callback(update.callback_query)
-            logger.info("callback edit failed; sending replacement message")
-            return await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=text,
-                **kwargs,
-            )
-    return await update.message.reply_text(text, **kwargs)
+    """Thin adapter (R3) routing through ``services.send_pretty.say``.
+
+    The deep outbound module owns the parse-standard, retry, and concurrency
+    slots. This adapter keeps the legacy ``(update, context, text, **kwargs)``
+    signature so the existing call sites are untouched, and derives the ``raw``
+    format from the caller's ``parse_mode`` (never guessed). Deletion of this
+    adapter (and migration of all callers to ``say``) is deferred to a dedicated
+    cleanup PR.
+    """
+    from services.send_pretty import RawFormat, say
+
+    raw = RawFormat.PLAIN
+    parse_mode = kwargs.pop("parse_mode", None)
+    if parse_mode == ParseMode.HTML:
+        raw = RawFormat.HTML
+    elif parse_mode == ParseMode.MARKDOWN_V2:
+        raw = RawFormat.MDV2
+    return await say(update, context, text, raw=raw, **kwargs)
 
 
 def _reset_telegram_cb():
