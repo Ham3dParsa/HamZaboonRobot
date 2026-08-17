@@ -95,7 +95,9 @@ def feature_audience(feature: str) -> str:
     min_rank = _FEATURE_MIN_RANK.get(feature)
     if min_rank is None:
         return ""
-    tiers = [entry["label"] for entry in _PLANS.values() if entry["rank"] >= min_rank]
+    # int() mirrors has_feature: a malformed (e.g. string) rank fails closed
+    # rather than crashing feature_audience at import/display time.
+    tiers = [entry["label"] for entry in _PLANS.values() if int(entry["rank"]) >= min_rank]
     if not tiers:
         return ""
     if len(tiers) == len(_PLANS):
