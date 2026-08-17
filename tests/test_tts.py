@@ -77,8 +77,14 @@ class TtsVoiceForTests(unittest.TestCase):
                 self.assertTrue(option.voice, f"language {code!r} missing a TTS voice")
 
     def test_voice_for_returns_catalog_voice(self):
-        self.assertEqual(tts.voice_for("en"), "en-US-JennyNeural")
+        for code, option in LANGUAGES.items():
+            with self.subTest(code=code):
+                self.assertEqual(tts.voice_for(code), option.voice)
         self.assertEqual(tts.voice_for("fa"), "fa-IR-DilaraNeural")
+
+    def test_ui_voice_fa_is_valid(self):
+        self.assertTrue(tts._UI_VOICE_FA)
+        self.assertTrue(tts._UI_VOICE_FA.startswith("fa-"))
 
     def test_voice_for_falls_back_to_english_for_unknown(self):
         self.assertEqual(tts.voice_for("xx"), "en-US-JennyNeural")
