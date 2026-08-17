@@ -2,19 +2,49 @@
 name: plan-send-pretty-span-tree-r3
 description: Deep outbound-message module send_pretty (R3) — recursive span tree, single parse-standard owner, fixes *bold*/<b> parsing bugs
 created: 2026-08-17
-base_commit: 9c822ce
-branch: (pending — R3 runs after R2)
-status: locked-design
+base_commit: 1583a0a
+branch: refactor/send-pretty
+status: in-progress
 ---
 
-STATE: design-it-twice LOCKED — status: locked-design — focus: recursive span tree chosen; implementation deferred until R2 merges
+STATE: LOCKED + owner scope decision — status: in-progress — execution model: per-ticket
+commits on the branch (spec-to-tickets), each independently reviewed via the Kilo PR loop;
+`_edit_or_send` kept as a thin adapter routing through `say()` (owner Option A); its deletion
+deferred to a dedicated cleanup PR. T8 (admin_ai screens, seam 12) HELD for j-B2 merge.
 
-## Scope (locked contract — R3)
-- **R3**: new deep module `services/send_pretty.py` — the single owner of outbound-message
-  parse-standard, escaping, retry, concurrency slots, and edit/send decision. It replaces
-  the current dispersion: 3 parse standards (MarkdownV2 / HTML / none), ~50 call sites that
-  each hand-pick `ParseMode`, the `@@@` / `@@BOT@@` / `@@START@@` sentinels, and 13 direct
-  `context.bot.*` bypass sites that skip `_telegram_slots`.
+## Progress
+- T1 DONE (c787742) — services/send_pretty.py span tree + renderers + 20 unit tests.
+- T2 DONE (b21d77e) — _telegram_slots guard test in tests/test_wiring.py.
+- T3 DONE (2d4ebab) — _edit_or_send → thin adapter routing through say().
+- T4 DONE (ede4d20) — user.py onboarding span fixes + test_integration/test_onboarding_span.py.
+- T5 DONE (a435189) — help_command span tokenizer (_render_help_template/_help_spans/_help_guillemets).
+- T6 PENDING — learner renderer Message factories. **DEFERRED by owner (2026-08-17): follow-up PR.**
+- T7 PENDING — 13 direct bypass sites. **DEFERRED by owner (2026-08-17): follow-up PR.**
+- **THIS PR = T1–T5 only** (owner confirmed 2026-08-17: "Defer T6+T7").
+- T8 NOT IN THIS PR — admin_ai screens (seam 12), held for j-B2.
+
+## Scope (locked contract — R3) — ticket-based execution
+- **Execution model (owner 2026-08-17):** decompose the full deep-module leap into small
+  per-task tickets (T1–T8), each a single commit on `refactor/send-pretty`. Create the PR
+  after a group of tickets; after each meaningful commit wait for the Kilo comment delta
+  (sleep loop: 90s timer, 15m timeout) and address before the next commit; rebase onto
+  `origin/main` after each push so a changed j-B2/unblock state is always visible. Loop until
+  Kilo says merge.
+- **Ticket map (each = one commit, small + independently reviewable):**
+  - T1 — `services/send_pretty.py` span tree + renderers (MDV2/HTML/PLAIN) + pure unit tests. (new file; no seam conflict)
+  - T2 — Guard test: only `send_pretty` imports `_telegram_slots` outside itself. (tests/test_wiring.py)
+  - T3 — `_edit_or_send` → thin adapter routing through `say()` (83 call sites untouched). (services/utils/helpers.py)
+  - T4 — user.py `*bold*`/`@@@` fixes → span `Message`. (handlers/user.py, seam 7)
+  - T5 — help_command `@@BOT@@`/`@@START@@` + `_apply_bold` → span `Message`. (handlers/help_command.py, seam 16)
+  - T6 — format_card/format_srs_* → `Message` factories (return Message, keep signatures). (services/utils/formatting.py)
+  - T7 — 13 direct bypass sites → `send(...)`/`say(...)` (study_handler/srs_handler/admin.py/admin_plans.py, seams 5/6/8/10).
+  - T8 — **admin_ai.py screens → spans (seam 12). HELD: conflicts with j-B2; run as a separate follow-up PR after j-B2 merges. NOT in this PR.**
+- **PR grouping (owner):** create the PR after a group of tickets (at my discretion); do not
+  wait for all of T1–T7 to be done before opening it.
+- **Anti-divergence with j-B2:** j-B2 (`refactor/preset-field-registry`) owns seams 12
+  (`handlers/admin_ai.py`) + 2 (`services/ai/ai.py`). R3 (T1–T7) stays within seams
+  5/6/7/8/10/15/16 + helpers/formatting — no file overlap with j-B2. T8 (seam 12) is
+  excluded here and sequenced after j-B2.
 - Owner directive (2026-08-17): set all rules per `/codebase-design` + audits — deeper
   modules, no code divergence, no dispersion in public modules, no god modules.
 - **Design chosen (design-it-twice, owner): "Recursive span tree"** — every span can nest
@@ -66,26 +96,31 @@ Internal wiring (composes existing helpers, preserves the retry/slots seam):
   `html_escape`. Does NOT reuse `_edit_or_send` (it bypasses retry/slots).
 - BadRequest fallback ("message is not modified" / "not found") reuses the existing
   edit-then-fall-back-to-send semantics.
-- `_edit_or_send` becomes provably dead after migration → deleted (bounded cleanup).
+- **OWNER DECISION (2026-08-17, Option A):** `_edit_or_send` is NOT deleted in this PR.
+  It has 83 call sites across 7 files — far beyond this PR's migration list. Instead it
+  becomes a thin adapter that internally routes through `say(...)`, so the deep module owns
+  parse-standard/retry/slots while callers are untouched. Full deletion is deferred to a
+  dedicated cleanup PR (recorded out-of-scope here).
 
-## Migration plan
-1. Add `services/send_pretty.py` + tests (pure `render` unit tests for both backends +
-   nesting; mock tests asserting retry/slots/fallback; guard test that only `send_pretty`
-   imports `_telegram_slots`).
-2. Rebuild learner renderers `format_card` / `format_srs_front_stage` / `format_srs_back_stage`
-   (services/utils/formatting.py) as `Message` factories (return `Message`, keep signatures) —
-   instantly migrates bot.py, study_handler.py, srs_handler.py.
-3. Admin HTML cluster: rewrite ~30 static screens as `Message` (`html_escape(x)` → `plain(x)`/
-   `bold(x)`/`code(x)`); one-off templates use the `raw="html"` on-ramp.
-4. Onboarding `*bold*` fixes: `user.py:143-144`, `user.py:159-160`, `user.py:196-198`
-   (`@@@` dance deleted) → `bold(lang_name)` etc.
-5. help_command.py: `@@BOT@@`/`@@START@@` + `_apply_bold` deleted → `Message` with
-   `bold(...)`/`plain(...)`/`code("/start")`.
-6. Direct bypass sites (13) in study_handler / srs_handler / admin.py / admin_plans.py →
-   `send(...)`/`say(...)`, routing them back onto the retry/slot seam.
-7. Delete `_edit_or_send` after zero references (grep-verified).
-8. Add guard test: `tests/test_wiring.py` (or new `tests/test_send_pretty.py`) asserting
-   only `send_pretty` imports `_telegram_slots` outside itself.
+## Migration plan (ticket-aligned — each item = one commit)
+- **T1** — Add `services/send_pretty.py` (span tree + `send`/`say`/`raw` + MDV2/HTML/PLAIN
+  render) + pure unit tests (render both backends + nesting + escape correctness).
+- **T2** — Guard test: only `send_pretty` imports `_telegram_slots` outside itself
+  (tests/test_wiring.py or new tests/test_send_pretty.py).
+- **T3** — Convert `_edit_or_send` into a thin adapter routing through `say(...)`; keep
+  signature so the 83 call sites are untouched (services/utils/helpers.py). Deletion deferred.
+- **T4** — Onboarding `*bold*` fixes: `user.py:143-144` (cmd_start welcome), `user.py:159-160`
+  (on_lang_selected), `user.py:196-198` (`@@@` dance deleted) → span `Message` with `bold(...)`.
+- **T5** — help_command.py: `@@BOT@@`/`@@START@@` + `_apply_bold` deleted → span `Message`
+  with `bold(...)`/`plain(...)`/`code("/start")` (handlers/help_command.py).
+- **T6** — Rebuild learner renderers `format_card` / `format_srs_front_stage` /
+  `format_srs_back_stage` (services/utils/formatting.py) as `Message` factories (return
+  `Message`, keep signatures); migrate bot.py / study_handler.py / srs_handler.py callers.
+- **T7** — Direct bypass sites (13) in study_handler / srs_handler / admin.py / admin_plans.py →
+  `send(...)`/`say(...)`, routing them back onto the retry/slot seam.
+- **T8 — NOT IN THIS PR.** admin_ai.py (~30 HTML screens, seam 12) → spans. HELD for j-B2
+  merge; separate follow-up PR. Admin screens keep working unchanged via the `_edit_or_send`
+  adapter (raw="html") until then.
 
 ## Dependencies / module-change guard
 - New module `services/send_pretty.py` → update AGENTS.md §3 responsibilities table +
