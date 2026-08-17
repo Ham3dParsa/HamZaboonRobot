@@ -112,6 +112,29 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         self.assertIn(f"🟢 <b>{active}</b> [🎯]", text)
         self.assertIn("🎯", text)
 
+    def test_linear_presets_escapes_bold_name_value(self):
+        """T8b: the linear list keeps the HTML bold name and escapes dynamic
+        model/URL values (no manual html_escape left in the handler path)."""
+        from handlers.admin import _handle_admin_callback
+
+        db.set_preset(
+            "list_escape",
+            base_url="https://api.example.com/?a=1&b=2",
+            model="gpt <m>",
+            enabled=1,
+        )
+        db.set_setting("ai_primary_preset", "list_escape")
+
+        update = self._make_callback_update("admin:ai_presets")
+        ctx = self._make_context()
+        asyncio.run(_handle_admin_callback(update, ctx, "ai_presets"))
+
+        text = self._rendered_text(update)
+        self.assertIn("<b>list_escape</b>", text)
+        self.assertIn("gpt &lt;m&gt;", text)
+        self.assertIn("a=1&amp;b=2", text)
+        self.assertNotIn("gpt <m>", text)
+
     def test_fallback_chain_uses_emergency_and_active_emoji(self):
         """R8: the fallback chain render shows 🛡️ for emergency and 🟢 for a
         normal enabled preset (no legacy ✅/🚨 markers)."""

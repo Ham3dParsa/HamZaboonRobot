@@ -264,29 +264,45 @@ async def _show_linear_presets(update: Update, context: ContextTypes.DEFAULT_TYP
     end = start + per_page
     page_presets = all_presets[start:end]
 
-    lines = ["📋 <b>لیست پیش‌تنظیم‌ها</b>\n"]
+    msg = Message()
+    msg.add_line(plain("📋 "), bold("لیست پیش‌تنظیم‌ها"))
+    msg.add_line()
+    msg.add_line()
     for p in page_presets:
-        lines.append(
-            f"{_render_preset_brief(p, active_name)}\n"
-            f"   Model: {html_escape(str(p.get('model', '—')))}\n"
-            f"   URL: {html_escape(str(p.get('base_url', '—')))}\n"
-            f"   Batch: {preset_fields.resolve(p, 'daily_batch_size')} | Concurrency: {preset_fields.resolve(p, 'max_concurrency')} | RPM: {preset_fields.resolve(p, 'max_rpm')}"
+        name = p.get("name", "?")
+        toggle = "🟢" if p.get("enabled", 1) else "⚫"
+        tags = []
+        if name == active_name:
+            tags.append("🎯")
+        if p.get("is_emergency"):
+            tags.append("🛡️")
+        brief = [plain(f"{toggle} "), bold(str(name))]
+        if tags:
+            brief.append(plain(f" [{' '.join(tags)}]"))
+        msg.add_line(*brief)
+        msg.add_line(plain("   Model: "), plain(str(p.get("model", "—"))))
+        msg.add_line(plain("   URL: "), plain(str(p.get("base_url", "—"))))
+        msg.add_line(
+            plain("   Batch: "),
+            plain(str(preset_fields.resolve(p, "daily_batch_size"))),
+            plain(" | Concurrency: "),
+            plain(str(preset_fields.resolve(p, "max_concurrency"))),
+            plain(" | RPM: "),
+            plain(str(preset_fields.resolve(p, "max_rpm"))),
         )
-
+        msg.add_line()
     if total_pages > 1:
-        lines.append(f"\n📄 صفحه {page + 1} از {total_pages}")
+        msg.add_line()
+        msg.add_line(plain("📄 صفحه "), plain(str(page + 1)), plain(" از "), plain(str(total_pages)))
 
-    text = "\n\n".join(lines)
-
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=ai_presets_list_keyboard(
+    msg.set_keyboard(
+        ai_presets_list_keyboard(
             all_presets, active_name,
             page=page, total_pages=total_pages,
             view_mode="linear",
         )
     )
+    await say(update, context, msg, backend=Backend.HTML)
 
 
 async def _show_grouped_presets(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -294,25 +310,29 @@ async def _show_grouped_presets(update: Update, context: ContextTypes.DEFAULT_TY
     groups = _detect_key_groups()
     active_name = db.get_active_preset_name()
 
-    lines = ["📁 <b>پیش‌تنظیم‌ها بر اساس کلید API</b>\n"]
-    for g in groups:
-        label = g.get("label") or g.get("masked_key", "—")
-        lines.append(
-            f"📁 <b>{html_escape(label)}</b> ({g['count']} preset)\n"
-            f"   🔑 {html_escape(g.get('masked_key', '—'))}"
-        )
+    msg = Message()
+    if not groups:
+        msg.add_line(plain("هیچ گروهی یافت نشد."))
+    else:
+        msg.add_line(plain("📁 "), bold("پیش‌تنظیم‌ها بر اساس کلید API"))
+        for g in groups:
+            label = g.get("label") or g.get("masked_key", "—")
+            msg.add_line()
+            msg.add_line(
+                plain("📁 "),
+                bold(str(label)),
+                plain(f" ({g['count']} preset)"),
+            )
+            msg.add_line(plain("   🔑 "), plain(str(g.get("masked_key", "—"))))
 
-    text = "\n\n".join(lines) if groups else "هیچ گروهی یافت نشد."
-
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=ai_presets_list_keyboard(
+    msg.set_keyboard(
+        ai_presets_list_keyboard(
             [], active_name,
             view_mode="grouped",
             groups=groups,
         )
     )
+    await say(update, context, msg, backend=Backend.HTML)
 
 
 async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
@@ -332,26 +352,23 @@ async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYP
     input_cost_str = f"{cost['input_cost_per_million']}" if cost['input_cost_per_million'] is not None else "— (global)"
     output_cost_str = f"{cost['output_cost_per_million']}" if cost['output_cost_per_million'] is not None else "— (global)"
 
-    text = (
-        f"📋 <b>پیش‌تنظیم: {html_escape(preset_name)}</b>\n\n"
-        f"Model: {html_escape(str(preset.get('model', '—')))}\n"
-        f"Base URL: {html_escape(str(preset.get('base_url', '—')))}\n"
-        f"API Key: {html_escape(masked_key)}\n"
-        f"Daily Batch Size: {preset_fields.resolve(preset, 'daily_batch_size')}\n"
-        f"Max Concurrency: {preset_fields.resolve(preset, 'max_concurrency')}\n"
-        f"Max RPM: {preset_fields.resolve(preset, 'max_rpm')}\n"
-        f"Timeout: {preset_fields.resolve(preset, 'timeout_seconds')}s\n"
-        f"Temperature: {preset_fields.resolve(preset, 'temperature')}\n"
-        f"Max Output Tokens: {preset_fields.resolve(preset, 'max_output_tokens')}\n"
-        f"Input Cost: {input_cost_str} $/1M\n"
-        f"Output Cost: {output_cost_str} $/1M\n"
-    )
+    msg = Message()
+    msg.add_line(plain("📋 "), bold("پیش‌تنظیم: " + str(preset_name)))
+    msg.add_line()
+    msg.add_line(plain("Model: "), plain(str(preset.get("model", "—"))))
+    msg.add_line(plain("Base URL: "), plain(str(preset.get("base_url", "—"))))
+    msg.add_line(plain("API Key: "), plain(masked_key))
+    msg.add_line(plain("Daily Batch Size: "), plain(str(preset_fields.resolve(preset, "daily_batch_size"))))
+    msg.add_line(plain("Max Concurrency: "), plain(str(preset_fields.resolve(preset, "max_concurrency"))))
+    msg.add_line(plain("Max RPM: "), plain(str(preset_fields.resolve(preset, "max_rpm"))))
+    msg.add_line(plain("Timeout: "), plain(str(preset_fields.resolve(preset, "timeout_seconds"))), plain("s"))
+    msg.add_line(plain("Temperature: "), plain(str(preset_fields.resolve(preset, "temperature"))))
+    msg.add_line(plain("Max Output Tokens: "), plain(str(preset_fields.resolve(preset, "max_output_tokens"))))
+    msg.add_line(plain("Input Cost: "), plain(input_cost_str), plain(" $/1M"))
+    msg.add_line(plain("Output Cost: "), plain(output_cost_str), plain(" $/1M"))
 
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=ai_preset_view_keyboard(preset, active_name)
-    )
+    msg.set_keyboard(ai_preset_view_keyboard(preset, active_name))
+    await say(update, context, msg, backend=Backend.HTML)
 
 
 async def _activate_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):

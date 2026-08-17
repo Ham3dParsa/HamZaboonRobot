@@ -7,7 +7,7 @@ branch: refactor/admin-ai-spans
 status: in-progress
 ---
 
-STATE: phase 2/N — status: in-progress — focus: T8a DONE, next T8b (presets list/view)
+STATE: phase 3/N — status: in-progress — focus: T8b DONE, next T8c (edit wizard)
 
 ## Contract lock (owner 2026-08-17, GATE LOCKED)
 - R1: T8 split into sub-tickets T8a..T8h (each a commit/PR, like R3).
@@ -34,8 +34,9 @@ STATE: phase 2/N — status: in-progress — focus: T8a DONE, next T8b (presets 
 
 ## Progress
 - T8-PRE DONE — added `backend=Backend.MDV2` param to `say()`/`send()` + `_resolve_content`; 4 new tests (say HTML, say edit HTML, send HTML, default MDV2). Full suite 1134 passed, compile/ruff/dashboard/diff-check clean. (committed 1b332fd)
-- T8a DONE — `_show_ai_settings` + no-active notice → spans (Message + Backend.HTML), byte-exact HTML preserved (bold labels, emoji 🤖/⚠️/📇, "Fallback:" prefix, trailing-space after `:</b>`). New integration test `test_ai_settings_with_active_preset_renders_html_bold` (escapes `<x>`). Full suite 1135 passed. (uncommitted)
-- T8b PENDING
+- T8a DONE — `_show_ai_settings` + no-active notice → spans (Message + Backend.HTML), byte-exact HTML preserved (bold labels, emoji 🤖/⚠️/📇, "Fallback:" prefix, trailing-space after `:</b>`). New integration test `test_ai_settings_with_active_preset_renders_html_bold` (escapes `<x>`). Full suite 1135 passed. (committed e378857)
+- T8b DONE — `_show_linear_presets` / `_show_grouped_presets` / `_show_ai_preset_view` → spans; inlined `_render_preset_brief` logic (toggle/bold/tags 🎯🛡️); byte-exact verified (multipage MATCH, single-page only trailing-newline diff = invisible). Kilo passed on T8-PRE/T8a group after `code` import dropped. (uncommitted)
+- T8c PENDING
 - T8b PENDING
 - T8c PENDING
 - T8d PENDING
