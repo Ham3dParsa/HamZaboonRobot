@@ -135,6 +135,26 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         self.assertIn("a=1&amp;b=2", text)
         self.assertNotIn("gpt <m>", text)
 
+    def test_field_edit_prompt_escapes_current_in_code(self):
+        """T8c: the field-edit prompt shows the current value inside a ``<code>``
+        span and escapes dynamic values (no manual html_escape left in the
+        handler path)."""
+        from handlers.admin_ai import _edit_ai_preset_field
+
+        db.set_preset(
+            "field_esc",
+            base_url="https://api.example.com",
+            model="gpt <m>",
+            api_key="test",
+        )
+        update = self._make_callback_update("admin:ai_preset:edit:field_esc")
+        ctx = self._make_context()
+        asyncio.run(_edit_ai_preset_field(update, ctx, "field_esc", "model"))
+
+        text = self._rendered_text(update)
+        self.assertIn("<code>gpt &lt;m&gt;</code>", text)
+        self.assertNotIn("<code>gpt <m></code>", text)
+
     def test_fallback_chain_uses_emergency_and_active_emoji(self):
         """R8: the fallback chain render shows 🛡️ for emergency and 🟢 for a
         normal enabled preset (no legacy ✅/🚨 markers)."""

@@ -28,7 +28,7 @@ from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send
 from services.utils.formatting import html_escape
-from services.send_pretty import Backend, Message, bold, plain, say
+from services.send_pretty import Backend, Message, bold, code, italic, plain, say
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
     BTN_BACK,
@@ -389,13 +389,11 @@ async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
         await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
-    text = f"✏️ <b>ویرایش پیش‌تنظیم: {html_escape(preset_name)}</b>\nانتخاب فیلد برای تغییر:"
+    msg = Message()
+    msg.add_line(plain("✏️ "), bold("ویرایش پیش‌تنظیم: " + str(preset_name)))
+    msg.add_line(plain("انتخاب فیلد برای تغییر:"))
 
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=ai_preset_edit_keyboard(preset_name, preset)
-    )
+    await say(update, context, msg, backend=Backend.HTML, keyboard=ai_preset_edit_keyboard(preset_name, preset))
 
 
 async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, field_name: str):
@@ -411,23 +409,24 @@ async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data["awaiting"] = f"ai_preset_edit:{preset_name}:{field_name}"
 
     help_text = _FIELD_HELP.get(field_name, "")
-    message = (
-        f"✏️ <b>{html_escape(FIELD_LABELS.get(field_name, field_name))}</b>\n"
-        f"مقدار فعلی: <code>{html_escape(str(current))}</code>\n\n"
-        f"مقدار جدید را ارسال کنید:"
-    )
-    if help_text:
-        message += f"\n\n💡 {help_text}"
 
-    await _edit_or_send(
-        update, context, message,
-        parse_mode=ParseMode.HTML,
+    msg = Message()
+    msg.add_line(plain("✏️ "), bold(FIELD_LABELS.get(field_name, field_name)))
+    msg.add_line(plain("مقدار فعلی: "), code(str(current)))
+    msg.add_line()
+    msg.add_line(plain("مقدار جدید را ارسال کنید:"))
+    if help_text:
+        msg.add_line()
+        msg.add_line(plain("💡 "), plain(help_text))
+
+    await say(
+        update, context, msg, backend=Backend.HTML,
         # awaiting_inline_keyboard() -> flow:back resumes the preset-edit menu
         # (preserves preset_edits); flow:cancel discards only this preset's
         # edits. This aligns with the field-edit error-retry prompts. Note: this
         # intentionally differs from admin_awaiting_inline_keyboard(), whose
         # admin:cancel wiped ALL preset_edits (contract R3, owner-approved).
-        reply_markup=awaiting_inline_keyboard()
+        keyboard=awaiting_inline_keyboard()
     )
 
 
@@ -496,10 +495,12 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
 
     context.user_data.pop("awaiting", None)
 
-    await update.message.reply_text(
-        f"✅ <b>{html_escape(FIELD_LABELS.get(field_name, field_name))}</b> برای پیش‌تنظیم <b>{html_escape(preset_name)}</b> ثبت شد.",
-        parse_mode=ParseMode.HTML
+    msg = Message()
+    msg.add_line(
+        plain("✅ "), bold(FIELD_LABELS.get(field_name, field_name)),
+        plain(" برای پیش‌تنظیم "), bold(str(preset_name)), plain(" ثبت شد."),
     )
+    await say(update, context, msg, backend=Backend.HTML)
     await _edit_ai_preset(update, context, preset_name)
 
 
@@ -553,19 +554,24 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
     label = FIELD_LABELS.get(field_name, field_name)
     help_text = _FIELD_HELP.get(field_name, "")
 
-    message = f"✏️ <b>ویرایش کامل — گام {field_idx + 1} از {TOTAL_WIZARD_FIELDS}</b>\n"
+    msg = Message()
+    msg.add_line(plain("✏️ "), bold(f"ویرایش کامل — گام {field_idx + 1} از {TOTAL_WIZARD_FIELDS}"))
     if group_header:
-        message += f"\n{group_header}\n"
-    message += f"\n<b>{html_escape(label)}</b>"
+        msg.add_line()
+        msg.add_line(plain(group_header))
+    msg.add_line()
+    msg.add_line(bold(label))
     if draft_str:
-        message += f"\nپیشنویس (در انتظار ذخیره): <code>{html_escape(draft_str)}</code>"
+        msg.add_line(plain("پیشنویس (در انتظار ذخیره): "), code(draft_str))
     if current_str:
-        message += f"\nمقدار فعلی: <code>{html_escape(current_str)}</code>"
+        msg.add_line(plain("مقدار فعلی: "), code(current_str))
     else:
-        message += "\nمقدار فعلی: <i>خالی</i>"
+        msg.add_line(plain("مقدار فعلی: "), italic("خالی"))
     if help_text:
-        message += f"\n\n💡 {help_text}"
-    message += "\n\nمقدار جدید را ارسال کنید (یا خالی = رد کردن):"
+        msg.add_line()
+        msg.add_line(plain("💡 "), plain(help_text))
+    msg.add_line()
+    msg.add_line(plain("مقدار جدید را ارسال کنید (یا خالی = رد کردن):"))
 
     from services.utils.callback_codec import preset_token
     preset_ref = preset_token(preset_name)
@@ -603,7 +609,7 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:{field_idx}"
 
-    await _edit_or_send(update, context, message, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await say(update, context, msg, backend=Backend.HTML, keyboard=keyboard)
 
 
 def _validate_wizard_value(field_name: str, raw: str, preset_name: str) -> tuple | None:
@@ -770,21 +776,26 @@ async def _show_wizard_summary(update: Update, context: ContextTypes.DEFAULT_TYP
     values = wizard.get("values", {})
     preset = db.get_preset(preset_name) or {}
 
-    lines = [f"📋 <b>خلاصه تغییرات برای {html_escape(preset_name)}</b>\n"]
+    msg = Message()
+    msg.add_line(plain("📋 "), bold("خلاصه تغییرات برای " + str(preset_name)))
+    msg.add_line()
     changed = 0
     for field_name in WIZARD_FIELDS:
         if field_name in values:
             new_val = values[field_name]
             old_val = preset.get(field_name, "—")
             label = FIELD_LABELS.get(field_name, field_name)
-            lines.append(f"• <b>{html_escape(label)}</b>: {html_escape(str(old_val))} → {html_escape(str(new_val))}")
+            msg.add_line(
+                plain("• "), bold(label),
+                plain(f": {old_val} → {new_val}"),
+            )
             changed += 1
 
     if not changed:
-        lines.append("هیچ تغییری اعمال نشد.")
+        msg.add_line(plain("هیچ تغییری اعمال نشد."))
 
-    lines.append(f"\nتعداد تغییرات: {changed}")
-    text = "\n".join(lines)
+    msg.add_line()
+    msg.add_line(plain("تعداد تغییرات: "), plain(str(changed)))
 
     from services.utils.callback_codec import preset_token
     preset_ref = preset_token(preset_name)
@@ -796,7 +807,7 @@ async def _show_wizard_summary(update: Update, context: ContextTypes.DEFAULT_TYP
 
     context.user_data.pop("awaiting", None)
 
-    await _edit_or_send(update, context, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await say(update, context, msg, backend=Backend.HTML, keyboard=keyboard)
 
 
 async def _handle_full_edit_save(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
