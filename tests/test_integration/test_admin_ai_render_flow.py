@@ -316,6 +316,18 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         self.assertIn("Tokens: t&amp;k", text)
         self.assertNotIn("Model: g<m", text)
 
+    def test_help_screens_render_html_bold_headers(self):
+        """T8h: the help overview screens render via spans with bold section
+        headers (no manual HTML string in the handler path)."""
+        from handlers.admin_ai import _show_help_fallback_chain, _show_help_presets
+
+        for fn, cb in ((_show_help_presets, "help:presets"), (_show_help_fallback_chain, "help:chain")):
+            ctx = self._make_context()
+            update = self._make_callback_update(f"admin:{cb}")
+            asyncio.run(fn(update, ctx))
+            text = self._rendered_text(update)
+            self.assertIn("❓ <b>راهنمای", text)
+
     def test_usage_details_relabeled_and_uses_quota_emoji(self):
         """R9/R8: usage panel header is «مصرف ۲۴ ساعته» and quota rows use
         🔋/🪫 per the emoji dictionary."""

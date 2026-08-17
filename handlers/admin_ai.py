@@ -1724,58 +1724,57 @@ async def _show_fallback_preset_picker(update: Update, context: ContextTypes.DEF
 
 async def _show_help_presets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show help overview for presets."""
-    text = (
-        "❓ <b>راهنمای پریست‌های AI</b>\n\n"
-        "هر پریست یک تنظیمات کامل برای اتصال به یک سرویس‌دهنده AI است.\n\n"
-        "<b>فیلدهای اصلی:</b>\n"
-        "• name: نام یکتای پریست (فقط حروف انگلیسی، اعداد، زیرخط)\n"
-        "• api_key: کلید API (مقدار ثابت؛ به‌صورت رمزنگاری‌شده ذخیره می‌شود)\n"
-        "• base_url: آدرس سرور (سازگار با OpenAI)\n"
-        "• model: نام دقیق مدل\n\n"
-        "<b>محدودیت‌ها:</b>\n"
-        "• max_concurrency: تعداد درخواست هم‌زمان\n"
-        "• max_rpm: سقف درخواست در دقیقه (0 = بی‌محدودیت)\n"
-        "• max_tpm: سقف توکن در دقیقه (0 = بی‌محدودیت)\n"
-        "• max_daily_req: سقف درخواست روزانه (0 = بی‌محدودیت)\n\n"
-        "<b>زنجیره فال‌بک:</b>\n"
-        "پریست‌ها بر اساس priority (کم→زیاد) و is_emergency مرتب می‌شوند.\n"
-        "پریست‌های عادی اول امتحان می‌شوند، سپس اضطراری.\n"
-        "in_fallback_chain=0 یعنی پریست در زنجیره شرکت نمی‌کند.\n\n"
-        "<b>گروه‌بندی:</b>\n"
-        "پریست‌هایی که کلید API مشترک دارند در یک گروه قرار می‌گیرند.\n"
-        "group_label برای نام‌گذاری گروه‌ها استفاده می‌شود."
-    )
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")]
-        ])
-    )
+    msg = Message()
+    msg.add_line(plain("❓ "), bold("راهنمای پریست‌های AI"))
+    msg.add_line()
+    msg.add_line(plain("هر پریست یک تنظیمات کامل برای اتصال به یک سرویس‌دهنده AI است."))
+    msg.add_line()
+    msg.add_line(bold("فیلدهای اصلی:"))
+    msg.add_line(plain("• name: نام یکتای پریست (فقط حروف انگلیسی، اعداد، زیرخط)"))
+    msg.add_line(plain("• api_key: کلید API (مقدار ثابت؛ به‌صورت رمزنگاری‌شده ذخیره می‌شود)"))
+    msg.add_line(plain("• base_url: آدرس سرور (سازگار با OpenAI)"))
+    msg.add_line(plain("• model: نام دقیق مدل"))
+    msg.add_line()
+    msg.add_line(bold("محدودیت‌ها:"))
+    msg.add_line(plain("• max_concurrency: تعداد درخواست هم‌زمان"))
+    msg.add_line(plain("• max_rpm: سقف درخواست در دقیقه (0 = بی‌محدودیت)"))
+    msg.add_line(plain("• max_tpm: سقف توکن در دقیقه (0 = بی‌محدودیت)"))
+    msg.add_line(plain("• max_daily_req: سقف درخواست روزانه (0 = بی‌محدودیت)"))
+    msg.add_line()
+    msg.add_line(bold("زنجیره فال‌بک:"))
+    msg.add_line(plain("پریست‌ها بر اساس priority (کم→زیاد) و is_emergency مرتب می‌شوند."))
+    msg.add_line(plain("پریست‌های عادی اول امتحان می‌شوند، سپس اضطراری."))
+    msg.add_line(plain("in_fallback_chain=0 یعنی پریست در زنجیره شرکت نمی‌کند."))
+    msg.add_line()
+    msg.add_line(bold("گروه‌بندی:"))
+    msg.add_line(plain("پریست‌هایی که کلید API مشترک دارند در یک گروه قرار می‌گیرند."))
+    msg.add_line(plain("group_label برای نام‌گذاری گروه‌ها استفاده می‌شود."))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
+        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")]
+    ]))
 
 
 async def _show_help_fallback_chain(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show help for fallback chain."""
-    text = (
-        "❓ <b>راهنمای زنجیره فال‌بک</b>\n\n"
-        "ترتیب زنجیره:\n"
-        "۱. پریست‌های عادی (is_emergency=0) بر اساس priority (از کم به زیاد)\n"
-        "۲. پریست‌های اضطراری (is_emergency=1) بر اساس priority\n\n"
-        "پریست‌های با in_fallback_chain=0 در زنجیره نمایش داده نمی‌شوند.\n\n"
-        "<b>دکمه‌ها:</b>\n"
-        "• ⬆/⬇: جابه‌جایی دستی (تغییر priority)\n"
-        "• 🟢/⚫: فعال/غیرفعال کردن پریست\n"
-        "• 🛡️: تبدیل به پریست اضطراری\n"
-        "• 🎯: پرش به رتبه دلخواه در گروه\n\n"
-        "پریست اضطراری همیشه بعد از همه پریست‌های عادی امتحان می‌شود."
-    )
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("↩️ بازگشت به زنجیره", callback_data="admin:fallback_chain")]
-        ])
-    )
+    msg = Message()
+    msg.add_line(plain("❓ "), bold("راهنمای زنجیره فال‌بک"))
+    msg.add_line()
+    msg.add_line(plain("ترتیب زنجیره:"))
+    msg.add_line(plain("۱. پریست‌های عادی (is_emergency=0) بر اساس priority (از کم به زیاد)"))
+    msg.add_line(plain("۲. پریست‌های اضطراری (is_emergency=1) بر اساس priority"))
+    msg.add_line()
+    msg.add_line(plain("پریست‌های با in_fallback_chain=0 در زنجیره نمایش داده نمی‌شوند."))
+    msg.add_line()
+    msg.add_line(bold("دکمه‌ها:"))
+    msg.add_line(plain("• ⬆/⬇: جابه‌جایی دستی (تغییر priority)"))
+    msg.add_line(plain("• 🟢/⚫: فعال/غیرفعال کردن پریست"))
+    msg.add_line(plain("• 🛡️: تبدیل به پریست اضطراری"))
+    msg.add_line(plain("• 🎯: پرش به رتبه دلخواه در گروه"))
+    msg.add_line()
+    msg.add_line(plain("پریست اضطراری همیشه بعد از همه پریست‌های عادی امتحان می‌شود."))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
+        [InlineKeyboardButton("↩️ بازگشت به زنجیره", callback_data="admin:fallback_chain")]
+    ]))
 
 
 async def _show_fallback_chain(update: Update, context: ContextTypes.DEFAULT_TYPE):

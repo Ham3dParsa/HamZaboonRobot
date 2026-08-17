@@ -7,7 +7,7 @@ branch: refactor/admin-ai-spans
 status: in-progress
 ---
 
-STATE: phase 8/N — status: in-progress — focus: T8g DONE, next T8h (help screens); Newline/HTML fix 694b3ae; group-manager gluing fix owner-approved; Kilo comments 3799335711/5716/410496 addressed + reviewer R3 gap
+STATE: phase 9/N — status: in-progress — focus: T8h DONE, next T8-last (activation/save/delete/dup/discard/detach); Newline/HTML fix 694b3ae; group-manager gluing fix owner-approved; Kilo comments 3799335711/5716/410496 addressed + reviewer R3 gap
 
 ## Contract lock (owner 2026-08-17, GATE LOCKED)
 - R1: T8 split into sub-tickets T8a..T8h (each a commit/PR, like R3).
@@ -41,7 +41,7 @@ STATE: phase 8/N — status: in-progress — focus: T8g DONE, next T8h (help scr
 - T8e DONE — `_handle_group_view` / `_show_group_manager` / `_handle_group_manager_rename` → spans. Byte-exact verified (group_view after adding blank line; rename MATCH). Owner-approved behavior fix: `_show_group_manager` now puts each group on its own line (was glued by `"".join`). New integration test `test_group_manager_puts_each_group_on_own_line`. Full suite 1140 passed. (uncommitted)
 - T8f DONE — `_show_ai_fallback` / `_show_fallback_chain` / `_render_usage_page` (usage details + usage page) → spans. Byte-exact verified (fallback/chain/usage MATCH, only trailing-newline diffs which are invisible). New integration test `test_fallback_panel_renders_html_and_escapes_preset`. Full suite 1141 passed. (uncommitted)
 - T8g DONE — custom-test wizard HTML screens → spans: `_start_custom_test_wizard`, `_custom_test_step_lang`/`_goal`/`_level`/`_target` (both branches), `_run_custom_test` (error + results), `_custom_test_step_preset`, **plus `_test_ai_connection`** (reviewer-flagged scope gap, converted too). Byte-exact verified (headers, results, start_wizard, ai_connection success/fail all MATCH). New integration tests `test_custom_test_results_escapes_card_fields` + `test_ai_connection_result_escapes_model_and_error`. Full suite 1146 passed. (uncommitted)
-- T8h PENDING
+- T8h DONE — `_show_help_presets` / `_show_help_fallback_chain` → spans. Byte-exact verified (help_presets/help_chain MATCH). New integration test `test_help_screens_render_html_bold_headers`. Full suite 1147 passed. (uncommitted)
 - T8-last PENDING
 
 ## Notes / evidence
