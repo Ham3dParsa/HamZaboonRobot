@@ -9,6 +9,7 @@ the ``raw=`` escape hatch (declared format only), and the delivery verbs
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from telegram.error import BadRequest
 from services.send_pretty import (
     Backend,
     Message,
@@ -118,6 +119,16 @@ class TestRawEscapeHatch(unittest.TestCase):
         text, pm = _resolve_raw("plain text", RawFormat.PLAIN)
         self.assertEqual(pm, None)
 
+    def test_raw_with_message_raises(self):
+        """raw= is only for pre-formatted strings; passing a Message must fail
+        loudly instead of emitting an object repr."""
+        from services.send_pretty import _resolve_content
+
+        msg = Message()
+        msg.add_line("hello")
+        with self.assertRaises(TypeError):
+            _resolve_content(msg, RawFormat.HTML)
+
 
 class TestDeliveryVerbs(unittest.IsolatedAsyncioTestCase):
     async def test_send_routes_through_retry_with_parse_mode(self):
@@ -195,6 +206,63 @@ class TestDeliveryVerbs(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "sent")
         _, kwargs = send_retry.call_args
         self.assertEqual(kwargs["parse_mode"], "MarkdownV2")
+
+    async def test_say_edit_not_found_falls_back_to_replacement_send(self):
+        """Any BadRequest other than 'message is not modified' (e.g. message to
+        edit not found) must send a replacement message, not silently drop."""
+        update = MagicMock()
+        update.effective_chat.id = 123
+        query = MagicMock()
+        query.edit_message_text = AsyncMock(
+            side_effect=BadRequest("message to edit not found")
+        )
+        update.callback_query = query
+        ctx = MagicMock()
+        text = Message()
+        text.add_line(plain("hello"))
+        with patch(
+            "services.send_pretty._edit_with_retry",
+            new=AsyncMock(side_effect=BadRequest("message to edit not found")),
+        ):
+            with patch(
+                "services.send_pretty._send_with_retry",
+                new=AsyncMock(return_value="replacement"),
+            ) as send_retry:
+                result = await say(update, ctx, text)
+        self.assertEqual(result, "replacement")
+        send_retry.assert_called_once()
+        args, kwargs = send_retry.call_args
+        self.assertEqual(args[1], 123)
+        self.assertEqual(args[2], "hello")
+
+    async def test_say_not_modified_does_not_send_replacement(self):
+        update = MagicMock()
+        update.effective_chat.id = 123
+        query = MagicMock()
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock(
+            side_effect=BadRequest("message is not modified")
+        )
+        update.callback_query = query
+        ctx = MagicMock()
+        text = Message()
+        text.add_line(plain("hello"))
+        with patch(
+            "services.send_pretty._edit_with_retry",
+            new=AsyncMock(side_effect=BadRequest("message is not modified")),
+        ):
+            with patch(
+                "services.send_pretty.notify_callback",
+                new=AsyncMock(return_value="acked"),
+            ) as notify:
+                with patch(
+                    "services.send_pretty._send_with_retry",
+                    new=AsyncMock(return_value="should-not-send"),
+                ) as send_retry:
+                    result = await say(update, ctx, text)
+        self.assertEqual(result, "acked")
+        notify.assert_called_once()
+        send_retry.assert_not_called()
 
 
 def _one_line(span, backend=Backend.MDV2) -> str:

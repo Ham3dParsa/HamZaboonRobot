@@ -339,9 +339,15 @@ def _resolve_content(content, raw: RawFormat | None):
     """Return (text, parse_mode) from a Message or a raw pre-formatted string.
 
     ``raw`` MUST be declared (never guessed). When ``raw`` is None, ``content``
-    is a ``Message`` and is rendered with the active backend.
+    is a ``Message`` and is rendered with the active backend. ``raw`` is only
+    valid for a pre-formatted string; passing it with a ``Message`` is a caller
+    bug and fails loudly rather than emitting an object repr.
     """
     if raw is not None:
+        if isinstance(content, Message):
+            raise TypeError(
+                "raw= is for pre-formatted strings; pass a Message without raw="
+            )
         fmt = RawFormat(raw)
         return str(content), _parse_mode_for_raw(fmt)
     if not isinstance(content, Message):
@@ -408,8 +414,9 @@ async def say(
             message = str(exc).lower()
             if "message is not modified" in message:
                 return await notify_callback(query)
-            if "message to edit not found" in message:
-                return await notify_callback(query)
+            # Any other BadRequest (e.g. "message to edit not found") falls back
+            # to a replacement message, matching the legacy _edit_or_send
+            # semantics so a deleted/expired message still yields output.
             logger.info("callback edit failed; sending replacement message")
             return await _send_with_retry(context.bot, update.effective_chat.id, text, **kwargs)
     # No callback: reply to the source message when present (preserves the
