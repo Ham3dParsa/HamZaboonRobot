@@ -35,7 +35,11 @@ from telegram.ext import ContextTypes
 
 from services.utils.callback_notifications import notify_callback
 from services.utils.formatting import escape_mdv2, escape_mdv2_code, html_escape
-from services.utils.helpers import _edit_with_retry, _send_with_retry
+from services.utils.helpers import (
+    _edit_with_retry,
+    _send_with_retry,
+    _telegram_slots,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -420,8 +424,9 @@ async def say(
             logger.info("callback edit failed; sending replacement message")
             return await _send_with_retry(context.bot, update.effective_chat.id, text, **kwargs)
     # No callback: reply to the source message when present (preserves the
-    # legacy _edit_or_send semantics for text-awaiting flows); otherwise send a
-    # plain new message.
+    # legacy _edit_or_send semantics for text-awaiting flows), still holding the
+    # shared concurrency slot; otherwise send a plain new message.
     if update.message is not None and mode != "edit":
-        return await update.message.reply_text(text, **kwargs)
+        async with _telegram_slots:
+            return await update.message.reply_text(text, **kwargs)
     return await _send_with_retry(context.bot, update.effective_chat.id, text, **kwargs)
