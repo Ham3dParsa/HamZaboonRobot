@@ -94,6 +94,17 @@ def write_default(name: str):
     return preset_field(name)["write_default"]
 
 
+def _stored_or_default(preset: Mapping, name: str, default):
+    """Return ``preset[name]`` if present and not None/``""``, else ``default``.
+
+    ``None`` and ``""`` count as absent so a NULL/empty column falls back, while
+    a stored falsy-but-valid value (``0``, ``0.0``) is preserved.
+    """
+    if name in preset and preset[name] not in (None, ""):
+        return preset[name]
+    return default
+
+
 def resolve(preset: Mapping, name: str):
     """Return a field's value from the preset, or its canonical default.
 
@@ -105,10 +116,24 @@ def resolve(preset: Mapping, name: str):
     ``config_default`` is therefore intentionally inert for real presets: the
     write path (``set_preset`` and the admin edit-save flows) persists concrete
     non-empty ``write_default`` values, so env is applied dynamically at call
-    time rather than frozen at write time. Write paths must use ``preset.get(
-    field, write_default(field))`` (preserve stored value, fall back to the DB
-    default) and must NOT call ``resolve``, which would snapshot the env constant.
+    time rather than frozen at write time. Write paths must use ``write_value``
+    (preserve stored value, fall back to the DB default) and must NOT call
+    ``resolve``, which would snapshot the env constant.
     """
+    meta = preset_field(name)
+    cfg = meta.get("config_default")
+    fallback = cfg if cfg is not None else meta["write_default"]
+    return _stored_or_default(preset, name, fallback)
+
+
+def write_value(preset: Mapping, name: str):
+    """Return a field's value for persistence, or its canonical DB write default.
+
+    Write-side sibling of :func:`resolve`: preserves a stored value (including
+    falsy-but-valid ``0``/``0.0``) and treats ``None``/``""`` as absent, falling
+    back to the plain ``write_default`` — never the env ``config_default``.
+    """
+    return _stored_or_default(preset, name, write_default(name))
     meta = preset_field(name)
     if name in preset and preset[name] not in (None, ""):
         return preset[name]

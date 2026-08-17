@@ -76,6 +76,19 @@ class PresetFieldRegistryTest(unittest.TestCase):
         self.assertEqual(pf.resolve({"base_url": ""}, "base_url"), DEFAULT_AI_BASE_URL)
         self.assertEqual(pf.resolve({"timeout_seconds": None}, "timeout_seconds"), AI_TIMEOUT_SECONDS)
 
+    def test_write_value_preserves_stored_and_defaults_on_empty(self):
+        self.assertEqual(pf.write_value({"timeout_seconds": 12.0}, "timeout_seconds"), 12.0)
+        self.assertEqual(pf.write_value({"timeout_seconds": None}, "timeout_seconds"), 30.0)
+        self.assertEqual(pf.write_value({"timeout_seconds": ""}, "timeout_seconds"), 30.0)
+        self.assertEqual(pf.write_value({}, "temperature"), 0.6)
+        self.assertEqual(pf.write_value({"temperature": 0.0}, "temperature"), 0.0)
+        self.assertEqual(pf.write_value({"max_output_tokens": 0}, "max_output_tokens"), 0)
+
+    def test_write_value_falls_back_to_write_default_not_config(self):
+        self.assertEqual(pf.write_value({}, "timeout_seconds"), pf.write_default("timeout_seconds"))
+        self.assertEqual(pf.write_value({}, "temperature"), pf.write_default("temperature"))
+        self.assertEqual(pf.write_value({}, "max_output_tokens"), pf.write_default("max_output_tokens"))
+
     def test_validate_accepts_good_preset(self):
         pf.validate(
             {
