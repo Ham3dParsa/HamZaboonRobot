@@ -16,6 +16,7 @@ class LanguageOption:
     name_fa: str
     example_name: str
     guidance: str = ""
+    voice: str = ""
 
 
 @dataclass(frozen=True)
@@ -39,24 +40,28 @@ LANGUAGES = {
         "انگلیسی",
         "انگلیسی",
         "برای انگلیسی، صرف فعل و کاربرد واج‌ها را متناسب با سطح کاربر رعایت کن.",
+        voice="en-US-JennyNeural",
     ),
     "es": LanguageOption(
         "es",
         "اسپانیایی",
         "اسپانیایی",
         "برای اسپانیایی، جنسیت اسم‌ها، صرف فعل و کاربرد درست حروف تعریف را متناسب با سطح کاربر رعایت کن.",
+        voice="es-ES-ElviraNeural",
     ),
     "ar": LanguageOption(
         "ar",
         "عربی",
         "عربی",
         "برای عربی، اعراب‌گذاری و ساختارهای صرفی را در حد نیاز و متناسب با سطح کاربر رعایت کن.",
+        voice="ar-SA-ZariyahNeural",
     ),
     "fr": LanguageOption(
         "fr",
         "فرانسوی",
         "فرانسوی",
         "برای فرانسوی، جنسیت اسم‌ها، صرف فعل و حروف تعریف را متناسب با سطح کاربر رعایت کن.",
+        voice="fr-FR-DeniseNeural",
     ),
     "de": LanguageOption(
         "de",
@@ -65,18 +70,21 @@ LANGUAGES = {
         "برای آلمانی، جنسیت اسم‌ها (der/die/das)، حالت‌های دستوری "
         "(Nominativ/Akkusativ/Dativ/Genitiv)، صرف فعل، حروف بزرگ و جایگاه فعل "
         "را دقیق و متناسب با سطح کاربر رعایت کن.",
+        voice="de-DE-KatjaNeural",
     ),
     "tr": LanguageOption(
         "tr",
         "ترکی استانبولی",
         "ترکی استانبولی",
         "برای ترکی استانبولی، هماهنگی واکه‌ها، پسوندها و تلفظ شفاف واژه را متناسب با سطح کاربر رعایت کن.",
+        voice="tr-TR-EmelNeural",
     ),
     "he": LanguageOption(
         "he",
         "عبری",
         "عبری",
         "برای عبری، ساخت ریشه‌ای و آواهای متناسب با سطح کاربر را رعایت کن.",
+        voice="he-IL-HilaNeural",
     ),
 }
 
@@ -298,7 +306,7 @@ def level_prompt_guidance(code: str) -> str:
 
 def validate_catalog() -> None:
     for code, option in LANGUAGES.items():
-        if code != option.code or not option.name_fa or not option.example_name:
+        if code != option.code or not option.name_fa or not option.example_name or not option.voice:
             raise ValueError(f"invalid language catalog entry: {code}")
     for code, option in GOALS.items():
         if code != option.code or not option.name_fa or not option.prompt_hint:
