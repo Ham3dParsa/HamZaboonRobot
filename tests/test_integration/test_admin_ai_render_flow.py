@@ -370,7 +370,7 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         asyncio.run(_handle_admin_callback(update, ctx, "fallback_chain"))
 
         text = self._rendered_text(update)
-        self.assertIn("chain&lt;g&gt;", text)
+        self.assertIn("<b>chain&lt;g&gt;</b>", text)
         self.assertNotIn("chain<g>", text)
 
     def test_usage_page_escapes_preset_name(self):
@@ -387,7 +387,7 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         asyncio.run(_handle_admin_callback(update, ctx, "fallback:usage_details"))
 
         text = self._rendered_text(update)
-        self.assertIn("usage&lt;g&gt;", text)
+        self.assertIn("<b>usage&lt;g&gt;</b>", text)
         self.assertNotIn("usage<g>", text)
 
     def test_usage_details_relabeled_and_uses_quota_emoji(self):
