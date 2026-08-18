@@ -1,10 +1,11 @@
 """Meta-test: prove subprocesses spawned during the suite inherit a throwaway
-DB_PATH (set in tests/__init__.py), never the real production DB path.
+active DB_PATH (set in tests/__init__.py) while the schema guard still knows
+the real production path via HAMZABAN_PRODUCTION_DB_PATH.
 
-This guards the regression reported in #391: a stray raw connect from a
-subprocess could create the real ``hamzaban.db`` at the repo root. The fix
-overrides DB_PATH in the environment for every subprocess, so this test proves
-the override is actually inherited by a spawned helper process.
+Guards the regression reported in #391: a stray raw connect from a subprocess
+could create the real ``hamzaban.db`` at the repo root. The fix overrides
+DB_PATH in the environment for every subprocess, so this test proves a spawned
+helper process resolves an active DB that is NOT the real production path.
 """
 
 import os
@@ -13,36 +14,50 @@ import sys
 import tempfile
 import unittest
 
-import config
+ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 
 
 class TestSubprocessDbIsolationTest(unittest.TestCase):
     def test_subprocess_inherits_throwaway_db_path(self):
-        code = "import os; print(os.getenv('DB_PATH', ''), end='')"
+        code = (
+            "import config, os; "
+            "print(config.DB_PATH, '|', "
+            "os.getenv('HAMZABAN_PRODUCTION_DB_PATH', ''), end='')"
+        )
         result = subprocess.run(
             [sys.executable, "-c", code],
             capture_output=True,
             text=True,
-            cwd=os.path.dirname(__file__),
+            cwd=ROOT,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
-        inherited = result.stdout
-        self.assertTrue(inherited, "subprocess did not inherit a DB_PATH override")
+        active, production = (part.strip() for part in result.stdout.split("|", 1))
+        self.assertTrue(active, "subprocess did not inherit a DB_PATH override")
 
-        self.assertNotEqual(
-            inherited,
-            config.DB_PATH,
-            "subprocess received the real production DB path",
-        )
+        # The subprocess's active DB (what it would connect to) must be the
+        # throwaway path, not the real production path. Compare against the env
+        # vars directly (not config.DB_PATH, which is the throwaway in xdist
+        # workers) so the test is order- and worker-independent.
+        self.assertEqual(active, os.environ["DB_PATH"])
+        self.assertNotEqual(active, os.environ["HAMZABAN_PRODUCTION_DB_PATH"])
         self.assertTrue(
-            inherited.startswith(tempfile.gettempdir()),
-            f"DB_PATH {inherited!r} is not under the temp dir",
+            active.startswith(tempfile.gettempdir()),
+            f"active DB_PATH {active!r} is not under the temp dir",
         )
         self.assertFalse(
-            inherited.endswith("hamzaban.db"),
-            "subprocess DB_PATH points at the production filename",
+            active.endswith("hamzaban.db"),
+            "subprocess active DB_PATH points at the production filename",
         )
+
+        # The schema guard must still recognize the real production path inside
+        # the subprocess, so it stays protected even though DB_PATH is overridden.
+        self.assertEqual(
+            production,
+            os.environ["HAMZABAN_PRODUCTION_DB_PATH"],
+            "subprocess lost the real production path reference",
+        )
+        self.assertNotEqual(active, production)
 
 
 if __name__ == "__main__":

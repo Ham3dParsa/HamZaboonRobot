@@ -2,9 +2,16 @@ import os
 import tempfile
 import unittest
 
-from config import DB_PATH as PRODUCTION_PATH
+from config import DB_PATH
 from services import db
 from services.db import schema as db_schema
+
+# The real production path. Under the test suite tests/__init__.py captures it
+# into HAMZABAN_PRODUCTION_DB_PATH and points the active DB_PATH at a throwaway,
+# so this must read the env var rather than config.DB_PATH (which is the
+# throwaway in xdist workers). Standalone runs (no bootstrap) fall back to
+# config.DB_PATH.
+PRODUCTION_PATH = os.environ.get("HAMZABAN_PRODUCTION_DB_PATH") or DB_PATH
 
 
 class TestModeGuardTest(unittest.TestCase):
@@ -53,6 +60,23 @@ class TestModeGuardTest(unittest.TestCase):
         os.environ.pop("HAMZABAN_TEST_MODE", None)
         db.DB_PATH = PRODUCTION_PATH
         db_schema._check_test_mode_guard(PRODUCTION_PATH)  # must not raise
+
+    def test_guard_uses_production_db_path_env_when_set(self):
+        # Subprocesses get the real production path via HAMZABAN_PRODUCTION_DB_PATH
+        # (see tests/__init__.py). When set, the guard protects THAT path instead
+        # of config.DB_PATH, so a subprocess's throwaway DB is not misread as
+        # production. (#391)
+        old = os.environ.get("HAMZABAN_PRODUCTION_DB_PATH")
+        try:
+            os.environ["HAMZABAN_PRODUCTION_DB_PATH"] = "/opt/data/prod.sqlite"
+            with self.assertRaises(RuntimeError):
+                db_schema._check_test_mode_guard("/opt/data/prod.sqlite")
+            db_schema._check_test_mode_guard("/elsewhere/dev.sqlite")  # must not raise
+        finally:
+            if old is None:
+                os.environ.pop("HAMZABAN_PRODUCTION_DB_PATH", None)
+            else:
+                os.environ["HAMZABAN_PRODUCTION_DB_PATH"] = old
 
 
 if __name__ == "__main__":

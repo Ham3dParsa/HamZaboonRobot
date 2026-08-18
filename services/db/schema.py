@@ -127,7 +127,10 @@ def _check_test_mode_guard(path: str) -> None:
     db.DB_PATH. HAMZABAN_TEST_MODE is set by tests/__init__.py and CI.
     """
     if os.environ.get("HAMZABAN_TEST_MODE") == "1":
-        from config import DB_PATH as _production_path
+        from config import DB_PATH as _config_db_path
+        _production_path = os.environ.get(
+            "HAMZABAN_PRODUCTION_DB_PATH", _config_db_path
+        )
         if os.path.abspath(path) == os.path.abspath(_production_path):
             raise RuntimeError(
                 "Test mode refuses to open the production database at "
