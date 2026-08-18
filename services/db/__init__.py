@@ -97,6 +97,7 @@ from services.db.words import (
     due_words_for_user,
     get_saved_word,
     get_pre_first_exposure_words,
+    delete_saved_word,
     grade_word_review,
     grade_first_exposure,
     GradeResult,

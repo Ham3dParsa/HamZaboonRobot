@@ -484,7 +484,9 @@ def _render_first_exposure(
         )
         return text, keyboard
 
-    keyboard = get_first_exposure_keyboard(user_id, word_id)
+    keyboard = get_first_exposure_keyboard(
+        user_id, word_id, show_pronounce=db.should_show_pronounce(user_id),
+    )
     toggles = db.get_display_toggles(user_id)
     text = format_srs_back_stage(
         card_data,

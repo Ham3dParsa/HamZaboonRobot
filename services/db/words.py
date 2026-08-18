@@ -251,6 +251,14 @@ def get_saved_word(word_id: int, user_id: int | None = None):
         return conn.execute(query, params).fetchone()
 
 
+def delete_saved_word(word_id: int, user_id: int) -> bool:
+    with transaction() as conn:
+        cursor = conn.execute(
+            "DELETE FROM saved_words WHERE id=? AND user_id=?", (word_id, user_id)
+        )
+        return cursor.rowcount > 0
+
+
 # ---------- توابع جدید (پوسته) ----------
 
 def get_pre_first_exposure_words(user_id, lang: str | None = None):

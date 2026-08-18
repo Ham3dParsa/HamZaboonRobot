@@ -195,7 +195,7 @@ class CustomWordQueryTests(unittest.TestCase):
     def test_srs_review_keyboard_is_user_scoped_and_short(self):
         markup = get_review_keyboard(123, 456)
         callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
-        self.assertEqual(callbacks, ["srs:1:123:456", "srs:2:123:456", "srs:3:123:456", "srs:4:123:456"])
+        self.assertEqual(callbacks, ["srs:1:123:456", "srs:2:123:456", "srs:3:123:456", "srs:4:123:456", "srs:delete:123:456"])
         self.assertTrue(all(len(callback) < 64 for callback in callbacks))
 
     def test_query_result_keyboard_adds_and_scopes(self):

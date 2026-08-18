@@ -24,6 +24,8 @@ from config.keyboards import (
     IBTN_SRS_HARD_FE,
     IBTN_SRS_GOOD_FE,
     IBTN_SRS_EASY_FE,
+    IBTN_SRS_DELETE,
+    IBTN_PRONOUNCE,
     IBTN_CLOSE,
     IBTN_BACK_TO_SETTINGS,
 )
@@ -165,7 +167,7 @@ class TestReviewKeyboard(unittest.TestCase):
     def test_review_keyboard_has_4_grade_buttons(self):
         markup = get_review_keyboard(1, 10)
         rows = markup.inline_keyboard
-        self.assertEqual(len(rows), 2)
+        self.assertEqual(len(rows), 3)  # 2 grade rows + delete row
         self.assertEqual(len(rows[0]), 2)
         self.assertEqual(len(rows[1]), 2)
         # Row 0: Again, Hard
@@ -178,18 +180,23 @@ class TestReviewKeyboard(unittest.TestCase):
         self.assertEqual(rows[1][0].callback_data, "srs:3:1:10")
         self.assertEqual(rows[1][1].text, IBTN_SRS_EASY_REVIEW)
         self.assertEqual(rows[1][1].callback_data, "srs:4:1:10")
+        # Row 2: delete (Rule 2)
+        self.assertEqual(rows[2][0].text, IBTN_SRS_DELETE)
+        self.assertEqual(rows[2][0].callback_data, "srs:delete:1:10")
 
     def test_review_keyboard_with_pronounce(self):
         markup = get_review_keyboard(1, 10, show_pronounce=True)
         rows = markup.inline_keyboard
-        self.assertEqual(len(rows), 3)
-        self.assertEqual(rows[2][0].text, "🔊 تلفظ")
+        self.assertEqual(len(rows), 4)  # 2 grade + pronounce + delete
+        self.assertEqual(rows[2][0].text, IBTN_PRONOUNCE)
         self.assertEqual(rows[2][0].callback_data, "tts:pronounce:s:1:10")
+        self.assertEqual(rows[3][0].text, IBTN_SRS_DELETE)
+        self.assertEqual(rows[3][0].callback_data, "srs:delete:1:10")
 
     def test_all_callbacks_match_pattern(self):
         markup = get_review_keyboard(123, 456)
         rows = markup.inline_keyboard
-        for row in rows:
+        for row in rows[:-1]:  # grade rows only; last row is delete
             for btn in row:
                 self.assertTrue(btn.callback_data.startswith("srs:"))
                 parts = btn.callback_data.split(":")
@@ -197,6 +204,7 @@ class TestReviewKeyboard(unittest.TestCase):
                 self.assertIn(parts[1], {"1", "2", "3", "4"})  # grade 1-4
                 self.assertEqual(parts[2], "123")
                 self.assertEqual(parts[3], "456")
+        self.assertEqual(rows[-1][0].callback_data, "srs:delete:123:456")
 
 
 class TestSrsFrontKeyboard(unittest.TestCase):
@@ -218,7 +226,7 @@ class TestFirstExposureKeyboard(unittest.TestCase):
     def test_first_exposure_keyboard_has_4_grade_buttons(self):
         markup = get_first_exposure_keyboard(1, 10)
         rows = markup.inline_keyboard
-        self.assertEqual(len(rows), 2)
+        self.assertEqual(len(rows), 3)  # 2 grade rows + delete row
         self.assertEqual(len(rows[0]), 2)
         self.assertEqual(len(rows[1]), 2)
         # Row 0: Again, Hard
@@ -231,18 +239,23 @@ class TestFirstExposureKeyboard(unittest.TestCase):
         self.assertEqual(rows[1][0].callback_data, "srs:fe:3:1:10")
         self.assertEqual(rows[1][1].text, IBTN_SRS_EASY_FE)
         self.assertEqual(rows[1][1].callback_data, "srs:fe:4:1:10")
+        # Row 2: delete (Rule 2)
+        self.assertEqual(rows[2][0].text, IBTN_SRS_DELETE)
+        self.assertEqual(rows[2][0].callback_data, "srs:delete:1:10")
 
     def test_first_exposure_keyboard_with_pronounce(self):
         markup = get_first_exposure_keyboard(1, 10, show_pronounce=True)
         rows = markup.inline_keyboard
-        self.assertEqual(len(rows), 3)
-        self.assertEqual(rows[2][0].text, "🔊 تلفظ")
+        self.assertEqual(len(rows), 4)  # 2 grade + pronounce + delete
+        self.assertEqual(rows[2][0].text, IBTN_PRONOUNCE)
         self.assertEqual(rows[2][0].callback_data, "tts:pronounce:s:1:10")
+        self.assertEqual(rows[3][0].text, IBTN_SRS_DELETE)
+        self.assertEqual(rows[3][0].callback_data, "srs:delete:1:10")
 
     def test_all_callbacks_match_fe_pattern(self):
         markup = get_first_exposure_keyboard(123, 456)
         rows = markup.inline_keyboard
-        for row in rows:
+        for row in rows[:-1]:  # grade rows only; last row is delete
             for btn in row:
                 self.assertTrue(btn.callback_data.startswith("srs:fe:"))
                 parts = btn.callback_data.split(":")
@@ -250,6 +263,7 @@ class TestFirstExposureKeyboard(unittest.TestCase):
                 self.assertIn(parts[2], {"1", "2", "3", "4"})  # grade 1-4
                 self.assertEqual(parts[3], "123")
                 self.assertEqual(parts[4], "456")
+        self.assertEqual(rows[-1][0].callback_data, "srs:delete:123:456")
 
 
 if __name__ == "__main__":

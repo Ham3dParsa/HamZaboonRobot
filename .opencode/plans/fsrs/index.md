@@ -10,6 +10,7 @@ scope: Complete the FSRS session engine after daily-card migration, including pe
 | `plan-srs-staged-reveal-phase-01-implementation.md` | 1..3 | FSRS phases 1-6 (merged), AI-preset seams released, spec LOCKED (#338) | Phases 1-2 `complete` (PR #353 + #355 merged 2026-08-15); Phase 3 pending |
 | `plan-srs-staged-reveal-phase-02-session-staging.md` | 2 | Phase 1 (merged), per-language-goals seam 7 disjoint | `complete` — PR #355 merged 2026-08-15 (Kilo review clean) |
 | `plan-srs-staged-reveal-phase-03-telemetry-delete-toggle-ui.md` | 3 | Phase 2 (merged) | `planned` — tickets drafted; owner decisions locked (premium toggles, presentation removal, delete scope); open questions pending owner |
+| `plan-srs-delete-card-fe-pronounce.md` | 1 (scoped P3-T2) | Phase 2 (merged) | `in-progress` — LOCKED 2026-08-19 (R1-R10); tickets `plan-srs-delete-card-fe-pronounce-phase-01-db` → `-05-integration-validation` |
 
 The FSRS session-completion chain (phases 1-6) is complete and merged; all implementation plans are archived to
 `docs/archive/plans/fsrs-2026-08-14/` (see links below). The only remaining FSRS

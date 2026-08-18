@@ -47,6 +47,9 @@ IBTN_SRS_HARD_FE = "کمی آشناام 🟨"
 IBTN_SRS_GOOD_FE = "آشنایی خوب 🟩"
 IBTN_SRS_EASY_FE = "کاملاً بلدم 🟪"
 IBTN_SRS_REVEAL = "👁 نمایش پاسخ"
+IBTN_SRS_DELETE = "🗑 حذف کارت از جعبه مرور"
+IBTN_SRS_DELETE_CONFIRM = "✅ بله، حذف شود"
+IBTN_SRS_DELETE_CANCEL = "❌ انصراف"
 
 # --- Query / Word Lookup ---
 IBTN_ADD_TO_REVIEW = "ذخیره در جعبه مرور"
@@ -394,6 +397,12 @@ def get_review_keyboard(
                 callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
             )
         ])
+    rows.append([
+        InlineKeyboardButton(
+            IBTN_SRS_DELETE,
+            callback_data=f"srs:delete:{user_id}:{word_id}",
+        )
+    ])
     return InlineKeyboardMarkup(rows)
 
 
@@ -413,6 +422,28 @@ def get_srs_front_keyboard(
                 IBTN_SRS_REVEAL,
                 callback_data=f"srs:reveal:{user_id}:{word_id}",
             )
+        ],
+    ])
+
+
+def get_srs_delete_confirm_keyboard(
+    user_id: int,
+    word_id: int,
+) -> InlineKeyboardMarkup:
+    """Returns the two-step delete confirm keyboard (Rule 3).
+
+    [ ✅ بله، حذف شود ] [ ❌ انصراف ]
+    """
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                IBTN_SRS_DELETE_CONFIRM,
+                callback_data=f"srs:delete:yes:{user_id}:{word_id}",
+            ),
+            InlineKeyboardButton(
+                IBTN_SRS_DELETE_CANCEL,
+                callback_data=f"srs:delete:no:{user_id}:{word_id}",
+            ),
         ],
     ])
 
@@ -459,6 +490,12 @@ def get_first_exposure_keyboard(
                 callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
             )
         ])
+    rows.append([
+        InlineKeyboardButton(
+            IBTN_SRS_DELETE,
+            callback_data=f"srs:delete:{user_id}:{word_id}",
+        )
+    ])
     return InlineKeyboardMarkup(rows)
 
 

@@ -608,6 +608,22 @@ class TestCallbackWiring(unittest.TestCase):
                 f"surviving route '{survivor}' is not routed",
             )
 
+    def test_srs_delete_routes_registered_and_dispatched(self):
+        """The srs:delete / srs:delete:yes / srs:delete:no prefixes must be
+        registered in the central routing registry and routed through
+        routing_dispatch in callback_router (Rule 6)."""
+        import handlers.srs_handler  # noqa: F401  (ensures register() ran)
+        from services.routing import ROUTES
+
+        registered = {prefix for (prefix, _, _) in ROUTES}
+        for prefix in ("srs:delete", "srs:delete:yes", "srs:delete:no"):
+            self.assertIn(prefix, registered)
+
+        # callback_router must hand srs:delete:* to routing_dispatch before the
+        # generic inline srs: branch would swallow it.
+        bot_text = Path("bot.py").read_text(encoding="utf-8")
+        self.assertIn('data.startswith("srs:delete:")', bot_text)
+
     # ------------------------------------------------------------------
     # Reverse direction: routes and imports must resolve to real symbols.
     # ------------------------------------------------------------------
