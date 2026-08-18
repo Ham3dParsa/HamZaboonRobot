@@ -265,10 +265,10 @@ below.
 
 ## Latest Code Review
 
-Review scope: every Python module, all tests, `ROADMAP.md`,
-`hamzaban-issues.md`, and the static `issues/project_status.html` dashboard on the
-current `main` branch. (Note: the `project_status` dashboard tooling was
-removed in the governance-reform work; these audit entries predate that removal.)
+Review scope: every Python module, all tests, `ROADMAP.md`, and
+`hamzaban-issues.md` on the current `main` branch. (Earlier audits also covered
+the static project-status dashboard; that tooling was removed in the
+governance-reform work, so these entries predate its removal.)
 
 ### Audit result
 

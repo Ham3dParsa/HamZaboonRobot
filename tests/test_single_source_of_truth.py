@@ -27,6 +27,14 @@ Known limitation (documented, accepted): ``_definitions`` inspects only direct
     suite still exercises every owner, and widening the scan risks flagging
     legitimate consumers. Revisit if a nested module-level duplicate ever
     survives a merge.
+
+Generic-looking keywords (``register``, ``dispatch``, ``register_flow``) are
+    retained deliberately: each is the verified single module-level definition
+    of the callback/flow routing seam. A consumer module *imports* these
+    (e.g. ``from handlers.flows import register_flow``); imports are not
+    definitions and never trip the guard. They are kept so the routing
+    regulators themselves stay single-sourced. Re-evaluating their genericness
+    is a maintenance decision, not a correctness one.
 """
 
 import ast

@@ -1,6 +1,8 @@
 # git-cliff changelog generator configuration.
-# Generate with: git cliff -o CHANGELOG.md
-# Verify in CI: scripts/generate_changelog.py --check
+# Regenerate with: python scripts/generate_changelog.py
+# (NOT CI-gated: git-cliff regenerates whole-history from HEAD, so a byte-exact
+# gate false-fails after every commit until release tags exist. Run
+# `python scripts/generate_changelog.py --check` locally before a release.)
 
 [changelog]
 trim = true

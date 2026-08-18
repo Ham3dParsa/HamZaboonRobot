@@ -321,6 +321,7 @@ All notable changes to HamZaboon. Generated automatically from
 - Add DB continuation serial pipeline (13 tickets A2-1..A2-13) (#386) (`plans`)
 - Consolidate plan identity into a canonical leaf (J-B6) (#387) (`config`)
 - Migrate admin AI screens to send_pretty spans (T8-PRE, T8a) (#388) (`admin_ai`)
+- Reform tooling and slim operating rules (R1-R7) (`governance`)
 
 ### Refactoring
 - Centralize learner option catalog
