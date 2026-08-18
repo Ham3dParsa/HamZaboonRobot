@@ -21,8 +21,13 @@ python bot.py
 .venv/bin/python -m pytest tests/ -n 14
 .venv/bin/python scripts/compile_all.py
 .venv/bin/python -m ruff check --select F821,F811
-.venv/bin/python scripts/generate_dashboard.py
 git diff --check
+```
+
+تولید چنج‌لاگ (git-cliff باید در PATH باشد):
+
+```bash
+.venv/bin/python scripts/generate_changelog.py
 ```
 
 ## ساختار
@@ -42,10 +47,6 @@ git diff --check
   - `handlers/admin.py` — پنل مدیریت و تنظیمات AI.
   - `handlers/srs_handler.py` — مرور فاصله‌دار (SRS).
 - `bot.py` — نقطه ورود، مدیریت‌کننده‌های تلگرام، هماهنگ‌سازی و صف ارسال.
-- `project_status.json` — فهرست ماشین‌خوان از فازها، وابستگی‌ها و
-  قفل تصمیم‌ها. داشبورد فقط‌خواندنی در `issues/project_status.html` از این
-  فایل ساخته می‌شود.
-- `scripts/generate_dashboard.py` — تولیدکننده‌ی داشبورد HTML.
 - [GitHub Issues](https://github.com/Ham3dParsa/HamZaboonRobot/issues) —
   مخزن اصلی رکوردهای مهندسی (ویژگی، باگ، ریسک، پژوهش، تصمیم).
 
@@ -85,7 +86,7 @@ git diff --check
 - یادآورها و نشان دادن کارتِ کامل (بدون نیاز به فراخوانی AI جدید) بر مبنای
   داده‌های ذخیره‌شده انجام می‌شود؛ پیشرفت فاصله‌ها تنها پس از تعامل کاربر advance می‌شود.
 
-### وضعیت مهاجرت و کارهای باقی‌مانده FSRS (خلاصه از project_status.json)
+### وضعیت مهاجرت و کارهای باقی‌مانده FSRS
 - زنجیره‌ی مهاجرت FSRS-6 تکمیل شده است: purge جدول‌ها و جریان‌های قدیمی daily (PR #300،
   با origin backfill در PR #304)، schema زمان‌بندی timestamp (PR #318) و سیم‌کشی رفتار FSRS
   شامل انتقال‌های اتمی `GradeResult`، انتخاب سررسید با اولویت DSR و یکپارچگی handler/UX

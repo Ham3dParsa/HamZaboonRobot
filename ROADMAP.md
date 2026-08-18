@@ -24,13 +24,10 @@ The project is an MVP with:
 
 ## Project Status Model
 
-This document is the human-readable product narrative. Machine-readable
-status is maintained in `project_status.json`. Engineering records are tracked on
+This document is the human-readable product narrative and the canonical
+source of product direction and locked decisions. Engineering records are
+tracked on
 [GitHub Issues](https://github.com/Ham3dParsa/HamZaboonRobot/issues).
-
-The read-only dashboard at `issues/project_status.html` is generated from
-`project_status.json`. It is an exported review surface, not an editor: browser
-state, `localStorage`, and generated HTML data are never authoritative.
 
 Every implementation phase uses the same board:
 
@@ -42,8 +39,6 @@ Every implementation phase uses the same board:
 Engineering records are categorized as `feature`, `bug`, `risk`, `tech-debt`,
 `research`, or `decision`. Issue status, phase status, and decision status are
 separate concepts and must not be conflated.
-
-<!-- _Status data is maintained in `project_status.json`; see `issues/project_status.html` for the visual dashboard._ -->
 
 ## Product Layers (MVP / Measurement / Future Bets)
 
@@ -66,7 +61,6 @@ This roadmap is organized around three concerns. The discipline is that real-use
 - Free, Silver, and Gold plan limits
 - Owner-only administrative settings and per-user plan assignment
 - Explicit owner bypass for plan limits during development
-- Stable issue registry workflow with `issues/issues.json` as canonical data
 - Study-session resume UX: re-entering an active session always sends a fresh
   card and inactivates the old one; plan-edit wizard back button, skip
   semantics, quota/display grouping with per-field hints and pending-value
@@ -117,11 +111,6 @@ Completed on the current main branch:
 - Plan access controls, owner bypass, and owner-only per-user plan assignment
 - Operational configuration contract with readable clock values, shared
   timezone support for scheduled jobs, and explicit per-plan quotas
-- Read-only project-status dashboard (`issues/project_status.html`) joined
-  from `project_status.json` and canonical structured issue data in
-  `issues/issues.json`; `issues/issues.html` remains a compatibility redirect
-   and `hamzaban-issues.md` is an optional Markdown export for review
-- Dashboard UX overhaul: responsive 1440p grid layout, clickable cross-tab stat cards, fixed progress bars for complete phases, corrected decision action links (phase anchors + issue links), and `--watch`/`--serve` CLI for live editing
 - Custom-word query improvements: daily quota visibility, persistent
   short-lived query identity, inline `Add to review`, and removal of the
   standalone manual-save action from the primary menu
@@ -278,7 +267,8 @@ below.
 
 Review scope: every Python module, all tests, `ROADMAP.md`,
 `hamzaban-issues.md`, and the static `issues/project_status.html` dashboard on the
-current `main` branch.
+current `main` branch. (Note: the `project_status` dashboard tooling was
+removed in the governance-reform work; these audit entries predate that removal.)
 
 ### Audit result
 
@@ -317,12 +307,11 @@ The reliability-hardening policy is locked for this implementation: failed
 delivery sessions use bounded exponential retries and become terminal after
 the configured attempt budget.
 
-The issue-tooling ownership is locked: `issues/issues.json` is canonical for
-engineering records, `project_status.json` is canonical for phase and decision
-status, and `issues/project_status.html` is a read-only joined view. The
-compatibility page `issues/issues.html` only redirects to the new dashboard.
-`hamzaban-issues.md` remains an optional export generated only when a review
-snapshot is needed.
+Engineering records are owned by GitHub Issues; `ROADMAP.md` is canonical
+for product phase and locked-decision narrative. The former
+`project_status.json`/`issues/project_status.html` dashboard joined the two;
+it was removed in the governance-reform work and is tracked on GitHub
+Issues + `ROADMAP.md`.
 
 Issue records carry explicit `category`, `phase`, `roadmap_refs`,
 `decision_refs`, and dependency metadata. `issues/validate.py check` verifies
@@ -895,9 +884,9 @@ a separate lesson system.
   48-hour pending grace window, plan-bounded daily caps, overdue-first
   selection, goal-shaped delivery, append-only retention events, and separate
   progress indicators.
-- Resolve the five adaptive-SRS audit records in `issues/issues.json` with
-  focused migration, restart/idempotency, abuse-resistance, and backward-
-  compatibility tests before marking them resolved.
+- Resolve the five adaptive-SRS audit records on
+  GitHub Issues with focused migration, restart/idempotency, abuse-resistance,
+  and backward-compatibility tests before marking them resolved.
 
 ### Custom-word safety and menu ergonomics follow-ups
 
@@ -949,9 +938,8 @@ a separate lesson system.
   and quiz progress, with lightweight Duolingo-style motivation rather than
   a full social network.
 - Additional languages only through the canonical `catalog.py` registry.
-- Keep `issues/issues.json` as the canonical issue source, validate it with
-  `issues/validate.py`; generate the Markdown report or HTML fallback only
-  when a human review snapshot is needed.
+- Track all engineering records directly on GitHub Issues; maintain phase and
+  locked-decision narrative in `ROADMAP.md`.
 
 ### Delivered reliability fixes
 

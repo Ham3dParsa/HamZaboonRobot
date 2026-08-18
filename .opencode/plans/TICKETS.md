@@ -40,3 +40,10 @@
 | A2-12 (BN3) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-integration` (planned) | planned |
 | A2-13 (BUG-B4) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-integration` (planned) | planned (seam #17 + serialize vs word-query worktrees) |
 | J-B6 (R5/F5) | `architecture-deepening/plan-2026-08-17-jb6-plan-identity.md` | — | `refactor/plan-identity` | PR open (code complete, full suite green) |
+| GOV-R1 | `workflow/plan-governance-reform.md` | #392 | `chore/governance-reform` | done (impl) — 233-line AGENTS.md + archive; pending review |
+| GOV-R2 | `workflow/plan-governance-reform.md` | #393 | `chore/governance-reform` | done (impl) — git-cliff + config + script + CI check; pending review |
+| GOV-R3 | `workflow/plan-governance-reform.md` | #394 | `chore/governance-reform` | done (impl) — tooling+CI+refs removed, test_issue_tooling.py deleted; pending review |
+| GOV-R4 | `workflow/plan-governance-reform.md` | #395 | `chore/governance-reform` | done (impl) — test_single_source_of_truth.py (16 tests green); pending review |
+| GOV-R5 | `workflow/plan-governance-reform.md` | #396 | `chore/governance-reform` | done (impl) — route-delete text in AGENTS.md §6 |
+| GOV-R6 | `workflow/plan-governance-reform.md` | #397 | `chore/governance-reform` | done (impl) — test-sync text in AGENTS.md §6 |
+| GOV-R7 | `workflow/plan-governance-reform.md` | #398 | `chore/governance-reform` | done (impl) — terse rule text in AGENTS.md |

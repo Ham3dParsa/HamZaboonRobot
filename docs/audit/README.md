@@ -2,7 +2,7 @@
 
 Read-only audit reports and architecture alignment blueprints. These analyze
 the plans in `docs/plans/` (grouped by theme) and record evidence-cited
-findings. Never treat them as canonical state — `project_status.json` and
+findings. Never treat them as canonical state — `ROADMAP.md` and
 GitHub Issues are authoritative.
 
 | File | Scope | Status |

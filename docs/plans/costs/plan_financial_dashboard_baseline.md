@@ -225,8 +225,7 @@ individually in Section 6.
 | P6 | Cash view & KPIs | Cumulative cash, runway, CAC payback, MRR/ARR, D30 retention, tornado sensitivity | All new KPIs present and update with inputs; tornado ranks conversion & churn as top drivers | complete (bc053f6) |
 
 **Progress routing rule:** after each phase ships, update this table's Status,
-update `project_status.json` if a phase or decision lock changed, regenerate the
-dashboard (`python scripts/generate_dashboard.py`), update the relevant GitHub
+update the relevant GitHub
 Issues, and mark the phase's acceptance criteria as evidence. Do not mark a
 phase `complete` on intent alone.
 

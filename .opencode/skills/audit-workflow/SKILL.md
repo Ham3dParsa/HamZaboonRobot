@@ -37,4 +37,4 @@ author_url: https://github.com/Ham3dParsa
 Classify findings by **impact and confidence**. Separate confirmed bugs from accepted product decisions, intentional guards, speculative concerns, and future enhancements. If a product/safety decision cannot be inferred, ask one focused question; do not silently choose a policy that changes user limits, cost exposure, or stored learning data.
 
 ## Output
-Record actionable findings as GitHub Issues; update `ROADMAP.md` and `project_status.json` per AGENTS.md §2 and §8, then regenerate the dashboard.
+Record actionable findings as GitHub Issues; update `ROADMAP.md` per AGENTS.md §2 and §8.

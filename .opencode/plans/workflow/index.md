@@ -6,3 +6,4 @@ scope: Agent workflow, skill injection, reviewer tiers, claim registry
 | Plan | Phase | Depends On | Status |
 |------|-------|------------|--------|
 | `plan-workflow-optimization.md` | 1..3 | none | `in-progress` |
+| `plan-governance-reform.md` | 1..3 | none | `in-progress` |
