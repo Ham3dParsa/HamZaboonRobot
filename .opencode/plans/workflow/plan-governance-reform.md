@@ -7,7 +7,7 @@ branch: chore/governance-reform
 status: in-progress
 ---
 
-STATE: phase 1/3 — status: ready-for-commit — R1..R7 done; reviewer findings fixed (archive→UTF-8, live refs in 3 docs stripped, R4 limitation documented); full suite 1137 passed; pending commit+PR
+STATE: complete — merged via PR #400 (squash 5eb9ea7, 2026-08-18); R1–R7 all shipped; full suite 1137 passed; Kilo + reviewer clean
 
 ## Tickets
 - #392 R1, #393 R2, #394 R3, #395 R4, #396 R5, #397 R6, #398 R7 (created 2026-08-18)
