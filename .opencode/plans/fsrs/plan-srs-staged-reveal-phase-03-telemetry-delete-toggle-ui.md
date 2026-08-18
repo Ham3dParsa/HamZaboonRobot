@@ -24,12 +24,21 @@ STATE: phase 3/3 — status: PLANNED — tickets drafted (spec-to-tickets, 2026-
 ## Scope (files/modules)
 
 - `handlers/srs_handler.py` — telemetry in `_handle_srs_review`; delete handlers.
-- `handlers/user.py` — per-user display-toggle settings UI.
-- `handlers/admin.py` — admin-global defaults + per-user forced override UI.
+- `handlers/user.py` — per-user display-toggle settings UI (routed via `services/routing.py` + `handlers/flows.py`).
+- `handlers/admin.py` — admin-global defaults + per-user forced override UI (routed via `services/routing.py`; render via `send_pretty`).
 - `config/keyboards.py` — delete-confirm keyboard; front keyboard gains the delete row.
-- `bot.py` `callback_router` — `srs:delete:`, `srs:delete:yes:`, `srs:delete:no:` + new settings/admin prefixes.
+- `services/routing.py` (R1) — register `srs:delete:` / `srs:delete:yes:` / `srs:delete:no:` + new `settings:toggles:*` / admin toggle prefixes; `bot.py callback_router` is replaced by this registry.
 - `services/db/words.py` — `delete_saved_word(word_id, user_id)` (R6 physical delete).
-- `services/db/settings.py` / `users.py` — already provide toggle accessors; may need a per-user-field public read for the UI.
+- `services/db/display_toggles.py` (`DisplayToggleService`) — owns display-toggle state + precedence (R3); use its accessors (replaces the old `db.set_display_toggle` in users.py/settings.py).
+- `config/plan_identity.py` `has_feature(plan, feature)` — premium/tier gating for the toggle UI (see open decision on the feature key).
+
+## Reconciliation vs landed refactors (base `d76ca7b`, 2026-08-18)
+
+- **Callbacks via `services/routing.py`** (R1) — P3-T2/T3/T4 register prefixes there; admin `admin:` delegates to sub-routers, user `settings:*` to `handlers/user.py` / `handlers/flows.py`. `bot.py callback_router` no longer the registration point.
+- **Display toggles owned by `services/db/display_toggles.py`** (`DisplayToggleService`) — P3-T3/T4 use its accessors, not `db.set_display_toggle` in users.py/settings.py.
+- **Awaiting flows via `handlers/flows.py`** (R2 central registry `register_flow()`) — delete-confirm / toggle-edit text inputs register there.
+- **Premium gating via `has_feature`** — `_FEATURE_MIN_RANK` has `presentation:2` but NO `display_toggles` key. Decide (open question) whether to add a `display_toggles` feature key (rank 2) or reuse `presentation`.
+- **Admin UI via `send_pretty`** — #388 migrated admin screens to the `send_pretty` span module; P3-T4 follows.
 
 ## Tickets
 
@@ -45,7 +54,7 @@ STATE: phase 3/3 — status: PLANNED — tickets drafted (spec-to-tickets, 2026-
 - **Scope:** `config/keyboards.py` — `get_srs_delete_confirm_keyboard(user_id, word_id)` (`بله حذف شود` → `srs:delete:yes:`, `انصراف` → `srs:delete:no:`); add `🗑 حذف کارت از جعبه مرور` row to **both** `get_srs_front_keyboard` (review) and `get_first_exposure_keyboard` (new cards — owner decision 2026-08-15). `services/db/words.py::delete_saved_word(word_id, user_id)` — physical `DELETE FROM saved_words WHERE id=? AND user_id=?` (normalized, idempotent). `bot.py` routes `srs:delete:` / `srs:delete:yes:` / `srs:delete:no:`. Handlers in `srs_handler.py`: `_handle_srs_delete` (ownership guard → confirm message + confirm keyboard); `_handle_srs_delete_yes` (delete row → toast → pop node/`advance_session`); `_handle_srs_delete_no` (re-render the front stage on the same message).
 - **Tests:** `tests/test_wiring.py` (3 new prefixes); `tests/test_srs_staged_reveal.py` — confirm shown, yes deletes row + advances, no restores front stage, double-tap idempotent; delete reachable from review AND first-exposure cards; integration flow.
 - **Gates:** R6.
-- **Wiring rows:** `srs:delete:` / `srs:delete:yes:` / `srs:delete:no:` → handlers (bot.py callback_router); keyboard rows in `config/keyboards.py`.
+- **Wiring rows:** `srs:delete:` / `srs:delete:yes:` / `srs:delete:no:` → registered in `services/routing.py` (R1) → handlers in `srs_handler.py`; keyboard rows in `config/keyboards.py`.
 
 ### P3-T3 — Per-user toggle editing UI (R7/R9, premium-gated)
 - **Blocking:** none (toggle accessors on `main`).

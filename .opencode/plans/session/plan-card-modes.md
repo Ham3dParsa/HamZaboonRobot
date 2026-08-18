@@ -7,7 +7,7 @@ branch: feat/card-modes-t1-db-core (PR 1/4 = T1)
 status: locked
 ---
 
-STATE: phase 1/1 — status: locked — T1 (DB core) MERGED (#361, `d5a6652`); T2+T3 MERGED (#362, `4d5ecff`), seams 5+6 released; delivery PR 3/4 (T4+T5 admin, seam 8) and PR 4/4 (T6+T7 user, seam 7) pending
+STATE: phase 1/1 — status: locked — T1 (DB core) MERGED (#361, `d5a6652`); T2+T3 MERGED (#362, `4d5ecff`), seams 5+6 released; delivery PR 3/4 (T4+T5 admin, seam 8) and PR 4/4 (T6+T7 user, seam 7) pending — re-validation vs landed refactors (base `d76ca7b`, 2026-08-18) DONE: callbacks now route via `services/routing.py` (R1); plan semantics owned by `services/db/plans.py` (R5); global card-mode keys already in canonical `SETTINGS_KEYS` (`config/catalog.py`). 2 owner decisions OPEN (gate overlap, resolver single-source).
 
 ## Contract (GATE: LOCKED — owner confirmed 2026-08-15; "adjustment" was process-only: design per the right skills + merge PR #356, both satisfied)
 
@@ -64,20 +64,20 @@ No module refactors — every change extends existing modules in place. Each PR 
 - **Acceptance:** review cards honor the mode; staged path unchanged. ✅ done 2026-08-15 (full suite 1020 passed).
 
 ### T4 — Admin-global UI (modes + gates)
-- **Frontend:** two rows + two gates in `admin.py` `_show_settings` (mirror `phonetics:` pattern admin.py:202-223); callbacks `admin:fe_mode:set:*`, `admin:review_mode:set:*`, `admin:fe_gate:*`, `admin:review_gate:*`; keyboards in `config/keyboards.py`.
-- **DB:** global `set_setting` writes.
+- **Frontend:** two rows + two gates in the admin panel; callbacks `admin:fe_mode:set:*`, `admin:review_mode:set:*`, `admin:fe_gate:*`, `admin:review_gate:*` registered via `services/routing.py` (R1 `register(prefix, handler)`); the `admin:` route delegates to `handlers/admin_plans.py` (or a new admin sub-router); keyboards in `config/keyboards.py`.
+- **DB:** global `set_setting` writes — keys already canonical in `config/catalog.py` `SETTINGS_KEYS` (`{card_type}_mode` / `{card_type}_mode_gate` patterns), resolved by `settings_key()`; no new registry entry needed.
 - **Tests:** handler tests + `tests/test_wiring.py` for the 4 prefixes.
 - **Acceptance:** admin flips default mode and gate; takes effect for users who have no override.
 
 ### T5 — Plan-wizard fields
 - **Frontend:** add `first_exposure_mode`, `review_mode` to `PLAN_WIZARD_FIELDS`/LABELS/GROUP_HEADERS + `_validate_plan_wizard_value` accepting `staged`/`immediate` (admin_plans.py).
-- **DB:** `upsert_plan` extended; plan CRUD tests updated.
+- **DB:** `upsert_plan` / `_PLAN_COLUMNS` extended in `services/db/plans.py` (R5 now owns plan semantics — NOT users.py); plan CRUD tests updated.
 - **Tests:** wizard field unit tests + integration.
 - **Acceptance:** plan wizard edits persist per-plan modes.
 
 ### T6 — Per-user controls (gated)
-- **Frontend:** two settings-menu entries in `handlers/user.py`; gate check via `resolve_card_mode_gate(card_type)` instead of hardcoded premium (user.py:257); callbacks `settings:fe_mode:set:*`, `settings:review_mode:set:*`.
-- **DB:** `set_user_card_mode` writes.
+- **Frontend:** two settings-menu entries in `handlers/user.py`; gate check via `resolve_card_mode_gate(card_type)` instead of hardcoded premium; callbacks `settings:fe_mode:set:*`, `settings:review_mode:set:*` registered via `services/routing.py` (R1), routed to `handlers/user.py` / `handlers/flows.py`.
+- **DB:** `set_user_card_mode` writes (resolver/accessors stay in `services/db/users.py`).
 - **Tests:** handler tests (gate=all vs gate=premium) + wiring.
 - **Acceptance:** control availability follows the admin gate per card type.
 
@@ -89,6 +89,18 @@ No module refactors — every change extends existing modules in place. Each PR 
 ## Blocked Questions
 - [2026-08-15] Contract final confirmation: owner selected "Adjust the contract" then requested the design/tickets first. Decision: pending owner's concrete changes. Do NOT begin implementation until `GATE STATUS: LOCKED`.
 - [2026-08-15] Seam note: seam 6 (`handlers/srs_handler.py`) was held by PR #356 (`fix/srs-front-hint-leak`) — **MERGED 2026-08-15 (`233534d`), claim released; seam 6 now free.** No longer blocking.
+- [2026-08-18] **Card-mode gate overlap (owner decision):** `config/plan_identity.py` `_FEATURE_MIN_RANK["card_modes"] = 2` (silver+ tier gate) now exists, overlapping CARD-MODES Rule 6's admin-configurable per-card-type gate (`first_exposure_mode_gate`/`review_mode_gate` = all/premium). Decide: (a) use `has_feature(plan, "card_modes")` only, (b) keep `resolve_card_mode_gate` settings only, or (c) AND both. Blocks T6 gate implementation.
+- [2026-08-18] **Resolver single-source (owner decision):** refactor added `SETTINGS_CARD_TYPES` in `config/catalog.py` mirroring `CARD_TYPES` in `services/db/users.py`. Confirm `users.py` stays canonical for card mode (display-toggles precedent keeps its canonical list in catalog). No behavior change, just registry hygiene.
+
+## Reconciliation vs landed refactors (base `d76ca7b`, 2026-08-18)
+
+The architecture-deepening wave (#366–#388) changed module ownership. Tickets
+stay valid; they must target the new owners:
+
+- **Global card-mode keys already canonical** — `config/catalog.py` `SETTINGS_KEYS` defines the dynamic `{card_type}_mode` / `{card_type}_mode_gate` patterns (resolved by `settings_key()`). T4 reads/writes via `set_setting`/`settings_key()`; no new registry entry.
+- **Resolver stays in `users.py`** — `resolve_card_mode`, `resolve_card_mode_gate`, accessors, and `CARD_TYPES`/`CARD_MODES` are untouched by the refactors (they concern display toggles / plan semantics, not card mode). Keep `services/db/users.py` as the card-mode owner.
+- **Callbacks via `services/routing.py`** — R1 central registry (`register(prefix, handler, owner_only=)`). T4/T6 register their prefixes there; `admin:` delegates to `handlers/admin_plans.py`, `settings:*` to `handlers/user.py`/`handlers/flows.py`.
+- **Plan wizard via `services/db/plans.py`** — R5 moved plan semantics there (`_PLAN_COLUMNS`, `upsert_plan`). T5 extends `upsert_plan`/`_PLAN_COLUMNS` in `plans.py`, not `users.py`.
 
 ## Known edges
 - Admin flipping a mode mid-session: a stale reveal button still renders the back stage safely (no crash, no orphan card) — documented, acceptable.
