@@ -37,7 +37,7 @@ STATE: phase 3/3 — status: PLANNED — tickets drafted (spec-to-tickets, 2026-
 - **Callbacks via `services/routing.py`** (R1) — P3-T2/T3/T4 register prefixes there; admin `admin:` delegates to sub-routers, user `settings:*` to `handlers/user.py` / `handlers/flows.py`. `bot.py callback_router` no longer the registration point.
 - **Display toggles owned by `services/db/display_toggles.py`** (`DisplayToggleService`) — P3-T3/T4 use its accessors, not `db.set_display_toggle` in users.py/settings.py.
 - **Awaiting flows via `handlers/flows.py`** (R2 central registry `register_flow()`) — delete-confirm / toggle-edit text inputs register there.
-- **Premium gating via `has_feature`** — `_FEATURE_MIN_RANK` has `presentation:2` but NO `display_toggles` key. Decide (open question) whether to add a `display_toggles` feature key (rank 2) or reuse `presentation`.
+- **Premium gating via `has_feature`** — `_FEATURE_MIN_RANK` has `presentation:2` but NO `display_toggles` key. Since display toggles **replace** the `presentation` setting (Phase-3 decision 2), reuse `has_feature(plan, "presentation")` for the toggle-UI gate (rank 2). Optional clarity rename to `display_toggles` is non-blocking hygiene.
 - **Admin UI via `send_pretty`** — #388 migrated admin screens to the `send_pretty` span module; P3-T4 follows.
 
 ## Tickets

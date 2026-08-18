@@ -7,7 +7,7 @@ branch: feat/card-modes-t1-db-core (PR 1/4 = T1)
 status: locked
 ---
 
-STATE: phase 1/1 — status: locked — T1 (DB core) MERGED (#361, `d5a6652`); T2+T3 MERGED (#362, `4d5ecff`), seams 5+6 released; delivery PR 3/4 (T4+T5 admin, seam 8) and PR 4/4 (T6+T7 user, seam 7) pending — re-validation vs landed refactors (base `d76ca7b`, 2026-08-18) DONE: callbacks now route via `services/routing.py` (R1); plan semantics owned by `services/db/plans.py` (R5); global card-mode keys already in canonical `SETTINGS_KEYS` (`config/catalog.py`). 2 owner decisions OPEN (gate overlap, resolver single-source).
+STATE: phase 1/1 — status: locked — T1 (DB core) MERGED (#361, `d5a6652`); T2+T3 MERGED (#362, `4d5ecff`), seams 5+6 released; delivery PR 3/4 (T4+T5 admin, seam 8) and PR 4/4 (T6+T7 user, seam 7) pending — re-validation vs landed refactors (base `d76ca7b`, 2026-08-18) DONE: callbacks route via `services/routing.py` (R1); plan semantics owned by `services/db/plans.py` (R5); global card-mode keys already canonical in `SETTINGS_KEYS`. Gate is a **complementary two-layer design** (admin `first_exposure_mode_gate` setting → "premium" delegates to single-sourced `has_feature(plan,"card_modes")`); NOT a conflict. 1 hygiene item: card-types registry single-source (see Blocked Questions).
 
 ## Contract (GATE: LOCKED — owner confirmed 2026-08-15; "adjustment" was process-only: design per the right skills + merge PR #356, both satisfied)
 
@@ -89,8 +89,8 @@ No module refactors — every change extends existing modules in place. Each PR 
 ## Blocked Questions
 - [2026-08-15] Contract final confirmation: owner selected "Adjust the contract" then requested the design/tickets first. Decision: pending owner's concrete changes. Do NOT begin implementation until `GATE STATUS: LOCKED`.
 - [2026-08-15] Seam note: seam 6 (`handlers/srs_handler.py`) was held by PR #356 (`fix/srs-front-hint-leak`) — **MERGED 2026-08-15 (`233534d`), claim released; seam 6 now free.** No longer blocking.
-- [2026-08-18] **Card-mode gate overlap (owner decision):** `config/plan_identity.py` `_FEATURE_MIN_RANK["card_modes"] = 2` (silver+ tier gate) now exists, overlapping CARD-MODES Rule 6's admin-configurable per-card-type gate (`first_exposure_mode_gate`/`review_mode_gate` = all/premium). Decide: (a) use `has_feature(plan, "card_modes")` only, (b) keep `resolve_card_mode_gate` settings only, or (c) AND both. Blocks T6 gate implementation.
-- [2026-08-18] **Resolver single-source (owner decision):** refactor added `SETTINGS_CARD_TYPES` in `config/catalog.py` mirroring `CARD_TYPES` in `services/db/users.py`. Confirm `users.py` stays canonical for card mode (display-toggles precedent keeps its canonical list in catalog). No behavior change, just registry hygiene.
+- [2026-08-18] **Card-mode gate — RESOLVED (no conflict):** `card_mode_available()` (users.py:126) reads the admin `first_exposure_mode_gate`/`review_mode_gate` setting (Rule 6) as the top switch; when it is `"premium"`, it delegates to `has_feature(plan, "card_modes")` (silver+, single-sourced in `config/plan_identity._FEATURE_MIN_RANK`). The two are **complementary layers**, each single-sourced — NOT an overlap. Rule 6 stands as designed (admin can flip all/premium; "premium" → tier check). No decision needed; T6 implements against `card_mode_available()` as written.
+- [2026-08-18] **Card-types registry single-source (recommended hygiene, NON-blocking):** `CARD_TYPES`/`CARD_MODES` live in `services/db/users.py`; the refactor added `SETTINGS_CARD_TYPES` in `config/catalog.py` duplicating them only to dodge the `users.py → config.catalog` import cycle. Recommended fix: make `config/catalog.py` the canonical home (it has no upward imports), define `CARD_TYPES`/`CARD_MODES` there, import into `users.py`, and let `SETTINGS_CARD_TYPES` alias `CARD_TYPES`. Cosmetic, no behavior change — fold into T4/T6 or a separate cleanup PR.
 
 ## Reconciliation vs landed refactors (base `d76ca7b`, 2026-08-18)
 
