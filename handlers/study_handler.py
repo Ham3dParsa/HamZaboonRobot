@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -62,6 +62,7 @@ class SessionState:
     tier3_context: dict
     study_msg_id: int | None
     plan: str
+    graded_word_ids: list[int] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +78,7 @@ def _state_to_json(state: SessionState) -> str:
             "tier3_context": state.tier3_context,
             "study_msg_id": state.study_msg_id,
             "plan": state.plan,
+            "graded_word_ids": state.graded_word_ids,
         }
     )
 
@@ -90,6 +92,7 @@ def _state_from_json(raw: str) -> SessionState:
         tier3_context=data["tier3_context"],
         study_msg_id=data["study_msg_id"],
         plan=data["plan"],
+        graded_word_ids=data.get("graded_word_ids") or [],
     )
 
 
@@ -126,6 +129,20 @@ def _restore_persisted_session(user_id: int) -> SessionState | None:
     if not state.nodes:
         _clear_persisted_session(user_id)
         return None
+    return state
+
+
+def get_active_study_session(
+    user_id: int, context: ContextTypes.DEFAULT_TYPE
+) -> SessionState | None:
+    """Resolve the active study session from memory, falling back to the
+    DB-persisted same-day session after a restart. Stashes the restored session
+    back into user_data so subsequent advances reuse it (R1/R3, Bug #401)."""
+    state = context.user_data.get("current_session")
+    if state is None:
+        state = _restore_persisted_session(user_id)
+        if state is not None:
+            context.user_data["current_session"] = state
     return state
 
 
@@ -240,6 +257,7 @@ async def handle_study_start(
         tier3_context=tier3_context,
         study_msg_id=None,
         plan=plan,
+        graded_word_ids=[],
     )
     context.user_data["current_session"] = state
 
@@ -524,12 +542,18 @@ async def advance_session(
     Called from _handle_srs_review and _handle_first_exposure_grade after
     grading is complete. Wraps all fallible work in try/except (Decision 32).
     """
-    state: SessionState | None = context.user_data.get("current_session")
-    if state is None:
-        return
-
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
+
+    state: SessionState | None = context.user_data.get("current_session")
+    if state is None:
+        # Restart recovery: a same-day session may still be persisted in the DB
+        # even though the in-memory session was lost (Bug #401 / R1).
+        state = _restore_persisted_session(user_id)
+        if state is not None:
+            context.user_data["current_session"] = state
+        else:
+            return
 
     try:
         # pop next node
