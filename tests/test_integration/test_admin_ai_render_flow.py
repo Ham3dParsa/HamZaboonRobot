@@ -356,6 +356,40 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         self.assertIn("آیا از حذف پیش‌تنظیم «confirm&lt;g» مطمئنید؟", del_text)
         self.assertNotIn("«confirm<g»", del_text)
 
+    def test_fallback_chain_escapes_preset_name_in_bold(self):
+        """Kilo: the fallback-chain screen escapes a preset name containing
+        angle brackets (classic can't-parse-entities guard)."""
+        from handlers.admin import _handle_admin_callback
+
+        db.set_preset(
+            "chain<g>", base_url="https://api.example.com", model="gpt",
+            api_key="test", enabled=1,
+        )
+        update = self._make_callback_update("admin:fallback_chain")
+        ctx = self._make_context()
+        asyncio.run(_handle_admin_callback(update, ctx, "fallback_chain"))
+
+        text = self._rendered_text(update)
+        self.assertIn("chain&lt;g&gt;", text)
+        self.assertNotIn("chain<g>", text)
+
+    def test_usage_page_escapes_preset_name(self):
+        """Kilo: the usage page escapes a preset name containing angle brackets
+        in the row render."""
+        from handlers.admin import _handle_admin_callback
+
+        db.set_preset(
+            "usage<g>", base_url="https://api.example.com", model="gpt",
+            api_key="test", max_daily_req=5,
+        )
+        update = self._make_callback_update("admin:fallback:usage_details")
+        ctx = self._make_context()
+        asyncio.run(_handle_admin_callback(update, ctx, "fallback:usage_details"))
+
+        text = self._rendered_text(update)
+        self.assertIn("usage&lt;g&gt;", text)
+        self.assertNotIn("usage<g>", text)
+
     def test_usage_details_relabeled_and_uses_quota_emoji(self):
         """R9/R8: usage panel header is «مصرف ۲۴ ساعته» and quota rows use
         🔋/🪫 per the emoji dictionary."""
