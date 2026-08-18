@@ -37,7 +37,7 @@ author_url: https://github.com/Ham3dParsa
 | `admin:plans`, `admin:plans:*`, `admin:set_plan` | `handlers/admin_plans.py` | `handle_plan_callback` (incl. `admin:plans:view`, `:edit`, `:full_edit_back/skip/cancel/save`, `:set_active`) |
 | `admin:cost_dashboard`, `admin:llm_costs`, `admin:llm_pricing` | `handlers/admin_cost.py` | `handle_cost_callback` |
 | `admin:ai_*`, `admin:fallback*`, `admin:help:presets`, `admin:help:fallback_chain` | `handlers/admin_ai.py` | `handle_ai_callback` |
-| `admin:back`, `admin:cancel`, `admin:phonetics*`, `admin:broadcast`, `admin:show_settings`, `admin:noop`, `admin:log_level*`, `admin:user_activity_log`, `admin:user_activity:toggle` | `handlers/admin.py` | handled inline in `_handle_admin_callback` |
+| `admin:back`, `admin:cancel`, `admin:broadcast`, `admin:show_settings`, `admin:noop`, `admin:log_level*`, `admin:user_activity_log`, `admin:user_activity:toggle` | `handlers/admin.py` | handled inline in `_handle_admin_callback` |
 | `llm:` (via `services/routing` registry) | `handlers/admin_cost.py` (re-exported via `handlers/admin.py`) | `_handle_llm_callback` — registered as a coarse `llm` route via `_route_llm` adapter (rebuilds `llm:<action>`); `dispatch()` runs it (not owner-gated, matching pre-existing behavior) |
 | `flow:back` | `handlers/admin.py` | `handle_flow_back` (resume_admin_wizard) |
 | `flow:cancel` | `bot.py` → `services/utils/helpers.py` | `callback_router` calls `_exit_awaiting_flow` (now in `services/utils/helpers.py`); `config/keyboards.py` only emits the `flow:back`/`flow:cancel` buttons |

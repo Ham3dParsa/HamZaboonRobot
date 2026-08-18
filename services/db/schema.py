@@ -448,6 +448,25 @@ def init_db(path: str | None = None):
         }
         for k, v in defaults.items():
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
+        # Retire the audio-pronunciation (tts_access) and admin IPA toggle state.
+        # Both features are always-on (#390); any stored toggle value is stale and
+        # must not linger in the settings table or display_toggle_defaults.
+        conn.execute("DELETE FROM settings WHERE key = 'tts_access'")
+        dtd_row = conn.execute(
+            "SELECT value FROM settings WHERE key = 'display_toggle_defaults'"
+        ).fetchone()
+        if dtd_row:
+            try:
+                dtd = json.loads(dtd_row["value"])
+            except (TypeError, ValueError):
+                dtd = {}
+            if isinstance(dtd, dict) and "phonetic" in dtd:
+                dtd.pop("phonetic", None)
+                conn.execute(
+                    "INSERT INTO settings(key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    ("display_toggle_defaults", json.dumps(dtd)),
+                )
         for tbl, col, col_def in (
             ("grammar_tips", "provenance", "TEXT DEFAULT ''"),
         ):

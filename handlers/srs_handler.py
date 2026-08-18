@@ -89,11 +89,9 @@ async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     else:
         logger.info("query result removed user_id=%s word_id_token=%s", user_id, token)
 
-    kb_state = context.user_data.get(f"query_kb_{token}", {}) if context and context.user_data else {}
     markup = query_result_keyboard(
         result.token,
         result.lang,
-        show_pronounce=kb_state.get("show_pronounce", False),
         saved=result.saved,
     )
     try:
@@ -163,15 +161,9 @@ async def _handle_srs_reveal(
     if node.activity_type == "first_exposure":
         # CARD-MODES Rule 1: a staged first-exposure card reveals onto the FE
         # familiarity grade grid, not the recall-based review grid.
-        keyboard = get_first_exposure_keyboard(
-            user_id,
-            word_id,
-            show_pronounce=db.should_show_pronounce(user_id),
-        )
+        keyboard = get_first_exposure_keyboard(user_id, word_id)
     else:
-        keyboard = get_review_keyboard(
-            user_id, word_id, show_pronounce=db.should_show_pronounce(user_id),
-        )
+        keyboard = get_review_keyboard(user_id, word_id)
 
     msg_id = state.study_msg_id
     if not msg_id:
@@ -569,13 +561,9 @@ async def _handle_srs_delete_no(
         )
         return
     if node.activity_type == "first_exposure":
-        keyboard = get_first_exposure_keyboard(
-            user_id, word_id, show_pronounce=db.should_show_pronounce(user_id),
-        )
+        keyboard = get_first_exposure_keyboard(user_id, word_id)
     else:
-        keyboard = get_review_keyboard(
-            user_id, word_id, show_pronounce=db.should_show_pronounce(user_id),
-        )
+        keyboard = get_review_keyboard(user_id, word_id)
     try:
         await context.bot.edit_message_reply_markup(
             chat_id=update.effective_chat.id,

@@ -58,31 +58,6 @@ def set_display_toggle_forced(user_id: int, field: str, enabled: bool):
     return _set_display_toggle_forced(user_id, field, enabled)
 
 
-def should_show_pronounce(user_id: int, row=None) -> bool:
-    """Whether the 🔊 pronounce button is shown for a user.
-
-    Pronounce is free to every plan (J-B6, 2026-08-17); the only gate is the
-    admin ``tts_access`` setting: ``none`` → False, anything else → True.
-    Single source of truth for every card/button so the admin toggle never
-    drifts.
-
-    ``row`` is an optional pre-fetched users row (callers that already hold it
-    pass it in to avoid an extra SELECT); it is re-fetched when omitted.
-    """
-    from config import _user_plan
-    from config.plan_identity import has_feature
-    from services.db.settings import get_setting
-    if row is None:
-        row = get_user(user_id)
-    if not row:
-        return False
-    plan = _user_plan(row)
-    tts_setting = get_setting("tts_access", "premium")
-    if tts_setting == "none":
-        return False
-    return has_feature(plan, "pronounce")
-
-
 def _sanitize_mode(value) -> str | None:
     """Return a valid card mode or None so unknown stored values fall through."""
     if value in CARD_MODES:
@@ -127,7 +102,7 @@ def card_mode_available(user_id: int, card_type: str, row=None) -> bool:
     """Whether a user may use the per-user control for ``card_type`` (R6).
 
     ``all`` → everyone; ``premium`` → paid plans only. Mirrors
-    ``should_show_pronounce``'s gate semantics.
+    ``feature_audience``'s gate semantics.
     """
     from config import _user_plan
     from config.plan_identity import has_feature

@@ -142,7 +142,6 @@ DISPLAY_TOGGLE_FIELDS = (
     "examples",
     "example_translations",
     "grammar_tip",
-    "phonetic",
 )
 
 HIGH_VALUE_TOGGLES = frozenset(
@@ -150,7 +149,7 @@ HIGH_VALUE_TOGGLES = frozenset(
 )
 
 LOW_VALUE_TOGGLES = frozenset(
-    {"phonetic", "grammar_tip", "example_translations"}
+    {"grammar_tip", "example_translations"}
 )
 
 DISPLAY_TOGGLE_DEFAULTS = {field: True for field in DISPLAY_TOGGLE_FIELDS}
@@ -190,7 +189,6 @@ def catalog_namespace(name: str) -> dict:
 SETTINGS_CARD_TYPES = ("first_exposure", "review")
 
 SETTINGS_KEYS = {
-    "tts_access":                       {"key": "tts_access", "type": "str", "default": "premium", "scope": "global"},
     "log_level":                        {"key": "log_level", "type": "str", "default": "", "scope": "global"},
     "user_activity_log":                {"key": "user_activity_log", "type": "bool", "default": False, "scope": "global"},
     "usd_to_toman_rate":                {"key": "usd_to_toman_rate", "type": "float", "default": USD_TO_TOMAN_RATE, "scope": "global"},

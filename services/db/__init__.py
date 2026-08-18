@@ -49,7 +49,6 @@ from services.db.users import (
     get_user,
     get_display_toggles,
     get_quota_status,
-    should_show_pronounce,
     create_user_if_needed,
     set_user_lang_goal,
     set_user_level,

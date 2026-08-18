@@ -122,7 +122,7 @@ class WordQueryAskFlowTests(unittest.TestCase):
     def _sent_markups(self, context):
         return [c.kwargs.get("reply_markup") for c in context.bot.send_message.call_args_list]
 
-    def test_happy_path_delivers_card_and_stores_query_kb_token(self):
+    def test_happy_path_delivers_card_with_add_and_pronounce_buttons(self):
         context = self._run(
             call_ai_limited=self.card,
             prepare_cached_card=self.card,
@@ -148,15 +148,19 @@ class WordQueryAskFlowTests(unittest.TestCase):
             any(p.startswith("query:add:") for p in prefixes),
             "delivered card must keep the add-to-review button",
         )
+        self.assertTrue(
+            any(p.startswith("tts:pronounce:q:") for p in prefixes),
+            "delivered card must always include the 🔊 pronounce button (#390)",
+        )
         self.assertFalse(
             any(p.startswith("query:prepare:") for p in prefixes),
             "delivered card must not emit the removed translations button (R2/R3)",
         )
-        # The query_kb token was persisted into user_data.
+        # The per-token query_kb_ render state was removed with show_pronounce (#390).
         query_tokens = [
             k for k in context.user_data if str(k).startswith("query_kb_")
         ]
-        self.assertEqual(len(query_tokens), 1, "one query_kb_ token stored")
+        self.assertEqual(len(query_tokens), 0, "no stale query_kb_ render state stored")
 
     def test_card_renders_translation_spoilers_and_closing_has_usage(self):
         """R1+R6 — translations show ON by default as spoilers; usage moves to closing."""

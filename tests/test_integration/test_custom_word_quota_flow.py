@@ -267,11 +267,9 @@ class QueryAddToggleFlowTests(unittest.TestCase):
         update = self._make_update()
         context = MagicMock()
         # Render-time flags are stored in user_data; the toggle must preserve the
-        # pronounce button when it edits the card (translations button removed, R2/R3).
+        # pronounce button when it edits the card (pronounce always present, R1).
         context.user_data = {
-            f"query_kb_{self.token}": {
-                "show_pronounce": True,
-            }
+            f"query_kb_{self.token}": {},
         }
 
         asyncio.run(_handle_query_add(update, context, self.token))
@@ -363,118 +361,6 @@ class ShowStatusQuotaRenderTests(unittest.TestCase):
         self.assertIn(f"1/{limit} (باقی‌مانده {max(limit - 1, 0)})", captured["text"])
         self.assertIn("نکته گرامری", captured["text"])
         self.assertIn(f"2/{limit} (باقی‌مانده {max(limit - 2, 0)})", captured["text"])
-
-
-class TTSGateShowPronounceFlowTests(unittest.TestCase):
-    """Rule H+J — the 🔊 pronounce button is decided by ONE shared helper.
-
-    Regression coverage for the Kilo warning on PR #316: the delivered-card gate
-    (bot.py text_router) and the study session previously computed
-    ``show_pronounce`` independently, so a free user granted ``tts_access="all"`
-    saw the button on some cards but not others. These tests pin the handler
-    wiring (not just the helper) so the bug path stays guarded, including the
-    owner bypass. The ask-word path must also persist ``show_pronounce`` at
-    ask-time so the follow-up toggle re-render keeps the 🔊 button (the old
-    prepare path was removed in #340 R3).
-    """
-
-    def setUp(self):
-        self.tempdir = tempfile.TemporaryDirectory()
-        self.previous_db_path = db.DB_PATH
-        self.previous_db_schema_path = db_schema.DB_PATH
-        db.DB_PATH = os.path.join(self.tempdir.name, "test.sqlite")
-        db_schema.DB_PATH = db.DB_PATH
-        db.init_db()
-        db.create_user_if_needed(1, "learner")
-        db.set_user_lang_goal(1, "en", "general")
-        db.set_user_level(1, "beginner")
-        self.card = {
-            "word": "hello",
-            "fa_meaning": "سلام",
-            "fa_explanation": "برای سلام کردن.",
-            "examples": ["Hello!"],
-        }
-
-    def tearDown(self):
-        db.DB_PATH = self.previous_db_path
-        db_schema.DB_PATH = self.previous_db_schema_path
-        self.tempdir.cleanup()
-
-    def _ask_word_update(self):
-        message = MagicMock()
-        message.text = "hello"
-        message.reply_text = AsyncMock()
-        chat = MagicMock()
-        chat.id = 1
-        chat.send_action = AsyncMock()
-        update = MagicMock()
-        update.effective_user.id = 1
-        update.message = message
-        update.effective_chat = chat
-        return update
-
-    def _run_text_router(self, *, owner=False):
-        update = self._ask_word_update()
-        context = MagicMock()
-        context.user_data = {"awaiting": "ask_word"}
-        context.bot.send_message = AsyncMock()
-        with patch.object(bot, "_call_ai_limited", return_value=self.card), \
-             patch.object(bot, "_prepare_cached_card", return_value=self.card), \
-             patch.object(bot, "_start_llm_wait_state", new=AsyncMock(return_value=None)), \
-             patch.object(bot, "_finish_llm_wait_state", new=AsyncMock()), \
-             patch.object(bot, "is_owner", return_value=owner):
-            asyncio.run(bot.text_router(update, context))
-        return context
-
-    def _delivered_card_has_pronounce(self, context):
-        for call in context.bot.send_message.call_args_list:
-            kb = call.kwargs.get("reply_markup")
-            if not kb or not hasattr(kb, "inline_keyboard"):
-                continue
-            for row in kb.inline_keyboard:
-                for button in row:
-                    if str(button.callback_data).startswith("tts:pronounce:q:"):
-                        return True
-        return False
-
-    def test_text_router_free_user_with_tts_all_sees_pronounce(self):
-        db.set_setting("tts_access", "all")
-        context = self._run_text_router()
-        self.assertTrue(
-            self._delivered_card_has_pronounce(context),
-            "free user with tts_access=all must see the 🔊 button on the delivered card",
-        )
-
-    def test_text_router_free_user_with_tts_premium_sees_pronounce(self):
-        # Pronounce is free to every plan (locked J-B6 decision, 2026-08-17), so a
-        # free user sees 🔊 under tts_access=premium; only "none" hides the button.
-        db.set_setting("tts_access", "premium")
-        context = self._run_text_router()
-        self.assertTrue(
-            self._delivered_card_has_pronounce(context),
-            "free user with tts_access=premium must see the 🔊 button (pronounce is free)",
-        )
-
-    def test_text_router_owner_bypass_sees_pronounce_with_stored_free_plan(self):
-        db.set_setting("tts_access", "premium")
-        with patch("config.OWNER_ID", 1), patch("config.OWNER_BYPASS_LIMITS", True):
-            context = self._run_text_router(owner=True)
-        self.assertTrue(
-            self._delivered_card_has_pronounce(context),
-            "owner bypass (stored free plan) must still see the 🔊 button under tts=premium",
-        )
-
-    def test_ask_word_persists_show_pronounce_for_free_tts_all(self):
-        db.set_setting("tts_access", "all")
-        context = self._run_text_router()
-        query_kb = {
-            k: v for k, v in context.user_data.items() if str(k).startswith("query_kb_")
-        }
-        self.assertEqual(len(query_kb), 1, "one query_kb_ token stored")
-        self.assertTrue(
-            next(iter(query_kb.values()))["show_pronounce"],
-            "ask-word path must persist show_pronounce=True for a free user with tts_access=all",
-        )
 
 
 if __name__ == "__main__":

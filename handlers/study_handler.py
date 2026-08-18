@@ -413,9 +413,7 @@ def _build_card_text_and_keyboard(
         # Immediate: full card + review grade grid directly (no front/reveal,
         # no prompt stash) — CARD-MODES Rule 2.
         toggles = db.get_display_toggles(user_id)
-        keyboard = get_review_keyboard(
-            user_id, word_id, show_pronounce=db.should_show_pronounce(user_id),
-        )
+        keyboard = get_review_keyboard(user_id, word_id)
         text = format_srs_back_stage(
             card_data,
             toggles=toggles,
@@ -484,9 +482,7 @@ def _render_first_exposure(
         )
         return text, keyboard
 
-    keyboard = get_first_exposure_keyboard(
-        user_id, word_id, show_pronounce=db.should_show_pronounce(user_id),
-    )
+    keyboard = get_first_exposure_keyboard(user_id, word_id)
     toggles = db.get_display_toggles(user_id)
     text = format_srs_back_stage(
         card_data,
