@@ -81,6 +81,11 @@ class TestSpanRenderHTML(unittest.TestCase):
             '<a href="https://x.test/?a=b&amp;c">گل</a>',
         )
 
+    def test_newline_span_html_emits_literal_newline(self):
+        msg = Message()
+        msg.add_line(plain("a"), nl(), plain("b"))
+        self.assertEqual(msg.render(Backend.HTML), "a\nb")
+
 
 class TestSpanRenderPlain(unittest.TestCase):
     def test_strips_all_markup(self):
@@ -205,6 +210,70 @@ class TestDeliveryVerbs(unittest.IsolatedAsyncioTestCase):
             result = await say(update, ctx, text)
         self.assertEqual(result, "sent")
         _, kwargs = send_retry.call_args
+        self.assertEqual(kwargs["parse_mode"], "MarkdownV2")
+
+    async def test_say_renders_html_when_backend_html(self):
+        """say(..., backend=Backend.HTML) renders spans as HTML and sets HTML parse mode."""
+        update = MagicMock()
+        update.callback_query = None
+        update.effective_chat.id = 123
+        update.message = None
+        ctx = MagicMock()
+        text = Message()
+        text.add_line(bold("active"), plain("gapgpt"))
+        with patch(
+            "services.send_pretty._send_with_retry", new=AsyncMock(return_value="sent")
+        ) as send_retry:
+            result = await say(update, ctx, text, backend=Backend.HTML)
+        self.assertEqual(result, "sent")
+        args, kwargs = send_retry.call_args
+        self.assertEqual(args[2], "<b>active</b>gapgpt")
+        self.assertEqual(kwargs["parse_mode"], "HTML")
+
+    async def test_say_edits_html_when_callback_and_backend_html(self):
+        update = MagicMock()
+        update.callback_query = MagicMock()
+        update.effective_chat.id = 123
+        ctx = MagicMock()
+        text = Message()
+        text.add_line(code("gpt-4o"))
+        with patch(
+            "services.send_pretty._edit_with_retry", new=AsyncMock(return_value="edited")
+        ) as edit:
+            result = await say(update, ctx, text, backend=Backend.HTML)
+        self.assertEqual(result, "edited")
+        args, kwargs = edit.call_args
+        self.assertEqual(args[1], "<code>gpt-4o</code>")
+        self.assertEqual(kwargs["parse_mode"], "HTML")
+
+    async def test_send_renders_html_when_backend_html(self):
+        bot = MagicMock()
+        text = Message()
+        text.add_line(bold("پیش‌تنظیم فعال:"), plain("gapgpt"))
+        with patch(
+            "services.send_pretty._send_with_retry", new=AsyncMock(return_value="sent")
+        ) as send_retry:
+            result = await send(123, text, bot=bot, backend=Backend.HTML)
+        self.assertEqual(result, "sent")
+        args, kwargs = send_retry.call_args
+        self.assertEqual(args[2], "<b>پیش‌تنظیم فعال:</b>gapgpt")
+        self.assertEqual(kwargs["parse_mode"], "HTML")
+
+    async def test_say_default_backend_is_markdown_v2(self):
+        """Default remains MarkdownV2 so existing learner call sites are untouched."""
+        update = MagicMock()
+        update.callback_query = None
+        update.effective_chat.id = 123
+        update.message = None
+        ctx = MagicMock()
+        text = Message()
+        text.add_line(bold("واژه"))
+        with patch(
+            "services.send_pretty._send_with_retry", new=AsyncMock(return_value="sent")
+        ) as send_retry:
+            await say(update, ctx, text)
+        args, kwargs = send_retry.call_args
+        self.assertEqual(args[2], "*واژه*")
         self.assertEqual(kwargs["parse_mode"], "MarkdownV2")
 
     async def test_say_edit_not_found_falls_back_to_replacement_send(self):

@@ -14,7 +14,6 @@ import re
 from urllib.parse import quote, unquote
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from services import db
@@ -27,7 +26,7 @@ from services.ai import ai
 from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send
-from services.utils.formatting import html_escape
+from services.send_pretty import Backend, Message, RawFormat, bold, code, italic, plain, say
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
     BTN_BACK,
@@ -104,33 +103,41 @@ async def _show_ai_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         active_preset = db.get_active_preset()
     except db.NoActivePresetError:
-        await _edit_or_send(
-            update, context,
-            "🤖 <b>تنظیمات هوش مصنوعی</b>\n\n"
-            "⚠️ هیچ پیش‌تنظیم فعالی وجود ندارد.\n"
-            "برای استفاده از هوش مصنوعی، از بخش «پیش‌تنظیم‌ها» یک پیش‌تنظیم بسازید و فعال کنید.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=ai_settings_keyboard(),
-        )
+        msg = Message()
+        msg.add_line(plain("🤖 "), bold("تنظیمات هوش مصنوعی"))
+        msg.add_line()
+        msg.add_line(plain("⚠️ هیچ پیش‌تنظیم فعالی وجود ندارد."))
+        msg.add_line(plain("برای استفاده از هوش مصنوعی، از بخش «پیش‌تنظیم‌ها» یک پیش‌تنظیم بسازید و فعال کنید."))
+        msg.set_keyboard(ai_settings_keyboard())
+        await say(update, context, msg, backend=Backend.HTML)
         return
     fallback_status = db.get_fallback_status()
 
-    text = (
-        "🤖 <b>تنظیمات هوش مصنوعی</b>\n\n"
-        f"<b>پیش‌تنظیم فعال:</b> {html_escape(str(active_preset.get('name', 'gapgpt')))}\n"
-        f"<b>مدل:</b> {html_escape(str(active_preset.get('model', '—')))}\n"
-        f"<b>Base URL:</b> {html_escape(str(active_preset.get('base_url', '—')))}\n"
-        f"<b>Batch Size:</b> {preset_fields.resolve(active_preset, 'daily_batch_size')}\n"
-        f"<b>Concurrency:</b> {preset_fields.resolve(active_preset, 'max_concurrency')}\n"
-        f"<b>RPM Limit:</b> {preset_fields.resolve(active_preset, 'max_rpm')}\n\n"
-    )
+    msg = Message()
+    msg.add_line(plain("🤖 "), bold("تنظیمات هوش مصنوعی"))
+    msg.add_line()
+    msg.add_line(bold("پیش‌تنظیم فعال:"), plain(" " + str(active_preset.get("name", "gapgpt"))))
+    msg.add_line(bold("مدل:"), plain(" " + str(active_preset.get("model", "—"))))
+    msg.add_line(bold("Base URL:"), plain(" " + str(active_preset.get("base_url", "—"))))
+    msg.add_line(bold("Batch Size:"), plain(" " + str(preset_fields.resolve(active_preset, "daily_batch_size"))))
+    msg.add_line(bold("Concurrency:"), plain(" " + str(preset_fields.resolve(active_preset, "max_concurrency"))))
+    msg.add_line(bold("RPM Limit:"), plain(" " + str(preset_fields.resolve(active_preset, "max_rpm"))))
+    msg.add_line()
 
     if fallback_status.get("fallback_active"):
-        text += (
-            f"⚠️ <b>Fallback ACTIVE</b> since {html_escape(str(fallback_status.get('fallback_since', '?')))}\n"
-            f"Primary: {html_escape(str(fallback_status.get('primary_preset', '—')))} → "
-            f"Fallback: {html_escape(str(fallback_status.get('fallback_preset', '—')))}\n\n"
+        msg.add_line(
+            plain("⚠️ "),
+            bold("Fallback ACTIVE"),
+            plain(" since "),
+            plain(str(fallback_status.get("fallback_since", "?"))),
         )
+        msg.add_line(
+            plain("Primary: "),
+            plain(str(fallback_status.get("primary_preset", "—"))),
+            plain(" → Fallback: "),
+            plain(str(fallback_status.get("fallback_preset", "—"))),
+        )
+        msg.add_line()
 
     # Last successful preset per request kind (Rule #2)
     try:
@@ -143,15 +150,15 @@ async def _show_ai_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "GROUP BY request_kind HAVING created_at = MAX(created_at)"
             ).fetchall()
         tracking = {row["request_kind"]: row["preset_name"] or "—" for row in last_rows}
-        text += "📇 <b>آخرین درخواست‌ها:</b>\n"
-        text += f"  Daily: {html_escape(tracking.get('daily_batch', '—'))}\n"
-        text += f"  Grammar: {html_escape(tracking.get('grammar_tip', '—'))}\n"
-        text += f"  Word: {html_escape(tracking.get('custom_word', '—'))}\n"
+        msg.add_line(plain("📇 "), bold("آخرین درخواست‌ها:"))
+        msg.add_line(plain("  Daily: "), plain(str(tracking.get("daily_batch", "—"))))
+        msg.add_line(plain("  Grammar: "), plain(str(tracking.get("grammar_tip", "—"))))
+        msg.add_line(plain("  Word: "), plain(str(tracking.get("custom_word", "—"))))
     except Exception:
         pass
 
-    keyboard = ai_settings_keyboard()
-    await _edit_or_send(update, context, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    msg.set_keyboard(ai_settings_keyboard())
+    await say(update, context, msg, backend=Backend.HTML)
 
 
 async def _show_ai_presets(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -223,15 +230,13 @@ def _detect_key_groups() -> list[dict]:
     return groups
 
 
-def _render_preset_brief(preset: dict, active_name: str) -> str:
-    """Render one brief, HTML-escaped preset line for list/chain views (R6/R8).
+def _preset_brief_spans(preset: dict, active_name: str) -> list:
+    """Return the span list for one brief preset line (single source of truth).
 
-    Pure synchronous renderer (no awaits): every list site calls it inline to
-    build an HTML parse_mode message without wrapping a coroutine. Emoji per the
-    UI/UX dictionary: 🟢/⚫ toggle reflects the enabled state, and the ``[tags]``
-    suffix marks 🎯 active preset, 🛡️ emergency tier, and custom. The name is
-    escaped for ``ParseMode.HTML``. Single shared implementation so every list
-    site renders identically.
+    Pure synchronous renderer (no awaits). Emoji per the UI/UX dictionary:
+    🟢/⚫ toggle reflects the enabled state, and the ``[tags]`` suffix marks
+    🎯 active preset, 🛡️ emergency tier, and custom. Every list/chain site
+    consumes these spans so each renders identically (R6/R8).
     """
     name = preset.get("name", "?")
     toggle = "🟢" if preset.get("enabled", 1) else "⚫"
@@ -240,8 +245,21 @@ def _render_preset_brief(preset: dict, active_name: str) -> str:
         tags.append("🎯")
     if preset.get("is_emergency"):
         tags.append("🛡️")
-    suffix = (f" [{' '.join(tags)}]" if tags else "")
-    return f"{toggle} <b>{html_escape(str(name))}</b>{suffix}"
+    spans = [plain(f"{toggle} "), bold(str(name))]
+    if tags:
+        spans.append(plain(f" [{' '.join(tags)}]"))
+    return spans
+
+
+def _render_preset_brief(preset: dict, active_name: str) -> str:
+    """Render one brief, HTML-escaped preset line (R6/R8) from the shared spans.
+
+    Builds the HTML string from ``_preset_brief_spans`` so the linear and
+    chain sites share one source of truth for the brief render.
+    """
+    msg = Message()
+    msg.add_line(*_preset_brief_spans(preset, active_name))
+    return msg.render(Backend.HTML)
 
 
 async def _show_linear_presets(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
@@ -255,29 +273,35 @@ async def _show_linear_presets(update: Update, context: ContextTypes.DEFAULT_TYP
     end = start + per_page
     page_presets = all_presets[start:end]
 
-    lines = ["📋 <b>لیست پیش‌تنظیم‌ها</b>\n"]
+    msg = Message()
+    msg.add_line(plain("📋 "), bold("لیست پیش‌تنظیم‌ها"))
+    msg.add_line()
+    msg.add_line()
     for p in page_presets:
-        lines.append(
-            f"{_render_preset_brief(p, active_name)}\n"
-            f"   Model: {html_escape(str(p.get('model', '—')))}\n"
-            f"   URL: {html_escape(str(p.get('base_url', '—')))}\n"
-            f"   Batch: {preset_fields.resolve(p, 'daily_batch_size')} | Concurrency: {preset_fields.resolve(p, 'max_concurrency')} | RPM: {preset_fields.resolve(p, 'max_rpm')}"
+        msg.add_line(*_preset_brief_spans(p, active_name))
+        msg.add_line(plain("   Model: "), plain(str(p.get("model", "—"))))
+        msg.add_line(plain("   URL: "), plain(str(p.get("base_url", "—"))))
+        msg.add_line(
+            plain("   Batch: "),
+            plain(str(preset_fields.resolve(p, "daily_batch_size"))),
+            plain(" | Concurrency: "),
+            plain(str(preset_fields.resolve(p, "max_concurrency"))),
+            plain(" | RPM: "),
+            plain(str(preset_fields.resolve(p, "max_rpm"))),
         )
-
+        msg.add_line()
     if total_pages > 1:
-        lines.append(f"\n📄 صفحه {page + 1} از {total_pages}")
+        msg.add_line()
+        msg.add_line(plain("📄 صفحه "), plain(str(page + 1)), plain(" از "), plain(str(total_pages)))
 
-    text = "\n\n".join(lines)
-
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=ai_presets_list_keyboard(
+    msg.set_keyboard(
+        ai_presets_list_keyboard(
             all_presets, active_name,
             page=page, total_pages=total_pages,
             view_mode="linear",
         )
     )
+    await say(update, context, msg, backend=Backend.HTML)
 
 
 async def _show_grouped_presets(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -285,25 +309,29 @@ async def _show_grouped_presets(update: Update, context: ContextTypes.DEFAULT_TY
     groups = _detect_key_groups()
     active_name = db.get_active_preset_name()
 
-    lines = ["📁 <b>پیش‌تنظیم‌ها بر اساس کلید API</b>\n"]
-    for g in groups:
-        label = g.get("label") or g.get("masked_key", "—")
-        lines.append(
-            f"📁 <b>{html_escape(label)}</b> ({g['count']} preset)\n"
-            f"   🔑 {html_escape(g.get('masked_key', '—'))}"
-        )
+    msg = Message()
+    if not groups:
+        msg.add_line(plain("هیچ گروهی یافت نشد."))
+    else:
+        msg.add_line(plain("📁 "), bold("پیش‌تنظیم‌ها بر اساس کلید API"))
+        for g in groups:
+            label = g.get("label") or g.get("masked_key", "—")
+            msg.add_line()
+            msg.add_line(
+                plain("📁 "),
+                bold(str(label)),
+                plain(f" ({g['count']} preset)"),
+            )
+            msg.add_line(plain("   🔑 "), plain(str(g.get("masked_key", "—"))))
 
-    text = "\n\n".join(lines) if groups else "هیچ گروهی یافت نشد."
-
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=ai_presets_list_keyboard(
+    msg.set_keyboard(
+        ai_presets_list_keyboard(
             [], active_name,
             view_mode="grouped",
             groups=groups,
         )
     )
+    await say(update, context, msg, backend=Backend.HTML)
 
 
 async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
@@ -323,26 +351,23 @@ async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYP
     input_cost_str = f"{cost['input_cost_per_million']}" if cost['input_cost_per_million'] is not None else "— (global)"
     output_cost_str = f"{cost['output_cost_per_million']}" if cost['output_cost_per_million'] is not None else "— (global)"
 
-    text = (
-        f"📋 <b>پیش‌تنظیم: {html_escape(preset_name)}</b>\n\n"
-        f"Model: {html_escape(str(preset.get('model', '—')))}\n"
-        f"Base URL: {html_escape(str(preset.get('base_url', '—')))}\n"
-        f"API Key: {html_escape(masked_key)}\n"
-        f"Daily Batch Size: {preset_fields.resolve(preset, 'daily_batch_size')}\n"
-        f"Max Concurrency: {preset_fields.resolve(preset, 'max_concurrency')}\n"
-        f"Max RPM: {preset_fields.resolve(preset, 'max_rpm')}\n"
-        f"Timeout: {preset_fields.resolve(preset, 'timeout_seconds')}s\n"
-        f"Temperature: {preset_fields.resolve(preset, 'temperature')}\n"
-        f"Max Output Tokens: {preset_fields.resolve(preset, 'max_output_tokens')}\n"
-        f"Input Cost: {input_cost_str} $/1M\n"
-        f"Output Cost: {output_cost_str} $/1M\n"
-    )
+    msg = Message()
+    msg.add_line(plain("📋 "), bold("پیش‌تنظیم: " + str(preset_name)))
+    msg.add_line()
+    msg.add_line(plain("Model: "), plain(str(preset.get("model", "—"))))
+    msg.add_line(plain("Base URL: "), plain(str(preset.get("base_url", "—"))))
+    msg.add_line(plain("API Key: "), plain(masked_key))
+    msg.add_line(plain("Daily Batch Size: "), plain(str(preset_fields.resolve(preset, "daily_batch_size"))))
+    msg.add_line(plain("Max Concurrency: "), plain(str(preset_fields.resolve(preset, "max_concurrency"))))
+    msg.add_line(plain("Max RPM: "), plain(str(preset_fields.resolve(preset, "max_rpm"))))
+    msg.add_line(plain("Timeout: "), plain(str(preset_fields.resolve(preset, "timeout_seconds"))), plain("s"))
+    msg.add_line(plain("Temperature: "), plain(str(preset_fields.resolve(preset, "temperature"))))
+    msg.add_line(plain("Max Output Tokens: "), plain(str(preset_fields.resolve(preset, "max_output_tokens"))))
+    msg.add_line(plain("Input Cost: "), plain(input_cost_str), plain(" $/1M"))
+    msg.add_line(plain("Output Cost: "), plain(output_cost_str), plain(" $/1M"))
 
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=ai_preset_view_keyboard(preset, active_name)
-    )
+    msg.set_keyboard(ai_preset_view_keyboard(preset, active_name))
+    await say(update, context, msg, backend=Backend.HTML)
 
 
 async def _activate_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
@@ -362,13 +387,11 @@ async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
         await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
-    text = f"✏️ <b>ویرایش پیش‌تنظیم: {html_escape(preset_name)}</b>\nانتخاب فیلد برای تغییر:"
+    msg = Message()
+    msg.add_line(plain("✏️ "), bold("ویرایش پیش‌تنظیم: " + str(preset_name)))
+    msg.add_line(plain("انتخاب فیلد برای تغییر:"))
 
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=ai_preset_edit_keyboard(preset_name, preset)
-    )
+    await say(update, context, msg, backend=Backend.HTML, keyboard=ai_preset_edit_keyboard(preset_name, preset))
 
 
 async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, field_name: str):
@@ -384,23 +407,24 @@ async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data["awaiting"] = f"ai_preset_edit:{preset_name}:{field_name}"
 
     help_text = _FIELD_HELP.get(field_name, "")
-    message = (
-        f"✏️ <b>{html_escape(FIELD_LABELS.get(field_name, field_name))}</b>\n"
-        f"مقدار فعلی: <code>{html_escape(str(current))}</code>\n\n"
-        f"مقدار جدید را ارسال کنید:"
-    )
-    if help_text:
-        message += f"\n\n💡 {help_text}"
 
-    await _edit_or_send(
-        update, context, message,
-        parse_mode=ParseMode.HTML,
+    msg = Message()
+    msg.add_line(plain("✏️ "), bold(FIELD_LABELS.get(field_name, field_name)))
+    msg.add_line(plain("مقدار فعلی: "), code(str(current)))
+    msg.add_line()
+    msg.add_line(plain("مقدار جدید را ارسال کنید:"))
+    if help_text:
+        msg.add_line()
+        msg.add_line(plain("💡 "), plain(help_text))
+
+    await say(
+        update, context, msg, backend=Backend.HTML,
         # awaiting_inline_keyboard() -> flow:back resumes the preset-edit menu
         # (preserves preset_edits); flow:cancel discards only this preset's
         # edits. This aligns with the field-edit error-retry prompts. Note: this
         # intentionally differs from admin_awaiting_inline_keyboard(), whose
         # admin:cancel wiped ALL preset_edits (contract R3, owner-approved).
-        reply_markup=awaiting_inline_keyboard()
+        keyboard=awaiting_inline_keyboard()
     )
 
 
@@ -469,10 +493,12 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
 
     context.user_data.pop("awaiting", None)
 
-    await update.message.reply_text(
-        f"✅ <b>{html_escape(FIELD_LABELS.get(field_name, field_name))}</b> برای پیش‌تنظیم <b>{html_escape(preset_name)}</b> ثبت شد.",
-        parse_mode=ParseMode.HTML
+    msg = Message()
+    msg.add_line(
+        plain("✅ "), bold(FIELD_LABELS.get(field_name, field_name)),
+        plain(" برای پیش‌تنظیم "), bold(str(preset_name)), plain(" ثبت شد."),
     )
+    await say(update, context, msg, backend=Backend.HTML)
     await _edit_ai_preset(update, context, preset_name)
 
 
@@ -526,19 +552,24 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
     label = FIELD_LABELS.get(field_name, field_name)
     help_text = _FIELD_HELP.get(field_name, "")
 
-    message = f"✏️ <b>ویرایش کامل — گام {field_idx + 1} از {TOTAL_WIZARD_FIELDS}</b>\n"
+    msg = Message()
+    msg.add_line(plain("✏️ "), bold(f"ویرایش کامل — گام {field_idx + 1} از {TOTAL_WIZARD_FIELDS}"))
     if group_header:
-        message += f"\n{group_header}\n"
-    message += f"\n<b>{html_escape(label)}</b>"
+        msg.add_line()
+        msg.add_line(plain(group_header))
+    msg.add_line()
+    msg.add_line(bold(label))
     if draft_str:
-        message += f"\nپیشنویس (در انتظار ذخیره): <code>{html_escape(draft_str)}</code>"
+        msg.add_line(plain("پیشنویس (در انتظار ذخیره): "), code(draft_str))
     if current_str:
-        message += f"\nمقدار فعلی: <code>{html_escape(current_str)}</code>"
+        msg.add_line(plain("مقدار فعلی: "), code(current_str))
     else:
-        message += "\nمقدار فعلی: <i>خالی</i>"
+        msg.add_line(plain("مقدار فعلی: "), italic("خالی"))
     if help_text:
-        message += f"\n\n💡 {help_text}"
-    message += "\n\nمقدار جدید را ارسال کنید (یا خالی = رد کردن):"
+        msg.add_line()
+        msg.add_line(plain("💡 "), plain(help_text))
+    msg.add_line()
+    msg.add_line(plain("مقدار جدید را ارسال کنید (یا خالی = رد کردن):"))
 
     from services.utils.callback_codec import preset_token
     preset_ref = preset_token(preset_name)
@@ -576,7 +607,7 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:{field_idx}"
 
-    await _edit_or_send(update, context, message, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await say(update, context, msg, backend=Backend.HTML, keyboard=keyboard)
 
 
 def _validate_wizard_value(field_name: str, raw: str, preset_name: str) -> tuple | None:
@@ -743,21 +774,26 @@ async def _show_wizard_summary(update: Update, context: ContextTypes.DEFAULT_TYP
     values = wizard.get("values", {})
     preset = db.get_preset(preset_name) or {}
 
-    lines = [f"📋 <b>خلاصه تغییرات برای {html_escape(preset_name)}</b>\n"]
+    msg = Message()
+    msg.add_line(plain("📋 "), bold("خلاصه تغییرات برای " + str(preset_name)))
+    msg.add_line()
     changed = 0
     for field_name in WIZARD_FIELDS:
         if field_name in values:
             new_val = values[field_name]
             old_val = preset.get(field_name, "—")
             label = FIELD_LABELS.get(field_name, field_name)
-            lines.append(f"• <b>{html_escape(label)}</b>: {html_escape(str(old_val))} → {html_escape(str(new_val))}")
+            msg.add_line(
+                plain("• "), bold(label),
+                plain(f": {old_val} → {new_val}"),
+            )
             changed += 1
 
     if not changed:
-        lines.append("هیچ تغییری اعمال نشد.")
+        msg.add_line(plain("هیچ تغییری اعمال نشد."))
 
-    lines.append(f"\nتعداد تغییرات: {changed}")
-    text = "\n".join(lines)
+    msg.add_line()
+    msg.add_line(plain("تعداد تغییرات: "), plain(str(changed)))
 
     from services.utils.callback_codec import preset_token
     preset_ref = preset_token(preset_name)
@@ -769,7 +805,7 @@ async def _show_wizard_summary(update: Update, context: ContextTypes.DEFAULT_TYP
 
     context.user_data.pop("awaiting", None)
 
-    await _edit_or_send(update, context, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await say(update, context, msg, backend=Backend.HTML, keyboard=keyboard)
 
 
 async def _handle_full_edit_save(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
@@ -843,13 +879,14 @@ async def _handle_group_view(update: Update, context: ContextTypes.DEFAULT_TYPE,
     presets = [db.get_preset(n) for n in names if db.get_preset(n)]
     active_name = db.get_active_preset_name()
 
-    lines = [f"📁 <b>گروه: {html_escape(str(target.get('label') or target['masked_key']))}</b>\n"]
-    lines.append(f"🔑 کلید: {html_escape(target['masked_key'])}")
-    lines.append(f"تعداد: {target['count']} preset\n")
+    msg = Message()
+    msg.add_line(plain("📁 "), bold("گروه: " + str(target.get('label') or target['masked_key'])))
+    msg.add_line()
+    msg.add_line(plain("🔑 کلید: "), plain(str(target['masked_key'])))
+    msg.add_line(plain("تعداد: "), plain(str(target['count'])), plain(" preset"))
+    msg.add_line()
     for p in presets:
-        lines.append(f"{_render_preset_brief(p, active_name)} — {html_escape(str(p.get('model', '—')))}")
-
-    text = "\n".join(lines)
+        msg.add_line(*_preset_brief_spans(p, active_name), plain(" — "), plain(str(p.get('model', '—'))))
 
     buttons = [
         [
@@ -858,8 +895,7 @@ async def _handle_group_view(update: Update, context: ContextTypes.DEFAULT_TYPE,
         ],
         [InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_presets")],
     ]
-    keyboard = InlineKeyboardMarkup(buttons)
-    await _edit_or_send(update, context, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _handle_group_batch_key(update: Update, context: ContextTypes.DEFAULT_TYPE, key_hash: str):
@@ -885,13 +921,16 @@ async def _handle_group_set_label(update: Update, context: ContextTypes.DEFAULT_
 async def _show_group_manager(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show group manager — list all group_labels with preset counts."""
     groups = db.get_group_labels()
-    lines = ["🏷️ <b>مدیریت گروه‌ها</b>\n\n"]
+    msg = Message()
+    msg.add_line(plain("🏷️ "), bold("مدیریت گروه‌ها"))
+    msg.add_line()
     if not groups:
-        lines.append("هیچ گروهی تعریف نشده است.\nبرای گروه‌بندی، از فیلد group_label استفاده کنید.")
+        msg.add_line(plain("هیچ گروهی تعریف نشده است."))
+        msg.add_line(plain("برای گروه‌بندی، از فیلد group_label استفاده کنید."))
     else:
         for g in groups:
-            lines.append(f"• <b>{html_escape(g['label'])}</b> — {g['count']} پریست")
-    lines.append("")
+            msg.add_line(plain("• "), bold(str(g['label'])), plain(f" — {g['count']} پریست"))
+    msg.add_line()
 
     buttons = []
     from services.utils.callback_codec import label_token
@@ -902,19 +941,16 @@ async def _show_group_manager(update: Update, context: ContextTypes.DEFAULT_TYPE
         ])
     buttons.append([InlineKeyboardButton(IBTN_BACK, callback_data="admin:ai_settings")])
 
-    await _edit_or_send(update, context, "".join(lines), parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _handle_group_manager_rename(update: Update, context: ContextTypes.DEFAULT_TYPE, label: str):
     """Start rename flow for a group label."""
     context.user_data["awaiting"] = f"admin_group_manager_rename:{quote(label)}"
-    await _edit_or_send(
-        update, context,
-        f"✏️ نام جدید برای گروه <b>{html_escape(label)}</b> را ارسال کنید:\n"
-        "(خالی = انصراف)",
-        parse_mode=ParseMode.HTML,
-        reply_markup=admin_awaiting_inline_keyboard(),
-    )
+    msg = Message()
+    msg.add_line(plain("✏️ نام جدید برای گروه "), bold(str(label)), plain(" را ارسال کنید:"))
+    msg.add_line(plain("(خالی = انصراف)"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=admin_awaiting_inline_keyboard())
 
 
 async def _handle_group_manager_clear(update: Update, context: ContextTypes.DEFAULT_TYPE, label: str):
@@ -940,12 +976,9 @@ async def _confirm_save_preset(update: Update, context: ContextTypes.DEFAULT_TYP
             InlineKeyboardButton(IBTN_SAVE_CANCEL, callback_data=f"admin:ai_preset:confirm_save_no:{preset_ref}"),
         ]
     ])
-    await _edit_or_send(
-        update, context,
-        f"⚠️ <b>آیا از ذخیره تغییرات برای «{html_escape(preset_name)}» مطمئنید؟</b>",
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboard,
-    )
+    msg = Message()
+    msg.add_line(plain("⚠️ "), bold(f"آیا از ذخیره تغییرات برای «{preset_name}» مطمئنید؟"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=keyboard)
 
 
 async def _discard_all_preset_changes(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
@@ -1058,12 +1091,10 @@ async def _delete_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         ],
         [InlineKeyboardButton(BTN_BACK, callback_data=f"admin:ai_preset:view:{preset_ref}")],
     ])
-    await _edit_or_send(
-        update, context,
-        f"⚠️ <b>آیا از حذف پیش‌تنظیم «{html_escape(preset_name)}» مطمئنید؟</b>\nاین عمل بازگشت‌پذیر نیست.",
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboard,
-    )
+    msg = Message()
+    msg.add_line(plain("⚠️ "), bold(f"آیا از حذف پیش‌تنظیم «{preset_name}» مطمئنید؟"))
+    msg.add_line(plain("این عمل بازگشت‌پذیر نیست."))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=keyboard)
 
 
 async def _confirm_delete_yes(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
@@ -1106,13 +1137,11 @@ async def _duplicate_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYP
 async def _add_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Create a new custom preset - start with name input."""
     context.user_data["awaiting"] = "admin_ai_preset_new_name"
-    await _edit_or_send(
-        update, context,
-        "➕ <b>ایجاد پیش‌تنظیم جدید</b>\n\n"
-        "نام پیش‌تنظیم را وارد کنید (مثال: my_openai):",
-        parse_mode=ParseMode.HTML,
-        reply_markup=admin_awaiting_inline_keyboard()
-    )
+    msg = Message()
+    msg.add_line(plain("➕ "), bold("ایجاد پیش‌تنظیم جدید"))
+    msg.add_line()
+    msg.add_line(plain("نام پیش‌تنظیم را وارد کنید (مثال: my_openai):"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=admin_awaiting_inline_keyboard())
 
 
 async def _handle_ai_preset_new_name(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
@@ -1137,14 +1166,6 @@ async def _handle_ai_preset_new_name(update: Update, context: ContextTypes.DEFAU
 
 # ======== R14 Create Flow ========
 
-CREATE_PRIORITY_PROMPT = (
-    "🎯 <b>اولویت در زنجیره فال‌بک</b>\n\n"
-    "جایگاه پیش‌تنظیم جدید در زنجیره فال‌بک را انتخاب کنید:\n"
-    "• <b>بالا (مقدم)</b> — اولین نفری که امتحان می‌شود\n"
-    "• <b>پایین (کم‌اولویت)</b> — آخرین نفری که امتحان می‌شود\n"
-    "• <b>دستی</b> — عدد اولویت دلخواه وارد کنید"
-)
-
 
 async def _show_create_priority(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Prompt for the new preset's fallback-chain priority (R14)."""
@@ -1160,12 +1181,16 @@ async def _show_create_priority(update: Update, context: ContextTypes.DEFAULT_TY
         ],
         [InlineKeyboardButton("❌ لغو", callback_data="admin:ai_settings")],
     ]
-    await _edit_or_send(
-        update, context,
-        f"➕ <b>ایجاد پیش‌تنظیم جدید</b> — <code>{html_escape(name)}</code>\n\n" + CREATE_PRIORITY_PROMPT,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons),
-    )
+    msg = Message()
+    msg.add_line(plain("➕ "), bold("ایجاد پیش‌تنظیم جدید"), plain(" — "), code(str(name)))
+    msg.add_line()
+    msg.add_line(plain("🎯 "), bold("اولویت در زنجیره فال‌بک"))
+    msg.add_line()
+    msg.add_line(plain("جایگاه پیش‌تنظیم جدید در زنجیره فال‌بک را انتخاب کنید:"))
+    msg.add_line(plain("• "), bold("بالا (مقدم)"), plain(" — اولین نفری که امتحان می‌شود"))
+    msg.add_line(plain("• "), bold("پایین (کم‌اولویت)"), plain(" — آخرین نفری که امتحان می‌شود"))
+    msg.add_line(plain("• "), bold("دستی"), plain(" — عدد اولویت دلخواه وارد کنید"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _show_create_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1182,14 +1207,16 @@ async def _show_create_status(update: Update, context: ContextTypes.DEFAULT_TYPE
         ],
         [InlineKeyboardButton("❌ لغو", callback_data="admin:ai_settings")],
     ]
-    await _edit_or_send(
-        update, context,
-        f"⚙️ <b>وضعیت پیش‌تنظیم</b> — <code>{html_escape(name)}</code>\n\n"
-        "پیش‌تنظیم جدید به‌صورت <b>غیرفعال</b> ساخته می‌شود و تا وقتی آگاهانه فعالش نکنید، "
-        "هیچ درخواستی را سرو نمی‌کند. وضعیت را انتخاب کنید (می‌توانید پیش از آن اتصال را تست کنید):",
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons),
+    msg = Message()
+    msg.add_line(plain("⚙️ "), bold("وضعیت پیش‌تنظیم"), plain(" — "), code(str(name)))
+    msg.add_line()
+    msg.add_line(
+        plain("پیش‌تنظیم جدید به‌صورت "), bold("غیرفعال"),
+        plain(" ساخته می‌شود و تا وقتی آگاهانه فعالش نکنید، "
+              "هیچ درخواستی را سرو نمی‌کند. وضعیت را انتخاب کنید "
+              "(می‌توانید پیش از آن اتصال را تست کنید):"),
     )
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _finish_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1231,16 +1258,15 @@ async def _finish_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_presets")],
     ]
-    await _edit_or_send(
-        update, context,
-        f"✅ <b>پیش‌تنظیم ساخته شد</b> — <code>{html_escape(name)}</code>\n\n"
-        f"• وضعیت: {status}\n"
-        f"• اولویت زنجیره: <code>{preset.get('priority', 0)}</code>\n"
-        f"• سفارشی: بله\n\n"
-        "می‌توانید اتصال را تست کنید، وضعیت را تغییر دهید، یا مستقیم وارد ویرایش کامل شوید.",
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons),
-    )
+    msg = Message()
+    msg.add_line(plain("✅ "), bold("پیش‌تنظیم ساخته شد"), plain(" — "), code(str(name)))
+    msg.add_line()
+    msg.add_line(plain("• وضعیت: "), plain(status))
+    msg.add_line(plain("• اولویت زنجیره: "), code(str(preset.get('priority', 0))))
+    msg.add_line(plain("• سفارشی: بله"))
+    msg.add_line()
+    msg.add_line(plain("می‌توانید اتصال را تست کنید، وضعیت را تغییر دهید، یا مستقیم وارد ویرایش کامل شوید."))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 def _normal_chain_count() -> int:
@@ -1254,6 +1280,7 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
     name = state.get("name", "")
     preset = db.get_preset(name)
     await notify_callback(update.callback_query, "در حال تست اتصال...", intent=CallbackNoticeIntent.INFO)
+    msg = Message()
     if preset and (preset.get("base_url") or preset.get("model") or preset.get("api_key")):
         result = await asyncio.to_thread(
             ai.test_connection,
@@ -1263,16 +1290,19 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
             timeout=preset_fields.resolve(preset, "timeout_seconds"),
         )
         if result["success"]:
-            body = f"✅ <b>اتصال موفق</b>\nتأخیر: {result['latency_ms']} ms"
+            msg.add_line(plain("✅ "), bold("اتصال موفق"))
+            msg.add_line(plain("تأخیر: "), plain(str(result['latency_ms'])), plain(" ms"))
         else:
-            body = f"❌ <b>خطا در اتصال</b>\nخطا: {html_escape(str(result.get('error_message', '')))}"
+            msg.add_line(plain("❌ "), bold("خطا در اتصال"))
+            msg.add_line(plain("خطا: "), plain(str(result.get('error_message', ''))))
     else:
-        body = (
-            "⚠️ <b>تست اتصال برای پیش‌تنظیم تازه</b>\n\n"
-            "این پیش‌تنظیم هنوز base_url / model / api_key ندارد، پس اتصال واقعی "
-            "امکان‌پذیر نیست. ابتدا فیلدها را در ویرایش کامل پر کنید، سپس تست بگیرید.\n"
-            "این صرفاً یک یادآوری است و مشکلی در ساخت پیش‌تنظیم نیست."
+        msg.add_line(plain("⚠️ "), bold("تست اتصال برای پیش‌تنظیم تازه"))
+        msg.add_line()
+        msg.add_line(
+            plain("این پیش‌تنظیم هنوز base_url / model / api_key ندارد، پس اتصال واقعی "
+                  "امکان‌پذیر نیست. ابتدا فیلدها را در ویرایش کامل پر کنید، سپس تست بگیرید.")
         )
+        msg.add_line(plain("این صرفاً یک یادآوری است و مشکلی در ساخت پیش‌تنظیم نیست."))
     buttons = [
         [
             InlineKeyboardButton("🔄 تغییر وضعیت", callback_data="admin:ai_preset:create:toggle_enable"),
@@ -1282,7 +1312,7 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
         ],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_presets")],
     ]
-    await _edit_or_send(update, context, body, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _handle_create_toggle_enable(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1320,11 +1350,9 @@ async def _handle_create_priority_choice(
         await _show_create_status(update, context)
     elif choice == "manual":
         context.user_data["awaiting"] = f"ai_preset_create_priority:{state.get('name', '')}"
-        await update.callback_query.edit_message_text(
-            "🔢 <b>عدد اولویت دستی</b> را وارد کنید (عدد کمتر = اولویت بیشتر):",
-            parse_mode=ParseMode.HTML,
-            reply_markup=admin_awaiting_inline_keyboard(),
-        )
+        msg = Message()
+        msg.add_line(plain("🔢 "), bold("عدد اولویت دستی"), plain(" را وارد کنید (عدد کمتر = اولویت بیشتر):"))
+        await say(update, context, msg, backend=Backend.HTML, keyboard=admin_awaiting_inline_keyboard())
     else:
         await notify_callback(update.callback_query, "انتخاب نامعتبر", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
 
@@ -1376,15 +1404,12 @@ async def _test_ai_connection(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         active = db.get_active_preset()
     except db.NoActivePresetError:
-        await _edit_or_send(
-            update, context,
-            "⚠️ هیچ پیش‌تنظیم فعالی برای تست اتصال وجود ندارد.\n"
-            "اول یک پیش‌تنظیم را فعال کنید (یا در پنل AI یک پیش‌تنظیم جدید بسازید).",
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("↩️ بازگشت به تنظیمات AI", callback_data="admin:ai_settings")]
-            ]),
-        )
+        msg = Message()
+        msg.add_line(plain("⚠️ "), plain("هیچ پیش‌تنظیم فعالی برای تست اتصال وجود ندارد."))
+        msg.add_line(plain("اول یک پیش‌تنظیم را فعال کنید (یا در پنل AI یک پیش‌تنظیم جدید بسازید)."))
+        await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
+            [InlineKeyboardButton("↩️ بازگشت به تنظیمات AI", callback_data="admin:ai_settings")]
+        ]))
         return
     result = await asyncio.to_thread(
         ai.test_connection,
@@ -1394,28 +1419,21 @@ async def _test_ai_connection(update: Update, context: ContextTypes.DEFAULT_TYPE
         timeout=preset_fields.resolve(active, "timeout_seconds"),
     )
 
+    msg = Message()
     if result["success"]:
-        text = (
-            f"✅ <b>اتصال موفق</b>\n"
-            f"Latency: {result['latency_ms']} ms\n"
-            f"Model: {html_escape(str(result.get('model', '')))}\n"
-            f"Tokens: {html_escape(str(result.get('usage', '')))}"
-        )
+        msg.add_line(plain("✅ "), bold("اتصال موفق"))
+        msg.add_line(plain("Latency: "), plain(str(result['latency_ms'])), plain(" ms"))
+        msg.add_line(plain("Model: "), plain(str(result.get('model', ''))))
+        msg.add_line(plain("Tokens: "), plain(str(result.get('usage', ''))))
     else:
-        text = (
-            f"❌ <b>خطا در اتصال</b>\n"
-            f"Error: {html_escape(str(result.get('error_class', '')))}: {html_escape(str(result.get('error_message', '')))}\n"
-            f"Latency: {result['latency_ms']} ms"
-        )
+        msg.add_line(plain("❌ "), bold("خطا در اتصال"))
+        msg.add_line(plain("Error: "), plain(str(result.get('error_class', ''))), plain(": "), plain(str(result.get('error_message', ''))))
+        msg.add_line(plain("Latency: "), plain(str(result['latency_ms'])), plain(" ms"))
 
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔁 تست مجدد", callback_data="admin:ai_test_connection")],
-            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
-        ])
-    )
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔁 تست مجدد", callback_data="admin:ai_test_connection")],
+        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
+    ]))
 
 
 # ======== Custom Test Wizard ========
@@ -1425,14 +1443,12 @@ async def _start_custom_test_wizard(update: Update, context: ContextTypes.DEFAUL
     context.user_data["custom_test_state"] = {"step": "prompt"}
     context.user_data["awaiting"] = "ai_custom_test_prompt"
 
-    await _edit_or_send(
-        update, context,
-        "🧪 <b>تست سفارشی کارت</b>\n\n"
-        "مرحله ۱/۵: پرامپت سیستم (یا متن تست) را وارد کنید:\n"
-        "<i>مثال: یک کارت واژگان برای سطح مبتدی بساز</i>",
-        parse_mode=ParseMode.HTML,
-        reply_markup=admin_awaiting_inline_keyboard()
-    )
+    msg = Message()
+    msg.add_line(plain("🧪 "), bold("تست سفارشی کارت"))
+    msg.add_line()
+    msg.add_line(plain("مرحله ۱/۵: پرامپت سیستم (یا متن تست) را وارد کنید:"))
+    msg.add_line(italic("مثال: یک کارت واژگان برای سطح مبتدی بساز"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=admin_awaiting_inline_keyboard())
 
 
 async def _custom_test_step_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1445,13 +1461,11 @@ async def _custom_test_step_lang(update: Update, context: ContextTypes.DEFAULT_T
         [InlineKeyboardButton(opt.name_fa, callback_data=f"admin:ai_custom_test:lang:{opt.code}")]
         for opt in LANGUAGES.values()
     ]
-    await _edit_or_send(
-        update, context,
-        "🧪 <b>تست سفارشی - مرحله ۲/۵</b>\n\n"
-        "زبان مقصد را انتخاب کنید:",
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+    msg = Message()
+    msg.add_line(plain("🧪 "), bold("تست سفارشی - مرحله ۲/۵"))
+    msg.add_line()
+    msg.add_line(plain("زبان مقصد را انتخاب کنید:"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _custom_test_step_goal(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str):
@@ -1464,13 +1478,11 @@ async def _custom_test_step_goal(update: Update, context: ContextTypes.DEFAULT_T
         [InlineKeyboardButton(opt.name_fa, callback_data=f"admin:ai_custom_test:goal:{opt.code}")]
         for opt in GOALS.values()
     ]
-    await _edit_or_send(
-        update, context,
-        "🧪 <b>تست سفارشی - مرحله ۳/۵</b>\n\n"
-        "هدف یادگیری را انتخاب کنید:",
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+    msg = Message()
+    msg.add_line(plain("🧪 "), bold("تست سفارشی - مرحله ۳/۵"))
+    msg.add_line()
+    msg.add_line(plain("هدف یادگیری را انتخاب کنید:"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _custom_test_step_level(update: Update, context: ContextTypes.DEFAULT_TYPE, goal: str):
@@ -1483,13 +1495,11 @@ async def _custom_test_step_level(update: Update, context: ContextTypes.DEFAULT_
         [InlineKeyboardButton(f"{opt.name_fa} ({opt.cefr})", callback_data=f"admin:ai_custom_test:level:{opt.code}")]
         for opt in LEVELS.values()
     ]
-    await _edit_or_send(
-        update, context,
-        "🧪 <b>تست سفارشی - مرحله ۴/۵</b>\n\n"
-        "سطح زبان را انتخاب کنید:",
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+    msg = Message()
+    msg.add_line(plain("🧪 "), bold("تست سفارشی - مرحله ۴/۵"))
+    msg.add_line()
+    msg.add_line(plain("سطح زبان را انتخاب کنید:"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _custom_test_step_target(update: Update, context: ContextTypes.DEFAULT_TYPE, level: str):
@@ -1501,16 +1511,13 @@ async def _custom_test_step_target(update: Update, context: ContextTypes.DEFAULT
     try:
         active_preset = db.get_active_preset()
     except db.NoActivePresetError:
-        await _edit_or_send(
-            update, context,
-            "⚠️ هیچ پیش‌تنظیم فعالی برای تست «جدید» وجود ندارد.\n"
-            "اول یک پیش‌تنظیم را فعال کنید یا فقط گزینه «پیش‌تنظیم کاندیدا» را انتخاب کنید.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔸 پیش‌تنظیم کاندیدا", callback_data="admin:ai_custom_test:target:candidate")],
-                [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
-            ]),
-        )
+        msg = Message()
+        msg.add_line(plain("⚠️ "), plain("هیچ پیش‌تنظیم فعالی برای تست «جدید» وجود ندارد."))
+        msg.add_line(plain("اول یک پیش‌تنظیم را فعال کنید یا فقط گزینه «پیش‌تنظیم کاندیدا» را انتخاب کنید."))
+        await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔸 پیش‌تنظیم کاندیدا", callback_data="admin:ai_custom_test:target:candidate")],
+            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
+        ]))
         return
     buttons = [
         [InlineKeyboardButton("🔹 پیکربندی فعلی", callback_data="admin:ai_custom_test:target:current")],
@@ -1518,15 +1525,13 @@ async def _custom_test_step_target(update: Update, context: ContextTypes.DEFAULT
         [InlineKeyboardButton("⚖️ مقایسه A/B", callback_data="admin:ai_custom_test:target:ab")],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
     ]
-    await _edit_or_send(
-        update, context,
-        "🧪 <b>تست سفارشی - مرحله ۵/۵</b>\n\n"
-        "هدف تست را انتخاب کنید:\n"
-        f"- فعلی: {html_escape(str(active_preset.get('name', 'gapgpt')))}\n"
-        f"- کاندیدا: پیش‌تنظیم دیگری را انتخاب کنید",
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+    msg = Message()
+    msg.add_line(plain("🧪 "), bold("تست سفارشی - مرحله ۵/۵"))
+    msg.add_line()
+    msg.add_line(plain("هدف تست را انتخاب کنید:"))
+    msg.add_line(plain("- فعلی: "), plain(str(active_preset.get('name', 'gapgpt'))))
+    msg.add_line(plain("- کاندیدا: پیش‌تنظیم دیگری را انتخاب کنید"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 
 async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, target: str):
@@ -1549,15 +1554,12 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         try:
             active_preset = db.get_active_preset()
         except db.NoActivePresetError:
-            await _edit_or_send(
-                update, context,
-                "⚠️ هیچ پیش‌تنظیم فعالی برای تست «پیکربندی فعلی» وجود ندارد.\n"
-                "ابتدا یک پیش‌تنظیم را فعال کنید.",
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
-                ]),
-            )
+            msg = Message()
+            msg.add_line(plain("⚠️ "), plain("هیچ پیش‌تنظیم فعالی برای تست «پیکربندی فعلی» وجود ندارد."))
+            msg.add_line(plain("ابتدا یک پیش‌تنظیم را فعال کنید."))
+            await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
+                [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
+            ]))
             return
         result = await asyncio.to_thread(
             ai.custom_test_card,
@@ -1585,25 +1587,22 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         results.append((f"Candidate ({candidate_name})", result))
 
     # Format results
-    lines = ["🧪 <b>نتیجه تست سفارشی</b>\n"]
+    msg = Message()
+    msg.add_line(plain("🧪 "), bold("نتیجه تست سفارشی"))
     for label, card in results:
-        lines.append(f"<b>{html_escape(label)}</b>")
-        lines.append(f"Word: {html_escape(str(card.get('word', '?')))}")
-        lines.append(f"Meaning: {html_escape(str(card.get('fa_meaning', '?')))}")
-        lines.append(f"Examples: {html_escape(str(card.get('examples', [])))}")
-        lines.append("")
+        msg.add_line()
+        msg.add_line(bold(str(label)))
+        msg.add_line(plain("Word: "), plain(str(card.get('word', '?'))))
+        msg.add_line(plain("Meaning: "), plain(str(card.get('fa_meaning', '?'))))
+        msg.add_line(plain("Examples: "), plain(str(card.get('examples', []))))
 
-    lines.append("🧪 این تست روی پیکربندی پیش‌تنظیم اجرا شد، نه مسیر تولید.")
+    msg.add_line()
+    msg.add_line(plain("🧪 این تست روی پیکربندی پیش‌تنظیم اجرا شد، نه مسیر تولید."))
 
-    await _edit_or_send(
-        update, context,
-        "\n".join(lines),
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔁 تست مجدد", callback_data="admin:ai_custom_test")],
-            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
-        ])
-    )
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔁 تست مجدد", callback_data="admin:ai_custom_test")],
+        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
+    ]))
     context.user_data.pop("custom_test_state", None)
 
 
@@ -1642,13 +1641,11 @@ async def _custom_test_step_preset(update: Update, context: ContextTypes.DEFAULT
         for p in presets
     ]
     buttons.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_custom_test")])
-    await _edit_or_send(
-        update, context,
-        "🧪 <b>تست سفارشی - انتخاب پیش‌تنظیم</b>\n\n"
-        "پیش‌تنظیم کاندیدا را انتخاب کنید:",
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+    msg = Message()
+    msg.add_line(plain("🧪 "), bold("تست سفارشی - انتخاب پیش‌تنظیم"))
+    msg.add_line()
+    msg.add_line(plain("پیش‌تنظیم کاندیدا را انتخاب کنید:"))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
 async def _show_ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show fallback configuration panel."""
@@ -1661,25 +1658,21 @@ async def _show_ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status_label = "🎯 Fallback ACTIVE"
     else:
         status_label = "🎯 Primary Active"
-    text = (
-        "🔄 <b>مدیریت پیش‌تنظیم پشتیبان (Fallback)</b>\n\n"
-        f"Status: {status_label}\n"
-        f"Primary: {html_escape(str(status['primary_preset']))}\n"
-        f"Fallback: {html_escape(str(status['fallback_preset']))}\n"
-        f"Consecutive Failures: {status['consecutive_failures']}\n"
-    )
+    msg = Message()
+    msg.add_line(plain("🔄 "), bold("مدیریت پیش‌تنظیم پشتیبان (Fallback)"))
+    msg.add_line()
+    msg.add_line(plain("Status: "), plain(status_label))
+    msg.add_line(plain("Primary: "), plain(str(status['primary_preset'])))
+    msg.add_line(plain("Fallback: "), plain(str(status['fallback_preset'])))
+    msg.add_line(plain("Consecutive Failures: "), plain(str(status['consecutive_failures'])))
     if status["fallback_active"] and status["fallback_since"]:
-        text += f"Fallback Since: {html_escape(str(status['fallback_since'][:19]))}\n"
+        msg.add_line(plain("Fallback Since: "), plain(str(status['fallback_since'][:19])))
 
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=ai_fallback_keyboard(
-            status["primary_preset"],
-            status["fallback_preset"],
-            status["fallback_preset"] if status["fallback_active"] else status["primary_preset"]
-        )
-    )
+    await say(update, context, msg, backend=Backend.HTML, keyboard=ai_fallback_keyboard(
+        status["primary_preset"],
+        status["fallback_preset"],
+        status["fallback_preset"] if status["fallback_active"] else status["primary_preset"]
+    ))
 
 
 async def _handle_ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
@@ -1724,80 +1717,78 @@ async def _show_fallback_preset_picker(update: Update, context: ContextTypes.DEF
 
 async def _show_help_presets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show help overview for presets."""
-    text = (
-        "❓ <b>راهنمای پریست‌های AI</b>\n\n"
-        "هر پریست یک تنظیمات کامل برای اتصال به یک سرویس‌دهنده AI است.\n\n"
-        "<b>فیلدهای اصلی:</b>\n"
-        "• name: نام یکتای پریست (فقط حروف انگلیسی، اعداد، زیرخط)\n"
-        "• api_key: کلید API (مقدار ثابت؛ به‌صورت رمزنگاری‌شده ذخیره می‌شود)\n"
-        "• base_url: آدرس سرور (سازگار با OpenAI)\n"
-        "• model: نام دقیق مدل\n\n"
-        "<b>محدودیت‌ها:</b>\n"
-        "• max_concurrency: تعداد درخواست هم‌زمان\n"
-        "• max_rpm: سقف درخواست در دقیقه (0 = بی‌محدودیت)\n"
-        "• max_tpm: سقف توکن در دقیقه (0 = بی‌محدودیت)\n"
-        "• max_daily_req: سقف درخواست روزانه (0 = بی‌محدودیت)\n\n"
-        "<b>زنجیره فال‌بک:</b>\n"
-        "پریست‌ها بر اساس priority (کم→زیاد) و is_emergency مرتب می‌شوند.\n"
-        "پریست‌های عادی اول امتحان می‌شوند، سپس اضطراری.\n"
-        "in_fallback_chain=0 یعنی پریست در زنجیره شرکت نمی‌کند.\n\n"
-        "<b>گروه‌بندی:</b>\n"
-        "پریست‌هایی که کلید API مشترک دارند در یک گروه قرار می‌گیرند.\n"
-        "group_label برای نام‌گذاری گروه‌ها استفاده می‌شود."
-    )
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")]
-        ])
-    )
+    msg = Message()
+    msg.add_line(plain("❓ "), bold("راهنمای پریست‌های AI"))
+    msg.add_line()
+    msg.add_line(plain("هر پریست یک تنظیمات کامل برای اتصال به یک سرویس‌دهنده AI است."))
+    msg.add_line()
+    msg.add_line(bold("فیلدهای اصلی:"))
+    msg.add_line(plain("• name: نام یکتای پریست (فقط حروف انگلیسی، اعداد، زیرخط)"))
+    msg.add_line(plain("• api_key: کلید API (مقدار ثابت؛ به‌صورت رمزنگاری‌شده ذخیره می‌شود)"))
+    msg.add_line(plain("• base_url: آدرس سرور (سازگار با OpenAI)"))
+    msg.add_line(plain("• model: نام دقیق مدل"))
+    msg.add_line()
+    msg.add_line(bold("محدودیت‌ها:"))
+    msg.add_line(plain("• max_concurrency: تعداد درخواست هم‌زمان"))
+    msg.add_line(plain("• max_rpm: سقف درخواست در دقیقه (0 = بی‌محدودیت)"))
+    msg.add_line(plain("• max_tpm: سقف توکن در دقیقه (0 = بی‌محدودیت)"))
+    msg.add_line(plain("• max_daily_req: سقف درخواست روزانه (0 = بی‌محدودیت)"))
+    msg.add_line()
+    msg.add_line(bold("زنجیره فال‌بک:"))
+    msg.add_line(plain("پریست‌ها بر اساس priority (کم→زیاد) و is_emergency مرتب می‌شوند."))
+    msg.add_line(plain("پریست‌های عادی اول امتحان می‌شوند، سپس اضطراری."))
+    msg.add_line(plain("in_fallback_chain=0 یعنی پریست در زنجیره شرکت نمی‌کند."))
+    msg.add_line()
+    msg.add_line(bold("گروه‌بندی:"))
+    msg.add_line(plain("پریست‌هایی که کلید API مشترک دارند در یک گروه قرار می‌گیرند."))
+    msg.add_line(plain("group_label برای نام‌گذاری گروه‌ها استفاده می‌شود."))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
+        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")]
+    ]))
 
 
 async def _show_help_fallback_chain(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show help for fallback chain."""
-    text = (
-        "❓ <b>راهنمای زنجیره فال‌بک</b>\n\n"
-        "ترتیب زنجیره:\n"
-        "۱. پریست‌های عادی (is_emergency=0) بر اساس priority (از کم به زیاد)\n"
-        "۲. پریست‌های اضطراری (is_emergency=1) بر اساس priority\n\n"
-        "پریست‌های با in_fallback_chain=0 در زنجیره نمایش داده نمی‌شوند.\n\n"
-        "<b>دکمه‌ها:</b>\n"
-        "• ⬆/⬇: جابه‌جایی دستی (تغییر priority)\n"
-        "• 🟢/⚫: فعال/غیرفعال کردن پریست\n"
-        "• 🛡️: تبدیل به پریست اضطراری\n"
-        "• 🎯: پرش به رتبه دلخواه در گروه\n\n"
-        "پریست اضطراری همیشه بعد از همه پریست‌های عادی امتحان می‌شود."
-    )
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("↩️ بازگشت به زنجیره", callback_data="admin:fallback_chain")]
-        ])
-    )
+    msg = Message()
+    msg.add_line(plain("❓ "), bold("راهنمای زنجیره فال‌بک"))
+    msg.add_line()
+    msg.add_line(plain("ترتیب زنجیره:"))
+    msg.add_line(plain("۱. پریست‌های عادی (is_emergency=0) بر اساس priority (از کم به زیاد)"))
+    msg.add_line(plain("۲. پریست‌های اضطراری (is_emergency=1) بر اساس priority"))
+    msg.add_line()
+    msg.add_line(plain("پریست‌های با in_fallback_chain=0 در زنجیره نمایش داده نمی‌شوند."))
+    msg.add_line()
+    msg.add_line(bold("دکمه‌ها:"))
+    msg.add_line(plain("• ⬆/⬇: جابه‌جایی دستی (تغییر priority)"))
+    msg.add_line(plain("• 🟢/⚫: فعال/غیرفعال کردن پریست"))
+    msg.add_line(plain("• 🛡️: تبدیل به پریست اضطراری"))
+    msg.add_line(plain("• 🎯: پرش به رتبه دلخواه در گروه"))
+    msg.add_line()
+    msg.add_line(plain("پریست اضطراری همیشه بعد از همه پریست‌های عادی امتحان می‌شود."))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
+        [InlineKeyboardButton("↩️ بازگشت به زنجیره", callback_data="admin:fallback_chain")]
+    ]))
 
 
 async def _show_fallback_chain(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show and manage the fallback chain order."""
     chain = db.get_fallback_chain_presets()
-    text = (
-        "⛓️ <b>زنجیره فال‌بک</b>\n\n"
-        "ترتیب: پریست‌های عادی (is_emergency=0) بر اساس priority (از کم به زیاد)، "
-        "سپس پریست‌های اضطراری (is_emergency=1).\n"
-        "پریست‌های با in_fallback_chain=0 در این زنجیره نمایش داده نمی‌شوند.\n\n"
+    msg = Message()
+    msg.add_line(plain("⛓️ "), bold("زنجیره فال‌بک"))
+    msg.add_line()
+    msg.add_line(
+        plain("ترتیب: پریست‌های عادی (is_emergency=0) بر اساس priority (از کم به زیاد)، "),
+        plain("سپس پریست‌های اضطراری (is_emergency=1)."),
     )
+    msg.add_line(plain("پریست‌های با in_fallback_chain=0 در این زنجیره نمایش داده نمی‌شوند."))
+    msg.add_line()
     for i, preset in enumerate(chain):
         name = preset.get("name", "?")
         is_emergency = preset_fields.resolve(preset, "is_emergency")
         status = "🛡️ اضطراری" if is_emergency else "🟢 فعال"
-        text += f"{i+1}. <b>{html_escape(name)}</b> — {status}\n"
+        msg.add_line(plain(f"{i+1}. "), bold(str(name)), plain(f" — {status}"))
 
-    await _edit_or_send(
-        update, context, text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=fallback_chain_keyboard(chain)
-    )
+    await say(update, context, msg, backend=Backend.HTML, keyboard=fallback_chain_keyboard(chain))
 
 
 USAGE_PAGE_SIZE = 5
@@ -1836,22 +1827,24 @@ def _render_usage_page(page: int) -> tuple[str, InlineKeyboardMarkup]:
         return "هیچ داده‌ای یافت نشد.", _usage_page_keyboard(0, 1)
     start = page * USAGE_PAGE_SIZE
     slice_rows = rows[start:start + USAGE_PAGE_SIZE]
-    lines = [f"📊 <b>مصرف ۲۴ ساعته پریست‌ها</b> (صفحه {page + 1}/{total_pages})\n"]
+    msg = Message()
+    msg.add_line(plain("📊 "), bold("مصرف ۲۴ ساعته پریست‌ها"), plain(f" (صفحه {page + 1}/{total_pages})"))
+    msg.add_line()
     for status, name, detail in slice_rows:
-        lines.append(f"{status} <b>{html_escape(name)}</b>: {detail}")
-    return "\n".join(lines), _usage_page_keyboard(page, total_pages)
+        msg.add_line(plain(status), plain(" "), bold(str(name)), plain(": "), plain(detail))
+    return msg.render(Backend.HTML), _usage_page_keyboard(page, total_pages)
 
 
 async def _show_fallback_usage_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """R7: Show daily consumption for all presets, paginated."""
     text, keyboard = _render_usage_page(0)
-    await _edit_or_send(update, context, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await say(update, context, text, raw=RawFormat.HTML, keyboard=keyboard)
 
 
 async def _show_usage_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int):
     """R7: show a specific usage page."""
     text, keyboard = _render_usage_page(page)
-    await _edit_or_send(update, context, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await say(update, context, text, raw=RawFormat.HTML, keyboard=keyboard)
 
 
 async def _handle_fallback_rank(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
