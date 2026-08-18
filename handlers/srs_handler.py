@@ -28,6 +28,7 @@ from handlers.study_handler import (
     advance_session,
     get_active_study_session,
     session_progress_footer,
+    _persist_session,
 )
 
 logger = logging.getLogger(__name__)
@@ -129,7 +130,9 @@ async def _handle_srs_reveal(
         await notify_callback(update.callback_query)
         return
 
-    state = context.user_data.get("current_session")
+    # Restart recovery: a same-day persisted session may exist even though the
+    # in-memory session was lost (mirrors the grade handlers, Bug #401).
+    state = get_active_study_session(user_id, context)
     node = state.nodes[0] if state and state.nodes else None
     if (
         node is None
@@ -223,20 +226,44 @@ async def _handle_srs_review(
         await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     session = get_active_study_session(user_id, context)
-    if session is not None and (not session.nodes or session.nodes[0].source_id != word_id):
-        # Stale/out-of-session button (e.g. pre-restart message) — never grade
-        # a card that is not the active one (R2, Bug #401).
-        await notify_callback(
-            update.callback_query,
-            "این پیام دیگر معتبر نیست.",
-            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
-        )
-        return
+    if session is not None:
+        if (
+            not session.nodes
+            or session.nodes[0].source_id != word_id
+            or session.nodes[0].activity_type != "srs_review"
+        ):
+            # Stale/out-of-session button (e.g. a pre-restart message, or an old
+            # first-exposure card whose word resurfaced as a review node): never
+            # grade a card that is not the active review card (R2, Bug #401).
+            await notify_callback(
+                update.callback_query,
+                "این پیام دیگر معتبر نیست.",
+                intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+            )
+            return
+        if word_id in session.graded_word_ids:
+            # Already graded within this same session — the grade's DB write
+            # landed but its advance was lost to a restart/network error, or a
+            # genuine double tap. Skip idempotently and continue: never re-grade
+            # (FSRS corruption) and never soft-lock (R3, Bug #401).
+            context.user_data.pop(f"card_shown_at_{word_id}", None)
+            _log_ua(update, action="srs_review", outcome="grade_already_recorded")
+            await notify_callback(
+                update.callback_query,
+                "قبلاً ثبت شد.",
+                intent=CallbackNoticeIntent.INFO,
+            )
+            await advance_session(update, context)
+            return
     resolved = resolve_grade("srs_review", grade)
     result = db.grade_word_review(word_id, resolved, user_id)
     if result.ok:
-        if session is not None and word_id not in session.graded_word_ids:
+        if session is not None:
             session.graded_word_ids.append(word_id)
+            # Persist durable IMMEDIATELY (before advance_session) so a restart
+            # or lost advance still records this card as graded for the
+            # idempotent re-grade guard (R3, Bug #401).
+            _persist_session(user_id, session)
         shown_at = context.user_data.pop(f"card_shown_at_{word_id}", None)
         response_time_ms = None
         if shown_at is not None:
@@ -266,19 +293,9 @@ async def _handle_srs_review(
             response_time_ms,
         )
         await advance_session(update, context)
-    elif result.reason == "wrong_state" and session is not None and session.nodes[0].source_id == word_id:
-        # Already graded within this same session (lost advance / double tap).
-        # Skip idempotently and continue — never soft-lock (R3, Bug #401).
-        if word_id not in session.graded_word_ids:
-            session.graded_word_ids.append(word_id)
-        await notify_callback(
-            update.callback_query,
-            "قبلاً ثبت شد.",
-            intent=CallbackNoticeIntent.INFO,
-        )
-        await advance_session(update, context)
     else:
-        # Expected failure: do NOT record telemetry, touch streak, or advance.
+        # Genuine error (e.g. wrong_state: no first exposure / no last_review_at).
+        # Do NOT record telemetry, touch streak, or advance.
         await notify_callback(
             update.callback_query,
             _grade_error_text(result.reason),
@@ -306,18 +323,44 @@ async def _handle_first_exposure_grade(
         await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     session = get_active_study_session(user_id, context)
-    if session is not None and (not session.nodes or session.nodes[0].source_id != word_id):
-        await notify_callback(
-            update.callback_query,
-            "این پیام دیگر معتبر نیست.",
-            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
-        )
-        return
+    if session is not None:
+        if (
+            not session.nodes
+            or session.nodes[0].source_id != word_id
+            or session.nodes[0].activity_type != "first_exposure"
+        ):
+            # Stale/out-of-session button (e.g. a pre-restart message, or an old
+            # review card whose word resurfaced as a first-exposure node): never
+            # grade a card that is not the active first-exposure card (R2, #401).
+            await notify_callback(
+                update.callback_query,
+                "این پیام دیگر معتبر نیست.",
+                intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+            )
+            return
+        if word_id in session.graded_word_ids:
+            # Already graded within this same session — the grade's DB write
+            # landed but its advance was lost to a restart/network error, or a
+            # genuine double tap. Skip idempotently — never re-grade or
+            # soft-lock (R3, Bug #401).
+            context.user_data.pop(f"card_shown_at_{word_id}", None)
+            _log_ua(update, action="first_exposure", outcome="grade_already_recorded")
+            await notify_callback(
+                update.callback_query,
+                "قبلاً ثبت شد.",
+                intent=CallbackNoticeIntent.INFO,
+            )
+            await advance_session(update, context)
+            return
     resolved = resolve_grade("first_exposure", grade)
     result = db.grade_first_exposure(word_id, resolved, user_id)
     if result.ok:
-        if session is not None and word_id not in session.graded_word_ids:
+        if session is not None:
             session.graded_word_ids.append(word_id)
+            # Persist durable IMMEDIATELY (before advance_session) so a restart
+            # or lost advance still records this card as graded for the
+            # idempotent re-grade guard (R3, Bug #401).
+            _persist_session(user_id, session)
         # response_time_ms intentionally omitted for first-exposure:
         # there is no recall attempt, just a familiarity rating, so
         # the signal is not comparable to regular-review response time.
@@ -337,17 +380,6 @@ async def _handle_first_exposure_grade(
             intent=CallbackNoticeIntent.SUCCESS,
         )
         _log_ua(update, action="first_exposure", outcome=f"grade_{grade}")
-        await advance_session(update, context)
-    elif result.reason == "wrong_state" and session is not None and session.nodes[0].source_id == word_id:
-        # Already graded within this same session (lost advance / double tap).
-        # Skip idempotently and continue — never soft-lock (R3, Bug #401).
-        if word_id not in session.graded_word_ids:
-            session.graded_word_ids.append(word_id)
-        await notify_callback(
-            update.callback_query,
-            "قبلاً ثبت شد.",
-            intent=CallbackNoticeIntent.INFO,
-        )
         await advance_session(update, context)
     else:
         await notify_callback(

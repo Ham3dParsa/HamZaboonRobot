@@ -92,7 +92,7 @@ def _state_from_json(raw: str) -> SessionState:
         tier3_context=data["tier3_context"],
         study_msg_id=data["study_msg_id"],
         plan=data["plan"],
-        graded_word_ids=data.get("graded_word_ids", []),
+        graded_word_ids=data.get("graded_word_ids") or [],
     )
 
 

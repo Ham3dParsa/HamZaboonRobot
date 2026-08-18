@@ -1,12 +1,23 @@
-"""Integration tests for study-session grade after bot restart (issue #401).
+"""Integration tests for study-session grading after a bot restart (issue #401).
 
-Mirrors the self-contained temp-DB harness from test_grade_feedback_intent.py.
+Mirrors the self-contained temp-DB harness from
+tests/test_integration/test_study_session_restart_flow.py.
+
 Covers the locked contract:
-- R1: a grade after a restart advances the DB-persisted session (no wrong_state).
-- R2: a stale/out-of-session grade button is rejected (never grades a non-active card).
-- R3: an idempotent re-grade (DB write landed but advance was lost) skips + advances
-      without soft-locking or double-grading; a legit new-session review still grades.
-- Edge: no session at all (no memory, no persisted) rejects safely.
+- R1: a grade after a restart advances the DB-persisted same-day session (no
+  wrong_state, no soft-lock) — on both the first-exposure and review paths.
+- R2: a stale/out-of-session grade button is rejected (never grades a non-active
+  card), and the guard also checks the node's activity_type (an old
+  first-exposure card whose word resurfaced as a review node cannot be graded
+  through the stale button).
+- R3: idempotent re-grade is driven by the durable, session-scoped
+  `graded_word_ids` — a card already graded in this session (its DB write
+  landed but its advance was lost, or a genuine double tap) is skipped WITHOUT a
+  second FSRS write (no corruption) and without soft-locking. A card that
+  legitimately reappears in a *new* session still grades normally.
+- A genuine `wrong_state` (word never exposed) stays an actionable error.
+- Edge: a grade with no session at all (no memory, nothing persisted) still
+  records the word standalone.
 """
 
 from __future__ import annotations
@@ -25,6 +36,7 @@ from handlers.study_handler import (
     SessionState,
     _persist_session,
     _restore_persisted_session,
+    _state_from_json,
 )
 from services.utils.callback_notifications import CallbackNoticeIntent
 
@@ -62,7 +74,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
                 "SELECT id FROM saved_words WHERE user_id=1 AND word=?", (word,)
             ).fetchone()["id"]
 
-    def _session(self, word_ids, activity_type="first_exposure"):
+    def _session(self, word_ids, activity_type="first_exposure", graded_word_ids=None):
         return SessionState(
             nodes=[
                 SessionNode(activity_type=activity_type, source_tier=0, card_data={}, source_id=w)
@@ -72,11 +84,20 @@ class StudySessionGradeRestartTests(unittest.TestCase):
             tier3_context={},
             study_msg_id=None,
             plan="free",
-            graded_word_ids=[],
+            graded_word_ids=list(graded_word_ids or []),
         )
 
     def _persist(self, state):
         _persist_session(1, state)
+
+    def _review_events(self, word_id=None):
+        with db.get_conn() as conn:
+            if word_id is None:
+                return conn.execute("SELECT COUNT(*) FROM review_events").fetchone()[0]
+            return conn.execute(
+                "SELECT COUNT(*) FROM review_events WHERE word_id=? AND user_id=1",
+                (word_id,),
+            ).fetchone()[0]
 
     def _query(self):
         q = MagicMock()
@@ -101,7 +122,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
         c.bot.send_message = AsyncMock()
         return c
 
-    # --- R1: post-restart grade advances the persisted session ---
+    # --- R1: post-restart grade advances the persisted session (FE path) ---
     def test_post_restart_grade_advances_persisted_session(self):
         self._persist(self._session([self.w2]))  # only w2 left, no in-memory session
         ctx = self._ctx()
@@ -117,7 +138,22 @@ class StudySessionGradeRestartTests(unittest.TestCase):
         self.assertTrue(db.get_saved_word(self.w2, 1)["first_exposure_done"])
         self.assertIsNone(_restore_persisted_session(1))
 
-    # --- R2: stale/out-of-session button rejected ---
+    # --- R1 on the regular-review path as well ---
+    def test_review_post_restart_advances(self):
+        self.assertTrue(db.grade_first_exposure(self.w2, 3, 1).ok)  # w2 now in review state
+        self._persist(self._session([self.w2], activity_type="srs_review"))
+        ctx = self._ctx()
+        with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
+            asyncio.run(
+                srs_handler._handle_srs_review(
+                    self._update(self._query()), 3, "1", str(self.w2), ctx
+                )
+            )
+            notify.assert_called_once()
+            self.assertEqual(notify.call_args.kwargs["intent"], CallbackNoticeIntent.SUCCESS)
+        self.assertIsNone(_restore_persisted_session(1))
+
+    # --- R2: stale/out-of-session button rejected (FE path) ---
     def test_stale_button_rejected(self):
         self._persist(self._session([self.w2]))  # active node is w2
         ctx = self._ctx()
@@ -135,33 +171,140 @@ class StudySessionGradeRestartTests(unittest.TestCase):
         self.assertFalse(db.get_saved_word(self.w1, 1)["first_exposure_done"])
         self.assertEqual(_restore_persisted_session(1).nodes[0].source_id, self.w2)
 
-    # --- R3: idempotent re-grade when the prior advance was lost ---
-    def test_idempotent_regrade_when_advance_lost(self):
-        # w2 already graded in DB (prior grade whose advance was lost), but the
-        # persisted session still lists it as the active card.
-        self.assertTrue(db.grade_first_exposure(self.w2, 3, 1).ok)
-        self._persist(self._session([self.w2]))
+    # --- R2 on the review path (previously uncovered) ---
+    def test_review_path_stale_button_rejected(self):
+        self._persist(self._session([self.w2], activity_type="srs_review"))
         ctx = self._ctx()
         with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
+            # callback targets w1, not the active review card
+            asyncio.run(
+                srs_handler._handle_srs_review(
+                    self._update(self._query()), 3, "1", str(self.w1), ctx
+                )
+            )
+            notify.assert_called_once()
+            self.assertEqual(notify.call_args.kwargs["intent"], CallbackNoticeIntent.IMPORTANT_ERROR)
+            self.assertIn("این پیام دیگر معتبر نیست", notify.call_args.args[1])
+        self.assertFalse(db.get_saved_word(self.w1, 1)["first_exposure_done"])
+        self.assertEqual(_restore_persisted_session(1).nodes[0].source_id, self.w2)
+
+    # --- R2 hole (activity_type): an old FE card whose word resurfaced as the
+    #     active review node must not be gradeable through the stale FE button ---
+    def test_stale_fe_button_over_active_review_node_rejected(self):
+        self.assertTrue(db.grade_first_exposure(self.w2, 3, 1).ok)  # w2 now reviewable
+        self._persist(self._session([self.w2], activity_type="srs_review", graded_word_ids=[]))
+        ctx = self._ctx()
+        with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
+            # tapping the OLD first-exposure card for w2, which is now the active
+            # review node of a newer session
             asyncio.run(
                 srs_handler._handle_first_exposure_grade(
                     self._update(self._query()), ctx, "4", "1", str(self.w2)
                 )
             )
             notify.assert_called_once()
-            # idempotent skip -> INFO toast, NOT an error
-            self.assertEqual(notify.call_args.kwargs["intent"], CallbackNoticeIntent.INFO)
-            self.assertIn("قبلاً ثبت شد", notify.call_args.args[1])
-        # advanced without re-grading; session cleared
-        self.assertIsNone(_restore_persisted_session(1))
-        self.assertTrue(db.get_saved_word(self.w2, 1)["first_exposure_done"])
+            self.assertEqual(notify.call_args.kwargs["intent"], CallbackNoticeIntent.IMPORTANT_ERROR)
+            self.assertIn("این پیام دیگر معتبر نیست", notify.call_args.args[1])
+        # w2 NOT re-graded as FE; its review state is intact; session unchanged
+        row = db.get_saved_word(self.w2, 1)
+        self.assertEqual(row["first_exposure_done"], 1)  # unchanged from earlier grade
+        self.assertEqual(_restore_persisted_session(1).nodes[0].source_id, self.w2)
 
-    # --- Edge: no session at all (no memory, nothing persisted) ---
+    # --- R3: idempotent re-grade when the prior advance was lost (no FSRS
+    #     corruption). Proves it by snapshotting scheduling fields + telemetry
+    #     before and after the duplicate press. ---
+    def test_idempotent_regrade_when_advance_lost(self):
+        # Session in memory with w2 active, nothing graded yet. The first grade
+        # commits to the DB, appends graded_word_ids, and persists — but its
+        # advance_session is lost (simulated). w2 is still the active card.
+        ctx1 = self._ctx()
+        ctx1.user_data["current_session"] = self._session([self.w2], graded_word_ids=[])
+        with patch.object(srs_handler, "advance_session", new_callable=AsyncMock):
+            asyncio.run(
+                srs_handler._handle_first_exposure_grade(
+                    self._update(self._query()), ctx1, "4", "1", str(self.w2)
+                )
+            )
+        # Snapshot scheduling + telemetry BEFORE the duplicate press.
+        before = db.get_saved_word(self.w2, 1)
+        st_before, diff_before, nxt_before = (
+            before["stability"], before["difficulty"], before["next_review_at"],
+        )
+        events_before = self._review_events(self.w2)
+        # Restart: fresh ctx (no in-memory session) -> restored from DB with
+        # graded_word_ids=[w2] -> idempotent skip, NOT a second grade.
+        ctx2 = self._ctx()
+        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+            with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
+                asyncio.run(
+                    srs_handler._handle_first_exposure_grade(
+                        self._update(self._query()), ctx2, "4", "1", str(self.w2)
+                    )
+                )
+                notify.assert_called_once()
+                self.assertEqual(notify.call_args.kwargs["intent"], CallbackNoticeIntent.INFO)
+                self.assertIn("قبلاً ثبت شد", notify.call_args.args[1])
+        # No double grade: scheduling fields and telemetry are unchanged.
+        after = db.get_saved_word(self.w2, 1)
+        self.assertEqual(after["stability"], st_before)
+        self.assertEqual(after["difficulty"], diff_before)
+        self.assertEqual(after["next_review_at"], nxt_before)
+        self.assertEqual(self._review_events(self.w2), events_before)
+        touch.assert_not_called()
+        # Idempotent skip advanced; the single-card session completed + cleared.
+        self.assertIsNone(_restore_persisted_session(1))
+
+    # --- R3 also holds on the review path ---
+    def test_idempotent_regrade_review_path(self):
+        self.assertTrue(db.grade_first_exposure(self.w2, 3, 1).ok)
+        ctx1 = self._ctx()
+        ctx1.user_data["current_session"] = self._session(
+            [self.w2], activity_type="srs_review", graded_word_ids=[]
+        )
+        with patch.object(srs_handler, "advance_session", new_callable=AsyncMock):
+            asyncio.run(
+                srs_handler._handle_srs_review(
+                    self._update(self._query()), 3, "1", str(self.w2), ctx1
+                )
+            )
+        events_before = self._review_events(self.w2)
+        ctx2 = self._ctx()
+        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+            with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
+                asyncio.run(
+                    srs_handler._handle_srs_review(
+                        self._update(self._query()), 3, "1", str(self.w2), ctx2
+                    )
+                )
+                self.assertEqual(notify.call_args.kwargs["intent"], CallbackNoticeIntent.INFO)
+        self.assertEqual(self._review_events(self.w2), events_before)
+        touch.assert_not_called()
+
+    # --- A genuine wrong_state (word never exposed) stays an error, never an
+    #     idempotent skip. Pins the behaviour so it cannot regress silently. ---
+    def test_review_wrong_state_with_active_session_rejected(self):
+        # Active review node whose word was never exposed -> genuine wrong_state.
+        self._persist(self._session([self.w2], activity_type="srs_review"))
+        ctx = self._ctx()
+        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+            with patch.object(srs_handler, "advance_session", new_callable=AsyncMock) as advance:
+                with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
+                    asyncio.run(
+                        srs_handler._handle_srs_review(
+                            self._update(self._query()), 3, "1", str(self.w2), ctx
+                        )
+                    )
+                    self.assertEqual(notify.call_args.kwargs["intent"], CallbackNoticeIntent.IMPORTANT_ERROR)
+                    self.assertIn("وضعیت مرور نیست", notify.call_args.args[1])
+        touch.assert_not_called()
+        advance.assert_not_called()
+        self.assertEqual(db.get_saved_word(self.w2, 1)["first_exposure_done"], 0)
+        self.assertEqual(self._review_events(self.w2), 0)
+
+    # --- Edge: no session at all (no memory, nothing persisted) still grades
+    #     the word standalone. The handler only needs a session for the
+    #     stale-guard / idempotent advance (R2/R3). ---
     def test_no_session_grades_standalone(self):
-        # No active session (and nothing persisted): a grade still records the
-        # word. The handler only needs a session for the stale-guard / idempotent
-        # advance (R2/R3); a stray standalone grade is harmless (R1 preserves
-        # the prior behaviour).
         ctx = self._ctx()
         with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
             asyncio.run(
@@ -173,20 +316,26 @@ class StudySessionGradeRestartTests(unittest.TestCase):
             self.assertEqual(notify.call_args.kwargs["intent"], CallbackNoticeIntent.SUCCESS)
         self.assertTrue(db.get_saved_word(self.w1, 1)["first_exposure_done"])
 
-    # --- R1 on the regular-review path as well ---
-    def test_review_post_restart_advances(self):
-        self.assertTrue(db.grade_first_exposure(self.w2, 3, 1).ok)  # w2 now in review state
-        self._persist(self._session([self.w2], activity_type="srs_review"))
-        ctx = self._ctx()
-        with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
-            asyncio.run(
-                srs_handler._handle_srs_review(
-                    self._update(self._query()), 3, "1", str(self.w2), ctx
-                )
-            )
-            notify.assert_called_once()
-            self.assertEqual(notify.call_args.kwargs["intent"], CallbackNoticeIntent.SUCCESS)
-        self.assertIsNone(_restore_persisted_session(1))
+    # --- Legacy/partial rows never crash the grade handler (Kilo @95) ---
+    def test_restore_graded_word_ids_missing_key_is_empty(self):
+        state = _state_from_json(
+            '{"nodes": [], "total_cards": 1, "tier3_context": {}, '
+            '"study_msg_id": null, "plan": "free"}'
+        )
+        self.assertEqual(state.graded_word_ids, [])
+
+    def test_restore_graded_word_ids_null_is_empty(self):
+        state = _state_from_json(
+            '{"nodes": [], "total_cards": 1, "tier3_context": {}, '
+            '"study_msg_id": null, "plan": "free", "graded_word_ids": null}'
+        )
+        self.assertEqual(state.graded_word_ids, [])
+
+    def test_round_trip_graded_word_ids(self):
+        state = self._session([self.w1, self.w2], graded_word_ids=[self.w1])
+        self._persist(state)
+        restored = _restore_persisted_session(1)
+        self.assertEqual(restored.graded_word_ids, [self.w1])
 
 
 if __name__ == "__main__":
