@@ -1,0 +1,235 @@
+import asyncio
+import logging
+import re
+
+from telegram import Update
+from telegram.constants import ParseMode
+from telegram.ext import ContextTypes
+from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
+
+from config import OWNER_ID, TELEGRAM_MAX_CONCURRENCY, USER_ACTIVITY
+from config.keyboards import main_menu, awaiting_inline_keyboard, BTN_CANCEL, BTN_BACK
+from db import get_setting, set_user_blocked
+from callback_notifications import CallbackNoticeIntent, notify_callback
+
+logger = logging.getLogger(__name__)
+
+
+def apply_log_level(level_name: str) -> None:
+    """Set root logger level and quieter external loggers accordingly."""
+    level = getattr(logging, level_name.upper(), None)
+    if level is None:
+        return
+    logging.getLogger().setLevel(level)
+    for name in ("apscheduler", "httpcore", "httpx", "telegram"):
+        logging.getLogger(name).setLevel(max(level, logging.WARNING))
+    logger.info("log level set to %s", level_name.upper())
+
+
+def _user_activity_line(
+    *,
+    user_id: int,
+    full_name: str | None = None,
+    username: str | None = None,
+    action: str,
+    outcome: str,
+    plan: str | None = None,
+    lang: str | None = None,
+    goal: str | None = None,
+    level: str | None = None,
+) -> str | None:
+    """Build a USER_ACTIVITY log line if the feature is enabled; return None otherwise."""
+    if get_setting("user_activity_log", "off") != "on":
+        return None
+    uname = f"@{username}" if username else "—"
+    return (
+        f"{action:<18s} │ {str(user_id):<12s} │ {uname:<16s} │ "
+        f"{(plan or '—'):<8s} │ {(lang or '—'):<6s} │ "
+        f"{(goal or '—'):<12s} │ {(level or '—'):<8s} │ "
+        f"{outcome:<22s} │ {full_name or '—'}"
+    )
+
+_telegram_slots = asyncio.Semaphore(TELEGRAM_MAX_CONCURRENCY)
+_CANCEL_INPUTS = {
+    "cancel",
+    "back",
+    "لغو",
+    "بازگشت",
+    "انصراف",
+    BTN_CANCEL.casefold(),
+    BTN_BACK.casefold(),
+}
+
+
+def _normalize_custom_word_input(text: str) -> str:
+    text = re.sub(r'[\s\u200c\u200b]+', ' ', text.strip())
+    text = re.sub(r' +', ' ', text)
+    return text.strip()
+
+
+def _is_cancel_input(text: str) -> bool:
+    return _normalize_custom_word_input(text).casefold() in _CANCEL_INPUTS
+
+
+async def _start_llm_wait_state(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    chat = update.effective_chat
+    if not chat:
+        return None
+    await chat.send_action("typing")
+    try:
+        return await context.bot.send_message(chat_id=chat.id, text=text)
+    except Exception:
+        logger.exception("Failed to send LLM wait-state message")
+        return None
+
+
+async def _finish_llm_wait_state(wait_message, bot=None):
+    if not wait_message:
+        return
+    try:
+        if bot is not None:
+            await _delete_with_retry(bot, wait_message.chat_id, wait_message.message_id)
+        else:
+            await wait_message.delete()
+    except Exception:
+        logger.exception("Failed to delete LLM wait-state message")
+
+
+async def _exit_awaiting_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, *, via_callback: bool = False):
+    context.user_data.pop("awaiting", None)
+    user_id = update.effective_user.id
+    reply_markup = main_menu(user_id == OWNER_ID)
+    if via_callback:
+        try:
+            await update.callback_query.edit_message_text("لغو شد.")
+        except BadRequest:
+            logger.info("cancel callback edit failed; sending new message")
+            await notify_callback(update.callback_query)
+            await update.callback_query.message.reply_text("لغو شد.", reply_markup=reply_markup)
+            return
+        await notify_callback(
+            update.callback_query,
+            "لغو شد.",
+            intent=CallbackNoticeIntent.INFO,
+        )
+        return
+    await update.message.reply_text("لغو شد.", reply_markup=reply_markup)
+
+
+async def _edit_or_send(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, **kwargs):
+    """Thin adapter (R3) routing through ``services.send_pretty.say``.
+
+    The deep outbound module owns the parse-standard, retry, and concurrency
+    slots. This adapter keeps the legacy ``(update, context, text, **kwargs)``
+    signature so the existing call sites are untouched, and derives the ``raw``
+    format from the caller's ``parse_mode`` (never guessed). Deletion of this
+    adapter (and migration of all callers to ``say``) is deferred to a dedicated
+    cleanup PR.
+    """
+    from services.send_pretty import RawFormat, say
+
+    raw = RawFormat.PLAIN
+    parse_mode = kwargs.pop("parse_mode", None)
+    if parse_mode == ParseMode.HTML:
+        raw = RawFormat.HTML
+    elif parse_mode == ParseMode.MARKDOWN_V2:
+        raw = RawFormat.MDV2
+    return await say(update, context, text, raw=raw, **kwargs)
+
+
+def _reset_telegram_cb():
+    import bot
+    bot._telegram_offline = False
+    bot._consecutive_health_failures = 0
+
+
+async def _send_with_retry(
+    bot,
+    chat_id: int,
+    text: str,
+    *,
+    reset_telegram_cb: bool = True,
+    **kwargs,
+):
+    for attempt in range(3):
+        try:
+            async with _telegram_slots:
+                send_kwargs = {"chat_id": chat_id, "text": text, **kwargs}
+                result = await bot.send_message(**send_kwargs)
+                if reset_telegram_cb:
+                    _reset_telegram_cb()
+                return result
+        except Forbidden:
+            set_user_blocked(chat_id)
+            raise
+        except BadRequest:
+            raise
+        except RetryAfter as exc:
+            if attempt == 2:
+                raise
+            await asyncio.sleep(min(float(exc.retry_after), 30))
+        except (TimedOut, NetworkError):
+            # Sending creates a NEW message each call, so a timeout/network
+            # error is ambiguous (the message may already be delivered).
+            # Re-sending would produce a duplicate, so never retry sends.
+            raise
+
+
+async def _edit_with_retry(query, text, **kwargs):
+    for attempt in range(3):
+        try:
+            async with _telegram_slots:
+                result = await query.edit_message_text(text, **kwargs)
+                _reset_telegram_cb()
+                return result
+        except BadRequest:
+            raise
+        except RetryAfter as exc:
+            if attempt == 2:
+                raise
+            await asyncio.sleep(min(float(exc.retry_after), 30))
+        except (TimedOut, NetworkError):
+            if attempt == 2:
+                raise
+            await asyncio.sleep(2**attempt)
+
+
+async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
+    for attempt in range(3):
+        try:
+            async with _telegram_slots:
+                result = await bot.delete_message(chat_id=chat_id, message_id=message_id, **kwargs)
+                _reset_telegram_cb()
+                return result
+        except BadRequest:
+            raise
+        except RetryAfter as exc:
+            if attempt == 2:
+                raise
+            await asyncio.sleep(min(float(exc.retry_after), 30))
+        except (TimedOut, NetworkError):
+            if attempt == 2:
+                raise
+            await asyncio.sleep(2**attempt)
+
+
+async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
+    for attempt in range(3):
+        try:
+            async with _telegram_slots:
+                result = await bot.send_voice(chat_id=chat_id, voice=voice, **kwargs)
+                _reset_telegram_cb()
+                return result
+        except Forbidden:
+            set_user_blocked(chat_id)
+            raise
+        except BadRequest:
+            raise
+        except RetryAfter as exc:
+            if attempt == 2:
+                raise
+            await asyncio.sleep(min(float(exc.retry_after), 30))
+        except (TimedOut, NetworkError):
+            # Sending creates a NEW message each call; a timeout/network error
+            # is ambiguous (may already be delivered). Never re-send a voice.
+            raise
