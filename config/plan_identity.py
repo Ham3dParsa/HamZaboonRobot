@@ -30,7 +30,7 @@ class _PlanSpec(TypedDict):
 # ``_FEATURE_MIN_RANK`` map, so a new tier never silently misses a feature.
 _PLANS: dict[str, _PlanSpec] = {
     "free":    {"label": "رایگان",  "premium": False, "rank": 0},
-    "bronze":  {"label": "برنزی",   "premium": False, "rank": 1},
+    "bronze":  {"label": "برنزی",   "premium": True, "rank": 1},
     "silver":  {"label": "نقره‌ای", "premium": True,  "rank": 2},
     "gold":    {"label": "طلایی",   "premium": True,  "rank": 3},
     "emerald": {"label": "زمردی",   "premium": True,  "rank": 4},
