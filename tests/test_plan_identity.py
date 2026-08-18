@@ -40,8 +40,8 @@ class PlanIdentityTests(unittest.TestCase):
         self.assertTrue(is_premium("silver"))
         self.assertTrue(is_premium("gold"))
         self.assertTrue(is_premium("emerald"))
+        self.assertTrue(is_premium("bronze"))
         self.assertFalse(is_premium("free"))
-        self.assertFalse(is_premium("bronze"))
         self.assertFalse(is_premium("unknown"))
 
     def test_pronounce_is_free_to_all(self):
@@ -52,7 +52,7 @@ class PlanIdentityTests(unittest.TestCase):
                 self.assertTrue(has_feature(code, "pronounce"))
 
     def test_card_modes_and_presentation_require_premium(self):
-        """card_modes and presentation unlock at the premium boundary (silver+)."""
+        """card_modes and presentation unlock at the premium boundary (bronze+)."""
         for code in valid_plans():
             expected = is_premium(code)
             with self.subTest(plan=code):
@@ -92,7 +92,7 @@ class PlanIdentityTests(unittest.TestCase):
         self.assertEqual(feature_audience("pronounce"), "برای همه پلن‌ها")
         self.assertEqual(
             feature_audience("card_modes"),
-            "برای پلن‌های نقره‌ای و طلایی و زمردی",
+            "برای پلن‌های برنزی و نقره‌ای و طلایی و زمردی",
         )
         self.assertEqual(feature_audience("presentation"), feature_audience("card_modes"))
         self.assertEqual(feature_audience("unknown_feature"), "")

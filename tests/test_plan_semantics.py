@@ -58,7 +58,7 @@ class PlanSemanticsTests(unittest.TestCase):
     def test_is_premium_membership(self):
         for plan, expected in {
             "free": False,
-            "bronze": False,
+            "bronze": True,
             "silver": True,
             "gold": True,
             "emerald": True,
