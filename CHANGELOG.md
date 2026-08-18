@@ -1,0 +1,334 @@
+# Changelog
+
+All notable changes to HamZaboon. Generated automatically from
+[Conventional Commits](https://www.conventionalcommits.org/) by
+[git-cliff](https://git-cliff.org). Do not edit by hand.
+
+### Bug Fixes
+- Harden delivery and quota correctness
+- Keep issue exports optional
+- Ignore automatic deliveries for streaks
+- Diagnose empty validated daily batches
+- Retry daily batches without avoid-list anchoring
+- Enforce strict phonetic labels and relax synonym/antonym validation
+- Restore phonetic fallback for legacy/unlabeled cards if Latin is enabled
+- Robustly parse and format phonetic data in bot output
+- AI preset manager clone crash + permanent test-DB isolation (#235)
+
+### Chores
+- حذف فایل قدیمی hamzaban-product-doc.html
+- به‌روزرسانی .gitignore برای فایل‌های مستندات
+- Split batch duplicate diagnostics
+- Update .env.example with phonetic display defaults
+- Update environment defaults for Toman rate and Telegram concurrency
+- Move utility scripts to tools directory
+- Ignore generated and throwaway dev artifacts
+
+### Documentation
+- Add product roadmap
+- Align product page with roadmap
+- Sync roadmap with interactive card direction
+- Define load-aware learning delivery
+- Derive session sizes from daily allowance
+- Define canonical language registry architecture
+- Lock catalog as option registry owner
+- Consolidate code review findings and roadmap
+- Add agent workflow guidance
+- Lock AI mini quizzes roadmap
+- Record custom-word audit findings
+- Lock session language and issue phases
+- Audit streak and automation gaps
+- Audit daily-card batching
+- Add wait-state ux audit
+- Audit scheduled job reliability
+- Add vocab size estimation roadmap item
+- Clarify vocab knowledge roadmap item
+- Record incomplete SRS card review
+- Lock segment content pooling decisions
+- Add locked content pooling plan
+- Lock adaptive SRS roadmap
+- Phase the roadmap backlog
+- Add future issue ideas
+- Add quota and network issues
+- Track card presentation preferences
+- Map card presentation direction in roadmap
+- Audit card richness and translation UX
+- Structure roadmap project status
+- Lock agent decisions and track modularization
+- Define per-rule contract locking workflow
+- Record SRS and scheduled delivery risks
+- Restructure and document .env.example
+- Move audit reports to Audits directory
+- Move planning documents to docs directory
+- Add README for tools directory
+- Clarify filtering limitations in README
+- Update docs to reflect removal of Persian phonetic transcription (#228)
+- Archive completed study+plan-wizard UX plan to docs/archive
+- Archive entry-source plan and commit architecture alignment audit
+- Update README.md with current project_status and FSRS migration status
+- Add non-canonical gamification and engagement roadmap
+- Add planning, audit, and archived plan documents
+
+### Features
+- Add proficiency levels and card validation
+- Generate daily cards in batches
+- Add plan access controls
+- Add on-demand interactive flashcards
+- Add durable load-aware scheduled delivery
+- Clarify runtime configuration and plan quotas
+- Add custom-word review callbacks
+- Add daily card review history
+- Improve issues explorer filters
+- Cap grammar tips and note review ux
+- Count daily learning toward streaks
+- Add llm wait-state feedback
+- Add llm wait-state feedback
+- Harden custom-word input
+- Prime manual daily card batches
+- Lock daily card session snapshots
+- Paginate review history by week
+- Improve LLM cost dashboard UX
+- Use compact JSON for AI cards and batches
+- Add validated project status editor
+- Add local project status editor
+- Restore card richness and presentation modes
+- Add cached translation preparation flow
+- Add premium presentation preferences
+- Quiet polling logs and report connection health
+- Normalize phonetic data structure in database
+- Add card generation tool
+- Unify and strengthen phonetic validation
+- Add FSRS simulator and fsrs-replay tooling
+
+### Other
+- Cache daily cards per plan limit and add SRS reminder job
+- اضافه کردن دکمه‌های جدید/تغییر منو (`keyboards`)
+- Prune fixed issues and refresh roadmap
+- Sticky controls and two-column issue cards; fix resolved quick filter
+- Better navigation, More control over status
+- Better navigation, More control over status
+- Tested differet formats in terms of token usuage
+- Strengthen git workflow enforcement in AGENTS.md (`agents`)
+- Enhance error recovery, localization, and gate tags (`agents`)
+- Define outdated test handling and owner inquiry protocols (`agents`)
+- Number section headers and restore full rework warning (`agents`)
+- Renumber section 2 and make roadmap_refs optional (`agents`)
+- Correct Section 2.5.1 reference (`agents`)
+- Remove Latin pronunciation from all new phonetic generations (`ai`)
+- Mark issue #71 as resolved (Latin pronunciation removed) (`issues`)
+- Add logging, error handling, and dry-run to migrate_phonetics.py (`tools`)
+- Add language-scoped word avoidance to fix scheduled delivery TypeError (#75) (`bot`)
+- Add docstrings to public functions and dataclass (#76) (`scheduling`)
+- Add delivery atomicity, grace timeout, stale recovery, and cap migration (`srs`)
+- Remove redundant hamzaban-issues.md markdown export (`issues`)
+- Overhaul UX with 1440p grid, interactive stats, progress fix, decision links, and watch/serve CLI (#112) (`dashboard`)
+- Release Windows SQLite file locks by using db.get_conn() with explicit commit (#113) (`tests`)
+- Add dashboard UX overhaul to implementation status (`roadmap`)
+- Restore main menu keyboard after ask-word flow (#114) (`bot`)
+- Add staged self-test SRS reminder with recall tracking (#115) (`bot`)
+- Add vision and product goals document (#117) (`vision`)
+- Add staged extraction plan for bot.py modules (#124) (`bot`)
+- Extract formatting and card rendering module from bot.py (#126) (`formatting`)
+- Extract shared Telegram plumbing from bot.py (#127) (`helpers`)
+- Extract user-facing handlers and llm_services module (#128) (`user`)
+- Extract SRS handler module from bot.py and user.py (#129) (`srs`)
+- Extract admin panel, LLM cost dashboard, and admin handlers to admin.py (Stage 5) (`admin`)
+- AI presets with batch/RPM control, test/fallback, backup/restore (`admin`)
+- Edge TTS pronunciation with caching, premium gating, on-demand button (#131) (`tts`)
+- Audit fixes — imports, backup/restore, fallback retry, custom test candidate (#132) (`admin`)
+- Add Ruff linting, wiring tests, formatting boundary tests, and AGENTS.md updates (#133) (`testing`)
+- Correct TTS handler parsing and restructure admin panel UX (#134) (`bot`)
+- Add circuit breaker and retry wrappers (#137) (`network`)
+- Centralize all inline button labels as IBTN_ constants (#139) (`keyboards`)
+- Restructure flat modules into packages and clean up stale docs (#140) (`project`)
+- Update file paths to reflect package restructuring (#141) (`agents`)
+- Circuit breaker reset, SRS retry queue, raw call migration (#142) (`network`)
+- Add AST-based callback routing integrity scanner with sub-router coverage (#144) (`wiring`)
+- Update AGENTS.md with CI workflow references (#146) (`agents`)
+- Add Integration Test Protocol to AGENTS.md (#147) (`agents`)
+- Wrap sync AI calls in asyncio.to_thread and fix _daily_locks thread-safety (#176) (`admin,bot`)
+- Add BEGIN IMMEDIATE to all write functions (`db`)
+- Replace old presets with fallback chain & Google multi-key presets (`db`)
+- Add admin panel back navigation, TTS toggle, and preset delete (`admin`)
+- Colored console output, COST level, runtime log level control (#204) (`logging`)
+- Add AI model benchmark tool with cost/retry/report pipeline (#206) (`benchmark`)
+- Colored severity, COST pipe format, preset switch logs, USER_ACTIVITY level (#205) (`logging`)
+- Remove double emoji on USER level (`logging`)
+- Match USER levelname to log_colors key after emoji prepend (`logging`)
+- Align levelname column despite double-width emoji (`logging`)
+- Use grey for INFO level instead of green (`logging`)
+- Use thin_white instead of grey (colorlog has no grey) (`logging`)
+- Add preset cost, group_label, in_fallback_chain, preset_name columns (#207) (`db`)
+- Per-preset cost fields with global fallback (#208) (`db,ai,admin`)
+- Preset group/pagination, full edit wizard, confirm dialog (#208) (`admin,keyboards,db`)
+- Compact fallback chain UX with rank jump and consumption view (#208) (`db,llm,admin,keyboards`)
+- Help pages and last-successful-preset tracking (#208) (`admin,keyboards`)
+- Add integration tests for fallback chain behavior (`fallback`)
+- Detect blocked users to prevent wasted AI and Telegram API calls (#210) (`bot`)
+- Overhaul documentation ecosystem and add CI/CD tooling (#211) (`project`)
+- One-line USER activity without cost, full_name at end (`logging`)
+- Enrich user stats with sub-menus and remove dead button from main keyboard (#216) (`admin`)
+- Remove CodeQL workflow (requires public repo or paid plan) (`ci`)
+- Update README, AGENTS, ROADMAP, .env.example and clean up archived plan (`project`)
+- Bump python-telegram-bot from 21.6 to 22.8 (#215) (`deps`)
+- Update edge-tts requirement from <8,>=7.0 to >=7.2.8,<8 (#214) (`deps`)
+- Update colorlog requirement from <7,>=6.8 to >=6.12.0,<7 (#213) (`deps`)
+- Update ruff requirement from <1,>=0.9 to >=0.16.0,<1 (#212) (`deps`)
+- Correct MODEL_COST_MAP prices and USD_TO_IRR (`benchmark`)
+- Replace cost_per_1k_tokens with input/output_cost_per_million in edit panel (`ai-preset-manager`)
+- Remove unused cost_per_req field from edit panel (`ai-preset-manager`)
+- Bulk edit modal, accordion groups, visual chain, UI cleanup (`ai-preset-manager`)
+- Consolidate main menu, redesign SRS flow, add settings inline keyboard (#217) (`keyboards`)
+- SRS v2.8 simulation tool with interactive mode and usage guide (#222) (`tools`)
+- Strip quotes from CSV path input in interactive mode (#223) (`srs-sim`)
+- SRS Session Engine v3 pull-based simulation (v2 simulator) (#224) (`tools`)
+- Add SRS simulation modules v2-v5 + benchmarks (`tools`)
+- Add v5.2 FSRS-6 full comparison + rename versions (`Fsrs_simulation_v5`)
+- Add FSRS-6 migration plan and Phase 1a core engine (`fsrs`)
+- Add standalone FSRS-6 simulator HTML and reference it in strategic docs (`tools`)
+- Stop _init_ai_presets_table from overwriting custom presets and pricing on every restart (`db`)
+- Remove Persian phonetic transcription (keep IPA only) (#227) (`phonetic`)
+- Stop auto-seeding presets on startup — only seed fresh DBs (#229) (`db`)
+- Refund quota on AI timeout for custom word and grammar tip (#236) (`bot`)
+- Add HamZaboon financial model dashboard (`tools`)
+- Upgrade financial model dashboard (`tools`)
+- Correct signup_boost growth math and modal flash in financial model (`tools`)
+- Add collapsible charts and monthly user-growth chart in financial model (`tools`)
+- Enforce test-mode DB safety guard (WP1) (#237) (`db`)
+- Add research-backed P&L, marketing CAC, and AI-cost model to financial dashboard (`tools`)
+- Mark financial dashboard phases P1-P6 complete (`tools`)
+- Harden change process with review and done criteria (#238) (`agents`)
+- Mark WP4 merged (`plans`)
+- Add KPI tooltips and live guide examples to financial dashboard (`tools`)
+- Expose KPI_HELP to template to fix dashboard blank page (`tools`)
+- Add real AI model pricing, custom prices and picker to financial dashboard (`tools`)
+- Add dead-reference, reverse-wiring, and migration guards (#239) (`wp2`)
+- Merge session engine from feat/fsrs-migration (#240) (`fsrs`)
+- Accept remaining_slots to fix session completion crash (#243) (`session`)
+- Add tzdata dependency and safe timezone fallback for CI (#246) (`config`)
+- Add PowerShell escaping and Unicode sanitization rules (`agents`)
+- Sync roadmap, status, AGENTS map, and archive Phase 1 merge plan (#244) (`fsrs`)
+- Add lean subagents, skills, and graphify indexing (#247) (`opencode`)
+- Archive completed opencode tooling plan (`agents`)
+- Condense AGENTS.md and add lazy git/audit/doc skills (#248) (`agents`)
+- Drop pinned model from subagents for opencode compat (#250) (`agents`)
+- Harden git-protocol PowerShell backtick safety (#249) (`skills`)
+- Dynamic plans trial CAC, rebalance, and trial plan picker (#251) (`financial-dashboard`)
+- Migrate daily cards to first-exposure session engine (#252) (`db`)
+- Show manual CAC and ad-budget estimate side by side (#253) (`financial-dashboard`)
+- Add front-end UI, RTL, web-vitals, and interface-review skills (#254) (`skills`)
+- Remove stale daily/review/SRS card flows and fix session resume (#255) (`phase2a`)
+- Replace offline error messages with user-friendly apology (`bot`)
+- Cover session-resume path regression (#256) (`study`)
+- Implement DB-driven admin-editable plan specs (#258) (`plans`)
+- Study-resume fresh card + plan-wizard UX (back/skip/groups) (#260) (`study`)
+- Answer callback in catch-all, error_handler, and settings handlers (#265) (`bot`)
+- Add entry_source origin tag to saved_words (#266) (`db`)
+- Run suite in parallel with pytest-xdist (#268) (`test`)
+- Group plans by dependency theme and consolidate audits (`plans`)
+- Lock local pytest worker count to -n 14 (`validation`)
+- Archive completed test-pytest-config plan (`plans`)
+- Reconcile pooling plan and 2026-08-06 audits with current code (`plans`)
+- Update plan-persistence and add author metadata across custom skills (`skills`)
+- Sync callback-wiring routing map with admin thin-dispatcher split (`skills`)
+- Route preset key resolution through group-aware resolver (#284) (`db`)
+- Update flask requirement from <4,>=3 to >=3.1.3,<4 (#286) (`deps`)
+- Bump openai from 1.51.0 to 2.53.0 (#285) (`deps`)
+- Bump python-dotenv from 1.0.1 to 1.2.2 (#221) (`deps`)
+- Bump httpx from 0.27.2 to 0.28.1 (#220) (`deps`)
+- Update pytest requirement from <9,>=8.0 to >=9.1.1,<10 (#219) (`deps`)
+- Harden AI preset panel against callback/escaping/state bugs (#287) (`admin`)
+- Add parallel-work-guard skill and claim registry (#302) (`skills`)
+- Backfill saved word origins (#304) (`fsrs`)
+- Tighten parallel-work-guard description and run note (#305) (`skills`)
+- Retire legacy daily card storage (#300) (`fsrs`)
+- Archive completed pr287 follow-ups (`plans`)
+- Align plan and parallel-workflow guidance (`agents`)
+- Centralize callback notification policy (#311) (`callbacks`)
+- Resolve callbacks index merge (archive pr287, keep notification plans) (`plans`)
+- Grade feedback uses success toast (#308) (#312) (`srs`)
+- Add /help and راهنما user help panel (#314) (`help`)
+- Optimize agent workflow with conditional skill injection and tiered reviewer (#313) (`workflow`)
+- Hide review section from help panel for now (#315) (`help`)
+- Add about section to help panel (#317) (`help`)
+- Add FSRS UTC review timestamp schema columns (#318) (`db`)
+- Mark FSRS phase 02 complete after merge (#319) (`plans`)
+- Extract custom-word-query into pure orchestration core (#320) (`word_query`)
+- Widen reviewer perms, document skill-registry reload, add ghjson helper (#326) (`agent`)
+- Support array-index paths and guard non-JSON/empty stdin (#328) (`ghjson`)
+- Scope dashboard date to project_status.json commit to stop cross-day drift (#321) (#329) (`ci`)
+- Add Product Layers framing section (#332) (`roadmap`)
+- Admin AI Preset Phase 2 DB correctness + R14 create flow (#333) (`ai`)
+- Phase 3 preset handlers UX - delete confirm, duplicate, wizard back, usage pagination (#334) (`ai`)
+- Skip rendering empty wizard draft line (#335) (`ai`)
+- Mark phase 3 complete and record clone_preset tests (`preset`)
+- T06 Phase 03 FSRS atomic grade transitions with GradeResult (#336) (`db`)
+- Mark phases 3-5 merged and reconcile release status (`fsrs`)
+- Scope session queue and due count to active language (`srs`)
+- Reconcile language-leak audit with implemented fix (`audit`)
+- Lock staged-reveal + display-toggle spec, track via #338 (`srs`)
+- Remove builtin presets and is_custom column (phase 4) (#337) (`ai`)
+- Reconcile T09 release docs, archive FSRS plans, close #309 (`fsrs`)
+- Mark archived FSRS plans complete with final verdicts (`fsrs`)
+- Lock word-query card-consistency spec, track via #340 (`ux`)
+- Show translations on by default; remove prepare toggle (#341) (`word-query`)
+- Encrypt AI preset API keys at rest (Phase 5, #330) (#339) (`db`)
+- Offer duplicate retrieve-vs-new and retain queries 30 days (#345) (`word-query`)
+- Mark duplicate word-query retrieve-vs-new done (closes #344) (`status`)
+- Harden parallel-work-guard with worktree isolation and Kilo review loop (#348) (`workflow`)
+- Consolidate AGENTS.md to a lean contract, defer detail to skills (#349) (`agents`)
+- Mark Phase 5 secure-keys complete and archive plan (#351) (`ai-preset`)
+- Canonical preset labels and fix field-edit back button (#352) (`admin-ai`)
+- Archive labels-and-back plan and mark complete (#352) (`presets`)
+- Staged-reveal prompt engine and display-toggle system (Phase 1 of #338) (#353) (`srs`)
+- Mark phase 1 of staged-reveal (#338) merged via PR #353 (`srs`)
+- Draft phase 2/3 tickets for staged-reveal (#338) (`srs`)
+- Lock phase-3 owner decisions (premium toggles, presentation removal, delete scope) (#338) (`srs`)
+- Plan AI_MASTER_KEY rotation (deferred, blocked on Seam 1) (#354) (`security`)
+- Staged-reveal session flow for review cards (Phase 2 of #338) (#355) (`srs`)
+- Mark phase 2 of staged-reveal (#338) merged via PR #355 (`srs`)
+- Blank answer word in hints and drop back-stage review badge (#356) (`srs`)
+- Record plan tickets and PR #356 seam release (`card-modes`)
+- Bump cryptography to 50.0.0 (resolves dependabot alerts) (#360) (`deps`)
+- Mark T1 shipped (PR #361) and record reviewer notes (`card-modes`)
+- Reword word-query prompt to clarify it builds a learning card (#358) (`ux`)
+- Card-mode schema, registry, and resolver (CARD-MODES T1) (#361) (`db`)
+- Mark T1 merged (#361) and post-merge state (`card-modes`)
+- Staged/immediate render for FE and review cards (T2+T3) (#362) (`card-modes`)
+- Mark T2+T3 merged (#362) and post-merge state (`card-modes`)
+- Persist active study session across restart (Bug #363) (#364) (`study`)
+- Mark Bug 1 session-restart plan complete after PR #364 merge (#365) (`session`)
+- Redesign dashboard UI with hero KPIs and plan tier cards (#369) (`financial-model`)
+- Unify atomic writes behind transaction() seam (#371) (`db`)
+- Add canonical identifier-namespace registry (#370) (`catalog`)
+- Centralize plan semantics in plans.py (R5) (#372) (`db`)
+- Provider hardening — fail-closed client seam, real-token TPM, lazy limiter store (J-B1) (#373) (`ai`)
+- Lock the Kilo Code Review PR loop into the workflow (§5) (#374) (`agents`)
+- Bump openai from 2.53.0 to 3.0.0 (#366) (`deps`)
+- Update tzdata requirement from >=2024.1 to >=2026.3 (#367) (`deps`)
+- Update ruff requirement from <1,>=0.16.0 to >=0.16.2,<1 (#368) (`deps`)
+- Central callback registry (R1) + B1 double-notify fix (#375) (`routing`)
+- Canonical settings-key registry (J0.2) (`settings`)
+- Consolidate display-toggle ownership into display_toggles.py (R3) (#377) (`db`)
+- Record DB-track consolidation completion (J-A1/A2/A3 merged) (#379) (`plans`)
+- Settings_key copy safety + pattern suffix validation (J0.2 follow-up) (`settings`)
+- Lock bare-admin unknown-fallback after Kilo WARNING fix (#380) (`routing`)
+- Mark DB track complete in architecture-deepening theme; consolidate duplicate (#381) (`plans`)
+- Centralize awaiting text-input routing in handlers/flows.py (R2) (#382) (`flows`)
+- Canonical AI preset-field schema module (J-B2) (#383) (`ai`)
+- Consolidate TTS voice map into the language catalog (J-B3) (#384) (`tts`)
+- Deep outbound-message module with recursive span tree (R3, T1-T5) (#385) (`send_pretty`)
+- Add DB continuation serial pipeline (13 tickets A2-1..A2-13) (#386) (`plans`)
+- Consolidate plan identity into a canonical leaf (J-B6) (#387) (`config`)
+- Migrate admin AI screens to send_pretty spans (T8-PRE, T8a) (#388) (`admin_ai`)
+- Reform tooling and slim operating rules (R1-R7) (`governance`)
+
+### Refactoring
+- Centralize learner option catalog
+- Centralize issue review tooling
+
+### Testing
+- Add rendering cache regression contracts
+---
+
+This changelog is generated automatically. Manual edits will be overwritten.

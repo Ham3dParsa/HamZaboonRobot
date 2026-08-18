@@ -1,6 +1,6 @@
 ---
 name: hamzaban-validation
-description: Execute the full AGENTS.md §6 validation suite in one atomic command: pytest -n tests, compile_all.py, ruff F821/F811, generate_dashboard.py, git diff --check. Load when preparing to commit, before PR creation, or when asked to validate. For non-behavioral changes (docs, tooling, formatting), use the lightweight path instead.
+description: Execute the full AGENTS.md §7 validation suite in one atomic command: pytest -n tests, compile_all.py, ruff F821/F811, git diff --check. Load when preparing to commit, before PR creation, or when asked to validate. For non-behavioral changes (docs, tooling, formatting), use the lightweight path instead.
 license: MIT
 compatibility: opencode
 metadata:
@@ -26,7 +26,6 @@ Changes that touch: handlers, database, callbacks, AI contracts, quotas, schemas
 python -m pytest tests/ -n 14
 python scripts\compile_all.py
 python -m ruff check --select F821,F811
-python scripts\generate_dashboard.py
 git diff --check
 ```
 
@@ -48,6 +47,5 @@ git diff --check
 ## Notes
 - `compile_all.py` compiles all production `.py` (excludes `tests/`)
 - `ruff --select F821,F811` catches undefined names and redefinitions only (F401 not yet enforced — see AGENTS.md §7 note)
-- `generate_dashboard.py` must regenerate `issues/project_status.html` from `project_status.json`
 - `git diff --check` validates no whitespace errors in working tree AND staging area
 - The lightweight path exists specifically to avoid the bottleneck of running pytest/compile/ruff on doc/tooling-only changes.

@@ -7,7 +7,6 @@ on:
       - '**.py'
       - requirements.txt
       - .github/workflows/*
-      - project_status.json
       - scripts/*.py
   pull_request:
     branches: [main]
@@ -15,7 +14,6 @@ on:
       - '**.py'
       - requirements.txt
       - .github/workflows/*
-      - project_status.json
       - scripts/*.py
 
 concurrency:
@@ -69,12 +67,6 @@ jobs:
         env:
           HAMZABAN_TEST_MODE: "1"
         run: python -m pytest tests/ -n 4 --junitxml=junit/test-results.xml -v
-
-      - name: Generate dashboard
-        run: python scripts/generate_dashboard.py
-
-      - name: Verify dashboard is in sync with project_status.json
-        run: git diff --exit-code issues/project_status.html
 
       - name: Check whitespace errors
         run: git diff --check

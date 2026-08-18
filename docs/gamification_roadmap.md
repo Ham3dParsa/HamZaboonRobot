@@ -1,6 +1,6 @@
 # Gamification & Engagement Roadmap (نقشه راه گیمیفیکیشن و تعاملات آینده)
 
-> Status: Non-canonical ideation document. This is a brainstorm reference extracted from a strategic discussion (see [Claude Chat](https://claude.ai/chat/03464fdd-304a-4e14-9ca3-19d968f1686b)), not a locked roadmap commitment. No item here has passed the Contract-Lock Gate (AGENTS.md §2.4) or been added to ROADMAP.md / project_status.json. Nothing here should be treated as scheduled work until it is formally promoted.
+> Status: Non-canonical ideation document. This is a brainstorm reference extracted from a strategic discussion (see [Claude Chat](https://claude.ai/chat/03464fdd-304a-4e14-9ca3-19d968f1686b)), not a locked roadmap commitment. No item here has passed the Contract-Lock Gate (AGENTS.md §2.4) or been added to ROADMAP.md. Nothing here should be treated as scheduled work until it is formally promoted.
 
 ---
 
@@ -170,7 +170,7 @@ The ideas above relate to existing tracked issues. This document does **not** ch
 
 ### How to use this document going forward
 
-- **Promotion path:** any item moving toward work must first be re-validated against the current codebase, then pass the Contract-Lock Gate, then be added to `ROADMAP.md` / `project_status.json`.
+- **Promotion path:** any item moving toward work must first be re-validated against the current codebase, then pass the Contract-Lock Gate, then be added to `ROADMAP.md`.
 - **Staleness rule:** because these features are non-imminent, the provisional details here **will drift**. Re-check data dependencies and costs at build time rather than trusting this document.
 - **Scope discipline:** only Phase 1 items are realistically reachable with today's architecture. Phases 2–3 imply new state or a TMA migration; Phase 4 is out of scope until the owner acts.
 

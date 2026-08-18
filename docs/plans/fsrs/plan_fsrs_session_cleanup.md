@@ -114,7 +114,7 @@ Result: session button + ask-word are the ONLY ways to see a card.
 
 - Update `AGENTS.md` §3 Callback Routing Map (remove `daily:`/`review:` rows; add `study:start`,
   `srs:fe:`, `query:add:`/`query:prepare:`).
-- Update `ROADMAP.md`, `project_status.json`; regenerate the dashboard.
+- Update `ROADMAP.md`.
 - File GitHub issues for findings (e.g., `record_review_event_v2` dead, `migrate_saved_words_to_fsrs`
   stub).
 
@@ -155,7 +155,6 @@ Disconnected on `main`: `services/fsrs_core.py` (zero production importers), `se
 python -m unittest discover -s tests
 python scripts/compile_all.py
 python -m ruff check --select F821,F811
-python scripts/generate_dashboard.py
 git diff --check
 ```
 
