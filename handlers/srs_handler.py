@@ -24,7 +24,11 @@ from config.keyboards import (
     get_first_exposure_keyboard,
     get_review_keyboard,
 )
-from handlers.study_handler import advance_session, session_progress_footer
+from handlers.study_handler import (
+    advance_session,
+    get_active_study_session,
+    session_progress_footer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -218,9 +222,62 @@ async def _handle_srs_review(
     if user_id != target_user_id:
         await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
+    session = get_active_study_session(user_id, context)
+    if session is not None and (not session.nodes or session.nodes[0].source_id != word_id):
+        # Stale/out-of-session button (e.g. pre-restart message) — never grade
+        # a card that is not the active one (R2, Bug #401).
+        await notify_callback(
+            update.callback_query,
+            "این پیام دیگر معتبر نیست.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
     resolved = resolve_grade("srs_review", grade)
     result = db.grade_word_review(word_id, resolved, user_id)
-    if not result.ok:
+    if result.ok:
+        if session is not None and word_id not in session.graded_word_ids:
+            session.graded_word_ids.append(word_id)
+        shown_at = context.user_data.pop(f"card_shown_at_{word_id}", None)
+        response_time_ms = None
+        if shown_at is not None:
+            elapsed = time.time() - shown_at
+            response_time_ms = max(0, int(elapsed * 1000))
+        _record_event_guarded(
+            word_id=word_id,
+            user_id=user_id,
+            grade=resolved,
+            activity_type="srs_review",
+            grade_source="direct_button",
+            raw_signal=json.dumps({"button_value": grade}),
+            response_time_ms=response_time_ms,
+        )
+        db.touch_streak(user_id)
+        await notify_callback(
+            update.callback_query,
+            format_next_review_text(result.interval_seconds),
+            intent=CallbackNoticeIntent.SUCCESS,
+        )
+        _log_ua(update, action="srs_review", outcome=f"grade_{grade}")
+        logger.info(
+            "srs review user_id=%s word_id=%s grade=%s rt=%s",
+            user_id,
+            word_id,
+            resolved,
+            response_time_ms,
+        )
+        await advance_session(update, context)
+    elif result.reason == "wrong_state" and session is not None and session.nodes[0].source_id == word_id:
+        # Already graded within this same session (lost advance / double tap).
+        # Skip idempotently and continue — never soft-lock (R3, Bug #401).
+        if word_id not in session.graded_word_ids:
+            session.graded_word_ids.append(word_id)
+        await notify_callback(
+            update.callback_query,
+            "قبلاً ثبت شد.",
+            intent=CallbackNoticeIntent.INFO,
+        )
+        await advance_session(update, context)
+    else:
         # Expected failure: do NOT record telemetry, touch streak, or advance.
         await notify_callback(
             update.callback_query,
@@ -228,35 +285,6 @@ async def _handle_srs_review(
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         return
-    shown_at = context.user_data.pop(f"card_shown_at_{word_id}", None)
-    response_time_ms = None
-    if shown_at is not None:
-        elapsed = time.time() - shown_at
-        response_time_ms = max(0, int(elapsed * 1000))
-    _record_event_guarded(
-        word_id=word_id,
-        user_id=user_id,
-        grade=resolved,
-        activity_type="srs_review",
-        grade_source="direct_button",
-        raw_signal=json.dumps({"button_value": grade}),
-        response_time_ms=response_time_ms,
-    )
-    db.touch_streak(user_id)
-    await notify_callback(
-        update.callback_query,
-        format_next_review_text(result.interval_seconds),
-        intent=CallbackNoticeIntent.SUCCESS,
-    )
-    _log_ua(update, action="srs_review", outcome=f"grade_{grade}")
-    logger.info(
-        "srs review user_id=%s word_id=%s grade=%s rt=%s",
-        user_id,
-        word_id,
-        resolved,
-        response_time_ms,
-    )
-    await advance_session(update, context)
 
 
 async def _handle_first_exposure_grade(
@@ -277,33 +305,54 @@ async def _handle_first_exposure_grade(
     if user_id != target_user_id:
         await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
+    session = get_active_study_session(user_id, context)
+    if session is not None and (not session.nodes or session.nodes[0].source_id != word_id):
+        await notify_callback(
+            update.callback_query,
+            "این پیام دیگر معتبر نیست.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
     resolved = resolve_grade("first_exposure", grade)
     result = db.grade_first_exposure(word_id, resolved, user_id)
-    if not result.ok:
-        # Expected failure (e.g. double tap): no telemetry, streak, or advance.
+    if result.ok:
+        if session is not None and word_id not in session.graded_word_ids:
+            session.graded_word_ids.append(word_id)
+        # response_time_ms intentionally omitted for first-exposure:
+        # there is no recall attempt, just a familiarity rating, so
+        # the signal is not comparable to regular-review response time.
+        _record_event_guarded(
+            word_id=word_id,
+            user_id=user_id,
+            grade=resolved,
+            activity_type="first_exposure",
+            grade_source="direct_button",
+            raw_signal=json.dumps({"button_value": grade}),
+            response_time_ms=None,
+        )
+        db.touch_streak(user_id)
+        await notify_callback(
+            update.callback_query,
+            format_next_review_text(result.interval_seconds),
+            intent=CallbackNoticeIntent.SUCCESS,
+        )
+        _log_ua(update, action="first_exposure", outcome=f"grade_{grade}")
+        await advance_session(update, context)
+    elif result.reason == "wrong_state" and session is not None and session.nodes[0].source_id == word_id:
+        # Already graded within this same session (lost advance / double tap).
+        # Skip idempotently and continue — never soft-lock (R3, Bug #401).
+        if word_id not in session.graded_word_ids:
+            session.graded_word_ids.append(word_id)
+        await notify_callback(
+            update.callback_query,
+            "قبلاً ثبت شد.",
+            intent=CallbackNoticeIntent.INFO,
+        )
+        await advance_session(update, context)
+    else:
         await notify_callback(
             update.callback_query,
             _grade_error_text(result.reason),
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         return
-    # response_time_ms intentionally omitted for first-exposure:
-    # there is no recall attempt, just a familiarity rating, so
-    # the signal is not comparable to regular-review response time.
-    _record_event_guarded(
-        word_id=word_id,
-        user_id=user_id,
-        grade=resolved,
-        activity_type="first_exposure",
-        grade_source="direct_button",
-        raw_signal=json.dumps({"button_value": grade}),
-        response_time_ms=None,
-    )
-    db.touch_streak(user_id)
-    await notify_callback(
-        update.callback_query,
-        format_next_review_text(result.interval_seconds),
-        intent=CallbackNoticeIntent.SUCCESS,
-    )
-    _log_ua(update, action="first_exposure", outcome=f"grade_{grade}")
-    await advance_session(update, context)
