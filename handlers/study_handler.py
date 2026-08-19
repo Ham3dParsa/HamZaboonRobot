@@ -32,7 +32,7 @@ from config.keyboards import (
     study_inactive_keyboard,
 )
 from config.plan_identity import has_feature
-from services import db
+from services import db, send_pretty
 from services.session import SessionNode, build_session_list, generate_tier3_node
 from services.session.summary import WordReviewRecord, build_report
 from services.scheduling import (
@@ -649,7 +649,9 @@ async def advance_session(
                     "is_admin": is_admin,
                     "nonce": nonce,
                 }
-                text = format_session_summary(report, is_admin=is_admin)
+                text = format_session_summary(
+                    report, is_admin=is_admin
+                ).render(send_pretty.Backend.MDV2)
                 # A completed session always has >=1 graded word, but guard the
                 # impossible zero-total case so a detail button can never lead
                 # to an empty "صفحه ۱ از ۰" page.
@@ -820,7 +822,7 @@ async def _handle_session_summary_callback(
     total_pages = len(report.pages)
 
     if base == "back":
-        text = format_session_summary(report, is_admin=is_admin)
+        message = format_session_summary(report, is_admin=is_admin)
         keyboard = session_summary_keyboard(nonce)
     elif base == "detail" or base.startswith("page:"):
         if base == "detail":
@@ -835,7 +837,7 @@ async def _handle_session_summary_callback(
             page = report.pages[page_index]
         else:
             page = ()
-        text = format_session_detail_page(
+        message = format_session_detail_page(
             page, page_index, total_pages, is_admin=is_admin
         )
         keyboard = session_summary_detail_keyboard(page_index, total_pages, nonce)
@@ -843,26 +845,19 @@ async def _handle_session_summary_callback(
         await notify_callback(update.callback_query)
         return
 
+    # Route through send_pretty: ``say`` edits the callback message and inherits
+    # the shared retry/concurrency seam plus the "not modified" / "not found ->
+    # send replacement" fallbacks. Content is a structured Message, so each leaf
+    # is escaped exactly once (no manual MarkdownV2 escaping here). ``say`` owns
+    # the callback ack (it answers on "not modified"), matching the convention
+    # of other ``say`` callers, so there is no trailing ack here.
     try:
-        await context.bot.edit_message_text(
-            text=text,
-            chat_id=update.effective_chat.id,
-            message_id=update.effective_message.message_id,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
-    except BadRequest as exc:
-        if "not modified" not in str(exc).casefold():
-            logger.warning(
-                "session summary edit failed user_id=%s: %s",
-                update.effective_user.id, exc,
-            )
+        await send_pretty.say(update, context, message, keyboard=keyboard)
     except Exception:
         logger.exception(
             "session summary edit failed user_id=%s",
             update.effective_user.id,
         )
-    await notify_callback(update.callback_query)
 
 
 register("session:summary", _handle_session_summary_callback)

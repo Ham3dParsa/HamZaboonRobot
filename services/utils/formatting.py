@@ -514,13 +514,17 @@ def _fmt_stability(value: float | None) -> str:
     return to_persian_digits(f"{value:.1f}")
 
 
-def format_session_summary(report, *, is_admin: bool = False) -> str:
-    """Compact learner (or admin) summary line(s) for the finished session.
+def format_session_summary(report, *, is_admin: bool = False):
+    """Build the compact learner (or admin) session summary as a ``Message``.
 
-    ``report`` is a :class:`services.session.summary.SessionReport`. All
-    dynamic values are escaped; only static literals may carry MarkdownV2.
+    ``report`` is a :class:`services.session.summary.SessionReport`. Dynamic
+    values go into ``Plain`` spans and are escaped exactly once by the
+    ``send_pretty`` renderer — never pre-escaped by the caller.
     """
-    lines: list[str] = [escape_mdv2("📊 گزارش جلسه مطالعه")]
+    from services.send_pretty import Message, plain
+
+    msg = Message()
+    msg.add_line(plain("📊 گزارش جلسه مطالعه"))
 
     counts: list[str] = []
     if report.learned_count:
@@ -532,23 +536,21 @@ def format_session_summary(report, *, is_admin: bool = False) -> str:
             f"{to_persian_digits(report.reviewed_count)} واژه مرور کردی"
         )
     if counts:
-        lines.append(escape_mdv2("، ".join(counts)))
+        msg.add_line(plain("، ".join(counts)))
 
     delta = report.avg_stability_delta
     if delta is None:
-        lines.append(escape_mdv2("پایداری حافظه تغییری ثبت نشد."))
+        msg.add_line(plain("پایداری حافظه تغییری ثبت نشد."))
     elif delta > 0:
-        lines.append(escape_mdv2("میانگین پایداری حافظه افزایش یافت ⬆️"))
+        msg.add_line(plain("میانگین پایداری حافظه افزایش یافت ⬆️"))
     elif delta < 0:
-        lines.append(escape_mdv2("میانگین پایداری حافظه کاهش یافت ⬇️"))
+        msg.add_line(plain("میانگین پایداری حافظه کاهش یافت ⬇️"))
     else:
-        lines.append(escape_mdv2("میانگین پایداری حافظه تغییری نکرد."))
+        msg.add_line(plain("میانگین پایداری حافظه تغییری نکرد."))
 
     if is_admin and delta is not None:
-        lines.append(
-            escape_mdv2(f"میانگین تغییر پایداری: {_fmt_stability(delta)}")
-        )
-    return "\n".join(lines)
+        msg.add_line(plain(f"میانگین تغییر پایداری: {_fmt_stability(delta)}"))
+    return msg
 
 
 def format_session_detail_page(
@@ -557,45 +559,46 @@ def format_session_detail_page(
     total_pages: int,
     *,
     is_admin: bool = False,
-) -> str:
-    """One page of the paged word list (learner or admin variant).
+):
+    """Build one page of the paged word list as a ``Message`` (learner or admin).
 
     ``records`` is an iterable of :class:`services.session.summary.WordReviewRecord`.
+    Values are placed in ``Plain`` spans so the ``send_pretty`` renderer escapes
+    each leaf exactly once (dates/deltas with ``-``/``.`` never double-escape).
     """
-    lines: list[str] = [
-        escape_mdv2(
+    from services.send_pretty import Message, plain
+
+    msg = Message()
+    msg.add_line(
+        plain(
             f"📋 واژه‌ها — صفحه {to_persian_digits(page_index + 1)} از "
             f"{to_persian_digits(total_pages)}"
         )
-    ]
+    )
     for r in records:
         badge = _NEW_BADGE if r.activity_type == "first_exposure" else _REVIEW_BADGE
-        stability = (
-            f"پایداری: {_fmt_stability(r.stability_after)}"
-            if r.stability_after is not None
-            else ""
-        )
         if is_admin:
-            delta = ""
+            parts: list[str] = [f"• {r.word} [{badge}]"]
+            if r.stability_after is not None:
+                parts.append(f"پایداری: {_fmt_stability(r.stability_after)}")
             if r.stability_before is not None and r.stability_after is not None:
-                delta = _fmt_stability(r.stability_after - r.stability_before)
-            prior = f" | مرور قبلی: {escape_mdv2(r.prior_review_date)}" if r.prior_review_date else ""
-            interval = f" | فاصله: {_fmt_stability(r.interval_days)} روز" if r.interval_days is not None else ""
-            next_date = f" | مرور بعدی: {escape_mdv2(r.next_review_date)}" if r.next_review_date else ""
-            difficulty = f" | سختی: {_fmt_stability(r.difficulty)}" if r.difficulty is not None else ""
-            grade = f" | امتیاز: {to_persian_digits(r.grade)}" if r.grade is not None else ""
-            extra = f" | Δ{delta}" if delta else ""
-            lines.append(
-                escape_mdv2(f"• {r.word} [{badge}]")
-                + f" {escape_mdv2(stability)}"
-                + f"{escape_mdv2(extra)}"
-                + f"{escape_mdv2(prior)}"
-                + f"{escape_mdv2(interval)}"
-                + f"{escape_mdv2(next_date)}"
-                + f"{escape_mdv2(difficulty)}"
-                + f"{escape_mdv2(grade)}"
-            )
+                parts.append(
+                    f"Δ{_fmt_stability(r.stability_after - r.stability_before)}"
+                )
+            if r.prior_review_date:
+                parts.append(f"مرور قبلی: {r.prior_review_date}")
+            if r.interval_days is not None:
+                parts.append(f"فاصله: {_fmt_stability(r.interval_days)} روز")
+            if r.next_review_date:
+                parts.append(f"مرور بعدی: {r.next_review_date}")
+            if r.difficulty is not None:
+                parts.append(f"سختی: {_fmt_stability(r.difficulty)}")
+            if r.grade is not None:
+                parts.append(f"امتیاز: {to_persian_digits(r.grade)}")
+            msg.add_line(plain(" | ".join(parts)))
         else:
-            tail = f" · {stability}" if stability else ""
-            lines.append(escape_mdv2(f"• {r.word} [{badge}]") + escape_mdv2(tail))
-    return "\n".join(lines)
+            tail = ""
+            if r.stability_after is not None:
+                tail = f" · پایداری: {_fmt_stability(r.stability_after)}"
+            msg.add_line(plain(f"• {r.word} [{badge}]{tail}"))
+    return msg
