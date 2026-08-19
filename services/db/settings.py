@@ -61,6 +61,27 @@ def set_display_toggle_defaults(values: dict[str, bool]):
     return set_global_defaults(values)
 
 
+_MAINTENANCE_MODE_KEY = settings_key("maintenance_mode")["key"]
+_MAINTENANCE_MESSAGE_KEY = settings_key("maintenance_message")["key"]
+
+
+def is_maintenance_mode() -> bool:
+    """True while admin maintenance mode is active (blocks normal user ops)."""
+    return get_bool_setting(_MAINTENANCE_MODE_KEY, False)
+
+
+def set_maintenance_mode(active: bool):
+    set_bool_setting(_MAINTENANCE_MODE_KEY, active)
+
+
+def get_maintenance_message() -> str:
+    return get_setting(_MAINTENANCE_MESSAGE_KEY, "")
+
+
+def set_maintenance_message(message: str):
+    set_setting(_MAINTENANCE_MESSAGE_KEY, message)
+
+
 def get_llm_cost_profile() -> dict[str, float]:
     return {
         "input_cost_usd_per_million": float(

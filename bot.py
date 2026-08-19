@@ -532,6 +532,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if _telegram_offline:
         await _send_offline_notice(context, update.effective_chat.id)
         return
+    if await _maintenance_blocked(update, context, text_mode=True):
+        return
     user_id = update.effective_user.id
     db.reset_user_blocked(user_id)
     text = update.message.text.strip()
@@ -581,6 +583,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         await _send_offline_notice(context, update.effective_chat.id)
+        return
+    if await _maintenance_blocked(update, context, text_mode=False):
         return
     db.reset_user_blocked(update.effective_user.id)
     data = update.callback_query.data
@@ -768,6 +772,36 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "عملیات ناموفق بود.",
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
+
+
+async def _maintenance_blocked(update: Update, context: ContextTypes.DEFAULT_TYPE, *, text_mode: bool):
+    """Return True (and block the user) when maintenance mode is active.
+
+    The bot owner is never blocked so they can still reach the admin panel to
+    exit maintenance. The editable Persian message comes from the DB and is
+    escaped before interpolation (persian-formatting contract).
+    """
+    if is_owner(update.effective_user.id):
+        return False
+    if not db.is_maintenance_mode():
+        return False
+    from services.utils.formatting import escape_mdv2
+    msg = db.get_maintenance_message()
+    display = msg if msg else "ربات در حال تعمیر است؛ لطفاً بعداً مراجعه کنید. 🙏"
+    if text_mode:
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            escape_mdv2(display),
+            reset_telegram_cb=False,
+        )
+    else:
+        await notify_callback(
+            update.callback_query,
+            display,
+            intent=CallbackNoticeIntent.INFO,
+        )
+    return True
 
 
 async def _send_offline_notice(context: ContextTypes.DEFAULT_TYPE, chat_id: int):

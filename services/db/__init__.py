@@ -23,7 +23,8 @@ from contextlib import closing
 from services.db.schema import (
     get_conn,
     transaction,
-    database_lock,
+    maintenance,
+    is_maintenance,
     _LEGACY_DAILY_TABLES,
     init_db,
     _app_timezone,
@@ -146,10 +147,14 @@ from services.db.settings import (
     get_bool_setting,
     get_display_toggle_defaults,
     get_llm_cost_profile,
+    get_maintenance_message,
     get_setting,
+    is_maintenance_mode,
     set_bool_setting,
     set_display_toggle_defaults,
     set_llm_cost_profile,
+    set_maintenance_message,
+    set_maintenance_mode,
     set_setting,
 )
 
@@ -435,7 +440,9 @@ def export_db_bytes() -> bytes:
     )
     os.close(snapshot_fd)
     try:
-        with get_conn() as source, closing(sqlite3.connect(snapshot_path)) as target:
+        # Exclusive hold: wait for active connections, block new ones, so the
+        # snapshot reflects a stable DB (A2-1-6).
+        with maintenance(), get_conn() as source, closing(sqlite3.connect(snapshot_path)) as target:
             source.backup(target)
         with open(snapshot_path, "rb") as snapshot_file:
             return snapshot_file.read()
@@ -451,7 +458,7 @@ def import_db_bytes(data: bytes, backup_path: str | None = None) -> None:
     candidate_path = None
     reference_path = None
     try:
-        with database_lock():
+        with maintenance():
             try:
                 candidate_fd, candidate_path = tempfile.mkstemp(
                     suffix=".sqlite",
