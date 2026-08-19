@@ -7,11 +7,13 @@ from services.session.summary import WordReviewRecord, build_report
 from services.utils.formatting import (
     escape_mdv2,
     escape_mdv2_code,
+    format_grammar_tip,
     format_next_review_text,
     format_session_detail_page,
     format_session_summary,
     format_summary_legend,
     html_escape,
+    phonetic_lines,
 )
 
 
@@ -310,3 +312,95 @@ class TestSessionSummaryRendering(unittest.TestCase):
         rendered = format_session_summary(report, rng=random.Random(0)).render(Backend.PLAIN)
         self.assertNotIn("پیشرفت کلی این نشست", rendered)
         self.assertNotIn("نرخ یادآوری", rendered)
+
+
+class TestPhoneticLines(unittest.TestCase):
+    """BUG-4 catching test: the phonetic-line helper is a public member of
+    services/utils/formatting.py (no private-underscore import anywhere)."""
+
+    def test_is_public_importable(self):
+        self.assertTrue(callable(phonetic_lines))
+
+    def test_dict_ipa_renders_code_line(self):
+        self.assertEqual(phonetic_lines({"ipa": "hɛ.loʊ"}), ["`hɛ.loʊ`"])
+
+    def test_json_string_ipa_renders_code_line(self):
+        self.assertEqual(phonetic_lines('{"ipa": "hɛ.loʊ"}'), ["`hɛ.loʊ`"])
+
+    def test_plain_string_falls_back_to_raw_code_line(self):
+        self.assertEqual(phonetic_lines("hɛ.loʊ"), ["`hɛ.loʊ`"])
+
+    def test_backtick_ipa_is_escaped(self):
+        self.assertEqual(phonetic_lines({"ipa": "a`b"}), ["`a\\`b`"])
+
+    def test_empty_value_returns_no_lines(self):
+        self.assertEqual(phonetic_lines(""), [])
+        self.assertEqual(phonetic_lines(None), [])
+        self.assertEqual(phonetic_lines({}), [])
+
+
+class TestFormatGrammarTip(unittest.TestCase):
+    """R6/F6 render choke: every dynamic field is escaped exactly once by the
+    send_pretty renderer — a missed escape becomes structurally impossible."""
+
+    def _tip(self, **over):
+        data = {
+            "title": "ماضی استمراری",
+            "explanation": "داشتن + فعل ماضی",
+            "example": "داشتم میرفتم.",
+        }
+        data.update(over)
+        return format_grammar_tip(data, usage_text="📊 استفاده امروز: ۳/۱۰")
+
+    def test_returns_message(self):
+        from services.send_pretty import Message
+        self.assertIsInstance(self._tip(), Message)
+
+    def test_mdv2_escapes_each_dynamic_value(self):
+        msg = format_grammar_tip(
+            {"title": "a*b", "explanation": "x_y", "example": "c`d"},
+            usage_text="u!v",
+        )
+        rendered = msg.render(Backend.MDV2)
+        self.assertNotIn("a*b", rendered)
+        self.assertIn("a\\*b", rendered)
+        self.assertNotIn("x_y", rendered)
+        self.assertIn("x\\_y", rendered)
+        self.assertIn("`c\\`d`", rendered)
+        self.assertNotIn("u!v", rendered)
+        self.assertIn("u\\!v", rendered)
+
+    def test_mdv2_structure_preserved(self):
+        rendered = self._tip().render(Backend.MDV2)
+        self.assertEqual(
+            rendered,
+            "✍️ *ماضی استمراری*\n\nداشتن \\+ فعل ماضی\n\n`داشتم میرفتم.`\n\n📊 استفاده امروز: ۳/۱۰",
+        )
+
+    def test_plain_backend_strips_markup(self):
+        rendered = self._tip().render(Backend.PLAIN)
+        self.assertEqual(
+            rendered,
+            "✍️ ماضی استمراری\n\nداشتن + فعل ماضی\n\nداشتم میرفتم.\n\n📊 استفاده امروز: ۳/۱۰",
+        )
+
+    def test_grammar_special_chars_never_break_markdown(self):
+        rendered = format_grammar_tip(
+            {"title": "ضربدر (×) و [پرانتز]", "explanation": "نقطه."},
+            usage_text="قیمت ۱۰۰%!",
+        ).render(Backend.MDV2)
+        self.assertNotIn("(×)", rendered)
+        self.assertIn(r"\(×\)", rendered)
+        self.assertNotIn("۱۰۰%!", rendered)
+        self.assertIn("۱۰۰%\\!", rendered)
+
+    def test_null_fields_render_empty_not_literal_none(self):
+        rendered = format_grammar_tip(
+            {"title": None, "explanation": None, "example": None},
+            usage_text="📊 استفاده امروز: ۳/۱۰",
+        ).render(Backend.MDV2)
+        self.assertNotIn("None", rendered)
+        self.assertEqual(
+            rendered,
+            "✍️ **\n\n\n\n``\n\n📊 استفاده امروز: ۳/۱۰",
+        )

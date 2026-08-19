@@ -36,7 +36,7 @@ from config.plan_identity import has_feature
 from services.utils.formatting import (
     ASK_WORD_PROMPT,
     escape_mdv2,
-    escape_mdv2_code,
+    format_grammar_tip,
     word_query_usage_text,
 )
 from services.utils.callback_notifications import notify_callback
@@ -397,11 +397,7 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.",
             )
             return
-        title = escape_mdv2(data.get('title', ''))
-        explanation = escape_mdv2(data.get('explanation', ''))
-        example = escape_mdv2_code(data.get('example', ''))
-
-        text = f"✍️ *{title}*\n\n{explanation}\n\n`{example}`\n\n{escape_mdv2(usage_text)}"
+        msg = format_grammar_tip(data, usage_text)
 
         db.touch_streak(user_id)
         db.add_grammar_tip(
@@ -416,11 +412,10 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info("grammar tip delivered user_id=%s lang=%s", user_id, row["target_lang"])
         delivered = False
         try:
-            await _send_with_retry(
-                context.bot,
+            await send(
                 update.effective_chat.id,
-                text,
-                parse_mode=ParseMode.MARKDOWN_V2,
+                msg,
+                bot=context.bot,
             )
             delivered = True
         finally:

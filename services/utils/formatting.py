@@ -454,7 +454,7 @@ def _saved_word_card(row) -> dict:
     }
 
 
-def _phonetic_lines(value: str | dict) -> list[str]:
+def phonetic_lines(value: str | dict | None) -> list[str]:
     if isinstance(value, dict):
         ipa = value.get("ipa", "")
     elif isinstance(value, str) and value.strip():
@@ -469,6 +469,33 @@ def _phonetic_lines(value: str | dict) -> list[str]:
     if ipa:
         return [f"`{escape_mdv2_code(str(ipa))}`"]
     return []
+
+
+def format_grammar_tip(data: dict, usage_text: str):
+    """Build the learner-facing grammar-tip message as a ``send_pretty.Message``.
+
+    The single MDV2 render choke for the grammar-tip path (R6/F6): the AI-returned
+    field dict and the usage line arrive here raw, are placed into
+    ``Plain``/``Bold``/``Code`` spans, and are escaped exactly once by the
+    ``send_pretty`` renderer at delivery time. Handlers never call
+    ``escape_mdv2`` directly for this message, so a missed field cannot produce
+    a ``BadRequest`` ``can't parse entities`` failure.
+    """
+    from services.send_pretty import Message, bold, code, plain
+
+    # Normalise missing/null AI fields to the empty string so they render as
+    # an empty span, exactly like the escaped path they replaced (escape_mdv2
+    # returns "" for falsy input). Without this, send_pretty's ``_span`` would
+    # str()-ify ``None`` and render the literal ``None`` to the learner.
+    msg = Message()
+    msg.add_line("✍️ ", bold(data.get("title") or ""))
+    msg.add_line(plain(""))
+    msg.add_line(plain(data.get("explanation") or ""))
+    msg.add_line(plain(""))
+    msg.add_line(code(data.get("example") or ""))
+    msg.add_line(plain(""))
+    msg.add_line(plain(usage_text))
+    return msg
 
 
 # Single source of truth for the ask-word entry / re-prompt copy (issue #357).

@@ -43,7 +43,7 @@ from services.scheduling import (
 )
 from services.utils.formatting import (
     NEW_CARD_BADGE,
-    _phonetic_lines,
+    phonetic_lines,
     _saved_word_card,
     days_since_review,
     escape_mdv2,
@@ -431,13 +431,13 @@ def _build_card_text_and_keyboard(
         if stability is not None:
             state.before_stability[word_id] = float(stability)
 
-    phonetic_lines = _phonetic_lines(card_data.get("phonetic", ""))
+    phon_lines = phonetic_lines(card_data.get("phonetic", ""))
     progress = session_progress_footer(state, user_id)
 
     # keyboard + text by activity type
     if node.activity_type == "first_exposure":
         return _render_first_exposure(
-            word_id, card_data, phonetic_lines, progress, user_id, user_data,
+            word_id, card_data, phon_lines, progress, user_id, user_data,
         )
 
     # srs_review: mode-aware render.
@@ -449,7 +449,7 @@ def _build_card_text_and_keyboard(
         text = format_srs_back_stage(
             card_data,
             toggles=toggles,
-            phonetic_lines=phonetic_lines,
+            phonetic_lines=phon_lines,
             footer=progress,
         )
         return text, keyboard
@@ -473,7 +473,7 @@ def _build_card_text_and_keyboard(
         card_data,
         prompt_type,
         toggles=toggles,
-        phonetic_lines=phonetic_lines,
+        phonetic_lines=phon_lines,
         badge=badge,
         footer=progress,
     )
@@ -483,7 +483,7 @@ def _build_card_text_and_keyboard(
 def _render_first_exposure(
     word_id: int,
     card_data: dict,
-    phonetic_lines: list[str],
+    phon_lines: list[str],
     progress: str,
     user_id: int,
     user_data: dict | None,
@@ -508,7 +508,7 @@ def _render_first_exposure(
             card_data,
             prompt_type,
             toggles=toggles,
-            phonetic_lines=phonetic_lines,
+            phonetic_lines=phon_lines,
             badge=NEW_CARD_BADGE,
             footer=progress,
         )
@@ -519,7 +519,7 @@ def _render_first_exposure(
     text = format_srs_back_stage(
         card_data,
         toggles=toggles,
-        phonetic_lines=phonetic_lines,
+        phonetic_lines=phon_lines,
         badge=NEW_CARD_BADGE,
         footer=progress,
     )
