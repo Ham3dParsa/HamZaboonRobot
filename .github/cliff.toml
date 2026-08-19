@@ -14,12 +14,13 @@ All notable changes to HamZaboon. Generated automatically from
 [git-cliff](https://git-cliff.org). Do not edit by hand.
 """
 body = """
-{% for group, commits in commits | group_by(attribute="group") %}
-### {{ group | upper_first }}
-{% for commit in commits -%}
+{%- for group, commits in commits | group_by(attribute="group") %}
+### {{ group }}
+{%- for commit in commits %}
 - {{ commit.message | upper_first }}{% if commit.scope %} (`{{ commit.scope }}`){% endif %}{% if commit.breaking %} 🔥{% endif %}
-{% endfor -%}
-{% endfor -%}
+  — @{{ commit.author.name }}
+{%- endfor -%}
+{%- endfor -%}
 """
 footer = """
 ---
@@ -27,10 +28,13 @@ footer = """
 This changelog is generated automatically. Manual edits will be overwritten.
 """
 postprocessors = []
-sort_commits = "oldest"
+sort_commits = "newest"
 
 [git]
 conventional_commits = true
+filter_unconventional = false
+date_order = true
+date_format = "%Y-%m-%d"
 commit_parsers = [
   { message = "^feat:", group = "Features" },
   { message = "^fix:", group = "Bug Fixes" },
@@ -45,3 +49,6 @@ commit_parsers = [
   { message = ".*", group = "Other" },
 ]
 filter_commits = false
+
+[git.url]
+github = "https://github.com/Ham3dParsa/HamZaboonRobot"
