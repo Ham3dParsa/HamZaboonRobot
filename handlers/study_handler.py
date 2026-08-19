@@ -483,7 +483,7 @@ def _build_card_text_and_keyboard(
 def _render_first_exposure(
     word_id: int,
     card_data: dict,
-    phonetic_lines: list[str],
+    phon_lines: list[str],
     progress: str,
     user_id: int,
     user_data: dict | None,
@@ -508,7 +508,7 @@ def _render_first_exposure(
             card_data,
             prompt_type,
             toggles=toggles,
-            phonetic_lines=phonetic_lines,
+            phonetic_lines=phon_lines,
             badge=NEW_CARD_BADGE,
             footer=progress,
         )
@@ -519,7 +519,7 @@ def _render_first_exposure(
     text = format_srs_back_stage(
         card_data,
         toggles=toggles,
-        phonetic_lines=phonetic_lines,
+        phonetic_lines=phon_lines,
         badge=NEW_CARD_BADGE,
         footer=progress,
     )

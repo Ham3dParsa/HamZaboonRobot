@@ -454,7 +454,7 @@ def _saved_word_card(row) -> dict:
     }
 
 
-def phonetic_lines(value: str | dict) -> list[str]:
+def phonetic_lines(value: str | dict | None) -> list[str]:
     if isinstance(value, dict):
         ipa = value.get("ipa", "")
     elif isinstance(value, str) and value.strip():
@@ -483,12 +483,16 @@ def format_grammar_tip(data: dict, usage_text: str):
     """
     from services.send_pretty import Message, bold, code, plain
 
+    # Normalise missing/null AI fields to the empty string so they render as
+    # an empty span, exactly like the escaped path they replaced (escape_mdv2
+    # returns "" for falsy input). Without this, send_pretty's ``_span`` would
+    # str()-ify ``None`` and render the literal ``None`` to the learner.
     msg = Message()
-    msg.add_line("✍️ ", bold(data.get("title", "")))
+    msg.add_line("✍️ ", bold(data.get("title") or ""))
     msg.add_line(plain(""))
-    msg.add_line(plain(data.get("explanation", "")))
+    msg.add_line(plain(data.get("explanation") or ""))
     msg.add_line(plain(""))
-    msg.add_line(code(data.get("example", "")))
+    msg.add_line(code(data.get("example") or ""))
     msg.add_line(plain(""))
     msg.add_line(plain(usage_text))
     return msg

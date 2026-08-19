@@ -393,3 +393,14 @@ class TestFormatGrammarTip(unittest.TestCase):
         self.assertIn(r"\(×\)", rendered)
         self.assertNotIn("۱۰۰%!", rendered)
         self.assertIn("۱۰۰%\\!", rendered)
+
+    def test_null_fields_render_empty_not_literal_none(self):
+        rendered = format_grammar_tip(
+            {"title": None, "explanation": None, "example": None},
+            usage_text="📊 استفاده امروز: ۳/۱۰",
+        ).render(Backend.MDV2)
+        self.assertNotIn("None", rendered)
+        self.assertEqual(
+            rendered,
+            "✍️ **\n\n\n\n``\n\n📊 استفاده امروز: ۳/۱۰",
+        )

@@ -132,13 +132,26 @@ class GrammarTipFlowTest(unittest.TestCase):
         from handlers.user import send_grammar_tip
 
         ctx = self._context()
-        ctx.bot.send_message = AsyncMock(side_effect=RuntimeError("send boom"))
         update = self._text_update()
 
-        with patch("handlers.user._call_ai_limited", return_value=self._tip()):
-            with self.assertRaises(RuntimeError):
-                asyncio.run(send_grammar_tip(update, ctx))
+        with patch("handlers.user._call_ai_limited", return_value=self._tip()), patch(
+            "handlers.user.send", side_effect=RuntimeError("send boom")
+        ):
+            # Only the delivery ``send`` fails; the error-notification send
+            # (``_send_with_retry`` on the mocked bot) succeeds, so the handler
+            # swallows the delivery error, notifies, releases the reservation,
+            # and returns without propagating.
+            asyncio.run(send_grammar_tip(update, ctx))
 
+        error_texts = [
+            call.kwargs.get("text")
+            for call in ctx.bot.send_message.await_args_list
+            if call.kwargs.get("text")
+        ]
+        self.assertTrue(
+            any("ارسال نکته" in text for text in error_texts),
+            "expected an error-notification send",
+        )
         with db.get_conn() as conn:
             row = conn.execute(
                 "SELECT grammar_tips_asked_today FROM users WHERE user_id=1"
