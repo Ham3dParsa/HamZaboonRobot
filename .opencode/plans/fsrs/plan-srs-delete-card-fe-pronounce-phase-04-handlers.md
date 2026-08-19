@@ -1,4 +1,4 @@
----
+﻿---
 name: srs-delete-card-fe-pronounce-phase-04-handlers
 description: Phase 4 — delete handlers + session refill + FE pronounce fix (Rules 5, 7, 10)
 created: 2026-08-19
@@ -6,7 +6,7 @@ base_commit: 6305c18
 branch: feat/srs-delete-card
 status: in-progress
 ---
-STATE: phase 4/5 — status: in-progress — focus: implement _handle_srs_delete(_yes/_no) + refill + FE pronounce
+STATE: phase — status: DONE (merged via PR #406) — was: implement _handle_srs_delete(_yes/_no) + refill + FE pronounce
 
 ## Blocking edges
 - Phase 1 (DB `delete_saved_word`), Phase 2 (keyboards + confirm), Phase 3 (routing).

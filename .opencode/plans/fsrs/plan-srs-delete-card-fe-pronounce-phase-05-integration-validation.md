@@ -1,4 +1,4 @@
----
+﻿---
 name: srs-delete-card-fe-pronounce-phase-05-integration-validation
 description: Phase 5 — integration tests, full validation, independent review, PR (Rule 9)
 created: 2026-08-19
@@ -6,7 +6,7 @@ base_commit: 6305c18
 branch: feat/srs-delete-card
 status: in-progress
 ---
-STATE: phase 5/5 — status: in-progress — focus: integration tests + validation + review + PR
+STATE: phase — status: DONE (merged via PR #406) — was: integration tests + validation + review + PR
 
 ## Blocking edges
 - Phases 1–4 complete.

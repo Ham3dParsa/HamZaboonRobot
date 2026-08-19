@@ -1,4 +1,4 @@
----
+﻿---
 name: srs-delete-card-fe-pronounce-phase-03-routing
 description: Phase 3 — register srs:delete:* callback prefixes (Rule 6)
 created: 2026-08-19
@@ -6,7 +6,7 @@ base_commit: 6305c18
 branch: feat/srs-delete-card
 status: in-progress
 ---
-STATE: phase 3/5 — status: in-progress — focus: register srs:delete: / :yes: / :no: in services/routing.py
+STATE: phase — status: DONE (merged via PR #406) — was: register srs:delete: / :yes: / :no: in services/routing.py
 
 ## Blocking edges
 - Phase 2 (keyboards emit the exact prefix strings `srs:delete:`, `srs:delete:yes:`, `srs:delete:no:`).

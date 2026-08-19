@@ -1,4 +1,4 @@
----
+﻿---
 name: srs-delete-card-fe-pronounce-phase-02-keyboards
 description: Phase 2 — delete button on revealed cards + confirm keyboard (Rules 2, 3)
 created: 2026-08-19
@@ -6,7 +6,7 @@ base_commit: 6305c18
 branch: feat/srs-delete-card
 status: in-progress
 ---
-STATE: phase 2/5 — status: in-progress — focus: add delete row + confirm keyboard in config/keyboards.py
+STATE: phase — status: DONE (merged via PR #406) — was: add delete row + confirm keyboard in config/keyboards.py
 
 ## Blocking edges
 - Phase 1 (DB) not required for keyboard-only code, but the confirm keyboard emits `srs:delete:yes:`/`srs:delete:no:` prefixes; keyboard builders must match the prefixes Phase 3 registers.
