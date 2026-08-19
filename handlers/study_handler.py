@@ -681,6 +681,18 @@ async def advance_session(
 # Session summary report — data gathering + detail pagination callback (R1-R7)
 # ---------------------------------------------------------------------------
 
+def _parse_iso_utc(value: str):
+    """Parse an ISO-8601 UTC timestamp, tolerating a trailing ``Z`` suffix.
+
+    Python 3.10's ``datetime.fromisoformat`` rejects ``Z`` (3.11+ accepts it),
+    so normalize it to ``+00:00`` first to keep behavior identical across the
+    supported Python versions.
+    """
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    return datetime.fromisoformat(value)
+
+
 def _interval_days(word_row) -> float | None:
     """Scheduled interval in days from next_review_at back to last_review_at.
 
@@ -695,8 +707,8 @@ def _interval_days(word_row) -> float | None:
     if not last or not nxt:
         return None
     try:
-        last_dt = datetime.fromisoformat(last)
-        nxt_dt = datetime.fromisoformat(nxt)
+        last_dt = _parse_iso_utc(last)
+        nxt_dt = _parse_iso_utc(nxt)
     except (TypeError, ValueError):
         return None
     seconds = (nxt_dt - last_dt).total_seconds()
