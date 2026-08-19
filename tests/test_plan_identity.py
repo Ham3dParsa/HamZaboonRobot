@@ -59,6 +59,18 @@ class PlanIdentityTests(unittest.TestCase):
                 self.assertEqual(has_feature(code, "card_modes"), expected)
                 self.assertEqual(has_feature(code, "presentation"), expected)
 
+    def test_session_summary_unlocks_at_bronze(self):
+        """R4: the post-session report is bronze+ (min_rank 1); free keeps the
+        minimal completion message. The owner's admin variant is independent."""
+        self.assertFalse(has_feature("free", "session_summary"))
+        for code in ("bronze", "silver", "gold", "emerald"):
+            with self.subTest(plan=code):
+                self.assertTrue(has_feature(code, "session_summary"))
+        self.assertEqual(
+            feature_audience("session_summary"),
+            "برای پلن‌های برنزی و نقره‌ای و طلایی و زمردی",
+        )
+
     def test_unknown_plan_and_feature_are_denied(self):
         """Fail-closed: an unknown plan or feature is never entitled."""
         self.assertFalse(has_feature("unknown", "card_modes"))

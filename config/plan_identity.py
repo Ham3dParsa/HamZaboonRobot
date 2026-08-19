@@ -47,6 +47,7 @@ _FEATURE_MIN_RANK: dict[str, int] = {
     "pronounce":    0,   # free to all (locked product decision, 2026-08-17)
     "card_modes":   1,   # bronze+
     "presentation": 1,   # bronze+
+    "session_summary": 1,  # bronze+ (post-session report; free keeps the minimal message)
 }
 
 

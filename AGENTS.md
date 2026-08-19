@@ -84,7 +84,7 @@ not in prose.
   - `services/utils/`: `callback_notifications.py`, `formatting.py` (escaping), `helpers.py` (retry/cancel), `validation.py`.
   - `services/scheduling.py`: pure session sizing, slot planning, timezone-aware timestamps.
   - `services/tts.py`: Edge TTS pronunciation.
-  - `services/session/`: pure FSRS session engine — `__init__.py` (`build_session_list`, `generate_tier3_node`), `assembly.py`, `grade_policy.py`.
+  - `services/session/`: pure FSRS session engine — `__init__.py` (`build_session_list`, `generate_tier3_node`), `assembly.py`, `grade_policy.py`, `summary.py` (post-session report builder).
   - `handlers/study_handler.py`: study-session handler.
 - `config/`: `__init__.py` env/deployment settings (not a second registry), `catalog.py` (canonical language/goal/level metadata), `plan_identity.py` (canonical plan-set membership + premium tiering), `keyboards.py` (menus + callback identifiers).
 - `tests/test_integration/`: handler-level integration tests.

@@ -12,7 +12,7 @@ This is disclosed reference — loaded only when parallel-work-guard fires.
 |---|---|---|---|
 | 1 | Persistence | services/db/__init__.py + services/db/schema.py | get_conn() |
 | 2 | AI/LLM Provider | services/ai/ai.py | _client(), ask_json(), ask_card(), ask_batch() |
-| 3 | Session Assembly | services/session/__init__.py + assembly.py | build_session_list(), generate_tier3_node() |
+| 3 | Session Assembly | services/session/__init__.py + assembly.py + summary.py | build_session_list(), generate_tier3_node(), build_report() |
 | 4 | SRS Algorithm | services/fsrs_core.py | compute_retrievability(), compute_interval(), initial_stability(), update_stability() |
 | 5 | Telegram UI -> Study | handlers/study_handler.py | handle_study_start(), advance_session() |
 | 6 | Telegram UI -> SRS Grading | handlers/srs_handler.py | _handle_srs_review(), _handle_first_exposure_grade() |
