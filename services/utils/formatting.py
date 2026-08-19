@@ -522,10 +522,15 @@ _TIER_LABEL = {
 }
 
 
-def _utc_today() -> datetime.date:
-    """Today's date in UTC — matches how stored ``next_review_at``/prior dates
-    are derived (sliced from UTC timestamps) so relative-date math is stable."""
-    return datetime.datetime.now(datetime.timezone.utc).date()
+def _app_date() -> datetime.date:
+    """Today's date in the application timezone (``APP_TIMEZONE``).
+
+    Stored ``next_review_at``/prior dates are derived from app-time timestamps
+    (``words.py`` ``astimezone(APP_TZ)``), so the relative-date baseline must be
+    the app day too — otherwise labels flip at local midnight. Falls back to the
+    config ``_app_today()`` source of truth.
+    """
+    return datetime.date.fromisoformat(_app_today())
 
 
 def _jalali_day_month(iso_date: str) -> str:
@@ -544,7 +549,7 @@ def _relative_next_review(iso_date: str, today: datetime.date) -> str:
     """
     try:
         d = datetime.date.fromisoformat(iso_date)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, AttributeError):
         return ""
     delta = (d - today).days
     if delta < 0:
@@ -670,7 +675,7 @@ def format_session_detail_page(
     """
     from services.send_pretty import Message, plain
 
-    today = today or _utc_today()
+    today = today or _app_date()
     msg = Message()
     msg.add_line(
         plain(
@@ -728,7 +733,7 @@ def format_summary_legend():
     msg.add_line(plain(""))
     msg.add_line(plain("سختی:"))
     msg.add_line(plain("🔴 بالا (۶ و بیشتر)"))
-    msg.add_line(plain("🟡 متوسط (۳ تا ۵٫۹)"))
+    msg.add_line(plain("🟡 متوسط (۳ تا کمتر از ۶)"))
     msg.add_line(plain("🟢 راحت (کمتر از ۳)"))
     msg.add_line(plain(""))
     msg.add_line(plain("📅 مرور بعدی"))

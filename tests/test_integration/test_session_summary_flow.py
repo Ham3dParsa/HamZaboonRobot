@@ -33,6 +33,7 @@ from handlers.study_handler import (
     SessionState,
     _gather_word_records,
     _handle_session_summary_callback,
+    _to_app_tz_date,
     advance_session,
 )
 from services.session import SessionNode
@@ -156,6 +157,15 @@ class SessionSummaryFlowTests(unittest.TestCase):
             plan="silver", graded_word_ids=[], before_stability={},
         )
         self.assertEqual(_gather_word_records(state, 1), [])
+
+    def test_to_app_tz_date_uses_app_timezone(self):
+        # A UTC timestamp near local midnight must map to the app-tz day, not the
+        # raw UTC day (Kilo date-boundary finding). 22:30Z in Asia/Tehran (UTC+3:30)
+        # is 02:00 the next local day.
+        self.assertEqual(_to_app_tz_date("2026-08-19T22:30:00Z"), "2026-08-20")
+        self.assertEqual(_to_app_tz_date("2026-08-20T10:00:00Z"), "2026-08-20")
+        self.assertIsNone(_to_app_tz_date(None))
+        self.assertIsNone(_to_app_tz_date("not-a-date"))
 
     # ------------------------------------------------------------------
     # Completion render (R4 / R6)

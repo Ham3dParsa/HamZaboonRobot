@@ -19,6 +19,7 @@ from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from config import (
+    APP_TZ,
     OWNER_BYPASS_LIMITS,
     cards_per_session_for_plan,
     is_owner,
@@ -704,6 +705,23 @@ def _parse_iso_utc(value: str):
     return datetime.fromisoformat(value)
 
 
+def _to_app_tz_date(iso_utc: str | None) -> str | None:
+    """Convert a stored UTC ISO timestamp to the app-tz ``YYYY-MM-DD`` date.
+
+    Summary relative-date labels compare against the app day, so the per-word
+    ``prior``/``next`` dates must be app-tz dates too — otherwise the labels
+    flip a day off near local midnight. Returns None for a missing/unparseable
+    timestamp.
+    """
+    if not iso_utc:
+        return None
+    try:
+        dt = _parse_iso_utc(iso_utc)
+    except (TypeError, ValueError):
+        return None
+    return dt.astimezone(APP_TZ).date().isoformat()
+
+
 def _interval_days(word_row) -> float | None:
     """Scheduled interval in days from next_review_at back to last_review_at.
 
@@ -759,12 +777,12 @@ def _gather_word_records(
                 stability_after=(
                     wr["stability"] if wr["stability"] is not None else None
                 ),
-                prior_review_date=(prior["created_at"][:10] if prior else None),
+                prior_review_date=_to_app_tz_date(
+                    prior["created_at"] if prior else None
+                ),
                 grade=current["grade"] if current else None,
                 interval_days=_interval_days(wr),
-                next_review_date=(
-                    wr["next_review_at"][:10] if wr["next_review_at"] else None
-                ),
+                next_review_date=_to_app_tz_date(wr["next_review_at"]),
                 difficulty=(
                     wr["difficulty"] if wr["difficulty"] is not None else None
                 ),
