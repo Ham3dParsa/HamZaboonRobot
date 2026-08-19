@@ -78,6 +78,7 @@ not in prose.
   - `handlers/srs_handler.py`: SRS review / first-exposure grading.
 - `services/`: domains.
   - `services/fsrs_core.py`: pure FSRS-6 engine (no side effects).
+  - `services/plan_fields.py`: canonical admin-editable plan-field schema (mirrors `services/ai/preset_fields.py`); drives the plan-manager wizard in `handlers/admin_plans.py`.
   - `services/word_query.py`: pure custom-word query orchestration (`ask`, `toggle_save`); no Telegram imports.
   - `services/db/`: SQLite schema/migrations/persistence/quota. `__init__.py` thin re-export façade; `schema.py` owns schema/migrations; `plans.py` seeds+CRUDs plans; `settings.py` settings accessors; `cost_tracking.py` LLM cost; `preset_registry.py` AI preset/fallback/hourly-usage; `display_toggles.py` display-toggle state + precedence; `key_crypto.py` key encryption (fail-closed).
   - `services/ai/`: OpenAI-compatible client, JSON extraction, validation, prompts, generation, presets. `preset_fields.py` owns canonical AI-preset field schema.

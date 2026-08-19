@@ -17,7 +17,6 @@ from handlers import admin
 from handlers import admin_plans
 
 _PLAN_FUNCTIONS = (
-    "_validate_plan_wizard_value",
     "_show_plan_list",
     "_show_plan_view",
     "_start_plan_wizard",
@@ -53,25 +52,20 @@ class TestAdminPlansModule(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIs(getattr(admin_plans, name), kbd)
 
-    def test_plan_wizard_constants_present(self):
+    def test_plan_wizard_is_data_driven_by_registry(self):
+        from services import plan_fields
+
         self.assertEqual(
-            admin_plans.TOTAL_PLAN_WIZARD_FIELDS, len(admin_plans.PLAN_WIZARD_FIELDS)
+            admin_plans.TOTAL_PLAN_WIZARD_FIELDS, len(plan_fields.field_order())
         )
-        self.assertIn("display_name", admin_plans.PLAN_WIZARD_FIELD_LABELS)
-        self.assertIn(0, admin_plans.PLAN_WIZARD_GROUP_HEADERS)
-        self.assertIn("query_quota", admin_plans.PLAN_WIZARD_FIELD_HINTS)
+        self.assertEqual(plan_fields.field_order()[0], "display_name")
+        self.assertIn("query_quota", plan_fields.field_order())
 
     def test_all_is_explicit(self):
         expected = sorted(
             list(_PLAN_FUNCTIONS)
             + list(_KEYBOARDS.keys())
-            + [
-                "PLAN_WIZARD_FIELD_HINTS",
-                "PLAN_WIZARD_FIELD_LABELS",
-                "PLAN_WIZARD_FIELDS",
-                "PLAN_WIZARD_GROUP_HEADERS",
-                "TOTAL_PLAN_WIZARD_FIELDS",
-            ],
+            + ["TOTAL_PLAN_WIZARD_FIELDS"],
             key=lambda s: s.lower(),
         )
         self.assertEqual(sorted(admin_plans.__all__, key=lambda s: s.lower()), expected)

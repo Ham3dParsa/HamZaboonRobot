@@ -61,6 +61,15 @@ DOMAIN_KEYWORDS: dict[str, str] = {
     "plan_label": "config/plan_identity.py",
     "has_feature": "config/plan_identity.py",
     "feature_audience": "config/plan_identity.py",
+    # services/plan_fields.py owns the admin-editable plan field schema (G3 F8/R8).
+    "PLAN_FIELDS": "services/plan_fields.py",
+    "PLAN_GROUPS": "services/plan_fields.py",
+    "plan_field": "services/plan_fields.py",
+    "field_order": "services/plan_fields.py",
+    "field_label": "services/plan_fields.py",
+    "field_hint": "services/plan_fields.py",
+    "group_header": "services/plan_fields.py",
+    "build_upsert_kwargs": "services/plan_fields.py",
     # services/utils/formatting.py owns learner-facing escaping (AGENTS.md §5).
     "escape_mdv2": "services/utils/formatting.py",
     "escape_mdv2_code": "services/utils/formatting.py",
