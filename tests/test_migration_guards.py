@@ -94,6 +94,7 @@ EXPECTED_TABLES = {
     "config_tests",
     "plans",
     "study_sessions",
+    "session_grade_ledger",
 }
 
 # Tables that MUST NOT exist after init_db().

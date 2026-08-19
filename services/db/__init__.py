@@ -108,6 +108,9 @@ from services.db.sessions import (
     save_study_session,
     load_study_session,
     clear_study_session,
+    mark_word_graded,
+    is_word_graded,
+    clear_session_grades,
 )
 
 

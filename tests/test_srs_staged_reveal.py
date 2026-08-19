@@ -195,12 +195,15 @@ class SrsHandlerFlowTests(unittest.TestCase):
         self.assertEqual(events[-1]["outcome"], "again")
 
     # T3 — all 4 grades produce correct raw_signal (freshly exposed each loop is expensive;
-    # reuse the same exposed card across four sequential reviews)
+    # reuse the same exposed card across four sequential reviews; the durable grade
+    # ledger is reset per grade to model four separate sessions, since the same word
+    # cannot be graded twice within one session — Bug report 2026-08-19)
     def test_all_grades_produce_raw_signal(self):
         query = self._query()
         update = self._update(query)
         ctx = self._context()
         for grade in (1, 2, 3, 4):
+            db.clear_session_grades(1)
             asyncio.run(srs_handler._handle_srs_review(update, grade, "1", str(self.word_id), ctx))
         events = self._events()
         self.assertEqual(len(events), 4)  # 4 reviews (DB expose wrote no event)

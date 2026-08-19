@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from services import db
 from services.db import schema as db_schema
+from telegram.error import BadRequest
 
 
 class StudySessionRestartFlowTest(unittest.TestCase):
@@ -230,10 +231,13 @@ class StudySessionRestartFlowTest(unittest.TestCase):
         self.assertNotIn("current_session", ctx.user_data)
         self.assertIsNone(self._persisted_row())
 
-    def test_completion_clears_row_before_message(self):
-        """Owner decision 2026-08-15: the DB row must be cleared BEFORE the
-        completion message is sent, so a crash/timeout in that window cannot
-        leave a re-gradable last node behind."""
+    def test_completion_clears_row_after_message(self):
+        """Bug report 2026-08-19 (overturns the 2026-08-15 clear-before-send
+        decision): the completion/report message is rendered FIRST and only on
+        success is the row cleared. If the completion edit fails (weak network),
+        the session is rolled back and preserved so a re-tap of the already
+        graded last card retries the edit and the session still completes —
+        never a stuck, re-gradable card with no report."""
         from handlers.study_handler import handle_study_start
         from bot import callback_router
 
@@ -246,12 +250,79 @@ class StudySessionRestartFlowTest(unittest.TestCase):
             asyncio.run(handle_study_start(self._study_update(), ctx))
             self.assertIsNotNone(self._persisted_row())
 
-        # Make the completion message send fail; the row must already be cleared.
+        # Completion message send fails: the session must be rolled back and
+        # preserved (self-healing), NOT cleared, so the next tap can retry.
         ctx.bot.edit_message_text = AsyncMock(side_effect=RuntimeError("boom"))
         grade_update = self._callback_update(f"srs:3:1:{w1}")
         asyncio.run(callback_router(grade_update, ctx))
+        self.assertIn("current_session", ctx.user_data)
+        self.assertIsNotNone(self._persisted_row())
+
+        # Re-tap of the already-graded last card: skips the re-grade (no double
+        # grade), retries the completion edit which now succeeds, and only then
+        # clears the row — the session completes and shows the report.
+        ctx.bot.edit_message_text = AsyncMock()
+        asyncio.run(callback_router(grade_update, ctx))
         self.assertNotIn("current_session", ctx.user_data)
         self.assertIsNone(self._persisted_row())
+
+    def test_completion_badrequest_ends_session_with_minimal_fallback(self):
+        """kilo r3816695425: a permanent completion-edit BadRequest (message
+        not found / not modified / MarkdownV2 parse error) must end the session
+        (no re-tap soft-lock) AND surface a minimal plain-text completion so a
+        report escaping regression is never a silent report loss."""
+        from handlers.study_handler import handle_study_start
+        from bot import callback_router
+
+        w1 = self._seed_word("hello", expose=True)
+        node1 = self._node("srs_review", w1)
+
+        with patch("handlers.study_handler.build_session_list",
+                   return_value=([node1], {"user_id": 1, "remaining_slots": 0})):
+            ctx = self._context()
+            asyncio.run(handle_study_start(self._study_update(), ctx))
+            self.assertIsNotNone(self._persisted_row())
+
+        # Completion edit fails permanently (e.g. "can't parse entities").
+        ctx.bot.edit_message_text = AsyncMock(
+            side_effect=BadRequest("Bad Request: can't parse entities")
+        )
+        grade_update = self._callback_update(f"srs:3:1:{w1}")
+        asyncio.run(callback_router(grade_update, ctx))
+
+        # The session ended (cleared), and a minimal completion was sent so the
+        # learner still sees a finish signal.
+        self.assertNotIn("current_session", ctx.user_data)
+        self.assertIsNone(self._persisted_row())
+        sent = ctx.bot.send_message.call_args.kwargs["text"]
+        self.assertIn("جلسه مطالعه تموم شد", sent)
+
+    def test_completion_not_modified_clears_session_without_duplicate_fallback(self):
+        """kilo r3816832249: when the completion edit returns "message is not
+        modified" the completion is already on screen — treat it as success:
+        clear the session and do NOT send a duplicate fallback message."""
+        from handlers.study_handler import handle_study_start
+        from bot import callback_router
+
+        w1 = self._seed_word("hello", expose=True)
+        node1 = self._node("srs_review", w1)
+
+        with patch("handlers.study_handler.build_session_list",
+                   return_value=([node1], {"user_id": 1, "remaining_slots": 0})):
+            ctx = self._context()
+            asyncio.run(handle_study_start(self._study_update(), ctx))
+            self.assertIsNotNone(self._persisted_row())
+
+        ctx.bot.send_message.reset_mock()
+        ctx.bot.edit_message_text = AsyncMock(
+            side_effect=BadRequest("Bad Request: message is not modified")
+        )
+        grade_update = self._callback_update(f"srs:3:1:{w1}")
+        asyncio.run(callback_router(grade_update, ctx))
+
+        self.assertNotIn("current_session", ctx.user_data)
+        self.assertIsNone(self._persisted_row())
+        ctx.bot.send_message.assert_not_awaited()
 
     def test_persist_attempted_before_first_card_render(self):
         """Owner decision 2026-08-15: the session is persisted to the DB before
