@@ -244,6 +244,39 @@ BANNED_SYMBOLS: dict[str, str] = {
         "parallel premium-tier frozenset superseded by _PLANS premium flag + "
         "is_premium()/has_feature()"
     ),
+    "tts_access": (
+        "removed by #390 always-on pronunciation (owner, 2026-08-19): admin audio "
+        "on/off knob retired; 🔊 is available to every plan with no toggle; stale "
+        "settings row deleted at startup (services/db/schema.py)"
+    ),
+    "should_show_pronounce": (
+        "removed by #390 always-on pronunciation (owner, 2026-08-19): per-user "
+        "pronounce gate retired with tts_access"
+    ),
+    "show_pronounce": (
+        "removed by #390 always-on pronunciation (owner, 2026-08-19): keyboards now "
+        "always include the 🔊 row; callers no longer pass a show_pronounce flag"
+    ),
+    "phonetic_settings_keyboard": (
+        "removed by #390 always-on pronunciation (owner, 2026-08-19): admin "
+        "IPA/audio phonetics panel retired entirely"
+    ),
+    "IBTN_IPA": (
+        "removed by #390 always-on pronunciation (owner, 2026-08-19): admin IPA "
+        "on/off button retired with the phonetics panel"
+    ),
+    "IBTN_ADMIN_PHONETICS": (
+        "removed by #390 always-on pronunciation (owner, 2026-08-19): admin phonetics "
+        "menu button retired"
+    ),
+    "_phonetic_ipa_default": (
+        "removed by #390 always-on pronunciation (owner, 2026-08-19): IPA default "
+        "lookup helper retired with the phonetics panel"
+    ),
+    "_phonetic_settings_text": (
+        "removed by #390 always-on pronunciation (owner, 2026-08-19): admin phonetics "
+        "status text retired"
+    ),
 }
 
 # Symbols that are intentionally retained even though they are no longer

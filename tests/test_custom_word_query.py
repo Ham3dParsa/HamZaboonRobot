@@ -138,48 +138,6 @@ class CustomWordQueryTests(unittest.TestCase):
             conn.execute("UPDATE users SET plan=? WHERE user_id=?", (plan, user_id))
             conn.commit()
 
-    def test_should_show_pronounce_honors_tts_access_gate(self):
-        db.create_user_if_needed(1, "learner")
-        db.set_setting("tts_access", "all")
-        self.assertTrue(db.should_show_pronounce(1), "free user sees 🔊 when tts=all")
-
-        db.set_setting("tts_access", "premium")
-        # Pronounce is free to all plans (locked J-B6 decision, 2026-08-17), so the
-        # admin tts_access gate alone decides: "none" hides, everything else shows.
-        self.assertTrue(
-            db.should_show_pronounce(1),
-            "pronounce is free to every plan, so 🔊 shows for a free user under tts=premium",
-        )
-
-        db.set_setting("tts_access", "none")
-        self.assertFalse(db.should_show_pronounce(1), "none hides 🔊")
-
-    def test_should_show_pronounce_false_for_unknown_user(self):
-        self.assertFalse(db.should_show_pronounce(999999))
-
-    def test_should_show_pronounce_honors_owner_bypass(self):
-        db.create_user_if_needed(1, "learner")
-        self._set_plan(1, "free")
-        db.set_setting("tts_access", "premium")
-        with patch("config.OWNER_ID", 1), patch("config.OWNER_BYPASS_LIMITS", True):
-            self.assertTrue(
-                db.should_show_pronounce(1),
-                "owner bypass with a stored free plan must see 🔊 under tts=premium",
-            )
-
-    def test_should_show_pronounce_accepts_passed_row(self):
-        db.create_user_if_needed(1, "learner")
-        self._set_plan(1, "free")
-        db.set_setting("tts_access", "premium")
-        row = db.get_user(1)
-        # Pronounce is free to every plan, so a passed free row still shows 🔊.
-        self.assertTrue(db.should_show_pronounce(1, row))
-        premium_row = dict(row, plan="gold")
-        self.assertTrue(
-            db.should_show_pronounce(1, premium_row),
-            "a passed gold row must be honored without re-querying the DB",
-        )
-
     def test_clear_query_result_saved_nulls_markers(self):
         db.create_user_if_needed(1, "learner")
         token = db.create_query_result(
@@ -195,11 +153,14 @@ class CustomWordQueryTests(unittest.TestCase):
     def test_srs_review_keyboard_is_user_scoped_and_short(self):
         markup = get_review_keyboard(123, 456)
         callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
-        self.assertEqual(callbacks, ["srs:1:123:456", "srs:2:123:456", "srs:3:123:456", "srs:4:123:456", "srs:delete:123:456"])
+        self.assertEqual(
+            callbacks,
+            ["srs:1:123:456", "srs:2:123:456", "srs:3:123:456", "srs:4:123:456", "tts:pronounce:s:123:456", "srs:delete:123:456"],
+        )
         self.assertTrue(all(len(callback) < 64 for callback in callbacks))
 
     def test_query_result_keyboard_adds_and_scopes(self):
-        query = query_result_keyboard("a" * 32, show_pronounce=True)
+        query = query_result_keyboard("a" * 32)
         flat = [b.callback_data for row in query.inline_keyboard for b in row]
         self.assertEqual(flat, [f"query:add:{'a' * 32}", f"tts:pronounce:q:{'a' * 32}"])
         self.assertFalse(

@@ -224,11 +224,11 @@ class CardModeGateTests(unittest.TestCase):
             conn.commit()
         self.assertEqual(users_module.resolve_card_mode_gate("review"), "premium")
 
-    def test_premium_gate_excludes_free_and_bronze(self):
+    def test_premium_gate_excludes_free_and_includes_bronze(self):
         self._user_with_plan(10, "free")
         self._user_with_plan(11, "bronze")
         self.assertFalse(users_module.card_mode_available(10, "first_exposure"))
-        self.assertFalse(users_module.card_mode_available(11, "first_exposure"))
+        self.assertTrue(users_module.card_mode_available(11, "first_exposure"))
 
     def test_premium_gate_includes_paid_plans(self):
         for plan in ("silver", "gold", "emerald"):

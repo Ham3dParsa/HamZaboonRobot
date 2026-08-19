@@ -102,7 +102,6 @@ class WordQueryAskTest(unittest.TestCase):
             db.reserve_word_query.return_value = True
             db.create_query_result.return_value = "tok123"
             db.get_user.return_value = self._complete_user()
-            db.should_show_pronounce.return_value = True
             import asyncio
 
             result = asyncio.run(
@@ -111,12 +110,10 @@ class WordQueryAskTest(unittest.TestCase):
             db.reserve_word_query.assert_called_once()
             db.create_query_result.assert_called_once()
             db.touch_streak.assert_called_once()
-            db.should_show_pronounce.assert_called_once()
             db.release_word_query.assert_not_called()
             self.assertEqual(result.kind, "ok")
             self.assertEqual(result.token, "tok123")
             self.assertEqual(result.card_data["word"], "apple")
-            self.assertEqual(result.show_pronounce, True)
             self.assertIsInstance(result, AskResult)
 
     def test_usage_text_reflects_post_reservation_count(self):
@@ -127,7 +124,6 @@ class WordQueryAskTest(unittest.TestCase):
         ):
             db.reserve_word_query.return_value = True
             db.create_query_result.return_value = "tok123"
-            db.should_show_pronounce.return_value = True
             from config import _app_today
             before = self._complete_user()  # words_asked_today = 3
             after = self._complete_user()

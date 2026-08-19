@@ -58,7 +58,6 @@ class AskResult:
     kind: str
     token: Optional[str] = None
     card_data: Optional[dict] = None
-    show_pronounce: Optional[bool] = None
     usage_text: Optional[str] = None
     error_key: Optional[str] = None
 
@@ -260,11 +259,9 @@ async def ask(
         return AskResult(kind="persist_error")
 
     usage_row = db.get_user(user_id)
-    show_pronounce = db.should_show_pronounce(user_id, usage_row)
     return AskResult(
         kind="ok",
         token=query_token,
         card_data=data,
-        show_pronounce=show_pronounce,
         usage_text=_format_usage(usage_row, limit),
     )

@@ -115,8 +115,8 @@ class DisplayToggleServiceTest(unittest.TestCase):
         self.assertFalse(got2["synonyms"])
 
     def test_string_values_normalized(self):
-        set_user_toggle(1, "phonetic", "false")
-        self.assertFalse(get_effective(1)["phonetic"])
+        set_user_toggle(1, "examples", "false")
+        self.assertFalse(get_effective(1)["examples"])
         set_forced(1, "grammar_tip", "on")
         self.assertTrue(get_effective(1)["grammar_tip"])
 

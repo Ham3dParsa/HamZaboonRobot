@@ -9,7 +9,7 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from config import APP_TZ, DB_PATH, feature_audience, is_owner
+from config import APP_TZ, DB_PATH, is_owner
 from services import db
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send, _exit_awaiting_flow, _send_with_retry
@@ -87,7 +87,6 @@ from config.keyboards import (
     admin_panel_keyboard,
     main_menu,
     admin_awaiting_inline_keyboard,
-    phonetic_settings_keyboard,
     log_level_keyboard,
     user_activity_keyboard,
 )
@@ -147,30 +146,6 @@ async def _show_log_level_settings(update: Update, context: ContextTypes.DEFAULT
     await _edit_or_send(update, context, text, reply_markup=log_level_keyboard(current))
 
 
-def _phonetic_ipa_default() -> bool:
-    """Admin-global phonetic display-toggle default (single source of truth)."""
-    return db.get_display_toggle_defaults().get("phonetic", True)
-
-
-def _phonetic_settings_text() -> str:
-    ipa = _phonetic_ipa_default()
-    tts_access = db.get_setting("tts_access", "premium")
-    # Labels mirror the live feature gate (feature_audience) so they never drift
-    # from config/plan_identity.py (#390); pronounce is free, so both on-options
-    # read as on-for-all and only "none" differs.
-    _tts_audience = feature_audience("pronounce")
-    tts_labels = {
-        "none": "❌ غیرفعال",
-        "premium": f"✅ فعال ({_tts_audience})",
-        "all": f"✅ فعال ({_tts_audience})",
-    }
-    return (
-        "تنظیم نمایش تلفظ‌ها:\n"
-        f"IPA: {'روشن' if ipa else 'خاموش'}\n"
-        f"🔊 تلفظ صوتی: {tts_labels.get(tts_access, tts_access)}"
-    )
-
-
 async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
     if not is_owner(update.effective_user.id):
         await notify_callback(update.callback_query, "فقط مالک ربات دسترسی داره.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
@@ -193,28 +168,6 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         context.user_data.pop("full_edit", None)
         await _edit_or_send(update, context, "عملیات لغو شد.", reply_markup=admin_panel_keyboard())
         await notify_callback(update.callback_query, "لغو شد", intent=CallbackNoticeIntent.INFO)
-    elif action == "phonetics":
-        await _edit_or_send(
-            update,
-            context,
-            _phonetic_settings_text(),
-            reply_markup=phonetic_settings_keyboard({"ipa": _phonetic_ipa_default()}),
-        )
-        await notify_callback(update.callback_query, "تنظیم شد.", intent=CallbackNoticeIntent.SUCCESS)
-    elif action.startswith("phonetics:"):
-        _, setting = action.split(":", 1)
-        if setting != "ipa":
-            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-            return
-        current = _phonetic_ipa_default()
-        db.set_display_toggle_defaults({"phonetic": not current})
-        await _edit_or_send(
-            update,
-            context,
-            _phonetic_settings_text(),
-            reply_markup=phonetic_settings_keyboard({"ipa": _phonetic_ipa_default()}),
-        )
-        await notify_callback(update.callback_query, "تنظیم شد.", intent=CallbackNoticeIntent.SUCCESS)
     elif action == "broadcast":
         context.user_data["awaiting"] = "admin_broadcast"
         await notify_callback(update.callback_query)
@@ -244,8 +197,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             f"🤖 پیش‌تنظیم فعال: <b>{html_escape(str(preset.get('name', 'gapgpt'))) }</b>\n"
             f"📋 مدل: <b>{html_escape(str(preset.get('model', '—'))) }</b>\n"
             f"🌐 Base URL: <b>{html_escape(str(preset.get('base_url', '—'))) }</b>\n"
-            f"🔑 API Key: <code>{html_escape(masked)}</code>\n"
-            f"🗣 IPA: {'روشن' if _phonetic_ipa_default() else 'خاموش'}",
+            f"🔑 API Key: <code>{html_escape(masked)}</code>",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data="admin:back")]]),
         )

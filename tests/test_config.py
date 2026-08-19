@@ -101,7 +101,6 @@ class DisplayToggleCatalogTests(unittest.TestCase):
                 "examples",
                 "example_translations",
                 "grammar_tip",
-                "phonetic",
             },
         )
         self.assertEqual(len(DISPLAY_TOGGLE_FIELDS), len(set(DISPLAY_TOGGLE_FIELDS)))

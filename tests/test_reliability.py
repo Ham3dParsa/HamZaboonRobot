@@ -475,13 +475,34 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertEqual(db.get_user(1)["presentation_preference"], "brief")
 
     def test_phonetic_show_ipa_settings_key_removed(self):
-        """The legacy admin phonetic knob is gone; the display-toggle defaults
-        row replaces it and seeds all fields True (#338 phonetic-knob decision)."""
+        """The legacy admin phonetic knob is gone and ``phonetic`` is no longer a
+        display-toggle field (#338 phonetic-knob + #390 always-on IPA)."""
         self.assertEqual(db.get_setting("phonetic_show_ipa", ""), "")
         defaults = db.get_display_toggle_defaults()
-        self.assertIn("phonetic", defaults)
-        self.assertTrue(defaults["phonetic"])
+        self.assertNotIn("phonetic", defaults)
         self.assertEqual(set(defaults), set(_TOGGLE_FIELDS))
+
+    def test_startup_cleanup_retires_tts_and_phonetic_toggle_state(self):
+        """#390 — pronunciation is always-on, so stale stored toggle state is
+        removed at init_db: the tts_access settings row is deleted and the
+        phonetic key is stripped from the stored display_toggle_defaults row."""
+        import json as _json
+
+        db.set_setting("tts_access", "premium")
+        db.set_setting("display_toggle_defaults", _json.dumps({"phonetic": False, "synonyms": True}))
+        db.init_db()
+        with db.get_conn() as conn:
+            tts = conn.execute(
+                "SELECT value FROM settings WHERE key = 'tts_access'"
+            ).fetchone()
+            dtd = conn.execute(
+                "SELECT value FROM settings WHERE key = 'display_toggle_defaults'"
+            ).fetchone()
+        self.assertIsNone(tts, "stale tts_access row must be deleted on startup")
+        self.assertIsNotNone(dtd, "display_toggle_defaults row must be preserved")
+        stored = _json.loads(dtd["value"])
+        self.assertNotIn("phonetic", stored, "stale phonetic toggle must be stripped")
+        self.assertEqual(stored["synonyms"], True, "unrelated toggle values must survive")
 
     def test_display_toggle_storage_and_precedence(self):
         db.create_user_if_needed(1, "learner")
@@ -505,8 +526,8 @@ class ReliabilityPersistenceTests(unittest.TestCase):
 
     def test_display_toggle_string_values_normalized(self):
         db.create_user_if_needed(1, "learner")
-        db.set_display_toggle(1, "phonetic", "false")
-        self.assertFalse(db.get_display_toggles(1)["phonetic"])
+        db.set_display_toggle(1, "examples", "false")
+        self.assertFalse(db.get_display_toggles(1)["examples"])
         db.set_display_toggle_forced(1, "grammar_tip", "true")
         self.assertTrue(db.get_display_toggles(1)["grammar_tip"])
         db.set_display_toggle_forced(1, "grammar_tip", "off")
@@ -559,8 +580,8 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         self.assertIn("display_toggles", columns)
         self.assertIn("display_toggles_forced", columns)
         db.create_user_if_needed(1, "learner")
-        db.set_display_toggle(1, "phonetic", False)
-        self.assertFalse(db.get_display_toggles(1)["phonetic"])
+        db.set_display_toggle(1, "grammar_tip", False)
+        self.assertFalse(db.get_display_toggles(1)["grammar_tip"])
         self.assertTrue(db.get_display_toggles(1)["examples"])
 
     def test_recent_grammar_tip_titles_are_language_scoped(self):

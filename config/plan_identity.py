@@ -45,8 +45,8 @@ _PLANS: dict[str, _PlanSpec] = {
 # is the single source of truth; do NOT scatter rank/premium checks elsewhere.
 _FEATURE_MIN_RANK: dict[str, int] = {
     "pronounce":    0,   # free to all (locked product decision, 2026-08-17)
-    "card_modes":   2,   # silver+
-    "presentation": 2,   # silver+
+    "card_modes":   1,   # bronze+
+    "presentation": 1,   # bronze+
 }
 
 

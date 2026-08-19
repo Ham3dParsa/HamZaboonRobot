@@ -71,7 +71,7 @@ class WordQueryToggleFlowTests(unittest.TestCase):
         token = db.create_query_result(1, "hello", "hello", "en", self.card)
         update = self._make_update()
         context = self._context(
-            {f"query_kb_{token}": {"show_pronounce": True}}
+            {f"query_kb_{token}": {}}
         )
         asyncio.run(_handle_query_add(update, context, token))
         self.assertIsNotNone(
@@ -100,7 +100,7 @@ class WordQueryToggleFlowTests(unittest.TestCase):
         token = db.create_query_result(1, "hello", "hello", "en", self.card)
         update = self._make_update()
         context = self._context(
-            {f"query_kb_{token}": {"show_pronounce": True}}
+            {f"query_kb_{token}": {}}
         )
         asyncio.run(_handle_query_add(update, context, token))
         markup = update.effective_message.edit_reply_markup.call_args.kwargs["reply_markup"]

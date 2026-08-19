@@ -47,7 +47,7 @@ IBTN_SRS_HARD_FE = "کمی آشناام 🟨"
 IBTN_SRS_GOOD_FE = "آشنایی خوب 🟩"
 IBTN_SRS_EASY_FE = "کاملاً بلدم 🟪"
 IBTN_SRS_REVEAL = "👁 نمایش پاسخ"
-IBTN_SRS_DELETE = "🗑 حذف کارت از جعبه مرور"
+IBTN_SRS_DELETE = "🗑 حذف از مطالعه"
 IBTN_SRS_DELETE_CONFIRM = "✅ بله، حذف شود"
 IBTN_SRS_DELETE_CANCEL = "❌ انصراف"
 
@@ -63,7 +63,6 @@ IBTN_PRONOUNCE = "🔊 تلفظ"
 
 # --- Admin – General ---
 IBTN_ADMIN_AI = "🤖 تنظیمات AI"
-IBTN_ADMIN_PHONETICS = "🗣 تنظیم تلفظ"
 IBTN_ADMIN_COST = "💰 مدیریت هزینه‌ها"
 IBTN_ADMIN_SETTINGS = "⚙️ تنظیمات فعلی"
 IBTN_PLAN = "💳 تنظیم پلن"
@@ -104,9 +103,6 @@ IBTN_INPUT_PRICE = "input $/1M"
 IBTN_OUTPUT_PRICE = "output $/1M"
 IBTN_USD_TOMAN = "USD→تومان"
 IBTN_PRICE_BACK = "بازگشت"
-
-# --- Admin – Phonetic Settings ---
-IBTN_IPA = "IPA"
 
 # --- Admin – AI Settings ---
 IBTN_AI_PRESETS = "🤖 پیش‌تنظیم‌های AI"
@@ -305,7 +301,6 @@ def query_result_keyboard(
     token: str,
     lang: str | None = None,
     *,
-    show_pronounce: bool = False,
     saved: bool = False,
 ) -> InlineKeyboardMarkup:
     label = IBTN_REMOVE_FROM_REVIEW if saved else IBTN_ADD_TO_REVIEW
@@ -317,14 +312,15 @@ def query_result_keyboard(
             callback_data=f"query:add:{token}",
         )
     ]
-    rows = [buttons]
-    if show_pronounce:
-        rows.append([
+    rows = [
+        buttons,
+        [
             InlineKeyboardButton(
                 IBTN_PRONOUNCE,
                 callback_data=f"tts:pronounce:q:{token}",
             )
-        ])
+        ],
+    ]
     return InlineKeyboardMarkup(rows)
 
 
@@ -358,15 +354,13 @@ def query_duplicate_keyboard(token: str) -> InlineKeyboardMarkup:
 def get_review_keyboard(
     user_id: int,
     word_id: int,
-    *,
-    show_pronounce: bool = False,
 ) -> InlineKeyboardMarkup:
     """Returns 4-grade review keyboard (recall-based labels).
 
-    Layout (2×2 grid + optional pronounce row):
+    Layout (2×2 grid + pronounce row):
     [ یادم نیامد ⭕ ] [ به سختی یادم اومد 🟡 ]
     [ خوب بود 🟢 ] [ خیلی راحت بود 🟣 ]
-    [ 🔊 تلفظ ] (optional)
+    [ 🔊 تلفظ ]
     """
     rows = [
         [
@@ -389,20 +383,17 @@ def get_review_keyboard(
                 callback_data=f"srs:4:{user_id}:{word_id}",
             ),
         ],
-    ]
-    if show_pronounce:
-        rows.append([
+        [
             InlineKeyboardButton(
                 IBTN_PRONOUNCE,
                 callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
-            )
-        ])
-    rows.append([
-        InlineKeyboardButton(
-            IBTN_SRS_DELETE,
-            callback_data=f"srs:delete:{user_id}:{word_id}",
-        )
-    ])
+            ),
+            InlineKeyboardButton(
+                IBTN_SRS_DELETE,
+                callback_data=f"srs:delete:{user_id}:{word_id}",
+            ),
+        ],
+    ]
     return InlineKeyboardMarkup(rows)
 
 
@@ -451,15 +442,13 @@ def get_srs_delete_confirm_keyboard(
 def get_first_exposure_keyboard(
     user_id: int,
     word_id: int,
-    *,
-    show_pronounce: bool = False,
 ) -> InlineKeyboardMarkup:
     """Returns 4-grade first-exposure keyboard (familiarity-based labels).
 
-    Layout (2×2 grid + optional pronounce row):
+    Layout (2×2 grid + pronounce row):
     [ کاملاً ناآشناام 🟥 ] [ کمی آشناام 🟨 ]
     [ آشنایی خوب 🟩 ] [ کاملاً بلدمش 🟪 ]
-    [ 🔊 تلفظ ] (optional)
+    [ 🔊 تلفظ ]
     """
     rows = [
         [
@@ -482,20 +471,17 @@ def get_first_exposure_keyboard(
                 callback_data=f"srs:fe:4:{user_id}:{word_id}",
             ),
         ],
-    ]
-    if show_pronounce:
-        rows.append([
+        [
             InlineKeyboardButton(
                 IBTN_PRONOUNCE,
                 callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
-            )
-        ])
-    rows.append([
-        InlineKeyboardButton(
-            IBTN_SRS_DELETE,
-            callback_data=f"srs:delete:{user_id}:{word_id}",
-        )
-    ])
+            ),
+            InlineKeyboardButton(
+                IBTN_SRS_DELETE,
+                callback_data=f"srs:delete:{user_id}:{word_id}",
+            ),
+        ],
+    ]
     return InlineKeyboardMarkup(rows)
 
 
@@ -582,8 +568,7 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
         [
             [InlineKeyboardButton(BTN_ADMIN_STATS, callback_data="admin:stats"),
              InlineKeyboardButton(IBTN_PLAN, callback_data="admin:set_plan")],
-            [InlineKeyboardButton(IBTN_ADMIN_AI, callback_data="admin:ai_settings"),
-             InlineKeyboardButton(IBTN_ADMIN_PHONETICS, callback_data="admin:phonetics")],
+            [InlineKeyboardButton(IBTN_ADMIN_AI, callback_data="admin:ai_settings")],
             [InlineKeyboardButton("💳 مدیریت پلن‌ها", callback_data="admin:plans"),
              InlineKeyboardButton(IBTN_ADMIN_COST, callback_data="admin:cost_dashboard")],
             [InlineKeyboardButton(IBTN_ADMIN_SETTINGS, callback_data="admin:show_settings"),
@@ -635,20 +620,6 @@ def admin_cost_keyboard() -> InlineKeyboardMarkup:
         [
             [InlineKeyboardButton(IBTN_LLM_COST, callback_data="admin:llm_costs")],
             [InlineKeyboardButton(IBTN_LLM_PRICING, callback_data="admin:llm_pricing")],
-            [InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:back")],
-        ]
-    )
-
-
-def phonetic_settings_keyboard(current: dict[str, bool]) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    f"{'✅ ' if current.get('ipa') else ''}{IBTN_IPA}",
-                    callback_data="admin:phonetics:ipa",
-                ),
-            ],
             [InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:back")],
         ]
     )
