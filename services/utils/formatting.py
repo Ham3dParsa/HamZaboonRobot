@@ -454,7 +454,7 @@ def _saved_word_card(row) -> dict:
     }
 
 
-def _phonetic_lines(value: str | dict) -> list[str]:
+def phonetic_lines(value: str | dict) -> list[str]:
     if isinstance(value, dict):
         ipa = value.get("ipa", "")
     elif isinstance(value, str) and value.strip():

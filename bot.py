@@ -75,7 +75,7 @@ from services.utils.formatting import (
     ASK_WORD_PROMPT,
     format_card,
     word_query_usage_text,
-    _phonetic_lines,
+    phonetic_lines,
 )
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 
@@ -259,7 +259,7 @@ async def _send_query_card(
     Raises on Telegram send failure (the fresh-ask caller then releases its
     reserved quota).
     """
-    phon_lines = _phonetic_lines(card_data.get("phonetic", ""))
+    phon_lines = phonetic_lines(card_data.get("phonetic", ""))
     await _send_with_retry(
         context.bot,
         update.effective_chat.id,

@@ -12,6 +12,7 @@ from services.utils.formatting import (
     format_session_summary,
     format_summary_legend,
     html_escape,
+    phonetic_lines,
 )
 
 
@@ -310,3 +311,28 @@ class TestSessionSummaryRendering(unittest.TestCase):
         rendered = format_session_summary(report, rng=random.Random(0)).render(Backend.PLAIN)
         self.assertNotIn("پیشرفت کلی این نشست", rendered)
         self.assertNotIn("نرخ یادآوری", rendered)
+
+
+class TestPhoneticLines(unittest.TestCase):
+    """BUG-4 catching test: the phonetic-line helper is a public member of
+    services/utils/formatting.py (no private-underscore import anywhere)."""
+
+    def test_is_public_importable(self):
+        self.assertTrue(callable(phonetic_lines))
+
+    def test_dict_ipa_renders_code_line(self):
+        self.assertEqual(phonetic_lines({"ipa": "hɛ.loʊ"}), ["`hɛ.loʊ`"])
+
+    def test_json_string_ipa_renders_code_line(self):
+        self.assertEqual(phonetic_lines('{"ipa": "hɛ.loʊ"}'), ["`hɛ.loʊ`"])
+
+    def test_plain_string_falls_back_to_raw_code_line(self):
+        self.assertEqual(phonetic_lines("hɛ.loʊ"), ["`hɛ.loʊ`"])
+
+    def test_backtick_ipa_is_escaped(self):
+        self.assertEqual(phonetic_lines({"ipa": "a`b"}), ["`a\\`b`"])
+
+    def test_empty_value_returns_no_lines(self):
+        self.assertEqual(phonetic_lines(""), [])
+        self.assertEqual(phonetic_lines(None), [])
+        self.assertEqual(phonetic_lines({}), [])

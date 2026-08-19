@@ -15,7 +15,7 @@ from services.session import resolve_grade, SessionNode
 from services.routing import register
 from services.utils.formatting import (
     _saved_word_card,
-    _phonetic_lines,
+    phonetic_lines,
     format_next_review_text,
     format_srs_back_stage,
 )
@@ -149,12 +149,12 @@ async def _handle_srs_reveal(
     word_row = db.get_saved_word(word_id, user_id)
     card_data = _saved_word_card(word_row) if word_row else {}
     toggles = db.get_display_toggles(user_id)
-    phonetic_lines = _phonetic_lines(card_data.get("phonetic", ""))
+    phon_lines = phonetic_lines(card_data.get("phonetic", ""))
     footer = session_progress_footer(state, user_id)
     text = format_srs_back_stage(
         card_data,
         toggles=toggles,
-        phonetic_lines=phonetic_lines,
+        phonetic_lines=phon_lines,
         footer=footer,
     )
     if node.activity_type == "first_exposure":
