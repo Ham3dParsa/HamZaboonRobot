@@ -194,6 +194,67 @@ async def _edit_with_retry(query, text, **kwargs):
             await asyncio.sleep(2**attempt)
 
 
+async def _edit_message_with_retry(
+    bot, chat_id: int, message_id: int, text: str, **kwargs
+):
+    """Edit an existing message by id, holding the shared concurrency slot.
+
+    RT-B2: routes the handler ``context.bot.edit_message_text`` bypass sites
+    (which target a stored ``message_id`` rather than the callback message)
+    back onto the retry/slot seam.
+    """
+    for attempt in range(3):
+        try:
+            async with _telegram_slots:
+                result = await bot.edit_message_text(
+                    chat_id=chat_id, message_id=message_id, text=text, **kwargs
+                )
+                _reset_telegram_cb()
+                return result
+        except BadRequest:
+            raise
+        except RetryAfter as exc:
+            if attempt == 2:
+                raise
+            await asyncio.sleep(min(float(exc.retry_after), 30))
+        except (TimedOut, NetworkError):
+            if attempt == 2:
+                raise
+            await asyncio.sleep(2**attempt)
+
+
+async def _edit_markup_with_retry(
+    bot, chat_id: int, message_id: int, reply_markup, **kwargs
+):
+    """Edit only the reply markup of an existing message (no text change),
+    holding the shared concurrency slot.
+
+    RT-B2: routes the handler ``context.bot.edit_message_reply_markup`` bypass
+    sites back onto the retry/slot seam.
+    """
+    for attempt in range(3):
+        try:
+            async with _telegram_slots:
+                result = await bot.edit_message_reply_markup(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    reply_markup=reply_markup,
+                    **kwargs,
+                )
+                _reset_telegram_cb()
+                return result
+        except BadRequest:
+            raise
+        except RetryAfter as exc:
+            if attempt == 2:
+                raise
+            await asyncio.sleep(min(float(exc.retry_after), 30))
+        except (TimedOut, NetworkError):
+            if attempt == 2:
+                raise
+            await asyncio.sleep(2**attempt)
+
+
 async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
     for attempt in range(3):
         try:

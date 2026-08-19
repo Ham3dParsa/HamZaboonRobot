@@ -36,6 +36,8 @@ from telegram.ext import ContextTypes
 from services.utils.callback_notifications import notify_callback
 from services.utils.formatting import escape_mdv2, escape_mdv2_code, html_escape
 from services.utils.helpers import (
+    _edit_markup_with_retry,
+    _edit_message_with_retry,
     _edit_with_retry,
     _send_with_retry,
     _telegram_slots,
@@ -67,6 +69,8 @@ __all__ = [
     "line",
     "send",
     "say",
+    "edit",
+    "edit_markup",
 ]
 
 # ---------------------------------------------------------------------------
@@ -437,3 +441,52 @@ async def say(
         async with _telegram_slots:
             return await update.message.reply_text(text, **kwargs)
     return await _send_with_retry(context.bot, update.effective_chat.id, text, **kwargs)
+
+
+async def edit(
+    chat_id: int,
+    message_id: int,
+    content,
+    *,
+    bot,
+    keyboard: InlineKeyboardMarkup | None = None,
+    raw: RawFormat | None = None,
+    backend: Backend = Backend.MDV2,
+    **kwargs,
+):
+    """Edit an existing message by id, routing through the shared retry/slot seam.
+
+    RT-B2: handler flows that keep an explicit ``message_id`` (e.g. the study
+    card in ``state.study_msg_id``) edit that message rather than the callback
+    message; ``say`` cannot express that, so this verb composes the same
+    retry/slot primitives for a bot-side message-id edit. Content is a
+    ``Message`` or a pre-formatted string whose ``raw`` format is declared
+    (never guessed), exactly like ``send``/``say``.
+    """
+    text, parse_mode = _resolve_content(content, raw, backend)
+    markup = keyboard
+    if markup is None and isinstance(content, Message):
+        markup = content.keyboard
+    if parse_mode is not None:
+        kwargs["parse_mode"] = parse_mode
+    if markup is not None:
+        kwargs["reply_markup"] = markup
+    return await _edit_message_with_retry(bot, chat_id, message_id, text, **kwargs)
+
+
+async def edit_markup(
+    chat_id: int,
+    message_id: int,
+    reply_markup: InlineKeyboardMarkup | None,
+    *,
+    bot,
+    **kwargs,
+):
+    """Edit only the reply markup of an existing message (no text change),
+    routing through the shared retry/slot seam.
+
+    RT-B2: covers the handler ``edit_message_reply_markup`` bypass sites (card
+    deactivation, SRS delete confirm / keyboard restore) that ``say`` cannot
+    express because it only edits text.
+    """
+    return await _edit_markup_with_retry(bot, chat_id, message_id, reply_markup, **kwargs)

@@ -24,6 +24,8 @@ from services.send_pretty import (
     nl,
     send,
     say,
+    edit,
+    edit_markup,
 )
 
 
@@ -332,6 +334,57 @@ class TestDeliveryVerbs(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "acked")
         notify.assert_called_once()
         send_retry.assert_not_called()
+
+    async def test_edit_routes_through_message_edit_seam(self):
+        """edit() targets an explicit message_id via the retry/slot seam."""
+        bot = MagicMock()
+        text = Message()
+        text.add_line(bold("واژه"))
+        with patch(
+            "services.send_pretty._edit_message_with_retry",
+            new=AsyncMock(return_value="edited"),
+        ) as edit_retry:
+            result = await edit(123, 99, text, bot=bot)
+        self.assertEqual(result, "edited")
+        edit_retry.assert_called_once()
+        args, kwargs = edit_retry.call_args
+        self.assertEqual(args[1], 123)
+        self.assertEqual(args[2], 99)
+        self.assertEqual(args[3], "*واژه*")
+        self.assertEqual(kwargs["parse_mode"], "MarkdownV2")
+
+    async def test_edit_raw_mdv2_string_with_keyboard(self):
+        """edit() accepts a pre-formatted MDV2 string via raw= and passes markup."""
+        bot = MagicMock()
+        kbd = MagicMock()
+        with patch(
+            "services.send_pretty._edit_message_with_retry",
+            new=AsyncMock(return_value="edited"),
+        ) as edit_retry:
+            result = await edit(
+                123, 99, "*س*", bot=bot, raw=RawFormat.MDV2, keyboard=kbd
+            )
+        self.assertEqual(result, "edited")
+        args, kwargs = edit_retry.call_args
+        self.assertEqual(args[3], "*س*")
+        self.assertEqual(kwargs["parse_mode"], "MarkdownV2")
+        self.assertIs(kwargs["reply_markup"], kbd)
+
+    async def test_edit_markup_routes_through_markup_edit_seam(self):
+        """edit_markup() edits only the reply markup of an existing message."""
+        bot = MagicMock()
+        kbd = MagicMock()
+        with patch(
+            "services.send_pretty._edit_markup_with_retry",
+            new=AsyncMock(return_value="edited"),
+        ) as markup_retry:
+            result = await edit_markup(123, 99, kbd, bot=bot)
+        self.assertEqual(result, "edited")
+        markup_retry.assert_called_once()
+        args, kwargs = markup_retry.call_args
+        self.assertEqual(args[1], 123)
+        self.assertEqual(args[2], 99)
+        self.assertIs(args[3], kbd)
 
 
 def _one_line(span, backend=Backend.MDV2) -> str:

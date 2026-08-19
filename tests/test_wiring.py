@@ -834,3 +834,29 @@ class TestCallbackWiring(unittest.TestCase):
                     )
                     offending.append(f"{path}: from bot import {names}")
         self.assertEqual(offending, [])
+
+    def test_no_direct_bot_calls_in_handlers(self):
+        """RT-B2 dead-reference guard: no handler may call
+        ``context.bot.send_message`` / ``edit_message_text`` /
+        ``edit_message_reply_markup`` directly.
+
+        All outbound messages must route through the ``send_pretty``
+        retry/slot seam so a network/cooldown failure is handled in exactly one
+        place. This is the report B2 catching test (grep-based variant).
+        """
+        pattern = re.compile(
+            r"context\.bot\.(send_message|edit_message_text|edit_message_reply_markup)\s*\("
+        )
+        offenders: list[str] = []
+        for path in sorted(Path("handlers").rglob("*.py")):
+            for i, line in enumerate(
+                path.read_text(encoding="utf-8-sig").splitlines(), 1
+            ):
+                if pattern.search(line):
+                    offenders.append(f"{path}:{i}")
+        self.assertEqual(
+            offenders,
+            [],
+            "direct context.bot.* calls must route through send_pretty:\n"
+            + "\n".join(offenders),
+        )

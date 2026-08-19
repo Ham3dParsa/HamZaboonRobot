@@ -11,7 +11,7 @@ from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from services import db
+from services import db, send_pretty
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send
 from config.keyboards import (
@@ -343,13 +343,14 @@ async def handle_plan_callback(
     elif action == "set_plan":
         context.user_data["awaiting"] = "admin_set_plan"
         await notify_callback(update.callback_query)
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="فرمت را ارسال کنید:\n`user_id_or_username plan`\n\n"
+        await send_pretty.send(
+            update.effective_chat.id,
+            "فرمت را ارسال کنید:\n`user_id_or_username plan`\n\n"
             "مثال: `123456789 silver` یا `@username gold`\n"
             "پلن‌ها: free، bronze، silver، gold، emerald",
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=admin_awaiting_inline_keyboard(),
+            bot=context.bot,
+            raw=send_pretty.RawFormat.MDV2,
+            keyboard=admin_awaiting_inline_keyboard(),
         )
     elif action.startswith("plans:view:"):
         name = action.split(":", 2)[2]
