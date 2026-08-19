@@ -343,6 +343,24 @@ def _render_plain(children: tuple[Span, ...]) -> str:
 # ---------------------------------------------------------------------------
 
 
+class _Unset:
+    """Sentinel distinguishing "keyboard not supplied" from an explicit None.
+
+    A caller that deliberately passes ``keyboard=None`` wants to strip the
+    buttons off a rendered ``Message``; without this sentinel it is
+    indistinguishable from omitting the argument, and the message's own
+    keyboard would be silently re-applied (Kilo review, RT-B2).
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "UNSET"
+
+
+_UNSET = _Unset()
+
+
 def _resolve_content(
     content, raw: RawFormat | None, backend: Backend = Backend.MDV2
 ):
@@ -374,16 +392,17 @@ async def send(
     content,
     *,
     bot,
-    keyboard: InlineKeyboardMarkup | None = None,
+    keyboard: InlineKeyboardMarkup | None | _Unset = _UNSET,
     raw: RawFormat | None = None,
     backend: Backend = Backend.MDV2,
     **kwargs,
 ):
     """Send a new message, routing through the shared retry/slot seam."""
     text, parse_mode = _resolve_content(content, raw, backend)
-    markup = keyboard
-    if markup is None and isinstance(content, Message):
-        markup = content.keyboard
+    if keyboard is _UNSET:
+        markup = content.keyboard if isinstance(content, Message) else None
+    else:
+        markup = keyboard
     if parse_mode is not None:
         kwargs["parse_mode"] = parse_mode
     if markup is not None:
@@ -397,7 +416,7 @@ async def say(
     content,
     *,
     mode: str = "auto",
-    keyboard: InlineKeyboardMarkup | None = None,
+    keyboard: InlineKeyboardMarkup | None | _Unset = _UNSET,
     raw: RawFormat | None = None,
     backend: Backend = Backend.MDV2,
     **kwargs,
@@ -413,9 +432,10 @@ async def say(
     seam.
     """
     text, parse_mode = _resolve_content(content, raw, backend)
-    markup = keyboard
-    if markup is None and isinstance(content, Message):
-        markup = content.keyboard
+    if keyboard is _UNSET:
+        markup = content.keyboard if isinstance(content, Message) else None
+    else:
+        markup = keyboard
     if parse_mode is not None:
         kwargs["parse_mode"] = parse_mode
     if markup is not None:
@@ -449,7 +469,7 @@ async def edit(
     content,
     *,
     bot,
-    keyboard: InlineKeyboardMarkup | None = None,
+    keyboard: InlineKeyboardMarkup | None | _Unset = _UNSET,
     raw: RawFormat | None = None,
     backend: Backend = Backend.MDV2,
     **kwargs,
@@ -464,9 +484,10 @@ async def edit(
     (never guessed), exactly like ``send``/``say``.
     """
     text, parse_mode = _resolve_content(content, raw, backend)
-    markup = keyboard
-    if markup is None and isinstance(content, Message):
-        markup = content.keyboard
+    if keyboard is _UNSET:
+        markup = content.keyboard if isinstance(content, Message) else None
+    else:
+        markup = keyboard
     if parse_mode is not None:
         kwargs["parse_mode"] = parse_mode
     if markup is not None:

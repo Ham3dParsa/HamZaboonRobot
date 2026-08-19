@@ -2,9 +2,13 @@
 
 Verifies that the admin ``send_message`` bypass sites (broadcast prompt and
 plan set prompt) now route through the ``send_pretty`` retry/slot seam rather
-than calling ``context.bot.*`` directly. The SRS (seam #6) and study (seam #5)
-edit paths are covered by the existing delete-card / study-session flow tests,
-which assert against the same mocked ``context.bot`` surface.
+than calling ``context.bot.*`` directly. The tests patch the seam entry point
+(``services.send_pretty._send_with_retry``) and assert it is reached with the
+expected chat/text/parse-mode/keyboard — so a revert back to a direct
+``context.bot.send_message`` call would leave the seam un-patrolled and fail,
+and the real ``_reset_telegram_cb``/circuit-breaker side effects never run
+(hermetic). The SRS (seam #6) and study (seam #5) edit paths are covered by
+the existing delete-card / study-session flow tests.
 """
 
 from __future__ import annotations
@@ -55,38 +59,42 @@ class SendPrettyRouteFlowTest(unittest.TestCase):
         ctx = MagicMock()
         ctx.user_data = {}
         ctx.bot = MagicMock()
-        ctx.bot.send_message = AsyncMock()
         return ctx
 
-    def test_broadcast_prompt_routes_through_send_seam(self):
-        """admin:broadcast must send its prompt via the seam (bot.send_message)
-        and arm the awaiting flow — not bypass the retry/slot path."""
+    def _drive(self, action: str):
+        """Drive the admin callback action and return the seam's awaited call."""
         from handlers.admin import _handle_admin_callback
 
-        update = self._make_callback_update("admin:broadcast")
+        update = self._make_callback_update(f"admin:{action}")
         ctx = self._make_context()
-        asyncio.run(_handle_admin_callback(update, ctx, "broadcast"))
+        with patch(
+            "services.send_pretty._send_with_retry",
+            new=AsyncMock(return_value="sent"),
+        ) as seam:
+            asyncio.run(_handle_admin_callback(update, ctx, action))
+        self.assertEqual(seam.call_count, 1, f"expected one seam send for {action}")
+        return ctx, seam.call_args
+
+    def test_broadcast_prompt_routes_through_send_seam(self):
+        """admin:broadcast must send its prompt via the seam (never
+        ``context.bot.send_message``) and arm the awaiting flow."""
+        ctx, (args, kwargs) = self._drive("broadcast")
 
         self.assertEqual(ctx.user_data["awaiting"], "admin_broadcast")
-        ctx.bot.send_message.assert_awaited()
-        kwargs = ctx.bot.send_message.call_args.kwargs
-        self.assertEqual(kwargs["text"], "متن پیام همگانی رو بفرست:")
+        self.assertIs(args[0], ctx.bot)
+        self.assertEqual(args[1], 1)
+        self.assertEqual(args[2], "متن پیام همگانی رو بفرست:")
         self.assertIn("reply_markup", kwargs)
         # The prompt is plain text (no parse mode) — exact prior behavior.
         self.assertNotIn("parse_mode", kwargs)
 
     def test_set_plan_prompt_routes_through_send_seam(self):
         """admin:set_plan must send its MarkdownV2 prompt via the seam."""
-        from handlers.admin import _handle_admin_callback
-
-        update = self._make_callback_update("admin:set_plan")
-        ctx = self._make_context()
-        asyncio.run(_handle_admin_callback(update, ctx, "set_plan"))
+        ctx, (args, kwargs) = self._drive("set_plan")
 
         self.assertEqual(ctx.user_data["awaiting"], "admin_set_plan")
-        ctx.bot.send_message.assert_awaited()
-        kwargs = ctx.bot.send_message.call_args.kwargs
-        self.assertIn("فرمت را ارسال کنید", kwargs["text"])
+        self.assertIs(args[0], ctx.bot)
+        self.assertIn("فرمت را ارسال کنید", args[2])
         self.assertEqual(kwargs["parse_mode"], "MarkdownV2")
         self.assertIn("reply_markup", kwargs)
 

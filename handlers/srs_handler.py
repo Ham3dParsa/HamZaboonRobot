@@ -4,7 +4,7 @@ import time
 
 from telegram import Update
 from telegram.ext import ContextTypes
-from telegram.error import BadRequest
+from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
 from services import db, send_pretty
 from services import word_query
@@ -502,6 +502,15 @@ async def _handle_srs_delete(
             get_srs_delete_confirm_keyboard(user_id, word_id),
             bot=context.bot,
         )
+    except (TimedOut, NetworkError, RetryAfter):
+        # The seam retries with bounded backoff before re-raising; answer the
+        # callback so the user is not left with a stuck spinner (Kilo review).
+        logger.warning("srs delete confirm edit failed user_id=%s", user_id)
+        await notify_callback(
+            update.callback_query, "اتصال برقرار نشد؛ دوباره تلاش کنید.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
     except BadRequest as exc:
         if "not modified" not in str(exc).casefold():
             raise
@@ -552,6 +561,13 @@ async def _handle_srs_delete_no(
             keyboard,
             bot=context.bot,
         )
+    except (TimedOut, NetworkError, RetryAfter):
+        logger.warning("srs delete-cancel edit failed user_id=%s", user_id)
+        await notify_callback(
+            update.callback_query, "اتصال برقرار نشد؛ دوباره تلاش کنید.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
     except BadRequest as exc:
         if "not modified" not in str(exc).casefold():
             raise

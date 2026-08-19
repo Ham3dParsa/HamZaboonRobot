@@ -44,6 +44,51 @@ def _direct_answer_calls_in_tree(tree: ast.AST) -> list[int]:
     ]
 
 
+# Outbound verbs that must route through the send_pretty retry/slot seam.
+_BOT_VERBS = {"send_message", "edit_message_text", "edit_message_reply_markup"}
+
+
+def _bot_receiver_expr(node) -> str:
+    """Normalize an AST receiver expression to a dotted/call string, e.g.
+    ``context.bot`` or ``update.get_bot()`` (used for alias detection)."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return f"{_bot_receiver_expr(node.value)}.{node.attr}"
+    if isinstance(node, ast.Call):
+        return f"{_bot_receiver_expr(node.func)}()"
+    return ""
+
+
+def _direct_bot_verb_calls_in_tree(tree: ast.AST) -> list[int]:
+    """Line numbers for calls to ``context.bot.<verb>()`` for any RT-B2 verb,
+    either directly or via a locally-bound alias (e.g. ``bot = context.bot``
+    then ``bot.send_message``). AST-based so line-splits and comments do not
+    fool it, unlike the old regex variant."""
+    forbidden_receivers = {"context.bot", "update.get_bot()"}
+    aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            target = node.targets[0] if isinstance(node, ast.Assign) else node.target
+            value = getattr(node, "value", None)
+            if (
+                isinstance(target, ast.Name)
+                and _bot_receiver_expr(value) in forbidden_receivers
+            ):
+                aliases.add(target.id)
+    lines: list[int] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (isinstance(func, ast.Attribute) and func.attr in _BOT_VERBS):
+            continue
+        base = _bot_receiver_expr(func.value)
+        if base in forbidden_receivers or base in aliases:
+            lines.append(node.lineno)
+    return sorted(lines)
+
+
 def _defined_names(tree: ast.AST) -> set[str]:
     """Names defined at module level in a parsed AST."""
     names: set[str] = set()
@@ -836,27 +881,46 @@ class TestCallbackWiring(unittest.TestCase):
         self.assertEqual(offending, [])
 
     def test_no_direct_bot_calls_in_handlers(self):
-        """RT-B2 dead-reference guard: no handler may call
-        ``context.bot.send_message`` / ``edit_message_text`` /
-        ``edit_message_reply_markup`` directly.
+        """RT-B2 dead-reference guard: no handler may call the three migrated
+        ``context.bot.*`` outbound verbs directly — whether on ``context.bot``
+        or a locally-bound alias — because every outbound must route through
+        the ``send_pretty`` retry/slot seam so a network/cooldown failure is
+        handled in exactly one place.
 
-        All outbound messages must route through the ``send_pretty``
-        retry/slot seam so a network/cooldown failure is handled in exactly one
-        place. This is the report B2 catching test (grep-based variant).
+        Out of RT-B2 scope and deliberately NOT enforced here (tracked
+        separately): other outbound shapes such as ``update.message.reply_text``
+        and ``update.effective_message.edit_reply_markup``.
         """
-        pattern = re.compile(
-            r"context\.bot\.(send_message|edit_message_text|edit_message_reply_markup)\s*\("
-        )
         offenders: list[str] = []
         for path in sorted(Path("handlers").rglob("*.py")):
-            for i, line in enumerate(
-                path.read_text(encoding="utf-8-sig").splitlines(), 1
-            ):
-                if pattern.search(line):
-                    offenders.append(f"{path}:{i}")
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+            for line in _direct_bot_verb_calls_in_tree(tree):
+                offenders.append(f"{path}:{line}")
         self.assertEqual(
             offenders,
             [],
-            "direct context.bot.* calls must route through send_pretty:\n"
+            "direct context.bot.* outbound calls must route through send_pretty:\n"
             + "\n".join(offenders),
         )
+
+    def test_bot_verb_guard_detects_direct_call(self):
+        tree = ast.parse(
+            "async def h(context):\n    await context.bot.send_message(1, 'x')\n"
+        )
+        self.assertEqual(_direct_bot_verb_calls_in_tree(tree), [2])
+
+    def test_bot_verb_guard_detects_alias_call(self):
+        tree = ast.parse(
+            "async def h(context):\n"
+            "    bot = context.bot\n"
+            "    await bot.edit_message_text(1, 2, 'x')\n"
+        )
+        self.assertEqual(_direct_bot_verb_calls_in_tree(tree), [3])
+
+    def test_bot_verb_guard_ignores_comments_and_docstrings(self):
+        src = (
+            "# context.bot.send_message( bypasses the seam\n"
+            '"""context.bot.edit_message_text mentioned in docs"""\n'
+            "x = 1\n"
+        )
+        self.assertEqual(_direct_bot_verb_calls_in_tree(ast.parse(src)), [])

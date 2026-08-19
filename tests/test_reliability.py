@@ -17,7 +17,7 @@ from services.utils import formatting
 from services.utils import helpers
 from services.utils import callback_notifications
 from services.ai import llm_services
-from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
+from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
 
 from config.catalog import DISPLAY_TOGGLE_FIELDS as _TOGGLE_FIELDS
 
@@ -1010,6 +1010,87 @@ class NetworkResilienceTests(unittest.IsolatedAsyncioTestCase):
             result = await helpers._send_voice_with_retry(bot_mock, 123, b"audio")
         self.assertEqual(result, "ok")
         self.assertEqual(bot_mock.send_voice.call_count, 2)
+
+    async def test_edit_message_with_retry_calls_reset_on_success(self):
+        bot_mock = MagicMock()
+        bot_mock.edit_message_text = AsyncMock(return_value="ok")
+        with patch.object(helpers, "_reset_telegram_cb") as reset_mock:
+            result = await helpers._edit_message_with_retry(bot_mock, 123, 456, "hi")
+        self.assertEqual(result, "ok")
+        reset_mock.assert_called_once()
+
+    async def test_edit_message_with_retry_re_raises_bad_request(self):
+        bot_mock = MagicMock()
+        bot_mock.edit_message_text = AsyncMock(
+            side_effect=BadRequest("message is not modified")
+        )
+        with patch.object(helpers, "_reset_telegram_cb") as reset_mock:
+            with self.assertRaises(BadRequest):
+                await helpers._edit_message_with_retry(bot_mock, 123, 456, "hi")
+        self.assertEqual(bot_mock.edit_message_text.call_count, 1)
+        reset_mock.assert_not_called()
+
+    async def test_edit_message_with_retry_retries_on_retry_after(self):
+        bot_mock = MagicMock()
+        bot_mock.edit_message_text = AsyncMock(side_effect=[RetryAfter(1), "ok"])
+        with patch.object(asyncio, "sleep", new=AsyncMock()):
+            result = await helpers._edit_message_with_retry(bot_mock, 123, 456, "hi")
+        self.assertEqual(result, "ok")
+        self.assertEqual(bot_mock.edit_message_text.call_count, 2)
+
+    async def test_edit_message_with_retry_raises_after_retries_on_timeout(self):
+        """An edit is idempotent, so a timeout is retried with backoff, then raised."""
+        bot_mock = MagicMock()
+        bot_mock.edit_message_text = AsyncMock(side_effect=TimedOut("timeout"))
+        with patch.object(asyncio, "sleep", new=AsyncMock()):
+            with self.assertRaises(TimedOut):
+                await helpers._edit_message_with_retry(bot_mock, 123, 456, "hi")
+        self.assertEqual(bot_mock.edit_message_text.call_count, 3)
+
+    async def test_edit_message_with_retry_marks_user_blocked_on_forbidden(self):
+        bot_mock = MagicMock()
+        bot_mock.edit_message_text = AsyncMock(side_effect=Forbidden("blocked"))
+        with patch.object(db, "set_user_blocked") as blocked_mock:
+            with self.assertRaises(Forbidden):
+                await helpers._edit_message_with_retry(bot_mock, 123, 456, "hi")
+        blocked_mock.assert_called_once_with(123)
+
+    async def test_edit_markup_with_retry_calls_reset_on_success(self):
+        bot_mock = MagicMock()
+        bot_mock.edit_message_reply_markup = AsyncMock(return_value="ok")
+        with patch.object(helpers, "_reset_telegram_cb") as reset_mock:
+            result = await helpers._edit_markup_with_retry(bot_mock, 123, 456, None)
+        self.assertEqual(result, "ok")
+        reset_mock.assert_called_once()
+
+    async def test_edit_markup_with_retry_re_raises_bad_request(self):
+        bot_mock = MagicMock()
+        bot_mock.edit_message_reply_markup = AsyncMock(
+            side_effect=BadRequest("message is not modified")
+        )
+        with self.assertRaises(BadRequest):
+            await helpers._edit_markup_with_retry(bot_mock, 123, 456, None)
+        self.assertEqual(bot_mock.edit_message_reply_markup.call_count, 1)
+
+    async def test_edit_markup_with_retry_retries_on_retry_after(self):
+        bot_mock = MagicMock()
+        bot_mock.edit_message_reply_markup = AsyncMock(
+            side_effect=[RetryAfter(1), "ok"]
+        )
+        with patch.object(asyncio, "sleep", new=AsyncMock()):
+            result = await helpers._edit_markup_with_retry(bot_mock, 123, 456, None)
+        self.assertEqual(result, "ok")
+        self.assertEqual(bot_mock.edit_message_reply_markup.call_count, 2)
+
+    async def test_edit_markup_with_retry_raises_after_retries_on_network_error(self):
+        bot_mock = MagicMock()
+        bot_mock.edit_message_reply_markup = AsyncMock(
+            side_effect=NetworkError("down")
+        )
+        with patch.object(asyncio, "sleep", new=AsyncMock()):
+            with self.assertRaises(NetworkError):
+                await helpers._edit_markup_with_retry(bot_mock, 123, 456, None)
+        self.assertEqual(bot_mock.edit_message_reply_markup.call_count, 3)
 
     async def test_offline_notice_sent_once_per_window_per_user(self):
         """An offline user must receive the notice once per offline window."""
