@@ -167,7 +167,7 @@ class TestReviewKeyboard(unittest.TestCase):
     def test_review_keyboard_has_4_grade_buttons(self):
         markup = get_review_keyboard(1, 10)
         rows = markup.inline_keyboard
-self.assertEqual(len(rows), 4)  # 2 grade rows + pronounce + delete
+        self.assertEqual(len(rows), 4)  # 2 grade rows + pronounce + delete
         self.assertEqual(len(rows[0]), 2)
         self.assertEqual(len(rows[1]), 2)
         # Row 0: Again, Hard
@@ -231,7 +231,7 @@ class TestFirstExposureKeyboard(unittest.TestCase):
     def test_first_exposure_keyboard_has_4_grade_buttons(self):
         markup = get_first_exposure_keyboard(1, 10)
         rows = markup.inline_keyboard
-self.assertEqual(len(rows), 4)  # 2 grade rows + pronounce + delete
+        self.assertEqual(len(rows), 4)  # 2 grade rows + pronounce + delete
         self.assertEqual(len(rows[0]), 2)
         self.assertEqual(len(rows[1]), 2)
         # Row 0: Again, Hard

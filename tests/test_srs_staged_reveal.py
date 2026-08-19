@@ -27,7 +27,7 @@ class SrsKeyboardTests(unittest.TestCase):
     def test_review_keyboard_has_4_grade_buttons(self):
         markup = get_review_keyboard(123, 456)
         callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
-self.assertEqual(
+        self.assertEqual(
             callbacks,
             ["srs:1:123:456", "srs:2:123:456", "srs:3:123:456", "srs:4:123:456", "tts:pronounce:s:123:456", "srs:delete:123:456"],
         )
@@ -36,7 +36,7 @@ self.assertEqual(
     def test_first_exposure_keyboard_has_4_grade_buttons(self):
         markup = get_first_exposure_keyboard(123, 456)
         callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
-self.assertEqual(
+        self.assertEqual(
             callbacks,
             ["srs:fe:1:123:456", "srs:fe:2:123:456", "srs:fe:3:123:456", "srs:fe:4:123:456", "tts:pronounce:s:123:456", "srs:delete:123:456"],
         )
