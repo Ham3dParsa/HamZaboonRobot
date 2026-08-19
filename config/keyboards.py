@@ -173,6 +173,8 @@ IBTN_SUMMARY_DETAIL = "📋 جزئیات"
 IBTN_SUMMARY_BACK = "↩️ بازگشت به خلاصه"
 IBTN_SUMMARY_PREV = "◀️ قبلی"
 IBTN_SUMMARY_NEXT = "بعدی ▶️"
+IBTN_SUMMARY_LEGEND = "❓ راهنمای نمادها"
+IBTN_SUMMARY_LEGEND_BACK = "↩️ بازگشت به واژه‌ها"
 
 # --- Admin – Preset Group / Pagination ---
 IBTN_VIEW_MODE_LINEAR = "📋 نمایش خطی"
@@ -928,7 +930,25 @@ def session_summary_detail_keyboard(
         rows.append(nav)
     rows.append([
         InlineKeyboardButton(
+            IBTN_SUMMARY_LEGEND,
+            callback_data=f"session:summary:legend:{page_index}:{nonce}",
+        ),
+    ])
+    rows.append([
+        InlineKeyboardButton(
             IBTN_SUMMARY_BACK, callback_data=f"session:summary:back:{nonce}"
         ),
     ])
     return InlineKeyboardMarkup(rows)
+
+
+def session_summary_legend_keyboard(page_index: int, nonce: str) -> InlineKeyboardMarkup:
+    """Keyboard for the symbol-legend view — a single back button to the word
+    page the legend was opened from. ``page_index`` is 0-based and threaded into
+    the callback so back returns to the exact page (R8)."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            IBTN_SUMMARY_LEGEND_BACK,
+            callback_data=f"session:summary:page:{page_index}:{nonce}",
+        )],
+    ])

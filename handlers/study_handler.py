@@ -29,6 +29,7 @@ from config.keyboards import (
     get_srs_front_keyboard,
     session_summary_detail_keyboard,
     session_summary_keyboard,
+    session_summary_legend_keyboard,
     study_inactive_keyboard,
 )
 from config.plan_identity import has_feature
@@ -49,6 +50,7 @@ from services.utils.formatting import (
     format_review_badge,
     format_session_detail_page,
     format_session_summary,
+    format_summary_legend,
     format_srs_back_stage,
     format_srs_front_stage,
     select_srs_prompt_type,
@@ -841,6 +843,17 @@ async def _handle_session_summary_callback(
             page, page_index, total_pages, is_admin=is_admin
         )
         keyboard = session_summary_detail_keyboard(page_index, total_pages, nonce)
+    elif base == "legend" or base.startswith("legend:"):
+        # R8: the legend button on a detail page edits the message in place to
+        # the symbol guide; its back button returns to the exact page.
+        try:
+            page_index = int(base.split(":", 1)[1])
+        except (ValueError, IndexError):
+            page_index = 0
+        if total_pages:
+            page_index = max(0, min(page_index, total_pages - 1))
+        message = format_summary_legend()
+        keyboard = session_summary_legend_keyboard(page_index, nonce)
     else:
         await notify_callback(update.callback_query)
         return

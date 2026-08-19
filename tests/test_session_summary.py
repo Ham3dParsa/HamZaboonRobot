@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import random
+
 import pytest
 
 from services.session.summary import (
     PAGE_SIZE,
+    RECALL_WEIGHTS,
     SessionReport,
     WordReviewRecord,
     build_report,
+    classify_tier,
     paginate,
+    pick_motivation,
 )
 
 
@@ -138,3 +143,112 @@ class TestReportShape:
         assert isinstance(report, SessionReport)
         with pytest.raises(AttributeError):
             report.learned_count = 9
+
+    def test_page_size_is_six(self):
+        # R1 — 6 words per page (was 8).
+        assert PAGE_SIZE == 6
+
+
+class TestRecallRate:
+    def test_weighted_success_score(self):
+        # grades 1,2,3,4 → (0 + 0.7 + 1.0 + 1.0) / 4 = 0.675 (R4)
+        records = [_rec("first_exposure", grade=g) for g in (1, 2, 3, 4)]
+        report = build_report(records)
+        assert report.recall_rate == pytest.approx(0.675)
+
+    def test_all_again_is_zero(self):
+        report = build_report([_rec("srs_review", grade=1) for _ in range(2)])
+        assert report.recall_rate == pytest.approx(0.0)
+
+    def test_all_good_or_easy_is_one(self):
+        report = build_report([_rec("srs_review", grade=3), _rec("srs_review", grade=4)])
+        assert report.recall_rate == pytest.approx(1.0)
+
+    def test_weights_are_named_constants(self):
+        assert RECALL_WEIGHTS[1] == 0.0
+        assert RECALL_WEIGHTS[2] == 0.7
+        assert RECALL_WEIGHTS[3] == 1.0
+        assert RECALL_WEIGHTS[4] == 1.0
+
+    def test_none_when_no_grades(self):
+        report = build_report([_rec("first_exposure", grade=None)])
+        assert report.recall_rate is None
+
+    def test_empty_report_has_none_rate(self):
+        report = build_report([])
+        assert report.recall_rate is None
+
+
+class TestAvgStabilityAfter:
+    def test_mean_of_after_values(self):
+        records = [
+            _rec("first_exposure", after=4.0),
+            _rec("srs_review", after=6.0),
+        ]
+        report = build_report(records)
+        assert report.avg_stability_after == pytest.approx(5.0)
+
+    def test_ignores_rows_missing_after(self):
+        report = build_report([_rec("srs_review", after=None), _rec("srs_review", after=2.0)])
+        assert report.avg_stability_after == pytest.approx(2.0)
+
+    def test_none_when_no_values(self):
+        report = build_report([_rec("srs_review", after=None)])
+        assert report.avg_stability_after is None
+
+    def test_empty_report_has_none(self):
+        assert build_report([]).avg_stability_after is None
+
+
+class TestTier:
+    def test_excellent_at_90(self):
+        assert classify_tier(0.90) == "excellent"
+
+    def test_acceptable_band_75_to_89(self):
+        assert classify_tier(0.89) == "acceptable"
+        assert classify_tier(0.75) == "acceptable"
+
+    def test_needs_improvement_below_75(self):
+        assert classify_tier(0.74) == "needs_improvement"
+
+    def test_none_rate_is_none(self):
+        assert classify_tier(None) is None
+
+
+class TestMotivation:
+    def test_deterministic_with_seed(self):
+        report = build_report([_rec("first_exposure", grade=g) for g in (1, 2, 3, 4)])
+        assert pick_motivation(report, rng=random.Random(0)) == pick_motivation(
+            report, rng=random.Random(0)
+        )
+
+    def test_excellent_references_easy_count(self):
+        report = build_report([_rec("first_exposure", grade=4) for _ in range(3)])
+        msg = pick_motivation(report, rng=random.Random(1))
+        assert msg is not None
+        assert "آسان" in msg
+
+    def test_acceptable_references_graded_ratio(self):
+        # grades 3,3,3,1 → (3×1.0)/4 = 0.75 → acceptable; graded=4, ok=3
+        report = build_report(
+            [_rec("srs_review", grade=3), _rec("srs_review", grade=3),
+             _rec("srs_review", grade=3), _rec("srs_review", grade=1)]
+        )
+        msg = pick_motivation(report, rng=random.Random(2))
+        assert msg is not None
+        assert "۴" in msg and "۳" in msg
+
+    def test_needs_improvement_reframes_again(self):
+        report = build_report(
+            [_rec("srs_review", grade=1) for _ in range(3)] + [_rec("srs_review", grade=2)]
+        )
+        # R6: EVERY motivation variant must reference a real stat (Persian digit),
+        # never generic filler. Sweep seeds so every variant is exercised.
+        for seed in range(20):
+            msg = pick_motivation(report, rng=random.Random(seed))
+            assert msg is not None
+            assert any(c in msg for c in "۰۱۲۳۴۵۶۷۸۹"), f"filler variant picked for seed {seed}: {msg}"
+
+    def test_none_when_no_rate(self):
+        report = build_report([_rec("srs_review", grade=None)])
+        assert pick_motivation(report) is None

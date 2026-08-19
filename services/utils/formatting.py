@@ -4,6 +4,8 @@ import json
 import random
 import re
 
+import jdatetime
+
 from config import _app_today, daily_word_query_limit_for_plan
 from config.catalog import language_label
 from services.utils.validation import _CUSTOM_WORD_MAX_WORDS
@@ -500,11 +502,98 @@ def word_query_usage_text(row: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Session Summary Report rendering (R5/R6)
+# Session Summary Report rendering (R2–R9)
 # ---------------------------------------------------------------------------
 
 _NEW_BADGE = "✨ جدید"
 _REVIEW_BADGE = "🔁 مرور"
+
+# Jalali month names (jdatetime month number 1..12 → Persian).
+_JALALI_MONTHS = (
+    "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+    "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند",
+)
+
+# Tier → header line (R5/R7). Values are static, so no escaping needed.
+_TIER_LABEL = {
+    "excellent": "⚡️ پیشرفت کلی این نشست: عالی",
+    "acceptable": "⚡️ پیشرفت کلی این نشست: قابل قبول",
+    "needs_improvement": "⚡️ پیشرفت کلی این نشست: نیاز به بهبود",
+}
+
+
+def _utc_today() -> datetime.date:
+    """Today's date in UTC — matches how stored ``next_review_at``/prior dates
+    are derived (sliced from UTC timestamps) so relative-date math is stable."""
+    return datetime.datetime.now(datetime.timezone.utc).date()
+
+
+def _jalali_day_month(iso_date: str) -> str:
+    """Convert an ISO ``YYYY-MM-DD`` to ``{day} {jalali month name}`` with
+    Persian digits (e.g. ``۲۹ مرداد``)."""
+    d = datetime.date.fromisoformat(iso_date)
+    j = jdatetime.date.fromgregorian(date=d)
+    return to_persian_digits(f"{j.day} {_JALALI_MONTHS[j.month - 1]}")
+
+
+def _relative_next_review(iso_date: str, today: datetime.date) -> str:
+    """Relative-first date for the ``بعدی`` field (R3).
+
+    today→امروز, +1→فردا, +2→پس‌فردا, +3..6→«{n} روز دیگه», ≥7 (or past)→Jalali
+    absolute date. Returns "" for an unparseable date.
+    """
+    try:
+        d = datetime.date.fromisoformat(iso_date)
+    except (TypeError, ValueError):
+        return ""
+    delta = (d - today).days
+    if delta < 0:
+        return _jalali_day_month(iso_date)
+    if delta == 0:
+        return "امروز"
+    if delta == 1:
+        return "فردا"
+    if delta == 2:
+        return "پس‌فردا"
+    if delta <= 6:
+        return f"{to_persian_digits(delta)} روز دیگه"
+    return _jalali_day_month(iso_date)
+
+
+def _difficulty_label(difficulty: float | None) -> str | None:
+    """Plain learner-facing difficulty label (R2) — no raw number."""
+    if difficulty is None:
+        return None
+    if difficulty >= 6:
+        return "🔴 سخت"
+    if difficulty >= 3:
+        return "🟡 متوسط"
+    return "🟢 راحت"
+
+
+def _session_badge(activity_type: str) -> str:
+    """Badge for a report row: ✨ new, 🔁 review (and any other activity)."""
+    return _NEW_BADGE if activity_type == "first_exposure" else _REVIEW_BADGE
+
+
+def _admin_extra(r) -> str:
+    """Admin-only diagnostic block (R9), grouped and marked ``(فقط ادمین)``.
+
+    Raw numeric difficulty/stability plus Δ and interval — the only place raw
+    numbers appear. Returns "" (no block) when nothing is available.
+    """
+    bits: list[str] = []
+    if r.difficulty is not None:
+        bits.append(f"سختی {_fmt_stability(r.difficulty)}")
+    if r.stability_after is not None:
+        bits.append(f"پایداری {_fmt_stability(r.stability_after)}")
+    if r.stability_before is not None and r.stability_after is not None:
+        bits.append(f"Δ{_fmt_stability(r.stability_after - r.stability_before)}")
+    if r.interval_days is not None:
+        bits.append(f"فاصله {_fmt_stability(r.interval_days)} روز")
+    if not bits:
+        return ""
+    return f"(فقط ادمین: {', '.join(bits)})"
 
 
 def _fmt_stability(value: float | None) -> str:
@@ -514,42 +603,52 @@ def _fmt_stability(value: float | None) -> str:
     return to_persian_digits(f"{value:.1f}")
 
 
-def format_session_summary(report, *, is_admin: bool = False):
-    """Build the compact learner (or admin) session summary as a ``Message``.
+def format_session_summary(report, *, is_admin: bool = False, rng=None):
+    """Build the learner (or admin) session summary as a ``Message`` (R7).
 
-    ``report`` is a :class:`services.session.summary.SessionReport`. Dynamic
-    values go into ``Plain`` spans and are escaped exactly once by the
-    ``send_pretty`` renderer — never pre-escaped by the caller.
+    ``report`` is a :class:`services.session.summary.SessionReport`. The tier /
+    motivational block (R5/R6) sits above the stats; count lines are shown only
+    when nonzero; the rate + average-stability line is single. ``rng`` seeds the
+    motivational-variant selection so tests are deterministic. Dynamic values go
+    into ``Plain`` spans and are escaped exactly once by the renderer.
     """
     from services.send_pretty import Message, plain
+    from services.session.summary import classify_tier, pick_motivation
 
     msg = Message()
-    msg.add_line(plain("📊 گزارش جلسه مطالعه"))
+    msg.add_line(plain("📊 گزارش نشست مطالعه"))
+    msg.add_line(plain(""))
 
-    counts: list[str] = []
+    motivation = pick_motivation(report, rng=rng)
+    if motivation is not None:
+        tier = classify_tier(report.recall_rate)
+        msg.add_line(plain(_TIER_LABEL[tier]))
+        msg.add_line(plain(motivation))
+        msg.add_line(plain(""))
+
     if report.learned_count:
-        counts.append(
-            f"{to_persian_digits(report.learned_count)} واژه جدید یاد گرفتی"
+        msg.add_line(
+            plain(f"✨ {to_persian_digits(report.learned_count)} واژه تازه یاد گرفتی")
         )
     if report.reviewed_count:
-        counts.append(
-            f"{to_persian_digits(report.reviewed_count)} واژه مرور کردی"
+        msg.add_line(
+            plain(f"🔁 {to_persian_digits(report.reviewed_count)} واژه مرور کردی")
         )
-    if counts:
-        msg.add_line(plain("، ".join(counts)))
 
-    delta = report.avg_stability_delta
-    if delta is None:
-        msg.add_line(plain("پایداری حافظه تغییری ثبت نشد."))
-    elif delta > 0:
-        msg.add_line(plain("میانگین پایداری حافظه افزایش یافت ⬆️"))
-    elif delta < 0:
-        msg.add_line(plain("میانگین پایداری حافظه کاهش یافت ⬇️"))
-    else:
-        msg.add_line(plain("میانگین پایداری حافظه تغییری نکرد."))
+    stats_parts: list[str] = []
+    if report.recall_rate is not None:
+        pct = to_persian_digits(round(report.recall_rate * 100))
+        stats_parts.append(f"🎯 نرخ یادآوری: {pct}٪")
+    if report.avg_stability_after is not None:
+        days = to_persian_digits(max(1, round(report.avg_stability_after)))
+        stats_parts.append(f"میانگین پایداری: ~{days} روز")
+    if stats_parts:
+        msg.add_line(plain(" · ".join(stats_parts)))
 
-    if is_admin and delta is not None:
-        msg.add_line(plain(f"میانگین تغییر پایداری: {_fmt_stability(delta)}"))
+    if is_admin and report.avg_stability_delta is not None:
+        msg.add_line(
+            plain(f"میانگین تغییر پایداری: {_fmt_stability(report.avg_stability_delta)}")
+        )
     return msg
 
 
@@ -559,15 +658,19 @@ def format_session_detail_page(
     total_pages: int,
     *,
     is_admin: bool = False,
+    today: datetime.date | None = None,
 ):
-    """Build one page of the paged word list as a ``Message`` (learner or admin).
+    """Build one page of the paged word list as a ``Message`` (R2/R9).
 
-    ``records`` is an iterable of :class:`services.session.summary.WordReviewRecord`.
-    Values are placed in ``Plain`` spans so the ``send_pretty`` renderer escapes
-    each leaf exactly once (dates/deltas with ``-``/``.`` never double-escape).
+    Learner rows: line 1 ``{word} {badge}``; line 2 ``{difficulty label} ·
+    📅 {relative date} · امتیاز {n}``; review cards get a third line
+    ``آخرین مرور: {jalali} · امتیاز {n}``. Admins additionally see a trailing
+    ``(فقط ادمین: …)`` diagnostic block (raw numbers, Δ, فاصله). ``today`` is
+    injectable for deterministic relative-date tests.
     """
     from services.send_pretty import Message, plain
 
+    today = today or _utc_today()
     msg = Message()
     msg.add_line(
         plain(
@@ -576,29 +679,57 @@ def format_session_detail_page(
         )
     )
     for r in records:
-        badge = _NEW_BADGE if r.activity_type == "first_exposure" else _REVIEW_BADGE
-        if is_admin:
-            parts: list[str] = [f"• {r.word} [{badge}]"]
-            if r.stability_after is not None:
-                parts.append(f"پایداری: {_fmt_stability(r.stability_after)}")
-            if r.stability_before is not None and r.stability_after is not None:
-                parts.append(
-                    f"Δ{_fmt_stability(r.stability_after - r.stability_before)}"
-                )
+        badge = _session_badge(r.activity_type)
+        msg.add_line(plain(f"{r.word}  {badge}"))
+
+        parts: list[str] = []
+        diff_label = _difficulty_label(r.difficulty)
+        if diff_label:
+            parts.append(diff_label)
+        if r.next_review_date:
+            parts.append(f"📅 {_relative_next_review(r.next_review_date, today)}")
+        if r.grade is not None:
+            parts.append(f"امتیاز {to_persian_digits(r.grade)}")
+        if parts:
+            msg.add_line(plain(" · ".join(parts)))
+
+        admin_extra = _admin_extra(r) if is_admin else ""
+        if r.activity_type == "srs_review":
+            review_parts: list[str] = []
             if r.prior_review_date:
-                parts.append(f"مرور قبلی: {r.prior_review_date}")
-            if r.interval_days is not None:
-                parts.append(f"فاصله: {_fmt_stability(r.interval_days)} روز")
-            if r.next_review_date:
-                parts.append(f"مرور بعدی: {r.next_review_date}")
-            if r.difficulty is not None:
-                parts.append(f"سختی: {_fmt_stability(r.difficulty)}")
+                review_parts.append(
+                    f"آخرین مرور: {_jalali_day_month(r.prior_review_date)}"
+                )
             if r.grade is not None:
-                parts.append(f"امتیاز: {to_persian_digits(r.grade)}")
-            msg.add_line(plain(" | ".join(parts)))
-        else:
-            tail = ""
-            if r.stability_after is not None:
-                tail = f" · پایداری: {_fmt_stability(r.stability_after)}"
-            msg.add_line(plain(f"• {r.word} [{badge}]{tail}"))
+                review_parts.append(f"امتیاز {to_persian_digits(r.grade)}")
+            line3 = " · ".join(review_parts)
+            if admin_extra:
+                line3 = f"{line3}  {admin_extra}" if line3 else admin_extra
+            if line3:
+                msg.add_line(plain(line3))
+        elif admin_extra:
+            msg.add_line(plain(admin_extra))
+    return msg
+
+
+def format_summary_legend():
+    """Build the symbol-legend message opened by the legend button (R8).
+
+    Covers ✨🔁 (activity), 🔴🟡🟢 (difficulty labels), and 📅 (next review).
+    Stability-color rows (⚪🔵🟣) were retired with the raw-number removal (R2),
+    so they are intentionally absent here. All text is static Persian.
+    """
+    from services.send_pretty import Message, plain
+
+    msg = Message()
+    msg.add_line(plain("📖 راهنمای نمادها"))
+    msg.add_line(plain(""))
+    msg.add_line(plain("✨ جدید  ·  🔁 مرور"))
+    msg.add_line(plain(""))
+    msg.add_line(plain("سختی:"))
+    msg.add_line(plain("🔴 بالا (۶ و بیشتر)"))
+    msg.add_line(plain("🟡 متوسط (۳ تا ۵٫۹)"))
+    msg.add_line(plain("🟢 راحت (کمتر از ۳)"))
+    msg.add_line(plain(""))
+    msg.add_line(plain("📅 مرور بعدی"))
     return msg

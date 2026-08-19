@@ -1,8 +1,16 @@
+import datetime
+import random
 import unittest
+
+from services.send_pretty import Backend
+from services.session.summary import WordReviewRecord, build_report
 from services.utils.formatting import (
     escape_mdv2,
     escape_mdv2_code,
     format_next_review_text,
+    format_session_detail_page,
+    format_session_summary,
+    format_summary_legend,
     html_escape,
 )
 
@@ -168,3 +176,137 @@ class TestNextReviewText(unittest.TestCase):
             format_next_review_text(24 * 3600),
             "ثبت شد؛ مرور بعدی: فردا.",
         )
+
+
+class TestSessionSummaryRendering(unittest.TestCase):
+    TODAY = datetime.date(2026, 8, 22)  # Jalali 1405/5/31 (31 مرداد)
+
+    def _rec(
+        self,
+        word="well-being",
+        activity="first_exposure",
+        difficulty=2.1,
+        grade=3,
+        stability_after=3.0,
+        stability_before=1.0,
+        interval_days=3.0,
+        next_review_date="2026-08-25",
+        prior_review_date=None,
+    ):
+        return WordReviewRecord(
+            word_id=1,
+            word=word,
+            activity_type=activity,
+            stability_before=stability_before,
+            stability_after=stability_after,
+            prior_review_date=prior_review_date,
+            grade=grade,
+            interval_days=interval_days,
+            next_review_date=next_review_date,
+            difficulty=difficulty,
+        )
+
+    def _render(self, records, **kw):
+        return format_session_detail_page(records, 0, 1, **kw).render(Backend.PLAIN)
+
+    def _render_md(self, records, **kw):
+        return format_session_detail_page(records, 0, 1, **kw).render(Backend.MDV2)
+
+    def _lines(self, records, **kw):
+        return [l for l in self._render(records, **kw).split("\n")]
+
+    def test_new_card_two_lines(self):
+        lines = self._lines([self._rec()], today=self.TODAY)
+        self.assertIn("📋 واژه‌ها — صفحه ۱ از ۱", lines)
+        self.assertIn("well-being  ✨ جدید", lines)
+        # next_review +3 days -> «۳ روز دیگه»
+        self.assertIn("🟢 راحت · 📅 ۳ روز دیگه · امتیاز ۳", lines)
+
+    def test_review_card_gets_third_line(self):
+        lines = self._lines(
+            [self._rec(activity="srs_review", prior_review_date="2026-08-18")],
+            today=self.TODAY,
+        )
+        self.assertIn("well-being  🔁 مرور", lines)
+        # prior 2026-08-18 -> ۲۷ مرداد
+        self.assertIn("آخرین مرور: ۲۷ مرداد · امتیاز ۳", lines)
+
+    def test_relative_date_table(self):
+        cases = {
+            "2026-08-22": "امروز",
+            "2026-08-23": "فردا",
+            "2026-08-24": "پس‌فردا",
+            "2026-08-25": "۳ روز دیگه",
+            "2026-08-28": "۶ روز دیگه",
+            "2026-08-29": "۷ شهریور",
+        }
+        for iso, expected in cases.items():
+            rendered = self._render([self._rec(next_review_date=iso)], today=self.TODAY)
+            self.assertIn("📅 " + expected, rendered)
+
+    def test_difficulty_labels(self):
+        for d, label in [
+            (6.0, "🔴 سخت"),
+            (5.9, "🟡 متوسط"),
+            (3.0, "🟡 متوسط"),
+            (2.9, "🟢 راحت"),
+        ]:
+            rendered = self._render([self._rec(difficulty=d)], today=self.TODAY)
+            self.assertIn(label, rendered)
+
+    def test_no_raw_numbers_in_learner_view(self):
+        rendered = self._render([self._rec()], today=self.TODAY)
+        self.assertNotIn("پایداری ۳", rendered)
+        self.assertNotIn("سختی ۲٫۱", rendered)
+
+    def test_admin_extra_grouped_and_marked(self):
+        rendered = self._render([self._rec()], is_admin=True, today=self.TODAY)
+        self.assertIn("(فقط ادمین:", rendered)
+        self.assertIn("سختی", rendered)
+        self.assertIn("فاصله", rendered)
+        self.assertIn("Δ", rendered)
+
+    def test_learner_has_no_admin_extra(self):
+        rendered = self._render([self._rec()], today=self.TODAY)
+        self.assertNotIn("فقط ادمین", rendered)
+
+    def test_single_escape_word_hyphen(self):
+        # Regression (double-escape crash): hyphen escaped exactly once.
+        rendered = self._render_md([self._rec(word="well-being")], today=self.TODAY)
+        self.assertIn("well\\-being", rendered)
+        self.assertNotIn("well\\\\-being", rendered)
+
+    def test_legend_content(self):
+        rendered = format_summary_legend().render(Backend.PLAIN)
+        self.assertIn("📖 راهنمای نمادها", rendered)
+        self.assertIn("✨ جدید  ·  🔁 مرور", rendered)
+        self.assertIn("🔴 بالا", rendered)
+        self.assertIn("📅 مرور بعدی", rendered)
+        # stability-color rows retired with the raw-number removal (R2/R8)
+        self.assertNotIn("🔵", rendered)
+
+    def test_summary_ordering_and_stats(self):
+        report = build_report(
+            [self._rec(), self._rec(activity="srs_review", grade=4)]
+        )
+        rendered = format_session_summary(report, rng=random.Random(0)).render(Backend.PLAIN)
+        self.assertIn("📊 گزارش نشست مطالعه", rendered)
+        # tier block sits above the counts
+        self.assertIn("⚡️ پیشرفت کلی این نشست:", rendered)
+        self.assertIn("✨ ۱ واژه تازه یاد گرفتی", rendered)
+        self.assertIn("🔁 ۱ واژه مرور کردی", rendered)
+        # rate = (1.0 + 1.0)/2 = 1.0 -> 100%; avg after = 3.0 -> ~۳ روز
+        self.assertIn("🎯 نرخ یادآوری: ۱۰۰٪", rendered)
+        self.assertIn("میانگین پایداری: ~۳ روز", rendered)
+
+    def test_summary_hides_zero_counts(self):
+        report = build_report([self._rec(activity="srs_review")])
+        rendered = format_session_summary(report, rng=random.Random(0)).render(Backend.PLAIN)
+        self.assertNotIn("واژه تازه یاد گرفتی", rendered)
+        self.assertIn("🔁 ۱ واژه مرور کردی", rendered)
+
+    def test_summary_no_motivation_when_no_grades(self):
+        report = build_report([self._rec(grade=None)])
+        rendered = format_session_summary(report, rng=random.Random(0)).render(Backend.PLAIN)
+        self.assertNotIn("پیشرفت کلی این نشست", rendered)
+        self.assertNotIn("نرخ یادآوری", rendered)
