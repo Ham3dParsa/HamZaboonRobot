@@ -1,10 +1,8 @@
-"""Generate or verify CHANGELOG.md from Conventional Commits via git-cliff.
+"""Generate or verify CHANGELOG.md from Conventional Commits via git log.
 
 Usage:
     python scripts/generate_changelog.py          # write CHANGELOG.md
     python scripts/generate_changelog.py --check  # fail if CHANGELOG.md is stale
-
-Requires the `git-cliff` binary on PATH (https://git-cliff.org).
 """
 
 from __future__ import annotations
@@ -13,7 +11,6 @@ import re
 import subprocess
 import sys
 from collections import defaultdict
-from datetime import date, datetime
 from pathlib import Path
 from typing import NamedTuple
 
@@ -36,6 +33,20 @@ TYPE_GROUPS = {
     "chore": "Chores",
     "revert": "Reverts",
 }
+
+GROUP_ORDER = [
+    "Features",
+    "Bug Fixes",
+    "Performance",
+    "Refactoring",
+    "Documentation",
+    "Testing",
+    "Build",
+    "Continuous Integration",
+    "Chores",
+    "Reverts",
+    "Other",
+]
 
 
 class Commit(NamedTuple):
@@ -134,7 +145,7 @@ def build_changelog(commits: list[Commit]) -> str:
         "",
         "All notable changes to HamZaboon. Generated automatically from",
         "[Conventional Commits](https://www.conventionalcommits.org/) by",
-        "[git-cliff](https://git-cliff.org). Do not edit by hand.",
+        "[scripts/generate_changelog.py](scripts/generate_changelog.py). Do not edit by hand.",
         "",
     ]
 
@@ -153,7 +164,10 @@ def build_changelog(commits: list[Commit]) -> str:
         for commit in day_commits:
             by_group[commit.group].append(commit)
 
-        sorted_groups = sorted(by_group.keys())
+        sorted_groups = sorted(
+            by_group.keys(),
+            key=lambda g: GROUP_ORDER.index(g) if g in GROUP_ORDER else len(GROUP_ORDER),
+        )
 
         for group in sorted_groups:
             lines.append(f"#### {group}")
