@@ -47,7 +47,7 @@ IBTN_SRS_HARD_FE = "کمی آشناام 🟨"
 IBTN_SRS_GOOD_FE = "آشنایی خوب 🟩"
 IBTN_SRS_EASY_FE = "کاملاً بلدم 🟪"
 IBTN_SRS_REVEAL = "👁 نمایش پاسخ"
-IBTN_SRS_DELETE = "🗑 حذف کارت از جعبه مرور"
+IBTN_SRS_DELETE = "🗑 حذف از مطالعه"
 IBTN_SRS_DELETE_CONFIRM = "✅ بله، حذف شود"
 IBTN_SRS_DELETE_CANCEL = "❌ انصراف"
 
@@ -387,13 +387,11 @@ def get_review_keyboard(
             InlineKeyboardButton(
                 IBTN_PRONOUNCE,
                 callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
-            )
-        ],
-        [
+            ),
             InlineKeyboardButton(
                 IBTN_SRS_DELETE,
                 callback_data=f"srs:delete:{user_id}:{word_id}",
-            )
+            ),
         ],
     ]
     return InlineKeyboardMarkup(rows)
@@ -477,13 +475,11 @@ def get_first_exposure_keyboard(
             InlineKeyboardButton(
                 IBTN_PRONOUNCE,
                 callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
-            )
-        ],
-        [
+            ),
             InlineKeyboardButton(
                 IBTN_SRS_DELETE,
                 callback_data=f"srs:delete:{user_id}:{word_id}",
-            )
+            ),
         ],
     ]
     return InlineKeyboardMarkup(rows)
