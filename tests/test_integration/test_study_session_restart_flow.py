@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from services import db
 from services.db import schema as db_schema
+from telegram.error import BadRequest
 
 
 class StudySessionRestartFlowTest(unittest.TestCase):
@@ -264,6 +265,37 @@ class StudySessionRestartFlowTest(unittest.TestCase):
         asyncio.run(callback_router(grade_update, ctx))
         self.assertNotIn("current_session", ctx.user_data)
         self.assertIsNone(self._persisted_row())
+
+    def test_completion_badrequest_ends_session_with_minimal_fallback(self):
+        """kilo r3816695425: a permanent completion-edit BadRequest (message
+        not found / not modified / MarkdownV2 parse error) must end the session
+        (no re-tap soft-lock) AND surface a minimal plain-text completion so a
+        report escaping regression is never a silent report loss."""
+        from handlers.study_handler import handle_study_start
+        from bot import callback_router
+
+        w1 = self._seed_word("hello", expose=True)
+        node1 = self._node("srs_review", w1)
+
+        with patch("handlers.study_handler.build_session_list",
+                   return_value=([node1], {"user_id": 1, "remaining_slots": 0})):
+            ctx = self._context()
+            asyncio.run(handle_study_start(self._study_update(), ctx))
+            self.assertIsNotNone(self._persisted_row())
+
+        # Completion edit fails permanently (e.g. "can't parse entities").
+        ctx.bot.edit_message_text = AsyncMock(
+            side_effect=BadRequest("Bad Request: can't parse entities")
+        )
+        grade_update = self._callback_update(f"srs:3:1:{w1}")
+        asyncio.run(callback_router(grade_update, ctx))
+
+        # The session ended (cleared), and a minimal completion was sent so the
+        # learner still sees a finish signal.
+        self.assertNotIn("current_session", ctx.user_data)
+        self.assertIsNone(self._persisted_row())
+        sent = ctx.bot.send_message.call_args.kwargs["text"]
+        self.assertIn("جلسه مطالعه تموم شد", sent)
 
     def test_persist_attempted_before_first_card_render(self):
         """Owner decision 2026-08-15: the session is persisted to the DB before

@@ -575,8 +575,12 @@ def _is_message_not_modified(exc: Exception) -> bool:
     (e.g. a first attempt timed out server-side); treating it as failure would
     roll the node back and leave the screen showing a card the state disagrees
     with, dead-ending the next tap.
+
+    python-telegram-bot exposes no stable error code for this case (it is a
+    generic 400 ``BadRequest`` with freeform text), so the message text is the
+    only signal — the same pattern ``services/send_pretty.say`` uses.
     """
-    return isinstance(exc, BadRequest) and "not modified" in str(exc)
+    return isinstance(exc, BadRequest) and "not modified" in str(exc).lower()
 
 
 async def advance_session(
@@ -724,17 +728,29 @@ async def advance_session(
                 raw=send_pretty.RawFormat.MDV2,
                 keyboard=keyboard,
             )
-        except BadRequest:
-            # Permanent failure (message not found / not modified / parse error):
-            # the report cannot be rendered via this message and re-tapping the
-            # already-graded card cannot recover it. End the session anyway so
-            # the learner is not trapped in a re-tap -> error loop for the rest
-            # of the app-day (kilo W1); the session is complete, only the report
-            # render failed.
+        except BadRequest as exc:
+            # Permanent edit failure (message not found / not modified / a
+            # MarkdownV2 parse error in the report text): the report cannot be
+            # rendered via this message. Never trap the learner for the rest of
+            # the app-day — end the session — but always surface a minimal
+            # plain-text completion so a parse/escaping regression is never a
+            # silent report loss (kilo r3816695425).
             logger.warning(
-                "completion edit permanent failure user_id=%s chat_id=%s",
-                user_id, chat_id,
+                "completion edit permanent failure user_id=%s chat_id=%s err=%s",
+                user_id, chat_id, exc,
             )
+            try:
+                await send_pretty.send(
+                    chat_id,
+                    f"*{completion}*",
+                    bot=context.bot,
+                    raw=send_pretty.RawFormat.MDV2,
+                )
+            except Exception:
+                logger.exception(
+                    "completion fallback send failed user_id=%s chat_id=%s",
+                    user_id, chat_id,
+                )
         except Exception:
             if popped is not None:
                 state.nodes.insert(0, popped)
