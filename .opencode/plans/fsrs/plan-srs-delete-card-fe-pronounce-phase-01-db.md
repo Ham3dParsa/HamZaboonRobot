@@ -1,4 +1,4 @@
----
+﻿---
 name: srs-delete-card-fe-pronounce-phase-01-db
 description: Phase 1 — delete_saved_word DB function (Rule 4)
 created: 2026-08-19
@@ -6,7 +6,7 @@ base_commit: 6305c18
 branch: feat/srs-delete-card
 status: in-progress
 ---
-STATE: phase 1/5 — status: in-progress — focus: add delete_saved_word to services/db/words.py
+STATE: phase — status: DONE (merged via PR #406) — was: add delete_saved_word to services/db/words.py
 
 ## Blocking edges
 - None (first ticket).

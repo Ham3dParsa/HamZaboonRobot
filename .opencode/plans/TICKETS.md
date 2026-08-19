@@ -47,4 +47,4 @@
 | GOV-R5 | `workflow/plan-governance-reform.md` | #396 | `chore/governance-reform` | done (impl) — route-delete text in AGENTS.md §6 |
 | GOV-R6 | `workflow/plan-governance-reform.md` | #397 | `chore/governance-reform` | done (impl) — test-sync text in AGENTS.md §6 |
 | GOV-R7 | `workflow/plan-governance-reform.md` | #398 | `chore/governance-reform` | done (impl) — terse rule text in AGENTS.md |
-| SRS-DELETE-CARD (P3-T2 + FE pronounce) | `fsrs/plan-srs-delete-card-fe-pronounce.md` | #338 | `feat/srs-delete-card` | LOCKED 2026-08-19 (R1-R10); tickets T1..T5 in `fsrs/plan-srs-delete-card-fe-pronounce-phase-01..05`; delete on revealed stage + refill + FE pronounce; implementation pending |
+| SRS-DELETE-CARD (P3-T2 + FE pronounce) | `fsrs/plan-srs-delete-card-fe-pronounce.md` | #338 | `feat/srs-delete-card` | LOCKED 2026-08-19 (R1-R10); tickets T1..T5 in `fsrs/plan-srs-delete-card-fe-pronounce-phase-01..05`; delete on revealed stage + refill + FE pronounce; **merged via PR #406 (2026-08-19)** |

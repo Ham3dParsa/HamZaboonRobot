@@ -6,7 +6,7 @@ base_commit: 6305c18
 branch: feat/srs-delete-card
 status: implemented
 ---
-STATE: phase 5/5 — status: IMPLEMENTED (LOCKED) — all phases done; full suite green (3 pre-existing plan failures out of scope); reviewer findings #1-#3 fixed; awaiting commit/PR/merge
+STATE: phase 5/5 — status: MERGED — all phases done; merged via PR #406 (squash 7f16597); post-merge cleanup done (worktree removed, branch deleted, claim released); #338 P3-T2 closed in-topic
 
 ## Contract Lock (GATE STATUS = LOCKED, 2026-08-19)
 
