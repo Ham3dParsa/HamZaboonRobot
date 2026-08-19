@@ -497,3 +497,105 @@ def word_query_usage_text(row: dict) -> str:
         return f"📊 استفاده امروز: {used} / نامحدود"
     remaining = max(limit - used, 0)
     return f"📊 استفاده امروز: {used}/{limit} · باقی‌مانده: {remaining}"
+
+
+# ---------------------------------------------------------------------------
+# Session Summary Report rendering (R5/R6)
+# ---------------------------------------------------------------------------
+
+_NEW_BADGE = "✨ جدید"
+_REVIEW_BADGE = "🔁 مرور"
+
+
+def _fmt_stability(value: float | None) -> str:
+    """Round a stability value to one decimal as Persian digits, or '—'."""
+    if value is None:
+        return "—"
+    return to_persian_digits(f"{value:.1f}")
+
+
+def format_session_summary(report, *, is_admin: bool = False) -> str:
+    """Compact learner (or admin) summary line(s) for the finished session.
+
+    ``report`` is a :class:`services.session.summary.SessionReport`. All
+    dynamic values are escaped; only static literals may carry MarkdownV2.
+    """
+    lines: list[str] = [escape_mdv2("📊 گزارش جلسه مطالعه")]
+
+    counts: list[str] = []
+    if report.learned_count:
+        counts.append(
+            f"{to_persian_digits(report.learned_count)} واژه جدید یاد گرفتی"
+        )
+    if report.reviewed_count:
+        counts.append(
+            f"{to_persian_digits(report.reviewed_count)} واژه مرور کردی"
+        )
+    if counts:
+        lines.append(escape_mdv2("، ".join(counts)))
+
+    delta = report.avg_stability_delta
+    if delta is None:
+        lines.append(escape_mdv2("پایداری حافظه تغییری ثبت نشد."))
+    elif delta > 0:
+        lines.append(escape_mdv2("میانگین پایداری حافظه افزایش یافت ⬆️"))
+    elif delta < 0:
+        lines.append(escape_mdv2("میانگین پایداری حافظه کاهش یافت ⬇️"))
+    else:
+        lines.append(escape_mdv2("میانگین پایداری حافظه تغییری نکرد."))
+
+    if is_admin and delta is not None:
+        lines.append(
+            escape_mdv2(f"میانگین تغییر پایداری: {_fmt_stability(delta)}")
+        )
+    return "\n".join(lines)
+
+
+def format_session_detail_page(
+    records,
+    page_index: int,
+    total_pages: int,
+    *,
+    is_admin: bool = False,
+) -> str:
+    """One page of the paged word list (learner or admin variant).
+
+    ``records`` is an iterable of :class:`services.session.summary.WordReviewRecord`.
+    """
+    lines: list[str] = [
+        escape_mdv2(
+            f"📋 واژه‌ها — صفحه {to_persian_digits(page_index + 1)} از "
+            f"{to_persian_digits(total_pages)}"
+        )
+    ]
+    for r in records:
+        badge = _NEW_BADGE if r.activity_type == "first_exposure" else _REVIEW_BADGE
+        stability = (
+            f"پایداری: {_fmt_stability(r.stability_after)}"
+            if r.stability_after is not None
+            else ""
+        )
+        if is_admin:
+            delta = ""
+            if r.stability_before is not None and r.stability_after is not None:
+                delta = _fmt_stability(r.stability_after - r.stability_before)
+            prior = f" | مرور قبلی: {escape_mdv2(r.prior_review_date)}" if r.prior_review_date else ""
+            interval = f" | فاصله: {_fmt_stability(r.interval_days)} روز" if r.interval_days is not None else ""
+            next_date = f" | مرور بعدی: {escape_mdv2(r.next_review_date)}" if r.next_review_date else ""
+            difficulty = f" | سختی: {_fmt_stability(r.difficulty)}" if r.difficulty is not None else ""
+            grade = f" | امتیاز: {to_persian_digits(r.grade)}" if r.grade is not None else ""
+            extra = f" | Δ{delta}" if delta else ""
+            lines.append(
+                escape_mdv2(f"• {r.word} [{badge}]")
+                + f" {escape_mdv2(stability)}"
+                + f"{escape_mdv2(extra)}"
+                + f"{escape_mdv2(prior)}"
+                + f"{escape_mdv2(interval)}"
+                + f"{escape_mdv2(next_date)}"
+                + f"{escape_mdv2(difficulty)}"
+                + f"{escape_mdv2(grade)}"
+            )
+        else:
+            tail = f" · {stability}" if stability else ""
+            lines.append(escape_mdv2(f"• {r.word} [{badge}]") + escape_mdv2(tail))
+    return "\n".join(lines)

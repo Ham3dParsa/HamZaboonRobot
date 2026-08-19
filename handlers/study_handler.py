@@ -10,6 +10,7 @@ import json
 import logging
 import time
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -25,10 +26,14 @@ from config.keyboards import (
     get_first_exposure_keyboard,
     get_review_keyboard,
     get_srs_front_keyboard,
+    session_summary_detail_keyboard,
+    session_summary_keyboard,
     study_inactive_keyboard,
 )
+from config.plan_identity import has_feature
 from services import db
 from services.session import SessionNode, build_session_list, generate_tier3_node
+from services.session.summary import WordReviewRecord, build_report
 from services.scheduling import (
     consume_session_slot,
     release_session_slot,
@@ -41,12 +46,15 @@ from services.utils.formatting import (
     days_since_review,
     escape_mdv2,
     format_review_badge,
+    format_session_detail_page,
+    format_session_summary,
     format_srs_back_stage,
     format_srs_front_stage,
     select_srs_prompt_type,
     to_persian_digits,
 )
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
+from services.routing import register
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +71,9 @@ class SessionState:
     study_msg_id: int | None
     plan: str
     graded_word_ids: list[int] = field(default_factory=list)
+    # Pre-grade stability per word_id, captured on first render so the
+    # session summary can show the before->after stability delta (Phase 2).
+    before_stability: dict[int, float] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +90,7 @@ def _state_to_json(state: SessionState) -> str:
             "study_msg_id": state.study_msg_id,
             "plan": state.plan,
             "graded_word_ids": state.graded_word_ids,
+            "before_stability": state.before_stability,
         }
     )
 
@@ -93,6 +105,10 @@ def _state_from_json(raw: str) -> SessionState:
         study_msg_id=data["study_msg_id"],
         plan=data["plan"],
         graded_word_ids=data.get("graded_word_ids") or [],
+        before_stability={
+            int(k): float(v)
+            for k, v in (data.get("before_stability") or {}).items()
+        },
     )
 
 
@@ -399,6 +415,14 @@ def _build_card_text_and_keyboard(
     card_data = _saved_word_card(word_row) if word_row else {}
     card_data.setdefault("word", node.card_data.get("word", ""))
 
+    # Snapshot the pre-grade stability the first time a card is rendered
+    # (before any grade lands), so the session summary can report the
+    # before->after stability delta (Phase 2). Existing snapshots are kept.
+    if word_id and state is not None and word_id not in state.before_stability:
+        stability = word_row["stability"] if word_row is not None else None
+        if stability is not None:
+            state.before_stability[word_id] = float(stability)
+
     phonetic_lines = _phonetic_lines(card_data.get("phonetic", ""))
     progress = session_progress_footer(state, user_id)
 
@@ -600,11 +624,43 @@ async def advance_session(
         # re-gradable last node behind (owner decision 2026-08-15).
         context.user_data.pop("current_session", None)
         _clear_persisted_session(user_id)
+
         completion = escape_mdv2("جلسه مطالعه تموم شد! 🎉")
+        text = f"*{completion}*"
+        keyboard = None
+
+        # Bronze+ (session_summary feature) get the post-session report; free
+        # keeps the minimal completion message (R4). The owner always gets the
+        # report (admin variant) regardless of plan. The report is ephemeral in
+        # user_data (R7) and drives the detail pagination callbacks.
+        is_admin = is_owner(user_id)
+        if has_feature(state.plan, "session_summary") or is_admin:
+            try:
+                records = _gather_word_records(state, user_id)
+                report = build_report(records)
+                context.user_data["session_summary"] = {
+                    "report": report,
+                    "is_admin": is_admin,
+                }
+                text = format_session_summary(report, is_admin=is_admin)
+                # A completed session always has >=1 graded word, but guard the
+                # impossible zero-total case so a detail button can never lead
+                # to an empty "صفحه ۱ از ۰" page.
+                keyboard = (
+                    session_summary_keyboard() if report.total else None
+                )
+            except Exception:
+                logger.exception(
+                    "session summary build failed user_id=%s", user_id
+                )
+                text = f"*{completion}*"
+                keyboard = None
+
         await context.bot.edit_message_text(
-            text=f"*{completion}*",
+            text=text,
             chat_id=chat_id,
             message_id=state.study_msg_id,
+            reply_markup=keyboard,
             parse_mode=ParseMode.MARKDOWN_V2,
         )
 
@@ -619,3 +675,152 @@ async def advance_session(
             )
         except Exception:
             logger.exception("advance_session error fallback also failed")
+
+
+# ---------------------------------------------------------------------------
+# Session summary report — data gathering + detail pagination callback (R1-R7)
+# ---------------------------------------------------------------------------
+
+def _interval_days(word_row) -> float | None:
+    """Scheduled interval in days from next_review_at back to last_review_at.
+
+    ``word_row`` is a subscriptable row (dict or sqlite3.Row) from
+    saved_words; both timestamp columns may be NULL.
+    """
+    try:
+        last = word_row["last_review_at"]
+        nxt = word_row["next_review_at"]
+    except (KeyError, IndexError, TypeError):
+        return None
+    if not last or not nxt:
+        return None
+    try:
+        last_dt = datetime.fromisoformat(last)
+        nxt_dt = datetime.fromisoformat(nxt)
+    except (TypeError, ValueError):
+        return None
+    seconds = (nxt_dt - last_dt).total_seconds()
+    return round(max(0.0, seconds) / 86400, 1)
+
+
+def _gather_word_records(
+    state: SessionState, user_id: int
+) -> list[WordReviewRecord]:
+    """Assemble WordReviewRecords for the session's graded words.
+
+    Activity type + grade come from the newest review_events row per word
+    (R3, seam-safe: no srs_handler edit); the prior review date is the
+    second-newest row (R2). before-stability comes from the Phase-2 snapshot.
+    """
+    word_ids = list(state.graded_word_ids)
+    if not word_ids:
+        return []
+    rows = {row["id"]: row for row in db.get_saved_words_by_ids(word_ids, user_id)}
+    events = db.recent_events_for_words(word_ids, user_id, per_word=2)
+    records: list[WordReviewRecord] = []
+    for wid in word_ids:
+        wr = rows.get(wid)
+        if wr is None:
+            continue
+        evs = events.get(wid) or []
+        current = evs[0] if evs else None
+        prior = evs[1] if len(evs) > 1 else None
+        records.append(
+            WordReviewRecord(
+                word_id=wid,
+                word=wr["word"],
+                activity_type=(
+                    current["activity_type"] if current else "srs_review"
+                ),
+                stability_before=state.before_stability.get(wid),
+                stability_after=(
+                    wr["stability"] if wr["stability"] is not None else None
+                ),
+                prior_review_date=(prior["created_at"][:10] if prior else None),
+                grade=current["grade"] if current else None,
+                interval_days=_interval_days(wr),
+                next_review_date=(
+                    wr["next_review_at"][:10] if wr["next_review_at"] else None
+                ),
+                difficulty=(
+                    wr["difficulty"] if wr["difficulty"] is not None else None
+                ),
+            )
+        )
+    return records
+
+
+async def _handle_session_summary_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    action: str,
+) -> None:
+    """Handle session-summary detail/pagination callbacks (R1/R7).
+
+    Renders from the ephemeral report stashed at completion. If the data is
+    gone (e.g. after a restart) the button fails gracefully with an expired
+    notice instead of crashing.
+    """
+    payload = context.user_data.get("session_summary")
+    if not payload:
+        await notify_callback(
+            update.callback_query,
+            "این گزارش منقضی شده است.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
+    report = payload["report"]
+    is_admin = payload["is_admin"]
+    total_pages = len(report.pages)
+
+    if action == "back":
+        text = format_session_summary(report, is_admin=is_admin)
+        keyboard = session_summary_keyboard()
+        # Returning to the summary is the end of the report's lifecycle: clear
+        # the ephemeral payload so a stale detail button on an older message
+        # fails gracefully instead of showing the latest report (R7).
+        context.user_data.pop("session_summary", None)
+    elif action == "detail" or action.startswith("page:"):
+        if action == "detail":
+            page_index = 0
+        else:
+            try:
+                page_index = int(action.split(":", 1)[1])
+            except (ValueError, IndexError):
+                page_index = 0
+        if total_pages:
+            page_index = max(0, min(page_index, total_pages - 1))
+            page = report.pages[page_index]
+        else:
+            page = ()
+        text = format_session_detail_page(
+            page, page_index, total_pages, is_admin=is_admin
+        )
+        keyboard = session_summary_detail_keyboard(page_index, total_pages)
+    else:
+        await notify_callback(update.callback_query)
+        return
+
+    try:
+        await context.bot.edit_message_text(
+            text=text,
+            chat_id=update.effective_chat.id,
+            message_id=update.effective_message.message_id,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+    except BadRequest as exc:
+        if "not modified" not in str(exc).casefold():
+            logger.warning(
+                "session summary edit failed user_id=%s: %s",
+                update.effective_user.id, exc,
+            )
+    except Exception:
+        logger.exception(
+            "session summary edit failed user_id=%s",
+            update.effective_user.id,
+        )
+    await notify_callback(update.callback_query)
+
+
+register("session:summary", _handle_session_summary_callback)

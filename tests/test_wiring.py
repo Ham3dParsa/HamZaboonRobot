@@ -624,6 +624,18 @@ class TestCallbackWiring(unittest.TestCase):
         bot_text = Path("bot.py").read_text(encoding="utf-8")
         self.assertIn('data.startswith("srs:delete:")', bot_text)
 
+    def test_session_summary_route_registered_and_dispatched(self):
+        """The session:summary prefix must be registered in the central routing
+        registry and handed to routing_dispatch in callback_router (R1/R7)."""
+        import handlers.study_handler  # noqa: F401  (ensures register() ran)
+        from services.routing import ROUTES
+
+        registered = {prefix for (prefix, _, _) in ROUTES}
+        self.assertIn("session:summary", registered)
+
+        bot_text = Path("bot.py").read_text(encoding="utf-8")
+        self.assertIn('data.startswith("session:summary:")', bot_text)
+
     # ------------------------------------------------------------------
     # Reverse direction: routes and imports must resolve to real symbols.
     # ------------------------------------------------------------------

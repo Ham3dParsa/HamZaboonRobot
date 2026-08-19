@@ -95,6 +95,7 @@ from services.db.words import (
     update_saved_word_fields,
     due_words_for_user,
     get_saved_word,
+    get_saved_words_by_ids,
     get_pre_first_exposure_words,
     delete_saved_word,
     grade_word_review,
@@ -138,6 +139,7 @@ def _is_storage_error(exc: BaseException) -> bool:
 from services.db.reviews import (
     REVIEW_OUTCOMES,
     record_review_event,
+    recent_events_for_words,
 )
 
 from services.db.settings import (

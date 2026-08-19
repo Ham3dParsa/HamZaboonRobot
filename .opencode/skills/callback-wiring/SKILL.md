@@ -32,6 +32,7 @@ author_url: https://github.com/Ham3dParsa
 | `help:section:`, `help:back` | `handlers/help_command.py` | `send_help_panel` (command/text entry), `handle_help_callback` |
 | `srs:prepare:`, `srs:reveal:`, `srs:` | `handlers/srs_handler.py` | `_handle_srs_prepare`, `_handle_srs_reveal`, `_handle_srs_review` |
 | `srs:delete:`, `srs:delete:yes:`, `srs:delete:no:` (via `services/routing.py`) | `handlers/srs_handler.py` | `_handle_srs_delete`, `_handle_srs_delete_yes`, `_handle_srs_delete_no` |
+| `session:summary:` (via `services/routing.py`) | `handlers/study_handler.py` | `_handle_session_summary_callback` — `session:summary:detail`, `session:summary:page:<n>`, `session:summary:back`; renders the ephemeral post-session report |
 | `admin:` (thin dispatcher, via `services/routing` registry) | `handlers/admin.py` | registered as a coarse `admin` route (`register_admin_routes()` in `handlers/admin.py`); `dispatch()` owner-gates then calls `_handle_admin_callback`, which delegates by prefix to domain sub-routers (sub-routes below) |
 | `admin:stats`, `admin:stats:*` | `handlers/admin_stats.py` | `handle_admin_stats` |
 | `admin:plans`, `admin:plans:*`, `admin:set_plan` | `handlers/admin_plans.py` | `handle_plan_callback` (incl. `admin:plans:view`, `:edit`, `:full_edit_back/skip/cancel/save`, `:set_active`) |

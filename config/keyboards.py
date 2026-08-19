@@ -168,6 +168,12 @@ IBTN_FULL_EDIT_SAVE_ALL = "✅ ذخیره همه تغییرات"
 # --- Study – stale-card notice ---
 IBTN_STUDY_INACTIVE = "⚠️ این پیام دیگر فعال نیست"
 
+# --- Session Summary Report ---
+IBTN_SUMMARY_DETAIL = "📋 جزئیات"
+IBTN_SUMMARY_BACK = "↩️ بازگشت به خلاصه"
+IBTN_SUMMARY_PREV = "◀️ قبلی"
+IBTN_SUMMARY_NEXT = "بعدی ▶️"
+
 # --- Admin – Preset Group / Pagination ---
 IBTN_VIEW_MODE_LINEAR = "📋 نمایش خطی"
 IBTN_VIEW_MODE_GROUPED = "📁 نمایش گروهی"
@@ -876,4 +882,42 @@ def fallback_chain_keyboard(chain: list[dict]) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton(IBTN_CONSUMPTION_DETAILS, callback_data="admin:fallback:usage_details")])
     rows.append([InlineKeyboardButton(IBTN_HELP_FALLBACK, callback_data="admin:help:fallback_chain")])
     rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")])
+    return InlineKeyboardMarkup(rows)
+
+
+def session_summary_keyboard() -> InlineKeyboardMarkup:
+    """Summary view of the post-session report — a single 'جزئیات' button that
+    opens the paged word list in the same message."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(IBTN_SUMMARY_DETAIL, callback_data="session:summary:detail")],
+    ])
+
+
+def session_summary_detail_keyboard(page_index: int, total_pages: int) -> InlineKeyboardMarkup:
+    """Detail view of the report — prev/next page navigation + back to summary.
+
+    ``page_index`` is 0-based; page navigation buttons are omitted on the
+    first / last page respectively.
+    """
+    rows: list[list[InlineKeyboardButton]] = []
+    nav: list[InlineKeyboardButton] = []
+    if page_index > 0:
+        nav.append(
+            InlineKeyboardButton(
+                IBTN_SUMMARY_PREV,
+                callback_data=f"session:summary:page:{page_index - 1}",
+            )
+        )
+    if page_index < total_pages - 1:
+        nav.append(
+            InlineKeyboardButton(
+                IBTN_SUMMARY_NEXT,
+                callback_data=f"session:summary:page:{page_index + 1}",
+            )
+        )
+    if nav:
+        rows.append(nav)
+    rows.append([
+        InlineKeyboardButton(IBTN_SUMMARY_BACK, callback_data="session:summary:back"),
+    ])
     return InlineKeyboardMarkup(rows)

@@ -251,6 +251,24 @@ def get_saved_word(word_id: int, user_id: int | None = None):
         return conn.execute(query, params).fetchone()
 
 
+def get_saved_words_by_ids(word_ids: list[int], user_id: int) -> list[dict]:
+    """Fetch the saved-word rows for ``word_ids`` owned by ``user_id``.
+
+    Returns rows keyed in the same order as ``word_ids`` (missing rows are
+    omitted). Used by the session summary to gather per-word report data.
+    """
+    if not word_ids:
+        return []
+    placeholders = ",".join("?" * len(word_ids))
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM saved_words WHERE user_id=? AND id IN ({placeholders})",
+            (user_id, *word_ids),
+        ).fetchall()
+    by_id = {row["id"]: row for row in rows}
+    return [by_id[wid] for wid in word_ids if wid in by_id]
+
+
 def delete_saved_word(word_id: int, user_id: int) -> bool:
     with transaction() as conn:
         cursor = conn.execute(

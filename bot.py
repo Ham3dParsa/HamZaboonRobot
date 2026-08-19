@@ -593,6 +593,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data.startswith("admin:")
         or data.startswith("llm:")
         or data.startswith("srs:delete:")
+        or data.startswith("session:summary:")
     ):
         await routing_dispatch(update, context, data)
         return

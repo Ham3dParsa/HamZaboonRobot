@@ -72,6 +72,93 @@ class TestSessionStateDataclass(_BaseStudyHandlerTest):
         self.assertEqual(len(state.nodes), 0)
 
 
+class TestBeforeStabilitySnapshot(_BaseStudyHandlerTest):
+    """Phase 2 (session-summary): before-stability snapshot + serialization.
+
+    The report engine needs each graded word's pre-grade stability to compute
+    the before->after delta. It is captured on first render (before grading)
+    and persisted with the session state so it survives restarts.
+    """
+
+    def _card(self):
+        return {"word": "hello", "fa_meaning": "سلام"}
+
+    def _word_id(self):
+        self.assertTrue(db.add_saved_word(1, "hello", "en", self._card()))
+        with db.get_conn() as conn:
+            return conn.execute(
+                "SELECT id FROM saved_words WHERE word='hello'"
+            ).fetchone()["id"]
+
+    def _node(self, word_id):
+        from services.session import SessionNode
+        return SessionNode(
+            activity_type="srs_review", source_tier=1,
+            card_data={"word": "hello"}, source_id=word_id,
+            activity_meta={"user_id": 1}, grade_policy_ref="srs_review",
+        )
+
+    def _state(self):
+        return SessionState(
+            nodes=[], total_cards=0, tier3_context={},
+            study_msg_id=None, plan="free",
+        )
+
+    def test_before_stability_defaults_empty(self):
+        state = SessionState(
+            nodes=[], total_cards=0, tier3_context={},
+            study_msg_id=None, plan="free",
+        )
+        self.assertEqual(state.before_stability, {})
+
+    def test_render_captures_before_stability_from_saved_word(self):
+        from handlers.study_handler import _build_card_text_and_keyboard
+        word_id = self._word_id()
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE saved_words SET stability = 7.5 WHERE id = ?",
+                (word_id,),
+            )
+            conn.commit()
+        state = self._state()
+        _build_card_text_and_keyboard(self._node(word_id), state, 1)
+        self.assertEqual(state.before_stability.get(word_id), 7.5)
+
+    def test_render_does_not_overwrite_existing_snapshot(self):
+        from handlers.study_handler import _build_card_text_and_keyboard
+        word_id = self._word_id()
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE saved_words SET stability = 9.9 WHERE id = ?",
+                (word_id,),
+            )
+            conn.commit()
+        state = self._state()
+        state.before_stability[word_id] = 3.0
+        _build_card_text_and_keyboard(self._node(word_id), state, 1)
+        self.assertEqual(state.before_stability[word_id], 3.0)
+
+    def test_state_json_roundtrip_preserves_before_stability(self):
+        from handlers.study_handler import (
+            _state_from_json,
+            _state_to_json,
+        )
+        state = self._state()
+        state.before_stability = {1: 2.5, 7: 0.0}
+        restored = _state_from_json(_state_to_json(state))
+        self.assertEqual(restored.before_stability, {1: 2.5, 7: 0.0})
+
+    def test_state_from_json_missing_before_stability_is_empty(self):
+        from handlers.study_handler import (
+            _state_from_json,
+            _state_to_json,
+        )
+        state = self._state()
+        raw = _state_to_json(state)
+        restored = _state_from_json(raw)
+        self.assertEqual(restored.before_stability, {})
+
+
 class TestHandleStudyStart(_BaseStudyHandlerTest):
     def test_empty_session_releases_slot(self):
         update = self._update()
