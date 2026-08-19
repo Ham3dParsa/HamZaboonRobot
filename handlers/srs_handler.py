@@ -415,60 +415,19 @@ def _active_node_for_word(state, word_id: int):
     return node
 
 
-def _next_due_node(
-    user_id: int, tier: int, target_lang: str | None, state
-) -> SessionNode | None:
-    """Return the next not-yet-in-session tier-1/2 due card node, or None."""
-    session_ids = {n.source_id for n in state.nodes if n.source_id is not None}
-    if tier == 1:
-        rows = db.due_words_for_user(user_id, target_lang) or []
-    else:
-        rows = db.get_pre_first_exposure_words(user_id, target_lang) or []
-    for row in rows:
-        if row["id"] in session_ids:
-            continue
-        if tier == 1:
-            return SessionNode(
-                activity_type="srs_review",
-                source_tier=1,
-                card_data={"word": row["word"]},
-                source_id=row["id"],
-                activity_meta={"user_id": user_id, "target_lang": target_lang},
-                grade_policy_ref="srs_review",
-            )
-        return SessionNode(
-            activity_type="first_exposure",
-            source_tier=2,
-            card_data={"word": row["word"]},
-            source_id=row["id"],
-            activity_meta={"user_id": user_id, "target_lang": target_lang},
-            grade_policy_ref="first_exposure",
-        )
-    return None
-
-
-def _refill_session_from_due(user_id: int, state) -> None:
-    """Rule 10: after a delete, append the next due tier-1/2 card so the session
-    keeps its planned size, unless the due queue is exhausted."""
-    node = state.nodes[0] if state and state.nodes else None
-    if node is None:
-        return
-    target_lang = (node.activity_meta or {}).get("target_lang")
-    new_node = _next_due_node(user_id, node.source_tier, target_lang, state)
-    if new_node is not None:
-        state.nodes.append(new_node)
-
-
-async def _handle_srs_delete(
+async def _resolve_delete_context(
     update: Update, context: ContextTypes.DEFAULT_TYPE, action: str
-) -> None:
+) -> tuple[int, int, object, object] | None:
+    """Shared guard for the srs:delete* handlers: parse action, enforce the
+    caller owns the word, and reject stale/non-active sessions. Returns
+    (user_id, word_id, state, node) or None after notifying an error."""
     parsed = _split_delete_action(action)
     if parsed is None:
         await notify_callback(
             update.callback_query, "دکمه‌ی نامعتبر است.",
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
-        return
+        return None
     user_id = update.effective_user.id
     target_user_id, word_id = parsed
     if user_id != target_user_id:
@@ -476,7 +435,7 @@ async def _handle_srs_delete(
             update.callback_query, "این مرور برای کاربر دیگری است.",
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
-        return
+        return None
     state = get_active_study_session(user_id, context)
     node = _active_node_for_word(state, word_id)
     if node is None or not state or not state.study_msg_id:
@@ -484,7 +443,67 @@ async def _handle_srs_delete(
             update.callback_query, "این پیام دیگر معتبر نیست.",
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
+        return None
+    return user_id, word_id, state, node
+
+
+# Tier-3 is appended here when Tier-3 generation (generate_tier3_node) lands;
+# for now only tier-1 due and tier-2 pre-first-exposure are refillable.
+_REFILL_TIER_PRIORITY = (1, 2)
+
+
+def _next_due_node(
+    user_id: int, target_lang: str | None, state
+) -> SessionNode | None:
+    """Return the highest-priority not-yet-in-session due card, or None.
+
+    Refill priority (owner decision, Kilo review #406): tier 1 (due review)
+    first, then tier 2 (first exposure); tier 3 reserved for the future.
+    """
+    session_ids = {n.source_id for n in state.nodes if n.source_id is not None}
+    for tier in _REFILL_TIER_PRIORITY:
+        if tier == 1:
+            rows = db.due_words_for_user(user_id, target_lang) or []
+            activity_type, source_tier, grade_policy = "srs_review", 1, "srs_review"
+        elif tier == 2:
+            rows = db.get_pre_first_exposure_words(user_id, target_lang) or []
+            activity_type, source_tier, grade_policy = "first_exposure", 2, "first_exposure"
+        else:
+            continue
+        for row in rows:
+            if row["id"] in session_ids:
+                continue
+            return SessionNode(
+                activity_type=activity_type,
+                source_tier=source_tier,
+                card_data={"word": row["word"]},
+                source_id=row["id"],
+                activity_meta={"user_id": user_id, "target_lang": target_lang},
+                grade_policy_ref=grade_policy,
+            )
+    return None
+
+
+def _refill_session_from_due(user_id: int, state) -> None:
+    """Rule 10: after a delete, append the next highest-priority due tier-1/2
+    card so the session keeps its planned size, unless the due queues are
+    exhausted."""
+    node = state.nodes[0] if state and state.nodes else None
+    if node is None:
         return
+    target_lang = (node.activity_meta or {}).get("target_lang")
+    new_node = _next_due_node(user_id, target_lang, state)
+    if new_node is not None:
+        state.nodes.append(new_node)
+
+
+async def _handle_srs_delete(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, action: str
+) -> None:
+    resolved = await _resolve_delete_context(update, context, action)
+    if resolved is None:
+        return
+    user_id, word_id, state, _node = resolved
     try:
         await context.bot.edit_message_reply_markup(
             chat_id=update.effective_chat.id,
@@ -500,29 +519,10 @@ async def _handle_srs_delete(
 async def _handle_srs_delete_yes(
     update: Update, context: ContextTypes.DEFAULT_TYPE, action: str
 ) -> None:
-    parsed = _split_delete_action(action)
-    if parsed is None:
-        await notify_callback(
-            update.callback_query, "دکمه‌ی نامعتبر است.",
-            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
-        )
+    resolved = await _resolve_delete_context(update, context, action)
+    if resolved is None:
         return
-    user_id = update.effective_user.id
-    target_user_id, word_id = parsed
-    if user_id != target_user_id:
-        await notify_callback(
-            update.callback_query, "این مرور برای کاربر دیگری است.",
-            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
-        )
-        return
-    state = get_active_study_session(user_id, context)
-    node = _active_node_for_word(state, word_id)
-    if node is None or not state or not state.study_msg_id:
-        await notify_callback(
-            update.callback_query, "این پیام دیگر معتبر نیست.",
-            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
-        )
-        return
+    user_id, word_id, state, _node = resolved
     try:
         deleted = db.delete_saved_word(word_id, user_id)
         _refill_session_from_due(user_id, state)
@@ -545,29 +545,10 @@ async def _handle_srs_delete_yes(
 async def _handle_srs_delete_no(
     update: Update, context: ContextTypes.DEFAULT_TYPE, action: str
 ) -> None:
-    parsed = _split_delete_action(action)
-    if parsed is None:
-        await notify_callback(
-            update.callback_query, "دکمه‌ی نامعتبر است.",
-            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
-        )
+    resolved = await _resolve_delete_context(update, context, action)
+    if resolved is None:
         return
-    user_id = update.effective_user.id
-    target_user_id, word_id = parsed
-    if user_id != target_user_id:
-        await notify_callback(
-            update.callback_query, "این مرور برای کاربر دیگری است.",
-            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
-        )
-        return
-    state = get_active_study_session(user_id, context)
-    node = _active_node_for_word(state, word_id)
-    if node is None or not state or not state.study_msg_id:
-        await notify_callback(
-            update.callback_query, "این پیام دیگر معتبر نیست.",
-            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
-        )
-        return
+    user_id, word_id, state, node = resolved
     if node.activity_type == "first_exposure":
         keyboard = get_first_exposure_keyboard(
             user_id, word_id, show_pronounce=db.should_show_pronounce(user_id),

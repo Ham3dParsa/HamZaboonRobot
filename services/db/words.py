@@ -256,7 +256,21 @@ def delete_saved_word(word_id: int, user_id: int) -> bool:
         cursor = conn.execute(
             "DELETE FROM saved_words WHERE id=? AND user_id=?", (word_id, user_id)
         )
-        return cursor.rowcount > 0
+        if cursor.rowcount == 0:
+            return False
+        # Cascade (owner decision, Kilo review #406): drop the word's review
+        # telemetry and detach any stale "saved from query" pointer, so no
+        # dependent rows dangle at a now-deleted word_id.
+        conn.execute(
+            "DELETE FROM review_events WHERE word_id=? AND user_id=?",
+            (word_id, user_id),
+        )
+        conn.execute(
+            "UPDATE query_results SET saved_word_id=NULL "
+            "WHERE saved_word_id=? AND user_id=?",
+            (word_id, user_id),
+        )
+        return True
 
 
 # ---------- توابع جدید (پوسته) ----------
