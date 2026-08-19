@@ -594,7 +594,11 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # (services/routing.py), which guarantees exactly one answer per callback
     # (the B1 double-notify fix). Dispatching here, before the allowlist empty
     # ack below, removes the redundant bare ack these prefixes used to receive.
-    if data.startswith("admin:") or data.startswith("llm:"):
+    if (
+        data.startswith("admin:")
+        or data.startswith("llm:")
+        or data.startswith("srs:delete:")
+    ):
         await routing_dispatch(update, context, data)
         return
 

@@ -12,7 +12,8 @@ from services import word_query
 from config import USER_ACTIVITY
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _user_activity_line
-from services.session import resolve_grade
+from services.session import resolve_grade, SessionNode
+from services.routing import register
 from services.utils.formatting import (
     _saved_word_card,
     _phonetic_lines,
@@ -23,6 +24,7 @@ from config.keyboards import (
     query_result_keyboard,
     get_first_exposure_keyboard,
     get_review_keyboard,
+    get_srs_delete_confirm_keyboard,
 )
 from handlers.study_handler import (
     advance_session,
@@ -161,7 +163,11 @@ async def _handle_srs_reveal(
     if node.activity_type == "first_exposure":
         # CARD-MODES Rule 1: a staged first-exposure card reveals onto the FE
         # familiarity grade grid, not the recall-based review grid.
-        keyboard = get_first_exposure_keyboard(user_id, word_id)
+        keyboard = get_first_exposure_keyboard(
+            user_id,
+            word_id,
+            show_pronounce=db.should_show_pronounce(user_id),
+        )
     else:
         keyboard = get_review_keyboard(
             user_id, word_id, show_pronounce=db.should_show_pronounce(user_id),
@@ -388,3 +394,200 @@ async def _handle_first_exposure_grade(
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         return
+
+
+# ---------- حذف کارت از جعبه مرور (P3-T2) ----------
+
+def _split_delete_action(action: str) -> tuple[int, int] | None:
+    parts = action.split(":")
+    if len(parts) != 2:
+        return None
+    try:
+        return int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+
+
+def _active_node_for_word(state, word_id: int):
+    node = state.nodes[0] if state and state.nodes else None
+    if node is None or node.source_id != word_id:
+        return None
+    return node
+
+
+def _next_due_node(
+    user_id: int, tier: int, target_lang: str | None, state
+) -> SessionNode | None:
+    """Return the next not-yet-in-session tier-1/2 due card node, or None."""
+    session_ids = {n.source_id for n in state.nodes if n.source_id is not None}
+    if tier == 1:
+        rows = db.due_words_for_user(user_id, target_lang) or []
+    else:
+        rows = db.get_pre_first_exposure_words(user_id, target_lang) or []
+    for row in rows:
+        if row["id"] in session_ids:
+            continue
+        if tier == 1:
+            return SessionNode(
+                activity_type="srs_review",
+                source_tier=1,
+                card_data={"word": row["word"]},
+                source_id=row["id"],
+                activity_meta={"user_id": user_id, "target_lang": target_lang},
+                grade_policy_ref="srs_review",
+            )
+        return SessionNode(
+            activity_type="first_exposure",
+            source_tier=2,
+            card_data={"word": row["word"]},
+            source_id=row["id"],
+            activity_meta={"user_id": user_id, "target_lang": target_lang},
+            grade_policy_ref="first_exposure",
+        )
+    return None
+
+
+def _refill_session_from_due(user_id: int, state) -> None:
+    """Rule 10: after a delete, append the next due tier-1/2 card so the session
+    keeps its planned size, unless the due queue is exhausted."""
+    node = state.nodes[0] if state and state.nodes else None
+    if node is None:
+        return
+    target_lang = (node.activity_meta or {}).get("target_lang")
+    new_node = _next_due_node(user_id, node.source_tier, target_lang, state)
+    if new_node is not None:
+        state.nodes.append(new_node)
+
+
+async def _handle_srs_delete(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, action: str
+) -> None:
+    parsed = _split_delete_action(action)
+    if parsed is None:
+        await notify_callback(
+            update.callback_query, "دکمه‌ی نامعتبر است.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
+    user_id = update.effective_user.id
+    target_user_id, word_id = parsed
+    if user_id != target_user_id:
+        await notify_callback(
+            update.callback_query, "این مرور برای کاربر دیگری است.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
+    state = get_active_study_session(user_id, context)
+    node = _active_node_for_word(state, word_id)
+    if node is None or not state or not state.study_msg_id:
+        await notify_callback(
+            update.callback_query, "این پیام دیگر معتبر نیست.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
+    try:
+        await context.bot.edit_message_reply_markup(
+            chat_id=update.effective_chat.id,
+            message_id=state.study_msg_id,
+            reply_markup=get_srs_delete_confirm_keyboard(user_id, word_id),
+        )
+    except BadRequest as exc:
+        if "not modified" not in str(exc).casefold():
+            raise
+    await notify_callback(update.callback_query)
+
+
+async def _handle_srs_delete_yes(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, action: str
+) -> None:
+    parsed = _split_delete_action(action)
+    if parsed is None:
+        await notify_callback(
+            update.callback_query, "دکمه‌ی نامعتبر است.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
+    user_id = update.effective_user.id
+    target_user_id, word_id = parsed
+    if user_id != target_user_id:
+        await notify_callback(
+            update.callback_query, "این مرور برای کاربر دیگری است.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
+    state = get_active_study_session(user_id, context)
+    node = _active_node_for_word(state, word_id)
+    if node is None or not state or not state.study_msg_id:
+        await notify_callback(
+            update.callback_query, "این پیام دیگر معتبر نیست.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
+    try:
+        deleted = db.delete_saved_word(word_id, user_id)
+        _refill_session_from_due(user_id, state)
+        _persist_session(user_id, state)
+    except Exception:
+        logger.exception("srs delete failed user_id=%s word_id=%s", user_id, word_id)
+        await notify_callback(
+            update.callback_query, "حذف انجام نشد؛ دوباره تلاش کنید.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
+    _log_ua(update, action="srs_delete", outcome="deleted")
+    message = "کارت حذف شد." if deleted else "این کارت قبلاً حذف شده بود."
+    await notify_callback(
+        update.callback_query, message, intent=CallbackNoticeIntent.SUCCESS,
+    )
+    await advance_session(update, context)
+
+
+async def _handle_srs_delete_no(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, action: str
+) -> None:
+    parsed = _split_delete_action(action)
+    if parsed is None:
+        await notify_callback(
+            update.callback_query, "دکمه‌ی نامعتبر است.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
+    user_id = update.effective_user.id
+    target_user_id, word_id = parsed
+    if user_id != target_user_id:
+        await notify_callback(
+            update.callback_query, "این مرور برای کاربر دیگری است.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
+    state = get_active_study_session(user_id, context)
+    node = _active_node_for_word(state, word_id)
+    if node is None or not state or not state.study_msg_id:
+        await notify_callback(
+            update.callback_query, "این پیام دیگر معتبر نیست.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
+    if node.activity_type == "first_exposure":
+        keyboard = get_first_exposure_keyboard(
+            user_id, word_id, show_pronounce=db.should_show_pronounce(user_id),
+        )
+    else:
+        keyboard = get_review_keyboard(
+            user_id, word_id, show_pronounce=db.should_show_pronounce(user_id),
+        )
+    try:
+        await context.bot.edit_message_reply_markup(
+            chat_id=update.effective_chat.id,
+            message_id=state.study_msg_id,
+            reply_markup=keyboard,
+        )
+    except BadRequest as exc:
+        if "not modified" not in str(exc).casefold():
+            raise
+    await notify_callback(update.callback_query)
+
+
+register("srs:delete", _handle_srs_delete)
+register("srs:delete:yes", _handle_srs_delete_yes)
+register("srs:delete:no", _handle_srs_delete_no)
