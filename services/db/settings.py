@@ -63,10 +63,10 @@ def set_display_toggle_defaults(values: dict[str, bool]):
 
 _MAINTENANCE_MODE_KEY = settings_key("maintenance_mode")["key"]
 _MAINTENANCE_MESSAGE_KEY = settings_key("maintenance_message")["key"]
-
-# Canonical default learner-facing maintenance message (single source of truth,
-# shared by the admin status panel and the user-facing block in bot.py).
-DEFAULT_MAINTENANCE_MESSAGE = "ربات در حال تعمیر است؛ لطفاً بعداً مراجعه کنید."
+# Canonical default read through the settings-key registry (single source of
+# truth in config/catalog.py), shared by the admin status panel and the
+# user-facing block in bot.py.
+DEFAULT_MAINTENANCE_MESSAGE = settings_key("maintenance_message")["default"]
 
 
 def is_maintenance_mode() -> bool:
@@ -80,7 +80,7 @@ def set_maintenance_mode(active: bool):
 
 def get_maintenance_message() -> str:
     """Return the editable maintenance message, falling back to the canonical
-    default when unset or explicitly cleared."""
+    default (catalog registry) when unset or explicitly cleared."""
     return get_setting(_MAINTENANCE_MESSAGE_KEY, DEFAULT_MAINTENANCE_MESSAGE) or DEFAULT_MAINTENANCE_MESSAGE
 
 
