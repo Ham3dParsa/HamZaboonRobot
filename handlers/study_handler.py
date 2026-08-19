@@ -729,28 +729,34 @@ async def advance_session(
                 keyboard=keyboard,
             )
         except BadRequest as exc:
-            # Permanent edit failure (message not found / not modified / a
-            # MarkdownV2 parse error in the report text): the report cannot be
-            # rendered via this message. Never trap the learner for the rest of
-            # the app-day — end the session — but always surface a minimal
-            # plain-text completion so a parse/escaping regression is never a
-            # silent report loss (kilo r3816695425).
-            logger.warning(
-                "completion edit permanent failure user_id=%s chat_id=%s err=%s",
-                user_id, chat_id, exc,
-            )
-            try:
-                await send_pretty.send(
-                    chat_id,
-                    f"*{completion}*",
-                    bot=context.bot,
-                    raw=send_pretty.RawFormat.MDV2,
+            if _is_message_not_modified(exc):
+                # The completion/report is already on screen — treat as success
+                # (same as the card-advance paths): clear the session with no
+                # misleading warning and no duplicate fallback message.
+                pass
+            else:
+                # Permanent edit failure (message not found / a MarkdownV2 parse
+                # error in the report text): the report cannot be rendered via
+                # this message. Never trap the learner for the rest of the
+                # app-day — end the session — but always surface a minimal
+                # plain-text completion so the learner still sees a finish
+                # signal (the report itself is still lost on a parse error).
+                logger.warning(
+                    "completion edit permanent failure user_id=%s chat_id=%s err=%s",
+                    user_id, chat_id, exc,
                 )
-            except Exception:
-                logger.exception(
-                    "completion fallback send failed user_id=%s chat_id=%s",
-                    user_id, chat_id,
-                )
+                try:
+                    await send_pretty.send(
+                        chat_id,
+                        f"*{completion}*",
+                        bot=context.bot,
+                        raw=send_pretty.RawFormat.MDV2,
+                    )
+                except Exception:
+                    logger.exception(
+                        "completion fallback send failed user_id=%s chat_id=%s",
+                        user_id, chat_id,
+                    )
         except Exception:
             if popped is not None:
                 state.nodes.insert(0, popped)

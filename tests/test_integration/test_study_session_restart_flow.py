@@ -297,6 +297,33 @@ class StudySessionRestartFlowTest(unittest.TestCase):
         sent = ctx.bot.send_message.call_args.kwargs["text"]
         self.assertIn("جلسه مطالعه تموم شد", sent)
 
+    def test_completion_not_modified_clears_session_without_duplicate_fallback(self):
+        """kilo r3816832249: when the completion edit returns "message is not
+        modified" the completion is already on screen — treat it as success:
+        clear the session and do NOT send a duplicate fallback message."""
+        from handlers.study_handler import handle_study_start
+        from bot import callback_router
+
+        w1 = self._seed_word("hello", expose=True)
+        node1 = self._node("srs_review", w1)
+
+        with patch("handlers.study_handler.build_session_list",
+                   return_value=([node1], {"user_id": 1, "remaining_slots": 0})):
+            ctx = self._context()
+            asyncio.run(handle_study_start(self._study_update(), ctx))
+            self.assertIsNotNone(self._persisted_row())
+
+        ctx.bot.send_message.reset_mock()
+        ctx.bot.edit_message_text = AsyncMock(
+            side_effect=BadRequest("Bad Request: message is not modified")
+        )
+        grade_update = self._callback_update(f"srs:3:1:{w1}")
+        asyncio.run(callback_router(grade_update, ctx))
+
+        self.assertNotIn("current_session", ctx.user_data)
+        self.assertIsNone(self._persisted_row())
+        ctx.bot.send_message.assert_not_awaited()
+
     def test_persist_attempted_before_first_card_render(self):
         """Owner decision 2026-08-15: the session is persisted to the DB before
         the first card is rendered, so a DB failure is surfaced before any card
