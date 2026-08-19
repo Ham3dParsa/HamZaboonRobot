@@ -32,13 +32,24 @@ A2-1 → A2-2 → (A2-3, A2-4) → (A2-5, A2-6, A2-7) → (A2-8, A2-9) → (A2-1
 
 ## Tickets
 
-### A2-1 (PHASE 1, HIGH-RISK) — BN1: remove global RLock, add WAL + busy_timeout
-- **Seam:** Persistence (#1)
-- **Files:** `services/db/schema.py:138-162` (`_DB_LOCK`, `get_conn`); migration adds `PRAGMA journal_mode=WAL` + `busy_timeout`; rely on `BEGIN IMMEDIATE` per write.
-- **Deps:** none.
-- **Acceptance:** WAL on; `get_conn` no longer serializes all traffic; 0 `database is locked` under concurrent writers; migration tests on BOTH fresh DB and upgraded-from-prior DB.
-- **Risk:** touches ALL DB traffic. **Mandatory `hamzaboon-reviewer` independent review + dual DB migration tests before PR.**
-- **GATE:** do NOT open until (1) PR #372 merged [✅ ALREADY MERGED `b7a3862` 2026-08-16] AND (2) contract-lock gate run + owner "proceed/locked".
+### A2-1 (PHASE 1, HIGH-RISK) — BN1: remove global RLock, add WAL + busy_timeout + **maintenance mode**
+- **Seam:** Persistence (#1) + Telegram UI -> Admin (#8)
+- **Files:** `services/db/schema.py` (`_DB_LOCK`, `get_conn`); `services/db/__init__.py` (export/import); `handlers/admin.py` + `config/keyboards.py` (maintenance toggle button); user-facing message via `services/utils/formatting.py`.
+- **GATE STATUS: LOCKED** 2026-08-18 (owner chose per rule).
+
+**Locked contract:**
+- **A2-1-1 (A):** WAL + `busy_timeout`, keep `BEGIN IMMEDIATE` per write.
+- **A2-1-2 (A):** `busy_timeout` = 5000 ms.
+- **A2-1-3 (A):** `PRAGMA journal_mode=WAL` on every connection open; no migration (DB treated as throwaway/test).
+- **A2-1-4 (A):** only remove `_DB_LOCK` wrapper in `get_conn`; `transaction()` untouched. (`database_lock()` kept — still used by `import_db_bytes`.)
+- **A2-1-5 (A):** mandatory `hamzaboon-reviewer` + fresh & non-WAL existing DB tests + concurrent-writer 0-lock test.
+- **A2-1-6 (A):** **maintenance-mode gate** = shared/exclusive lock. Normal reads/writes hold a **shared** lock (concurrent); entering maintenance / restore takes an **exclusive** lock (blocks normal ops; restore waits for active connections). Preserves restore-safety that the old global lock provided.
+- **A2-1-7 (A):** **admin panel button** to enter/exit maintenance; **friendly default Persian message** with **optional edit** in the flow; **auto-exit** when restore/backup finishes.
+- **Design decisions (owner, 2026-08-18):** Admin panel button ✓; Friendly Persian message ✓; Auto-exit on restore finish ✓; default message + optional edit ✓.
+- **Callback impact:** new admin callback prefix for the maintenance toggle → **wiring integrity test** in `tests/test_wiring.py` required. Learner-facing message must pass through `services/utils/formatting.py`.
+- **Acceptance:** WAL on; `get_conn` no longer serializes normal traffic; 0 `database is locked` under concurrent writers; restore/export wait for active connections (shared/exclusive); maintenance blocks normal user ops with friendly Persian message and auto-exits after restore; fresh + non-WAL existing DB tests.
+- **Risk:** touches ALL DB traffic + admin panel. **Mandatory `hamzaboon-reviewer` independent review + dual DB migration tests + wiring test before PR.**
+- **STATUS: IMPLEMENTED (2026-08-19)** — WAL+busy_timeout in `get_conn` (A2-1-1/2/3), shared/exclusive `_MaintenanceGate` + `maintenance()` around export/import (A2-1-4/6), admin maintenance toggle + editable Persian message + auto-exit on restore (A2-1-7), wiring test green, fresh+non-WAL tests in `tests/test_db_wal_concurrency.py`. PR pending independent review.
 
 ### A2-2 — BUG-B3 / BN4: `due_words_for_user` read-only
 - **Seam:** Persistence (#1)

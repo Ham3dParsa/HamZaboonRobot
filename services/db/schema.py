@@ -138,13 +138,100 @@ def _check_test_mode_guard(path: str) -> None:
             )
 
 
-_DB_LOCK = threading.RLock()
+# How long a writer waits for a busy database before raising "database is
+# locked" (milliseconds). Matches the PRAGMA and the sqlite3.connect timeout.
+_DB_BUSY_TIMEOUT = 5000
+
+
+class _MaintenanceGate:
+    """Shared/exclusive gate for DB access (locked contract A2-1-6).
+
+    Normal reads/writes take a *shared* hold so they run concurrently; entering
+    maintenance / backup / restore takes an *exclusive* hold that waits for all
+    active connections and blocks new ones. The owning thread may re-enter
+    shared inside its own exclusive hold (reentrant writer), so restore can call
+    get_conn/init_db without deadlocking.
+    """
+
+    def __init__(self):
+        self._cond = threading.Condition()
+        self._readers = 0
+        self._writer_thread: int | None = None
+        # Set while an exclusive writer is waiting, so new shared readers stop
+        # arriving and the writer cannot starve under sustained read traffic.
+        self._writer_waiting = False
+
+    @contextmanager
+    def shared(self):
+        tid = threading.get_ident()
+        reentrant = False
+        with self._cond:
+            if tid == self._writer_thread:
+                reentrant = True
+            else:
+                while self._writer_thread is not None or self._writer_waiting:
+                    self._cond.wait()
+                self._readers += 1
+        if reentrant:
+            yield
+            return
+        try:
+            yield
+        finally:
+            with self._cond:
+                self._readers -= 1
+                if self._readers == 0:
+                    self._cond.notify_all()
+
+    @contextmanager
+    def exclusive(self):
+        tid = threading.get_ident()
+        with self._cond:
+            if tid == self._writer_thread:
+                # Reentrant exclusive from the owning thread: yield directly so
+                # a nested maintenance()/export()/import() cannot self-deadlock.
+                reentrant = True
+            else:
+                reentrant = False
+                self._writer_waiting = True
+                try:
+                    while self._writer_thread is not None or self._readers > 0:
+                        self._cond.wait()
+                    self._writer_thread = tid
+                finally:
+                    self._writer_waiting = False
+        if reentrant:
+            yield
+            return
+        try:
+            yield
+        finally:
+            with self._cond:
+                self._writer_thread = None
+                self._cond.notify_all()
+
+    def is_exclusive(self) -> bool:
+        with self._cond:
+            return self._writer_thread is not None
+
+
+_DB_GATE = _MaintenanceGate()
 
 
 @contextmanager
-def database_lock():
-    with _DB_LOCK:
+def maintenance():
+    """Exclusive access: blocks all normal DB operations until the block exits.
+
+    Used for maintenance mode and around backup/restore so they never race an
+    active connection. Nested normal access from the owning thread is allowed.
+    """
+    with _DB_GATE.exclusive():
         yield
+
+
+def is_maintenance() -> bool:
+    """True while maintenance/exclusive access is active."""
+    return _DB_GATE.is_exclusive()
 
 
 @contextmanager
@@ -155,9 +242,16 @@ def get_conn(path: str | None = None):
         from services.db import DB_PATH as _active_db_path
     else:
         _active_db_path = path
-    with database_lock():
-        _check_test_mode_guard(_active_db_path)
-        conn = sqlite3.connect(_active_db_path)
+    _check_test_mode_guard(_active_db_path)
+    with _DB_GATE.shared():
+        # sqlite3.connect(timeout=...) is in SECONDS; busy_timeout PRAGMA is in
+        # MILLISECONDS. Keep both at _DB_BUSY_TIMEOUT (5000 ms == 5 s) so they
+        # agree and a busy write never hangs far beyond the intended wait.
+        conn = sqlite3.connect(_active_db_path, timeout=_DB_BUSY_TIMEOUT / 1000)
+        # WAL lets readers and writers proceed concurrently; busy_timeout makes
+        # a contending writer wait instead of failing with "database is locked".
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute(f"PRAGMA busy_timeout={_DB_BUSY_TIMEOUT}")
         conn.row_factory = sqlite3.Row
         try:
             yield conn

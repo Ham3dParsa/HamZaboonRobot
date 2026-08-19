@@ -3,6 +3,7 @@ import datetime
 import json
 import logging
 import math
+import sqlite3
 import threading
 import time
 from collections import defaultdict, deque
@@ -532,6 +533,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if _telegram_offline:
         await _send_offline_notice(context, update.effective_chat.id)
         return
+    if await _maintenance_blocked(update, context, text_mode=True):
+        return
     user_id = update.effective_user.id
     db.reset_user_blocked(user_id)
     text = update.message.text.strip()
@@ -581,6 +584,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         await _send_offline_notice(context, update.effective_chat.id)
+        return
+    if await _maintenance_blocked(update, context, text_mode=False):
         return
     db.reset_user_blocked(update.effective_user.id)
     data = update.callback_query.data
@@ -770,6 +775,52 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def _maintenance_blocked(update: Update, context: ContextTypes.DEFAULT_TYPE, *, text_mode: bool):
+    """Return True (and block the user) when maintenance mode is active.
+
+    The bot owner is never blocked so they can still reach the admin panel to
+    exit maintenance. The editable Persian message comes from the DB and is
+    shown as plain text (no parse_mode), so no MarkdownV2 escaping is applied.
+    """
+    if is_owner(update.effective_user.id):
+        return False
+    try:
+        if not db.is_maintenance_mode():
+            return False
+        # Always resolves to the canonical default when unset.
+        display = db.get_maintenance_message()
+    except sqlite3.OperationalError:
+        # Uninitialized DB (e.g. pre-init test flows) cannot be in maintenance.
+        return False
+    if text_mode:
+        await _send_with_retry(
+            context.bot,
+            update.effective_chat.id,
+            display,
+            reset_telegram_cb=False,
+        )
+    else:
+        await notify_callback(
+            update.callback_query,
+            display,
+            intent=CallbackNoticeIntent.INFO,
+        )
+    return True
+
+
+async def _maintenance_gated_command(handler, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Run ``handler`` unless maintenance mode is active (blocking non-owners).
+
+    Wraps command handlers that bypass ``text_router``/``callback_router`` so a
+    non-owner cannot run ``/start`` or ``/help`` during maintenance. Owner-only
+    commands (``/backup``, ``/restore``) are already owner-gated internally and
+    the owner is never blocked.
+    """
+    if await _maintenance_blocked(update, context, text_mode=True):
+        return
+    await handler(update, context)
+
+
 async def _send_offline_notice(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
     if chat_id in _offline_notice_sent:
         return
@@ -944,8 +995,8 @@ def main():
 
     app = Application.builder().token(BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("help", send_help_panel))
+    app.add_handler(CommandHandler("start", lambda u, c: _maintenance_gated_command(cmd_start, u, c)))
+    app.add_handler(CommandHandler("help", lambda u, c: _maintenance_gated_command(send_help_panel, u, c)))
     app.add_handler(CommandHandler("backup", cmd_backup))
     app.add_handler(CommandHandler("restore", cmd_restore))
     app.add_handler(CallbackQueryHandler(callback_router))

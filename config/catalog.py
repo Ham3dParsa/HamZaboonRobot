@@ -201,6 +201,8 @@ SETTINGS_KEYS = {
     "llm_output_cost_usd_per_million": {"key": "llm_output_cost_usd_per_million", "type": "float", "default": LLM_OUTPUT_COST_USD_PER_MILLION, "scope": "global"},
     "ai_model":                        {"key": "ai_model", "type": "str", "default": DEFAULT_AI_MODEL, "scope": "global"},
     "display_toggle_defaults":         {"key": "display_toggle_defaults", "type": "json", "default": DISPLAY_TOGGLE_DEFAULTS, "scope": "global"},
+    "maintenance_mode":                {"key": "maintenance_mode", "type": "bool", "default": False, "scope": "global"},
+    "maintenance_message":             {"key": "maintenance_message", "type": "str", "default": "", "scope": "global"},
     # Dynamic per-card-type admin-global modes + gates (key = f"{card_type}_mode" / f"{card_type}_mode_gate").
     # Defaults mirror services/db/users.py DEFAULT_CARD_MODE / DEFAULT_CARD_MODE_GATE.
     "{card_type}_mode":                {"key": "{card_type}_mode", "type": "str", "default": "staged", "scope": "global", "pattern": True},

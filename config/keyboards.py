@@ -583,6 +583,18 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
              InlineKeyboardButton("📋 سطح لاگ", callback_data="admin:log_level")],
             [InlineKeyboardButton(BTN_ADMIN_BROADCAST, callback_data="admin:broadcast"),
              InlineKeyboardButton(IBTN_USER_ACTIVITY_LOG, callback_data="admin:user_activity_log")],
+            [InlineKeyboardButton("🔧 حالت تعمیر", callback_data="admin:maintenance")],
+        ]
+    )
+
+
+def maintenance_keyboard(active: bool) -> InlineKeyboardMarkup:
+    toggle_label = "🔧 فعال‌سازی حالت تعمیر" if not active else "🟢 حالت تعمیر فعال است — غیرفعال کن"
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(toggle_label, callback_data="admin:maintenance:toggle")],
+            [InlineKeyboardButton("✏️ ویرایش پیام حالت تعمیر", callback_data="admin:maintenance:edit")],
+            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
         ]
     )
 

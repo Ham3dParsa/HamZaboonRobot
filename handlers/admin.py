@@ -87,6 +87,7 @@ from config.keyboards import (
     admin_panel_keyboard,
     main_menu,
     admin_awaiting_inline_keyboard,
+    maintenance_keyboard,
     log_level_keyboard,
     user_activity_keyboard,
 )
@@ -144,6 +145,18 @@ async def _show_log_level_settings(update: Update, context: ContextTypes.DEFAULT
         "• CRITICAL (50) — فقط خطاهای بحرانی"
     )
     await _edit_or_send(update, context, text, reply_markup=log_level_keyboard(current))
+
+
+def _maintenance_status_text() -> str:
+    active = db.is_maintenance_mode()
+    msg = db.get_maintenance_message()
+    state = "🟢 فعال" if active else "⚫ غیرفعال"
+    body = (
+        "🔧 حالت تعمیر\n\n"
+        f"وضعیت: {state}\n"
+        f"پیام نمایشی: {msg}"
+    )
+    return body
 
 
 async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
@@ -218,6 +231,36 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         new_value = "off" if current == "on" else "on"
         db.set_setting("user_activity_log", new_value)
         await _show_user_activity_settings(update, context)
+    elif action == "maintenance":
+        active = db.is_maintenance_mode()
+        await _edit_or_send(
+            update,
+            context,
+            _maintenance_status_text(),
+            reply_markup=maintenance_keyboard(active),
+        )
+        await notify_callback(update.callback_query, "حالت تعمیر", intent=CallbackNoticeIntent.INFO)
+    elif action == "maintenance:toggle":
+        active = db.is_maintenance_mode()
+        db.set_maintenance_mode(not active)
+        await _edit_or_send(
+            update,
+            context,
+            _maintenance_status_text(),
+            reply_markup=maintenance_keyboard(db.is_maintenance_mode()),
+        )
+        await notify_callback(
+            update.callback_query,
+            "فعال شد" if db.is_maintenance_mode() else "غیرفعال شد",
+            intent=CallbackNoticeIntent.SUCCESS,
+        )
+    elif action == "maintenance:edit":
+        context.user_data["awaiting"] = "admin_maintenance_msg"
+        await notify_callback(update.callback_query)
+        await update.effective_message.reply_text(
+            "متن پیام حالت تعمیر را بنویسید (برای کاربران هنگام تعمیر نمایش داده می‌شود):",
+            reply_markup=admin_awaiting_inline_keyboard(),
+        )
 
 
 async def handle_flow_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -274,6 +317,14 @@ def _register_admin_flows() -> None:
                 logger.exception("Broadcast failed for user %s", u["user_id"])
         await update.message.reply_text(f"پیام برای {sent} کاربر ارسال شد.")
 
+    async def _handle_admin_maintenance_msg(update, context, awaiting, text):
+        db.set_maintenance_message(text)
+        context.user_data["awaiting"] = None
+        await update.message.reply_text(
+            "✅ پیام حالت تعمیر ذخیره شد.",
+            reply_markup=main_menu(is_owner(update.effective_user.id)),
+        )
+
     async def _handle_admin_restore(update, context, awaiting, text):
         context.user_data["awaiting"] = None
         await update.message.reply_text(
@@ -319,6 +370,7 @@ def _register_admin_flows() -> None:
     register_flow("admin_set_plan", _handle_plans_set_plan)
     register_flow("admin_broadcast", _handle_admin_broadcast)
     register_flow("admin_restore", _handle_admin_restore)
+    register_flow("admin_maintenance_msg", _handle_admin_maintenance_msg)
     register_flow("ai_preset_new_name", _handle_ai_preset_name)
     register_flow("admin_ai_preset_new_name", _handle_ai_preset_name)
     register_flow("ai_custom_test_prompt", _handle_custom_test_prompt)
@@ -392,6 +444,7 @@ async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
             raise ValueError("فایل معتبر SQLite نیست.")
         backup_path = f"{DB_PATH}.pre_restore"
         await asyncio.to_thread(db.import_db_bytes, bytes(data), backup_path)
+        db.set_maintenance_mode(False)  # A2-1-7: auto-exit maintenance after restore
         await update.message.reply_text(
             "✅ دیتابیس با موفقیت بازگردانی شد.\n"
             f"یک نسخه پشتیبان از دیتابیس قبلی در {backup_path} ذخیره شد.",
