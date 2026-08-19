@@ -534,6 +534,10 @@ def init_db(path: str | None = None):
             "CREATE UNIQUE INDEX IF NOT EXISTS saved_words_user_lang_word "
             "ON saved_words(user_id, lang, normalized_word)"
         )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS saved_words_review_status_at_idx "
+            "ON saved_words(review_status, review_requested_at)"
+        )
         defaults = {
             "ai_base_url": DEFAULT_AI_BASE_URL,
             "ai_api_key": DEFAULT_AI_API_KEY,
