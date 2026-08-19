@@ -11,6 +11,7 @@ import logging
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from uuid import uuid4
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -638,16 +639,22 @@ async def advance_session(
             try:
                 records = _gather_word_records(state, user_id)
                 report = build_report(records)
+                # Nonce embeds the report identity in the callback data so a
+                # stale button from an OLDER message can't render the current
+                # report: it fails gracefully instead. Back-navigation within
+                # the current message keeps working (payload is not popped).
+                nonce = uuid4().hex
                 context.user_data["session_summary"] = {
                     "report": report,
                     "is_admin": is_admin,
+                    "nonce": nonce,
                 }
                 text = format_session_summary(report, is_admin=is_admin)
                 # A completed session always has >=1 graded word, but guard the
                 # impossible zero-total case so a detail button can never lead
                 # to an empty "صفحه ۱ از ۰" page.
                 keyboard = (
-                    session_summary_keyboard() if report.total else None
+                    session_summary_keyboard(nonce) if report.total else None
                 )
             except Exception:
                 logger.exception(
@@ -762,6 +769,20 @@ def _gather_word_records(
     return records
 
 
+def _split_summary_action(action: str) -> tuple[str | None, str | None]:
+    """Split a summary action into ``(base, nonce)``.
+
+    Callbacks carry the report nonce as the trailing segment, e.g.
+    ``page:1:<nonce>`` -> (``page:1``, ``<nonce>``). A legacy action with no
+    colon returns ``(action, None)`` so the caller rejects it via the nonce
+    mismatch.
+    """
+    head, sep, nonce = action.rpartition(":")
+    if not sep:
+        return action, None
+    return head, nonce
+
+
 async def _handle_session_summary_callback(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -769,9 +790,11 @@ async def _handle_session_summary_callback(
 ) -> None:
     """Handle session-summary detail/pagination callbacks (R1/R7).
 
-    Renders from the ephemeral report stashed at completion. If the data is
-    gone (e.g. after a restart) the button fails gracefully with an expired
-    notice instead of crashing.
+    Renders from the ephemeral report stashed at completion. A button whose
+    embedded nonce doesn't match the current report (i.e. from an older,
+    superseded message) fails gracefully with an expired notice instead of
+    rendering a newer report. Back-navigation within the current message is
+    kept alive (the payload is not popped on back).
     """
     payload = context.user_data.get("session_summary")
     if not payload:
@@ -781,23 +804,30 @@ async def _handle_session_summary_callback(
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         return
+
+    base, nonce = _split_summary_action(action)
+    if base is None or nonce != payload.get("nonce"):
+        # Unknown action or a stale button from an older report message.
+        await notify_callback(
+            update.callback_query,
+            "این گزارش منقضی شده است.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
+
     report = payload["report"]
     is_admin = payload["is_admin"]
     total_pages = len(report.pages)
 
-    if action == "back":
+    if base == "back":
         text = format_session_summary(report, is_admin=is_admin)
-        keyboard = session_summary_keyboard()
-        # Returning to the summary is the end of the report's lifecycle: clear
-        # the ephemeral payload so a stale detail button on an older message
-        # fails gracefully instead of showing the latest report (R7).
-        context.user_data.pop("session_summary", None)
-    elif action == "detail" or action.startswith("page:"):
-        if action == "detail":
+        keyboard = session_summary_keyboard(nonce)
+    elif base == "detail" or base.startswith("page:"):
+        if base == "detail":
             page_index = 0
         else:
             try:
-                page_index = int(action.split(":", 1)[1])
+                page_index = int(base.split(":", 1)[1])
             except (ValueError, IndexError):
                 page_index = 0
         if total_pages:
@@ -808,7 +838,7 @@ async def _handle_session_summary_callback(
         text = format_session_detail_page(
             page, page_index, total_pages, is_admin=is_admin
         )
-        keyboard = session_summary_detail_keyboard(page_index, total_pages)
+        keyboard = session_summary_detail_keyboard(page_index, total_pages, nonce)
     else:
         await notify_callback(update.callback_query)
         return

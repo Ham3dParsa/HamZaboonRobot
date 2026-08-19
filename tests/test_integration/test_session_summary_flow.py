@@ -260,7 +260,10 @@ class SessionSummaryFlowTests(unittest.TestCase):
     def test_detail_callback_renders_paged_list_and_back(self):
         report = self._stash([0, 1, 2, 3, 4, 5, 6, 7, 8])  # 9 words -> 2 pages
         ctx = self._ctx()
-        ctx.user_data["session_summary"] = {"report": report, "is_admin": False}
+        nonce = "n1"
+        ctx.user_data["session_summary"] = {
+            "report": report, "is_admin": False, "nonce": nonce,
+        }
 
         q = MagicMock()
         q.answer = AsyncMock()
@@ -269,35 +272,64 @@ class SessionSummaryFlowTests(unittest.TestCase):
         u.callback_query = q
         with patch.object(study_handler, "notify_callback", new_callable=AsyncMock):
             # page 1 (index 0)
-            asyncio.run(_handle_session_summary_callback(u, ctx, "detail"))
+            asyncio.run(_handle_session_summary_callback(u, ctx, f"detail:{nonce}"))
             text = ctx.bot.edit_message_text.call_args.kwargs["text"]
             self.assertIn("واژه‌ها — صفحه ۱ از ۲", text)
             self.assertIn("word0", text)
             # page 2 (index 1)
-            asyncio.run(_handle_session_summary_callback(u, ctx, "page:1"))
+            asyncio.run(_handle_session_summary_callback(u, ctx, f"page:1:{nonce}"))
             text = ctx.bot.edit_message_text.call_args.kwargs["text"]
             self.assertIn("واژه‌ها — صفحه ۲ از ۲", text)
             self.assertIn("word8", text)
             self.assertNotIn("word0", text)
-            # back to summary
-            asyncio.run(_handle_session_summary_callback(u, ctx, "back"))
+            # back to summary (payload NOT popped; detail stays live)
+            asyncio.run(_handle_session_summary_callback(u, ctx, f"back:{nonce}"))
             text = ctx.bot.edit_message_text.call_args.kwargs["text"]
             self.assertIn("گزارش جلسه مطالعه", text)
+            # after back the payload remains, so detail still works
+            asyncio.run(_handle_session_summary_callback(u, ctx, f"detail:{nonce}"))
+            text = ctx.bot.edit_message_text.call_args.kwargs["text"]
+            self.assertIn("واژه‌ها — صفحه ۱ از ۲", text)
 
     def test_detail_callback_admin_variant(self):
         report = self._stash([0])
         ctx = self._ctx()
-        ctx.user_data["session_summary"] = {"report": report, "is_admin": True}
+        nonce = "n2"
+        ctx.user_data["session_summary"] = {
+            "report": report, "is_admin": True, "nonce": nonce,
+        }
         q = MagicMock()
         q.answer = AsyncMock()
         q.message.message_id = 5
         u = self._update()
         u.callback_query = q
         with patch.object(study_handler, "notify_callback", new_callable=AsyncMock):
-            asyncio.run(_handle_session_summary_callback(u, ctx, "detail"))
+            asyncio.run(_handle_session_summary_callback(u, ctx, f"detail:{nonce}"))
         text = ctx.bot.edit_message_text.call_args.kwargs["text"]
         self.assertIn("سختی", text)
         self.assertIn("Δ", text)  # before->after stability delta (admin-only)
+
+    def test_stale_nonce_rejected_gracefully(self):
+        # A button from an OLDER report (mismatched nonce) is rejected with an
+        # expired notice, never renders the current report.
+        report = self._stash([0])
+        ctx = self._ctx()
+        ctx.user_data["session_summary"] = {
+            "report": report, "is_admin": False, "nonce": "current",
+        }
+        q = MagicMock()
+        q.answer = AsyncMock()
+        q.message.message_id = 5
+        u = self._update()
+        u.callback_query = q
+        with patch.object(study_handler, "notify_callback", new_callable=AsyncMock) as notify:
+            asyncio.run(_handle_session_summary_callback(u, ctx, "detail:OLD_NONCE"))
+        notify.assert_called_once()
+        self.assertEqual(
+            notify.call_args.kwargs["intent"], CallbackNoticeIntent.IMPORTANT_ERROR
+        )
+        self.assertIn("منقضی", notify.call_args.args[1])
+        ctx.bot.edit_message_text.assert_not_awaited()
 
     def test_stale_callback_graceful(self):
         # No report in user_data (e.g. after restart) -> expired notice, no crash.
@@ -308,7 +340,7 @@ class SessionSummaryFlowTests(unittest.TestCase):
         u = self._update()
         u.callback_query = q
         with patch.object(study_handler, "notify_callback", new_callable=AsyncMock) as notify:
-            asyncio.run(_handle_session_summary_callback(u, ctx, "detail"))
+            asyncio.run(_handle_session_summary_callback(u, ctx, "detail:xyz"))
         notify.assert_called_once()
         self.assertEqual(
             notify.call_args.kwargs["intent"], CallbackNoticeIntent.IMPORTANT_ERROR

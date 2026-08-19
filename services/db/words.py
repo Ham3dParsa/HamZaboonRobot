@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import datetime
 from dataclasses import dataclass
 from services.db.schema import get_conn, transaction, _today, _utc_now, _app_timezone
@@ -251,7 +252,7 @@ def get_saved_word(word_id: int, user_id: int | None = None):
         return conn.execute(query, params).fetchone()
 
 
-def get_saved_words_by_ids(word_ids: list[int], user_id: int) -> list[dict]:
+def get_saved_words_by_ids(word_ids: list[int], user_id: int) -> list[sqlite3.Row]:
     """Fetch the saved-word rows for ``word_ids`` owned by ``user_id``.
 
     Returns rows keyed in the same order as ``word_ids`` (missing rows are

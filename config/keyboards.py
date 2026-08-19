@@ -885,19 +885,28 @@ def fallback_chain_keyboard(chain: list[dict]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def session_summary_keyboard() -> InlineKeyboardMarkup:
+def session_summary_keyboard(nonce: str) -> InlineKeyboardMarkup:
     """Summary view of the post-session report — a single 'جزئیات' button that
-    opens the paged word list in the same message."""
+    opens the paged word list in the same message.
+
+    ``nonce`` is the report identity; it is embedded in the callback data so a
+    stale button from an older message is rejected.
+    """
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(IBTN_SUMMARY_DETAIL, callback_data="session:summary:detail")],
+        [InlineKeyboardButton(
+            IBTN_SUMMARY_DETAIL, callback_data=f"session:summary:detail:{nonce}"
+        )],
     ])
 
 
-def session_summary_detail_keyboard(page_index: int, total_pages: int) -> InlineKeyboardMarkup:
+def session_summary_detail_keyboard(
+    page_index: int, total_pages: int, nonce: str
+) -> InlineKeyboardMarkup:
     """Detail view of the report — prev/next page navigation + back to summary.
 
     ``page_index`` is 0-based; page navigation buttons are omitted on the
-    first / last page respectively.
+    first / last page respectively. ``nonce`` is threaded into every callback
+    so stale buttons from an older message are rejected.
     """
     rows: list[list[InlineKeyboardButton]] = []
     nav: list[InlineKeyboardButton] = []
@@ -905,19 +914,21 @@ def session_summary_detail_keyboard(page_index: int, total_pages: int) -> Inline
         nav.append(
             InlineKeyboardButton(
                 IBTN_SUMMARY_PREV,
-                callback_data=f"session:summary:page:{page_index - 1}",
+                callback_data=f"session:summary:page:{page_index - 1}:{nonce}",
             )
         )
     if page_index < total_pages - 1:
         nav.append(
             InlineKeyboardButton(
                 IBTN_SUMMARY_NEXT,
-                callback_data=f"session:summary:page:{page_index + 1}",
+                callback_data=f"session:summary:page:{page_index + 1}:{nonce}",
             )
         )
     if nav:
         rows.append(nav)
     rows.append([
-        InlineKeyboardButton(IBTN_SUMMARY_BACK, callback_data="session:summary:back"),
+        InlineKeyboardButton(
+            IBTN_SUMMARY_BACK, callback_data=f"session:summary:back:{nonce}"
+        ),
     ])
     return InlineKeyboardMarkup(rows)
