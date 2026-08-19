@@ -156,6 +156,7 @@ from services.db.settings import (
     set_maintenance_message,
     set_maintenance_mode,
     set_setting,
+    DEFAULT_MAINTENANCE_MESSAGE,
 )
 
 from services.db.display_toggles import (

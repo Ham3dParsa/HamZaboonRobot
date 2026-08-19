@@ -195,9 +195,12 @@ class DbMaintenanceModeTests(unittest.TestCase):
         db_module.set_maintenance_mode(False)
         self.assertFalse(db_module.is_maintenance_mode())
 
-    def test_maintenance_message_default_empty_then_settable(self):
+    def test_maintenance_message_defaults_canonical_then_settable(self):
         db_module.init_db()
-        self.assertEqual(db_module.get_maintenance_message(), "")
+        self.assertEqual(
+            db_module.get_maintenance_message(),
+            db_module.DEFAULT_MAINTENANCE_MESSAGE,
+        )
         db_module.set_maintenance_message("ربات در حال تعمیر است")
         self.assertEqual(db_module.get_maintenance_message(), "ربات در حال تعمیر است")
 

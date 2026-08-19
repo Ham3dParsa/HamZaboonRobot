@@ -64,6 +64,10 @@ def set_display_toggle_defaults(values: dict[str, bool]):
 _MAINTENANCE_MODE_KEY = settings_key("maintenance_mode")["key"]
 _MAINTENANCE_MESSAGE_KEY = settings_key("maintenance_message")["key"]
 
+# Canonical default learner-facing maintenance message (single source of truth,
+# shared by the admin status panel and the user-facing block in bot.py).
+DEFAULT_MAINTENANCE_MESSAGE = "ربات در حال تعمیر است؛ لطفاً بعداً مراجعه کنید."
+
 
 def is_maintenance_mode() -> bool:
     """True while admin maintenance mode is active (blocks normal user ops)."""
@@ -75,7 +79,7 @@ def set_maintenance_mode(active: bool):
 
 
 def get_maintenance_message() -> str:
-    return get_setting(_MAINTENANCE_MESSAGE_KEY, "")
+    return get_setting(_MAINTENANCE_MESSAGE_KEY, DEFAULT_MAINTENANCE_MESSAGE)
 
 
 def set_maintenance_message(message: str):

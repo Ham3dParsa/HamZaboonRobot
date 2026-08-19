@@ -3,6 +3,7 @@ import datetime
 import json
 import logging
 import math
+import sqlite3
 import threading
 import time
 from collections import defaultdict, deque
@@ -779,20 +780,23 @@ async def _maintenance_blocked(update: Update, context: ContextTypes.DEFAULT_TYP
 
     The bot owner is never blocked so they can still reach the admin panel to
     exit maintenance. The editable Persian message comes from the DB and is
-    escaped before interpolation (persian-formatting contract).
+    shown as plain text (no parse_mode), so no MarkdownV2 escaping is applied.
     """
     if is_owner(update.effective_user.id):
         return False
-    if not db.is_maintenance_mode():
+    try:
+        if not db.is_maintenance_mode():
+            return False
+    except sqlite3.OperationalError:
+        # Uninitialized DB (e.g. pre-init test flows) cannot be in maintenance.
         return False
-    from services.utils.formatting import escape_mdv2
     msg = db.get_maintenance_message()
     display = msg if msg else "ربات در حال تعمیر است؛ لطفاً بعداً مراجعه کنید. 🙏"
     if text_mode:
         await _send_with_retry(
             context.bot,
             update.effective_chat.id,
-            escape_mdv2(display),
+            display,
             reset_telegram_cb=False,
         )
     else:

@@ -154,7 +154,7 @@ def _maintenance_status_text() -> str:
     body = (
         "🔧 حالت تعمیر\n\n"
         f"وضعیت: {state}\n"
-        f"پیام نمایشی: {msg if msg else 'پیام پیش‌فرض — «ربات در حال تعمیر است، لطفاً بعداً مراجعه کنید.»'}"
+        f"پیام نمایشی: {msg}"
     )
     return body
 

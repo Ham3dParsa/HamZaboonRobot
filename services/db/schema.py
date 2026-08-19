@@ -157,6 +157,9 @@ class _MaintenanceGate:
         self._cond = threading.Condition()
         self._readers = 0
         self._writer_thread: int | None = None
+        # Set while an exclusive writer is waiting, so new shared readers stop
+        # arriving and the writer cannot starve under sustained read traffic.
+        self._writer_waiting = False
 
     @contextmanager
     def shared(self):
@@ -166,7 +169,7 @@ class _MaintenanceGate:
             if tid == self._writer_thread:
                 reentrant = True
             else:
-                while self._writer_thread is not None:
+                while self._writer_thread is not None or self._writer_waiting:
                     self._cond.wait()
                 self._readers += 1
         if reentrant:
@@ -184,9 +187,22 @@ class _MaintenanceGate:
     def exclusive(self):
         tid = threading.get_ident()
         with self._cond:
-            while self._writer_thread is not None or self._readers > 0:
-                self._cond.wait()
-            self._writer_thread = tid
+            if tid == self._writer_thread:
+                # Reentrant exclusive from the owning thread: yield directly so
+                # a nested maintenance()/export()/import() cannot self-deadlock.
+                reentrant = True
+            else:
+                reentrant = False
+                self._writer_waiting = True
+                try:
+                    while self._writer_thread is not None or self._readers > 0:
+                        self._cond.wait()
+                    self._writer_thread = tid
+                finally:
+                    self._writer_waiting = False
+        if reentrant:
+            yield
+            return
         try:
             yield
         finally:
