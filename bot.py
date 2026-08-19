@@ -980,6 +980,20 @@ async def cleanup_query_results_job(context: ContextTypes.DEFAULT_TYPE):
         log.exception("query_results cleanup job failed")
 
 
+async def grace_reset_job(context: ContextTypes.DEFAULT_TYPE):
+    """Periodically reset SRS reviews stuck in ``pending`` past the grace deadline.
+
+    A2-2 / BUG-B3 + BN4: the grace-deadline maintenance was moved out of the hot
+    ``due_words_for_user`` read path into ``reset_expired_pending_reviews``, so
+    this job (not the read) is what re-opens overdue-pending reviews. Ungated
+    (runs without owner config) and idempotent.
+    """
+    try:
+        await asyncio.to_thread(db.reset_expired_pending_reviews)
+    except Exception:
+        log.exception("grace-deadline reset job failed")
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     log.exception("Unhandled exception while processing update", exc_info=context.error)
     callback_query = getattr(update, "callback_query", None)
@@ -1020,6 +1034,13 @@ def main():
         # query_results purge is its own repeating job outside the owner gate.
         app.job_queue.run_repeating(
             cleanup_query_results_job,
+            interval=1800,
+            first=1800,
+        )
+        # A2-2: SRS grace-deadline maintenance also runs ungated (not owner-bound)
+        # and periodic, so the read path stays lock-free.
+        app.job_queue.run_repeating(
+            grace_reset_job,
             interval=1800,
             first=1800,
         )

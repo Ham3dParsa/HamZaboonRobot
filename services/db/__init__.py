@@ -101,6 +101,7 @@ from services.db.words import (
     delete_saved_word,
     grade_word_review,
     grade_first_exposure,
+    reset_expired_pending_reviews,
     GradeResult,
 )
 

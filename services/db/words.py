@@ -210,17 +210,25 @@ def _row_priority_key(row, now: datetime.datetime, eff_due):
     return (r, -d, eff_due, row["id"])
 
 
-def due_words_for_user(user_id: int, lang: str | None = None):
-    grace_deadline = (
-        _utc_now() - datetime.timedelta(hours=48)
-    ).isoformat()
+def reset_expired_pending_reviews(grace_hours: int = 48):
+    """Reset review requests stuck in ``pending`` past the grace deadline.
+
+    SRS maintenance split out of the hot read path (A2-2 / BUG-B3 + BN4): this is
+    the only place that runs the grace-deadline UPDATE, so ``due_words_for_user``
+    can stay read-only. Called by a periodic background job, never from a read.
+    """
+    deadline = (_utc_now() - datetime.timedelta(hours=grace_hours)).isoformat()
     with transaction() as conn:
         conn.execute(
             "UPDATE saved_words SET review_status='idle', review_requested_at=NULL "
-            "WHERE user_id=? AND review_status='pending' "
+            "WHERE review_status='pending' "
             "AND review_requested_at IS NOT NULL AND review_requested_at<=?",
-            (user_id, grace_deadline),
+            (deadline,),
         )
+
+
+def due_words_for_user(user_id: int, lang: str | None = None):
+    with get_conn() as conn:
         query = (
             "SELECT * FROM saved_words WHERE user_id=? "
             "AND COALESCE(first_exposure_done, 0)=1 "

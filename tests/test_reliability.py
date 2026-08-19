@@ -845,6 +845,102 @@ class Phase4DueSelectionAndPriorityTests(unittest.TestCase):
         words = [r["word"] for r in db.get_pre_first_exposure_words(1)]
         self.assertEqual(words, ["manual-early", "manual-late", "auto-early", "auto-late"])
 
+    def test_due_words_for_user_is_read_only(self):
+        """A2-2 / BUG-B3: due_words_for_user must perform zero writes.
+
+        The grace-deadline UPDATE was moved out of the read path, so calling the
+        hot read must never open a write transaction or emit an UPDATE. This
+        guards against a regression that would re-add a write lock to every read.
+        """
+        db.add_saved_word(1, "hello", "en")
+        with db.get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT id FROM saved_words WHERE user_id=1 AND word='hello'"
+            ).fetchone()
+            conn.execute(
+                "UPDATE saved_words SET first_exposure_done=1, next_review_at=?, "
+                "stability=1.0, difficulty=5.0 WHERE id=? AND user_id=?",
+                ("2026-01-01T00:00:00+00:00", row["id"], 1),
+            )
+            conn.commit()
+
+        # Wrap every connection's execute so we can count any write emitted on
+        # the read path (the read-only get_conn never runs BEGIN IMMEDIATE).
+        # A lightweight proxy delegates to the real connection (whose C-level
+        # execute cannot be patched/restored) and only counts writes.
+        write_counts: list[int] = []
+        real_get_conn = db.get_conn
+
+        class _CountingConn:
+            def __init__(self, real):
+                self._real = real
+                self._writes = 0
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def execute(self, statement, *a, **kw):
+                if statement.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE", "BEGIN")):
+                    self._writes += 1
+                return self._real.execute(statement, *a, **kw)
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def counting_get_conn(*args, **kwargs):
+            with real_get_conn(*args, **kwargs) as real:
+                proxy = _CountingConn(real)
+                yield proxy
+                write_counts.append(proxy._writes)
+
+        with patch("services.db.words.get_conn", counting_get_conn), patch(
+            "services.db.words.transaction",
+            side_effect=AssertionError("read path must not open a write transaction"),
+        ):
+            db.due_words_for_user(1)
+        self.assertEqual(sum(write_counts), 0, "due_words_for_user must not write")
+
+    def test_reset_expired_pending_reviews_resets_expired_only(self):
+        """A2-2 / BUG-B3: reset_expired_pending_reviews resets expired-pending
+        reviews and leaves fresh ones untouched."""
+        db.add_saved_word(1, "hello", "en")
+        db.add_saved_word(1, "world", "en")
+        with db.get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            for word, status, requested_at in (
+                ("hello", "pending", "2026-01-01T00:00:00+00:00"),
+                # Fresh pending: requested 12h before now (within 48h grace).
+                ("world", "pending", "2026-01-03T00:00:00+00:00"),
+            ):
+                conn.execute(
+                    "UPDATE saved_words SET review_status=?, review_requested_at=? "
+                    "WHERE user_id=1 AND word=?",
+                    (status, requested_at, word),
+                )
+            conn.commit()
+
+        with patch("services.db.words._utc_now", return_value=dt.datetime(
+            2026, 1, 3, 12, 0, 0, tzinfo=dt.timezone.utc
+        )):
+            db.reset_expired_pending_reviews()
+
+        with db.get_conn() as conn:
+            hello = conn.execute(
+                "SELECT review_status, review_requested_at FROM saved_words "
+                "WHERE user_id=1 AND word='hello'"
+            ).fetchone()
+            world = conn.execute(
+                "SELECT review_status, review_requested_at FROM saved_words "
+                "WHERE user_id=1 AND word='world'"
+            ).fetchone()
+        # hello requested 2.5 days ago (>48h grace) -> reset to idle.
+        self.assertEqual(hello["review_status"], "idle")
+        self.assertIsNone(hello["review_requested_at"])
+        # world requested 12h ago (within grace) -> stays pending.
+        self.assertEqual(world["review_status"], "pending")
+        self.assertIsNotNone(world["review_requested_at"])
+
 
 class CallbackAnswerTests(unittest.IsolatedAsyncioTestCase):
     async def test_stale_callback_answer_is_ignored(self):
