@@ -248,6 +248,12 @@ async def _handle_srs_review(
                 "قبلاً ثبت شد.",
                 intent=CallbackNoticeIntent.INFO,
             )
+            # Backfill the in-session graded list: a durable ledger row can exist
+            # while the session's graded_word_ids missed it (grade persisted, but
+            # the session-save failed). Advancing without backfilling would make
+            # the end-of-session report undercount this word (kilo S1).
+            if word_id not in session.graded_word_ids:
+                session.graded_word_ids.append(word_id)
             await advance_session(update, context)
             return
         if not active:
@@ -362,6 +368,10 @@ async def _handle_first_exposure_grade(
                 "قبلاً ثبت شد.",
                 intent=CallbackNoticeIntent.INFO,
             )
+            # Backfill the in-session graded list (kilo S1) — see the review
+            # handler for the same reasoning.
+            if word_id not in session.graded_word_ids:
+                session.graded_word_ids.append(word_id)
             await advance_session(update, context)
             return
         if not active:

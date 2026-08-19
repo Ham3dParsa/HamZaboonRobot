@@ -568,6 +568,17 @@ async def handle_study_inactive(
 # Auto-advance — called from grade handlers after grading
 # ---------------------------------------------------------------------------
 
+def _is_message_not_modified(exc: Exception) -> bool:
+    """True when a Telegram edit ``BadRequest`` means the target content is
+    already on screen, i.e. the edit effectively succeeded (kilo W2). Telegram
+    returns "message is not modified" when retrying an already-applied edit
+    (e.g. a first attempt timed out server-side); treating it as failure would
+    roll the node back and leave the screen showing a card the state disagrees
+    with, dead-ending the next tap.
+    """
+    return isinstance(exc, BadRequest) and "not modified" in str(exc)
+
+
 async def advance_session(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -612,6 +623,11 @@ async def advance_session(
                     raw=send_pretty.RawFormat.MDV2,
                     keyboard=keyboard,
                 )
+            except BadRequest as exc:
+                if not _is_message_not_modified(exc):
+                    if popped is not None:
+                        state.nodes.insert(0, popped)
+                    raise
             except Exception:
                 if popped is not None:
                     state.nodes.insert(0, popped)
@@ -639,6 +655,13 @@ async def advance_session(
                         raw=send_pretty.RawFormat.MDV2,
                         keyboard=keyboard,
                     )
+                except BadRequest as exc:
+                    if not _is_message_not_modified(exc):
+                        state.nodes.pop()
+                        state.total_cards -= 1
+                        if popped is not None:
+                            state.nodes.insert(0, popped)
+                        raise
                 except Exception:
                     state.nodes.pop()
                     state.total_cards -= 1
@@ -688,10 +711,10 @@ async def advance_session(
                 keyboard = None
 
 # Render the completion/report FIRST; only after it succeeds is the
-        # session cleared. If this edit fails (weak network), the session stays
-        # intact so a re-tap of the already-graded last card retries this edit
-        # and the session still completes + shows the report (Bug report
-        # 2026-08-19). Replaces the old clear-before-edit ordering.
+        # session cleared. If this edit fails transiently (weak network), the
+        # session stays intact so a re-tap of the already-graded last card
+        # retries this edit and the session still completes + shows the report
+        # (Bug report 2026-08-19). Replaces the old clear-before-edit ordering.
         try:
             await send_pretty.edit(
                 chat_id,
@@ -700,6 +723,17 @@ async def advance_session(
                 bot=context.bot,
                 raw=send_pretty.RawFormat.MDV2,
                 keyboard=keyboard,
+            )
+        except BadRequest:
+            # Permanent failure (message not found / not modified / parse error):
+            # the report cannot be rendered via this message and re-tapping the
+            # already-graded card cannot recover it. End the session anyway so
+            # the learner is not trapped in a re-tap -> error loop for the rest
+            # of the app-day (kilo W1); the session is complete, only the report
+            # render failed.
+            logger.warning(
+                "completion edit permanent failure user_id=%s chat_id=%s",
+                user_id, chat_id,
             )
         except Exception:
             if popped is not None:

@@ -81,7 +81,7 @@ def mark_word_graded(
     word_id: int,
     activity_type: str,
     *,
-    conn=None,
+    conn: sqlite3.Connection | None = None,
     graded_at_iso: str | None = None,
 ) -> None:
     """Record ``word_id`` as graded (``activity_type``) in the current session.

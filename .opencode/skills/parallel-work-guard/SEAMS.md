@@ -42,7 +42,7 @@ even though they edit different files.
 users, saved_words, settings, daily_cards, daily_progress,
 daily_card_sessions, query_results, grammar_tips, llm_requests, review_events,
 ai_presets, preset_hourly_usage, preset_groups, config_tests, plans,
-study_sessions
+study_sessions, session_grade_ledger
 (source: services/db/schema.py)
 
 ### Settings keys (deferred)
