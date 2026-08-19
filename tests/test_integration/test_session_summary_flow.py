@@ -164,6 +164,8 @@ class SessionSummaryFlowTests(unittest.TestCase):
         # is 02:00 the next local day.
         self.assertEqual(_to_app_tz_date("2026-08-19T22:30:00Z"), "2026-08-20")
         self.assertEqual(_to_app_tz_date("2026-08-20T10:00:00Z"), "2026-08-20")
+        # Naive timestamps must be treated as UTC, not system-local (Kilo suggestion).
+        self.assertEqual(_to_app_tz_date("2026-08-19T22:30:00"), "2026-08-20")
         self.assertIsNone(_to_app_tz_date(None))
         self.assertIsNone(_to_app_tz_date("not-a-date"))
 

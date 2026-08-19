@@ -10,7 +10,7 @@ import json
 import logging
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from telegram import Update
@@ -719,6 +719,8 @@ def _to_app_tz_date(iso_utc: str | None) -> str | None:
         dt = _parse_iso_utc(iso_utc)
     except (TypeError, ValueError):
         return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(APP_TZ).date().isoformat()
 
 
