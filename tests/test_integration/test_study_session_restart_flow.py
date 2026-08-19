@@ -230,10 +230,13 @@ class StudySessionRestartFlowTest(unittest.TestCase):
         self.assertNotIn("current_session", ctx.user_data)
         self.assertIsNone(self._persisted_row())
 
-    def test_completion_clears_row_before_message(self):
-        """Owner decision 2026-08-15: the DB row must be cleared BEFORE the
-        completion message is sent, so a crash/timeout in that window cannot
-        leave a re-gradable last node behind."""
+    def test_completion_clears_row_after_message(self):
+        """Bug report 2026-08-19 (overturns the 2026-08-15 clear-before-send
+        decision): the completion/report message is rendered FIRST and only on
+        success is the row cleared. If the completion edit fails (weak network),
+        the session is rolled back and preserved so a re-tap of the already
+        graded last card retries the edit and the session still completes —
+        never a stuck, re-gradable card with no report."""
         from handlers.study_handler import handle_study_start
         from bot import callback_router
 
@@ -246,9 +249,18 @@ class StudySessionRestartFlowTest(unittest.TestCase):
             asyncio.run(handle_study_start(self._study_update(), ctx))
             self.assertIsNotNone(self._persisted_row())
 
-        # Make the completion message send fail; the row must already be cleared.
+        # Completion message send fails: the session must be rolled back and
+        # preserved (self-healing), NOT cleared, so the next tap can retry.
         ctx.bot.edit_message_text = AsyncMock(side_effect=RuntimeError("boom"))
         grade_update = self._callback_update(f"srs:3:1:{w1}")
+        asyncio.run(callback_router(grade_update, ctx))
+        self.assertIn("current_session", ctx.user_data)
+        self.assertIsNotNone(self._persisted_row())
+
+        # Re-tap of the already-graded last card: skips the re-grade (no double
+        # grade), retries the completion edit which now succeeds, and only then
+        # clears the row — the session completes and shows the report.
+        ctx.bot.edit_message_text = AsyncMock()
         asyncio.run(callback_router(grade_update, ctx))
         self.assertNotIn("current_session", ctx.user_data)
         self.assertIsNone(self._persisted_row())

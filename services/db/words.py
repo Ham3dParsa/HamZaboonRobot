@@ -3,6 +3,7 @@ import sqlite3
 import datetime
 from dataclasses import dataclass
 from services.db.schema import get_conn, transaction, _today, _utc_now, _app_timezone
+from services.db.sessions import mark_word_graded
 from services.fsrs_core import (
     DEFAULT_FSRS_CONFIG,
     compute_interval,
@@ -428,6 +429,7 @@ def grade_word_review(word_id, grade, user_id):
         if rowcount == 0:
             conn.rollback()
             return GradeResult(ok=False, reason="not_found")
+        mark_word_graded(user_id, word_id, "srs_review", conn=conn, graded_at_iso=now.isoformat())
         return GradeResult(
             ok=True,
             next_review_at=next_review_at,
@@ -467,6 +469,7 @@ def grade_first_exposure(word_id, grade, user_id):
         if rowcount == 0:
             conn.rollback()
             return GradeResult(ok=False, reason="not_found")
+        mark_word_graded(user_id, word_id, "first_exposure", conn=conn, graded_at_iso=now.isoformat())
         return GradeResult(
             ok=True,
             next_review_at=next_review_at,

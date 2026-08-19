@@ -406,6 +406,13 @@ def init_db(path: str | None = None):
                 state_json TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS session_grade_ledger (
+                user_id INTEGER NOT NULL,
+                word_id INTEGER NOT NULL,
+                activity_type TEXT NOT NULL,
+                graded_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, word_id, activity_type)
+            );
             """
         )
         columns = {

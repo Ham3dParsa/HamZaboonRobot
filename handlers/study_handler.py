@@ -272,6 +272,10 @@ async def handle_study_start(
         return
 
     # --- create session state ---
+    # Reset the durable grade ledger: this is a brand-new session, so any word
+    # can legitimately be graded again (e.g. an "Again" card that comes due the
+    # same day). Resume paths above leave the ledger intact (Bug report 2026-08-19).
+    db.clear_session_grades(user_id)
     state = SessionState(
         nodes=nodes,
         total_cards=len(nodes),
@@ -586,9 +590,12 @@ async def advance_session(
             return
 
     try:
-        # pop next node
-        if state.nodes:
-            state.nodes.pop(0)
+        # Advance only mutates session state AFTER the Telegram edit that
+        # renders the next card / report succeeds. On any edit failure the
+        # popped node is rolled back so the visible card stays the active one
+        # and a re-tap hits the idempotent re-grade guard, which retries the
+        # advance (self-healing under weak network, Bug report 2026-08-19).
+        popped = state.nodes.pop(0) if state.nodes else None
 
         # try next node
         if state.nodes:
@@ -596,14 +603,19 @@ async def advance_session(
             text, keyboard = _build_card_text_and_keyboard(
                 node, state, user_id, user_data=context.user_data,
             )
-            await send_pretty.edit(
-                chat_id,
-                state.study_msg_id,
-                text,
-                bot=context.bot,
-                raw=send_pretty.RawFormat.MDV2,
-                keyboard=keyboard,
-            )
+            try:
+                await send_pretty.edit(
+                    chat_id,
+                    state.study_msg_id,
+                    text,
+                    bot=context.bot,
+                    raw=send_pretty.RawFormat.MDV2,
+                    keyboard=keyboard,
+                )
+            except Exception:
+                if popped is not None:
+                    state.nodes.insert(0, popped)
+                raise
             _persist_session(user_id, state)
             return
 
@@ -618,22 +630,23 @@ async def advance_session(
                 text, keyboard = _build_card_text_and_keyboard(
                     tier3_node, state, user_id, user_data=context.user_data,
                 )
-                await send_pretty.edit(
-                    chat_id,
-                    state.study_msg_id,
-                    text,
-                    bot=context.bot,
-                    raw=send_pretty.RawFormat.MDV2,
-                    keyboard=keyboard,
-                )
+                try:
+                    await send_pretty.edit(
+                        chat_id,
+                        state.study_msg_id,
+                        text,
+                        bot=context.bot,
+                        raw=send_pretty.RawFormat.MDV2,
+                        keyboard=keyboard,
+                    )
+                except Exception:
+                    state.nodes.pop()
+                    state.total_cards -= 1
+                    if popped is not None:
+                        state.nodes.insert(0, popped)
+                    raise
                 _persist_session(user_id, state)
                 return
-
-        # session complete — clear the persisted row BEFORE sending the
-        # completion message so a crash/timeout in this window can't leave a
-        # re-gradable last node behind (owner decision 2026-08-15).
-        context.user_data.pop("current_session", None)
-        _clear_persisted_session(user_id)
 
         completion = escape_mdv2("جلسه مطالعه تموم شد! 🎉")
         text = f"*{completion}*"
@@ -674,19 +687,32 @@ async def advance_session(
                 text = f"*{completion}*"
                 keyboard = None
 
-        await send_pretty.edit(
-            chat_id,
-            state.study_msg_id,
-            text,
-            bot=context.bot,
-            raw=send_pretty.RawFormat.MDV2,
-            keyboard=keyboard,
-        )
+# Render the completion/report FIRST; only after it succeeds is the
+        # session cleared. If this edit fails (weak network), the session stays
+        # intact so a re-tap of the already-graded last card retries this edit
+        # and the session still completes + shows the report (Bug report
+        # 2026-08-19). Replaces the old clear-before-edit ordering.
+        try:
+            await send_pretty.edit(
+                chat_id,
+                state.study_msg_id,
+                text,
+                bot=context.bot,
+                raw=send_pretty.RawFormat.MDV2,
+                keyboard=keyboard,
+            )
+        except Exception:
+            if popped is not None:
+                state.nodes.insert(0, popped)
+            raise
+
+        context.user_data.pop("current_session", None)
+        _clear_persisted_session(user_id)
 
     except Exception:
         logger.exception("advance_session failed user_id=%s chat_id=%s", user_id, chat_id)
         try:
-            error_msg = escape_mdv2("خطا در بارگذاری کارت بعدی — لطفاً جلسه‌ی مطالعه را دوباره شروع کنید")
+            error_msg = escape_mdv2("خطا در بارگذاری کارت بعدی — دوباره تلاش کنید")
             await send_pretty.send(
                 chat_id,
                 f"*{error_msg}*",

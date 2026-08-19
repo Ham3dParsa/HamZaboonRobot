@@ -224,12 +224,33 @@ async def _handle_srs_review(
         await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     session = get_active_study_session(user_id, context)
+    already_graded = (
+        (session is not None and word_id in session.graded_word_ids)
+        or db.is_word_graded(user_id, word_id, "srs_review")
+    )
     if session is not None:
-        if (
-            not session.nodes
-            or session.nodes[0].source_id != word_id
-            or session.nodes[0].activity_type != "srs_review"
-        ):
+        active = (
+            bool(session.nodes)
+            and session.nodes[0].source_id == word_id
+            and session.nodes[0].activity_type == "srs_review"
+        )
+        if already_graded and (active or not session.nodes):
+            # Duplicate grade of a done card: the DB write landed but its
+            # advance was lost to a restart/network error, a genuine double
+            # tap, or a stuck completion whose report edit failed. Never
+            # re-grade (FSRS corruption) and never soft-lock (R3, Bug #401):
+            # advance_session self-heals — it rolls back on a failed edit and
+            # completes + renders the report when the last card was graded.
+            context.user_data.pop(f"card_shown_at_{word_id}", None)
+            _log_ua(update, action="srs_review", outcome="grade_already_recorded")
+            await notify_callback(
+                update.callback_query,
+                "قبلاً ثبت شد.",
+                intent=CallbackNoticeIntent.INFO,
+            )
+            await advance_session(update, context)
+            return
+        if not active:
             # Stale/out-of-session button (e.g. a pre-restart message, or an old
             # first-exposure card whose word resurfaced as a review node): never
             # grade a card that is not the active review card (R2, Bug #401).
@@ -239,11 +260,11 @@ async def _handle_srs_review(
                 intent=CallbackNoticeIntent.IMPORTANT_ERROR,
             )
             return
-        if word_id in session.graded_word_ids:
-            # Already graded within this same session — the grade's DB write
-            # landed but its advance was lost to a restart/network error, or a
-            # genuine double tap. Skip idempotently and continue: never re-grade
-            # (FSRS corruption) and never soft-lock (R3, Bug #401).
+    else:
+        if already_graded:
+            # No session at all (memory + persisted gone) but the durable
+            # ledger says this word was already graded in the current session.
+            # Block the re-grade; there is no session left to advance.
             context.user_data.pop(f"card_shown_at_{word_id}", None)
             _log_ua(update, action="srs_review", outcome="grade_already_recorded")
             await notify_callback(
@@ -251,7 +272,6 @@ async def _handle_srs_review(
                 "قبلاً ثبت شد.",
                 intent=CallbackNoticeIntent.INFO,
             )
-            await advance_session(update, context)
             return
     resolved = resolve_grade("srs_review", grade)
     result = db.grade_word_review(word_id, resolved, user_id)
@@ -321,12 +341,30 @@ async def _handle_first_exposure_grade(
         await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     session = get_active_study_session(user_id, context)
+    already_graded = (
+        (session is not None and word_id in session.graded_word_ids)
+        or db.is_word_graded(user_id, word_id, "first_exposure")
+    )
     if session is not None:
-        if (
-            not session.nodes
-            or session.nodes[0].source_id != word_id
-            or session.nodes[0].activity_type != "first_exposure"
-        ):
+        active = (
+            bool(session.nodes)
+            and session.nodes[0].source_id == word_id
+            and session.nodes[0].activity_type == "first_exposure"
+        )
+        if already_graded and (active or not session.nodes):
+            # Duplicate grade of a done card (lost advance, double tap, or a
+            # stuck completion whose report edit failed). Never re-grade and
+            # never soft-lock (R3, Bug #401): advance self-heals and completes.
+            context.user_data.pop(f"card_shown_at_{word_id}", None)
+            _log_ua(update, action="first_exposure", outcome="grade_already_recorded")
+            await notify_callback(
+                update.callback_query,
+                "قبلاً ثبت شد.",
+                intent=CallbackNoticeIntent.INFO,
+            )
+            await advance_session(update, context)
+            return
+        if not active:
             # Stale/out-of-session button (e.g. a pre-restart message, or an old
             # review card whose word resurfaced as a first-exposure node): never
             # grade a card that is not the active first-exposure card (R2, #401).
@@ -336,11 +374,10 @@ async def _handle_first_exposure_grade(
                 intent=CallbackNoticeIntent.IMPORTANT_ERROR,
             )
             return
-        if word_id in session.graded_word_ids:
-            # Already graded within this same session — the grade's DB write
-            # landed but its advance was lost to a restart/network error, or a
-            # genuine double tap. Skip idempotently — never re-grade or
-            # soft-lock (R3, Bug #401).
+    else:
+        if already_graded:
+            # No session left but the durable ledger says this word was already
+            # graded in the current session. Block the re-grade.
             context.user_data.pop(f"card_shown_at_{word_id}", None)
             _log_ua(update, action="first_exposure", outcome="grade_already_recorded")
             await notify_callback(
@@ -348,7 +385,6 @@ async def _handle_first_exposure_grade(
                 "قبلاً ثبت شد.",
                 intent=CallbackNoticeIntent.INFO,
             )
-            await advance_session(update, context)
             return
     resolved = resolve_grade("first_exposure", grade)
     result = db.grade_first_exposure(word_id, resolved, user_id)

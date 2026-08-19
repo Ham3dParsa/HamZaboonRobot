@@ -28,6 +28,8 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from telegram.error import TimedOut
+
 from services import db
 from services.db import schema as db_schema
 from services.session import SessionNode
@@ -74,7 +76,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
                 "SELECT id FROM saved_words WHERE user_id=1 AND word=?", (word,)
             ).fetchone()["id"]
 
-    def _session(self, word_ids, activity_type="first_exposure", graded_word_ids=None):
+    def _session(self, word_ids, activity_type="first_exposure", graded_word_ids=None, plan="free"):
         return SessionState(
             nodes=[
                 SessionNode(activity_type=activity_type, source_tier=0, card_data={}, source_id=w)
@@ -83,7 +85,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
             total_cards=len(word_ids),
             tier3_context={},
             study_msg_id=None,
-            plan="free",
+            plan=plan,
             graded_word_ids=list(graded_word_ids or []),
         )
 
@@ -336,6 +338,238 @@ class StudySessionGradeRestartTests(unittest.TestCase):
         self._persist(state)
         restored = _restore_persisted_session(1)
         self.assertEqual(restored.graded_word_ids, [self.w1])
+
+    # ------------------------------------------------------------------
+    # Bug: last card graded + completion/report edit times out (weak
+    # network) -> the session was cleared before the edit, so a re-tap
+    # re-graded the card forever and the report never appeared.
+    # ------------------------------------------------------------------
+
+    def test_last_card_completion_edit_timeout_no_regrade_and_report_on_retry(self):
+        # Single-card gold session. The grade commits, then the completion
+        # report edit times out. The session must survive, the card must NOT be
+        # re-graded on a re-tap, and the re-tap must finish the session + show
+        # the report.
+        ctx = self._ctx()
+        ctx.user_data["current_session"] = self._session(
+            [self.w2], activity_type="first_exposure", graded_word_ids=[], plan="gold"
+        )
+        ctx.bot.edit_message_text.side_effect = [TimedOut, TimedOut, TimedOut]
+        with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock):
+            asyncio.run(
+                srs_handler._handle_first_exposure_grade(
+                    self._update(self._query()), ctx, "4", "1", str(self.w2)
+                )
+            )
+        # The session survived the failed completion edit (no premature clear).
+        restored = _restore_persisted_session(1)
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored.nodes[0].source_id, self.w2)
+        self.assertIn(self.w2, restored.graded_word_ids)
+        self.assertEqual(ctx.user_data["current_session"], restored)
+
+        # Snapshot scheduling + telemetry BEFORE the re-tap.
+        before = db.get_saved_word(self.w2, 1)
+        st_b, diff_b, nxt_b = (
+            before["stability"], before["difficulty"], before["next_review_at"],
+        )
+        events_before = self._review_events(self.w2)
+
+        # Re-tap: must NOT re-grade; must drive the session to completion and
+        # render the report.
+        ctx.bot.edit_message_text.side_effect = None
+        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+            with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
+                asyncio.run(
+                    srs_handler._handle_first_exposure_grade(
+                        self._update(self._query()), ctx, "4", "1", str(self.w2)
+                    )
+                )
+                notify.assert_called_once()
+                self.assertEqual(notify.call_args.kwargs["intent"], CallbackNoticeIntent.INFO)
+                self.assertIn("قبلاً ثبت شد", notify.call_args.args[1])
+        after = db.get_saved_word(self.w2, 1)
+        self.assertEqual(after["stability"], st_b)
+        self.assertEqual(after["difficulty"], diff_b)
+        self.assertEqual(after["next_review_at"], nxt_b)
+        self.assertEqual(self._review_events(self.w2), events_before)
+        touch.assert_not_called()
+        # Session finished; the report edit happened and the report is stored.
+        self.assertIsNone(_restore_persisted_session(1))
+        self.assertNotIn("current_session", ctx.user_data)
+        report_text = ctx.bot.edit_message_text.call_args.kwargs["text"]
+        self.assertIn("گزارش", report_text)
+        self.assertTrue(ctx.user_data.get("session_summary"))
+
+    def test_review_path_last_card_completion_timeout_no_regrade(self):
+        # Same stuck-completion scenario on the regular-review path.
+        self.assertTrue(db.grade_first_exposure(self.w2, 3, 1).ok)
+        ctx = self._ctx()
+        ctx.user_data["current_session"] = self._session(
+            [self.w2], activity_type="srs_review", graded_word_ids=[], plan="gold"
+        )
+        ctx.bot.edit_message_text.side_effect = [TimedOut, TimedOut, TimedOut]
+        with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock):
+            asyncio.run(
+                srs_handler._handle_srs_review(
+                    self._update(self._query()), 3, "1", str(self.w2), ctx
+                )
+            )
+        self.assertIsNotNone(_restore_persisted_session(1))
+        before = db.get_saved_word(self.w2, 1)
+        st_b, diff_b, nxt_b = (
+            before["stability"], before["difficulty"], before["next_review_at"],
+        )
+        events_before = self._review_events(self.w2)
+        ctx.bot.edit_message_text.side_effect = None
+        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+            with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
+                asyncio.run(
+                    srs_handler._handle_srs_review(
+                        self._update(self._query()), 3, "1", str(self.w2), ctx
+                    )
+                )
+                self.assertEqual(notify.call_args.kwargs["intent"], CallbackNoticeIntent.INFO)
+        after = db.get_saved_word(self.w2, 1)
+        self.assertEqual(after["stability"], st_b)
+        self.assertEqual(after["difficulty"], diff_b)
+        self.assertEqual(after["next_review_at"], nxt_b)
+        self.assertEqual(self._review_events(self.w2), events_before)
+        touch.assert_not_called()
+        self.assertIsNone(_restore_persisted_session(1))
+
+    # ------------------------------------------------------------------
+    # Bug: a mid-session advance edit times out -> the node had already been
+    # popped, so the visible card was stale and a re-tap re-graded it.
+    # ------------------------------------------------------------------
+
+    def test_mid_session_advance_timeout_rolls_back_no_regrade(self):
+        ctx = self._ctx()
+        ctx.user_data["current_session"] = self._session(
+            [self.w2, self.w3], activity_type="first_exposure", graded_word_ids=[]
+        )
+        ctx.bot.edit_message_text.side_effect = [TimedOut, TimedOut, TimedOut]
+        with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock):
+            asyncio.run(
+                srs_handler._handle_first_exposure_grade(
+                    self._update(self._query()), ctx, "4", "1", str(self.w2)
+                )
+            )
+        # The failed advance rolled the node back: w2 is still the active card.
+        state = ctx.user_data["current_session"]
+        self.assertEqual(len(state.nodes), 2)
+        self.assertEqual(state.nodes[0].source_id, self.w2)
+        events_before = self._review_events(self.w2)
+        # Re-tap: no re-grade; the retry advances to the next card.
+        ctx.bot.edit_message_text.side_effect = None
+        with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
+            asyncio.run(
+                srs_handler._handle_first_exposure_grade(
+                    self._update(self._query()), ctx, "4", "1", str(self.w2)
+                )
+            )
+            self.assertEqual(notify.call_args.kwargs["intent"], CallbackNoticeIntent.INFO)
+        self.assertEqual(self._review_events(self.w2), events_before)
+        state = ctx.user_data["current_session"]
+        self.assertEqual(len(state.nodes), 1)
+        self.assertEqual(state.nodes[0].source_id, self.w3)
+
+    # ------------------------------------------------------------------
+    # Bug: no session at all (memory + persisted gone) + a tappable graded
+    # card -> the durable ledger must block the re-grade.
+    # ------------------------------------------------------------------
+
+    def test_no_session_regrade_blocked_by_durable_ledger(self):
+        self.assertTrue(db.grade_first_exposure(self.w1, 3, 1).ok)
+        self.assertTrue(db.is_word_graded(1, self.w1, "first_exposure"))
+        before = db.get_saved_word(self.w1, 1)
+        st_b, diff_b, nxt_b = (
+            before["stability"], before["difficulty"], before["next_review_at"],
+        )
+        events_before = self._review_events(self.w1)
+        ctx = self._ctx()
+        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+            with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
+                asyncio.run(
+                    srs_handler._handle_first_exposure_grade(
+                        self._update(self._query()), ctx, "4", "1", str(self.w1)
+                    )
+                )
+                notify.assert_called_once()
+                self.assertEqual(notify.call_args.kwargs["intent"], CallbackNoticeIntent.INFO)
+                self.assertIn("قبلاً ثبت شد", notify.call_args.args[1])
+        after = db.get_saved_word(self.w1, 1)
+        self.assertEqual(after["stability"], st_b)
+        self.assertEqual(after["difficulty"], diff_b)
+        self.assertEqual(after["next_review_at"], nxt_b)
+        self.assertEqual(self._review_events(self.w1), events_before)
+        touch.assert_not_called()
+
+    def test_no_session_regrade_blocked_on_review_path(self):
+        self.assertTrue(db.grade_first_exposure(self.w1, 3, 1).ok)
+        self.assertTrue(db.grade_word_review(self.w1, 3, 1).ok)
+        self.assertTrue(db.is_word_graded(1, self.w1, "srs_review"))
+        events_before = self._review_events(self.w1)
+        ctx = self._ctx()
+        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+            with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
+                asyncio.run(
+                    srs_handler._handle_srs_review(
+                        self._update(self._query()), 3, "1", str(self.w1), ctx
+                    )
+                )
+                self.assertEqual(notify.call_args.kwargs["intent"], CallbackNoticeIntent.INFO)
+        self.assertEqual(self._review_events(self.w1), events_before)
+        touch.assert_not_called()
+
+    # ------------------------------------------------------------------
+    # The ledger is session-scoped: building a NEW session resets it, so a
+    # word can legitimately be graded again in a new session (e.g. an "Again"
+    # card that comes due the same day).
+    # ------------------------------------------------------------------
+
+    def test_fresh_session_clears_ledger_reenables_regrade(self):
+        self.assertTrue(db.grade_first_exposure(self.w1, 3, 1).ok)
+        self.assertTrue(db.is_word_graded(1, self.w1, "first_exposure"))
+        db.clear_session_grades(1)
+        self.assertFalse(db.is_word_graded(1, self.w1, "first_exposure"))
+        # After the ledger is cleared (new session), the word resurfacing as a
+        # review card can legitimately be graded again without being blocked by
+        # its earlier first-exposure entry.
+        self.assertTrue(db.grade_word_review(self.w1, 3, 1).ok)
+        self.assertTrue(db.is_word_graded(1, self.w1, "srs_review"))
+
+    def test_double_tap_never_double_grades(self):
+        # Two re-taps of the same already-graded card: still no double grade
+        # (durable ledger + in-session graded_word_ids both consulted).
+        self.assertTrue(db.grade_first_exposure(self.w2, 3, 1).ok)
+        ctx = self._ctx()
+        ctx.user_data["current_session"] = self._session(
+            [self.w2], activity_type="srs_review", graded_word_ids=[self.w2], plan="gold"
+        )
+        ctx.bot.edit_message_text.side_effect = [TimedOut, TimedOut, TimedOut]
+        with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock):
+            # First re-tap: skip + advance retry (completion edit fails again).
+            asyncio.run(
+                srs_handler._handle_srs_review(
+                    self._update(self._query()), 3, "1", str(self.w2), ctx
+                )
+            )
+        # Second re-tap: skip + advance retry now succeeds and completes.
+        ctx.bot.edit_message_text.side_effect = None
+        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+            with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock):
+                asyncio.run(
+                    srs_handler._handle_srs_review(
+                        self._update(self._query()), 3, "1", str(self.w2), ctx
+                    )
+                )
+                touch.assert_not_called()
+        # The double-tap never triggered a new grade: no review event was added
+        # (the card was already graded before the re-taps) and the session still
+        # self-heals to completion.
+        self.assertEqual(self._review_events(self.w2), 0)
+        self.assertIsNone(_restore_persisted_session(1))
 
 
 if __name__ == "__main__":
