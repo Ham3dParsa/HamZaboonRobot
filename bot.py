@@ -7,6 +7,7 @@ import sqlite3
 import threading
 import time
 from collections import defaultdict, deque
+from collections.abc import Awaitable, Callable
 
 import colorlog
 
@@ -808,15 +809,20 @@ async def _maintenance_blocked(update: Update, context: ContextTypes.DEFAULT_TYP
     return True
 
 
-async def _maintenance_gated_command(handler, update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def _maintenance_gated_command(
+    handler: Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]],
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
     """Run ``handler`` unless maintenance mode is active (blocking non-owners).
 
     Wraps command handlers that bypass ``text_router``/``callback_router`` so a
     non-owner cannot run ``/start`` or ``/help`` during maintenance. Owner-only
     commands (``/backup``, ``/restore``) are already owner-gated internally and
-    the owner is never blocked.
+    the owner is never blocked. The block mode is derived from the update so the
+    wrapper stays correct for both message- and callback-based handlers.
     """
-    if await _maintenance_blocked(update, context, text_mode=True):
+    if await _maintenance_blocked(update, context, text_mode=update.callback_query is None):
         return
     await handler(update, context)
 

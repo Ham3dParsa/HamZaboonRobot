@@ -924,3 +924,25 @@ class TestCallbackWiring(unittest.TestCase):
             "x = 1\n"
         )
         self.assertEqual(_direct_bot_verb_calls_in_tree(ast.parse(src)), [])
+
+    def test_maintenance_gated_commands_registered_through_wrapper(self):
+        """The /start and /help CommandHandlers must route through
+        ``_maintenance_gated_command`` so a non-owner cannot run them (and drive
+        DB writes) during maintenance mode.
+
+        Regression guard for the A2-1-7 maintenance block: if either line is
+        reverted to ``CommandHandler("start", cmd_start)``, the maintenance gate
+        on those commands silently disappears and this test fails.
+        """
+        bot_text = Path("bot.py").read_text(encoding="utf-8")
+        self.assertIn(
+            'CommandHandler("start", lambda u, c: _maintenance_gated_command(cmd_start, u, c))',
+            bot_text,
+        )
+        self.assertIn(
+            'CommandHandler("help", lambda u, c: _maintenance_gated_command(send_help_panel, u, c))',
+            bot_text,
+        )
+        # Owner-only commands are gated internally and must NOT use the wrapper.
+        self.assertIn('CommandHandler("backup", cmd_backup)', bot_text)
+        self.assertIn('CommandHandler("restore", cmd_restore)', bot_text)
