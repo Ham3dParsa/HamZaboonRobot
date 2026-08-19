@@ -10,7 +10,7 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from config import APP_TZ, DB_PATH, is_owner
-from services import db
+from services import db, send_pretty
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send, _exit_awaiting_flow, _send_with_retry
 from handlers.admin_stats import handle_admin_stats
@@ -184,10 +184,12 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif action == "broadcast":
         context.user_data["awaiting"] = "admin_broadcast"
         await notify_callback(update.callback_query)
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="متن پیام همگانی رو بفرست:",
-            reply_markup=admin_awaiting_inline_keyboard(),
+        await send_pretty.send(
+            update.effective_chat.id,
+            "متن پیام همگانی رو بفرست:",
+            bot=context.bot,
+            raw=send_pretty.RawFormat.PLAIN,
+            keyboard=admin_awaiting_inline_keyboard(),
         )
     elif action == "show_settings":
         try:

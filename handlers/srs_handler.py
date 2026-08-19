@@ -3,11 +3,10 @@ import logging
 import time
 
 from telegram import Update
-from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
-from telegram.error import BadRequest
+from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
-from services import db
+from services import db, send_pretty
 from services import word_query
 from config import USER_ACTIVITY
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
@@ -173,12 +172,13 @@ async def _handle_srs_reveal(
         )
         return
     try:
-        await context.bot.edit_message_text(
-            text=text,
-            chat_id=update.effective_chat.id,
-            message_id=msg_id,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.MARKDOWN_V2,
+        await send_pretty.edit(
+            update.effective_chat.id,
+            msg_id,
+            text,
+            bot=context.bot,
+            raw=send_pretty.RawFormat.MDV2,
+            keyboard=keyboard,
         )
     except BadRequest as exc:
         # Message already gone or unchanged — give feedback instead of crashing
@@ -496,11 +496,21 @@ async def _handle_srs_delete(
         return
     user_id, word_id, state, _node = resolved
     try:
-        await context.bot.edit_message_reply_markup(
-            chat_id=update.effective_chat.id,
-            message_id=state.study_msg_id,
-            reply_markup=get_srs_delete_confirm_keyboard(user_id, word_id),
+        await send_pretty.edit_markup(
+            update.effective_chat.id,
+            state.study_msg_id,
+            get_srs_delete_confirm_keyboard(user_id, word_id),
+            bot=context.bot,
         )
+    except (TimedOut, NetworkError, RetryAfter):
+        # The seam retries with bounded backoff before re-raising; answer the
+        # callback so the user is not left with a stuck spinner (Kilo review).
+        logger.warning("srs delete confirm edit failed user_id=%s", user_id)
+        await notify_callback(
+            update.callback_query, "اتصال برقرار نشد؛ دوباره تلاش کنید.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
     except BadRequest as exc:
         if "not modified" not in str(exc).casefold():
             raise
@@ -545,11 +555,19 @@ async def _handle_srs_delete_no(
     else:
         keyboard = get_review_keyboard(user_id, word_id)
     try:
-        await context.bot.edit_message_reply_markup(
-            chat_id=update.effective_chat.id,
-            message_id=state.study_msg_id,
-            reply_markup=keyboard,
+        await send_pretty.edit_markup(
+            update.effective_chat.id,
+            state.study_msg_id,
+            keyboard,
+            bot=context.bot,
         )
+    except (TimedOut, NetworkError, RetryAfter):
+        logger.warning("srs delete-cancel edit failed user_id=%s", user_id)
+        await notify_callback(
+            update.callback_query, "اتصال برقرار نشد؛ دوباره تلاش کنید.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
     except BadRequest as exc:
         if "not modified" not in str(exc).casefold():
             raise

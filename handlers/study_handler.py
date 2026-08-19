@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from telegram import Update
-from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
@@ -197,9 +196,11 @@ async def _reply_or_answer(
     if update.message is not None:
         await update.message.reply_text(text)
         return
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=text,
+    await send_pretty.send(
+        update.effective_chat.id,
+        text,
+        bot=context.bot,
+        raw=send_pretty.RawFormat.PLAIN,
     )
 
 
@@ -332,10 +333,11 @@ async def _resume_existing_session(
         # the message was already deleted/lost, this fails harmlessly.
         if state.study_msg_id:
             try:
-                await context.bot.edit_message_reply_markup(
-                    chat_id=update.effective_chat.id,
-                    message_id=state.study_msg_id,
-                    reply_markup=study_inactive_keyboard(),
+                await send_pretty.edit_markup(
+                    update.effective_chat.id,
+                    state.study_msg_id,
+                    study_inactive_keyboard(),
+                    bot=context.bot,
                 )
             except BadRequest:
                 # Stale message already gone — nothing to inactivate.
@@ -351,11 +353,12 @@ async def _resume_existing_session(
 
         # Always send a fresh, active card so the user can continue even if
         # the original card message was deleted or lost.
-        msg = await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=text,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.MARKDOWN_V2,
+        msg = await send_pretty.send(
+            update.effective_chat.id,
+            text,
+            bot=context.bot,
+            raw=send_pretty.RawFormat.MDV2,
+            keyboard=keyboard,
         )
         state.study_msg_id = msg.message_id
         _persist_session(user_id, state)
@@ -381,11 +384,12 @@ async def _render_and_send_first_card(
     text, keyboard = _build_card_text_and_keyboard(
         node, state, user_id, user_data=context.user_data,
     )
-    msg = await context.bot.send_message(
-        chat_id=chat_id,
-        text=text,
-        reply_markup=keyboard,
-        parse_mode=ParseMode.MARKDOWN_V2,
+    msg = await send_pretty.send(
+        chat_id,
+        text,
+        bot=context.bot,
+        raw=send_pretty.RawFormat.MDV2,
+        keyboard=keyboard,
     )
     state.study_msg_id = msg.message_id
 
@@ -592,12 +596,13 @@ async def advance_session(
             text, keyboard = _build_card_text_and_keyboard(
                 node, state, user_id, user_data=context.user_data,
             )
-            await context.bot.edit_message_text(
-                text=text,
-                chat_id=chat_id,
-                message_id=state.study_msg_id,
-                reply_markup=keyboard,
-                parse_mode=ParseMode.MARKDOWN_V2,
+            await send_pretty.edit(
+                chat_id,
+                state.study_msg_id,
+                text,
+                bot=context.bot,
+                raw=send_pretty.RawFormat.MDV2,
+                keyboard=keyboard,
             )
             _persist_session(user_id, state)
             return
@@ -613,12 +618,13 @@ async def advance_session(
                 text, keyboard = _build_card_text_and_keyboard(
                     tier3_node, state, user_id, user_data=context.user_data,
                 )
-                await context.bot.edit_message_text(
-                    text=text,
-                    chat_id=chat_id,
-                    message_id=state.study_msg_id,
-                    reply_markup=keyboard,
-                    parse_mode=ParseMode.MARKDOWN_V2,
+                await send_pretty.edit(
+                    chat_id,
+                    state.study_msg_id,
+                    text,
+                    bot=context.bot,
+                    raw=send_pretty.RawFormat.MDV2,
+                    keyboard=keyboard,
                 )
                 _persist_session(user_id, state)
                 return
@@ -668,22 +674,24 @@ async def advance_session(
                 text = f"*{completion}*"
                 keyboard = None
 
-        await context.bot.edit_message_text(
-            text=text,
-            chat_id=chat_id,
-            message_id=state.study_msg_id,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.MARKDOWN_V2,
+        await send_pretty.edit(
+            chat_id,
+            state.study_msg_id,
+            text,
+            bot=context.bot,
+            raw=send_pretty.RawFormat.MDV2,
+            keyboard=keyboard,
         )
 
     except Exception:
         logger.exception("advance_session failed user_id=%s chat_id=%s", user_id, chat_id)
         try:
             error_msg = escape_mdv2("خطا در بارگذاری کارت بعدی — لطفاً جلسه‌ی مطالعه را دوباره شروع کنید")
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"*{error_msg}*",
-                parse_mode=ParseMode.MARKDOWN_V2,
+            await send_pretty.send(
+                chat_id,
+                f"*{error_msg}*",
+                bot=context.bot,
+                raw=send_pretty.RawFormat.MDV2,
             )
         except Exception:
             logger.exception("advance_session error fallback also failed")
