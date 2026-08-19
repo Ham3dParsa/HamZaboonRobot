@@ -79,7 +79,9 @@ def set_maintenance_mode(active: bool):
 
 
 def get_maintenance_message() -> str:
-    return get_setting(_MAINTENANCE_MESSAGE_KEY, DEFAULT_MAINTENANCE_MESSAGE)
+    """Return the editable maintenance message, falling back to the canonical
+    default when unset or explicitly cleared."""
+    return get_setting(_MAINTENANCE_MESSAGE_KEY, DEFAULT_MAINTENANCE_MESSAGE) or DEFAULT_MAINTENANCE_MESSAGE
 
 
 def set_maintenance_message(message: str):

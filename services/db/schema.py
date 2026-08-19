@@ -244,7 +244,10 @@ def get_conn(path: str | None = None):
         _active_db_path = path
     _check_test_mode_guard(_active_db_path)
     with _DB_GATE.shared():
-        conn = sqlite3.connect(_active_db_path, timeout=_DB_BUSY_TIMEOUT)
+        # sqlite3.connect(timeout=...) is in SECONDS; busy_timeout PRAGMA is in
+        # MILLISECONDS. Keep both at _DB_BUSY_TIMEOUT (5000 ms == 5 s) so they
+        # agree and a busy write never hangs far beyond the intended wait.
+        conn = sqlite3.connect(_active_db_path, timeout=_DB_BUSY_TIMEOUT / 1000)
         # WAL lets readers and writers proceed concurrently; busy_timeout makes
         # a contending writer wait instead of failing with "database is locked".
         conn.execute("PRAGMA journal_mode=WAL")
