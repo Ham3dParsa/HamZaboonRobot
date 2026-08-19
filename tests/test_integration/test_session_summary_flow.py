@@ -33,6 +33,7 @@ from handlers.study_handler import (
     SessionState,
     _gather_word_records,
     _handle_session_summary_callback,
+    _to_app_tz_date,
     advance_session,
 )
 from services.session import SessionNode
@@ -157,6 +158,17 @@ class SessionSummaryFlowTests(unittest.TestCase):
         )
         self.assertEqual(_gather_word_records(state, 1), [])
 
+    def test_to_app_tz_date_uses_app_timezone(self):
+        # A UTC timestamp near local midnight must map to the app-tz day, not the
+        # raw UTC day (Kilo date-boundary finding). 22:30Z in Asia/Tehran (UTC+3:30)
+        # is 02:00 the next local day.
+        self.assertEqual(_to_app_tz_date("2026-08-19T22:30:00Z"), "2026-08-20")
+        self.assertEqual(_to_app_tz_date("2026-08-20T10:00:00Z"), "2026-08-20")
+        # Naive timestamps must be treated as UTC, not system-local (Kilo suggestion).
+        self.assertEqual(_to_app_tz_date("2026-08-19T22:30:00"), "2026-08-20")
+        self.assertIsNone(_to_app_tz_date(None))
+        self.assertIsNone(_to_app_tz_date("not-a-date"))
+
     # ------------------------------------------------------------------
     # Completion render (R4 / R6)
     # ------------------------------------------------------------------
@@ -177,8 +189,8 @@ class SessionSummaryFlowTests(unittest.TestCase):
         )
         asyncio.run(advance_session(self._update(), ctx))
         text = ctx.bot.edit_message_text.call_args.kwargs["text"]
-        self.assertIn("گزارش جلسه مطالعه", text)
-        self.assertIn("واژه جدید یاد گرفتی", text)
+        self.assertIn("گزارش نشست مطالعه", text)
+        self.assertIn("واژه تازه یاد گرفتی", text)
         # Detail button present on the summary.
         self.assertIsNotNone(ctx.bot.edit_message_text.call_args.kwargs.get("reply_markup"))
         # Ephemeral report stashed for the detail callbacks (R7).
@@ -191,7 +203,7 @@ class SessionSummaryFlowTests(unittest.TestCase):
         asyncio.run(advance_session(self._update(), ctx))
         text = ctx.bot.edit_message_text.call_args.kwargs["text"]
         self.assertIn("جلسه مطالعه تموم شد", text)
-        self.assertNotIn("گزارش جلسه مطالعه", text)
+        self.assertNotIn("گزارش نشست مطالعه", text)
         self.assertNotIn("session_summary", ctx.user_data)
         self.assertIsNone(ctx.bot.edit_message_text.call_args.kwargs.get("reply_markup"))
 
@@ -218,7 +230,7 @@ class SessionSummaryFlowTests(unittest.TestCase):
         with patch.object(study_handler, "is_owner", return_value=True):
             asyncio.run(advance_session(self._update(), ctx))
         text = ctx.bot.edit_message_text.call_args.kwargs["text"]
-        self.assertIn("گزارش جلسه مطالعه", text)
+        self.assertIn("گزارش نشست مطالعه", text)
         self.assertIn("میانگین تغییر پایداری", text)
         self.assertIn("session_summary", ctx.user_data)
 
@@ -229,7 +241,7 @@ class SessionSummaryFlowTests(unittest.TestCase):
         ctx.user_data["current_session"] = self._completing_state([], "silver")
         asyncio.run(advance_session(self._update(), ctx))
         text = ctx.bot.edit_message_text.call_args.kwargs["text"]
-        self.assertIn("گزارش جلسه مطالعه", text)
+        self.assertIn("گزارش نشست مطالعه", text)
         self.assertIsNone(ctx.bot.edit_message_text.call_args.kwargs.get("reply_markup"))
         self.assertIn("session_summary", ctx.user_data)
 
@@ -290,7 +302,7 @@ class SessionSummaryFlowTests(unittest.TestCase):
             # back to summary (payload NOT popped; detail stays live)
             asyncio.run(_handle_session_summary_callback(u, ctx, f"back:{nonce}"))
             text = q.edit_message_text.call_args.args[0]
-            self.assertIn("گزارش جلسه مطالعه", text)
+            self.assertIn("گزارش نشست مطالعه", text)
             # after back the payload remains, so detail still works
             asyncio.run(_handle_session_summary_callback(u, ctx, f"detail:{nonce}"))
             text = q.edit_message_text.call_args.args[0]
@@ -312,8 +324,10 @@ class SessionSummaryFlowTests(unittest.TestCase):
         with patch.object(study_handler, "notify_callback", new_callable=AsyncMock):
             asyncio.run(_handle_session_summary_callback(u, ctx, f"detail:{nonce}"))
         text = q.edit_message_text.call_args.args[0]
+        # Admin-only diagnostics grouped and marked — raw numbers appear only here
         self.assertIn("سختی", text)
         self.assertIn("Δ", text)  # before->after stability delta (admin-only)
+        self.assertIn("(فقط ادمین:", text)
 
     def test_stale_nonce_rejected_gracefully(self):
         # A button from an OLDER report (mismatched nonce) is rejected with an
@@ -356,10 +370,11 @@ class SessionSummaryFlowTests(unittest.TestCase):
 
 
     def test_detail_page_renders_with_single_escape(self):
-        # Regression: dates/deltas with '-' must be escaped exactly once. A double
-        # backslash (the old bug) makes Telegram parse '\\' as a literal and then
-        # read a bare '-', raising "Can't parse entities: character '-' is
-        # reserved". Use an admin record with a negative delta + a dated review.
+        # Regression (double-escape crash): the word hyphen is escaped exactly
+        # once. Dates no longer render as raw ISO in the learner view (Jalali
+        # relative dates), so the double-backslash signature can only surface on
+        # the word itself; the admin Δ uses Persian digits too. Assert single
+        # escaping and no double-backslash anywhere.
         rec = WordReviewRecord(
             word_id=1, word="well-being", activity_type="first_exposure",
             stability_before=5.0, stability_after=3.8,
@@ -369,11 +384,11 @@ class SessionSummaryFlowTests(unittest.TestCase):
         rendered = format_session_detail_page(
             [rec], 0, 1, is_admin=True
         ).render(Backend.MDV2)
-        # Single-escaped dash in the date '2026-08-20' -> '2026\-08\-20'.
-        self.assertIn("\\-08", rendered)
-        # No double-backslash escape (the crash signature).
-        self.assertNotIn("\\\\-08", rendered)
-        # The negative delta is also rendered once: 'Δ\-۱\.۲'.
+        # Single-escaped dash in the word 'well-being' -> 'well\-being'.
+        self.assertIn("well\\-being", rendered)
+        # No double-backslash escape anywhere (the crash signature).
+        self.assertNotIn("\\\\-", rendered)
+        # The admin Δ delta is still present.
         self.assertIn("Δ", rendered)
 
     def test_not_modified_callback_acks_exactly_once(self):
@@ -402,6 +417,45 @@ class SessionSummaryFlowTests(unittest.TestCase):
             asyncio.run(_handle_session_summary_callback(u, ctx, f"detail:{nonce}"))
         say_notify.assert_called_once()
         handler_notify.assert_not_awaited()
+
+    def test_legend_flow_opens_and_back_returns_to_page(self):
+        # R8: legend button on every detail page; it edits in place to the legend
+        # and its back button returns to the exact page it was opened from.
+        report = self._stash([0, 1, 2, 3, 4, 5, 6, 7, 8])  # 9 words -> 2 pages
+        ctx = self._ctx()
+        nonce = "n4"
+        ctx.user_data["session_summary"] = {
+            "report": report, "is_admin": False, "nonce": nonce,
+        }
+        q = MagicMock()
+        q.answer = AsyncMock()
+        q.edit_message_text = AsyncMock()
+        q.message.message_id = 5
+        u = self._update()
+        u.callback_query = q
+        with patch.object(study_handler, "notify_callback", new_callable=AsyncMock):
+            # open page 2
+            asyncio.run(_handle_session_summary_callback(u, ctx, f"page:1:{nonce}"))
+            text = q.edit_message_text.call_args.args[0]
+            self.assertIn("صفحه ۲ از ۲", text)
+            # open the legend from page 2 -> legend content replaces the message
+            asyncio.run(_handle_session_summary_callback(u, ctx, f"legend:1:{nonce}"))
+            text = q.edit_message_text.call_args.args[0]
+            self.assertIn("راهنمای نمادها", text)
+            self.assertNotIn("صفحه ۲ از ۲", text)
+            # back (via the page route) returns to the exact page 2
+            asyncio.run(_handle_session_summary_callback(u, ctx, f"page:1:{nonce}"))
+            text = q.edit_message_text.call_args.args[0]
+            self.assertIn("صفحه ۲ از ۲", text)
+
+    def test_legend_button_on_every_detail_page(self):
+        # R8: the legend button is emitted on every page of the detail keyboard.
+        from config.keyboards import session_summary_detail_keyboard
+
+        for page, total in ((0, 2), (1, 2)):
+            kb = session_summary_detail_keyboard(page, total, "nonce")
+            data = {btn.callback_data for row in kb.inline_keyboard for btn in row}
+            self.assertIn(f"session:summary:legend:{page}:nonce", data)
 
 if __name__ == "__main__":
     unittest.main()

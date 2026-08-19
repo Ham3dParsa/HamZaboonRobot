@@ -313,7 +313,7 @@ class WordQueryDuplicateFlowTests(unittest.TestCase):
             self._run_cb(f"query:dup:reuse:{token}", ctx)
         labels = self._markup_labels(ctx)
         self.assertTrue(
-            any("حذف از جعبه مرور" in l for l in labels),
+            any("حذف از نشست‌های مطالعه" in l for l in labels),
             "reused saved card must render the remove button, got %r" % labels,
         )
 

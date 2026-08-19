@@ -636,6 +636,13 @@ class TestCallbackWiring(unittest.TestCase):
         bot_text = Path("bot.py").read_text(encoding="utf-8")
         self.assertIn('data.startswith("session:summary:")', bot_text)
 
+        # R8 legend action: emitted by the detail keyboard and handled inside the
+        # existing session:summary handler (no separate router branch needed).
+        handler_text = Path("handlers/study_handler.py").read_text(encoding="utf-8")
+        keyboards_text = Path("config/keyboards.py").read_text(encoding="utf-8")
+        self.assertIn('session:summary:legend:{page_index}:{nonce}', keyboards_text)
+        self.assertIn('base == "legend"', handler_text)
+
     # ------------------------------------------------------------------
     # Reverse direction: routes and imports must resolve to real symbols.
     # ------------------------------------------------------------------

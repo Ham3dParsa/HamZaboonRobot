@@ -280,7 +280,7 @@ class QueryAddToggleFlowTests(unittest.TestCase):
         )
         saved_markup = update.effective_message.edit_reply_markup.call_args.kwargs["reply_markup"]
         saved_calls = [b.callback_data for r in saved_markup.inline_keyboard for b in r]
-        self.assertIn("حذف از جعبه مرور", saved_markup.inline_keyboard[0][0].text)
+        self.assertIn("حذف از نشست‌های مطالعه", saved_markup.inline_keyboard[0][0].text)
         self.assertIsNotNone(
             db.get_query_result(self.token, user_id=1)["saved_at"],
             "save sets the saved marker",
@@ -303,7 +303,7 @@ class QueryAddToggleFlowTests(unittest.TestCase):
             "از جعبه مرور حذف شد!",
         )
         removed_markup = update.effective_message.edit_reply_markup.call_args.kwargs["reply_markup"]
-        self.assertIn("ذخیره در جعبه مرور", removed_markup.inline_keyboard[0][0].text)
+        self.assertIn("ذخیره برای مطالعه", removed_markup.inline_keyboard[0][0].text)
         self.assertIsNone(
             db.get_query_result(self.token, user_id=1)["saved_at"],
             "removal clears the saved marker",

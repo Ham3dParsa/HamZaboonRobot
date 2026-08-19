@@ -10,7 +10,7 @@ import json
 import logging
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from telegram import Update
@@ -19,6 +19,7 @@ from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from config import (
+    APP_TZ,
     OWNER_BYPASS_LIMITS,
     cards_per_session_for_plan,
     is_owner,
@@ -29,6 +30,7 @@ from config.keyboards import (
     get_srs_front_keyboard,
     session_summary_detail_keyboard,
     session_summary_keyboard,
+    session_summary_legend_keyboard,
     study_inactive_keyboard,
 )
 from config.plan_identity import has_feature
@@ -49,6 +51,7 @@ from services.utils.formatting import (
     format_review_badge,
     format_session_detail_page,
     format_session_summary,
+    format_summary_legend,
     format_srs_back_stage,
     format_srs_front_stage,
     select_srs_prompt_type,
@@ -702,6 +705,25 @@ def _parse_iso_utc(value: str):
     return datetime.fromisoformat(value)
 
 
+def _to_app_tz_date(iso_utc: str | None) -> str | None:
+    """Convert a stored UTC ISO timestamp to the app-tz ``YYYY-MM-DD`` date.
+
+    Summary relative-date labels compare against the app day, so the per-word
+    ``prior``/``next`` dates must be app-tz dates too — otherwise the labels
+    flip a day off near local midnight. Returns None for a missing/unparseable
+    timestamp.
+    """
+    if not iso_utc:
+        return None
+    try:
+        dt = _parse_iso_utc(iso_utc)
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(APP_TZ).date().isoformat()
+
+
 def _interval_days(word_row) -> float | None:
     """Scheduled interval in days from next_review_at back to last_review_at.
 
@@ -757,12 +779,12 @@ def _gather_word_records(
                 stability_after=(
                     wr["stability"] if wr["stability"] is not None else None
                 ),
-                prior_review_date=(prior["created_at"][:10] if prior else None),
+                prior_review_date=_to_app_tz_date(
+                    prior["created_at"] if prior else None
+                ),
                 grade=current["grade"] if current else None,
                 interval_days=_interval_days(wr),
-                next_review_date=(
-                    wr["next_review_at"][:10] if wr["next_review_at"] else None
-                ),
+                next_review_date=_to_app_tz_date(wr["next_review_at"]),
                 difficulty=(
                     wr["difficulty"] if wr["difficulty"] is not None else None
                 ),
@@ -841,6 +863,17 @@ async def _handle_session_summary_callback(
             page, page_index, total_pages, is_admin=is_admin
         )
         keyboard = session_summary_detail_keyboard(page_index, total_pages, nonce)
+    elif base == "legend" or base.startswith("legend:"):
+        # R8: the legend button on a detail page edits the message in place to
+        # the symbol guide; its back button returns to the exact page.
+        try:
+            page_index = int(base.split(":", 1)[1])
+        except (ValueError, IndexError):
+            page_index = 0
+        if total_pages:
+            page_index = max(0, min(page_index, total_pages - 1))
+        message = format_summary_legend()
+        keyboard = session_summary_legend_keyboard(page_index, nonce)
     else:
         await notify_callback(update.callback_query)
         return
