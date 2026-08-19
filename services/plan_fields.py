@@ -115,7 +115,7 @@ def write_default(name: str):
     return plan_field(name)["write_default"]
 
 
-def validate_value(name: str, raw) -> object | None:
+def validate_value(name: str, raw: str) -> object | None:
     """Parse and validate a wizard input for a field. Returns the value, or
     None on invalid/empty input.
 
@@ -167,6 +167,12 @@ def build_upsert_kwargs(plan: Mapping, values: Mapping) -> dict:
     kwargs["sort_order"] = plan.get("sort_order", 0)
     kwargs["is_active"] = plan.get("is_active", 1)
     return kwargs
+
+
+# Fail fast on import: any malformed registry entry (missing write_default,
+# bad type, missing Persian label, or an unknown group) is caught the moment
+# the module loads, not when the wizard renders a field.
+validate_plan_fields()
 
 
 __all__ = [
