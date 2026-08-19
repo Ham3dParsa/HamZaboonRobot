@@ -39,7 +39,7 @@ IBTN_DETAILED = "کامل"
 IBTN_SRS_AGAIN_REVIEW = "یادم نیامد ⭕"
 IBTN_SRS_HARD_REVIEW = "به سختی یادم اومد 🟡"
 IBTN_SRS_GOOD_REVIEW = "خوب بود 🟢"
-IBTN_SRS_EASY_REVIEW = "خیلی راحت بود 🟣"
+IBTN_SRS_EASY_REVIEW = "خیلی آسون 🟣"
 
 # --- SRS 4-Grade (First-Exposure: familiarity-based) ---
 IBTN_SRS_AGAIN_FE = "کاملاً ناآشناام 🟥"
@@ -52,14 +52,14 @@ IBTN_SRS_DELETE_CONFIRM = "✅ بله، حذف شود"
 IBTN_SRS_DELETE_CANCEL = "❌ انصراف"
 
 # --- Query / Word Lookup ---
-IBTN_ADD_TO_REVIEW = "ذخیره در جعبه مرور"
-IBTN_REMOVE_FROM_REVIEW = "حذف از جعبه مرور"
+IBTN_ADD_TO_REVIEW = "ذخیره برای مطالعه"
+IBTN_REMOVE_FROM_REVIEW = "حذف از نشست‌های مطالعه"
 IBTN_QUERY_DUP_NEW = "درخواست جدید (مصرف سهمیه)"
-IBTN_QUERY_DUP_REUSE = "بازیابی کارت قبلی"
+IBTN_QUERY_DUP_REUSE = "بازیابی کارت پیشین (رایگان)"
 IBTN_QUERY_DUP_CANCEL = "انصراف / بازگشت به منو"
 
 # --- Pronunciation ---
-IBTN_PRONOUNCE = "🔊 تلفظ"
+IBTN_PRONOUNCE = "🔊 شیدن واژه"
 
 # --- Admin – General ---
 IBTN_ADMIN_AI = "🤖 تنظیمات AI"
