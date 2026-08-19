@@ -447,9 +447,9 @@ async def _resolve_delete_context(
     return user_id, word_id, state, node
 
 
-# Tier-3 is appended here when Tier-3 generation (generate_tier3_node) lands;
-# for now only tier-1 due and tier-2 pre-first-exposure are refillable.
-_REFILL_TIER_PRIORITY = (1, 2)
+# Tier-3 generation (generate_tier3_node) is not yet live; the refill search in
+# _next_due_node covers tier-1 due and tier-2 pre-first-exposure only, and is
+# where a future tier-3 source would be appended.
 
 
 def _next_due_node(
@@ -458,29 +458,28 @@ def _next_due_node(
     """Return the highest-priority not-yet-in-session due card, or None.
 
     Refill priority (owner decision, Kilo review #406): tier 1 (due review)
-    first, then tier 2 (first exposure); tier 3 reserved for the future.
+    first, then tier 2 (first exposure). A future tier-3 source is appended
+    to this search when Tier-3 generation (generate_tier3_node) lands.
     """
     session_ids = {n.source_id for n in state.nodes if n.source_id is not None}
-    for tier in _REFILL_TIER_PRIORITY:
-        if tier == 1:
-            rows = db.due_words_for_user(user_id, target_lang) or []
-            activity_type, source_tier, grade_policy = "srs_review", 1, "srs_review"
-        elif tier == 2:
-            rows = db.get_pre_first_exposure_words(user_id, target_lang) or []
-            activity_type, source_tier, grade_policy = "first_exposure", 2, "first_exposure"
-        else:
-            continue
-        for row in rows:
-            if row["id"] in session_ids:
-                continue
-            return SessionNode(
-                activity_type=activity_type,
-                source_tier=source_tier,
-                card_data={"word": row["word"]},
-                source_id=row["id"],
-                activity_meta={"user_id": user_id, "target_lang": target_lang},
-                grade_policy_ref=grade_policy,
-            )
+
+    def _candidates():
+        for row in (db.due_words_for_user(user_id, target_lang) or []):
+            if row["id"] not in session_ids:
+                yield row, "srs_review", 1, "srs_review"
+        for row in (db.get_pre_first_exposure_words(user_id, target_lang) or []):
+            if row["id"] not in session_ids:
+                yield row, "first_exposure", 2, "first_exposure"
+
+    for row, activity_type, source_tier, grade_policy in _candidates():
+        return SessionNode(
+            activity_type=activity_type,
+            source_tier=source_tier,
+            card_data={"word": row["word"]},
+            source_id=row["id"],
+            activity_meta={"user_id": user_id, "target_lang": target_lang},
+            grade_policy_ref=grade_policy,
+        )
     return None
 
 

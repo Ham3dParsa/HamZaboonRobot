@@ -266,7 +266,7 @@ def delete_saved_word(word_id: int, user_id: int) -> bool:
             (word_id, user_id),
         )
         conn.execute(
-            "UPDATE query_results SET saved_word_id=NULL "
+            "UPDATE query_results SET saved_word_id=NULL, saved_at=NULL "
             "WHERE saved_word_id=? AND user_id=?",
             (word_id, user_id),
         )

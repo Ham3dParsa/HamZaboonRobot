@@ -89,16 +89,18 @@ class SrsDeleteDbTests(unittest.TestCase):
                  "2026-01-01", self.word_id),
             )
         with db.get_conn() as conn:
-            pointer = conn.execute(
-                "SELECT saved_word_id FROM query_results WHERE token='tok'"
-            ).fetchone()["saved_word_id"]
-        self.assertEqual(pointer, self.word_id)
+            row = conn.execute(
+                "SELECT saved_word_id, saved_at FROM query_results WHERE token='tok'"
+            ).fetchone()
+        self.assertEqual(row["saved_word_id"], self.word_id)
+        self.assertIsNotNone(row["saved_at"])
         self.assertTrue(db.delete_saved_word(self.word_id, 1))
         with db.get_conn() as conn:
-            pointer = conn.execute(
-                "SELECT saved_word_id FROM query_results WHERE token='tok'"
-            ).fetchone()["saved_word_id"]
-        self.assertIsNone(pointer)
+            row = conn.execute(
+                "SELECT saved_word_id, saved_at FROM query_results WHERE token='tok'"
+            ).fetchone()
+        self.assertIsNone(row["saved_word_id"])
+        self.assertIsNone(row["saved_at"])
 
 
 class SrsDeleteKeyboardTests(unittest.TestCase):
