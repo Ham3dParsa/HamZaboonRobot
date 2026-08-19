@@ -79,6 +79,7 @@ not in prose.
 - `services/`: domains.
   - `services/fsrs_core.py`: pure FSRS-6 engine (no side effects).
   - `services/word_query.py`: pure custom-word query orchestration (`ask`, `toggle_save`); no Telegram imports.
+  - `services/activity_log.py`: single owner of the `USER_ACTIVITY` diagnostic log (`log_user_activity`); consolidates the former logging blocks in `handlers/user.py` and `handlers/srs_handler.py`.
   - `services/db/`: SQLite schema/migrations/persistence/quota. `__init__.py` thin re-export façade; `schema.py` owns schema/migrations; `plans.py` seeds+CRUDs plans; `settings.py` settings accessors; `cost_tracking.py` LLM cost; `preset_registry.py` AI preset/fallback/hourly-usage; `display_toggles.py` display-toggle state + precedence; `key_crypto.py` key encryption (fail-closed).
   - `services/ai/`: OpenAI-compatible client, JSON extraction, validation, prompts, generation, presets. `preset_fields.py` owns canonical AI-preset field schema.
   - `services/utils/`: `callback_notifications.py`, `formatting.py` (escaping), `helpers.py` (retry/cancel), `validation.py`.

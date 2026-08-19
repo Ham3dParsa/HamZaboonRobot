@@ -8,9 +8,8 @@ from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
 from services import db, send_pretty
 from services import word_query
-from config import USER_ACTIVITY
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
-from services.utils.helpers import _user_activity_line
+from services.activity_log import log_user_activity
 from services.session import resolve_grade, SessionNode
 from services.routing import register
 from services.utils.formatting import (
@@ -58,26 +57,9 @@ def _record_event_guarded(*args, **kwargs):
         logger.exception("record_review_event failed word_id=%s user_id=%s", kwargs.get("word_id"), kwargs.get("user_id"))
 
 
-def _log_ua(update: Update, action: str, outcome: str):
-    user = update.effective_user
-    if not user:
-        return
-    row = db.get_user(user.id) if user else None
-    line = _user_activity_line(
-        user_id=user.id, full_name=user.full_name, username=user.username,
-        action=action, outcome=outcome,
-        plan=row["plan"] if row else None,
-        lang=row["target_lang"] if row else None,
-        goal=row["goal"] if row else None,
-        level=row["level"] if row else None,
-    )
-    if line:
-        logger.log(USER_ACTIVITY, "%s", line)
-
-
 async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str):
     user_id = update.effective_user.id
-    _log_ua(update, action="query_add", outcome="started")
+    log_user_activity(update, action="query_add", outcome="started")
     result = await word_query.toggle_save(token, user_id)
     if result.kind == "expired":
         await notify_callback(update.callback_query, "این نتیجه منقضی شده یا در دسترس نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
@@ -242,7 +224,7 @@ async def _handle_srs_review(
             # advance_session self-heals — it rolls back on a failed edit and
             # completes + renders the report when the last card was graded.
             context.user_data.pop(f"card_shown_at_{word_id}", None)
-            _log_ua(update, action="srs_review", outcome="grade_already_recorded")
+            log_user_activity(update, action="srs_review", outcome="grade_already_recorded")
             await notify_callback(
                 update.callback_query,
                 "قبلاً ثبت شد.",
@@ -272,7 +254,7 @@ async def _handle_srs_review(
             # ledger says this word was already graded in the current session.
             # Block the re-grade; there is no session left to advance.
             context.user_data.pop(f"card_shown_at_{word_id}", None)
-            _log_ua(update, action="srs_review", outcome="grade_already_recorded")
+            log_user_activity(update, action="srs_review", outcome="grade_already_recorded")
             await notify_callback(
                 update.callback_query,
                 "قبلاً ثبت شد.",
@@ -308,7 +290,7 @@ async def _handle_srs_review(
             format_next_review_text(result.interval_seconds),
             intent=CallbackNoticeIntent.SUCCESS,
         )
-        _log_ua(update, action="srs_review", outcome=f"grade_{grade}")
+        log_user_activity(update, action="srs_review", outcome=f"grade_{grade}")
         logger.info(
             "srs review user_id=%s word_id=%s grade=%s rt=%s",
             user_id,
@@ -362,7 +344,7 @@ async def _handle_first_exposure_grade(
             # stuck completion whose report edit failed). Never re-grade and
             # never soft-lock (R3, Bug #401): advance self-heals and completes.
             context.user_data.pop(f"card_shown_at_{word_id}", None)
-            _log_ua(update, action="first_exposure", outcome="grade_already_recorded")
+            log_user_activity(update, action="first_exposure", outcome="grade_already_recorded")
             await notify_callback(
                 update.callback_query,
                 "قبلاً ثبت شد.",
@@ -389,7 +371,7 @@ async def _handle_first_exposure_grade(
             # No session left but the durable ledger says this word was already
             # graded in the current session. Block the re-grade.
             context.user_data.pop(f"card_shown_at_{word_id}", None)
-            _log_ua(update, action="first_exposure", outcome="grade_already_recorded")
+            log_user_activity(update, action="first_exposure", outcome="grade_already_recorded")
             await notify_callback(
                 update.callback_query,
                 "قبلاً ثبت شد.",
@@ -423,7 +405,7 @@ async def _handle_first_exposure_grade(
             format_next_review_text(result.interval_seconds),
             intent=CallbackNoticeIntent.SUCCESS,
         )
-        _log_ua(update, action="first_exposure", outcome=f"grade_{grade}")
+        log_user_activity(update, action="first_exposure", outcome=f"grade_{grade}")
         await advance_session(update, context)
     else:
         await notify_callback(
@@ -581,7 +563,7 @@ async def _handle_srs_delete_yes(
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         return
-    _log_ua(update, action="srs_delete", outcome="deleted")
+    log_user_activity(update, action="srs_delete", outcome="deleted")
     message = "کارت حذف شد." if deleted else "این کارت قبلاً حذف شده بود."
     await notify_callback(
         update.callback_query, message, intent=CallbackNoticeIntent.SUCCESS,
