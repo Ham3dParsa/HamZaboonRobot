@@ -24,7 +24,9 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from services import db
+from telegram.error import BadRequest
+
+from services import db, send_pretty
 from services.db import schema as db_schema
 from handlers import study_handler
 from handlers.study_handler import (
@@ -34,8 +36,10 @@ from handlers.study_handler import (
     advance_session,
 )
 from services.session import SessionNode
-from services.session.summary import build_report
+from services.session.summary import WordReviewRecord, build_report
 from services.utils.callback_notifications import CallbackNoticeIntent
+from services.utils.formatting import format_session_detail_page
+from services.send_pretty import Backend
 
 
 class SessionSummaryFlowTests(unittest.TestCase):
@@ -267,28 +271,29 @@ class SessionSummaryFlowTests(unittest.TestCase):
 
         q = MagicMock()
         q.answer = AsyncMock()
+        q.edit_message_text = AsyncMock()
         q.message.message_id = 5
         u = self._update()
         u.callback_query = q
         with patch.object(study_handler, "notify_callback", new_callable=AsyncMock):
             # page 1 (index 0)
             asyncio.run(_handle_session_summary_callback(u, ctx, f"detail:{nonce}"))
-            text = ctx.bot.edit_message_text.call_args.kwargs["text"]
+            text = q.edit_message_text.call_args.args[0]
             self.assertIn("واژه‌ها — صفحه ۱ از ۲", text)
             self.assertIn("word0", text)
             # page 2 (index 1)
             asyncio.run(_handle_session_summary_callback(u, ctx, f"page:1:{nonce}"))
-            text = ctx.bot.edit_message_text.call_args.kwargs["text"]
+            text = q.edit_message_text.call_args.args[0]
             self.assertIn("واژه‌ها — صفحه ۲ از ۲", text)
             self.assertIn("word8", text)
             self.assertNotIn("word0", text)
             # back to summary (payload NOT popped; detail stays live)
             asyncio.run(_handle_session_summary_callback(u, ctx, f"back:{nonce}"))
-            text = ctx.bot.edit_message_text.call_args.kwargs["text"]
+            text = q.edit_message_text.call_args.args[0]
             self.assertIn("گزارش جلسه مطالعه", text)
             # after back the payload remains, so detail still works
             asyncio.run(_handle_session_summary_callback(u, ctx, f"detail:{nonce}"))
-            text = ctx.bot.edit_message_text.call_args.kwargs["text"]
+            text = q.edit_message_text.call_args.args[0]
             self.assertIn("واژه‌ها — صفحه ۱ از ۲", text)
 
     def test_detail_callback_admin_variant(self):
@@ -300,12 +305,13 @@ class SessionSummaryFlowTests(unittest.TestCase):
         }
         q = MagicMock()
         q.answer = AsyncMock()
+        q.edit_message_text = AsyncMock()
         q.message.message_id = 5
         u = self._update()
         u.callback_query = q
         with patch.object(study_handler, "notify_callback", new_callable=AsyncMock):
             asyncio.run(_handle_session_summary_callback(u, ctx, f"detail:{nonce}"))
-        text = ctx.bot.edit_message_text.call_args.kwargs["text"]
+        text = q.edit_message_text.call_args.args[0]
         self.assertIn("سختی", text)
         self.assertIn("Δ", text)  # before->after stability delta (admin-only)
 
@@ -348,6 +354,54 @@ class SessionSummaryFlowTests(unittest.TestCase):
         self.assertIn("منقضی", notify.call_args.args[1])
         ctx.bot.edit_message_text.assert_not_awaited()
 
+
+    def test_detail_page_renders_with_single_escape(self):
+        # Regression: dates/deltas with '-' must be escaped exactly once. A double
+        # backslash (the old bug) makes Telegram parse '\\' as a literal and then
+        # read a bare '-', raising "Can't parse entities: character '-' is
+        # reserved". Use an admin record with a negative delta + a dated review.
+        rec = WordReviewRecord(
+            word_id=1, word="well-being", activity_type="first_exposure",
+            stability_before=5.0, stability_after=3.8,
+            prior_review_date="2026-08-10", interval_days=4.0,
+            next_review_date="2026-08-20", difficulty=3.2, grade=3,
+        )
+        rendered = format_session_detail_page(
+            [rec], 0, 1, is_admin=True
+        ).render(Backend.MDV2)
+        # Single-escaped dash in the date '2026-08-20' -> '2026\-08\-20'.
+        self.assertIn("\\-08", rendered)
+        # No double-backslash escape (the crash signature).
+        self.assertNotIn("\\\\-08", rendered)
+        # The negative delta is also rendered once: 'Δ\-۱\.۲'.
+        self.assertIn("Δ", rendered)
+
+    def test_not_modified_callback_acks_exactly_once(self):
+        # Regression (reviewer finding): say() answers the callback on "message
+        # is not modified"; the handler must NOT answer again (which would be a
+        # double answer_callback_query).
+        report = self._stash([0])
+        ctx = self._ctx()
+        nonce = "n3"
+        ctx.user_data["session_summary"] = {
+            "report": report, "is_admin": False, "nonce": nonce,
+        }
+        q = MagicMock()
+        q.answer = AsyncMock()
+        q.edit_message_text = AsyncMock(
+            side_effect=BadRequest("Message is not modified")
+        )
+        q.message.message_id = 5
+        u = self._update()
+        u.callback_query = q
+        with patch.object(
+            study_handler, "notify_callback", new_callable=AsyncMock
+        ) as handler_notify, patch.object(
+            send_pretty, "notify_callback", new_callable=AsyncMock
+        ) as say_notify:
+            asyncio.run(_handle_session_summary_callback(u, ctx, f"detail:{nonce}"))
+        say_notify.assert_called_once()
+        handler_notify.assert_not_awaited()
 
 if __name__ == "__main__":
     unittest.main()
