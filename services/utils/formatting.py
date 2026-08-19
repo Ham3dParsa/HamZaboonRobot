@@ -471,6 +471,29 @@ def phonetic_lines(value: str | dict) -> list[str]:
     return []
 
 
+def format_grammar_tip(data: dict, usage_text: str):
+    """Build the learner-facing grammar-tip message as a ``send_pretty.Message``.
+
+    The single MDV2 render choke for the grammar-tip path (R6/F6): the AI-returned
+    field dict and the usage line arrive here raw, are placed into
+    ``Plain``/``Bold``/``Code`` spans, and are escaped exactly once by the
+    ``send_pretty`` renderer at delivery time. Handlers never call
+    ``escape_mdv2`` directly for this message, so a missed field cannot produce
+    a ``BadRequest`` ``can't parse entities`` failure.
+    """
+    from services.send_pretty import Message, bold, code, plain
+
+    msg = Message()
+    msg.add_line("✍️ ", bold(data.get("title", "")))
+    msg.add_line(plain(""))
+    msg.add_line(plain(data.get("explanation", "")))
+    msg.add_line(plain(""))
+    msg.add_line(code(data.get("example", "")))
+    msg.add_line(plain(""))
+    msg.add_line(plain(usage_text))
+    return msg
+
+
 # Single source of truth for the ask-word entry / re-prompt copy (issue #357).
 # The per-word cap is interpolated from the validator so the learner-facing
 # copy cannot drift from services/utils/validation._CUSTOM_WORD_MAX_WORDS.
