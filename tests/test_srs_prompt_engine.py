@@ -250,6 +250,18 @@ class FrontStageRenderingTests(unittest.TestCase):
         self.assertEqual(text.count("💡 راهنما: مترادف"), 2)
         self.assertEqual(text.count("💡 راهنما: متضاد"), 1)
 
+    def test_fill_blank_category_tracked_at_draw_not_membership(self):
+        """Kilo review #427: a value present in both categories is labeled by the
+        category it was drawn from, not by membership — otherwise the dominant/other
+        sense split mislabels it. Here 'dup' sits in both; it is drawn from the
+        antonym (other) category, so it must render as متضاد, not مترادف."""
+        card = _card(synonyms=["dup", "s1"], antonyms=["dup"])
+        text = fmt.format_srs_front_stage(
+            card, "fill_blank", toggles=ALL_TOGGLES_ON, rng=random.Random(1)
+        )
+        self.assertEqual(text.count("💡 راهنما: مترادف"), 2)
+        self.assertEqual(text.count("💡 راهنما: متضاد"), 1)
+
     def test_fill_blank_always_at_least_two_hints(self):
         """Issue #408 mitigation: eligible fill_blank cards always show >=2 hints."""
         for card in (

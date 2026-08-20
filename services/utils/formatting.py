@@ -226,12 +226,12 @@ def _fill_blank_hints(
         cards below the eligibility gate).
     """
     rng = rng or random
-    visible_syn = (
-        list(card_data.get("synonyms") or []) if toggles.get("synonyms") else []
-    )
-    visible_ant = (
-        list(card_data.get("antonyms") or []) if toggles.get("antonyms") else []
-    )
+    visible_syn = [
+        (item, True) for item in (card_data.get("synonyms") or []) if toggles.get("synonyms")
+    ]
+    visible_ant = [
+        (item, False) for item in (card_data.get("antonyms") or []) if toggles.get("antonyms")
+    ]
 
     three_hint = (len(visible_syn) >= 2 and len(visible_ant) >= 1) or (
         len(visible_ant) >= 2 and len(visible_syn) >= 1
@@ -241,17 +241,13 @@ def _fill_blank_hints(
             dominant, other = visible_ant, visible_syn
         else:
             dominant, other = visible_syn, visible_ant  # synonyms on tie
-        dominant_draw = rng.sample(dominant, 2)
-        other_draw = [rng.choice(other)]
-        return [
-            _hint_line(item, item in visible_syn)
-            for item in dominant_draw + other_draw
-        ]
+        drawn = rng.sample(dominant, 2) + [rng.choice(other)]
+        return [_hint_line(item, is_synonym) for item, is_synonym in drawn]
 
     combined = visible_syn + visible_ant
     if len(combined) >= 2:
         drawn = rng.sample(combined, 2)
-        return [_hint_line(item, item in visible_syn) for item in drawn]
+        return [_hint_line(item, is_synonym) for item, is_synonym in drawn]
 
     if card_data.get("fa_meaning"):
         return [SRS_HINT_MEANING.format(meaning=card_data["fa_meaning"])]
