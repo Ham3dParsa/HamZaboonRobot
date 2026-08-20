@@ -4,14 +4,51 @@ All notable changes to HamZaboon. Generated automatically from
 [Conventional Commits](https://www.conventionalcommits.org/) by
 [scripts/generate_changelog.py](scripts/generate_changelog.py). Do not edit by hand.
 
+### 2026-08-20
+#### Features
+- persist session reports with 3-day /reports reopen (R10) (#430) (`study`)
+  — @Ham3dParsa [db6b8ec](https://github.com/Ham3dParsa/HamZaboonRobot/commit/db6b8ec)
+
+#### Bug Fixes
+- escape '.' in /reports list for MarkdownV2 (`study`)
+  — @Ham3dParsa [3c7a67b](https://github.com/Ham3dParsa/HamZaboonRobot/commit/3c7a67b)
+- show >=2 sense-consistent fill-blank hints (issue #408) (#427) (`srs`)
+  — @Ham3dParsa [acb65e1](https://github.com/Ham3dParsa/HamZaboonRobot/commit/acb65e1)
+- make grade idempotent and self-heal session advance (#424) (`srs`)
+  — @Ham3dParsa [ea288be](https://github.com/Ham3dParsa/HamZaboonRobot/commit/ea288be)
+
+#### Refactoring
+- cache hot-path reads and batch usage in AI provider (#432) (`ai`)
+  — @Ham3dParsa [2e00071](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2e00071)
+- consolidate awaiting keyboards and keyboard ownership (RT-R5) (#431) (`routing`)
+  — @Ham3dParsa [264b095](https://github.com/Ham3dParsa/HamZaboonRobot/commit/264b095)
+- consolidate USER_ACTIVITY logging into services/activity_log (RT-R4) (#428) (`routing`)
+  — @Ham3dParsa [2ebd270](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2ebd270)
+- drive plan-manager wizard from plan_fields registry (G3) (#429) (`plans`)
+  — @Ham3dParsa [e759510](https://github.com/Ham3dParsa/HamZaboonRobot/commit/e759510)
+- split grace-deadline reset out of due_words_for_user (#425) (`db`)
+  — @Ham3dParsa [96dc0f6](https://github.com/Ham3dParsa/HamZaboonRobot/commit/96dc0f6)
+
+#### Documentation
+- mark session-report-persistence complete (R10, #430) (`plans`)
+  — @Ham3dParsa [d840b3f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/d840b3f)
+
+#### refactor/mdv2 render choke (#423)
+- refactor/mdv2 render choke (#423)
+  — @Ham3dParsa [9ad5787](https://github.com/Ham3dParsa/HamZaboonRobot/commit/9ad5787)
+
 ### 2026-08-19
 #### Features
+- redesign study-session summary and detail views (#413) (`session`)
+  — @Ham3dParsa [453cb8e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/453cb8e)
 - show session summary report after study session (#410) (`study`)
   — @Ham3dParsa [9c99914](https://github.com/Ham3dParsa/HamZaboonRobot/commit/9c99914)
 - add delete-card flow + first-exposure pronounce fix (#406) (`srs`)
   — @Ham3dParsa [7f16597](https://github.com/Ham3dParsa/HamZaboonRobot/commit/7f16597)
 
 #### Bug Fixes
+- address kilo review on maintenance gate follow-ups (A2-1) (#422) (`db`)
+  — @Ham3dParsa [1f0e317](https://github.com/Ham3dParsa/HamZaboonRobot/commit/1f0e317)
 - route session summary through send_pretty to avoid double-escape (#411) (`study`)
   — @Ham3dParsa [2954bde](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2954bde)
 - address Kilo review on delete-card PR #406 (#409) (`srs`)
@@ -22,6 +59,8 @@ All notable changes to HamZaboon. Generated automatically from
   — @Ham3dParsa [3ece608](https://github.com/Ham3dParsa/HamZaboonRobot/commit/3ece608)
 
 #### Refactoring
+- route handler outbound calls through send_pretty seam (#414) (`routing`)
+  — @Ham3dParsa [6a0cfc6](https://github.com/Ham3dParsa/HamZaboonRobot/commit/6a0cfc6)
 - always-on audio pronunciation, remove tts_access and IPA toggles (#390) (#405) (`tts`)
   — @Ham3dParsa [d60c628](https://github.com/Ham3dParsa/HamZaboonRobot/commit/d60c628)
 
@@ -30,14 +69,22 @@ All notable changes to HamZaboon. Generated automatically from
   — @Ham3dParsa [2142e36](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2142e36)
 
 #### Chores
-- add date-grouped timeline with authors and commit links (`changelog`)
-  — @Ham3dParsa [8e9fcdc](https://github.com/Ham3dParsa/HamZaboonRobot/commit/8e9fcdc)
+- add date-grouped timeline with authors and commit links (#412) (`changelog`)
+  — @Ham3dParsa [252b400](https://github.com/Ham3dParsa/HamZaboonRobot/commit/252b400)
 - persist send_pretty research sandbox under tools/ (research copy) (#404) (`tools`)
   — @Ham3dParsa [e4ce6e3](https://github.com/Ham3dParsa/HamZaboonRobot/commit/e4ce6e3)
 
 #### Other
 - bronze wasn't a premium plan, fixed it.
   — @Ham3dParsa [6305c18](https://github.com/Ham3dParsa/HamZaboonRobot/commit/6305c18)
+
+#### refactor/db concurrency (#415)
+- refactor/db concurrency (#415)
+  — @Ham3dParsa [cfcd0fb](https://github.com/Ham3dParsa/HamZaboonRobot/commit/cfcd0fb)
+
+#### feat/Keyboards are now concise and unambiguos
+- feat/Keyboards are now concise and unambiguos
+  — @Ham3dParsa [5895a9e](https://github.com/Ham3dParsa/HamZaboonRobot/commit/5895a9e)
 
 ### 2026-08-18
 #### Refactoring
