@@ -3,7 +3,7 @@ import threading
 import time
 from collections import deque
 
-from services.ai import ai, preset_fields
+from services.ai import ai, ai_read_cache, preset_fields
 from services import db
 from services.utils.formatting import CardPreparationError
 
@@ -135,22 +135,29 @@ def _preset_in_backoff(limiter: dict, now: float | None = None) -> bool:
     return bool(limiter["backoff_until"]) and now < limiter["backoff_until"]
 
 
-def _is_daily_exhausted(preset: dict) -> bool:
+def _is_daily_exhausted(preset: dict, usage_map: dict[str, tuple[int, int]] | None = None) -> bool:
     """Check if a preset has reached its 24h request cap (RPD, owner-fixed scope).
 
     Counts only successful provider calls (usage is recorded only on success),
     prunes rows older than the 24h window first so stale data can't wrongly hold
     the cap open or closed, and performs the read + cap decision atomically.
+
+    ``usage_map`` is the batched result of ``get_hourly_usage_many`` computed
+    once per AI call (BOT-3); when absent it falls back to the single-preset
+    read so standalone callers keep working unchanged.
     """
     max_daily = preset_fields.resolve(preset, "max_daily_req")
     if max_daily <= 0:
         return False
     _maybe_prune_hourly_usage()
-    req_count, _ = db.get_hourly_usage(preset["name"], hours_back=24)
+    if usage_map is not None:
+        req_count = usage_map.get(preset["name"], (0, 0))[0]
+    else:
+        req_count, _ = db.get_hourly_usage(preset["name"], hours_back=24)
     return req_count >= max_daily
 
 
-def _is_preset_rate_limited(preset: dict) -> bool:
+def _is_preset_rate_limited(preset: dict, usage_map: dict[str, tuple[int, int]] | None = None) -> bool:
     """Check if a preset is currently rate-limited (RPM, TPM, or daily cap).
 
     RPM/TPM limits are read lazily from the preset on each call so admin edits
@@ -176,7 +183,7 @@ def _is_preset_rate_limited(preset: dict) -> bool:
         if tpm_count >= max_tpm:
             return True
     # Daily cap check
-    if _is_daily_exhausted(preset):
+    if _is_daily_exhausted(preset, usage_map=usage_map):
         return True
     return False
 
@@ -221,9 +228,13 @@ def _call_ai_limited(function, *args, deadline=None, **kwargs):
 
     Logs preset-to-preset switches at WARNING level with the reason.
     """
-    chain = db.get_fallback_chain_presets()
+    chain = ai_read_cache.get_chain()
     if not chain:
         raise AllPresetsExhausted("No enabled presets available")
+    # One batched usage read covers the whole chain (BOT-3): the daily-cap check
+    # below evaluates each preset against this single result instead of issuing
+    # one query per preset tried.
+    usage_map = db.get_hourly_usage_many([p.get("name", "?") for p in chain], hours_back=24)
 
     def _raise_if_deadline_exceeded():
         if deadline is not None and time.monotonic() >= deadline:
@@ -245,7 +256,7 @@ def _call_ai_limited(function, *args, deadline=None, **kwargs):
             logger.info("Skipping preset in backoff: %s", current_name)
             continue
 
-        if _is_preset_rate_limited(preset):
+        if _is_preset_rate_limited(preset, usage_map=usage_map):
             if i + 1 < len(chain):
                 _log_switch(current_name, chain[i + 1].get("name", "?"), "rate-limited")
             logger.info("Skipping rate-limited preset: %s", current_name)

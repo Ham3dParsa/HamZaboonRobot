@@ -11,7 +11,7 @@ This is disclosed reference — loaded only when parallel-work-guard fires.
 | # | Domain Area | Path | Interface Exposed |
 |---|---|---|---|
 | 1 | Persistence | services/db/__init__.py + services/db/schema.py + services/db/session_reports.py | get_conn() |
-| 2 | AI/LLM Provider | services/ai/ai.py | _client(), ask_json(), ask_card(), ask_batch() |
+| 2 | AI/LLM Provider | services/ai/ai.py + services/ai/llm_services.py + services/ai/ai_read_cache.py | _client(), ask_json(), ask_card(), ask_batch() |
 | 3 | Session Assembly | services/session/__init__.py + assembly.py + summary.py | build_session_list(), generate_tier3_node(), build_report(), serialize_report(), deserialize_report() |
 | 4 | SRS Algorithm | services/fsrs_core.py | compute_retrievability(), compute_interval(), initial_stability(), update_stability() |
 | 5 | Telegram UI -> Study | handlers/study_handler.py | handle_study_start(), advance_session(), send_reports_list(), _handle_reports_callback() |

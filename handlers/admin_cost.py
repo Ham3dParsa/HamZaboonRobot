@@ -14,6 +14,7 @@ from telegram.ext import ContextTypes
 
 from config import APP_TZ
 from services import db
+from services.ai import ai_read_cache
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send
 from config.keyboards import (
@@ -501,6 +502,9 @@ async def _handle_cost_text_input(
                 output_cost_usd_per_million=profile["output_cost_usd_per_million"],
                 usd_to_toman_rate=value,
             )
+        # The AI hot path caches the cost profile (BOT-2); bust it so the next
+        # recorded request uses the freshly saved prices.
+        ai_read_cache.invalidate_cost_profile()
         await update.message.reply_text(_llm_pricing_text())
         return
 

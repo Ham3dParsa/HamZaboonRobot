@@ -35,6 +35,10 @@ class ReliabilityPersistenceTests(unittest.TestCase):
         db.DB_PATH = new_path
         db_schema.DB_PATH = new_path
         db.init_db()
+        # The cost profile is cached (BOT-2); reset it so a profile set inside a
+        # test method is read fresh by the very next _log_llm_request.
+        from services.ai import ai_read_cache
+        ai_read_cache.reset_read_cache()
 
     def tearDown(self):
         db.DB_PATH = self.previous_db_path
@@ -60,6 +64,13 @@ class ReliabilityPersistenceTests(unittest.TestCase):
             input_cost_usd_per_million=1.0,
             output_cost_usd_per_million=2.0,
             usd_to_toman_rate=50000,
+        )
+        # R1-B: _request_json resolves the active preset once for a preset=None
+        # call, so seed an enabled preset rather than relying on the patched
+        # _client/_model to hide the dependency.
+        db.set_preset(
+            name="pa", base_url="http://test.local/v1", model="test-model",
+            api_key="sk-test", is_emergency=0, in_fallback_chain=1,
         )
         client = MagicMock()
         client.chat.completions.create.return_value = SimpleNamespace(

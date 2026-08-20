@@ -398,6 +398,7 @@ from services.db.preset_registry import (
     get_group_key,
     get_group_labels,
     get_hourly_usage,
+    get_hourly_usage_many,
     get_preset,
     get_preset_cost,
     get_presets,

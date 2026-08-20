@@ -45,6 +45,7 @@ class _BackoffIsolatedDb(unittest.TestCase):
         for existing in db.get_presets():
             db.delete_preset(existing["name"])
         llm_services.get_limiter_store().reset()
+        llm_services.ai_read_cache.reset_read_cache()
 
     def tearDown(self):
         llm_services.get_limiter_store().reset()
@@ -100,6 +101,8 @@ class CountAllFailuresBackoffTests(_BackoffIsolatedDb):
 
         # Add a stable preset; pa is sidelined, pb serves immediately.
         _seed([{"name": "pb", "priority": 1}])
+        # The chain is cached (R1-B); drop it so the newly added preset is seen.
+        llm_services.ai_read_cache.reset_read_cache()
         calls["pa"] = 0
         calls["pb"] = 0
         result = _call_ai_limited(fail_pa, request_kind="grammar_tip")
@@ -135,6 +138,7 @@ class CountAllFailuresBackoffTests(_BackoffIsolatedDb):
             mock_chain.return_value = [
                 db.get_preset("pa"), db.get_preset("pb"),
             ]
+            llm_services.ai_read_cache.reset_read_cache()
             for _ in range(llm_services.FAILURE_THRESHOLD):
                 with self.assertRaises(AllPresetsExhausted):
                     _call_ai_limited(fail_all, request_kind="grammar_tip")
