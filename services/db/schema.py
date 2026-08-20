@@ -108,13 +108,20 @@ def _backfill_saved_word_normalization(conn):
     rows = conn.execute(f"SELECT {select_cols} FROM saved_words").fetchall()
 
     def _parse_activity(value):
-        """Best-effort timestamp for keeper ordering; unparseable/absent => oldest."""
+        """Best-effort timestamp for keeper ordering; unparseable/absent => oldest.
+
+        Naive values are interpreted as UTC so ordering is host-timezone
+        independent; aware values are converted to epoch directly.
+        """
         if not value:
             return float("-inf")
         try:
-            return datetime.datetime.fromisoformat(value).timestamp()
+            dt = datetime.datetime.fromisoformat(value)
         except ValueError:
             return float("-inf")
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return dt.timestamp()
 
     def _activity(r):
         for c in activity_cols:

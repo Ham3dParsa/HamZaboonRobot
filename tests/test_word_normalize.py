@@ -227,3 +227,31 @@ class NormalizeBackfillMigrationTests(unittest.TestCase):
             ).fetchall()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["word"], "caf\u00e9")
+
+    def test_backfill_interprets_naive_activity_as_utc(self):
+        """A naive added_at is compared as UTC, independent of host timezone."""
+        db.init_db()
+        with db.get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "DELETE FROM settings WHERE key='_migration_word_normalization_done'"
+            )
+            # Naive UTC 2026 beats the aware earlier 2025 regardless of host tz.
+            conn.execute(
+                "INSERT INTO saved_words (user_id, word, lang, normalized_word, "
+                "added_at) VALUES (1, 'caf\u00e9', 'fr', 'caf\u00e9', "
+                "'2026-01-01T00:00:00')"
+            )
+            conn.execute(
+                "INSERT INTO saved_words (user_id, word, lang, normalized_word, "
+                "added_at) VALUES (1, 'cafe\u0301', 'fr', 'cafe\u0301', "
+                "'2025-01-01T00:00:00+00:00')"
+            )
+            conn.commit()
+        db.init_db()
+        with db.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT word FROM saved_words WHERE user_id=1 AND lang='fr'"
+            ).fetchall()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["word"], "caf\u00e9")
