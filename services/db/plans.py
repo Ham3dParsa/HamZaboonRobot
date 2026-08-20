@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 
-from config.plan_identity import plan_label
+from config.plan_identity import plan_label, valid_plans
 from services.db.schema import get_conn, transaction
 
 logger = logging.getLogger(__name__)
@@ -32,10 +32,17 @@ _PLAN_LIMITS: dict[str, tuple[int, int, int, int, int]] = {
 }
 
 # name -> (display_name, price_toman, query_quota, max_sessions, cards_per_session, sort_order)
-DEFAULT_PLANS: dict[str, tuple[str, int, int, int, int, int]] = {
-    code: (plan_label(code), price, query, sessions, cards, sort)
-    for code, (price, query, sessions, cards, sort) in _PLAN_LIMITS.items()
-}
+# The plan code set is the single source in config.plan_identity; every seeded
+# plan must also have a limit entry here, or seeding fails loudly (no silent
+# drift between identity and the DB seed).
+DEFAULT_PLANS: dict[str, tuple[str, int, int, int, int, int]] = {}
+for _code in valid_plans():
+    if _code not in _PLAN_LIMITS:
+        raise RuntimeError(
+            f"plan_identity defines {_code!r} but _PLAN_LIMITS has no DB seed entry"
+        )
+    _price, _query, _sessions, _cards, _sort = _PLAN_LIMITS[_code]
+    DEFAULT_PLANS[_code] = (plan_label(_code), _price, _query, _sessions, _cards, _sort)
 
 _PLAN_COLUMNS = (
     "name, display_name, price, query_quota, max_sessions, "
