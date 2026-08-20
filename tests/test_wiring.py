@@ -358,6 +358,53 @@ def _collect_all_callback_prefixes() -> set[str]:
     return prefixes
 
 
+def _collect_static_callback_literals() -> list[tuple[Path, int, str]]:
+    """Return every fully-static ``callback_data="..."`` string literal found
+    across the scanned sources, as ``(filepath, lineno, value)``.
+
+    Only Constant string literals are reported (a fully known payload).
+    Dynamic callbacks (f-strings embedding a codec token or a short identifier
+    such as a plan name) are out of scope: their static prefix is already
+    bounded by the prefix wiring guard, and their variable segment is either a
+    fixed-length codec token or an inherently short identifier.
+    """
+    found: list[tuple[Path, int, str]] = []
+    source_files: list[Path] = []
+    for d in SCAN_DIRS:
+        if d.is_dir():
+            source_files.extend(sorted(d.glob("*.py")))
+        elif d.is_file():
+            source_files.append(d)
+
+    for filepath in source_files:
+        try:
+            tree = ast.parse(filepath.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            is_button = (
+                isinstance(func, ast.Name) and func.id == "InlineKeyboardButton"
+            ) or (
+                isinstance(func, ast.Attribute) and func.attr == "InlineKeyboardButton"
+            )
+            if not is_button:
+                continue
+
+            for kw in node.keywords:
+                if (
+                    kw.arg == "callback_data"
+                    and isinstance(kw.value, ast.Constant)
+                    and isinstance(kw.value.value, str)
+                ):
+                    found.append((filepath, node.lineno, kw.value.value))
+
+    return found
+
+
 def _collect_registry_prefixes() -> set[str]:
     """Extract coarse prefixes registered in the central routing registry.
 
@@ -576,6 +623,26 @@ class TestCallbackWiring(unittest.TestCase):
             msg = "Unrouted callback prefixes (no matching branch in callback_router):\n"
             for o in orphaned:
                 msg += f"  {o}\n"
+            self.fail(msg)
+
+    def test_all_static_callback_data_within_64_bytes(self):
+        """Every fully-static ``callback_data`` payload must fit Telegram's
+        64-byte callback_data limit.
+
+        Long variable identifiers are handled by the callback codec
+        (``services/utils/callback_codec.py``) which replaces them with
+        fixed-length hashes; this guard catches a static literal that grows
+        past the limit (a regression that would break the button silently).
+        """
+        over = [
+            (str(path), lineno, cb)
+            for path, lineno, cb in _collect_static_callback_literals()
+            if len(cb.encode("utf-8")) > 64
+        ]
+        if over:
+            msg = "Static callback_data exceeds Telegram 64-byte limit:\n"
+            for path, lineno, cb in over:
+                msg += f"  {path}:{lineno}  ({len(cb.encode('utf-8'))} bytes)  {cb!r}\n"
             self.fail(msg)
 
     def test_admin_sub_router_has_all_actions(self):

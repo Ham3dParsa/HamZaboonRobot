@@ -68,14 +68,17 @@ class TestAdminCostModule(unittest.TestCase):
     def test_bot_llm_callback_reexported_through_monolith(self):
         self.assertIs(admin._handle_llm_callback, admin_cost._handle_llm_callback)
 
-    def test_reexports_cost_keyboards_verbatim(self):
+    def test_uses_cost_keyboards_from_config(self):
+        """Keyboards are owned by config.keyboards; the handler imports them for
+        use but does not re-export them as its own public API (single source of
+        truth, RT-R5)."""
         for name, kbd in _KEYBOARDS.items():
             with self.subTest(name=name):
                 self.assertIs(getattr(admin_cost, name), kbd)
 
     def test_all_is_explicit(self):
         expected = sorted(
-            list(_COST_FUNCTIONS) + list(_KEYBOARDS.keys()),
+            list(_COST_FUNCTIONS),
             key=lambda s: s.lower(),
         )
         self.assertEqual(sorted(admin_cost.__all__, key=lambda s: s.lower()), expected)
