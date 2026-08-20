@@ -13,18 +13,28 @@ from __future__ import annotations
 
 import logging
 
+from config.plan_identity import plan_label
 from services.db.schema import get_conn, transaction
 
 logger = logging.getLogger(__name__)
 
+# Per-plan limits — the DB-seed data model (price + per-plan quotas/order).
+# Plan identity (label/premium/rank) is single-sourced in config.plan_identity;
+# display_name is derived from it below so a Persian plan label lives in exactly
+# one place (closes the R5/F5 duplicate-label gap).
+_PLAN_LIMITS: dict[str, tuple[int, int, int, int, int]] = {
+    # code     price  query  sessions  cards  sort
+    "free":    (0,     2,     2,        3,     0),
+    "bronze":  (0,     4,     3,        3,     1),
+    "silver":  (0,     7,     3,        5,     2),
+    "gold":    (0,     12,    4,        7,     3),
+    "emerald": (0,     20,    5,        9,     4),
+}
+
 # name -> (display_name, price_toman, query_quota, max_sessions, cards_per_session, sort_order)
 DEFAULT_PLANS: dict[str, tuple[str, int, int, int, int, int]] = {
-    # code     display   price  query  sessions  cards  sort
-    "free":    ("رایگان", 0,      2,     2,        3,     0),
-    "bronze":  ("برنزی",  0,      4,     3,        3,     1),
-    "silver":  ("نقره‌ای", 0,     7,     3,        5,     2),
-    "gold":    ("طلایی",  0,     12,     4,        7,     3),
-    "emerald": ("زمردی",  0,     20,     5,        9,     4),
+    code: (plan_label(code), price, query, sessions, cards, sort)
+    for code, (price, query, sessions, cards, sort) in _PLAN_LIMITS.items()
 }
 
 _PLAN_COLUMNS = (
