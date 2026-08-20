@@ -75,7 +75,7 @@ This file supersedes the audit snapshot and the stale rows in plan-2026-08-16-ar
 | RT-R5 keyboard ownership + codec | RT-R5 | callback codec / keyboards | — | serial | MERGED #431 | refactor/keyboard-ownership |
 | RT-B3 double HTML-escape | RT-B3 | Plans (#10) + admin.py (#8) | — | serial | done (with F8/R8) | MERGED #429 |
 | RT-B5 early awaiting reset | RT-B5 | bot.py | — | serial | MERGED #433 | refactor/early-awaiting-reset |
-| RT-BN1 broadcast semaphore | RT-BN1 | Admin (#8) | — | serial | REMAINING (Low) | — |
+| RT-BN1 broadcast semaphore | RT-BN1 | Admin (#8) | — | serial | MERGED #437 | refactor/broadcast-semaphore |
 | RT-BN2/BN3 handler DB-offload | RT-BN2/BN3 | Persistence + #5/#6 | — | — | REMAINING to G1 (Session A) | refactor/db-handler-offload |
 
 ## Gaps (must be planned — no current owner)
@@ -83,7 +83,7 @@ This file supersedes the audit snapshot and the stale rows in plan-2026-08-16-ar
 - **G2:** F6/R6 + BUG-4 (`_phonetic_lines` private import, MDV2 render choke) — Session B.
 - **G3:** F8/R8 + RT-B3 (FieldRegistry generalize to plans; double HTML-escape) — Session B (shares RT-B3 with C; coordinate). **DONE via #429 (2026-08-20).**
 - **G4:** BOT-1/2/3 (AI read-amplification, cost/usage caching) — Session B. **DONE via #432 (2026-08-20).**
-- **G5:** RT-R4, RT-R5, RT-B5 done (#428/#431/#433); RT-BN1 (Worth/Low) — Session C.
+- **G5:** RT-R4, RT-R5, RT-B5, RT-BN1 done (#428/#431/#433/#437) — Session C complete.
 
 ## Overlaps (avoid duplication)
 - **OVL-2:** A2-8 (R9 CardModeService) MUST build on CARD-MODES #361 resolver (already shipped in `users.py`+`catalog.py`) — do NOT re-create the resolver (violates AGENTS.md §3 single-source).
@@ -106,5 +106,5 @@ Kilo review of PR #414 flagged 44 outbound sites that still bypass the `send_pre
 ## Status counts (synced to 3ece608)
 - DB: 4 addressed / 3 partial / 11 remaining (+ G1 gap).
 - AI: 12 addressed / 0 partial / 7 remaining.
-- Routing: 6 addressed / 1 partial / 6 remaining (RT-BN2/BN3 folded into G1).
+- Routing: 7 addressed / 1 partial / 5 remaining (RT-BN2/BN3 folded into G1).
 - Total: 21 addressed, 4 partial, 25 remaining of 50 enumerated items.

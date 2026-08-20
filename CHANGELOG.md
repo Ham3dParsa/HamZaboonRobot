@@ -6,6 +6,8 @@ All notable changes to HamZaboon. Generated automatically from
 
 ### 2026-08-20
 #### Features
+- parallelize broadcast fan-out and guard re-entry (RT-BN1) (#437) (`admin`)
+  — @Ham3dParsa [97511f7](https://github.com/Ham3dParsa/HamZaboonRobot/commit/97511f7)
 - persist session reports with 3-day /reports reopen (R10) (#430) (`study`)
   — @Ham3dParsa [db6b8ec](https://github.com/Ham3dParsa/HamZaboonRobot/commit/db6b8ec)
 
@@ -34,6 +36,8 @@ All notable changes to HamZaboon. Generated automatically from
   — @Ham3dParsa [96dc0f6](https://github.com/Ham3dParsa/HamZaboonRobot/commit/96dc0f6)
 
 #### Documentation
+- mark RT-B5 merged; regenerate CHANGELOG (`plans`)
+  — @Ham3dParsa [a4835d8](https://github.com/Ham3dParsa/HamZaboonRobot/commit/a4835d8)
 - regenerate after G4 ai-cache merge (`changelog`)
   — @Ham3dParsa [4173225](https://github.com/Ham3dParsa/HamZaboonRobot/commit/4173225)
 - mark session-report-persistence complete (R10, #430) (`plans`)
