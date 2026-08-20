@@ -114,6 +114,15 @@ from services.db.sessions import (
     clear_session_grades,
 )
 
+from services.db.session_reports import (
+    REPORT_WINDOW_DAYS,
+    LoadedReport,
+    ReportEntry,
+    list_recent_reports,
+    load_report,
+    save_session_report,
+)
+
 
 logger = logging.getLogger(__name__)
 _RESTORE_CORE_TABLES = frozenset(

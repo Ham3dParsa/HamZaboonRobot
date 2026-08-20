@@ -11,8 +11,9 @@ this module only computes the structured data both variants share.
 
 from __future__ import annotations
 
+import json
 import random
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from statistics import fmean
 
 from services.utils.formatting import to_persian_digits
@@ -104,6 +105,44 @@ def build_report(records: list[WordReviewRecord]) -> SessionReport:
         avg_stability_after=avg_stability_after,
         pages=paginate(records),
     )
+
+
+# Report JSON format version. Bump on a breaking payload change so persisted
+# reports from older versions are detected instead of misread (R10-B).
+REPORT_JSON_VERSION = 1
+
+
+def serialize_report(report: SessionReport) -> str:
+    """Serialize a session report to JSON for persistence (R10-B).
+
+    Stores only the per-word records (the source data) plus a format version;
+    the aggregate fields (recall rate, average stability, pages, counts) are
+    recomputed by :func:`build_report` on load, so reopened reports always
+    match the current aggregation logic.
+    """
+    payload = {
+        "version": REPORT_JSON_VERSION,
+        "rows": [asdict(r) for r in report.rows],
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def deserialize_report(payload: str) -> SessionReport:
+    """Rebuild a :class:`SessionReport` from :func:`serialize_report` JSON.
+
+    Raises :class:`ValueError` for an unsupported format version or malformed
+    payload so the caller can fail closed (R10-E) instead of rendering garbage.
+    """
+    data = json.loads(payload)
+    if data.get("version") != REPORT_JSON_VERSION:
+        raise ValueError(
+            f"unsupported session report version: {data.get('version')!r}"
+        )
+    rows = data.get("rows")
+    if not isinstance(rows, list):
+        raise ValueError("session report payload has no rows list")
+    records = [WordReviewRecord(**row) for row in rows]
+    return build_report(records)
 
 
 def paginate(
@@ -199,10 +238,13 @@ def pick_motivation(report: SessionReport, rng: random.Random | None = None) -> 
 __all__ = [
     "PAGE_SIZE",
     "RECALL_WEIGHTS",
+    "REPORT_JSON_VERSION",
     "SessionReport",
     "WordReviewRecord",
     "build_report",
     "classify_tier",
     "paginate",
     "pick_motivation",
+    "serialize_report",
+    "deserialize_report",
 ]

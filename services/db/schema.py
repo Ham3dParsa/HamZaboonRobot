@@ -413,6 +413,16 @@ def init_db(path: str | None = None):
                 graded_at TEXT NOT NULL,
                 PRIMARY KEY (user_id, word_id, activity_type)
             );
+            CREATE TABLE IF NOT EXISTS session_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                session_date TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                report_json TEXT NOT NULL,
+                is_admin INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_reports_user_created
+                ON session_reports(user_id, created_at);
             """
         )
         columns = {
