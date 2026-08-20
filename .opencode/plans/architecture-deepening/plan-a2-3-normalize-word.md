@@ -8,7 +8,7 @@ status: in-progress
 ---
 # Plan: A2-3 — R2 `normalize_word` single-source (NFC) + backfill
 
-STATE: phase 3/4 — status: in-progress — focus: independent review then commit/PR
+STATE: phase 4/4 — status: awaiting merge — focus: PR #434 green; need owner merge authorization
 
 THEME: architecture-deepening
 BRANCH: refactor/db-normalize
@@ -40,4 +40,6 @@ CLAIM: acquired 2026-08-20 (Persistence)
 - GREEN: `pytest tests/test_word_normalize.py` — 4 passed.
 - Full suite: `pytest tests/ -n 14` — 1347 passed, 270 subtests; `compile_all.py` clean; `ruff F821/F811` clean; `git diff --check` clean.
 - Files: `services/db/schema.py` (normalize_word + _backfill_saved_word_normalization), `services/db/words.py` (delegates), `services/db/__init__.py` (re-export normalize_word; _normalize_query_text delegates; dropped unicodedata), `tests/test_word_normalize.py` (new), `tests/test_single_source_of_truth.py` (normalize_word -> schema.py).
-- (pending) reviewer result, commit hash, PR number.
+- Review: hamzaboon-reviewer no confirmed findings after marker-gating + legacy-test fixes. Kilo on PR #434: 2 rounds of findings all resolved (marker atomicity, legacy tolerance, NULL-word crash guard, empty-vs-whitespace fold); final recommendation = Merge (only non-blocking carried-forward SUGGESTION is datetime-parsing keeper ordering — declined, columns are uniform aware-UTC ISO). Full suite at final commit: 1350 passed, 270 subtests; checks label + test 3.10 + test 3.13 + Kilo all green.
+- Commits: `b2a640e` (centralize normalize_word), `995cc11` (guard NULL-word crash), `d325320` (fold empty/whitespace to one key). PR #434 open against main.
+- (pending) merge + post-merge cleanup: worktree remove, branch delete, release Persistence claim, canonical tracker A2-3 row -> MERGED #434 (once primary workspace safe), A2-4 contract next.

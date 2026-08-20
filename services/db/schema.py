@@ -88,8 +88,8 @@ def _backfill_saved_word_normalization(conn):
     ``normalized_word`` from its original ``word`` via ``normalize_word`` and
     resolves collisions where NFC folds two previously-distinct keys into one.
     On a collision within ``(user_id, lang)``, the most-recently-active row
-    (COALESCE(last_review_at, added_at) desc) is kept and the older duplicate is
-    deleted. Idempotent, and gated by a ``_migration_word_normalization_done``
+    (COALESCE(last_review_at, added_at), ordered by parsed timestamp desc) is kept
+    and the older duplicate is deleted. Idempotent, and gated by a ``_migration_word_normalization_done``
     marker (mirrors ``_migration_preset_synced``) so the full table scan happens
     only once: after it, every row already equals ``normalize_word(word)`` and
     the unique index (created after this backfill) prevents new NFC collisions.
@@ -107,11 +107,20 @@ def _backfill_saved_word_normalization(conn):
     select_cols = ", ".join(["id", "user_id", "lang", "word", "normalized_word"] + activity_cols)
     rows = conn.execute(f"SELECT {select_cols} FROM saved_words").fetchall()
 
+    def _parse_activity(value):
+        """Best-effort timestamp for keeper ordering; unparseable/absent => oldest."""
+        if not value:
+            return float("-inf")
+        try:
+            return datetime.datetime.fromisoformat(value).timestamp()
+        except ValueError:
+            return float("-inf")
+
     def _activity(r):
         for c in activity_cols:
             if r[c]:
-                return r[c]
-        return ""
+                return _parse_activity(r[c])
+        return float("-inf")
 
     groups: dict[tuple, list] = {}
     for r in rows:

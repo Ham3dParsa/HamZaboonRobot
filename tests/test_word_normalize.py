@@ -199,3 +199,31 @@ class NormalizeBackfillMigrationTests(unittest.TestCase):
             ).fetchall()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["normalized_word"], "")
+
+    def test_backfill_keeper_orders_by_parsed_timestamp(self):
+        """Keeper selection parses timestamps; unparseable activity sorts oldest."""
+        db.init_db()
+        with db.get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "DELETE FROM settings WHERE key='_migration_word_normalization_done'"
+            )
+            # Two rows that collide under NFC; the active row has a valid recent
+            # added_at, the stale row has an unparseable one.
+            conn.execute(
+                "INSERT INTO saved_words (user_id, word, lang, normalized_word, "
+                "added_at) VALUES (1, 'caf\u00e9', 'fr', 'caf\u00e9', "
+                "'2026-01-01T00:00:00+00:00')"
+            )
+            conn.execute(
+                "INSERT INTO saved_words (user_id, word, lang, normalized_word, "
+                "added_at) VALUES (1, 'cafe\u0301', 'fr', 'cafe\u0301', 'n/a')"
+            )
+            conn.commit()
+        db.init_db()
+        with db.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT word, added_at FROM saved_words WHERE user_id=1 AND lang='fr'"
+            ).fetchall()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["word"], "caf\u00e9")
