@@ -9,7 +9,7 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from config import APP_TZ, DB_PATH, is_owner
+from config import APP_TZ, BROADCAST_MAX_CONCURRENCY, DB_PATH, is_owner
 from services import db, send_pretty
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send, _exit_awaiting_flow, _send_with_retry
@@ -104,6 +104,10 @@ from handlers.flows import mark_awaiting_consumed, register_flow  # noqa: E402
 #: Guard so _register_admin_flows() (import-time + test-triggered) never
 #: duplicates flow entries in the central registry.
 _ADMIN_FLOWS_REGISTERED = False
+
+#: Re-entry guard for the admin broadcast (RT-BN1): set before the first await
+#: and released in ``finally`` so a second broadcast cannot double-send.
+_BROADCAST_RUNNING = False
 
 
 async def open_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -308,16 +312,47 @@ def _register_admin_flows() -> None:
         await _handle_plans_text_input(update, context, text)
 
     async def _handle_admin_broadcast(update, context, awaiting, text):
-        users = db.all_active_users()
-        mark_awaiting_consumed(context)  # broadcast is irreversible (B5/Kilo CRITICAL)
-        sent = 0
-        for u in users:
-            try:
-                await _send_with_retry(context.bot, u["user_id"], text)
-                sent += 1
-            except Exception:
-                logger.exception("Broadcast failed for user %s", u["user_id"])
-        await update.message.reply_text(f"پیام برای {sent} کاربر ارسال شد.")
+        global _BROADCAST_RUNNING
+        if _BROADCAST_RUNNING:
+            mark_awaiting_consumed(context)
+            await send_pretty.say(
+                update,
+                context,
+                "یک ارسال همگانی در حال انجام است؛ کمی بعد دوباره تلاش کن.",
+                raw=send_pretty.RawFormat.PLAIN,
+            )
+            return
+        # Guard set synchronously before the first await (race-free re-entry check).
+        _BROADCAST_RUNNING = True
+        try:
+            users = db.all_active_users()
+            mark_awaiting_consumed(context)  # broadcast is irreversible (B5/Kilo CRITICAL)
+            # Broadcast-local cap keeps this fan-out bounded (bounded coroutine
+            # creation at extreme N); the effective in-flight concurrency is
+            # min(BROADCAST_MAX_CONCURRENCY, TELEGRAM_MAX_CONCURRENCY) because
+            # _send_with_retry acquires the global _telegram_slots per send.
+            # Raising TELEGRAM_MAX_CONCURRENCY is the real lever to widen it.
+            sem = asyncio.Semaphore(BROADCAST_MAX_CONCURRENCY)
+
+            async def _send_one(user):
+                async with sem:
+                    try:
+                        await _send_with_retry(context.bot, user["user_id"], text)
+                        return True
+                    except Exception:
+                        logger.exception("Broadcast failed for user %s", user["user_id"])
+                        return False
+
+            results = await asyncio.gather(*(_send_one(u) for u in users))
+            sent = sum(1 for r in results if r)
+            await send_pretty.say(
+                update,
+                context,
+                f"پیام برای {sent} کاربر ارسال شد.",
+                raw=send_pretty.RawFormat.PLAIN,
+            )
+        finally:
+            _BROADCAST_RUNNING = False
 
     async def _handle_admin_maintenance_msg(update, context, awaiting, text):
         db.set_maintenance_message(text)
