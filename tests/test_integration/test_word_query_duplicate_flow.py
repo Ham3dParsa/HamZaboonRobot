@@ -29,6 +29,7 @@ class WordQueryDuplicateFlowTests(unittest.TestCase):
     def setUp(self):
         self.offline_patcher = patch.object(bot, "_telegram_offline", False)
         self.offline_patcher.start()
+        self.addCleanup(self.offline_patcher.stop)
         self.tempdir = tempfile.TemporaryDirectory()
         self.previous_db_path = db.DB_PATH
         self.previous_db_schema_path = db_schema.DB_PATH
@@ -51,7 +52,6 @@ class WordQueryDuplicateFlowTests(unittest.TestCase):
         }
 
     def tearDown(self):
-        self.offline_patcher.stop()
         db.DB_PATH = self.previous_db_path
         db_schema.DB_PATH = self.previous_db_schema_path
         self.tempdir.cleanup()
