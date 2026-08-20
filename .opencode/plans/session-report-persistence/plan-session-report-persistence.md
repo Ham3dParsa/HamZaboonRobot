@@ -4,9 +4,9 @@ description: Persist post-session reports for 3 days and reopen via /reports (R1
 created: 2026-08-20
 base_commit: 96dc0f6
 branch: feat/session-report-persistence
-status: in-progress
+status: complete
 ---
-STATE: phase 3/3 — status: implementation-complete (validation green) — awaiting commit/PR
+STATE: complete — merged to main as db6b8ec (#430) on 2026-08-20
 
 # Session Report Persistence (R10)
 
