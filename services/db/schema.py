@@ -115,6 +115,10 @@ def _backfill_saved_word_normalization(conn):
 
     groups: dict[tuple, list] = {}
     for r in rows:
+        if not r["word"]:
+            # NULL/empty word cannot be normalized; leave the row untouched
+            # (it cannot participate in an NFC collision).
+            continue
         key = (r["user_id"], r["lang"], normalize_word(r["word"]))
         groups.setdefault(key, []).append(r)
     deletes: list[int] = []

@@ -154,3 +154,23 @@ class NormalizeBackfillMigrationTests(unittest.TestCase):
                 "WHERE user_id=1 AND lang='fr'"
             ).fetchone()
         self.assertEqual(row["normalized_word"], db.normalize_word("cafe\u0301"))
+
+    def test_backfill_tolerates_null_word_rows(self):
+        """A row with a NULL word must not abort init_db during the backfill."""
+        db.init_db()
+        with db.get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "DELETE FROM settings WHERE key='_migration_word_normalization_done'"
+            )
+            conn.execute(
+                "INSERT INTO saved_words (user_id, word, lang, normalized_word) "
+                "VALUES (1, NULL, 'fr', NULL)"
+            )
+            conn.commit()
+        db.init_db()  # must not raise AttributeError on the NULL word
+        with db.get_conn() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) AS c FROM saved_words WHERE user_id=1 AND lang='fr'"
+            ).fetchone()["c"]
+        self.assertEqual(count, 1)
