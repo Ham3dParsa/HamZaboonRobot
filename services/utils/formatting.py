@@ -205,15 +205,53 @@ def _blank_word(text: str, word: str, count: int = 0) -> str:
     )
 
 
-def _fill_blank_hint(card_data: dict, toggles: dict[str, bool]) -> str:
-    """Local-DB hint for the fill_blank prompt, synonym → antonym → meaning."""
-    if toggles.get("synonyms") and card_data.get("synonyms"):
-        return SRS_HINT_SYNONYM.format(item=card_data["synonyms"][0])
-    if toggles.get("antonyms") and card_data.get("antonyms"):
-        return SRS_HINT_ANTONYM.format(item=card_data["antonyms"][0])
+def _hint_line(item: str, is_synonym: bool) -> str:
+    """Single 💡 hint line for a drawn synonym or antonym item."""
+    if is_synonym:
+        return SRS_HINT_SYNONYM.format(item=item)
+    return SRS_HINT_ANTONYM.format(item=item)
+
+
+def _fill_blank_hints(
+    card_data: dict, toggles: dict[str, bool], rng=None
+) -> list[str]:
+    """Build >=2 sense-consistent hint lines for the fill_blank prompt (issue #408).
+
+    Adaptive composition from the *visible* synonym/antonym set:
+      - 3 hints when one visible category has >=2 items and the other has >=1:
+        2 from the dominant category (whichever has more; synonyms on tie) + 1
+        from the other.
+      - else 2 hints drawn from the combined visible syn+ant pool.
+      - else a single meaning fallback (keeps the direct-render path safe for
+        cards below the eligibility gate).
+    """
+    rng = rng or random
+    visible_syn = [
+        (item, True) for item in (card_data.get("synonyms") or []) if toggles.get("synonyms")
+    ]
+    visible_ant = [
+        (item, False) for item in (card_data.get("antonyms") or []) if toggles.get("antonyms")
+    ]
+
+    three_hint = (len(visible_syn) >= 2 and len(visible_ant) >= 1) or (
+        len(visible_ant) >= 2 and len(visible_syn) >= 1
+    )
+    if three_hint:
+        if len(visible_ant) > len(visible_syn):
+            dominant, other = visible_ant, visible_syn
+        else:
+            dominant, other = visible_syn, visible_ant  # synonyms on tie
+        drawn = rng.sample(dominant, 2) + [rng.choice(other)]
+        return [_hint_line(item, is_synonym) for item, is_synonym in drawn]
+
+    combined = visible_syn + visible_ant
+    if len(combined) >= 2:
+        drawn = rng.sample(combined, 2)
+        return [_hint_line(item, is_synonym) for item, is_synonym in drawn]
+
     if card_data.get("fa_meaning"):
-        return SRS_HINT_MEANING.format(meaning=card_data["fa_meaning"])
-    return ""
+        return [SRS_HINT_MEANING.format(meaning=card_data["fa_meaning"])]
+    return []
 
 
 def _join_guillemets(items: list[str]) -> str:
@@ -265,16 +303,16 @@ def eligible_srs_prompt_types(
     eligible: list[str] = []
     if card_data.get("word"):
         eligible.append("standard")
+    visible_syn = list(card_data.get("synonyms") or []) if toggles.get("synonyms") else []
+    visible_ant = list(card_data.get("antonyms") or []) if toggles.get("antonyms") else []
     if toggles.get("examples") and any(
         _example_has_word(example, card_data.get("word"))
         for example in (card_data.get("examples") or [])
-    ):
+    ) and len(visible_syn) + len(visible_ant) >= 2:
         eligible.append("fill_blank")
     if card_data.get("fa_meaning"):
         eligible.append("meaning")
         eligible.append("direct_translate")
-    visible_syn = toggles.get("synonyms") and bool(card_data.get("synonyms"))
-    visible_ant = toggles.get("antonyms") and bool(card_data.get("antonyms"))
     if visible_syn or visible_ant:
         eligible.append("synonym")
     return eligible
@@ -331,9 +369,11 @@ def format_srs_front_stage(
         lines.append(
             f"\n✦ {escape_mdv2(_blank_word(chosen, card_data.get('word'), count=1))}"
         )
-        hint = _blank_word(_fill_blank_hint(card_data, toggles), card_data.get("word", ""))
-        if hint and hint.strip():
-            lines.append(f"\n{escape_mdv2(hint)}")
+        hints = _fill_blank_hints(card_data, toggles, rng)
+        for hint in hints:
+            blanked = _blank_word(hint, card_data.get("word", ""))
+            if blanked and blanked.strip():
+                lines.append(f"\n{escape_mdv2(blanked)}")
     elif prompt_type == "meaning":
         meaning = card_data.get("fa_meaning", "")
         lines.append(f"\n{escape_mdv2(f'🧠 چه واژه‌ای به معنای «{meaning}» است؟')}")

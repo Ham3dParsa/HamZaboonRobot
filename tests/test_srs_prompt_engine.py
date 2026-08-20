@@ -71,6 +71,22 @@ class PromptTypeEligibilityTests(unittest.TestCase):
         card = _card(examples=["The reading list is long."])
         self.assertNotIn("fill_blank", fmt.eligible_srs_prompt_types(card, ALL_TOGGLES_ON))
 
+    def test_fill_blank_requires_combined_visible_min2(self):
+        """Rule 3 gate: fill_blank only when >=2 visible syn+ant combined, so the
+        mitigation (always >=2 hints) always holds (issue #408)."""
+        one_syn = _card(synonyms=["peruse"], antonyms=[])
+        self.assertNotIn(
+            "fill_blank", fmt.eligible_srs_prompt_types(one_syn, ALL_TOGGLES_ON)
+        )
+        one_syn_one_ant = _card(synonyms=["peruse"], antonyms=["write"])
+        self.assertIn(
+            "fill_blank", fmt.eligible_srs_prompt_types(one_syn_one_ant, ALL_TOGGLES_ON)
+        )
+        two_syn = _card(synonyms=["peruse", "study"], antonyms=[])
+        self.assertIn(
+            "fill_blank", fmt.eligible_srs_prompt_types(two_syn, ALL_TOGGLES_ON)
+        )
+
     def test_synonym_requires_visible_combined_set(self):
         card = _card()
         self.assertIn("synonym", fmt.eligible_srs_prompt_types(card, ALL_TOGGLES_ON))
@@ -156,7 +172,9 @@ class FrontStageRenderingTests(unittest.TestCase):
         )
         self.assertIn("💡 راهنما: مترادف", text)
 
-    def test_fill_blank_hint_priority_antonym(self):
+    def test_fill_blank_single_visible_antonym_falls_back_to_meaning(self):
+        """One visible antonym (combined <2) is below the gate; the direct-render
+        path falls back to the meaning hint rather than a lone متضاد (issue #408)."""
         synonyms_off = dict(ALL_TOGGLES_ON)
         synonyms_off["synonyms"] = False
         text = fmt.format_srs_front_stage(
@@ -165,7 +183,8 @@ class FrontStageRenderingTests(unittest.TestCase):
             toggles=synonyms_off,
             rng=random.Random(1),
         )
-        self.assertIn("💡 راهنما: متضاد write", text)
+        self.assertIn("💡 راهنما: به معنای «خواندن»", text)
+        self.assertNotIn("متضاد", text)
 
     def test_fill_blank_hint_priority_meaning_fallback(self):
         both_off = dict(ALL_TOGGLES_ON)
@@ -182,7 +201,7 @@ class FrontStageRenderingTests(unittest.TestCase):
     def test_fill_blank_hint_blanks_answer_word(self):
         """A hint that itself contains the answer word must never leak it
         (owner bug report 2026-08-15) — the word is blanked like an example."""
-        card = _card(synonyms=["read"], antonyms=[])
+        card = _card(synonyms=["read", "peruse"], antonyms=["write"])
         text = fmt.format_srs_front_stage(
             card,
             "fill_blank",
@@ -191,6 +210,69 @@ class FrontStageRenderingTests(unittest.TestCase):
         )
         self.assertIn("💡 راهنما: مترادف ? ? ?", text)
         self.assertNotIn("مترادف read", text)
+
+    def test_fill_blank_3hint_mode_2syn_1ant(self):
+        """Rule 1: 2 synonyms + 1 antonym when a visible category has >=2 and the
+        other has >=1 (issue #408 mitigation)."""
+        card = _card(synonyms=["peruse", "study"], antonyms=["write"])
+        text = fmt.format_srs_front_stage(
+            card, "fill_blank", toggles=ALL_TOGGLES_ON, rng=random.Random(1)
+        )
+        self.assertEqual(text.count("💡 راهنما: مترادف"), 2)
+        self.assertEqual(text.count("💡 راهنما: متضاد"), 1)
+
+    def test_fill_blank_2hint_mode_from_combined(self):
+        """Rule 1: 2 hints (1 syn + 1 ant) when neither category alone has >=2
+        but the combined visible set has >=2."""
+        card = _card(synonyms=["peruse"], antonyms=["write"])
+        text = fmt.format_srs_front_stage(
+            card, "fill_blank", toggles=ALL_TOGGLES_ON, rng=random.Random(1)
+        )
+        self.assertEqual(text.count("💡 راهنما:"), 2)
+        self.assertEqual(text.count("💡 راهنما: مترادف"), 1)
+        self.assertEqual(text.count("💡 راهنما: متضاد"), 1)
+
+    def test_fill_blank_3hint_dominant_antonym_when_more(self):
+        """Rule 1: dominant = whichever category has more items (here antonyms)."""
+        card = _card(synonyms=["peruse"], antonyms=["write", "create"])
+        text = fmt.format_srs_front_stage(
+            card, "fill_blank", toggles=ALL_TOGGLES_ON, rng=random.Random(1)
+        )
+        self.assertEqual(text.count("💡 راهنما: متضاد"), 2)
+        self.assertEqual(text.count("💡 راهنما: مترادف"), 1)
+
+    def test_fill_blank_3hint_tie_prefers_synonyms(self):
+        """Rule 1: on a syn/ant count tie, synonyms are the dominant category."""
+        card = _card(synonyms=["peruse", "study"], antonyms=["write", "create"])
+        text = fmt.format_srs_front_stage(
+            card, "fill_blank", toggles=ALL_TOGGLES_ON, rng=random.Random(1)
+        )
+        self.assertEqual(text.count("💡 راهنما: مترادف"), 2)
+        self.assertEqual(text.count("💡 راهنما: متضاد"), 1)
+
+    def test_fill_blank_category_tracked_at_draw_not_membership(self):
+        """Kilo review #427: a value present in both categories is labeled by the
+        category it was drawn from, not by membership — otherwise the dominant/other
+        sense split mislabels it. Here 'dup' sits in both; it is drawn from the
+        antonym (other) category, so it must render as متضاد, not مترادف."""
+        card = _card(synonyms=["dup", "s1"], antonyms=["dup"])
+        text = fmt.format_srs_front_stage(
+            card, "fill_blank", toggles=ALL_TOGGLES_ON, rng=random.Random(1)
+        )
+        self.assertEqual(text.count("💡 راهنما: مترادف"), 2)
+        self.assertEqual(text.count("💡 راهنما: متضاد"), 1)
+
+    def test_fill_blank_always_at_least_two_hints(self):
+        """Issue #408 mitigation: eligible fill_blank cards always show >=2 hints."""
+        for card in (
+            _card(synonyms=["peruse", "study"], antonyms=["write"]),
+            _card(synonyms=["peruse"], antonyms=["write"]),
+        ):
+            with self.subTest(card=card):
+                text = fmt.format_srs_front_stage(
+                    card, "fill_blank", toggles=ALL_TOGGLES_ON, rng=random.Random(1)
+                )
+                self.assertGreaterEqual(text.count("💡 راهنما:"), 2)
 
     def test_meaning_prompt_shows_meaning_and_explanation_hint(self):
         text = fmt.format_srs_front_stage(
