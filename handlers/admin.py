@@ -99,7 +99,7 @@ _app_timezone = APP_TZ
 # guard from handlers.flows) delegates to that registry so bot.py never
 # hard-codes a prefix list (and can never miss a key again). This replaces the
 # old _ADMIN_AWAITING_PREFIXES allowlist (root-cause fix for Finding #6).
-from handlers.flows import register_flow  # noqa: E402
+from handlers.flows import mark_awaiting_consumed, register_flow  # noqa: E402
 
 #: Guard so _register_admin_flows() (import-time + test-triggered) never
 #: duplicates flow entries in the central registry.
@@ -309,6 +309,7 @@ def _register_admin_flows() -> None:
 
     async def _handle_admin_broadcast(update, context, awaiting, text):
         users = db.all_active_users()
+        mark_awaiting_consumed(context)  # broadcast is irreversible (B5/Kilo CRITICAL)
         sent = 0
         for u in users:
             try:
@@ -320,6 +321,7 @@ def _register_admin_flows() -> None:
 
     async def _handle_admin_maintenance_msg(update, context, awaiting, text):
         db.set_maintenance_message(text)
+        mark_awaiting_consumed(context)  # DB write is irreversible (B5/Kilo CRITICAL)
         context.user_data["awaiting"] = None
         await update.message.reply_text(
             "✅ پیام حالت تعمیر ذخیره شد.",
@@ -327,6 +329,7 @@ def _register_admin_flows() -> None:
         )
 
     async def _handle_admin_restore(update, context, awaiting, text):
+        mark_awaiting_consumed(context)  # terminal re-prompt (B5/Kilo CRITICAL)
         context.user_data["awaiting"] = None
         await update.message.reply_text(
             "لطفاً یک فایل دیتابیس (.db) آپلود کنید.\n"

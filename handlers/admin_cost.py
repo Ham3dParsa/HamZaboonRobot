@@ -12,6 +12,8 @@ from collections import defaultdict
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from handlers.flows import mark_awaiting_consumed
+
 from config import APP_TZ
 from services import db
 from services.ai import ai_read_cache
@@ -502,6 +504,7 @@ async def _handle_cost_text_input(
                 output_cost_usd_per_million=profile["output_cost_usd_per_million"],
                 usd_to_toman_rate=value,
             )
+        mark_awaiting_consumed(context)  # cost-profile write is irreversible (B5/Kilo CRITICAL)
         # The AI hot path caches the cost profile (BOT-2); bust it so the next
         # recorded request uses the freshly saved prices.
         ai_read_cache.invalidate_cost_profile()

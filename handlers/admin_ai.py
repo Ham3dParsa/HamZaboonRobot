@@ -16,6 +16,8 @@ from urllib.parse import quote, unquote
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
+from handlers.flows import mark_awaiting_consumed
+
 from services import db
 from services.utils.callback_codec import (
     resolve_field_alias,
@@ -2090,6 +2092,7 @@ async def _handle_ai_text_input(
                 context.user_data.pop("awaiting", None)
                 await update.message.reply_text("برای ذخیره کلید API باید AI_MASTER_KEY در سرور پیکربندی شود.")
                 return
+        mark_awaiting_consumed(context)  # batch key write is irreversible (B5/Kilo CRITICAL)
         context.user_data.pop("awaiting", None)
         await update.message.reply_text("✅ کلید API برای همه اعضای گروه به‌روز شد.")
         await _show_grouped_presets(update, context)
@@ -2109,6 +2112,7 @@ async def _handle_ai_text_input(
         target = next((g for g in groups if g["key_hash"] == key_hash), None)
         if target:
             db.set_preset_group_label_batch(target["names"], new_label)
+        mark_awaiting_consumed(context)  # group-label write is irreversible (B5/Kilo CRITICAL)
         context.user_data.pop("awaiting", None)
         await update.message.reply_text("✅ برچسب گروه برای همه اعضا تنظیم شد.")
         await _show_grouped_presets(update, context)
@@ -2126,6 +2130,7 @@ async def _handle_ai_text_input(
                 )
                 return
             db.rename_group_label(old_label, new_label)
+            mark_awaiting_consumed(context)  # rename is irreversible (B5/Kilo CRITICAL)
             context.user_data.pop("awaiting", None)
             await update.message.reply_text(f"✅ برچسب «{old_label}» به «{new_label}» تغییر نام یافت.")
         else:
@@ -2158,6 +2163,7 @@ async def _handle_ai_text_input(
         except ValueError as e:
             await update.message.reply_text(str(e))
             return
+        mark_awaiting_consumed(context)  # priority reindex succeeded (B5/Kilo CRITICAL)
         context.user_data.pop("awaiting", None)
         await update.message.reply_text(f"✅ رتبه {preset_name} به {target_rank} تغییر یافت.")
         await _show_fallback_chain(update, context)

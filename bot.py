@@ -132,7 +132,12 @@ from handlers.admin import (
     handle_restore_doc,
     auto_backup_job,
 )
-from handlers.flows import is_admin_awaiting, text_router as flows_text_router
+from handlers.flows import (
+    AWAITING_PENDING_KEY,
+    is_admin_awaiting,
+    mark_awaiting_consumed,
+    text_router as flows_text_router,
+)
 
 from handlers.user import (
     cmd_start,
@@ -436,6 +441,7 @@ async def _process_ask_word(
     finally:
         if not delivered:
             db.release_word_query(user_id)
+    mark_awaiting_consumed(context)  # card delivered: quota spent, input consumed (B5/Kilo CRITICAL)
     log.info(
         "custom word query delivered user_id=%s lang=%s",
         user_id,
@@ -479,6 +485,7 @@ async def _handle_query_dup_new(update: Update, context: ContextTypes.DEFAULT_TY
     # menu), so awaiting is reset here; the invalid_input path re-arms itself.
     context.user_data["awaiting"] = None
     await _process_ask_word(update, context, user_id, row, prior["query_text"], skip_duplicate=True)
+    context.user_data.pop(AWAITING_PENDING_KEY, None)
 
 
 async def _handle_query_dup_reuse(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str):
@@ -530,6 +537,51 @@ async def _handle_query_dup_cancel(update: Update, context: ContextTypes.DEFAULT
 
 # ---------------- روتر پیام‌های متنی (منو + حالت‌های در انتظار ورودی) ----------------
 
+async def _dispatch_awaiting(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    awaiting: str,
+    text: str,
+    user_id: int,
+) -> bool:
+    """Dispatch an awaiting text input, restoring awaiting on handler failure.
+
+    The caller clears ``awaiting`` BEFORE calling this, so a handler that
+    raises before re-arming would otherwise leave the user's flow dead (B5).
+    If the handler never re-armed awaiting AND never consumed the input (the
+    ``AWAITING_PENDING_KEY`` marker is still set), we roll it back to
+    ``awaiting`` so the user can retry or cancel; if the handler set a new
+    value or consumed the input (cleared the marker), we keep the handler's
+    state.
+    Returns True when the awaiting input was dispatched, False for an
+    unknown/stale awaiting value so the caller can fall through.
+    """
+    context.user_data[AWAITING_PENDING_KEY] = True
+    try:
+        if awaiting == "ask_word":
+            row = db.get_user(user_id)
+            await _process_ask_word(update, context, user_id, row, text)
+            return True
+        if is_admin_awaiting(awaiting):
+            await flows_text_router(update, context, awaiting, text)
+            return True
+        return False
+    except Exception:
+        if (
+            context.user_data.get(AWAITING_PENDING_KEY) is True
+            and context.user_data.get("awaiting") is None
+        ):
+            context.user_data["awaiting"] = awaiting
+            log.warning(
+                "awaiting %r restored after dispatch error for user_id=%s",
+                awaiting,
+                user_id,
+            )
+        raise
+    finally:
+        context.user_data.pop(AWAITING_PENDING_KEY, None)
+
+
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if _telegram_offline:
         await _send_offline_notice(context, update.effective_chat.id)
@@ -551,13 +603,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_admin_awaiting(awaiting) and not is_owner(user_id):
             return  # لایه‌ی امنیتی اضافه؛ در حالت عادی اصلاً به این حالت نمی‌رسد
 
-        if awaiting == "ask_word":
-            row = db.get_user(user_id)
-            await _process_ask_word(update, context, user_id, row, text)
-            return
-
-        if is_admin_awaiting(awaiting):
-            await flows_text_router(update, context, awaiting, text)
+        if await _dispatch_awaiting(update, context, awaiting, text, user_id):
             return
 
     # مسیر دکمه‌های منوی اصلی
