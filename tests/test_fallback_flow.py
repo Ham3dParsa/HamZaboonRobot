@@ -40,6 +40,10 @@ class FallbackChainTests(unittest.TestCase):
         # leak between test methods that reuse the same short preset names.
         from services.ai import llm_services
         llm_services.get_limiter_store().reset()
+        # The chain read cache is process-global; each test seeds its own
+        # presets, so drop the cached chain to avoid a stale routing list.
+        from services.ai import ai_read_cache
+        ai_read_cache.reset_read_cache()
 
     def tearDown(self):
         db.DB_PATH = self.previous_db_path
@@ -130,6 +134,8 @@ class FallbackChainTests(unittest.TestCase):
         # Verify preset_b works when explicitly included in the chain
         with patch("services.ai.llm_services.db.get_fallback_chain_presets") as mock_chain:
             mock_chain.return_value = [{"name": "preset_b", "priority": 0, "in_fallback_chain": 0}]
+            from services.ai import ai_read_cache
+            ai_read_cache.reset_read_cache()
             result = _call_ai_limited(mock_func, request_kind="grammar_tip")
             self.assertEqual(result, {"preset": "preset_b"})
 

@@ -17,7 +17,7 @@ from config import (
     COST,
 )
 from services import db
-from services.ai import preset_fields, prompts
+from services.ai import ai_read_cache, preset_fields, prompts
 
 log = logging.getLogger(__name__)
 
@@ -128,6 +128,8 @@ def custom_test_card(
     telemetry: dict[str, object] = {}
     error: Exception | None = None
     try:
+        if preset is None:
+            preset = db.get_active_preset()
         client = _client(preset)
         model = _model(preset)
         started = time.monotonic()
@@ -193,16 +195,19 @@ def _log_llm_request(
 
     preset_name = preset.get("name", "?") if preset else "?"
 
-    # Resolve cost per-million from preset first, fallback to global profile
+    # Resolve cost per-million from the preset dict already in hand (it came
+    # from the chain/active read, so no re-query), falling back to the global
+    # profile. The profile read is served from a TTL cache (BOT-2) invalidated
+    # on admin save. Preset-level cost edits via admin_ai take effect at the
+    # chain TTL (~10s); the profile fallback is invalidated instantly.
     if preset:
-        per_preset = db.get_preset_cost(preset["name"])
-        input_cost = per_preset["input_cost_per_million"]
-        output_cost = per_preset["output_cost_per_million"]
+        input_cost = preset.get("input_cost_per_million")
+        output_cost = preset.get("output_cost_per_million")
     else:
         input_cost = None
         output_cost = None
 
-    profile = db.get_llm_cost_profile()
+    profile = ai_read_cache.get_cost_profile()
     input_cost_per_million = input_cost if input_cost is not None else profile["input_cost_usd_per_million"]
     output_cost_per_million = output_cost if output_cost is not None else profile["output_cost_usd_per_million"]
 
@@ -216,18 +221,17 @@ def _log_llm_request(
     outcome_icon = _COST_OUTCOME_ICON.get(outcome, "?")
     outcome_label = f"{outcome_icon} {outcome.removeprefix('failure_').removeprefix('billed_') if outcome.startswith('failure') else outcome}"
     tokens_str = f"{total_tokens} tok" if total_tokens is not None else "———"
-    latency_str = f"{latency_value} ms" if latency_value is not None else "———"
     cost_str = f"${cost_usd:.6f}" if cost_usd > 0 else "———"
 
     log.log(
         COST,
-        "%-18s │ %-14s │ %-30s │ %-22s │ %10s │ %9s │ %12s",
+        "kind=%s user=%s preset=%s outcome=%s tokens=%s latency=%sms cost=%s",
         request_kind,
         str(user_id or "?"),
         preset_name,
         outcome_label,
         tokens_str,
-        latency_str,
+        latency_value if latency_value is not None else "?",
         cost_str,
     )
 
@@ -613,6 +617,8 @@ def _request_json(
     preset: dict | None = None,
 ) -> object:
     """یک تماس با مدل زبانی می‌گیرد و انتظار دارد خروجی JSON خام باشد."""
+    if preset is None:
+        preset = db.get_active_preset()
     client = _client(preset)
     model = _model(preset)
     temp = preset_fields.resolve(preset or {}, "temperature")

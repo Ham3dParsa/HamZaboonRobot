@@ -436,6 +436,33 @@ def get_hourly_usage(preset_name: str, hours_back: int = 24) -> tuple[int, int]:
     return (row["req"], row["tok"])
 
 
+def get_hourly_usage_many(names: list[str], hours_back: int = 24) -> dict[str, tuple[int, int]]:
+    """Return the 24h usage for many presets in one query (BOT-3, N+1 fix).
+
+    Reduces the per-preset ``get_hourly_usage`` loop on the AI hot path to a
+    single batched read. Presets with no rows report ``(0, 0)``. The existing
+    single-preset ``get_hourly_usage`` is unchanged for other callers.
+    """
+    if not names:
+        return {}
+    cutoff = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=hours_back)).isoformat()
+    placeholders = ",".join("?" for _ in names)
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT preset_name, "
+            "COALESCE(SUM(request_count), 0) AS req, "
+            "COALESCE(SUM(token_count), 0) AS tok "
+            "FROM preset_hourly_usage "
+            f"WHERE preset_name IN ({placeholders}) AND hour_bucket >= ? "
+            "GROUP BY preset_name",
+            (*names, cutoff[:13]),
+        ).fetchall()
+    result: dict[str, tuple[int, int]] = {name: (0, 0) for name in names}
+    for row in rows:
+        result[row["preset_name"]] = (row["req"], row["tok"])
+    return result
+
+
 def prune_preset_hourly_usage(hours_back: int = 24):
     """Delete preset_hourly_usage rows older than a rolling window (R13).
 

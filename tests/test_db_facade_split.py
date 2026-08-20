@@ -33,6 +33,7 @@ PRESET_REGISTRY_EXPORTS = [
     "get_fallback_status",
     "get_group_labels",
     "get_hourly_usage",
+    "get_hourly_usage_many",
     "get_preset",
     "get_preset_cost",
     "get_presets",
