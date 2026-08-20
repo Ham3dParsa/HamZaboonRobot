@@ -1013,7 +1013,9 @@ def _reports_list_payload(user_id: int):
     if not entries:
         return escape_mdv2("در ۳ روز اخیر گزارشی موجود نیست."), None
     lines = [
-        f"{to_persian_digits(i)}. {escape_mdv2(e.session_date)}"
+        # The '.' separator is a MarkdownV2-reserved char; route it through the
+        # central escaper like every other value (R10 escaping regression).
+        f"{to_persian_digits(i)}{escape_mdv2('.')} {escape_mdv2(e.session_date)}"
         for i, e in enumerate(entries, 1)
     ]
     text = "*" + escape_mdv2("گزارش‌های جلسات اخیر:") + "*\n" + "\n".join(lines)
