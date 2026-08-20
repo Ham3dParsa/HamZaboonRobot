@@ -47,7 +47,10 @@ class TestAdminPlansModule(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIs(getattr(admin, name), getattr(admin_plans, name))
 
-    def test_reexports_plan_keyboards_verbatim(self):
+    def test_uses_plan_keyboards_from_config(self):
+        """Keyboards are owned by config.keyboards; the handler imports them for
+        use but does not re-export them as its own public API (single source of
+        truth, RT-R5)."""
         for name, kbd in _KEYBOARDS.items():
             with self.subTest(name=name):
                 self.assertIs(getattr(admin_plans, name), kbd)
@@ -63,9 +66,7 @@ class TestAdminPlansModule(unittest.TestCase):
 
     def test_all_is_explicit(self):
         expected = sorted(
-            list(_PLAN_FUNCTIONS)
-            + list(_KEYBOARDS.keys())
-            + ["TOTAL_PLAN_WIZARD_FIELDS"],
+            list(_PLAN_FUNCTIONS) + ["TOTAL_PLAN_WIZARD_FIELDS"],
             key=lambda s: s.lower(),
         )
         self.assertEqual(sorted(admin_plans.__all__, key=lambda s: s.lower()), expected)

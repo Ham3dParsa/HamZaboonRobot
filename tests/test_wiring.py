@@ -358,6 +358,51 @@ def _collect_all_callback_prefixes() -> set[str]:
     return prefixes
 
 
+def _collect_static_callback_literals() -> list[tuple[Path, int, str]]:
+    """Return every fully-static ``callback_data="..."`` string literal found
+    across the production sources, as ``(filepath, lineno, value)``.
+
+    Only inline ``Constant`` string keyword payloads are reported (a fully
+    known payload written directly on the ``InlineKeyboardButton(...)`` call).
+    Callbacks that reach a button through a name — a module-level constant or
+    arguments forwarded to a keyboard row helper such as ``_awaiting_row`` —
+    are NOT measured here; their routing is pinned separately by
+    ``test_awaiting_row_callbacks_are_routed``. Dynamic callbacks (f-strings
+    embedding a codec token or a short identifier such as a plan name) are also
+    out of scope: their variable segment is a fixed-length codec token or an
+    inherently short identifier, and the 64-byte guard only bounds the known
+    static payloads.
+    """
+    found: list[tuple[Path, int, str]] = []
+    for filepath in _production_py_files():
+        try:
+            tree = ast.parse(filepath.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            is_button = (
+                isinstance(func, ast.Name) and func.id == "InlineKeyboardButton"
+            ) or (
+                isinstance(func, ast.Attribute) and func.attr == "InlineKeyboardButton"
+            )
+            if not is_button:
+                continue
+
+            for kw in node.keywords:
+                if (
+                    kw.arg == "callback_data"
+                    and isinstance(kw.value, ast.Constant)
+                    and isinstance(kw.value.value, str)
+                ):
+                    found.append((filepath, node.lineno, kw.value.value))
+
+    return found
+
+
 def _collect_registry_prefixes() -> set[str]:
     """Extract coarse prefixes registered in the central routing registry.
 
@@ -577,6 +622,46 @@ class TestCallbackWiring(unittest.TestCase):
             for o in orphaned:
                 msg += f"  {o}\n"
             self.fail(msg)
+
+    def test_all_static_callback_data_within_64_bytes(self):
+        """Every fully-static ``callback_data`` payload must fit Telegram's
+        64-byte callback_data limit.
+
+        Long variable identifiers are handled by the callback codec
+        (``services/utils/callback_codec.py``) which replaces them with
+        fixed-length hashes; this guard catches a static literal that grows
+        past the limit (a regression that would break the button silently).
+        """
+        literals = _collect_static_callback_literals()
+        self.assertGreater(
+            len(literals), 100,
+            "no static callback literals collected — collector may be broken",
+        )
+        over = [
+            (str(path), lineno, cb)
+            for path, lineno, cb in literals
+            if len(cb.encode("utf-8")) > 64
+        ]
+        if over:
+            msg = "Static callback_data exceeds Telegram 64-byte limit:\n"
+            for path, lineno, cb in over:
+                msg += f"  {path}:{lineno}  ({len(cb.encode('utf-8'))} bytes)  {cb!r}\n"
+            self.fail(msg)
+
+    def test_awaiting_row_callbacks_are_routed(self):
+        """The shared awaiting back/cancel row (``_awaiting_row``) builds
+        buttons with ``callback_data`` passed through parameters rather than as
+        literals on the button call, so the literal-based prefix collector
+        cannot see them. Pin those prefixes explicitly so deleting a router
+        branch (or a sub-router action) for ``flow:back`` / ``flow:cancel`` /
+        ``admin:back`` / ``admin:cancel`` still fails the suite."""
+        handlers = _collect_router_handlers()
+        for prefix in ("flow:back", "flow:cancel", "admin:back", "admin:cancel"):
+            with self.subTest(prefix=prefix):
+                self.assertTrue(
+                    _prefix_matches_handler(prefix, handlers),
+                    f"awaiting-row callback {prefix!r} has no router branch",
+                )
 
     def test_admin_sub_router_has_all_actions(self):
         """Every ``admin:``-prefixed callback prefix must have a matching
