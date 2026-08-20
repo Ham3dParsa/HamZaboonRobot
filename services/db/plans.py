@@ -88,6 +88,8 @@ def upsert_plan(
     is_active: int = 1,
 ) -> None:
     """Insert or update a plan spec (admin plan-manager wizard)."""
+    if name not in valid_plans():
+        raise ValueError(f"Invalid plan code: {name}")
     with transaction() as conn:
         conn.execute(
             f"INSERT INTO plans({_PLAN_COLUMNS}) "
