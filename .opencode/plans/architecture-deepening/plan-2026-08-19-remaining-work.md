@@ -61,6 +61,7 @@ This file supersedes the audit snapshot and the stale rows in plan-2026-08-16-ar
 | F8/R8 + RT-B3 FieldRegistry to plans | F8/R8,RT-B3 | Telegram UI -> Plans (#10) + admin.py (#8) | — | done | MERGED #429 | refactor/field-registry-plans |
 | BOT-1/2/3 AI cache/amplification | BOT-1/2/3 | AI/LLM Provider (#2) | — | done | MERGED #432 | refactor/ai-cache-amplification |
 | BOT-4 log overflow | BOT-4 | AI/LLM Provider (#2) | — | done | MERGED #432 | (folded into BOT-1/2/3) |
+| Plan write-time domain guard (upsert_plan rejects non-canonical codes) | WRITE-GUARD | Persistence (#1) | — | done | MERGED #439 | fix/plan-code-write-guard |
 
 ### Routing track — Session C (serial)
 | Item | Report ID | Seams | Depends-on | Exec | Status | PR / Branch |
