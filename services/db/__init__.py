@@ -26,6 +26,8 @@ from services.db.schema import (
     is_maintenance,
     _LEGACY_DAILY_TABLES,
     init_db,
+    _check_test_mode_guard,
+    _guard_destructive_op,
     _app_timezone,
     _today,
     _utc_now,
@@ -557,6 +559,11 @@ def import_db_bytes(data: bytes, backup_path: str | None = None) -> None:
                         pass
                 if backup_path:
                     shutil.copy2(DB_PATH, backup_path)
+                # R1/P0.1: before replacing the live DB, prove in test mode that
+                # both the target and the incoming candidate are marked test
+                # databases (and neither is production). Abort otherwise.
+                _guard_destructive_op(DB_PATH)
+                _guard_destructive_op(candidate_path)
                 os.replace(candidate_path, DB_PATH)
             except OSError as exc:
                 raise ValueError(

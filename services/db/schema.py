@@ -5,6 +5,7 @@ import threading
 import datetime
 import secrets
 import unicodedata
+import urllib.parse
 from contextlib import contextmanager
 
 from config.catalog import DEFAULT_LEVEL, DISPLAY_TOGGLE_DEFAULTS
@@ -214,6 +215,10 @@ def _check_test_mode_guard(path: str) -> None:
     Every database operation funnels through get_conn(), so one guard here
     protects the real database from any test that forgets to override
     db.DB_PATH. HAMZABAN_TEST_MODE is set by tests/__init__.py and CI.
+
+    P0.1 kill-switch: when the guard fires it aborts *before* any filesystem or
+    database operation, and reports worker id, PID, resolved path and the
+    offending test so a CI failure is immediately actionable.
     """
     if os.environ.get("HAMZABAN_TEST_MODE") == "1":
         from config import DB_PATH as _config_db_path
@@ -221,9 +226,70 @@ def _check_test_mode_guard(path: str) -> None:
             "HAMZABAN_PRODUCTION_DB_PATH", _config_db_path
         )
         if os.path.abspath(path) == os.path.abspath(_production_path):
+            worker = os.environ.get("PYTEST_XDIST_WORKER", "local")
+            current_test = os.environ.get("HAMZABAN_CURRENT_TEST", "<unknown>")
             raise RuntimeError(
-                "Test mode refuses to open the production database at "
-                f"{path!r}. A test must override db.DB_PATH."
+                "KILL-SWITCH: test mode refuses to touch the production "
+                f"database. worker={worker} pid={os.getpid()} "
+                f"resolved_path={os.path.abspath(path)!r} test={current_test!r}"
+            )
+
+
+# A 32-bit marker stamped into the header of every test database via
+# ``PRAGMA application_id`` (R1). Destructive operations (restore, replace)
+# verify both the path *and* this database identity in test mode, so an
+# accidentally-derived or unmarked database can never be overwritten.
+_TEST_APP_ID = 0x48414D5A  # "HAMZ"
+
+
+def _test_mode_on() -> bool:
+    return os.environ.get("HAMZABAN_TEST_MODE") == "1"
+
+
+def _set_test_db_marker(conn) -> None:
+    """Stamp the active connection's database as a test database (test mode only).
+
+    Stamped at the end of a successful init_db so the value is committed with
+    the schema. Never applied outside test mode, so production databases keep
+    their default application_id and production admin restore is unaffected.
+    """
+    if _test_mode_on():
+        conn.execute(f"PRAGMA application_id={_TEST_APP_ID}")
+
+
+def _db_application_id(path: str) -> int | None:
+    """Return the SQLite application_id of an existing database, or None.
+
+    Opens strictly read-only and immutable so this probe can never create or
+    modify the file, even on a production path.
+    """
+    try:
+        uri = "file:" + urllib.parse.quote(os.path.abspath(path)) + "?mode=ro&immutable=1"
+        conn = sqlite3.connect(uri, uri=True)
+        try:
+            row = conn.execute("PRAGMA application_id").fetchone()
+            return int(row[0]) if row else None
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+
+
+def _guard_destructive_op(path: str) -> None:
+    """Path + identity safety gate for destructive DB operations (R1).
+
+    In test mode, abort before any mutation if the target path is the
+    production database, or if an existing database at the path is not a marked
+    test database (application_id). Never enforced outside test mode so
+    production admin restore keeps working.
+    """
+    _check_test_mode_guard(path)
+    if _test_mode_on() and os.path.exists(path):
+        app_id = _db_application_id(path)
+        if app_id != _TEST_APP_ID:
+            raise RuntimeError(
+                "Test mode refuses a destructive operation on a non-test "
+                f"database: {path!r} (application_id={app_id!r})."
             )
 
 
@@ -368,6 +434,12 @@ def transaction(path: str | None = None):
 
 
 def init_db(path: str | None = None):
+    if path is None:
+        from services.db import DB_PATH as _active_path
+    else:
+        _active_path = path
+    # R1/P0.1: abort before any schema work if the target is production.
+    _check_test_mode_guard(_active_path)
     with get_conn(path) as conn:
         _require_daily_cards_migrated(conn)
         conn.executescript(
@@ -791,6 +863,9 @@ def init_db(path: str | None = None):
             conn.execute("ALTER TABLE saved_words DROP COLUMN interval_idx")
         for table in sorted(_LEGACY_DAILY_TABLES):
             conn.execute(f"DROP TABLE IF EXISTS {table}")
+        # R1: stamp the database as a test database (test mode only) so
+        # destructive operations can verify identity, not just path.
+        _set_test_db_marker(conn)
         conn.commit()
 
 

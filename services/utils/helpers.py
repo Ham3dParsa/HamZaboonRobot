@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import re
 
 from telegram import Update
@@ -13,6 +14,27 @@ from services import db
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 
 logger = logging.getLogger(__name__)
+
+_RETRY_BACKOFF_BASE_DEFAULT = 1.0
+
+
+def _retry_backoff_base() -> float:
+    """Scale factor for the Telegram retry backoff (2**attempt) wall-clock wait.
+
+    Production default is 1.0 (unchanged). Tests may shrink the wait via
+    HAMZABAN_RETRY_BACKOFF_BASE (0.1 in the suite; 0.05 reserved for explicit
+    performance benchmarks) while still exercising the real retry sequence:
+    attempt count, ordering, retry conditions, final failure and success-after-
+    retry are all untouched — only the elapsed waiting time scales.
+    """
+    raw = os.environ.get("HAMZABAN_RETRY_BACKOFF_BASE")
+    if raw is None:
+        return _RETRY_BACKOFF_BASE_DEFAULT
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return _RETRY_BACKOFF_BASE_DEFAULT
+    return value if value > 0 else _RETRY_BACKOFF_BASE_DEFAULT
 
 
 def apply_log_level(level_name: str) -> None:
@@ -191,7 +213,7 @@ async def _edit_with_retry(query, text, **kwargs):
         except (TimedOut, NetworkError):
             if attempt == 2:
                 raise
-            await asyncio.sleep(2**attempt)
+            await asyncio.sleep(_retry_backoff_base() * (2**attempt))
 
 
 async def _edit_message_with_retry(
@@ -223,7 +245,7 @@ async def _edit_message_with_retry(
         except (TimedOut, NetworkError):
             if attempt == 2:
                 raise
-            await asyncio.sleep(2**attempt)
+            await asyncio.sleep(_retry_backoff_base() * (2**attempt))
 
 
 async def _edit_markup_with_retry(
@@ -258,7 +280,7 @@ async def _edit_markup_with_retry(
         except (TimedOut, NetworkError):
             if attempt == 2:
                 raise
-            await asyncio.sleep(2**attempt)
+            await asyncio.sleep(_retry_backoff_base() * (2**attempt))
 
 
 async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
@@ -277,7 +299,7 @@ async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
         except (TimedOut, NetworkError):
             if attempt == 2:
                 raise
-            await asyncio.sleep(2**attempt)
+            await asyncio.sleep(_retry_backoff_base() * (2**attempt))
 
 
 async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
