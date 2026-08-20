@@ -18,6 +18,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import bot
 
+from handlers.flows import AWAITING_PENDING_KEY, mark_awaiting_consumed
+
 from services import db
 from services.db import schema as db_schema
 
@@ -141,7 +143,7 @@ class EarlyAwaitingResetTest(unittest.TestCase):
         update = self._make_text_update("hello")
 
         async def consume_then_throw(update, context, user_id, row, text):
-            context.user_data["_awaiting_pending"] = False
+            mark_awaiting_consumed(context)
             raise RuntimeError("boom")
 
         with patch("bot._process_ask_word", side_effect=consume_then_throw):
@@ -193,7 +195,7 @@ class EarlyAwaitingResetTest(unittest.TestCase):
         update = self._make_text_update("hello")
 
         async def consume_then_throw(update, context, user_id, row, text):
-            context.user_data["_awaiting_pending"] = False
+            mark_awaiting_consumed(context)
             raise RuntimeError("boom")
 
         with patch("bot._process_ask_word", side_effect=consume_then_throw):
@@ -230,3 +232,36 @@ class EarlyAwaitingResetTest(unittest.TestCase):
             asyncio.run(text_router(update, ctx))
 
         self.assertIsNone(ctx.user_data["awaiting"])
+
+    def test_text_router_broadcast_consumed_no_rollback(self):
+        """Real broadcast flow: messages sent, final reply fails -> no re-arm/re-send."""
+        from bot import text_router
+
+        ctx = self._make_context()
+        ctx.user_data["awaiting"] = "admin_broadcast"
+        update = self._make_text_update("hello all")
+        update.message.reply_text = AsyncMock(side_effect=RuntimeError("send failed"))
+        users = [{"user_id": 2}, {"user_id": 3}]
+
+        with patch("services.db.all_active_users", return_value=users), patch(
+            "handlers.admin._send_with_retry", new_callable=AsyncMock
+        ) as send, patch("bot.is_owner", return_value=True):
+            with self.assertRaises(RuntimeError):
+                asyncio.run(text_router(update, ctx))
+
+        self.assertIsNone(ctx.user_data["awaiting"])
+        self.assertEqual(send.await_count, 2)
+
+    def test_text_router_unknown_awaiting_falls_through_to_menu(self):
+        """Stale/unknown awaiting falls through to the main-menu reply, no marker left."""
+        from bot import text_router
+
+        ctx = self._make_context()
+        ctx.user_data["awaiting"] = "stale_unknown_flow"
+        update = self._make_text_update("hello")
+
+        with patch("bot.is_owner", return_value=True):
+            asyncio.run(text_router(update, ctx))
+
+        ctx.bot.send_message.assert_called()
+        self.assertNotIn(AWAITING_PENDING_KEY, ctx.user_data)

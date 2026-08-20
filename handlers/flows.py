@@ -49,6 +49,24 @@ class AwaitingFlow:
 
 _FLOWS: list[AwaitingFlow] = []
 
+#: user_data key for the consumed-input marker (single source of truth).
+#: ``bot._dispatch_awaiting`` arms it before dispatch and only rolls back
+#: ``awaiting`` while it survives; terminal handlers clear it via
+#: ``mark_awaiting_consumed`` once they begin irreversible work (B5/Kilo CRITICAL).
+AWAITING_PENDING_KEY = "_awaiting_pending"
+
+
+def mark_awaiting_consumed(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Mark the current awaiting input as consumed (irreversible work begun).
+
+    Clears the ``AWAITING_PENDING_KEY`` marker so ``bot._dispatch_awaiting``
+    will not re-arm the flow if the handler later fails on a final reply. Call
+    this at the handler's irreversible step (mass send, quota consumption,
+    DB write) — after any read/validation that must still be allowed to
+    roll back, and before the point of no return.
+    """
+    context.user_data[AWAITING_PENDING_KEY] = False
+
 
 def register_flow(prefix: str, handler: FlowHandler) -> None:
     """Register an awaiting flow (prefix -> handler) at import time."""

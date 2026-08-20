@@ -113,6 +113,8 @@ DOMAIN_KEYWORDS: dict[str, str] = {
     "register_flow": "handlers/flows.py",
     "resolve_flow": "handlers/flows.py",
     "is_admin_awaiting": "handlers/flows.py",
+    "mark_awaiting_consumed": "handlers/flows.py",
+    "AWAITING_PENDING_KEY": "handlers/flows.py",
     # services/db/display_toggles.py owns display-toggle state (AGENTS.md §4, R3).
     "get_effective": "services/db/display_toggles.py",
     "get_global_defaults": "services/db/display_toggles.py",
