@@ -15,7 +15,7 @@ scope: Complete the FSRS session engine after daily-card migration, including pe
 The FSRS session-completion chain (phases 1-6) is complete and merged; all implementation plans are archived to
 `docs/archive/plans/fsrs-2026-08-14/` (see links below). The only remaining FSRS
 work is Phase 3b+ (AI Tier-3 `generate_tier3_node()` stub), tracked as a todo in
-`project_status.json`; the separate staged-reveal/display-toggle spec remains
+ROADMAP.md; the separate staged-reveal/display-toggle spec remains
 active at `.opencode/plans/session/plan-srs-staged-reveal-spec.md` (issue #338).
 
 ## Archived Plans (docs/archive/plans/fsrs-2026-08-14/)
