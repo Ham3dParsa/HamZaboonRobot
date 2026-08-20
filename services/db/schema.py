@@ -4,6 +4,7 @@ import sqlite3
 import threading
 import datetime
 import secrets
+import unicodedata
 from contextlib import contextmanager
 
 from config.catalog import DEFAULT_LEVEL, DISPLAY_TOGGLE_DEFAULTS
@@ -67,8 +68,74 @@ def _utc_now() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc)
 
 
-def _normalize_word(word: str) -> str:
-    return " ".join(word.split()).casefold()
+def normalize_word(word: str) -> str:
+    """Collapse a word to its single canonical dedup key (A2-3 / R2).
+
+    Single source of truth for saved_words.normalized_word and the query-dedup
+    key. ``unicodedata.NFC`` folds canonically-equivalent codepoints (precomposed
+    vs decomposed accents), ``casefold()`` lowercases in a Unicode-aware way, and
+    whitespace is collapsed to a single space. Applied identically on insert and
+    lookup so a prior card is found for case/Unicode variants instead of
+    re-spending quota + AI.
+    """
+    return " ".join(unicodedata.normalize("NFC", word).split()).casefold()
+
+
+def _backfill_saved_word_normalization(conn):
+    """One-time migration: re-normalize saved_words.normalized_word (A2-3 / R2).
+
+    Runs on the first ``init_db`` after deploy: recomputes every row's
+    ``normalized_word`` from its original ``word`` via ``normalize_word`` and
+    resolves collisions where NFC folds two previously-distinct keys into one.
+    On a collision within ``(user_id, lang)``, the most-recently-active row
+    (COALESCE(last_review_at, added_at) desc) is kept and the older duplicate is
+    deleted. Idempotent, and gated by a ``_migration_word_normalization_done``
+    marker (mirrors ``_migration_preset_synced``) so the full table scan happens
+    only once: after it, every row already equals ``normalize_word(word)`` and
+    the unique index (created after this backfill) prevents new NFC collisions.
+    """
+    done = conn.execute(
+        "SELECT 1 FROM settings WHERE key='_migration_word_normalization_done'"
+    ).fetchone()
+    if done:
+        return
+    columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(saved_words)").fetchall()
+    }
+    activity_cols = [c for c in ("last_review_at", "added_at") if c in columns]
+    select_cols = ", ".join(["id", "user_id", "lang", "word", "normalized_word"] + activity_cols)
+    rows = conn.execute(f"SELECT {select_cols} FROM saved_words").fetchall()
+
+    def _activity(r):
+        for c in activity_cols:
+            if r[c]:
+                return r[c]
+        return ""
+
+    groups: dict[tuple, list] = {}
+    for r in rows:
+        key = (r["user_id"], r["lang"], normalize_word(r["word"]))
+        groups.setdefault(key, []).append(r)
+    deletes: list[int] = []
+    updates: list[tuple[str, int]] = []
+    for items in groups.values():
+        items.sort(key=_activity, reverse=True)
+        keeper = items[0]
+        normalized = normalize_word(keeper["word"])
+        if keeper["normalized_word"] != normalized:
+            updates.append((normalized, keeper["id"]))
+        for dup in items[1:]:
+            deletes.append(dup["id"])
+    for wid in deletes:
+        conn.execute("DELETE FROM saved_words WHERE id=?", (wid,))
+    for nkey, wid in updates:
+        conn.execute("UPDATE saved_words SET normalized_word=? WHERE id=?", (nkey, wid))
+    conn.execute(
+        "INSERT INTO settings(key, value) VALUES (?, '1') "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        ("_migration_word_normalization_done",),
+    )
 
 
 def _table_names(conn: sqlite3.Connection) -> set[str]:
@@ -540,6 +607,7 @@ def init_db(path: str | None = None):
             "SELECT MIN(id) FROM saved_words "
             "GROUP BY user_id, lang, normalized_word)"
         )
+        _backfill_saved_word_normalization(conn)
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS saved_words_user_lang_word "
             "ON saved_words(user_id, lang, normalized_word)"

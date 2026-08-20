@@ -94,6 +94,8 @@ DOMAIN_KEYWORDS: dict[str, str] = {
     "decrypt_secret": "services/db/key_crypto.py",
     "mask_key": "services/db/key_crypto.py",
     "encrypt_for_storage": "services/db/key_crypto.py",
+    # services/db/schema.py owns word/query-text normalization (A2-3 / R2).
+    "normalize_word": "services/db/schema.py",
     # services/session/grade_policy.py owns grade resolution (AGENTS.md §4).
     "GRADE_POLICIES": "services/session/grade_policy.py",
     "resolve_grade": "services/session/grade_policy.py",

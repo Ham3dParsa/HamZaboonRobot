@@ -14,7 +14,6 @@ import sqlite3
 import stat
 import tempfile
 import shutil
-import unicodedata
 from contextlib import closing
 
 # ---------------------------------------------------------------------------
@@ -30,7 +29,7 @@ from services.db.schema import (
     _app_timezone,
     _today,
     _utc_now,
-    _normalize_word,
+    normalize_word,
     _current_daily_count,
     _can_consume_daily_count,
     _init_ai_presets_table,
@@ -193,14 +192,13 @@ def _query_result_expired(row) -> bool:
 def _normalize_query_text(text: str) -> str:
     """Normalize the dedup key exactly as saved words are normalized (R7a).
 
-    ``unicodedata.NFC`` folds canonically-equivalent codepoints (e.g. precomposed
-    vs decomposed accents) and ``casefold()`` lowercases in a Unicode-aware way,
-    matching ``schema._normalize_word`` (``" ".join(...).casefold()``) so the
-    duplicate match and the saved-words store agree. Whitespace is collapsed to a
-    single space. Used identically on insert and lookup so a prior card is found
-    for case/Unicode variants instead of re-spending quota + AI.
+    Delegates to the single-source ``schema.normalize_word`` (A2-3 / R2) so the
+    query-dedup key and ``saved_words.normalized_word`` always agree (NFC +
+    casefold + whitespace-collapse). Used identically on insert and lookup so a
+    prior card is found for case/Unicode variants instead of re-spending quota +
+    AI.
     """
-    return " ".join(unicodedata.normalize("NFC", text).split()).casefold()
+    return normalize_word(text)
 
 
 def create_query_result(

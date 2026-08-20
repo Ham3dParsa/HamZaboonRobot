@@ -2,7 +2,14 @@ import json
 import sqlite3
 import datetime
 from dataclasses import dataclass
-from services.db.schema import get_conn, transaction, _today, _utc_now, _app_timezone
+from services.db.schema import (
+    get_conn,
+    transaction,
+    _today,
+    _utc_now,
+    _app_timezone,
+    normalize_word,
+)
 from services.db.sessions import mark_word_graded
 from services.fsrs_core import (
     DEFAULT_FSRS_CONFIG,
@@ -16,10 +23,6 @@ from services.fsrs_core import (
 )
 
 
-def _normalize_word(word: str) -> str:
-    return " ".join(word.split()).casefold()
-
-
 # ---------- واژه‌های دلخواه + یادآوری فاصله‌دار ساده ----------
 
 def add_saved_word(
@@ -29,7 +32,7 @@ def add_saved_word(
     card_data: dict | None = None,
     entry_source: str = "manual",
 ) -> bool:
-    normalized_word = _normalize_word(word)
+    normalized_word = normalize_word(word)
     if not normalized_word:
         return False
     word = " ".join(word.split())
@@ -79,7 +82,7 @@ def toggle_review_word(
     row was deleted. The unique key is (user_id, lang, normalized_word), so
     rapid repeated taps cannot produce duplicates.
     """
-    normalized_word = _normalize_word(word)
+    normalized_word = normalize_word(word)
     if not normalized_word:
         return "removed"
     with transaction() as conn:
