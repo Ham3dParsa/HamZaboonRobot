@@ -4,6 +4,15 @@ All notable changes to HamZaboon. Generated automatically from
 [Conventional Commits](https://www.conventionalcommits.org/) by
 [scripts/generate_changelog.py](scripts/generate_changelog.py). Do not edit by hand.
 
+### 2026-08-21
+#### Refactoring
+- close partial audit items F1/F4/F5 (#435) (`ai`)
+  — @Ham3dParsa [ac0152d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/ac0152d)
+
+#### Testing
+- pin _telegram_offline in setUp to fix leaked-global failures (#436) (`word-query`)
+  — @Ham3dParsa [0dd3d65](https://github.com/Ham3dParsa/HamZaboonRobot/commit/0dd3d65)
+
 ### 2026-08-20
 #### Features
 - parallelize broadcast fan-out and guard re-entry (RT-BN1) (#437) (`admin`)
@@ -36,6 +45,8 @@ All notable changes to HamZaboon. Generated automatically from
   — @Ham3dParsa [96dc0f6](https://github.com/Ham3dParsa/HamZaboonRobot/commit/96dc0f6)
 
 #### Documentation
+- mark RT-BN1 merged; regenerate CHANGELOG (`plans`)
+  — @Ham3dParsa [5fc056d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/5fc056d)
 - mark RT-B5 merged; regenerate CHANGELOG (`plans`)
   — @Ham3dParsa [a4835d8](https://github.com/Ham3dParsa/HamZaboonRobot/commit/a4835d8)
 - regenerate after G4 ai-cache merge (`changelog`)
