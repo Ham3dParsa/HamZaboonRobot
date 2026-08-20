@@ -31,5 +31,6 @@ STATE: phase 1/1 — status: in-progress — focus: write integration tests (red
 - Tests: `tests/test_integration/test_admin_broadcast_concurrency.py` (3 tests) — 3 passed.
 - Regression: `test_early_awaiting_reset.py` (13 passed), `test_send_pretty_route_flow.py`, `test_admin_awaiting.py`, `test_wiring.py`, `test_single_source_of_truth.py`, `test_dead_code_guard.py` (107 passed + 4 subtests).
 - Test-sync: `_make_text_update` in `test_early_awaiting_reset.py` gained `update.callback_query = None` (R5 final-reply now routes through `say`; real text updates have callback_query None).
-- Benchmark (`scripts/bench_broadcast.py`, local only): N=1000, 5ms latency → 6.02s sequential vs 0.98s concurrent = **6.16× speedup**, cap=20.
+- Benchmark (`scripts/bench_broadcast.py`, local only): N=1000, 5ms latency, models the transport cap → 5.99s sequential vs 1.69s concurrent ≈ **3.6×** with effective cap min(broadcast, transport)=6. Effective in-flight = min(BROADCAST_MAX_CONCURRENCY, TELEGRAM_MAX_CONCURRENCY).
+- Kilo WARNING (admin.py:331) addressed: nested-cap relationship documented; benchmark now models the transport cap (honest speedup).
 - Files: `handlers/admin.py`, `config/__init__.py`, `.env.example`, `scripts/bench_broadcast.py`, `tests/test_integration/test_admin_broadcast_concurrency.py`.

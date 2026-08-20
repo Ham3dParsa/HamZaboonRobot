@@ -327,6 +327,11 @@ def _register_admin_flows() -> None:
         try:
             users = db.all_active_users()
             mark_awaiting_consumed(context)  # broadcast is irreversible (B5/Kilo CRITICAL)
+            # Broadcast-local cap keeps this fan-out bounded (bounded coroutine
+            # creation at extreme N); the effective in-flight concurrency is
+            # min(BROADCAST_MAX_CONCURRENCY, TELEGRAM_MAX_CONCURRENCY) because
+            # _send_with_retry acquires the global _telegram_slots per send.
+            # Raising TELEGRAM_MAX_CONCURRENCY is the real lever to widen it.
             sem = asyncio.Semaphore(BROADCAST_MAX_CONCURRENCY)
 
             async def _send_one(user):

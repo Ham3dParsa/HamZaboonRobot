@@ -21,7 +21,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import BROADCAST_MAX_CONCURRENCY  # noqa: E402
+from config import BROADCAST_MAX_CONCURRENCY, TELEGRAM_MAX_CONCURRENCY  # noqa: E402
+
+# Model the global transport cap (_telegram_slots) that the real _send_with_retry
+# acquires per send, so the reported speedup reflects production concurrency
+# min(BROADCAST_MAX_CONCURRENCY, TELEGRAM_MAX_CONCURRENCY), not an unreal 20-way.
+_transport = asyncio.Semaphore(TELEGRAM_MAX_CONCURRENCY)
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 1000
 LATENCY_MS = float(sys.argv[2]) if len(sys.argv) > 2 else 5.0
@@ -46,7 +51,8 @@ def _make_context():
 
 
 async def _slow_send(bot_ref, chat_id, text, *args, **kwargs):
-    await asyncio.sleep(LATENCY_S)
+    async with _transport:
+        await asyncio.sleep(LATENCY_S)
     return MagicMock()
 
 
@@ -104,10 +110,12 @@ def main() -> None:
 
     tmp.cleanup()
 
-    print(f"N={N}  latency={LATENCY_MS}ms  cap={BROADCAST_MAX_CONCURRENCY}")
+    effective = min(BROADCAST_MAX_CONCURRENCY, TELEGRAM_MAX_CONCURRENCY)
+    print(f"N={N}  latency={LATENCY_MS}ms  broadcast_cap={BROADCAST_MAX_CONCURRENCY}  transport_cap={TELEGRAM_MAX_CONCURRENCY}")
+    print(f"effective in-flight cap = min(broadcast, transport) = {effective}")
     print(f"sequential: {seq:.2f}s")
     print(f"concurrent: {conc:.2f}s")
-    print(f"speedup:    {seq / max(conc, 1e-9):.2f}x")
+    print(f"speedup:    {seq / max(conc, 1e-9):.2f}x (raise TELEGRAM_MAX_CONCURRENCY to widen)")
 
 
 if __name__ == "__main__":
