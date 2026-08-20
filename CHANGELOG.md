@@ -10,6 +10,8 @@ All notable changes to HamZaboon. Generated automatically from
   — @Ham3dParsa [db6b8ec](https://github.com/Ham3dParsa/HamZaboonRobot/commit/db6b8ec)
 
 #### Bug Fixes
+- roll back awaiting state when handler throws before re-arming (RT-B5) (#433) (`bot`)
+  — @Ham3dParsa [2a1707c](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2a1707c)
 - escape '.' in /reports list for MarkdownV2 (`study`)
   — @Ham3dParsa [3c7a67b](https://github.com/Ham3dParsa/HamZaboonRobot/commit/3c7a67b)
 - show >=2 sense-consistent fill-blank hints (issue #408) (#427) (`srs`)
@@ -18,6 +20,8 @@ All notable changes to HamZaboon. Generated automatically from
   — @Ham3dParsa [ea288be](https://github.com/Ham3dParsa/HamZaboonRobot/commit/ea288be)
 
 #### Refactoring
+- centralize NFC normalize_word as single source (#434) (`db`)
+  — @Ham3dParsa [bd9c61d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/bd9c61d)
 - cache hot-path reads and batch usage in AI provider (#432) (`ai`)
   — @Ham3dParsa [2e00071](https://github.com/Ham3dParsa/HamZaboonRobot/commit/2e00071)
 - consolidate awaiting keyboards and keyboard ownership (RT-R5) (#431) (`routing`)
@@ -30,6 +34,8 @@ All notable changes to HamZaboon. Generated automatically from
   — @Ham3dParsa [96dc0f6](https://github.com/Ham3dParsa/HamZaboonRobot/commit/96dc0f6)
 
 #### Documentation
+- regenerate after G4 ai-cache merge (`changelog`)
+  — @Ham3dParsa [4173225](https://github.com/Ham3dParsa/HamZaboonRobot/commit/4173225)
 - mark session-report-persistence complete (R10, #430) (`plans`)
   — @Ham3dParsa [d840b3f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/d840b3f)
 
