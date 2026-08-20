@@ -324,16 +324,19 @@ class CardModeAccessorPersistenceTests(unittest.TestCase):
         self.assertEqual(row["query_quota"], 7)
 
     def test_new_plan_via_upsert_has_null_modes(self):
-        """A brand-new plan created through upsert_plan has NULL modes, so the
-        resolver falls through to the admin-global mode."""
+        """Re-inserting an absent canonical plan through upsert_plan creates a
+        fresh row with NULL modes, so the resolver falls through to the
+        admin-global mode."""
+        with db_module.get_conn() as conn:
+            conn.execute("DELETE FROM plans WHERE name='gold'")
         db_module.upsert_plan(
-            "platinum", "پلاتین", 0, query_quota=30, max_sessions=6,
-            cards_per_session=12,
+            "gold", "طلایی", 0, query_quota=12, max_sessions=4,
+            cards_per_session=7,
         )
         with db_module.get_conn() as conn:
             row = conn.execute(
                 "SELECT first_exposure_mode, review_mode FROM plans "
-                "WHERE name='platinum'"
+                "WHERE name='gold'"
             ).fetchone()
         self.assertIsNone(row["first_exposure_mode"])
         self.assertIsNone(row["review_mode"])

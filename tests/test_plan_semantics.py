@@ -5,7 +5,7 @@ import unittest
 from config.plan_identity import is_premium
 from services import db
 from services.db import schema as db_schema
-from services.db.plans import effective_plan, plan_spec
+from services.db.plans import effective_plan, plan_spec, upsert_plan
 
 
 class PlanSemanticsTests(unittest.TestCase):
@@ -70,6 +70,22 @@ class PlanSemanticsTests(unittest.TestCase):
         self.assertEqual(effective_plan("gold"), "gold")
         self.assertEqual(effective_plan("does-not-exist"), "free")
         self.assertEqual(effective_plan("free", bypass_limits=True), "gold")
+
+    def test_upsert_plan_rejects_unknown_code(self):
+        with self.assertRaises(ValueError):
+            upsert_plan(
+                name="does-not-exist", display_name="X", price=0,
+                query_quota=1, max_sessions=1, cards_per_session=1,
+            )
+
+    def test_upsert_plan_accepts_valid_code(self):
+        upsert_plan(
+            name="silver", display_name="Silver", price=10,
+            query_quota=7, max_sessions=3, cards_per_session=5,
+        )
+        silver = db.get_plan("silver")
+        self.assertEqual(silver["display_name"], "Silver")
+        self.assertEqual(silver["price"], 10)
 
 
 if __name__ == "__main__":

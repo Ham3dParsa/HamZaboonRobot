@@ -344,16 +344,16 @@ class PlanManagerFlowTest(unittest.TestCase):
         from handlers.admin import _handle_admin_callback
 
         db.upsert_plan(
-            "escaped",
+            "gold",
             display_name="پلن <b>تست</b> & 'x'",
             price=0,
             query_quota=1,
             max_sessions=1,
             cards_per_session=1,
         )
-        update = self._make_callback_update("admin:plans:view:escaped")
+        update = self._make_callback_update("admin:plans:view:gold")
         ctx = self._make_context()
-        asyncio.run(_handle_admin_callback(update, ctx, "plans:view:escaped"))
+        asyncio.run(_handle_admin_callback(update, ctx, "plans:view:gold"))
 
         call = update.callback_query.edit_message_text.call_args
         rendered = call.kwargs.get("text") or call[0][0]
