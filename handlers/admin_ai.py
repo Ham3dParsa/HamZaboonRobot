@@ -471,6 +471,10 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
             value = int(raw)
             if value not in (0, 1):
                 raise ValueError
+        elif field_name == "priority":
+            value = int(raw)
+            if value < 0:
+                raise ValueError
         elif field_name == "group_label":
             value = raw
             if not value or len(value) > MAX_GROUP_LABEL_LEN:
@@ -1034,6 +1038,7 @@ async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
     try:
         db.set_preset(
             name=new_name,
+            priority=int(edits.get("priority", preset_fields.resolve(preset, "priority"))),
             base_url=edits.get("base_url", preset.get("base_url", "")),
             model=edits.get("model", preset.get("model", "")),
             api_key=edits.get("api_key", preset_fields.resolve(preset, "api_key")),

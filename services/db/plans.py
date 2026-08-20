@@ -13,19 +13,36 @@ from __future__ import annotations
 
 import logging
 
+from config.plan_identity import plan_label, valid_plans
 from services.db.schema import get_conn, transaction
 
 logger = logging.getLogger(__name__)
 
-# name -> (display_name, price_toman, query_quota, max_sessions, cards_per_session, sort_order)
-DEFAULT_PLANS: dict[str, tuple[str, int, int, int, int, int]] = {
-    # code     display   price  query  sessions  cards  sort
-    "free":    ("رایگان", 0,      2,     2,        3,     0),
-    "bronze":  ("برنزی",  0,      4,     3,        3,     1),
-    "silver":  ("نقره‌ای", 0,     7,     3,        5,     2),
-    "gold":    ("طلایی",  0,     12,     4,        7,     3),
-    "emerald": ("زمردی",  0,     20,     5,        9,     4),
+# Per-plan limits — the DB-seed data model (price + per-plan quotas/order).
+# Plan identity (label/premium/rank) is single-sourced in config.plan_identity;
+# display_name is derived from it below so a Persian plan label lives in exactly
+# one place (closes the R5/F5 duplicate-label gap).
+_PLAN_LIMITS: dict[str, tuple[int, int, int, int, int]] = {
+    # code     price  query  sessions  cards  sort
+    "free":    (0,     2,     2,        3,     0),
+    "bronze":  (0,     4,     3,        3,     1),
+    "silver":  (0,     7,     3,        5,     2),
+    "gold":    (0,     12,    4,        7,     3),
+    "emerald": (0,     20,    5,        9,     4),
 }
+
+# name -> (display_name, price_toman, query_quota, max_sessions, cards_per_session, sort_order)
+# The plan code set is the single source in config.plan_identity; every seeded
+# plan must also have a limit entry here, or seeding fails loudly (no silent
+# drift between identity and the DB seed).
+DEFAULT_PLANS: dict[str, tuple[str, int, int, int, int, int]] = {}
+for _code in valid_plans():
+    if _code not in _PLAN_LIMITS:
+        raise RuntimeError(
+            f"plan_identity defines {_code!r} but _PLAN_LIMITS has no DB seed entry"
+        )
+    _price, _query, _sessions, _cards, _sort = _PLAN_LIMITS[_code]
+    DEFAULT_PLANS[_code] = (plan_label(_code), _price, _query, _sessions, _cards, _sort)
 
 _PLAN_COLUMNS = (
     "name, display_name, price, query_quota, max_sessions, "

@@ -152,6 +152,7 @@ IBTN_FIELD_NAME = "✏️ نام پریست"
 IBTN_FIELD_INPUT_COST = "💵 هزینه ورودی ($/1M توکن)"
 IBTN_FIELD_OUTPUT_COST = "💵 هزینه خروجی ($/1M توکن)"
 IBTN_FIELD_IN_FALLBACK_CHAIN = "⛓️ حضور در زنجیره فال‌بک"
+IBTN_FIELD_PRIORITY = "🔢 اولویت در زنجیره فال‌بک"
 IBTN_FIELD_GROUP_LABEL = "🏷️ برچسب گروه"
 IBTN_DISCARD_ALL = "🗑️ دور ریختن همه تغییرات"
 IBTN_SAVE_CONFIRM = "✅ بله، ذخیره کن"
@@ -856,6 +857,7 @@ def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None) -> Inl
         ("max_daily_req", IBTN_FIELD_DAILY_REQ),
         ("is_emergency", IBTN_FIELD_IS_EMERGENCY),
         ("name", IBTN_FIELD_NAME),
+        ("priority", IBTN_FIELD_PRIORITY),
         ("input_cost_per_million", IBTN_FIELD_INPUT_COST),
         ("output_cost_per_million", IBTN_FIELD_OUTPUT_COST),
         ("in_fallback_chain", IBTN_FIELD_IN_FALLBACK_CHAIN),
