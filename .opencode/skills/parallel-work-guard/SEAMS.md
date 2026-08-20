@@ -71,4 +71,14 @@ Update this file whenever AGENTS.md §3's module change guard fires
 (new/renamed/split/removed module), same trigger as tests/test_wiring.py's
 scan-target update requirement.
 
+### Non-seam domain modules (deliberately NOT in the seam table)
+
+- `services/plan_fields.py` (G3, added 2026-08-19): pure metadata registry for
+  the 5 admin-editable plan fields (no I/O, no handler/callback boundary, no
+  flat-namespace identifiers beyond its own `PLAN_FIELDS`). It is a single
+  module with one owner and no cross-session collision surface, so it is
+  intentionally not listed as a seam. Its divergence risk is guarded by
+  `tests/test_single_source_of_truth.py` (`PLAN_FIELDS` + accessors ->
+  `services/plan_fields.py`).
+
 Copyright (c) Ham3dParsa. All rights reserved.

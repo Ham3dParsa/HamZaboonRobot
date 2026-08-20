@@ -5,14 +5,13 @@ monolith. The admin monolith imports the plan functions from this module. All
 behavior and callback strings are unchanged.
 """
 
-import html
-
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from services import db, send_pretty
+from services import db, plan_fields, send_pretty
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
+from services.utils.formatting import html_escape
 from services.utils.helpers import _edit_or_send
 from config.keyboards import (
     admin_awaiting_inline_keyboard,
@@ -23,57 +22,7 @@ from config.keyboards import (
     plan_wizard_summary_keyboard,
 )
 
-PLAN_WIZARD_FIELDS = [
-    "display_name", "price", "query_quota", "max_sessions", "cards_per_session",
-]
-PLAN_WIZARD_FIELD_LABELS = {
-    "display_name": "نام نمایشی",
-    "price": "قیمت (تومان)",
-    "query_quota": "سهمیه سؤال روزانه (جستجوی دستی واژه)",
-    "max_sessions": "جلسات روزانه",
-    "cards_per_session": "کارت در هر جلسه",
-}
-# field index -> (group header, one-line Persian hint)
-PLAN_WIZARD_GROUP_HEADERS = {
-    0: ("🎨 — گروه نمایش (Display):", "نام نمایشی و قیمت، فقط برای نمایش هستند و محدودیت‌ی به کاربر تحمیل نمی‌کنند."),
-    1: ("🎨 — گروه نمایش (Display):", "نام نمایشی و قیمت، فقط برای نمایش هستند و محدودیت‌ی به کاربر تحمیل نمی‌کنند."),
-    2: ("💰 — گروه سهمیه (Quotas):", "این سهمیه‌ها رفتار روزانهٔ مطالعه و سؤال‌کردن کاربر را محدود می‌کنند."),
-    3: ("💰 — گروه سهمیه (Quotas):", "این سهمیه‌ها رفتار روزانهٔ مطالعه و سؤال‌کردن کاربر را محدود می‌کنند."),
-    4: ("💰 — گروه سهمیه (Quotas):", "این سهمیه‌ها رفتار روزانهٔ مطالعه و سؤال‌کردن کاربر را محدود می‌کنند."),
-}
-# field name -> extra Persian hint shown right under the field label
-PLAN_WIZARD_FIELD_HINTS = {
-    "query_quota": "سقف جستجوی دستی واژه در روز (سؤال‌کردن از ربات برای یک واژهٔ جدید)؛ جدا از کارت‌های روزانه و محتوای هوشمند است.",
-    "max_sessions": "تعداد جلسه‌های مطالعه در هر روز.",
-    "cards_per_session": "تعداد کارت‌های هر جلسهٔ مطالعه.",
-}
-TOTAL_PLAN_WIZARD_FIELDS = len(PLAN_WIZARD_FIELDS)
-
-
-def _validate_plan_wizard_value(field_name: str, raw: str) -> tuple | None:
-    """Validate a plan wizard field value. Returns (value,) or None on invalid."""
-    if field_name == "display_name":
-        v = raw.strip()
-        if not v:
-            return None
-        return (v,)
-    if field_name == "price":
-        try:
-            v = int(raw)
-        except (ValueError, TypeError):
-            return None
-        if v < 0:
-            return None
-        return (v,)
-    if field_name in ("query_quota", "max_sessions", "cards_per_session"):
-        try:
-            v = int(raw)
-        except (ValueError, TypeError):
-            return None
-        if v < 0:
-            return None
-        return (v,)
-    return None
+TOTAL_PLAN_WIZARD_FIELDS = len(plan_fields.field_order())
 
 
 async def _show_plan_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -94,7 +43,7 @@ async def _show_plan_view(update: Update, context: ContextTypes.DEFAULT_TYPE, na
         return await _show_plan_list(update, context)
     status = "✅ فعال" if plan.get("is_active") else "⭕ غیرفعال"
     text = (
-        f"💳 <b>{html.escape(str(plan.get('display_name')))} ({html.escape(str(plan.get('name')))})</b>\n"
+        f"💳 <b>{html_escape(str(plan.get('display_name')))} ({html_escape(str(plan.get('name')))})</b>\n"
         f"وضعیت: {status}\n\n"
         f"• قیمت: {plan.get('price'):,} تومان\n"
         f"• سهمیه سؤال روزانه (جستجوی دستی واژه): {plan.get('query_quota')}\n"
@@ -122,18 +71,15 @@ async def _start_plan_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 
 async def _show_plan_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str, field_idx: int, plan: dict):
-    field_name = PLAN_WIZARD_FIELDS[field_idx]
+    field_name = plan_fields.field_order()[field_idx]
     current = plan.get(field_name)
     if current is None:
         current = ""
-    group_header = ""
-    group_hint = ""
-    if field_idx in PLAN_WIZARD_GROUP_HEADERS:
-        group_header, group_hint = PLAN_WIZARD_GROUP_HEADERS[field_idx]
-    label = PLAN_WIZARD_FIELD_LABELS.get(field_name, field_name)
-    field_hint = PLAN_WIZARD_FIELD_HINTS.get(field_name, "")
+    group_header, group_hint = plan_fields.group_header(field_name)
+    label = plan_fields.field_label(field_name)
+    field_hint = plan_fields.field_hint(field_name)
 
-    message = f"✏️ <b>ویرایش پلن {html.escape(str(name))} — گام {field_idx + 1} از {TOTAL_PLAN_WIZARD_FIELDS}</b>\n"
+    message = f"✏️ <b>ویرایش پلن {html_escape(str(name))} — گام {field_idx + 1} از {TOTAL_PLAN_WIZARD_FIELDS}</b>\n"
     if group_header:
         message += f"\n{group_header}\n"
     if group_hint:
@@ -149,9 +95,9 @@ async def _show_plan_wizard_field(update: Update, context: ContextTypes.DEFAULT_
     wizard = context.user_data.get("plan_full_edit", {})
     pending = wizard.get("values", {}).get(field_name)
     if current != "":
-        message += f"\nمقدار فعلی (DB): <code>{html.escape(str(current))}</code>"
+        message += f"\nمقدار فعلی (DB): <code>{html_escape(str(current))}</code>"
     if pending is not None:
-        message += f"\nمقدار در انتظار: <code>{html.escape(str(pending))}</code>"
+        message += f"\nمقدار در انتظار: <code>{html_escape(str(pending))}</code>"
     message += "\n\nمقدار جدید را ارسال کنید (یا خالی = رد کردن):"
 
     keyboard = plan_wizard_keyboard(name)
@@ -165,19 +111,19 @@ async def _handle_plan_wizard_input(update: Update, context: ContextTypes.DEFAUL
     if not plan:
         await update.message.reply_text("پلن یافت نشد")
         return
-    field_name = PLAN_WIZARD_FIELDS[field_idx]
+    field_name = plan_fields.field_order()[field_idx]
     raw = text.strip()
     wizard = context.user_data.get("plan_full_edit", {})
     if wizard.get("plan") != name:
         await update.message.reply_text("ویزارد منقضی شده. دوباره شروع کنید.")
         return
     if raw:
-        result = _validate_plan_wizard_value(field_name, raw)
+        result = plan_fields.validate_value(field_name, raw)
         if result is None:
             context.user_data["awaiting"] = f"admin_plan_full_edit:{name}:{field_idx}"
             await update.message.reply_text("فرمت نامعتبر. لطفاً مقدار معتبر بفرستید.", reply_markup=awaiting_inline_keyboard())
             return
-        wizard["values"][field_name] = result[0]
+        wizard["values"][field_name] = result
     next_idx = field_idx + 1
     wizard["field_idx"] = next_idx
     if next_idx >= TOTAL_PLAN_WIZARD_FIELDS:
@@ -195,7 +141,7 @@ async def _handle_plan_wizard_next(update: Update, context: ContextTypes.DEFAULT
     current_idx = wizard.get("field_idx", 0)
     # Skip leaves the current field unchanged: discard any pending typed value
     # for it (so the DB value is used on save) and move to the next field.
-    current_field = PLAN_WIZARD_FIELDS[current_idx]
+    current_field = plan_fields.field_order()[current_idx]
     wizard.get("values", {}).pop(current_field, None)
     next_idx = current_idx + 1
     wizard["field_idx"] = next_idx
@@ -236,14 +182,14 @@ async def _show_plan_wizard_summary(update: Update, context: ContextTypes.DEFAUL
     wizard = context.user_data.get("plan_full_edit", {})
     values = wizard.get("values", {})
     plan = db.get_plan(name) or {}
-    lines = [f"📋 <b>خلاصه تغییرات برای {html.escape(str(plan.get('display_name', name)))}</b>\n"]
+    lines = [f"📋 <b>خلاصه تغییرات برای {html_escape(str(plan.get('display_name', name)))}</b>\n"]
     changed = 0
-    for field_name in PLAN_WIZARD_FIELDS:
+    for field_name in plan_fields.field_order():
         if field_name in values:
             new_val = values[field_name]
             old_val = plan.get(field_name, "—")
-            label = PLAN_WIZARD_FIELD_LABELS.get(field_name, field_name)
-            lines.append(f"• <b>{html.escape(str(label))}</b>: {html.escape(str(old_val))} → {html.escape(str(new_val))}")
+            label = plan_fields.field_label(field_name)
+            lines.append(f"• <b>{html_escape(str(label))}</b>: {html_escape(str(old_val))} → {html_escape(str(new_val))}")
             changed += 1
     if not changed:
         lines.append("هیچ تغییری اعمال نشد.")
@@ -268,16 +214,7 @@ async def _handle_plan_wizard_save(update: Update, context: ContextTypes.DEFAULT
     if not plan:
         await notify_callback(update.callback_query, "پلن یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
-    db.upsert_plan(
-        name=name,
-        display_name=values.get("display_name", plan.get("display_name")),
-        price=int(values.get("price", plan.get("price", 0))),
-        query_quota=int(values.get("query_quota", plan.get("query_quota", 0))),
-        max_sessions=int(values.get("max_sessions", plan.get("max_sessions", 0))),
-        cards_per_session=int(values.get("cards_per_session", plan.get("cards_per_session", 0))),
-        sort_order=plan.get("sort_order", 0),
-        is_active=plan.get("is_active", 1),
-    )
+    db.upsert_plan(**plan_fields.build_upsert_kwargs(plan, values))
     context.user_data.pop("plan_full_edit", None)
     context.user_data.pop("awaiting", None)
     await notify_callback(update.callback_query, "پلن ذخیره شد", intent=CallbackNoticeIntent.SUCCESS)
@@ -376,12 +313,8 @@ async def handle_plan_callback(
 
 
 __all__ = [
-    "PLAN_WIZARD_FIELD_HINTS",
-    "handle_plan_callback",
-    "PLAN_WIZARD_FIELD_LABELS",
-    "PLAN_WIZARD_FIELDS",
-    "PLAN_WIZARD_GROUP_HEADERS",
     "TOTAL_PLAN_WIZARD_FIELDS",
+    "handle_plan_callback",
     "_handle_plan_set_active",
     "_handle_plan_wizard_back",
     "_handle_plan_wizard_cancel",
@@ -394,7 +327,6 @@ __all__ = [
     "_show_plan_wizard_field",
     "_show_plan_wizard_summary",
     "_start_plan_wizard",
-    "_validate_plan_wizard_value",
     "awaiting_inline_keyboard",
     "plan_manager_keyboard",
     "plan_view_keyboard",

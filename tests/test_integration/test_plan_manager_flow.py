@@ -206,12 +206,13 @@ class PlanManagerFlowTest(unittest.TestCase):
         asyncio.run(_handle_admin_callback(update, ctx, "plans:edit:silver"))
         self.assertEqual(ctx.user_data["awaiting"], "admin_plan_full_edit:silver:0")
 
-        # Display group header + hint must be defined.
-        from handlers.admin_plans import PLAN_WIZARD_GROUP_HEADERS, PLAN_WIZARD_FIELD_HINTS
-        header0, hint0 = PLAN_WIZARD_GROUP_HEADERS[0]
+        # Display group header + hint must be defined in the registry.
+        from services import plan_fields
+        header0, hint0 = plan_fields.group_header("display_name")
         self.assertTrue(header0 and hint0, "display group header/hint defined")
         # Field hint for the clarified query-quota label must be defined.
-        self.assertIn("query_quota", PLAN_WIZARD_FIELD_HINTS)
+        self.assertIn("query_quota", plan_fields.field_order())
+        self.assertTrue(plan_fields.field_hint("query_quota"))
 
         # Type a display_name and a price, then go back to display_name.
         msg = MagicMock()
