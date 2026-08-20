@@ -168,9 +168,34 @@ class NormalizeBackfillMigrationTests(unittest.TestCase):
                 "VALUES (1, NULL, 'fr', NULL)"
             )
             conn.commit()
-        db.init_db()  # must not raise AttributeError on the NULL word
+        db.init_db()  # must not raise TypeError on the NULL word
         with db.get_conn() as conn:
             count = conn.execute(
                 "SELECT COUNT(*) AS c FROM saved_words WHERE user_id=1 AND lang='fr'"
             ).fetchone()["c"]
         self.assertEqual(count, 1)
+
+    def test_backfill_folds_empty_and_whitespace_words_to_one_key(self):
+        """'' and a whitespace-only sibling must collapse before the unique index."""
+        db.init_db()
+        with db.get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "DELETE FROM settings WHERE key='_migration_word_normalization_done'"
+            )
+            conn.execute(
+                "INSERT INTO saved_words (user_id, word, lang, normalized_word) "
+                "VALUES (1, '', 'fr', '')"
+            )
+            conn.execute(
+                "INSERT INTO saved_words (user_id, word, lang, normalized_word) "
+                "VALUES (1, '   ', 'fr', '   ')"
+            )
+            conn.commit()
+        db.init_db()  # unique index creation must not raise IntegrityError
+        with db.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT normalized_word FROM saved_words WHERE user_id=1 AND lang='fr'"
+            ).fetchall()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["normalized_word"], "")
