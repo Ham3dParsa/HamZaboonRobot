@@ -52,6 +52,7 @@ class EarlyAwaitingResetTest(unittest.TestCase):
         update = MagicMock()
         update.effective_user.id = user_id
         update.effective_chat.id = user_id
+        update.callback_query = None
         update.message.text = text
         return update
 
