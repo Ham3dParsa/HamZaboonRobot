@@ -351,6 +351,7 @@ async def _process_ask_word(
         finally:
             await _finish_llm_wait_state(wait_message)
 
+    context.user_data["_awaiting_pending"] = False  # quota reserved + AI in flight (B5/Kilo CRITICAL)
     result = await word_query.ask(
         user_id,
         text,
@@ -536,26 +537,42 @@ async def _dispatch_awaiting(
     awaiting: str,
     text: str,
     user_id: int,
-) -> None:
+) -> bool:
     """Dispatch an awaiting text input, restoring awaiting on handler failure.
 
     The caller clears ``awaiting`` BEFORE calling this, so a handler that
     raises before re-arming would otherwise leave the user's flow dead (B5).
-    If the handler never re-armed awaiting, we roll it back to ``awaiting`` so
-    the user can retry or cancel; if the handler set a new value, we keep it.
+    If the handler never re-armed awaiting AND never consumed the input (the
+    ``_awaiting_pending`` marker is still set), we roll it back to ``awaiting``
+    so the user can retry or cancel; if the handler set a new value or consumed
+    the input (cleared the marker), we keep the handler's state.
+    Returns True when the awaiting input was dispatched, False for an
+    unknown/stale awaiting value so the caller can fall through.
     """
+    context.user_data["_awaiting_pending"] = True
     try:
         if awaiting == "ask_word":
             row = db.get_user(user_id)
             await _process_ask_word(update, context, user_id, row, text)
-            return
+            return True
         if is_admin_awaiting(awaiting):
             await flows_text_router(update, context, awaiting, text)
-            return
+            return True
+        return False
     except Exception:
-        if context.user_data.get("awaiting") is None:
+        if (
+            context.user_data.get("_awaiting_pending") is True
+            and context.user_data.get("awaiting") is None
+        ):
             context.user_data["awaiting"] = awaiting
+            log.warning(
+                "awaiting %r restored after dispatch error for user_id=%s",
+                awaiting,
+                user_id,
+            )
         raise
+    finally:
+        context.user_data.pop("_awaiting_pending", None)
 
 
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -579,8 +596,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_admin_awaiting(awaiting) and not is_owner(user_id):
             return  # لایه‌ی امنیتی اضافه؛ در حالت عادی اصلاً به این حالت نمی‌رسد
 
-        await _dispatch_awaiting(update, context, awaiting, text, user_id)
-        return
+        if await _dispatch_awaiting(update, context, awaiting, text, user_id):
+            return
 
     # مسیر دکمه‌های منوی اصلی
     if text == BTN_STUDY_SESSION:

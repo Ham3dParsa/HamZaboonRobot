@@ -308,6 +308,7 @@ def _register_admin_flows() -> None:
         await _handle_plans_text_input(update, context, text)
 
     async def _handle_admin_broadcast(update, context, awaiting, text):
+        context.user_data["_awaiting_pending"] = False  # broadcast is irreversible (B5/Kilo CRITICAL)
         users = db.all_active_users()
         sent = 0
         for u in users:
@@ -319,6 +320,7 @@ def _register_admin_flows() -> None:
         await update.message.reply_text(f"پیام برای {sent} کاربر ارسال شد.")
 
     async def _handle_admin_maintenance_msg(update, context, awaiting, text):
+        context.user_data["_awaiting_pending"] = False  # DB write is irreversible (B5/Kilo CRITICAL)
         db.set_maintenance_message(text)
         context.user_data["awaiting"] = None
         await update.message.reply_text(
@@ -327,6 +329,7 @@ def _register_admin_flows() -> None:
         )
 
     async def _handle_admin_restore(update, context, awaiting, text):
+        context.user_data["_awaiting_pending"] = False  # terminal re-prompt (B5/Kilo CRITICAL)
         context.user_data["awaiting"] = None
         await update.message.reply_text(
             "لطفاً یک فایل دیتابیس (.db) آپلود کنید.\n"

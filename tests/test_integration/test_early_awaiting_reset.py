@@ -16,6 +16,8 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import bot
+
 from services import db
 from services.db import schema as db_schema
 
@@ -35,9 +37,9 @@ class EarlyAwaitingResetTest(unittest.TestCase):
         self.maintenance_patch = patch("bot._maintenance_blocked", new=AsyncMock(return_value=False))
         self.maintenance_patch.start()
         self.addCleanup(self.maintenance_patch.stop)
-        import bot
-
-        bot._telegram_offline = False
+        self.offline_patch = patch.object(bot, "_telegram_offline", False)
+        self.offline_patch.start()
+        self.addCleanup(self.offline_patch.stop)
 
     def tearDown(self):
         db.DB_PATH = self.previous_db_path
@@ -118,6 +120,36 @@ class EarlyAwaitingResetTest(unittest.TestCase):
 
         self.assertIsNone(ctx.user_data["awaiting"])
 
+    def test_dispatch_unknown_awaiting_returns_false(self):
+        """An unknown/stale awaiting value is not dispatched (caller falls through)."""
+        from bot import _dispatch_awaiting
+
+        ctx = self._make_context()
+        ctx.user_data["awaiting"] = None
+        update = self._make_text_update("hello")
+
+        result = asyncio.run(_dispatch_awaiting(update, ctx, "stale_unknown_flow", "hello", 1))
+
+        self.assertIs(result, False)
+
+    def test_dispatch_exception_after_consumed_no_rollback(self):
+        """Handler that consumed the input (cleared marker) then raised -> no rollback."""
+        from bot import _dispatch_awaiting
+
+        ctx = self._make_context()
+        ctx.user_data["awaiting"] = None  # caller pre-clears before dispatch
+        update = self._make_text_update("hello")
+
+        async def consume_then_throw(update, context, user_id, row, text):
+            context.user_data["_awaiting_pending"] = False
+            raise RuntimeError("boom")
+
+        with patch("bot._process_ask_word", side_effect=consume_then_throw):
+            with self.assertRaises(RuntimeError):
+                asyncio.run(_dispatch_awaiting(update, ctx, "ask_word", "hello", 1))
+
+        self.assertIsNone(ctx.user_data["awaiting"])
+
     # ---- integration tests: bot.text_router end-to-end ---------------------
 
     def test_text_router_exception_before_rearm_restores_awaiting(self):
@@ -151,6 +183,40 @@ class EarlyAwaitingResetTest(unittest.TestCase):
                 asyncio.run(text_router(update, ctx))
 
         self.assertEqual(ctx.user_data["awaiting"], "a_new_flow")
+
+    def test_text_router_exception_after_consumed_no_rollback(self):
+        """Real text_router does not re-arm a flow whose input was consumed."""
+        from bot import text_router
+
+        ctx = self._make_context()
+        ctx.user_data["awaiting"] = "ask_word"
+        update = self._make_text_update("hello")
+
+        async def consume_then_throw(update, context, user_id, row, text):
+            context.user_data["_awaiting_pending"] = False
+            raise RuntimeError("boom")
+
+        with patch("bot._process_ask_word", side_effect=consume_then_throw):
+            with self.assertRaises(RuntimeError):
+                asyncio.run(text_router(update, ctx))
+
+        self.assertIsNone(ctx.user_data["awaiting"])
+
+    def test_text_router_set_plan_consumed_no_rollback(self):
+        """Real set_plan flow: write succeeds, final reply fails -> no re-arm."""
+        from bot import text_router
+
+        ctx = self._make_context()
+        ctx.user_data["awaiting"] = "admin_set_plan"
+        update = self._make_text_update("1 silver")
+        update.message.reply_text = AsyncMock(side_effect=RuntimeError("send failed"))
+
+        with patch("bot.is_owner", return_value=True):
+            with self.assertRaises(RuntimeError):
+                asyncio.run(text_router(update, ctx))
+
+        self.assertIsNone(ctx.user_data["awaiting"])
+        self.assertEqual(db.get_user(1)["plan"], "silver")
 
     def test_text_router_success_clears_awaiting(self):
         """Real text_router clears awaiting on a successful dispatch."""

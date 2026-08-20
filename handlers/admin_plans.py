@@ -258,6 +258,7 @@ async def _handle_plans_text_input(
     previous_plan = target["plan"] or "free"
     plan_label = (db.get_plan(plan) or {}).get("display_name", plan)
     prev_label = (db.get_plan(previous_plan) or {}).get("display_name", previous_plan)
+    context.user_data["_awaiting_pending"] = False  # plan write is irreversible (B5/Kilo CRITICAL)
     db.set_plan(target["user_id"], plan)
     await update.message.reply_text(
         f"پلن کاربر {target['user_id']} از {prev_label} به {plan_label} تغییر کرد."

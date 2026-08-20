@@ -484,6 +484,7 @@ async def _handle_cost_text_input(
             )
             return
         profile = db.get_llm_cost_profile()
+        context.user_data["_awaiting_pending"] = False  # cost-profile write is irreversible (B5/Kilo CRITICAL)
         if awaiting == "llm_price_input":
             db.set_llm_cost_profile(
                 input_cost_usd_per_million=value,

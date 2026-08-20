@@ -2084,6 +2084,7 @@ async def _handle_ai_text_input(
         groups = _detect_key_groups()
         target = next((g for g in groups if g["key_hash"] == key_hash), None)
         if target:
+            context.user_data["_awaiting_pending"] = False  # batch key write is irreversible (B5/Kilo CRITICAL)
             try:
                 db.set_preset_api_key_batch(target["names"], text.strip())
             except db.MasterKeyRequiredError:
@@ -2108,6 +2109,7 @@ async def _handle_ai_text_input(
         groups = _detect_key_groups()
         target = next((g for g in groups if g["key_hash"] == key_hash), None)
         if target:
+            context.user_data["_awaiting_pending"] = False  # group-label write is irreversible (B5/Kilo CRITICAL)
             db.set_preset_group_label_batch(target["names"], new_label)
         context.user_data.pop("awaiting", None)
         await update.message.reply_text("✅ برچسب گروه برای همه اعضا تنظیم شد.")
@@ -2125,6 +2127,7 @@ async def _handle_ai_text_input(
                     reply_markup=admin_awaiting_inline_keyboard(),
                 )
                 return
+            context.user_data["_awaiting_pending"] = False  # rename is irreversible (B5/Kilo CRITICAL)
             db.rename_group_label(old_label, new_label)
             context.user_data.pop("awaiting", None)
             await update.message.reply_text(f"✅ برچسب «{old_label}» به «{new_label}» تغییر نام یافت.")
@@ -2158,6 +2161,7 @@ async def _handle_ai_text_input(
         except ValueError as e:
             await update.message.reply_text(str(e))
             return
+        context.user_data["_awaiting_pending"] = False  # priority reindex succeeded (B5/Kilo CRITICAL)
         context.user_data.pop("awaiting", None)
         await update.message.reply_text(f"✅ رتبه {preset_name} به {target_rank} تغییر یافت.")
         await _show_fallback_chain(update, context)
