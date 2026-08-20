@@ -530,6 +530,34 @@ async def _handle_query_dup_cancel(update: Update, context: ContextTypes.DEFAULT
 
 # ---------------- روتر پیام‌های متنی (منو + حالت‌های در انتظار ورودی) ----------------
 
+async def _dispatch_awaiting(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    awaiting: str,
+    text: str,
+    user_id: int,
+) -> None:
+    """Dispatch an awaiting text input, restoring awaiting on handler failure.
+
+    The caller clears ``awaiting`` BEFORE calling this, so a handler that
+    raises before re-arming would otherwise leave the user's flow dead (B5).
+    If the handler never re-armed awaiting, we roll it back to ``awaiting`` so
+    the user can retry or cancel; if the handler set a new value, we keep it.
+    """
+    try:
+        if awaiting == "ask_word":
+            row = db.get_user(user_id)
+            await _process_ask_word(update, context, user_id, row, text)
+            return
+        if is_admin_awaiting(awaiting):
+            await flows_text_router(update, context, awaiting, text)
+            return
+    except Exception:
+        if context.user_data.get("awaiting") is None:
+            context.user_data["awaiting"] = awaiting
+        raise
+
+
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if _telegram_offline:
         await _send_offline_notice(context, update.effective_chat.id)
@@ -551,14 +579,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_admin_awaiting(awaiting) and not is_owner(user_id):
             return  # لایه‌ی امنیتی اضافه؛ در حالت عادی اصلاً به این حالت نمی‌رسد
 
-        if awaiting == "ask_word":
-            row = db.get_user(user_id)
-            await _process_ask_word(update, context, user_id, row, text)
-            return
-
-        if is_admin_awaiting(awaiting):
-            await flows_text_router(update, context, awaiting, text)
-            return
+        await _dispatch_awaiting(update, context, awaiting, text, user_id)
+        return
 
     # مسیر دکمه‌های منوی اصلی
     if text == BTN_STUDY_SESSION:
