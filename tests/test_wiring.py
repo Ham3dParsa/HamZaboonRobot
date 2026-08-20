@@ -360,23 +360,21 @@ def _collect_all_callback_prefixes() -> set[str]:
 
 def _collect_static_callback_literals() -> list[tuple[Path, int, str]]:
     """Return every fully-static ``callback_data="..."`` string literal found
-    across the scanned sources, as ``(filepath, lineno, value)``.
+    across the production sources, as ``(filepath, lineno, value)``.
 
-    Only Constant string literals are reported (a fully known payload).
-    Dynamic callbacks (f-strings embedding a codec token or a short identifier
-    such as a plan name) are out of scope: their static prefix is already
-    bounded by the prefix wiring guard, and their variable segment is either a
-    fixed-length codec token or an inherently short identifier.
+    Only inline ``Constant`` string keyword payloads are reported (a fully
+    known payload written directly on the ``InlineKeyboardButton(...)`` call).
+    Callbacks that reach a button through a name — a module-level constant or
+    arguments forwarded to a keyboard row helper such as ``_awaiting_row`` —
+    are NOT measured here; their routing is pinned separately by
+    ``test_awaiting_row_callbacks_are_routed``. Dynamic callbacks (f-strings
+    embedding a codec token or a short identifier such as a plan name) are also
+    out of scope: their variable segment is a fixed-length codec token or an
+    inherently short identifier, and the 64-byte guard only bounds the known
+    static payloads.
     """
     found: list[tuple[Path, int, str]] = []
-    source_files: list[Path] = []
-    for d in SCAN_DIRS:
-        if d.is_dir():
-            source_files.extend(sorted(d.glob("*.py")))
-        elif d.is_file():
-            source_files.append(d)
-
-    for filepath in source_files:
+    for filepath in _production_py_files():
         try:
             tree = ast.parse(filepath.read_text(encoding="utf-8"))
         except SyntaxError:
@@ -634,9 +632,14 @@ class TestCallbackWiring(unittest.TestCase):
         fixed-length hashes; this guard catches a static literal that grows
         past the limit (a regression that would break the button silently).
         """
+        literals = _collect_static_callback_literals()
+        self.assertGreater(
+            len(literals), 100,
+            "no static callback literals collected — collector may be broken",
+        )
         over = [
             (str(path), lineno, cb)
-            for path, lineno, cb in _collect_static_callback_literals()
+            for path, lineno, cb in literals
             if len(cb.encode("utf-8")) > 64
         ]
         if over:
@@ -644,6 +647,21 @@ class TestCallbackWiring(unittest.TestCase):
             for path, lineno, cb in over:
                 msg += f"  {path}:{lineno}  ({len(cb.encode('utf-8'))} bytes)  {cb!r}\n"
             self.fail(msg)
+
+    def test_awaiting_row_callbacks_are_routed(self):
+        """The shared awaiting back/cancel row (``_awaiting_row``) builds
+        buttons with ``callback_data`` passed through parameters rather than as
+        literals on the button call, so the literal-based prefix collector
+        cannot see them. Pin those prefixes explicitly so deleting a router
+        branch (or a sub-router action) for ``flow:back`` / ``flow:cancel`` /
+        ``admin:back`` / ``admin:cancel`` still fails the suite."""
+        handlers = _collect_router_handlers()
+        for prefix in ("flow:back", "flow:cancel", "admin:back", "admin:cancel"):
+            with self.subTest(prefix=prefix):
+                self.assertTrue(
+                    _prefix_matches_handler(prefix, handlers),
+                    f"awaiting-row callback {prefix!r} has no router branch",
+                )
 
     def test_admin_sub_router_has_all_actions(self):
         """Every ``admin:``-prefixed callback prefix must have a matching

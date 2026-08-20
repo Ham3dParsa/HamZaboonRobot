@@ -504,12 +504,17 @@ def awaiting_reply_keyboard() -> ReplyKeyboardMarkup:
 
 
 def _awaiting_row(
+    *,
     back_cb: str,
     back_label: str,
     cancel_cb: str,
     cancel_label: str,
 ) -> list[list[InlineKeyboardButton]]:
-    """One shared back/cancel row for awaiting text-input prompts."""
+    """One shared back/cancel row for awaiting text-input prompts.
+
+    Keyword-only so a label and a callback can never be silently transposed
+    (they are distinct kinds of ``str`` payloads).
+    """
     return [
         [
             InlineKeyboardButton(back_label, callback_data=back_cb),
@@ -520,13 +525,19 @@ def _awaiting_row(
 
 def awaiting_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        _awaiting_row("flow:back", BTN_BACK, "flow:cancel", BTN_CANCEL)
+        _awaiting_row(
+            back_cb="flow:back", back_label=BTN_BACK,
+            cancel_cb="flow:cancel", cancel_label=BTN_CANCEL,
+        )
     )
 
 
 def admin_awaiting_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        _awaiting_row("admin:back", "↩️ بازگشت", "admin:cancel", "❌ لغو")
+        _awaiting_row(
+            back_cb="admin:back", back_label="↩️ بازگشت",
+            cancel_cb="admin:cancel", cancel_label="❌ لغو",
+        )
     )
 
 
