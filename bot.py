@@ -153,7 +153,7 @@ from handlers.user import (
 
 from handlers.help_command import send_help_panel, handle_help_callback
 
-from handlers.study_handler import handle_study_inactive, handle_study_start
+from handlers.study_handler import handle_study_inactive, handle_study_start, send_reports_list
 
 from handlers.srs_handler import (
     _handle_first_exposure_grade,
@@ -600,6 +600,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         or data.startswith("llm:")
         or data.startswith("srs:delete:")
         or data.startswith("session:summary:")
+        or data.startswith("reports:")
     ):
         await routing_dispatch(update, context, data)
         return
@@ -1017,6 +1018,7 @@ def main():
 
     app.add_handler(CommandHandler("start", lambda u, c: _maintenance_gated_command(cmd_start, u, c)))
     app.add_handler(CommandHandler("help", lambda u, c: _maintenance_gated_command(send_help_panel, u, c)))
+    app.add_handler(CommandHandler("reports", lambda u, c: _maintenance_gated_command(send_reports_list, u, c)))
     app.add_handler(CommandHandler("backup", cmd_backup))
     app.add_handler(CommandHandler("restore", cmd_restore))
     app.add_handler(CallbackQueryHandler(callback_router))

@@ -681,7 +681,8 @@ class TestAdvanceSession(_BaseStudyHandlerTest):
         # Should complete gracefully (generate_tier3_node called, returns None)
         ctx.bot.edit_message_text.assert_awaited_once()
         call_args = ctx.bot.edit_message_text.call_args
-        self.assertIn("جلسه مطالعه تموم شد", call_args.kwargs.get("text", ""))
+        # R10-F: every user (including free) now gets the post-session summary.
+        self.assertIn("گزارش نشست مطالعه", call_args.kwargs.get("text", ""))
         self.assertNotIn("current_session", ctx.user_data)
         # generate_tier3_node should have been called with remaining_slots in kwargs
         mock_tier3.assert_called_once()

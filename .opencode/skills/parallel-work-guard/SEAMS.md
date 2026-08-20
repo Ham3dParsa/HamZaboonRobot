@@ -10,11 +10,11 @@ This is disclosed reference — loaded only when parallel-work-guard fires.
 
 | # | Domain Area | Path | Interface Exposed |
 |---|---|---|---|
-| 1 | Persistence | services/db/__init__.py + services/db/schema.py | get_conn() |
+| 1 | Persistence | services/db/__init__.py + services/db/schema.py + services/db/session_reports.py | get_conn() |
 | 2 | AI/LLM Provider | services/ai/ai.py | _client(), ask_json(), ask_card(), ask_batch() |
-| 3 | Session Assembly | services/session/__init__.py + assembly.py + summary.py | build_session_list(), generate_tier3_node(), build_report() |
+| 3 | Session Assembly | services/session/__init__.py + assembly.py + summary.py | build_session_list(), generate_tier3_node(), build_report(), serialize_report(), deserialize_report() |
 | 4 | SRS Algorithm | services/fsrs_core.py | compute_retrievability(), compute_interval(), initial_stability(), update_stability() |
-| 5 | Telegram UI -> Study | handlers/study_handler.py | handle_study_start(), advance_session() |
+| 5 | Telegram UI -> Study | handlers/study_handler.py | handle_study_start(), advance_session(), send_reports_list(), _handle_reports_callback() |
 | 6 | Telegram UI -> SRS Grading | handlers/srs_handler.py | _handle_srs_review(), _handle_first_exposure_grade() |
 | 7 | Telegram UI -> User Domain | handlers/user.py | cmd_start, ask_for_ask_word, send_grammar_tip, on_lang_selected |
 | 16 | Telegram UI -> Help | handlers/help_command.py | send_help_panel(), handle_help_callback() |
@@ -42,7 +42,7 @@ even though they edit different files.
 users, saved_words, settings, daily_cards, daily_progress,
 daily_card_sessions, query_results, grammar_tips, llm_requests, review_events,
 ai_presets, preset_hourly_usage, preset_groups, config_tests, plans,
-study_sessions, session_grade_ledger
+study_sessions, session_grade_ledger, session_reports
 (source: services/db/schema.py)
 
 ### Settings keys (deferred)

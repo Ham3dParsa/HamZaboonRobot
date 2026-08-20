@@ -196,16 +196,22 @@ class SessionSummaryFlowTests(unittest.TestCase):
         # Ephemeral report stashed for the detail callbacks (R7).
         self.assertIn("session_summary", ctx.user_data)
 
-    def test_completion_renders_minimal_for_free(self):
+    def test_completion_renders_summary_for_free_without_detail(self):
+        # R10-F: free users now get the motivational summary overview but NO
+        # 'جزئیات' detail button (previously they got the minimal completion).
         w = self._add_word("alpha", stability=3.0)
+        self._add_review_event(w, "2026-08-19T10:00:00Z", "first_exposure", 3)
         ctx = self._ctx()
         ctx.user_data["current_session"] = self._completing_state([w], "free")
         asyncio.run(advance_session(self._update(), ctx))
         text = ctx.bot.edit_message_text.call_args.kwargs["text"]
-        self.assertIn("جلسه مطالعه تموم شد", text)
-        self.assertNotIn("گزارش نشست مطالعه", text)
-        self.assertNotIn("session_summary", ctx.user_data)
+        self.assertIn("گزارش نشست مطالعه", text)
+        self.assertIn("واژه تازه یاد گرفتی", text)
+        # Free user gets the summary but the detail button is withheld.
         self.assertIsNone(ctx.bot.edit_message_text.call_args.kwargs.get("reply_markup"))
+        # The report is still stashed for callbacks and persisted (R10-B).
+        self.assertIn("session_summary", ctx.user_data)
+        self.assertEqual(len(db.list_recent_reports(1)), 1)
 
     def test_completion_admin_variant_for_owner(self):
         w = self._add_word("alpha", stability=3.0)

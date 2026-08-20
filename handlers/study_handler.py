@@ -27,6 +27,9 @@ from config.keyboards import (
     get_first_exposure_keyboard,
     get_review_keyboard,
     get_srs_front_keyboard,
+    reports_detail_keyboard,
+    reports_list_keyboard,
+    reports_summary_keyboard,
     session_summary_detail_keyboard,
     session_summary_keyboard,
     session_summary_legend_keyboard,
@@ -679,40 +682,47 @@ async def advance_session(
         text = f"*{completion}*"
         keyboard = None
 
-        # Bronze+ (session_summary feature) get the post-session report; free
-        # keeps the minimal completion message (R4). The owner always gets the
-        # report (admin variant) regardless of plan. The report is ephemeral in
-        # user_data (R7) and drives the detail pagination callbacks.
+        # R10-F: every user now receives the post-session summary — free users
+        # see the motivational overview with no 'جزئیات' button; Bronze+ and the
+        # owner (session_summary feature) additionally get the detail button.
+        # The report is persisted (R10-B) so it can be reopened via /reports
+        # within 3 days. The ephemeral in-message flow is unchanged.
         is_admin = is_owner(user_id)
-        if has_feature(state.plan, "session_summary") or is_admin:
+        can_detail = has_feature(state.plan, "session_summary") or is_admin
+        try:
+            records = _gather_word_records(state, user_id)
+            report = build_report(records)
+            # Nonce embeds the report identity in the callback data so a
+            # stale button from an OLDER message can't render the current
+            # report: it fails gracefully instead. Back-navigation within
+            # the current message keeps working (payload is not popped).
+            nonce = uuid4().hex
+            context.user_data["session_summary"] = {
+                "report": report,
+                "is_admin": is_admin,
+                "nonce": nonce,
+            }
+            text = format_session_summary(
+                report, is_admin=is_admin
+            ).render(send_pretty.Backend.MDV2)
+            # A completed session always has >=1 graded word, but guard the
+            # impossible zero-total case so a detail button can never lead
+            # to an empty "صفحه ۱ از ۰" page.
+            keyboard = (
+                session_summary_keyboard(nonce) if (report.total and can_detail) else None
+            )
             try:
-                records = _gather_word_records(state, user_id)
-                report = build_report(records)
-                # Nonce embeds the report identity in the callback data so a
-                # stale button from an OLDER message can't render the current
-                # report: it fails gracefully instead. Back-navigation within
-                # the current message keeps working (payload is not popped).
-                nonce = uuid4().hex
-                context.user_data["session_summary"] = {
-                    "report": report,
-                    "is_admin": is_admin,
-                    "nonce": nonce,
-                }
-                text = format_session_summary(
-                    report, is_admin=is_admin
-                ).render(send_pretty.Backend.MDV2)
-                # A completed session always has >=1 graded word, but guard the
-                # impossible zero-total case so a detail button can never lead
-                # to an empty "صفحه ۱ از ۰" page.
-                keyboard = (
-                    session_summary_keyboard(nonce) if report.total else None
+                db.save_session_report(
+                    user_id, _app_today(), report, is_admin=is_admin
                 )
             except Exception:
-                logger.exception(
-                    "session summary build failed user_id=%s", user_id
-                )
-                text = f"*{completion}*"
-                keyboard = None
+                logger.exception("session report persist failed user_id=%s", user_id)
+        except Exception:
+            logger.exception(
+                "session summary build failed user_id=%s", user_id
+            )
+            text = f"*{completion}*"
+            keyboard = None
 
 # Render the completion/report FIRST; only after it succeeds is the
         # session cleared. If this edit fails transiently (weak network), the
@@ -812,6 +822,11 @@ def _to_app_tz_date(iso_utc: str | None) -> str | None:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(APP_TZ).date().isoformat()
+
+
+def _app_today() -> str:
+    """Today's ``YYYY-MM-DD`` in the application timezone (R10-D window)."""
+    return datetime.now(APP_TZ).date().isoformat()
 
 
 def _interval_days(word_row) -> float | None:
@@ -983,4 +998,112 @@ async def _handle_session_summary_callback(
         )
 
 
+# ---------------------------------------------------------------------------
+# R10: persistent session reports — /reports command + callback
+# ---------------------------------------------------------------------------
+
+def _reports_list_payload(user_id: int):
+    """Build the recent-reports list message + keyboard (R10-C/D/E).
+
+    Returns ``(text, keyboard)``. The text is a ready-to-render MarkdownV2
+    string (dynamic session dates are escaped); the keyboard has one button per
+    report. Returns a plain empty-state notice when nothing is in the window.
+    """
+    entries = db.list_recent_reports(user_id)
+    if not entries:
+        return escape_mdv2("در ۳ روز اخیر گزارشی موجود نیست."), None
+    lines = [
+        f"{to_persian_digits(i)}. {escape_mdv2(e.session_date)}"
+        for i, e in enumerate(entries, 1)
+    ]
+    text = "*" + escape_mdv2("گزارش‌های جلسات اخیر:") + "*\n" + "\n".join(lines)
+    return text, reports_list_keyboard(entries)
+
+
+async def send_reports_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """``/reports`` command — show the user's recent session reports (R10-C)."""
+    text, keyboard = _reports_list_payload(update.effective_user.id)
+    await send_pretty.send(
+        update.effective_chat.id,
+        text,
+        bot=context.bot,
+        raw=send_pretty.RawFormat.MDV2,
+        keyboard=keyboard,
+    )
+
+
+def _can_view_detail(plan: str | None, is_admin: bool) -> bool:
+    """Detail access for a reopened report: Bronze+ feature or owner (R10-F)."""
+    return has_feature((plan or "free"), "session_summary") or is_admin
+
+
+async def _handle_reports_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    action: str,
+) -> None:
+    """Handle ``reports:`` callbacks (R10-G): list / detail:<id>:<view> / back.
+
+    Reports are reopened from the persisted store by id (R10-B), so there is no
+    nonce; ownership is enforced in the DB layer (``load_report``) and the
+    report fails closed if it is foreign or expired. Free users see the summary
+    overview only; the 'جزئیات' page is gated on ``session_summary`` (R10-F).
+    """
+    user_id = update.effective_user.id
+
+    if action in ("back", "list"):
+        text, keyboard = _reports_list_payload(user_id)
+        await send_pretty.say(
+            update, context, text,
+            raw=send_pretty.RawFormat.MDV2, keyboard=keyboard,
+        )
+        return
+
+    if action.startswith("detail:"):
+        try:
+            _id, _view = action.split(":", 2)[1:]
+            report_id = int(_id)
+            view = int(_view)
+        except (ValueError, IndexError):
+            await notify_callback(update.callback_query)
+            return
+        loaded = db.load_report(report_id, user_id)
+        if loaded is None:
+            await notify_callback(
+                update.callback_query,
+                "این گزارش منقضی شده است.",
+                intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+            )
+            return
+        report = loaded.report
+        is_admin = loaded.is_admin
+        user_row = db.get_user(user_id)
+        plan = user_row["plan"] if user_row else None
+        can_detail = _can_view_detail(plan, is_admin)
+        total_pages = len(report.pages)
+        if view == 0 or not can_detail:
+            # Summary overview (or the only view a free user can see).
+            message = format_session_summary(report, is_admin=is_admin)
+            keyboard = reports_summary_keyboard(report_id, can_detail)
+        else:
+            page_index = (
+                max(0, min(view - 1, total_pages - 1)) if total_pages else 0
+            )
+            page = report.pages[page_index] if total_pages else ()
+            message = format_session_detail_page(
+                page, page_index, total_pages, is_admin=is_admin
+            )
+            keyboard = reports_detail_keyboard(report_id, page_index + 1, total_pages)
+        try:
+            await send_pretty.say(update, context, message, keyboard=keyboard)
+        except Exception:
+            logger.exception(
+                "reports edit failed user_id=%s", user_id
+            )
+        return
+
+    await notify_callback(update.callback_query)
+
+
 register("session:summary", _handle_session_summary_callback)
+register("reports", _handle_reports_callback)

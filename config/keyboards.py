@@ -175,6 +175,8 @@ IBTN_SUMMARY_PREV = "◀️ قبلی"
 IBTN_SUMMARY_NEXT = "بعدی ▶️"
 IBTN_SUMMARY_LEGEND = "❓ راهنمای نمادها"
 IBTN_SUMMARY_LEGEND_BACK = "↩️ بازگشت به واژه‌ها"
+# R10: /reports reopen flow — back to the recent-reports list.
+IBTN_REPORTS_BACK = "↩️ بازگشت به فهرست"
 
 # --- Admin – Preset Group / Pagination ---
 IBTN_VIEW_MODE_LINEAR = "📋 نمایش خطی"
@@ -964,3 +966,84 @@ def session_summary_legend_keyboard(page_index: int, nonce: str) -> InlineKeyboa
             callback_data=f"session:summary:page:{page_index}:{nonce}",
         )],
     ])
+
+
+# ---------------------------------------------------------------------------
+# R10: persistent post-session reports (/reports reopen flow)
+# ---------------------------------------------------------------------------
+# The reports flow reopens a persisted SessionReport by id, so these callbacks
+# are id-based (no nonce). View `0` = summary overview; views `1..N` = detail
+# pages of `report.pages`. Back returns to the recent-reports list.
+
+def reports_list_keyboard(entries) -> InlineKeyboardMarkup:
+    """List of recent reports — one button per report (R10-C).
+
+    Each button opens the report's summary overview (`reports:detail:<id>:0`).
+    """
+    rows = [
+        [InlineKeyboardButton(
+            entry.session_date,
+            callback_data=f"reports:detail:{entry.report_id}:0",
+        )]
+        for entry in entries
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def reports_summary_keyboard(report_id: int, can_detail: bool) -> InlineKeyboardMarkup:
+    """Summary-overview keyboard for a reopened report (R10-F).
+
+    The 'جزئیات' button is only rendered when the user holds the
+    ``session_summary`` feature (Bronze+) or is the owner; free users see the
+    overview and a back-to-list button only.
+    """
+    rows: list[list[InlineKeyboardButton]] = []
+    if can_detail:
+        rows.append([
+            InlineKeyboardButton(
+                IBTN_SUMMARY_DETAIL,
+                callback_data=f"reports:detail:{report_id}:1",
+            ),
+        ])
+    rows.append([
+        InlineKeyboardButton(IBTN_REPORTS_BACK, callback_data="reports:back"),
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
+def reports_detail_keyboard(
+    report_id: int, detail_page: int, total_pages: int
+) -> InlineKeyboardMarkup:
+    """Detail-page keyboard for a reopened report.
+
+    ``detail_page`` is the 1-based view (`1..total_pages`). Prev/next navigate
+    detail pages; back-to-summary returns to view `0`.
+    """
+    rows: list[list[InlineKeyboardButton]] = []
+    nav: list[InlineKeyboardButton] = []
+    if detail_page > 1:
+        nav.append(
+            InlineKeyboardButton(
+                IBTN_SUMMARY_PREV,
+                callback_data=f"reports:detail:{report_id}:{detail_page - 1}",
+            )
+        )
+    if detail_page < total_pages:
+        nav.append(
+            InlineKeyboardButton(
+                IBTN_SUMMARY_NEXT,
+                callback_data=f"reports:detail:{report_id}:{detail_page + 1}",
+            )
+        )
+    if nav:
+        rows.append(nav)
+    rows.append([
+        InlineKeyboardButton(
+            IBTN_SUMMARY_BACK,
+            callback_data=f"reports:detail:{report_id}:0",
+        ),
+    ])
+    rows.append([
+        InlineKeyboardButton(IBTN_REPORTS_BACK, callback_data="reports:back"),
+    ])
+    return InlineKeyboardMarkup(rows)

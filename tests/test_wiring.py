@@ -688,6 +688,26 @@ class TestCallbackWiring(unittest.TestCase):
         self.assertIn('session:summary:legend:{page_index}:{nonce}', keyboards_text)
         self.assertIn('base == "legend"', handler_text)
 
+    def test_reports_route_registered_and_dispatched(self):
+        """The reports prefix must be registered in the central routing registry
+        and handed to routing_dispatch in callback_router (R10-G)."""
+        import handlers.study_handler  # noqa: F401  (ensures register() ran)
+        from services.routing import ROUTES
+
+        registered = {prefix for (prefix, _, _) in ROUTES}
+        self.assertIn("reports", registered)
+
+        bot_text = Path("bot.py").read_text(encoding="utf-8")
+        self.assertIn('data.startswith("reports:")', bot_text)
+
+        # R10-G callbacks: list / detail:<id>:<view> / back are emitted by the
+        # reports keyboards and handled in study_handler._handle_reports_callback.
+        keyboards_text = Path("config/keyboards.py").read_text(encoding="utf-8")
+        self.assertIn('callback_data="reports:back"', keyboards_text)
+        self.assertIn('callback_data=f"reports:detail:{entry.report_id}:0"', keyboards_text)
+        handler_text = Path("handlers/study_handler.py").read_text(encoding="utf-8")
+        self.assertIn('register("reports", _handle_reports_callback)', handler_text)
+
     # ------------------------------------------------------------------
     # Reverse direction: routes and imports must resolve to real symbols.
     # ------------------------------------------------------------------
