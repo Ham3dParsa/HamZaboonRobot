@@ -5,9 +5,19 @@ All notable changes to HamZaboon. Generated automatically from
 [scripts/generate_changelog.py](scripts/generate_changelog.py). Do not edit by hand.
 
 ### 2026-08-21
+#### Bug Fixes
+- reject non-canonical plan codes on upsert (#439) (`db`)
+  — @Ham3dParsa [cc5bed8](https://github.com/Ham3dParsa/HamZaboonRobot/commit/cc5bed8)
+
 #### Refactoring
 - close partial audit items F1/F4/F5 (#435) (`ai`)
   — @Ham3dParsa [ac0152d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/ac0152d)
+
+#### Documentation
+- resync TICKETS.md and theme indexes with merged state (#438) (`plans`)
+  — @Ham3dParsa [73ba429](https://github.com/Ham3dParsa/HamZaboonRobot/commit/73ba429)
+- regenerate after F1/F4/F5 audit-gap merge (`changelog`)
+  — @Ham3dParsa [4df5464](https://github.com/Ham3dParsa/HamZaboonRobot/commit/4df5464)
 
 #### Testing
 - pin _telegram_offline in setUp to fix leaked-global failures (#436) (`word-query`)
