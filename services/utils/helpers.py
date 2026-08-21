@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import math
+import os
 import re
 
 from telegram import Update
@@ -13,6 +15,48 @@ from services import db
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 
 logger = logging.getLogger(__name__)
+
+_RETRY_BACKOFF_BASE_DEFAULT = 1.0
+_RETRY_BACKOFF_BASE_MAX = 60.0
+_RETRY_BACKOFF_SLEEP_MAX = 30.0
+
+
+def _retry_backoff_base() -> float:
+    """Scale factor for the Telegram retry backoff (2**attempt) wall-clock wait.
+
+    Production default is 1.0 (unchanged). Tests may shrink the wait via
+    HAMZABAN_RETRY_BACKOFF_BASE (0.1 in the suite; 0.05 reserved for explicit
+    performance benchmarks) while still exercising the real retry sequence:
+    attempt count, ordering, retry conditions, final failure and success-after-
+    retry are all untouched — only the elapsed waiting time scales.
+
+    Invalid, NaN, infinite or non-positive values are warned and fall back to
+    1.0; values above 60 are clamped.
+    """
+    raw = os.environ.get("HAMZABAN_RETRY_BACKOFF_BASE")
+    if raw is None:
+        return _RETRY_BACKOFF_BASE_DEFAULT
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        logger.warning("Invalid HAMZABAN_RETRY_BACKOFF_BASE=%r, using default 1.0", raw)
+        return _RETRY_BACKOFF_BASE_DEFAULT
+    if not math.isfinite(value) or value <= 0:
+        logger.warning("Invalid HAMZABAN_RETRY_BACKOFF_BASE=%r, using default 1.0", raw)
+        return _RETRY_BACKOFF_BASE_DEFAULT
+    if value > _RETRY_BACKOFF_BASE_MAX:
+        logger.warning(
+            "HAMZABAN_RETRY_BACKOFF_BASE=%r exceeds max %.1f, clamping",
+            raw,
+            _RETRY_BACKOFF_BASE_MAX,
+        )
+        value = _RETRY_BACKOFF_BASE_MAX
+    return value
+
+
+def _retry_sleep(attempt: int) -> float:
+    """Computed backoff sleep for *attempt*, capped to 30s."""
+    return min(_retry_backoff_base() * (2**attempt), _RETRY_BACKOFF_SLEEP_MAX)
 
 
 def apply_log_level(level_name: str) -> None:
@@ -167,7 +211,7 @@ async def _send_with_retry(
         except RetryAfter as exc:
             if attempt == 2:
                 raise
-            await asyncio.sleep(min(float(exc.retry_after), 30))
+            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
             # Sending creates a NEW message each call, so a timeout/network
             # error is ambiguous (the message may already be delivered).
@@ -187,11 +231,11 @@ async def _edit_with_retry(query, text, **kwargs):
         except RetryAfter as exc:
             if attempt == 2:
                 raise
-            await asyncio.sleep(min(float(exc.retry_after), 30))
+            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
             if attempt == 2:
                 raise
-            await asyncio.sleep(2**attempt)
+            await asyncio.sleep(_retry_sleep(attempt))
 
 
 async def _edit_message_with_retry(
@@ -219,11 +263,11 @@ async def _edit_message_with_retry(
         except RetryAfter as exc:
             if attempt == 2:
                 raise
-            await asyncio.sleep(min(float(exc.retry_after), 30))
+            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
             if attempt == 2:
                 raise
-            await asyncio.sleep(2**attempt)
+            await asyncio.sleep(_retry_sleep(attempt))
 
 
 async def _edit_markup_with_retry(
@@ -254,11 +298,11 @@ async def _edit_markup_with_retry(
         except RetryAfter as exc:
             if attempt == 2:
                 raise
-            await asyncio.sleep(min(float(exc.retry_after), 30))
+            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
             if attempt == 2:
                 raise
-            await asyncio.sleep(2**attempt)
+            await asyncio.sleep(_retry_sleep(attempt))
 
 
 async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
@@ -273,11 +317,11 @@ async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
         except RetryAfter as exc:
             if attempt == 2:
                 raise
-            await asyncio.sleep(min(float(exc.retry_after), 30))
+            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
             if attempt == 2:
                 raise
-            await asyncio.sleep(2**attempt)
+            await asyncio.sleep(_retry_sleep(attempt))
 
 
 async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
@@ -295,7 +339,7 @@ async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
         except RetryAfter as exc:
             if attempt == 2:
                 raise
-            await asyncio.sleep(min(float(exc.retry_after), 30))
+            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
             # Sending creates a NEW message each call; a timeout/network error
             # is ambiguous (may already be delivered). Never re-send a voice.

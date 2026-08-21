@@ -82,3 +82,26 @@ jobs:
       - name: Fail on test failure
         if: steps.test.outcome == 'failure'
         run: exit 1
+
+  ram-gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Assert peak RAM <= 2GB during full suite
+        env:
+          HAMZABAN_TEST_MODE: "1"
+        run: python scripts/run_with_ram_gate.py -n 4

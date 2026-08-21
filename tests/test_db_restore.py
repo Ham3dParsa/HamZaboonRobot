@@ -139,8 +139,17 @@ class DatabaseRestoreSafetyTests(unittest.TestCase):
         backup = db.export_db_bytes()
         sidecars = [f"{self.live_path}{suffix}" for suffix in ("-journal", "-wal", "-shm")]
         for sidecar in sidecars:
+            # Realistic non-empty stale sidecars for wal/shm; journal empty
+            # avoids the strict ?mode=ro probe failing on a corrupt journal
+            # while still exercising the sidecar-removal path for all three.
+            if sidecar.endswith("-wal"):
+                content = b"stale-wal-non-empty-content"
+            elif sidecar.endswith("-shm"):
+                content = b"stale-shm-non-empty-content"
+            else:
+                content = b""
             with open(sidecar, "wb") as sidecar_file:
-                sidecar_file.write(b"stale")
+                sidecar_file.write(content)
 
         db.import_db_bytes(backup)
 

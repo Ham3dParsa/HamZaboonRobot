@@ -41,6 +41,31 @@ class TestModeGuardTest(unittest.TestCase):
             with db.get_conn() as conn:
                 conn.execute("SELECT 1")
 
+    def test_init_db_blocks_production_path(self):
+        db.DB_PATH = PRODUCTION_PATH
+        db_schema.DB_PATH = PRODUCTION_PATH
+        with self.assertRaises(RuntimeError):
+            db.init_db()
+
+    def test_guard_destructive_op_blocks_unmarked_isolated_path(self):
+        # R1: a non-test database (no application_id marker) at an isolated path
+        # must still be refused for destructive operations in test mode.
+        tmpdir = tempfile.TemporaryDirectory()
+        unmarked = os.path.join(tmpdir.name, "unmarked.sqlite")
+        try:
+            import sqlite3
+
+            conn = sqlite3.connect(unmarked)
+            try:
+                conn.execute("CREATE TABLE t (x INTEGER)")
+                conn.commit()
+            finally:
+                conn.close()
+            with self.assertRaises(RuntimeError):
+                db_schema._guard_destructive_op(unmarked)
+        finally:
+            tmpdir.cleanup()
+
     def test_guard_allows_isolated_path(self):
         tmpdir = tempfile.TemporaryDirectory()
         isolated = os.path.join(tmpdir.name, "isolated.sqlite")

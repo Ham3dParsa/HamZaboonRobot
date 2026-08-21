@@ -26,6 +26,8 @@ from services.db.schema import (
     is_maintenance,
     _LEGACY_DAILY_TABLES,
     init_db,
+    _check_test_mode_guard,
+    _guard_destructive_op,
     _app_timezone,
     _today,
     _utc_now,
@@ -473,6 +475,11 @@ def import_db_bytes(data: bytes, backup_path: str | None = None) -> None:
     try:
         with maintenance():
             try:
+                # MUST 1: validate target safety BEFORE any FS side effect.
+                try:
+                    _guard_destructive_op(DB_PATH)
+                except RuntimeError as exc:
+                    raise ValueError(str(exc)) from exc
                 candidate_fd, candidate_path = tempfile.mkstemp(
                     suffix=".sqlite",
                     dir=os.path.dirname(os.path.abspath(DB_PATH)),
@@ -549,6 +556,13 @@ def import_db_bytes(data: bytes, backup_path: str | None = None) -> None:
                     "نسخه پشتیبان با نسخه فعلی ربات سازگار نیست."
                 ) from exc
             try:
+                # Candidate must not be the production path. Target already
+                # validated at the top of the operation; re-checking here
+                # would be after mkstemp.
+                try:
+                    _check_test_mode_guard(candidate_path)
+                except RuntimeError as exc:
+                    raise ValueError(str(exc)) from exc
                 os.chmod(candidate_path, stat.S_IMODE(original_stat.st_mode))
                 if hasattr(os, "chown"):
                     try:
