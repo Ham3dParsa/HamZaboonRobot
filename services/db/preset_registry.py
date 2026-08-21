@@ -26,9 +26,27 @@ class NoActivePresetError(Exception):
 
 
 def get_active_preset_name() -> str:
+    """Return the preferred (active) preset name (R17).
+
+    "Active" means enabled; "preferred" (`ai_primary_preset`) is the first-in-chain
+    target and the chain fails over by priority (R1). If the stored preferred
+    points at a disabled or missing preset it is treated as empty and the first
+    enabled preset in priority order is returned (builtin default already removed —
+    no implicit preset is ever invented).
+    """
     if get_bool_setting("ai_fallback_active", False):
-        return get_setting("ai_fallback_preset", "") or (_first_enabled_name() or "")
-    return get_setting("ai_primary_preset", "") or (_first_enabled_name() or "")
+        candidate = (get_setting("ai_fallback_preset", "") or "").strip()
+        if candidate:
+            p = get_preset(candidate)
+            if p and _pf.resolve(p, "enabled"):
+                return candidate
+        return _first_enabled_name() or ""
+    candidate = (get_setting("ai_primary_preset", "") or "").strip()
+    if candidate:
+        p = get_preset(candidate)
+        if p and _pf.resolve(p, "enabled"):
+            return candidate
+    return _first_enabled_name() or ""
 
 
 def get_active_preset() -> dict:
@@ -309,8 +327,19 @@ def clone_preset(name: str, new_name: str) -> str:
 
 
 def activate_preset(name: str) -> bool:
+    """Set the *preferred* preset (R17) — no flat-key copy.
+
+    The preferred preset is the first-in-chain routing target; the fallback chain
+    (R1) fails over by priority to the next enabled preset. A disabled or missing
+    preset is rejected (returns ``False``) and the stored preference is left
+    untouched. The legacy ``ai_base_url``/``ai_model``/``ai_api_key`` flat copies
+    are no longer written — the preset row plus ``resolve_preset_key`` is the
+    single source of truth (AI/LLM Provider seam).
+    """
     preset = get_preset(name)
     if not preset:
+        return False
+    if not _pf.resolve(preset, "enabled"):
         return False
     with transaction() as conn:
         conn.execute(
@@ -318,24 +347,6 @@ def activate_preset(name: str) -> bool:
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             ("ai_primary_preset", name),
         )
-        if preset.get("base_url"):
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                ("ai_base_url", preset["base_url"]),
-            )
-        if preset.get("model"):
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                ("ai_model", preset["model"]),
-            )
-        if preset.get("api_key"):
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                ("ai_api_key", preset["api_key"]),
-            )
     return True
 
 

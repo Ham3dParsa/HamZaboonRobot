@@ -60,9 +60,12 @@ def _client(preset: dict | None = None) -> OpenAI:
 def _model(preset: dict | None = None) -> str:
     if preset is None:
         preset = db.get_active_preset()
-    if preset.get("model"):
-        return preset["model"]
-    return db.get_setting("ai_model", DEFAULT_AI_MODEL)
+    # R17: the preset row is the single source of truth; the legacy flat
+    # settings copy (ai_model/ai_base_url/ai_api_key) is no longer written by
+    # activate_preset and must not be read as a fallback. Fall back only to the
+    # deployment default when the preset has no model.
+    model = preset_fields.resolve(preset, "model") if preset else ""
+    return model or DEFAULT_AI_MODEL
 
 
 def test_connection(
