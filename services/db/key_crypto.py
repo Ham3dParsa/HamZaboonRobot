@@ -18,6 +18,8 @@ masking logic:
   tagged. Fail-closed: raises ``MasterKeyRequiredError`` when a *new* key would
   have to be stored but no master key is configured, so a plain key is never
   written to the database.
+- ``_resolve_env(value)``        — single source for ``$ENV`` indirection
+  (BUG-B1): ``$FOO`` → ``os.getenv("FOO","")``; unset → ``""``.
 - ``MasterKeyRequiredError``     — raised when a write needs a master key that
   is not configured.
 
@@ -32,6 +34,7 @@ change or test override takes effect without an import-time pin.
 """
 
 import logging
+import os
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -83,16 +86,34 @@ def encrypt_secret(plaintext: str) -> str:
     return VERSION_PREFIX + f.encrypt(plaintext.encode()).decode()
 
 
+def _resolve_env(value: str) -> str | None:
+    """Resolve a ``$ENV`` reference to its environment value, or None if not an env ref.
+
+    Single source for ``$ENV`` handling (BUG-B1): both the migration
+    (``_encrypt_key_columns``) and the runtime resolver (``decrypt_secret``)
+    agree on the same meaning — ``$FOO`` → ``os.getenv("FOO","")``.
+    Unset → ``""`` (fail-closed, consistent with the migration's ``or ""``).
+    """
+    if value.startswith("$"):
+        return os.getenv(value[1:], "") or ""
+    return None
+
+
 def decrypt_secret(value: str) -> str:
     """Decrypt a stored ``value``. Fail-closed: returns ``''`` on any problem.
 
-    Only ``v1:``-tagged ciphertext is decrypted; any other value is not
-    encrypted by this module and resolves to ``''``. Logs a warning that never
-    includes the literal value (Rule 6). Never raises — callers' fallback
-    chains can keep trying other presets.
+    ``$ENV`` references are resolved via ``_resolve_env`` before any other
+    check, so a leftover ``$ENV`` row (migration skipped when no master key)
+    behaves identically at runtime and during migration. Only ``v1:``-tagged
+    ciphertext is decrypted otherwise; any other value resolves to ``''``.
+    Logs a warning that never includes the literal value (Rule 6). Never raises
+    — callers' fallback chains can keep trying other presets.
     """
     if not value:
         return ""
+    env = _resolve_env(value)
+    if env is not None:
+        return env
     if not value.startswith(VERSION_PREFIX):
         log.warning("decrypt_secret: stored api_key is not tagged %s", VERSION_PREFIX)
         return ""

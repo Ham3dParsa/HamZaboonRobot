@@ -5,11 +5,13 @@ of truth) and managed exclusively through the admin panel / AI preset manager.
 There are no hardcoded built-in presets.
 
 Since Phase 5 every stored API key is Fernet ciphertext (see
-``services.db.key_crypto``); the ``$ENV`` indirection no longer exists. This
-module owns the thin resolution adapter used by the DB layer: ``resolve_api_key``
-decrypts a preset's stored key via the deep ``decrypt_secret`` helper and is
-fail-closed (returns ``''`` on any problem, never raises, never logs the
-literal value).
+``services.db.key_crypto``); a ``$ENV`` reference can only remain when the
+Phase 5 migration was skipped (no master key, BUG-B1) and is resolved at
+runtime via ``key_crypto._resolve_env`` to the same value as the migration.
+This module owns the thin resolution adapter used by the DB layer:
+``resolve_api_key`` decrypts (or resolves ``$ENV``) via the deep
+``decrypt_secret`` helper and is fail-closed (returns ``''`` on any problem,
+never raises, never logs the literal value).
 """
 
 from services.db.key_crypto import decrypt_secret

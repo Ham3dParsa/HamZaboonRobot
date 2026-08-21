@@ -5,9 +5,10 @@ Covers:
   bare "HpOF_API_KEY" stored on the 4 HP presets (on an upgrade from the
   prior schema AND on a fresh DB), without touching other keys.
 - Phase 5 (R4): resolve_api_key now decrypts the stored Fernet ciphertext.
-  The "$ENV" indirection and the warn-on-invalid-literal guard are gone; a
-  non-ciphertext value fails closed to ``''`` (never throws, never logs the
-  literal key).
+   A bare ``$ENV`` reference left in DB (migration skipped when no master key,
+   BUG-B1) is resolved via ``key_crypto._resolve_env`` to the same value as
+   the migration — set→value, unset→``''``; any other non-ciphertext fails
+   closed to ``''`` (never throws, never logs the literal key).
 """
 
 from __future__ import annotations
@@ -186,12 +187,13 @@ class ResolveApiKeyPhase5Test(_ScratchDbTestCase):
         self.assertEqual(result, "")
         self.assertFalse(any(plain in m for m in cm.output), "must not log the literal")
 
-    def test_env_reference_no_longer_resolves(self):
-        """The '$ENV' indirection is gone (R4): a '$' string is not ciphertext,
-        so it fails closed to '' regardless of the environment."""
+    def test_env_reference_resolves_via_key_crypto(self):
+        """BUG-B1: a leftover '$ENV' in DB resolves via os.getenv (set→value, unset→'')."""
         self._with_master_key()
         os.environ["HZ_TEST_KEY"] = "sekrit"
         self.addCleanup(os.environ.pop, "HZ_TEST_KEY", None)
+        self.assertEqual(ai_presets.resolve_api_key("$HZ_TEST_KEY"), "sekrit")
+        os.environ.pop("HZ_TEST_KEY", None)
         self.assertEqual(ai_presets.resolve_api_key("$HZ_TEST_KEY"), "")
 
     def test_missing_master_key_returns_empty(self):
