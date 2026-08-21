@@ -863,7 +863,7 @@ async def _handle_full_edit_save(update: Update, context: ContextTypes.DEFAULT_T
             output_cost_per_million=values.get("output_cost_per_million", preset_fields.resolve(preset, "output_cost_per_million")),
             in_fallback_chain=int(values.get("in_fallback_chain", preset_fields.resolve(preset, "in_fallback_chain"))),
             group_label=values.get("group_label", preset_fields.resolve(preset, "group_label")),
-            reasoning_effort=values.get("reasoning_effort", preset_fields.resolve(preset, "reasoning_effort")),
+            reasoning_effort=(values.get("reasoning_effort") or preset_fields.resolve(preset, "reasoning_effort") or "none"),
         )
     except db.MasterKeyRequiredError:
         await notify_callback(update.callback_query, "برای ذخیره کلید API باید AI_MASTER_KEY در سرور پیکربندی شود.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
@@ -1070,7 +1070,7 @@ async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
             output_cost_per_million=edits.get("output_cost_per_million", preset_fields.resolve(preset, "output_cost_per_million")),
             in_fallback_chain=int(edits.get("in_fallback_chain", preset_fields.resolve(preset, "in_fallback_chain"))),
             group_label=edits.get("group_label", preset_fields.resolve(preset, "group_label")),
-            reasoning_effort=edits.get("reasoning_effort", preset_fields.resolve(preset, "reasoning_effort")),
+            reasoning_effort=(edits.get("reasoning_effort") or preset_fields.resolve(preset, "reasoning_effort") or "none"),
             previous_name=preset_name,
             remove_orphaned_group_key=removing_group,
         )

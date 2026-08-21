@@ -337,7 +337,9 @@ def activate_preset(name: str) -> bool:
     preset is rejected (returns ``False``) and the stored preference is left
     untouched. The legacy ``ai_base_url``/``ai_model``/``ai_api_key`` flat copies
     are no longer written — the preset row plus ``resolve_preset_key`` is the
-    single source of truth (AI/LLM Provider seam).
+    single source of truth (AI/LLM Provider seam, read by
+    ``services/ai/ai.create_client``/``_model`` via ``preset_fields.resolve`` +
+    ``resolve_preset_key`` — no ``settings`` fallback).
     """
     preset = get_preset(name)
     if not preset:
