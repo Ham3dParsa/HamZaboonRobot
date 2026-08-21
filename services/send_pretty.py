@@ -40,7 +40,7 @@ from services.utils.formatting import escape_mdv2, escape_mdv2_code, html_escape
 
 import re as _re_rich
 
-_RICH_ESCAPE_RE = _re_rich.compile(r"([\\*_~|`\[\]()#>=\-+.!])")
+_RICH_ESCAPE_RE = _re_rich.compile(r"([\\*_~|`\[\]()#><=\-+.!])")
 
 
 def _escape_rich(text: str) -> str:
