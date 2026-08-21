@@ -443,8 +443,9 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
-        await _edit_or_send(update, context, "اول باید /start رو بزنی.")
-        await notify_callback(update.callback_query)
+        await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
+        if update.callback_query:
+            await notify_callback(update.callback_query)
         return
     due = db.due_words_for_user(user_id, row["target_lang"])
     quota = db.get_quota_status(user_id)
@@ -478,7 +479,8 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         "⚙️ تنظیمات و پروفایل من:\nاز دکمه‌های زیر یکی را انتخاب کن.",
         reply_markup=settings_inline_keyboard(lang_name, goal_name, level_name),
     )
-    await notify_callback(update.callback_query)
+    if update.callback_query:
+        await notify_callback(update.callback_query)
 
 
 # ---------------- Callback handlers ----------------

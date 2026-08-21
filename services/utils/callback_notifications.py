@@ -48,7 +48,7 @@ _SHOW_ALERT_BY_INTENT = {
 
 
 async def notify_callback(
-    query: CallbackQuery,
+    query: CallbackQuery | None,
     text: str | None = None,
     *,
     intent: CallbackNoticeIntent = CallbackNoticeIntent.SUCCESS,
@@ -59,6 +59,8 @@ async def notify_callback(
     after a user waits too long or connectivity drops; other Telegram failures
     remain observable to callers.
     """
+    if query is None:
+        return
     _callback_answered.set(True)
     try:
         if text:
