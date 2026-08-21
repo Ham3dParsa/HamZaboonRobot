@@ -238,7 +238,9 @@ def _preset_brief_spans(preset: dict, active_name: str) -> list:
     Pure synchronous renderer (no awaits). Emoji per the UI/UX dictionary:
     🟢/⚫ toggle reflects the enabled state, and the ``[tags]`` suffix marks
     🎯 active preset, 🛡️ emergency tier, and custom. Every list/chain site
-    consumes these spans so each renders identically (R6/R8).
+    consumes these spans so each renders identically (R6/R8). 🔢 marks the
+    rank-setting context (pick/enter a target priority rank); it is distinct
+    from 🎯, which means the live/active routing target only.
     """
     name = preset.get("name", "?")
     toggle = "🟢" if preset.get("enabled", 1) else "⚫"
@@ -1191,7 +1193,7 @@ async def _show_create_priority(update: Update, context: ContextTypes.DEFAULT_TY
     msg = Message()
     msg.add_line(plain("➕ "), bold("ایجاد پیش‌تنظیم جدید"), plain(" — "), code(str(name)))
     msg.add_line()
-    msg.add_line(plain("🎯 "), bold("اولویت در زنجیره فال‌بک"))
+    msg.add_line(plain("🔢 "), bold("اولویت در زنجیره فال‌بک"))
     msg.add_line()
     msg.add_line(plain("جایگاه پیش‌تنظیم جدید در زنجیره فال‌بک را انتخاب کنید:"))
     msg.add_line(plain("• "), bold("بالا (مقدم)"), plain(" — اولین نفری که امتحان می‌شود"))
@@ -1769,7 +1771,7 @@ async def _show_help_fallback_chain(update: Update, context: ContextTypes.DEFAUL
     msg.add_line(plain("• ⬆/⬇: جابه‌جایی دستی (تغییر priority)"))
     msg.add_line(plain("• 🟢/⚫: فعال/غیرفعال کردن پریست"))
     msg.add_line(plain("• 🛡️: تبدیل به پریست اضطراری"))
-    msg.add_line(plain("• 🎯: پرش به رتبه دلخواه در گروه"))
+    msg.add_line(plain("• 🔢: پرش به رتبه دلخواه در گروه"))
     msg.add_line()
     msg.add_line(plain("پریست اضطراری همیشه بعد از همه پریست‌های عادی امتحان می‌شود."))
     await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
@@ -1870,7 +1872,7 @@ async def _handle_fallback_rank(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data["awaiting"] = f"ai_fallback_rank:{preset_name}"
     await _edit_or_send(
         update, context,
-        f"🎯 رتبه جدید در گروه «{group_label}» را وارد کنید (۱ تا {max_rank}):",
+        f"🔢 رتبه جدید در گروه «{group_label}» را وارد کنید (۱ تا {max_rank}):",
         reply_markup=admin_awaiting_inline_keyboard(),
     )
 
