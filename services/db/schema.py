@@ -49,6 +49,7 @@ _AI_PRESETS_COLUMNS = (
     "output_cost_per_million REAL",
     "group_label TEXT DEFAULT ''",
     "in_fallback_chain INTEGER DEFAULT 1",
+    "reasoning_effort TEXT DEFAULT 'none'",
 )
 
 
@@ -911,6 +912,7 @@ def _init_ai_presets_table(conn):
         "output_cost_per_million": "REAL",
         "group_label": "TEXT DEFAULT ''",
         "in_fallback_chain": "INTEGER DEFAULT 1",
+        "reasoning_effort": "TEXT DEFAULT 'none'",
     }.items():
         if col_name not in preset_columns:
             conn.execute(f"ALTER TABLE ai_presets ADD COLUMN {col_name} {col_def}")

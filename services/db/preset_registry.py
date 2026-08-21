@@ -86,6 +86,7 @@ def set_preset(
     output_cost_per_million: float | None = _pf.write_default("output_cost_per_million"),
     in_fallback_chain: int = _pf.write_default("in_fallback_chain"),
     group_label: str = _pf.write_default("group_label"),
+    reasoning_effort: str = _pf.write_default("reasoning_effort"),
     *,
     previous_name: str | None = None,
     remove_orphaned_group_key: bool = False,
@@ -124,6 +125,7 @@ def set_preset(
             "is_emergency=excluded.is_emergency",
             "in_fallback_chain=excluded.in_fallback_chain",
             "group_label=excluded.group_label",
+            "reasoning_effort=excluded.reasoning_effort",
         ]
         if priority is not None:
             conflict_sets.append("priority=excluded.priority")
@@ -134,8 +136,8 @@ def set_preset(
         if output_cost_per_million is not None:
             conflict_sets.append("output_cost_per_million=excluded.output_cost_per_million")
         conn.execute(
-            "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_emergency, priority, enabled, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_emergency, priority, enabled, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label, reasoning_effort) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             f"ON CONFLICT(name) DO UPDATE SET {', '.join(conflict_sets)}",
             (
                 name,
@@ -157,6 +159,7 @@ def set_preset(
                 output_cost_per_million,
                 in_fallback_chain,
                 group_label,
+                reasoning_effort,
             ),
         )
         if previous_name and previous_name != name:
@@ -313,7 +316,7 @@ def clone_preset(name: str, new_name: str) -> str:
         "max_rpm", "max_tpm", "max_daily_req", "timeout_seconds", "temperature",
         "max_output_tokens", "is_emergency", "priority", "enabled",
         "input_cost_per_million", "output_cost_per_million", "in_fallback_chain",
-        "group_label",
+        "group_label", "reasoning_effort",
     )
     with transaction() as conn:
         placeholders = ", ".join("?" for _ in field_names)

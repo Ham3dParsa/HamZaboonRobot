@@ -626,12 +626,14 @@ def _request_json(
     model = _model(preset)
     temp = preset_fields.resolve(preset or {}, "temperature")
     mtokens = preset_fields.resolve(preset or {}, "max_output_tokens")
+    reasoning = preset_fields.resolve(preset or {}, "reasoning_effort")
     started = time.monotonic()
     telemetry = telemetry if telemetry is not None else {}
     telemetry["model"] = model
     telemetry["request_kind"] = request_kind
+    extra_body = {"reasoning_effort": reasoning} if reasoning not in (None, "", "none") else None
     try:
-        resp = client.chat.completions.create(
+        kwargs: dict = dict(
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -640,6 +642,9 @@ def _request_json(
             temperature=temp,
             max_tokens=mtokens,
         )
+        if extra_body is not None:
+            kwargs["extra_body"] = extra_body
+        resp = client.chat.completions.create(**kwargs)
     except Exception as exc:
         if getattr(exc, "status_code", None) == 429 or "RateLimitError" in type(exc).__name__:
             raise RateLimitError(str(exc)) from exc
