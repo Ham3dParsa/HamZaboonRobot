@@ -48,6 +48,8 @@ class EnvResolverTests(unittest.TestCase):
                     with db.get_conn() as conn:
                         row = conn.execute("SELECT api_key FROM ai_presets WHERE name='test_env_preset'").fetchone()
                         stored = row["api_key"]
+                    # Migration must have encrypted the $ENV ref, not left it raw (runtime fallback would hide a regression).
+                    self.assertTrue(stored.startswith("v1:"), "migration must encrypt the $ENV reference")
                     # Runtime must decrypt to same plaintext as migration resolved
                     self.assertEqual(key_crypto.decrypt_secret(stored), "sk-mig-123456789")
         finally:
