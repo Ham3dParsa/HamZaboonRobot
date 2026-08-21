@@ -993,7 +993,7 @@ def _encrypt_key_columns(conn):
     MUST NOT destroy existing values, so the migration is skipped entirely and
     re-runs once a key is added.
     """
-    from services.db.key_crypto import encrypt_for_storage, _fernet
+    from services.db.key_crypto import encrypt_for_storage, _fernet, _resolve_env
 
     if _fernet() is None:
         return
@@ -1001,8 +1001,9 @@ def _encrypt_key_columns(conn):
     def _encrypt(raw: str) -> str:
         if not raw:
             return ""
-        if raw.startswith("$"):
-            return encrypt_for_storage(os.getenv(raw[1:], "") or "")
+        env = _resolve_env(raw)
+        if env is not None:
+            return encrypt_for_storage(env)
         return encrypt_for_storage(raw)
 
     for row in conn.execute("SELECT name, api_key FROM ai_presets").fetchall():
