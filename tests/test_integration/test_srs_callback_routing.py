@@ -280,8 +280,8 @@ class QueryAddEntrySourceTest(unittest.TestCase):
         update = MagicMock()
         update.effective_user.id = 1
         update.callback_query.answer = AsyncMock()
-        update.effective_message.edit_reply_markup = AsyncMock()
         ctx = MagicMock()
+        ctx.bot.edit_message_reply_markup = AsyncMock()
         ctx.user_data = {}
 
         asyncio.run(_handle_query_add(update, ctx, token))

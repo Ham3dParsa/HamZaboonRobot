@@ -266,6 +266,7 @@ class QueryAddToggleFlowTests(unittest.TestCase):
     def test_toggle_saves_then_removes_with_toast_and_label_flip(self):
         update = self._make_update()
         context = MagicMock()
+        context.bot.edit_message_reply_markup = AsyncMock()
         # Render-time flags are stored in user_data; the toggle must preserve the
         # pronounce button when it edits the card (pronounce always present, R1).
         context.user_data = {
@@ -278,7 +279,7 @@ class QueryAddToggleFlowTests(unittest.TestCase):
             update.callback_query.answer.call_args[0][0],
             "در جعبه مرور ذخیره شد!",
         )
-        saved_markup = update.effective_message.edit_reply_markup.call_args.kwargs["reply_markup"]
+        saved_markup = context.bot.edit_message_reply_markup.call_args.kwargs["reply_markup"]
         saved_calls = [b.callback_data for r in saved_markup.inline_keyboard for b in r]
         self.assertIn("حذف از نشست‌های مطالعه", saved_markup.inline_keyboard[0][0].text)
         self.assertIsNotNone(
@@ -302,7 +303,7 @@ class QueryAddToggleFlowTests(unittest.TestCase):
             update.callback_query.answer.call_args[0][0],
             "از جعبه مرور حذف شد!",
         )
-        removed_markup = update.effective_message.edit_reply_markup.call_args.kwargs["reply_markup"]
+        removed_markup = context.bot.edit_message_reply_markup.call_args.kwargs["reply_markup"]
         self.assertIn("ذخیره برای مطالعه", removed_markup.inline_keyboard[0][0].text)
         self.assertIsNone(
             db.get_query_result(self.token, user_id=1)["saved_at"],
