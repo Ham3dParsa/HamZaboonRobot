@@ -254,7 +254,6 @@ class QueryAddToggleFlowTests(unittest.TestCase):
         update = MagicMock()
         update.effective_user.id = 1
         update.callback_query.answer = AsyncMock()
-        update.effective_message.edit_reply_markup = AsyncMock()
         return update
 
     def _word_count(self):
@@ -294,8 +293,11 @@ class QueryAddToggleFlowTests(unittest.TestCase):
             any(c.startswith("tts:pronounce:q:") for c in saved_calls),
             "toggle edit must preserve the pronounce button",
         )
+        self.assertEqual(context.bot.edit_message_reply_markup.call_args.kwargs["chat_id"], update.effective_chat.id)
+        self.assertEqual(context.bot.edit_message_reply_markup.call_args.kwargs["message_id"], update.effective_message.message_id)
 
         # Second tap removes.
+        context.bot.edit_message_reply_markup.reset_mock()
         update = self._make_update()
         asyncio.run(_handle_query_add(update, context, self.token))
         self.assertEqual(self._word_count(), 0, "second tap removes the word")
@@ -304,6 +306,8 @@ class QueryAddToggleFlowTests(unittest.TestCase):
             "از جعبه مرور حذف شد!",
         )
         removed_markup = context.bot.edit_message_reply_markup.call_args.kwargs["reply_markup"]
+        self.assertEqual(context.bot.edit_message_reply_markup.call_args.kwargs["chat_id"], update.effective_chat.id)
+        self.assertEqual(context.bot.edit_message_reply_markup.call_args.kwargs["message_id"], update.effective_message.message_id)
         self.assertIn("ذخیره برای مطالعه", removed_markup.inline_keyboard[0][0].text)
         self.assertIsNone(
             db.get_query_result(self.token, user_id=1)["saved_at"],
