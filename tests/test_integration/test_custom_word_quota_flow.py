@@ -254,7 +254,6 @@ class QueryAddToggleFlowTests(unittest.TestCase):
         update = MagicMock()
         update.effective_user.id = 1
         update.callback_query.answer = AsyncMock()
-        update.effective_message.edit_reply_markup = AsyncMock()
         return update
 
     def _word_count(self):
@@ -266,6 +265,7 @@ class QueryAddToggleFlowTests(unittest.TestCase):
     def test_toggle_saves_then_removes_with_toast_and_label_flip(self):
         update = self._make_update()
         context = MagicMock()
+        context.bot.edit_message_reply_markup = AsyncMock()
         # Render-time flags are stored in user_data; the toggle must preserve the
         # pronounce button when it edits the card (pronounce always present, R1).
         context.user_data = {
@@ -278,7 +278,7 @@ class QueryAddToggleFlowTests(unittest.TestCase):
             update.callback_query.answer.call_args[0][0],
             "در جعبه مرور ذخیره شد!",
         )
-        saved_markup = update.effective_message.edit_reply_markup.call_args.kwargs["reply_markup"]
+        saved_markup = context.bot.edit_message_reply_markup.call_args.kwargs["reply_markup"]
         saved_calls = [b.callback_data for r in saved_markup.inline_keyboard for b in r]
         self.assertIn("حذف از نشست‌های مطالعه", saved_markup.inline_keyboard[0][0].text)
         self.assertIsNotNone(
@@ -293,8 +293,11 @@ class QueryAddToggleFlowTests(unittest.TestCase):
             any(c.startswith("tts:pronounce:q:") for c in saved_calls),
             "toggle edit must preserve the pronounce button",
         )
+        self.assertEqual(context.bot.edit_message_reply_markup.call_args.kwargs["chat_id"], update.effective_chat.id)
+        self.assertEqual(context.bot.edit_message_reply_markup.call_args.kwargs["message_id"], update.effective_message.message_id)
 
         # Second tap removes.
+        context.bot.edit_message_reply_markup.reset_mock()
         update = self._make_update()
         asyncio.run(_handle_query_add(update, context, self.token))
         self.assertEqual(self._word_count(), 0, "second tap removes the word")
@@ -302,7 +305,9 @@ class QueryAddToggleFlowTests(unittest.TestCase):
             update.callback_query.answer.call_args[0][0],
             "از جعبه مرور حذف شد!",
         )
-        removed_markup = update.effective_message.edit_reply_markup.call_args.kwargs["reply_markup"]
+        removed_markup = context.bot.edit_message_reply_markup.call_args.kwargs["reply_markup"]
+        self.assertEqual(context.bot.edit_message_reply_markup.call_args.kwargs["chat_id"], update.effective_chat.id)
+        self.assertEqual(context.bot.edit_message_reply_markup.call_args.kwargs["message_id"], update.effective_message.message_id)
         self.assertIn("ذخیره برای مطالعه", removed_markup.inline_keyboard[0][0].text)
         self.assertIsNone(
             db.get_query_result(self.token, user_id=1)["saved_at"],
@@ -310,9 +315,14 @@ class QueryAddToggleFlowTests(unittest.TestCase):
         )
 
         # Third tap saves again (idempotent round-trip).
+        context.bot.edit_message_reply_markup.reset_mock()
         update = self._make_update()
         asyncio.run(_handle_query_add(update, context, self.token))
         self.assertEqual(self._word_count(), 1)
+        resaved_markup = context.bot.edit_message_reply_markup.call_args.kwargs["reply_markup"]
+        self.assertIn("حذف از نشست‌های مطالعه", resaved_markup.inline_keyboard[0][0].text)
+        self.assertEqual(context.bot.edit_message_reply_markup.call_args.kwargs["chat_id"], update.effective_chat.id)
+        self.assertEqual(context.bot.edit_message_reply_markup.call_args.kwargs["message_id"], update.effective_message.message_id)
 
 
 class ShowStatusQuotaRenderTests(unittest.TestCase):

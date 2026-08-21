@@ -76,7 +76,12 @@ async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         saved=result.saved,
     )
     try:
-        await update.effective_message.edit_reply_markup(reply_markup=markup)
+        await send_pretty.edit_markup(
+            update.effective_chat.id,
+            update.effective_message.message_id,
+            markup,
+            bot=context.bot,
+        )
     except BadRequest as exc:
         if "not modified" not in str(exc).casefold():
             raise

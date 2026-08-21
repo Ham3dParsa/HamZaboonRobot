@@ -55,7 +55,6 @@ class WordQueryToggleFlowTests(unittest.TestCase):
         query = MagicMock()
         query.answer = AsyncMock()
         message = MagicMock()
-        message.edit_reply_markup = AsyncMock()
         query.message = message
         update.callback_query = query
         update.effective_message = message
@@ -65,6 +64,7 @@ class WordQueryToggleFlowTests(unittest.TestCase):
         context = MagicMock()
         context.user_data = user_data if user_data is not None else {}
         context.bot = MagicMock()
+        context.bot.edit_message_reply_markup = AsyncMock()
         return context
 
     def test_toggle_saves_then_removes(self):
@@ -79,7 +79,9 @@ class WordQueryToggleFlowTests(unittest.TestCase):
             "first tap saves and marks the result",
         )
         self.assertIn("ذخیره شد", update.callback_query.answer.call_args[0][0])
-        markup = update.effective_message.edit_reply_markup.call_args.kwargs["reply_markup"]
+        markup = context.bot.edit_message_reply_markup.call_args.kwargs["reply_markup"]
+        self.assertEqual(context.bot.edit_message_reply_markup.call_args.kwargs["chat_id"], update.effective_chat.id)
+        self.assertEqual(context.bot.edit_message_reply_markup.call_args.kwargs["message_id"], update.effective_message.message_id)
         self.assertTrue(any("حذف" in b.text for r in markup.inline_keyboard for b in r))
 
         asyncio.run(_handle_query_add(update, context, token))
@@ -103,7 +105,9 @@ class WordQueryToggleFlowTests(unittest.TestCase):
             {f"query_kb_{token}": {}}
         )
         asyncio.run(_handle_query_add(update, context, token))
-        markup = update.effective_message.edit_reply_markup.call_args.kwargs["reply_markup"]
+        markup = context.bot.edit_message_reply_markup.call_args.kwargs["reply_markup"]
+        self.assertEqual(context.bot.edit_message_reply_markup.call_args.kwargs["chat_id"], update.effective_chat.id)
+        self.assertEqual(context.bot.edit_message_reply_markup.call_args.kwargs["message_id"], update.effective_message.message_id)
         flat = [b.callback_data for r in markup.inline_keyboard for b in r]
         self.assertTrue(any(c.startswith("query:add:") for c in flat))
         self.assertTrue(any(c.startswith("tts:pronounce:q:") for c in flat))

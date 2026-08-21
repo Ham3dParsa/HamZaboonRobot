@@ -280,11 +280,13 @@ class QueryAddEntrySourceTest(unittest.TestCase):
         update = MagicMock()
         update.effective_user.id = 1
         update.callback_query.answer = AsyncMock()
-        update.effective_message.edit_reply_markup = AsyncMock()
         ctx = MagicMock()
+        ctx.bot.edit_message_reply_markup = AsyncMock()
         ctx.user_data = {}
 
         asyncio.run(_handle_query_add(update, ctx, token))
+        self.assertEqual(ctx.bot.edit_message_reply_markup.call_args.kwargs["chat_id"], update.effective_chat.id)
+        self.assertEqual(ctx.bot.edit_message_reply_markup.call_args.kwargs["message_id"], update.effective_message.message_id)
 
         with db.get_conn() as conn:
             row = conn.execute(

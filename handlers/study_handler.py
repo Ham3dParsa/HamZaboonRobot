@@ -197,7 +197,7 @@ async def _reply_or_answer(
         )
         return
     if update.message is not None:
-        await update.message.reply_text(text)
+        await send_pretty.say(update, context, text, mode="send", raw=send_pretty.RawFormat.PLAIN)
         return
     await send_pretty.send(
         update.effective_chat.id,
