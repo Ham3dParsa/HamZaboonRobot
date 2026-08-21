@@ -52,6 +52,15 @@ _AI_PRESETS_COLUMNS = (
     "reasoning_effort TEXT DEFAULT 'none'",
 )
 
+# Canonical column names derived from _AI_PRESETS_COLUMNS (single source of truth).
+_AI_PRESETS_COLUMN_NAMES = tuple(col.split()[0] for col in _AI_PRESETS_COLUMNS)
+
+
+def ai_presets_column_names() -> list[str]:
+    """Return the canonical ai_presets column names (derived from
+    _AI_PRESETS_COLUMNS)."""
+    return list(_AI_PRESETS_COLUMN_NAMES)
+
 
 def _ai_presets_create_sql(if_not_exists: bool = False) -> str:
     """Return a CREATE TABLE statement for ai_presets from the canonical column

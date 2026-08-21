@@ -2,8 +2,17 @@
 
 import datetime as _dt
 
-from services.db.schema import get_conn, transaction, _utc_now
-from services.db.settings import get_bool_setting, get_setting
+from services.db.schema import (
+    get_conn,
+    transaction,
+    _utc_now,
+    _AI_PRESETS_COLUMN_NAMES,
+)
+from services.db.settings import (
+    get_bool_setting,
+    get_setting,
+    set_setting_via_conn,
+)
 from services.ai.ai_presets import resolve_api_key
 from services.ai import preset_fields as _pf
 from services.db.key_crypto import encrypt_for_storage
@@ -135,32 +144,40 @@ def set_preset(
             conflict_sets.append("input_cost_per_million=excluded.input_cost_per_million")
         if output_cost_per_million is not None:
             conflict_sets.append("output_cost_per_million=excluded.output_cost_per_million")
+        # R6: build INSERT from canonical _AI_PRESETS_COLUMN_NAMES (single source).
+        _preset_values = {
+            "name": name,
+            "base_url": base_url,
+            "model": model,
+            "api_key": stored_key,
+            "daily_batch_size": daily_batch_size,
+            "max_concurrency": max_concurrency,
+            "max_rpm": max_rpm,
+            "max_tpm": max_tpm,
+            "max_daily_req": max_daily_req,
+            "timeout_seconds": timeout_seconds,
+            "temperature": temperature,
+            "max_output_tokens": max_output_tokens,
+            "is_emergency": is_emergency,
+            "priority": 0 if priority is None else priority,
+            "enabled": 1 if enabled is None else enabled,
+            "input_cost_per_million": input_cost_per_million,
+            "output_cost_per_million": output_cost_per_million,
+            "in_fallback_chain": in_fallback_chain,
+            "group_label": group_label,
+            "reasoning_effort": reasoning_effort,
+        }
+        if set(_preset_values) != set(_AI_PRESETS_COLUMN_NAMES):
+            raise RuntimeError(
+                f"preset column mismatch: values {sorted(_preset_values)} vs canonical {sorted(_AI_PRESETS_COLUMN_NAMES)}"
+            )
+        _cols = ", ".join(_AI_PRESETS_COLUMN_NAMES)
+        _placeholders = ", ".join("?" for _ in _AI_PRESETS_COLUMN_NAMES)
+        _values = [_preset_values[c] for c in _AI_PRESETS_COLUMN_NAMES]
         conn.execute(
-            "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_emergency, priority, enabled, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label, reasoning_effort) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            f"INSERT INTO ai_presets({_cols}) VALUES ({_placeholders}) "
             f"ON CONFLICT(name) DO UPDATE SET {', '.join(conflict_sets)}",
-            (
-                name,
-                base_url,
-                model,
-                stored_key,
-                daily_batch_size,
-                max_concurrency,
-                max_rpm,
-                max_tpm,
-                max_daily_req,
-                timeout_seconds,
-                temperature,
-                max_output_tokens,
-                is_emergency,
-                0 if priority is None else priority,
-                1 if enabled is None else enabled,
-                input_cost_per_million,
-                output_cost_per_million,
-                in_fallback_chain,
-                group_label,
-                reasoning_effort,
-            ),
+            tuple(_values),
         )
         if previous_name and previous_name != name:
             conn.execute("DELETE FROM ai_presets WHERE name=?", (previous_name,))
@@ -311,13 +328,8 @@ def clone_preset(name: str, new_name: str) -> str:
         raise ValueError(f"source preset not found: {name}")
     if get_preset(new_name) is not None:
         raise ValueError(f"preset name already exists: {new_name}")
-    field_names = (
-        "base_url", "model", "api_key", "daily_batch_size", "max_concurrency",
-        "max_rpm", "max_tpm", "max_daily_req", "timeout_seconds", "temperature",
-        "max_output_tokens", "is_emergency", "priority", "enabled",
-        "input_cost_per_million", "output_cost_per_million", "in_fallback_chain",
-        "group_label", "reasoning_effort",
-    )
+    # R6: derive clone column list from canonical _AI_PRESETS_COLUMN_NAMES.
+    field_names = tuple(c for c in _AI_PRESETS_COLUMN_NAMES if c != "name")
     with transaction() as conn:
         placeholders = ", ".join("?" for _ in field_names)
         columns = ", ".join(field_names)
@@ -348,11 +360,8 @@ def activate_preset(name: str) -> bool:
     if not _pf.resolve(preset, "enabled"):
         return False
     with transaction() as conn:
-        conn.execute(
-            "INSERT INTO settings(key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            ("ai_primary_preset", name),
-        )
+        # R8: route settings writes through the settings seam via connection-aware helper.
+        set_setting_via_conn(conn, "ai_primary_preset", name)
     return True
 
 
@@ -372,54 +381,29 @@ def get_preset_cost(preset_name: str) -> dict:
 
 def set_fallback_active(active: bool, fallback_preset: str | None = None):
     with transaction() as conn:
-        conn.execute(
-            "INSERT INTO settings(key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            ("ai_fallback_active", "true" if active else "false"),
-        )
+        # R8: via settings seam (connection-aware to keep atomicity).
+        set_setting_via_conn(conn, "ai_fallback_active", "true" if active else "false")
         if active:
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                ("ai_fallback_since", _utc_now().isoformat()),
-            )
+            set_setting_via_conn(conn, "ai_fallback_since", _utc_now().isoformat())
             if fallback_preset:
-                conn.execute(
-                    "INSERT INTO settings(key, value) VALUES (?, ?) "
-                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                    ("ai_fallback_preset", fallback_preset),
-                )
+                set_setting_via_conn(conn, "ai_fallback_preset", fallback_preset)
         else:
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                ("ai_fallback_since", ""),
-            )
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                ("ai_consecutive_failures", "0"),
-            )
+            set_setting_via_conn(conn, "ai_fallback_since", "")
+            set_setting_via_conn(conn, "ai_consecutive_failures", "0")
 
 
 def increment_consecutive_failures() -> int:
     with transaction() as conn:
         current = int(get_setting("ai_consecutive_failures", "0")) + 1
-        conn.execute(
-            "INSERT INTO settings(key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            ("ai_consecutive_failures", str(current)),
-        )
+        # R8: via settings seam (connection-aware).
+        set_setting_via_conn(conn, "ai_consecutive_failures", str(current))
         return current
 
 
 def reset_consecutive_failures():
     with transaction() as conn:
-        conn.execute(
-            "INSERT INTO settings(key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            ("ai_consecutive_failures", "0"),
-        )
+        # R8: via settings seam (connection-aware).
+        set_setting_via_conn(conn, "ai_consecutive_failures", "0")
 
 
 def _first_enabled_name() -> str | None:

@@ -7,6 +7,8 @@ from config import (
 )
 from config.catalog import settings_key
 
+import sqlite3
+
 from services.db.schema import get_conn, transaction
 
 # Sourced from the canonical settings-key registry (J0.2) so the literal key
@@ -27,6 +29,19 @@ def set_setting(key: str, value: str):
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, value),
         )
+
+
+def set_setting_via_conn(conn: sqlite3.Connection, key: str, value: str) -> None:
+    """Write a setting via an existing connection/transaction (R8).
+
+    Same upsert as :func:`set_setting` but reuses the caller's ``conn`` so
+    multi-key updates stay atomic inside ``transaction()``.
+    """
+    conn.execute(
+        "INSERT INTO settings(key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (key, value),
+    )
 
 
 def get_bool_setting(key: str, default: bool = False) -> bool:
