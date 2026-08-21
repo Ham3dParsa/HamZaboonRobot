@@ -33,6 +33,8 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
+from config.custom_emoji import resolve_emoji
+from services import telegram_rich
 from services.utils.callback_notifications import notify_callback
 from services.utils.formatting import escape_mdv2, escape_mdv2_code, html_escape
 from services.utils.helpers import (
@@ -55,14 +57,38 @@ __all__ = [
     "Italic",
     "Code",
     "Spoiler",
+    "Underline",
+    "Strikethrough",
+    "Marked",
+    "TgSpoiler",
     "Link",
     "Quote",
     "Newline",
+    "CustomEmoji",
+    "Heading",
+    "Table",
+    "List",
+    "ListItem",
+    "TaskListItem",
+    "Details",
+    "Math",
+    "Raw",
     "plain",
     "bold",
     "italic",
     "code",
     "spoiler",
+    "underline",
+    "strike",
+    "mark",
+    "tg_spoiler",
+    "emoji",
+    "heading",
+    "table",
+    "rich_list",
+    "details",
+    "math",
+    "raw_rich",
     "link",
     "quote",
     "nl",
@@ -156,6 +182,29 @@ class Spoiler(Span):
 
 
 @dataclass(frozen=True)
+class Underline(Span):
+    children: tuple["Span", ...]
+
+
+@dataclass(frozen=True)
+class Strikethrough(Span):
+    children: tuple["Span", ...]
+
+
+@dataclass(frozen=True)
+class Marked(Span):
+    children: tuple["Span", ...]
+
+
+@dataclass(frozen=True)
+class TgSpoiler(Span):
+    """Table-safe spoiler via ``<tg-spoiler>`` (Rich Markdown can contain HTML).
+    Unlike ``||`` it renders inside table cells."""
+
+    children: tuple["Span", ...]
+
+
+@dataclass(frozen=True)
 class Link(Span):
     url: str
     children: tuple["Span", ...]
@@ -171,11 +220,88 @@ class Newline(Span):
     pass
 
 
+@dataclass(frozen=True)
+class CustomEmoji(Span):
+    custom_emoji_id: str
+    fallback: str
+
+
+@dataclass(frozen=True)
+class Heading(Span):
+    level: int
+    children: tuple["Span", ...]
+
+    def __post_init__(self):
+        object.__setattr__(self, "children", _as_tuple(self.children))
+
+
+@dataclass(frozen=True)
+class Table(Span):
+    header: tuple["Span", ...] | None
+    rows: tuple[tuple["Span", ...], ...]
+
+
+@dataclass(frozen=True)
+class ListItem(Span):
+    children: tuple["Span", ...]
+
+    def __post_init__(self):
+        object.__setattr__(self, "children", _as_tuple(self.children))
+
+
+@dataclass(frozen=True)
+class TaskListItem(Span):
+    checked: bool
+    children: tuple["Span", ...]
+
+    def __post_init__(self):
+        object.__setattr__(self, "children", _as_tuple(self.children))
+
+
+@dataclass(frozen=True)
+class List(Span):
+    ordered: bool
+    items: tuple["Span", ...]
+
+
+@dataclass(frozen=True)
+class Details(Span):
+    summary: "Span"
+    children: tuple["Span", ...]
+    open: bool = False
+
+    def __post_init__(self):
+        object.__setattr__(self, "children", _as_tuple(self.children))
+        object.__setattr__(self, "summary", _as_tuple(self.summary))
+
+
+@dataclass(frozen=True)
+class Math(Span):
+    expr: str
+    block: bool = False
+
+
+@dataclass(frozen=True)
+class Raw(Span):
+    """Verbatim Rich-markup injection (e.g. an HTML ``<table>`` inside a
+    ``<details>`` that the span tree cannot express).  Rich-only: renders the text
+    as-is; other backends degrade it to plain text."""
+
+    text: str
+
+
 def _span(value) -> Span:
     """Coerce a bare string into a ``Plain`` span; pass spans through."""
     if isinstance(value, Span):
         return value
     return Plain(str(value))
+
+
+def _as_tuple(value) -> tuple[Span, ...]:
+    """Normalize a single span or an iterable of spans into a tuple."""
+    if isinstance(value, Span):
+        return (value,)
+    return tuple(value)
 
 
 def plain(x) -> Span:
@@ -198,6 +324,22 @@ def spoiler(*children) -> Span:
     return Spoiler(tuple(_span(c) for c in children))
 
 
+def underline(*children) -> Span:
+    return Underline(tuple(_span(c) for c in children))
+
+
+def strike(*children) -> Span:
+    return Strikethrough(tuple(_span(c) for c in children))
+
+
+def mark(*children) -> Span:
+    return Marked(tuple(_span(c) for c in children))
+
+
+def tg_spoiler(*children) -> Span:
+    return TgSpoiler(tuple(_span(c) for c in children))
+
+
 def link(url: str, *children) -> Span:
     return Link(url, tuple(_span(c) for c in children))
 
@@ -210,12 +352,50 @@ def nl() -> Span:
     return Newline()
 
 
+def raw_rich(text: str) -> Span:
+    """Wrap verbatim Rich markup as a ``Raw`` span (Rich-only, injected as-is)."""
+    return Raw(text)
+
+
+def emoji(key_or_id: str, *, fallback: str | None = None) -> Span:
+    """A custom emoji resolved via ``config.custom_emoji.resolve_emoji``.
+
+    Pass a registry key (e.g. ``"book"``) or a raw ``custom_emoji_id``. The
+    ``fallback`` is the plain emoji shown where custom emoji can't render.
+    """
+    cid, fb = resolve_emoji(key_or_id, fallback=fallback)
+    return CustomEmoji(cid, fb)
+
+
 def _plain_text(value) -> str:
     if isinstance(value, Span):
         if isinstance(value, Plain):
             return value.text
+        if isinstance(value, CustomEmoji):
+            return value.fallback
         return "".join(_plain_text(c) for c in value.children)
     return str(value)
+
+
+def heading(level: int, *children) -> Span:
+    return Heading(level, tuple(_span(c) for c in children))
+
+
+def table(header: tuple | None, *rows) -> Span:
+    hdr = None if header is None else tuple(_span(c) for c in header)
+    return Table(hdr, tuple(tuple(_span(c) for c in r) for r in rows))
+
+
+def rich_list(ordered: bool, *items) -> Span:
+    return List(ordered, tuple(_span(c) for c in items))
+
+
+def details(summary, *children, open: bool = False) -> Span:
+    return Details(_span(summary), tuple(_span(c) for c in children), open=open)
+
+
+def math(expr: str, *, block: bool = False) -> Span:
+    return Math(expr, block)
 
 
 # ---------------------------------------------------------------------------
@@ -247,13 +427,18 @@ class Message:
 
     def render(self, backend: Backend = Backend.MDV2) -> str:
         if backend is Backend.RICH:
-            raise NotImplementedError("Backend.RICH is reserved, not implemented")
-        if backend is Backend.HTML:
+            renderer = _render_rich
+        elif backend is Backend.HTML:
             renderer = _render_html
         elif backend is Backend.PLAIN:
             renderer = _render_plain
         else:
             renderer = _render_mdv2
+        if backend is Backend.RICH:
+            # Telegram's Rich markdown (CommonMark-like) treats a single \n as a
+            # soft break, so adjacent blocks collapse onto one line. Separate
+            # blocks with a blank line so each add_line is a distinct block.
+            return "\n\n".join(renderer(line) for line in self._lines)
         return "\n".join(renderer(line) for line in self._lines)
 
 
@@ -279,6 +464,14 @@ def _render_mdv2(children: tuple[Span, ...]) -> str:
             parts.append("`" + escape_mdv2_code(span.text) + "`")
         elif isinstance(span, Spoiler):
             parts.append("||" + _render_mdv2(span.children) + "||")
+        elif isinstance(span, TgSpoiler):
+            parts.append("||" + _render_mdv2(span.children) + "||")
+        elif isinstance(span, Underline):
+            parts.append("__" + _render_mdv2(span.children) + "__")
+        elif isinstance(span, Strikethrough):
+            parts.append("~" + _render_mdv2(span.children) + "~")
+        elif isinstance(span, Marked):
+            parts.append(_render_mdv2(span.children))
         elif isinstance(span, Link):
             inner = _render_mdv2(span.children)
             parts.append("[" + inner + "](" + escape_mdv2(span.url) + ")")
@@ -287,6 +480,10 @@ def _render_mdv2(children: tuple[Span, ...]) -> str:
             parts.append("> " + inner.replace("\n", "\n> "))
         elif isinstance(span, Newline):
             parts.append("\n")
+        elif isinstance(span, CustomEmoji):
+            parts.append(
+                "![" + escape_mdv2(span.fallback) + "](tg://emoji?id=" + span.custom_emoji_id + ")"
+            )
         else:  # pragma: no cover - defensive
             raise TypeError(f"Unsupported span type for MDV2: {type(span).__name__}")
     return "".join(parts)
@@ -307,6 +504,16 @@ def _render_html(children: tuple[Span, ...]) -> str:
             parts.append(
                 '<span class="tg-spoiler">' + _render_html(span.children) + "</span>"
             )
+        elif isinstance(span, TgSpoiler):
+            parts.append(
+                '<span class="tg-spoiler">' + _render_html(span.children) + "</span>"
+            )
+        elif isinstance(span, Underline):
+            parts.append("<u>" + _render_html(span.children) + "</u>")
+        elif isinstance(span, Strikethrough):
+            parts.append("<s>" + _render_html(span.children) + "</s>")
+        elif isinstance(span, Marked):
+            parts.append("<mark>" + _render_html(span.children) + "</mark>")
         elif isinstance(span, Link):
             parts.append(
                 '<a href="' + html_escape(span.url) + '">' + _render_html(span.children) + "</a>"
@@ -315,9 +522,54 @@ def _render_html(children: tuple[Span, ...]) -> str:
             parts.append("<blockquote>" + _render_html(span.children) + "</blockquote>")
         elif isinstance(span, Newline):
             parts.append("\n")
+        elif isinstance(span, CustomEmoji):
+            parts.append(
+                '<tg-emoji emoji-id="' + span.custom_emoji_id + '">'
+                + html_escape(span.fallback)
+                + "</tg-emoji>"
+            )
         else:  # pragma: no cover - defensive
             raise TypeError(f"Unsupported span type for HTML: {type(span).__name__}")
     return "".join(parts)
+
+
+def _plain_table(
+    header: tuple["Span", ...] | None,
+    rows: tuple[tuple["Span | tuple[Span, ...]", ...], ...],
+) -> str:
+    """Degrade a Table to plain text: header + rows, cells joined by ' | '."""
+    def _cell(cell: "Span | tuple[Span, ...]") -> str:
+        if isinstance(cell, tuple):
+            return _render_plain(cell)
+        return _render_plain((cell,))
+
+    lines: list[str] = []
+    if header:
+        lines.append(" | ".join(_cell(c) for c in header))
+    for row in rows:
+        lines.append(" | ".join(_cell(c) for c in row))
+    return "\n".join(lines)
+
+
+def _plain_list(span: "Span") -> str:
+    """Degrade a List / ListItem / TaskListItem to plain text lines."""
+    if isinstance(span, List):
+        ordered, items = span.ordered, span.items
+    else:
+        ordered, items = False, (span,)
+    lines: list[str] = []
+    for i, it in enumerate(items, 1):
+        if isinstance(it, TaskListItem):
+            marker = "[x] " if it.checked else "[ ] "
+            body = _render_plain(it.children)
+        elif isinstance(it, ListItem):
+            marker = (f"{i}. " if ordered else "- ")
+            body = _render_plain(it.children)
+        else:
+            marker = (f"{i}. " if ordered else "- ")
+            body = _render_plain((it,))
+        lines.append(marker + body)
+    return "\n".join(lines)
 
 
 def _render_plain(children: tuple[Span, ...]) -> str:
@@ -325,7 +577,7 @@ def _render_plain(children: tuple[Span, ...]) -> str:
     for span in children:
         if isinstance(span, Plain):
             parts.append(span.text)
-        elif isinstance(span, (Bold, Italic, Spoiler, Quote)):
+        elif isinstance(span, (Bold, Italic, Spoiler, TgSpoiler, Underline, Strikethrough, Marked, Quote)):
             parts.append(_render_plain(span.children))
         elif isinstance(span, Code):
             parts.append(span.text)
@@ -333,9 +585,140 @@ def _render_plain(children: tuple[Span, ...]) -> str:
             parts.append(_render_plain(span.children))
         elif isinstance(span, Newline):
             parts.append("\n")
+        elif isinstance(span, CustomEmoji):
+            parts.append(span.fallback)
+        elif isinstance(span, Heading):
+            parts.append("#" * span.level + " " + _render_plain(span.children))
+        elif isinstance(span, Math):
+            parts.append(span.expr)
+        elif isinstance(span, Raw):
+            parts.append(span.text)
+        elif isinstance(span, (List, ListItem, TaskListItem)):
+            parts.append(_plain_list(span))
+        elif isinstance(span, Table):
+            parts.append(_plain_table(span.header, span.rows))
+        elif isinstance(span, Details):
+            parts.append(
+                _render_plain(span.summary) + ": " + _render_plain(span.children)
+            )
         else:  # pragma: no cover - defensive
             raise TypeError(f"Unsupported span type for PLAIN: {type(span).__name__}")
     return "".join(parts)
+
+
+def _rich_quote(children: tuple[Span, ...]) -> str:
+    """Render a blockquote for Rich markdown.
+
+    Telegram's Rich markdown treats a bare ``\\n`` inside a quote as a soft
+    break, so two quoted lines collapse onto one. To put the translation on its
+    own line *inside* the same quote, a ``Newline`` becomes an empty ``>`` line,
+    which is a CommonMark paragraph break within the blockquote.
+    """
+    rendered = _render_rich(children)
+    lines = rendered.split("\n")
+    return "> " + "\n>\n> ".join(lines)
+
+
+def _render_rich(children: tuple[Span, ...]) -> str:
+    """Render spans to a Bot API 10.1 ``InputRichMessage`` markdown string."""
+    parts: list[str] = []
+    for span in children:
+        if isinstance(span, Plain):
+            parts.append(span.text)
+        elif isinstance(span, Bold):
+            parts.append("**" + _render_rich(span.children) + "**")
+        elif isinstance(span, Italic):
+            parts.append("*" + _render_rich(span.children) + "*")
+        elif isinstance(span, Code):
+            parts.append("`" + span.text + "`")
+        elif isinstance(span, Spoiler):
+            parts.append("||" + _render_rich(span.children) + "||")
+        elif isinstance(span, TgSpoiler):
+            parts.append("<tg-spoiler>" + _render_rich(span.children) + "</tg-spoiler>")
+        elif isinstance(span, Underline):
+            parts.append("__" + _render_rich(span.children) + "__")
+        elif isinstance(span, Strikethrough):
+            parts.append("~~" + _render_rich(span.children) + "~~")
+        elif isinstance(span, Marked):
+            parts.append("==" + _render_rich(span.children) + "==")
+        elif isinstance(span, Link):
+            parts.append("[" + _render_rich(span.children) + "](" + span.url + ")")
+        elif isinstance(span, Quote):
+            parts.append(_rich_quote(span.children))
+        elif isinstance(span, Newline):
+            parts.append("\n")
+        elif isinstance(span, CustomEmoji):
+            parts.append("![](tg://emoji?id=" + span.custom_emoji_id + ")")
+        elif isinstance(span, Heading):
+            parts.append(("#" * span.level) + " " + _render_rich(span.children))
+        elif isinstance(span, Math):
+            parts.append(
+                ("$$" + span.expr + "$$") if span.block else ("$" + span.expr + "$")
+            )
+        elif isinstance(span, Raw):
+            parts.append(span.text)
+        elif isinstance(span, Details):
+            summary = _render_rich(span.summary)
+            body = _render_rich(span.children).rstrip("\n")
+            parts.append(
+                "<details"
+                + (" open" if span.open else "")
+                + "><summary>"
+                + summary
+                + "</summary>"
+                + body
+                + "</details>"
+            )
+        elif isinstance(span, Table):
+            parts.append(_rich_table(span.header, span.rows))
+        elif isinstance(span, (List, ListItem, TaskListItem)):
+            parts.append(_rich_list(span))
+        else:  # pragma: no cover - defensive
+            raise TypeError(f"Unsupported span type for RICH: {type(span).__name__}")
+    return "".join(parts)
+
+
+def _render_cell(cell: "Span | tuple[Span, ...]") -> str:
+    """Render one table cell: a single span or a tuple of spans (e.g. a sentence
+    with a bolded keyword)."""
+    if isinstance(cell, tuple):
+        return _render_rich(cell)
+    return _render_rich((cell,))
+
+
+def _rich_table(
+    header: tuple["Span", ...] | None,
+    rows: tuple[tuple["Span | tuple[Span, ...]", ...], ...],
+) -> str:
+    """Render a GFM pipe table (header row + alignment row + body rows)."""
+    lines: list[str] = []
+    if header:
+        lines.append("| " + " | ".join(_render_cell(c) for c in header) + " |")
+        lines.append("| " + " | ".join("---" for _ in header) + " |")
+    for row in rows:
+        lines.append("| " + " | ".join(_render_cell(c) for c in row) + " |")
+    return "\n".join(lines)
+
+
+def _rich_list(span: "Span") -> str:
+    """Render a ``List`` / ``ListItem`` / ``TaskListItem`` as markdown lines."""
+    if isinstance(span, List):
+        ordered, items = span.ordered, span.items
+    else:
+        ordered, items = False, (span,)
+    lines: list[str] = []
+    for i, it in enumerate(items, 1):
+        if isinstance(it, TaskListItem):
+            marker = "- [" + ("x" if it.checked else " ") + "] "
+            body = _render_rich(it.children)
+        elif isinstance(it, ListItem):
+            marker = (f"{i}. " if ordered else "- ")
+            body = _render_rich(it.children)
+        else:
+            marker = (f"{i}. " if ordered else "- ")
+            body = _render_rich((it,))
+        lines.append(marker + body)
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -395,14 +778,33 @@ async def send(
     keyboard: InlineKeyboardMarkup | None | _Unset = _UNSET,
     raw: RawFormat | None = None,
     backend: Backend = Backend.MDV2,
+    is_rtl: bool = True,
     **kwargs,
 ):
     """Send a new message, routing through the shared retry/slot seam."""
-    text, parse_mode = _resolve_content(content, raw, backend)
     if keyboard is _UNSET:
         markup = content.keyboard if isinstance(content, Message) else None
     else:
         markup = keyboard
+    if backend is Backend.RICH:
+        rich_text = content.render(Backend.RICH) if isinstance(content, Message) else str(content)
+        try:
+            mdv2_text = content.render(Backend.MDV2) if isinstance(content, Message) else str(content)
+        except TypeError:
+            # Rich-only spans (Heading, Table, etc.) can't render to MDV2.
+            # Degrade to plain text and escape it so the MDV2 fallback path
+            # can't raise a parse error on the degraded content.
+            mdv2_text = escape_mdv2(content.render(Backend.PLAIN)) if isinstance(content, Message) else str(content)
+        return await telegram_rich.send_rich_message(
+            bot,
+            chat_id,
+            rich_text,
+            mdv2_text,
+            is_rtl=is_rtl,
+            keyboard=markup,
+            reply_parameters=kwargs.get("reply_parameters"),
+        )
+    text, parse_mode = _resolve_content(content, raw, backend)
     if parse_mode is not None:
         kwargs["parse_mode"] = parse_mode
     if markup is not None:
@@ -419,6 +821,7 @@ async def say(
     keyboard: InlineKeyboardMarkup | None | _Unset = _UNSET,
     raw: RawFormat | None = None,
     backend: Backend = Backend.MDV2,
+    is_rtl: bool = True,
     **kwargs,
 ):
     """Edit the callback message when a callback is present, else send new.
@@ -431,11 +834,37 @@ async def say(
     existing edit-then-fall-back-to-send semantics, routing through the retry
     seam.
     """
-    text, parse_mode = _resolve_content(content, raw, backend)
     if keyboard is _UNSET:
         markup = content.keyboard if isinstance(content, Message) else None
     else:
         markup = keyboard
+    if backend is Backend.RICH and isinstance(content, Message):
+        rich_text = content.render(Backend.RICH)
+        try:
+            mdv2_text = content.render(Backend.MDV2)
+        except TypeError:
+            mdv2_text = escape_mdv2(content.render(Backend.PLAIN))
+        query = update.callback_query
+        if query is not None and mode != "send":
+            return await telegram_rich.edit_rich_message(
+                context.bot,
+                update.effective_chat.id,
+                query.message.message_id,
+                rich_text,
+                mdv2_text,
+                is_rtl=is_rtl,
+                keyboard=markup,
+            )
+        return await telegram_rich.send_rich_message(
+            context.bot,
+            update.effective_chat.id,
+            rich_text,
+            mdv2_text,
+            is_rtl=is_rtl,
+            keyboard=markup,
+            reply_parameters=kwargs.get("reply_parameters"),
+        )
+    text, parse_mode = _resolve_content(content, raw, backend)
     if parse_mode is not None:
         kwargs["parse_mode"] = parse_mode
     if markup is not None:

@@ -10,23 +10,218 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from telegram.error import BadRequest
+from config import custom_emoji
 from services.send_pretty import (
     Backend,
     Message,
     RawFormat,
+    CustomEmoji,
+    Details,
+    Heading,
+    List,
+    ListItem,
+    Math,
+    Raw,
+    TaskListItem,
+    Table,
     bold,
     code,
+    emoji,
     italic,
     link,
     plain,
     quote,
     spoiler,
+    underline,
+    strike,
+    mark,
+    tg_spoiler,
     nl,
     send,
     say,
     edit,
     edit_markup,
 )
+
+
+class TestCustomEmoji(unittest.TestCase):
+    def test_emoji_md_v2(self):
+        msg = Message()
+        msg.add_line(emoji("5378324170671202286", fallback="📖"))
+        self.assertEqual(
+            msg.render(Backend.MDV2), "![📖](tg://emoji?id=5378324170671202286)"
+        )
+
+    def test_emoji_html(self):
+        msg = Message()
+        msg.add_line(emoji("5378324170671202286", fallback="📖"))
+        self.assertEqual(
+            msg.render(Backend.HTML),
+            '<tg-emoji emoji-id="5378324170671202286">📖</tg-emoji>',
+        )
+
+    def test_emoji_plain(self):
+        msg = Message()
+        msg.add_line(emoji("5378324170671202286", fallback="📖"))
+        self.assertEqual(msg.render(Backend.PLAIN), "📖")
+
+    def test_emoji_unknown_key_uses_default_fallback(self):
+        msg = Message()
+        msg.add_line(emoji("zzz_not_a_real_key"))
+        self.assertEqual(
+            msg.render(Backend.MDV2), "![❓](tg://emoji?id=zzz_not_a_real_key)"
+        )
+
+    def test_emoji_registry_resolves_configured(self):
+        with patch.dict(
+            custom_emoji.CUSTOM_EMOJI, {"book": ("999", "📚")}
+        ):
+            msg = Message()
+            msg.add_line(emoji("book"))
+            self.assertEqual(
+                msg.render(Backend.MDV2), "![📚](tg://emoji?id=999)"
+            )
+
+
+class TestRichRender(unittest.TestCase):
+    def test_render_rich_no_longer_raises(self):
+        msg = Message()
+        msg.add_line(plain("x"))
+        self.assertEqual(msg.render(Backend.RICH), "x")
+
+    def test_heading(self):
+        msg = Message()
+        msg.add_line(Heading(2, plain("واژه")))
+        self.assertEqual(msg.render(Backend.RICH), "## واژه")
+
+    def test_table(self):
+        msg = Message()
+        msg.add_line(
+            Table(header=(plain("ف"), plain("ا")), rows=((plain("کتاب"), plain("book")),))
+        )
+        self.assertEqual(
+            msg.render(Backend.RICH), "| ف | ا |\n| --- | --- |\n| کتاب | book |"
+        )
+
+    def test_unordered_list(self):
+        msg = Message()
+        msg.add_line(List(False, (ListItem(plain("a")), ListItem(plain("b")))))
+        self.assertEqual(msg.render(Backend.RICH), "- a\n- b")
+
+    def test_task_list(self):
+        msg = Message()
+        msg.add_line(
+            List(
+                False,
+                (
+                    TaskListItem(True, plain("done")),
+                    TaskListItem(False, plain("todo")),
+                ),
+            )
+        )
+        self.assertEqual(msg.render(Backend.RICH), "- [x] done\n- [ ] todo")
+
+    def test_details(self):
+        msg = Message()
+        msg.add_line(Details(plain("بیشتر"), plain("متن")))
+        self.assertEqual(
+            msg.render(Backend.RICH),
+            "<details><summary>بیشتر</summary>متن</details>",
+        )
+
+    def test_details_open_attribute(self):
+        msg = Message()
+        msg.add_line(Details(plain("بیشتر"), plain("متن"), open=True))
+        self.assertEqual(
+            msg.render(Backend.RICH),
+            "<details open><summary>بیشتر</summary>متن</details>",
+        )
+
+    def test_details_no_newline_before_close_tag(self):
+        # Telegram Rich leaks a literal ``</details>`` if the closing tag is
+        # preceded by a newline (@mira bug).  A trailing newline in the body
+        # must be stripped so the close tag stays on the same line as content.
+        msg = Message()
+        msg.add_line(Details(plain("بیشتر"), plain("متن\n")))
+        self.assertEqual(
+            msg.render(Backend.RICH),
+            "<details><summary>بیشتر</summary>متن</details>",
+        )
+
+    def test_raw_rich_span_verbatim(self):
+        # A ``Raw`` span injects verbatim Rich markup (e.g. an HTML table inside
+        # <details>) that the span tree cannot express.
+        markup = "<details open><summary>s</summary><table><tr><td><b>x</b></td></tr></table></details>"
+        msg = Message()
+        msg.add_line(Raw(markup))
+        self.assertEqual(msg.render(Backend.RICH), markup)
+        self.assertEqual(msg.render(Backend.PLAIN), markup)
+
+    def test_underline_rich_and_plain(self):
+        msg = Message()
+        msg.add_line(underline("متن"))
+        self.assertEqual(msg.render(Backend.RICH), "__متن__")
+        self.assertEqual(msg.render(Backend.PLAIN), "متن")
+
+    def test_strikethrough_rich_and_plain(self):
+        msg = Message()
+        msg.add_line(strike("متن"))
+        self.assertEqual(msg.render(Backend.RICH), "~~متن~~")
+        self.assertEqual(msg.render(Backend.PLAIN), "متن")
+
+    def test_marked_rich_and_plain(self):
+        msg = Message()
+        msg.add_line(mark("متن"))
+        self.assertEqual(msg.render(Backend.RICH), "==متن==")
+        self.assertEqual(msg.render(Backend.PLAIN), "متن")
+
+    def test_tg_spoiler_rich_and_table_cell(self):
+        msg = Message()
+        msg.add_line(tg_spoiler("راز"))
+        self.assertEqual(msg.render(Backend.RICH), "<tg-spoiler>راز</tg-spoiler>")
+        # table-safe spoiler must render inside a Markdown table cell
+        msg2 = Message()
+        msg2.add_line(Table(header=None, rows=((tg_spoiler("راز"), plain("ترجمه")),)))
+        self.assertIn("<tg-spoiler>راز</tg-spoiler>", msg2.render(Backend.RICH))
+
+    def test_math_inline(self):
+        msg = Message()
+        msg.add_line(Math("x^2"))
+        self.assertEqual(msg.render(Backend.RICH), "$x^2$")
+
+    def test_math_block(self):
+        msg = Message()
+        msg.add_line(Math("E=mc^2", block=True))
+        self.assertEqual(msg.render(Backend.RICH), "$$E=mc^2$$")
+
+    def test_emoji_in_rich(self):
+        msg = Message()
+        msg.add_line(emoji("5378324170671202286", fallback="📖"))
+        self.assertEqual(
+            msg.render(Backend.RICH), "![](tg://emoji?id=5378324170671202286)"
+        )
+
+    def test_rich_nested(self):
+        msg = Message()
+        msg.add_line(Heading(1, bold("عنوان")))
+        self.assertEqual(msg.render(Backend.RICH), "# **عنوان**")
+
+    def test_rich_blocks_separated_by_blank_line(self):
+        msg = Message()
+        msg.add_line(plain("line one"))
+        msg.add_line(plain("line two"))
+        self.assertEqual(msg.render(Backend.RICH), "line one\n\nline two")
+
+    def test_rich_examples_quote_then_spoiler_on_own_lines(self):
+        msg = Message()
+        msg.add_line(quote(plain("✦ "), plain("en")))
+        msg.add_line(spoiler(plain("fa")))
+        self.assertEqual(msg.render(Backend.RICH), "> ✦ en\n\n||fa||")
+
+    def test_rich_quote_newline_breaks_within_same_quote(self):
+        msg = Message()
+        msg.add_line(quote(plain("✦ en"), nl(), spoiler(plain("fa"))))
+        self.assertEqual(msg.render(Backend.RICH), "> ✦ en\n>\n> ||fa||")
 
 
 class TestSpanRenderMDV2(unittest.TestCase):
@@ -106,8 +301,12 @@ class TestMessageConstruction(unittest.TestCase):
         self.assertEqual(Message().render(), "")
 
     def test_bad_backend_rejected(self):
-        with self.assertRaises(NotImplementedError):
-            Message().render(Backend.RICH)
+        # Backend.RICH is implemented (phase 02); assert it renders rather than
+        # raising. Unknown backends still fall through to MDV2 via the else
+        # branch, so rejection is no longer the contract here.
+        msg = Message()
+        msg.add_line(plain("x"))
+        self.assertEqual(msg.render(Backend.RICH), "x")
 
 
 class TestRawEscapeHatch(unittest.TestCase):
