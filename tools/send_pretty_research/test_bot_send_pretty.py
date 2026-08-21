@@ -64,6 +64,19 @@ from send_pretty import (  # noqa: E402  (after logging setup)
     Quote,
     RawFormat,
     Spoiler,
+    CustomEmoji,
+    Details,
+    Heading,
+    Table,
+    List,
+    ListItem,
+    TaskListItem,
+    Math,
+    Raw,
+    Underline,
+    Strikethrough,
+    Marked,
+    TgSpoiler,
     bold,
     code,
     italic,
@@ -74,7 +87,30 @@ from send_pretty import (  # noqa: E402  (after logging setup)
     quote,
     send,
     spoiler,
+    underline,
+    strike,
+    mark,
+    tg_spoiler,
+    emoji,
+    heading,
+    table,
+    rich_list,
+    details,
+    math,
+    raw_rich,
+    telegram_rich,
 )
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 🔥 Rich Message research toggle
+# When True, the demo actually calls sendRichMessage (Bot API 10.1). A 404
+# capability latch inside telegram_rich disables Rich for this bot after the
+# first unsupported probe, falling back to MarkdownV2/plain — so an old or
+# local Bot API server is only hit once. Flip to False to force the MDV2
+# fallback path and never call the raw endpoint.
+# ──────────────────────────────────────────────────────────────────────────────
+RICH_ON = True
+telegram_rich.RICH_ENABLED = RICH_ON
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Inline keyboard — one button per demo section
@@ -92,6 +128,7 @@ DEMO_KEYBOARD = InlineKeyboardMarkup(
         [InlineKeyboardButton("📄  PLAIN backend", callback_data="demo:plain")],
         [InlineKeyboardButton("🔩  Raw pre-formatted", callback_data="demo:raw")],
         [InlineKeyboardButton("🔘  Keyboard attached", callback_data="demo:keyboard")],
+        [InlineKeyboardButton("🔥  Rich Messages (one-by-one)", callback_data="demo:rich")],
         [InlineKeyboardButton("❌  Error demos", callback_data="demo:errors")],
         [InlineKeyboardButton("🚀  Send all (no callback)", callback_data="demo:all")],
     ]
@@ -99,6 +136,24 @@ DEMO_KEYBOARD = InlineKeyboardMarkup(
 
 BACK_BUTTON = InlineKeyboardMarkup(
     [[InlineKeyboardButton("«  Back to menu", callback_data="demo:menu")]]
+)
+
+RICH_MENU = InlineKeyboardMarkup(
+    [
+        [InlineKeyboardButton("🔠  Heading", callback_data="demo:rich_heading")],
+        [InlineKeyboardButton("📊  Table", callback_data="demo:rich_table")],
+        [InlineKeyboardButton("📋  List (unordered/ordered)", callback_data="demo:rich_list")],
+        [InlineKeyboardButton("✅  Task list", callback_data="demo:rich_task")],
+        [InlineKeyboardButton("📂  Details (spoiler/disclosure)", callback_data="demo:rich_details")],
+        [InlineKeyboardButton("∑  Math", callback_data="demo:rich_math")],
+        [InlineKeyboardButton("😀  Custom emoji", callback_data="demo:rich_emoji")],
+        [InlineKeyboardButton("😀  Custom emoji in BUTTONS", callback_data="demo:rich_emoji_btn")],
+        [InlineKeyboardButton("🃏  Flash card (Rich + template)", callback_data="demo:rich_card")],
+        [InlineKeyboardButton("🃏🃏  Flash card VARIATIONS", callback_data="demo:rich_cards")],
+        [InlineKeyboardButton("🗂  SESSION cards", callback_data="demo:sessions")],
+        [InlineKeyboardButton("▶  Run ALL rich demos", callback_data="demo:rich_all")],
+        [InlineKeyboardButton("«  Back to main menu", callback_data="demo:rich_main")],
+    ]
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -381,6 +436,630 @@ def demo_keyboard() -> Message:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# 🔥 Rich Message demos — one element per message, so we can see exactly what
+# renders against the live Bot API 10.1 server and what falls back.  Every demo
+# is sent with backend=Backend.RICH; telegram_rich routes to sendRichMessage
+# (or falls back to MDV2/plain on 404 / BadRequest).
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _rich_header(text: str) -> Message:
+    m = Message()
+    m.add_line(bold(plain(text)))
+    m.add_line(plain(f"backend=Backend.RICH  ·  RICH_ENABLED={RICH_ON}"))
+    m.add_line(nl())
+    return m
+
+
+def demo_rich_heading() -> Message:
+    m = _rich_header("🔠  Rich · Heading")
+    m.add_line(heading(1, plain("Heading 1 — title")))
+    m.add_line(heading(2, plain("Heading 2 — کتاب"), italic(plain("  (ketâb)"))))
+    m.add_line(heading(3, plain("Heading 3 — smaller")))
+    m.add_line(nl())
+    m.add_line(plain("Headings render as larger/bolder text in a Rich Message."))
+    return m
+
+
+def demo_rich_table() -> Message:
+    m = _rich_header("📊  Rich · Table")
+    m.add_line(
+        table(
+            (plain("English"), plain("Persian")),
+            (plain("book"), plain("کتاب")),
+            (plain("controversial"), plain("بحث‌انگیز")),
+            (plain("house"), plain("خانه")),
+        )
+    )
+    m.add_line(nl())
+    m.add_line(plain("A GFM pipe table — aligned columns, header row."))
+    return m
+
+
+def demo_rich_list() -> Message:
+    m = _rich_header("📋  Rich · List")
+    m.add_line(plain("Unordered:"))
+    m.add_line(
+        rich_list(
+            False,
+            ListItem(plain("First item")),
+            ListItem(plain("Second item — کتاب")),
+        )
+    )
+    m.add_line(plain("Ordered:"))
+    m.add_line(
+        rich_list(
+            True,
+            ListItem(plain("Step one")),
+            ListItem(plain("Step two")),
+        )
+    )
+    return m
+
+
+def demo_rich_task() -> Message:
+    m = _rich_header("✅  Rich · Task list")
+    m.add_line(
+        rich_list(
+            False,
+            TaskListItem(True, plain("Mastered today")),
+            TaskListItem(False, plain("Review tomorrow")),
+            TaskListItem(True, plain("Saved to review box")),
+        )
+    )
+    m.add_line(nl())
+    m.add_line(plain("[x] = checked, [ ] = unchecked."))
+    return m
+
+
+def demo_rich_details() -> Message:
+    m = _rich_header("📂  Rich · Details (spoiler/disclosure)")
+    m.add_line(
+        details(
+            plain("💡 نکته‌ی گرامری:"),
+            plain(
+                "معمولاً با تشدیدکننده‌هایی مانند highly، deeply یا fiercely ترکیب "
+                "می‌شود (مانند highly controversial)."
+            ),
+        )
+    )
+    m.add_line(nl())
+    m.add_line(plain("Tap the summary to expand the hidden body."))
+    return m
+
+
+def demo_rich_math() -> Message:
+    m = _rich_header("∑  Rich · Math")
+    m.add_line(plain("Inline: "), math("E = mc^2"))
+    m.add_line(nl())
+    m.add_line(plain("Block:"))
+    m.add_line(math("\\int_0^1 x^2\\,dx = \\frac{1}{3}", block=True))
+    return m
+
+
+def demo_rich_emoji() -> Message:
+    m = _rich_header("😀  Rich · Custom emoji (message body)")
+    m.add_line(plain("Custom emoji span: "), emoji("book"))
+    m.add_line(nl())
+    m.add_line(
+        plain(
+            "Fallback 📖 shows if the registry has no real id or the bot "
+            "lacks Premium (message-body custom emoji needs Premium)."
+        )
+    )
+    return m
+
+
+def demo_rich_emoji_buttons() -> Message:
+    """Custom emoji in INLINE BUTTONS reportedly does NOT need Premium (unlike
+    message-body custom emoji).  Experimental: the button text uses the same
+    tg://emoji markdown.  Watch whether the emoji actually renders on the
+    button — if it shows as raw text, the client didn't accept it."""
+    cid, fb = "5350716797622442220", "▶"
+    m = _rich_header("😀  Rich · Custom emoji in BUTTONS")
+    m.add_line(plain("These buttons try to render a custom emoji in their text."))
+    m.add_line(plain("Buttons reportedly don't need Premium — only message-body does."))
+    m.add_line(nl())
+    m.add_line(plain("Tap a button:"))
+    m.set_keyboard(
+        InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        text=f"![{fb}](tg://emoji?id={cid}) Start",
+                        callback_data="demo:like",
+                    ),
+                    InlineKeyboardButton(
+                        text=f"![{fb}](tg://emoji?id={cid}) Back",
+                        callback_data="demo:rich_menu",
+                    ),
+                ],
+                [InlineKeyboardButton(text="«  Menu", callback_data="demo:rich_main")],
+            ]
+        )
+    )
+    return m
+
+
+def card_h(card: dict) -> Message:
+    """H · Exact feedback — table card with PLAIN translations (in-table spoilers
+    render empty on Telegram, so no spoilers there), collapsible examples table,
+    word as level-2 heading, meaning as level-3 heading, grammar as a plain-summary
+    Details (no bold → no literal asterisks)."""
+    rows = _rich_head(card) + _card_syn_ant(card)
+    rows.append(_examples_section(card, highlight=True))
+    rows.append(_grammar_row(card))
+    return _message_from(*rows)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Rich flash-card VARIATIONS  (/cardsrich)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _rich_head(card) -> list:
+    """Word as a level-2 heading, ipa normal-size under it, meaning as a level-3
+    heading, explanation as a paragraph."""
+    return [
+        (heading(2, plain(card["word"])),),
+        (code(card["ipa"]),),
+        (heading(3, plain("✤ "), plain(card["fa_meaning"])),),
+        (plain(card["fa_explanation"]),),
+    ]
+
+
+_LRE = "\u202A"  # Unicode LEFT-TO-RIGHT embedding (invisible, forces LTR on a cell)
+_RLE = "\u202B"  # Unicode RIGHT-TO-LEFT embedding (invisible, forces RTL on a cell)
+_PDF = "\u202C"  # Unicode POP DIRECTIONAL FORMATTING (ends an embedding)
+
+
+def _split_on_word(sentence: str, word: str) -> tuple[str, str, str]:
+    """Split ``sentence`` into (before, word, after) around the first
+    case-insensitive occurrence of ``word``.  Returns empty word parts when absent."""
+    if not word:
+        return sentence, "", ""
+    idx = sentence.lower().find(word.lower())
+    if idx < 0:
+        return sentence, "", ""
+    return sentence[:idx], sentence[idx:idx + len(word)], sentence[idx + len(word):]
+
+
+def _highlight_ltr_cell(sentence: str, word: str) -> tuple:
+    """Cell spans: an English sentence forced LTR (invisible BiDi) with the target
+    word bolded.  Bold renders fine inside a Markdown table cell (mira-confirmed);
+    a literal '|' must never sit inside the bold, or the table breaks."""
+    before, hit, after = _split_on_word(sentence, word)
+    parts = [plain(_LRE + before)]
+    if hit:
+        parts.append(bold(plain(hit)))
+    parts.append(plain(after + _PDF))
+    return tuple(parts)
+
+
+def _highlight_fa_cell(text: str, meaning: str) -> tuple:
+    """A Persian translation cell forced RTL with the first meaning word that
+    actually appears in the text bolded (so the Persian meaning is highlighted
+    too, not just the English keyword)."""
+    candidates = [meaning] + [w.strip() for w in meaning.split("،") if w.strip()]
+    target = next((c for c in candidates if c in text), "")
+    before, hit, after = _split_on_word(text, target)
+    parts = [plain(_RLE + before)]
+    if hit:
+        parts.append(bold(plain(hit)))
+    parts.append(plain(after + _PDF))
+    return tuple(parts)
+
+
+def _examples_table(card, *, highlight: bool = False) -> Table:
+    """Two-column table — sample sentence | translation.  With ``highlight=True``
+    the flashcard word is bolded inside each English sentence AND the Persian
+    meaning word inside each translation; both columns get invisible BiDi
+    direction control.  Otherwise identical to the pre-findings look (so S·3
+    stays byte-identical)."""
+    header = (plain("جمله نمونه"), plain("ترجمه"))
+    if highlight:
+        rows = tuple(
+            (
+                _highlight_ltr_cell(en, card["word"]),
+                _highlight_fa_cell(fa, card["fa_meaning"]),
+            )
+            for en, fa in zip(card["examples"], card["example_translations"])
+        )
+    else:
+        rows = tuple(
+            (plain(en), plain(fa))
+            for en, fa in zip(card["examples"], card["example_translations"])
+        )
+    return Table(header=header, rows=rows)
+
+
+def _examples_lines_spoiler(card) -> list:
+    """✦ English line + Persian translation behind a spoiler (on its own line).
+    Used by study mode, where translations must be hidden (a table cannot hide
+    its cells, and spoilers don't render inside table cells)."""
+    rows = [(bold(plain("📝 مثال‌ها (ترجمه‌ها پنهان‌اند — بزنید تا ببینید):")),)]
+    for en, fa in zip(card["examples"], card["example_translations"]):
+        rows.append((plain("✦ "),) + _highlight_ltr_cell(en, card["word"]))
+        rows.append((spoiler(plain(fa)),))
+    return rows
+
+
+def _examples_section(card, *, highlight: bool = False) -> tuple:
+    """The examples + translations TABLE, always visible.
+
+    A markdown TABLE cannot live inside ``<details>``: Telegram Rich renders
+    ``<details>`` content as plain text (not re-parsed), so a collapsible table
+    shows raw ``|`` pipes when expanded. Grammar/explanation Details are fine
+    because they are plain text; the table must stay outside any Details.
+    """
+    return (_examples_table(card, highlight=highlight),)
+
+
+def _explanation_details(card, *, open: bool = False) -> tuple:
+    """The Persian explanation wrapped in a collapsible Details."""
+    return (details(plain("📖 توضیح فارسی:"), plain(card["fa_explanation"]), open=open),)
+
+
+def _grammar_row(card) -> tuple:
+    # Summary and body must be PLAIN — Telegram Rich does not parse bold or
+    # spoiler inside <details>, so markers would show literally.
+    return (details(plain("💡 نکته‌ی گرامری:"), plain(card["grammar_tip"])),)
+
+
+def _message_from(*rows) -> Message:
+    m = Message()
+    for row in rows:
+        m.add_line(*row)
+    return m
+
+
+def _labelled_card(label: str, m: Message) -> Message:
+    out = Message()
+    out.add_line(italic(plain(label)))
+    out._lines.extend(m._lines)
+    return out
+
+
+def card_h_compact(card) -> Message:
+    """H·1 Compact — explanation folded into a collapsible Details (leaner card
+    that still offers the Persian explanation on tap)."""
+    rows = [
+        (heading(2, plain(card["word"])),),
+        (code(card["ipa"]),),
+        (heading(3, plain("✤ "), plain(card["fa_meaning"])),),
+    ] + _card_syn_ant(card)
+    rows.append(_explanation_details(card))
+    rows.append(_examples_section(card, highlight=True))
+    rows.append(_grammar_row(card))
+    return _message_from(*rows)
+
+
+def card_h_study(card) -> Message:
+    """H·2 Study — meaning hidden behind a spoiler line; examples as ✦ lines with
+    spoiler translations (a table can't hide its cells).  Grammar stays plain."""
+    rows = [
+        (heading(2, plain(card["word"])),),
+        (code(card["ipa"]),),
+        (spoiler(plain(card["fa_meaning"])), plain("  ← معنی را حدس بزنید")),
+        (plain(card["fa_explanation"]),),
+    ] + _card_syn_ant(card)
+    rows += _examples_lines_spoiler(card)
+    rows.append(_grammar_row(card))
+    return _message_from(*rows)
+
+
+def card_h_plain_grammar(card) -> Message:
+    """H·3 Plain grammar — like H but the grammar tip is a normal line (not a
+    collapsible Details), in case you want it always visible."""
+    rows = _rich_head(card) + _card_syn_ant(card)
+    rows.append(_examples_section(card, highlight=True))
+    rows.append((bold(plain("💡 نکته‌ی گرامری:")),))
+    rows.append((plain(card["grammar_tip"]),))
+    return _message_from(*rows)
+
+
+def rich_card_variations(card) -> list:
+    """The H-family Rich card structures to compare."""
+    return [
+        ("H · Exact feedback (collapsible table, plain translations)", _labelled_card("H · Exact feedback", card_h(card))),
+        ("H·1 · Compact (explanation collapsible)", _labelled_card("H·1 · Compact", card_h_compact(card))),
+        ("H·2 · Study (hidden answers)", _labelled_card("H·2 · Study", card_h_study(card))),
+        ("H·3 · Plain grammar (no details)", _labelled_card("H·3 · Plain grammar", card_h_plain_grammar(card))),
+    ]
+
+
+async def send_rich_cards_mode(bot, chat_id: int) -> None:
+    """Send all Rich flash-card structure variations, one by one."""
+    sent = 0
+    failed = 0
+    for label, msg in rich_card_variations(SAMPLE_CARD):
+        try:
+            await send(chat_id, msg, bot=bot, backend=Backend.RICH)
+            log.info("✅  [%s] sent", label)
+            sent += 1
+        except Exception as exc:  # noqa: BLE001
+            log.error("❌  [%s] failed: %s", label, exc)
+            failed += 1
+    log.info("🃏  rich cards — %d sent, %d failed", sent, failed)
+    print(f"\n🃏  rich cards complete — {sent} sent, {failed} failed")
+
+
+async def cmd_cardsrich(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("🃏  Sending Rich flash-card VARIATIONS…")
+    await send_rich_cards_mode(update.get_bot(), update.effective_chat.id)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Rich SESSION demos  (/sessions)
+# Mirrors the session-engine revealed card: full word card, a recall prompt, the
+# 4 FSRS grade buttons, and a progress footer (نشست ۴ | کارت ۸ از ۸).  Demos
+# vary WHERE the progress bar goes and HOW MUCH of the card is collapsed.
+# ──────────────────────────────────────────────────────────────────────────────
+
+SRS_POST_REVEAL_LINE = "🧠 با دکمه‌های توصیفی زیر یادآوری خود را ثبت کنید."
+
+SESSION_GRADE_LABELS = {
+    1: "یادم نیامد ⭕",
+    2: "به سختی یادم اومد 🟡",
+    3: "خوب بود 🟢",
+    4: "خیلی آسون 🟣",
+}
+
+
+def _progress_stepper(card_idx: int, total: int) -> str:
+    """Stepper-dots progress: one ● per card up to the current one, ○ after.
+    Locked by owner (گامنما).  E.g. card 5 of 8 -> '● ● ● ● ● ○ ○ ○'."""
+    card_idx = max(0, min(card_idx, total))
+    return " ".join(["●"] * card_idx + ["○"] * (total - card_idx))
+
+
+def _grade_keyboard() -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(SESSION_GRADE_LABELS[1], callback_data="demo:sess_grade:1"),
+            InlineKeyboardButton(SESSION_GRADE_LABELS[2], callback_data="demo:sess_grade:2"),
+        ],
+        [
+            InlineKeyboardButton(SESSION_GRADE_LABELS[3], callback_data="demo:sess_grade:3"),
+            InlineKeyboardButton(SESSION_GRADE_LABELS[4], callback_data="demo:sess_grade:4"),
+        ],
+        [InlineKeyboardButton("🔊 تلفظ", callback_data="demo:sess_pronounce")],
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def _fa_digits(n) -> str:
+    return str(n).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
+
+
+def _session_footer(session_no: int, card_idx: int, total: int) -> str:
+    return (
+        f"نشست {_fa_digits(session_no)} | "
+        f"کارت {_fa_digits(card_idx)} از {_fa_digits(total)}"
+    )
+
+
+def _session_examples_lines(card) -> list:
+    """✦ English line + Persian translation under it, BOTH with the keyword/meaning
+    word bolded (double-highlight) and invisible BiDi per line."""
+    rows = [(bold(plain("📝 مثال‌ها + ترجمه:")),)]
+    for en, fa in zip(card["examples"], card["example_translations"]):
+        rows.append((plain("✦ "),) + _highlight_ltr_cell(en, card["word"]))
+        rows.append(_highlight_fa_cell(fa, card["fa_meaning"]))
+    return rows
+
+
+def _collapsible_html_table(card) -> str:
+    """Raw Rich markup: an HTML ``<table>`` inside ``<details open>`` with BOTH the
+    English keyword and the Persian meaning word bolded, plus invisible BiDi per
+    cell.  EXPERIMENTAL — the only way to nest a table in ``<details>`` (Markdown
+    tables don't render there); borders render faintly, bold-in-cells is the open
+    question we're testing."""
+    def _first_hit(text, candidates):
+        for c in candidates:
+            b, h, a = _split_on_word(text, c)
+            if h:
+                return b, h, a
+        return text, "", ""
+
+    def _b(target, meaning):
+        candidates = [meaning] + [w.strip() for w in meaning.split("،") if w.strip()]
+        b, h, a = _first_hit(target, candidates)
+        return b + (f"<b>{h}</b>" if h else "") + a
+
+    body = "".join(
+        f"<tr><td>{_LRE}{_b(en, card['word'])}{_PDF}</td>"
+        f"<td>{_RLE}{_b(fa, card['fa_meaning'])}{_PDF}</td></tr>"
+        for en, fa in zip(card["examples"], card["example_translations"])
+    )
+    return (
+        "<details open><summary>📝 مثال‌ها و ترجمه</summary>"
+        "<table><tr><th>جمله نمونه</th><th>ترجمه</th></tr>" + body + "</table></details>"
+    )
+
+
+def session_card_mockup(card) -> Message:
+    """S·1 · NEW experiment — reduced footer (stepper + نشست ۴, no card counter),
+    per-cell BiDi, double-highlight (English keyword AND Persian meaning), the
+    Persian explanation open by default, and a collapsible (HTML) examples table."""
+    rows = [
+        (plain(_progress_stepper(5, 8) + "  نشست ۴"),),
+        (heading(2, plain(card["word"])),),
+        (code(card["ipa"]),),
+        (heading(3, plain("✤ "), plain(card["fa_meaning"])),),
+        _explanation_details(card, open=True),
+    ] + _card_syn_ant(card)
+    rows.append((raw_rich(_collapsible_html_table(card)),))
+    rows.append(_grammar_row(card))
+    rows.append((plain(SRS_POST_REVEAL_LINE),))
+    m = _message_from(*rows)
+    m.set_keyboard(_grade_keyboard())
+    return m
+
+
+def session_card_footer_bar(card) -> Message:
+    """S·2 — progress bar in the footer, under the session text."""
+    rows = [
+        (heading(2, plain(card["word"])),),
+        (code(card["ipa"]),),
+        (heading(3, plain("✤ "), plain(card["fa_meaning"])),),
+        (plain(card["fa_explanation"]),),
+    ] + _card_syn_ant(card)
+    rows += _session_examples_lines(card)
+    rows += [
+        (bold(plain("✍️ نکته‌ی گرامری:")),),
+        (plain(card["grammar_tip"]),),
+        (plain(SRS_POST_REVEAL_LINE),),
+        (plain("نشست ۴" + "  " + _progress_stepper(5, 8)),),
+    ]
+    m = _message_from(*rows)
+    m.set_keyboard(_grade_keyboard())
+    return m
+
+
+def session_card_top_bar(card) -> Message:
+    """S·3 — progress bar at the TOP; explanation, examples and grammar are
+    collapsed into collapsible Details to hide mid-session clutter."""
+    rows = [
+        (plain(_progress_stepper(5, 8) + "  " + _session_footer(4, 5, 8)),),
+        (heading(2, plain(card["word"])),),
+        (code(card["ipa"]),),
+        (heading(3, plain("✤ "), plain(card["fa_meaning"])),),
+        _explanation_details(card),
+    ] + _card_syn_ant(card)
+    rows.append(_examples_section(card))
+    rows.append(_grammar_row(card))
+    rows.append((plain(SRS_POST_REVEAL_LINE),))
+    m = _message_from(*rows)
+    m.set_keyboard(_grade_keyboard())
+    return m
+
+
+def session_card_max_collapse(card) -> Message:
+    """S·4 — leanest mid-session card: progress bar on top, ONLY word + meaning
+    visible; explanation, examples, grammar each behind a collapsed Details."""
+    rows = [
+        (plain(_progress_stepper(5, 8) + "  نشست ۴"),),
+        (heading(2, plain(card["word"])),),
+        (code(card["ipa"]),),
+        (heading(3, plain("✤ "), plain(card["fa_meaning"])),),
+        _explanation_details(card),
+        _examples_section(card, highlight=True),
+        _grammar_row(card),
+        (plain(SRS_POST_REVEAL_LINE),),
+    ]
+    m = _message_from(*rows)
+    m.set_keyboard(_grade_keyboard())
+    return m
+
+
+def session_card_variations(card) -> list:
+    return [
+        ("S·1 · NEW experiment (bidi + collapsible table + double-highlight)", session_card_mockup(card)),
+        ("S·2 · Progress bar in footer", session_card_footer_bar(card)),
+        ("S·3 · Progress bar on top + collapsible", session_card_top_bar(card)),
+        ("S·4 · Max collapse (leanest)", session_card_max_collapse(card)),
+    ]
+
+
+async def send_session_mode(bot, chat_id: int) -> None:
+    sent = 0
+    failed = 0
+    for label, msg in session_card_variations(SAMPLE_CARD):
+        try:
+            await send(chat_id, msg, bot=bot, backend=Backend.RICH)
+            log.info("✅  [%s] sent", label)
+            sent += 1
+        except Exception as exc:  # noqa: BLE001
+            log.error("❌  [%s] failed: %s", label, exc)
+            failed += 1
+    log.info("🗂  sessions — %d sent, %d failed", sent, failed)
+    print(f"\n🗂  sessions complete — {sent} sent, {failed} failed")
+
+
+async def cmd_sessions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("🗂  Sending Rich SESSION-card variations…")
+    await send_session_mode(update.get_bot(), update.effective_chat.id)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Hypothesis probe: does Rich re-parse HTML-ish tags inside <details>?  (/richtest)
+# ──────────────────────────────────────────────────────────────────────────────
+# Hypothesis (owner + @mira): Rich Messages lean toward HTML. Markdown constructs
+# (| table |, ||spoiler||) inside a nested <details> block are NOT re-parsed, so
+# they render as raw text — but HTML tags (<table>, <tg-spoiler>, <pre>) should
+# work. Each case is sent as RAW rich markup via send_rich_message (no span tree),
+# so we test what the Rich dialect itself accepts.
+def _hypothesis_cases() -> list[tuple[str, str]]:
+    """(label, raw rich body) pairs to probe HTML-inside-details support."""
+    return [
+        (
+            "1) HTML <table> inside <details open>",
+            "<details open><summary>📂 جدول HTML</summary>"
+            "<table><tr><th>کلمه</th><th>معنی</th></tr>"
+            "<tr><td>lodge</td><td>اقامت</td></tr>"
+            "<tr><td>adapt</td><td>سازگار</td></tr></table></details>",
+        ),
+        (
+            "2) <tg-spoiler> inside HTML table cell (no details)",
+            "<table><tr><th>کلمه</th><th>معنی (اسپویلر)</th></tr>"
+            "<tr><td>lodge</td><td><tg-spoiler>اقامت</tg-spoiler></td></tr>"
+            "<tr><td>adapt</td><td><tg-spoiler>سازگار</tg-spoiler></td></tr></table>",
+        ),
+        (
+            "3) <tg-spoiler> inside <details>",
+            "<details open><summary>💡 معنی</summary><tg-spoiler>اقامت در منزل</tg-spoiler></details>",
+        ),
+        (
+            "4) <pre> ASCII table inside <details>",
+            "<details open><summary>📊 جدول املا</summary><pre>│ کلمه   │ معنی\n"
+            "│ ────── │ ──────\n│ lodge  │ اقامت\n│ adapt  │ سازگار\n</pre></details>",
+        ),
+        (
+            "5) control: plain body inside <details>",
+            "<details open><summary>📂 کنترل</summary>متن ساده بدون هیچ تگ تو در تو</details>",
+        ),
+    ]
+
+
+async def send_hypothesis_test(bot, chat_id: int) -> None:
+    sent = 0
+    failed = 0
+    for label, body in _hypothesis_cases():
+        markup = f"<b>{label}</b>\n\n{body}"
+        try:
+            await telegram_rich.send_rich_message(
+                bot, chat_id, markup, markup, is_rtl=True
+            )
+            log.info("✅  [%s]", label)
+            sent += 1
+        except Exception as exc:  # noqa: BLE001
+            log.error("❌  [%s] failed: %s", label, exc)
+            failed += 1
+    # Phase 03 — new inline spans via the span tree (Backend.RICH), including table-cell tg_spoiler
+    span_cases: list[tuple[str, Message]] = []
+    m = Message(); m.add_line(underline("متن زیرخط‌دار")); span_cases.append(("underline", m))
+    m = Message(); m.add_line(strike("متن خط‌خورده")); span_cases.append(("strike", m))
+    m = Message(); m.add_line(mark("متن هایلایت")); span_cases.append(("marked", m))
+    m = Message(); m.add_line(tg_spoiler("راز")); span_cases.append(("tg_spoiler inline", m))
+    m = Message(); m.add_line(Table(header=None, rows=((tg_spoiler("راز"), plain("ترجمه")),))); span_cases.append(("tg_spoiler in table cell", m))
+    for label, msg in span_cases:
+        try:
+            await send(chat_id, msg, bot=bot, backend=Backend.RICH)
+            log.info("✅  [span:%s] sent", label)
+            sent += 1
+        except Exception as exc:  # noqa: BLE001
+            log.error("❌  [span:%s] failed: %s", label, exc)
+            failed += 1
+    log.info("🧪  richtest — %d sent, %d failed", sent, failed)
+    print(f"\n🧪  richtest complete — {sent} sent, {failed} failed")
+
+
+async def cmd_richtest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("🧪  Sending Rich HTML-inside-<details> probes…")
+    await send_hypothesis_test(update.get_bot(), update.effective_chat.id)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Vocab flash-card variations  (/cards)
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -641,6 +1320,24 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
+    if data in ("demo:rich", "demo:rich_menu"):
+        await query.edit_message_text(
+            "🔥  <b>Rich Message demos</b>\n"
+            "Tap one element to send it via sendRichMessage and watch what "
+            "renders (or falls back).",
+            reply_markup=RICH_MENU,
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    if data == "demo:rich_main":
+        await query.edit_message_text(
+            "🛠  <b>send_pretty demo bot</b>\nPick a section below:",
+            reply_markup=DEMO_KEYBOARD,
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
     section = data.split(":", 1)[1]
 
     try:
@@ -705,6 +1402,86 @@ async def _dispatch_demo(update: Update, section: str) -> None:
         await query.edit_message_text("⏳  Sending message with keyboard…")
         await _reply(update, demo_keyboard())
 
+    elif section == "rich_heading":
+        await query.edit_message_text("⏳  Sending Rich heading…")
+        await _reply(update, demo_rich_heading(), backend=Backend.RICH)
+        await query.edit_message_text("✅  Rich heading sent!  Pick another:", reply_markup=RICH_MENU, parse_mode=ParseMode.HTML)
+        return
+
+    elif section == "rich_table":
+        await query.edit_message_text("⏳  Sending Rich table…")
+        await _reply(update, demo_rich_table(), backend=Backend.RICH)
+        await query.edit_message_text("✅  Rich table sent!  Pick another:", reply_markup=RICH_MENU, parse_mode=ParseMode.HTML)
+        return
+
+    elif section == "rich_list":
+        await query.edit_message_text("⏳  Sending Rich list…")
+        await _reply(update, demo_rich_list(), backend=Backend.RICH)
+        await query.edit_message_text("✅  Rich list sent!  Pick another:", reply_markup=RICH_MENU, parse_mode=ParseMode.HTML)
+        return
+
+    elif section == "rich_task":
+        await query.edit_message_text("⏳  Sending Rich task list…")
+        await _reply(update, demo_rich_task(), backend=Backend.RICH)
+        await query.edit_message_text("✅  Rich task list sent!  Pick another:", reply_markup=RICH_MENU, parse_mode=ParseMode.HTML)
+        return
+
+    elif section == "rich_details":
+        await query.edit_message_text("⏳  Sending Rich details…")
+        await _reply(update, demo_rich_details(), backend=Backend.RICH)
+        await query.edit_message_text("✅  Rich details sent!  Pick another:", reply_markup=RICH_MENU, parse_mode=ParseMode.HTML)
+        return
+
+    elif section == "rich_math":
+        await query.edit_message_text("⏳  Sending Rich math…")
+        await _reply(update, demo_rich_math(), backend=Backend.RICH)
+        await query.edit_message_text("✅  Rich math sent!  Pick another:", reply_markup=RICH_MENU, parse_mode=ParseMode.HTML)
+        return
+
+    elif section == "rich_emoji":
+        await query.edit_message_text("⏳  Sending Rich custom emoji…")
+        await _reply(update, demo_rich_emoji(), backend=Backend.RICH)
+        await query.edit_message_text("✅  Rich custom emoji sent!  Pick another:", reply_markup=RICH_MENU, parse_mode=ParseMode.HTML)
+        return
+
+    elif section == "rich_emoji_btn":
+        await query.edit_message_text("⏳  Sending Rich custom-emoji buttons…")
+        await _reply(update, demo_rich_emoji_buttons(), backend=Backend.RICH)
+        await query.edit_message_text("✅  Rich custom-emoji buttons sent!  Pick another:", reply_markup=RICH_MENU, parse_mode=ParseMode.HTML)
+        return
+
+    elif section == "rich_card":
+        await query.edit_message_text("⏳  Sending Rich flash card…")
+        await _reply(update, card_h(SAMPLE_CARD), backend=Backend.RICH)
+        await query.edit_message_text("✅  Rich flash card sent!  Pick another:", reply_markup=RICH_MENU, parse_mode=ParseMode.HTML)
+        return
+
+    elif section == "rich_cards":
+        await query.edit_message_text("🃏  Sending Rich flash-card VARIATIONS…")
+        await send_rich_cards_mode(update.get_bot(), update.effective_chat.id)
+        await query.edit_message_text("✅  Rich flash-card variations sent!  Pick another:", reply_markup=RICH_MENU, parse_mode=ParseMode.HTML)
+        return
+
+    elif section == "sessions":
+        await query.edit_message_text("🗂  Sending Rich SESSION-card variations…")
+        await send_session_mode(update.get_bot(), update.effective_chat.id)
+        await query.edit_message_text("✅  Session-card variations sent!  Pick another:", reply_markup=RICH_MENU, parse_mode=ParseMode.HTML)
+        return
+
+    elif section.startswith("sess_grade:"):
+        grade = int(section.split(":", 1)[1])
+        await query.answer(f"انتخاب شد: {SESSION_GRADE_LABELS.get(grade, '?')}")
+        return
+
+    elif section == "sess_pronounce":
+        await query.answer("🔊 تلفظ (دمو)")
+        return
+
+    elif section == "rich_all":
+        await query.edit_message_text("▶  Running ALL Rich demos…")
+        await _run_rich_all(update)
+        return
+
     elif section == "errors":
         await _run_error_demos(update)
         return  # _run_error_demos already answers
@@ -755,15 +1532,17 @@ async def _run_error_demos(update: Update) -> None:
     except TypeError as exc:
         log.info("✓  Caught expected TypeError: %s", exc)
 
-    log.warning("=== Error demo 2: Backend.RICH (expect NotImplementedError) ===")
+    log.warning("=== Error demo 2: Backend.RICH (now implemented — should render) ===")
     try:
-        Message().render(Backend.RICH)
-    except NotImplementedError as exc:
-        log.info("✓  Caught expected NotImplementedError: %s", exc)
+        rendered = Message().add_line(heading(1, plain("x"))).render(Backend.RICH)
+        log.info("✓  RICH now renders: %r", rendered)
+    except Exception as exc:
+        log.error("✗  RICH render unexpectedly raised: %s", exc)
 
     await query.edit_message_text(
         "✅  Error demos ran — check your console/log for the caught exceptions.\n"
-        "Both errors are intentional and fail loudly, as designed.",
+        "Error 1 (raw= + Message) still fails loudly; RICH is now implemented "
+        "(demo 2 should render, not raise).",
         reply_markup=BACK_BUTTON,
         parse_mode=ParseMode.HTML,
     )
@@ -800,6 +1579,47 @@ async def _run_all_demos(update: Update) -> None:
         update,
         _section_header("🎉  All demos sent!"),
     )
+
+
+RICH_DEMOS = [
+    ("Heading", demo_rich_heading),
+    ("Table", demo_rich_table),
+    ("List", demo_rich_list),
+    ("Task list", demo_rich_task),
+    ("Details", demo_rich_details),
+    ("Math", demo_rich_math),
+    ("Custom emoji", demo_rich_emoji),
+    ("Custom emoji buttons", demo_rich_emoji_buttons),
+    ("Flash card", lambda: card_h(SAMPLE_CARD)),
+]
+
+
+async def _run_rich_all(update: Update) -> None:
+    """Send every Rich element one-by-one via Backend.RICH, logging per-demo
+    success/failure so we can see exactly what renders vs falls back."""
+    query = update.callback_query
+    sent = 0
+    failed = 0
+    for label, builder in RICH_DEMOS:
+        try:
+            await _reply(update, builder(), backend=Backend.RICH)
+            log.info("✅  [Rich %s] sent", label)
+            sent += 1
+        except Exception as exc:
+            log.error("❌  [Rich %s] failed: %s", label, exc)
+            failed += 1
+
+    summary = (
+        f"🏁  Rich demos complete — {sent} sent, {failed} failed.\n"
+        "Look at the messages above: a real Rich Message renders natively; "
+        "anything that fell back shows as plain/MDV2 text."
+    )
+    try:
+        await query.edit_message_text(
+            summary, reply_markup=RICH_MENU, parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -908,6 +1728,13 @@ def _print_render_previews() -> None:
     print(raw_text)
 
     print(f"\n{SEP}")
+    print("  🔥 Rich Message renders (Backend.RICH — what sendRichMessage gets)")
+    print(SEP)
+    for name, builder in RICH_DEMOS:
+        print(f"\n── {name} ──")
+        print(builder().render(Backend.RICH))
+
+    print(f"\n{SEP}")
     print("  Keyboard demo (Message object — no bot needed for render)")
     print(SEP)
     kb_demo = demo_keyboard()
@@ -973,6 +1800,9 @@ def main() -> None:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("sendall", cmd_sendall))
     app.add_handler(CommandHandler("cards", cmd_cards))
+    app.add_handler(CommandHandler("cardsrich", cmd_cardsrich))
+    app.add_handler(CommandHandler("sessions", cmd_sessions))
+    app.add_handler(CommandHandler("richtest", cmd_richtest))
     app.add_handler(CallbackQueryHandler(on_callback, pattern=r"^demo:"))
 
     print("✅  Bot is up — open a chat with it and send /start (or /sendall)")
