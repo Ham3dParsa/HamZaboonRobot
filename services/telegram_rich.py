@@ -37,8 +37,9 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest, EndPointNotFound, NetworkError, TimedOut
 
 from services.utils.helpers import (
+    _edit_message_with_retry,
+    _rich_api_request,
     _send_with_retry,
-    _telegram_slots,
 )
 
 logger = logging.getLogger(__name__)
@@ -123,10 +124,7 @@ async def send_rich_message(
         payload["reply_parameters"] = reply_parameters
 
     try:
-        async with _telegram_slots:
-            result = await bot.do_api_request(
-                "sendRichMessage", api_kwargs=payload, return_type=None
-            )
+        result = await _rich_api_request(bot, "sendRichMessage", payload)
         if isinstance(result, dict):
             return result["message_id"]
         return getattr(result, "message_id", result)
@@ -160,14 +158,14 @@ async def edit_rich_message(
 ) -> None:
     """Edit ``chat_id/message_id`` to ``rich_markdown`` via ``editMessageText``."""
     if not RICH_ENABLED or id(bot) in _rich_disabled:
-        async with _telegram_slots:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=mdv2_markdown,
-                parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=keyboard,
-            )
+        await _edit_message_with_retry(
+            bot,
+            chat_id,
+            message_id,
+            mdv2_markdown,
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=keyboard,
+        )
         return
 
     payload: dict[str, Any] = {
@@ -176,33 +174,30 @@ async def edit_rich_message(
         "rich_message": {"markdown": rich_markdown, "is_rtl": is_rtl},
     }
     try:
-        async with _telegram_slots:
-            await bot.do_api_request(
-                "editMessageText", api_kwargs=payload, return_type=None
-            )
+        await _rich_api_request(bot, "editMessageText", payload)
     except EndPointNotFound:
         _rich_disabled.add(id(bot))
         logger.info("Rich Messages unsupported (404); disabled for this bot, falling back to MDV2 edit")
-        async with _telegram_slots:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=mdv2_markdown,
-                parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=keyboard,
-            )
+        await _edit_message_with_retry(
+            bot,
+            chat_id,
+            message_id,
+            mdv2_markdown,
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=keyboard,
+        )
     except BadRequest as exc:
         logger.info(
             "Rich edit BadRequest; falling back to MDV2:%s — %s",
             _fallback_hint(exc),
             str(exc)[:200],
         )
-        async with _telegram_slots:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=mdv2_markdown,
-                parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=keyboard,
-            )
+        await _edit_message_with_retry(
+            bot,
+            chat_id,
+            message_id,
+            mdv2_markdown,
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=keyboard,
+        )
     # Transient errors propagate — no resend.

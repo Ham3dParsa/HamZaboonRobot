@@ -50,6 +50,16 @@ def _user_activity_line(
     )
 
 _telegram_slots = asyncio.Semaphore(TELEGRAM_MAX_CONCURRENCY)
+
+
+async def _rich_api_request(bot, method: str, payload: dict[str, object]):
+    """Slot-protected raw Bot API call for Rich Messages (keeps slot ownership in helpers).
+
+    Centralizes ``_telegram_slots`` so ``services/telegram_rich.py`` does not
+    directly reference the slot (wiring guard allows only helpers + send_pretty).
+    """
+    async with _telegram_slots:
+        return await bot.do_api_request(method, api_kwargs=payload, return_type=None)
 _CANCEL_INPUTS = {
     "cancel",
     "back",
