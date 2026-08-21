@@ -25,12 +25,14 @@ log = logging.getLogger(__name__)
 def create_client(preset: dict | None = None, *, api_key_override: str | None = None) -> OpenAI:
     """Create an OpenAI client for a preset (or the active settings).
 
-    This is the single seam for constructing an OpenAI client. API keys are
-    resolved **only** through ``db.resolve_preset_key(preset)``, which is
-    fail-closed: a missing master key or absent preset key resolves to ``""``
-    and never to a plaintext fallback (BUG-2). The explicit ``api_key_override``
-    is reserved for admin connection probes (``test_connection``) where the
-    caller intentionally supplies credentials to test; it is never inferred.
+    This is the single seam for constructing an OpenAI client. ``base_url``,
+    ``timeout`` and ``model`` are resolved from the preset row via
+    ``preset_fields.resolve``; API keys are resolved **only** through
+    ``db.resolve_preset_key(preset)`` (fail-closed — no ``settings``
+    ``ai_base_url``/``ai_api_key``/``ai_model`` fallback, R17). The explicit
+    ``api_key_override`` is reserved for admin connection probes
+    (``test_connection``) where the caller intentionally supplies credentials;
+    it is never inferred. ``_client`` is a thin alias to this seam.
     """
     if preset is None:
         preset = db.get_active_preset()
