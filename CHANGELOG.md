@@ -5,15 +5,31 @@ All notable changes to HamZaboon. Generated automatically from
 [scripts/generate_changelog.py](scripts/generate_changelog.py). Do not edit by hand.
 
 ### 2026-08-21
+#### Features
+- add underline/strike/marked/tg_spoiler and rich shim docs (#443) (`send-pretty`)
+  — @Ham3dParsa [f30806c](https://github.com/Ham3dParsa/HamZaboonRobot/commit/f30806c)
+- snapshot-copy test DB, prod-DB kill-switch, RAM gate (#441) (`test-db-safety`)
+  — @Ham3dParsa [6d70138](https://github.com/Ham3dParsa/HamZaboonRobot/commit/6d70138)
+
 #### Bug Fixes
+- activation preferred + reasoning_effort (R16/R17, phases 6-7) (#444) (`presets`)
+  — @Ham3dParsa [51690d0](https://github.com/Ham3dParsa/HamZaboonRobot/commit/51690d0)
+- align ENV resolver between migration and runtime (BUG-B1) (#445) (`db`)
+  — @Ham3dParsa [99a161f](https://github.com/Ham3dParsa/HamZaboonRobot/commit/99a161f)
+- use 🔢 for rank-setting glyph to disambiguate from 🎯 (#442) (`ai`)
+  — @Ham3dParsa [8379f75](https://github.com/Ham3dParsa/HamZaboonRobot/commit/8379f75)
 - reject non-canonical plan codes on upsert (#439) (`db`)
   — @Ham3dParsa [cc5bed8](https://github.com/Ham3dParsa/HamZaboonRobot/commit/cc5bed8)
 
 #### Refactoring
+- migrate remaining send_pretty bypasses (RT-LEARNER #421) (#446) (`learner`)
+  — @Ham3dParsa [6935a0d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/6935a0d)
 - close partial audit items F1/F4/F5 (#435) (`ai`)
   — @Ham3dParsa [ac0152d](https://github.com/Ham3dParsa/HamZaboonRobot/commit/ac0152d)
 
 #### Documentation
+- record #439 plan write-time guard merge (#440) (`changelog,plans`)
+  — @Ham3dParsa [c7e9483](https://github.com/Ham3dParsa/HamZaboonRobot/commit/c7e9483)
 - resync TICKETS.md and theme indexes with merged state (#438) (`plans`)
   — @Ham3dParsa [73ba429](https://github.com/Ham3dParsa/HamZaboonRobot/commit/73ba429)
 - regenerate after F1/F4/F5 audit-gap merge (`changelog`)

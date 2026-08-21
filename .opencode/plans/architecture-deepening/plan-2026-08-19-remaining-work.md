@@ -77,6 +77,7 @@ This file supersedes the audit snapshot and the stale rows in plan-2026-08-16-ar
 | RT-B3 double HTML-escape | RT-B3 | Plans (#10) + admin.py (#8) | — | serial | done (with F8/R8) | MERGED #429 |
 | RT-B5 early awaiting reset | RT-B5 | bot.py | — | serial | MERGED #433 | refactor/early-awaiting-reset |
 | RT-BN1 broadcast semaphore | RT-BN1 | Admin (#8) | — | serial | MERGED #437 | refactor/broadcast-semaphore |
+| RT-LEARNER send_pretty learner bypasses | RT-LEARNER | Study (#5) + SRS (#6) | — | done | MERGED #446 | refactor/send-pretty-learner |
 | RT-BN2/BN3 handler DB-offload | RT-BN2/BN3 | Persistence + #5/#6 | — | — | REMAINING to G1 (Session A) | refactor/db-handler-offload |
 
 ## Gaps (must be planned — no current owner)
@@ -102,7 +103,7 @@ Kilo review of PR #414 flagged 44 outbound sites that still bypass the `send_pre
 - #418 RT-ADMIN (admin.py, 11) — serialize vs Session A G1 / Session B RT-B3
 - #419 RT-PLANS (admin_plans.py, 6) — serialize vs Session B RT-B3
 - #420 RT-COST (admin_cost.py, 4)
-- #421 RT-LEARNER (study_handler.py + srs_handler.py, 2) — unblocked (#414 merged)
+- #421 RT-LEARNER (study_handler.py + srs_handler.py, 2) — MERGED #446
 
 ## Status counts (synced to 3ece608)
 - DB: 4 addressed / 3 partial / 11 remaining (+ G1 gap).
