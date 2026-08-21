@@ -127,7 +127,9 @@ async def send_rich_message(
             result = await bot.do_api_request(
                 "sendRichMessage", api_kwargs=payload, return_type=None
             )
-        return result["message_id"]
+        if isinstance(result, dict):
+            return result["message_id"]
+        return getattr(result, "message_id", result)
     except EndPointNotFound:
         _rich_disabled.add(id(bot))
         logger.info("Rich Messages unsupported (404); disabled for this bot, falling back to MDV2")

@@ -37,6 +37,24 @@ from config.custom_emoji import resolve_emoji
 from services import telegram_rich
 from services.utils.callback_notifications import notify_callback
 from services.utils.formatting import escape_mdv2, escape_mdv2_code, html_escape
+
+import re as _re_rich
+
+_RICH_ESCAPE_RE = _re_rich.compile(r"([\\*_~|`\[\]()#>=\-+.!])")
+
+
+def _escape_rich(text: str) -> str:
+    """Escape dynamic text for Rich Markdown so it cannot inject markup."""
+    if not text:
+        return ""
+    # Escape backslash first is handled by the pattern (\\ is in set)
+    return _RICH_ESCAPE_RE.sub(r"\\\1", text)
+
+
+def _escape_rich_code(text: str) -> str:
+    if not text:
+        return ""
+    return text.replace("\\", "\\\\").replace("`", "\\`")
 from services.utils.helpers import (
     _edit_markup_with_retry,
     _edit_message_with_retry,
@@ -471,7 +489,7 @@ def _render_mdv2(children: tuple[Span, ...]) -> str:
         elif isinstance(span, Strikethrough):
             parts.append("~" + _render_mdv2(span.children) + "~")
         elif isinstance(span, Marked):
-            parts.append(_render_mdv2(span.children))
+            parts.append("*" + _render_mdv2(span.children) + "*")
         elif isinstance(span, Link):
             inner = _render_mdv2(span.children)
             parts.append("[" + inner + "](" + escape_mdv2(span.url) + ")")
@@ -624,13 +642,13 @@ def _render_rich(children: tuple[Span, ...]) -> str:
     parts: list[str] = []
     for span in children:
         if isinstance(span, Plain):
-            parts.append(span.text)
+            parts.append(_escape_rich(span.text))
         elif isinstance(span, Bold):
             parts.append("**" + _render_rich(span.children) + "**")
         elif isinstance(span, Italic):
             parts.append("*" + _render_rich(span.children) + "*")
         elif isinstance(span, Code):
-            parts.append("`" + span.text + "`")
+            parts.append("`" + _escape_rich_code(span.text) + "`")
         elif isinstance(span, Spoiler):
             parts.append("||" + _render_rich(span.children) + "||")
         elif isinstance(span, TgSpoiler):
@@ -642,7 +660,8 @@ def _render_rich(children: tuple[Span, ...]) -> str:
         elif isinstance(span, Marked):
             parts.append("==" + _render_rich(span.children) + "==")
         elif isinstance(span, Link):
-            parts.append("[" + _render_rich(span.children) + "](" + span.url + ")")
+            safe_url = span.url.replace("\\", "\\\\").replace(")", "\\)")
+            parts.append("[" + _render_rich(span.children) + "](" + safe_url + ")")
         elif isinstance(span, Quote):
             parts.append(_rich_quote(span.children))
         elif isinstance(span, Newline):
@@ -787,6 +806,20 @@ async def send(
     else:
         markup = keyboard
     if backend is Backend.RICH:
+        if raw is not None:
+            if isinstance(content, Message):
+                raise TypeError("raw= is for pre-formatted strings; pass a Message without raw=")
+            rich_text = str(content)
+            mdv2_text = str(content)
+            return await telegram_rich.send_rich_message(
+                bot,
+                chat_id,
+                rich_text,
+                mdv2_text,
+                is_rtl=is_rtl,
+                keyboard=markup,
+                reply_parameters=kwargs.get("reply_parameters"),
+            )
         rich_text = content.render(Backend.RICH) if isinstance(content, Message) else str(content)
         try:
             mdv2_text = content.render(Backend.MDV2) if isinstance(content, Message) else str(content)
@@ -912,11 +945,28 @@ async def edit(
     ``Message`` or a pre-formatted string whose ``raw`` format is declared
     (never guessed), exactly like ``send``/``say``.
     """
-    text, parse_mode = _resolve_content(content, raw, backend)
     if keyboard is _UNSET:
         markup = content.keyboard if isinstance(content, Message) else None
     else:
         markup = keyboard
+    if backend is Backend.RICH:
+        if raw is not None:
+            if isinstance(content, Message):
+                raise TypeError("raw= is for pre-formatted strings; pass a Message without raw=")
+            rich_text = str(content)
+            mdv2_text = str(content)
+            return await telegram_rich.edit_rich_message(
+                bot, chat_id, message_id, rich_text, mdv2_text, keyboard=markup
+            )
+        rich_text = content.render(Backend.RICH) if isinstance(content, Message) else str(content)
+        try:
+            mdv2_text = content.render(Backend.MDV2) if isinstance(content, Message) else str(content)
+        except TypeError:
+            mdv2_text = escape_mdv2(content.render(Backend.PLAIN)) if isinstance(content, Message) else str(content)
+        return await telegram_rich.edit_rich_message(
+            bot, chat_id, message_id, rich_text, mdv2_text, keyboard=markup
+        )
+    text, parse_mode = _resolve_content(content, raw, backend)
     if parse_mode is not None:
         kwargs["parse_mode"] = parse_mode
     if markup is not None:
