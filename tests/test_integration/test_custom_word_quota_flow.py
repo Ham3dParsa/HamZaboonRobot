@@ -315,6 +315,7 @@ class QueryAddToggleFlowTests(unittest.TestCase):
         )
 
         # Third tap saves again (idempotent round-trip).
+        context.bot.edit_message_reply_markup.reset_mock()
         update = self._make_update()
         asyncio.run(_handle_query_add(update, context, self.token))
         self.assertEqual(self._word_count(), 1)
