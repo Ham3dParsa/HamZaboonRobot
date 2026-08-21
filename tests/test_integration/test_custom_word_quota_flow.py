@@ -319,6 +319,10 @@ class QueryAddToggleFlowTests(unittest.TestCase):
         update = self._make_update()
         asyncio.run(_handle_query_add(update, context, self.token))
         self.assertEqual(self._word_count(), 1)
+        resaved_markup = context.bot.edit_message_reply_markup.call_args.kwargs["reply_markup"]
+        self.assertIn("حذف از نشست‌های مطالعه", resaved_markup.inline_keyboard[0][0].text)
+        self.assertEqual(context.bot.edit_message_reply_markup.call_args.kwargs["chat_id"], update.effective_chat.id)
+        self.assertEqual(context.bot.edit_message_reply_markup.call_args.kwargs["message_id"], update.effective_message.message_id)
 
 
 class ShowStatusQuotaRenderTests(unittest.TestCase):

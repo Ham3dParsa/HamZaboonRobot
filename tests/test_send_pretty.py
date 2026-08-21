@@ -198,6 +198,14 @@ class TestDeliveryVerbs(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(args[0], "hello")
         self.assertEqual(kwargs["parse_mode"], "MarkdownV2")
 
+    async def test_say_sends_when_mode_send_despite_callback(self):
+        update = MagicMock()
+        update.callback_query = MagicMock()
+        update.message.reply_text = AsyncMock(return_value="sent")
+        result = await say(update, MagicMock(), "hi", mode="send", raw=RawFormat.PLAIN)
+        self.assertEqual(result, "sent")
+        update.callback_query.edit_message_text.assert_not_called()
+
     async def test_say_sends_new_message_when_no_message_present(self):
         update = MagicMock()
         update.callback_query = None
