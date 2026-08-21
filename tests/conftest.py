@@ -76,11 +76,12 @@ def _ensure_master() -> str:
         area = os.path.join(tempfile.gettempdir(), "hamzaban_test_area", worker)
         os.makedirs(area, exist_ok=True)
         master = os.path.join(area, "master.db")
-        for p in (master, f"{master}-wal", f"{master}-shm"):
+        # Remove sidecars BEFORE main file; suppress only FileNotFoundError
+        # so a permission/lock failure is not silently hidden.
+        for p in (f"{master}-wal", f"{master}-shm", master):
             try:
-                if os.path.exists(p):
-                    os.remove(p)
-            except OSError:
+                os.remove(p)
+            except FileNotFoundError:
                 pass
         _ORIGINAL_INIT_DB(master)
         _MASTER_CACHE[worker] = master
@@ -111,11 +112,13 @@ def _patched_init_db(path: str | None = None):
             parent = os.path.dirname(target)
             if parent:
                 os.makedirs(parent, exist_ok=True)
+            # Ensure stale target sidecars cannot contaminate the fresh copy
+            for suffix in ("-wal", "-shm", "-journal"):
+                try:
+                    os.remove(f"{target}{suffix}")
+                except FileNotFoundError:
+                    pass
             shutil.copy2(master, target)
-            for suffix in ("-wal", "-shm"):
-                src = f"{master}{suffix}"
-                if os.path.exists(src):
-                    shutil.copy2(src, f"{target}{suffix}")
             return
     return _ORIGINAL_INIT_DB(path)
 

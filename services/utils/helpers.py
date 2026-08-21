@@ -18,8 +18,7 @@ logger = logging.getLogger(__name__)
 
 _RETRY_BACKOFF_BASE_DEFAULT = 1.0
 _RETRY_BACKOFF_BASE_MAX = 60.0
-_CACHED_BACKOFF_RAW: str | None = None
-_CACHED_BACKOFF_VALUE: float = _RETRY_BACKOFF_BASE_DEFAULT
+_RETRY_BACKOFF_SLEEP_MAX = 30.0
 
 
 def _retry_backoff_base() -> float:
@@ -32,27 +31,19 @@ def _retry_backoff_base() -> float:
     retry are all untouched — only the elapsed waiting time scales.
 
     Invalid, NaN, infinite or non-positive values are warned and fall back to
-    1.0; values above 60 are clamped. The last parsed value is cached so a
-    tight retry loop does not repeatedly re-parse the environment.
+    1.0; values above 60 are clamped.
     """
-    global _CACHED_BACKOFF_RAW, _CACHED_BACKOFF_VALUE
     raw = os.environ.get("HAMZABAN_RETRY_BACKOFF_BASE")
     if raw is None:
         return _RETRY_BACKOFF_BASE_DEFAULT
-    if raw == _CACHED_BACKOFF_RAW:
-        return _CACHED_BACKOFF_VALUE
     try:
         value = float(raw)
     except (TypeError, ValueError):
         logger.warning("Invalid HAMZABAN_RETRY_BACKOFF_BASE=%r, using default 1.0", raw)
-        _CACHED_BACKOFF_RAW = raw
-        _CACHED_BACKOFF_VALUE = _RETRY_BACKOFF_BASE_DEFAULT
-        return _CACHED_BACKOFF_VALUE
+        return _RETRY_BACKOFF_BASE_DEFAULT
     if not math.isfinite(value) or value <= 0:
         logger.warning("Invalid HAMZABAN_RETRY_BACKOFF_BASE=%r, using default 1.0", raw)
-        _CACHED_BACKOFF_RAW = raw
-        _CACHED_BACKOFF_VALUE = _RETRY_BACKOFF_BASE_DEFAULT
-        return _CACHED_BACKOFF_VALUE
+        return _RETRY_BACKOFF_BASE_DEFAULT
     if value > _RETRY_BACKOFF_BASE_MAX:
         logger.warning(
             "HAMZABAN_RETRY_BACKOFF_BASE=%r exceeds max %.1f, clamping",
@@ -60,9 +51,12 @@ def _retry_backoff_base() -> float:
             _RETRY_BACKOFF_BASE_MAX,
         )
         value = _RETRY_BACKOFF_BASE_MAX
-    _CACHED_BACKOFF_RAW = raw
-    _CACHED_BACKOFF_VALUE = value
     return value
+
+
+def _retry_sleep(attempt: int) -> float:
+    """Computed backoff sleep for *attempt*, capped to 30s."""
+    return min(_retry_backoff_base() * (2**attempt), _RETRY_BACKOFF_SLEEP_MAX)
 
 
 def apply_log_level(level_name: str) -> None:
@@ -241,7 +235,7 @@ async def _edit_with_retry(query, text, **kwargs):
         except (TimedOut, NetworkError):
             if attempt == 2:
                 raise
-            await asyncio.sleep(_retry_backoff_base() * (2**attempt))
+            await asyncio.sleep(_retry_sleep(attempt))
 
 
 async def _edit_message_with_retry(
@@ -273,7 +267,7 @@ async def _edit_message_with_retry(
         except (TimedOut, NetworkError):
             if attempt == 2:
                 raise
-            await asyncio.sleep(_retry_backoff_base() * (2**attempt))
+            await asyncio.sleep(_retry_sleep(attempt))
 
 
 async def _edit_markup_with_retry(
@@ -308,7 +302,7 @@ async def _edit_markup_with_retry(
         except (TimedOut, NetworkError):
             if attempt == 2:
                 raise
-            await asyncio.sleep(_retry_backoff_base() * (2**attempt))
+            await asyncio.sleep(_retry_sleep(attempt))
 
 
 async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
@@ -327,7 +321,7 @@ async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
         except (TimedOut, NetworkError):
             if attempt == 2:
                 raise
-            await asyncio.sleep(_retry_backoff_base() * (2**attempt))
+            await asyncio.sleep(_retry_sleep(attempt))
 
 
 async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):

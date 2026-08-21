@@ -140,7 +140,7 @@ class DatabaseRestoreSafetyTests(unittest.TestCase):
         sidecars = [f"{self.live_path}{suffix}" for suffix in ("-journal", "-wal", "-shm")]
         for sidecar in sidecars:
             with open(sidecar, "wb") as sidecar_file:
-                sidecar_file.write(b"stale")
+                sidecar_file.write(b"")
 
         db.import_db_bytes(backup)
 

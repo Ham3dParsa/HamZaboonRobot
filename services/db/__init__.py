@@ -475,6 +475,11 @@ def import_db_bytes(data: bytes, backup_path: str | None = None) -> None:
     try:
         with maintenance():
             try:
+                # MUST 1: validate target safety BEFORE any FS side effect.
+                try:
+                    _guard_destructive_op(DB_PATH)
+                except RuntimeError as exc:
+                    raise ValueError(str(exc)) from exc
                 candidate_fd, candidate_path = tempfile.mkstemp(
                     suffix=".sqlite",
                     dir=os.path.dirname(os.path.abspath(DB_PATH)),
@@ -551,11 +556,10 @@ def import_db_bytes(data: bytes, backup_path: str | None = None) -> None:
                     "نسخه پشتیبان با نسخه فعلی ربات سازگار نیست."
                 ) from exc
             try:
-                # Guards BEFORE any side effect. If they fail, no backup file
-                # is created. Target must be a marked test DB; candidate only
-                # must not be the production path (unmarked backups are valid).
+                # Candidate must not be the production path. Target already
+                # validated at the top of the operation; re-checking here
+                # would be after mkstemp.
                 try:
-                    _guard_destructive_op(DB_PATH)
                     _check_test_mode_guard(candidate_path)
                 except RuntimeError as exc:
                     raise ValueError(str(exc)) from exc

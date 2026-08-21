@@ -260,25 +260,21 @@ def _set_test_db_marker(conn) -> None:
 def _db_application_id(path: str) -> int | None:
     """Return the SQLite application_id of an existing database, or None.
 
-    Opens strictly read-only so this probe can never create or modify the
-    file, even on a production path. Uses Path.as_uri() for correct
-    Windows-safe URI construction. Tries WAL-visible mode first (so a
-    non-checkpointed marker is read correctly); if that fails due to a
-    corrupt/stale WAL sidecar, retries with immutable=1 to read the main
-    file header. Both paths are read-only and fail-closed.
+    Opens strictly read-only so the main database file itself is never
+    modified. Uses Path.as_uri() for correct Windows-safe URI construction.
+    Reads WAL-visible state (?mode=ro) so a non-checkpointed marker is not
+    missed. No immutable fallback is used — uncertain WAL state fails closed.
     """
-    for suffix in ("?mode=ro", "?mode=ro&immutable=1"):
+    try:
+        uri = Path(os.path.abspath(path)).as_uri() + "?mode=ro"
+        conn = sqlite3.connect(uri, uri=True)
         try:
-            uri = Path(os.path.abspath(path)).as_uri() + suffix
-            conn = sqlite3.connect(uri, uri=True)
-            try:
-                row = conn.execute("PRAGMA application_id").fetchone()
-                return int(row[0]) if row else None
-            finally:
-                conn.close()
-        except (sqlite3.Error, OSError, ValueError):
-            continue
-    return None
+            row = conn.execute("PRAGMA application_id").fetchone()
+            return int(row[0]) if row else None
+        finally:
+            conn.close()
+    except (sqlite3.Error, OSError, ValueError):
+        return None
 
 
 def _guard_destructive_op(path: str) -> None:
@@ -290,8 +286,10 @@ def _guard_destructive_op(path: str) -> None:
     production admin restore keeps working.
     """
     _check_test_mode_guard(path)
-    if _test_mode_on() and os.path.isfile(path):
-        app_id = _db_application_id(path)
+    if _test_mode_on() and os.path.exists(path):
+        # Only probe regular files; non-regular paths are treated as unknown
+        # identity and therefore refused.
+        app_id = _db_application_id(path) if os.path.isfile(path) else None
         if app_id != _TEST_APP_ID:
             raise RuntimeError(
                 "Test mode refuses a destructive operation on a non-test "

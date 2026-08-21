@@ -77,14 +77,15 @@ def main() -> int:
         return 2
     if peak <= 0:
         if elapsed < SAMPLE_INTERVAL * 2:
-            print("[RAM-GATE] FAIL: pytest exited very quickly (%.1fs) before "
-                  "any RAM sample could be collected. Check pytest output for "
-                  "collection/import errors." % elapsed, file=sys.stderr)
+            print(f"[RAM-GATE] FAIL: pytest exited very quickly ({elapsed:.1f}s) before "
+                  "any RAM sample could be collected (pytest exit code "
+                  f"{proc.returncode}). Check pytest output for "
+                  "collection/import errors.", file=sys.stderr)
         else:
             print("[RAM-GATE] FAIL: could not sample process RAM (no valid "
-                  "sample collected). Check psutil permissions.",
-                  file=sys.stderr)
-        return 2
+                  f"sample collected, pytest exit code {proc.returncode}). "
+                  "Check psutil permissions.", file=sys.stderr)
+        return proc.returncode or 2
     if peak > RAM_BUDGET_MB:
         print("[RAM-GATE] FAIL: peak RAM exceeds the 2GB budget.", file=sys.stderr)
         return 1

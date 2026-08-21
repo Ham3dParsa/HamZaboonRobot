@@ -10,6 +10,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from services import db
 from services.db import schema as db_schema
@@ -131,8 +132,8 @@ class TestSnapshotSafety(unittest.TestCase):
                     (r[1], r[2], r[3], r[5], r[4])
                     for r in conn.execute(f"PRAGMA table_info({t})")
                 }
-            # Include indexes/constraints as (name, tbl_name, sql)
-            schema["_indexes"] = {
+            # Include indexes separately under a non-colliding key
+            schema[("__indexes__",)] = {
                 (r[0], r[1], r[2])
                 for r in conn.execute(
                     "SELECT name, tbl_name, sql FROM sqlite_master "
@@ -216,15 +217,24 @@ class TestImportDbBytesContract(unittest.TestCase):
         try:
             conn.execute("PRAGMA application_id=0")
             conn.commit()
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         finally:
             conn.close()
+        # Assert precondition
+        assert db_schema._db_application_id(p) == 0, "unmarked helper must produce app_id 0"
         with open(p, "rb") as f:
             return f.read()
 
     def test_unmarked_backup_restore_succeeds_into_test_db(self):
         data = self._unmarked_backup_bytes()
-        # Must not raise — candidate no longer requires marker (Must 2)
-        db.import_db_bytes(data)
+        # Prove candidate is unmarked before restore (Must 3)
+        probe = os.path.join(self._tmp.name, "probe_unmarked.db")
+        with open(probe, "wb") as f:
+            f.write(data)
+        self.assertEqual(db_schema._db_application_id(probe), 0)
+        # Neutralise the re-stamp that import_db_bytes does via init_db(candidate_path)
+        with patch.object(db_schema, "_set_test_db_marker", lambda conn: None):
+            db.import_db_bytes(data)
 
     def test_production_target_blocked_as_valueerror(self):
         # Point HAMZABAN_PRODUCTION_DB_PATH at the active target
@@ -253,6 +263,30 @@ class TestImportDbBytesContract(unittest.TestCase):
                 os.environ.pop("HAMZABAN_PRODUCTION_DB_PATH", None)
             else:
                 os.environ["HAMZABAN_PRODUCTION_DB_PATH"] = old
+
+    def test_stale_target_sidecars_are_removed_on_fresh_copy(self):
+        # Stale wal/shm at the target must not survive a fresh master copy.
+        stale_wal = self.target + "-wal"
+        stale_shm = self.target + "-shm"
+        # Use a fresh temp target (not self.target which is already a DB)
+        fresh = os.path.join(self._tmp.name, "fresh_stale.db")
+        # Ensure no DB there yet
+        self.assertFalse(os.path.exists(fresh))
+        # Create stale sidecars before the copy
+        for p in (fresh + "-wal", fresh + "-shm"):
+            with open(p, "wb") as f:
+                f.write(b"stale")
+        db.DB_PATH = fresh
+        db_schema.DB_PATH = fresh
+        db.init_db()  # copy intercept should clean stale sidecars
+        # Fresh DB must be valid and sidecars gone (or at least not stale)
+        self.assertTrue(os.path.exists(fresh))
+        # After a valid copy the stale content must not remain
+        for p in (fresh + "-wal", fresh + "-shm"):
+            if os.path.exists(p):
+                # If SQLite recreated a wal, it must not contain stale bytes
+                with open(p, "rb") as f:
+                    self.assertNotEqual(f.read(), b"stale")
 
 
 if __name__ == "__main__":
