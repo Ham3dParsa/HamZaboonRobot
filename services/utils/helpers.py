@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 import os
 import re
 
@@ -16,6 +17,9 @@ from services.utils.callback_notifications import CallbackNoticeIntent, notify_c
 logger = logging.getLogger(__name__)
 
 _RETRY_BACKOFF_BASE_DEFAULT = 1.0
+_RETRY_BACKOFF_BASE_MAX = 60.0
+_CACHED_BACKOFF_RAW: str | None = None
+_CACHED_BACKOFF_VALUE: float = _RETRY_BACKOFF_BASE_DEFAULT
 
 
 def _retry_backoff_base() -> float:
@@ -26,15 +30,39 @@ def _retry_backoff_base() -> float:
     performance benchmarks) while still exercising the real retry sequence:
     attempt count, ordering, retry conditions, final failure and success-after-
     retry are all untouched — only the elapsed waiting time scales.
+
+    Invalid, NaN, infinite or non-positive values are warned and fall back to
+    1.0; values above 60 are clamped. The last parsed value is cached so a
+    tight retry loop does not repeatedly re-parse the environment.
     """
+    global _CACHED_BACKOFF_RAW, _CACHED_BACKOFF_VALUE
     raw = os.environ.get("HAMZABAN_RETRY_BACKOFF_BASE")
     if raw is None:
         return _RETRY_BACKOFF_BASE_DEFAULT
+    if raw == _CACHED_BACKOFF_RAW:
+        return _CACHED_BACKOFF_VALUE
     try:
         value = float(raw)
     except (TypeError, ValueError):
-        return _RETRY_BACKOFF_BASE_DEFAULT
-    return value if value > 0 else _RETRY_BACKOFF_BASE_DEFAULT
+        logger.warning("Invalid HAMZABAN_RETRY_BACKOFF_BASE=%r, using default 1.0", raw)
+        _CACHED_BACKOFF_RAW = raw
+        _CACHED_BACKOFF_VALUE = _RETRY_BACKOFF_BASE_DEFAULT
+        return _CACHED_BACKOFF_VALUE
+    if not math.isfinite(value) or value <= 0:
+        logger.warning("Invalid HAMZABAN_RETRY_BACKOFF_BASE=%r, using default 1.0", raw)
+        _CACHED_BACKOFF_RAW = raw
+        _CACHED_BACKOFF_VALUE = _RETRY_BACKOFF_BASE_DEFAULT
+        return _CACHED_BACKOFF_VALUE
+    if value > _RETRY_BACKOFF_BASE_MAX:
+        logger.warning(
+            "HAMZABAN_RETRY_BACKOFF_BASE=%r exceeds max %.1f, clamping",
+            raw,
+            _RETRY_BACKOFF_BASE_MAX,
+        )
+        value = _RETRY_BACKOFF_BASE_MAX
+    _CACHED_BACKOFF_RAW = raw
+    _CACHED_BACKOFF_VALUE = value
+    return value
 
 
 def apply_log_level(level_name: str) -> None:

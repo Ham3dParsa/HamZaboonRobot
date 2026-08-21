@@ -551,6 +551,14 @@ def import_db_bytes(data: bytes, backup_path: str | None = None) -> None:
                     "نسخه پشتیبان با نسخه فعلی ربات سازگار نیست."
                 ) from exc
             try:
+                # Guards BEFORE any side effect. If they fail, no backup file
+                # is created. Target must be a marked test DB; candidate only
+                # must not be the production path (unmarked backups are valid).
+                try:
+                    _guard_destructive_op(DB_PATH)
+                    _check_test_mode_guard(candidate_path)
+                except RuntimeError as exc:
+                    raise ValueError(str(exc)) from exc
                 os.chmod(candidate_path, stat.S_IMODE(original_stat.st_mode))
                 if hasattr(os, "chown"):
                     try:
@@ -559,11 +567,6 @@ def import_db_bytes(data: bytes, backup_path: str | None = None) -> None:
                         pass
                 if backup_path:
                     shutil.copy2(DB_PATH, backup_path)
-                # R1/P0.1: before replacing the live DB, prove in test mode that
-                # both the target and the incoming candidate are marked test
-                # databases (and neither is production). Abort otherwise.
-                _guard_destructive_op(DB_PATH)
-                _guard_destructive_op(candidate_path)
                 os.replace(candidate_path, DB_PATH)
             except OSError as exc:
                 raise ValueError(

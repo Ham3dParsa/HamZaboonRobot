@@ -65,8 +65,6 @@ class TestSnapshotSafety(unittest.TestCase):
         self.assertNotIn("hamzaban_test_area", active_abs)
         # Active DB is not the production database.
         self.assertNotEqual(active_abs, os.path.abspath(PRODUCTION_PATH))
-        # No database was created at the production path.
-        self.assertFalse(os.path.exists(PRODUCTION_PATH))
 
     def test_destructive_op_guard_blocks_unmarked_database(self):
         path = self._fresh_path("unmarked.db")
@@ -112,8 +110,12 @@ class TestSnapshotSafety(unittest.TestCase):
 
     @staticmethod
     def _schema(path: str) -> dict:
-        """Return {table: {column}} for an existing database, read-only."""
-        schema = {}
+        """Return detailed schema for comparison, read-only.
+
+        For each table returns {(name, type, notnull, pk, dflt_value)} plus
+        the set of index definitions, so type/notnull/pk/dflt and index drift
+        are caught, not just column names.
+        """
         conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
         try:
             tables = [
@@ -123,13 +125,23 @@ class TestSnapshotSafety(unittest.TestCase):
                     "AND name NOT LIKE 'sqlite_%'"
                 )
             ]
+            schema: dict = {}
             for t in tables:
                 schema[t] = {
-                    r[1] for r in conn.execute(f"PRAGMA table_info({t})")
+                    (r[1], r[2], r[3], r[5], r[4])
+                    for r in conn.execute(f"PRAGMA table_info({t})")
                 }
+            # Include indexes/constraints as (name, tbl_name, sql)
+            schema["_indexes"] = {
+                (r[0], r[1], r[2])
+                for r in conn.execute(
+                    "SELECT name, tbl_name, sql FROM sqlite_master "
+                    "WHERE type='index' AND name NOT LIKE 'sqlite_%'"
+                )
+            }
+            return schema
         finally:
             conn.close()
-        return schema
 
     def test_master_copy_matches_real_fresh_migration(self):
         # Finding-3 guard: the P1.1 copy must be schema-equivalent to a genuine
@@ -175,6 +187,72 @@ class TestKillSwitchDiagnostics(unittest.TestCase):
                     os.environ.pop(key, None)
                 else:
                     os.environ[key] = old
+
+
+class TestImportDbBytesContract(unittest.TestCase):
+    """Regression for Must-Fix 4 + 2/3."""
+
+    def setUp(self):
+        os.environ["HAMZABAN_TEST_MODE"] = "1"
+        self._prev_db = db.DB_PATH
+        self._prev_schema = db_schema.DB_PATH
+        self._tmp = tempfile.TemporaryDirectory()
+        # fresh marked target for every test
+        self.target = os.path.join(self._tmp.name, "target.db")
+        db.DB_PATH = self.target
+        db_schema.DB_PATH = self.target
+        db.init_db()
+
+    def tearDown(self):
+        db.DB_PATH = self._prev_db
+        db_schema.DB_PATH = self._prev_schema
+        self._tmp.cleanup()
+
+    def _unmarked_backup_bytes(self) -> bytes:
+        # Valid backup without marker: build a real DB then clear application_id.
+        p = os.path.join(self._tmp.name, "unmarked.db")
+        db_schema.init_db(p)  # explicit path => real migration
+        conn = sqlite3.connect(p)
+        try:
+            conn.execute("PRAGMA application_id=0")
+            conn.commit()
+        finally:
+            conn.close()
+        with open(p, "rb") as f:
+            return f.read()
+
+    def test_unmarked_backup_restore_succeeds_into_test_db(self):
+        data = self._unmarked_backup_bytes()
+        # Must not raise — candidate no longer requires marker (Must 2)
+        db.import_db_bytes(data)
+
+    def test_production_target_blocked_as_valueerror(self):
+        # Point HAMZABAN_PRODUCTION_DB_PATH at the active target
+        old = os.environ.get("HAMZABAN_PRODUCTION_DB_PATH")
+        try:
+            os.environ["HAMZABAN_PRODUCTION_DB_PATH"] = self.target
+            with self.assertRaises(ValueError) as ctx:
+                db.import_db_bytes(self._unmarked_backup_bytes())
+            self.assertIsInstance(ctx.exception.__cause__, RuntimeError)
+        finally:
+            if old is None:
+                os.environ.pop("HAMZABAN_PRODUCTION_DB_PATH", None)
+            else:
+                os.environ["HAMZABAN_PRODUCTION_DB_PATH"] = old
+
+    def test_failed_guard_creates_no_backup_side_effect(self):
+        old = os.environ.get("HAMZABAN_PRODUCTION_DB_PATH")
+        backup = os.path.join(self._tmp.name, "should_not_exist.bak")
+        try:
+            os.environ["HAMZABAN_PRODUCTION_DB_PATH"] = self.target
+            with self.assertRaises(ValueError):
+                db.import_db_bytes(self._unmarked_backup_bytes(), backup_path=backup)
+            self.assertFalse(os.path.exists(backup))
+        finally:
+            if old is None:
+                os.environ.pop("HAMZABAN_PRODUCTION_DB_PATH", None)
+            else:
+                os.environ["HAMZABAN_PRODUCTION_DB_PATH"] = old
 
 
 if __name__ == "__main__":

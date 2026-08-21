@@ -5,7 +5,7 @@ import threading
 import datetime
 import secrets
 import unicodedata
-import urllib.parse
+from pathlib import Path
 from contextlib import contextmanager
 
 from config.catalog import DEFAULT_LEVEL, DISPLAY_TOGGLE_DEFAULTS
@@ -260,19 +260,25 @@ def _set_test_db_marker(conn) -> None:
 def _db_application_id(path: str) -> int | None:
     """Return the SQLite application_id of an existing database, or None.
 
-    Opens strictly read-only and immutable so this probe can never create or
-    modify the file, even on a production path.
+    Opens strictly read-only so this probe can never create or modify the
+    file, even on a production path. Uses Path.as_uri() for correct
+    Windows-safe URI construction. Tries WAL-visible mode first (so a
+    non-checkpointed marker is read correctly); if that fails due to a
+    corrupt/stale WAL sidecar, retries with immutable=1 to read the main
+    file header. Both paths are read-only and fail-closed.
     """
-    try:
-        uri = "file:" + urllib.parse.quote(os.path.abspath(path)) + "?mode=ro&immutable=1"
-        conn = sqlite3.connect(uri, uri=True)
+    for suffix in ("?mode=ro", "?mode=ro&immutable=1"):
         try:
-            row = conn.execute("PRAGMA application_id").fetchone()
-            return int(row[0]) if row else None
-        finally:
-            conn.close()
-    except sqlite3.Error:
-        return None
+            uri = Path(os.path.abspath(path)).as_uri() + suffix
+            conn = sqlite3.connect(uri, uri=True)
+            try:
+                row = conn.execute("PRAGMA application_id").fetchone()
+                return int(row[0]) if row else None
+            finally:
+                conn.close()
+        except (sqlite3.Error, OSError, ValueError):
+            continue
+    return None
 
 
 def _guard_destructive_op(path: str) -> None:
@@ -284,7 +290,7 @@ def _guard_destructive_op(path: str) -> None:
     production admin restore keeps working.
     """
     _check_test_mode_guard(path)
-    if _test_mode_on() and os.path.exists(path):
+    if _test_mode_on() and os.path.isfile(path):
         app_id = _db_application_id(path)
         if app_id != _TEST_APP_ID:
             raise RuntimeError(

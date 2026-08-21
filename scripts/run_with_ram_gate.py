@@ -68,13 +68,22 @@ def main() -> int:
 
     proc.wait()
     elapsed = time.monotonic() - start
-    peak = max(peak, _peak_rss_mb(proc.pid))
     print(f"\n[RAM-GATE] wall={elapsed:.1f}s peak_combined_rss={peak:.0f}MB "
           f"(budget={RAM_BUDGET_MB}MB)")
-    if peak <= 0:
-        print("[RAM-GATE] FAIL: could not sample process RAM (psutil missing). "
-              "The 2GB budget cannot be enforced; install psutil.",
+    if psutil is None:
+        print("[RAM-GATE] FAIL: psutil not installed; the 2GB budget cannot "
+              "be enforced. Install psutil (pip install psutil).",
               file=sys.stderr)
+        return 2
+    if peak <= 0:
+        if elapsed < SAMPLE_INTERVAL * 2:
+            print("[RAM-GATE] FAIL: pytest exited very quickly (%.1fs) before "
+                  "any RAM sample could be collected. Check pytest output for "
+                  "collection/import errors." % elapsed, file=sys.stderr)
+        else:
+            print("[RAM-GATE] FAIL: could not sample process RAM (no valid "
+                  "sample collected). Check psutil permissions.",
+                  file=sys.stderr)
         return 2
     if peak > RAM_BUDGET_MB:
         print("[RAM-GATE] FAIL: peak RAM exceeds the 2GB budget.", file=sys.stderr)

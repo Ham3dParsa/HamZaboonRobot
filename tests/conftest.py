@@ -40,6 +40,11 @@ import pytest
 import services.db as db
 from services.db import schema as db_schema
 
+# Fail closed if import ordering ever inverts (conftest moved to repo root).
+assert os.environ.get("HAMZABAN_TEST_MODE") == "1", (
+    "tests/conftest.py warm-import requires HAMZABAN_TEST_MODE==1 from tests/__init__.py"
+)
+
 import bot
 import config
 
@@ -71,8 +76,12 @@ def _ensure_master() -> str:
         area = os.path.join(tempfile.gettempdir(), "hamzaban_test_area", worker)
         os.makedirs(area, exist_ok=True)
         master = os.path.join(area, "master.db")
-        if os.path.exists(master):
-            os.remove(master)
+        for p in (master, f"{master}-wal", f"{master}-shm"):
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except OSError:
+                pass
         _ORIGINAL_INIT_DB(master)
         _MASTER_CACHE[worker] = master
         return master
@@ -103,6 +112,10 @@ def _patched_init_db(path: str | None = None):
             if parent:
                 os.makedirs(parent, exist_ok=True)
             shutil.copy2(master, target)
+            for suffix in ("-wal", "-shm"):
+                src = f"{master}{suffix}"
+                if os.path.exists(src):
+                    shutil.copy2(src, f"{target}{suffix}")
             return
     return _ORIGINAL_INIT_DB(path)
 
