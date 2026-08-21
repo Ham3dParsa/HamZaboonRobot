@@ -460,7 +460,8 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⏰ واژه‌های آماده‌ی مرور: {len(due)}"
     )
     await _edit_or_send(update, context, text, reply_markup=settings_back_keyboard())
-    await notify_callback(update.callback_query)
+    if update.callback_query:
+        await notify_callback(update.callback_query)
 
 
 async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -468,7 +469,8 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
         await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
-        await notify_callback(update.callback_query)
+        if update.callback_query:
+            await notify_callback(update.callback_query)
         return
     lang_name = language_label(row["target_lang"])
     goal_name = goal_label(row["goal"])
