@@ -73,7 +73,9 @@ def _ensure_master() -> str:
         cached = _MASTER_CACHE.get(worker)
         if cached is not None:
             return cached
-        area = os.path.join(tempfile.gettempdir(), "hamzaban_test_area", worker)
+        area = os.path.join(
+            tempfile.gettempdir(), "hamzaban_test_area", worker, str(os.getpid())
+        )
         os.makedirs(area, exist_ok=True)
         master = os.path.join(area, "master.db")
         # Remove sidecars BEFORE main file; suppress only FileNotFoundError

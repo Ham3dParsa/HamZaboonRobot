@@ -76,16 +76,25 @@ def main() -> int:
               file=sys.stderr)
         return 2
     if peak <= 0:
+        # Preserve pytest's exit code; handle signal termination distinctly.
+        rc = proc.returncode
+        sig_info = ""
+        if rc is not None and rc < 0:
+            sig_info = f" (terminated by signal {-rc})"
         if elapsed < SAMPLE_INTERVAL * 2:
             print(f"[RAM-GATE] FAIL: pytest exited very quickly ({elapsed:.1f}s) before "
-                  "any RAM sample could be collected (pytest exit code "
-                  f"{proc.returncode}). Check pytest output for "
-                  "collection/import errors.", file=sys.stderr)
+                  f"any RAM sample could be collected (pytest exit code {rc}{sig_info}). "
+                  "Check pytest output for collection/import errors.", file=sys.stderr)
         else:
             print("[RAM-GATE] FAIL: could not sample process RAM (no valid "
-                  f"sample collected, pytest exit code {proc.returncode}). "
+                  f"sample collected, pytest exit code {rc}{sig_info}). "
                   "Check psutil permissions.", file=sys.stderr)
-        return proc.returncode or 2
+        # Normalize signal to 128+sig for shell convention, but preserve non-zero
+        if rc is None:
+            return 2
+        if rc < 0:
+            return 128 - rc
+        return rc or 2
     if peak > RAM_BUDGET_MB:
         print("[RAM-GATE] FAIL: peak RAM exceeds the 2GB budget.", file=sys.stderr)
         return 1

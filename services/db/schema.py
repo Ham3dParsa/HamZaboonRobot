@@ -260,6 +260,12 @@ def _set_test_db_marker(conn) -> None:
 def _db_application_id(path: str) -> int | None:
     """Return the SQLite application_id of an existing database, or None.
 
+    Returns:
+        int: application_id value (``_TEST_APP_ID`` for a marked test DB,
+             ``0`` for a genuinely unmarked DB).
+        None: identity unknown — probe failure, non-regular path, or
+              uncertain WAL state.
+
     Opens strictly read-only so the main database file itself is never
     modified. Uses Path.as_uri() for correct Windows-safe URI construction.
     Reads WAL-visible state (?mode=ro) so a non-checkpointed marker is not
@@ -280,16 +286,24 @@ def _db_application_id(path: str) -> int | None:
 def _guard_destructive_op(path: str) -> None:
     """Path + identity safety gate for destructive DB operations (R1).
 
-    In test mode, abort before any mutation if the target path is the
-    production database, or if an existing database at the path is not a marked
-    test database (application_id). Never enforced outside test mode so
+    Distinguishes three states explicitly:
+        MARKED_TEST_DB   (application_id == _TEST_APP_ID) -> allowed
+        UNMARKED_DB      (application_id != _TEST_APP_ID) -> refuse
+        IDENTITY_UNKNOWN (probe returns None)              -> refuse
+
+    Never treats a probe failure as proof of unmarked, and never allows
+    an uncertain identity to pass. Never enforced outside test mode so
     production admin restore keeps working.
     """
     _check_test_mode_guard(path)
     if _test_mode_on() and os.path.exists(path):
-        # Only probe regular files; non-regular paths are treated as unknown
-        # identity and therefore refused.
+        # Only probe regular files; non-regular paths are UNKNOWN.
         app_id = _db_application_id(path) if os.path.isfile(path) else None
+        if app_id is None:
+            raise RuntimeError(
+                "Test mode refuses a destructive operation — database identity "
+                f"is UNKNOWN (probe failed): {path!r}."
+            )
         if app_id != _TEST_APP_ID:
             raise RuntimeError(
                 "Test mode refuses a destructive operation on a non-test "

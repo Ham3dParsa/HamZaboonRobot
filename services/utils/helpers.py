@@ -211,7 +211,7 @@ async def _send_with_retry(
         except RetryAfter as exc:
             if attempt == 2:
                 raise
-            await asyncio.sleep(min(float(exc.retry_after), 30))
+            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
             # Sending creates a NEW message each call, so a timeout/network
             # error is ambiguous (the message may already be delivered).
@@ -231,7 +231,7 @@ async def _edit_with_retry(query, text, **kwargs):
         except RetryAfter as exc:
             if attempt == 2:
                 raise
-            await asyncio.sleep(min(float(exc.retry_after), 30))
+            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
             if attempt == 2:
                 raise
@@ -263,7 +263,7 @@ async def _edit_message_with_retry(
         except RetryAfter as exc:
             if attempt == 2:
                 raise
-            await asyncio.sleep(min(float(exc.retry_after), 30))
+            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
             if attempt == 2:
                 raise
@@ -298,7 +298,7 @@ async def _edit_markup_with_retry(
         except RetryAfter as exc:
             if attempt == 2:
                 raise
-            await asyncio.sleep(min(float(exc.retry_after), 30))
+            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
             if attempt == 2:
                 raise
@@ -317,7 +317,7 @@ async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
         except RetryAfter as exc:
             if attempt == 2:
                 raise
-            await asyncio.sleep(min(float(exc.retry_after), 30))
+            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
             if attempt == 2:
                 raise
@@ -339,7 +339,7 @@ async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
         except RetryAfter as exc:
             if attempt == 2:
                 raise
-            await asyncio.sleep(min(float(exc.retry_after), 30))
+            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
             # Sending creates a NEW message each call; a timeout/network error
             # is ambiguous (may already be delivered). Never re-send a voice.

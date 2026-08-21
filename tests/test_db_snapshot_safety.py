@@ -89,6 +89,42 @@ class TestSnapshotSafety(unittest.TestCase):
             conn.close()
         db_schema._guard_destructive_op(path)  # must not raise
 
+    def test_destructive_op_guard_blocks_unknown_identity(self):
+        path = self._fresh_path("unknown.db")
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute(f"PRAGMA application_id={db_schema._TEST_APP_ID}")
+            conn.commit()
+        finally:
+            conn.close()
+        with patch.object(db_schema, "_db_application_id", return_value=None):
+            with self.assertRaises(RuntimeError) as ctx:
+                db_schema._guard_destructive_op(path)
+            self.assertIn("UNKNOWN", str(ctx.exception))
+
+    def test_destructive_op_guard_blocks_directory(self):
+        # Non-regular path (directory) is UNKNOWN and must be refused
+        dir_path = self._fresh_path("adir")
+        os.makedirs(dir_path)
+        with self.assertRaises(RuntimeError) as ctx:
+            db_schema._guard_destructive_op(dir_path)
+        self.assertIn("UNKNOWN", str(ctx.exception))
+
+    def test_stale_nonempty_wal_does_not_bypass_guard(self):
+        # Non-empty stale WAL must not make an unmarked DB appear marked
+        path = self._fresh_path("stale_wal.db")
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("CREATE TABLE t (x INTEGER)")
+            conn.commit()
+        finally:
+            conn.close()
+        # Create a non-empty stale wal sidecar
+        with open(path + "-wal", "wb") as f:
+            f.write(b"stale-non-empty-wal")
+        with self.assertRaises(RuntimeError):
+            db_schema._guard_destructive_op(path)
+
     def test_destructive_op_guard_blocks_production_path(self):
         # Even if (impossibly) marked, the production path is always blocked.
         path = self._fresh_path("prodlike.db")
@@ -235,6 +271,17 @@ class TestImportDbBytesContract(unittest.TestCase):
         # Neutralise the re-stamp that import_db_bytes does via init_db(candidate_path)
         with patch.object(db_schema, "_set_test_db_marker", lambda conn: None):
             db.import_db_bytes(data)
+        # Assert restore actually happened and live DB now contains the restored data
+        # (SUGG3) — candidate was unmarked, so live DB should also be unmarked
+        # when the re-stamp is disabled, but must still be a valid DB.
+        self.assertEqual(db_schema._db_application_id(self.target), 0)
+        with db.get_conn() as conn:
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'") if r[0] != "sqlite_sequence"}
+        self.assertIn("users", tables)
+        # Verify normal (unpatched) path would stamp _TEST_APP_ID — sanity check
+        normal = os.path.join(self._tmp.name, "normal_marked.db")
+        db_schema.init_db(normal)
+        self.assertEqual(db_schema._db_application_id(normal), db_schema._TEST_APP_ID)
 
     def test_production_target_blocked_as_valueerror(self):
         # Point HAMZABAN_PRODUCTION_DB_PATH at the active target
@@ -266,27 +313,20 @@ class TestImportDbBytesContract(unittest.TestCase):
 
     def test_stale_target_sidecars_are_removed_on_fresh_copy(self):
         # Stale wal/shm at the target must not survive a fresh master copy.
-        stale_wal = self.target + "-wal"
-        stale_shm = self.target + "-shm"
-        # Use a fresh temp target (not self.target which is already a DB)
         fresh = os.path.join(self._tmp.name, "fresh_stale.db")
-        # Ensure no DB there yet
         self.assertFalse(os.path.exists(fresh))
-        # Create stale sidecars before the copy
+        # Create realistic non-empty stale sidecars before the copy
         for p in (fresh + "-wal", fresh + "-shm"):
             with open(p, "wb") as f:
-                f.write(b"stale")
+                f.write(b"stale-non-empty-sidecar")
         db.DB_PATH = fresh
         db_schema.DB_PATH = fresh
         db.init_db()  # copy intercept should clean stale sidecars
-        # Fresh DB must be valid and sidecars gone (or at least not stale)
         self.assertTrue(os.path.exists(fresh))
-        # After a valid copy the stale content must not remain
-        for p in (fresh + "-wal", fresh + "-shm"):
-            if os.path.exists(p):
-                # If SQLite recreated a wal, it must not contain stale bytes
-                with open(p, "rb") as f:
-                    self.assertNotEqual(f.read(), b"stale")
+        # Directly assert sidecars are absent (SUGG5)
+        self.assertFalse(os.path.exists(fresh + "-wal"))
+        self.assertFalse(os.path.exists(fresh + "-shm"))
+        self.assertFalse(os.path.exists(fresh + "-journal"))
 
 
 if __name__ == "__main__":
