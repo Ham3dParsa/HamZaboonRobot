@@ -20,6 +20,12 @@ fall through to the real ``init_db`` so migration/restore/idempotency tests
 keep exercising genuine code paths. The master lives only in a dedicated test
 sandbox under the temp dir (R3), never in the repository and never derived from
 production.
+
+Pins ``bot._telegram_offline`` to ``False`` for every test and restores the
+previous value afterwards, neutralising the cross-file global leak at its
+source: ``test_reliability.py`` leaves the flag ``True`` after a health-job
+test, which makes ``bot.text_router``/``callback_router`` early-return offline
+for later tests on the same xdist worker.
 """
 
 import os
@@ -33,6 +39,9 @@ import pytest
 # collection cannot hit the circular-import cycle (see module docstring).
 import services.db as db
 from services.db import schema as db_schema
+
+import bot
+import config
 
 # R4: default test backoff base (0.1). Production default stays 1.0; 0.05 is
 # reserved for explicit performance benchmarks and overrides via env.
@@ -117,11 +126,19 @@ def pytest_runtest_teardown(item, nextitem):
 
 @pytest.fixture(autouse=True)
 def _ai_master_key():
-    import config
-
     old = getattr(config, "AI_MASTER_KEY", "")
     config.AI_MASTER_KEY = TEST_MASTER_KEY
     try:
         yield
     finally:
         config.AI_MASTER_KEY = old
+
+
+@pytest.fixture(autouse=True)
+def _telegram_offline_pinned():
+    old = getattr(bot, "_telegram_offline", False)
+    bot._telegram_offline = False
+    try:
+        yield
+    finally:
+        bot._telegram_offline = old

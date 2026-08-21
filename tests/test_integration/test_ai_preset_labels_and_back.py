@@ -178,6 +178,23 @@ class AiPresetLabelCanonicalizationTest(_AiPresetLabelsAndBackBase):
         self.assertIn("Max TPM", confirmation)
         self.assertNotIn("max_tpm", confirmation)
 
+    def test_priority_quick_edit_parses_int(self):
+        from handlers.admin_ai import _handle_ai_preset_field_input
+
+        self.flow_ctx.user_data["awaiting"] = "ai_preset_edit:custom_gpt:priority"
+        up = self._make_message_update("5")
+        asyncio.run(_handle_ai_preset_field_input(up, self.flow_ctx, "custom_gpt", "priority", "5"))
+        self.assertEqual(self.flow_ctx.user_data["preset_edits"]["custom_gpt"]["priority"], 5)
+
+    def test_priority_edit_save_passes_priority_to_set_preset(self):
+        from handlers.admin_ai import _save_ai_preset
+
+        self.flow_ctx.user_data["preset_edits"] = {"custom_gpt": {"priority": 7}}
+        update = self._make_callback_update("x")
+        with patch("services.db.set_preset") as mock_set:
+            asyncio.run(_save_ai_preset(update, self.flow_ctx, "custom_gpt"))
+        self.assertEqual(mock_set.call_args.kwargs["priority"], 7)
+
     def test_field_edit_prompt_uses_short_label(self):
         from handlers.admin_ai import _edit_ai_preset_field
 
