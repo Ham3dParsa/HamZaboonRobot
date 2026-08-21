@@ -74,6 +74,7 @@ _FIELD_HELP = {
     "input_cost_per_million": "هزینه هر یک میلیون توکن ورودی (درخواست) به دلار. خالی = استفاده از مقدار سراسری تنظیم شده در داشبورد هزینه.",
     "output_cost_per_million": "هزینه هر یک میلیون توکن خروجی (پاسخ) به دلار. خالی = استفاده از مقدار سراسری.",
     "group_label": "برچسب دلخواه برای گروه‌بندی پریست‌هایی که کلید API مشترک دارند. نمونه: «سرویس‌دهنده اصلی» یا «پشتیبان رایگان»",
+    "reasoning_effort": "میزان تلاش استدلال مدل‌های thinking: none (غیرفعال)، low، medium یا high. فقط وقتی مقدار none نیست به درخواست اضافه می‌شود.",
 }
 
 # Canonical all-English short label map. Single source of truth for the
@@ -97,6 +98,7 @@ FIELD_LABELS = {
     "output_cost_per_million": "Output Cost $/1M",
     "in_fallback_chain": "In Fallback Chain",
     "group_label": "Group Label",
+    "reasoning_effort": "Reasoning Effort",
 }
 
 
@@ -481,6 +483,10 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
             value = raw
             if not value or len(value) > MAX_GROUP_LABEL_LEN:
                 raise ValueError
+        elif field_name == "reasoning_effort":
+            value = raw.strip().lower()
+            if value not in ("none", "low", "medium", "high"):
+                raise ValueError
         else:
             value = raw
     except ValueError:
@@ -516,6 +522,7 @@ WIZARD_FIELDS = [
     "max_daily_req", "timeout_seconds", "temperature", "max_output_tokens",
     "priority", "is_emergency", "in_fallback_chain",
     "input_cost_per_million", "output_cost_per_million", "group_label",
+    "reasoning_effort",
 ]
 
 WIZARD_GROUP_HEADERS = {
@@ -661,6 +668,11 @@ def _validate_wizard_value(field_name: str, raw: str, preset_name: str) -> tuple
             if not raw or len(raw) > MAX_GROUP_LABEL_LEN:
                 return None
             return (raw,)
+        elif field_name == "reasoning_effort":
+            v = raw.strip().lower()
+            if v not in ("none", "low", "medium", "high"):
+                return None
+            return (v,)
         else:
             return (raw,)
     except (ValueError, TypeError):
@@ -851,6 +863,7 @@ async def _handle_full_edit_save(update: Update, context: ContextTypes.DEFAULT_T
             output_cost_per_million=values.get("output_cost_per_million", preset_fields.resolve(preset, "output_cost_per_million")),
             in_fallback_chain=int(values.get("in_fallback_chain", preset_fields.resolve(preset, "in_fallback_chain"))),
             group_label=values.get("group_label", preset_fields.resolve(preset, "group_label")),
+            reasoning_effort=(values.get("reasoning_effort") or preset_fields.resolve(preset, "reasoning_effort") or "none"),
         )
     except db.MasterKeyRequiredError:
         await notify_callback(update.callback_query, "برای ذخیره کلید API باید AI_MASTER_KEY در سرور پیکربندی شود.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
@@ -1057,6 +1070,7 @@ async def _save_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
             output_cost_per_million=edits.get("output_cost_per_million", preset_fields.resolve(preset, "output_cost_per_million")),
             in_fallback_chain=int(edits.get("in_fallback_chain", preset_fields.resolve(preset, "in_fallback_chain"))),
             group_label=edits.get("group_label", preset_fields.resolve(preset, "group_label")),
+            reasoning_effort=(edits.get("reasoning_effort") or preset_fields.resolve(preset, "reasoning_effort") or "none"),
             previous_name=preset_name,
             remove_orphaned_group_key=removing_group,
         )

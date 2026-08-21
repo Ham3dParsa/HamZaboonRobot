@@ -73,6 +73,7 @@ PRESET_FIELDS: dict[str, dict] = {
     "output_cost_per_million": {"type": "float", "write_default": None, "cost": True},
     "in_fallback_chain": {"type": "int", "write_default": 1},
     "group_label": {"type": "str", "write_default": ""},
+    "reasoning_effort": {"type": "str", "write_default": "none"},
 }
 
 _VALID_TYPES = {"str", "int", "float"}

@@ -23,14 +23,16 @@ log = logging.getLogger(__name__)
 
 
 def create_client(preset: dict | None = None, *, api_key_override: str | None = None) -> OpenAI:
-    """Create an OpenAI client for a preset (or the active settings).
+    """Create an OpenAI client for a preset (defaults to the active preset).
 
-    This is the single seam for constructing an OpenAI client. API keys are
-    resolved **only** through ``db.resolve_preset_key(preset)``, which is
-    fail-closed: a missing master key or absent preset key resolves to ``""``
-    and never to a plaintext fallback (BUG-2). The explicit ``api_key_override``
-    is reserved for admin connection probes (``test_connection``) where the
-    caller intentionally supplies credentials to test; it is never inferred.
+    This is the single seam for constructing an OpenAI client. ``base_url`` and
+    ``timeout`` are resolved from the preset row via ``preset_fields.resolve``;
+    the model is resolved separately via ``_model``; API keys are resolved
+    **only** through ``db.resolve_preset_key(preset)`` (fail-closed — no
+    ``settings`` ``ai_base_url``/``ai_api_key``/``ai_model`` fallback, R17).
+    The explicit ``api_key_override`` is reserved for admin connection probes
+    (``test_connection``) where the caller intentionally supplies credentials;
+    it is never inferred. ``_client`` is a thin alias to this seam.
     """
     if preset is None:
         preset = db.get_active_preset()
@@ -60,9 +62,12 @@ def _client(preset: dict | None = None) -> OpenAI:
 def _model(preset: dict | None = None) -> str:
     if preset is None:
         preset = db.get_active_preset()
-    if preset.get("model"):
-        return preset["model"]
-    return db.get_setting("ai_model", DEFAULT_AI_MODEL)
+    # R17: the preset row is the single source of truth; the legacy flat
+    # settings copy (ai_model/ai_base_url/ai_api_key) is no longer written by
+    # activate_preset and must not be read as a fallback. Fall back only to the
+    # deployment default when the preset has no model.
+    model = preset_fields.resolve(preset, "model") if preset else ""
+    return model or DEFAULT_AI_MODEL
 
 
 def test_connection(
@@ -623,12 +628,14 @@ def _request_json(
     model = _model(preset)
     temp = preset_fields.resolve(preset or {}, "temperature")
     mtokens = preset_fields.resolve(preset or {}, "max_output_tokens")
+    reasoning = preset_fields.resolve(preset or {}, "reasoning_effort")
     started = time.monotonic()
     telemetry = telemetry if telemetry is not None else {}
     telemetry["model"] = model
     telemetry["request_kind"] = request_kind
+    extra_body = {"reasoning_effort": reasoning} if reasoning not in (None, "", "none") else None
     try:
-        resp = client.chat.completions.create(
+        kwargs: dict = dict(
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -637,6 +644,9 @@ def _request_json(
             temperature=temp,
             max_tokens=mtokens,
         )
+        if extra_body is not None:
+            kwargs["extra_body"] = extra_body
+        resp = client.chat.completions.create(**kwargs)
     except Exception as exc:
         if getattr(exc, "status_code", None) == 429 or "RateLimitError" in type(exc).__name__:
             raise RateLimitError(str(exc)) from exc

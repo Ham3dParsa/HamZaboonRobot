@@ -26,9 +26,27 @@ class NoActivePresetError(Exception):
 
 
 def get_active_preset_name() -> str:
+    """Return the preferred (active) preset name (R17).
+
+    "Active" means enabled; "preferred" (`ai_primary_preset`) is the first-in-chain
+    target and the chain fails over by priority (R1). If the stored preferred
+    points at a disabled or missing preset it is treated as empty and the first
+    enabled preset in priority order is returned (builtin default already removed —
+    no implicit preset is ever invented).
+    """
     if get_bool_setting("ai_fallback_active", False):
-        return get_setting("ai_fallback_preset", "") or (_first_enabled_name() or "")
-    return get_setting("ai_primary_preset", "") or (_first_enabled_name() or "")
+        candidate = (get_setting("ai_fallback_preset", "") or "").strip()
+        if candidate:
+            p = get_preset(candidate)
+            if p and _pf.resolve(p, "enabled"):
+                return candidate
+        return _first_enabled_name() or ""
+    candidate = (get_setting("ai_primary_preset", "") or "").strip()
+    if candidate:
+        p = get_preset(candidate)
+        if p and _pf.resolve(p, "enabled"):
+            return candidate
+    return _first_enabled_name() or ""
 
 
 def get_active_preset() -> dict:
@@ -68,6 +86,7 @@ def set_preset(
     output_cost_per_million: float | None = _pf.write_default("output_cost_per_million"),
     in_fallback_chain: int = _pf.write_default("in_fallback_chain"),
     group_label: str = _pf.write_default("group_label"),
+    reasoning_effort: str = _pf.write_default("reasoning_effort"),
     *,
     previous_name: str | None = None,
     remove_orphaned_group_key: bool = False,
@@ -106,6 +125,7 @@ def set_preset(
             "is_emergency=excluded.is_emergency",
             "in_fallback_chain=excluded.in_fallback_chain",
             "group_label=excluded.group_label",
+            "reasoning_effort=excluded.reasoning_effort",
         ]
         if priority is not None:
             conflict_sets.append("priority=excluded.priority")
@@ -116,8 +136,8 @@ def set_preset(
         if output_cost_per_million is not None:
             conflict_sets.append("output_cost_per_million=excluded.output_cost_per_million")
         conn.execute(
-            "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_emergency, priority, enabled, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "INSERT INTO ai_presets(name, base_url, model, api_key, daily_batch_size, max_concurrency, max_rpm, max_tpm, max_daily_req, timeout_seconds, temperature, max_output_tokens, is_emergency, priority, enabled, input_cost_per_million, output_cost_per_million, in_fallback_chain, group_label, reasoning_effort) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             f"ON CONFLICT(name) DO UPDATE SET {', '.join(conflict_sets)}",
             (
                 name,
@@ -139,6 +159,7 @@ def set_preset(
                 output_cost_per_million,
                 in_fallback_chain,
                 group_label,
+                reasoning_effort,
             ),
         )
         if previous_name and previous_name != name:
@@ -295,7 +316,7 @@ def clone_preset(name: str, new_name: str) -> str:
         "max_rpm", "max_tpm", "max_daily_req", "timeout_seconds", "temperature",
         "max_output_tokens", "is_emergency", "priority", "enabled",
         "input_cost_per_million", "output_cost_per_million", "in_fallback_chain",
-        "group_label",
+        "group_label", "reasoning_effort",
     )
     with transaction() as conn:
         placeholders = ", ".join("?" for _ in field_names)
@@ -309,8 +330,22 @@ def clone_preset(name: str, new_name: str) -> str:
 
 
 def activate_preset(name: str) -> bool:
+    """Set the *preferred* preset (R17) — no flat-key copy.
+
+    The preferred preset is the first-in-chain routing target; the fallback chain
+    (R1) fails over by priority to the next enabled preset. A disabled or missing
+    preset is rejected (returns ``False``) and the stored preference is left
+    untouched. The legacy ``ai_base_url``/``ai_model``/``ai_api_key`` flat copies
+    are no longer written — the preset row plus ``resolve_preset_key`` is the
+    single source of truth (AI/LLM Provider seam, read by
+    ``services/ai/ai.create_client`` (and its alias ``_client``) / ``_model``
+    via ``preset_fields.resolve`` + ``resolve_preset_key`` — no ``settings``
+    fallback).
+    """
     preset = get_preset(name)
     if not preset:
+        return False
+    if not _pf.resolve(preset, "enabled"):
         return False
     with transaction() as conn:
         conn.execute(
@@ -318,24 +353,6 @@ def activate_preset(name: str) -> bool:
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             ("ai_primary_preset", name),
         )
-        if preset.get("base_url"):
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                ("ai_base_url", preset["base_url"]),
-            )
-        if preset.get("model"):
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                ("ai_model", preset["model"]),
-            )
-        if preset.get("api_key"):
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                ("ai_api_key", preset["api_key"]),
-            )
     return True
 
 
