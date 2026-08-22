@@ -46,6 +46,7 @@ from services.scheduling import (
 )
 from services.utils.formatting import (
     NEW_CARD_BADGE,
+    SRS_PROMPT_TYPES,
     phonetic_lines,
     _saved_word_card,
     days_since_review,
@@ -109,6 +110,53 @@ def _state_to_json(state: SessionState) -> str:
     )
 
 
+def _is_valid_prompt_type(value: str | None) -> bool:
+    """Single seam for prompt enum validation (kilo 132).
+
+    Keeps corrupt/future DB values from crashing the render seam.
+    """
+    return isinstance(value, str) and value in SRS_PROMPT_TYPES
+
+
+def _frozen_for_word(
+    state: SessionState | None, word_id: int
+) -> tuple[str | None, bool]:
+    """Return (prompt_type, revealed) for the frozen active card.
+
+    Single validation seam for the 3 duplicated render blocks (kilo 588).
+    A corrupt enum is cleared eagerly so it never reaches format_srs_front_stage.
+    """
+    if state is None or state.active_prompt_word_id != word_id:
+        return None, False
+    pt = state.active_prompt_type
+    if not _is_valid_prompt_type(pt):
+        state.active_prompt_type = None
+        state.active_prompt_word_id = None
+        state.revealed = False
+        return None, False
+    return pt, bool(state.revealed)
+
+
+def _stash_frozen_user_data(
+    user_data: dict | None, word_id: int, prompt_type: str | None, revealed: bool
+) -> None:
+    """Mirror the frozen stage into the ephemeral telemetry dict."""
+    if user_data is None:
+        return
+    if revealed:
+        user_data[f"revealed_{word_id}"] = True
+        if prompt_type is not None:
+            user_data[f"prompt_type_{word_id}"] = prompt_type
+        if f"card_shown_at_{word_id}" not in user_data:
+            user_data[f"card_shown_at_{word_id}"] = time.time()
+    else:
+        user_data.pop(f"revealed_{word_id}", None)
+        if prompt_type is not None:
+            user_data[f"prompt_type_{word_id}"] = prompt_type
+        if f"card_shown_at_{word_id}" not in user_data:
+            user_data[f"card_shown_at_{word_id}"] = time.time()
+
+
 def _state_from_json(raw: str) -> SessionState:
     """Rebuild a SessionState from its JSON serialization."""
     data = json.loads(raw)
@@ -117,6 +165,12 @@ def _state_from_json(raw: str) -> SessionState:
         prompt_wid = int(raw_prompt_wid) if raw_prompt_wid is not None else None
     except (TypeError, ValueError):
         prompt_wid = None
+    raw_prompt = data.get("active_prompt_type")
+    prompt_type = raw_prompt if _is_valid_prompt_type(raw_prompt) else None
+    # A stray revealed without a matching prompt is meaningless — clear both
+    if prompt_type is None and prompt_wid is not None:
+        prompt_wid = None
+    revealed = bool(data.get("revealed", False)) and prompt_type is not None and prompt_wid is not None
     return SessionState(
         nodes=[SessionNode(**node) for node in data["nodes"]],
         total_cards=data["total_cards"],
@@ -128,8 +182,8 @@ def _state_from_json(raw: str) -> SessionState:
             int(k): float(v)
             for k, v in (data.get("before_stability") or {}).items()
         },
-        revealed=bool(data.get("revealed", False)),
-        active_prompt_type=data.get("active_prompt_type"),
+        revealed=revealed,
+        active_prompt_type=prompt_type,
         active_prompt_word_id=prompt_wid,
     )
 
@@ -491,39 +545,20 @@ def _build_card_text_and_keyboard(
         )
         return text, keyboard
 
-    # Staged (default): hidden front stage + reveal action, frozen.
+    # Staged (default): hidden front stage + reveal action, frozen (kilo 588 seam).
     toggles = db.get_display_toggles(user_id)
-
-    # Already revealed for this exact word → back stage (no re-roll)
-    if state is not None and state.revealed and state.active_prompt_word_id == word_id:
-        if user_data is not None:
-            user_data[f"revealed_{word_id}"] = True
-            if state.active_prompt_type is not None:
-                user_data[f"prompt_type_{word_id}"] = state.active_prompt_type
-            if f"card_shown_at_{word_id}" not in user_data:
-                user_data[f"card_shown_at_{word_id}"] = time.time()
-        keyboard = get_review_keyboard(user_id, word_id)
-        text = format_srs_back_stage(
-            card_data,
-            toggles=toggles,
-            phonetic_lines=phon_lines,
-            footer=progress,
-        )
-        return text, keyboard
-
-    # Frozen front prompt for this word → reuse without re-rolling
-    if (
-        state is not None
-        and state.active_prompt_type is not None
-        and state.active_prompt_word_id == word_id
-        and not state.revealed
-    ):
-        prompt_type = state.active_prompt_type
-        if user_data is not None:
-            user_data.pop(f"revealed_{word_id}", None)
-            user_data[f"prompt_type_{word_id}"] = prompt_type
-            if f"card_shown_at_{word_id}" not in user_data:
-                user_data[f"card_shown_at_{word_id}"] = time.time()
+    frozen_pt, frozen_revealed = _frozen_for_word(state, word_id)
+    if frozen_pt is not None:
+        _stash_frozen_user_data(user_data, word_id, frozen_pt, frozen_revealed)
+        if frozen_revealed:
+            keyboard = get_review_keyboard(user_id, word_id)
+            text = format_srs_back_stage(
+                card_data,
+                toggles=toggles,
+                phonetic_lines=phon_lines,
+                footer=progress,
+            )
+            return text, keyboard
         days = days_since_review(
             word_row["last_review_at"] if word_row is not None else None
         )
@@ -531,7 +566,7 @@ def _build_card_text_and_keyboard(
         keyboard = get_srs_front_keyboard(user_id, word_id)
         text = format_srs_front_stage(
             card_data,
-            prompt_type,
+            frozen_pt,
             toggles=toggles,
             phonetic_lines=phon_lines,
             badge=badge,
@@ -539,16 +574,13 @@ def _build_card_text_and_keyboard(
         )
         return text, keyboard
 
-    # First time seeing this card (or different word) → pick and freeze
+    # First time for this word → pick, freeze, and stash
     prompt_type = select_srs_prompt_type(card_data, toggles)
     if state is not None:
         state.active_prompt_type = prompt_type
         state.active_prompt_word_id = word_id
         state.revealed = False
-    if user_data is not None:
-        user_data.pop(f"revealed_{word_id}", None)
-        user_data[f"prompt_type_{word_id}"] = prompt_type
-        user_data[f"card_shown_at_{word_id}"] = time.time()
+    _stash_frozen_user_data(user_data, word_id, prompt_type, False)
     days = days_since_review(
         word_row["last_review_at"] if word_row is not None else None
     )
@@ -584,40 +616,23 @@ def _render_first_exposure(
     """
     if db.resolve_card_mode(user_id, "first_exposure") == "staged":
         toggles = db.get_display_toggles(user_id)
-        # Revealed FE → back stage with FE grade grid
-        if state is not None and state.revealed and state.active_prompt_word_id == word_id:
-            if user_data is not None:
-                user_data[f"revealed_{word_id}"] = True
-                if state.active_prompt_type is not None:
-                    user_data[f"prompt_type_{word_id}"] = state.active_prompt_type
-                if f"card_shown_at_{word_id}" not in user_data:
-                    user_data[f"card_shown_at_{word_id}"] = time.time()
-            keyboard = get_first_exposure_keyboard(user_id, word_id)
-            text = format_srs_back_stage(
-                card_data,
-                toggles=toggles,
-                phonetic_lines=phon_lines,
-                badge=NEW_CARD_BADGE,
-                footer=progress,
-            )
-            return text, keyboard
-        # Frozen FE front
-        if (
-            state is not None
-            and state.active_prompt_type is not None
-            and state.active_prompt_word_id == word_id
-            and not state.revealed
-        ):
-            prompt_type = state.active_prompt_type
-            if user_data is not None:
-                user_data.pop(f"revealed_{word_id}", None)
-                user_data[f"prompt_type_{word_id}"] = prompt_type
-                if f"card_shown_at_{word_id}" not in user_data:
-                    user_data[f"card_shown_at_{word_id}"] = time.time()
+        frozen_pt, frozen_revealed = _frozen_for_word(state, word_id)
+        if frozen_pt is not None:
+            _stash_frozen_user_data(user_data, word_id, frozen_pt, frozen_revealed)
+            if frozen_revealed:
+                keyboard = get_first_exposure_keyboard(user_id, word_id)
+                text = format_srs_back_stage(
+                    card_data,
+                    toggles=toggles,
+                    phonetic_lines=phon_lines,
+                    badge=NEW_CARD_BADGE,
+                    footer=progress,
+                )
+                return text, keyboard
             keyboard = get_srs_front_keyboard(user_id, word_id)
             text = format_srs_front_stage(
                 card_data,
-                prompt_type,
+                frozen_pt,
                 toggles=toggles,
                 phonetic_lines=phon_lines,
                 badge=NEW_CARD_BADGE,
@@ -630,10 +645,7 @@ def _render_first_exposure(
             state.active_prompt_type = prompt_type
             state.active_prompt_word_id = word_id
             state.revealed = False
-        if user_data is not None:
-            user_data.pop(f"revealed_{word_id}", None)
-            user_data[f"prompt_type_{word_id}"] = prompt_type
-            user_data[f"card_shown_at_{word_id}"] = time.time()
+        _stash_frozen_user_data(user_data, word_id, prompt_type, False)
         keyboard = get_srs_front_keyboard(user_id, word_id)
         text = format_srs_front_stage(
             card_data,

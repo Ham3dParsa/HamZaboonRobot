@@ -194,16 +194,27 @@ async def _handle_srs_reveal(
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         return
-    context.user_data[f"revealed_{word_id}"] = True
-    # Freeze revealed so resume/restart shows back stage (R2)
+    # Freeze revealed so resume/restart shows back stage (R2) — only commit
+    # to memory after DB confirms, otherwise a failed write would diverge
+    # memory (back) from DB (front) and re-introduce the flip exploit (kilo 200).
+    old_revealed = state.revealed
+    old_prompt_wid = state.active_prompt_word_id
+    state.revealed = True
+    if state.active_prompt_word_id != word_id:
+        state.active_prompt_word_id = word_id
     try:
-        state.revealed = True
-        # Ensure prompt stays frozen for this word
-        if state.active_prompt_word_id != word_id:
-            state.active_prompt_word_id = word_id
         _persist_session(user_id, state)
     except Exception:
+        # Roll back so memory and DB stay in sync (front) until next reveal.
+        state.revealed = old_revealed
+        state.active_prompt_word_id = old_prompt_wid
         logger.exception("reveal persist failed user_id=%s word_id=%s", user_id, word_id)
+        # Still keep ephemeral flag so the current message stays as back; DB
+        # will be corrected on next successful reveal. Don't clear user_data.
+        context.user_data[f"revealed_{word_id}"] = True
+        await notify_callback(update.callback_query)
+        return
+    context.user_data[f"revealed_{word_id}"] = True
     await notify_callback(update.callback_query)
 
 
