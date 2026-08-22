@@ -1,10 +1,11 @@
 """Regression for BTN_SETTINGS via text_router with no callback_query (fix/settings-menu-callback-crash)."""
 
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import bot
 from config.keyboards import BTN_SETTINGS
+from services.send_pretty import RawFormat
 
 
 class SettingsMenuViaTextRouterTests(unittest.IsolatedAsyncioTestCase):
@@ -38,7 +39,9 @@ class SettingsMenuViaTextRouterTests(unittest.IsolatedAsyncioTestCase):
         ):
             await bot.text_router(update, ctx)
 
-        mock_say.assert_awaited_once()
+        mock_say.assert_awaited_once_with(
+            update, ctx, "⚙️ تنظیمات و پروفایل من:\nاز دکمه‌های زیر یکی را انتخاب کن.", keyboard=ANY, raw=RawFormat.PLAIN
+        )
         notify.assert_not_awaited()
 
     async def test_btn_settings_not_onboarded_via_text_router_no_callback(self):
@@ -51,10 +54,10 @@ class SettingsMenuViaTextRouterTests(unittest.IsolatedAsyncioTestCase):
             patch.object(bot, "_telegram_offline", False),
             patch("bot.db.reset_user_blocked"),
             patch("handlers.user.db.get_user", return_value=None),
-            patch("handlers.user.say", new_callable=AsyncMock) as mock_say,
+            patch("handlers.user._send_with_retry", new_callable=AsyncMock) as mock_send,
             patch("handlers.user.notify_callback", new_callable=AsyncMock) as notify,
         ):
             await bot.text_router(update, ctx)
 
-        mock_say.assert_awaited_once()
+        mock_send.assert_awaited_once()
         notify.assert_not_awaited()

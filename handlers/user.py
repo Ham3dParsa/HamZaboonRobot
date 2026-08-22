@@ -468,7 +468,7 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
-        await say(update, context, "اول باید /start رو بزنی.", raw=RawFormat.PLAIN)
+        await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
         if update.callback_query:
             await notify_callback(update.callback_query)
         return
