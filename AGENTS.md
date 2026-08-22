@@ -12,9 +12,9 @@ _Last updated: 2026-08-18._
 ## 1. Product
 
 Telegram language-learning assistant for Persian speakers. MVP: AI-generated
-vocabulary cards + grammar tips; daily delivery; saved-word spaced repetition
-(FSRS-6); language/goal/level preferences; Free/Silver/Gold limits; owner-only
-admin.
+vocabulary cards + grammar tips; pull-based study sessions with saved-word
+spaced repetition (FSRS-6); language/goal/level preferences; Free/Bronze/Silver/
+Gold/Emerald session limits; owner-only admin. No daily push delivery.
 
 Priorities: safe understandable Telegram UX; predictable AI/Telegram resource
 use; durable, restart-safe background work; correct quotas/dates/idempotency;
@@ -108,9 +108,9 @@ keyboard.
 - Use `APP_TIMEZONE` for application-day; UTC for processing metadata.
 - Keep AI calls behind the global concurrency/request limiter and an explicit
   timeout — never run blocking sync provider calls on async Telegram handlers.
-- Route scheduled delivery, SRS, broadcasts through the shared Telegram
-  retry/concurrency path. Delivery retries bounded, back off via `retry_at`,
-  terminal after the attempt budget.
+- Route session rendering, SRS grading, and broadcasts through the shared
+  Telegram retry/concurrency path. Retries bounded, back off via shared
+  helpers, terminal after the attempt budget.
 - Quota checks that reserve usage must be atomic. Saved-word writes normalized + idempotent.
 - Preserve restart safety; avoid duplicate cards/messages/provider requests.
 - **Secrets:** never expose API keys/tokens in code, logs, tests, commits,
