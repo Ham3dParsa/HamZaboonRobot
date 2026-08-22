@@ -3,8 +3,10 @@
 ## Product Goal
 
 HamZaban is a Telegram-based language-learning assistant for Persian-speaking
-learners. It provides personalized vocabulary, grammar lessons, spaced
-repetition, and daily learning content across multiple target languages.
+learners. It provides personalized vocabulary, grammar lessons, and spaced
+repetition through pull-based study sessions across multiple target languages.
+There is no daily push delivery; learners start a session when they want to
+study.
 
 The roadmap prioritizes reliable learning value, predictable AI costs, clear
 Telegram UX, and an architecture that can support additional languages without
@@ -15,10 +17,10 @@ rewriting the core content flow.
 The project is an MVP with:
 
 - AI-generated vocabulary and grammar content
-- Daily vocabulary cards cached in SQLite
+- Pull-based study sessions (SRS reviews + new cards) with FSRS-6
 - User language and learning-goal preferences
-- Saved words with simple spaced repetition
-- Free, Silver, and Gold plan limits
+- Saved words with spaced repetition stored in SQLite (`saved_words`)
+- Free, Bronze, Silver, Gold, Emerald plan limits (sessions per day)
 - Owner-only administrative settings and per-user plan assignment
 - An explicit owner bypass for plan limits during development
 
@@ -55,10 +57,10 @@ This roadmap is organized around three concerns. The discipline is that real-use
 ### Done
 
 - AI-generated vocabulary and grammar content
-- Daily vocabulary cards cached in SQLite
+- Pull-based study sessions with FSRS-6 (SRS reviews + new cards)
 - User language and learning-goal preferences
-- Saved words with simple spaced repetition
-- Free, Silver, and Gold plan limits
+- Saved words with spaced repetition (SQLite `saved_words`)
+- Free, Bronze, Silver, Gold, Emerald plan limits (sessions per day)
 - Owner-only administrative settings and per-user plan assignment
 - Explicit owner bypass for plan limits during development
 - Study-session resume UX: re-entering an active session always sends a fresh
@@ -93,16 +95,16 @@ Completed on the current main branch:
 - Phase 1: validated card schema, safe JSON handling, and example
   translations
 - Phase 2: manual proficiency levels, CEFR labels, and German support
-- Phase 3 baseline: on-demand/manual card generation, scheduled session
-  planning, persisted daily cards, duplicate filtering, and partial-batch
-  retry
-- Phase 4 baseline: interactive next-card flow with persisted daily progress
-- Phase 6 baseline: durable load-aware scheduled delivery, per-user queue
-  states, bounded provider/Telegram concurrency, and restart recovery
-- Phase 6 hardening: bounded delivery retries with exponential backoff,
-  explicit AI timeout/offloading, shared Telegram retry handling, chunked SRS
-  reminders, timezone-consistent day boundaries, callback validation, atomic
-  word-query reservations, and idempotent saved-word persistence
+- Phase 3 baseline: on-demand card generation, persisted cards in `saved_words`,
+  duplicate filtering, and partial-batch retry
+- Phase 4 baseline: interactive study-session flow with persisted progress and
+  staged card reveal
+- Phase 6 baseline: pull-based sessions, bounded provider/Telegram concurrency,
+  and restart recovery (legacy `delivery_queue`/`daily_cards` push path removed)
+- Phase 6 hardening: bounded Telegram retries with exponential backoff,
+  explicit AI timeout/offloading, shared Telegram retry handling, timezone-consistent
+  day boundaries, callback validation, atomic word-query reservations, and idempotent
+  saved-word persistence
 - Cross-cutting option catalog: language, goal, and level metadata now live in
   `catalog.py` and are consumed by prompts, keyboards, bot status, and
   database defaults
@@ -369,14 +371,13 @@ The next language addition must use this contract.
 
 ## Locked Operational Configuration Decisions
 
-- The configuration contract uses one shared IANA timezone for all scheduled
-  behavior. The default is `APP_TIMEZONE=Asia/Tehran`.
-- Human-editable clock settings use local `HH:MM` values:
-  `ACTIVE_WINDOW_START`, `ACTIVE_WINDOW_END`, `PREFERRED_DELIVERY_TIME`, and
-  `SRS_REMINDER_TIME`.
-- The environment file provides global defaults. Per-user preferred delivery
-  time, active window, and optional daily card limit remain database-backed
-  overrides.
+- The configuration contract uses one shared IANA timezone for the application
+  day. The default is `APP_TIMEZONE=Asia/Tehran`.
+- Push scheduling settings (`ACTIVE_WINDOW_START`, `ACTIVE_WINDOW_END`,
+  `PREFERRED_DELIVERY_TIME`, `SRS_REMINDER_TIME`) are legacy and no longer
+  drive runtime behavior; the current flow is pull-based study sessions.
+- The environment file provides global defaults. Per-user overrides are now
+  limited to language/goal/level and presentation preferences.
 - Plan quotas are managed at runtime from the `plans` database table, not from
   deployment environment variables. The DB is the sole source of truth for the
   five plans (free / bronze / silver / gold / emerald): per-day session count,
@@ -390,64 +391,41 @@ The next language addition must use this contract.
 - `.env.example` is organized into beginner settings and an Advanced
   scheduling/safety section. Advanced settings document units and safe
   operational ranges.
-- SRS review intervals `[1, 3, 7, 16, 30]` remain product logic in code;
-  only the reminder time is deployment-configurable.
+- FSRS-6 intervals are computed by `services/fsrs_core.py`; there is no
+  fixed `[1, 3, 7, 16, 30]` schedule and no deploy-configurable reminder time.
 
 ## Locked Product Decisions
 
-- Each vocabulary card is sent as a separate Telegram message.
-- Manual card retrieval is on demand: the first request may prime one bounded
-  2–6-card reservoir, but only the requested card is revealed and subsequent
-  requests reuse the persisted reservoir.
-- The manual flow must not generate the user's entire daily allowance before
-  the user requests it.
-- Automatic daily delivery remains a separate scheduled flow and may generate
-  the user's full allowance in a controlled batch before sending separate
-  messages with a short delay.
-- Manual and scheduled flows share persisted cards and duplicate-avoidance
-  rules, but they do not have to share the same generation granularity.
-- The effective daily allowance is the lower of the plan allowance and an
-  optional user-configured daily limit. A user cannot configure a limit above
-  the plan allowance.
-- LLM generation batches and learner-facing delivery sessions are separate
-  concepts. LLM batches are usually 2–6 cards for efficiency; delivery
-  sessions are derived from the effective allowance and active delivery window.
-- Serialization compactness must never define educational richness. Daily,
-  batch, and custom-word generation share the same content-quality contract:
-  two paired examples by default, and at least two distinct synonyms or
-  antonyms whenever the model identifies a meaningful populated list; an
-  unavailable optional field may remain empty.
-- Session sizing uses per-plan values read from the `plans` DB table rather
-  than a formula over the total allowance: each plan stores its daily session
-  budget (`max_sessions`) and target cards per session
+- Study is pull-based: the learner taps `📚 شروع مطالعه امروز`; the bot
+  consumes one session slot (`services/scheduling.py`) and builds the session
+  via `services/session/build_session_list` (Tier 1 due reviews → Tier 2
+  first-exposure → Tier 3 AI generation, currently stub).
+- Each card is rendered inside the same session message via edit; a new session
+  inactivates the previous card. There is no push delivery, no reservoir, and
+  no `delivery_queue`/`daily_cards` path.
+- Session sizing uses per-plan values read from the `plans` DB table: each plan
+  stores its daily session budget (`max_sessions`) and target cards per session
   (`cards_per_session`). A study session produces up to `cards_per_session`
-  nodes; the scheduler daily budget is `max_sessions`. Remaining day logic
-  keeps a soft target: `S` sessions partition the effective allowance as
-  evenly as possible, with session sizes differing by at most one card.
-- The default educational bounds are configurable policy constants:
-  `min_sessions = 3`, `max_sessions = 6`, and `target_cards_per_session = 3`.
-  They are not tied to a plan name, so new plans inherit the same behavior
-  unless the DB plan row overrides `max_sessions` / `cards_per_session`.
+  nodes; the daily budget is `max_sessions`.
 - Plan limits are therefore expressed as concrete DB values:
   - free → 2 sessions × 3 cards/session, query quota 2
   - bronze → 3 × 3, query quota 4
   - silver → 3 × 5, query quota 7
   - gold → 4 × 7, query quota 12
   - emerald → 5 × 9, query quota 20
-- Users can choose a preferred delivery start time. It is a soft target, not
-  a promise that all users will receive content at the exact same minute.
-- The scheduler spreads sessions across the user's active day and shifts them
-  within an allowed window when a preferred time is overloaded.
-- Missed sessions do not create a large backlog message. Pending content is
-  rolled forward while preserving the plan's session-size limit.
-- The primary manual menu action is named `🃏 فلش‌کارت امروز` (or an equivalent
-  wording that clearly communicates on-demand cards).
-- Every manual card shows progress against the effective daily allowance and
-  provides an inline `Next card` action until the allowance is consumed.
-- When the daily allowance is complete, the completion message should expose a
-  review entry point for today’s cards and recent prior days stored in
-  `saved_words`.
-- Review navigation should include a dedicated hub plus same-message
+- Serialization compactness must never define educational richness. Batch and
+  custom-word generation share the same content-quality contract: two paired
+  examples by default, and at least two distinct synonyms or antonyms whenever
+  the model identifies a meaningful populated list; an unavailable optional
+  field may remain empty.
+- Legacy push concepts (preferred delivery time, active window, load-aware
+  scheduling, missed-session catch-up, effective daily allowance, manual
+  reservoir, and `🃏 فلش‌کارت امروز` wording) are retired and no longer
+  product decisions.
+- Session progress is shown as `کارت n از m` plus session number; when a
+  session completes, a summary report is shown and persisted for 3 days
+  (`/reports`).
+- Review navigation is the study session itself plus same-message
   previous/next controls for already persisted cards; this is core UX, not a
   premium upsell.
 - Reminder copy should be friendly, progress-aware, and action-oriented. It
@@ -491,9 +469,8 @@ The next language addition must use this contract.
    output.
 2. Generate content in batches of 2-6 to reduce prompt overhead, latency, and
    duplicate vocabulary where batch generation is appropriate. A generation
-   batch must not be confused with a learner-facing session, and the manual
-   flow must not pre-generate content the user has not requested.
-3. Cache generated daily content before sending it.
+   batch must not be confused with a learner-facing study session.
+3. Cache generated content in `saved_words`/`query_results` before rendering it.
 4. Keep the primary card readable; put optional detail behind interaction.
 5. Keep language-specific grammar and assessment rules explicit and extensible.
 6. Never expose raw AI errors, malformed JSON, or provider details to users.
@@ -565,44 +542,34 @@ sharing assumptions from English.
 
 ### Phase 3: Controlled Generation and Daily Card Storage
 
-**Status:** In progress
-**Done:** Bounded manual and scheduled batches, persistence, duplicate filtering, and partial retry.
+**Status:** Complete — push path removed; pull-based sessions are live
+**Done:** Bounded batch generation, persistence in `saved_words`, duplicate
+filtering, partial retry, and removal of `delivery_queue`/`daily_cards` push
+path.
 **In progress:** Segment-level pooling design and validated reuse boundaries.
 **To-do:** Implement additive pool storage, gated writes/reads, telemetry, and inventory selection (issue `40`).
 
-Support two deliberate generation modes:
+Generation is now pull-based via `build_session_list`:
 
-- **On-demand manual mode:** prime at most one bounded 2–6-card reservoir when
-  needed, persist it, and reveal only the next requested card.
-- **Scheduled delivery mode:** generate only the next learner-facing session,
-  using the plan template and an internal LLM batch of 2–6 where appropriate.
+- A study session (`📚 شروع مطالعه امروز`) consumes one session slot and
+  assembles Tier 1 due reviews → Tier 2 first-exposure → Tier 3 AI generation
+  (stub).
+- Custom-word queries (`پرسش واژه`) use a separate daily quota and a 30-day
+  `query_results` cache with reuse-or-regenerate choice.
 
 The shared storage and validation layer must:
 
-- Request only the number of cards needed for the selected mode.
-- Split scheduled delivery into plan-specific sessions instead of generating
-  the full daily allowance at the beginning of the day.
-- Avoid words already generated for that user on the same date.
 - Avoid a bounded recent cross-day vocabulary list for the same user.
 - Reject duplicates within the batch.
-- Persist cards individually in the existing `saved_words` table.
+- Persist cards individually in `saved_words`.
 - Retry only the missing portion when a batch is incomplete.
 - Avoid regenerating cards after a restart or duplicate trigger.
-- Prevent manual and scheduled flows from generating the same card range
-  concurrently.
 
 **Acceptance criteria**
 
-- A manual first-card request creates at most one bounded reservoir and reveals
-  only one card.
-- A scheduled delivery never generates the user's entire daily allowance just
-  because the day started.
-- A scheduled session respects the formula-derived session count and the
-  effective daily allowance.
-- No daily batch contains duplicate normalized words.
+- No batch contains duplicate normalized words.
 - A partial or malformed response does not discard valid cards.
-- Manual and automatic flows can reuse the same persisted cards without
-  forcing manual users to pre-generate their full allowance.
+- A restart does not regenerate or resend completed session content.
 
 ### Phase 4: Interactive Card UX
 
@@ -613,16 +580,16 @@ The shared storage and validation layer must:
 
 Add inline controls for:
 
-- Showing example translations
-- Requesting the next card on demand
-- Showing the effective daily allowance and progress
-- Saving the current card or queried word for spaced repetition
-- Choosing a learner-facing `brief` or `detailed` presentation, without
-  changing the validated card payload or the AI output serialization
+- Staged card reveal (front → back) with 4-grade FSRS grading
+- Showing session progress (`کارت n از m` + session number)
+- Showing example translations via spoiler reveal
+- Saving a queried word for spaced repetition
+- Choosing a learner-facing `brief`/`detailed` presentation (legacy) and granular
+  display toggles, without changing the validated card payload or the AI output
+  serialization
 
-Show readable progress, such as `Card 2 of 5`, where the count has a defined
-meaning: generated, delivered, and viewed state must not be conflated. Provide
-a clear completion message when the daily allowance has been consumed.
+Show readable progress as `کارت n از m` in the session message footer. Provide
+a clear completion summary when the session ends.
 Callback handlers must be safe against repeated clicks, stale card references,
 and callbacks issued by a different user.
 
@@ -715,52 +682,39 @@ menu, but the database save and SRS functions remain internal capabilities.
 - Repeated clicks do not create duplicate SRS entries.
 - The existing SRS job can find and deliver the saved word.
 
-### Phase 6: Reliable Delivery, Concurrency, and Data Lifecycle
+### Phase 6: Reliable Sessions, Concurrency, and Data Lifecycle
 
 **Status:** In progress
-**Done:** Durable queues, bounded retries, async-safe provider calls, callback validation, and restart recovery.
+**Done:** Pull-based study sessions, bounded retries, async-safe provider calls,
+callback validation, and restart recovery (push delivery queue removed).
 **In progress:** FSRS-6 migration — Phase 1 (core engine + session engine shell merged, 4-button UI live) and Phase 3a (`daily_cards` → `saved_words` first-exposure migration and schema columns) are done. The saved-word origin backfill is deployed and verified on the live database (510 `legacy_daily`, 22 `manual`). Phase 2b stale-flow cleanup (daily-table/runtime removal) and Phase 3b FSRS data wiring — atomic grade transitions (`GradeResult`), exact-timestamp due selection with DSR priority (R ASC, difficulty DESC, due ASC, id ASC), manual-first tier-2 ordering, and handler/UX integration with relative Persian review-time toasts and telemetry-failure log-and-continue — merged via PR #336 (Phases 3–5 together). Remaining: Phase 3b+ AI Tier-3 generation via `generate_tier3_node()` (stubbed); the T09 release/docs reconciliation gate (issue #309) is in progress, including live smoke-testing of the released sessions (owner); and the locked staged-reveal/display-toggle spec (issue #338) — **Phase 1 (prompt engine + display-toggle system) merged via PR #353** (randomized front-stage prompt types, granular display-toggles replacing brief/detailed, `phonetic` toggle), with Phases 2 (session-flow staging + callbacks) and 3 (telemetry + delete + toggle UI) remaining — the **Phase 3 delete-card flow (P3-T2) merged via PR #406** (physical saved-word delete with confirm + session refill, plus the first-exposure 🔊 pronounce fix), leaving Phase 3 telemetry (P3-T1) and display-toggle UI (P3-T3/T4) pending; plus the CARD-MODES extension (admin-configurable staged/immediate card mode for first-exposure and review cards) — **DB core merged via PR #361 and render branches (FE staged flow + review-mode branches) merged via PR #362**, with the admin (T4+T5) and per-user gated controls (T6+T7) PRs remaining. See `docs/plans/fsrs/plan_fsrs_migration_v2.md`, `docs/plans/fsrs/plan_daily_cards_migration.md`, `docs/plans/fsrs/plan_fsrs_session_cleanup.md`.
 **To-do:** Resolve issues `42`–`47`, `49`, `50`, and `66` with focused idempotency, migration, reliability, and progress tests.
 
-Make manual generation and scheduled delivery restart-safe and isolated per
-user. Add:
+Make session generation and word queries restart-safe and isolated per user.
+Add:
 
-- User-configurable preferred delivery start time and an active delivery
-  window
-- A durable per-user session queue with planned delivery timestamps
-- Load-aware slot selection that treats preferred time as a soft target
+- Session-slot quota (`services/scheduling.py`) with atomic consume/release
+- Per-user session persistence (`study_sessions` table) for resume after restart
 - Capacity buckets for provider requests and Telegram sends
 - A global AI concurrency/request limiter
-- Short delays between cards in one learner session
-- Bounded retries for Telegram delivery errors
+- Bounded retries for Telegram errors
 - Per-user error logging
-- Idempotent daily dispatch
-- Durable per-user dispatch state such as `pending`, `processing`, `sent`,
-  and `failed`
-- Per-user locks or equivalent coordination for manual and scheduled work
+- Per-user locks for session start
 - Async-safe provider calls that do not block the Telegram event loop
 - A clear user-facing fallback when content generation fails
 - Friendly reminder copy that can mention streak, due reviews, or remaining
   workload without changing cadence or scoring
-- Session-size limits that prevent a missed schedule from becoming a burst
-- Fair scheduling across users when preferred time buckets are saturated
+- Session-size limits per plan (`cards_per_session` / `max_sessions`)
 - An owner-only learning-data reset with two-step confirmation
-- Scoped reset behavior that clears users, saved words, and daily cards while
+- Scoped reset behavior that clears users, saved words, and query results while
   preserving AI settings
 
 **Acceptance criteria**
 
-- A restart does not regenerate or resend completed daily content.
-- One user's failure does not stop delivery to other users.
+- A restart does not regenerate or resend completed session content.
+- One user's failure does not stop sessions for other users.
 - Telegram rate limits are handled without unbounded retries.
-- A large user base does not cause an unbounded LLM request burst at the
-  configured default hour.
-- Preferred delivery times are respected when capacity allows and shifted
-  predictably when capacity is saturated.
-- Session sizes remain within the configured educational bounds, regardless of
-  plan names or the number of plans.
-- Manual retrieval and scheduled delivery remain consistent without sharing a
-  global blocking queue.
+- Session sizes remain within the configured per-plan bounds.
 - A reset cannot be triggered by a non-owner or a single accidental click.
 
 ### Phase 7: Premium Smart Placement Test
