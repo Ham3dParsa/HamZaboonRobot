@@ -39,7 +39,7 @@ from services.utils.formatting import (
     word_query_usage_text,
 )
 from services.utils.callback_notifications import notify_callback
-from services.send_pretty import Message, bold, say, send
+from services.send_pretty import Message, RawFormat, bold, say, send
 from services.activity_log import log_user_activity
 from services.utils.helpers import (
     _edit_or_send,
@@ -443,7 +443,7 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
-        await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
+        await say(update, context, "اول باید /start رو بزنی.", raw=RawFormat.PLAIN)
         if update.callback_query:
             await notify_callback(update.callback_query)
         return
@@ -459,7 +459,7 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔥 استریک: {row['streak'] or 0} روز\n"
         f"⏰ واژه‌های آماده‌ی مرور: {len(due)}"
     )
-    await _edit_or_send(update, context, text, reply_markup=settings_back_keyboard())
+    await say(update, context, text, keyboard=settings_back_keyboard(), raw=RawFormat.PLAIN)
     if update.callback_query:
         await notify_callback(update.callback_query)
 
@@ -468,18 +468,19 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
-        await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
+        await say(update, context, "اول باید /start رو بزنی.", raw=RawFormat.PLAIN)
         if update.callback_query:
             await notify_callback(update.callback_query)
         return
     lang_name = language_label(row["target_lang"])
     goal_name = goal_label(row["goal"])
     level_name = level_label(row["level"])
-    await _edit_or_send(
+    await say(
         update,
         context,
         "⚙️ تنظیمات و پروفایل من:\nاز دکمه‌های زیر یکی را انتخاب کن.",
-        reply_markup=settings_inline_keyboard(lang_name, goal_name, level_name),
+        keyboard=settings_inline_keyboard(lang_name, goal_name, level_name),
+        raw=RawFormat.PLAIN,
     )
     if update.callback_query:
         await notify_callback(update.callback_query)

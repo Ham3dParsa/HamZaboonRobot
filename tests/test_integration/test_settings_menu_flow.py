@@ -33,12 +33,12 @@ class SettingsMenuViaTextRouterTests(unittest.IsolatedAsyncioTestCase):
             patch.object(bot, "_telegram_offline", False),
             patch("bot.db.reset_user_blocked"),
             patch("handlers.user.db.get_user", return_value={"onboarded": True, "target_lang": "en", "goal": "general", "level": "beginner"}),
-            patch("handlers.user._edit_or_send", new_callable=AsyncMock) as edit,
+            patch("handlers.user.say", new_callable=AsyncMock) as mock_say,
             patch("handlers.user.notify_callback", new_callable=AsyncMock) as notify,
         ):
             await bot.text_router(update, ctx)
 
-        edit.assert_awaited_once()
+        mock_say.assert_awaited_once()
         notify.assert_not_awaited()
 
     async def test_btn_settings_not_onboarded_via_text_router_no_callback(self):
@@ -51,10 +51,10 @@ class SettingsMenuViaTextRouterTests(unittest.IsolatedAsyncioTestCase):
             patch.object(bot, "_telegram_offline", False),
             patch("bot.db.reset_user_blocked"),
             patch("handlers.user.db.get_user", return_value=None),
-            patch("handlers.user._send_with_retry", new_callable=AsyncMock) as send,
+            patch("handlers.user.say", new_callable=AsyncMock) as mock_say,
             patch("handlers.user.notify_callback", new_callable=AsyncMock) as notify,
         ):
             await bot.text_router(update, ctx)
 
-        send.assert_awaited_once()
+        mock_say.assert_awaited_once()
         notify.assert_not_awaited()

@@ -350,11 +350,15 @@ class ShowStatusQuotaRenderTests(unittest.TestCase):
         update.effective_user.id = 1
         update.callback_query = MagicMock()
         update.callback_query.answer = AsyncMock()
+        update.callback_query.message = MagicMock()
+        update.callback_query.message.message_id = 1
+        update.callback_query.edit_message_text = AsyncMock()
         context = MagicMock()
+        context.bot = AsyncMock()
 
         captured = {}
-        with patch("handlers.user._edit_or_send", new=AsyncMock()) as edit_mock:
-            edit_mock.side_effect = lambda u, c, text, **kw: captured.update(text=text)
+        with patch("handlers.user.say", new=AsyncMock()) as mock_say:
+            mock_say.side_effect = lambda u, c, text, **kw: captured.update(text=text)
             asyncio.run(show_status(update, context))
 
         self.assertIn("پرسش واژه", captured["text"])
