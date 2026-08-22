@@ -100,32 +100,7 @@ parallel-capable environment. It is the isolation contract on top of §5/§7.
    Conventional Commits, per §7.
 7. **Push & PR** — push the branch and open the PR via
    `gh pr create --fill --base main`, linking resolved issues.
-8. **Kilo review loop** — after creating or updating the PR, run this loop:
-   a. Poll the review findings **token-efficiently** — never dump full comment
-      bodies into the conversation on every poll. Fetch only what changed:
-      - Extract a minimal delta with `gh api ... --jq` that emits only
-        `id` + a short body hash (or body length) per comment, e.g.
-        `gh api repos/Ham3dParsa/HamZaboonRobot/pulls/<n>/comments --jq '.[] | {id, h: (.body|length)}'`.
-      - Persist the last-seen set of `id -> body-hash` to a temp file (e.g.
-        `$env:TEMP/opencode/kilo_seen_<pr>.json`) between polls.
-      - Surface to the conversation **only** the delta: comment IDs that are new,
-        or whose body hash changed since the last poll. Do not re-print
-        unchanged bodies.
-   b. Sleep **120s between polls**, up to a **30-minute overall timeout**, before
-      concluding Kilo is done. (The sleeps themselves consume no context tokens;
-      only the delta output does.)
-   c. Address the findings **one by one**, implementing only those that are
-      valid and worthy; do not chase noise.
-   d. Push the fixes. Kilo re-reviews **only after a push**, so each fix
-      round-trip requires a new commit push.
-   e. Repeat steps (a)–(d) until Kilo surfaces **no new suggestions**.
-   Review summaries may appear as issue comments (`issues/<n>/comments`), not
-   only inline PR comments; check both. Kilo comments do not accept CLI replies
-   (`POST pulls/comments/{id}/replies` returns 404) — replying is not required;
-   a push is what triggers the re-review. Note: Kilo sometimes **updates an
-   existing comment** (same ID, edited body) instead of posting a new one — the
-   body-hash delta in step (a) catches this, so compare `id -> body-hash` (not
-   just new IDs), and treat an edited body as a new round of findings.
+8. **Kilo-CI loop** — after creating or updating the PR, load the `kilo-ci-loop` skill (poll Kilo deltas, checks, and merge-conflict rebase until mergeable).
 9. **Merge & cleanup** — on owner instruction (or an explicit "merge it"),
    `gh pr merge --squash`, then remove the worktree, delete the local branch,
    and release the claim:
