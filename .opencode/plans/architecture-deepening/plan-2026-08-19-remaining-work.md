@@ -35,10 +35,10 @@ This file supersedes the audit snapshot and the stale rows in plan-2026-08-16-ar
 | A2-1 BN1 RLock to WAL (HIGH-RISK) | BN1 | Persistence | — | serial | MERGED #415 | refactor/db-concurrency |
 | A2-2 BUG-B3 + BN4 due_words | BUG-B3/BN4 | Persistence | A2-1 | serial | MERGED #425 | refactor/due-words-read-split |
 | A2-3 R2 normalize_word NFC | R2 | Persistence | A2-1/2 | serial | MERGED #434 | refactor/db-normalize |
-| A2-4 BUG-B1 $ENV resolve | BUG-B1 | Persistence | A2-1/2 | serial | PLANNED (contract next) | (tbd) |
-| A2-5 R6 preset upsert registry | R6 | Persistence | — | serial | PARTIAL/PLANNED | refactor/db-presets |
+| A2-4 BUG-B1 $ENV resolve | BUG-B1 | Persistence | A2-1/2 | serial | MERGED #445 | fix/env-resolver-align |
+| A2-5 R6 preset upsert registry | R6 | Persistence | — | serial | MERGED #447 | refactor/db-presets |
 | A2-6 R7 quota helper | R7 | Persistence | — | serial | PARTIAL/OTHER | refactor/db-presets |
-| A2-7 R8 settings upsert seam | R8 | Persistence | — | serial | PLANNED | refactor/db-presets |
+| A2-7 R8 settings upsert seam | R8 | Persistence | — | serial | MERGED #447 | refactor/db-presets |
 | A2-8 R9 CardModeService | R9 | Persistence | — | serial | PLANNED (build on #361) | refactor/db-cardmode |
 | A2-9 R10 __init__ facade split | R10 | Persistence | — | serial | PLANNED (Speculative) | refactor/db-cardmode |
 | A2-10 R11 app_today/key-resolver | R11 | Persistence | — | serial | PLANNED | refactor/db-integration |
