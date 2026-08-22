@@ -112,13 +112,18 @@ async def _handle_srs_reveal(
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         return
+    # Frozen reveal is authoritative; check both ephemeral and persisted.
+    state_early = get_active_study_session(user_id, context)
+    if state_early is not None and state_early.revealed and state_early.active_prompt_word_id == word_id:
+        await notify_callback(update.callback_query)
+        return
     if context.user_data.get(f"revealed_{word_id}"):
         await notify_callback(update.callback_query)
         return
 
     # Restart recovery: a same-day persisted session may exist even though the
     # in-memory session was lost (mirrors the grade handlers, Bug #401).
-    state = get_active_study_session(user_id, context)
+    state = state_early
     node = state.nodes[0] if state and state.nodes else None
     if (
         node is None
@@ -188,6 +193,26 @@ async def _handle_srs_reveal(
             update.callback_query, "این پیام دیگر معتبر نیست.",
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
+        return
+    # Freeze revealed so resume/restart shows back stage (R2) — only commit
+    # to memory after DB confirms, otherwise a failed write would diverge
+    # memory (back) from DB (front) and re-introduce the flip exploit (kilo 200).
+    old_revealed = state.revealed
+    old_prompt_wid = state.active_prompt_word_id
+    state.revealed = True
+    if state.active_prompt_word_id != word_id:
+        state.active_prompt_word_id = word_id
+    try:
+        _persist_session(user_id, state)
+    except Exception:
+        # Roll back so memory and DB stay in sync (front) until next reveal.
+        state.revealed = old_revealed
+        state.active_prompt_word_id = old_prompt_wid
+        logger.exception("reveal persist failed user_id=%s word_id=%s", user_id, word_id)
+        # Still keep ephemeral flag so the current message stays as back; DB
+        # will be corrected on next successful reveal. Don't clear user_data.
+        context.user_data[f"revealed_{word_id}"] = True
+        await notify_callback(update.callback_query)
         return
     context.user_data[f"revealed_{word_id}"] = True
     await notify_callback(update.callback_query)

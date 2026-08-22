@@ -1,6 +1,6 @@
 """Study session handler — pulls from session engine, renders cards in-place.
 
-Handles the golden '📚 شروع مطالعه امروز' button callback.
+Handles the golden '📚 شروع مطالعه' button callback.
 Phase 1e implementation — FSRS-6 4-grade session flow.
 """
 
@@ -46,6 +46,7 @@ from services.scheduling import (
 )
 from services.utils.formatting import (
     NEW_CARD_BADGE,
+    SRS_PROMPT_TYPES,
     phonetic_lines,
     _saved_word_card,
     days_since_review,
@@ -80,6 +81,11 @@ class SessionState:
     # Pre-grade stability per word_id, captured on first render so the
     # session summary can show the before->after stability delta (Phase 2).
     before_stability: dict[int, float] = field(default_factory=dict)
+    # Frozen staged front presentation for the active card (Phase freeze-prompt-reveal R1/R2).
+    # Persists prompt choice + revealed flip so resume/restart never re-rolls or flips.
+    revealed: bool = False
+    active_prompt_type: str | None = None
+    active_prompt_word_id: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -97,13 +103,74 @@ def _state_to_json(state: SessionState) -> str:
             "plan": state.plan,
             "graded_word_ids": state.graded_word_ids,
             "before_stability": state.before_stability,
+            "revealed": state.revealed,
+            "active_prompt_type": state.active_prompt_type,
+            "active_prompt_word_id": state.active_prompt_word_id,
         }
     )
+
+
+def _is_valid_prompt_type(value: str | None) -> bool:
+    """Single seam for prompt enum validation (kilo 132).
+
+    Keeps corrupt/future DB values from crashing the render seam.
+    """
+    return isinstance(value, str) and value in SRS_PROMPT_TYPES
+
+
+def _frozen_for_word(
+    state: SessionState | None, word_id: int
+) -> tuple[str | None, bool]:
+    """Return (prompt_type, revealed) for the frozen active card.
+
+    Single validation seam for the 3 duplicated render blocks (kilo 588).
+    A corrupt enum is cleared eagerly so it never reaches format_srs_front_stage.
+    """
+    if state is None or state.active_prompt_word_id != word_id:
+        return None, False
+    pt = state.active_prompt_type
+    if not _is_valid_prompt_type(pt):
+        state.active_prompt_type = None
+        state.active_prompt_word_id = None
+        state.revealed = False
+        return None, False
+    return pt, bool(state.revealed)
+
+
+def _stash_frozen_user_data(
+    user_data: dict | None, word_id: int, prompt_type: str | None, revealed: bool
+) -> None:
+    """Mirror the frozen stage into the ephemeral telemetry dict."""
+    if user_data is None:
+        return
+    if revealed:
+        user_data[f"revealed_{word_id}"] = True
+        if prompt_type is not None:
+            user_data[f"prompt_type_{word_id}"] = prompt_type
+        if f"card_shown_at_{word_id}" not in user_data:
+            user_data[f"card_shown_at_{word_id}"] = time.time()
+    else:
+        user_data.pop(f"revealed_{word_id}", None)
+        if prompt_type is not None:
+            user_data[f"prompt_type_{word_id}"] = prompt_type
+        if f"card_shown_at_{word_id}" not in user_data:
+            user_data[f"card_shown_at_{word_id}"] = time.time()
 
 
 def _state_from_json(raw: str) -> SessionState:
     """Rebuild a SessionState from its JSON serialization."""
     data = json.loads(raw)
+    raw_prompt_wid = data.get("active_prompt_word_id")
+    try:
+        prompt_wid = int(raw_prompt_wid) if raw_prompt_wid is not None else None
+    except (TypeError, ValueError):
+        prompt_wid = None
+    raw_prompt = data.get("active_prompt_type")
+    prompt_type = raw_prompt if _is_valid_prompt_type(raw_prompt) else None
+    # A stray revealed without a matching prompt is meaningless — clear both
+    if prompt_type is None and prompt_wid is not None:
+        prompt_wid = None
+    revealed = bool(data.get("revealed", False)) and prompt_type is not None and prompt_wid is not None
     return SessionState(
         nodes=[SessionNode(**node) for node in data["nodes"]],
         total_cards=data["total_cards"],
@@ -115,6 +182,9 @@ def _state_from_json(raw: str) -> SessionState:
             int(k): float(v)
             for k, v in (data.get("before_stability") or {}).items()
         },
+        revealed=revealed,
+        active_prompt_type=prompt_type,
+        active_prompt_word_id=prompt_wid,
     )
 
 
@@ -214,7 +284,7 @@ async def _reply_or_answer(
 async def handle_study_start(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Handle the '📚 شروع مطالعه امروز' golden button callback."""
+    """Handle the '📚 شروع مطالعه' golden button callback."""
     user_id = update.effective_user.id
     row = db.get_user(user_id)
 
@@ -399,6 +469,11 @@ async def _render_and_send_first_card(
         keyboard=keyboard,
     )
     state.study_msg_id = msg.message_id
+    # Persist frozen prompt + revealed + new msg_id so a restart resumes identically (R1/R2).
+    try:
+        _persist_session(node.activity_meta.get("user_id", 0) or update.effective_user.id, state)
+    except Exception:
+        logger.exception("first-card post-send persist failed")
 
 
 def session_progress_footer(state, user_id: int) -> str:
@@ -424,6 +499,10 @@ def _build_card_text_and_keyboard(
     ``user_data`` is the per-user context dict; when provided the render stashes
     the chosen prompt type and the front-stage shown-at timestamp so the Phase 3
     telemetry layer can record them at grade time (#338 R8/R12).
+
+    R1/R2 freeze: the staged prompt + revealed flip are stored in
+    ``state.active_prompt_*`` / ``state.revealed`` so every resume/restart
+    re-renders the identical front (or the same back if already revealed).
     """
     word_id = node.source_id or 0
     word_row = db.get_saved_word(word_id, user_id)
@@ -444,13 +523,18 @@ def _build_card_text_and_keyboard(
     # keyboard + text by activity type
     if node.activity_type == "first_exposure":
         return _render_first_exposure(
-            word_id, card_data, phon_lines, progress, user_id, user_data,
+            word_id, card_data, phon_lines, progress, user_id, user_data, state,
         )
 
     # srs_review: mode-aware render.
     if db.resolve_card_mode(user_id, "review") == "immediate":
         # Immediate: full card + review grade grid directly (no front/reveal,
-        # no prompt stash) — CARD-MODES Rule 2.
+        # no prompt stash) — CARD-MODES Rule 2. Clear any stale freeze for this
+        # card so a later mode switch doesn't reuse it.
+        if state is not None and state.active_prompt_word_id == word_id:
+            state.active_prompt_type = None
+            state.active_prompt_word_id = None
+            state.revealed = False
         toggles = db.get_display_toggles(user_id)
         keyboard = get_review_keyboard(user_id, word_id)
         text = format_srs_back_stage(
@@ -461,16 +545,42 @@ def _build_card_text_and_keyboard(
         )
         return text, keyboard
 
-    # Staged (default): hidden front stage + reveal action.
+    # Staged (default): hidden front stage + reveal action, frozen (kilo 588 seam).
     toggles = db.get_display_toggles(user_id)
+    frozen_pt, frozen_revealed = _frozen_for_word(state, word_id)
+    if frozen_pt is not None:
+        _stash_frozen_user_data(user_data, word_id, frozen_pt, frozen_revealed)
+        if frozen_revealed:
+            keyboard = get_review_keyboard(user_id, word_id)
+            text = format_srs_back_stage(
+                card_data,
+                toggles=toggles,
+                phonetic_lines=phon_lines,
+                footer=progress,
+            )
+            return text, keyboard
+        days = days_since_review(
+            word_row["last_review_at"] if word_row is not None else None
+        )
+        badge = format_review_badge(days) if days is not None else ""
+        keyboard = get_srs_front_keyboard(user_id, word_id)
+        text = format_srs_front_stage(
+            card_data,
+            frozen_pt,
+            toggles=toggles,
+            phonetic_lines=phon_lines,
+            badge=badge,
+            footer=progress,
+        )
+        return text, keyboard
+
+    # First time for this word → pick, freeze, and stash
     prompt_type = select_srs_prompt_type(card_data, toggles)
-    if user_data is not None:
-        # Re-arm the reveal action: a fresh front-stage presentation (new
-        # session, resume, or a repeated word) must accept reveal again even if
-        # this word was revealed in an earlier presentation (#338 §2B idempotency).
-        user_data.pop(f"revealed_{word_id}", None)
-        user_data[f"prompt_type_{word_id}"] = prompt_type
-        user_data[f"card_shown_at_{word_id}"] = time.time()
+    if state is not None:
+        state.active_prompt_type = prompt_type
+        state.active_prompt_word_id = word_id
+        state.revealed = False
+    _stash_frozen_user_data(user_data, word_id, prompt_type, False)
     days = days_since_review(
         word_row["last_review_at"] if word_row is not None else None
     )
@@ -494,22 +604,48 @@ def _render_first_exposure(
     progress: str,
     user_id: int,
     user_data: dict | None,
+    state: SessionState | None = None,
 ) -> tuple[str, object]:
     """Render a first-exposure card per the resolved card mode (CARD-MODES T2).
 
     ``staged`` (default, Rule 1): hidden front stage via the shared randomized
     prompt engine + «کارت جدید ✨» badge + reveal action, stashing the prompt
-    telemetry keys just like the review front stage.
+    telemetry keys just like the review front stage. Frozen via state (R1/R2).
     ``immediate``: full card + badge + the FE grade grid directly (owner lock
     2026-08-15: the badge stays visible in immediate mode).
     """
     if db.resolve_card_mode(user_id, "first_exposure") == "staged":
         toggles = db.get_display_toggles(user_id)
+        frozen_pt, frozen_revealed = _frozen_for_word(state, word_id)
+        if frozen_pt is not None:
+            _stash_frozen_user_data(user_data, word_id, frozen_pt, frozen_revealed)
+            if frozen_revealed:
+                keyboard = get_first_exposure_keyboard(user_id, word_id)
+                text = format_srs_back_stage(
+                    card_data,
+                    toggles=toggles,
+                    phonetic_lines=phon_lines,
+                    badge=NEW_CARD_BADGE,
+                    footer=progress,
+                )
+                return text, keyboard
+            keyboard = get_srs_front_keyboard(user_id, word_id)
+            text = format_srs_front_stage(
+                card_data,
+                frozen_pt,
+                toggles=toggles,
+                phonetic_lines=phon_lines,
+                badge=NEW_CARD_BADGE,
+                footer=progress,
+            )
+            return text, keyboard
+        # First time FE
         prompt_type = select_srs_prompt_type(card_data, toggles)
-        if user_data is not None:
-            user_data.pop(f"revealed_{word_id}", None)
-            user_data[f"prompt_type_{word_id}"] = prompt_type
-            user_data[f"card_shown_at_{word_id}"] = time.time()
+        if state is not None:
+            state.active_prompt_type = prompt_type
+            state.active_prompt_word_id = word_id
+            state.revealed = False
+        _stash_frozen_user_data(user_data, word_id, prompt_type, False)
         keyboard = get_srs_front_keyboard(user_id, word_id)
         text = format_srs_front_stage(
             card_data,
@@ -521,6 +657,11 @@ def _render_first_exposure(
         )
         return text, keyboard
 
+    # Immediate mode — clear any stale freeze
+    if state is not None and state.active_prompt_word_id == word_id:
+        state.active_prompt_type = None
+        state.active_prompt_word_id = None
+        state.revealed = False
     keyboard = get_first_exposure_keyboard(user_id, word_id)
     toggles = db.get_display_toggles(user_id)
     text = format_srs_back_stage(
@@ -549,7 +690,7 @@ async def handle_study_inactive(
     """
     note = (
         "این پیام غیرفعال شده، لطفاً از آخرین پیام جلسه استفاده کن یا "
-        "دکمهٔ «شروع مطالعه امروز» را بزن."
+        "دکمهٔ «شروع مطالعه» را بزن."
     )
     await notify_callback(
         update.callback_query,
@@ -613,7 +754,16 @@ async def advance_session(
         # popped node is rolled back so the visible card stays the active one
         # and a re-tap hits the idempotent re-grade guard, which retries the
         # advance (self-healing under weak network, Bug report 2026-08-19).
+        # Freeze fields are saved/restored together with the popped node so a
+        # failed edit doesn't leave a stale prompt/revealed tied to the wrong card.
+        old_revealed = state.revealed
+        old_prompt_type = state.active_prompt_type
+        old_prompt_wid = state.active_prompt_word_id
         popped = state.nodes.pop(0) if state.nodes else None
+        # Clear freeze for the *next* card; _build will set it for the new word.
+        state.revealed = False
+        state.active_prompt_type = None
+        state.active_prompt_word_id = None
 
         # try next node
         if state.nodes:
@@ -634,10 +784,16 @@ async def advance_session(
                 if not _is_message_not_modified(exc):
                     if popped is not None:
                         state.nodes.insert(0, popped)
+                    state.revealed = old_revealed
+                    state.active_prompt_type = old_prompt_type
+                    state.active_prompt_word_id = old_prompt_wid
                     raise
             except Exception:
                 if popped is not None:
                     state.nodes.insert(0, popped)
+                state.revealed = old_revealed
+                state.active_prompt_type = old_prompt_type
+                state.active_prompt_word_id = old_prompt_wid
                 raise
             _persist_session(user_id, state)
             return
@@ -668,12 +824,18 @@ async def advance_session(
                         state.total_cards -= 1
                         if popped is not None:
                             state.nodes.insert(0, popped)
+                        state.revealed = old_revealed
+                        state.active_prompt_type = old_prompt_type
+                        state.active_prompt_word_id = old_prompt_wid
                         raise
                 except Exception:
                     state.nodes.pop()
                     state.total_cards -= 1
                     if popped is not None:
                         state.nodes.insert(0, popped)
+                    state.revealed = old_revealed
+                    state.active_prompt_type = old_prompt_type
+                    state.active_prompt_word_id = old_prompt_wid
                     raise
                 _persist_session(user_id, state)
                 return
@@ -770,6 +932,9 @@ async def advance_session(
         except Exception:
             if popped is not None:
                 state.nodes.insert(0, popped)
+                state.revealed = old_revealed
+                state.active_prompt_type = old_prompt_type
+                state.active_prompt_word_id = old_prompt_wid
             raise
 
         context.user_data.pop("current_session", None)

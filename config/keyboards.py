@@ -2,7 +2,7 @@ from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardBu
 
 from .catalog import GOALS, LANGUAGES, LEVELS, language_label
 
-BTN_STUDY_SESSION = "📚 شروع مطالعه امروز"
+BTN_STUDY_SESSION = "📚 شروع مطالعه"
 BTN_ASK_WORD = "❓ پرسیدن یک واژه"
 BTN_SETTINGS = "⚙️ تنظیمات و پروفایل من"
 BTN_ADMIN = "🛠 مدیریت ربات"
@@ -209,7 +209,7 @@ def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
 
 
 def study_start_keyboard() -> InlineKeyboardMarkup:
-    """Single '📚 شروع مطالعه امروز' inline button for the nudge / menu."""
+    """Single '📚 شروع مطالعه' inline button for the nudge / menu."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(BTN_STUDY_SESSION, callback_data="study:start")],
     ])
