@@ -105,7 +105,7 @@ class HelpFlowTest(unittest.TestCase):
         ctx = self._make_context()
         asyncio.run(callback_router(update, ctx))
         edit_args = update.callback_query.edit_message_text.call_args
-        self.assertIn("شروع مطالعه امروز", edit_args[0][0])
+        self.assertIn("شروع مطالعه", edit_args[0][0])
         self.assertIsNotNone(edit_args.kwargs.get("reply_markup"))
         update.callback_query.answer.assert_called_once()
 

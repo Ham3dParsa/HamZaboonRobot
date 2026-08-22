@@ -112,13 +112,18 @@ async def _handle_srs_reveal(
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         return
+    # Frozen reveal is authoritative; check both ephemeral and persisted.
+    state_early = get_active_study_session(user_id, context)
+    if state_early is not None and state_early.revealed and state_early.active_prompt_word_id == word_id:
+        await notify_callback(update.callback_query)
+        return
     if context.user_data.get(f"revealed_{word_id}"):
         await notify_callback(update.callback_query)
         return
 
     # Restart recovery: a same-day persisted session may exist even though the
     # in-memory session was lost (mirrors the grade handlers, Bug #401).
-    state = get_active_study_session(user_id, context)
+    state = state_early
     node = state.nodes[0] if state and state.nodes else None
     if (
         node is None
@@ -190,6 +195,15 @@ async def _handle_srs_reveal(
         )
         return
     context.user_data[f"revealed_{word_id}"] = True
+    # Freeze revealed so resume/restart shows back stage (R2)
+    try:
+        state.revealed = True
+        # Ensure prompt stays frozen for this word
+        if state.active_prompt_word_id != word_id:
+            state.active_prompt_word_id = word_id
+        _persist_session(user_id, state)
+    except Exception:
+        logger.exception("reveal persist failed user_id=%s word_id=%s", user_id, word_id)
     await notify_callback(update.callback_query)
 
 

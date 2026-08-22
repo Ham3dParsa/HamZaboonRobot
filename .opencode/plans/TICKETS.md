@@ -50,3 +50,7 @@
 | GOV-R7 | `workflow/plan-governance-reform.md` | #398 | `chore/governance-reform` | done (impl) — terse rule text in AGENTS.md; merged (#400) |
 | SRS-DELETE-CARD (P3-T2 + FE pronounce) | `fsrs/plan-srs-delete-card-fe-pronounce.md` | #338 | `feat/srs-delete-card` | LOCKED 2026-08-19 (R1-R10); tickets T1..T5 in `fsrs/plan-srs-delete-card-fe-pronounce-phase-01..05`; delete on revealed stage + refill + FE pronounce; **merged via PR #406 (2026-08-19)** |
 | ARCH-DEEPENING (canonical remaining-work tracker) | `architecture-deepening/plan-2026-08-19-remaining-work.md` | — | A/B/C tracks | in-progress — counts tracked live in remaining-work plan (#437) |
+| FREEZE-PROMPT-REVEAL (P1) | `session/plan-freeze-prompt-reveal.md` | — | `fix/freeze-prompt-reveal` | phase 01 model — pending |
+| FREEZE-PROMPT-REVEAL (P2) | `session/plan-freeze-prompt-reveal-phase-02-render.md` | — | `fix/freeze-prompt-reveal` | phase 02 render — pending — depends P1 |
+| FREEZE-PROMPT-REVEAL (P3) | `session/plan-freeze-prompt-reveal-phase-03-persist.md` | — | `fix/freeze-prompt-reveal` | phase 03 persist — pending — depends P1 |
+| FREEZE-PROMPT-REVEAL (P4) | `session/plan-freeze-prompt-reveal-phase-04-rename.md` | — | `fix/freeze-prompt-reveal` | phase 04 rename — pending — depends P2,P3 |
