@@ -247,11 +247,14 @@ class HourlyUsageManyDbTest(_ReadAmplificationIsolatedDb):
         db_module.increment_hourly_usage(name, bucket, req_count=req, token_count=tok)
 
     def test_returns_usage_for_all_names(self):
+        import datetime as _dt
+
+        bucket = _dt.datetime.now(_dt.timezone.utc).isoformat()[:13] + ":00:00"
         _seed_preset("pa")
         _seed_preset("pb")
         _seed_preset("pc")
-        self._seed_usage("pa", "2026-08-20T10:00:00", 3, 100)
-        self._seed_usage("pb", "2026-08-20T10:00:00", 2, 50)
+        self._seed_usage("pa", bucket, 3, 100)
+        self._seed_usage("pb", bucket, 2, 50)
 
         result = db_module.get_hourly_usage_many(["pa", "pb", "pc"], hours_back=24)
         self.assertEqual(result["pa"], (3, 100))
@@ -259,10 +262,13 @@ class HourlyUsageManyDbTest(_ReadAmplificationIsolatedDb):
         self.assertEqual(result["pc"], (0, 0), "untouched preset reports zero usage")
 
     def test_single_query_for_multiple_names(self):
+        import datetime as _dt
+
+        bucket = _dt.datetime.now(_dt.timezone.utc).isoformat()[:13] + ":00:00"
         _seed_preset("pa")
         _seed_preset("pb")
-        self._seed_usage("pa", "2026-08-20T10:00:00", 1, 1)
-        self._seed_usage("pb", "2026-08-20T10:00:00", 1, 1)
+        self._seed_usage("pa", bucket, 1, 1)
+        self._seed_usage("pb", bucket, 1, 1)
 
         query_count: list[int] = []
         real_get_conn = db_module.get_conn
