@@ -14,7 +14,7 @@
 | 37 | preset-drift | re alias | complete | #460 |
 | 18 | plan-limits-dup | plan limits single-source (`_PLAN_LIMITS` vs `valid_plans`) | complete | #475 `c9886bc` `c75459f` Kilo fix |
 | 20 | allowlist-dup | allowlist derived from `ROUTES` | complete | #475 `c9886bc` `c75459f` Kilo fix |
-| 24 | O-grammar-standalone | send_grammar_tip retire (export, disable) | locked | chore/retire-grammar-tip `a-03` |
+| 24 | O-grammar-standalone | send_grammar_tip retire (export, disable) | complete | #478 `99471e0` + test-sync `35eafda` |
 
 Full 37-ticket table was in previous TICKETS.md (now consolidated in `docs/audit/consolidated-remaining-2026-08-23.md`). This file restores S completion after untracked clean deleted it.
 Session F (4 tickets) merged as `ab7160a` — lightweight `git diff --check` only, no behavior beyond docs/help/prune.

@@ -1,6 +1,12 @@
-STATE: phase 1/1 — in-progress — focus: implemented b816655 retired stub + archive awaiting CI/Kilo
+STATE: complete — merged 99471e0 (#478) 2026-08-23
 
-Evidence: commit b816655 handlers/user.py stub + docs/archive/retired/grammar_tip_2026-08-23.md; tests: pytest 40 passed 2026-08-23; ruff clean
+Evidence: commits b816655 + 35eafda (test-sync) + 1ad8c44 plan; tests 21 passed grammar suite + 40 wiring; ruff clean; Kilo No Issues Found; PR #478 squash
+
+## Final Verdict
+- Done: #24 retired — stub + archive + hide quota + test-sync 4 files
+- Deliberately Not Done: DB table/columns kept for future (no migration)
+- Deferred: re-wire when owner wants grammar feature back (restore from archive)
+- Uncertain: none
 
 # Plan 24 — O-grammar-standalone retire (Session A quick win)
 
