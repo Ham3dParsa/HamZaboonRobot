@@ -32,14 +32,14 @@ def test_due_index_exists_after_init_db():
             ).fetchone()
             sql = row[0] if row else ""
             assert "user_id" in sql and "next_review_at" in sql
-        # EXPLAIN QUERY PLAN should show SEARCH using index for due query
+        # EXPLAIN QUERY PLAN for actual due_words_for_user query (with lang + next_review_at pre-filter)
         with sqlite3.connect(path) as conn:
             plan = conn.execute(
-                "EXPLAIN QUERY PLAN SELECT * FROM saved_words WHERE user_id=? AND lang=? AND next_review_at <= ?",
+                "EXPLAIN QUERY PLAN SELECT * FROM saved_words WHERE user_id=? AND lang=? AND COALESCE(first_exposure_done,0)=1 AND COALESCE(review_status,'idle')!='pending' AND retry_at IS NULL AND (next_review_at IS NULL OR next_review_at <= ?)",
                 (1, "en", "2099-01-01T00:00:00+00:00"),
             ).fetchall()
             text = " ".join(r[3] for r in plan)
-            assert "saved_words_due_idx" in text or "SEARCH" in text, f"plan not using index: {text}"
+            assert "SEARCH" in text, f"plan should use index seek, got: {text}"
     finally:
         if old is None:
             os.environ.pop("HAMZABAN_TEST_MODE", None)

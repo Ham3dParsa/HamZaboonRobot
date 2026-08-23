@@ -232,6 +232,7 @@ def reset_expired_pending_reviews(grace_hours: int = 48):
 
 
 def due_words_for_user(user_id: int, lang: str | None = None):
+    now = _utc_now()
     with get_conn() as conn:
         query = (
             "SELECT * FROM saved_words WHERE user_id=? "
@@ -243,8 +244,12 @@ def due_words_for_user(user_id: int, lang: str | None = None):
         if lang:
             query += " AND lang=? "
             params.append(lang)
+        # SQL pre-filter to allow index seek on (user_id, lang, next_review_at)
+        # keeps Python _row_effective_due as source of truth for legacy fallback,
+        # but reduces full scan for future-dated rows.
+        query += " AND (next_review_at IS NULL OR next_review_at <= ?) "
+        params.append(now.isoformat())
         rows = conn.execute(query, params).fetchall()
-    now = _utc_now()
     eligible = []
     for r in rows:
         eff_due = _row_effective_due(r, now)
