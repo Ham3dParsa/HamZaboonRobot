@@ -1,4 +1,4 @@
-STATE: A-18-20 COMPLETE (#475) — F/Q/S/P/A-18-20 done; A-remaining #21,22,24,27 pending
+STATE: A-24 LOCKED — #24 O-grammar retire chore/retire-grammar-tip a-03; A-18-20 done #475; remaining #21,22,27 pending
 
 # Scalability/Security Bottleneck Audit — Plan Index (2026-08-23)
 
@@ -14,6 +14,6 @@ STATE: A-18-20 COMPLETE (#475) — F/Q/S/P/A-18-20 done; A-remaining #21,22,24,2
 | Q — Quota/DB | `services/db/*`, `services/scheduling.py` | complete (#458) |
 | S — Security/AI | `services/ai/*`, `services/db/preset_registry.py`, `cost_tracking.py`, `key_crypto.py`, `tts.py` | complete (#460) — tickets #4,9,13,14,33,37 |
 | P — Perf/Handlers | `handlers/*`, `config/keyboards.py` | complete (#462) |
-| A — Architecture | `config/catalog.py`, `plan_identity`, `preset_fields` | complete — plan-18-20 (#18 #20) merged c9886bc (#475); remaining #21,22,24,27 pending |
+| A — Architecture | `config/catalog.py`, `plan_identity`, `preset_fields` | in-progress — plan-24 (#24) `chore/retire-grammar-tip` LOCKED; plan-18-20 (#18 #20) complete c9886bc (#475); remaining #21,22,27 pending |
 
 Claims in `$(git rev-parse --git-common-dir)/parallel-work-claims.json` — S disjoint from Q at file level (owner approved `proceed`).
