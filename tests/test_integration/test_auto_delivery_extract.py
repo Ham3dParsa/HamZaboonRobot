@@ -25,7 +25,9 @@ def test_legacy_batch_module_exists_and_unwired():
 
 
 def test_no_live_daily_card_scheduling_import():
-    # bot.py and scheduling should not drive daily push
+    # bot.py must not drive daily push via legacy_batch
     bot = pathlib.Path("bot.py").read_text(encoding="utf-8", errors="ignore")
-    # legacy scheduling import for push should be absent or not used
-    assert "daily_card" not in bot.lower() or "legacy_batch" not in bot
+    assert "legacy_batch" not in bot, "bot.py must not import legacy_batch (unwired)"
+    # scheduling.py is pull-based — no daily push scheduler
+    sched = pathlib.Path("services/scheduling.py").read_text(encoding="utf-8", errors="ignore")
+    assert "legacy_batch" not in sched

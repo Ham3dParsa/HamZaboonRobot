@@ -16,10 +16,7 @@ from __future__ import annotations
 # canonical prompt definition is not lost when live code stops using it.
 # Intentionally no runtime side effects.
 
-try:
-    from services.ai.prompts import daily_card_system_prompt  # noqa: F401
-except ImportError:
-    daily_card_system_prompt = None  # type: ignore
+from services.ai.prompts import daily_card_system_prompt  # noqa: F401 — fail loud on rename/move
 
 # Placeholder for future batch-pool assembly logic.
 # Previously: build daily pool per (target_lang, goal, level) segment
