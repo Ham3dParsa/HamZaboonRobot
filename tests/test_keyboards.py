@@ -15,6 +15,7 @@ from config.keyboards import (
     BTN_STUDY_SESSION,
     BTN_ASK_WORD,
     BTN_SETTINGS,
+    BTN_HELP,
     BTN_ADMIN,
     IBTN_SRS_AGAIN_REVIEW,
     IBTN_SRS_HARD_REVIEW,
@@ -35,16 +36,18 @@ class TestMainMenuKeyboard(unittest.TestCase):
     def test_non_admin_has_exact_rows_and_labels(self):
         markup = main_menu(False)
         rows = markup.keyboard
-        self.assertEqual(len(rows), 3)
+        self.assertEqual(len(rows), 4)
         self.assertEqual([b.text for b in rows[0]], [BTN_STUDY_SESSION])
         self.assertEqual([b.text for b in rows[1]], [BTN_ASK_WORD])
         self.assertEqual([b.text for b in rows[2]], [BTN_SETTINGS])
+        self.assertEqual([b.text for b in rows[3]], [BTN_HELP])
 
     def test_admin_appends_extra_row(self):
         markup = main_menu(True)
         rows = markup.keyboard
-        self.assertEqual(len(rows), 4)
-        self.assertEqual([b.text for b in rows[3]], [BTN_ADMIN])
+        self.assertEqual(len(rows), 5)
+        self.assertEqual([b.text for b in rows[3]], [BTN_HELP])
+        self.assertEqual([b.text for b in rows[4]], [BTN_ADMIN])
 
     def test_non_admin_has_no_admin_button(self):
         markup = main_menu(False)

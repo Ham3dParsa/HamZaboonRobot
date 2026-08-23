@@ -879,10 +879,18 @@ async def _handle_full_edit_save(update: Update, context: ContextTypes.DEFAULT_T
     await _show_ai_preset_view(update, context, new_name)
 
 
-async def _toggle_preset_view_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Toggle between linear and grouped preset view."""
-    current = context.user_data.get("preset_view_mode", "linear")
-    new_mode = "grouped" if current == "linear" else "linear"
+async def _toggle_preset_view_mode(update: Update, context: ContextTypes.DEFAULT_TYPE, mode: str | None = None):
+    """Set or toggle preset view mode (O-view-mode).
+
+    When mode is 'linear' or 'grouped' the payload is honored directly
+    (keyboards.py emits the target mode). Invalid/None payload falls back to
+    toggle for backward compatibility.
+    """
+    if mode in ("linear", "grouped"):
+        new_mode = mode
+    else:
+        current = context.user_data.get("preset_view_mode", "linear")
+        new_mode = "grouped" if current == "linear" else "linear"
     context.user_data["preset_view_mode"] = new_mode
     await notify_callback(update.callback_query, f"حالت نمایش: {'گروهی' if new_mode == 'grouped' else 'خطی'}", intent=CallbackNoticeIntent.INFO)
     await _show_ai_presets(update, context)
@@ -2000,7 +2008,7 @@ async def handle_ai_callback(
         await _show_linear_presets(update, context, page)
     elif action.startswith("ai_preset:view_mode:"):
         mode = action.split(":", 2)[2]
-        await _toggle_preset_view_mode(update, context)
+        await _toggle_preset_view_mode(update, context, mode)
     elif action.startswith("ai_preset:group:"):
         key_hash = action.split(":", 2)[2]
         await _handle_group_view(update, context, key_hash)
