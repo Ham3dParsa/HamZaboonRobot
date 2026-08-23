@@ -15,6 +15,7 @@
 | 18 | plan-limits-dup | plan limits single-source (`_PLAN_LIMITS` vs `valid_plans`) | complete | #475 `c9886bc` `c75459f` Kilo fix |
 | 20 | allowlist-dup | allowlist derived from `ROUTES` | complete | #475 `c9886bc` `c75459f` Kilo fix |
 | 24 | O-grammar-standalone | send_grammar_tip retire (export, disable) | complete | #478 `99471e0` + test-sync `35eafda` |
+| 22 | utils-impure | utils pure (quota/prompt → domain) | locked | refactor/utils-pure `a-04` |
 | 11 | db-on-loop | DB off event loop (`to_thread` srs_handler+word_query) | complete | #477 `a17e23e` |
 | 12 | busy-timeout | busy_timeout 5s→10s | complete | #477 `a17e23e` |
 
