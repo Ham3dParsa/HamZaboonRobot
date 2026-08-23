@@ -232,6 +232,7 @@ def reset_expired_pending_reviews(grace_hours: int = 48):
 
 
 def due_words_for_user(user_id: int, lang: str | None = None):
+    now = _utc_now()
     with get_conn() as conn:
         query = (
             "SELECT * FROM saved_words WHERE user_id=? "
@@ -243,8 +244,22 @@ def due_words_for_user(user_id: int, lang: str | None = None):
         if lang:
             query += " AND lang=? "
             params.append(lang)
+        # SQL pre-filter is a best-effort index hint — Python _row_effective_due
+        # remains the source of truth (legacy next_review fallback + unparseable
+        # next_review_at). Bound widened by +1 day to tolerate TEXT vs
+        # _parse_utc divergence (Z suffix, non-UTC offsets). Rows whose
+        # next_review_at is unparseable must also be fetched so the Python
+        # fallback is not bypassed by lexicographic TEXT comparison. NOT LIKE
+        # alone drops ISO-looking but invalid values (e.g. "2025-13-99T99:99:99"
+        # or "2099-13-99T99:99:99"); datetime() returns NULL for those, so we
+        # add an explicit OR branch to keep them.
+        query += (
+            " AND (next_review_at IS NULL OR next_review_at <= ?"
+            " OR next_review_at NOT LIKE '____-__-__T%'"
+            " OR datetime(next_review_at) IS NULL) "
+        )
+        params.append((now + datetime.timedelta(days=1)).isoformat())
         rows = conn.execute(query, params).fetchall()
-    now = _utc_now()
     eligible = []
     for r in rows:
         eff_due = _row_effective_due(r, now)
