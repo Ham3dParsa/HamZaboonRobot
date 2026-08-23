@@ -376,6 +376,7 @@ def recent_grammar_tip_titles(
 from services.db.cost_tracking import (
     add_llm_request,
     breakdown_llm_requests,
+    daily_costs_grouped,
     delete_llm_requests,
     recent_llm_requests,
     summarize_llm_requests,
@@ -552,14 +553,23 @@ def import_db_bytes(data: bytes, backup_path: str | None = None) -> None:
                             "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
                         )
                     }
+                    def _quoted_ident(name: str) -> str:
+                        # Caller filters to required_tables ∩ candidate_tables, so
+                        # injection is blocked by the intersection + quote-doubling.
+                        return '"' + name.replace('"', '""') + '"'
+
                     missing_columns = {
                         table: {
                             row[1]
-                            for row in reference_conn.execute(f"PRAGMA table_info({table})")
+                            for row in reference_conn.execute(
+                                f"PRAGMA table_info({_quoted_ident(table)})"
+                            )
                         }
                         - {
                             row[1]
-                            for row in candidate_conn.execute(f"PRAGMA table_info({table})")
+                            for row in candidate_conn.execute(
+                                f"PRAGMA table_info({_quoted_ident(table)})"
+                            )
                         }
                         for table in required_tables & candidate_tables
                     }

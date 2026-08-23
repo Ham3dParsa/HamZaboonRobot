@@ -17,8 +17,15 @@ class MaintenanceBlockTests(unittest.IsolatedAsyncioTestCase):
         db_schema.DB_PATH = self.live_path
         db.init_db()
         db.set_maintenance_mode(False)
+        # R7: maintenance kill-switch tests assume a configured owner; CI env has
+        # OWNER_ID==0, which intentionally disables maintenance. Patch to non-zero
+        # so the blocking path is exercised; the OWNER_ID==0 no-op is covered by
+        # the two dedicated tests below.
+        self._owner_patcher = patch("bot.OWNER_ID", 999)
+        self._owner_patcher.start()
 
     def tearDown(self):
+        self._owner_patcher.stop()
         db.DB_PATH = self.previous_db_path
         db_schema.DB_PATH = self.previous_schema_path
         self.tempdir.cleanup()
@@ -121,6 +128,32 @@ class MaintenanceBlockTests(unittest.IsolatedAsyncioTestCase):
         with patch("bot.is_owner", return_value=False):
             await _maintenance_gated_command(handler, update, context)
         handler.assert_awaited_once()
+
+    async def test_owner_unset_disables_maintenance_and_warns_when_active(self):
+        # R7: when OWNER_ID==0 the kill-switch is intentionally a no-op
+        from bot import _maintenance_blocked
+
+        db.set_maintenance_mode(True)
+        update = self._update(user_id=2, text_mode=True)
+        context = self._context()
+        with patch("bot.OWNER_ID", 0), patch("bot.log") as mock_log:
+            blocked = await _maintenance_blocked(update, context, text_mode=True)
+        self.assertFalse(blocked)
+        context.bot.send_message.assert_not_awaited()
+        update.callback_query = None  # text_mode already
+        mock_log.warning.assert_called_once()
+        self.assertIn("OWNER_ID==0", mock_log.warning.call_args[0][0])
+
+    async def test_owner_unset_no_warning_when_inactive(self):
+        from bot import _maintenance_blocked
+
+        db.set_maintenance_mode(False)
+        update = self._update(user_id=2, text_mode=True)
+        context = self._context()
+        with patch("bot.OWNER_ID", 0), patch("bot.log") as mock_log:
+            blocked = await _maintenance_blocked(update, context, text_mode=True)
+        self.assertFalse(blocked)
+        mock_log.warning.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -392,7 +392,11 @@ def _register_admin_flows() -> None:
                         logger.exception("Broadcast failed for user %s", user["user_id"])
                         return False
 
-            results = await asyncio.gather(*(_send_one(u) for u in users))
+            results: list[bool] = []
+            for i in range(0, len(users), 100):
+                chunk = users[i : i + 100]
+                chunk_results = await asyncio.gather(*(_send_one(u) for u in chunk))
+                results.extend(chunk_results)
             sent = sum(1 for r in results if r)
             await send_pretty.say(
                 update,
@@ -525,9 +529,16 @@ async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     context.user_data.pop("awaiting", None)
 
+    _MAX_RESTORE_BYTES = 100 * 1024 * 1024
     try:
-        file = await update.effective_message.document.get_file()
+        doc = update.effective_message.document
+        file_size = getattr(doc, "file_size", None)
+        if isinstance(file_size, int) and file_size > _MAX_RESTORE_BYTES:
+            raise ValueError("حجم فایل بیش از 100 مگابایت است.")
+        file = await doc.get_file()
         data = await file.download_as_bytearray()
+        if len(data) > _MAX_RESTORE_BYTES:
+            raise ValueError("حجم فایل بیش از 100 مگابایت است.")
         if len(data) < 100 or data[:16] != b"SQLite format 3\x00":
             raise ValueError("فایل معتبر SQLite نیست.")
         backup_path = f"{DB_PATH}.pre_restore"
@@ -597,7 +608,7 @@ def register_admin_routes() -> None:
     from services.routing import register
 
     register("admin", _handle_admin_callback, owner_only=True)
-    register("llm", _route_llm)
+    register("llm", _route_llm, owner_only=True)
 
 
 register_admin_routes()

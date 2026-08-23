@@ -15,6 +15,7 @@ class HelpFlowTest(unittest.TestCase):
     def setUp(self):
         import bot
 
+        bot._callback_dedup.clear()
         self.offline_patcher = patch.object(bot, "_telegram_offline", False)
         self.offline_patcher.start()
         self.tempdir = tempfile.TemporaryDirectory()

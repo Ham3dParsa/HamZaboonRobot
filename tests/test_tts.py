@@ -118,7 +118,11 @@ class TtsPronounceTests(unittest.TestCase):
         path = asyncio.run(tts.pronounce("hello", "en"))
         self.assertTrue(path.exists())
         mock_ensure.assert_awaited_once()
-        mock_instance.save.assert_awaited_once_with(str(path))
+        # Atomic write: save goes to a .tmp file in same dir, then replaced
+        self.assertEqual(mock_instance.save.call_count, 1)
+        saved_arg = mock_instance.save.call_args.args[0]
+        self.assertTrue(saved_arg.endswith(".tmp"))
+        self.assertTrue(saved_arg.startswith(str(path.parent)))
 
     @patch.object(tts, "_ensure_voices", new_callable=AsyncMock)
     @patch.object(tts.edge_tts, "Communicate")
