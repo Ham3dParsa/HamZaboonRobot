@@ -324,6 +324,10 @@ def _guard_destructive_op(path: str) -> None:
 
 # How long a writer waits for a busy database before raising "database is
 # locked" (milliseconds). Matches the PRAGMA and the sqlite3.connect timeout.
+# Trade-off (Kilo #477): 10s + asyncio.to_thread on the bounded default executor
+# (min(32, cpu+4) workers) means a burst of contended writes can hold pool
+# slots up to 10s; keep DB ops short (no long transaction across await) and
+# consider a dedicated DB executor if contention grows (deferred to A-track).
 _DB_BUSY_TIMEOUT = 10000
 
 

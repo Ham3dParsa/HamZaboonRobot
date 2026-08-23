@@ -12,7 +12,6 @@ class TestBusyTimeout(unittest.TestCase):
     def test_get_conn_pragma_and_timeout_agree(self):
         import tempfile
         import os
-        import sqlite3
         from services import db
         from services.db import schema as db_schema
 
@@ -27,10 +26,7 @@ class TestBusyTimeout(unittest.TestCase):
             with db.get_conn() as conn:
                 row = conn.execute("PRAGMA busy_timeout").fetchone()
                 self.assertEqual(int(row[0]), 10000)
-                # Also check timeout via schema file content
-                src = pathlib.Path("services/db/schema.py").read_text(encoding="utf-8")
-                self.assertIn("_DB_BUSY_TIMEOUT = 10000", src)
-                self.assertIn("10000 ms == 10 s", src)
+            self.assertEqual(db_schema._DB_BUSY_TIMEOUT, 10000)
         finally:
             db.DB_PATH = prev_db
             db_schema.DB_PATH = prev_schema
