@@ -1,12 +1,13 @@
+import datetime
 import json
+import logging
 import os
+import secrets
 import sqlite3
 import threading
-import datetime
-import secrets
 import unicodedata
-from pathlib import Path
 from contextlib import contextmanager
+from pathlib import Path
 
 from config.catalog import DEFAULT_LEVEL, DISPLAY_TOGGLE_DEFAULTS
 
@@ -897,8 +898,6 @@ def init_db(path: str | None = None):
                 try:
                     conn.execute(f"ALTER TABLE users DROP COLUMN {col}")
                 except sqlite3.OperationalError as e:
-                    import logging
-
                     logging.getLogger(__name__).warning(
                         "DROP COLUMN %s failed (likely older SQLite): %s", col, e
                     )
