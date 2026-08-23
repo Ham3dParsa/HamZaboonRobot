@@ -649,9 +649,9 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.reset_user_blocked(update.effective_user.id)
     data = update.callback_query.data
     # R1: central double-answer guard — drop exact duplicate callback within 0.8s
-    # Skip heavy paths (srs/study/query/tts) — those are guarded by per-user lock instead,
+    # Skip heavy paths (srs/query/tts/study) — those are guarded by per-user lock
     # and must allow intentional re-grade/retry (see study restart test).
-    if not data.startswith(("srs:", "study:", "query:", "tts:")):
+    if not data.startswith(("srs:", "query:", "tts:", "study:")):
         dedup_key = (update.effective_user.id, data)
         now = time.monotonic()
         last = _callback_dedup.get(dedup_key)
@@ -872,9 +872,19 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with _lock:
             await handle_study_start(update, context)
     elif data == "study:inactive":
-        await handle_study_inactive(update, context)
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await handle_study_inactive(update, context)
     elif data.startswith("tts:pronounce:"):
-        await _handle_tts_pronounce(update, context, data.split(":", 2)[2])
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await _handle_tts_pronounce(update, context, data.split(":", 2)[2])
     elif data.startswith("help:"):
         await handle_help_callback(update, context, data)
     else:
@@ -892,8 +902,15 @@ async def _maintenance_blocked(update: Update, context: ContextTypes.DEFAULT_TYP
     The bot owner is never blocked so they can still reach the admin panel to
     exit maintenance. The editable Persian message comes from the DB and is
     shown as plain text (no parse_mode), so no MarkdownV2 escaping is applied.
+    When OWNER_ID is unset (0), maintenance is intentionally a no-op — no
+    one can toggle it, so blocking would be an unrecoverable kill-switch (R7).
     """
     if OWNER_ID == 0:
+        try:
+            if db.is_maintenance_mode():
+                log.warning("maintenance active but OWNER_ID==0 — kill-switch disabled until owner configured")
+        except sqlite3.OperationalError:
+            pass
         return False
     if is_owner(update.effective_user.id):
         return False
