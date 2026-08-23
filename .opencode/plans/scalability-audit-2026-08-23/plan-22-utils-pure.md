@@ -1,4 +1,6 @@
-STATE: LOCKED — branch refactor/utils-pure worktree .worktrees/a-04
+STATE: phase 1/1 — in-progress — focus: implemented ceb8a48 move word_query_usage_text to scheduling awaiting CI/Kilo
+
+Evidence: commit ceb8a48 5 files; tests: pytest wiring+single_source 40 passed; ruff clean
 
 # Plan 22 — utils-impure pure utils (Session A)
 
