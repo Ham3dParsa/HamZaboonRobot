@@ -153,11 +153,6 @@ def _user_plan_label(row) -> str:
 
 def effective_daily_allowance(
     plan: str,
-    # Q-26 retired: no live caller passes this; kept only for backward-compat
-    # until DROP COLUMN ships and intentionally ignored.
-    optional_user_limit: int | None = None,  # noqa: ARG001
     bypass_limits: bool = False,
 ) -> int:
-    # optional_daily_limit retired (Q-26): quota is now single-sourced from
-    # plans table. Parameter retained for backward-compat; ignored.
     return daily_card_count_for_plan(effective_plan(plan, bypass_limits))

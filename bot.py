@@ -29,7 +29,6 @@ from config import (
     ASK_WORD_AI_TIMEOUT_SECONDS,
     CONNECTION_HEALTH_INTERVAL_SECONDS,
     daily_word_query_limit_for_plan,
-    effective_daily_allowance,
     _app_today,
     _user_presentation,
     is_owner,

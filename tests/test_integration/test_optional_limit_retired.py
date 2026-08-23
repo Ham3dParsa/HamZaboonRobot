@@ -3,6 +3,8 @@ import os
 import sqlite3
 import tempfile
 
+import pytest
+
 import services.db as db
 from config import daily_card_count_for_plan, effective_daily_allowance
 from services.db import DB_PATH as _orig_db_path
@@ -23,13 +25,22 @@ def _cleanup_db(path: str) -> None:
             pass
 
 
-def test_effective_daily_allowance_ignores_optional_limit():
-    # optional limit must not affect result after Q-26
+def test_effective_daily_allowance_new_signature():
+    # Q-26: optional_user_limit dropped — quota is single-sourced from plans table
     for plan in ["free", "bronze", "gold"]:
         expected = daily_card_count_for_plan(plan)
-        assert effective_daily_allowance(plan, optional_user_limit=1) == expected
-        assert effective_daily_allowance(plan, optional_user_limit=100) == expected
-        assert effective_daily_allowance(plan, optional_user_limit=None) == expected
+        assert effective_daily_allowance(plan) == expected
+        assert effective_daily_allowance(plan, bypass_limits=False) == expected
+
+
+def test_effective_daily_allowance_rejects_optional_user_limit():
+    # Old param must not be accepted silently — should raise TypeError
+    with pytest.raises(TypeError):
+        effective_daily_allowance("free", optional_user_limit=1)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        effective_daily_allowance("free", optional_user_limit=None)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        effective_daily_allowance("free", optional_user_limit=100)  # type: ignore[call-arg]
 
 
 def test_users_columns_retired_after_migration():
@@ -50,7 +61,7 @@ def test_users_columns_retired_after_migration():
             assert "preferred_delivery_minute" not in cols
             assert "active_window_start_minute" not in cols
             assert "active_window_end_minute" not in cols
-            assert effective_daily_allowance("free", optional_user_limit=1) == daily_card_count_for_plan("free")
+            assert effective_daily_allowance("free") == daily_card_count_for_plan("free")
         # simulate old DB with column
         with contextlib.closing(sqlite3.connect(path)) as conn:
             try:
@@ -62,8 +73,8 @@ def test_users_columns_retired_after_migration():
         with contextlib.closing(sqlite3.connect(path)) as conn:
             cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
             assert "optional_daily_limit" not in cols
-            # effective_daily_allowance must still ignore the param regardless
-            assert effective_daily_allowance("free", optional_user_limit=1) == daily_card_count_for_plan("free")
+            # effective_daily_allowance must use plan quota
+            assert effective_daily_allowance("free") == daily_card_count_for_plan("free")
     finally:
         if old is None:
             os.environ.pop("HAMZABAN_TEST_MODE", None)

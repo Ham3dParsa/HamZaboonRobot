@@ -28,7 +28,6 @@ from config import (
     _user_presentation,
     _user_plan_label,
     daily_word_query_limit_for_plan,
-    effective_daily_allowance,
     is_owner,
 )
 from config.plan_identity import has_feature
