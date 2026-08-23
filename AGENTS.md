@@ -195,6 +195,7 @@ branches).
 | `parallel-work-guard` | Working in parallel / creating a branch or worktree. |
 | `git-protocol` | Any git or gh command. |
 | `hamzaban-validation` | Preparing to commit or open a PR. |
+| `kilo-ci-loop` | After PR push or before merge — poll Kilo deltas, CI checks, and merge conflicts. |
 | `pre-commit-gate` | Immediately before a commit. |
 | `integration-test-proto` | Behavioral change: callbacks/handlers/DB/quota/AI. |
 | `callback-wiring` | Adding/changing a callback prefix or keyboard. |
