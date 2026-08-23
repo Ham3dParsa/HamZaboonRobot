@@ -376,21 +376,20 @@ async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.",
             )
             return
-        msg = format_grammar_tip(data, usage_text)
-
-        db.touch_streak(user_id)
-        db.add_grammar_tip(
-            user_id,
-            data.get("title", ""),
-            row["target_lang"],
-            row["goal"],
-            row["level"],
-            data,
-        )
-        log_user_activity(update, action="grammar_tip", outcome="success")
-        logger.info("grammar tip delivered user_id=%s lang=%s", user_id, row["target_lang"])
         delivered = False
         try:
+            msg = format_grammar_tip(data, usage_text)
+            db.touch_streak(user_id)
+            db.add_grammar_tip(
+                user_id,
+                data.get("title", ""),
+                row["target_lang"],
+                row["goal"],
+                row["level"],
+                data,
+            )
+            log_user_activity(update, action="grammar_tip", outcome="success")
+            logger.info("grammar tip delivered user_id=%s lang=%s", user_id, row["target_lang"])
             await send(
                 update.effective_chat.id,
                 msg,
