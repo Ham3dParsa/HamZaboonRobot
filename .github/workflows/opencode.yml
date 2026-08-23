@@ -33,3 +33,9 @@ jobs:
           KILO_API_KEY: ${{ secrets.KILO_API_KEY }}
         with:
           model: ${{ vars.OPENCODE_MODEL || 'opencode/muse-spark-1.2-contributor-free' }}
+          prompt: |-
+            SAFETY RULES (non-negotiable):
+            - NEVER commit or push directly to the "main" branch. Always create a new branch and open a pull request.
+            - NEVER modify, delete, or force-push existing branches, tags, releases, workflow files under .github/workflows/, or repository settings/secrets.
+            - NEVER read, print, or exfiltrate secrets, .env files, or credentials.
+            - Follow AGENTS.md contract-lock discipline; if instructions are ambiguous or risky, stop and ask in a comment instead of acting.
