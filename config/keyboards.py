@@ -608,6 +608,7 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
              InlineKeyboardButton(IBTN_USER_ACTIVITY_LOG, callback_data="admin:user_activity_log")],
             [InlineKeyboardButton("💾 پشتیبان", callback_data="admin:backup"),
              InlineKeyboardButton("♻️ بازیابی", callback_data="admin:restore")],
+            [InlineKeyboardButton("🎛 نمایش کارت", callback_data="admin:display_toggles")],
             [InlineKeyboardButton("🔧 حالت تعمیر", callback_data="admin:maintenance")],
         ]
     )
@@ -889,7 +890,9 @@ def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None) -> Inl
         ("in_fallback_chain", IBTN_FIELD_IN_FALLBACK_CHAIN),
         ("group_label", IBTN_FIELD_GROUP_LABEL),
         ("reasoning_effort", IBTN_FIELD_REASONING),
-        ("enabled", IBTN_FIELD_ENABLED),
+        # `enabled` intentionally omitted — toggled via dedicated enable/disable
+        # action (services/db/preset_registry.set_preset_enabled), not free-text
+        # edit_field (would be silently dropped on save).
     ]
     rows = []
     for key, label in fields:
