@@ -34,7 +34,8 @@ from config import (
 )
 from services import db
 from services.ai import prompts
-from services.utils.formatting import CardPreparationError, word_query_usage_text
+from services.utils.formatting import CardPreparationError
+from services.scheduling import word_query_usage_text
 from services.utils.validation import validate_word_query
 
 # Learner-facing Persian strings owned by this service (single source).

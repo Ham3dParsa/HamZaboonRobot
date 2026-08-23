@@ -23,8 +23,8 @@ from config.plan_identity import has_feature
 from services.utils.formatting import (
     ASK_WORD_PROMPT,
     escape_mdv2,
-    word_query_usage_text,
 )
+from services.scheduling import word_query_usage_text
 from services.utils.callback_notifications import notify_callback
 from services.send_pretty import Message, RawFormat, bold, say, send
 from services.activity_log import log_user_activity
