@@ -14,6 +14,6 @@ STATE: F-COMPLETE (#455) — Q-merged (#458), S-merged (#460), P-merged (#462); 
 | Q — Quota/DB | `services/db/*`, `services/scheduling.py` | complete (#458) |
 | S — Security/AI | `services/ai/*`, `services/db/preset_registry.py`, `cost_tracking.py`, `key_crypto.py`, `tts.py` | complete (#460) — tickets #4,9,13,14,33,37 |
 | P — Perf/Handlers | `handlers/*`, `config/keyboards.py` | complete (#462) |
-| A — Architecture | `config/catalog.py`, `plan_identity`, `preset_fields` | pending |
+| A — Architecture | `config/catalog.py`, `plan_identity`, `preset_fields` | in-progress — plan-18-20 (#18, #20) branch `refactor/plan-limits-allowlist` PR #475 |
 
 Claims in `$(git rev-parse --git-common-dir)/parallel-work-claims.json` — S disjoint from Q at file level (owner approved `proceed`).

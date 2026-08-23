@@ -1,4 +1,6 @@
-STATE: LOCKED — branch refactor/plan-limits-allowlist worktree .worktrees/a-02
+STATE: phase 1/1 — in-progress — focus: implemented R1+R2 (5788c15) awaiting CI/Kilo
+
+Evidence: commit 5788c15 services/db/plans.py + bot.py; tests: pytest tests/test_wiring.py tests/test_single_source_of_truth.py 40 passed 2026-08-23; ruff F821/F811 clean
 
 # Plan 18-20 — plan-limits + allowlist single-source (Session A follow-up)
 
