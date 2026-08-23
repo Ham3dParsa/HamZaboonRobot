@@ -446,6 +446,30 @@ def log_config_test(test_type: str, preset_name: str, prompt: str, result: dict)
         )
 
 
+def prune_config_tests(max_rows: int = 1000, max_age_days: int = 30) -> int:
+    """Prune unbounded config_tests audit table (O-config-tests).
+
+    Fast-track prune: deletes rows older than max_age_days and keeps only the
+    most recent max_rows rows. Returns total deleted count. No behavior change
+    for callers — log_config_test continues to insert.
+    """
+    cutoff = (_utc_now() - datetime.timedelta(days=max_age_days)).isoformat()
+    deleted = 0
+    with transaction() as conn:
+        cur = conn.execute("DELETE FROM config_tests WHERE created_at < ?", (cutoff,))
+        deleted += cur.rowcount or 0
+        count = conn.execute("SELECT COUNT(*) AS c FROM config_tests").fetchone()["c"]
+        if count > max_rows:
+            to_delete = count - max_rows
+            conn.execute(
+                "DELETE FROM config_tests WHERE id IN "
+                "(SELECT id FROM config_tests ORDER BY created_at ASC, id ASC LIMIT ?)",
+                (to_delete,),
+            )
+            deleted += to_delete
+    return deleted
+
+
 # ---------- Backup / Restore ----------
 
 def export_db_bytes() -> bytes:
