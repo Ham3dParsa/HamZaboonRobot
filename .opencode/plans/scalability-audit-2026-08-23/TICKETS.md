@@ -15,11 +15,14 @@
 | 18 | plan-limits-dup | plan limits single-source (`_PLAN_LIMITS` vs `valid_plans`) | complete | #475 `c9886bc` `c75459f` Kilo fix |
 | 20 | allowlist-dup | allowlist derived from `ROUTES` | complete | #475 `c9886bc` `c75459f` Kilo fix |
 | 24 | O-grammar-standalone | send_grammar_tip retire (export, disable) | complete | #478 `99471e0` + test-sync `35eafda` |
+| 11 | db-on-loop | DB off event loop (`to_thread` srs_handler+word_query) | complete | #477 `a17e23e` |
+| 12 | busy-timeout | busy_timeout 5s→10s | complete | #477 `a17e23e` |
 
 Full 37-ticket table was in previous TICKETS.md (now consolidated in `docs/audit/consolidated-remaining-2026-08-23.md`). This file restores S completion after untracked clean deleted it.
 Session F (4 tickets) merged as `ab7160a` — lightweight `git diff --check` only, no behavior beyond docs/help/prune.
 
 Session A #18+#20 complete 2026-08-23 c9886bc (#475) — Kilo 1 suggestion minor merged; worktree removed.
+Session P complete 2026-08-23 #462 (R1,R2,R3,R4,R6,R7,R8) + #477 (R5/R11 #11,#12) — handlers + DB off-loop + 10s.
 
 
 | Q-2 | grammar-quota | quota never burns | complete | #458 |
