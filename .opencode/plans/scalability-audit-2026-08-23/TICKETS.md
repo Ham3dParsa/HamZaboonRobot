@@ -17,4 +17,16 @@
 
 Full 37-ticket table was in previous TICKETS.md (now consolidated in `docs/audit/consolidated-remaining-2026-08-23.md`). This file restores S completion after untracked clean deleted it.
 Session F (4 tickets) merged as `ab7160a` — lightweight `git diff --check` only, no behavior beyond docs/help/prune.
+
 Session A #18+#20 locked ALL A 2026-08-23 → worktree `.worktrees/a-02` branch `refactor/plan-limits-allowlist`; plan `plan-18-20-plan-limits-allowlist.md` STATE LOCKED → implemented 5788c15 awaiting CI/Kilo.
+
+
+| Q-2 | grammar-quota | quota never burns | complete | #458 |
+| Q-3 | session-slot | slot never burns | complete | #459 |
+| Q-7 | report-purge | purge atomic | complete | #463 |
+| Q-8 | due-scan | due index | complete | #464 |
+| Q-25 | auto-delivery | legacy_batch unwired | complete | #465 |
+| Q-26 | optional-limit | drop dead columns | complete | #466 |
+| Q-agent | agent-allowlist | safe guards | complete | #474 |
+Session Q 6+1 merged to main 7b50746 (services/db released).
+
