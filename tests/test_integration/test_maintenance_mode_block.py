@@ -122,6 +122,32 @@ class MaintenanceBlockTests(unittest.IsolatedAsyncioTestCase):
             await _maintenance_gated_command(handler, update, context)
         handler.assert_awaited_once()
 
+    async def test_owner_unset_disables_maintenance_and_warns_when_active(self):
+        # R7: when OWNER_ID==0 the kill-switch is intentionally a no-op
+        from bot import _maintenance_blocked
+
+        db.set_maintenance_mode(True)
+        update = self._update(user_id=2, text_mode=True)
+        context = self._context()
+        with patch("bot.OWNER_ID", 0), patch("bot.log") as mock_log:
+            blocked = await _maintenance_blocked(update, context, text_mode=True)
+        self.assertFalse(blocked)
+        context.bot.send_message.assert_not_awaited()
+        update.callback_query = None  # text_mode already
+        mock_log.warning.assert_called_once()
+        self.assertIn("OWNER_ID==0", mock_log.warning.call_args[0][0])
+
+    async def test_owner_unset_no_warning_when_inactive(self):
+        from bot import _maintenance_blocked
+
+        db.set_maintenance_mode(False)
+        update = self._update(user_id=2, text_mode=True)
+        context = self._context()
+        with patch("bot.OWNER_ID", 0), patch("bot.log") as mock_log:
+            blocked = await _maintenance_blocked(update, context, text_mode=True)
+        self.assertFalse(blocked)
+        mock_log.warning.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
