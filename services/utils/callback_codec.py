@@ -34,6 +34,7 @@ _FIELD_ALIAS: dict[str, str] = {
     "input_cost_per_million": "ic",
     "output_cost_per_million": "oc",
     "group_label": "gl",
+    "reasoning_effort": "re",
 }
 
 _FIELD_ALIAS_REV: dict[str, str] = {v: k for k, v in _FIELD_ALIAS.items()}

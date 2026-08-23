@@ -1,6 +1,9 @@
 """Edge TTS pronunciation for vocabulary cards."""
 
+import asyncio
 import hashlib
+import os
+import tempfile
 from pathlib import Path
 
 import edge_tts
@@ -19,6 +22,11 @@ assert _UI_VOICE_FA, "Persian (fa) TTS voice must be non-empty"
 
 _VOICES: dict[str, dict[str, str]] = {}
 _VOICES_LOADED = False
+
+# Per-key async locks for pronounce() to prevent concurrent writes to the same
+# cache file (ticket #4 tts-race). Key is "lang:normalized_word".
+_TTS_LOCKS: dict[str, asyncio.Lock] = {}
+_TTS_LOCKS_LOCK = asyncio.Lock()
 
 
 def voice_for(lang: str) -> str:
@@ -66,12 +74,44 @@ def _cache_path(word: str, lang: str) -> Path:
     return _TTS_CACHE_DIR / f"{key}.mp3"
 
 
+def _tts_lock_key(word: str, lang: str) -> str:
+    normalized = " ".join(word.split()).casefold()
+    return f"{lang}:{normalized}"
+
+
+async def _get_tts_lock(key: str) -> asyncio.Lock:
+    async with _TTS_LOCKS_LOCK:
+        lock = _TTS_LOCKS.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _TTS_LOCKS[key] = lock
+        return lock
+
+
 async def pronounce(word: str, lang: str) -> Path:
     path = _cache_path(word, lang)
     if path.exists():
         return path
-    await _ensure_voices()
-    voice = _default_voice(lang)
-    communicate = edge_tts.Communicate(word, voice)
-    await communicate.save(str(path))
-    return path
+    key = _tts_lock_key(word, lang)
+    lock = await _get_tts_lock(key)
+    async with lock:
+        if path.exists():
+            return path
+        await _ensure_voices()
+        voice = _default_voice(lang)
+        communicate = edge_tts.Communicate(word, voice)
+        # Atomic write: save to temp file in same dir then replace
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            suffix=".tmp", dir=str(path.parent), prefix=path.stem + "_"
+        )
+        os.close(tmp_fd)
+        try:
+            await communicate.save(tmp_path)
+            os.replace(tmp_path, str(path))
+        finally:
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
+        return path

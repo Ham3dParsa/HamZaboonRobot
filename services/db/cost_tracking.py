@@ -169,3 +169,23 @@ def recent_llm_requests(
             [*params, limit, offset],
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def daily_costs_grouped(
+    filters: dict[str, object] | None = None,
+) -> dict[str, float]:
+    """Return daily total USD costs grouped by request_date (GROUP BY).
+
+    Ticket #9 fix: replaces fetching 5000 rows and aggregating in Python with
+    a single SQL GROUP BY. Reduces per-dashboard DB volume from O(5000) rows
+    to O(days) rows.
+    """
+    where, params = _llm_request_filters_where(filters or {})
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT request_date AS d, SUM(COALESCE(cost_usd, 0)) AS total "
+            "FROM llm_requests"
+            f"{where} GROUP BY request_date ORDER BY d",
+            params,
+        ).fetchall()
+    return {str(r["d"]): float(r["total"] or 0) for r in rows}
