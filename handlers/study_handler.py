@@ -313,7 +313,9 @@ async def handle_study_start(
         return
 
     # --- quota check (Decision 30: once at top, before build) ---
-    if not is_owner(user_id) or not OWNER_BYPASS_LIMITS:
+    bypass = is_owner(user_id) and OWNER_BYPASS_LIMITS
+    consumed = False
+    if not bypass:
         if not consume_session_slot(user_id, plan):
             await _reply_or_answer(
                 update,
@@ -322,64 +324,92 @@ async def handle_study_start(
                 intent=CallbackNoticeIntent.IMPORTANT_ERROR,
             )
             return
+        consumed = True
 
-    # --- build session ---
-    lang = row["target_lang"]
-    goal = row["goal"]
-    level = row["level"]
-    max_nodes = cards_per_session_for_plan(plan)
-    nodes, tier3_context = build_session_list(
-        user_id, lang, goal, level, plan,
-        max_nodes=max_nodes,
-    )
-
-    # --- empty session: release slot (Decision 33) ---
-    if not nodes:
-        release_session_slot(user_id)
-        await _reply_or_answer(
-            update,
-            context,
-            "📚 نشستی برای امروز نداری. واژه‌های جدید اضافه کن!",
-            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
-        )
-        return
-
-    # --- create session state ---
-    # Reset the durable grade ledger: this is a brand-new session, so any word
-    # can legitimately be graded again (e.g. an "Again" card that comes due the
-    # same day). Resume paths above leave the ledger intact (Bug report 2026-08-19).
-    db.clear_session_grades(user_id)
-    state = SessionState(
-        nodes=nodes,
-        total_cards=len(nodes),
-        tier3_context=tier3_context,
-        study_msg_id=None,
-        plan=plan,
-        graded_word_ids=[],
-    )
-    context.user_data["current_session"] = state
-
-    # --- render first card ---
+    delivered = False
     try:
+        # --- build session ---
+        lang = row["target_lang"]
+        goal = row["goal"]
+        level = row["level"]
+        max_nodes = cards_per_session_for_plan(plan)
+        nodes, tier3_context = build_session_list(
+            user_id, lang, goal, level, plan,
+            max_nodes=max_nodes,
+        )
+
+        # --- empty session: finally will release slot (Decision 33) ---
+        if not nodes:
+            await _reply_or_answer(
+                update,
+                context,
+                "📚 نشستی برای امروز نداری. واژه‌های جدید اضافه کن!",
+                intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+            )
+            return
+
+        # --- create session state ---
+        # Reset the durable grade ledger: this is a brand-new session, so any word
+        # can legitimately be graded again (e.g. an "Again" card that comes due the
+        # same day). Resume paths above leave the ledger intact (Bug report 2026-08-19).
+        db.clear_session_grades(user_id)
+        state = SessionState(
+            nodes=nodes,
+            total_cards=len(nodes),
+            tier3_context=tier3_context,
+            study_msg_id=None,
+            plan=plan,
+            graded_word_ids=[],
+        )
+        context.user_data["current_session"] = state
+
+        # --- render first card ---
         # Persist BEFORE rendering so a DB failure is surfaced before any card
         # reaches the screen (owner decision 2026-08-15). The first card has no
         # study_msg_id yet; the next advance persists the updated id. On failure
-        # the row is cleared and the slot released.
+        # the row is cleared and the slot released via finally.
         _persist_session(user_id, state)
         await _render_and_send_first_card(state, update, context)
+        delivered = True
     except Exception:
         logger.exception(
             "handle_study_start render failed user_id=%s", user_id
         )
-        release_session_slot(user_id)
         context.user_data.pop("current_session", None)
-        _clear_persisted_session(user_id)
+        try:
+            _clear_persisted_session(user_id)
+        except Exception:
+            logger.exception(
+                "handle_study_start cleanup failed user_id=%s", user_id
+            )
         await _reply_or_answer(
             update,
             context,
             "خطا در آماده‌سازی جلسه — دوباره امتحان کن.",
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
+    except BaseException:
+        # BaseException (KeyboardInterrupt/SystemExit/CancelledError on older
+        # runtimes) must still clear ephemeral session state, but must not
+        # be swallowed — re-raise so callers see the original signal. The
+        # consumed slot is still released via the non-throwing finally below
+        # (delivered remains False).
+        context.user_data.pop("current_session", None)
+        try:
+            _clear_persisted_session(user_id)
+        except Exception:
+            logger.exception(
+                "handle_study_start BaseException cleanup failed user_id=%s", user_id
+            )
+        raise
+    finally:
+        if consumed and not delivered:
+            try:
+                release_session_slot(user_id)
+            except Exception:
+                logger.warning(
+                    "release_session_slot failed user_id=%s", user_id, exc_info=True
+                )
 
 
 async def _resume_existing_session(
