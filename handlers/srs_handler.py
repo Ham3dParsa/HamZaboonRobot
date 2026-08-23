@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import time
@@ -138,9 +139,9 @@ async def _handle_srs_reveal(
         )
         return
 
-    word_row = db.get_saved_word(word_id, user_id)
+    word_row = await asyncio.to_thread(db.get_saved_word, word_id, user_id)
     card_data = _saved_word_card(word_row) if word_row else {}
-    toggles = db.get_display_toggles(user_id)
+    toggles = await asyncio.to_thread(db.get_display_toggles, user_id)
     phon_lines = phonetic_lines(card_data.get("phonetic", ""))
     footer = session_progress_footer(state, user_id)
     text = format_srs_back_stage(
@@ -203,7 +204,7 @@ async def _handle_srs_reveal(
     if state.active_prompt_word_id != word_id:
         state.active_prompt_word_id = word_id
     try:
-        _persist_session(user_id, state)
+        await asyncio.to_thread(_persist_session, user_id, state)
     except Exception:
         # Roll back so memory and DB stay in sync (front) until next reveal.
         state.revealed = old_revealed
@@ -236,10 +237,12 @@ async def _handle_srs_review(
         await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     session = get_active_study_session(user_id, context)
-    already_graded = (
-        (session is not None and word_id in session.graded_word_ids)
-        or db.is_word_graded(user_id, word_id, "srs_review")
-    )
+    if session is not None and word_id in session.graded_word_ids:
+        already_graded = True
+    else:
+        already_graded = await asyncio.to_thread(
+            db.is_word_graded, user_id, word_id, "srs_review"
+        )
     if session is not None:
         active = (
             bool(session.nodes)
@@ -292,20 +295,21 @@ async def _handle_srs_review(
             )
             return
     resolved = resolve_grade("srs_review", grade)
-    result = db.grade_word_review(word_id, resolved, user_id)
+    result = await asyncio.to_thread(db.grade_word_review, word_id, resolved, user_id)
     if result.ok:
         if session is not None:
             session.graded_word_ids.append(word_id)
             # Persist durable IMMEDIATELY (before advance_session) so a restart
             # or lost advance still records this card as graded for the
             # idempotent re-grade guard (R3, Bug #401).
-            _persist_session(user_id, session)
+            await asyncio.to_thread(_persist_session, user_id, session)
         shown_at = context.user_data.pop(f"card_shown_at_{word_id}", None)
         response_time_ms = None
         if shown_at is not None:
             elapsed = time.time() - shown_at
             response_time_ms = max(0, int(elapsed * 1000))
-        _record_event_guarded(
+        await asyncio.to_thread(
+            _record_event_guarded,
             word_id=word_id,
             user_id=user_id,
             grade=resolved,
@@ -314,7 +318,7 @@ async def _handle_srs_review(
             raw_signal=json.dumps({"button_value": grade}),
             response_time_ms=response_time_ms,
         )
-        db.touch_streak(user_id)
+        await asyncio.to_thread(db.touch_streak, user_id)
         await notify_callback(
             update.callback_query,
             format_next_review_text(result.interval_seconds),
@@ -359,10 +363,12 @@ async def _handle_first_exposure_grade(
         await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     session = get_active_study_session(user_id, context)
-    already_graded = (
-        (session is not None and word_id in session.graded_word_ids)
-        or db.is_word_graded(user_id, word_id, "first_exposure")
-    )
+    if session is not None and word_id in session.graded_word_ids:
+        already_graded = True
+    else:
+        already_graded = await asyncio.to_thread(
+            db.is_word_graded, user_id, word_id, "first_exposure"
+        )
     if session is not None:
         active = (
             bool(session.nodes)
@@ -409,18 +415,19 @@ async def _handle_first_exposure_grade(
             )
             return
     resolved = resolve_grade("first_exposure", grade)
-    result = db.grade_first_exposure(word_id, resolved, user_id)
+    result = await asyncio.to_thread(db.grade_first_exposure, word_id, resolved, user_id)
     if result.ok:
         if session is not None:
             session.graded_word_ids.append(word_id)
             # Persist durable IMMEDIATELY (before advance_session) so a restart
             # or lost advance still records this card as graded for the
             # idempotent re-grade guard (R3, Bug #401).
-            _persist_session(user_id, session)
+            await asyncio.to_thread(_persist_session, user_id, session)
         # response_time_ms intentionally omitted for first-exposure:
         # there is no recall attempt, just a familiarity rating, so
         # the signal is not comparable to regular-review response time.
-        _record_event_guarded(
+        await asyncio.to_thread(
+            _record_event_guarded,
             word_id=word_id,
             user_id=user_id,
             grade=resolved,
@@ -429,7 +436,7 @@ async def _handle_first_exposure_grade(
             raw_signal=json.dumps({"button_value": grade}),
             response_time_ms=None,
         )
-        db.touch_streak(user_id)
+        await asyncio.to_thread(db.touch_streak, user_id)
         await notify_callback(
             update.callback_query,
             format_next_review_text(result.interval_seconds),
@@ -583,9 +590,9 @@ async def _handle_srs_delete_yes(
         return
     user_id, word_id, state, _node = resolved
     try:
-        deleted = db.delete_saved_word(word_id, user_id)
-        _refill_session_from_due(user_id, state)
-        _persist_session(user_id, state)
+        deleted = await asyncio.to_thread(db.delete_saved_word, word_id, user_id)
+        await asyncio.to_thread(_refill_session_from_due, user_id, state)
+        await asyncio.to_thread(_persist_session, user_id, state)
     except Exception:
         logger.exception("srs delete failed user_id=%s word_id=%s", user_id, word_id)
         await notify_callback(

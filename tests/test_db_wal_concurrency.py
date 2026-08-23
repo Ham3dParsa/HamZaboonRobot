@@ -32,11 +32,8 @@ class DbWalConcurrencyTests(unittest.TestCase):
             conn.close()
 
     def _busy_timeout(self):
-        conn = sqlite3.connect(self.new_path)
-        try:
+        with db_module.get_conn() as conn:
             return conn.execute("PRAGMA busy_timeout").fetchone()[0]
-        finally:
-            conn.close()
 
     def _set_journal_mode(self, mode):
         conn = sqlite3.connect(self.new_path)
