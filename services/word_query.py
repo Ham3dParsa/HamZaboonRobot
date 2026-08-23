@@ -105,7 +105,7 @@ async def toggle_save(token: str, user_id: int) -> ToggleResult:
     handler rebuilds the keyboard (translations/pronounce) from user_data
     (Rule 3) — this service does not carry those flags.
     """
-    row = db.get_query_result(token, user_id=user_id)
+    row = await asyncio.to_thread(db.get_query_result, token, user_id=user_id)
     if not row:
         return ToggleResult(kind="expired")
 
@@ -115,12 +115,14 @@ async def toggle_save(token: str, user_id: int) -> ToggleResult:
         logger.warning("corrupt result_json token=%s", token)
         return ToggleResult(kind="expired")
 
-    state = db.toggle_review_word(user_id, row["word"], row["lang"], result_data)
+    state = await asyncio.to_thread(
+        db.toggle_review_word, user_id, row["word"], row["lang"], result_data
+    )
     if state == "saved":
-        db.mark_query_result_saved(token)
+        await asyncio.to_thread(db.mark_query_result_saved, token)
         message = _TOAST_SAVED
     else:
-        db.clear_query_result_saved(token)
+        await asyncio.to_thread(db.clear_query_result_saved, token)
         message = _TOAST_REMOVED
 
     return ToggleResult(
@@ -183,7 +185,7 @@ async def ask(
     itself on an undelivered card). An unusable/empty AI card is never persisted
     (guards against wasting AI cost with no storable result).
     """
-    user_row = db.get_user(user_id)
+    user_row = await asyncio.to_thread(db.get_user, user_id)
     if user_row is None:
         return AskResult(kind="registration_required")
     user_row = dict(user_row)
@@ -198,7 +200,7 @@ async def ask(
     if error_key:
         return AskResult(kind="invalid_input", error_key=error_key)
 
-    dup = find_duplicate(user_id, text, lang)
+    dup = await asyncio.to_thread(find_duplicate, user_id, text, lang)
     if dup is not None and not skip_duplicate:
         # R7: a prior unexpired card exists for this user+lang+word. Offer the
         # retrieve-vs-new choice WITHOUT reserving quota or calling AI. The
@@ -207,7 +209,8 @@ async def ask(
         return AskResult(kind="duplicate", token=dup)
 
     limit = daily_word_query_limit_for_plan(plan)
-    reserved = db.reserve_word_query(
+    reserved = await asyncio.to_thread(
+        db.reserve_word_query,
         user_id,
         limit,
         bypass_limits=OWNER_BYPASS_LIMITS and is_owner(user_id),
@@ -225,14 +228,14 @@ async def ask(
             lang=lang,
         )
     except asyncio.TimeoutError:
-        db.release_word_query(user_id)
+        await asyncio.to_thread(db.release_word_query, user_id)
         return AskResult(kind="ai_timeout")
     except CardPreparationError:
-        db.release_word_query(user_id)
+        await asyncio.to_thread(db.release_word_query, user_id)
         return AskResult(kind="card_prep_error")
     except Exception:
         logger.exception("AI error in word_query.ask user_id=%s", user_id)
-        db.release_word_query(user_id)
+        await asyncio.to_thread(db.release_word_query, user_id)
         return AskResult(kind="ai_error")
 
     if not isinstance(data, dict) or not data.get("word"):
@@ -241,24 +244,25 @@ async def ask(
             user_id,
             (data or {}).get("word"),
         )
-        db.release_word_query(user_id)
+        await asyncio.to_thread(db.release_word_query, user_id)
         return AskResult(kind="persist_error")
 
     try:
-        query_token = db.create_query_result(
+        query_token = await asyncio.to_thread(
+            db.create_query_result,
             user_id,
             text,
             data.get("word", text),
             lang,
             data,
         )
-        db.touch_streak(user_id)
+        await asyncio.to_thread(db.touch_streak, user_id)
     except Exception:
         logger.exception("persist failed in word_query.ask user_id=%s", user_id)
-        db.release_word_query(user_id)
+        await asyncio.to_thread(db.release_word_query, user_id)
         return AskResult(kind="persist_error")
 
-    usage_row = db.get_user(user_id)
+    usage_row = await asyncio.to_thread(db.get_user, user_id)
     return AskResult(
         kind="ok",
         token=query_token,
