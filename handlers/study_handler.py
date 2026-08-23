@@ -339,7 +339,7 @@ async def handle_study_start(
         await _reply_or_answer(
             update,
             context,
-            "📚 جلسه‌ای برای امروز نداری. واژه‌های جدید اضافه کن!",
+            "📚 نشستی برای امروز نداری. واژه‌های جدید اضافه کن!",
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         return
