@@ -1,6 +1,12 @@
-STATE: phase 1/1 — in-progress — focus: implemented R1+R2 (5788c15) awaiting CI/Kilo
+STATE: complete — merged c9886bc (#475) 2026-08-23
 
-Evidence: commit 5788c15 services/db/plans.py + bot.py; tests: pytest tests/test_wiring.py tests/test_single_source_of_truth.py 40 passed 2026-08-23; ruff F821/F811 clean
+Evidence: commits 5788c15 + c75459f (fix Kilo critical) + 2eb4ae4 docs; tests 25 passed wiring+plan_consistency; ruff clean; Kilo 1 suggestion (literal comment) minor, merge recommended; PR #475 squash merged c9886bc
+
+## Final Verdict
+- Done: #18 plan-limits single-source guard, #20 allowlist derived from ROUTES + _BUILTIN, generalized dispatch via ROUTES
+- Deliberately Not Done: #22 utils-impure bounded deferred (no file touched)
+- Deferred: #21 god-modules, #24, #27 (Session A remains)
+- Uncertain: none — Kilo critical resolved
 
 # Plan 18-20 — plan-limits + allowlist single-source (Session A follow-up)
 
