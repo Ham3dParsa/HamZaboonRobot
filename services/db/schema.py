@@ -889,6 +889,23 @@ def init_db(path: str | None = None):
         }
         if "interval_idx" in saved_word_columns:
             conn.execute("ALTER TABLE saved_words DROP COLUMN interval_idx")
+        # Q-26: retire dead optional_daily_limit and auto-delivery window columns
+        # (single source is plans table; no live code reads these)
+        user_cols = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(users)").fetchall()
+        }
+        for col in (
+            "optional_daily_limit",
+            "preferred_delivery_minute",
+            "active_window_start_minute",
+            "active_window_end_minute",
+        ):
+            if col in user_cols:
+                try:
+                    conn.execute(f"ALTER TABLE users DROP COLUMN {col}")
+                except Exception:
+                    pass  # older SQLite without DROP COLUMN — column stays but unused
         for table in sorted(_LEGACY_DAILY_TABLES):
             conn.execute(f"DROP TABLE IF EXISTS {table}")
         # R1: stamp the database as a test database (test mode only) so
