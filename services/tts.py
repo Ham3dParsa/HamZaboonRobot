@@ -86,21 +86,15 @@ async def _get_tts_lock(key: str) -> asyncio.Lock:
     async with _TTS_LOCKS_LOCK:
         lock = _TTS_LOCKS.get(key)
         if lock is None:
-            # Bounded eviction: strictly keep map below cap even when all locks
-            # are held. A held lock can be safely dropped — the owning task
-            # already holds the lock object; re-fetch creates a fresh lock after
-            # the old one is released and no longerंत्री contended.
+            # Bounded eviction: only idle locks are evicted. If all locks
+            # are held, skip eviction and let the map grow temporarily —
+            # per-key serialization matters more than a strict cap.
             if len(_TTS_LOCKS) >= _MAX_TTS_LOCKS:
-                # First try idle locks, then oldest regardless of state
                 for k, lk in list(_TTS_LOCKS.items()):
                     if not lk.locked():
                         del _TTS_LOCKS[k]
                         if len(_TTS_LOCKS) < _MAX_TTS_LOCKS:
                             break
-                if len(_TTS_LOCKS) >= _MAX_TTS_LOCKS:
-                    # All locked: evict oldest entry unconditionally to enforce cap
-                    oldest = next(iter(_TTS_LOCKS))
-                    del _TTS_LOCKS[oldest]
             lock = asyncio.Lock()
             _TTS_LOCKS[key] = lock
         return lock

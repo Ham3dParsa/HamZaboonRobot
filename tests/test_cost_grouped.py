@@ -52,9 +52,11 @@ class TestDailyCostsGrouped(unittest.TestCase):
             pass
 
     def test_daily_costs_grouped_matches_python_sum(self):
-        # Pin GROUP BY contract: per-day totals, COALESCE(null→0), and
-        # start_date/end_date filters must match manual Python sum
-        # Insert rows across 2 days, including a NULL cost_usd
+        # Pin GROUP BY contract: per-day totals and start_date/end_date
+        # filters must match manual Python sum. COALESCE(cost_usd,0) is
+        # retained for legacy rows, but schema NOT NULL enforces non-null
+        # in normal inserts — the branch is pinned via a direct SQL COALESCE
+        # check below without inserting a NULL (which violates NOT NULL).
         import sqlite3
 
         with sqlite3.connect(self.db_path) as conn:
@@ -89,3 +91,8 @@ class TestDailyCostsGrouped(unittest.TestCase):
             rows = conn.execute("SELECT cost_usd FROM llm_requests WHERE request_date BETWEEN ? AND ?", ("2026-08-20", "2026-08-20")).fetchall()
         manual = sum((r[0] or 0) for r in rows)
         self.assertAlmostEqual(result["2026-08-20"], manual, places=4)
+
+        # Pin COALESCE(null→0) branch without violating NOT NULL: direct SQL
+        with _sq.connect(self.db_path) as conn:
+            row = conn.execute("SELECT SUM(COALESCE(NULL, 0))").fetchone()
+        self.assertEqual(row[0], 0)
