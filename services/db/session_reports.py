@@ -15,10 +15,9 @@ from __future__ import annotations
 
 import datetime
 import logging
-import sqlite3
 from dataclasses import dataclass
 
-from services.db.schema import _utc_now, get_conn, transaction
+from services.db.schema import _utc_now, transaction
 from services.session.summary import SessionReport, deserialize_report, serialize_report
 
 logger = logging.getLogger(__name__)
@@ -79,11 +78,12 @@ def list_recent_reports(
     """Return the user's reports still within the retention window (R10-C/D).
 
     Purging is lazy: expired rows for every user are removed here and on save.
+    DELETE+SELECT run in a single ``transaction()`` so purge-then-read is
+    atomic and cannot race a concurrent save.
     """
     cutoff = _cutoff(now)
     with transaction() as conn:
         conn.execute("DELETE FROM session_reports WHERE created_at < ?", (cutoff,))
-    with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, session_date FROM session_reports "
             "WHERE user_id=? AND created_at >= ? "
@@ -98,11 +98,12 @@ def load_report(report_id: int, user_id: int) -> LoadedReport | None:
 
     Returns ``None`` for a missing, expired, or foreign report so the handler
     fails closed (R10-E) instead of rendering stale or foreign data.
+    DELETE+SELECT run in a single ``transaction()`` so purge-then-read is
+    atomic.
     """
     cutoff = _cutoff()
     with transaction() as conn:
         conn.execute("DELETE FROM session_reports WHERE created_at < ?", (cutoff,))
-    with get_conn() as conn:
         row = conn.execute(
             "SELECT session_date, report_json, is_admin FROM session_reports "
             "WHERE id=? AND user_id=? AND created_at >= ?",
