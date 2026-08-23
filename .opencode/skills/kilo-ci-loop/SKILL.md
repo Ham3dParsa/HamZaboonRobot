@@ -21,12 +21,12 @@ Loop that turns a pushed PR into a merge-ready one without re-printing unchanged
 ## Steps
 
 ### 1. Poll Kilo delta (token-tight)
-Fetch only `id` + body hash, never full bodies on every poll:
+Fetch only `id` + body length (cheap proxy for hash), never full bodies on every poll:
 ```powershell
 gh api repos/Ham3dParsa/HamZaboonRobot/pulls/<n>/comments --jq '.[] | {id, h:(.body|length), path, line}'
 gh api repos/Ham3dParsa/HamZaboonRobot/issues/<n>/comments --jq '.[] | {id, h:(.body|length)}'
 ```
-Persist `id -> h` to `$env:TEMP/opencode/kilo_seen_<n>.json` between polls. Surface only deltas: new `id` or same `id` with changed `h` (Kilo edits in place). Fetch full body only for deltas:
+Persist `id -> h` to `$env:TEMP/opencode/kilo_seen_<n>.json` between polls. Surface only deltas: new `id` or same `id` with changed `h` (Kilo edits in place; equal-length edits keep same `h` and would be missed — use a checksum like `sha256` if strict). Fetch full body only for deltas:
 ```powershell
 gh api repos/Ham3dParsa/HamZaboonRobot/pulls/comments/<id> --jq '.body'
 gh api repos/Ham3dParsa/HamZaboonRobot/issues/comments/<id> --jq '.body'
