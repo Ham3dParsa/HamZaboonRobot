@@ -1030,6 +1030,16 @@ class TestCallbackWiring(unittest.TestCase):
         )
         self.assertEqual(_direct_bot_verb_calls_in_tree(ast.parse(src)), [])
 
+    def test_llm_route_requires_owner(self):
+        """The llm: prefix must be registered owner_only (ticket #33 O-llm-gate)."""
+        import handlers.admin  # noqa: F401  (ensures register() ran)
+        from services.routing import ROUTES
+
+        llm_routes = [r for r in ROUTES if r[0] == "llm"]
+        self.assertTrue(llm_routes, "llm prefix not registered")
+        for _, _, owner_only in llm_routes:
+            self.assertTrue(owner_only, "llm route must be owner_only=True")
+
     def test_maintenance_gated_commands_registered_through_wrapper(self):
         """The /start and /help CommandHandlers must route through
         ``_maintenance_gated_command`` so a non-owner cannot run them (and drive

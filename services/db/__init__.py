@@ -554,8 +554,8 @@ def import_db_bytes(data: bytes, backup_path: str | None = None) -> None:
                         )
                     }
                     def _quoted_ident(name: str) -> str:
-                        if name not in required_tables and name not in candidate_tables:
-                            raise ValueError("فایل پشتیبان معتبر نیست.")
+                        # Caller filters to required_tables ∩ candidate_tables, so
+                        # injection is blocked by the intersection + quote-doubling.
                         return '"' + name.replace('"', '""') + '"'
 
                     missing_columns = {

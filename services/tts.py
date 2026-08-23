@@ -25,8 +25,11 @@ _VOICES_LOADED = False
 
 # Per-key async locks for pronounce() to prevent concurrent writes to the same
 # cache file (ticket #4 tts-race). Key is "lang:normalized_word".
+# Bounded to prevent unbounded growth on long uptime: old idle locks are
+# evicted when the map exceeds _MAX_TTS_LOCKS.
 _TTS_LOCKS: dict[str, asyncio.Lock] = {}
 _TTS_LOCKS_LOCK = asyncio.Lock()
+_MAX_TTS_LOCKS = 2000
 
 
 def voice_for(lang: str) -> str:
@@ -83,6 +86,13 @@ async def _get_tts_lock(key: str) -> asyncio.Lock:
     async with _TTS_LOCKS_LOCK:
         lock = _TTS_LOCKS.get(key)
         if lock is None:
+            # Evict oldest idle lock if bounded map is full
+            if len(_TTS_LOCKS) >= _MAX_TTS_LOCKS:
+                for k, lk in list(_TTS_LOCKS.items()):
+                    if not lk.locked():
+                        del _TTS_LOCKS[k]
+                        if len(_TTS_LOCKS) < _MAX_TTS_LOCKS:
+                            break
             lock = asyncio.Lock()
             _TTS_LOCKS[key] = lock
         return lock
