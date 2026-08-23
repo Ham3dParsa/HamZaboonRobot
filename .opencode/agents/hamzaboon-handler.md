@@ -12,8 +12,7 @@ permission:
     "python -m unittest tests/test_wiring.py": allow
     "python -m unittest tests/test_formatting.py": allow
     "python -m unittest tests/test_keyboards.py": allow
-    "python -m pytest tests/test_integration/test_*": allow
-    "python -m pytest tests/ -n * -q": allow
+    "python -m pytest*": allow
     "python scripts/compile_all.py": allow
     "python -m ruff check --select F821,F811 *": allow
     "git diff --check": allow

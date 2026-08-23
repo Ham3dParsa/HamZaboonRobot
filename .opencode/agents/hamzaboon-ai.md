@@ -9,8 +9,7 @@ permission:
     "python -m unittest tests/test_ai_*": allow
     "python -m unittest tests/test_ai_validation.py": allow
     "python -m unittest tests/test_ai_preset_manager.py": allow
-    "python -m pytest tests/test_integration/test_*": allow
-    "python -m pytest tests/ -n * -q": allow
+    "python -m pytest*": allow
     "python scripts/compile_all.py": allow
     "python -m ruff check --select F821,F811 *": allow
     "git diff --check": allow

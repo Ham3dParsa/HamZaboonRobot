@@ -11,10 +11,7 @@ permission:
     "python -m unittest tests/test_reviews.py": allow
     "python -m unittest tests/test_fsrs_core.py": allow
     "python -m unittest tests/test_migration_guards.py": allow
-    "python -m pytest tests/test_integration/test_*": allow
-    "python -m pytest tests/test_integration/* -q": allow
-    "python -m pytest tests/ -n * -q": allow
-    "python -m pytest tests/ -q": allow
+    "python -m pytest*": allow
     "python scripts/compile_all.py": allow
     "python -m ruff check --select F821,F811 *": allow
     "python -m ruff check *": allow
