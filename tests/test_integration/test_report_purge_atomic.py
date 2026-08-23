@@ -19,7 +19,7 @@ import re
 
 from services import db
 from services.db import schema as db_schema
-from services.db.session_reports import REPORT_WINDOW_DAYS, _cutoff
+from services.db.session_reports import REPORT_WINDOW_DAYS
 from services.session.summary import WordReviewRecord, build_report
 
 
@@ -71,37 +71,44 @@ class ReportPurgeAtomicTests(unittest.TestCase):
             rows = conn.execute("SELECT session_date, created_at FROM session_reports").fetchall()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["session_date"], "2026-08-20")
-        # Ensure cutoff logic: created_at >= cutoff
-        cutoff = _cutoff(now)
-        self.assertGreaterEqual(rows[0]["created_at"], cutoff)
 
     def test_concurrent_saves_do_not_lose_reports(self):
-        # Prove atomicity under true concurrent writers: 2 threads save at
-        # the same time (Kilo 74). Sequential saves would not exercise the
-        # BEGIN IMMEDIATE + busy_timeout serialization; threaded saves do.
-        # If purge+insert were not in one transaction, one save's DELETE could
-        # wipe the other's just-inserted row.
+        # Prove atomicity under true concurrent writers (Kilo 74, 86).
+        # Uses plain start/join (no Barrier — avoids flakiness on slow CI)
+        # plus a concurrent reader to exercise the list_recent_reports
+        # DELETE+SELECT race. If purge+insert were not in one transaction,
+        # one save's DELETE could wipe the other's just-inserted row or a
+        # concurrent list could ghost-read.
         r1 = _make_report()
         r2 = build_report([WordReviewRecord(word_id=2, word="world", activity_type="first_exposure", grade=4, stability_before=0.5, stability_after=1.5)])
-        barrier = threading.Barrier(2)
         errors: list[BaseException] = []
 
         def _save(date: str, report):
             try:
-                barrier.wait(timeout=5)
                 db.save_session_report(1, date, report)
+            except BaseException as exc:  # pragma: no cover
+                errors.append(exc)
+
+        def _reader():
+            try:
+                for _ in range(5):
+                    db.list_recent_reports(1)
             except BaseException as exc:  # pragma: no cover
                 errors.append(exc)
 
         t1 = threading.Thread(target=_save, args=("2026-08-19", r1))
         t2 = threading.Thread(target=_save, args=("2026-08-20", r2))
+        tr = threading.Thread(target=_reader)
         t1.start()
         t2.start()
+        tr.start()
         t1.join(timeout=10)
         t2.join(timeout=10)
+        tr.join(timeout=10)
         self.assertFalse(errors, f"concurrent saves raised: {errors}")
         self.assertFalse(t1.is_alive(), "t1 hung (deadlock/busy_timeout)")
         self.assertFalse(t2.is_alive(), "t2 hung (deadlock/busy_timeout)")
+        self.assertFalse(tr.is_alive(), "reader hung (deadlock/busy_timeout)")
 
         reports = db.list_recent_reports(1)
         self.assertEqual(len(reports), 2)

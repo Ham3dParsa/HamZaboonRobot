@@ -81,10 +81,14 @@ def list_recent_reports(
     DELETE+SELECT run in a single ``transaction()`` so purge-then-read is
     atomic and cannot race a concurrent save.
     """
-    # NOTE(Kilo 82): BEGIN IMMEDIATE across the read is intentional — lazy
+    # NOTE(Kilo 82, 89): BEGIN IMMEDIATE across the read is intentional — lazy
     # purge must be atomic with the following SELECT, otherwise a concurrent
-    # save's purge could interleave (ghost read). The write lock is bounded by
-    # _DB_BUSY_TIMEOUT (5 s) and the transaction only holds DELETE+SELECT.
+    # save's purge could interleave (ghost read). The alternative (DELETE in a
+    # transaction then SELECT outside) reintroduces the race, so we keep the
+    # single transaction. Lock is short (only DELETE+SELECT, no await, no I/O)
+    # and bounded by _DB_BUSY_TIMEOUT (5 s); retention purge is rare (only
+    # rows older than the 3-day window, lazily on save/list/load) so contention
+    # is minimal.
     cutoff = _cutoff(now)
     with transaction() as conn:
         conn.execute("DELETE FROM session_reports WHERE created_at < ?", (cutoff,))
@@ -103,7 +107,8 @@ def load_report(report_id: int, user_id: int) -> LoadedReport | None:
     Returns ``None`` for a missing, expired, or foreign report so the handler
     fails closed (R10-E) instead of rendering stale or foreign data.
     DELETE+SELECT run in a single ``transaction()`` so purge-then-read is
-    atomic (same bounded-lock rationale as ``list_recent_reports``).
+    atomic (same bounded-lock rationale as ``list_recent_reports`` — see
+    NOTE Kilo 89 there).
     """
     cutoff = _cutoff()
     with transaction() as conn:
