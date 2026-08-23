@@ -13,7 +13,8 @@ import logging
 from datetime import date, datetime
 
 from config import APP_TZ
-from services.db import get_conn, get_setting, set_setting
+from services.db import get_setting, set_setting
+from services.db.schema import transaction
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +65,7 @@ def consume_session_slot(user_id: int, plan: str = "free") -> bool:
     """
     limit = _max_sessions_for_plan(plan)
     key = _session_key(user_id)
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         row = conn.execute(
             "SELECT value FROM settings WHERE key=?", (key,)
         ).fetchone()
@@ -74,7 +74,6 @@ def consume_session_slot(user_id: int, plan: str = "free") -> bool:
         except (ValueError, TypeError):
             used = 0
         if used >= limit:
-            conn.commit()
             logger.info(
                 "session quota exceeded user_id=%s used=%s limit=%s",
                 user_id, used, limit,
@@ -86,7 +85,6 @@ def consume_session_slot(user_id: int, plan: str = "free") -> bool:
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, new_val),
         )
-        conn.commit()
     logger.debug(
         "consume_session_slot user_id=%s used=%s->%s limit=%s",
         user_id, used, used + 1, limit,
@@ -97,8 +95,7 @@ def consume_session_slot(user_id: int, plan: str = "free") -> bool:
 def release_session_slot(user_id: int) -> None:
     """Decrement session usage (rollback on error or empty session)."""
     key = _session_key(user_id)
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with transaction() as conn:
         row = conn.execute(
             "SELECT value FROM settings WHERE key=?", (key,)
         ).fetchone()
@@ -112,7 +109,6 @@ def release_session_slot(user_id: int) -> None:
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, new_val),
         )
-        conn.commit()
     logger.debug(
         "release_session_slot user_id=%s used=%s->%s",
         user_id, used, max(0, used - 1),
