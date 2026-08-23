@@ -237,8 +237,10 @@ def _get_user_lock(user_id: int) -> asyncio.Lock:
 
 _telegram_offline: bool = False
 _consecutive_health_failures: int = 0
-_OFFLINE_THRESHOLD: int = 1
+_OFFLINE_THRESHOLD: int = 5
 _OFFLINE_MESSAGE = "متاسفانه به دلیل مشکلات موقتی فنی، فعلا قادر به انجام این درخواست نیستیم 🙏 لطفا بعدا تلاش کنید. ⏳"
+_callback_dedup: dict[tuple[int, str], float] = {}
+_CALLBACK_DEDUP_WINDOW: float = 0.8
 _AI_BUSY_MESSAGE = "هوش مصنوعی الان شلوغه؛ کمی بعد دوباره تلاش کن."
 _offline_notice_sent: set[int] = set()  # chat_ids notified in the current offline window
 
@@ -559,8 +561,13 @@ async def _dispatch_awaiting(
     context.user_data[AWAITING_PENDING_KEY] = True
     try:
         if awaiting == "ask_word":
-            row = db.get_user(user_id)
-            await _process_ask_word(update, context, user_id, row, text)
+            _lock = _get_user_lock(user_id)
+            if _lock.locked():
+                await _send_with_retry(context.bot, update.effective_chat.id, "لطفاً کمی صبر کنید…")
+                return True
+            async with _lock:
+                row = db.get_user(user_id)
+                await _process_ask_word(update, context, user_id, row, text)
             return True
         if is_admin_awaiting(awaiting):
             await flows_text_router(update, context, awaiting, text)
@@ -608,7 +615,12 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # مسیر دکمه‌های منوی اصلی
     if text == BTN_STUDY_SESSION:
-        await handle_study_start(update, context)
+        _lock = _get_user_lock(user_id)
+        if _lock.locked():
+            await _send_with_retry(context.bot, update.effective_chat.id, "لطفاً کمی صبر کنید…")
+            return
+        async with _lock:
+            await handle_study_start(update, context)
     elif text == BTN_ASK_WORD:
         await ask_for_ask_word(update, context)
     elif text == BTN_SETTINGS:
@@ -636,6 +648,22 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     db.reset_user_blocked(update.effective_user.id)
     data = update.callback_query.data
+    # R1: central double-answer guard — drop exact duplicate callback within 0.8s
+    # Skip heavy paths (srs/query/tts/study) — those are guarded by per-user lock
+    # and must allow intentional re-grade/retry (see study restart test).
+    if not data.startswith(("srs:", "query:", "tts:", "study:")):
+        dedup_key = (update.effective_user.id, data)
+        now = time.monotonic()
+        last = _callback_dedup.get(dedup_key)
+        if last is not None and (now - last) < _CALLBACK_DEDUP_WINDOW:
+            await notify_callback(update.callback_query)
+            return
+        _callback_dedup[dedup_key] = now
+        if len(_callback_dedup) > 5000:
+            cutoff = now - _CALLBACK_DEDUP_WINDOW
+            for k, v in list(_callback_dedup.items()):
+                if v < cutoff:
+                    del _callback_dedup[k]
 
     # Admin and LLM-cost callbacks are routed through the central registry
     # (services/routing.py), which guarantees exactly one answer per callback
@@ -745,19 +773,34 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(parts) != 3:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
-        await _handle_query_add(update, context, parts[2])
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await _handle_query_add(update, context, parts[2])
     elif data.startswith("query:dup:new:"):
         parts = data.split(":", 3)
         if len(parts) != 4:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
-        await _handle_query_dup_new(update, context, parts[3])
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await _handle_query_dup_new(update, context, parts[3])
     elif data.startswith("query:dup:reuse:"):
         parts = data.split(":", 3)
         if len(parts) != 4:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
-        await _handle_query_dup_reuse(update, context, parts[3])
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await _handle_query_dup_reuse(update, context, parts[3])
     elif data == "query:dup:cancel":
         await _handle_query_dup_cancel(update, context)
     elif data == "settings:lang":
@@ -783,13 +826,23 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(parts) != 4:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
-        await _handle_srs_reveal(update, context, parts[2], parts[3])
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await _handle_srs_reveal(update, context, parts[2], parts[3])
     elif data.startswith("srs:fe:"):
         parts = data.split(":")
         if len(parts) != 5:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
-        await _handle_first_exposure_grade(update, context, parts[2], parts[3], parts[4])
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await _handle_first_exposure_grade(update, context, parts[2], parts[3], parts[4])
     elif data.startswith("srs:"):
         parts = data.split(":")
         if len(parts) != 4:
@@ -805,13 +858,33 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log.warning("Unrecognized srs callback: %s", data)
             await notify_callback(update.callback_query, "این دکمه دیگر معتبر نیست.", intent=CallbackNoticeIntent.INFO)
             return
-        await _handle_srs_review(update, grade, parts[2], parts[3], context)
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await _handle_srs_review(update, grade, parts[2], parts[3], context)
     elif data == "study:start":
-        await handle_study_start(update, context)
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await handle_study_start(update, context)
     elif data == "study:inactive":
-        await handle_study_inactive(update, context)
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await handle_study_inactive(update, context)
     elif data.startswith("tts:pronounce:"):
-        await _handle_tts_pronounce(update, context, data.split(":", 2)[2])
+        _lock = _get_user_lock(update.effective_user.id)
+        if _lock.locked():
+            await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
+            return
+        async with _lock:
+            await _handle_tts_pronounce(update, context, data.split(":", 2)[2])
     elif data.startswith("help:"):
         await handle_help_callback(update, context, data)
     else:
@@ -829,7 +902,16 @@ async def _maintenance_blocked(update: Update, context: ContextTypes.DEFAULT_TYP
     The bot owner is never blocked so they can still reach the admin panel to
     exit maintenance. The editable Persian message comes from the DB and is
     shown as plain text (no parse_mode), so no MarkdownV2 escaping is applied.
+    When OWNER_ID is unset (0), maintenance is intentionally a no-op — no
+    one can toggle it, so blocking would be an unrecoverable kill-switch (R7).
     """
+    if OWNER_ID == 0:
+        try:
+            if db.is_maintenance_mode():
+                log.warning("maintenance active but OWNER_ID==0 — kill-switch disabled until owner configured")
+        except sqlite3.OperationalError:
+            pass
+        return False
     if is_owner(update.effective_user.id):
         return False
     try:
