@@ -1,4 +1,6 @@
-STATE: LOCKED — branch chore/retire-grammar-tip worktree .worktrees/a-03
+STATE: phase 1/1 — in-progress — focus: implemented b816655 retired stub + archive awaiting CI/Kilo
+
+Evidence: commit b816655 handlers/user.py stub + docs/archive/retired/grammar_tip_2026-08-23.md; tests: pytest 40 passed 2026-08-23; ruff clean
 
 # Plan 24 — O-grammar-standalone retire (Session A quick win)
 
