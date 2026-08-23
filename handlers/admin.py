@@ -479,7 +479,8 @@ async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
     _MAX_RESTORE_BYTES = 100 * 1024 * 1024
     try:
         doc = update.effective_message.document
-        if getattr(doc, "file_size", None) and doc.file_size > _MAX_RESTORE_BYTES:
+        file_size = getattr(doc, "file_size", None)
+        if isinstance(file_size, int) and file_size > _MAX_RESTORE_BYTES:
             raise ValueError("حجم فایل بیش از 100 مگابایت است.")
         file = await doc.get_file()
         data = await file.download_as_bytearray()
