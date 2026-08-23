@@ -6,10 +6,26 @@ permission:
   edit: allow
   bash:
     "*": deny
+    # Safe validation — no destructive git/gh, no rm, no push
     "python -m unittest tests/test_db_*": allow
     "python -m unittest tests/test_reviews.py": allow
     "python -m unittest tests/test_fsrs_core.py": allow
     "python -m unittest tests/test_migration_guards.py": allow
+    "python -m pytest tests/test_integration/test_*": allow
+    "python -m pytest tests/test_integration/* -q": allow
+    "python -m pytest tests/ -n * -q": allow
+    "python -m pytest tests/ -q": allow
+    "python scripts/compile_all.py": allow
+    "python -m ruff check --select F821,F811 *": allow
+    "python -m ruff check *": allow
+    "git diff --check": allow
+    "git diff --staged --check": allow
+    "git diff*": allow
+    "git status*": allow
+    "git log*": allow
+    "git show*": allow
+    "git worktree list": allow
+    "git rev-parse*": allow
   webfetch: deny
   websearch: deny
   skill: allow

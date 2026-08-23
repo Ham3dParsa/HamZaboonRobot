@@ -12,6 +12,18 @@ permission:
     "python -m unittest tests/test_wiring.py": allow
     "python -m unittest tests/test_formatting.py": allow
     "python -m unittest tests/test_keyboards.py": allow
+    "python -m pytest tests/test_integration/test_*": allow
+    "python -m pytest tests/ -n * -q": allow
+    "python scripts/compile_all.py": allow
+    "python -m ruff check --select F821,F811 *": allow
+    "git diff --check": allow
+    "git diff --staged --check": allow
+    "git diff*": allow
+    "git status*": allow
+    "git log*": allow
+    "git show*": allow
+    "git worktree list": allow
+    "git rev-parse*": allow
   webfetch: deny
   websearch: deny
   skill: allow
