@@ -73,9 +73,9 @@ from config.keyboards import (
 from services.utils.formatting import (
     ASK_WORD_PROMPT,
     format_card,
-    word_query_usage_text,
     phonetic_lines,
 )
+from services.scheduling import word_query_usage_text
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 
 from services.utils.helpers import (

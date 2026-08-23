@@ -113,3 +113,23 @@ def release_session_slot(user_id: int) -> None:
         "release_session_slot user_id=%s used=%s->%s",
         user_id, used, max(0, used - 1),
     )
+
+
+def word_query_usage_text(row: dict) -> str:
+    """Return today's word-query usage summary line for a users row.
+
+    Single source for the learner-facing usage line (moved from
+    services/utils/formatting.py to the scheduling domain per #22 —
+    formatting stays pure escaping only). Reads the plan spec via
+    ``daily_word_query_limit_for_plan``.
+    """
+    from config import _app_today, daily_word_query_limit_for_plan
+
+    used = row["words_asked_today"] or 0
+    if row["words_asked_date"] != _app_today():
+        used = 0
+    limit = daily_word_query_limit_for_plan(row["plan"] or "free")
+    if limit < 0:
+        return f"📊 استفاده امروز: {used} / نامحدود"
+    remaining = max(limit - used, 0)
+    return f"📊 استفاده امروز: {used}/{limit} · باقی‌مانده: {remaining}"

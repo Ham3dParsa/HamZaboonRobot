@@ -6,7 +6,7 @@ import re
 
 import jdatetime
 
-from config import _app_today, daily_word_query_limit_for_plan
+from config import _app_today
 from config.catalog import language_label
 from services.utils.validation import _CUSTOM_WORD_MAX_WORDS
 
@@ -545,27 +545,6 @@ ASK_WORD_PROMPT = (
     "✨ دوست داری چه واژه یا عبارتی رو یاد بگیری تا برات کارتشو بسازم؟\n"
     f"(برای مثال: یک کلمه‌ی جدید، اصطلاح یا فعل — حداکثر {_CUSTOM_WORD_MAX_WORDS} کلمه)"
 )
-
-
-def word_query_usage_text(row: dict) -> str:
-    """Return the today's word-query usage summary line for a users row.
-
-    Single source for the learner-facing usage line used by the word-query
-    closing reply (bot.py). Mirrors the historical logic in handlers/user.py so
-    all callers stay in sync.
-
-    This is NOT a pure formatter: it reads the plan spec from the DB via
-    ``daily_word_query_limit_for_plan`` to resolve the per-plan quota, so the
-    caller must pass an already-fetched users row.
-    """
-    used = row["words_asked_today"] or 0
-    if row["words_asked_date"] != _app_today():
-        used = 0
-    limit = daily_word_query_limit_for_plan(row["plan"] or "free")
-    if limit < 0:
-        return f"📊 استفاده امروز: {used} / نامحدود"
-    remaining = max(limit - used, 0)
-    return f"📊 استفاده امروز: {used}/{limit} · باقی‌مانده: {remaining}"
 
 
 # ---------------------------------------------------------------------------
