@@ -1,6 +1,12 @@
-STATE: phase 1/1 — in-progress — focus: implemented ceb8a48 move word_query_usage_text to scheduling awaiting CI/Kilo
+STATE: complete — merged 834076f (#481) 2026-08-23
 
-Evidence: commit ceb8a48 5 files; tests: pytest wiring+single_source 40 passed; ruff clean
+Evidence: commits ceb8a48 + 22109b6 plan; tests wiring+single_source 40 passed; ruff clean; Kilo 1 warning (verify old importer) + 1 suggestion (_app_today still used) — both spurious, merged
+
+## Final Verdict
+- Done: #22 utils pure — word_query_usage_text moved to scheduling domain — formatting pure
+- Deliberately Not Done: helpers.py stays as retry/cancel (no other domain logic moved — bounded)
+- Deferred: none
+- Uncertain: none
 
 # Plan 22 — utils-impure pure utils (Session A)
 

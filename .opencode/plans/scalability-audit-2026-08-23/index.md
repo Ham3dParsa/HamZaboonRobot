@@ -1,4 +1,4 @@
-STATE: A-22 LOCKED — #22 utils-pure refactor/utils-pure a-04; A-24 done #478, A-18-20 done #475; remaining #21,27 pending
+STATE: A-22 COMPLETE (#481) — F/Q/S/P/A-18-20/A-24/A-22 done; A-remaining #21,27 pending
 
 # Scalability/Security Bottleneck Audit — Plan Index (2026-08-23)
 
@@ -14,6 +14,6 @@ STATE: A-22 LOCKED — #22 utils-pure refactor/utils-pure a-04; A-24 done #478, 
 | Q — Quota/DB | `services/db/*`, `services/scheduling.py` | complete (#458) |
 | S — Security/AI | `services/ai/*`, `services/db/preset_registry.py`, `cost_tracking.py`, `key_crypto.py`, `tts.py` | complete (#460) — tickets #4,9,13,14,33,37 |
 | P — Perf/Handlers | `handlers/*`, `config/keyboards.py`, `services/db/schema.py` | complete (#462 P-UNBLOCKED + #477 P-DB a17e23e) |
-| A — Architecture | `config/catalog.py`, `plan_identity`, `preset_fields` | in-progress — plan-22 (#22) `refactor/utils-pure` LOCKED; plan-24 (#24) complete 99471e0 (#478); plan-18-20 (#18 #20) complete c9886bc (#475); remaining #21,27 pending |
+| A — Architecture | `config/catalog.py`, `plan_identity`, `preset_fields` | complete — plan-22 (#22) merged 834076f (#481) utils pure; plan-24 (#24) complete 99471e0 (#478); plan-18-20 (#18 #20) complete c9886bc (#475); remaining #21,27 pending |
 
 Claims in `$(git rev-parse --git-common-dir)/parallel-work-claims.json` — S disjoint from Q at file level (owner approved `proceed`).
