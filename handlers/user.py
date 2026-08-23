@@ -1,28 +1,17 @@
-import asyncio
 import logging
-import time
 
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from services.ai import ai
 from services import db
-from services.ai import prompts
 from config.catalog import (
-    GOALS,
-    LANGUAGES,
-    LEVELS,
     goal_label,
     language_label,
     level_cefr,
     level_label,
 )
 from config import (
-    APP_TIMEZONE,
-    AI_CARD_OUTPUT_FORMAT,
-    ASK_WORD_AI_TIMEOUT_SECONDS,
-    DEFAULT_PRESENTATION,
     OWNER_BYPASS_LIMITS,
     _app_today,
     _user_presentation,
@@ -34,7 +23,6 @@ from config.plan_identity import has_feature
 from services.utils.formatting import (
     ASK_WORD_PROMPT,
     escape_mdv2,
-    format_grammar_tip,
     word_query_usage_text,
 )
 from services.utils.callback_notifications import notify_callback
@@ -42,12 +30,7 @@ from services.send_pretty import Message, RawFormat, bold, say, send
 from services.activity_log import log_user_activity
 from services.utils.helpers import (
     _edit_or_send,
-    _exit_awaiting_flow,
-    _finish_llm_wait_state,
-    _is_cancel_input,
     _send_with_retry,
-    _start_llm_wait_state,
-    _CANCEL_INPUTS,
 )
 from config.keyboards import (
     main_menu,
@@ -58,14 +41,7 @@ from config.keyboards import (
     settings_inline_keyboard,
     settings_back_keyboard,
     awaiting_reply_keyboard,
-    awaiting_inline_keyboard,
-    BTN_ASK_WORD,
-    BTN_ADMIN,
-    BTN_SETTINGS,
-    BTN_CANCEL,
-    BTN_BACK,
 )
-from services.ai.llm_services import _call_ai_limited
 
 logger = logging.getLogger(__name__)
 
@@ -308,106 +284,15 @@ async def on_level_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, l
 
 
 async def send_grammar_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    log_user_activity(update, action="grammar_tip", outcome="requested")
-    row = db.get_user(user_id)
-    if not row or not row["onboarded"]:
-        await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
-        return
-
-    limit = daily_word_query_limit_for_plan(row["plan"] or "free")
-    usage_before_text = _grammar_tip_usage_text(row)
-    if not db.reserve_grammar_tip(
-        user_id,
-        limit,
-        bypass_limits=OWNER_BYPASS_LIMITS and is_owner(user_id),
-    ):
-        await _send_with_retry(
-            context.bot,
-            update.effective_chat.id,
-            f"{usage_before_text}\n\nسقف روزانه‌ی نکته‌ی گرامری تموم شده.",
-        )
-        return
-    usage_text = _grammar_tip_usage_text(db.get_user(user_id) or row)
-    deadline = time.monotonic() + ASK_WORD_AI_TIMEOUT_SECONDS
-    wait_message = await _start_llm_wait_state(
-        update,
-        context,
-        "⏳ دارم نکته‌ی گرامری رو آماده می‌کنم…",
+    """Retired — grammar tip disabled in prod (#24). Logic archived to
+    `docs/archive/retired/grammar_tip_2026-08-23.md`. Keep stub to avoid
+    import breakage; future work can restore body from archive."""
+    await _send_with_retry(
+        context.bot,
+        update.effective_chat.id,
+        "این قابلیت فعلاً غیرفعال است.",
     )
-    try:
-        recent_topics = db.recent_grammar_tip_titles(
-            user_id,
-            row["target_lang"],
-        )
-        try:
-            data = await asyncio.wait_for(
-                asyncio.to_thread(
-                    _call_ai_limited,
-                    ai.ask_json,
-                    prompts.grammar_tip_system_prompt(
-                        row["target_lang"],
-                        row["goal"],
-                        row["level"],
-                        avoid_topics=recent_topics,
-                    ),
-                    request_kind="grammar_tip",
-                    user_id=user_id,
-                    plan=row["plan"] or "free",
-                    deadline=deadline,
-                ),
-                timeout=max(0.0, deadline - time.monotonic()),
-            )
-        except asyncio.TimeoutError:
-            db.release_grammar_tip(user_id)
-            await _send_with_retry(
-                context.bot,
-                update.effective_chat.id,
-                _AI_BUSY_MESSAGE,
-            )
-            return
-        except Exception:
-            db.release_grammar_tip(user_id)
-            logger.exception("AI error")
-            await _send_with_retry(
-                context.bot,
-                update.effective_chat.id,
-                "مشکلی در ارتباط با هوش مصنوعی پیش اومد، دوباره امتحان کن.",
-            )
-            return
-        delivered = False
-        try:
-            msg = format_grammar_tip(data, usage_text)
-            db.touch_streak(user_id)
-            db.add_grammar_tip(
-                user_id,
-                data.get("title", ""),
-                row["target_lang"],
-                row["goal"],
-                row["level"],
-                data,
-            )
-            log_user_activity(update, action="grammar_tip", outcome="success")
-            logger.info("grammar tip delivered user_id=%s lang=%s", user_id, row["target_lang"])
-            await send(
-                update.effective_chat.id,
-                msg,
-                bot=context.bot,
-            )
-            delivered = True
-        finally:
-            if not delivered:
-                db.release_grammar_tip(user_id)
-    except Exception:
-        log_user_activity(update, action="grammar_tip", outcome="error")
-        logger.exception("Grammar tip delivery failed")
-        await _send_with_retry(
-            context.bot,
-            update.effective_chat.id,
-            "مشکلی در ارسال نکته‌ی گرامری پیش اومد.",
-        )
-    finally:
-        await _finish_llm_wait_state(wait_message, bot=context.bot)
+    log_user_activity(update, action="grammar_tip", outcome="retired")
 
 
 async def ask_for_ask_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -453,7 +338,6 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📚 سطح: {level_label(row['level'])}\n"
         f"💳 پلن: {_user_plan_label(row)}\n"
         f"📊 پرسش واژه: {_quota_line(quota['word_query'])}\n"
-        f"💡 نکته گرامری: {_quota_line(quota['grammar_tip'])}\n"
         f"🔥 استریک: {row['streak'] or 0} روز\n"
         f"⏰ واژه‌های آماده‌ی مرور: {len(due)}"
     )

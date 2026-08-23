@@ -86,25 +86,17 @@ class AiTimeoutFlowTest(unittest.IsolatedAsyncioTestCase):
             ).fetchone()["c"]
         self.assertEqual(count, 0, "no card may be delivered on timeout")
 
-    async def test_grammar_tip_ai_hang_refunds_quota_and_sends_busy_message(self):
+    async def test_grammar_tip_retired_sends_disabled_and_no_quota(self):
+        # Retired stub: no AI hang, no quota, just disabled message (#24)
         update = self._make_update()
         context, wait_message = self._make_context()
 
-        with patch.object(bot, "_telegram_offline", False), \
-             patch.object(user_handler, "is_owner", return_value=False), \
-             patch.object(user_handler, "ASK_WORD_AI_TIMEOUT_SECONDS", 0.05), \
-             patch.object(user_handler, "_call_ai_limited", side_effect=self._slow_ai):
-            await user_handler.send_grammar_tip(update, context)
+        await user_handler.send_grammar_tip(update, context)
 
         row = db.get_user(1)
-        self.assertEqual(row["grammar_tips_asked_today"], 0, "quota must be refunded on timeout")
-
+        self.assertEqual(row["grammar_tips_asked_today"], 0, "retired tip must not reserve quota")
         texts = [c.kwargs.get("text") for c in context.bot.send_message.call_args_list]
-        self.assertTrue(
-            any(t and "شلوغ" in t for t in texts),
-            "dedicated busy message must be sent on timeout",
-        )
-        context.bot.delete_message.assert_awaited()
+        self.assertTrue(any(t and "غیرفعال" in t for t in texts), "retired disabled message must be sent")
 
 
 if __name__ == "__main__":

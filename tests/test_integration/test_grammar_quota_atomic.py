@@ -66,11 +66,10 @@ class GrammarQuotaAtomicTest(unittest.TestCase):
         c2, _ = self._current_count()
         self.assertEqual(c2, 0)
 
-    def test_reserve_then_release_on_send_failure_via_handler(self):
-        """Handler delivery failure releases reservation (delivered==False)."""
+    def test_retired_handler_does_not_reserve_and_sends_disabled(self):
+        """Retired stub (#24) — no reserve, no AI, just disabled message."""
         from handlers.user import send_grammar_tip
 
-        # need context/update mocks
         ctx = MagicMock()
         ctx.user_data = {}
         ctx.bot = MagicMock()
@@ -85,57 +84,49 @@ class GrammarQuotaAtomicTest(unittest.TestCase):
         update.callback_query = None
         update.message = MagicMock()
 
-        tip = {"title": "تست", "explanation": "توضیح", "example": "مثال"}
-
-        # force send (rendered Message delivery) to fail, but _send_with_retry (error notification) to succeed via bot.send_message
-        with patch("handlers.user._call_ai_limited", return_value=tip), patch("handlers.user.send", side_effect=RuntimeError("send boom")):
-            asyncio.run(send_grammar_tip(update, ctx))
+        asyncio.run(send_grammar_tip(update, ctx))
 
         c, _ = self._current_count()
-        self.assertEqual(c, 0, "quota must be released after delivery failure")
+        self.assertEqual(c, 0, "retired handler must not reserve quota")
+        # disabled message sent
+        self.assertTrue(
+            any("غیرفعال" in (call.kwargs.get("text") or "") for call in ctx.bot.send_message.call_args_list)
+        )
 
-    def test_format_failure_releases_quota(self):
-        """format_grammar_tip exception must release quota (the burn bug)."""
+    def test_retired_does_not_call_ai_or_persist(self):
+        """Retired stub must not call AI pipeline or DB persist."""
         from handlers.user import send_grammar_tip
 
         ctx = MagicMock()
         ctx.user_data = {}
         ctx.bot = MagicMock()
         ctx.bot.send_message = AsyncMock(return_value=MagicMock(message_id=999))
-        ctx.bot.edit_message_text = AsyncMock()
-        ctx.bot.delete_message = AsyncMock()
         update = MagicMock()
         update.effective_user.id = 1
         update.effective_chat.id = 100
-        update.effective_chat.send_action = AsyncMock()
         update.callback_query = None
         update.message = MagicMock()
-
         tip = {"title": "تست", "explanation": "توضیح", "example": "مثال"}
-        with patch("handlers.user._call_ai_limited", return_value=tip), patch("handlers.user.format_grammar_tip", side_effect=RuntimeError("format boom")):
+        with patch("handlers.user.db.add_grammar_tip", side_effect=RuntimeError("should not be called")):
             asyncio.run(send_grammar_tip(update, ctx))
-
         c, _ = self._current_count()
-        self.assertEqual(c, 0, "quota must be released after format_grammar_tip failure")
+        self.assertEqual(c, 0)
 
-    def test_add_grammar_tip_failure_releases_quota(self):
+    def test_retired_still_idempotent_no_quota_leak(self):
         from handlers.user import send_grammar_tip
 
         ctx = MagicMock()
         ctx.user_data = {}
         ctx.bot = MagicMock()
         ctx.bot.send_message = AsyncMock(return_value=MagicMock(message_id=999))
-        ctx.bot.edit_message_text = AsyncMock()
-        ctx.bot.delete_message = AsyncMock()
         update = MagicMock()
         update.effective_user.id = 1
         update.effective_chat.id = 100
-        update.effective_chat.send_action = AsyncMock()
         update.callback_query = None
         update.message = MagicMock()
         tip = {"title": "تست", "explanation": "توضیح", "example": "مثال"}
-        with patch("handlers.user._call_ai_limited", return_value=tip), patch("handlers.user.db.add_grammar_tip", side_effect=RuntimeError("db boom")):
-            asyncio.run(send_grammar_tip(update, ctx))
+        asyncio.run(send_grammar_tip(update, ctx))
+        asyncio.run(send_grammar_tip(update, ctx))
         c, _ = self._current_count()
         self.assertEqual(c, 0)
 
