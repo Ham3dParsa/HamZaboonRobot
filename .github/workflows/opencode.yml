@@ -15,6 +15,7 @@ jobs:
         github.event.comment.author_association == 'MEMBER')
     runs-on: ubuntu-latest
     permissions:
+      id-token: write
       contents: write
       pull-requests: write
       issues: write
