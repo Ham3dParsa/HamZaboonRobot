@@ -172,10 +172,12 @@ class SessionSlotAtomicTest(unittest.TestCase):
     def test_handler_empty_session_releases_quota(self):
         """build_session_list empty must release consumed slot."""
         from handlers.study_handler import handle_study_start
+        from services.scheduling import consume_session_slot
         import bot
 
         with patch.object(bot, "_telegram_offline", False):
             with self._patch_limit(1):
+                self.assertEqual(self._sessions_used(), 0, "precondition: no slot consumed before handler")
                 # need to ensure consume will be called; patch cards_per_session but not needed
                 ctx = self._context()
                 update = self._study_update()
@@ -186,29 +188,39 @@ class SessionSlotAtomicTest(unittest.TestCase):
                 ctx.bot.send_message.assert_not_called()  # empty path uses notify_callback, not send
                 # ensure callback was answered with "جلسه‌ای برای امروز نداری"
                 update.callback_query.answer.assert_awaited()
+                # reuse proof: released slot must be re-consumable (non-vacuous)
+                self.assertTrue(consume_session_slot(1, plan="free"))
+                self.assertEqual(self._sessions_used(), 1)
 
     def test_handler_build_exception_releases_quota(self):
         """build_session_list exception must release slot (delivered==False)."""
         from handlers.study_handler import handle_study_start
+        from services.scheduling import consume_session_slot
         import bot
 
         with patch.object(bot, "_telegram_offline", False):
             with self._patch_limit(1):
+                self.assertEqual(self._sessions_used(), 0, "precondition: no slot consumed before handler")
                 ctx = self._context()
                 update = self._study_update()
                 with patch("handlers.study_handler.build_session_list", side_effect=RuntimeError("boom")):
                     asyncio.run(handle_study_start(update, ctx))
                 self.assertEqual(self._sessions_used(), 0, "exception must release slot")
+                # reuse proof: slot released, next consume must succeed
+                self.assertTrue(consume_session_slot(1, plan="free"))
+                self.assertEqual(self._sessions_used(), 1)
 
     def test_handler_send_failure_releases_quota(self):
         """Telegram send failure after persist must release slot."""
         from handlers.study_handler import handle_study_start
+        from services.scheduling import consume_session_slot
         import bot
 
         w1 = self._seed_word("hello")
         node = self._node(w1)
         with patch.object(bot, "_telegram_offline", False):
             with self._patch_limit(1):
+                self.assertEqual(self._sessions_used(), 0, "precondition: no slot consumed before handler")
                 ctx = self._context()
                 update = self._study_update()
                 # build returns 1 node
@@ -218,6 +230,9 @@ class SessionSlotAtomicTest(unittest.TestCase):
                         asyncio.run(handle_study_start(update, ctx))
                 self.assertEqual(self._sessions_used(), 0, "send failure must release slot")
                 self.assertNotIn("current_session", ctx.user_data)
+                # reuse proof: slot released, next consume must succeed
+                self.assertTrue(consume_session_slot(1, plan="free"))
+                self.assertEqual(self._sessions_used(), 1)
 
 
 if __name__ == "__main__":

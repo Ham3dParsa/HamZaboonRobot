@@ -376,16 +376,40 @@ async def handle_study_start(
             "handle_study_start render failed user_id=%s", user_id
         )
         context.user_data.pop("current_session", None)
-        _clear_persisted_session(user_id)
+        try:
+            _clear_persisted_session(user_id)
+        except Exception:
+            logger.exception(
+                "handle_study_start cleanup failed user_id=%s", user_id
+            )
         await _reply_or_answer(
             update,
             context,
             "خطا در آماده‌سازی جلسه — دوباره امتحان کن.",
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
+    except BaseException:
+        # BaseException (KeyboardInterrupt/SystemExit/CancelledError on older
+        # runtimes) must still clear ephemeral session state, but must not
+        # be swallowed — re-raise so callers see the original signal. The
+        # consumed slot is still released via the non-throwing finally below
+        # (delivered remains False).
+        context.user_data.pop("current_session", None)
+        try:
+            _clear_persisted_session(user_id)
+        except Exception:
+            logger.exception(
+                "handle_study_start BaseException cleanup failed user_id=%s", user_id
+            )
+        raise
     finally:
         if consumed and not delivered:
-            release_session_slot(user_id)
+            try:
+                release_session_slot(user_id)
+            except Exception:
+                logger.warning(
+                    "release_session_slot failed user_id=%s", user_id, exc_info=True
+                )
 
 
 async def _resume_existing_session(
