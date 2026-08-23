@@ -343,7 +343,11 @@ def _register_admin_flows() -> None:
                         logger.exception("Broadcast failed for user %s", user["user_id"])
                         return False
 
-            results = await asyncio.gather(*(_send_one(u) for u in users))
+            results: list[bool] = []
+            for i in range(0, len(users), 100):
+                chunk = users[i : i + 100]
+                chunk_results = await asyncio.gather(*(_send_one(u) for u in chunk))
+                results.extend(chunk_results)
             sent = sum(1 for r in results if r)
             await send_pretty.say(
                 update,

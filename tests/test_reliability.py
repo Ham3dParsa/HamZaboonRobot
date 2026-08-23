@@ -1014,14 +1014,19 @@ class NetworkResilienceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bot_mock.delete_message.call_count, 1)
 
     async def test_telegram_offline_set_after_single_failure_with_threshold_one(self):
+        # Threshold is 5 (R2-B); single failure must NOT mark offline, 5 consecutive must.
         bot._telegram_offline = False
         bot._consecutive_health_failures = 0
         context = MagicMock()
         context.bot.get_me = AsyncMock()
         context.bot.get_me.side_effect = TimedOut("timeout")
         await bot.connection_health_job(context)
-        self.assertTrue(bot._telegram_offline)
+        self.assertFalse(bot._telegram_offline)
         self.assertEqual(bot._consecutive_health_failures, 1)
+        for _ in range(4):
+            await bot.connection_health_job(context)
+        self.assertTrue(bot._telegram_offline)
+        self.assertEqual(bot._consecutive_health_failures, 5)
 
     async def test_telegram_offline_resets_on_health_success(self):
         bot._telegram_offline = True
