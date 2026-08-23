@@ -1,0 +1,41 @@
+name: opencode
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+jobs:
+  opencode:
+    if: |-
+      (contains(github.event.comment.body, '/oc') ||
+        contains(github.event.comment.body, '/opencode')) &&
+      (github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'COLLABORATOR' ||
+        github.event.comment.author_association == 'MEMBER')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Run OpenCode
+        uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a # latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          KILO_API_KEY: ${{ secrets.KILO_API_KEY }}
+        with:
+          model: ${{ vars.OPENCODE_MODEL || 'opencode/muse-spark-1.2-contributor-free' }}
+          prompt: |-
+            SAFETY RULES (non-negotiable):
+            - NEVER commit or push directly to the "main" branch. Always create a new branch and open a pull request.
+            - NEVER modify, delete, or force-push existing branches, tags, releases, workflow files under .github/workflows/, or repository settings/secrets.
+            - NEVER read, print, or exfiltrate secrets, .env files, or credentials.
+            - Follow AGENTS.md contract-lock discipline; if instructions are ambiguous or risky, stop and ask in a comment instead of acting.
