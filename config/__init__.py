@@ -153,10 +153,6 @@ def _user_plan_label(row) -> str:
 
 def effective_daily_allowance(
     plan: str,
-    optional_user_limit: int | None = None,
     bypass_limits: bool = False,
 ) -> int:
-    plan_limit = daily_card_count_for_plan(effective_plan(plan, bypass_limits))
-    if optional_user_limit is None or optional_user_limit <= 0:
-        return plan_limit
-    return min(plan_limit, optional_user_limit)
+    return daily_card_count_for_plan(effective_plan(plan, bypass_limits))

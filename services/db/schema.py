@@ -1,12 +1,13 @@
+import datetime
 import json
+import logging
 import os
+import secrets
 import sqlite3
 import threading
-import datetime
-import secrets
 import unicodedata
-from pathlib import Path
 from contextlib import contextmanager
+from pathlib import Path
 
 from config.catalog import DEFAULT_LEVEL, DISPLAY_TOGGLE_DEFAULTS
 
@@ -485,10 +486,6 @@ def init_db(path: str | None = None):
                 words_asked_date TEXT,
                 grammar_tips_asked_today INTEGER DEFAULT 0,
                 grammar_tips_asked_date TEXT,
-                optional_daily_limit INTEGER,
-                preferred_delivery_minute INTEGER,
-                active_window_start_minute INTEGER,
-                active_window_end_minute INTEGER,
                 presentation_preference TEXT,
                 display_toggles TEXT,
                 display_toggles_forced TEXT,
@@ -624,10 +621,6 @@ def init_db(path: str | None = None):
                 f"'{DEFAULT_LEVEL.replace(chr(39), chr(39) * 2)}'",
             )
         user_columns = {
-            "optional_daily_limit": "INTEGER",
-            "preferred_delivery_minute": "INTEGER",
-            "active_window_start_minute": "INTEGER",
-            "active_window_end_minute": "INTEGER",
             "grammar_tips_asked_today": "INTEGER DEFAULT 0",
             "grammar_tips_asked_date": "TEXT",
             "presentation_preference": "TEXT",
@@ -893,6 +886,25 @@ def init_db(path: str | None = None):
         }
         if "interval_idx" in saved_word_columns:
             conn.execute("ALTER TABLE saved_words DROP COLUMN interval_idx")
+        # Q-26: retire dead optional_daily_limit and auto-delivery window columns
+        # (single source is plans table; no live code reads these)
+        user_cols = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(users)").fetchall()
+        }
+        for col in (
+            "optional_daily_limit",
+            "preferred_delivery_minute",
+            "active_window_start_minute",
+            "active_window_end_minute",
+        ):
+            if col in user_cols:
+                try:
+                    conn.execute(f"ALTER TABLE users DROP COLUMN {col}")
+                except sqlite3.OperationalError as e:
+                    logging.getLogger(__name__).warning(
+                        "DROP COLUMN %s failed (likely older SQLite): %s", col, e
+                    )
         for table in sorted(_LEGACY_DAILY_TABLES):
             conn.execute(f"DROP TABLE IF EXISTS {table}")
         # R1: stamp the database as a test database (test mode only) so
