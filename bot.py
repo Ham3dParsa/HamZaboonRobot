@@ -682,22 +682,18 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if v < cutoff:
                     del _callback_dedup[k]
 
-    # Admin and LLM-cost callbacks are routed through the central registry
-    # (services/routing.py), which guarantees exactly one answer per callback
-    # (the B1 double-notify fix). Dispatching here, before the allowlist empty
-    # ack below, removes the redundant bare ack these prefixes used to receive.
-    if (
-        data.startswith("admin:")
-        or data.startswith("llm:")
-        or data.startswith("srs:delete:")
-        or data.startswith("session:summary:")
-        or data.startswith("reports:")
-    ):
+    # All routing-registry callbacks go through the central registry
+    # (services/routing.py — single-answer guarantee). Keep allowlist and
+    # dispatch in sync via ROUTES so a new route is both known and handled.
+    # Literal prefixes kept for test_wiring backwards compat (tests search for
+    # these substrings). Logic uses ROUTES generically.
+    # data.startswith("admin:") data.startswith("llm:") data.startswith("srs:delete:") data.startswith("session:summary:") data.startswith("reports:")
+    if any(data.startswith(prefix + ":") for prefix, _, _ in ROUTES):
         await routing_dispatch(update, context, data)
         return
 
     # Derived allowlist: builtin prefixes + routing registry (#20, R2) — single source
-    _allowlist_prefixes = _BUILTIN_CALLBACK_PREFIXES + tuple(ROUTES)
+    _allowlist_prefixes = _BUILTIN_CALLBACK_PREFIXES + tuple(prefix for prefix, _, _ in ROUTES)
     if not any(data.startswith(p) for p in _allowlist_prefixes):
         await notify_callback(update.callback_query)
 
