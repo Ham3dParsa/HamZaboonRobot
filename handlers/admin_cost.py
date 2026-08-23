@@ -124,10 +124,8 @@ def _llm_cost_projection(filters: dict[str, object]) -> tuple[str, str, float] |
     elapsed_days = max((today - month_start).days + 1, 1)
     linear_usd = (cost_usd / elapsed_days) * month_days
     linear_toman = (cost_toman / elapsed_days) * month_days
-    daily_rows = db.recent_llm_requests(projection_filters, limit=5000)
-    daily_costs: dict[str, float] = defaultdict(float)
-    for row in daily_rows:
-        daily_costs[str(row["request_date"])] += float(row["cost_usd"] or 0)
+    # Ticket #9: single GROUP BY query instead of fetching 5000 rows to Python
+    daily_costs = db.daily_costs_grouped(projection_filters)
     recent_days = sorted(daily_costs)[-7:]
     if recent_days:
         rolling_usd = sum(daily_costs[day] for day in recent_days) / len(recent_days) * month_days
