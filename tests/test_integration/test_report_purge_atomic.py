@@ -1,14 +1,18 @@
-"""Integration tests for report-purge atomicity (R7).
+"""Integration tests for report-purge atomicity (R10-D/E).
 
 Verifies that purge is atomic with save (one-step DELETE+INSERT) and that
 lazy purge on list/load is safe (DELETE+SELECT in same transaction).
+Retention window is 3 days (``REPORT_WINDOW_DAYS``); ``created_at`` is UTC
+processing metadata (single source: ``services/db/session_reports.py``).
 """
 
 from __future__ import annotations
 
+import ast
 import datetime
 import os
 import tempfile
+import threading
 import unittest
 import pathlib
 import re
@@ -72,11 +76,32 @@ class ReportPurgeAtomicTests(unittest.TestCase):
         self.assertGreaterEqual(rows[0]["created_at"], cutoff)
 
     def test_concurrent_saves_do_not_lose_reports(self):
-        # Simulate 2 saves sequentially — both present if not expired
+        # Prove atomicity under true concurrent writers: 2 threads save at
+        # the same time (Kilo 74). Sequential saves would not exercise the
+        # BEGIN IMMEDIATE + busy_timeout serialization; threaded saves do.
+        # If purge+insert were not in one transaction, one save's DELETE could
+        # wipe the other's just-inserted row.
         r1 = _make_report()
         r2 = build_report([WordReviewRecord(word_id=2, word="world", activity_type="first_exposure", grade=4, stability_before=0.5, stability_after=1.5)])
-        db.save_session_report(1, "2026-08-19", r1)
-        db.save_session_report(1, "2026-08-20", r2)
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def _save(date: str, report):
+            try:
+                barrier.wait(timeout=5)
+                db.save_session_report(1, date, report)
+            except BaseException as exc:  # pragma: no cover
+                errors.append(exc)
+
+        t1 = threading.Thread(target=_save, args=("2026-08-19", r1))
+        t2 = threading.Thread(target=_save, args=("2026-08-20", r2))
+        t1.start()
+        t2.start()
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+        self.assertFalse(errors, f"concurrent saves raised: {errors}")
+        self.assertFalse(t1.is_alive(), "t1 hung (deadlock/busy_timeout)")
+        self.assertFalse(t2.is_alive(), "t2 hung (deadlock/busy_timeout)")
 
         reports = db.list_recent_reports(1)
         self.assertEqual(len(reports), 2)
@@ -132,12 +157,15 @@ class ReportPurgeAtomicTests(unittest.TestCase):
     def test_no_await_inside_transaction(self):
         path = pathlib.Path(__file__).resolve().parents[2] / "services" / "db" / "session_reports.py"
         src = path.read_text(encoding="utf-8")
-        # The file is sync — must not contain await at all, and especially not inside transaction blocks
-        # Simple check: no 'await' keyword
-        self.assertNotIn("await ", src, "session_reports.py must not contain await inside transaction (sync DB helpers)")
-        # Additionally ensure transaction blocks don't span awaits via regex
-        # Find all 'with transaction()' blocks and verify no await between with and next dedent
-        # Since we already checked no await, this is redundant but explicit
+        # Robust check (Kilo 137): string search for "await " is brittle
+        # (false positives in comments/strings, misses await in strings). Use
+        # the AST so only real ``await`` syntax is flagged, and ensure no
+        # ``await`` exists inside this sync DB helper at all.
+        tree = ast.parse(src, filename=str(path))
+        awaits = [n for n in ast.walk(tree) if isinstance(n, ast.Await)]
+        self.assertEqual(len(awaits), 0, f"session_reports.py must not contain await (found {len(awaits)} Await nodes)")
+        # Keep the seam count as a separate invariant — not as proxy for
+        # await-safety. Count ``with transaction()`` blocks syntactically.
         blocks = re.findall(r"with\s+transaction\(\)", src)
         self.assertGreaterEqual(len(blocks), 3, "expected at least 3 transaction usages (save, list, load)")
 
