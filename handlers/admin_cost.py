@@ -17,6 +17,7 @@ from handlers.flows import mark_awaiting_consumed
 from config import APP_TZ
 from services import db
 from services.ai import ai_read_cache
+from services.send_pretty import RawFormat, say
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send
 from config.keyboards import (
@@ -328,9 +329,13 @@ async def _show_llm_cost_dashboard(
             reply_markup=llm_cost_dashboard_keyboard(bool(state.get("detail"))),
         )
     else:
-        await update.message.reply_text(
+        await say(
+            update,
+            context,
             text,
-            reply_markup=llm_cost_dashboard_keyboard(bool(state.get("detail"))),
+            raw=RawFormat.PLAIN,
+            keyboard=llm_cost_dashboard_keyboard(bool(state.get("detail"))),
+            mode="auto",
         )
 
 
@@ -454,9 +459,13 @@ async def _handle_cost_text_input(
             target = db.find_user(text)
             if not target:
                 context.user_data["awaiting"] = "llm_cost_user"
-                await update.message.reply_text(
+                await say(
+                    update,
+                    context,
                     "User not found. Send a valid user_id or @username, or type all.",
-                    reply_markup=admin_awaiting_inline_keyboard(),
+                    raw=RawFormat.PLAIN,
+                    keyboard=admin_awaiting_inline_keyboard(),
+                    mode="send",
                 )
                 return
             _llm_cost_set_state(context, user_id=target["user_id"])
@@ -478,9 +487,13 @@ async def _handle_cost_text_input(
                 raise ValueError
         except ValueError:
             context.user_data["awaiting"] = awaiting
-            await update.message.reply_text(
+            await say(
+                update,
+                context,
                 "عدد معتبر بفرست، مثلاً 0.12 یا 65000.",
-                reply_markup=admin_awaiting_inline_keyboard(),
+                raw=RawFormat.PLAIN,
+                keyboard=admin_awaiting_inline_keyboard(),
+                mode="send",
             )
             return
         profile = db.get_llm_cost_profile()
@@ -506,7 +519,7 @@ async def _handle_cost_text_input(
         # The AI hot path caches the cost profile (BOT-2); bust it so the next
         # recorded request uses the freshly saved prices.
         ai_read_cache.invalidate_cost_profile()
-        await update.message.reply_text(_llm_pricing_text())
+        await say(update, context, _llm_pricing_text(), raw=RawFormat.PLAIN, mode="send")
         return
 
 
