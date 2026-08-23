@@ -122,7 +122,24 @@ from services.ai.llm_services import (
     _retry_primary_preset,
 )
 
-from services.routing import dispatch as routing_dispatch
+from services.routing import ROUTES, dispatch as routing_dispatch
+
+# Builtin prefixes handled directly in bot.py (not via routing registry) — single
+# definition for allowlist derivation (R2, #20). Keyboards literals are validated
+# by tests/test_wiring.py, ROUTES covers admin/llm/srs:delete etc.
+_BUILTIN_CALLBACK_PREFIXES: tuple[str, ...] = (
+    "study:start",
+    "query:add:",
+    "query:dup:new:",
+    "query:dup:reuse:",
+    "query:dup:cancel",
+    "presentation:",
+    "flow:",
+    "srs:",
+    "tts:pronounce:",
+    "settings:",
+    "help:",
+)
 
 from handlers.admin import (
     open_admin_panel,
@@ -679,21 +696,9 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await routing_dispatch(update, context, data)
         return
 
-    if not data.startswith(
-        (
-            "study:start",
-            "query:add:",
-            "query:dup:new:",
-            "query:dup:reuse:",
-            "query:dup:cancel",
-            "presentation:",
-            "flow:",
-            "srs:",
-            "tts:pronounce:",
-            "settings:",
-            "help:",
-        )
-    ):
+    # Derived allowlist: builtin prefixes + routing registry (#20, R2) — single source
+    _allowlist_prefixes = _BUILTIN_CALLBACK_PREFIXES + tuple(ROUTES)
+    if not any(data.startswith(p) for p in _allowlist_prefixes):
         await notify_callback(update.callback_query)
 
     if data == "flow:back":
