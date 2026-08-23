@@ -44,6 +44,24 @@ for _code in valid_plans():
     _price, _query, _sessions, _cards, _sort = _PLAN_LIMITS[_code]
     DEFAULT_PLANS[_code] = (plan_label(_code), _price, _query, _sessions, _cards, _sort)
 
+# Reverse check — no orphan limits without identity (R1 hardening, #18)
+_extra = set(_PLAN_LIMITS) - set(valid_plans())
+if _extra:
+    raise RuntimeError(f"_PLAN_LIMITS has orphan entries not in plan_identity: {_extra!r}")
+
+
+def validate_plan_consistency() -> None:
+    """Validate that plan identity and limits are in sync (single-source guard).
+
+    Called by tests; also runs at import via the checks above. Ensures
+    `valid_plans() == set(_PLAN_LIMITS) == set(DEFAULT_PLANS)`.
+    """
+    vp = set(valid_plans())
+    if vp != set(_PLAN_LIMITS):
+        raise ValueError(f"plan limits/identity drift: valid_plans={vp} _PLAN_LIMITS={set(_PLAN_LIMITS)}")
+    if vp != set(DEFAULT_PLANS):
+        raise ValueError(f"DEFAULT_PLANS drift: valid_plans={vp} DEFAULT_PLANS={set(DEFAULT_PLANS)}")
+
 _PLAN_COLUMNS = (
     "name, display_name, price, query_quota, max_sessions, "
     "cards_per_session, is_active, sort_order"
