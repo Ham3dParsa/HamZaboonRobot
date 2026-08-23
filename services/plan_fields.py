@@ -136,11 +136,13 @@ def validate_value(name: str, raw: str) -> object | None:
 
 def validate_plan_fields() -> None:
     """Structural check of the PLAN_FIELDS registry (raises on malformed entries)."""
+    from services.field_registry import validate_registry
+
+    validate_registry(PLAN_FIELDS)
+    # plan-specific constraints beyond the shared helper (labels + groups)
     for name, meta in PLAN_FIELDS.items():
         if meta.get("type") not in _VALID_TYPES:
             raise ValueError(f"plan field {name!r} has invalid type {meta.get('type')!r}")
-        if "write_default" not in meta:
-            raise ValueError(f"plan field {name!r} missing 'write_default'")
         if "label" not in meta or not meta.get("label"):
             raise ValueError(f"plan field {name!r} missing a Persian label")
         if meta.get("group") not in PLAN_GROUPS:

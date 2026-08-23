@@ -14,28 +14,14 @@ import hashlib
 from services.db.preset_registry import get_group_labels
 from services.db import get_presets
 
-# ---- Field-name aliases (closed set from admin_ai.WIZARD_FIELDS) ----
-_FIELD_ALIAS: dict[str, str] = {
-    "name": "n",
-    "api_key": "k",
-    "base_url": "u",
-    "model": "m",
-    "max_concurrency": "mc",
-    "max_rpm": "mr",
-    "max_tpm": "mt",
-    "daily_batch_size": "bs",
-    "max_daily_req": "md",
-    "timeout_seconds": "to",
-    "temperature": "t",
-    "max_output_tokens": "mo",
-    "priority": "p",
-    "is_emergency": "ie",
-    "in_fallback_chain": "fc",
-    "input_cost_per_million": "ic",
-    "output_cost_per_million": "oc",
-    "group_label": "gl",
-    "reasoning_effort": "re",
-}
+# ---- Field-name aliases — single source: services/ai/preset_fields.PRESET_FIELDS ----
+# Derives the short callback alias directly from the canonical preset registry so
+# the two maps can never drift (R3). The preset seam owns the alias; codec is a
+# thin translation layer delegating to services/field_registry.alias_map.
+from services.ai.preset_fields import PRESET_FIELDS as _PRESET_FIELDS  # noqa: E402
+from services.field_registry import alias_map as _alias_map  # noqa: E402
+
+_FIELD_ALIAS: dict[str, str] = _alias_map(_PRESET_FIELDS)
 
 _FIELD_ALIAS_REV: dict[str, str] = {v: k for k, v in _FIELD_ALIAS.items()}
 

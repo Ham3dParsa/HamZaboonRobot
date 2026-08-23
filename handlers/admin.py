@@ -266,6 +266,55 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             "متن پیام حالت تعمیر را بنویسید (برای کاربران هنگام تعمیر نمایش داده می‌شود):",
             reply_markup=admin_awaiting_inline_keyboard(),
         )
+    elif action == "backup":
+        # O-backup-panel: callback entry that mirrors /backup command
+        await notify_callback(update.callback_query, "در حال تهیه پشتیبان…", intent=CallbackNoticeIntent.INFO)
+        try:
+            data = await asyncio.to_thread(db.export_db_bytes)
+            await update.effective_message.reply_document(
+                document=io.BytesIO(data),
+                filename=f"hamzaban_backup_{datetime.datetime.now(_app_timezone).strftime('%Y%m%d_%H%M%S')}.db",
+                caption="📦 پشتیبان دیتابیس",
+            )
+        except Exception as exc:
+            logger.exception("Backup failed")
+            await _edit_or_send(update, context, f"خطا در تهیه پشتیبان: {exc}", reply_markup=admin_panel_keyboard())
+    elif action == "restore":
+        context.user_data["awaiting"] = "admin_restore"
+        await notify_callback(update.callback_query)
+        await _edit_or_send(
+            update, context,
+            "فایل دیتابیس (.db) را آپلود کنید.\n⚠️ این کار دیتابیس فعلی را کاملاً جایگزین می‌کند.",
+            reply_markup=admin_awaiting_inline_keyboard(),
+        )
+    elif action.startswith("display_toggle:"):
+        # O-display-toggles: toggle a field in the global defaults
+        field = action.split(":", 1)[1]
+        from config.catalog import DISPLAY_TOGGLE_FIELDS
+        if field not in DISPLAY_TOGGLE_FIELDS:
+            await notify_callback(update.callback_query, "فیلد نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        from services.db.display_toggles import get_global_defaults, set_global_defaults
+        current = get_global_defaults()
+        new_val = not bool(current.get(field, True))
+        current[field] = new_val
+        set_global_defaults(current)
+        from config.keyboards import display_toggles_keyboard
+        await _edit_or_send(
+            update, context,
+            "🎛 تنظیمات نمایش کارت — روی هر فیلد بزن تا روشن/خاموش شود.",
+            reply_markup=display_toggles_keyboard(current),
+        )
+        await notify_callback(update.callback_query, "ذخیره شد.", intent=CallbackNoticeIntent.SUCCESS)
+    elif action == "display_toggles":
+        from services.db.display_toggles import get_global_defaults
+        from config.keyboards import display_toggles_keyboard
+        current = get_global_defaults()
+        await _edit_or_send(
+            update, context,
+            "🎛 تنظیمات نمایش کارت — روی هر فیلد بزن تا روشن/خاموش شود.",
+            reply_markup=display_toggles_keyboard(current),
+        )
 
 
 async def handle_flow_back(update: Update, context: ContextTypes.DEFAULT_TYPE):

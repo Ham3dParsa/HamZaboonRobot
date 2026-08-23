@@ -9,14 +9,16 @@ from services.db.display_toggles import (
     set_forced as _set_display_toggle_forced,
 )
 
-# Canonical card-mode registry (CARD-MODES feature, locked 2026-08-15). Single
-# source of truth for card types, modes, and availability gates — consumed by
-# storage, the resolvers below, admin settings, plan wizard, and user controls.
-CARD_TYPES = ("first_exposure", "review")
-CARD_MODES = ("staged", "immediate")
-CARD_MODE_GATES = ("all", "premium")
-DEFAULT_CARD_MODE = "staged"
-DEFAULT_CARD_MODE_GATE = "premium"
+# Card-mode registry re-exported from config.catalog (single source, R1).
+# Kept as module-level aliases so existing imports (services/db/users.py) keep
+# working without a breaking change; the canonical definitions live in catalog.
+from config.catalog import (
+    CARD_MODE_GATES,
+    CARD_MODES,
+    CARD_TYPES,
+    DEFAULT_CARD_MODE,
+    DEFAULT_CARD_MODE_GATE,
+)
 
 
 def _validate_card_type(card_type: str) -> None:

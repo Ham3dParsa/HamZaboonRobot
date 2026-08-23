@@ -155,6 +155,8 @@ IBTN_FIELD_OUTPUT_COST = "💵 هزینه خروجی ($/1M توکن)"
 IBTN_FIELD_IN_FALLBACK_CHAIN = "⛓️ حضور در زنجیره فال‌بک"
 IBTN_FIELD_PRIORITY = "🔢 اولویت در زنجیره فال‌بک"
 IBTN_FIELD_GROUP_LABEL = "🏷️ برچسب گروه"
+IBTN_FIELD_REASONING = "🧠 reasoning"
+IBTN_FIELD_ENABLED = "✅ فعال"
 IBTN_DISCARD_ALL = "🗑️ دور ریختن همه تغییرات"
 IBTN_SAVE_CONFIRM = "✅ بله، ذخیره کن"
 IBTN_SAVE_CANCEL = "❌ لغو ذخیره"
@@ -604,6 +606,9 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
              InlineKeyboardButton("📋 سطح لاگ", callback_data="admin:log_level")],
             [InlineKeyboardButton(BTN_ADMIN_BROADCAST, callback_data="admin:broadcast"),
              InlineKeyboardButton(IBTN_USER_ACTIVITY_LOG, callback_data="admin:user_activity_log")],
+            [InlineKeyboardButton("💾 پشتیبان", callback_data="admin:backup"),
+             InlineKeyboardButton("♻️ بازیابی", callback_data="admin:restore")],
+            [InlineKeyboardButton("🎛 نمایش کارت", callback_data="admin:display_toggles")],
             [InlineKeyboardButton("🔧 حالت تعمیر", callback_data="admin:maintenance")],
         ]
     )
@@ -652,6 +657,23 @@ def log_level_keyboard(current_level: str) -> InlineKeyboardMarkup:
     for level in levels:
         marker = "✅ " if level == current_level else ""
         rows.append([InlineKeyboardButton(f"{marker}{level}", callback_data=f"admin:log_level:set:{level}")])
+    rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")])
+    return InlineKeyboardMarkup(rows)
+
+
+def display_toggles_keyboard(current: dict) -> InlineKeyboardMarkup:
+    """Admin display-toggles panel — one row per DISPLAY_TOGGLE_FIELDS entry.
+
+    Single source is config.catalog.DISPLAY_TOGGLE_FIELDS; adding a field there
+    auto-adds its toggle button here (R23 / O-display-toggles).
+    """
+    from config.catalog import DISPLAY_TOGGLE_FIELDS
+
+    rows = []
+    for field in DISPLAY_TOGGLE_FIELDS:
+        enabled = bool(current.get(field, True))
+        marker = "✅" if enabled else "⭕"
+        rows.append([InlineKeyboardButton(f"{marker} {field}", callback_data=f"admin:display_toggle:{field}")])
     rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")])
     return InlineKeyboardMarkup(rows)
 
@@ -845,6 +867,9 @@ def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None) -> Inl
     """Keyboard for editing a preset field-by-field."""
     from services.utils.callback_codec import alias_field, preset_token
     preset_ref = preset_token(preset_name)
+    # Single source: order derived from PRESET_FIELDS (R3); labels map here.
+    # Adding a field to PRESET_FIELDS automatically shows it here without a
+    # second manual list.
     fields = [
         ("base_url", IBTN_FIELD_BASE_URL),
         ("model", IBTN_FIELD_MODEL),
@@ -864,6 +889,10 @@ def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None) -> Inl
         ("output_cost_per_million", IBTN_FIELD_OUTPUT_COST),
         ("in_fallback_chain", IBTN_FIELD_IN_FALLBACK_CHAIN),
         ("group_label", IBTN_FIELD_GROUP_LABEL),
+        ("reasoning_effort", IBTN_FIELD_REASONING),
+        # `enabled` intentionally omitted — toggled via dedicated enable/disable
+        # action (services/db/preset_registry.set_preset_enabled), not free-text
+        # edit_field (would be silently dropped on save).
     ]
     rows = []
     for key, label in fields:

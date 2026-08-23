@@ -187,10 +187,17 @@ def catalog_namespace(name: str) -> dict:
 # time by settings_key()). Ephemeral/test/delivery sentinels are intentionally
 # excluded so they never trip validation.
 
-# Card types whose per-type admin-global modes/gates are registered as dynamic
-# settings keys. Mirrors services/db/users.py CARD_TYPES; kept local to this
-# module to avoid a circular import (users.py imports from config.catalog).
-SETTINGS_CARD_TYPES = ("first_exposure", "review")
+# Canonical card-type registry — single source for card types/modes/gates
+# (R1: replaces services/db/users.py duplicate; users.py imports from here).
+CARD_TYPES = ("first_exposure", "review")
+CARD_MODES = ("staged", "immediate")
+CARD_MODE_GATES = ("all", "premium")
+DEFAULT_CARD_MODE = "staged"
+DEFAULT_CARD_MODE_GATE = "premium"
+
+# Back-compat alias used by settings_key() resolver; is the same tuple object
+# so identity checks keep working. Single source remains CARD_TYPES.
+SETTINGS_CARD_TYPES = CARD_TYPES
 
 SETTINGS_KEYS = {
     "log_level":                        {"key": "log_level", "type": "str", "default": "", "scope": "global"},
@@ -341,5 +348,12 @@ def validate_catalog() -> None:
             code == option.code for code, option in entries.items()
         ):
             raise ValueError(f"catalog namespace {name!r} must be code-keyed and non-empty")
+    # Card-type registry must be non-empty and modes/gates valid.
+    if not CARD_TYPES or not all(isinstance(c, str) and c for c in CARD_TYPES):
+        raise ValueError("CARD_TYPES must be non-empty strings")
+    if set(CARD_MODES) != {"staged", "immediate"}:
+        raise ValueError("CARD_MODES must be exactly staged/immediate")
+    if set(CARD_MODE_GATES) != {"all", "premium"}:
+        raise ValueError("CARD_MODE_GATES must be exactly all/premium")
     # Fold the settings-key registry into the same validation chain.
     validate_settings_keys()

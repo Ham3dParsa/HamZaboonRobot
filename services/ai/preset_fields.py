@@ -34,50 +34,52 @@ from config import (
 #: ``secret`` and ``cost`` are semantic flags used by callers (encryption,
 #: pricing) rather than by the DB.
 PRESET_FIELDS: dict[str, dict] = {
-    "name": {"type": "str", "write_default": ""},
+    "name": {"type": "str", "write_default": "", "alias": "n"},
     "base_url": {
         "type": "str",
         "write_default": "",
         "config_default": DEFAULT_AI_BASE_URL,
+        "alias": "u",
     },
     "model": {
         "type": "str",
         "write_default": "",
         "config_default": DEFAULT_AI_MODEL,
+        "alias": "m",
     },
-    "api_key": {"type": "str", "write_default": "", "secret": True},
-    "daily_batch_size": {"type": "int", "write_default": 6},
-    "max_concurrency": {"type": "int", "write_default": 2},
-    "max_rpm": {"type": "int", "write_default": 30},
-    "max_tpm": {"type": "int", "write_default": 0},
-    "max_daily_req": {"type": "int", "write_default": 0},
+    "api_key": {"type": "str", "write_default": "", "secret": True, "alias": "k"},
+    "daily_batch_size": {"type": "int", "write_default": 6, "alias": "bs"},
+    "max_concurrency": {"type": "int", "write_default": 2, "alias": "mc"},
+    "max_rpm": {"type": "int", "write_default": 30, "alias": "mr"},
+    "max_tpm": {"type": "int", "write_default": 0, "alias": "mt"},
+    "max_daily_req": {"type": "int", "write_default": 0, "alias": "md"},
     "timeout_seconds": {
         "type": "float",
         "write_default": 30.0,
         "config_default": AI_TIMEOUT_SECONDS,
+        "alias": "to",
     },
     "temperature": {
         "type": "float",
         "write_default": 0.6,
         "config_default": AI_TEMPERATURE,
+        "alias": "t",
     },
     "max_output_tokens": {
         "type": "int",
         "write_default": 4096,
         "config_default": AI_MAX_OUTPUT_TOKENS,
+        "alias": "mo",
     },
-    "is_emergency": {"type": "int", "write_default": 0},
-    "priority": {"type": "int", "write_default": 0},
-    "enabled": {"type": "int", "write_default": 1},
-    "input_cost_per_million": {"type": "float", "write_default": None, "cost": True},
-    "output_cost_per_million": {"type": "float", "write_default": None, "cost": True},
-    "in_fallback_chain": {"type": "int", "write_default": 1},
-    "group_label": {"type": "str", "write_default": ""},
-    "reasoning_effort": {"type": "str", "write_default": "none"},
+    "is_emergency": {"type": "int", "write_default": 0, "alias": "ie"},
+    "priority": {"type": "int", "write_default": 0, "alias": "p"},
+    "enabled": {"type": "int", "write_default": 1, "alias": "en"},
+    "input_cost_per_million": {"type": "float", "write_default": None, "cost": True, "alias": "ic"},
+    "output_cost_per_million": {"type": "float", "write_default": None, "cost": True, "alias": "oc"},
+    "in_fallback_chain": {"type": "int", "write_default": 1, "alias": "fc"},
+    "group_label": {"type": "str", "write_default": "", "alias": "gl"},
+    "reasoning_effort": {"type": "str", "write_default": "none", "alias": "re"},
 }
-
-_VALID_TYPES = {"str", "int", "float"}
-
 
 def preset_field(name: str) -> dict:
     """Return a copy of the metadata for a canonical preset field.
@@ -138,38 +140,14 @@ def write_value(preset: Mapping, name: str):
 
 
 def validate(preset: Mapping) -> None:
-    """Raise ``ValueError`` if any present field in the preset has the wrong type.
+    """Raise ``ValueError`` if any present field in the preset has the wrong type."""
+    from services.field_registry import validate_instance
 
-    Unknown fields are ignored (forward-compat). ``None`` values are allowed
-    (nullable columns). Callers that need strict membership use ``preset_field``.
-    """
-    for name, value in preset.items():
-        meta = PRESET_FIELDS.get(name)
-        if meta is None or value is None:
-            continue
-        expected = meta["type"]
-        if expected == "str":
-            ok = isinstance(value, str)
-        elif expected == "int":
-            ok = isinstance(value, int) and not isinstance(value, bool)
-        elif expected == "float":
-            ok = isinstance(value, (int, float)) and not isinstance(value, bool)
-        else:  # defensive; structural check in validate_preset_fields
-            ok = True
-        if not ok:
-            raise ValueError(
-                f"preset field {name!r} must be {expected}, got {type(value).__name__}"
-            )
+    validate_instance(PRESET_FIELDS, preset)
 
 
 def validate_preset_fields() -> None:
-    """Structural check of the PRESET_FIELDS registry (raises on malformed entries).
+    """Structural check of the PRESET_FIELDS registry (raises on malformed entries)."""
+    from services.field_registry import validate_registry
 
-    Raises ``ValueError`` on an invalid ``type`` or a missing ``write_default``.
-    Does not raise for unknown runtime keys (they are not part of the schema).
-    """
-    for name, meta in PRESET_FIELDS.items():
-        if meta.get("type") not in _VALID_TYPES:
-            raise ValueError(f"preset field {name!r} has invalid type {meta.get('type')!r}")
-        if "write_default" not in meta:
-            raise ValueError(f"preset field {name!r} missing 'write_default'")
+    validate_registry(PRESET_FIELDS)
