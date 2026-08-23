@@ -13,7 +13,7 @@ import logging
 from datetime import date, datetime
 
 from config import APP_TZ
-from services.db import get_setting, set_setting
+from services.db import get_setting
 from services.db.schema import transaction
 
 logger = logging.getLogger(__name__)
