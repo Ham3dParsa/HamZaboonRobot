@@ -1,4 +1,4 @@
-STATE: S-COMPLETE — Q-merged, S-merged (#460), P-merged (#462); F complete
+STATE: F-COMPLETE (#455) — Q-merged (#458), S-merged (#460), P-merged (#462); F complete
 
 # Scalability/Security Bottleneck Audit — Plan Index (2026-08-23)
 
@@ -10,7 +10,7 @@ STATE: S-COMPLETE — Q-merged, S-merged (#460), P-merged (#462); F complete
 
 | Phase | Seam | Status |
 |-------|------|--------|
-| F — Fast-track | `docs/`, `services/utils/` | complete |
+| F — Fast-track | `docs/`, `services/utils/`, `handlers/help_command.py`, `config/keyboards.py`, `handlers/admin_ai.py`, `services/db/__init__.py:prune` | complete (#455) — tickets O-config-tests, O-reports-help, O-help-button, O-view-mode |
 | Q — Quota/DB | `services/db/*`, `services/scheduling.py` | complete (#458) |
 | S — Security/AI | `services/ai/*`, `services/db/preset_registry.py`, `cost_tracking.py`, `key_crypto.py`, `tts.py` | complete (#460) — tickets #4,9,13,14,33,37 |
 | P — Perf/Handlers | `handlers/*`, `config/keyboards.py` | complete (#462) |
