@@ -17,8 +17,15 @@ class MaintenanceBlockTests(unittest.IsolatedAsyncioTestCase):
         db_schema.DB_PATH = self.live_path
         db.init_db()
         db.set_maintenance_mode(False)
+        # R7: maintenance kill-switch tests assume a configured owner; CI env has
+        # OWNER_ID==0, which intentionally disables maintenance. Patch to non-zero
+        # so the blocking path is exercised; the OWNER_ID==0 no-op is covered by
+        # the two dedicated tests below.
+        self._owner_patcher = patch("bot.OWNER_ID", 999)
+        self._owner_patcher.start()
 
     def tearDown(self):
+        self._owner_patcher.stop()
         db.DB_PATH = self.previous_db_path
         db_schema.DB_PATH = self.previous_schema_path
         self.tempdir.cleanup()
