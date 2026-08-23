@@ -5,6 +5,7 @@ from .catalog import GOALS, LANGUAGES, LEVELS, language_label
 BTN_STUDY_SESSION = "📚 شروع مطالعه"
 BTN_ASK_WORD = "❓ پرسیدن یک واژه"
 BTN_SETTINGS = "⚙️ تنظیمات و پروفایل من"
+BTN_HELP = "راهنما"
 BTN_ADMIN = "🛠 مدیریت ربات"
 BTN_ADMIN_STATS = "📈 آمار کاربران"
 BTN_ADMIN_BROADCAST = "📣 ارسال پیام همگانی"
@@ -202,6 +203,7 @@ def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
         [BTN_STUDY_SESSION],
         [BTN_ASK_WORD],
         [BTN_SETTINGS],
+        [BTN_HELP],
     ]
     if is_owner:
         rows.append([BTN_ADMIN])
