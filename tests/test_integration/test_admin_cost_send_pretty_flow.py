@@ -113,10 +113,33 @@ class AdminCostSendPrettyFlowTest(unittest.TestCase):
             self.assertEqual(kwargs["raw"], RawFormat.PLAIN)
             self.assertEqual(kwargs["mode"], "send")
 
+    def test_dashboard_with_callback_edits_via_edit_or_send(self):
+        """Callback path still edits in place via _edit_or_send (not a second send)."""
+        from handlers.admin_cost import _show_llm_cost_dashboard
+
+        query = MagicMock()
+        query.data = "admin:llm_costs"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update = MagicMock()
+        update.callback_query = query
+        update.effective_chat = MagicMock()
+        update.effective_chat.id = 1
+        update.message = MagicMock()
+        update.message.reply_text = AsyncMock()
+        ctx = self._make_context()
+        # _edit_or_send is the seam for the callback branch; say must NOT be called there.
+        with patch("handlers.admin_cost._edit_or_send", new=AsyncMock(return_value="edited")) as mock_edit:
+            with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")) as mock_say:
+                asyncio.run(_show_llm_cost_dashboard(update, ctx))
+                mock_edit.assert_called_once()
+                mock_say.assert_not_called()
+
     def test_wiring_no_direct_reply_text(self):
         text = Path("handlers/admin_cost.py").read_text(encoding="utf-8")
         self.assertNotIn("update.message.reply_text", text)
-        self.assertNotIn("update .message.reply_text", text)
+        self.assertNotIn("update.effective_message.reply_text", text)
+        self.assertNotIn("context.bot.send_message", text)
 
 
 if __name__ == "__main__":
