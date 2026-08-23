@@ -105,7 +105,8 @@ class GrammarTipQuotaReleaseFlowTests(unittest.TestCase):
         db_schema.DB_PATH = self.previous_db_schema_path
         self.tempdir.cleanup()
 
-    def test_undelivered_grammar_tip_releases_quota(self):
+    def test_retired_grammar_tip_does_not_reserve_and_sends_disabled(self):
+        # Retired stub (#24) — no quota, no AI, just disabled message
         from handlers import user as user_handlers
 
         update = MagicMock()
@@ -113,24 +114,18 @@ class GrammarTipQuotaReleaseFlowTests(unittest.TestCase):
         update.effective_chat.id = 1
         context = MagicMock()
         context.user_data = {}
-        context.bot.send_message = AsyncMock(side_effect=NetworkError("network down"))
+        context.bot.send_message = AsyncMock()
 
-        tip = {"title": "نکته", "explanation": "توضیح", "example": "مثال"}
-        with patch.object(user_handlers, "is_owner", return_value=False), \
-             patch.object(user_handlers, "_call_ai_limited", return_value=tip), \
-             patch.object(user_handlers, "_start_llm_wait_state", new=AsyncMock(return_value=None)), \
-             patch.object(user_handlers, "_finish_llm_wait_state", new=AsyncMock()):
-            # The tip-send NetworkError is caught by the outer except, which then
-            # re-sends a generic error message; that re-send also fails, so the
-            # NetworkError observed here originates from the generic-error path.
-            # The meaningful assertion is the released grammar-tip quota below.
-            with self.assertRaises(NetworkError):
-                asyncio.run(user_handlers.send_grammar_tip(update, context))
+        asyncio.run(user_handlers.send_grammar_tip(update, context))
 
         self.assertEqual(
             db.get_user(1)["grammar_tips_asked_today"],
             0,
-            "an undelivered grammar tip must release the reserved quota",
+            "retired tip must not reserve quota",
+        )
+        # retired message sent
+        self.assertTrue(
+            any("غیرفعال" in (c.kwargs.get("text") or "") for c in context.bot.send_message.call_args_list)
         )
 
 
@@ -344,7 +339,8 @@ class ShowStatusQuotaRenderTests(unittest.TestCase):
         db_schema.DB_PATH = self.previous_db_schema_path
         self.tempdir.cleanup()
 
-    def test_show_status_renders_remaining_word_and_grammar_quota(self):
+    def test_show_status_renders_remaining_word_quota_without_grammar_line(self):
+        # Retired: grammar quota line hidden (#24), only word quota shown
         from handlers.user import show_status
         from config import _app_today
         limit = db.get_quota_status(1)["word_query"]["limit"]
@@ -373,8 +369,7 @@ class ShowStatusQuotaRenderTests(unittest.TestCase):
 
         self.assertIn("پرسش واژه", captured["text"])
         self.assertIn(f"1/{limit} (باقی‌مانده {max(limit - 1, 0)})", captured["text"])
-        self.assertIn("نکته گرامری", captured["text"])
-        self.assertIn(f"2/{limit} (باقی‌مانده {max(limit - 2, 0)})", captured["text"])
+        self.assertNotIn("نکته گرامری", captured["text"])
 
 
 if __name__ == "__main__":
