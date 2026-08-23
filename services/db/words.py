@@ -244,11 +244,15 @@ def due_words_for_user(user_id: int, lang: str | None = None):
         if lang:
             query += " AND lang=? "
             params.append(lang)
-        # SQL pre-filter to allow index seek on (user_id, lang, next_review_at)
-        # keeps Python _row_effective_due as source of truth for legacy fallback,
-        # but reduces full scan for future-dated rows.
-        query += " AND (next_review_at IS NULL OR next_review_at <= ?) "
-        params.append(now.isoformat())
+        # SQL pre-filter is a best-effort index hint — Python _row_effective_due
+        # remains the source of truth (legacy next_review fallback + unparseable
+        # next_review_at). Bound widened by +1 day to tolerate TEXT vs
+        # _parse_utc divergence (Z suffix, non-UTC offsets). Rows whose
+        # next_review_at is not ISO-like (NOT LIKE '____-__-__T%') are also
+        # fetched so the Python fallback is not bypassed by lexicographic TEXT
+        # comparison; valid ISO timestamps always match that prefix.
+        query += " AND (next_review_at IS NULL OR next_review_at <= ? OR next_review_at NOT LIKE '____-__-__T%') "
+        params.append((now + datetime.timedelta(days=1)).isoformat())
         rows = conn.execute(query, params).fetchall()
     eligible = []
     for r in rows:
