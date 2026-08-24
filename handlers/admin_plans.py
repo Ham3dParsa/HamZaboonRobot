@@ -12,6 +12,7 @@ from telegram.ext import ContextTypes
 from handlers.flows import mark_awaiting_consumed
 
 from services import db, plan_fields, send_pretty
+from services.send_pretty import RawFormat, say
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.formatting import html_escape
 from services.utils.helpers import _edit_or_send
@@ -111,19 +112,19 @@ async def _show_plan_wizard_field(update: Update, context: ContextTypes.DEFAULT_
 async def _handle_plan_wizard_input(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str, field_idx: int, text: str):
     plan = db.get_plan(name)
     if not plan:
-        await update.message.reply_text("پلن یافت نشد")
+        await say(update, context, "پلن یافت نشد", raw=RawFormat.PLAIN, mode="send")
         return
     field_name = plan_fields.field_order()[field_idx]
     raw = text.strip()
     wizard = context.user_data.get("plan_full_edit", {})
     if wizard.get("plan") != name:
-        await update.message.reply_text("ویزارد منقضی شده. دوباره شروع کنید.")
+        await say(update, context, "ویزارد منقضی شده. دوباره شروع کنید.", raw=RawFormat.PLAIN, mode="send")
         return
     if raw:
         result = plan_fields.validate_value(field_name, raw)
         if result is None:
             context.user_data["awaiting"] = f"admin_plan_full_edit:{name}:{field_idx}"
-            await update.message.reply_text("فرمت نامعتبر. لطفاً مقدار معتبر بفرستید.", reply_markup=awaiting_inline_keyboard())
+            await say(update, context, "فرمت نامعتبر. لطفاً مقدار معتبر بفرستید.", raw=RawFormat.PLAIN, keyboard=awaiting_inline_keyboard(), mode="send")
             return
         wizard["values"][field_name] = result
     next_idx = field_idx + 1
@@ -246,15 +247,12 @@ async def _handle_plans_text_input(
     parts = text.split()
     if len(parts) != 2 or not db.valid_plan_name(parts[1].lower()):
         context.user_data["awaiting"] = "admin_set_plan"
-        await update.message.reply_text(
-            "فرمت نامعتبر است. نمونه: `123456789 silver` یا `@username gold`",
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
+        await say(update, context, "فرمت نامعتبر است. نمونه: `123456789 silver` یا `@username gold`", raw=RawFormat.MDV2, mode="send")
         return
     target = db.find_user(parts[0])
     if not target:
         context.user_data["awaiting"] = "admin_set_plan"
-        await update.message.reply_text("کاربر پیدا نشد؛ ابتدا باید کاربر /start را زده باشد.")
+        await say(update, context, "کاربر پیدا نشد؛ ابتدا باید کاربر /start را زده باشد.", raw=RawFormat.PLAIN, mode="send")
         return
     plan = parts[1].lower()
     previous_plan = target["plan"] or "free"
@@ -262,9 +260,7 @@ async def _handle_plans_text_input(
     prev_label = (db.get_plan(previous_plan) or {}).get("display_name", previous_plan)
     db.set_plan(target["user_id"], plan)
     mark_awaiting_consumed(context)  # plan write is irreversible (B5/Kilo CRITICAL)
-    await update.message.reply_text(
-        f"پلن کاربر {target['user_id']} از {prev_label} به {plan_label} تغییر کرد."
-    )
+    await say(update, context, f"پلن کاربر {target['user_id']} از {prev_label} به {plan_label} تغییر کرد.", raw=RawFormat.PLAIN, mode="send")
 
 
 async def handle_plan_callback(
