@@ -78,7 +78,7 @@ def settings_inline_keyboard(lang: str, goal: str, level: str) -> InlineKeyboard
         ],
         [
             InlineKeyboardButton(f"📚 سطح: {level}", callback_data="settings:level"),
-            InlineKeyboardButton("📝 نوع نمایش کارت", callback_data="settings:presentation"),
+            InlineKeyboardButton("🎛 نمایش کارت", callback_data="settings:display_toggles"),
         ],
         [
             InlineKeyboardButton("👤 وضعیت اشتراک و آمار", callback_data="settings:status"),

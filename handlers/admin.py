@@ -11,6 +11,7 @@ from telegram.ext import ContextTypes
 
 from config import APP_TZ, BROADCAST_MAX_CONCURRENCY, DB_PATH, is_owner
 from services import db, send_pretty
+from services.send_pretty import RawFormat, say
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send, _exit_awaiting_flow, _send_with_retry
 from handlers.admin_stats import handle_admin_stats
@@ -113,7 +114,7 @@ _BROADCAST_RUNNING = False
 async def open_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_owner(update.effective_user.id):
         return
-    await update.message.reply_text("پنل مدیریت ربات:", reply_markup=admin_panel_keyboard())
+    await say(update, context, "پنل مدیریت ربات:", raw=RawFormat.PLAIN, keyboard=admin_panel_keyboard(), mode="send")
 
 
 async def _show_user_activity_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -262,10 +263,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif action == "maintenance:edit":
         context.user_data["awaiting"] = "admin_maintenance_msg"
         await notify_callback(update.callback_query)
-        await update.effective_message.reply_text(
-            "متن پیام حالت تعمیر را بنویسید (برای کاربران هنگام تعمیر نمایش داده می‌شود):",
-            reply_markup=admin_awaiting_inline_keyboard(),
-        )
+        await say(update, context, "متن پیام حالت تعمیر را بنویسید (برای کاربران هنگام تعمیر نمایش داده می‌شود):", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
     elif action == "backup":
         # O-backup-panel: callback entry that mirrors /backup command
         await notify_callback(update.callback_query, "در حال تهیه پشتیبان…", intent=CallbackNoticeIntent.INFO)
@@ -287,16 +285,57 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             "فایل دیتابیس (.db) را آپلود کنید.\n⚠️ این کار دیتابیس فعلی را کاملاً جایگزین می‌کند.",
             reply_markup=admin_awaiting_inline_keyboard(),
         )
+    elif action.startswith("display_toggle:confirm:"):
+        field = action.split(":", 2)[2]
+        from config.catalog import DISPLAY_TOGGLE_FIELDS, HIGH_VALUE_TOGGLES
+        if field not in DISPLAY_TOGGLE_FIELDS or field not in HIGH_VALUE_TOGGLES:
+            await notify_callback(update.callback_query, "فیلد نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        from services.db.display_toggles import get_global_defaults, set_global_defaults
+        current = get_global_defaults()
+        current[field] = False
+        set_global_defaults(current)
+        from config.keyboards import display_toggles_keyboard
+        await _edit_or_send(
+            update, context,
+            "🎛 تنظیمات نمایش کارت — روی هر فیلد بزن تا روشن/خاموش شود.",
+            reply_markup=display_toggles_keyboard(current),
+        )
+        await notify_callback(update.callback_query, "خاموش شد.", intent=CallbackNoticeIntent.SUCCESS)
+    elif action == "display_toggle:cancel":
+        from services.db.display_toggles import get_global_defaults
+        from config.keyboards import display_toggles_keyboard
+        current = get_global_defaults()
+        await _edit_or_send(
+            update, context,
+            "🎛 تنظیمات نمایش کارت — روی هر فیلد بزن تا روشن/خاموش شود.",
+            reply_markup=display_toggles_keyboard(current),
+        )
+        await notify_callback(update.callback_query, "انصراف", intent=CallbackNoticeIntent.INFO)
     elif action.startswith("display_toggle:"):
-        # O-display-toggles: toggle a field in the global defaults
         field = action.split(":", 1)[1]
-        from config.catalog import DISPLAY_TOGGLE_FIELDS
+        if ":" in field:
+            await notify_callback(update.callback_query, "فیلد نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        from config.catalog import DISPLAY_TOGGLE_FIELDS, HIGH_VALUE_TOGGLES
         if field not in DISPLAY_TOGGLE_FIELDS:
             await notify_callback(update.callback_query, "فیلد نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         from services.db.display_toggles import get_global_defaults, set_global_defaults
         current = get_global_defaults()
-        new_val = not bool(current.get(field, True))
+        currently_enabled = bool(current.get(field, True))
+        if currently_enabled and field in HIGH_VALUE_TOGGLES:
+            from config.keyboards import DISPLAY_TOGGLE_FA_LABELS, display_toggle_confirm_keyboard
+            label = DISPLAY_TOGGLE_FA_LABELS.get(field, field)
+            await _edit_or_send(
+                update,
+                context,
+                f"⚠️ خاموش کردن «{label}» کیفیت یادگیری همه کاربران را کاهش میدهد (پیش‌فرض سراسری). باز هم خاموشش میکنید؟",
+                reply_markup=display_toggle_confirm_keyboard(field, is_admin=True),
+            )
+            await notify_callback(update.callback_query, "تأیید لازم است", intent=CallbackNoticeIntent.INFO)
+            return
+        new_val = not currently_enabled
         current[field] = new_val
         set_global_defaults(current)
         from config.keyboards import display_toggles_keyboard
@@ -411,18 +450,13 @@ def _register_admin_flows() -> None:
         db.set_maintenance_message(text)
         mark_awaiting_consumed(context)  # DB write is irreversible (B5/Kilo CRITICAL)
         context.user_data["awaiting"] = None
-        await update.message.reply_text(
-            "✅ پیام حالت تعمیر ذخیره شد.",
-            reply_markup=main_menu(is_owner(update.effective_user.id)),
-        )
+        await say(update, context, "✅ پیام حالت تعمیر ذخیره شد.", raw=RawFormat.PLAIN, keyboard=main_menu(is_owner(update.effective_user.id)), mode="send")
 
     async def _handle_admin_restore(update, context, awaiting, text):
         mark_awaiting_consumed(context)  # terminal re-prompt (B5/Kilo CRITICAL)
         context.user_data["awaiting"] = None
-        await update.message.reply_text(
-            "لطفاً یک فایل دیتابیس (.db) آپلود کنید.\n"
-            "دوباره /restore را بزنید.",
-        )
+        await say(update, context, "لطفاً یک فایل دیتابیس (.db) آپلود کنید.\n"
+            "دوباره /restore را بزنید.", raw=RawFormat.PLAIN, mode="send")
 
     async def _handle_ai_preset_name(update, context, awaiting, text):
         await _handle_ai_preset_new_name(update, context, text)
@@ -492,7 +526,7 @@ _register_admin_flows()
 async def cmd_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send the current database file to the admin."""
     if not is_owner(update.effective_user.id):
-        await update.message.reply_text("فقط مالک ربات دسترسی داره.")
+        await say(update, context, "فقط مالک ربات دسترسی داره.", raw=RawFormat.PLAIN, mode="send")
         return
     try:
         data = await asyncio.to_thread(db.export_db_bytes)
@@ -503,29 +537,26 @@ async def cmd_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as exc:
         logger.exception("Backup failed")
-        await update.message.reply_text(f"خطا در تهیه پشتیبان: {exc}")
+        await say(update, context, f"خطا در تهیه پشتیبان: {exc}", raw=RawFormat.PLAIN, mode="send")
 
 
 async def cmd_restore(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start restore flow — expect a .db file upload."""
     if not is_owner(update.effective_user.id):
-        await update.message.reply_text("فقط مالک ربات دسترسی داره.")
+        await say(update, context, "فقط مالک ربات دسترسی داره.", raw=RawFormat.PLAIN, mode="send")
         return
     context.user_data["awaiting"] = "admin_restore"
-    await update.message.reply_text(
-        "فایل دیتابیس (.db) را آپلود کنید.\n"
-        "⚠️ این کار دیتابیس فعلی را کاملاً جایگزین می‌کند.",
-        reply_markup=admin_awaiting_inline_keyboard(),
-    )
+    await say(update, context, "فایل دیتابیس (.db) را آپلود کنید.\n"
+        "⚠️ این کار دیتابیس فعلی را کاملاً جایگزین می‌کند.", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
 
 
 async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle uploaded database file for restore."""
     if not is_owner(update.effective_user.id):
-        await update.message.reply_text("فقط مالک ربات دسترسی داره.")
+        await say(update, context, "فقط مالک ربات دسترسی داره.", raw=RawFormat.PLAIN, mode="send")
         return
     if context.user_data.get("awaiting") != "admin_restore":
-        await update.message.reply_text("ابتدا /restore را بزنید.")
+        await say(update, context, "ابتدا /restore را بزنید.", raw=RawFormat.PLAIN, mode="send")
         return
     context.user_data.pop("awaiting", None)
 
@@ -544,14 +575,11 @@ async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
         backup_path = f"{DB_PATH}.pre_restore"
         await asyncio.to_thread(db.import_db_bytes, bytes(data), backup_path)
         db.set_maintenance_mode(False)  # A2-1-7: auto-exit maintenance after restore
-        await update.message.reply_text(
-            "✅ دیتابیس با موفقیت بازگردانی شد.\n"
-            f"یک نسخه پشتیبان از دیتابیس قبلی در {backup_path} ذخیره شد.",
-            reply_markup=main_menu(True),
-        )
+        await say(update, context, "✅ دیتابیس با موفقیت بازگردانی شد.\n"
+            f"یک نسخه پشتیبان از دیتابیس قبلی در {backup_path} ذخیره شد.", raw=RawFormat.PLAIN, keyboard=main_menu(True), mode="send")
     except Exception as exc:
         logger.exception("Restore failed")
-        await update.message.reply_text(f"❌ خطا در بازگردانی: {exc}")
+        await say(update, context, f"❌ خطا در بازگردانی: {exc}", raw=RawFormat.PLAIN, mode="send")
 
 
 def _create_auto_backup() -> str | None:

@@ -164,10 +164,14 @@ from handlers.user import (
     change_goal_start,
     change_level_start,
     change_presentation_start,
+    handle_display_toggle,
+    handle_display_toggle_cancel,
+    handle_display_toggle_confirm,
     on_lang_changed,
     on_goal_changed,
     on_level_changed,
     ask_for_ask_word,
+    show_display_toggles_menu,
     show_status,
     _show_settings_menu,
 )
@@ -613,7 +617,16 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     user_id = update.effective_user.id
     db.reset_user_blocked(user_id)
-    text = update.message.text.strip()
+    msg = update.effective_message or update.message
+    raw_text = getattr(msg, "text", None) if msg is not None else None
+    if not isinstance(raw_text, str):
+        alt = getattr(update, "message", None)
+        raw_text = getattr(alt, "text", None) if alt is not None else None
+        if not isinstance(raw_text, str):
+            return
+    text = raw_text.strip()
+    if not text:
+        return
     awaiting = context.user_data.get("awaiting")
 
     if awaiting:
@@ -811,6 +824,19 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await change_level_start(update, context)
     elif data == "settings:presentation":
         await change_presentation_start(update, context)
+    elif data == "settings:display_toggles":
+        await show_display_toggles_menu(update, context)
+    elif data.startswith("settings:display_toggle:confirm:"):
+        field = data.split(":", 3)[3]
+        await handle_display_toggle_confirm(update, context, field)
+    elif data == "settings:display_toggle:cancel":
+        await handle_display_toggle_cancel(update, context)
+    elif data.startswith("settings:display_toggle:"):
+        field = data.split(":", 2)[2]
+        if ":" in field:
+            await notify_callback(update.callback_query, "فیلد نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        await handle_display_toggle(update, context, field)
     elif data == "settings:status":
         await show_status(update, context)
     elif data == "settings:back":

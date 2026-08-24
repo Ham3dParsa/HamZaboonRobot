@@ -16,7 +16,8 @@ import random
 from dataclasses import asdict, dataclass
 from statistics import fmean
 
-from services.utils.formatting import to_persian_digits
+# to_persian_digits is imported lazily inside pick_motivation to avoid
+# circular import (formatting -> validation -> helpers -> db -> session_reports -> summary -> formatting)
 
 
 # Learner detail page size (number of words per page). R1: 6 words per page.
@@ -232,7 +233,9 @@ def pick_motivation(report: SessionReport, rng: random.Random | None = None) -> 
         rng = random.Random()
     stats = _grade_stats(report)
     template = rng.choice(_MOTIVATION[tier])
-    return to_persian_digits(template.format(**stats))
+    from services.utils.formatting import to_persian_digits as _to_persian_digits
+
+    return _to_persian_digits(template.format(**stats))
 
 
 __all__ = [
