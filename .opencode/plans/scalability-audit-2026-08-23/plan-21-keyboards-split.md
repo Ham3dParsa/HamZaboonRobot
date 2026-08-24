@@ -1,4 +1,6 @@
-STATE: LOCKED — branch refactor/split-keyboards worktree .worktrees/a-05
+STATE: phase 1/1 — in-progress — focus: implemented split package awaiting CI/Kilo
+
+Evidence: keyboards split 5 files (constants+common+lang+srs+admin+__init__), tests wiring 24 passed, ruff clean
 
 # Plan 21 — god-modules split keyboards first (Session A)
 

@@ -326,7 +326,10 @@ def _collect_all_callback_prefixes() -> set[str]:
     source_files: list[Path] = []
     for d in SCAN_DIRS:
         if d.is_dir():
-            source_files.extend(sorted(d.glob("*.py")))
+            if d == Path("config"):
+                source_files.extend(sorted(d.rglob("*.py")))
+            else:
+                source_files.extend(sorted(d.glob("*.py")))
         elif d.is_file():
             source_files.append(d)
 
@@ -689,8 +692,11 @@ class TestCallbackWiring(unittest.TestCase):
             self.fail(msg)
 
     def test_allowlist_prefixes_exist_in_keyboards(self):
-        with open("config/keyboards.py", encoding="utf-8") as f:
-            kbd_text = f.read()
+        kbd_path = Path("config/keyboards.py")
+        if kbd_path.is_file():
+            kbd_text = kbd_path.read_text(encoding="utf-8")
+        else:
+            kbd_text = "".join(p.read_text(encoding="utf-8") for p in Path("config/keyboards").glob("*.py"))
         for allowed in ALLOWLIST:
             if allowed not in kbd_text:
                 self.fail(
@@ -707,7 +713,11 @@ class TestCallbackWiring(unittest.TestCase):
         """Phase 2a: the stale daily/review/SRS-prepare callback prefixes must
         be gone from keyboards, and the surviving routes (srs:fe:, srs:reveal:,
         study:start, query:add:) must still resolve in the callback_router."""
-        kbd_text = Path("config/keyboards.py").read_text(encoding="utf-8")
+        kbd_path = Path("config/keyboards.py")
+        if kbd_path.is_file():
+            kbd_text = kbd_path.read_text(encoding="utf-8")
+        else:
+            kbd_text = "".join(p.read_text(encoding="utf-8") for p in Path("config/keyboards").glob("*.py"))
         for removed in (
             "daily:prepare",
             "daily:next",
@@ -769,7 +779,11 @@ class TestCallbackWiring(unittest.TestCase):
         # R8 legend action: emitted by the detail keyboard and handled inside the
         # existing session:summary handler (no separate router branch needed).
         handler_text = Path("handlers/study_handler.py").read_text(encoding="utf-8")
-        keyboards_text = Path("config/keyboards.py").read_text(encoding="utf-8")
+        kbd_path2 = Path("config/keyboards.py")
+        if kbd_path2.is_file():
+            keyboards_text = kbd_path2.read_text(encoding="utf-8")
+        else:
+            keyboards_text = "".join(p.read_text(encoding="utf-8") for p in Path("config/keyboards").glob("*.py"))
         self.assertIn('session:summary:legend:{page_index}:{nonce}', keyboards_text)
         self.assertIn('base == "legend"', handler_text)
 
@@ -787,7 +801,11 @@ class TestCallbackWiring(unittest.TestCase):
 
         # R10-G callbacks: list / detail:<id>:<view> / back are emitted by the
         # reports keyboards and handled in study_handler._handle_reports_callback.
-        keyboards_text = Path("config/keyboards.py").read_text(encoding="utf-8")
+        kbd_path2 = Path("config/keyboards.py")
+        if kbd_path2.is_file():
+            keyboards_text = kbd_path2.read_text(encoding="utf-8")
+        else:
+            keyboards_text = "".join(p.read_text(encoding="utf-8") for p in Path("config/keyboards").glob("*.py"))
         self.assertIn('callback_data="reports:back"', keyboards_text)
         self.assertIn('callback_data=f"reports:detail:{entry.report_id}:0"', keyboards_text)
         handler_text = Path("handlers/study_handler.py").read_text(encoding="utf-8")
