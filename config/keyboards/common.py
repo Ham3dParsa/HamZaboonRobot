@@ -127,6 +127,7 @@ DISPLAY_TOGGLE_FA_LABELS: dict[str, str] = {
     "grammar_tip": "نکته گرامری",
 }
 
+
 def display_toggles_keyboard(current: dict) -> InlineKeyboardMarkup:
     """Admin display-toggles panel — one row per DISPLAY_TOGGLE_FIELDS entry.
 
@@ -139,10 +140,11 @@ def display_toggles_keyboard(current: dict) -> InlineKeyboardMarkup:
     for field in DISPLAY_TOGGLE_FIELDS:
         enabled = bool(current.get(field, True))
         marker = "✅" if enabled else "⭕"
-        rows.append([label = DISPLAY_TOGGLE_FA_LABELS.get(field, field)
+        label = DISPLAY_TOGGLE_FA_LABELS.get(field, field)
         rows.append([InlineKeyboardButton(f"{marker} {label}", callback_data=f"admin:display_toggle:{field}")])
     rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")])
     return InlineKeyboardMarkup(rows)
+
 
 def display_toggle_confirm_keyboard(field: str, *, is_admin: bool = False) -> InlineKeyboardMarkup:
     """Two-step confirm for disabling a HIGH_VALUE toggle (R9 warning)."""
@@ -170,5 +172,4 @@ def user_display_toggles_keyboard(current: dict, forced: dict | None = None) -> 
         rows.append([InlineKeyboardButton(f"{marker} {label}", callback_data=f"settings:display_toggle:{field}")])
     rows.append([InlineKeyboardButton(IBTN_BACK_TO_SETTINGS, callback_data="settings:back")])
     return InlineKeyboardMarkup(rows)
-
 
