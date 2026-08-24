@@ -128,6 +128,8 @@ DEMO_KEYBOARD = InlineKeyboardMarkup(
         [InlineKeyboardButton("📄  PLAIN backend", callback_data="demo:plain")],
         [InlineKeyboardButton("🔩  Raw pre-formatted", callback_data="demo:raw")],
         [InlineKeyboardButton("🔘  Keyboard attached", callback_data="demo:keyboard")],
+        [InlineKeyboardButton("📋  REPORT session (Rich)", callback_data="demo:report")],
+        [InlineKeyboardButton("📋  REPORT v2 (structured)", callback_data="demo:report_v2")],
         [InlineKeyboardButton("🔥  Rich Messages (one-by-one)", callback_data="demo:rich")],
         [InlineKeyboardButton("❌  Error demos", callback_data="demo:errors")],
         [InlineKeyboardButton("🚀  Send all (no callback)", callback_data="demo:all")],
@@ -961,6 +963,175 @@ def session_card_variations(card) -> list:
     ]
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# 📋 SESSION REPORT demos — summary / detail / legend (Rich)
+# Final proposal from grill: grouped by status, no "—", Rich Message
+# ──────────────────────────────────────────────────────────────────────────────
+
+SAMPLE_REPORT = {
+    "summary": {"learned": 2, "reviewed": 6, "recall": 72, "xp": 16, "heat": 2, "heat_label": "دوآتیشه"},
+    "words": [
+        ("Anticipate", "learning", "آسان", None, "۵ روز دیگر"),
+        ("crater", "learning", "سخت", "۴ روز", "فردا"),
+        ("facade", "familiar", "سخت", "۲ روز ", "۳ روز دیگر"),
+        ("affection", "familiar", "آسان", "۳ روز ", "۴ روز دیگر"),
+        ("mitigate", "familiar", "سخت", "۵ روز ", "پس‌فردا"),
+        ("serene", "familiar", "آسان", None, "۶ روز دیگر"),
+        ("available", "learned", "آسان", None, "۱۲ روز دیگر"),
+        ("eloquent", "learned", "آسان", None, "۸ روز دیگر"),
+    ],
+    "counts": {"learning": 2, "familiar": 4, "learned": 2, "stable": 0},
+}
+
+_STATUS_META = {
+    "learning": ("🌱", "در حال آموختن"),
+    "familiar": ("👀", "آشنا (نیازمند تثبیت)"),
+    "learned": ("📚", "آموخته شده"),
+    "stable": ("🧠", "پایدار"),
+}
+
+
+def demo_report_summary() -> Message:
+    s = SAMPLE_REPORT["summary"]
+    m = Message()
+    m.add_line(heading(3, plain("📊 گزارش نشست مطالعه")))
+    m.add_line(plain(f"✨ {s['learned']} واژه تازه"), plain(f"  ·  🔁 {s['reviewed']} واژه مرور"))
+    m.add_line(plain(f"🎯 یادآوری: {s['recall']}٪  ·  (+{s['xp']} XP)  ·  🔥 {s['heat_label']}"))
+    m.add_line(nl())
+    m.add_line(plain(f"📈 پیشرفت: 🌱{SAMPLE_REPORT['counts']['learning']} · 👀{SAMPLE_REPORT['counts']['familiar']} · 📚{SAMPLE_REPORT['counts']['learned']} · 🧠{SAMPLE_REPORT['counts']['stable']}"))
+    m.set_keyboard(InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 جزئیات واژه‌ها", callback_data="demo:report_detail")],
+        [InlineKeyboardButton("📖 راهنما", callback_data="demo:report_legend")],
+    ]))
+    return m
+
+
+def demo_report_detail() -> Message:
+    m = Message()
+    m.add_line(heading(3, plain("📋 واژه‌های این نشست")))
+    # 4-col table but status shortened to icon + modifier only (legend explains)
+    header = (plain("واژه"), plain("وضعیت"), plain("بعدی"), plain("قبلی"))
+    rows = []
+    order = ("learning", "familiar", "learned", "stable")
+    grouped = {k: [w for w in SAMPLE_REPORT["words"] if w[1] == k] for k in order}
+    for key in order:
+        emoji, _ = _STATUS_META[key]
+        items = grouped[key]
+        if not items:
+            rows.append((plain(""), plain(f"{emoji}"), plain("هنوز واژه‌ای نیست"), plain("")))
+            continue
+        for word, _, mod, prev, nxt in items:
+            status = f"{emoji} ({mod})"
+            nxt_short = nxt.replace(" دیگر", "") if nxt else ""
+            prev_short = prev.replace(" دیگر", "") if prev else ""
+            rows.append((plain(word), plain(status), plain(nxt_short), plain(prev_short)))
+    m.add_line(table(header, *rows))
+    m.add_line(nl())
+    # progress as small table
+    m.add_line(table(
+        (plain("🌱"), plain("👀"), plain("📚"), plain("🧠")),
+        (plain(str(SAMPLE_REPORT['counts']['learning'])), plain(str(SAMPLE_REPORT['counts']['familiar'])), plain(str(SAMPLE_REPORT['counts']['learned'])), plain(str(SAMPLE_REPORT['counts']['stable']))),
+    ))
+    m.set_keyboard(InlineKeyboardMarkup([
+        [InlineKeyboardButton("« بازگشت به خلاصه", callback_data="demo:report_summary")],
+        [InlineKeyboardButton("📖 راهنما", callback_data="demo:report_legend")],
+    ]))
+    return m
+
+
+def demo_report_legend() -> Message:
+    m = Message()
+    m.add_line(heading(3, plain("📖 گام‌های تثبیت در حافظه")))
+    m.add_line(nl())
+    m.add_line(bold("🌱 پیش‌آموزش:"), plain(" کارت تازه، نیازمند مرورهای نزدیک"))
+    m.add_line(bold("👀 آشنا:"), plain(" گام پیش از تثبیت"))
+    m.add_line(bold("📚  آموخته شده:"), plain(" فاصله مرورها بیشتر میشود"))
+    m.add_line(bold("🧠 پایداری:"), plain(" نشسته در حافظه بلندمدت، فاصله مرورها حداکثری میشود"))
+    m.add_line(nl())
+    m.add_line(bold("(آسان):"), plain(" زودتر می‌آموزید"))
+    m.add_line(bold("(سخت):"), plain(" کندتر در حافظه می‌نشیند"))
+    m.add_line(nl())
+    m.add_line(plain("📅 مرور آینده · ⏰ مرور پیشین"))
+    m.set_keyboard(InlineKeyboardMarkup([
+        [InlineKeyboardButton("« بازگشت", callback_data="demo:report_detail")],
+    ]))
+    return m
+
+
+# ——— v2 structured variants for comparison (small header + table + motivational) ———
+
+def demo_report_summary_v2() -> Message:
+    s = SAMPLE_REPORT["summary"]
+    m = Message()
+    m.add_line(heading(3, plain("📃 گزارش نشست")))
+    m.add_line(quote(plain("آفرین! 👏\nاین نشست ترکیبی بود از مرور خوب و یادگیری واژگان نو.\nراستی، فقط یه نشست دیگه مونده که سه‌آتیشه بشیا! 🚀")))
+    # structured 2-col table: stat | value
+    m.add_line(table(
+        (plain("یادآوری"), plain(f"{s['recall']}٪")),
+        (plain("امتیاز"), plain(f"+{s['xp']} · {s['heat_label']} 🔥")),
+        (plain("کارت"), plain(f"{s['learned']} تازه · {s['reviewed']} مرور")),
+    ))
+    m.add_line(nl())
+    m.add_line(heading(3, plain("📊 وضعیت کارت‌های نشست")))
+    m.add_line(table(
+        (plain("🌱"), plain("👀"), plain("📚"), plain("🧠")),
+        (plain(str(SAMPLE_REPORT['counts']['learning'])), plain(str(SAMPLE_REPORT['counts']['familiar'])), plain(str(SAMPLE_REPORT['counts']['learned'])), plain(str(SAMPLE_REPORT['counts']['stable']))),
+    ))
+    m.set_keyboard(InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 جزئیات (v2)", callback_data="demo:report_detail_v2")],
+        [InlineKeyboardButton("📖 راهنما (v2)", callback_data="demo:report_legend_v2")],
+    ]))
+    return m
+
+
+def demo_report_detail_v2() -> Message:
+    m = Message()
+    m.add_line(heading(3, plain("📋 واژه‌های این نشست")))
+    # 3-col table: واژه | وضعیت | مرور — status shortened, بعدی without دیگر
+    header = (plain("واژه"), plain("وضعیت"), plain("مرور"))
+    rows = []
+    order = ("learning", "familiar", "learned", "stable")
+    grouped = {k: [w for w in SAMPLE_REPORT["words"] if w[1] == k] for k in order}
+    for key in order:
+        emoji, _ = _STATUS_META[key]
+        items = grouped[key]
+        if not items:
+            rows.append((plain(""), plain(f"{emoji}"), plain("هنوز واژه‌ای نیست")))
+            continue
+        for word, _, mod, prev, nxt in items:
+            status = f"{emoji} ({mod})"
+            nxt_short = nxt.replace(" دیگر", "") if nxt else ""
+            prev_short = prev.replace(" دیگر", "") if prev else ""
+            مرور = f"📅 {nxt_short}" + (f" ⏰ {prev_short}" if prev else "")
+            rows.append((plain(word), plain(status), plain(مرور)))
+    m.add_line(table(header, *rows))
+    m.set_keyboard(InlineKeyboardMarkup([
+        [InlineKeyboardButton("« خلاصه (v2)", callback_data="demo:report_summary_v2")],
+        [InlineKeyboardButton("📖 راهنما (v2)", callback_data="demo:report_legend_v2")],
+    ]))
+    return m
+
+
+def demo_report_legend_v2() -> Message:
+    m = Message()
+    m.add_line(heading(3, plain("📖 گام‌های تثبیت در حافظه")))
+    m.add_line(table(
+        (plain("نماد"), plain("معنا")),
+        (bold("🌱 پیش‌آموزش"), plain("کارت تازه، نیازمند مرورهای نزدیک")),
+        (bold("👀 آشنا"), plain("گام پیش از تثبیت، فقط چند روز در حافظه")),
+        (bold("📚 آموخته شده"), plain("فاصله مرورها بیشتر میشود، چندین روز در حافظه")),
+        (bold("🧠 پایداری"), plain("نشسته در حافظه بلندمدت، فاصله مرورها حداکثری میشود")),
+        (bold("(آسان)"), plain("زودتر می‌آموزید")),
+        (bold("(سخت)"), plain("کندتر در حافظه می‌نشیند")),
+        (bold("📅 بعدی"), plain("مرور آینده")),
+        (bold("⏰ قبلی"), plain("مرور پیشین")),
+    ))
+    m.set_keyboard(InlineKeyboardMarkup([
+        [InlineKeyboardButton("« جزئیات (v2)", callback_data="demo:report_detail_v2")],
+    ]))
+    return m
+
+
 async def send_session_mode(bot, chat_id: int) -> None:
     sent = 0
     failed = 0
@@ -1382,6 +1553,46 @@ async def _dispatch_demo(update: Update, section: str) -> None:
     elif section == "persian":
         await query.edit_message_text("⏳  Sending Persian demo…")
         await _reply(update, demo_persian())
+
+    elif section == "report":
+        await query.edit_message_text("⏳  Sending REPORT demos (summary → detail → legend)…")
+        await _reply(update, demo_report_summary(), backend=Backend.RICH)
+        await _reply(update, demo_report_detail(), backend=Backend.RICH)
+        await _reply(update, demo_report_legend(), backend=Backend.RICH)
+        await query.edit_message_text("✅  REPORT (summary + detail + legend) sent!  Pick another:", reply_markup=BACK_BUTTON, parse_mode=ParseMode.HTML)
+        return
+
+    elif section == "report_v2":
+        await query.edit_message_text("⏳  Sending REPORT v2 (structured)…")
+        await _reply(update, demo_report_summary_v2(), backend=Backend.RICH)
+        await _reply(update, demo_report_detail_v2(), backend=Backend.RICH)
+        await _reply(update, demo_report_legend_v2(), backend=Backend.RICH)
+        await query.edit_message_text("✅  REPORT v2 (structured) sent!  Pick another:", reply_markup=BACK_BUTTON, parse_mode=ParseMode.HTML)
+        return
+
+    elif section == "report_summary":
+        await _reply(update, demo_report_summary(), backend=Backend.RICH)
+        return
+
+    elif section == "report_detail":
+        await _reply(update, demo_report_detail(), backend=Backend.RICH)
+        return
+
+    elif section == "report_legend":
+        await _reply(update, demo_report_legend(), backend=Backend.RICH)
+        return
+
+    elif section == "report_summary_v2":
+        await _reply(update, demo_report_summary_v2(), backend=Backend.RICH)
+        return
+
+    elif section == "report_detail_v2":
+        await _reply(update, demo_report_detail_v2(), backend=Backend.RICH)
+        return
+
+    elif section == "report_legend_v2":
+        await _reply(update, demo_report_legend_v2(), backend=Backend.RICH)
+        return
 
     elif section == "html":
         await query.edit_message_text("⏳  Sending HTML-backend message…")

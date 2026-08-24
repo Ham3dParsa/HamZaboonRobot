@@ -6,6 +6,8 @@ from telegram.ext import ContextTypes
 
 from services import db
 from config.catalog import (
+    DISPLAY_TOGGLE_FIELDS,
+    HIGH_VALUE_TOGGLES,
     goal_label,
     language_label,
     level_cefr,
@@ -25,7 +27,7 @@ from services.utils.formatting import (
     escape_mdv2,
 )
 from services.scheduling import word_query_usage_text
-from services.utils.callback_notifications import notify_callback
+from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.send_pretty import Message, RawFormat, bold, say, send
 from services.activity_log import log_user_activity
 from services.utils.helpers import (
@@ -33,6 +35,8 @@ from services.utils.helpers import (
     _send_with_retry,
 )
 from config.keyboards import (
+    DISPLAY_TOGGLE_FA_LABELS,
+    display_toggle_confirm_keyboard,
     main_menu,
     lang_inline_keyboard,
     goal_inline_keyboard,
@@ -41,6 +45,7 @@ from config.keyboards import (
     settings_inline_keyboard,
     settings_back_keyboard,
     awaiting_reply_keyboard,
+    user_display_toggles_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -202,30 +207,125 @@ async def change_level_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def change_presentation_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Legacy entry (brief/detailed) – redirect to new per-field panel (P3-T3).
+    await show_display_toggles_menu(update, context)
+
+
+def _decode_forced(row) -> dict:
+    if not row:
+        return {}
+    raw = row["display_toggles_forced"] if "display_toggles_forced" in row.keys() else None
+    if not raw:
+        return {}
+    import json as _json
+    try:
+        data = _json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: bool(v) for k, v in data.items() if k in DISPLAY_TOGGLE_FIELDS}
+
+
+async def show_display_toggles_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
         await _send_with_retry(context.bot, update.effective_chat.id, "اول باید /start رو بزنی.")
         await notify_callback(update.callback_query)
         return
-    current = _user_presentation(row)
     if not has_feature(row["plan"] or "free", "presentation"):
         await _edit_or_send(
             update,
             context,
-            f"نمایش فعلی کارت‌ها: {'خلاصه' if current == 'brief' else 'کامل'}.\n"
-            "انتخاب دائمی نمایش کارت فقط برای کاربران پریمیوم فعال است.",
+            "🎛 تنظیمات نمایش کارت فقط برای کاربران برنزی و بالاتر فعال است.\n"
+            "برای دسترسی، پلن خود را ارتقا دهید.",
         )
-        await notify_callback(update.callback_query)
+        await notify_callback(update.callback_query, "نیاز به پلن برنزی یا بالاتر", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
+    effective = db.get_display_toggles(user_id, row=row)
+    forced = _decode_forced(row)
     await _edit_or_send(
         update,
         context,
-        f"نمایش فعلی کارت‌ها: {'خلاصه' if current == 'brief' else 'کامل'}.\n"
-        "نمایش موردنظر را انتخاب کنید:",
-        reply_markup=presentation_settings_keyboard(current, back_to_settings=True),
+        "🎛 تنظیمات نمایش کارت — روی هر فیلد بزن تا روشن/خاموش شود.",
+        reply_markup=user_display_toggles_keyboard(effective, forced),
     )
     await notify_callback(update.callback_query)
+
+
+async def handle_display_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE, field: str):
+    user_id = update.effective_user.id
+    row = db.get_user(user_id)
+    if not row or not row["onboarded"]:
+        await notify_callback(update.callback_query, "ابتدا /start را بزنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    if not has_feature(row["plan"] or "free", "presentation"):
+        await notify_callback(update.callback_query, "این تنظیم فقط برای کاربران برنزی و بالاتر فعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    if field not in DISPLAY_TOGGLE_FIELDS:
+        await notify_callback(update.callback_query, "فیلد نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    forced = _decode_forced(row)
+    if field in forced:
+        await notify_callback(update.callback_query, "این مورد توسط مدیر قفل شده است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    effective = db.get_display_toggles(user_id, row=row)
+    currently_enabled = bool(effective.get(field, True))
+    if currently_enabled and field in HIGH_VALUE_TOGGLES:
+        label = DISPLAY_TOGGLE_FA_LABELS.get(field, field)
+        await _edit_or_send(
+            update,
+            context,
+            f"⚠️ خاموش کردن نمایش «{label}» کیفیت و غنای تجربه آموزشی را کاهش میدهد. باز هم خاموشش میکنید؟",
+            reply_markup=display_toggle_confirm_keyboard(field, is_admin=False),
+        )
+        await notify_callback(update.callback_query, "تأیید لازم است", intent=CallbackNoticeIntent.INFO)
+        return
+    new_val = not currently_enabled
+    db.set_display_toggle(user_id, field, new_val)
+    log_user_activity(update, action="display_toggle", outcome=f"{field}={'on' if new_val else 'off'}")
+    row = db.get_user(user_id)
+    effective = db.get_display_toggles(user_id, row=row)
+    forced = _decode_forced(row)
+    await _edit_or_send(
+        update,
+        context,
+        "🎛 تنظیمات نمایش کارت — روی هر فیلد بزن تا روشن/خاموش شود.",
+        reply_markup=user_display_toggles_keyboard(effective, forced),
+    )
+    await notify_callback(update.callback_query, "ذخیره شد.", intent=CallbackNoticeIntent.SUCCESS)
+
+
+async def handle_display_toggle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE, field: str):
+    user_id = update.effective_user.id
+    row = db.get_user(user_id)
+    if not row or not row["onboarded"]:
+        await notify_callback(update.callback_query, "ابتدا /start را بزنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    if field not in DISPLAY_TOGGLE_FIELDS or field not in HIGH_VALUE_TOGGLES:
+        await notify_callback(update.callback_query, "فیلد نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    forced = _decode_forced(row)
+    if field in forced:
+        await notify_callback(update.callback_query, "این مورد توسط مدیر قفل شده است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    db.set_display_toggle(user_id, field, False)
+    log_user_activity(update, action="display_toggle", outcome=f"{field}=off (confirmed)")
+    row = db.get_user(user_id)
+    effective = db.get_display_toggles(user_id, row=row)
+    forced = _decode_forced(row)
+    await _edit_or_send(
+        update,
+        context,
+        "🎛 تنظیمات نمایش کارت — روی هر فیلد بزن تا روشن/خاموش شود.",
+        reply_markup=user_display_toggles_keyboard(effective, forced),
+    )
+    await notify_callback(update.callback_query, "خاموش شد.", intent=CallbackNoticeIntent.SUCCESS)
+
+
+async def handle_display_toggle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_display_toggles_menu(update, context)
 
 
 async def on_lang_changed(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str):
