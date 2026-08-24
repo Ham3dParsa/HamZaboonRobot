@@ -287,6 +287,15 @@ def presentation_settings_keyboard(
     return InlineKeyboardMarkup(rows)
 
 
+DISPLAY_TOGGLE_FA_LABELS: dict[str, str] = {
+    "explanation": "توضیح",
+    "synonyms": "مترادف‌ها",
+    "antonyms": "متضادها",
+    "examples": "مثال‌ها",
+    "example_translations": "ترجمه مثال‌ها",
+    "grammar_tip": "نکته گرامری",
+}
+
 def settings_inline_keyboard(lang: str, goal: str, level: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
@@ -295,7 +304,7 @@ def settings_inline_keyboard(lang: str, goal: str, level: str) -> InlineKeyboard
         ],
         [
             InlineKeyboardButton(f"📚 سطح: {level}", callback_data="settings:level"),
-            InlineKeyboardButton("📝 نوع نمایش کارت", callback_data="settings:presentation"),
+            InlineKeyboardButton("🎛 نمایش کارت", callback_data="settings:display_toggles"),
         ],
         [
             InlineKeyboardButton("👤 وضعیت اشتراک و آمار", callback_data="settings:status"),
@@ -673,8 +682,37 @@ def display_toggles_keyboard(current: dict) -> InlineKeyboardMarkup:
     for field in DISPLAY_TOGGLE_FIELDS:
         enabled = bool(current.get(field, True))
         marker = "✅" if enabled else "⭕"
-        rows.append([InlineKeyboardButton(f"{marker} {field}", callback_data=f"admin:display_toggle:{field}")])
+        label = DISPLAY_TOGGLE_FA_LABELS.get(field, field)
+        rows.append([InlineKeyboardButton(f"{marker} {label}", callback_data=f"admin:display_toggle:{field}")])
     rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")])
+    return InlineKeyboardMarkup(rows)
+
+
+def display_toggle_confirm_keyboard(field: str, *, is_admin: bool = False) -> InlineKeyboardMarkup:
+    """Two-step confirm for disabling a HIGH_VALUE toggle (R9 warning)."""
+    prefix = "admin:display_toggle" if is_admin else "settings:display_toggle"
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ بله، خاموش کن", callback_data=f"{prefix}:confirm:{field}"),
+            InlineKeyboardButton("❌ انصراف", callback_data=f"{prefix}:cancel"),
+        ],
+    ])
+
+
+def user_display_toggles_keyboard(current: dict, forced: dict | None = None) -> InlineKeyboardMarkup:
+    """User per-field toggle panel — shows effective values + forced lock hint."""
+    from config.catalog import DISPLAY_TOGGLE_FIELDS
+
+    forced = forced or {}
+    rows = []
+    for field in DISPLAY_TOGGLE_FIELDS:
+        enabled = bool(current.get(field, True))
+        marker = "✅" if enabled else "⭕"
+        label = DISPLAY_TOGGLE_FA_LABELS.get(field, field)
+        if field in forced:
+            label = f"🔒 {label}"
+        rows.append([InlineKeyboardButton(f"{marker} {label}", callback_data=f"settings:display_toggle:{field}")])
+    rows.append([InlineKeyboardButton(IBTN_BACK_TO_SETTINGS, callback_data="settings:back")])
     return InlineKeyboardMarkup(rows)
 
 

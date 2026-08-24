@@ -287,16 +287,57 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             "فایل دیتابیس (.db) را آپلود کنید.\n⚠️ این کار دیتابیس فعلی را کاملاً جایگزین می‌کند.",
             reply_markup=admin_awaiting_inline_keyboard(),
         )
+    elif action.startswith("display_toggle:confirm:"):
+        field = action.split(":", 2)[2]
+        from config.catalog import DISPLAY_TOGGLE_FIELDS, HIGH_VALUE_TOGGLES
+        if field not in DISPLAY_TOGGLE_FIELDS or field not in HIGH_VALUE_TOGGLES:
+            await notify_callback(update.callback_query, "فیلد نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        from services.db.display_toggles import get_global_defaults, set_global_defaults
+        current = get_global_defaults()
+        current[field] = False
+        set_global_defaults(current)
+        from config.keyboards import display_toggles_keyboard
+        await _edit_or_send(
+            update, context,
+            "🎛 تنظیمات نمایش کارت — روی هر فیلد بزن تا روشن/خاموش شود.",
+            reply_markup=display_toggles_keyboard(current),
+        )
+        await notify_callback(update.callback_query, "خاموش شد.", intent=CallbackNoticeIntent.SUCCESS)
+    elif action == "display_toggle:cancel":
+        from services.db.display_toggles import get_global_defaults
+        from config.keyboards import display_toggles_keyboard
+        current = get_global_defaults()
+        await _edit_or_send(
+            update, context,
+            "🎛 تنظیمات نمایش کارت — روی هر فیلد بزن تا روشن/خاموش شود.",
+            reply_markup=display_toggles_keyboard(current),
+        )
+        await notify_callback(update.callback_query, "انصراف", intent=CallbackNoticeIntent.INFO)
     elif action.startswith("display_toggle:"):
-        # O-display-toggles: toggle a field in the global defaults
         field = action.split(":", 1)[1]
-        from config.catalog import DISPLAY_TOGGLE_FIELDS
+        if ":" in field:
+            await notify_callback(update.callback_query, "فیلد نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        from config.catalog import DISPLAY_TOGGLE_FIELDS, HIGH_VALUE_TOGGLES
         if field not in DISPLAY_TOGGLE_FIELDS:
             await notify_callback(update.callback_query, "فیلد نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         from services.db.display_toggles import get_global_defaults, set_global_defaults
         current = get_global_defaults()
-        new_val = not bool(current.get(field, True))
+        currently_enabled = bool(current.get(field, True))
+        if currently_enabled and field in HIGH_VALUE_TOGGLES:
+            from config.keyboards import DISPLAY_TOGGLE_FA_LABELS, display_toggle_confirm_keyboard
+            label = DISPLAY_TOGGLE_FA_LABELS.get(field, field)
+            await _edit_or_send(
+                update,
+                context,
+                f"⚠️ خاموش کردن «{label}» کیفیت یادگیری همه کاربران را کاهش میدهد (پیش‌فرض سراسری). باز هم خاموشش میکنید؟",
+                reply_markup=display_toggle_confirm_keyboard(field, is_admin=True),
+            )
+            await notify_callback(update.callback_query, "تأیید لازم است", intent=CallbackNoticeIntent.INFO)
+            return
+        new_val = not currently_enabled
         current[field] = new_val
         set_global_defaults(current)
         from config.keyboards import display_toggles_keyboard

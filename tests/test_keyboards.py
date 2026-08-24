@@ -75,8 +75,8 @@ class TestSettingsInlineKeyboard(unittest.TestCase):
         self.assertEqual(rows[0][1].callback_data, "settings:goal")
         self.assertEqual(rows[1][0].text, "📚 سطح: B2")
         self.assertEqual(rows[1][0].callback_data, "settings:level")
-        self.assertEqual(rows[1][1].text, "📝 نوع نمایش کارت")
-        self.assertEqual(rows[1][1].callback_data, "settings:presentation")
+        self.assertEqual(rows[1][1].text, "🎛 نمایش کارت")
+        self.assertEqual(rows[1][1].callback_data, "settings:display_toggles")
         self.assertEqual(rows[2][0].text, "👤 وضعیت اشتراک و آمار")
         self.assertEqual(rows[2][0].callback_data, "settings:status")
 
