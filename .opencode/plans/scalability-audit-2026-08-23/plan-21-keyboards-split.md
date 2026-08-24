@@ -1,6 +1,6 @@
-STATE: phase 1/1 — in-progress — focus: implemented split package awaiting CI/Kilo
+STATE: complete — merged 2026-08-24 #486 702947e (c4b8cca Kilo fix)
 
-Evidence: keyboards split 5 files (constants+common+lang+srs+admin+__init__), tests wiring 24 passed, ruff clean
+Evidence: keyboards split 5 files (constants+common+lang+srs+admin+__init__), tests wiring 24 passed, ruff clean → F811 fix in c4b8cca + missing facade exports DISPLAY_TOGGLE_FA_LABELS/display_toggle_confirm_keyboard/user_display_toggles_keyboard; CI label+test(3.10/3.13)+ram-gate pass, Kilo No Issues (2877h) merged squash 702947e, worktree a-05 removed, claim released
 
 # Plan 21 — god-modules split keyboards first (Session A)
 

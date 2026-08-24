@@ -16,7 +16,7 @@
 | 20 | allowlist-dup | allowlist derived from `ROUTES` | complete | #475 `c9886bc` `c75459f` Kilo fix |
 | 24 | O-grammar-standalone | send_grammar_tip retire (export, disable) | complete | #478 `99471e0` + test-sync `35eafda` |
 | 22 | utils-impure | utils pure (quota/prompt → domain) | complete | #481 `834076f` `ceb8a48` |
-| 21 | god-modules | split keyboards (phase 1) | locked | refactor/split-keyboards `a-05` |
+| 21 | god-modules | split keyboards (phase 1) | complete | #486 `702947e` ruff F811 fix `c4b8cca` Kilo 0 issues |
 | 11 | db-on-loop | DB off event loop (`to_thread` srs_handler+word_query) | complete | #477 `a17e23e` |
 | 12 | busy-timeout | busy_timeout 5s→10s | complete | #477 `a17e23e` |
 
