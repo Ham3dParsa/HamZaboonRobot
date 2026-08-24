@@ -58,5 +58,28 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/kilo_ci_loop.ps1 -PR
 
 Manual steps below remain authoritative if the script is not used.
 
+## Triage — when Kilo findings don't block merge
+
+Kilo severity is `CRITICAL | WARNING | SUGGESTION` (see `## Code Review Summary` overview table).
+
+**Do not let low-value `SUGGESTION`s stall a correct PR.** Apply this gate:
+
+1. **Classify each delta** after full-body fetch:
+   - `CRITICAL` / `WARNING` → **blocking**. Must fix in this PR before merge (correctness, security, data loss, quota/cost, routing, idempotency, restart-safety).
+   - `SUGGESTION` → **non-blocking by default**. Triage immediately; do not auto-block `Kilo Code Review`.
+
+2. **Fix now vs. defer:**
+   - **Fix now** in this PR if `SUGGESTION` is (a) CI-blocking (`ruff F811/F821`, `py_compile`, `pytest` fail), (b) trivial ≤5 lines with zero behavior change and no new risk, or (c) touches files already in the PR seam.
+   - **Defer to follow-up PR** if superficial/low-leverage: style/naming/comment, large refactor outside the PR seam, or improvement that needs its own contract lock. Create a follow-up ticket/issue, link it in the PR description or a comment as `Deferred: <id> — <one-line reason> → #<follow-up>`, and note `Kilo: triaged as SUGGESTION (deferred)` so the `Kilo Code Review` check is understood as non-blocking.
+
+3. **Noise:** false-positive or out-of-scope (already tracked elsewhere, not in PR seam, contradicts owner decision) → triage as `noise` with one-line justification in the PR thread. Do not re-push for noise.
+
+4. **Merge gate:** PR is merge-ready when
+   - every `CRITICAL`/`WARNING` delta is fixed and re-pushed,
+   - every `SUGGESTION` delta is **either fixed or explicitly deferred/noised with follow-up link + justification**,
+   - required CI checks that are actually blocking are `pass` (`label`, `test (3.10)`, `test (3.13)`, `ram-gate`; `Kilo Code Review` is `pass` **or** `SUGGESTION`-only with deferral justification on record).
+
+Document the triage decision in the PR (comment or description) — never silently ignore a delta.
+
 ## Completion criterion
-Every Kilo comment delta has been fetched once and either fixed or triaged as noise, every required check is `pass`, and `mergeable` is `MERGEABLE`. `gh pr checks` output is the evidence.
+Every Kilo comment delta has been fetched once and either **fixed or triaged** (blocking fixed, `SUGGESTION` fixed or deferred/noised with follow-up link), every **blocking** required check is `pass`, and `mergeable` is `MERGEABLE`. `gh pr checks` output + triage note is the evidence.
