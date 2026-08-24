@@ -1,32 +1,10 @@
 # Active Plan Tickets
+> **Note:** This file tracks only **active / incomplete** plans (pending, in-progress, or open worktree). Completed plans are archived via `git log` and `docs/archive/` — they are no longer listed here to keep the board readable.
 
 | Ticket | Plan | Issue | Branch | Status |
 |---|---|---|---|---|
-| CB-NOTIFY-01 | `callbacks/plan-callback-notifications.md` | #310 | `refactor/callback-notifications` | complete (PR #311 merged; #310 closed) |
-| HELP-01 | `help-command/plan-help-command.md` | — | `feat/help-command` | complete |
-| GRADE-FEEDBACK-01 (PR 312) | `ux/plan-grade-feedback-toast.md` | #308 | `feat/grade-feedback-toast` | complete |
-| T05 (owner T05 / local T02) | `fsrs/plan-fsrs-session-completion-phase-02-timestamp-schema.md` | #309 | `feat/fsrs-timestamp-schema` | complete (PR #318 merged); archived to `docs/archive/plans/fsrs-2026-08-14/` |
-| T06 (owner T06 / local T03) | `fsrs/plan-fsrs-session-completion-phase-03-grade-transitions.md` | #309 | `feat/phase-3b-fsrs-scheduling` | complete (PR #336 merged); archived |
-| T07 (phase 4) | `fsrs/plan-fsrs-session-completion-phase-04-due-priority.md` | #309 | `feat/phase-3b-fsrs-scheduling` | complete (PR #336 merged); archived |
-| T08 (phase 5) | `fsrs/plan-fsrs-session-completion-phase-05-handler-integration.md` | #309 | `feat/phase-3b-fsrs-scheduling` | complete (PR #336 merged); archived |
-| T09 (release/docs) | `fsrs/plan-fsrs-session-completion-phase-06-release.md` | #309 | multiple-see-main-plan | complete — docs reconciled, dashboard regenerated, plans archived; live smoke test owner-informally handled (5 sessions worked) |
-| AI-PRESET-FIX (phase 1 of 7) | `presets/plan-ai-preset-audit-fixes.md` | #330 | `fix/ai-preset-audit-findings` | complete (PR #333 merged) |
-| AI-PRESET-FIX (phase 2 of 7) | `presets/plan-ai-preset-audit-fixes.md` | #330 | `fix/ai-preset-audit-findings` | complete (PR #333 merged, R1/R2/R10/R12/R13/R14) |
-| AI-PRESET-FIX (phase 3 of 7) | `presets/plan-ai-preset-audit-fixes-phase-03-handlers-ux.md` | #330 | `feat/ai-preset-handlers-ux` | complete (PR #334/#335 merged, R3/R4/R5/R7) |
-| AI-PRESET-FIX (phase 4 of 7) | `presets/plan-ai-preset-audit-fixes-phase-04-builtin-removal.md` | #330 | `feat/ai-preset-phase4-builtin-removal` | complete (PR #337 merged) |
-| AI-PRESET-FIX (phase 5 of 7) | `presets/plan-ai-preset-audit-fixes-phase-05-secure-keys.md` | #330 | `feat/ai-preset-secure-keys` | complete (PR #339 merged); archived to docs/archive/ |
-| SRS-STAGED-REVEAL (spec) | `session/plan-srs-staged-reveal-spec.md` | #338 | `feat/srs-staged-reveal` | Phases 1-3 complete (PR #353, #355, #483 merged; P3-T2 via #406) |
-| SRS-STAGED-REVEAL (phase 2) | `fsrs/plan-srs-staged-reveal-phase-02-session-staging.md` | #338 | `feat/srs-staged-reveal` | complete — PR #355 merged 2026-08-15 (P2-T1..T4, Kilo review clean) |
-| SRS-STAGED-REVEAL (phase 3) | `fsrs/plan-srs-staged-reveal-phase-03-telemetry-delete-toggle-ui.md` | #338 | `feat/srs-staged-reveal` | complete — telemetry/delete via PR #406 (P3-T2), display-toggles via PR #483 (89ebda8); validated in `services/db/display_toggles.py` + `handlers/srs_handler.py:144` |
-| WORD-QUERY-CONSISTENCY (phase 1) | `ux/plan-word-query-card-consistency.md` | #340 | done | R1-R6 shipped (#341) |
-| WORD-QUERY-DUP-RETENTION (phase 2) | `ux/plan-word-query-card-consistency-phase-02-retrieve-new-retention.md` | #344 | complete (PR #345 merged; #344 closed) | R7-R8 implemented, tests green |
-| ADMIN-AI-LABELS-BACK | `presets/plan-admin-ai-labels-and-back.md` | #342, #343 | `fix/admin-ai-labels-and-back` | complete (PR #352 merged as 2b1315f); archived to docs/archive/ |
 | AI-MASTER-KEY-ROTATION (deferred) | `security/plan-ai-master-key-rotation.md` | #354 | pending (deferred) | R1/R2/R4 locked 2026-08-15; Seam 1 now free (srs-staged-reveal merged) — ready to start |
 | CARD-MODES (FE + review staged/immediate) | `session/plan-card-modes.md` | #338 (ext.) | `feat/card-modes-t2-t3-render` → `-t4-t5-admin` → `-t6-t7-user` | locked 2026-08-15 — T1 MERGED (#361, `d5a6652`); T2+T3 MERGED (#362, `4d5ecff`); delivery = 4 PRs; PR 3/4 (T4+T5) and PR 4/4 (T6+T7) pending; **re-validated vs `d76ca7b` (2026-08-18): target new owners `services/routing.py` (R1), `services/db/plans.py` (R5); card-mode keys canonical in `SETTINGS_KEYS`; gate is complementary two-layer (admin setting → `has_feature(plan,"card_modes")`); 1 hygiene item (card-types single-source, still OPEN — `SETTINGS_CARD_TYPES` remains in `config/catalog.py`)** |
-| STUDY-SESSION-RESTART (Bug 1) | `session/plan-study-session-restart-persistence.md` | #363 | `fix/session-restart-persistence` | complete (PR #364 merged 0fdec76); seam 1+5 released |
-| R3-SEND-PRETTY (T1–T5) | `callbacks/plan-send-pretty-span-tree-r3.md` | — | `refactor/send-pretty` | COMPLETE (PR #385 merged f6cd2b3); T6/T7 deferred to follow-up PRs |
-| T8-ADMIN-AI (T8-PRE..T8-last) | `callbacks/plan-send-pretty-followups-t8-admin-ai.md` | — | `refactor/admin-ai-spans` | locked 2026-08-17 (R1–R5); T8-PRE complete (PR #388 merged); T8a/b pending |
-| RT-ADMINAI (send_pretty, 21 sites) | `callbacks/plan-send-pretty-followups-t8-admin-ai.md` | #417 | `refactor/admin-ai-spans` | in-progress — follow-up to #388/#414; migrate admin_ai.py reply_text (21 sites) onto send_pretty seam |
 | A2-1 (BN1) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-concurrency` | complete (PR #415 merged; #372 was a separate R5 plan-semantics item) |
 | A2-2 (BUG-B3/BN4) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-concurrency` | complete (PR #425 merged) |
 | A2-3 (R2) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-normalize` | complete (PR #434 merged) |
@@ -41,18 +19,4 @@
 | A2-12 (BN3) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-integration` | planned |
 | A2-13 (BUG-B4) | `architecture-deepening/plan-2026-08-17-db-remaining.md` | — | `refactor/db-integration` | planned (seam #17 + serialize vs word-query worktrees) |
 | J-B6 (R5/F5) | `architecture-deepening/plan-2026-08-17-jb6-plan-identity.md` | — | `refactor/plan-identity` | complete (PR #387 merged) |
-| GOV-R1 | `workflow/plan-governance-reform.md` | #392 | `chore/governance-reform` | done (impl) — 233-line AGENTS.md + archive; merged (#400) |
-| GOV-R2 | `workflow/plan-governance-reform.md` | #393 | `chore/governance-reform` | done (impl) — git-cliff + config + script + CI check; merged (#400) |
-| GOV-R3 | `workflow/plan-governance-reform.md` | #394 | `chore/governance-reform` | done (impl) — tooling+CI+refs removed, test_issue_tooling.py deleted; merged (#400) |
-| GOV-R4 | `workflow/plan-governance-reform.md` | #395 | `chore/governance-reform` | done (impl) — test_single_source_of_truth.py (16 tests green); merged (#400) |
-| GOV-R5 | `workflow/plan-governance-reform.md` | #396 | `chore/governance-reform` | done (impl) — route-delete text in AGENTS.md §6; merged (#400) |
-| GOV-R6 | `workflow/plan-governance-reform.md` | #397 | `chore/governance-reform` | done (impl) — test-sync text in AGENTS.md §6; merged (#400) |
-| GOV-R7 | `workflow/plan-governance-reform.md` | #398 | `chore/governance-reform` | done (impl) — terse rule text in AGENTS.md; merged (#400) |
-| SRS-DELETE-CARD (P3-T2 + FE pronounce) | `fsrs/plan-srs-delete-card-fe-pronounce.md` | #338 | `feat/srs-delete-card` | LOCKED 2026-08-19 (R1-R10); tickets T1..T5 in `fsrs/plan-srs-delete-card-fe-pronounce-phase-01..05`; delete on revealed stage + refill + FE pronounce; **merged via PR #406 (2026-08-19)** |
 | ARCH-DEEPENING (canonical remaining-work tracker) | `architecture-deepening/plan-2026-08-19-remaining-work.md` | — | A/B/C tracks | in-progress — counts tracked live in remaining-work plan (#437) |
-| FREEZE-PROMPT-REVEAL (P1) | `session/plan-freeze-prompt-reveal.md` | — | `fix/freeze-prompt-reveal` | phase 01 model — pending |
-| FREEZE-PROMPT-REVEAL (P2) | `session/plan-freeze-prompt-reveal-phase-02-render.md` | — | `fix/freeze-prompt-reveal` | phase 02 render — pending — depends P1 |
-| FREEZE-PROMPT-REVEAL (P3) | `session/plan-freeze-prompt-reveal-phase-03-persist.md` | — | `fix/freeze-prompt-reveal` | phase 03 persist — pending — depends P1 |
-| FREEZE-PROMPT-REVEAL (P4) | `session/plan-freeze-prompt-reveal-phase-04-rename.md` | — | `fix/freeze-prompt-reveal` | phase 04 rename — pending — depends P2,P3 |
-| SCAL-P-UNBLOCKED (R1,R2,R3,R4,R6,R7,R8) | `scalability-audit-2026-08-23` (#1,5,6,10,15,16,28) | — | `fix/p-unblocked-handlers` | complete (PR #462 merged 2026-08-23; double-answer dedup 0.8s, offline 1→5, per-user lock heavy, telegram slots 4→25, broadcast chunk 100, owner-dos OWNER_ID==0 no-op, tts/study:inactive lock + dedup, maintenance tests) |
-| SCAL-P-DB (R5,R11) | `scalability-audit-2026-08-23` (#11,12) | — | `fix/p-db-remaining` | complete (PR #477 merged 2026-08-23 a17e23e; db-on-loop to_thread in srs_handler+word_query, busy_timeout 5s→10s, tests/test_p_db_remaining) |
