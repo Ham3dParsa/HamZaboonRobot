@@ -438,7 +438,7 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
     """Process field input for preset edit."""
     preset = db.get_preset(preset_name)
     if not preset:
-        await update.message.reply_text("پیش‌تنظیم یافت نشد")
+        await say(update, context, "پیش‌تنظیم یافت نشد", raw=RawFormat.PLAIN, mode="send")
         return
 
     raw = text.strip()
@@ -462,7 +462,7 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
             # Check uniqueness (skip if same as current)
             if value != preset_name and db.get_preset(value):
                 context.user_data["awaiting"] = f"ai_preset_edit:{preset_name}:{field_name}"
-                await update.message.reply_text("این نام از قبل وجود دارد. نام دیگری انتخاب کنید.", reply_markup=awaiting_inline_keyboard())
+                await say(update, context, "این نام از قبل وجود دارد. نام دیگری انتخاب کنید.", raw=RawFormat.PLAIN, keyboard=awaiting_inline_keyboard(), mode="send")
                 return
         elif field_name in ("input_cost_per_million", "output_cost_per_million"):
             if raw == "":
@@ -491,7 +491,7 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
             value = raw
     except ValueError:
         context.user_data["awaiting"] = f"ai_preset_edit:{preset_name}:{field_name}"
-        await update.message.reply_text("فرمت نامعتبر. لطفاً مقدار معتبر بفرستید.", reply_markup=awaiting_inline_keyboard())
+        await say(update, context, "فرمت نامعتبر. لطفاً مقدار معتبر بفرستید.", raw=RawFormat.PLAIN, keyboard=awaiting_inline_keyboard(), mode="send")
         return
 
     # Store in-memory (per preset)
@@ -683,7 +683,7 @@ async def _handle_full_edit_input(update: Update, context: ContextTypes.DEFAULT_
     """Handle text input during full edit wizard."""
     preset = db.get_preset(preset_name)
     if not preset:
-        await update.message.reply_text("پیش‌تنظیم یافت نشد")
+        await say(update, context, "پیش‌تنظیم یافت نشد", raw=RawFormat.PLAIN, mode="send")
         return
 
     field_name = WIZARD_FIELDS[field_idx]
@@ -691,7 +691,7 @@ async def _handle_full_edit_input(update: Update, context: ContextTypes.DEFAULT_
 
     wizard = context.user_data.get("full_edit", {})
     if wizard.get("preset") != preset_name:
-        await update.message.reply_text("ویزارد منقضی شده. دوباره شروع کنید.")
+        await say(update, context, "ویزارد منقضی شده. دوباره شروع کنید.", raw=RawFormat.PLAIN, mode="send")
         return
 
     if raw:
@@ -1180,13 +1180,13 @@ async def _handle_ai_preset_new_name(update: Update, context: ContextTypes.DEFAU
     name = text.strip().lower().replace(" ", "_")
     if not name or not all(c.isalnum() or c == "_" for c in name) or len(name) > MAX_PRESET_NAME_LEN:
         context.user_data["awaiting"] = "ai_preset_new_name"
-        await update.message.reply_text("نام نامعتبر. فقط حروف، اعداد و زیرخط مجاز است و حداکثر ۶۰ کاراکتر.", reply_markup=admin_awaiting_inline_keyboard())
+        await say(update, context, "نام نامعتبر. فقط حروف، اعداد و زیرخط مجاز است و حداکثر ۶۰ کاراکتر.", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
         return
 
     existing = db.get_preset(name)
     if existing:
         context.user_data["awaiting"] = "ai_preset_new_name"
-        await update.message.reply_text("این نام از قبل وجود دارد.", reply_markup=admin_awaiting_inline_keyboard())
+        await say(update, context, "این نام از قبل وجود دارد.", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
         return
 
     # Begin the create flow: remember the pending name, then ask for priority.
@@ -1395,20 +1395,18 @@ async def _handle_create_priority_manual(update: Update, context: ContextTypes.D
         rank = int(text.strip())
     except ValueError:
         context.user_data["awaiting"] = f"ai_preset_create_priority:{state.get('name', '')}"
-        await update.message.reply_text("لطفاً یک عدد معتبر وارد کنید.", reply_markup=admin_awaiting_inline_keyboard())
+        await say(update, context, "لطفاً یک عدد معتبر وارد کنید.", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
         return
     max_rank = _normal_chain_count()
     if rank < 0:
         context.user_data["awaiting"] = f"ai_preset_create_priority:{state.get('name', '')}"
-        await update.message.reply_text("عدد اولویت نمی‌تواند منفی باشد.", reply_markup=admin_awaiting_inline_keyboard())
+        await say(update, context, "عدد اولویت نمی‌تواند منفی باشد.", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
         return
     if rank > max_rank:
         # Clamp to the lowest slot so a value beyond the current chain size is
         # simply appended last instead of causing a broken ValueError mid-flow.
         rank = max_rank
-        await update.message.reply_text(
-            f"عدد واردشده از جایگاه‌های قابل استفاده بیشتر بود؛ پیش‌تنظیم در آخرین جایگاه (رتبه {max_rank}) قرار می‌گیرد."
-        )
+        await say(update, context, f"عدد واردشده از جایگاه‌های قابل استفاده بیشتر بود؛ پیش‌تنظیم در آخرین جایگاه (رتبه {max_rank}) قرار می‌گیرد.", raw=RawFormat.PLAIN, mode="send")
     state["rank"] = rank
     context.user_data.pop("awaiting", None)
     await _show_create_status(update, context)
@@ -2119,11 +2117,11 @@ async def _handle_ai_text_input(
                 db.set_preset_api_key_batch(target["names"], text.strip())
             except db.MasterKeyRequiredError:
                 context.user_data.pop("awaiting", None)
-                await update.message.reply_text("برای ذخیره کلید API باید AI_MASTER_KEY در سرور پیکربندی شود.")
+                await say(update, context, "برای ذخیره کلید API باید AI_MASTER_KEY در سرور پیکربندی شود.", raw=RawFormat.PLAIN, mode="send")
                 return
         mark_awaiting_consumed(context)  # batch key write is irreversible (B5/Kilo CRITICAL)
         context.user_data.pop("awaiting", None)
-        await update.message.reply_text("✅ کلید API برای همه اعضای گروه به‌روز شد.")
+        await say(update, context, "✅ کلید API برای همه اعضای گروه به‌روز شد.", raw=RawFormat.PLAIN, mode="send")
         await _show_grouped_presets(update, context)
         return
 
@@ -2132,10 +2130,7 @@ async def _handle_ai_text_input(
         new_label = text.strip()
         if not new_label or len(new_label) > MAX_GROUP_LABEL_LEN:
             context.user_data["awaiting"] = awaiting
-            await update.message.reply_text(
-                f"برچسب نامعتبر. برچسب باید بین ۱ تا {MAX_GROUP_LABEL_LEN} کاراکتر باشد.",
-                reply_markup=admin_awaiting_inline_keyboard(),
-            )
+            await say(update, context, f"برچسب نامعتبر. برچسب باید بین ۱ تا {MAX_GROUP_LABEL_LEN} کاراکتر باشد.", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
             return
         groups = _detect_key_groups()
         target = next((g for g in groups if g["key_hash"] == key_hash), None)
@@ -2143,7 +2138,7 @@ async def _handle_ai_text_input(
             db.set_preset_group_label_batch(target["names"], new_label)
         mark_awaiting_consumed(context)  # group-label write is irreversible (B5/Kilo CRITICAL)
         context.user_data.pop("awaiting", None)
-        await update.message.reply_text("✅ برچسب گروه برای همه اعضا تنظیم شد.")
+        await say(update, context, "✅ برچسب گروه برای همه اعضا تنظیم شد.", raw=RawFormat.PLAIN, mode="send")
         await _show_grouped_presets(update, context)
         return
 
@@ -2153,18 +2148,15 @@ async def _handle_ai_text_input(
         if new_label:
             if len(new_label) > MAX_GROUP_LABEL_LEN:
                 context.user_data["awaiting"] = awaiting
-                await update.message.reply_text(
-                    f"برچسب نامعتبر. برچسب باید حداکثر {MAX_GROUP_LABEL_LEN} کاراکتر باشد.",
-                    reply_markup=admin_awaiting_inline_keyboard(),
-                )
+                await say(update, context, f"برچسب نامعتبر. برچسب باید حداکثر {MAX_GROUP_LABEL_LEN} کاراکتر باشد.", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
                 return
             db.rename_group_label(old_label, new_label)
             mark_awaiting_consumed(context)  # rename is irreversible (B5/Kilo CRITICAL)
             context.user_data.pop("awaiting", None)
-            await update.message.reply_text(f"✅ برچسب «{old_label}» به «{new_label}» تغییر نام یافت.")
+            await say(update, context, f"✅ برچسب «{old_label}» به «{new_label}» تغییر نام یافت.", raw=RawFormat.PLAIN, mode="send")
         else:
             context.user_data.pop("awaiting", None)
-            await update.message.reply_text("انصراف از تغییر نام.")
+            await say(update, context, "انصراف از تغییر نام.", raw=RawFormat.PLAIN, mode="send")
         await _show_group_manager(update, context)
         return
 
@@ -2178,11 +2170,11 @@ async def _handle_ai_text_input(
             target_rank = int(text.strip())
         except ValueError:
             context.user_data["awaiting"] = awaiting
-            await update.message.reply_text("لطفاً یک عدد معتبر وارد کنید.")
+            await say(update, context, "لطفاً یک عدد معتبر وارد کنید.", raw=RawFormat.PLAIN, mode="send")
             return
         preset = db.get_preset(preset_name)
         if not preset:
-            await update.message.reply_text("پیش‌تنظیم یافت نشد")
+            await say(update, context, "پیش‌تنظیم یافت نشد", raw=RawFormat.PLAIN, mode="send")
             return
         group_is_emergency = bool(preset_fields.resolve(preset, "is_emergency"))
         chain = db.get_fallback_chain_presets()
@@ -2190,10 +2182,10 @@ async def _handle_ai_text_input(
         try:
             db.reindex_preset_priority(preset_name, target_rank, group_is_emergency)
         except ValueError as e:
-            await update.message.reply_text(str(e))
+            await say(update, context, str(e), raw=RawFormat.PLAIN, mode="send")
             return
         mark_awaiting_consumed(context)  # priority reindex succeeded (B5/Kilo CRITICAL)
         context.user_data.pop("awaiting", None)
-        await update.message.reply_text(f"✅ رتبه {preset_name} به {target_rank} تغییر یافت.")
+        await say(update, context, f"✅ رتبه {preset_name} به {target_rank} تغییر یافت.", raw=RawFormat.PLAIN, mode="send")
         await _show_fallback_chain(update, context)
         return
