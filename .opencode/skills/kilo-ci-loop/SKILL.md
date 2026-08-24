@@ -9,77 +9,56 @@ metadata:
   author: Ham3dParsa
   author_url: https://github.com/Ham3dParsa
 ---
-# Kilo-CI Loop Skill
+# Kilo-CI Loop
 
-Loop that turns a pushed PR into a merge-ready one without re-printing unchanged review bodies.
+Tight loop that turns a pushed PR into `MERGEABLE` without re-printing unchanged Kilo bodies.
 
 ## When to load
-- After `gh pr create` or `git push` on a PR branch
-- Before `gh pr merge --squash` (must confirm `gh pr checks` pass)
-- When `gh pr view --json mergeable` is `CONFLICTING`
+- After `gh pr create`/`git push` on a PR
+- Before `gh pr merge --squash` (verify `gh pr checks` pass)
+- When `mergeable == CONFLICTING`
 
 ## Steps
 
-### 1. Poll Kilo delta (token-tight)
-Fetch only `id` + body length (cheap proxy for hash), never full bodies on every poll:
+### 1. Poll Kilo delta — tight, token-tight
 ```powershell
 gh api repos/Ham3dParsa/HamZaboonRobot/pulls/<n>/comments --jq '.[] | {id, h:(.body|length), path, line}'
 gh api repos/Ham3dParsa/HamZaboonRobot/issues/<n>/comments --jq '.[] | {id, h:(.body|length)}'
 ```
-Persist `id -> h` to `$env:TEMP/opencode/kilo_seen_<n>.json` between polls. Surface only deltas: new `id` or same `id` with changed `h` (Kilo edits in place; equal-length edits keep same `h` and would be missed — use a checksum like `sha256` if strict). Fetch full body only for deltas:
+Persist `id->h` to `$env:TEMP/opencode/kilo_seen_<n>.json`; surface only new `id` or changed `h`; fetch full body only for deltas:
 ```powershell
 gh api repos/Ham3dParsa/HamZaboonRobot/pulls/comments/<id> --jq '.body'
 gh api repos/Ham3dParsa/HamZaboonRobot/issues/comments/<id> --jq '.body'
 ```
-Sleep 90-120s between polls, 30m overall timeout. Each fix commit must be pushed — Kilo re-reviews only after a push.
+Sleep `90-120s` (default 90, clamped), `30m` timeout. Each fix commit must be pushed — Kilo re-reviews only after push.
 
-### 2. Poll CI checks
+### 2. Poll CI
 ```powershell
 gh pr checks <n>
 ```
-Requires: `label` pass, `test (3.10)` pass, `test (3.13)` pass, `ram-gate` pass, `Kilo Code Review` pass. On `fail`, fetch failed job log (`gh run view <run> --log-failed`) and fix before re-polling. Do not merge with failing checks.
+Require `label` `test (3.10)` `test (3.13)` `ram-gate` `Kilo Code Review` = `pass`. On `fail`, `gh run view <run> --log-failed`, fix before re-poll. Do not merge with blocking failures.
 
-### 3. Handle merge conflict
-If `gh pr view <n> --json mergeable` is `CONFLICTING`:
+### 3. Handle conflict
+If `CONFLICTING`:
 ```powershell
 git fetch origin; git rebase origin/main
 ```
-Resolve each conflicted file keeping both sides when the branches touched different seams (e.g., `admin_cost.py` mark_awaiting_consumed + ai_read_cache). Verify with `python scripts/compile_all.py` and `git diff --check`; a broken indent is the common rebase failure. Continue with `GIT_EDITOR=true git rebase --continue` (PowerShell editor hang). Push with `--force-with-lease`.
+Keep both seams when branches touched different seams. Verify `python scripts/compile_all.py` + `git diff --check`; broken indent is common failure. Continue `GIT_EDITOR=true git rebase --continue`; push `--force-with-lease`.
 
 ## Automation
 
-Prefer the reusable script that implements this skill exactly (do not hand-roll polls):
-
+Prefer `scripts/kilo_ci_loop.ps1` — implements this skill exactly:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/kilo_ci_loop.ps1 -PR <n> [-SleepSeconds 90] [-TimeoutMinutes 30]
 ```
+Delta-optimal (`id->h` + full body only for deltas), `90-120s/30m`, CI + `mergeable` + rebase verify. Manual steps remain authoritative if script not used.
 
-- `scripts/kilo_ci_loop.ps1` — delta-optimal (`id->h` in `$env:TEMP/opencode/kilo_seen_<n>.json`, full body only for deltas), `Sleep 90-120s` (default 90, clamped), `Timeout 30m`, CI + `mergeable` handling with `git fetch`/`rebase` verify (`compile_all.py` + `diff --check`) and `--force-with-lease`. Each fix commit must be pushed — Kilo re-reviews only after push. Handles PR creation, conflict/rebase, CI and Kilo findings end-to-end until merge-ready and post-merge.
+## Triage — SUGGESTION doesn't block
 
-Manual steps below remain authoritative if the script is not used.
+- `CRITICAL`/`WARNING` → blocking, must fix before merge.
+- `SUGGESTION` → non-blocking. Fix now if CI-blocking or trivial ≤5 lines in PR seam; else defer: create follow-up ticket, link in PR as `Deferred: <reason> → #<follow-up>`, note `Kilo: SUGGESTION deferred`. Noise (false-positive/out-of-scope) → triage as `noise` with one-line justification. Never silently ignore a delta.
+- Merge-ready when every `CRITICAL`/`WARNING` fixed, every `SUGGESTION` fixed or deferred/noised with link, blocking checks `pass`, `mergeable == MERGEABLE`.
 
-## Triage — when Kilo findings don't block merge
+## Completion
 
-Kilo severity is `CRITICAL | WARNING | SUGGESTION` (see `## Code Review Summary` overview table).
-
-**Do not let low-value `SUGGESTION`s stall a correct PR.** Apply this gate:
-
-1. **Classify each delta** after full-body fetch:
-   - `CRITICAL` / `WARNING` → **blocking**. Must fix in this PR before merge (correctness, security, data loss, quota/cost, routing, idempotency, restart-safety).
-   - `SUGGESTION` → **non-blocking by default**. Triage immediately; do not auto-block `Kilo Code Review`.
-
-2. **Fix now vs. defer:**
-   - **Fix now** in this PR if `SUGGESTION` is (a) CI-blocking (`ruff F811/F821`, `py_compile`, `pytest` fail), (b) trivial ≤5 lines with zero behavior change and no new risk, or (c) touches files already in the PR seam.
-   - **Defer to follow-up PR** if superficial/low-leverage: style/naming/comment, large refactor outside the PR seam, or improvement that needs its own contract lock. Create a follow-up ticket/issue, link it in the PR description or a comment as `Deferred: <id> — <one-line reason> → #<follow-up>`, and note `Kilo: triaged as SUGGESTION (deferred)` so the `Kilo Code Review` check is understood as non-blocking.
-
-3. **Noise:** false-positive or out-of-scope (already tracked elsewhere, not in PR seam, contradicts owner decision) → triage as `noise` with one-line justification in the PR thread. Do not re-push for noise.
-
-4. **Merge gate:** PR is merge-ready when
-   - every `CRITICAL`/`WARNING` delta is fixed and re-pushed,
-   - every `SUGGESTION` delta is **either fixed or explicitly deferred/noised with follow-up link + justification**,
-   - required CI checks that are actually blocking are `pass` (`label`, `test (3.10)`, `test (3.13)`, `ram-gate`; `Kilo Code Review` is `pass` **or** `SUGGESTION`-only with deferral justification on record).
-
-Document the triage decision in the PR (comment or description) — never silently ignore a delta.
-
-## Completion criterion
-Every Kilo comment delta has been fetched once and either **fixed or triaged** (blocking fixed, `SUGGESTION` fixed or deferred/noised with follow-up link), every **blocking** required check is `pass`, and `mergeable` is `MERGEABLE`. `gh pr checks` output + triage note is the evidence.
+Every delta fetched once and fixed or triaged, blocking checks `pass`, `mergeable == MERGEABLE`. Evidence: `gh pr checks` + triage note.
