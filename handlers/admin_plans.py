@@ -247,7 +247,7 @@ async def _handle_plans_text_input(
     parts = text.split()
     if len(parts) != 2 or not db.valid_plan_name(parts[1].lower()):
         context.user_data["awaiting"] = "admin_set_plan"
-        await say(update, context, "فرمت نامعتبر است. نمونه: `123456789 silver` یا `@username gold`", raw=RawFormat.PLAIN, mode="send")
+        await say(update, context, "فرمت نامعتبر است. نمونه: `123456789 silver` یا `@username gold`", raw=RawFormat.MDV2, mode="send")
         return
     target = db.find_user(parts[0])
     if not target:

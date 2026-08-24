@@ -118,7 +118,7 @@ class AdminPlansSendPrettyFlowTest(unittest.TestCase):
             self.assertIn("فرمت نامعتبر", args[2])
             from services.send_pretty import RawFormat
 
-            self.assertEqual(kwargs["raw"], RawFormat.PLAIN)
+            self.assertEqual(kwargs["raw"], RawFormat.MDV2)
             self.assertEqual(kwargs["mode"], "send")
             self.assertEqual(ctx.user_data["awaiting"], "admin_set_plan")
 
@@ -166,7 +166,7 @@ class AdminPlansSendPrettyFlowTest(unittest.TestCase):
         self.assertNotIn("update.effective_message.reply_text", text)
         self.assertNotIn("update.effective_message", text)
         self.assertNotIn("context.bot.send_message", text)
-        self.assertGreaterEqual(text.count("raw=RawFormat.PLAIN"), 6)
+        self.assertGreaterEqual(text.count("raw=RawFormat."), 6)
 
     def test_wiring_say_import(self):
         text = Path("handlers/admin_plans.py").read_text(encoding="utf-8")
