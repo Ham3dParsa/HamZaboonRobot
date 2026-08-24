@@ -27,7 +27,7 @@ This is disclosed reference — loaded only when parallel-work-guard fires.
 | 14 | Scheduling/Quota | services/scheduling.py | daily_session_budget(), consume_session_slot(), release_session_slot() |
 | 15 | Telegram Callback Notifications | services/utils/callback_notifications.py | notify_callback(query, text, intent=...) |
 | 16 | Custom-word input validation | services/utils/validation.py | validate_word_query(text, language) |
-| 17 | Custom-word query orchestration | services/word_query.py (core) + bot.py `_process_ask_word` / `_handle_query_dup_new` / `_handle_query_dup_reuse` / `_handle_query_dup_cancel` + handlers/srs_handler.py `_handle_query_add` + config/keyboards.py `query_result_keyboard` + `query_duplicate_keyboard` | ask(), toggle_save(), find_duplicate(); callback `query:add:`, `query:dup:new:`, `query:dup:reuse:`, `query:dup:cancel` (the old `query:prepare:`/prepare() path was removed in #340 R3) |
+| 17 | Custom-word query orchestration | services/word_query.py (core) + bot.py `_process_ask_word` / `_handle_query_dup_new` / `_handle_query_dup_reuse` / `_handle_query_dup_cancel` + handlers/srs_handler.py `_handle_query_add` + config/keyboards/__init__.py + config/keyboards/*.py `query_result_keyboard` + `query_duplicate_keyboard` | ask(), toggle_save(), find_duplicate(); callback `query:add:`, `query:dup:new:`, `query:dup:reuse:`, `query:dup:cancel` (the old `query:prepare:`/prepare() path was removed in #340 R3) |
 | 18 | Display-toggle store | services/db/display_toggles.py | DisplayToggleService.get_effective(), set_user_toggle(), set_forced(), get_global_defaults(), set_global_defaults(); settings key `display_toggle_defaults` (J0.2 registry-backed). users.py/settings.py are thin delegates. |
 | 19 | Awaiting Text-Input Flow Registry | handlers/flows.py | register_flow(), resolve_flow(), text_router(), is_admin_awaiting() |
 
@@ -58,7 +58,7 @@ Track the settings inventory as a separate follow-up issue.
 
 ### Callback prefixes
 
-Defined inline across config/keyboards.py (~95 prefix string literals) and
+Defined inline across config/keyboards/__init__.py + config/keyboards/*.py (~95 prefix string literals) and
 dispatched in bot.py's callback_router.
 
 ### Catalog identifiers
