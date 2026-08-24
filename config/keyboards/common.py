@@ -1,12 +1,6 @@
 from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 
 from .constants import *  # noqa: F401,F403
-from config.catalog import GOALS, LANGUAGES, LEVELS, language_label
-
-
-from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
-
-from config.catalog import GOALS, LANGUAGES, LEVELS, language_label
 
 
 
@@ -23,37 +17,6 @@ from config.catalog import GOALS, LANGUAGES, LEVELS, language_label
 # --- Navigation / Generic ---
 
 # --- Presentation ---
-
-
-
-# --- Admin – LLM Kind / Status Values ---
-
-# --- Admin – LLM Pricing ---
-
-# --- Admin – AI Settings ---
-
-
-
-# --- Admin – AI Fallback ---
-
-# --- Admin – Custom Test Wizard ---
-
-# --- Admin – Pending Changes ---
-
-# --- Admin – Preset Edit Fields ---
-
-
-# --- Admin – Full Edit Wizard ---
-
-# --- Study – stale-card notice ---
-
-# R10: /reports reopen flow — back to the recent-reports list.
-
-# --- Admin – Preset Group / Pagination ---
-
-# --- Admin – Fallback Chain ---
-
-# --- Admin – Help ---
 
 def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
     rows = [
