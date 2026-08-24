@@ -53,11 +53,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/kilo_ci_loop.ps1 -PR
 ```
 Delta-optimal (`id->h` + full body only for deltas), `90-120s/30m`, CI + `mergeable` + rebase verify. Manual steps remain authoritative if script not used.
 
-## Triage — SUGGESTION doesn't block
+## Triage — SUGGESTION evaluated, not ignored
+
+Kilo `SUGGESTION`s are often good — do not blanket-ignore. Evaluate each delta:
 
 - `CRITICAL`/`WARNING` → blocking, must fix before merge.
-- `SUGGESTION` → non-blocking. Fix now if CI-blocking or trivial ≤5 lines in PR seam; else defer: create follow-up ticket, link in PR as `Deferred: <reason> → #<follow-up>`, note `Kilo: SUGGESTION deferred`. Noise (false-positive/out-of-scope) → triage as `noise` with one-line justification. Never silently ignore a delta.
-- Merge-ready when every `CRITICAL`/`WARNING` fixed, every `SUGGESTION` fixed or deferred/noised with link, blocking checks `pass`, `mergeable == MERGEABLE`.
+- `SUGGESTION` → assess value first. **Fix now** if good and (a) CI-blocking, (b) in-scope and trivial ≤5 lines, or (c) clearly improves correctness/readability with no new risk. **Defer** only if valid but not mandatory: out-of-seam, needs its own contract lock, or low leverage vs. PR scope — create follow-up ticket, link as `Deferred: <reason> → #<follow-up>`, note `Kilo: SUGGESTION deferred (evaluated)`. **Noise** only for false-positive/out-of-scope with one-line justification. Never silently ignore.
+- Merge-ready when every `CRITICAL`/`WARNING` fixed, every `SUGGESTION` evaluated and either fixed or deferred/noised with link+reason, blocking checks `pass`, `mergeable == MERGEABLE`.
 
 ## Completion
 
