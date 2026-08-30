@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ممیزی معماری Session & SRS — موتور جلسه و FSRS (Session/SRS Contract Lock)</title>
+<style>
+  :root { --bg:#0b0e17; --panel:#131826; --panel2:#1b2236; --card:#202942; --border:#2d3856; --ink:#e8ecf8; --muted:#8f9bb3; --accent:#ff5e62; --accent2:#ff9966; --gold:#ffc107; --green:#2ecc71; --blue:#4a90e2; --purple:#9b59b6; --mono:"JetBrains Mono","Cascadia Code",Consolas,monospace; --font:"Vazirmatn","IRANSansX","Segoe UI",Tahoma,sans-serif; }
+  *{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at top right,#1a1e36 0%,#0b0e17 80%);color:var(--ink);font-family:var(--font);line-height:1.8;font-size:14.5px;padding-bottom:120px}
+  .wrap{max-width:1160px;margin:0 auto;padding:24px 20px}
+  .topbar{position:sticky;top:14px;z-index:1000;background:rgba(19,24,38,.92);backdrop-filter:blur(14px);border:1px solid var(--border);border-radius:14px;padding:12px 20px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  .topbar-info{display:flex;align-items:center;gap:12px}.topbar-title{font-weight:800;font-size:15px;color:var(--gold)}
+  .counter-badge{background:var(--panel2);border:1px solid var(--border);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;color:var(--accent2)}
+  .topbar-actions{display:flex;gap:8px;flex-wrap:wrap}
+  .btn{background:var(--panel2);color:var(--ink);border:1px solid var(--border);padding:7px 14px;border-radius:8px;cursor:pointer;font-family:var(--font);font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px;transition:all .2s}.btn:hover{background:var(--card);border-color:var(--muted)}
+  .btn-primary{background:linear-gradient(135deg,#27ae60 0%,#2ecc71 100%);color:#fff;border-color:#27ae60;font-weight:700}.btn-primary:hover{box-shadow:0 0 16px rgba(46,204,113,.4)}.btn-blue{background:linear-gradient(135deg,#2980b9 0%,#3498db 100%);color:#fff;border-color:#2980b9}
+  header.hero{background:linear-gradient(135deg,#161c2e 0%,#251d38 100%);border:1px solid var(--border);border-radius:18px;padding:28px 32px;margin-bottom:24px;position:relative;overflow:hidden}
+  header.hero::after{content:"🧠";position:absolute;left:24px;top:16px;font-size:80px;opacity:.18;transform:rotate(12deg)}
+  .tag{display:inline-block;background:var(--green);color:#fff;font-weight:800;font-size:11.5px;padding:2px 10px;border-radius:999px;margin-bottom:10px}
+  h1{margin:0 0 6px;font-size:22px;color:#fff}.sub{color:var(--muted);font-size:13.5px}
+  .nav-tabs{display:flex;gap:8px;margin:20px 0;border-bottom:2px solid var(--border);padding-bottom:8px}
+  .tab-btn{background:transparent;border:none;color:var(--muted);font-family:var(--font);font-size:14px;font-weight:700;padding:8px 18px;border-radius:8px;cursor:pointer;transition:all .2s}
+  .tab-btn:hover{color:#fff;background:var(--panel2)}.tab-btn.active{color:#fff;background:var(--card);border:1px solid var(--border)}
+  .tab-content{display:none}.tab-content.active{display:block;animation:fadeIn .3s ease}@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  h2{font-size:18px;color:#fff;margin:30px 0 14px;display:flex;align-items:center;gap:8px} h2 .num{background:var(--panel2);border:1px solid var(--border);color:var(--gold);width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:14px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin:12px 0}
+  .kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:16px 0}
+  .kpi .cell{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center}.kpi .cell .v{font-size:22px;font-weight:800;color:var(--accent2)}.kpi .cell .l{font-size:11.5px;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px} th,td{border:1px solid var(--border);padding:8px 12px;text-align:right;vertical-align:top} th{background:var(--panel2);color:var(--gold);font-weight:700} tr:nth-child(even) td{background:rgba(255,255,255,.015)}
+  code,.code{font-family:var(--mono);direction:ltr;text-align:left;unicode-bidi:embed;background:#07090f;border:1px solid var(--border);border-radius:5px;padding:1px 6px;font-size:12px;color:var(--green)}
+  pre{direction:ltr;text-align:left;background:#07090f;border:1px solid var(--border);border-radius:8px;padding:12px 14px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.6;color:#cfd6e6}
+  .loc{font-family:var(--mono);direction:ltr;font-size:11.5px;color:var(--blue);white-space:nowrap}
+  .rule-block{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:22px;margin-bottom:24px;border-right:5px solid var(--blue)}
+  .rule-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid var(--border);padding-bottom:10px}
+  .rule-tag-group{display:flex;align-items:center;gap:8px}
+  .rule-id{background:#090d16;color:var(--blue);font-family:var(--mono);font-weight:800;padding:3px 8px;border-radius:6px;border:1px solid var(--border);font-size:13px}
+  .rule-title{font-size:16px;font-weight:700;color:#fff}
+  .rule-badge{font-size:11.5px;padding:2px 10px;border-radius:999px;font-weight:700;border:1px solid}
+  .rule-badge.pending{color:var(--gold);border-color:var(--gold);background:rgba(255,193,7,.1)}.rule-badge.locked{color:var(--green);border-color:var(--green);background:rgba(46,204,113,.1)}
+  .fact-box{background:var(--panel2);border:1px dashed var(--border);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px}
+  .fact-title{color:var(--accent2);font-weight:700;margin-bottom:4px;font-size:12px;display:flex;align-items:center;gap:6px}
+  .options-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin:14px 0}
+  .opt-card{background:var(--card);border:1.5px solid var(--border);border-radius:10px;padding:14px;cursor:pointer;position:relative;transition:all .2s}
+  .opt-card:hover{border-color:var(--muted)}.opt-card.selected{border-color:var(--green);background:rgba(46,204,113,.08);box-shadow:0 0 12px rgba(46,204,113,.15)}
+  .opt-card input[type=radio]{position:absolute;left:12px;top:14px;accent-color:var(--green);transform:scale(1.2)}
+  .opt-title{font-weight:700;font-size:14px;margin-bottom:4px;color:#fff;padding-left:20px}.opt-desc{font-size:12.5px;color:var(--muted);line-height:1.5}
+  .owner-note-area{background:#090d16;border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-top:14px}
+  .note-label{color:var(--gold);font-size:12px;font-weight:700;margin-bottom:6px;display:block}
+  [contenteditable=true]{outline:none}[contenteditable=true]:focus{background:rgba(255,255,255,.03);border-radius:4px}.note-input{font-size:13px;color:#d0d7de;min-height:24px;line-height:1.6}
+  .proposal-preview{background:#080a10;border:1px solid var(--border);border-radius:10px;padding:16px;font-family:var(--mono);font-size:12.5px;color:#a5d6ff;white-space:pre-wrap;direction:ltr;text-align:left;max-height:420px;overflow-y:auto}
+  .mermaid-box{background:#07090f;border:1px solid var(--border);border-radius:10px;padding:12px;margin:10px 0}
+</style>
+<script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"; mermaid.initialize({startOnLoad:true,theme:"dark",securityLevel:"loose"});</script>
+</head><body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="topbar-info"><span class="topbar-title">🧠 پنل ممیزی Session & SRS — جلسه و FSRS</span><span class="counter-badge" id="lock-counter">۴ از ۴ قانون قفل شده</span></div>
+    <div class="topbar-actions">
+      <button class="btn" onclick="switchTab('tab-proposal');generateProposalMD();">📝 مشاهده پروپوزال نهایی</button>
+      <button class="btn btn-blue" onclick="downloadMarkdown()">📥 دانلود پروپوزال (MD)</button>
+      <button class="btn btn-primary" onclick="saveUpdatedHTML()">💾 ذخیره نسخه جدید سند (HTML)</button>
+    </div>
+  </div>
+  <header class="hero">
+    <span class="tag">Wave 2 · Agent D — Session Engine & SRS / FSRS</span>
+    <h1 contenteditable="true">سند ممیزی و قفل معماری موتور جلسه و تکرار فاصله‌دار (Session & SRS Deepening Audit)</h1>
+    <div style="margin-top:6px;font-size:11px;color:#2ecc71;border:1px solid #2ecc71;display:inline-block;padding:2px 8px;border-radius:999px">✔ Synced: 2026-08-30 @ a3971ed — main</div><div class="sub">فاز ۲ از ۲ در موج دوم — بررسی <code>services/fsrs_core.py</code>، <code>services/session/*:4</code>، <code>services/scheduling.py</code>، <code>handlers/study_handler.py:1306</code> و <code>srs_handler.py:644</code>. جلسهٔ خدا (1306 خط) و FSRS پراکنده بزرگ‌ترین اصطکاک را دارند.</div>
+  </header>
+  <div class="nav-tabs">
+    <button class="tab-btn" onclick="switchTab('tab-audit')">📖 ۱. گزارش ممیزی و شواهد کد</button>
+    <button class="tab-btn active" onclick="switchTab('tab-decision')">⚖️ ۲. پنل تصمیم‌گیری (Rules)</button>
+    <button class="tab-btn" onclick="switchTab('tab-proposal')">📑 ۳. پیش‌نمایش پروپوزال مالک</button>
+  </div>
+
+  <div id="tab-audit" class="tab-content">
+    <div class="kpi">
+      <div class="cell"><div class="v">۱۳۰۶</div><div class="l">خط در study_handler خدا</div></div>
+      <div class="cell"><div class="v">۳</div><div class="l">Tier اما stub در Tier3</div></div>
+      <div class="cell"><div class="v">۲×</div><div class="l">سقف FSRS دوگانه</div></div>
+      <div class="cell"><div class="v">۵→۲</div><div class="l">grade policies قابل حذف</div></div>
+      <div class="cell"><div class="v">۴</div><div class="l">کاندیدای عمیق‌سازی</div></div>
+    </div>
+    <div class="card"><b>خلاصهٔ شواهد:</b> <code>services/session/assembly.py:90 generate_tier3_node</code> همیشه <code>None</code> برمی‌گرداند؛ اولویت Tier در <code>words.py:207</code> و <code>srs_handler._next_due_node:512</code> تکرار شده. <code>study_handler.py:74-244 SessionState + _state_to_json</code> پایداری را در handler نگه داشته؛ <code>advance_session:760</code> سه شاخهٔ رندر را با rollback قاطی کرده. سیاست FSRS بین <code>fsrs_core.compute_interval:97</code> (سقف ۳۶۵) و <code>words._schedule:364</code> (گردکردن) تقسیم است.</div>
+    <h2><span class="num">۱</span> نگاشت اصطکاک</h2>
+    <table>
+      <thead><tr><th>دامنه</th><th>مسیر دقیق</th><th>نشت / کم‌عمقی</th></tr></thead>
+      <tbody>
+        <tr><td><b>Assembly پراکنده</b></td><td class="loc">assembly.py:24-104 vs srs_handler.py:512-554 vs study_handler:832</td><td>Tier1/2 در ۳ جا تکرار؛ Tier3 stub؛ ترتیب DSR در DB نه assembly</td></tr>
+        <tr><td><b>Handler خدا</b></td><td class="loc">study_handler.py:74-1306</td><td>State+serialize+persist+gather+advance+render در ۱ فایل؛ <code>_gather_word_records:1049</code> باید در summary باشد</td></tr>
+        <tr><td><b>FSRS نشتی</b></td><td class="loc">fsrs_core:97 vs words.py:364-414</td><td>سقف و گردکردن دو بار؛ <code>enable_short_term:79</code> در core اما gate در words:444</td></tr>
+        <tr><td><b>GradePolicy خیالی</b></td><td class="loc">grade_policy.py:21-62 (۵ policy، ۳ dead)</td><td><code>new_ai_card/ai_quiz/sentence_write</code> بدون caller؛ toggle+prompt در ۳ مالک پراکنده</td></tr>
+      </tbody>
+    </table>
+    <div class="mermaid-box"><pre class="mermaid">flowchart TB
+  SH["study_handler 1306<br/>SessionState+_state_to_json+_persist+advance"]
+  AS["assembly 104<br/>T1+T2 passthrough<br/>Tier3 None stub"]
+  SRS["srs_handler._next_due_node 512<br/>re-implements priority"]
+  DB["words.due_words 207<br/>DSR sort lives in DB"]
+  SH --> AS
+  SH -. refill diverge .-> SRS
+  AS -. priority leak .-> DB
+  FS["fsrs_core 97<br/>compute_interval cap365"] -. second cap .-> W["_schedule 364<br/>round+cap again"]
+</pre></div>
+    <div class="mermaid-box"><pre class="mermaid">flowchart LR
+  AF["AFTER<br/>assembly.TierRegistry → [T1:due, T2:preExposure, T3:aiPool]"] --> B["build_session_list iterates registry"]
+  AF --> R["refill_next replaces _next_due_node"]
+  LC["lifecycle.StateService<br/>serialize+persist+advance"] --> DB2["db/sessions KV"]
+  FC["fsrs_core.schedule_next<br/>owns round+tz+cap"] --> WP["words._apply thin"]
+</pre></div>
+    <div class="card" style="border-right:4px solid #2ecc71;background:rgba(46,204,113,0.06)"><b>✔ Resync verification 2026-08-30 @ a3971ed (main):</b> مقادیر KPI و LOC در این نسخه با <code>origin/main</code> تطبیق داده شد. وضعیت هر RULE در پنل تصمیم‌گیری همچنان <code>locked: A</code> است — جدول وضعیت واقعی در PR #483 recheck ثبت شد (DB 0/4, RT 1/4, AI 0/4, SS 0/4). برای جزئیات per-RULE به ریپورت CLI مراجعه کنید.</div>
+    <div class="card" style="border-right:4px solid var(--purple)"><b>Top Recommendation:</b> ابتدا <b>RULE-SS-002 (Lifecycle Service)</b> — handler خدا را به سرویس قابل تست تبدیل کنید؛ هم‌زمان <b>RULE-SS-001 (TierRegistry)</b> را برای آماده‌سازی Tier3 واقعی (pool→cache→AI) قفل کنید.</div>
+  </div>
+
+  <div id="tab-decision" class="tab-content active">
+    <div class="card" style="border-right:4px solid var(--gold)"><b>راهنمای مالک:</b> هر قانون مستقل است؛ انتخاب‌ها و یادداشت‌ها در پروپوزال منعکس می‌شود.</div>
+
+    <div class="rule-block" id="block-RULE-SS-001">
+      <div class="rule-header"><div class="rule-tag-group"><span class="rule-id">RULE-SS-001</span><span class="rule-title">یکپارچه‌سازی Assembly — رجیستری Tier و Single Priority Source</span></div><span class="rule-badge locked" id="badge-RULE-SS-001">قفل شد: TierRegistry سه‌تایی</span></div>
+      <div class="fact-box"><div class="fact-title">🔍 شواهد کد:</div><code>assembly.py:46 due_words_for_user</code> → <code>61 pre_first_exposure</code>؛ <code>srs_handler:524 T1 yield</code> و <code>528 T2 yield</code> همان ترتیب را تکرار می‌کند؛ <code>generate_tier3_node:90</code> همیشه None.</div>
+      <div class="options-grid">
+        <div class="opt-card selected" onclick="setRuleOption('RULE-SS-001','RULE-SS-001-A','TierRegistry سه‌تایی (پیشنهادی قوی)','TierSource(name,fetch_fn,sort_key) لیست [due,preExposure,aiPool]؛ build_session_list و refill_next هر دو روی registry؛ generate_tier3_node به fetch تزریقی')"><input type="radio" name="RULE-SS-001" id="RULE-SS-001-A" checked><div class="opt-title">گزینه A: TierRegistry سه‌تایی</div><div class="opt-desc"><b>locality</b>: ترتیب Tier یک فایل؛ <b>leverage</b>: build و refill کد مشترک.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-SS-001','RULE-SS-001-B','فقط حذف تکرار refill','_next_due_node حذف و به build_session_list تفویض شود')"><input type="radio" name="RULE-SS-001" id="RULE-SS-001-B"><div class="opt-title">گزینه B: حذف تکرار refill</div><div class="opt-desc">گام حداقلی.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-SS-001','RULE-SS-001-C','حفظ وضع موجود','Assembly همچنان passthrough')"><input type="radio" name="RULE-SS-001" id="RULE-SS-001-C"><div class="opt-title">گزینه C: حفظ وضع موجود</div><div class="opt-desc">بدون تغییر؛ Tier3 همچنان stub.</div></div>
+      </div>
+      <div class="owner-note-area"><span class="note-label">📝 یادداشت مالک برای RULE-SS-001:</span><div contenteditable="true" class="note-input" id="note-RULE-SS-001" oninput="updateProposalPreview()">Tier3 تزریقی باشد (pool→semantic cache→AI) مطابق <code>docs/plans/content/plan_pooling.md</code>؛ DSR sort پایدار بماند.</div></div>
+    </div>
+
+    <div class="rule-block" id="block-RULE-SS-002">
+      <div class="rule-header"><div class="rule-tag-group"><span class="rule-id">RULE-SS-002</span><span class="rule-title">استخراج چرخهٔ حیات جلسه — خروج Lifecycle از Handler خدا</span></div><span class="rule-badge locked" id="badge-RULE-SS-002">قفل شد: lifecycle.StateService</span></div>
+      <div class="fact-box"><div class="fact-title">🔍 شواهد کد:</div><code>study_handler:74 SessionState</code>، <code>95 _state_to_json</code>، <code>191 _persist / 200 _restore</code>، <code>1049 _gather_word_records</code>، <code>760 advance_session</code> با سه شاخهٔ <code>send_pretty.edit:805,842,925</code> و rollback <code>815-826</code>.</div>
+      <div class="options-grid">
+        <div class="opt-card selected" onclick="setRuleOption('RULE-SS-002','RULE-SS-002-A','lifecycle.StateService عمیق (پیشنهادی قوی)','ماژول services/session/lifecycle.py مالک SessionState، serialize/deserialize، persist/restore، advance(state,render_fn)، gather_records؛ handler فقط quota+build+render')"><input type="radio" name="RULE-SS-002" id="RULE-SS-002-A" checked><div class="opt-title">گزینه A: StateService عمیق</div><div class="opt-desc"><b>depth</b>: چرخهٔ حیات قابل تست بدون تلگرام.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-SS-002','RULE-SS-002-B','فقط جدا کردن serialize','فقط _state_to_json/_from_json جدا شود')"><input type="radio" name="RULE-SS-002" id="RULE-SS-002-B"><div class="opt-title">گزینه B: فقط serialize</div><div class="opt-desc">حداقلی.</div></div>
+      </div>
+      <div class="owner-note-area"><span class="note-label">📝 یادداشت مالک برای RULE-SS-002:</span><div contenteditable="true" class="note-input" id="note-RULE-SS-002" oninput="updateProposalPreview()">رفتار <code>finally release_slot:405</code> و <code>BaseException:391</code> دقیقاً حفظ شود؛ تست‌های <code>test_study_handler:180-667</code> مبنا.</div></div>
+    </div>
+
+    <div class="rule-block" id="block-RULE-SS-003">
+      <div class="rule-header"><div class="rule-tag-group"><span class="rule-id">RULE-SS-003</span><span class="rule-title">تجمیع سیاست FSRS — حذف نشت گردکردن و سقف از DB</span></div><span class="rule-badge locked" id="badge-RULE-SS-003">قفل شد: fsrs_core.schedule_next</span></div>
+      <div class="fact-box"><div class="fact-title">🔍 شواهد کد:</div><code>fsrs_core.compute_interval:97</code> سقف ۳۶۵؛ <code>words._schedule:364</code> دوباره «&lt;1d دقیق وگرنه round+≥1»؛ <code>words:444 short_term gate</code> در برابر <code>fsrs_core:79 enable_short_term</code>.</div>
+      <div class="options-grid">
+        <div class="opt-card selected" onclick="setRuleOption('RULE-SS-003','RULE-SS-003-A','schedule_next در fsrs_core (پیشنهادی)','schedule_next(stability,now,config)->(next_review_at,interval,date) مالک گردکردن+tz+سقف شود؛ words فقط _apply نازک')"><input type="radio" name="RULE-SS-003" id="RULE-SS-003-A" checked><div class="opt-title">گزینه A: schedule_next در core</div><div class="opt-desc"><b>depth</b>: سیاست FSRS یک‌منبع؛ DB فقط persistence.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-SS-003','RULE-SS-003-B','حفظ وضع موجود','FSRS همچنان دوتکه')"><input type="radio" name="RULE-SS-003" id="RULE-SS-003-B"><div class="opt-title">گزینه B: حفظ وضع موجود</div><div class="opt-desc">بدون ریسک ریاضی؛ اما نشت باقی.</div></div>
+      </div>
+      <div class="owner-note-area"><span class="note-label">📝 یادداشت مالک برای RULE-SS-003:</span><div contenteditable="true" class="note-input" id="note-RULE-SS-003" oninput="updateProposalPreview()">تزریق <code>now</code> برای تست‌پذیری؛ <code>_app_timezone:12</code> واحد شود.</div></div>
+    </div>
+
+    <div class="rule-block" id="block-RULE-SS-004">
+      <div class="rule-header"><div class="rule-tag-group"><span class="rule-id">RULE-SS-004</span><span class="rule-title">پاکسازی GradePolicy و تجمیع Toggle/Prompt — حذف policies خیالی</span></div><span class="rule-badge locked" id="badge-RULE-SS-004">قفل شد: حذف ۳ policy + prompt_policy</span></div>
+      <div class="fact-box"><div class="fact-title">🔍 شواهد کد:</div><code>grade_policy.py:34 new_ai_card, 40 ai_quiz, 51 sentence_write</code> بدون caller؛ <code>resolve_grade:65</code> هویت؛ toggle در <code>catalog:142</code>، gate در <code>formatting:230</code>، freeze در <code>study_handler:140</code>.</div>
+      <div class="options-grid">
+        <div class="opt-card selected" onclick="setRuleOption('RULE-SS-004','RULE-SS-004-A','حذف ۳ policy + prompt_policy (پیشنهادی)','فقط srs_review/first_exposure بماند؛ grade_policy_ref حذف؛ prompt_policy واحد مالک eligible+select+resolve شود')"><input type="radio" name="RULE-SS-004" id="RULE-SS-004-A" checked><div class="opt-title">گزینه A: پاکسازی و تجمیع</div><div class="opt-desc"><b>locality</b>: prompt+toggle+grade یک seam.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-SS-004','RULE-SS-004-B','فقط حذف dead policies','فقط ۳ policy حذف شود')"><input type="radio" name="RULE-SS-004" id="RULE-SS-004-B"><div class="opt-title">گزینه B: فقط حذف</div><div class="opt-desc">حداقلی.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-SS-004','RULE-SS-004-C','حفظ وضع موجود','هیچ حذف انجام نشود')"><input type="radio" name="RULE-SS-004" id="RULE-SS-004-C"><div class="opt-title">گزینه C: حفظ وضع موجود</div><div class="opt-desc">عمومیت کاذب باقی.</div></div>
+      </div>
+      <div class="owner-note-area"><span class="note-label">📝 یادداشت مالک برای RULE-SS-004:</span><div contenteditable="true" class="note-input" id="note-RULE-SS-004" oninput="updateProposalPreview()">مالکیت single-source در <code>tests/test_single_source_of_truth.py:104</code> به‌روزرسانی شود.</div></div>
+    </div>
+  </div>
+
+  <div id="tab-proposal" class="tab-content">
+    <h2>📑 پروپوزال و مصوبات قطعی مالک</h2>
+    <div class="card">تمام تصمیم‌ها با شناسهٔ <code>RULE-SS-XXX</code> گردآوری شده و مبنای PRهای بعدی خواهد بود.</div>
+    <div class="proposal-preview" id="proposal-text"></div>
+    <div style="margin-top:16px;display:flex;gap:10px"><button class="btn btn-blue" onclick="downloadMarkdown()">📥 دانلود Markdown</button><button class="btn btn-primary" onclick="saveUpdatedHTML()">💾 ذخیره HTML تعاملی</button></div>
+  </div>
+</div>
+<script>
+  const ruleData={'RULE-SS-001':{title:'یکپارچه‌سازی Assembly — TierRegistry سه‌تایی',selected:'RULE-SS-001-A',optLabel:'TierRegistry سه‌تایی',optDesc:'TierSource registry [due,preExposure,aiPool]؛ build و refill هر دو روی registry'},
+  'RULE-SS-002':{title:'استخراج چرخهٔ حیات جلسه — lifecycle.StateService',selected:'RULE-SS-002-A',optLabel:'lifecycle.StateService عمیق',optDesc:'SessionState+serialize+persist+advance+gather در services/session/lifecycle.py'},
+  'RULE-SS-003':{title:'تجمیع سیاست FSRS — schedule_next در core',selected:'RULE-SS-003-A',optLabel:'schedule_next در fsrs_core',optDesc:'schedule_next مالک گردکردن+tz+سقف؛ words فقط _apply'},
+  'RULE-SS-004':{title:'پاکسازی GradePolicy و تجمیع Toggle/Prompt',selected:'RULE-SS-004-A',optLabel:'حذف ۳ policy + prompt_policy',optDesc:'فقط srs_review/first_exposure؛ prompt_policy واحد مالک eligible+select+resolve'}};
+  function switchTab(id){document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));document.querySelectorAll('.tab-btn').forEach(e=>e.classList.remove('active'));document.getElementById(id).classList.add('active');const b=document.querySelectorAll('.tab-btn');if(id==='tab-audit')b[0].classList.add('active');if(id==='tab-decision')b[1].classList.add('active');if(id==='tab-proposal'){b[2].classList.add('active');generateProposalMD();}}
+  function setRuleOption(rId,oId,label,desc){const block=document.getElementById('block-'+rId);block.querySelectorAll('.opt-card').forEach(c=>c.classList.remove('selected'));const r=document.getElementById(oId);r.checked=true;r.setAttribute('checked','checked');r.closest('.opt-card').classList.add('selected');ruleData[rId].selected=oId;ruleData[rId].optLabel=label;ruleData[rId].optDesc=desc;const badge=document.getElementById('badge-'+rId);badge.textContent='قفل شد: '+label.split('(')[0];badge.className='rule-badge locked';updateCounter();updateProposalPreview();}
+  function updateCounter(){let c=0;for(const k in ruleData) if(ruleData[k].selected) c++;document.getElementById('lock-counter').textContent=c+' از ۴ قانون قفل شده';}
+  function generateProposalMD(){let md='# سند قرارداد معماری Session & SRS\n**نسخه:** SS-v1 | **تاریخ:** 2026-08-30 (resynced a3971ed) | **وضعیت:** قفل‌شده برای پیاده‌سازی\n\n---\n\n## ۱. مصوبات مالک\n\n';for(const [rId,info] of Object.entries(ruleData)){const note=document.getElementById('note-'+rId)?document.getElementById('note-'+rId).innerText.trim():'';md+=`### [${rId}] ${info.title}\n- **گزینه مصوب:** \`${info.selected}\` — **${info.optLabel}**\n- **شرح:** ${info.optDesc}\n`;if(note) md+=`- **یادداشت مالک:**\n  > ${note}\n`;md+='\n';}md+='---\n\n## ۲. الزامات فنی\n\n- **Seam جلسه:** `services/session/lifecycle.py` تنها مالک State باشد؛ `study_handler` آداپتور نازک.\n- **Seam FSRS:** `fsrs_core.schedule_next` تنها سیاست زمان‌بندی باشد؛ `words.py` فقط persistence.\n- **Single Source:** `config/catalog.py` تنها منبع toggle؛ `prompt_policy` تنها تصمیم prompt.\n';document.getElementById('proposal-text').textContent=md;return md;}
+  function updateProposalPreview(){generateProposalMD();} function downloadMarkdown(){const md=generateProposalMD();const b=new Blob([md],{type:'text/markdown;charset=utf-8'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='session_srs_proposal.md';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);}
+  function saveUpdatedHTML(){for(const [rId,info] of Object.entries(ruleData)) if(info.selected){const r=document.getElementById(info.selected);if(r) r.setAttribute('checked','checked');} const h='<!DOCTYPE html>\n'+document.documentElement.outerHTML;const b=new Blob([h],{type:'text/html;charset=utf-8'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='architecture_session_srs_audit_v1.html';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);alert('✅ نسخه جدید HTML ذخیره شد.');}
+  generateProposalMD();
+</script>
+</body></html>

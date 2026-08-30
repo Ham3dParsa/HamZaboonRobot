@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ممیزی جامع + پنل تصمیم‌گیری و قفل معماری سیستم استریک (Streak Contract Lock &amp; Audit)</title>
+<style>
+  :root {
+    --bg: #0b0e17;
+    --panel: #131826;
+    --panel2: #1b2236;
+    --card: #202942;
+    --border: #2d3856;
+    --ink: #e8ecf8;
+    --muted: #8f9bb3;
+    --accent: #ff5e62;
+    --accent2: #ff9966;
+    --gold: #ffc107;
+    --green: #2ecc71;
+    --blue: #4a90e2;
+    --purple: #9b59b6;
+    --mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+    --font: "Vazirmatn", "IRANSansX", "Segoe UI", Tahoma, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: radial-gradient(circle at top right, #1a1e36 0%, #0b0e17 80%);
+    color: var(--ink);
+    font-family: var(--font);
+    line-height: 1.8;
+    font-size: 14.5px;
+    padding-bottom: 120px;
+  }
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 24px 20px; }
+
+  /* Sticky Top Bar */
+  .topbar {
+    position: sticky;
+    top: 14px;
+    z-index: 1000;
+    background: rgba(19, 24, 38, 0.92);
+    backdrop-filter: blur(14px);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px 20px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  }
+  .topbar-info { display: flex; align-items: center; gap: 12px; }
+  .topbar-title { font-weight: 800; font-size: 15px; color: var(--gold); }
+  .counter-badge {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent2);
+  }
+  .topbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn {
+    background: var(--panel2);
+    color: var(--ink);
+    border: 1px solid var(--border);
+    padding: 7px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: var(--font);
+    font-weight: 600;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+  }
+  .btn:hover { background: var(--card); border-color: var(--muted); }
+  .btn-primary { background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); color: #fff; border-color: #27ae60; font-weight: 700; }
+  .btn-primary:hover { box-shadow: 0 0 16px rgba(46, 204, 113, 0.4); }
+  .btn-blue { background: linear-gradient(135deg, #2980b9 0%, #3498db 100%); color: #fff; border-color: #2980b9; }
+
+  header.hero {
+    background: linear-gradient(135deg, #161c2e 0%, #251d38 100%);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 28px 32px;
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  header.hero::after {
+    content: "🔥";
+    position: absolute; left: 24px; top: 16px;
+    font-size: 80px; opacity: .18; transform: rotate(15deg);
+  }
+  .tag {
+    display: inline-block; background: var(--accent); color: #fff;
+    font-weight: 800; font-size: 11.5px; padding: 2px 10px; border-radius: 999px;
+    margin-bottom: 10px;
+  }
+  h1 { margin: 0 0 6px; font-size: 24px; color: #fff; }
+  .sub { color: var(--muted); font-size: 13.5px; }
+
+  /* Tabs */
+  .nav-tabs {
+    display: flex;
+    gap: 8px;
+    margin: 20px 0;
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 8px;
+  }
+  .tab-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 700;
+    padding: 8px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .tab-btn:hover { color: #fff; background: var(--panel2); }
+  .tab-btn.active { color: #fff; background: var(--card); border: 1px solid var(--border); }
+
+  /* Sections */
+  .tab-content { display: none; }
+  .tab-content.active { display: block; animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+  h2 { font-size: 18px; color: #fff; margin: 30px 0 14px; display: flex; align-items: center; gap: 8px; }
+  h2 .num {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--gold);
+    width: 28px; height: 28px; border-radius: 6px; display: inline-flex;
+    align-items: center; justify-content: center; font-size: 14px;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px 20px; margin: 12px 0;
+  }
+  .kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 16px 0; }
+  .kpi .cell { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; text-align: center; }
+  .kpi .cell .v { font-size: 24px; font-weight: 800; color: var(--accent2); }
+  .kpi .cell .l { font-size: 11.5px; color: var(--muted); }
+
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; }
+  th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: right; vertical-align: top; }
+  th { background: var(--panel2); color: var(--gold); font-weight: 700; }
+  tr:nth-child(even) td { background: rgba(255,255,255,0.015); }
+  code, .code {
+    font-family: var(--mono); direction: ltr; text-align: left; unicode-bidi: embed;
+    background: #07090f; border: 1px solid var(--border); border-radius: 5px;
+    padding: 1px 6px; font-size: 12px; color: var(--green);
+  }
+  pre {
+    direction: ltr; text-align: left; background: #07090f; border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px; overflow-x: auto; font-family: var(--mono);
+    font-size: 12.5px; line-height: 1.6; color: #cfd6e6;
+  }
+  .loc { font-family: var(--mono); direction: ltr; font-size: 11.5px; color: var(--blue); white-space: nowrap; }
+
+  /* Decision Module Component */
+  .rule-block {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px;
+    margin-bottom: 24px;
+    border-right: 5px solid var(--blue);
+  }
+  .rule-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+  }
+  .rule-tag-group { display: flex; align-items: center; gap: 8px; }
+  .rule-id {
+    background: #090d16;
+    color: var(--blue);
+    font-family: var(--mono);
+    font-weight: 800;
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .rule-title { font-size: 16px; font-weight: 700; color: #fff; }
+  .rule-badge {
+    font-size: 11.5px; padding: 2px 10px; border-radius: 999px; font-weight: 700; border: 1px solid;
+  }
+  .rule-badge.pending { color: var(--gold); border-color: var(--gold); background: rgba(255, 193, 7, 0.1); }
+  .rule-badge.locked { color: var(--green); border-color: var(--green); background: rgba(46, 204, 113, 0.1); }
+
+  /* Context Box inside Decision */
+  .fact-box {
+    background: var(--panel2);
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    font-size: 13px;
+  }
+  .fact-title { color: var(--accent2); font-weight: 700; margin-bottom: 4px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+
+  .options-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+    margin: 14px 0;
+  }
+  .opt-card {
+    background: var(--card);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s;
+  }
+  .opt-card:hover { border-color: var(--muted); }
+  .opt-card.selected {
+    border-color: var(--green);
+    background: rgba(46, 204, 113, 0.08);
+    box-shadow: 0 0 12px rgba(46, 204, 113, 0.15);
+  }
+  .opt-card input[type="radio"] {
+    position: absolute;
+    left: 12px;
+    top: 14px;
+    accent-color: var(--green);
+    transform: scale(1.2);
+  }
+  .opt-title { font-weight: 700; font-size: 14px; margin-bottom: 4px; color: #fff; padding-left: 20px; }
+  .opt-desc { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+
+  .owner-note-area {
+    background: #090d16;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-top: 14px;
+  }
+  .note-label { color: var(--gold); font-size: 12px; font-weight: 700; margin-bottom: 6px; display: block; }
+  [contenteditable="true"] { outline: none; }
+  [contenteditable="true"]:focus { background: rgba(255,255,255,0.03); border-radius: 4px; }
+  .note-input { font-size: 13px; color: #d0d7de; min-height: 24px; line-height: 1.6; }
+
+  /* Proposal Output Box */
+  .proposal-preview {
+    background: #080a10;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: #a5d6ff;
+    white-space: pre-wrap;
+    direction: ltr;
+    text-align: left;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <!-- Sticky Bar -->
+  <div class="topbar">
+    <div class="topbar-info">
+      <span class="topbar-title">🛡️ پنل ممیزی و تصمیم‌گیری استریک</span>
+      <span class="counter-badge" id="lock-counter">5 از ۵ قانون قفل شده</span>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn" onclick="switchTab('tab-proposal'); generateProposalMD();">📝 مشاهده پروپوزال نهایی</button>
+      <button class="btn btn-blue" onclick="downloadMarkdown()">📥 دانلود پروپوزال (MD)</button>
+      <button class="btn btn-primary" onclick="saveUpdatedHTML()">💾 ذخیره نسخه جدید سند (HTML)</button>
+    </div>
+  </div>
+
+  <header class="hero">
+    <span class="tag">ممیزی فنی + پنل تصمیم‌گیری مالک (Contract Lock v2)</span>
+    <h1 contenteditable="true">سند جامع ممیزی، بازطراحی و قفل قرارداد استریک و امتیاز هم‌زبان</h1>
+    <div style="margin-top:6px;font-size:11px;color:#2ecc71;border:1px solid #2ecc71;display:inline-block;padding:2px 8px;border-radius:999px">✔ Synced: 2026-08-30 @ a3971ed — main</div><div class="sub">این سند تلفیقی از ممیزی کامل وضع موجود، شواهد کد و پنل تصمیم‌گیری مرحله‌به‌مرحله است. تصمیم‌های مالک با شناسه <code>RULE-XXX</code> ثبت شده و مستقیماً در قالب سند HTML به‌روزرسانی‌شده یا فایل Markdown خروجی داده می‌شود.</div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <div class="nav-tabs">
+    <button class="tab-btn" onclick="switchTab('tab-audit')">📖 ۱. گزارش ممیزی و شواهد کد</button>
+    <button class="tab-btn active" onclick="switchTab('tab-decision')">⚖️ ۲. پنل تصمیم‌گیری و تعیین قوانین (Rules)</button>
+    <button class="tab-btn" onclick="switchTab('tab-proposal')">📑 ۳. پیش‌نمایش پروپوزال مالک (Markdown / Contract)</button>
+  </div>
+
+  <!-- TAB 1: AUDIT DETAILS -->
+  <div id="tab-audit" class="tab-content">
+
+    <div class="kpi">
+      <div class="cell"><div class="v">۴</div><div class="l">نقطهٔ تماس (Call Sites)</div></div>
+      <div class="cell"><div class="v">۱</div><div class="l">تابع منطق مرجع</div></div>
+      <div class="cell"><div class="v">۱</div><div class="l">جدول ذخیره (users)</div></div>
+      <div class="cell"><div class="v">۳</div><div class="l">تراکنش در هر گرید</div></div>
+      <div class="cell"><div class="v">Boolean</div><div class="l">ماهیت استریک فعلی</div></div>
+    </div>
+
+    <div class="card">
+      <b>خلاصه وضعیت موجود در کد:</b> استریک در حال حاضر در تابع <code>touch_streak</code> (<span class="loc">services/db/users.py:237</span>) محاسبه می‌شود. این منطق کاملاً بولی است: هر رویداد (حتی گرامر یا ساخت کارت یا گرید Again) تاریخ <code>last_active_date</code> را امروز می‌کند و استریک را یک واحد می‌افزاید. هیچ تفاوتی میان ۱ جلسه یا ۵ جلسه وجود ندارد و سیگنال «تکمیل جلسه» در سیستم ثبت دائمی نمی‌شود.
+    </div>
+
+    <h2><span class="num">۱</span> جدول نقاط تماس و مسیر داده در کدهای فعلی</h2>
+    <table>
+      <thead><tr><th>نقش در سیستم</th><th>مسیر دقیق در کد</th><th>شرح رفتار فعلی</th></tr></thead>
+      <tbody>
+        <tr><td><b>ذخیره‌سازی (Schema)</b></td><td class="loc">services/db/schema.py:199</td><td>ستون‌های <code>streak INTEGER</code> و <code>last_active_date TEXT</code> در جدول <code>users</code>.</td></tr>
+        <tr><td><b>منطق اصلی (Logic)</b></td><td class="loc">services/db/users.py:237-255</td><td>تابع <code>touch_streak(user_id)</code> — به‌روزرسانی بر اساس مقایسه با دیروز.</td></tr>
+        <tr><td><b>مرور SRS</b></td><td class="loc">handlers/srs_handler.py:279</td><td>فراخوانی پس از ثبت گرید (بدون توجه به نمره یا موفقیت).</td></tr>
+        <tr><td><b>مواجهه اول</b></td><td class="loc">handlers/srs_handler.py:374</td><td>فراخوانی در اولین بار دیدن کارت واژه.</td></tr>
+        <tr><td><b>تولید کارت با هوش مصنوعی</b></td><td class="loc">services/word_query.py:255</td><td>فراخوانی هنگام ساخت کارت در دستور <code>ask</code>.</td></tr>
+        <tr><td><b>نکته گرامری</b></td><td class="loc">handlers/user.py:406</td><td>فراخوانی پس از تحویل نکته گرامری روزانه.</td></tr>
+        <tr><td><b>شروع جلسه (Session Slot)</b></td><td class="loc">services/scheduling.py:59</td><td>مصرف سهمیه در شروع جلسه (ذخیره کلید-رشته‌ای در <code>settings</code>).</td></tr>
+        <tr><td><b>پایان جلسه (Clear Session)</b></td><td class="loc">handlers/study_handler.py:626-674</td><td>پاک‌کردن ردیف جلسه از <code>study_sessions</code> بدون ثبت رویداد دائمی.</td></tr>
+      </tbody>
+    </table>
+
+    <h2><span class="num">۲</span> شواهد دیتابیس و ظرفیت پلن‌ها</h2>
+    <div class="card">
+      <ul>
+        <li><b>ظرفیت پلن‌ها (<span class="loc">services/db/plans.py:21-28</span>):</b>
+          رایگان (۲ جلسه / ۳ کارت) · برنزی (۳ جلسه / ۳ کارت) · نقره‌ای (۳ جلسه / ۵ کارت) · طلایی (۴ جلسه / ۷ کارت) · زمردی (۵ جلسه / ۹ کارت).
+        </li>
+        <li><b>رویدادهای مرور (<span class="loc">services/db/reviews.py</span>):</b>
+          جدول <code>review_events</code> شامل <code>activity_type</code>، <code>grade</code> (۱ تا ۴)، <code>response_time_ms</code> و زمان ثبت است.
+        </li>
+        <li><b>مسئله سربار دیتابیس (<span class="loc">docs/SQLITE_INFRASTRUCTURE_AUDIT.md</span>):</b>
+          در حال حاضر هر گرید شامل ۳ تراکنش مجزاست. افزودن امتیاز بدون تجمیع در <code>BEGIN IMMEDIATE</code> خطر قفل DB را به همراه دارد.
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- TAB 2: DECISION PANEL -->
+  <div id="tab-decision" class="tab-content active">
+    <div class="card" style="border-right: 4px solid var(--gold);">
+      <b>راهنمای تصمیم‌گیری مالک:</b> روی هر یک از قوانین (Rules) گزینه مدنظرتان را انتخاب کنید و در صورت نیاز نکات اضافی یا ضرایب خاص خود را در بخش یادداشت همان قانون بنویسید.
+    </div>
+
+    <!-- RULE 1 -->
+    <div class="rule-block" id="block-RULE-001">
+      <div class="rule-header">
+        <div class="rule-tag-group">
+          <span class="rule-id">RULE-001</span>
+          <span class="rule-title">معیار سیگنال «تکمیل جلسه» (Session Completion Trigger)</span>
+        </div>
+        <span class="rule-badge locked" id="badge-RULE-001">قفل شد: اتمام ۱۰۰٪ کارت‌ها </span>
+      </div>
+      <div class="fact-box">
+        <div class="fact-title">🔍 شواهد کد و فکت‌های فنی:</div>
+        امروز در <code>advance_session</code> وقتی <code>state.nodes</code> خالی شود، جلسه تمام شده و از دیتابیس پاک می‌شود. اگر کاربر وسط کار خارج شود ردیف موقت می‌ماند اما پس از اتمام هیچ ردپای تاریخی از اتمام جلسه نمی‌ماند.
+      </div>
+      <div class="options-grid">
+        <div class="opt-card selected" onclick="setRuleOption('RULE-001', 'RULE-001-A', 'اتمام ۱۰۰٪ کارت‌ها (بدون شرط گرید)', 'جلسه با پاسخ‌دادن به آخرین کارت پایان می‌یابد و مستقل از اینکه گرید Again باشد یا Good، تکمیل‌شده ثبت می‌شود.')">
+          <input type="radio" name="RULE-001" id="RULE-001-A" checked="checked">
+          <div class="opt-title">گزینه A: پاسخ به ۱۰۰٪ کارت‌ها (ساده و قطعی)</div>
+          <div class="opt-desc">بدون پیچیدگی؛ هر زمان تمام کارت‌های جلسه مرور شدند، رخداد تکمیل جلسه شلیک می‌شود.</div>
+        </div>
+        <div class="opt-card" onclick="setRuleOption('RULE-001', 'RULE-001-B', 'تکمیل مشروط به حداقل یادآوری', 'حداقل ۷۰٪ کارت‌های جلسه باید گریدی غیر از Again دریافت کنند تا جلسه تکمیل رسمی شود.')">
+          <input type="radio" name="RULE-001" id="RULE-001-B">
+          <div class="opt-title">گزینه B: تکمیل با شرط حداقل یادآوری (Quality-Gated)</div>
+          <div class="opt-desc">جلوگیری از رد کردن سرسری کارت‌ها؛ نیازمند حداقل درصد پاسخ‌های صحیح در هر جلسه.</div>
+        </div>
+        <div class="opt-card" onclick="setRuleOption('RULE-001', 'RULE-001-C', 'پشتیبانی از پیشرفت جزئی (Partial)', 'هر کارت دیده‌شده امتیاز نسبی خود را ثبت می‌کند حتی اگر کل جلسه نیمه‌کاره رها شود.')">
+          <input type="radio" name="RULE-001" id="RULE-001-C">
+          <div class="opt-title">گزینه C: پشتیبانی از تکمیل جزئی (Partial Sessions)</div>
+          <div class="opt-desc">محاسبه در لحظه هر کارت در شدت روزانه تا کاربر از جلسات نیمه‌کاره هم پاداش دریافت کند.</div>
+        </div>
+      </div>
+      <div class="owner-note-area">
+        <span class="note-label">📝 یادداشت و شروط مالک برای RULE-001:</span>
+        <div contenteditable="true" class="note-input" id="note-RULE-001" oninput="updateProposalPreview()">حداقل شرط استریک: تکمیل یک جلسه در روز، فارغ از کیفیت عملکرد کاربر.</div>
+      </div>
+    </div>
+
+    <!-- RULE 2 -->
+    <div class="rule-block" id="block-RULE-002">
+      <div class="rule-header">
+        <div class="rule-tag-group">
+          <span class="rule-id">RULE-002</span>
+          <span class="rule-title">منطق امتیازدهی و تعادل پلن‌ها (Plan Balancing &amp; XP Formula)</span>
+        </div>
+        <span class="rule-badge locked" id="badge-RULE-002">قفل شد: مدل ترکیبی </span>
+      </div>
+      <div class="fact-box">
+        <div class="fact-title">🔍 شواهد کد و فکت‌های فنی:</div>
+        پلن رایگان ۲ جلسه و زمردی ۵ جلسه سقف دارد. شدت روزانه می‌تواند نسبت به سقف خود کاربر (نسبی) یا تعداد مطلق جلسات سنجیده شود.
+      </div>
+      <div class="options-grid">
+        <div class="opt-card" onclick="setRuleOption('RULE-002', 'RULE-002-A', 'شدت کاملاً نسبی', '۲ از ۲ جلسه رایگان معادل ۵ از ۵ جلسه زمردی است و هر دو شدت ۱.۰ دریافت می‌کنند (عدالت نگهداشت).')">
+          <input type="radio" name="RULE-002" id="RULE-002-A">
+          <div class="opt-title">گزینه A: شدت نسبی (Relative Daily Intensity)</div>
+          <div class="opt-desc">فرمول: <code>completed / max_plan_sessions</code>. تمرکز روی احساس موفقیت کاربر در چارچوب پلن خودش.</div>
+        </div>
+        <div class="opt-card" onclick="setRuleOption('RULE-002', 'RULE-002-B', 'امتیاز مطلق برای هر جلسه', 'هر جلسه کامل‌شده ۵۰ امتیاز دارد. کاربر ۵ جلسه‌ای ۲۵۰ امتیاز و کاربر ۲ جلسه‌ای ۱۰۰ امتیاز می‌گیرد (مشوق ارتقا).')">
+          <input type="radio" name="RULE-002" id="RULE-002-B">
+          <div class="opt-title">گزینه B: امتیاز مطلق (Absolute Session XP)</div>
+          <div class="opt-desc">مشوق مستقیم برای خرید پلن‌های بالاتر جهت کسب امتیاز و رتبه بیشتر در لیدربورد.</div>
+        </div>
+        <div class="opt-card selected" onclick="setRuleOption('RULE-002', 'RULE-002-C', 'مدل ترکیبی (پیشنهادی)', 'استریک به شدت روزانه (نسبی) متصل است؛ اما XP کل به صورت ترکیبی از تعداد جلسات + کیفیت گریدها محاسبه می‌شود.')">
+          <input type="radio" name="RULE-002" id="RULE-002-C" checked="checked">
+          <div class="opt-title">گزینه C: مدل ترکیبی / هیبرید (Hybrid Balanced)</div>
+          <div class="opt-desc">جداسازی زنجیره روز (استریک عادلانه) از انباشت امتیاز و XP رقابتی.</div>
+        </div>
+      </div>
+      <div class="owner-note-area">
+        <span class="note-label">📝 یادداشت و شروط مالک برای RULE-002:</span>
+        <div contenteditable="true" class="note-input" id="note-RULE-002" oninput="updateProposalPreview()">کاربران بر اساس تکمیل جلسات بیشتر نسبت به سقف پلن خود استریک ویژه تری میگیرند. مثلا سه سطح استریک برای هر روز: استریک عادی با یک ایموجی آتش، میانه با دو، و تکمیل 100 درصد جلسات روز سه ایموجی.<br>امتیاز بر اساس تعداد کارت =&gt; هر کارت 3 امتیاز، اگر کیفیت یادآوری خوب به بالا بود: وزن بیشتری بگیرد. مثلا 3.5 برای کارت خوب، 4 برای خیلی آسان.</div>
+      </div>
+    </div>
+
+    <!-- RULE 3 -->
+    <div class="rule-block" id="block-RULE-003">
+      <div class="rule-header">
+        <div class="rule-tag-group">
+          <span class="rule-id">RULE-003</span>
+          <span class="rule-title">سیاست محصولی و گیت پریمیوم (Monetization &amp; Roadmap #108)</span>
+        </div>
+        <span class="rule-badge locked" id="badge-RULE-003">قفل شد: XP پایه برای همه، تحلیل‌های عمیق پریمیوم</span>
+      </div>
+      <div class="fact-box">
+        <div class="fact-title">🔍 شواهد کد و فکت‌های فنی:</div>
+        طبق ایشوی رودمپ <code>#108</code>، گیمیفیکیشن پیشرفته متعلق به کاربران پریمیوم است. گزارش پایان جلسه نیز فعلاً فقط برای Bronze+ فعال است.
+      </div>
+      <div class="options-grid">
+        <div class="opt-card" onclick="setRuleOption('RULE-003', 'RULE-003-A', 'استریک ساده فری + گیمیفیکیشن فقط پریمیوم', 'کاربر رایگان فقط عدد استریک روزانه را می‌بیند. امتیاز، نمودار شدت و لیدربورد مختص کاربران پریمیوم است.')">
+          <input type="radio" name="RULE-003" id="RULE-003-A">
+          <div class="opt-title">گزینه A: استریک ساده رایگان، XP و لیدربورد فقط پریمیوم</div>
+          <div class="opt-desc">انطباق دقیق با رودمپ #108 و ایجاد ارزش افزوده ملموس برای خرید اشتراک.</div>
+        </div>
+        <div class="opt-card selected" onclick="setRuleOption('RULE-003', 'RULE-003-B', 'XP پایه برای همه، تحلیل‌های عمیق پریمیوم', 'همه کاربران XP جمع می‌کنند؛ اما گزارش هفتگی (Weekly Wrap-up) و جوایز ویژه مخصوص پریمیوم است.')">
+          <input type="radio" name="RULE-003" id="RULE-003-B" checked="checked">
+          <div class="opt-title">گزینه B: امتیاز پایه عمومی، فیچرهای پیشرفته پریمیوم</div>
+          <div class="opt-desc">درگیر کردن حداکثری تمام کاربران در چرخه امتیازدهی و استفاده از آن به عنوان قلاب تبدیل به پریمیوم.</div>
+        </div>
+      </div>
+      <div class="owner-note-area">
+        <span class="note-label">📝 یادداشت و شروط مالک برای RULE-003:</span>
+        <div contenteditable="true" class="note-input" id="note-RULE-003" oninput="updateProposalPreview()">نوعی از امتیاز برای خرید سپر استریک تعیین میکنیم که سخت به دست میاد و بیشتر به درد کاربران پولی میخوره. مثل یک سکه یا اقتصاد درون برنامه ای. شاید بر اساس تکمیل تمام جلسات روز برای فلان روز پیاپی باشه؟</div>
+      </div>
+    </div>
+
+    <!-- RULE 4 -->
+    <div class="rule-block" id="block-RULE-004">
+      <div class="rule-header">
+        <div class="rule-tag-group">
+          <span class="rule-id">RULE-004</span>
+          <span class="rule-title">مکانیک انجماد و نجات استریک (Streak Freeze &amp; Recovery)</span>
+        </div>
+        <span class="rule-badge locked" id="badge-RULE-004">قفل شد: قابلیت یخ‌زدن </span>
+      </div>
+      <div class="fact-box">
+        <div class="fact-title">🔍 شواهد کد و فکت‌های فنی:</div>
+        در کد فعلی اگر کاربر ۱ روز فاصله بیندازد استریک بلافاصله ۱ می‌شود و هیچ مکانیزمی برای حفظ استریک وجود ندارد.
+      </div>
+      <div class="options-grid">
+        <div class="opt-card" onclick="setRuleOption('RULE-004', 'RULE-004-A', 'بدون نجات (ریست سختگیرانه)', 'الگوریتم فعلی حفظ شود؛ در صورت عدم فعالیت در روز گذشته، استریک به ۱ ریست می‌شود.')">
+          <input type="radio" name="RULE-004" id="RULE-004-A">
+          <div class="opt-title">گزینه A: مدل سنتی سخت‌گیرانه (Strict)</div>
+          <div class="opt-desc">بدون قابلیت نجات؛ حفظ دقیق روال فعلی با کمترین پیچیدگی فنی.</div>
+        </div>
+        <div class="opt-card selected" onclick="setRuleOption('RULE-004', 'RULE-004-B', 'قابلیت یخ‌زدن (Streak Freeze) در آینده', 'افزودن قابلیت فریز کردن ۱ روز در هفته برای کاربران پریمیوم یا خریدنی با سکه (فاز بعدی).')">
+          <input type="radio" name="RULE-004" id="RULE-004-B" checked="checked">
+          <div class="opt-title">گزینه B: پیش‌بینی معماری برای Streak Freeze</div>
+          <div class="opt-desc">ایجاد فیلد <code>freeze_credits</code> در اسکیما تا در فاز گیمیفیکیشن از سوختن استریک جلوگیری شود.</div>
+        </div>
+      </div>
+      <div class="owner-note-area">
+        <span class="note-label">📝 یادداشت و شروط مالک برای RULE-004:</span>
+        <div contenteditable="true" class="note-input" id="note-RULE-004" oninput="updateProposalPreview()">کاربر رایگان که مستمر فعالیت میکند و از همرده خودش بهتر عمل میکند: یک هدیه سپر استریک دریافت کند. حساب های پولی ماهانه 2 سپر دارند که با فعالیت خوب تمدید میشود. به صورت آیتم خریدنی هم سپر عرضه میشود. فعلا نیاز نیست روی این بخش تمرکز کنیم چون برای آینده هستند. یک نسخه مینیمال و stub برای حالت های پیشرفته تر کافی است.</div>
+      </div>
+    </div>
+
+    <!-- RULE 5 -->
+    <div class="rule-block" id="block-RULE-005">
+      <div class="rule-header">
+        <div class="rule-tag-group">
+          <span class="rule-id">RULE-005</span>
+          <span class="rule-title">استراتژی ذخیره‌سازی و دیتابیس (Storage &amp; History Strategy)</span>
+        </div>
+        <span class="rule-badge locked" id="badge-RULE-005">قفل شد: جدول اختصاصی daily_study_stats</span>
+      </div>
+      <div class="fact-box">
+        <div class="fact-title">🔍 شواهد کد و فکت‌های فنی:</div>
+        امروز فقط <code>streak</code> و <code>last_active_date</code> در جدول <code>users</code> ذخیره می‌شود. برای ثبت سوابق روزانه می‌توان از ستون‌های سبک یا جدول اختصاصی استفاده کرد.
+      </div>
+      <div class="options-grid">
+        <div class="opt-card" onclick="setRuleOption('RULE-005', 'RULE-005-A', 'ستون‌های سبک در جدول users', 'افزودن best_streak و score به users بدون تاریخچه روزانه؛ سریع‌ترین پیاده‌سازی و سبک‌ترین اسکیما.')">
+          <input type="radio" name="RULE-005" id="RULE-005-A">
+          <div class="opt-title">گزینه A: ستون‌های سبک در جدول users</div>
+          <div class="opt-desc">سریع‌ترین اجرا بدون نیاز به جدول جدید؛ مناسب MVP امتیازدهی.</div>
+        </div>
+        <div class="opt-card selected" onclick="setRuleOption('RULE-005', 'RULE-005-B', 'جدول اختصاصی daily_study_stats', 'ایجاد جدول روزانه (user_id, date, sessions_completed, daily_xp) برای نمودارهای هفتگی و گزارش‌های تحلیلی.')">
+          <input type="radio" name="RULE-005" id="RULE-005-B" checked="checked">
+          <div class="opt-title">گزینه B: جدول اختصاصی daily_study_stats (پیشنهادی معماری)</div>
+          <div class="opt-desc">معماری مقیاس‌پذیر و تمیز مطابق اصل ماژول عمیق (§۳ AGENTS).</div>
+        </div>
+      </div>
+      <div class="owner-note-area">
+        <span class="note-label">📝 یادداشت و شروط مالک برای RULE-005:</span>
+        <div contenteditable="true" class="note-input" id="note-RULE-005" oninput="updateProposalPreview()">دیتابیس کنونی هیچ داده مهمی از این نظر ندارد، یک مهاجرت با فرض سفید بودن دیتابیس نیز شدنی است.<br>چیزی که مهم است: گزارش هفتگی و ماهانه دقیق میتواند انگیزه بخش و کارآمد باشد و نیازمند این است که دیتای فعالیت واقعی کاربر به شکلی بهینه و دقیق در دیتابیس ذخیره شود تا اطلاعات لازم برای ریکپ هفتگی و ماهانه کاربر قابل استخراج باشد.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- TAB 3: PROPOSAL MARKDOWN / CONTRACT PREVIEW -->
+  <div id="tab-proposal" class="tab-content">
+    <h2>📑 پروپوزال و مصوبات قطعی مالک (قرارداد پیاده‌سازی)</h2>
+    <div class="card">
+      در این بخش، تمام تصمیم‌ها و یادداشت‌های شما با شماره قوانین اختصاصی گردآوری شده‌اند. این متن مبنای تغییرات کد و تست‌ها خواهد بود.
+    </div>
+    <div class="proposal-preview" id="proposal-text"># سند قرارداد و مشخصات اجرایی سیستم استریک و امتیاز (Streak Contract Lock)
+**نسخه:** Contract-v2 (مصوب مالک) | **تاریخ:** 2026-08-30 (resynced a3971ed) | **وضعیت:** تصویب‌شده برای پیاده‌سازی
+
+---
+
+## ۱. مصوبات و قوانین بیزینسی مصوب مالک (Owner Rules)
+
+### [RULE-001] معیار سیگنال تکمیل جلسه
+- **گزینه مصوب:** `RULE-001-A` — **اتمام ۱۰۰٪ کارت‌ها (بدون شرط گرید)**
+- **شرح منطق:** جلسه با پاسخ‌دادن به آخرین کارت پایان می‌یابد و مستقل از اینکه گرید Again باشد یا Good، تکمیل‌شده ثبت می‌شود.
+- **دستور و یادداشت اختصاصی مالک:**
+  &gt; حداقل شرط استریک: تکمیل یک جلسه در روز، فارغ از کیفیت عملکرد کاربر.
+
+### [RULE-002] منطق امتیازدهی و تعادل پلن‌ها
+- **گزینه مصوب:** `RULE-002-C` — **مدل ترکیبی (پیشنهادی)**
+- **شرح منطق:** استریک به شدت روزانه (نسبی) متصل است؛ اما XP کل به صورت ترکیبی از تعداد جلسات + کیفیت گریدها محاسبه می‌شود.
+- **دستور و یادداشت اختصاصی مالک:**
+  &gt; کاربران بر اساس تکمیل جلسات بیشتر نسبت به سقف پلن خود استریک ویژه تری میگیرند. مثلا سه سطح استریک برای هر روز: استریک عادی با یک ایموجی آتش، میانه با دو، و تکمیل 100 درصد جلسات روز سه ایموجی.
+امتیاز بر اساس تعداد کارت =&gt; هر کارت 3 امتیاز، اگر کیفیت یادآوری خوب به بالا بود: وزن بیشتری بگیرد. مثلا 3.5 برای کارت خوب، 4 برای خیلی آسان.
+
+### [RULE-003] سیاست محصولی و گیت پریمیوم
+- **گزینه مصوب:** `RULE-003-B` — **XP پایه برای همه، تحلیل‌های عمیق پریمیوم**
+- **شرح منطق:** همه کاربران XP جمع می‌کنند؛ اما گزارش هفتگی (Weekly Wrap-up) و جوایز ویژه مخصوص پریمیوم است.
+- **دستور و یادداشت اختصاصی مالک:**
+  &gt; نوعی از امتیاز برای خرید سپر استریک تعیین میکنیم که سخت به دست میاد و بیشتر به درد کاربران پولی میخوره. مثل یک سکه یا اقتصاد درون برنامه ای. شاید بر اساس تکمیل تمام جلسات روز برای فلان روز پیاپی باشه؟
+
+### [RULE-004] مکانیک انجماد و نجات استریک
+- **گزینه مصوب:** `RULE-004-B` — **قابلیت یخ‌زدن (Streak Freeze) در آینده**
+- **شرح منطق:** افزودن قابلیت فریز کردن ۱ روز در هفته برای کاربران پریمیوم یا خریدنی با سکه (فاز بعدی).
+- **دستور و یادداشت اختصاصی مالک:**
+  &gt; کاربر رایگان که مستمر فعالیت میکند و از همرده خودش بهتر عمل میکند: یک هدیه سپر استریک دریافت کند. حساب های پولی ماهانه 2 سپر دارند که با فعالیت خوب تمدید میشود. به صورت آیتم خریدنی هم سپر عرضه میشود. فعلا نیاز نیست روی این بخش تمرکز کنیم چون برای آینده هستند. یک نسخه مینیمال و stub برای حالت های پیشرفته تر کافی است.
+
+### [RULE-005] استراتژی ذخیره‌سازی و دیتابیس
+- **گزینه مصوب:** `RULE-005-B` — **جدول اختصاصی daily_study_stats**
+- **شرح منطق:** ایجاد جدول روزانه (user_id, date, sessions_completed, daily_xp) برای نمودارهای هفتگی و گزارش‌های تحلیلی.
+- **دستور و یادداشت اختصاصی مالک:**
+  &gt; دیتابیس کنونی هیچ داده مهمی از این نظر ندارد، یک مهاجرت با فرض سفید بودن دیتابیس نیز شدنی است.
+چیزی که مهم است: گزارش هفتگی و ماهانه دقیق میتواند انگیزه بخش و کارآمد باشد و نیازمند این است که دیتای فعالیت واقعی کاربر به شکلی بهینه و دقیق در دیتابیس ذخیره شود تا اطلاعات لازم برای ریکپ هفتگی و ماهانه کاربر قابل استخراج باشد.
+
+---
+
+## ۲. الزامات قطعی فنی و معماری (Technical Constraints)
+
+- **Single Source of Truth:** ایجاد ماژول اختصاصی `services/streak/` بدون انتشار منطق در سایر بخش‌ها.
+- **تک‌تراکنشی بودن مسیر داغ:** ادغام عملیات ثبت رویداد و استریک در یک بلاک `BEGIN IMMEDIATE` برای جلوگیری از قفل SQLite.
+- **سیگنال اتمام جلسه:** فراخوانی رویداد دائمی در `advance_session` پیش از پاک‌کردن `study_sessions`.
+</div>
+    <div style="margin-top: 16px; display: flex; gap: 10px;">
+      <button class="btn btn-blue" onclick="downloadMarkdown()">📥 دانلود پروپوزال در قالب Markdown (.md)</button>
+      <button class="btn btn-primary" onclick="saveUpdatedHTML()">💾 ذخیره نسخه جدید سند تعاملی (.html)</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // State tracking for rules
+  const ruleData = {
+    'RULE-001': { title: 'معیار سیگنال تکمیل جلسه', selected: null, optLabel: '', optDesc: '', note: '' },
+    'RULE-002': { title: 'منطق امتیازدهی و تعادل پلن‌ها', selected: null, optLabel: '', optDesc: '', note: '' },
+    'RULE-003': { title: 'سیاست محصولی و گیت پریمیوم', selected: null, optLabel: '', optDesc: '', note: '' },
+    'RULE-004': { title: 'مکانیک انجماد و نجات استریک', selected: null, optLabel: '', optDesc: '', note: '' },
+    'RULE-005': { title: 'استراتژی ذخیره‌سازی و دیتابیس', selected: null, optLabel: '', optDesc: '', note: '' }
+  };
+
+  function switchTab(tabId) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    document.getElementById(tabId).classList.add('active');
+
+    // update button active class
+    const btns = document.querySelectorAll('.tab-btn');
+    if (tabId === 'tab-audit') btns[0].classList.add('active');
+    if (tabId === 'tab-decision') btns[1].classList.add('active');
+    if (tabId === 'tab-proposal') {
+      btns[2].classList.add('active');
+      generateProposalMD();
+    }
+  }
+
+  function setRuleOption(ruleId, optionId, label, desc) {
+    const block = document.getElementById(`block-${ruleId}`);
+    block.querySelectorAll('.opt-card').forEach(card => card.classList.remove('selected'));
+
+    const radio = document.getElementById(optionId);
+    radio.checked = true;
+    radio.setAttribute('checked', 'checked');
+    radio.closest('.opt-card').classList.add('selected');
+
+    // Update state
+    ruleData[ruleId].selected = optionId;
+    ruleData[ruleId].optLabel = label;
+    ruleData[ruleId].optDesc = desc;
+
+    // Update UI Badge
+    const badge = document.getElementById(`badge-${ruleId}`);
+    badge.textContent = `قفل شد: ${label.split('(')[0]}`;
+    badge.className = 'rule-badge locked';
+
+    updateCounter();
+    updateProposalPreview();
+  }
+
+  function updateCounter() {
+    let lockedCount = 0;
+    for (const key in ruleData) {
+      if (ruleData[key].selected) lockedCount++;
+    }
+    document.getElementById('lock-counter').textContent = `${lockedCount} از ۵ قانون قفل شده`;
+  }
+
+  function generateProposalMD() {
+    let md = `# سند قرارداد و مشخصات اجرایی سیستم استریک و امتیاز (Streak Contract Lock)\n`;
+    md += `**نسخه:** Contract-v2 (مصوب مالک) | **تاریخ:** 2026-08-30 (resynced a3971ed) | **وضعیت:** تصویب‌شده برای پیاده‌سازی\n\n`;
+    md += `---\n\n`;
+    md += `## ۱. مصوبات و قوانین بیزینسی مصوب مالک (Owner Rules)\n\n`;
+
+    for (const [rId, rInfo] of Object.entries(ruleData)) {
+      const noteVal = document.getElementById(`note-${rId}`) ? document.getElementById(`note-${rId}`).innerText.trim() : '';
+      md += `### [${rId}] ${rInfo.title}\n`;
+      if (rInfo.selected) {
+        md += `- **گزینه مصوب:** \`${rInfo.selected}\` — **${rInfo.optLabel}**\n`;
+        md += `- **شرح منطق:** ${rInfo.optDesc}\n`;
+      } else {
+        md += `- **وضعیت:** ⚠️ *تصمیم‌گیری نشده (نیاز به تعیین گزینه)*\n`;
+      }
+      if (noteVal && noteVal !== 'توضیحات تکمیلی یا شروط خاص خود را اینجا وارد کنید...' && !noteVal.startsWith('توضیحات یا شرط خاصی') && !noteVal.startsWith('فرمول یا ضرایب')) {
+        md += `- **دستور و یادداشت اختصاصی مالک:**\n  > ${noteVal}\n`;
+      }
+      md += `\n`;
+    }
+
+    md += `---\n\n`;
+    md += `## ۲. الزامات قطعی فنی و معماری (Technical Constraints)\n\n`;
+    md += `- **Single Source of Truth:** ایجاد ماژول اختصاصی \`services/streak/\` بدون انتشار منطق در سایر بخش‌ها.\n`;
+    md += `- **تک‌تراکنشی بودن مسیر داغ:** ادغام عملیات ثبت رویداد و استریک در یک بلاک \`BEGIN IMMEDIATE\` برای جلوگیری از قفل SQLite.\n`;
+    md += `- **سیگنال اتمام جلسه:** فراخوانی رویداد دائمی در \`advance_session\` پیش از پاک‌کردن \`study_sessions\`.\n`;
+
+    document.getElementById('proposal-text').textContent = md;
+    return md;
+  }
+
+  function updateProposalPreview() {
+    generateProposalMD();
+  }
+
+  function downloadMarkdown() {
+    const mdContent = generateProposalMD();
+    const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'streak_architecture_proposal.md';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function saveUpdatedHTML() {
+    // Sync current selections into HTML attributes
+    for (const [rId, rInfo] of Object.entries(ruleData)) {
+      if (rInfo.selected) {
+        const radio = document.getElementById(rInfo.selected);
+        if (radio) radio.setAttribute('checked', 'checked');
+      }
+    }
+
+    const docHtml = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+    const blob = new Blob([docHtml], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'streak_audit_and_contract_locked_v2.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    alert('✅ نسخه جدید سند HTML با تمام انتخاب‌ها و یادداشت‌های شما ذخیره شد.');
+  }
+</script>
+
+
+
+</body></html>
