@@ -3,7 +3,7 @@ openai==3.3.1
 python-dotenv==1.2.3
 httpx==0.28.1
 cryptography==50.0.1
-ruff>=0.16.3,<1
+ruff>=0.16.4,<1
 edge-tts>=7.2.8,<8
 colorlog>=6.12.0,<7
 pytest>=9.1.1,<10
