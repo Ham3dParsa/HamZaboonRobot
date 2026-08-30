@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ممیزی معماری AI Pipeline — تولید و Fallback (AI Pipeline Contract Lock)</title>
+<style>
+  :root { --bg:#0b0e17; --panel:#131826; --panel2:#1b2236; --card:#202942; --border:#2d3856; --ink:#e8ecf8; --muted:#8f9bb3; --accent:#ff5e62; --accent2:#ff9966; --gold:#ffc107; --green:#2ecc71; --blue:#4a90e2; --purple:#9b59b6; --mono:"JetBrains Mono","Cascadia Code",Consolas,monospace; --font:"Vazirmatn","IRANSansX","Segoe UI",Tahoma,sans-serif; }
+  *{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at top right,#1a1e36 0%,#0b0e17 80%);color:var(--ink);font-family:var(--font);line-height:1.8;font-size:14.5px;padding-bottom:120px}
+  .wrap{max-width:1160px;margin:0 auto;padding:24px 20px}
+  .topbar{position:sticky;top:14px;z-index:1000;background:rgba(19,24,38,.92);backdrop-filter:blur(14px);border:1px solid var(--border);border-radius:14px;padding:12px 20px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  .topbar-info{display:flex;align-items:center;gap:12px}.topbar-title{font-weight:800;font-size:15px;color:var(--gold)}
+  .counter-badge{background:var(--panel2);border:1px solid var(--border);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;color:var(--accent2)}
+  .topbar-actions{display:flex;gap:8px;flex-wrap:wrap}
+  .btn{background:var(--panel2);color:var(--ink);border:1px solid var(--border);padding:7px 14px;border-radius:8px;cursor:pointer;font-family:var(--font);font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px;transition:all .2s}.btn:hover{background:var(--card);border-color:var(--muted)}
+  .btn-primary{background:linear-gradient(135deg,#27ae60 0%,#2ecc71 100%);color:#fff;border-color:#27ae60;font-weight:700}.btn-primary:hover{box-shadow:0 0 16px rgba(46,204,113,.4)}.btn-blue{background:linear-gradient(135deg,#2980b9 0%,#3498db 100%);color:#fff;border-color:#2980b9}
+  header.hero{background:linear-gradient(135deg,#161c2e 0%,#251d38 100%);border:1px solid var(--border);border-radius:18px;padding:28px 32px;margin-bottom:24px;position:relative;overflow:hidden}
+  header.hero::after{content:"🤖";position:absolute;left:24px;top:16px;font-size:80px;opacity:.18;transform:rotate(12deg)}
+  .tag{display:inline-block;background:var(--purple);color:#fff;font-weight:800;font-size:11.5px;padding:2px 10px;border-radius:999px;margin-bottom:10px}
+  h1{margin:0 0 6px;font-size:22px;color:#fff}.sub{color:var(--muted);font-size:13.5px}
+  .nav-tabs{display:flex;gap:8px;margin:20px 0;border-bottom:2px solid var(--border);padding-bottom:8px}
+  .tab-btn{background:transparent;border:none;color:var(--muted);font-family:var(--font);font-size:14px;font-weight:700;padding:8px 18px;border-radius:8px;cursor:pointer;transition:all .2s}
+  .tab-btn:hover{color:#fff;background:var(--panel2)}.tab-btn.active{color:#fff;background:var(--card);border:1px solid var(--border)}
+  .tab-content{display:none}.tab-content.active{display:block;animation:fadeIn .3s ease}@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  h2{font-size:18px;color:#fff;margin:30px 0 14px;display:flex;align-items:center;gap:8px} h2 .num{background:var(--panel2);border:1px solid var(--border);color:var(--gold);width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:14px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin:12px 0}
+  .kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:16px 0}
+  .kpi .cell{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center}.kpi .cell .v{font-size:22px;font-weight:800;color:var(--accent2)}.kpi .cell .l{font-size:11.5px;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px} th,td{border:1px solid var(--border);padding:8px 12px;text-align:right;vertical-align:top} th{background:var(--panel2);color:var(--gold);font-weight:700} tr:nth-child(even) td{background:rgba(255,255,255,.015)}
+  code,.code{font-family:var(--mono);direction:ltr;text-align:left;unicode-bidi:embed;background:#07090f;border:1px solid var(--border);border-radius:5px;padding:1px 6px;font-size:12px;color:var(--green)}
+  pre{direction:ltr;text-align:left;background:#07090f;border:1px solid var(--border);border-radius:8px;padding:12px 14px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.6;color:#cfd6e6}
+  .loc{font-family:var(--mono);direction:ltr;font-size:11.5px;color:var(--blue);white-space:nowrap}
+  .rule-block{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:22px;margin-bottom:24px;border-right:5px solid var(--blue)}
+  .rule-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid var(--border);padding-bottom:10px}
+  .rule-tag-group{display:flex;align-items:center;gap:8px}
+  .rule-id{background:#090d16;color:var(--blue);font-family:var(--mono);font-weight:800;padding:3px 8px;border-radius:6px;border:1px solid var(--border);font-size:13px}
+  .rule-title{font-size:16px;font-weight:700;color:#fff}
+  .rule-badge{font-size:11.5px;padding:2px 10px;border-radius:999px;font-weight:700;border:1px solid}
+  .rule-badge.pending{color:var(--gold);border-color:var(--gold);background:rgba(255,193,7,.1)}.rule-badge.locked{color:var(--green);border-color:var(--green);background:rgba(46,204,113,.1)}
+  .fact-box{background:var(--panel2);border:1px dashed var(--border);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px}
+  .fact-title{color:var(--accent2);font-weight:700;margin-bottom:4px;font-size:12px;display:flex;align-items:center;gap:6px}
+  .options-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin:14px 0}
+  .opt-card{background:var(--card);border:1.5px solid var(--border);border-radius:10px;padding:14px;cursor:pointer;position:relative;transition:all .2s}
+  .opt-card:hover{border-color:var(--muted)}.opt-card.selected{border-color:var(--green);background:rgba(46,204,113,.08);box-shadow:0 0 12px rgba(46,204,113,.15)}
+  .opt-card input[type=radio]{position:absolute;left:12px;top:14px;accent-color:var(--green);transform:scale(1.2)}
+  .opt-title{font-weight:700;font-size:14px;margin-bottom:4px;color:#fff;padding-left:20px}.opt-desc{font-size:12.5px;color:var(--muted);line-height:1.5}
+  .owner-note-area{background:#090d16;border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-top:14px}
+  .note-label{color:var(--gold);font-size:12px;font-weight:700;margin-bottom:6px;display:block}
+  [contenteditable=true]{outline:none}[contenteditable=true]:focus{background:rgba(255,255,255,.03);border-radius:4px}.note-input{font-size:13px;color:#d0d7de;min-height:24px;line-height:1.6}
+  .proposal-preview{background:#080a10;border:1px solid var(--border);border-radius:10px;padding:16px;font-family:var(--mono);font-size:12.5px;color:#a5d6ff;white-space:pre-wrap;direction:ltr;text-align:left;max-height:420px;overflow-y:auto}
+  .mermaid-box{background:#07090f;border:1px solid var(--border);border-radius:10px;padding:12px;margin:10px 0}
+</style>
+<script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"; mermaid.initialize({startOnLoad:true,theme:"dark",securityLevel:"loose"});</script>
+</head><body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="topbar-info"><span class="topbar-title">🤖 پنل ممیزی AI Pipeline — تولید و Preset</span><span class="counter-badge" id="lock-counter">۴ از ۴ قانون قفل شده</span></div>
+    <div class="topbar-actions">
+      <button class="btn" onclick="switchTab('tab-proposal');generateProposalMD();">📝 مشاهده پروپوزال نهایی</button>
+      <button class="btn btn-blue" onclick="downloadMarkdown()">📥 دانلود پروپوزال (MD)</button>
+      <button class="btn btn-primary" onclick="saveUpdatedHTML()">💾 ذخیره نسخه جدید سند (HTML)</button>
+    </div>
+  </div>
+  <header class="hero">
+    <span class="tag">Wave 2 · Agent C — AI Generation Pipeline & Preset/Fallback</span>
+    <h1 contenteditable="true">سند ممیزی و قفل معماری پایپ‌لاین هوش مصنوعی (AI Pipeline Deepening Audit)</h1>
+    <div style="margin-top:6px;font-size:11px;color:#2ecc71;border:1px solid #2ecc71;display:inline-block;padding:2px 8px;border-radius:999px">✔ Synced: 2026-08-30 @ a3971ed — main</div><div class="sub">فاز ۱ از ۲ در موج دوم — بررسی <code>services/ai/ai.py:827</code>، <code>llm_services.py:397</code>، <code>preset_registry.py:599</code>، <code>ai_read_cache.py</code> و زنجیرهٔ fallback. پایپ‌لاین فعلی ۵ نگرانی را در ۲ فایل فشرده کرده است.</div>
+  </header>
+  <div class="nav-tabs">
+    <button class="tab-btn" onclick="switchTab('tab-audit')">📖 ۱. گزارش ممیزی و شواهد کد</button>
+    <button class="tab-btn active" onclick="switchTab('tab-decision')">⚖️ ۲. پنل تصمیم‌گیری (Rules)</button>
+    <button class="tab-btn" onclick="switchTab('tab-proposal')">📑 ۳. پیش‌نمایش پروپوزال مالک</button>
+  </div>
+
+  <div id="tab-audit" class="tab-content">
+    <div class="kpi">
+      <div class="cell"><div class="v">۸۲۷</div><div class="l">خط در <code>ai.py</code> خدا</div></div>
+      <div class="cell"><div class="v">۳۹۷</div><div class="l">خط در <code>llm_services.py</code></div></div>
+      <div class="cell"><div class="v">۵</div><div class="l">دامنه در ۱ orchestrator</div></div>
+      <div class="cell"><div class="v">۴×</div><div class="l">تکرار ORDER BY زنجیره</div></div>
+      <div class="cell"><div class="v">۴</div><div class="l">کاندیدای عمیق‌سازی</div></div>
+    </div>
+    <div class="card"><b>خلاصهٔ شواهد:</b> <code>llm_services.py:397</code> پنج نگرانی (LimiterStore + RPM/TPM + fallback chain + prune ساعتی + card-repair) را در یک فایل نگه می‌دارد؛ <code>ai.py:827</code> شش نگرانی (client + JSON + validation + phonetic + batch + telemetry) را در خود دارد. <code>ORDER BY is_emergency ASC, priority ASC</code> در ۴ نقطه تکرار؛ محاسبهٔ cost در <code>ai.py:219</code> و <code>cost_tracking.py:29</code> موازی.</div>
+    <h2><span class="num">۱</span> نگاشت اصطکاک</h2>
+    <table>
+      <thead><tr><th>دامنه</th><th>مسیر دقیق</th><th>نشت / کم‌عمقی</th></tr></thead>
+      <tbody>
+        <tr><td><b>Orchestrator خدا</b></td><td class="loc">llm_services.py:1-397</td><td>LimiterStore:36 + prune:109 + fallback chain:212 + repair:328 در ۱ فایل؛ prune بودجهٔ DB به مسیر داغ نشت کرده</td></tr>
+        <tr><td><b>ai.py خدا</b></td><td class="loc">ai.py:1-827</td><td>validate_card:450 + repair:494 + _extract_json:406 + _log_llm:180 در ۱ فایل؛ تکراری با validation/json_extraction</td></tr>
+        <tr><td><b>ORDER BY تکراری</b></td><td class="loc">preset_registry.py:411,495,503,515</td><td>لیترال <code>ORDER BY is_emergency ASC, priority ASC</code> در ۴ جا — تغییر tiering نیاز به ۴ ویرایش</td></tr>
+        <tr><td><b>Cache دوبل</b></td><td class="loc">ai_read_cache.py:26-58 vs 60-70</td><td>دو متد یکسان با TTL متفاوت؛ <code>_read_cache:89</code> دوبل؛ admin_cost مسیر را دور می‌زند</td></tr>
+      </tbody>
+    </table>
+    <div class="mermaid-box"><pre class="mermaid">flowchart TB
+  H["handlers"] --> LS["llm_services._call_ai_limited 397<br/>Limiter+prune+chain+repair"]
+  LS --> LIM["LimiterStore 36-99<br/>BoundedSemaphore"]
+  LS --> CH["fallback chain loop 231"]
+  LS --> PR["_maybe_prune 109<br/>DB prune leakage"]
+  LS --> RP["_prepare_cached_card 328<br/>belongs to ai.py"]
+  AI["ai.py 827<br/>client+JSON+validation+telemetry"] --> LOG["_log_llm 180<br/>cost calc 219"]
+  DB["cost_tracking 29<br/>cost calc duplicate"] -. duplicate .-> LOG
+</pre></div>
+    <div class="mermaid-box"><pre class="mermaid">flowchart LR
+  AF["AFTER<br/>FallbackRouter.call → Limiter.acquire → ProviderClient.call"]
+  AF --> L2["limiter.py deep<br/>RPM/TPM/backoff"]
+  AF --> R2["generation.py<br/>repair+validation"]
+  AF --> PR2["preset_registry<br/>_retry_primary"]
+  AI2["ai.py thin<br/>create_client+_request_json only"]
+</pre></div>
+    <div class="card" style="border-right:4px solid #2ecc71;background:rgba(46,204,113,0.06)"><b>✔ Resync verification 2026-08-30 @ a3971ed (main):</b> مقادیر KPI و LOC در این نسخه با <code>origin/main</code> تطبیق داده شد. وضعیت هر RULE در پنل تصمیم‌گیری همچنان <code>locked: A</code> است — جدول وضعیت واقعی در PR #483 recheck ثبت شد (DB 0/4, RT 1/4, AI 0/4, SS 0/4). برای جزئیات per-RULE به ریپورت CLI مراجعه کنید.</div>
+    <div class="card" style="border-right:4px solid var(--purple)"><b>Top Recommendation:</b> ابتدا <b>RULE-AI-001 + RULE-AI-002</b> را با هم جدا کنید — بیشترین <b>locality</b> برای رایج‌ترین ویرایش (تغییر اسکیمای کارت). سپس <b>RULE-AI-003</b> کم‌ریسک (ORDER BY + cost_resolver) را فست‌فالو کنید.</div>
+  </div>
+
+  <div id="tab-decision" class="tab-content active">
+    <div class="card" style="border-right:4px solid var(--gold)"><b>راهنمای مالک:</b> هر قانون مستقل است؛ گزینهٔ انتخابی مستقیماً در پروپوزال و PR بعدی اعمال می‌شود.</div>
+
+    <div class="rule-block" id="block-RULE-AI-001">
+      <div class="rule-header"><div class="rule-tag-group"><span class="rule-id">RULE-AI-001</span><span class="rule-title">تفکیک Orchestrator — جدا کردن Limiter / Fallback Router / Repair</span></div><span class="rule-badge locked" id="badge-RULE-AI-001">قفل شد: تفکیک سه‌گانه کامل</span></div>
+      <div class="fact-box"><div class="fact-title">🔍 شواهد کد:</div><code>llm_services.py:32-33 _prune_lock/_last_hourly_prune</code> سراسری و غیرقابل تزریق؛ <code>_maybe_prune:109</code> هر بار <code>db.prune_preset_hourly_usage:117</code> را از مسیر داغ صدا می‌زند؛ <code>_prepare_cached_card:328</code> به limiter تعلق ندارد.</div>
+      <div class="options-grid">
+        <div class="opt-card selected" onclick="setRuleOption('RULE-AI-001','RULE-AI-001-A','تفکیک سه‌گانه کامل (پیشنهادی قوی)','extract limiter.py (LimiterStore+RPM/TPM+backoff) + fallback_router.py (chain loop)؛ repair به generation.py؛ _retry_primary به preset_registry؛ llm_services façade نازک')"><input type="radio" name="RULE-AI-001" id="RULE-AI-001-A" checked><div class="opt-title">گزینه A: تفکیک سه‌گانه کامل</div><div class="opt-desc"><b>leverage</b>: limiter قابل استفاده مستقیم؛ prune از مسیر داغ جدا.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-AI-001','RULE-AI-001-B','فقط جدا کردن limiter','فقط LimiterStore جدا شود')"><input type="radio" name="RULE-AI-001" id="RULE-AI-001-B"><div class="opt-title">گزینه B: فقط limiter</div><div class="opt-desc">گام کوچک؛ اما repair همچنان در orchestrator.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-AI-001','RULE-AI-001-C','حفظ وضع موجود','هیچ تفکیک انجام نشود')"><input type="radio" name="RULE-AI-001" id="RULE-AI-001-C"><div class="opt-title">گزینه C: حفظ وضع موجود</div><div class="opt-desc">بدون ریسک هم‌زمانی؛ اما ۵ نگرانی همچنان یکی.</div></div>
+      </div>
+      <div class="owner-note-area"><span class="note-label">📝 یادداشت مالک برای RULE-AI-001:</span><div contenteditable="true" class="note-input" id="note-RULE-AI-001" oninput="updateProposalPreview()">منطق سواپ سمافور <code>llm_services.py:67-77</code> با تست پوشش دقیق استخراج شود؛ <code>slot</code> capture در <code>:269</code> حساس است.</div></div>
+    </div>
+
+    <div class="rule-block" id="block-RULE-AI-002">
+      <div class="rule-header"><div class="rule-tag-group"><span class="rule-id">RULE-AI-002</span><span class="rule-title">تفکیک <code>ai.py</code> — استخراج JSON / Validation / Telemetry</span></div><span class="rule-badge locked" id="badge-RULE-AI-002">قفل شد: استخراج سه‌گانه</span></div>
+      <div class="fact-box"><div class="fact-title">🔍 شواهد کد:</div><code>ai.py:365-375 _COMPACT_CARD_FIELDS</code>، <code>406-418 _extract_json</code>، <code>450-544 validate+repair</code>، <code>285-332 _call_tracked</code>، <code>180-282 _log_llm_request</code> در ۱ فایل ۸۲۷ خطی.</div>
+      <div class="options-grid">
+        <div class="opt-card selected" onclick="setRuleOption('RULE-AI-002','RULE-AI-002-A','استخراج سه‌گانه (پیشنهادی قوی)','json_codec.py (_extract_json+alias) + card_validation.py (validate+repair+phonetic+batch) + telemetry.py (_call_tracked+_log_llm)؛ ai.py فقط create_client+_request_json+ask_*')"><input type="radio" name="RULE-AI-002" id="RULE-AI-002-A" checked><div class="opt-title">گزینه A: استخراج سه‌گانه</div><div class="opt-desc"><b>locality</b>: ویرایش اسکیما فقط یک ماژول &lt;۲۰۰ خط.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-AI-002','RULE-AI-002-B','فقط JSON جدا شود','فقط _extract_json جدا شود')"><input type="radio" name="RULE-AI-002" id="RULE-AI-002-B"><div class="opt-title">گزینه B: فقط JSON</div><div class="opt-desc">گام حداقلی.</div></div>
+      </div>
+      <div class="owner-note-area"><span class="note-label">📝 یادداشت مالک برای RULE-AI-002:</span><div contenteditable="true" class="note-input" id="note-RULE-AI-002" oninput="updateProposalPreview()">محاسبهٔ cost یکسان شود: <code>cost_tracking.compute_cost()</code> تنها منبع؛ تکراری <code>ai.py:219-224</code> حذف شود.</div></div>
+    </div>
+
+    <div class="rule-block" id="block-RULE-AI-003">
+      <div class="rule-header"><div class="rule-tag-group"><span class="rule-id">RULE-AI-003</span><span class="rule-title">متمرکزسازی ترتیب زنجیره و حل cost — Single Source برای ORDER BY و resolver</span></div><span class="rule-badge locked" id="badge-RULE-AI-003">قفل شد: cost_resolver + ثابت ORDER BY</span></div>
+      <div class="fact-box"><div class="fact-title">🔍 شواهد کد:</div><code>ORDER BY is_emergency ASC, priority ASC, name ASC</code> در <code>preset_registry:411,495,503,515</code> تکرار؛ حل cost بین <code>preset input_cost_per_million:77</code> و <code>settings.get_llm_cost_profile:106</code> و <code>ai.py:208-216</code> پخش.</div>
+      <div class="options-grid">
+        <div class="opt-card selected" onclick="setRuleOption('RULE-AI-003','RULE-AI-003-A','ثابت ORDER BY + cost_resolver (پیشنهادی)','_CHAIN_ORDER_SQL ثابت + cost_resolver.resolve(preset) که preset > settings > env را پنهان کند؛ TTL پشت resolver')"><input type="radio" name="RULE-AI-003" id="RULE-AI-003-A" checked><div class="opt-title">گزینه A: ثابت + resolver</div><div class="opt-desc">تغییر tiering یک خط؛ سه‌راه fallback پنهان.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-AI-003','RULE-AI-003-B','فقط ثابت ORDER BY','فقط لیترال متمرکز شود')"><input type="radio" name="RULE-AI-003" id="RULE-AI-003-B"><div class="opt-title">گزینه B: فقط ثابت</div><div class="opt-desc">کم‌هزینه اما cost همچنان پخش.</div></div>
+      </div>
+      <div class="owner-note-area"><span class="note-label">📝 یادداشت مالک برای RULE-AI-003:</span><div contenteditable="true" class="note-input" id="note-RULE-AI-003" oninput="updateProposalPreview()">سند تک‌منبعی برای <code>config/__init__.py:35 env defaults</code> در برابر <code>preset_fields.config_default</code> تهیه شود.</div></div>
+    </div>
+
+    <div class="rule-block" id="block-RULE-AI-004">
+      <div class="rule-header"><div class="rule-tag-group"><span class="rule-id">RULE-AI-004</span><span class="rule-title">پاکسازی ماژول‌های کم‌عمق — حذف/ادغام <code>ai_presets.py</code> و جنریک‌سازی Cache</span></div><span class="rule-badge locked" id="badge-RULE-AI-004">قفل شد: حذف ai_presets + جنریک TTLCache</span></div>
+      <div class="fact-box"><div class="fact-title">🔍 شواهد کد:</div><code>ai_presets.py:33</code> یک خط <code>decrypt_secret</code>؛ آزمون حذف پاس می‌شود. <code>ai_read_cache.py:26-70</code> دو متد یکسان؛ <code>__init__.py</code> خالی است.</div>
+      <div class="options-grid">
+        <div class="opt-card selected" onclick="setRuleOption('RULE-AI-004','RULE-AI-004-A','حذف ai_presets + جنریک TTLCache + façade','resolve_api_key به key_crypto منتقل؛ ReadCache به TTLCache[T] جنریک؛ ai/__init__.py façade re-export')"><input type="radio" name="RULE-AI-004" id="RULE-AI-004-A" checked><div class="opt-title">گزینه A: پاکسازی کامل (پیشنهادی)</div><div class="opt-desc">حذف shallow؛ facade درست طبق AGENTS §۴.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-AI-004','RULE-AI-004-B','فقط جنریک‌سازی cache','فقط TTLCache جنریک شود')"><input type="radio" name="RULE-AI-004" id="RULE-AI-004-B"><div class="opt-title">گزینه B: فقط cache</div><div class="opt-desc">حداقلی.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-AI-004','RULE-AI-004-C','حفظ وضع موجود','هیچ پاکسازی انجام نشود')"><input type="radio" name="RULE-AI-004" id="RULE-AI-004-C"><div class="opt-title">گزینه C: حفظ وضع موجود</div><div class="opt-desc">بی‌اثر اما بی‌ریسک.</div></div>
+      </div>
+      <div class="owner-note-area"><span class="note-label">📝 یادداشت مالک برای RULE-AI-004:</span><div contenteditable="true" class="note-input" id="note-RULE-AI-004" oninput="updateProposalPreview()">تغییر importهای <code>services.ai.ai</code> به <code>services.ai</code> در همان PR انجام شود (قانون حذف مسیر قدیمی).</div></div>
+    </div>
+  </div>
+
+  <div id="tab-proposal" class="tab-content">
+    <h2>📑 پروپوزال و مصوبات قطعی مالک</h2>
+    <div class="card">تمام تصمیم‌ها با شناسهٔ <code>RULE-AI-XXX</code> گردآوری شده و مبنای PRهای بعدی خواهد بود.</div>
+    <div class="proposal-preview" id="proposal-text"></div>
+    <div style="margin-top:16px;display:flex;gap:10px"><button class="btn btn-blue" onclick="downloadMarkdown()">📥 دانلود Markdown</button><button class="btn btn-primary" onclick="saveUpdatedHTML()">💾 ذخیره HTML تعاملی</button></div>
+  </div>
+</div>
+<script>
+  const ruleData={'RULE-AI-001':{title:'تفکیک Orchestrator — Limiter/Fallback/Repair',selected:'RULE-AI-001-A',optLabel:'تفکیک سه‌گانه کامل',optDesc:'limiter.py + fallback_router.py؛ repair به generation.py؛ _retry_primary به preset_registry'},
+  'RULE-AI-002':{title:'تفکیک ai.py — JSON/Validation/Telemetry',selected:'RULE-AI-002-A',optLabel:'استخراج سه‌گانه',optDesc:'json_codec + card_validation + telemetry؛ ai.py فقط client+request'},
+  'RULE-AI-003':{title:'متمرکزسازی ORDER BY و cost resolver',selected:'RULE-AI-003-A',optLabel:'ثابت ORDER BY + cost_resolver',optDesc:'_CHAIN_ORDER_SQL + cost_resolver.resolve(preset) سه‌راه fallback را پنهان کند'},
+  'RULE-AI-004':{title:'پاکسازی ai_presets و جنریک‌سازی Cache',selected:'RULE-AI-004-A',optLabel:'حذف ai_presets + جنریک TTLCache',optDesc:'resolve_api_key به key_crypto؛ TTLCache[T] جنریک؛ façade در ai/__init__.py'}};
+  function switchTab(id){document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));document.querySelectorAll('.tab-btn').forEach(e=>e.classList.remove('active'));document.getElementById(id).classList.add('active');const b=document.querySelectorAll('.tab-btn');if(id==='tab-audit')b[0].classList.add('active');if(id==='tab-decision')b[1].classList.add('active');if(id==='tab-proposal'){b[2].classList.add('active');generateProposalMD();}}
+  function setRuleOption(rId,oId,label,desc){const block=document.getElementById('block-'+rId);block.querySelectorAll('.opt-card').forEach(c=>c.classList.remove('selected'));const r=document.getElementById(oId);r.checked=true;r.setAttribute('checked','checked');r.closest('.opt-card').classList.add('selected');ruleData[rId].selected=oId;ruleData[rId].optLabel=label;ruleData[rId].optDesc=desc;const badge=document.getElementById('badge-'+rId);badge.textContent='قفل شد: '+label.split('(')[0];badge.className='rule-badge locked';updateCounter();updateProposalPreview();}
+  function updateCounter(){let c=0;for(const k in ruleData) if(ruleData[k].selected) c++;document.getElementById('lock-counter').textContent=c+' از ۴ قانون قفل شده';}
+  function generateProposalMD(){let md='# سند قرارداد معماری AI Pipeline\n**نسخه:** AI-v1 | **تاریخ:** 2026-08-30 (resynced a3971ed) | **وضعیت:** قفل‌شده برای پیاده‌سازی\n\n---\n\n## ۱. مصوبات مالک\n\n';for(const [rId,info] of Object.entries(ruleData)){const note=document.getElementById('note-'+rId)?document.getElementById('note-'+rId).innerText.trim():'';md+=`### [${rId}] ${info.title}\n- **گزینه مصوب:** \`${info.selected}\` — **${info.optLabel}**\n- **شرح:** ${info.optDesc}\n`;if(note) md+=`- **یادداشت مالک:**\n  > ${note}\n`;md+='\n';}md+='---\n\n## ۲. الزامات فنی\n\n- **Seam تولید:** `FallbackRouter.call(fn)` تنها مسیر AI باشد؛ `LimiterStore` قابل تزریق (async-aware جایگزین BoundedSemaphore).\n- **Single Source:** `cost_tracking.compute_cost()` تنها محاسبه؛ `preset_fields.config_default` تنها default.\n- **Compat:** `ai/__init__.py` façade حفظ شود؛ مسیر قدیمی در همان PR حذف شود (dead-reference guard).\n';document.getElementById('proposal-text').textContent=md;return md;}
+  function updateProposalPreview(){generateProposalMD();} function downloadMarkdown(){const md=generateProposalMD();const b=new Blob([md],{type:'text/markdown;charset=utf-8'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='ai_pipeline_proposal.md';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);}
+  function saveUpdatedHTML(){for(const [rId,info] of Object.entries(ruleData)) if(info.selected){const r=document.getElementById(info.selected);if(r) r.setAttribute('checked','checked');} const h='<!DOCTYPE html>\n'+document.documentElement.outerHTML;const b=new Blob([h],{type:'text/html;charset=utf-8'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='architecture_ai_pipeline_audit_v1.html';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);alert('✅ نسخه جدید HTML ذخیره شد.');}
+  generateProposalMD();
+</script>
+</body></html>

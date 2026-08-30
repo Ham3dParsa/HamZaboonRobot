@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ممیزی معماری Routing & Handlers — مسیریابی تلگرام (Routing Contract Lock)</title>
+<style>
+  :root { --bg:#0b0e17; --panel:#131826; --panel2:#1b2236; --card:#202942; --border:#2d3856; --ink:#e8ecf8; --muted:#8f9bb3; --accent:#ff5e62; --accent2:#ff9966; --gold:#ffc107; --green:#2ecc71; --blue:#4a90e2; --purple:#9b59b6; --mono:"JetBrains Mono","Cascadia Code",Consolas,monospace; --font:"Vazirmatn","IRANSansX","Segoe UI",Tahoma,sans-serif; }
+  *{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at top right,#1a1e36 0%,#0b0e17 80%);color:var(--ink);font-family:var(--font);line-height:1.8;font-size:14.5px;padding-bottom:120px}
+  .wrap{max-width:1160px;margin:0 auto;padding:24px 20px}
+  .topbar{position:sticky;top:14px;z-index:1000;background:rgba(19,24,38,.92);backdrop-filter:blur(14px);border:1px solid var(--border);border-radius:14px;padding:12px 20px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  .topbar-info{display:flex;align-items:center;gap:12px}.topbar-title{font-weight:800;font-size:15px;color:var(--gold)}
+  .counter-badge{background:var(--panel2);border:1px solid var(--border);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;color:var(--accent2)}
+  .topbar-actions{display:flex;gap:8px;flex-wrap:wrap}
+  .btn{background:var(--panel2);color:var(--ink);border:1px solid var(--border);padding:7px 14px;border-radius:8px;cursor:pointer;font-family:var(--font);font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px;transition:all .2s}.btn:hover{background:var(--card);border-color:var(--muted)}
+  .btn-primary{background:linear-gradient(135deg,#27ae60 0%,#2ecc71 100%);color:#fff;border-color:#27ae60;font-weight:700}.btn-primary:hover{box-shadow:0 0 16px rgba(46,204,113,.4)}.btn-blue{background:linear-gradient(135deg,#2980b9 0%,#3498db 100%);color:#fff;border-color:#2980b9}
+  header.hero{background:linear-gradient(135deg,#161c2e 0%,#251d38 100%);border:1px solid var(--border);border-radius:18px;padding:28px 32px;margin-bottom:24px;position:relative;overflow:hidden}
+  header.hero::after{content:"🧭";position:absolute;left:24px;top:16px;font-size:80px;opacity:.18;transform:rotate(12deg)}
+  .tag{display:inline-block;background:var(--accent);color:#fff;font-weight:800;font-size:11.5px;padding:2px 10px;border-radius:999px;margin-bottom:10px}
+  h1{margin:0 0 6px;font-size:22px;color:#fff}.sub{color:var(--muted);font-size:13.5px}
+  .nav-tabs{display:flex;gap:8px;margin:20px 0;border-bottom:2px solid var(--border);padding-bottom:8px}
+  .tab-btn{background:transparent;border:none;color:var(--muted);font-family:var(--font);font-size:14px;font-weight:700;padding:8px 18px;border-radius:8px;cursor:pointer;transition:all .2s}
+  .tab-btn:hover{color:#fff;background:var(--panel2)}.tab-btn.active{color:#fff;background:var(--card);border:1px solid var(--border)}
+  .tab-content{display:none}.tab-content.active{display:block;animation:fadeIn .3s ease}@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  h2{font-size:18px;color:#fff;margin:30px 0 14px;display:flex;align-items:center;gap:8px} h2 .num{background:var(--panel2);border:1px solid var(--border);color:var(--gold);width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:14px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin:12px 0}
+  .kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:16px 0}
+  .kpi .cell{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center}.kpi .cell .v{font-size:22px;font-weight:800;color:var(--accent2)}.kpi .cell .l{font-size:11.5px;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px} th,td{border:1px solid var(--border);padding:8px 12px;text-align:right;vertical-align:top} th{background:var(--panel2);color:var(--gold);font-weight:700} tr:nth-child(even) td{background:rgba(255,255,255,.015)}
+  code,.code{font-family:var(--mono);direction:ltr;text-align:left;unicode-bidi:embed;background:#07090f;border:1px solid var(--border);border-radius:5px;padding:1px 6px;font-size:12px;color:var(--green)}
+  pre{direction:ltr;text-align:left;background:#07090f;border:1px solid var(--border);border-radius:8px;padding:12px 14px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.6;color:#cfd6e6}
+  .loc{font-family:var(--mono);direction:ltr;font-size:11.5px;color:var(--blue);white-space:nowrap}
+  .rule-block{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:22px;margin-bottom:24px;border-right:5px solid var(--blue)}
+  .rule-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid var(--border);padding-bottom:10px}
+  .rule-tag-group{display:flex;align-items:center;gap:8px}
+  .rule-id{background:#090d16;color:var(--blue);font-family:var(--mono);font-weight:800;padding:3px 8px;border-radius:6px;border:1px solid var(--border);font-size:13px}
+  .rule-title{font-size:16px;font-weight:700;color:#fff}
+  .rule-badge{font-size:11.5px;padding:2px 10px;border-radius:999px;font-weight:700;border:1px solid}
+  .rule-badge.pending{color:var(--gold);border-color:var(--gold);background:rgba(255,193,7,.1)}.rule-badge.locked{color:var(--green);border-color:var(--green);background:rgba(46,204,113,.1)}
+  .fact-box{background:var(--panel2);border:1px dashed var(--border);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px}
+  .fact-title{color:var(--accent2);font-weight:700;margin-bottom:4px;font-size:12px;display:flex;align-items:center;gap:6px}
+  .options-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin:14px 0}
+  .opt-card{background:var(--card);border:1.5px solid var(--border);border-radius:10px;padding:14px;cursor:pointer;position:relative;transition:all .2s}
+  .opt-card:hover{border-color:var(--muted)}.opt-card.selected{border-color:var(--green);background:rgba(46,204,113,.08);box-shadow:0 0 12px rgba(46,204,113,.15)}
+  .opt-card input[type=radio]{position:absolute;left:12px;top:14px;accent-color:var(--green);transform:scale(1.2)}
+  .opt-title{font-weight:700;font-size:14px;margin-bottom:4px;color:#fff;padding-left:20px}.opt-desc{font-size:12.5px;color:var(--muted);line-height:1.5}
+  .owner-note-area{background:#090d16;border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-top:14px}
+  .note-label{color:var(--gold);font-size:12px;font-weight:700;margin-bottom:6px;display:block}
+  [contenteditable=true]{outline:none}[contenteditable=true]:focus{background:rgba(255,255,255,.03);border-radius:4px}.note-input{font-size:13px;color:#d0d7de;min-height:24px;line-height:1.6}
+  .proposal-preview{background:#080a10;border:1px solid var(--border);border-radius:10px;padding:16px;font-family:var(--mono);font-size:12.5px;color:#a5d6ff;white-space:pre-wrap;direction:ltr;text-align:left;max-height:420px;overflow-y:auto}
+  .mermaid-box{background:#07090f;border:1px solid var(--border);border-radius:10px;padding:12px;margin:10px 0}
+</style>
+<script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"; mermaid.initialize({startOnLoad:true,theme:"dark",securityLevel:"loose"});</script>
+</head><body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="topbar-info"><span class="topbar-title">🧭 پنل ممیزی Routing & Handlers</span><span class="counter-badge" id="lock-counter">۴ از ۴ قانون قفل شده</span></div>
+    <div class="topbar-actions">
+      <button class="btn" onclick="switchTab('tab-proposal');generateProposalMD();">📝 مشاهده پروپوزال نهایی</button>
+      <button class="btn btn-blue" onclick="downloadMarkdown()">📥 دانلود پروپوزال (MD)</button>
+      <button class="btn btn-primary" onclick="saveUpdatedHTML()">💾 ذخیره نسخه جدید سند (HTML)</button>
+    </div>
+  </div>
+  <header class="hero">
+    <span class="tag">Wave 1 · Agent B — Handler Routing & Callback Wiring</span>
+    <h1 contenteditable="true">سند ممیزی و قفل معماری مسیریابی تلگرام (Routing & Callback Deepening Audit)</h1>
+    <div style="margin-top:6px;font-size:11px;color:#2ecc71;border:1px solid #2ecc71;display:inline-block;padding:2px 8px;border-radius:999px">✔ Synced: 2026-08-30 @ a3971ed — main</div><div class="sub">فاز ۲ از ۲ در موج اول — بررسی <code>bot.py:1216</code>، <code>services/routing.py:149</code>، <code>config/keyboards.py:1136</code> و تمام handlerها. هر تغییر callback نیازمند لمس ۳ فایل است؛ ۱۱ پیشوند هنوز در <code>bot.py:663-918</code> هاردکد مانده‌اند.</div>
+  </header>
+  <div class="nav-tabs">
+    <button class="tab-btn" onclick="switchTab('tab-audit')">📖 ۱. گزارش ممیزی و شواهد کد</button>
+    <button class="tab-btn active" onclick="switchTab('tab-decision')">⚖️ ۲. پنل تصمیم‌گیری (Rules)</button>
+    <button class="tab-btn" onclick="switchTab('tab-proposal')">📑 ۳. پیش‌نمایش پروپوزال مالک</button>
+  </div>
+
+  <div id="tab-audit" class="tab-content">
+    <div class="kpi">
+      <div class="cell"><div class="v">۲۵۶</div><div class="l">خط در <code>callback_router</code></div></div>
+      <div class="cell"><div class="v">۱۱</div><div class="l">پیشوند هاردکد در bot.py</div></div>
+      <div class="cell"><div class="v">۱۰×</div><div class="l">تکرار boilerplate قفل کاربر</div></div>
+      <div class="cell"><div class="v">۲۸</div><div class="l">سازندهٔ کیبورد در keyboards.py</div></div>
+      <div class="cell"><div class="v">۴</div><div class="l">کاندیدای عمیق‌سازی</div></div>
+    </div>
+    <div class="card"><b>خلاصهٔ شواهد:</b> رجیستری <code>services/routing.py:ROUTES</code> فقط ۳۰٪ ترافیک را پوشش می‌دهد (<code>admin/llm/srs:delete/session:summary/reports</code>)؛ ۱۱ پیشوندِ دیگر در <code>bot.py:708-912</code> با <code>if/elif data.startswith</code> و <code>async with _get_user_lock:785-909</code> تکراری هندل می‌شوند. <code>_BUILTIN_CALLBACK_PREFIXES:129</code> و <code>ROUTES</code> باید دستی همگام بمانند. افزودن یک callback = ویرایش ۳ فایل.</div>
+    <h2><span class="num">۱</span> نگاشت اصطکاک</h2>
+    <table>
+      <thead><tr><th>دامنه</th><th>مسیر دقیق</th><th>نشت / کم‌عمقی</th></tr></thead>
+      <tbody>
+        <tr><td><b>callback_routerِ خدا</b></td><td class="loc">bot.py:663-918 (256 خط) vs routing.py:53-149</td><td>نیمه‌مهاجرت؛ <code>_longest_match:66</code> در routing و <code>startswith(prefix+":"):699</code> در bot تکرار</td></tr>
+        <tr><td><b>text_router دوگانه</b></td><td class="loc">bot.py:562-609 vs flows.py:106-121</td><td>دو <code>text_router</code>؛ <code>ask_word</code> فقط در bot، بقیه در flows — rollback در دو جا</td></tr>
+        <tr><td><b>انتقال تلگرام دوگانه</b></td><td class="loc">helpers.py:200-356 vs send_pretty.say/edit</td><td>۶ تابع retry قدیمی + seam جدید؛ <code>_rich_api_request:99</code> برای حفظ مالکیت seam</td></tr>
+        <tr><td><b>keyboards.py خدا</b></td><td class="loc">config/keyboards.py:1-1136</td><td>۲۸ سازنده برای ۵ دامنه؛ گرامر <code>srs:fe:{g}:{uid}:{wid}:484</code> در keyboards اما parse در bot:848</td></tr>
+      </tbody>
+    </table>
+    <div class="mermaid-box"><pre class="mermaid">flowchart LR
+  KB["config/keyboards.py<br/>28 builders"] -- callback_data --> BR["bot.py callback_router<br/>if/elif x15 + 10x lock"]
+  BR --> RT["routing.dispatch<br/>admin/llm only"]
+  BR --> IH["inline handlers<br/>srs/query/settings/tts"]
+  RT -. single-answer .-> CB["callback_notifications"]
+  BR -. leak lock boilerplate x10 .-> LK["_get_user_lock"]
+</pre></div>
+    <div class="mermaid-box"><pre class="mermaid">flowchart LR
+  AF["AFTER<br/>routing.dispatch = offline→maintenance→dedup→lock→longest_match"]
+  AF --> H1["handlers/srs_handler srs:*"]
+  AF --> H2["handlers/user settings:*"]
+  AF --> H3["study_handler study:*"]
+  AF --> H4["help_command help:*"]
+  KB2["keyboards IBTN_* only"] -. import .-> AF
+</pre></div>
+    <div class="card" style="border-right:4px solid #2ecc71;background:rgba(46,204,113,0.06)"><b>✔ Resync verification 2026-08-30 @ a3971ed (main):</b> مقادیر KPI و LOC در این نسخه با <code>origin/main</code> تطبیق داده شد. وضعیت هر RULE در پنل تصمیم‌گیری همچنان <code>locked: A</code> است — جدول وضعیت واقعی در PR #483 recheck ثبت شد (DB 0/4, RT 1/4, AI 0/4, SS 0/4). برای جزئیات per-RULE به ریپورت CLI مراجعه کنید.</div>
+    <div class="card" style="border-right:4px solid var(--purple)"><b>Top Recommendation:</b> ابتدا <b>RULE-RT-001 (تکمیل رجیستری)</b> — همهٔ پیشوندهای builtin را به <code>register()</code> ببرید و <code>callback_router</code> را به ۱۵ خط آداپتور نازک تبدیل کنید. بیشترین <b>leverage</b> با کمترین ریسک رفتاری.</div>
+  </div>
+
+  <div id="tab-decision" class="tab-content active">
+    <div class="card" style="border-right:4px solid var(--gold)"><b>راهنمای مالک:</b> هر قانون مستقل است؛ گزینهٔ انتخابی و یادداشت در پروپوزال منعکس می‌شود.</div>
+
+    <div class="rule-block" id="block-RULE-RT-001">
+      <div class="rule-header"><div class="rule-tag-group"><span class="rule-id">RULE-RT-001</span><span class="rule-title">تکمیل رجیستری مسیریابی — انتقال ۱۱ پیشوند builtin به <code>services/routing</code></span></div><span class="rule-badge locked" id="badge-RULE-RT-001">قفل شد: انتقال کامل + lock middleware</span></div>
+      <div class="fact-box"><div class="fact-title">🔍 شواهد کد:</div><code>bot.py:663-918</code> زنجیرهٔ ۱۵شاخه؛ هر شاخه ۶ خط <code>if _lock.locked(): toast; async with _lock</code> را تکرار می‌کند (۶۰ خط کل). <code>ROUTES:53</code> فقط ۵ پیشوند دارد؛ بقیه در <code>_BUILTIN_CALLBACK_PREFIXES:129</code>.</div>
+      <div class="options-grid">
+        <div class="opt-card selected" onclick="setRuleOption('RULE-RT-001','RULE-RT-001-A','انتقال کامل + lock/dedup middleware','همهٔ پیشوندها register شوند؛ dedup/offline/maintenance/lock به routing.dispatch به‌عنوان middleware منتقل شود؛ _BUILTIN_CALLBACK_PREFIXES حذف شود')"><input type="radio" name="RULE-RT-001" id="RULE-RT-001-A" checked><div class="opt-title">گزینه A: انتقال کامل (پیشنهادی قوی)</div><div class="opt-desc"><b>locality</b> یک فایل برای هر callback؛ حذف ۶۰ خط boilerplate.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-RT-001','RULE-RT-001-B','انتقال تدریجی (فقط srs/settings)','ابتدا srs/settings منتقل شود')"><input type="radio" name="RULE-RT-001" id="RULE-RT-001-B"><div class="opt-title">گزینه B: تدریجی</div><div class="opt-desc">diff کوچک‌تر؛ اما allowlist همچنان دستی.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-RT-001','RULE-RT-001-C','حفظ وضع موجود','هیچ انتقال انجام نشود')"><input type="radio" name="RULE-RT-001" id="RULE-RT-001-C"><div class="opt-title">گزینه C: حفظ وضع موجود</div><div class="opt-desc">بدون ریسک؛ اما هر callback جدید ۳ فایل را لمس می‌کند.</div></div>
+      </div>
+      <div class="owner-note-area"><span class="note-label">📝 یادداشت مالک برای RULE-RT-001:</span><div contenteditable="true" class="note-input" id="note-RULE-RT-001" oninput="updateProposalPreview()">معافیت dedup برای <code>srs/query/tts/study</code> حفظ شود؛ <code>with_lock: bool</code> در <code>register()</code> اضافه شود.</div></div>
+    </div>
+
+    <div class="rule-block" id="block-RULE-RT-002">
+      <div class="rule-header"><div class="rule-tag-group"><span class="rule-id">RULE-RT-002</span><span class="rule-title">یکپارچه‌سازی text_router — تجمیع <code>ask_word</code> و awaiting در <code>handlers/flows</code></span></div><span class="rule-badge locked" id="badge-RULE-RT-002">قفل شد: یکپارچه‌سازی کامل در flows</span></div>
+      <div class="fact-box"><div class="fact-title">🔍 شواهد کد:</div><code>bot._dispatch_awaiting:562</code> برای <code>ask_word:583</code> قفل می‌گیرد و برای ادمین به <code>flows.text_router:106</code> تفویض می‌کند؛ <code>AWAITING_PENDING_KEY:581</code> بین دو فایل قرارداد دارد.</div>
+      <div class="options-grid">
+        <div class="opt-card selected" onclick="setRuleOption('RULE-RT-002','RULE-RT-002-A','یکپارچه‌سازی کامل در flows','ask_word به‌عنوان flow ثبت شود؛ lock+rollback و longest-match به flows منتقل شود؛ is_admin_awaiting حذف شود')"><input type="radio" name="RULE-RT-002" id="RULE-RT-002-A" checked><div class="opt-title">گزینه A: یکپارچه‌سازی کامل (پیشنهادی)</div><div class="opt-desc"><b>depth</b>: flows تنها seam حالت awaiting می‌شود.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-RT-002','RULE-RT-002-B','حفظ ask_word در bot.py','فقط ادمین در flows بماند')"><input type="radio" name="RULE-RT-002" id="RULE-RT-002-B"><div class="opt-title">گزینه B: حفظ تفکیک</div><div class="opt-desc">تغییر minimal؛ اما قرارداد rollback همچنان دوتکه.</div></div>
+      </div>
+      <div class="owner-note-area"><span class="note-label">📝 یادداشت مالک برای RULE-RT-002:</span><div contenteditable="true" class="note-input" id="note-RULE-RT-002" oninput="updateProposalPreview()">سمانتیک re-arm در صورت exception (<code>bot.py:596-606</code>) دقیقاً حفظ شود؛ تست‌های <code>test_awaiting*</code> مبنا.</div></div>
+    </div>
+
+    <div class="rule-block" id="block-RULE-RT-003">
+      <div class="rule-header"><div class="rule-tag-group"><span class="rule-id">RULE-RT-003</span><span class="rule-title">تک‌منبع کردن لایهٔ انتقال تلگرام — تکمیل مهاجرت R3 به <code>send_pretty</code></span></div><span class="rule-badge locked" id="badge-RULE-RT-003">قفل شد: مهاجرت کامل R3</span></div>
+      <div class="fact-box"><div class="fact-title">🔍 شواهد کد:</div><code>helpers.py:200-356</code> شش تابع retry قدیمی؛ <code>send_pretty.say/edit:805,842</code> مسیر جدید؛ <code>helpers._reset_telegram_cb:193</code> به <code>bot</code> وابستگی چرخه‌ای دارد.</div>
+      <div class="options-grid">
+        <div class="opt-card selected" onclick="setRuleOption('RULE-RT-003','RULE-RT-003-A','مهاجرت کامل R3','send_pretty تنها seam شود؛ helpers retry حذف؛ _telegram_slots به send_pretty منتقل شود؛ سلامت اتصال به telegram_health جدا شود')"><input type="radio" name="RULE-RT-003" id="RULE-RT-003-A" checked><div class="opt-title">گزینه A: مهاجرت کامل (پیشنهادی)</div><div class="opt-desc">یک جدول سیاست retry؛ حذف وابستگی چرخه‌ای.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-RT-003','RULE-RT-003-B','حفظ دو مسیر با تفکیک قراردادی','فقط قرارداد «از کدام مسیر برای کجا» مستند شود')"><input type="radio" name="RULE-RT-003" id="RULE-RT-003-B"><div class="opt-title">گزینه B: مستندسازی</div><div class="opt-desc">بدون حذف کد؛ اما دو seam باقی.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-RT-003','RULE-RT-003-C','تعویق','فعلاً دست نزن')"><input type="radio" name="RULE-RT-003" id="RULE-RT-003-C"><div class="opt-title">گزینه C: تعویق</div><div class="opt-desc">ریسک صفر اما تکرار باقی.</div></div>
+      </div>
+      <div class="owner-note-area"><span class="note-label">📝 یادداشت مالک برای RULE-RT-003:</span><div contenteditable="true" class="note-input" id="note-RULE-RT-003" oninput="updateProposalPreview()">تفاوت سیاست retry (send روی TimedOut تکرار نکند تا کارت تکراری نسازد، edit تکرار کند) در parity test حفظ شود.</div></div>
+    </div>
+
+    <div class="rule-block" id="block-RULE-RT-004">
+      <div class="rule-header"><div class="rule-tag-group"><span class="rule-id">RULE-RT-004</span><span class="rule-title">تفکیک <code>config/keyboards.py</code> — کیبوردهای دامنه‌محور کنار مالک</span></div><span class="rule-badge locked" id="badge-RULE-RT-004">قفل شد: تفکیک دامنه‌محور</span></div>
+      <div class="fact-box"><div class="fact-title">🔍 شواهد کد:</div><code>keyboards.py:1-1136</code> با ۲۸ سازنده و ۶۸ لیبل IBTN؛ گرامر <code>admin:ai_preset:edit_field:{preset}:{field}:943</code> در keyboards اما parse در <code>admin_ai.py:182</code>. تغییر یک دکمه = ۳ فایل.</div>
+      <div class="options-grid">
+        <div class="opt-card selected" onclick="setRuleOption('RULE-RT-004','RULE-RT-004-A','تفکیک دامنه‌محور (پیشنهادی)','keyboards فقط IBTN_* + main_menu بماند؛ کیبورد SRS به srs_handler، admin به admin_ai/plans/cost، study به study_handler منتقل شود')"><input type="radio" name="RULE-RT-004" id="RULE-RT-004-A" checked><div class="opt-title">گزینه A: تفکیک دامنه‌محور</div><div class="opt-desc"><b>locality</b>: کیبورد+register+codec یک ماژول.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-RT-004','RULE-RT-004-B','تفکیک تدریجی (فقط SRS)','ابتدا SRS جدا شود')"><input type="radio" name="RULE-RT-004" id="RULE-RT-004-B"><div class="opt-title">گزینه B: تدریجی</div><div class="opt-desc">diff محدود؛ اما خدا-فایل همچنان بزرگ.</div></div>
+        <div class="opt-card" onclick="setRuleOption('RULE-RT-004','RULE-RT-004-C','حفظ وضع موجود','خدا-فایل بماند')"><input type="radio" name="RULE-RT-004" id="RULE-RT-004-C"><div class="opt-title">گزینه C: حفظ وضع موجود</div><div class="opt-desc">مکانیکی سنگین اما بدون فایده فوری.</div></div>
+      </div>
+      <div class="owner-note-area"><span class="note-label">📝 یادداشت مالک برای RULE-RT-004:</span><div contenteditable="true" class="note-input" id="note-RULE-RT-004" oninput="updateProposalPreview()">PRها دامنه‌به‌دامنه جدا شوند (§۶ AGENTS)؛ import چرخه‌ای با import تنبل داخل تابع مثل <code>keyboards.py:837</code> حفظ شود.</div></div>
+    </div>
+  </div>
+
+  <div id="tab-proposal" class="tab-content">
+    <h2>📑 پروپوزال و مصوبات قطعی مالک</h2>
+    <div class="card">تمام تصمیم‌ها با شناسهٔ <code>RULE-RT-XXX</code> گردآوری شده و مبنای PRهای بعدی خواهد بود.</div>
+    <div class="proposal-preview" id="proposal-text"></div>
+    <div style="margin-top:16px;display:flex;gap:10px"><button class="btn btn-blue" onclick="downloadMarkdown()">📥 دانلود Markdown</button><button class="btn btn-primary" onclick="saveUpdatedHTML()">💾 ذخیره HTML تعاملی</button></div>
+  </div>
+</div>
+<script>
+  const ruleData={'RULE-RT-001':{title:'تکمیل رجیستری مسیریابی — ۱۱ پیشوند builtin',selected:'RULE-RT-001-A',optLabel:'انتقال کامل + lock/dedup middleware',optDesc:'همهٔ پیشوندها register شوند؛ dedup/offline/maintenance/lock به routing.dispatch منتقل شود'},
+  'RULE-RT-002':{title:'یکپارچه‌سازی text_router — تجمیع awaiting در flows',selected:'RULE-RT-002-A',optLabel:'یکپارچه‌سازی کامل در flows',optDesc:'ask_word به‌عنوان flow ثبت شود؛ lock+rollback به flows منتقل شود'},
+  'RULE-RT-003':{title:'تک‌منبع کردن انتقال تلگرام — تکمیل R3',selected:'RULE-RT-003-A',optLabel:'مهاجرت کامل R3',optDesc:'send_pretty تنها seam شود؛ helpers retry حذف شود'},
+  'RULE-RT-004':{title:'تفکیک config/keyboards.py — کیبورد دامنه‌محور',selected:'RULE-RT-004-A',optLabel:'تفکیک دامنه‌محور',optDesc:'keyboards فقط IBTN_* بماند؛ کیبورد هر دامنه کنار مالک'}};
+  function switchTab(id){document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));document.querySelectorAll('.tab-btn').forEach(e=>e.classList.remove('active'));document.getElementById(id).classList.add('active');const b=document.querySelectorAll('.tab-btn');if(id==='tab-audit')b[0].classList.add('active');if(id==='tab-decision')b[1].classList.add('active');if(id==='tab-proposal'){b[2].classList.add('active');generateProposalMD();}}
+  function setRuleOption(rId,oId,label,desc){const block=document.getElementById('block-'+rId);block.querySelectorAll('.opt-card').forEach(c=>c.classList.remove('selected'));const r=document.getElementById(oId);r.checked=true;r.setAttribute('checked','checked');r.closest('.opt-card').classList.add('selected');ruleData[rId].selected=oId;ruleData[rId].optLabel=label;ruleData[rId].optDesc=desc;const badge=document.getElementById('badge-'+rId);badge.textContent='قفل شد: '+label.split('(')[0];badge.className='rule-badge locked';updateCounter();updateProposalPreview();}
+  function updateCounter(){let c=0;for(const k in ruleData) if(ruleData[k].selected) c++;document.getElementById('lock-counter').textContent=c+' از ۴ قانون قفل شده';}
+  function generateProposalMD(){let md='# سند قرارداد معماری Routing & Handlers\n**نسخه:** RT-v1 | **تاریخ:** 2026-08-30 (resynced a3971ed) | **وضعیت:** قفل‌شده برای پیاده‌سازی\n\n---\n\n## ۱. مصوبات مالک\n\n';for(const [rId,info] of Object.entries(ruleData)){const note=document.getElementById('note-'+rId)?document.getElementById('note-'+rId).innerText.trim():'';md+=`### [${rId}] ${info.title}\n- **گزینه مصوب:** \`${info.selected}\` — **${info.optLabel}**\n- **شرح:** ${info.optDesc}\n`;if(note) md+=`- **یادداشت مالک:**\n  > ${note}\n`;md+='\n';}md+='---\n\n## ۲. الزامات فنی\n\n- **Seam مسیریابی:** `services/routing.py:dispatch` تنها مسیر callback باشد؛ `bot.py:callback_router` آداپتور نازک ≤۱۵ خط.\n- **Single Answer:** `services/utils/callback_notifications` تضمین تک‌پاسخ را حفظ کند.\n- **Wire Guard:** `tests/test_wiring.py` + `test_dead_code_guard.py` برای هر پیشوند جدید به‌روز شود.\n';document.getElementById('proposal-text').textContent=md;return md;}
+  function updateProposalPreview(){generateProposalMD();} function downloadMarkdown(){const md=generateProposalMD();const b=new Blob([md],{type:'text/markdown;charset=utf-8'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='routing_handlers_proposal.md';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);}
+  function saveUpdatedHTML(){for(const [rId,info] of Object.entries(ruleData)) if(info.selected){const r=document.getElementById(info.selected);if(r) r.setAttribute('checked','checked');} const h='<!DOCTYPE html>\n'+document.documentElement.outerHTML;const b=new Blob([h],{type:'text/html;charset=utf-8'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='architecture_routing_handlers_audit_v1.html';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);alert('✅ نسخه جدید HTML ذخیره شد.');}
+  generateProposalMD();
+</script>
+</body></html>
