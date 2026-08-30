@@ -202,4 +202,7 @@ from .admin import (
     stats_back_keyboard,
     stats_menu_keyboard,
     user_activity_keyboard,
+    user_management_keyboard,
+    user_profile_keyboard,
+    user_reset_confirm_keyboard,
 )

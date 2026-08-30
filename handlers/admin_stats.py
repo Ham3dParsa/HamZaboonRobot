@@ -6,6 +6,7 @@ keyboards are imported from ``config.keyboards``. Behavior is unchanged; the
 admin monolith delegates to this module.
 """
 
+import io
 from datetime import date, timedelta
 
 from telegram import Update
@@ -13,6 +14,7 @@ from telegram.ext import ContextTypes
 
 from services import db
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
+from services.utils.formatting import to_persian_digits
 from services.utils.helpers import _edit_or_send
 from config.keyboards import stats_back_keyboard, stats_menu_keyboard
 
@@ -75,6 +77,52 @@ async def handle_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 f"• کل لغات ذخیره‌شده: {total_words:,}\n"
                 f"• درخواست‌های AI امروز: {today_llm}",
                 reply_markup=stats_back_keyboard(),
+            )
+        elif sub == "growth":
+            today = date.today()
+            d7 = (today - timedelta(days=7)).isoformat()
+            d30 = (today - timedelta(days=30)).isoformat()
+            new_7 = db.count_new_users_since(d7)
+            new_30 = db.count_new_users_since(d30)
+            created_before_7 = db.count_users_created_before(d7)
+            retained_7 = db.count_retained_users(d7, d7)
+            ret_pct = round(retained_7 / created_before_7 * 100) if created_before_7 else 0
+            await _edit_or_send(
+                update, context,
+                f"📈 رشد و بازگشت\n\n"
+                f"• کاربر جدید ۷ روز اخیر: {to_persian_digits(new_7)}\n"
+                f"• کاربر جدید ۳۰ روز اخیر: {to_persian_digits(new_30)}\n"
+                f"• نرخ بازگشت (ثبت‌نام‌کرده +۷ روز، فعال در ۷ روز اخیر): "
+                f"{to_persian_digits(ret_pct)}٪",
+                reply_markup=stats_back_keyboard(),
+            )
+        elif sub == "learning":
+            reviews = db.count_review_events_total()
+            sessions = db.count_study_sessions_total()
+            total_sw = db.count_saved_words_total()
+            total_users = db.count_users()
+            avg = round(total_sw / total_users, 1) if total_users else 0
+            fe = db.count_first_exposure_completion()
+            fe_pct = round(fe["done"] / fe["total"] * 100) if fe["total"] else 0
+            await _edit_or_send(
+                update, context,
+                f"📚 درگیری یادگیری\n\n"
+                f"• کل مرورهای SRS: {to_persian_digits(reviews)}\n"
+                f"• کل جلسات مطالعه: {to_persian_digits(sessions)}\n"
+                f"• میانگین لغت ذخیره‌شده به ازای هر کاربر: {to_persian_digits(avg)}\n"
+                f"• تکمیل first-exposure: {to_persian_digits(fe_pct)}٪",
+                reply_markup=stats_back_keyboard(),
+            )
+        elif sub == "export":
+            await notify_callback(
+                update.callback_query, "در حال آماده‌سازی فایل…", intent=CallbackNoticeIntent.INFO
+            )
+            csv_text = db.export_users_csv()
+            data = csv_text.encode("utf-8-sig")
+            await update.effective_message.reply_document(
+                document=io.BytesIO(data),
+                filename=f"hamzaban_users_{date.today().isoformat()}.csv",
+                caption="📤 خروجی کاربران (CSV)",
             )
         else:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)

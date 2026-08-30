@@ -41,9 +41,14 @@ class AdminStatsFlowTest(unittest.TestCase):
         query.data = data
         query.answer = AsyncMock()
         query.edit_message_text = AsyncMock()
+        msg = MagicMock()
+        msg.reply_document = AsyncMock()
+        msg.reply_text = AsyncMock()
+        query.message = msg
         update = MagicMock()
         update.effective_user.id = user_id
         update.effective_chat.id = user_id
+        update.effective_message = msg
         update.callback_query = query
         return update
 
@@ -78,6 +83,35 @@ class AdminStatsFlowTest(unittest.TestCase):
             asyncio.run(_handle_admin_callback(update, ctx, "stats"))
         answer = update.callback_query.answer.call_args
         self.assertIn("فقط مالک ربات", answer[0][0])
+
+    def test_stats_growth_learning_render(self):
+        from handlers.admin import _handle_admin_callback
+
+        for action in ("stats:growth", "stats:learning"):
+            update = self._make_callback_update(f"admin:{action}")
+            ctx = self._make_context()
+            asyncio.run(_handle_admin_callback(update, ctx, action))
+            update.callback_query.edit_message_text.assert_called_once()
+
+    def test_stats_export_sends_document(self):
+        from handlers.admin import _handle_admin_callback
+
+        query = MagicMock()
+        query.data = "admin:stats:export"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        msg = MagicMock()
+        msg.reply_document = AsyncMock()
+        query.message = msg
+        update = MagicMock()
+        update.effective_user.id = 1
+        update.effective_chat.id = 1
+        update.effective_message = msg
+        update.callback_query = query
+        ctx = self._make_context()
+        asyncio.run(_handle_admin_callback(update, ctx, "stats:export"))
+        msg.reply_document.assert_called_once()
+        self.assertIn(".csv", msg.reply_document.call_args.kwargs["filename"])
 
 
 if __name__ == "__main__":

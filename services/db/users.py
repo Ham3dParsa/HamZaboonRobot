@@ -1,4 +1,6 @@
+import csv
 import datetime
+import io
 
 from services.db.plans import get_plan, valid_plan_name
 from services.db.schema import get_conn, transaction, _today, _utc_now, _current_daily_count, _can_consume_daily_count
@@ -432,3 +434,113 @@ def set_user_blocked(user_id: int):
 def reset_user_blocked(user_id: int):
     with transaction() as conn:
         conn.execute("UPDATE users SET bot_blocked=0 WHERE user_id=?", (user_id,))
+
+
+# ---------------------------------------------------------------------------
+# Stats enrichment + user-management data layer (issue #stats-users)
+# ---------------------------------------------------------------------------
+
+
+def count_new_users_since(date: str) -> int:
+    """Users whose registration timestamp is on/after *date* (approximate;
+    ``created_at`` is a UTC ISO string vs an app-day ISO date, acceptable for
+    the growth dashboard)."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM users WHERE created_at >= ?", (date,)
+        ).fetchone()
+        return row["cnt"] if row else 0
+
+
+def count_users_created_before(date: str) -> int:
+    """Users registered strictly before *date* (denominator for retention)."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM users WHERE created_at < ?", (date,)
+        ).fetchone()
+        return row["cnt"] if row else 0
+
+
+def count_retained_users(created_before: str, active_since: str) -> int:
+    """Users registered before *created_before* and active on/after *active_since*."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM users "
+            "WHERE created_at < ? AND last_active_date >= ?",
+            (created_before, active_since),
+        ).fetchone()
+        return row["cnt"] if row else 0
+
+
+def count_review_events_total() -> int:
+    with get_conn() as conn:
+        row = conn.execute("SELECT COUNT(*) AS cnt FROM review_events").fetchone()
+        return row["cnt"] if row else 0
+
+
+def count_study_sessions_total() -> int:
+    with get_conn() as conn:
+        row = conn.execute("SELECT COUNT(*) AS cnt FROM study_sessions").fetchone()
+        return row["cnt"] if row else 0
+
+
+def count_first_exposure_completion() -> dict:
+    """Return ``{"done": int, "total": int}`` for first-exposure completion."""
+    with get_conn() as conn:
+        total = conn.execute("SELECT COUNT(*) AS c FROM saved_words").fetchone()["c"]
+        done = conn.execute(
+            "SELECT COUNT(*) AS c FROM saved_words WHERE first_exposure_done=1"
+        ).fetchone()["c"]
+        return {"done": done, "total": total}
+
+
+def get_user_learning_stats(user_id: int) -> dict:
+    """Per-user learning counts for the admin profile card."""
+    with get_conn() as conn:
+        saved = conn.execute(
+            "SELECT COUNT(*) AS c FROM saved_words WHERE user_id=?", (user_id,)
+        ).fetchone()["c"]
+        reviews = conn.execute(
+            "SELECT COUNT(*) AS c FROM review_events WHERE user_id=?", (user_id,)
+        ).fetchone()["c"]
+        sessions = conn.execute(
+            "SELECT COUNT(*) AS c FROM study_sessions WHERE user_id=?", (user_id,)
+        ).fetchone()["c"]
+        return {"saved_words": saved, "review_events": reviews, "study_sessions": sessions}
+
+
+def reset_user_progress(user_id: int):
+    """Irreversibly wipe a user's learning progress and reset their streak.
+
+    Deletes saved_words, review_events, study_sessions and session_reports for
+    the user, and clears the streak. The ``users`` row itself is preserved (the
+    admin can still block/plan-manage). Wrapped in one atomic transaction.
+    """
+    with transaction() as conn:
+        conn.execute("DELETE FROM saved_words WHERE user_id=?", (user_id,))
+        conn.execute("DELETE FROM review_events WHERE user_id=?", (user_id,))
+        conn.execute("DELETE FROM study_sessions WHERE user_id=?", (user_id,))
+        conn.execute("DELETE FROM session_reports WHERE user_id=?", (user_id,))
+        conn.execute("UPDATE users SET streak=0 WHERE user_id=?", (user_id,))
+
+
+def export_users_csv() -> str:
+    """Render the full ``users`` table as a CSV string (owner-only export).
+
+    No secrets/keys are included — only profile + activity columns. UTF-8-SIG
+    BOM is added by the caller so Excel opens Persian headers correctly.
+    """
+    columns = [
+        "user_id", "username", "target_lang", "goal", "level", "plan",
+        "streak", "last_active_date", "onboarded", "created_at", "bot_blocked",
+    ]
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT {', '.join(columns)} FROM users ORDER BY user_id"
+        ).fetchall()
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(columns)
+    for r in rows:
+        writer.writerow([r[c] if r[c] is not None else "" for c in columns])
+    return buf.getvalue()

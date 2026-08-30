@@ -80,9 +80,11 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton("💳 مدیریت پلن‌ها", callback_data="admin:plans"),
              InlineKeyboardButton(IBTN_ADMIN_COST, callback_data="admin:cost_dashboard")],
             [InlineKeyboardButton(IBTN_ADMIN_SETTINGS, callback_data="admin:show_settings"),
-             InlineKeyboardButton("📋 سطح لاگ", callback_data="admin:log_level")],
+              InlineKeyboardButton("📋 سطح لاگ", callback_data="admin:log_level")],
             [InlineKeyboardButton(BTN_ADMIN_BROADCAST, callback_data="admin:broadcast"),
-             InlineKeyboardButton(IBTN_USER_ACTIVITY_LOG, callback_data="admin:user_activity_log")],
+              InlineKeyboardButton(IBTN_USER_ACTIVITY_LOG, callback_data="admin:user_activity_log")],
+            [InlineKeyboardButton(BTN_ADMIN_USER_MANAGE, callback_data="admin:user"),
+              InlineKeyboardButton("📤 خروجی CSV کاربران", callback_data="admin:stats:export")],
             [InlineKeyboardButton("💾 پشتیبان", callback_data="admin:backup"),
              InlineKeyboardButton("♻️ بازیابی", callback_data="admin:restore")],
             [InlineKeyboardButton("🎛 نمایش کارت", callback_data="admin:display_toggles")],
@@ -108,7 +110,10 @@ def stats_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("👥 نمای کلی", callback_data="admin:stats:overview"),
          InlineKeyboardButton("📊 پراکندگی", callback_data="admin:stats:distribution")],
-        [InlineKeyboardButton("📈 فعالیت", callback_data="admin:stats:activity")],
+        [InlineKeyboardButton("📈 فعالیت", callback_data="admin:stats:activity"),
+         InlineKeyboardButton("📚 درگیری یادگیری", callback_data="admin:stats:learning")],
+        [InlineKeyboardButton("📈 رشد و بازگشت", callback_data="admin:stats:growth"),
+         InlineKeyboardButton("📤 خروجی CSV", callback_data="admin:stats:export")],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
     ])
 
@@ -579,3 +584,41 @@ def reports_detail_keyboard(
         InlineKeyboardButton(IBTN_REPORTS_BACK, callback_data="reports:back"),
     ])
     return InlineKeyboardMarkup(rows)
+
+
+
+# ---------------------------------------------------------------------------
+# User management (issue #stats-users)
+# ---------------------------------------------------------------------------
+
+
+def user_management_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔍 جستجوی کاربر", callback_data="admin:user:search")],
+        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
+    ])
+
+
+def user_profile_keyboard(user_id: int, blocked: bool) -> InlineKeyboardMarkup:
+    """Action keyboard for a user-profile card.
+
+    The block/unblock label flips on the current ``blocked`` state, and the
+    change-plan button reuses the existing ``admin:set_plan`` write path (the
+    admin types ``user_id plan``), keeping a single plan-write seam.
+    """
+    block_label = "✅ رفع بلاک" if blocked else "🚫 بلاک کردن"
+    block_action = "admin:user:unblock" if blocked else "admin:user:block"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💳 تغییر پلن", callback_data=f"admin:user:plan:{user_id}")],
+        [InlineKeyboardButton(block_label, callback_data=f"{block_action}:{user_id}")],
+        [InlineKeyboardButton("♻️ ریست پیشرفت", callback_data=f"admin:user:reset:{user_id}")],
+        [InlineKeyboardButton("↩️ بازگشت به مدیریت کاربر", callback_data="admin:user")],
+    ])
+
+
+def user_reset_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    """Two-step confirm for the irreversible progress reset (R5)."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ بله، ریست شود", callback_data=f"admin:user:reset_confirm:{user_id}")],
+        [InlineKeyboardButton("❌ انصراف", callback_data=f"admin:user:reset_cancel:{user_id}")],
+    ])
