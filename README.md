@@ -17,6 +17,13 @@ cp .env.example .env       # مقادیر واقعی را فقط در .env وا�
 python bot.py
 ```
 
+## دیپلوی روی سرور
+
+دستورالعمل کامل (سرویس `systemd` + ری‌دیپلوی خودکار با GitHub Actions) در
+[`docs/deploy.md`](docs/deploy.md) آمده است. خلاصه: کلون روی VPS لینوکسی، نصب
+یونیت `deploy/systemd/hamzaboon.service`، و افزودن رازهای `VPS_HOST`/
+`VPS_USER`/`SSH_DEPLOY_KEY` — پس از هر merge روی `main` ربات خودکار ری‌استارت می‌شود.
+
 برای بررسی سریع بدون اجرای ربات:
 
 ```bash

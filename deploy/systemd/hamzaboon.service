@@ -1,0 +1,28 @@
+[Unit]
+Description=HamZaboon Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Edit User/WorkingDirectory to match your server layout.
+User=ubuntu
+WorkingDirectory=/home/ubuntu/HamZaboonRobot
+
+# Entry point is bot.py (see AGENTS.md §4). python-dotenv loads .env from
+# WorkingDirectory automatically; uncomment EnvironmentFile only if you prefer
+# systemd to inject secrets instead of relying on the repo .env.
+ExecStart=/usr/bin/python3 bot.py
+# EnvironmentFile=-/home/ubuntu/HamZaboonRobot/.env
+
+# Auto-restart on crash / on redeploy (systemctl restart).
+Restart=always
+RestartSec=5
+
+# Keep output in journald for `journalctl -u hamzaboon -f`.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hamzaboon
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
