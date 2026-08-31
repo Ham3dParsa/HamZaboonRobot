@@ -55,7 +55,7 @@ def _profile_text_and_keyboard(user_id: int) -> tuple[str, InlineKeyboardMarkup]
     goal = goal_label(row["goal"]) if row["goal"] else "—"
     level = level_label(row["level"]) if row["level"] else "—"
     full_name = (dict(row).get("full_name") or "").strip()
-    full_name_display = full_name if full_name else "—"
+    full_name_display = full_name.strip().replace("\n", " ")[:50] if full_name else "—"
     username_display = f"@{row['username']}" if row["username"] else "—"
     last_active = to_persian_digits(row["last_active_date"]) if row["last_active_date"] else "—"
     created_at = to_persian_digits(row["created_at"]) if row["created_at"] else "—"
@@ -299,7 +299,8 @@ async def _handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYP
     preview = html
     # Render preview to admin with format preservation.
     use_html = bool(preview and preview != msg)
-    preview_text = f"👁 پیش‌نمایش پیام به کاربر {user_id}:\n\n{preview}\n\nتایید می‌کنید؟"
+    from services.utils.formatting import html_escape
+    preview_text = f"{html_escape('👁 پیش‌نمایش پیام به کاربر ')}{user_id}{html_escape(':')}\n\n{preview}\n\n{html_escape('تایید می‌کنید؟')}"
     await say(
         update, context,
         preview_text,

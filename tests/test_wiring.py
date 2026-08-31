@@ -691,6 +691,28 @@ class TestCallbackWiring(unittest.TestCase):
                 msg += f"  {o}\n"
             self.fail(msg)
 
+    def test_preview_callbacks_are_routed(self):
+        """Regression: preview confirm/cancel/edit callbacks must be routed (PR 499)."""
+        prefixes = _collect_all_callback_prefixes()
+        actions = _collect_admin_sub_actions()
+        handlers = _collect_router_handlers()
+        # broadcast preview
+        for prefix in ("admin:broadcast_confirm", "admin:broadcast_cancel", "admin:broadcast_edit"):
+            with self.subTest(prefix=prefix):
+                self.assertIn(prefix, prefixes, f"keyboard prefix {prefix!r} missing")
+                self.assertTrue(_prefix_matches_handler(prefix, handlers), f"{prefix!r} not routed in callback_router")
+                sub = prefix[len("admin:"):]
+                self.assertTrue(_prefix_matches_handler(sub, actions), f"{prefix!r} has no action branch in admin sub-router")
+        # DM preview
+        for prefix in ("admin:user:msg_confirm", "admin:user:msg_cancel", "admin:user:msg_edit"):
+            with self.subTest(prefix=prefix):
+                # prefixes are f-string with id suffix, so check static prefix exists
+                self.assertTrue(any(p.startswith(prefix) for p in prefixes), f"keyboard prefix {prefix!r} missing")
+                sub = prefix[len("admin:"):]  # e.g. user:msg_confirm
+                # need colon suffix handling: action.startswith("user:msg_confirm:")
+                self.assertTrue(_prefix_matches_handler(sub + ":", actions) or _prefix_matches_handler(sub, actions), f"{prefix!r} has no action branch")
+                self.assertTrue(_prefix_matches_handler(prefix, handlers), f"{prefix!r} not routed in callback_router")
+
     def test_allowlist_prefixes_exist_in_keyboards(self):
         kbd_path = Path("config/keyboards.py")
         if kbd_path.is_file():

@@ -122,7 +122,7 @@ async def handle_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE,
             if top_active:
                 lines.append("\n🏆 برترین‌ها (استریک):")
                 for idx, u in enumerate(top_active, 1):
-                    full_name = (u.get("full_name") or "").strip()
+                    full_name = (u.get("full_name") or "").strip().replace("\n", " ")[:50]
                     if full_name:
                         if u.get("username"):
                             name = f"{full_name} (@{u['username']})"

@@ -193,15 +193,15 @@ def create_user_if_needed(user_id: int, username: str, full_name: str | None = N
         full_name = None
     with transaction() as conn:
         conn.execute(
-            "INSERT OR IGNORE INTO users(user_id, username, created_at) VALUES (?, ?, ?)",
-            (user_id, username, _utc_now().isoformat()),
+            "INSERT OR IGNORE INTO users(user_id, username, full_name, created_at) VALUES (?,?,?,?)",
+            (user_id, username or None, full_name or None, _utc_now().isoformat()),
         )
         # Keep username/full_name fresh on subsequent starts without overwriting
-        # with empty values. full_name uses COALESCE so None preserves existing.
-        if username or full_name is not None:
+        # with empty values. NULLIF guards '' so it does not clobber existing.
+        if username or (full_name is not None and full_name != ""):
             conn.execute(
                 "UPDATE users SET username=COALESCE(NULLIF(?, ''), username), "
-                "full_name=COALESCE(?, full_name) WHERE user_id=?",
+                "full_name=COALESCE(NULLIF(?, ''), full_name) WHERE user_id=?",
                 (username, full_name, user_id),
             )
 
@@ -591,6 +591,7 @@ def export_users_csv() -> str:
     columns = [
         "user_id",
         "username",
+        "full_name",
         "target_lang",
         "goal",
         "level",

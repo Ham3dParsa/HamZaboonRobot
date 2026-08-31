@@ -504,9 +504,10 @@ def _register_admin_flows() -> None:
         # Store pending for preview+confirm (no transaction held across await).
         context.user_data["pending_broadcast"] = {"text": msg, "html": html}
         mark_awaiting_consumed(context)
+        from services.utils.formatting import html_escape
         count = len(db.all_active_users())
         use_html = bool(html and html != msg)
-        preview_text = f"👁 پیش‌نمایش پیام همگانی ({count} کاربر):\n\n{html}\n\nتایید می‌کنید؟"
+        preview_text = f"{html_escape('👁 پیش‌نمایش پیام همگانی (')}{count}{html_escape(' کاربر):')}\n\n{html}\n\n{html_escape('تایید می‌کنید؟')}"
         await send_pretty.say(
             update,
             context,
