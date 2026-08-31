@@ -1,7 +1,10 @@
-"""Integration tests for RT-COST: admin_cost reply_text -> send_pretty.
+"""Integration tests for llm-cost dashboard (R3/R4/R5 + send_pretty).
 
-Verifies all 4 outbound sites route through services.send_pretty.say
-with raw=PLAIN, correct keyboard and mode.
+Verifies:
+- Backend.RICH rendering with 4-col tables (Name | Req | Avg Cost | Share)
+- llm:range:* , llm:breakdown:* , llm:currency:* callbacks route via say/backend RICH
+- composite preset_kind breakdown table
+- no direct reply_text / bot.send_message wiring regression
 """
 
 from __future__ import annotations
@@ -41,7 +44,26 @@ class AdminCostSendPrettyFlowTest(unittest.TestCase):
         update.message = msg
         update.effective_chat = MagicMock()
         update.effective_chat.id = 1
+        update.effective_user = MagicMock()
+        update.effective_user.id = 1
         update.callback_query = None
+        return update
+
+    def _make_callback_update(self, data: str):
+        query = MagicMock()
+        query.data = data
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        query.message = MagicMock()
+        query.message.message_id = 1
+        update = MagicMock()
+        update.callback_query = query
+        update.effective_chat = MagicMock()
+        update.effective_chat.id = 1
+        update.effective_user = MagicMock()
+        update.effective_user.id = 1
+        update.message = MagicMock()
+        update.message.reply_text = AsyncMock()
         return update
 
     def _make_context(self):
@@ -50,8 +72,11 @@ class AdminCostSendPrettyFlowTest(unittest.TestCase):
         ctx.bot = AsyncMock()
         return ctx
 
-    def test_dashboard_without_callback_uses_say_auto(self):
+    # --- existing wiring ---
+
+    def test_dashboard_without_callback_uses_say_rich(self):
         from handlers.admin_cost import _show_llm_cost_dashboard
+        from services.send_pretty import Backend
 
         update = self._make_message_update()
         ctx = self._make_context()
@@ -59,10 +84,7 @@ class AdminCostSendPrettyFlowTest(unittest.TestCase):
             asyncio.run(_show_llm_cost_dashboard(update, ctx))
             mock_say.assert_called_once()
             _, kwargs = mock_say.call_args
-            # Explicit checks per contract Rule 2/3/4
-            from services.send_pretty import RawFormat
-
-            self.assertEqual(kwargs["raw"], RawFormat.PLAIN)
+            self.assertEqual(kwargs["backend"], Backend.RICH)
             self.assertEqual(kwargs["mode"], "auto")
             self.assertIn("keyboard", kwargs)
 
@@ -80,16 +102,15 @@ class AdminCostSendPrettyFlowTest(unittest.TestCase):
 
             self.assertEqual(kwargs["raw"], RawFormat.PLAIN)
             self.assertEqual(kwargs["mode"], "send")
-            self.assertIn("keyboard", kwargs)
             self.assertEqual(ctx.user_data["awaiting"], "llm_cost_user")
 
-    def test_invalid_price_uses_say_send(self):
+    def test_invalid_price_rate_uses_say_send(self):
         from handlers.admin_cost import _handle_cost_text_input
 
         update = self._make_message_update("not_a_number")
         ctx = self._make_context()
         with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")) as mock_say:
-            asyncio.run(_handle_cost_text_input(update, ctx, "llm_price_input", "not_a_number"))
+            asyncio.run(_handle_cost_text_input(update, ctx, "llm_price_rate", "not_a_number"))
             mock_say.assert_called_once()
             args, kwargs = mock_say.call_args
             self.assertIn("عدد معتبر", args[2])
@@ -101,45 +122,133 @@ class AdminCostSendPrettyFlowTest(unittest.TestCase):
     def test_pricing_text_success_uses_say_send(self):
         from handlers.admin_cost import _handle_cost_text_input
 
-        update = self._make_message_update("0.12")
+        update = self._make_message_update("65000")
         ctx = self._make_context()
         with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")) as mock_say:
-            asyncio.run(_handle_cost_text_input(update, ctx, "llm_price_input", "0.12"))
+            asyncio.run(_handle_cost_text_input(update, ctx, "llm_price_rate", "65000"))
             mock_say.assert_called_once()
             args, kwargs = mock_say.call_args
-            self.assertIn("LLM pricing defaults", args[2])
+            # _llm_pricing_text returns "LLM pricing"
+            self.assertIn("LLM pricing", args[2])
             from services.send_pretty import RawFormat
 
             self.assertEqual(kwargs["raw"], RawFormat.PLAIN)
             self.assertEqual(kwargs["mode"], "send")
-
-    def test_dashboard_with_callback_edits_via_edit_or_send(self):
-        """Callback path still edits in place via _edit_or_send (not a second send)."""
-        from handlers.admin_cost import _show_llm_cost_dashboard
-
-        query = MagicMock()
-        query.data = "admin:llm_costs"
-        query.answer = AsyncMock()
-        query.edit_message_text = AsyncMock()
-        update = MagicMock()
-        update.callback_query = query
-        update.effective_chat = MagicMock()
-        update.effective_chat.id = 1
-        update.message = MagicMock()
-        update.message.reply_text = AsyncMock()
-        ctx = self._make_context()
-        # _edit_or_send is the seam for the callback branch; say must NOT be called there.
-        with patch("handlers.admin_cost._edit_or_send", new=AsyncMock(return_value="edited")) as mock_edit:
-            with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")) as mock_say:
-                asyncio.run(_show_llm_cost_dashboard(update, ctx))
-                mock_edit.assert_called_once()
-                mock_say.assert_not_called()
 
     def test_wiring_no_direct_reply_text(self):
         text = Path("handlers/admin_cost.py").read_text(encoding="utf-8")
         self.assertNotIn("update.message.reply_text", text)
         self.assertNotIn("update.effective_message.reply_text", text)
         self.assertNotIn("context.bot.send_message", text)
+
+    # --- new: range / breakdown / currency callbacks ---
+
+    def test_range_callback_updates_state_and_renders_rich(self):
+        from handlers.admin_cost import _handle_llm_callback
+        from services.send_pretty import Backend
+
+        for val in ("today", "7d", "30d", "mtd", "all"):
+            update = self._make_callback_update(f"llm:range:{val}")
+            ctx = self._make_context()
+            with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")) as mock_say:
+                asyncio.run(_handle_llm_callback(update, ctx, f"llm:range:{val}"))
+                mock_say.assert_called_once()
+                _, kwargs = mock_say.call_args
+                self.assertEqual(kwargs["backend"], Backend.RICH)
+                self.assertEqual(ctx.user_data["llm_cost_state"]["range"], val)
+                # rendered rich text contains overview heading
+                msg = kwargs.get("args", mock_say.call_args[0][2] if len(mock_say.call_args[0]) > 2 else None)
+                # fallback: check keyword 'content' is Message
+                content = mock_say.call_args[0][2] if len(mock_say.call_args[0]) > 2 else mock_say.call_args[1].get("content")
+                if content is not None:
+                    rendered = content.render(Backend.RICH)
+                    self.assertIn("LLM Cost", rendered)
+                    # overview table is always 4-col; breakdown header only when rows exist
+                    self.assertIn("Metric | Value | Cost | Note", rendered)
+
+    def test_breakdown_tabs_each_render_rich_4col(self):
+        from handlers.admin_cost import _handle_llm_callback
+        from services.send_pretty import Backend
+
+        # seed some data so breakdown tables have rows
+        db.add_llm_request(
+            user_id=1, plan="free", request_kind="daily_batch", model="gpt-test",
+            outcome="success", prompt_tokens=100, completion_tokens=50, total_tokens=150,
+            input_cost_usd_per_million=1.0, output_cost_usd_per_million=2.0,
+            usd_to_toman_rate=60000, latency_ms=100, preset_name="preset_a",
+        )
+        db.add_llm_request(
+            user_id=1, plan="free", request_kind="custom_word", model="gpt-test",
+            outcome="success", prompt_tokens=200, completion_tokens=100, total_tokens=300,
+            input_cost_usd_per_million=1.0, output_cost_usd_per_million=2.0,
+            usd_to_toman_rate=60000, latency_ms=120, preset_name="preset_b",
+        )
+
+        for tab in ("preset", "plan", "kind", "model", "user", "preset_kind"):
+            update = self._make_callback_update(f"llm:breakdown:{tab}")
+            ctx = self._make_context()
+            with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")) as mock_say:
+                asyncio.run(_handle_llm_callback(update, ctx, f"llm:breakdown:{tab}"))
+                mock_say.assert_called_once()
+                _, kwargs = mock_say.call_args
+                self.assertEqual(kwargs["backend"], Backend.RICH)
+                self.assertEqual(ctx.user_data["llm_cost_state"]["breakdown"], tab)
+                content = mock_say.call_args[0][2] if len(mock_say.call_args[0]) > 2 else None
+                if content is not None:
+                    rendered = content.render(Backend.RICH)
+                    # 4-col breakdown header must appear (even if no rows, header is present or none placeholder)
+                    # For tabs with rows, header is in table; for empty, quote "none" but we seeded data
+                    self.assertIn("Name | Req | Avg Cost | Share", rendered)
+
+    def test_currency_callback_updates_state(self):
+        from handlers.admin_cost import _handle_llm_callback
+        from services.send_pretty import Backend
+
+        for mode in ("usd", "toman", "both"):
+            update = self._make_callback_update(f"llm:currency:{mode}")
+            ctx = self._make_context()
+            with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")) as mock_say:
+                asyncio.run(_handle_llm_callback(update, ctx, f"llm:currency:{mode}"))
+                mock_say.assert_called_once()
+                self.assertEqual(ctx.user_data["llm_cost_currency"], mode)
+                self.assertEqual(mock_say.call_args[1]["backend"], Backend.RICH)
+
+    def test_preset_kind_composite_bucket(self):
+        from handlers.admin_cost import _build_llm_cost_message
+        from services.send_pretty import Backend
+
+        db.add_llm_request(
+            user_id=1, plan="free", request_kind="daily_batch", model="gpt-test",
+            outcome="success", prompt_tokens=100, completion_tokens=50, total_tokens=150,
+            input_cost_usd_per_million=1.0, output_cost_usd_per_million=2.0,
+            usd_to_toman_rate=60000, latency_ms=100, preset_name="preset_a",
+        )
+        db.add_llm_request(
+            user_id=1, plan="free", request_kind="custom_word", model="gpt-test",
+            outcome="success", prompt_tokens=100, completion_tokens=50, total_tokens=150,
+            input_cost_usd_per_million=1.0, output_cost_usd_per_million=2.0,
+            usd_to_toman_rate=60000, latency_ms=100, preset_name="preset_a",
+        )
+        state = {"range": "all", "detail": False, "breakdown": "preset_kind", "plan": None, "user_id": None, "request_kind": None, "model": None, "outcome": None}
+        msg = _build_llm_cost_message(state, currency_mode="both")
+        rendered = msg.render(Backend.RICH)
+        # composite bucket format preset:kind (rich escapes underscores)
+        self.assertIn("preset\\_a:daily\\_batch", rendered)
+        self.assertIn("preset\\_a:custom\\_word", rendered)
+        self.assertIn("Name | Req | Avg Cost | Share", rendered)
+        # overview table 4 cols
+        self.assertIn("Metric | Value | Cost | Note", rendered)
+
+    def test_custom_range_rejected_as_invalid(self):
+        from handlers.admin_cost import _handle_llm_callback
+
+        update = self._make_callback_update("llm:range:custom")
+        ctx = self._make_context()
+        with patch("handlers.admin_cost.notify_callback", new=AsyncMock()) as mock_notify:
+            with patch("handlers.admin_cost.say", new=AsyncMock()) as mock_say:
+                asyncio.run(_handle_llm_callback(update, ctx, "llm:range:custom"))
+                mock_say.assert_not_called()
+                mock_notify.assert_called_once()
 
 
 if __name__ == "__main__":

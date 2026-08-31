@@ -216,7 +216,6 @@ def llm_cost_dashboard_keyboard(
         ("30d", "30d"),
         ("MTD", "mtd"),
         ("All", "all"),
-        ("Custom", "custom"),
     ]
     range_rows: list[list[InlineKeyboardButton]] = []
     for i in range(0, len(_range_opts), 2):

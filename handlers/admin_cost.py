@@ -128,7 +128,7 @@ def _llm_cost_query_filters(state: dict[str, object]) -> dict[str, object]:
         "start_date": start_date,
         "end_date": end_date,
     }
-    for key in ("plan", "user_id", "request_kind", "model", "outcome", "preset_name"):
+    for key in ("plan", "user_id", "request_kind", "model", "outcome"):
         value = state.get(key)
         if value not in {None, "", "all"}:
             filters[key] = value
@@ -501,17 +501,8 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     if action == "range" and len(parts) == 3:
         val = parts[2]
-        if val not in {"today", "7d", "30d", "mtd", "all", "custom"}:
+        if val not in {"today", "7d", "30d", "mtd", "all"}:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-            return
-        if val == "custom":
-            context.user_data["awaiting"] = "llm_cost_custom_start"
-            await _edit_or_send(
-                update,
-                context,
-                "Send custom range start date (YYYY-MM-DD):",
-                reply_markup=admin_awaiting_inline_keyboard(),
-            )
             return
         _llm_cost_set_state(context, range=val, detail=False)
         await _show_llm_cost_dashboard(update, context)
@@ -651,20 +642,6 @@ async def _handle_cost_text_input(
         mark_awaiting_consumed(context)
         ai_read_cache.invalidate_cost_profile()
         await say(update, context, _llm_pricing_text(), raw=RawFormat.PLAIN, mode="send")
-        return
-
-    if awaiting == "llm_cost_custom_start":
-        # Custom range start date — stub: acknowledge and return to dashboard.
-        # Full custom-range implementation will parse start/end dates.
-        mark_awaiting_consumed(context)
-        await say(
-            update,
-            context,
-            "Custom range not yet implemented — showing MTD.",
-            raw=RawFormat.PLAIN,
-            mode="send",
-        )
-        await _show_llm_cost_dashboard(update, context)
         return
 
 
