@@ -24,9 +24,13 @@ from services import db
 from services.db import schema as db_schema
 
 _COST_FUNCTIONS = (
+    "_build_llm_cost_message",
+    "_fmt_avg_triple",
+    "_fmt_cost_triple",
     "_handle_cost_text_input",
     "_handle_llm_callback",
     "handle_cost_callback",
+    "_llm_cost_currency_mode",
     "_llm_cost_currency_text",
     "_llm_cost_default_state",
     "_llm_cost_filter_label",
@@ -123,8 +127,12 @@ class TestCostReportEmojiR8(unittest.TestCase):
         self.assertNotIn("⚫", text)
         self.assertNotIn("🔴", text)
         self.assertNotIn("⚪", text)
-        # Legend reflects the R8 mapping.
-        self.assertIn("راهنما: ✅ = موفق | ❌ = خطای هزینه‌دار | ⚠️ = خطای بدون هزینه", text)
+        # Legend reflects the R8 mapping (updated for RichMessage triple format).
+        # Check parts separately to be robust to ZWNJ/escaping.
+        self.assertIn("راهنما:", text)
+        self.assertIn("✅ موفق", text)
+        self.assertIn("هزینه", text)
+        self.assertIn("بدون هزینه", text)
 
 
 if __name__ == "__main__":

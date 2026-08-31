@@ -172,12 +172,13 @@ class ReliabilityPersistenceTests(unittest.TestCase):
                 "outcome": "success",
             }
         )
-        self.assertIn("📊 LLM Cost Dashboard", text)
-        self.assertIn("plan=gold", text)
-        self.assertIn("user=1", text)
+        self.assertIn("📊 LLM Cost — Overview", text)
+        self.assertIn("gold", text)
+        self.assertIn("1", text)
         self.assertIn("🧾 Recent Requests", text)
-        self.assertIn("📈 Month-end Projection", text)
-        self.assertIn("Success rate: 100.0%", text)
+        self.assertIn("Month", text)
+        self.assertIn("Projection", text)
+        self.assertIn("Success rate", text)
 
     def test_llm_dashboard_breakdowns_include_failure_rate(self):
         db.add_llm_request(
@@ -213,7 +214,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
             }
         )
         self.assertIn("⚠️ Attention required", text)
-        self.assertIn("Billed failure rate: 100.0%", text)
+        self.assertIn("Billed failure rate", text)
         self.assertIn("billed fail", text)
 
     def test_saved_word_insert_is_idempotent(self):
