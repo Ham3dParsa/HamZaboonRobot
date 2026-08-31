@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sqlite3
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 
@@ -277,7 +278,7 @@ async def ask(
                     alias_data,
                     exclude_token=dup_word_row["token"],
                 )
-            except Exception:
+            except sqlite3.Error:
                 logger.exception("alias insert failed in word_query.ask user_id=%s", user_id)
             return AskResult(kind="duplicate", token=dup_word_row["token"])
 
