@@ -76,6 +76,7 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
         [
             [InlineKeyboardButton(BTN_ADMIN_STATS, callback_data="admin:stats"),
              InlineKeyboardButton(IBTN_PLAN, callback_data="admin:set_plan")],
+            [InlineKeyboardButton(BTN_ADMIN_USER_MANAGE, callback_data="admin:user")],
             [InlineKeyboardButton(IBTN_ADMIN_AI, callback_data="admin:ai_settings")],
             [InlineKeyboardButton("💳 مدیریت پلن‌ها", callback_data="admin:plans"),
              InlineKeyboardButton(IBTN_ADMIN_COST, callback_data="admin:cost_dashboard")],
@@ -108,7 +109,10 @@ def stats_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("👥 نمای کلی", callback_data="admin:stats:overview"),
          InlineKeyboardButton("📊 پراکندگی", callback_data="admin:stats:distribution")],
-        [InlineKeyboardButton("📈 فعالیت", callback_data="admin:stats:activity")],
+        [InlineKeyboardButton("📈 فعالیت", callback_data="admin:stats:activity"),
+         InlineKeyboardButton("📚 درگیری یادگیری", callback_data="admin:stats:learning")],
+        [InlineKeyboardButton("📈 رشد و بازگشت", callback_data="admin:stats:growth"),
+         InlineKeyboardButton("📤 خروجی CSV", callback_data="admin:stats:export")],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
     ])
 
@@ -117,6 +121,32 @@ def stats_menu_keyboard() -> InlineKeyboardMarkup:
 def stats_back_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔙 بازگشت به آمار", callback_data="admin:stats")],
+    ])
+
+
+def user_management_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔍 جستجوی کاربر", callback_data="admin:user:search")],
+        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
+    ])
+
+
+def user_profile_keyboard(user_id: int, blocked: bool) -> InlineKeyboardMarkup:
+    block_label = "✅ رفع مسدودی" if blocked else "🚫 مسدود کردن"
+    block_cb = f"admin:user:unblock:{user_id}" if blocked else f"admin:user:block:{user_id}"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💳 تغییر پلن", callback_data=f"admin:user:plan:{user_id}")],
+        [InlineKeyboardButton(block_label, callback_data=block_cb)],
+        [InlineKeyboardButton("♻️ ریست پیشرفت", callback_data=f"admin:user:reset:{user_id}")],
+        [InlineKeyboardButton("✉️ پیام به کاربر", callback_data=f"admin:user:msg:{user_id}")],
+        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:user")],
+    ])
+
+
+def user_reset_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ بله، ریست شود", callback_data=f"admin:user:reset_confirm:{user_id}")],
+        [InlineKeyboardButton("❌ انصراف", callback_data=f"admin:user:reset_cancel:{user_id}")],
     ])
 
 

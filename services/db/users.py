@@ -1,4 +1,6 @@
+import csv
 import datetime
+import io
 
 from services.db.plans import get_plan, valid_plan_name
 from services.db.schema import get_conn, transaction, _today, _utc_now, _current_daily_count, _can_consume_daily_count
@@ -432,3 +434,166 @@ def set_user_blocked(user_id: int):
 def reset_user_blocked(user_id: int):
     with transaction() as conn:
         conn.execute("UPDATE users SET bot_blocked=0 WHERE user_id=?", (user_id,))
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — admin stats/users DB helpers (single source of truth)
+# Reads use get_conn(); writes use transaction(); no await across transaction.
+# ---------------------------------------------------------------------------
+
+def count_new_users_since(date: str) -> int:
+    """Count users whose created_at >= date (ISO string comparison)."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM users WHERE created_at >= ?", (date,)
+        ).fetchone()
+        return int(row["cnt"]) if row else 0
+
+
+def count_users_created_before(date: str) -> int:
+    """Count users whose created_at < date."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM users WHERE created_at < ?", (date,)
+        ).fetchone()
+        return int(row["cnt"]) if row else 0
+
+
+def count_retained_users(created_before: str, active_since: str) -> int:
+    """Count users created before created_before and active since active_since.
+
+    Uses created_at < created_before AND last_active_date >= active_since.
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM users "
+            "WHERE created_at < ? AND last_active_date >= ?",
+            (created_before, active_since),
+        ).fetchone()
+        return int(row["cnt"]) if row else 0
+
+
+def count_review_events_total() -> int:
+    """Total number of review_events rows."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT COUNT(*) AS cnt FROM review_events").fetchone()
+        return int(row["cnt"]) if row else 0
+
+
+def count_study_sessions_total() -> int:
+    """Total number of study_sessions rows."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT COUNT(*) AS cnt FROM study_sessions").fetchone()
+        return int(row["cnt"]) if row else 0
+
+
+def count_first_exposure_completion() -> dict:
+    """Count first-exposure completion from saved_words.
+
+    Returns {"done": int, "total": int} where done = first_exposure_done=1.
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS total, "
+            "SUM(CASE WHEN first_exposure_done=1 THEN 1 ELSE 0 END) AS done "
+            "FROM saved_words"
+        ).fetchone()
+        if not row:
+            return {"done": 0, "total": 0}
+        total = int(row["total"] or 0)
+        done = int(row["done"] or 0)
+        return {"done": done, "total": total}
+
+
+def get_user_learning_stats(user_id: int) -> dict:
+    """Per-user learning stats: saved_words, review_events, study_sessions counts."""
+    with get_conn() as conn:
+        sw = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM saved_words WHERE user_id=?", (user_id,)
+        ).fetchone()
+        re = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM review_events WHERE user_id=?", (user_id,)
+        ).fetchone()
+        ss = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM study_sessions WHERE user_id=?", (user_id,)
+        ).fetchone()
+        return {
+            "saved_words": int(sw["cnt"]) if sw else 0,
+            "review_events": int(re["cnt"]) if re else 0,
+            "study_sessions": int(ss["cnt"]) if ss else 0,
+        }
+
+
+def get_top_users_by_streak(limit: int = 20) -> list[dict]:
+    """Top users ordered by streak DESC.
+
+    Returns list of dicts with keys user_id, username, streak, plan.
+    """
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = 20
+    if limit <= 0:
+        limit = 20
+    if limit > 100:
+        limit = 100
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT user_id, username, streak, plan FROM users "
+            "ORDER BY streak DESC, user_id ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def reset_user_progress(user_id: int) -> None:
+    """Atomically reset a user's learning progress.
+
+    Deletes saved_words, review_events, study_sessions, session_reports for the
+    user and resets streak to 0 — all in a single transaction().
+    """
+    with transaction() as conn:
+        conn.execute("DELETE FROM saved_words WHERE user_id=?", (user_id,))
+        conn.execute("DELETE FROM review_events WHERE user_id=?", (user_id,))
+        conn.execute("DELETE FROM study_sessions WHERE user_id=?", (user_id,))
+        conn.execute("DELETE FROM session_reports WHERE user_id=?", (user_id,))
+        conn.execute("UPDATE users SET streak=0 WHERE user_id=?", (user_id,))
+
+
+def export_users_csv() -> str:
+    """Export users as CSV string (no secrets).
+
+    Columns: user_id,username,target_lang,goal,level,plan,streak,
+             last_active_date,onboarded,created_at,bot_blocked
+    Ordered by user_id ASC.
+    """
+    columns = [
+        "user_id",
+        "username",
+        "target_lang",
+        "goal",
+        "level",
+        "plan",
+        "streak",
+        "last_active_date",
+        "onboarded",
+        "created_at",
+        "bot_blocked",
+    ]
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT {', '.join(columns)} FROM users ORDER BY user_id ASC"
+        ).fetchall()
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(columns)
+    for r in rows:
+        vals = []
+        for c in columns:
+            v = r[c] if r[c] is not None else ""
+            # Spreadsheet formula injection guard: prefix =,+, -, @ with '
+            if isinstance(v, str) and v and v[0] in ("=", "+", "-", "@"):
+                v = "'" + v
+            vals.append(v)
+        writer.writerow(vals)
+    return buf.getvalue()

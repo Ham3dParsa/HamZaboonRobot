@@ -62,8 +62,9 @@ class TestHandleAdminStats(unittest.TestCase):
             import asyncio
             asyncio.run(admin_stats.handle_admin_stats(update, ctx, "stats:overview"))
         text = update.callback_query.edit_message_text.call_args.args[0]
-        self.assertIn("کل کاربران: 42", text)
-        self.assertIn("بلاک کرده: 2", text)
+        # digits now Persian via to_persian_digits (review M3)
+        self.assertIn("کل کاربران: ۴۲", text)
+        self.assertIn("بلاک کرده: ۲", text)
 
     def test_activity_queries_db_and_renders(self):
         update = self._make_update()
@@ -75,7 +76,7 @@ class TestHandleAdminStats(unittest.TestCase):
             asyncio.run(admin_stats.handle_admin_stats(update, ctx, "stats:activity"))
         text = update.callback_query.edit_message_text.call_args.args[0]
         self.assertIn("فعال امروز:", text)
-        self.assertIn("درخواست‌های AI امروز: 3", text)
+        self.assertIn("درخواست‌های AI امروز: ۳", text)
 
     def test_unknown_subaction_answers_invalid(self):
         update = self._make_update()
