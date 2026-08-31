@@ -67,12 +67,12 @@ function Save-Seen([hashtable]$h) {
 function Get-ReviewerDelta {
     param([hashtable]$seen)
     $deltas = @()
-    # Pull review comments (inline) and Issue comments (summary) — include user for Kilo/OpenCode tagging
-    $pullJson = gh api "repos/Ham3dParsa/HamZaboonRobot/pulls/$PR/comments" --jq '.[] | {id, h:(.body|length), user:.user.login, path, line}' 2>&1
-    $issueJson = gh api "repos/Ham3dParsa/HamZaboonRobot/issues/$PR/comments" --jq '.[] | {id, h:(.body|length), user:.user.login}' 2>&1
+    # Pull review comments (inline) and Issue comments (summary) — filter to both reviewers only
+    $pullJson = gh api "repos/Ham3dParsa/HamZaboonRobot/pulls/$PR/comments" --jq '.[] | select(.user.login=="kilo-code-bot[bot]" or .user.login=="opencode-agent[bot]") | {id, h:(.body|length), user:.user.login, path, line}' 2>&1
+    $issueJson = gh api "repos/Ham3dParsa/HamZaboonRobot/issues/$PR/comments" --jq '.[] | select(.user.login=="kilo-code-bot[bot]" or .user.login=="opencode-agent[bot]") | {id, h:(.body|length), user:.user.login}' 2>&1
     $rows = @()
-    if ($pullJson) { $rows += ($pullJson | ForEach-Object { $_ | ConvertFrom-Json }) }
-    if ($issueJson) { $rows += ($issueJson | ForEach-Object { $_ | ConvertFrom-Json }) }
+    if ($pullJson) { $rows += ($pullJson | ForEach-Object { try { $_ | ConvertFrom-Json } catch { Write-Warning "skip bad pull json: $_"; continue } }) }
+    if ($issueJson) { $rows += ($issueJson | ForEach-Object { try { $_ | ConvertFrom-Json } catch { Write-Warning "skip bad issue json: $_"; continue } }) }
     foreach ($r in $rows) {
         $id = "$($r.id)"
         $h = [int]$r.h
@@ -90,7 +90,8 @@ function Test-Checks {
     $required = @('label','test (3.10)','test (3.13)','ram-gate','Kilo Code Review','review')
     $missingPass = @()
     foreach ($name in $required) {
-        if ($out -notmatch [regex]::Escape($name) + '\s+pass') { $missingPass += $name }
+        $pattern = "(?m)^\s*$([regex]::Escape($name))\s+pass"
+        if ($out -notmatch $pattern) { $missingPass += $name }
     }
     $fail = $out -match '\bfail\b' -or $missingPass.Count -gt 0
     return @{ out = $out; missing = $missingPass; fail = $fail }
@@ -179,11 +180,11 @@ while ((Get-Date) -lt $deadline) {
         } finally { Pop-Location }
     }
 
-    $allChecksPass = $checksPass -and ($mergeState -eq 'CLEAN' -or $mergeState -eq 'UNSTABLE' -and $mergeable -eq 'MERGEABLE')
+    $allChecksPass = $checksPass -and $mergeable -eq 'MERGEABLE' -and ($mergeState -eq 'CLEAN' -or $mergeState -eq 'UNSTABLE')
     # Skill completion: all deltas fetched + all required checks pass + mergeable MERGEABLE
-    if ($checksPass -and $mergeable -eq 'MERGEABLE' -and ($mergeState -eq 'CLEAN' -or $mergeState -eq 'UNSTABLE')) {
-        # Verify both reviewers explicitly pass
-        if ($checkRes.out -match 'Kilo Code Review\s+pass' -and $checkRes.out -match 'review\s+pass') {
+    if ($allChecksPass) {
+        # Verify both reviewers explicitly pass (anchored to avoid substring collision)
+        if ($checkRes.out -match '(?m)^\s*Kilo Code Review\s+pass' -and $checkRes.out -match '(?m)^\s*review\s+pass') {
             Write-Host "`n[done] All required checks pass + MERGEABLE + Kilo & OpenCode pass — ready to merge" -ForegroundColor Green
             Write-Host "      Evidence: gh pr checks $PR"
             exit 0

@@ -23,21 +23,21 @@ Tight loop that turns a pushed PR into `MERGEABLE` without re-printing unchanged
 ### 1. Poll reviewer delta — tight, token-tight (Kilo + OpenCode)
 
 ```powershell
-gh api repos/Ham3dParsa/HamZaboonRobot/pulls/<n>/comments --jq '.[] | {id, h:(.body|length), user:.user.login, path, line}'
-gh api repos/Ham3dParsa/HamZaboonRobot/issues/<n>/comments --jq '.[] | {id, h:(.body|length), user:.user.login}'
+gh api repos/Ham3dParsa/HamZaboonRobot/pulls/<n>/comments --jq '.[] | select(.user.login=="kilo-code-bot[bot]" or .user.login=="opencode-agent[bot]") | {id, h:(.body|length), user:.user.login, path, line}'
+gh api repos/Ham3dParsa/HamZaboonRobot/issues/<n>/comments --jq '.[] | select(.user.login=="kilo-code-bot[bot]" or .user.login=="opencode-agent[bot]") | {id, h:(.body|length), user:.user.login}'
 ```
 Persist `id->h` to `$env:TEMP/opencode/reviewer_seen_<n>.json` (fallback: also check legacy `kilo_seen_<n>.json` on first load, then migrate); surface only new `id` or changed `h`; fetch full body **only** for deltas:
 ```powershell
 gh api repos/Ham3dParsa/HamZaboonRobot/pulls/comments/<id> --jq '.body'
 gh api repos/Ham3dParsa/HamZaboonRobot/issues/comments/<id> --jq '.body'
 ```
-Tag each delta by `user` (`kilo-code-bot[bot]` vs `opencode-agent[bot]`) in the preview log. Sleep `90-120s` (default 90, clamped), `30m` timeout. Each fix commit must be pushed — both reviewers re-review only after push.
+Filter `jq` to reviewer bots only (avoids noise from human comments), wrap `ConvertFrom-Json` in `try/catch` to survive transient `gh api` errors with `$ErrorActionPreference='Stop'`. Tag each delta by `user` (`kilo-code-bot[bot]` vs `opencode-agent[bot]`) in the preview log. Sleep `90-120s` (default 90, clamped), `30m` timeout. Each fix commit must be pushed — both reviewers re-review only after push.
 
 ### 2. Poll CI
 ```powershell
 gh pr checks <n>
 ```
-Require `label` `test (3.10)` `test (3.13)` `ram-gate` `Kilo Code Review` `review` (opencode-review) = `pass`. On `fail`, `gh run view <run> --log-failed`, fix before re-poll. Do not merge with blocking failures.
+Require `label` `test (3.10)` `test (3.13)` `ram-gate` `Kilo Code Review` `review` (opencode-review) = `pass` — match anchored per-line `(?m)^\s*<name>\s+pass` to avoid `review` substring matching `Kilo Code Review` (see `scripts/kilo_ci_loop.ps1:Test-Checks`). On `fail`, `gh run view <run> --log-failed`, fix before re-poll. Do not merge with blocking failures.
 
 ### 3. Handle conflict
 If `CONFLICTING`:
