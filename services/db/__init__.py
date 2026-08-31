@@ -213,6 +213,48 @@ def _normalize_query_text(text: str) -> str:
     return normalize_word(text)
 
 
+_QUERY_RESULTS_CAP = 100
+
+
+def _enforce_query_results_cap(
+    conn, user_id: int, lang: str, cap: int = _QUERY_RESULTS_CAP, exclude_token: str | None = None
+) -> None:
+    """Enforce per-user+lang cap (cap=100) via LRU eviction on unexpired rows.
+
+    Counts only unexpired rows so not-yet-purged expired rows don't evict fresh
+    ones. ``exclude_token`` keeps the dedup source alive when alias insert would
+    otherwise evict it. Bounded by cap size.
+    """
+    now = _utc_now().isoformat()
+    if exclude_token:
+        total = conn.execute(
+            "SELECT COUNT(*) AS c FROM query_results WHERE user_id=? AND lang=? AND expires_at>?",
+            (user_id, lang, now),
+        ).fetchone()["c"]
+        if total <= cap:
+            return
+        to_delete = total - cap
+        conn.execute(
+            "DELETE FROM query_results WHERE rowid IN ("
+            "SELECT rowid FROM query_results WHERE user_id=? AND lang=? AND expires_at>? AND token!=? "
+            "ORDER BY created_at ASC, rowid ASC LIMIT ?)",
+            (user_id, lang, now, exclude_token, to_delete),
+        )
+    else:
+        count = conn.execute(
+            "SELECT COUNT(*) AS c FROM query_results WHERE user_id=? AND lang=? AND expires_at>?",
+            (user_id, lang, now),
+        ).fetchone()["c"]
+        if count > cap:
+            to_delete = count - cap
+            conn.execute(
+                "DELETE FROM query_results WHERE rowid IN ("
+                "SELECT rowid FROM query_results WHERE user_id=? AND lang=? AND expires_at>? "
+                "ORDER BY created_at ASC, rowid ASC LIMIT ?)",
+                (user_id, lang, now, to_delete),
+            )
+
+
 def create_query_result(
     user_id: int,
     query_text: str,
@@ -220,6 +262,7 @@ def create_query_result(
     lang: str,
     result_data: dict,
     ttl_seconds: int = 30 * 24 * 60 * 60,
+    exclude_token: str | None = None,
 ) -> str:
     token = secrets.token_hex(16)
     now = _utc_now()
@@ -233,13 +276,14 @@ def create_query_result(
                 token,
                 user_id,
                 _normalize_query_text(query_text),
-                " ".join(word.split()),
+                normalize_word(word),
                 lang,
                 json.dumps(result_data, ensure_ascii=False),
                 now.isoformat(),
                 expires_at.isoformat(),
             ),
         )
+        _enforce_query_results_cap(conn, user_id, lang, exclude_token=exclude_token)
     return token
 
 
@@ -275,6 +319,49 @@ def find_unexpired_query(user_id: int, query_text: str, lang: str):
             "ORDER BY created_at DESC LIMIT 1",
             (user_id, lang, normalized, now),
         ).fetchone()
+
+
+def find_unexpired_query_by_word(user_id: int, word: str, lang: str):
+    """Return the most recent unexpired query_result for same user+lang+normalized word.
+
+    Indexed lookup: ``word`` column stores ``normalize_word(word)`` (see
+    ``create_query_result``), so SQL equality can use
+    ``query_results_user_lang_word_idx``. Legacy rows with non-normalized word
+    are handled via fallback scan.
+    """
+    normalized = normalize_word(word)
+    if not normalized:
+        return None
+    now = _utc_now().isoformat()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM query_results "
+            "WHERE user_id=? AND lang=? AND word=? AND expires_at>? "
+            "ORDER BY created_at DESC LIMIT 1",
+            (user_id, lang, normalized, now),
+        ).fetchone()
+        if row is not None:
+            try:
+                json.loads(row["result_json"])
+            except (TypeError, json.JSONDecodeError):
+                row = None
+            else:
+                return row
+        # Fallback for legacy rows stored before normalization (pre-#501).
+        rows = conn.execute(
+            "SELECT * FROM query_results "
+            "WHERE user_id=? AND lang=? AND expires_at>? "
+            "ORDER BY created_at DESC",
+            (user_id, lang, now),
+        ).fetchall()
+    for r in rows:
+        if normalize_word(r["word"] or "") == normalized:
+            try:
+                json.loads(r["result_json"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            return r
+    return None
 
 
 def mark_query_result_saved(token: str, saved_word_id: int | None = None):

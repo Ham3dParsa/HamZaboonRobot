@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sqlite3
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 
@@ -247,6 +248,39 @@ async def ask(
         )
         await asyncio.to_thread(db.release_word_query, user_id)
         return AskResult(kind="persist_error")
+
+    # Word-based cache (post-AI): if same normalized English word already cached
+    # for this user+lang, treat as duplicate, create alias for future exact-text
+    # hits, and return duplicate. Quota is NOT refunded — AI was spent.
+    if not skip_duplicate:
+        dup_word_row = await asyncio.to_thread(
+            db.find_unexpired_query_by_word, user_id, str(data.get("word", "")), lang
+        )
+        if dup_word_row is not None:
+            try:
+                alias_data = json.loads(dup_word_row["result_json"])
+            except (TypeError, json.JSONDecodeError, KeyError):
+                dup_word_row = None
+                alias_data = None
+            else:
+                if not isinstance(alias_data, dict) or not alias_data.get("word"):
+                    dup_word_row = None
+        if dup_word_row is not None:
+            # Alias: store new query_text -> same card so next exact hit is pre-AI.
+            # exclude_token keeps source alive if cap would evict it.
+            try:
+                await asyncio.to_thread(
+                    db.create_query_result,
+                    user_id,
+                    text,
+                    dup_word_row["word"],
+                    lang,
+                    alias_data,
+                    exclude_token=dup_word_row["token"],
+                )
+            except sqlite3.Error:
+                logger.exception("alias insert failed in word_query.ask user_id=%s", user_id)
+            return AskResult(kind="duplicate", token=dup_word_row["token"])
 
     try:
         query_token = await asyncio.to_thread(

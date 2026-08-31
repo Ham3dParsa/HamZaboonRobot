@@ -534,6 +534,8 @@ def init_db(path: str | None = None):
             );
             CREATE INDEX IF NOT EXISTS query_results_user_lang_text_idx
                 ON query_results(user_id, lang, query_text);
+            CREATE INDEX IF NOT EXISTS query_results_user_lang_word_idx
+                ON query_results(user_id, lang, word);
             CREATE TABLE IF NOT EXISTS grammar_tips (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
