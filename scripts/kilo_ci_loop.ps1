@@ -107,7 +107,7 @@ function Test-Checks {
     $required = @('label','test (3.10)','test (3.13)','ram-gate','Kilo Code Review','review')
     $missingPass = @()
     foreach ($name in $required) {
-        $pattern = "(?m)^\s*$([regex]::Escape($name))\b\s+pass"
+        $pattern = "(?m)^\s*$([regex]::Escape($name))(?!\w)\s+pass"
         if ($out -notmatch $pattern) { $missingPass += $name }
     }
     $fail = $out -match '\bfail\b' -or $missingPass.Count -gt 0
@@ -154,10 +154,16 @@ while ((Get-Date) -lt $deadline) {
                 Write-Host "  + id $id [$bot] h $prev -> $h @ $where"
                 # Fetch full body only for deltas
                 $isPull = $null -ne $d.row.path
-                if ($isPull) {
-                    $body = gh api "repos/Ham3dParsa/HamZaboonRobot/pulls/comments/$id" --jq '.body' 2>&1 | Out-String
-                } else {
-                    $body = gh api "repos/Ham3dParsa/HamZaboonRobot/issues/comments/$id" --jq '.body' 2>&1 | Out-String
+                try {
+                    if ($isPull) {
+                        $body = gh api "repos/Ham3dParsa/HamZaboonRobot/pulls/comments/$id" --jq '.body' 2>&1 | Out-String
+                        if ($LASTEXITCODE -ne 0) { throw $body }
+                    } else {
+                        $body = gh api "repos/Ham3dParsa/HamZaboonRobot/issues/comments/$id" --jq '.body' 2>&1 | Out-String
+                        if ($LASTEXITCODE -ne 0) { throw $body }
+                    }
+                } catch {
+                    Write-Warning "fetch body $id failed: $_"; continue
                 }
                 $preview = ($body | Select-Object -First 1) -replace "`n"," " 
                 if ($preview.Length -gt 400) { $preview = $preview.Substring(0,400) + " ..." }

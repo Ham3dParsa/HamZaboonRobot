@@ -37,7 +37,7 @@ Filter `jq` to reviewer bots only, check `$LASTEXITCODE` after each `gh api` (on
 ```powershell
 gh pr checks <n>
 ```
-Require `label` `test (3.10)` `test (3.13)` `ram-gate` `Kilo Code Review` `review` (opencode-review) = `pass` — match anchored `(?m)^\s*<name>\b\s+pass` with `\b` to avoid `review` matching `review-docs` or `Kilo Code Review` substring (see `scripts/kilo_ci_loop.ps1:Test-Checks` + `Test-Mergeable`; both wrapped in `try/catch` to allow retry on transient `gh` failure). On `fail`, `gh run view <run> --log-failed`, fix before re-poll. Do not merge with blocking failures.
+Require `label` `test (3.10)` `test (3.13)` `ram-gate` `Kilo Code Review` `review` (opencode-review) = `pass` — match anchored `(?m)^\s*<name>(?!\w)\s+pass` (use `(?!\w)` not `\b` so `)`-ending names like `test (3.10)` still match) to avoid `review` matching `Kilo Code Review` substring (see `scripts/kilo_ci_loop.ps1:Test-Checks` + `Test-Mergeable`; both wrapped in `try/catch` to allow retry on transient `gh` failure). On `fail`, `gh run view <run> --log-failed`, fix before re-poll. Do not merge with blocking failures.
 
 ### 3. Handle conflict
 If `CONFLICTING`:
