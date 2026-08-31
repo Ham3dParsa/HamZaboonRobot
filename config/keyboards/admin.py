@@ -174,7 +174,15 @@ def log_level_keyboard(current_level: str) -> InlineKeyboardMarkup:
 
 
 
+def _active_label(is_active: bool, text: str) -> str:
+    """R6 helper — prepend ✅ when the button represents the active selection."""
+    return f"✅ {text}" if is_active else text
+
+
 def admin_cost_keyboard() -> InlineKeyboardMarkup:
+    # R1: second button is now rate-only (IBTN_LLM_PRICING relabeled to
+    # "💱 نرخ تبدیل USD→تومان"); llm_cost_pricing_keyboard below exposes only
+    # the single USD→Toman rate button. Global input/output pricing removed.
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton(IBTN_LLM_COST, callback_data="admin:llm_costs")],
@@ -184,30 +192,98 @@ def admin_cost_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def llm_cost_dashboard_keyboard(
+    detail: bool = False,
+    active_range: str = "mtd",
+    breakdown: str = "preset",
+    currency: str = "both",
+) -> InlineKeyboardMarkup:
+    """Cost dashboard — R6 active-state ✅ markers + custom range & breakdown tabs.
 
-def llm_cost_dashboard_keyboard(detail: bool = False) -> InlineKeyboardMarkup:
+    Backward compat: ``llm_cost_dashboard_keyboard(bool)`` and
+    ``llm_cost_dashboard_keyboard()`` still work; new callers should pass
+    ``active_range``, ``breakdown``, and ``currency``. All active values are
+    normalized to lowercase for comparison.
+    """
+    active_range = str(active_range or "mtd").lower()
+    breakdown = str(breakdown or "preset").lower()
+    currency = str(currency or "both").lower()
+
+    # — Range row (6 options) → 3 rows × 2 cols to avoid clutter
+    _range_opts: list[tuple[str, str]] = [
+        ("Today", "today"),
+        ("7d", "7d"),
+        ("30d", "30d"),
+        ("MTD", "mtd"),
+        ("All", "all"),
+        ("Custom", "custom"),
+    ]
+    range_rows: list[list[InlineKeyboardButton]] = []
+    for i in range(0, len(_range_opts), 2):
+        chunk = _range_opts[i : i + 2]
+        row = [
+            InlineKeyboardButton(
+                _active_label(val == active_range, label),
+                callback_data=f"llm:range:{val}",
+            )
+            for label, val in chunk
+        ]
+        range_rows.append(row)
+
+    # — Breakdown row (6 tabs) → 3 rows × 2 cols
+    _breakdown_opts: list[tuple[str, str]] = [
+        ("By Preset", "preset"),
+        ("By Plan", "plan"),
+        ("By Kind", "kind"),
+        ("By Model", "model"),
+        ("By User", "user"),
+        ("By Preset×Kind", "preset_kind"),
+    ]
+    breakdown_rows: list[list[InlineKeyboardButton]] = []
+    for i in range(0, len(_breakdown_opts), 2):
+        chunk = _breakdown_opts[i : i + 2]
+        row = [
+            InlineKeyboardButton(
+                _active_label(val == breakdown, label),
+                callback_data=f"llm:breakdown:{val}",
+            )
+            for label, val in chunk
+        ]
+        breakdown_rows.append(row)
+
+    # — Currency row (3 options) → 1 row × 3 cols (or 2+1); keep single row
+    _currency_opts: list[tuple[str, str]] = [
+        ("USD", "usd"),
+        ("Toman", "toman"),
+        ("Both", "both"),
+    ]
+    currency_row = [
+        InlineKeyboardButton(
+            _active_label(val == currency, label),
+            callback_data=f"llm:currency:{val}",
+        )
+        for label, val in _currency_opts
+    ]
+
+    # — Controls row(s): detail toggle / refresh / clear / back
     recent_label = IBTN_HIDE_RECENT if detail else IBTN_RECENT
+    controls_rows: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(recent_label, callback_data="llm:recent"),
+            InlineKeyboardButton(IBTN_REFRESH, callback_data="llm:refresh"),
+        ],
+        [
+            InlineKeyboardButton(IBTN_CLEAR_FILTERS, callback_data="llm:clear"),
+            InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:cost_dashboard"),
+        ],
+    ]
+
     return InlineKeyboardMarkup(
         [
-            [
-                InlineKeyboardButton(IBTN_MTD, callback_data="llm:range:mtd"),
-                InlineKeyboardButton(IBTN_LAST_7, callback_data="llm:range:7d"),
-                InlineKeyboardButton(IBTN_ALL_TIME, callback_data="llm:range:all"),
-            ],
-            [
-                InlineKeyboardButton(IBTN_FILTER_PLAN, callback_data="llm:set:plan"),
-                InlineKeyboardButton(IBTN_FILTER_USER, callback_data="llm:set:user"),
-                InlineKeyboardButton(IBTN_FILTER_KIND, callback_data="llm:set:kind"),
-                InlineKeyboardButton(IBTN_FILTER_MODEL, callback_data="llm:set:model"),
-            ],
-            [
-                InlineKeyboardButton(IBTN_FILTER_STATUS, callback_data="llm:set:status"),
-                InlineKeyboardButton(IBTN_CLEAR_FILTERS, callback_data="llm:clear"),
-                InlineKeyboardButton(IBTN_REFRESH, callback_data="llm:refresh"),
-            ],
-            [
-                InlineKeyboardButton(recent_label, callback_data="llm:recent"),
-            ],
+            *range_rows,
+            *breakdown_rows,
+            currency_row,
+            *controls_rows,
         ]
     )
 
@@ -256,11 +332,12 @@ def llm_cost_status_keyboard() -> InlineKeyboardMarkup:
 
 
 def llm_cost_pricing_keyboard() -> InlineKeyboardMarkup:
+    # R1: global pricing removed — only USD→Toman rate remains. Input/output
+    # prices are per-preset (IBTN_INPUT_PRICE/OUTPUT_PRICE stay for
+    # ai_preset_edit) and must not appear here.
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton(IBTN_INPUT_PRICE, callback_data="llm:pricing:set_input"),
-                InlineKeyboardButton(IBTN_OUTPUT_PRICE, callback_data="llm:pricing:set_output"),
                 InlineKeyboardButton(IBTN_USD_TOMAN, callback_data="llm:pricing:set_rate"),
             ],
             [

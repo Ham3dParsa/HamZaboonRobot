@@ -91,6 +91,7 @@ def _llm_request_filters_where(filters: dict[str, object]) -> tuple[str, list[ob
     add_clause("request_kind=?", filters.get("request_kind"))
     add_clause("model=?", filters.get("model"))
     add_clause("outcome=?", filters.get("outcome"))
+    add_clause("preset_name=?", filters.get("preset_name"))
     where = " WHERE " + " AND ".join(clauses) if clauses else ""
     return where, params
 
@@ -106,6 +107,10 @@ def summarize_llm_requests(filters: dict[str, object] | None = None) -> dict[str
             "SUM(COALESCE(total_tokens, 0)) AS total_tokens, "
             "SUM(COALESCE(cost_usd, 0)) AS cost_usd, "
             "SUM(COALESCE(cost_toman, 0)) AS cost_toman, "
+            "SUM(COALESCE(prompt_tokens, 0) * COALESCE(input_cost_usd_per_million, 0) / 1000000.0) AS input_cost_usd, "
+            "SUM(COALESCE(completion_tokens, 0) * COALESCE(output_cost_usd_per_million, 0) / 1000000.0) AS output_cost_usd, "
+            "SUM(COALESCE(prompt_tokens, 0) * COALESCE(input_cost_usd_per_million, 0) * COALESCE(usd_to_toman_rate, 0) / 1000000.0) AS input_cost_toman, "
+            "SUM(COALESCE(completion_tokens, 0) * COALESCE(output_cost_usd_per_million, 0) * COALESCE(usd_to_toman_rate, 0) / 1000000.0) AS output_cost_toman, "
             "AVG(latency_ms) AS avg_latency_ms, "
             "SUM(CASE WHEN outcome='success' THEN 1 ELSE 0 END) AS success_count, "
             "SUM(CASE WHEN outcome='failure_billed' THEN 1 ELSE 0 END) AS billed_failure_count, "
@@ -139,6 +144,10 @@ def breakdown_llm_requests(
             "SUM(COALESCE(total_tokens, 0)) AS total_tokens, "
             "SUM(COALESCE(cost_usd, 0)) AS cost_usd, "
             "SUM(COALESCE(cost_toman, 0)) AS cost_toman, "
+            "SUM(COALESCE(prompt_tokens, 0) * COALESCE(input_cost_usd_per_million, 0) / 1000000.0) AS input_cost_usd, "
+            "SUM(COALESCE(completion_tokens, 0) * COALESCE(output_cost_usd_per_million, 0) / 1000000.0) AS output_cost_usd, "
+            "SUM(COALESCE(prompt_tokens, 0) * COALESCE(input_cost_usd_per_million, 0) * COALESCE(usd_to_toman_rate, 0) / 1000000.0) AS input_cost_toman, "
+            "SUM(COALESCE(completion_tokens, 0) * COALESCE(output_cost_usd_per_million, 0) * COALESCE(usd_to_toman_rate, 0) / 1000000.0) AS output_cost_toman, "
             "AVG(latency_ms) AS avg_latency_ms, "
             "SUM(CASE WHEN outcome='failure_billed' THEN 1 ELSE 0 END) "
             "AS billed_failure_count, "
@@ -152,6 +161,54 @@ def breakdown_llm_requests(
             [*params, limit],
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def breakdown_llm_requests_preset_kind(
+    filters: dict[str, object] | None = None,
+    limit: int = 10,
+) -> list[dict[str, object]]:
+    """Group by preset_name × request_kind composite (R5 B).
+
+    Returns bucket as ``preset:kind`` string (COALESCE preset to '—' when NULL).
+    Same metrics as breakdown_llm_requests plus input/output splits computed on
+    the fly (no migration, R2).
+    """
+    where, params = _llm_request_filters_where(filters or {})
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT "
+            "COALESCE(preset_name, '—') || ':' || request_kind AS bucket, "
+            "COUNT(*) AS request_count, "
+            "SUM(COALESCE(prompt_tokens, 0)) AS prompt_tokens, "
+            "SUM(COALESCE(completion_tokens, 0)) AS completion_tokens, "
+            "SUM(COALESCE(total_tokens, 0)) AS total_tokens, "
+            "SUM(COALESCE(cost_usd, 0)) AS cost_usd, "
+            "SUM(COALESCE(cost_toman, 0)) AS cost_toman, "
+            "SUM(COALESCE(prompt_tokens, 0) * COALESCE(input_cost_usd_per_million, 0) / 1000000.0) AS input_cost_usd, "
+            "SUM(COALESCE(completion_tokens, 0) * COALESCE(output_cost_usd_per_million, 0) / 1000000.0) AS output_cost_usd, "
+            "SUM(COALESCE(prompt_tokens, 0) * COALESCE(input_cost_usd_per_million, 0) * COALESCE(usd_to_toman_rate, 0) / 1000000.0) AS input_cost_toman, "
+            "SUM(COALESCE(completion_tokens, 0) * COALESCE(output_cost_usd_per_million, 0) * COALESCE(usd_to_toman_rate, 0) / 1000000.0) AS output_cost_toman, "
+            "AVG(latency_ms) AS avg_latency_ms, "
+            "SUM(CASE WHEN outcome='failure_billed' THEN 1 ELSE 0 END) "
+            "AS billed_failure_count, "
+            "SUM(CASE WHEN outcome='failure_zero_cost' THEN 1 ELSE 0 END) "
+            "AS zero_cost_failure_count "
+            "FROM llm_requests"
+            f"{where} "
+            "GROUP BY preset_name, request_kind "
+            "ORDER BY cost_usd DESC, request_count DESC, bucket ASC "
+            "LIMIT ?",
+            [*params, limit],
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+# Backward-compatible alias for composite breakdown (some specs reference this name).
+def breakdown_llm_requests_composite(
+    filters: dict[str, object] | None = None,
+    limit: int = 10,
+) -> list[dict[str, object]]:
+    return breakdown_llm_requests_preset_kind(filters, limit)
 
 
 def recent_llm_requests(
