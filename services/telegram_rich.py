@@ -21,7 +21,7 @@ Companion doc: docs/research/rich-messages-shim.md (Works / Partial / Later matr
 Limits (official): 32768 chars, 500 blocks, 16 nesting levels, 50 media, 20 table columns.
 
 Behavior:
-- ``RICH_ENABLED`` (default ``False``) gates the whole path; off routes to MDV2.
+- ``RICH_ENABLED`` (default ``True``, env ``RICH_ENABLED``) gates the whole path; off routes to MDV2.
 - A capability latch disables Rich for a bot after a 404 (``EndPointNotFound``),
   so an old/local Bot API server is only probed once.
 - Permanent errors fall back to MarkdownV2; transient errors (timeout/network)
@@ -31,6 +31,7 @@ Behavior:
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from telegram.constants import ParseMode
@@ -44,8 +45,9 @@ from services.utils.helpers import (
 
 logger = logging.getLogger(__name__)
 
-# Feature flag — enabled; 404 latch handles old API servers (fallback to MDV2).
-RICH_ENABLED = True
+# Feature flag — enabled by default; 404 latch handles old API servers (fallback to MDV2).
+# Kill-switch: set RICH_ENABLED=false/0 to force MDV2 without redeploy.
+RICH_ENABLED = os.getenv("RICH_ENABLED", "true").lower() in ("1", "true", "yes", "on")
 
 # Bot instances (`id(bot)`) for which Rich Messages are known unsupported.
 _rich_disabled: set[int] = set()

@@ -7,7 +7,7 @@
 
 ## What the shim sends (now)
 
-`rich_message: { markdown, is_rtl, skip_entity_detection }` via `bot.do_api_request`. `RICH_ENABLED=False` by default; 404 latch (`_rich_disabled`) disables after first probe.
+`rich_message: { markdown, is_rtl, skip_entity_detection }` via `bot.do_api_request`. `RICH_ENABLED=True` by default (env `RICH_ENABLED`); 404 latch (`_rich_disabled`) disables after first probe.
 
 ## NOT sent — tracked as Later
 
