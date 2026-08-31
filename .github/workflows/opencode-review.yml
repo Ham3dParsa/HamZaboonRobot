@@ -23,23 +23,19 @@ jobs:
       github.actor != 'renovate[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Clear stale git credentials
-        run: git config --global --unset-all http.https://github.com/.extraheader || true
-
       - uses: anomalyco/opencode/github@latest
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           # Rule 2: Muse Spark 1.2 free via Zen (free, 82.9% Terminal, 1M/131K)
           model: opencode/muse-spark-1.2-contributor-free
-          agent: plan
           # Rule 3: Strict + all focus + gate Warnings+ + REVIEW.md + fast
           prompt: |
             You are the HamZaboon PR reviewer. Be STRICT: flag all potential issues, prioritize quality and security.
@@ -53,7 +49,7 @@ jobs:
             - Test coverage (missing tests for behavior changes — require tests/test_integration where needed)
             - Documentation (missing comments, unclear APIs)
 
-            Use REVIEW.md from the base branch when present as the source of truth for repo-specific traps:
+            First read ./REVIEW.md from the base branch (git show origin/main:REVIEW.md); if present, treat it as the source of truth for repo-specific traps:
             - Non-idempotent Telegram send: _send_with_retry only on RetryAfter, not on TimedOut/NetworkError
             - All dynamic values in MarkdownV2 must go through escape_mdv2()
             - Callback wiring: every callback_data prefix needs a router + tests/test_wiring.py
