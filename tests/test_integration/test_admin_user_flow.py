@@ -102,6 +102,16 @@ class AdminUserFlowTest(unittest.TestCase):
 
     def test_search_resolves(self):
         # search resolves via text_router with admin_user_search — rich table
+        from services.send_pretty import Backend, Message
+
+        def _to_str(v):
+            if isinstance(v, Message):
+                try:
+                    return v.render(Backend.PLAIN)
+                except Exception:
+                    return str(v)
+            return str(v) if v else ""
+
         update = self._make_text_update("42")
         ctx = self._ctx()
         with patch("handlers.admin_users.say", new=AsyncMock()) as mock_say:
@@ -111,10 +121,11 @@ class AdminUserFlowTest(unittest.TestCase):
             for call in mock_say.call_args_list:
                 args = call[0]
                 txt = args[2] if len(args) > 2 else ""
-                # kwargs variant
                 if not txt:
-                    txt = call[1].get("text", "") if len(call) > 1 else ""
-                texts.append(txt)
+                    txt = call[1].get("content", "") if len(call) > 1 else ""
+                    if not txt:
+                        txt = call[1].get("text", "") if len(call) > 1 else ""
+                texts.append(_to_str(txt))
             combined = " ".join(texts)
             # rich table contains full_name header and value, and Persian digits
             self.assertIn("\u0646\u0627\u0645 \u06a9\u0627\u0645\u0644", combined)
@@ -154,13 +165,29 @@ class AdminUserFlowTest(unittest.TestCase):
         self.assertEqual(row2["bot_blocked"], 0)
 
     def test_set_plan_flow(self):
+        from services.send_pretty import Backend, Message
+
+        def _to_str(v):
+            if isinstance(v, Message):
+                try:
+                    return v.render(Backend.PLAIN)
+                except Exception:
+                    return str(v)
+            return str(v) if v else ""
+
         update = self._make_text_update("gold")
         ctx = self._ctx()
         with patch("handlers.admin_users.say", new=AsyncMock()) as mock_say:
             asyncio.run(text_router(update, ctx, "admin_user_set_plan:42", "gold"))
             self.assertEqual(db.get_user(42)["plan"], "gold")
             mock_say.assert_called()
-            texts = [c[0][2] for c in mock_say.call_args_list if len(c[0]) > 2]
+            texts = []
+            for c in mock_say.call_args_list:
+                args = c[0]
+                v = args[2] if len(args) > 2 else c[1].get("content", "") if len(c) > 1 else ""
+                if not v:
+                    v = c[1].get("text", "") if len(c) > 1 else ""
+                texts.append(_to_str(v))
             combined = " ".join(texts)
             self.assertIn("gold", combined)
 

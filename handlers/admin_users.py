@@ -24,7 +24,7 @@ from telegram import Update, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from services import db
-from services.send_pretty import RawFormat, say
+from services.send_pretty import Backend, Message, RawFormat, bold, plain, say, table
 from telegram.constants import ParseMode
 
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
@@ -43,36 +43,49 @@ from handlers.flows import mark_awaiting_consumed, register_flow
 logger = logging.getLogger(__name__)
 
 
-def _profile_text_and_keyboard(user_id: int) -> tuple[str, InlineKeyboardMarkup] | None:
-    """Build the profile card text + action keyboard, or None when no such user."""
+def _build_profile_message(row, stats, blocked: bool) -> Message:
+    """Build a RichMessage table for the user profile (RTL, no box-drawing)."""
+    full_name = (dict(row).get("full_name") or "").strip().replace("\n", " ")[:50] or "—"
+    username = f"@{row['username']}" if row["username"] else "—"
+    plan_label = (db.get_plan(row["plan"] or "free") or {}).get("display_name", row["plan"] or "free")
+    lang = language_label(row["target_lang"]) if row["target_lang"] else "—"
+    goal = goal_label(row["goal"]) if row["goal"] else "—"
+    level = level_label(row["level"]) if row["level"] else "—"
+    last_active = row["last_active_date"] or "—"
+    created_at = row["created_at"] or "—"
+    msg = Message()
+    msg.add_line(bold("👤 پروفایل کاربر"))
+    hdr = (bold("فیلد"), bold("مقدار"))
+    rows = [
+        (plain("نام کامل"), plain(full_name)),
+        (plain("شناسه"), plain(to_persian_digits(row["user_id"]))),
+        (plain("نام کاربری"), plain(username)),
+        (plain("پلن"), plain(plan_label)),
+        (plain("زبان"), plain(lang)),
+        (plain("هدف"), plain(goal)),
+        (plain("سطح"), plain(level)),
+        (plain("استریک"), plain(f"{to_persian_digits(row['streak'] or 0)} 🔥")),
+        (plain("لغات ذخیره"), plain(to_persian_digits(stats["saved_words"]))),
+        (plain("مرورها"), plain(to_persian_digits(stats["review_events"]))),
+        (plain("جلسات مطالعه"), plain(to_persian_digits(stats["study_sessions"]))),
+        (plain("آخرین فعالیت"), plain(to_persian_digits(last_active))),
+        (plain("ثبت‌نام"), plain(to_persian_digits(created_at))),
+        (plain("بلاک"), plain("بله" if blocked else "خیر")),
+    ]
+    msg.add_line(table(hdr, *rows))
+    return msg
+
+
+def _profile_text_and_keyboard(user_id: int) -> tuple[Message, InlineKeyboardMarkup] | None:
+    """Build the profile RichMessage + action keyboard, or None when no such user."""
     row = db.get_user(user_id)
     if not row:
         return None
     stats = db.get_user_learning_stats(user_id)
     blocked = bool(row["bot_blocked"])
-    plan_label = (db.get_plan(row["plan"] or "free") or {}).get("display_name", row["plan"] or "free")
-    lang = language_label(row["target_lang"]) if row["target_lang"] else "—"
-    goal = goal_label(row["goal"]) if row["goal"] else "—"
-    level = level_label(row["level"]) if row["level"] else "—"
-    full_name = (dict(row).get("full_name") or "").strip()
-    full_name_display = full_name.strip().replace("\n", " ")[:50] if full_name else "—"
-    username_display = f"@{row['username']}" if row["username"] else "—"
-    last_active = to_persian_digits(row["last_active_date"]) if row["last_active_date"] else "—"
-    created_at = to_persian_digits(row["created_at"]) if row["created_at"] else "—"
-    text = (
-        "👤 پروفایل کاربر\n\n"
-        f"┌ نام کامل     │ {full_name_display}\n"
-        f"├ شناسه       │ {to_persian_digits(row['user_id'])}\n"
-        f"├ نام‌کاربری  │ {username_display}\n"
-        f"├ پلن        │ {plan_label}\n"
-        f"├ زبان/هدف/سطح │ {lang} / {goal} / {level}\n"
-        f"├ استریک      │ {to_persian_digits(row['streak'] or 0)} 🔥\n"
-        f"├ لغات/مرور/جلسات │ {to_persian_digits(stats['saved_words'])} / {to_persian_digits(stats['review_events'])} / {to_persian_digits(stats['study_sessions'])}\n"
-        f"├ آخرین فعالیت │ {last_active}\n"
-        f"└ ثبت‌نام     │ {created_at}\n"
-        f"🚫 بلاک: {'بله' if blocked else 'خیر'}\n"
-    )
-    return text, user_profile_keyboard(user_id, blocked)
+    msg = _build_profile_message(row, stats, blocked)
+    msg.set_keyboard(user_profile_keyboard(user_id, blocked))
+    return msg, user_profile_keyboard(user_id, blocked)
 
 
 async def _show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
@@ -82,8 +95,9 @@ async def _show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE, user
             update.callback_query, "کاربر پیدا نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR
         )
         return
-    text, keyboard = result
-    await _edit_or_send(update, context, text, reply_markup=keyboard)
+    msg, keyboard = result
+    # RichMessage handles RTL + table natively via telegram_rich
+    await say(update, context, msg, backend=Backend.RICH, keyboard=keyboard)
 
 
 async def _send_profile_message(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
@@ -94,9 +108,9 @@ async def _send_profile_message(update: Update, context: ContextTypes.DEFAULT_TY
             update, context, "کاربر پیدا نشد.", raw=RawFormat.PLAIN, mode="send",
         )
         return
-    text, keyboard = result
+    msg, keyboard = result
     await say(
-        update, context, text, raw=RawFormat.PLAIN, keyboard=keyboard, mode="send",
+        update, context, msg, backend=Backend.RICH, keyboard=keyboard, mode="send",
     )
 
 
