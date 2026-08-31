@@ -386,7 +386,6 @@ def recent_grammar_tip_titles(
 from services.db.cost_tracking import (
     add_llm_request,
     breakdown_llm_requests,
-    breakdown_llm_requests_composite,
     breakdown_llm_requests_preset_kind,
     daily_costs_grouped,
     delete_llm_requests,

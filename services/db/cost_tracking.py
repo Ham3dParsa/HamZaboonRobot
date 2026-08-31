@@ -91,6 +91,7 @@ def _llm_request_filters_where(filters: dict[str, object]) -> tuple[str, list[ob
     add_clause("request_kind=?", filters.get("request_kind"))
     add_clause("model=?", filters.get("model"))
     add_clause("outcome=?", filters.get("outcome"))
+    # reserved for future preset filter (kept to allow preset_name in _llm_cost_query_filters)
     add_clause("preset_name=?", filters.get("preset_name"))
     where = " WHERE " + " AND ".join(clauses) if clauses else ""
     return where, params
@@ -201,14 +202,6 @@ def breakdown_llm_requests_preset_kind(
             [*params, limit],
         ).fetchall()
     return [dict(row) for row in rows]
-
-
-# Backward-compatible alias for composite breakdown (some specs reference this name).
-def breakdown_llm_requests_composite(
-    filters: dict[str, object] | None = None,
-    limit: int = 10,
-) -> list[dict[str, object]]:
-    return breakdown_llm_requests_preset_kind(filters, limit)
 
 
 def recent_llm_requests(
