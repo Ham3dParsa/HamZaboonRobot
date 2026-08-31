@@ -8,8 +8,11 @@ from dataclasses import dataclass, field
 
 from openai import OpenAI
 
+import httpx
+
 from config import (
     AI_MAX_OUTPUT_TOKENS,
+    AI_PROXY_URL,
     AI_TEMPERATURE,
     AI_TIMEOUT_SECONDS,
     DEFAULT_AI_BASE_URL,
@@ -47,10 +50,16 @@ def create_client(preset: dict | None = None, *, api_key_override: str | None = 
         else db.resolve_preset_key(preset)
     )
     timeout = preset_fields.resolve(preset, "timeout_seconds")
+    # Optional proxy for geoblock bypass (e.g. Hetzner DE -> clean exit).
+    # Env-driven (AI_PROXY_URL) so no code change needed on server;
+    # Telegram traffic is unaffected (only this OpenAI client uses it).
+    proxy_url = (preset.get("proxy_url") if isinstance(preset, dict) else None) or AI_PROXY_URL
+    http_client = httpx.Client(proxy=proxy_url, trust_env=False) if proxy_url else None
     return OpenAI(
         base_url=base_url,
         api_key=api_key,
         timeout=timeout,
+        http_client=http_client,
     )
 
 
