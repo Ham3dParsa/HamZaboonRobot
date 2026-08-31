@@ -56,4 +56,11 @@ jobs:
             - Secrets as UPPERCASE env-name refs via resolve_api_key(), never raw
             - APP_TIMEZONE for app-day, UTC for metadata
 
-            Output: one confirmed issue per inline comment with file_path:line_number, severity tag, and the positive fix. Keep comments concise for speed. Update the summary comment in place. Set status to APPROVED only if zero [critical]/[warning].
+            Output format (human + agent readable, keep concise for speed):
+            Status: REQUEST_CHANGES | APPROVED — N [warning/critical] must be fixed before merge, M [info] optional
+            Must fix before merge:
+            - [ ] file_path:line_number [severity] description — positive fix
+            Optional / defer:
+            - [ ] file_path:line_number [info] description — defer reason
+            Traps checked: list REVIEW.md traps verified (or "none relevant")
+            Update the summary comment in place. Set status to APPROVED only if zero [critical]/[warning].
