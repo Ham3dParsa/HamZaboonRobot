@@ -81,8 +81,14 @@ def _quota_line(status: dict) -> str:
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     db.reset_user_blocked(user.id)
-    username = user.username or ""
-    full_name = (getattr(user, "full_name", None) or f"{user.first_name or ''} {user.last_name or ''}".strip() or None)
+    username = user.username if isinstance(getattr(user, "username", None), str) else ""
+    raw_full = getattr(user, "full_name", None)
+    if isinstance(raw_full, str) and raw_full.strip():
+        full_name: str | None = raw_full.strip()
+    else:
+        first = user.first_name if isinstance(getattr(user, "first_name", None), str) else ""
+        last = user.last_name if isinstance(getattr(user, "last_name", None), str) else ""
+        full_name = f"{first} {last}".strip() or None
     db.create_user_if_needed(user.id, username, full_name)
     row = db.get_user(user.id)
 

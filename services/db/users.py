@@ -584,7 +584,7 @@ def reset_user_progress(user_id: int) -> None:
 def export_users_csv() -> str:
     """Export users as CSV string (no secrets).
 
-    Columns: user_id,username,target_lang,goal,level,plan,streak,
+    Columns: user_id,username,full_name,target_lang,goal,level,plan,streak,
              last_active_date,onboarded,created_at,bot_blocked
     Ordered by user_id ASC.
     """

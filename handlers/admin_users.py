@@ -28,7 +28,7 @@ from services.send_pretty import RawFormat, say
 from telegram.constants import ParseMode
 
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
-from services.utils.formatting import to_persian_digits
+from services.utils.formatting import html_escape, to_persian_digits
 from services.utils.helpers import _edit_or_send, _send_with_retry
 from config.catalog import goal_label, language_label, level_label
 from config.keyboards import (
@@ -299,8 +299,7 @@ async def _handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYP
     preview = html
     # Render preview to admin with format preservation.
     use_html = bool(preview and preview != msg)
-    from services.utils.formatting import html_escape
-    preview_text = f"{html_escape('👁 پیش‌نمایش پیام به کاربر ')}{user_id}{html_escape(':')}\n\n{preview}\n\n{html_escape('تایید می‌کنید؟')}"
+    preview_text = f"{html_escape('👁 پیش‌نمایش پیام به کاربر ')}{html_escape(str(user_id))}{html_escape(':')}\n\n{preview}\n\n{html_escape('تایید می‌کنید؟')}"
     await say(
         update, context,
         preview_text,

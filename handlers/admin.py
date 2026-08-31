@@ -13,6 +13,7 @@ from config import APP_TZ, BROADCAST_MAX_CONCURRENCY, DB_PATH, is_owner
 from services import db, send_pretty
 from services.send_pretty import RawFormat, say
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
+from services.utils.formatting import html_escape
 from services.utils.helpers import _edit_or_send, _exit_awaiting_flow, _send_with_retry
 from handlers.admin_stats import handle_admin_stats
 from handlers.admin_users import handle_admin_user
@@ -504,7 +505,6 @@ def _register_admin_flows() -> None:
         # Store pending for preview+confirm (no transaction held across await).
         context.user_data["pending_broadcast"] = {"text": msg, "html": html}
         mark_awaiting_consumed(context)
-        from services.utils.formatting import html_escape
         count = len(db.all_active_users())
         use_html = bool(html and html != msg)
         preview_text = f"{html_escape('👁 پیش‌نمایش پیام همگانی (')}{count}{html_escape(' کاربر):')}\n\n{html}\n\n{html_escape('تایید می‌کنید؟')}"
