@@ -71,8 +71,8 @@ function Get-ReviewerDelta {
     $pullJson = gh api "repos/Ham3dParsa/HamZaboonRobot/pulls/$PR/comments" --jq '.[] | select(.user.login=="kilo-code-bot[bot]" or .user.login=="opencode-agent[bot]") | {id, h:(.body|length), user:.user.login, path, line}' 2>&1
     $issueJson = gh api "repos/Ham3dParsa/HamZaboonRobot/issues/$PR/comments" --jq '.[] | select(.user.login=="kilo-code-bot[bot]" or .user.login=="opencode-agent[bot]") | {id, h:(.body|length), user:.user.login}' 2>&1
     $rows = @()
-    if ($pullJson) { $rows += ($pullJson | ForEach-Object { try { $_ | ConvertFrom-Json } catch { Write-Warning "skip bad pull json: $_"; continue } }) }
-    if ($issueJson) { $rows += ($issueJson | ForEach-Object { try { $_ | ConvertFrom-Json } catch { Write-Warning "skip bad issue json: $_"; continue } }) }
+    if ($pullJson) { $rows += ($pullJson | ForEach-Object { $line=$_; try { $line | ConvertFrom-Json } catch { Write-Warning "skip bad pull json: $line : $_"; return } }) }
+    if ($issueJson) { $rows += ($issueJson | ForEach-Object { $line=$_; try { $line | ConvertFrom-Json } catch { Write-Warning "skip bad issue json: $line : $_"; return } }) }
     foreach ($r in $rows) {
         $id = "$($r.id)"
         $h = [int]$r.h
@@ -98,8 +98,13 @@ function Test-Checks {
 }
 
 function Test-Mergeable {
-    $j = gh pr view $PR --json mergeable,mergeStateStatus 2>&1 | ConvertFrom-Json
-    return $j
+    try {
+        $j = gh pr view $PR --json mergeable,mergeStateStatus 2>&1 | ConvertFrom-Json
+        return $j
+    } catch {
+        Write-Warning "Test-Mergeable failed: $_"
+        return @{ mergeable='UNKNOWN'; mergeStateStatus='UNKNOWN' }
+    }
 }
 
 $seen = Load-Seen
