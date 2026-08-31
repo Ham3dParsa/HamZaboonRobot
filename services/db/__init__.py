@@ -89,6 +89,16 @@ from services.db.users import (
     set_plan_card_mode,
     set_global_card_mode,
     set_card_mode_gate,
+    count_new_users_since,
+    count_users_created_before,
+    count_retained_users,
+    count_review_events_total,
+    count_study_sessions_total,
+    count_first_exposure_completion,
+    get_user_learning_stats,
+    get_top_users_by_streak,
+    reset_user_progress,
+    export_users_csv,
 )
 
 from services.db.words import (

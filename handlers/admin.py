@@ -15,6 +15,7 @@ from services.send_pretty import RawFormat, say
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send, _exit_awaiting_flow, _send_with_retry
 from handlers.admin_stats import handle_admin_stats
+from handlers.admin_users import handle_admin_user
 from handlers.admin_cost import (
     _handle_cost_text_input,
     _handle_llm_callback,
@@ -169,6 +170,8 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
     if action == "stats" or action.startswith("stats:"):
         await handle_admin_stats(update, context, action)
+    elif action == "user" or action.startswith("user:"):
+        await handle_admin_user(update, context, action)
     elif action == "plans" or action.startswith("plans:") or action == "set_plan":
         await handle_plan_callback(update, context, action)
     elif action in ("cost_dashboard", "llm_costs", "llm_pricing"):
