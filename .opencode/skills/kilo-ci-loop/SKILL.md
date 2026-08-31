@@ -31,7 +31,7 @@ Persist `id->h` to `$env:TEMP/opencode/reviewer_seen_<n>.json` (fallback: also c
 gh api repos/Ham3dParsa/HamZaboonRobot/pulls/comments/<id> --jq '.body'
 gh api repos/Ham3dParsa/HamZaboonRobot/issues/comments/<id> --jq '.body'
 ```
-Filter `jq` to reviewer bots only, check `$LASTEXITCODE` after each `gh api` (on non-zero return `apiFailed` and skip `seen` update to avoid clobbering baseline), wrap `ConvertFrom-Json` with `$line=$_; try{...}catch{return}` (use `return` not `continue` inside `ForEach-Object`). Migrate legacy `kilo_seen_<PR>.json` to `reviewer_seen_<PR>.json` on first fallback hit. Tag each delta by `user`. Sleep `90-120s` (default 90, clamped), `30m` timeout. Each fix commit must be pushed — both reviewers re-review only after push.
+Filter `jq` to reviewer bots only, check `$LASTEXITCODE` after each `gh api` (on non-zero return `apiFailed` and skip `seen` update to avoid clobbering baseline), wrap `ConvertFrom-Json` with `$line=$_; try{...}catch{return}` (use `return` not `continue`). Migrate legacy `kilo_seen_<PR>.json` to `reviewer_seen_<PR>.json` on first fallback hit. On per-delta body fetch failure track `failedIds` and exclude from `seen` save so retry next poll (don't mark failed `h` as seen). Tag each delta by `user`. Sleep `90-120s` (default 90, clamped), `30m` timeout. Each fix commit must be pushed — both reviewers re-review only after push.
 
 ### 2. Poll CI
 ```powershell

@@ -147,6 +147,7 @@ while ((Get-Date) -lt $deadline) {
 
         if ($deltas.Count -gt 0) {
             Write-Host "[reviewer] $($deltas.Count) delta(s):" -ForegroundColor Yellow
+            $failedIds = @()
             foreach ($d in $deltas) {
                 $id = $d.id; $h = $d.h; $prev = $d.prev
                 $bot = if ($d.row.user) { $d.row.user } else { "unknown" }
@@ -163,7 +164,7 @@ while ((Get-Date) -lt $deadline) {
                         if ($LASTEXITCODE -ne 0) { throw $body }
                     }
                 } catch {
-                    Write-Warning "fetch body $id failed: $_"; continue
+                    Write-Warning "fetch body $id failed: $_"; $failedIds += $id; continue
                 }
                 $preview = ($body | Select-Object -First 1) -replace "`n"," " 
                 if ($preview.Length -gt 400) { $preview = $preview.Substring(0,400) + " ..." }
@@ -172,8 +173,12 @@ while ((Get-Date) -lt $deadline) {
                 $bodyPath = Join-Path $env:TEMP "opencode\reviewer_body_${id}.md"
                 $body | Set-Content -Path $bodyPath -Encoding UTF8
             }
-            $seen = $newSeen
+            # Don't mark failed bodies as seen — retry next poll
+            $seenToSave = $newSeen.Clone()
+            foreach ($fid in $failedIds) { $seenToSave.Remove($fid) }
+            $seen = $seenToSave
             Save-Seen $seen
+            if ($failedIds.Count -gt 0) { Write-Warning "[reviewer] $($failedIds.Count) body fetch failed — not marked seen, will retry" }
         } else {
             Write-Host "[reviewer] no delta (seen $($seen.Count) ids)" -ForegroundColor DarkGray
             # Keep seen in sync if rows changed due to deletions
@@ -216,8 +221,8 @@ while ((Get-Date) -lt $deadline) {
     $allChecksPass = $checksPass -and $mergeable -eq 'MERGEABLE' -and ($mergeState -eq 'CLEAN' -or $mergeState -eq 'UNSTABLE')
     # Skill completion: all deltas fetched + all required checks pass + mergeable MERGEABLE
     if ($allChecksPass) {
-        # Verify both reviewers explicitly pass (anchored + \b to avoid substring collision)
-        if ($checkRes.out -match '(?m)^\s*Kilo Code Review\b\s+pass' -and $checkRes.out -match '(?m)^\s*review\b\s+pass') {
+        # Verify both reviewers explicitly pass (anchored (?!\w) to avoid substring collision, safe for ) names)
+        if ($checkRes.out -match '(?m)^\s*Kilo Code Review(?!\w)\s+pass' -and $checkRes.out -match '(?m)^\s*review(?!\w)\s+pass') {
             Write-Host "`n[done] All required checks pass + MERGEABLE + Kilo & OpenCode pass — ready to merge" -ForegroundColor Green
             Write-Host "      Evidence: gh pr checks $PR"
             exit 0
