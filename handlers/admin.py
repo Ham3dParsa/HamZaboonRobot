@@ -7,12 +7,14 @@ from pathlib import Path
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from config import APP_TZ, BROADCAST_MAX_CONCURRENCY, DB_PATH, is_owner
 from services import db, send_pretty
 from services.send_pretty import RawFormat, say
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
+from services.utils.formatting import html_escape
 from services.utils.helpers import _edit_or_send, _exit_awaiting_flow, _send_with_retry
 from handlers.admin_stats import handle_admin_stats
 from handlers.admin_users import handle_admin_user
@@ -86,6 +88,7 @@ from handlers.admin_ai import (
 )
 from config.keyboards import (
     admin_panel_keyboard,
+    broadcast_preview_keyboard,
     main_menu,
     admin_awaiting_inline_keyboard,
     maintenance_keyboard,
@@ -110,6 +113,16 @@ _ADMIN_FLOWS_REGISTERED = False
 #: Re-entry guard for the admin broadcast (RT-BN1): set before the first await
 #: and released in ``finally`` so a second broadcast cannot double-send.
 _BROADCAST_RUNNING = False
+
+
+async def _broadcast_send_one(bot, uid: int, text: str, sem: asyncio.Semaphore, kwargs: dict) -> bool:
+    async with sem:
+        try:
+            await _send_with_retry(bot, uid, text, **kwargs)
+            return True
+        except Exception:
+            logger.exception("Broadcast failed for user %s", uid)
+            return False
 
 
 async def open_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -198,6 +211,69 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             raw=send_pretty.RawFormat.PLAIN,
             keyboard=admin_awaiting_inline_keyboard(),
         )
+    elif action == "broadcast_confirm":
+        pending = context.user_data.get("pending_broadcast")
+        if not pending or not pending.get("text"):
+            await notify_callback(update.callback_query, "پیش‌نمایشی یافت نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        global _BROADCAST_RUNNING
+        if _BROADCAST_RUNNING:
+            await notify_callback(update.callback_query, "یک ارسال همگانی در حال انجام است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        await notify_callback(update.callback_query, "در حال ارسال…", intent=CallbackNoticeIntent.INFO)
+        _BROADCAST_RUNNING = True
+        try:
+            users = db.all_active_users()
+            mark_awaiting_consumed(context)
+            context.user_data.pop("pending_broadcast", None)
+            context.user_data.pop("awaiting", None)
+            html = pending.get("html") or pending.get("text", "")
+            text_val = pending.get("text", "")
+            use_html = bool(html and html != text_val)
+            send_text = html if use_html else text_val
+            send_kwargs: dict = {}
+            if use_html:
+                send_kwargs["parse_mode"] = ParseMode.HTML
+            sem = asyncio.Semaphore(BROADCAST_MAX_CONCURRENCY)
+            sent = 0
+            for i in range(0, len(users), 100):
+                chunk = users[i : i + 100]
+                results = await asyncio.gather(
+                    *(_broadcast_send_one(context.bot, u["user_id"], send_text, sem, send_kwargs) for u in chunk)
+                )
+                sent += sum(1 for r in results if r)
+            try:
+                await notify_callback(update.callback_query, "ارسال شد.", intent=CallbackNoticeIntent.SUCCESS)
+            except BadRequest:
+                pass
+            await send_pretty.say(
+                update,
+                context,
+                f"پیام برای {sent} کاربر ارسال شد.",
+                raw=send_pretty.RawFormat.PLAIN,
+            )
+        finally:
+            _BROADCAST_RUNNING = False
+        return
+    elif action == "broadcast_cancel":
+        context.user_data.pop("pending_broadcast", None)
+        mark_awaiting_consumed(context)
+        context.user_data.pop("awaiting", None)
+        await notify_callback(update.callback_query, "لغو شد.", intent=CallbackNoticeIntent.INFO)
+        await _edit_or_send(update, context, "لغو شد.", reply_markup=admin_panel_keyboard())
+        return
+    elif action == "broadcast_edit":
+        context.user_data.pop("pending_broadcast", None)
+        context.user_data["awaiting"] = "admin_broadcast"
+        await notify_callback(update.callback_query)
+        await send_pretty.send(
+            update.effective_chat.id,
+            "متن پیام همگانی را دوباره بفرست:",
+            bot=context.bot,
+            raw=send_pretty.RawFormat.PLAIN,
+            keyboard=admin_awaiting_inline_keyboard(),
+        )
+        return
     elif action == "show_settings":
         try:
             preset = db.get_active_preset()
@@ -403,7 +479,6 @@ def _register_admin_flows() -> None:
         await _handle_plans_text_input(update, context, text)
 
     async def _handle_admin_broadcast(update, context, awaiting, text):
-        global _BROADCAST_RUNNING
         if _BROADCAST_RUNNING:
             mark_awaiting_consumed(context)
             await send_pretty.say(
@@ -413,41 +488,44 @@ def _register_admin_flows() -> None:
                 raw=send_pretty.RawFormat.PLAIN,
             )
             return
-        # Guard set synchronously before the first await (race-free re-entry check).
-        _BROADCAST_RUNNING = True
-        try:
-            users = db.all_active_users()
-            mark_awaiting_consumed(context)  # broadcast is irreversible (B5/Kilo CRITICAL)
-            # Broadcast-local cap keeps this fan-out bounded (bounded coroutine
-            # creation at extreme N); the effective in-flight concurrency is
-            # min(BROADCAST_MAX_CONCURRENCY, TELEGRAM_MAX_CONCURRENCY) because
-            # _send_with_retry acquires the global _telegram_slots per send.
-            # Raising TELEGRAM_MAX_CONCURRENCY is the real lever to widen it.
-            sem = asyncio.Semaphore(BROADCAST_MAX_CONCURRENCY)
-
-            async def _send_one(user):
-                async with sem:
-                    try:
-                        await _send_with_retry(context.bot, user["user_id"], text)
-                        return True
-                    except Exception:
-                        logger.exception("Broadcast failed for user %s", user["user_id"])
-                        return False
-
-            results: list[bool] = []
-            for i in range(0, len(users), 100):
-                chunk = users[i : i + 100]
-                chunk_results = await asyncio.gather(*(_send_one(u) for u in chunk))
-                results.extend(chunk_results)
-            sent = sum(1 for r in results if r)
+        msg = text.strip() if isinstance(text, str) else ""
+        if not msg:
+            context.user_data["awaiting"] = awaiting
             await send_pretty.say(
                 update,
                 context,
-                f"پیام برای {sent} کاربر ارسال شد.",
+                "متن پیام خالی است. دوباره بفرستید یا لغو کنید.",
                 raw=send_pretty.RawFormat.PLAIN,
             )
-        finally:
-            _BROADCAST_RUNNING = False
+            return
+        if len(msg) > 4000:
+            context.user_data["awaiting"] = awaiting
+            await say(update, context, "متن طولانی است (حداکثر ۴۰۰۰ کاراکتر). لطفاً کوتاه‌تر بفرستید.", raw=RawFormat.PLAIN, mode="send")
+            return
+        # Capture HTML-preserving representation (R3/R4).
+        html = None
+        try:
+            em = getattr(update, "effective_message", None) or getattr(update, "message", None)
+            html = getattr(em, "text_html", None) if em is not None else None
+        except Exception:
+            html = None
+        if not html:
+            html = msg
+        # Store pending for preview+confirm (no transaction held across await).
+        # Count is cached in pending_broadcast so preview needs only one DB scan;
+        # confirm re-queries for a fresh recipient list (users may have changed).
+        count = len(db.all_active_users())
+        context.user_data["pending_broadcast"] = {"text": msg, "html": html, "count": count}
+        mark_awaiting_consumed(context)
+        use_html = bool(html and html != msg)
+        preview_text = f"{html_escape('👁 پیش‌نمایش پیام همگانی (')}{count}{html_escape(' کاربر):')}\n\n{html}\n\n{html_escape('تایید می‌کنید؟')}"
+        await send_pretty.say(
+            update,
+            context,
+            preview_text,
+            raw=send_pretty.RawFormat.HTML if use_html else send_pretty.RawFormat.PLAIN,
+            keyboard=broadcast_preview_keyboard(),
+        )
 
     async def _handle_admin_maintenance_msg(update, context, awaiting, text):
         db.set_maintenance_message(text)

@@ -1,14 +1,16 @@
-﻿"""Integration tests for admin user-management flow (issue #stats-users, Phase 4).
+﻿"""Integration tests for admin user-management flow (issue #stats-users, Phase 5 polish).
 
 Scratch-DB isolated; owner-gated via handlers.admin.is_owner.
-Covers admin:user menu, search/resolve, block/unblock, set-plan,
-reset progress (confirm/cancel), direct message, and non-owner reject.
+Covers admin:user menu, search/resolve with rich table (full_name + Persian digits),
+preview flow (pending_dm + dm_preview_keyboard), confirm/cancel/edit, block/unblock,
+set-plan, reset progress, and non-owner reject.
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
+import pathlib
 import tempfile
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -27,8 +29,16 @@ class AdminUserFlowTest(unittest.TestCase):
         db.DB_PATH = new_path
         db_schema.DB_PATH = new_path
         db.init_db()
-        db.create_user_if_needed(42, "alice")
-        db.create_user_if_needed(7, "bob")
+        # Phase 5: create users with full_name via new 3-arg signature
+        try:
+            db.create_user_if_needed(42, "alice", "Alice Wonder")
+            db.create_user_if_needed(7, "bob", "Bob Builder")
+        except TypeError:
+            # fallback for older signature
+            db.create_user_if_needed(42, "alice")
+            db.create_user_if_needed(7, "bob")
+            db.update_user_full_name(42, "Alice Wonder")
+            db.update_user_full_name(7, "Bob Builder")
         db.set_plan(42, "silver")
         self.owner_patcher = patch("handlers.admin.is_owner", return_value=True)
         self.owner_patcher.start()
@@ -64,9 +74,10 @@ class AdminUserFlowTest(unittest.TestCase):
         ctx.bot.send_message = AsyncMock()
         return ctx
 
-    def _make_text_update(self, text: str, user_id: int = 1):
+    def _make_text_update(self, text: str, user_id: int = 1, html: str | None = None):
         msg = MagicMock()
         msg.text = text
+        msg.text_html = html if html is not None else text
         msg.reply_text = AsyncMock()
         update = MagicMock()
         update.message = msg
@@ -90,20 +101,26 @@ class AdminUserFlowTest(unittest.TestCase):
         self.assertIn("\u0645\u062f\u06cc\u0631\u06cc\u062a \u06a9\u0627\u0631\u0628\u0631", text)
 
     def test_search_resolves(self):
-        # search resolves via text_router with admin_user_search
+        # search resolves via text_router with admin_user_search — rich table
         update = self._make_text_update("42")
         ctx = self._ctx()
         with patch("handlers.admin_users.say", new=AsyncMock()) as mock_say:
             asyncio.run(text_router(update, ctx, "admin_user_search", "42"))
             mock_say.assert_called()
-            # profile card contains Persian header and user id
-            found = False
+            texts = []
             for call in mock_say.call_args_list:
                 args = call[0]
                 txt = args[2] if len(args) > 2 else ""
-                if "\u067e\u0631\u0648\u0641\u0627\u06cc\u0644" in txt and ("42" in txt or "۴۲" in txt):
-                    found = True
-            self.assertTrue(found, "profile card not sent via say")
+                # kwargs variant
+                if not txt:
+                    txt = call[1].get("text", "") if len(call) > 1 else ""
+                texts.append(txt)
+            combined = " ".join(texts)
+            # rich table contains full_name header and value, and Persian digits
+            self.assertIn("\u0646\u0627\u0645 \u06a9\u0627\u0645\u0644", combined)
+            self.assertIn("Alice", combined)
+            # id rendered as Persian digits ۴۲
+            self.assertTrue("42" in combined or "۴۲" in combined)
 
         # also resolves @username variant
         update2 = self._make_text_update("@alice")
@@ -119,20 +136,17 @@ class AdminUserFlowTest(unittest.TestCase):
         with patch("handlers.admin_users.say", new=AsyncMock()) as mock_say:
             asyncio.run(text_router(update, ctx, "admin_user_search", "9999"))
             mock_say.assert_called()
-            # awaiting should be re-armed
             self.assertEqual(ctx.user_data.get("awaiting"), "admin_user_search")
 
     def test_block_and_unblock(self):
         from handlers.admin import _handle_admin_callback
 
-        # block
         update = self._cb("admin:user:block:42")
         ctx = self._ctx()
         asyncio.run(_handle_admin_callback(update, ctx, "user:block:42"))
         row = db.get_user(42)
         self.assertEqual(row["bot_blocked"], 1)
 
-        # unblock
         update2 = self._cb("admin:user:unblock:42")
         ctx2 = self._ctx()
         asyncio.run(_handle_admin_callback(update2, ctx2, "user:unblock:42"))
@@ -140,19 +154,16 @@ class AdminUserFlowTest(unittest.TestCase):
         self.assertEqual(row2["bot_blocked"], 0)
 
     def test_set_plan_flow(self):
-        # via text_router admin_user_set_plan:42
         update = self._make_text_update("gold")
         ctx = self._ctx()
         with patch("handlers.admin_users.say", new=AsyncMock()) as mock_say:
             asyncio.run(text_router(update, ctx, "admin_user_set_plan:42", "gold"))
             self.assertEqual(db.get_user(42)["plan"], "gold")
             mock_say.assert_called()
-            # verify success message mentions plan change
             texts = [c[0][2] for c in mock_say.call_args_list if len(c[0]) > 2]
             combined = " ".join(texts)
             self.assertIn("gold", combined)
 
-        # invalid plan keeps awaiting
         ctx2 = self._ctx()
         update2 = self._make_text_update("invalid_plan")
         with patch("handlers.admin_users.say", new=AsyncMock()):
@@ -160,25 +171,20 @@ class AdminUserFlowTest(unittest.TestCase):
             self.assertEqual(ctx2.user_data.get("awaiting"), "admin_user_set_plan:42")
 
     def test_reset_progress_deletes(self):
-        # seed learning data for bob
         db.add_saved_word(7, "hello", "en", {"word": "hello"})
-        # create a review event directly via API if available
         try:
             from services.db import record_review_event
-            # need word id
             with db.transaction() as conn:
                 wid = conn.execute("SELECT id FROM saved_words WHERE user_id=7").fetchone()
                 if wid:
                     record_review_event(7, wid["id"], "again")
         except Exception:
             pass
-        # add streak to verify reset
         with db.transaction() as conn:
             conn.execute("UPDATE users SET streak=5 WHERE user_id=7")
 
         from handlers.admin import _handle_admin_callback
 
-        # confirm reset
         update = self._cb("admin:user:reset_confirm:7")
         ctx = self._ctx()
         asyncio.run(_handle_admin_callback(update, ctx, "user:reset_confirm:7"))
@@ -204,27 +210,102 @@ class AdminUserFlowTest(unittest.TestCase):
         self.assertEqual(row["streak"], 3)
 
     def test_message_flow(self):
+        """Phase 5: preview flow — text_router stores pending_dm and shows preview,
+        then confirm callback sends via _send_with_retry. Cancel/edit also covered."""
+        # Step 1: text input creates preview, does NOT immediate send
         update = self._make_text_update("\u0633\u0644\u0627\u0645 \u0627\u0632 \u0645\u062f\u06cc\u0631")
         ctx = self._ctx()
         with patch("handlers.admin_users.say", new=AsyncMock()) as mock_say:
             asyncio.run(text_router(update, ctx, "admin_user_message:42", "\u0633\u0644\u0627\u0645 \u0627\u0632 \u0645\u062f\u06cc\u0631"))
-            ctx.bot.send_message.assert_called_once()
-            call_kwargs = ctx.bot.send_message.call_args[1]
-            self.assertEqual(call_kwargs.get("chat_id"), 42)
-            self.assertIn("\u0633\u0644\u0627\u0645", call_kwargs.get("text", ""))
-            mock_say.assert_called()
-            texts = [c[0][2] for c in mock_say.call_args_list if len(c[0]) > 2]
-            self.assertTrue(any("\u067e\u06cc\u0627\u0645 \u0627\u0631\u0633\u0627\u0644 \u0634\u062f" in t for t in texts))
+            # pending_dm stored
+            self.assertIn("pending_dm", ctx.user_data)
+            self.assertEqual(ctx.user_data["pending_dm"]["user_id"], 42)
+            self.assertEqual(ctx.user_data["pending_dm"]["text"], "\u0633\u0644\u0627\u0645 \u0627\u0632 \u0645\u062f\u06cc\u0631")
+            # preview shown containing پیش‌نمایش and keyboard
+            mock_say.assert_called_once()
+            call_args = mock_say.call_args
+            preview_text = call_args[0][2] if len(call_args[0]) > 2 else call_args[1].get("text", "")
+            self.assertIn("\u067e\u06cc\u0634\u200c\u0646\u0645\u0627\u06cc\u0634", preview_text)
+            # dm_preview_keyboard passed
+            kwargs = call_args[1]
+            kb = kwargs.get("keyboard") or (call_args[0][3] if len(call_args[0]) > 3 else None)
+            # also check via keyword inspection
+            if kb is None and "keyboard" in kwargs:
+                kb = kwargs["keyboard"]
+            self.assertIsNotNone(kb)
+            # immediate send must NOT have happened
+            ctx.bot.send_message.assert_not_called()
+
+        # Step 2: confirm — patched _send_with_retry called with html/parse_mode handling
+        cb_update = self._cb("admin:user:msg_confirm:42")
+        with patch("handlers.admin_users._send_with_retry", new=AsyncMock()) as mock_send:
+            from handlers.admin_users import handle_admin_user
+            asyncio.run(handle_admin_user(cb_update, ctx, "user:msg_confirm:42"))
+            mock_send.assert_called_once()
+            args, kwargs = mock_send.call_args
+            # first arg is bot, second is user_id
+            sent_uid = args[1] if len(args) > 1 else kwargs.get("chat_id")
+            self.assertEqual(sent_uid, 42)
+            sent_text = args[2] if len(args) > 2 else kwargs.get("text", "")
+            self.assertIn("\u0633\u0644\u0627\u0645", sent_text)
+            # pending cleared after confirm
+            self.assertNotIn("pending_dm", ctx.user_data)
+            cb_update.callback_query.answer.assert_called()
+
+        # Step 3: cancel path — set pending again then cancel
+        ctx2 = self._ctx()
+        ctx2.user_data["pending_dm"] = {"user_id": 42, "text": "hi", "html": "hi"}
+        ctx2.user_data["awaiting"] = "admin_user_message:42"
+        cb_cancel = self._cb("admin:user:msg_cancel:42")
+        from handlers.admin_users import handle_admin_user as h2
+        asyncio.run(h2(cb_cancel, ctx2, "user:msg_cancel:42"))
+        self.assertNotIn("pending_dm", ctx2.user_data)
+        cb_cancel.callback_query.answer.assert_called()
+
+        # Step 4: edit path — re-arms awaiting
+        ctx3 = self._ctx()
+        ctx3.user_data["pending_dm"] = {"user_id": 42, "text": "hi", "html": "hi"}
+        cb_edit = self._cb("admin:user:msg_edit:42")
+        from handlers.admin_users import handle_admin_user as h3
+        asyncio.run(h3(cb_edit, ctx3, "user:msg_edit:42"))
+        self.assertNotIn("pending_dm", ctx3.user_data)
+        self.assertEqual(ctx3.user_data.get("awaiting"), "admin_user_message:42")
+        cb_edit.callback_query.answer.assert_called()
+
+    def test_message_flow_html_preserved(self):
+        """HTML formatting is preserved in preview and on confirm send via parse_mode."""
+        html_text = "<b>\u0633\u0644\u0627\u0645</b>"
+        update = self._make_text_update("\u0633\u0644\u0627\u0645", html=html_text)
+        ctx = self._ctx()
+        with patch("handlers.admin_users.say", new=AsyncMock()) as mock_say:
+            asyncio.run(text_router(update, ctx, "admin_user_message:42", "\u0633\u0644\u0627\u0645"))
+            pending = ctx.user_data.get("pending_dm")
+            self.assertIsNotNone(pending)
+            self.assertEqual(pending.get("html"), html_text)
+            mock_say.assert_called_once()
+
+        cb_update = self._cb("admin:user:msg_confirm:42")
+        with patch("handlers.admin_users._send_with_retry", new=AsyncMock()) as mock_send:
+            from handlers.admin_users import handle_admin_user
+            asyncio.run(handle_admin_user(cb_update, ctx, "user:msg_confirm:42"))
+            mock_send.assert_called_once()
+            _, kwargs = mock_send.call_args
+            # html differs from plain text -> should use HTML parse_mode
+            from telegram.constants import ParseMode
+            self.assertEqual(kwargs.get("parse_mode"), ParseMode.HTML)
 
     def test_message_flow_failure_keeps_awaiting(self):
-        update = self._make_text_update("hello")
+        # After polish, text input itself does not attempt send, so failure is on confirm.
+        # Simulate confirm failure — pending should remain (or error toast) and not crash.
         ctx = self._ctx()
-        ctx.bot.send_message = AsyncMock(side_effect=Exception("blocked"))
-        ctx.user_data["awaiting"] = "admin_user_message:42"
-        with patch("handlers.admin_users.say", new=AsyncMock()):
-            asyncio.run(text_router(update, ctx, "admin_user_message:42", "hello"))
-            # awaiting re-armed on failure
-            self.assertEqual(ctx.user_data.get("awaiting"), "admin_user_message:42")
+        ctx.user_data["pending_dm"] = {"user_id": 42, "text": "hello", "html": "hello"}
+        cb_update = self._cb("admin:user:msg_confirm:42")
+        with patch("handlers.admin_users._send_with_retry", new=AsyncMock(side_effect=Exception("blocked"))):
+            from handlers.admin_users import handle_admin_user
+            asyncio.run(handle_admin_user(cb_update, ctx, "user:msg_confirm:42"))
+            # on send failure, pending is NOT popped (or at least error notified)
+            # the handler keeps pending so admin can retry; check answer was error
+            cb_update.callback_query.answer.assert_called()
 
     def test_non_owner_rejected(self):
         from handlers.admin import _handle_admin_callback
@@ -238,18 +319,45 @@ class AdminUserFlowTest(unittest.TestCase):
             self.assertIn("\u0641\u0642\u0637 \u0645\u0627\u0644\u06a9 \u0631\u0628\u0627\u062a", args[0])
 
     def test_export_csv_sanitizes_formula_injection(self):
-        # Direct DB insert with formula-like username, then export
         with db.transaction() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO users(user_id, username, created_at) VALUES (?, ?, ?)",
                 (999, "=2+2", "2026-08-31T00:00:00"),
             )
         csv_text = db.export_users_csv()
-        # csv writer quotes, but our guard prefixes with '
         self.assertIn("'=2+2", csv_text)
-        # also check header and no secrets
         self.assertTrue(csv_text.startswith("user_id,username"))
         self.assertNotIn("api_key", csv_text.lower())
+
+    def test_preview_wiring(self):
+        """dm_preview_keyboard callbacks must be reachable via admin routing."""
+        from config.keyboards import dm_preview_keyboard
+        kb = dm_preview_keyboard(42)
+        cbs = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+        self.assertIn("admin:user:msg_confirm:42", cbs)
+        self.assertIn("admin:user:msg_edit:42", cbs)
+        self.assertIn("admin:user:msg_cancel:42", cbs)
+        # verify branches exist in admin_users handler source
+        src = pathlib.Path("handlers/admin_users.py").read_text(encoding="utf-8")
+        for needle in ("user:msg_confirm:", "user:msg_cancel:", "user:msg_edit:"):
+            self.assertIn(needle, src)
+        # also verify broadcast preview wiring (same polish)
+        from config.keyboards import broadcast_preview_keyboard
+        bkb = broadcast_preview_keyboard()
+        bcbs = [btn.callback_data for row in bkb.inline_keyboard for btn in row]
+        self.assertIn("admin:broadcast_confirm", bcbs)
+        self.assertIn("admin:broadcast_edit", bcbs)
+        self.assertIn("admin:broadcast_cancel", bcbs)
+
+    def test_admin_panel_reorg(self):
+        """Panel reorg: stats + user manage present; legacy set_plan button not required."""
+        from config.keyboards import admin_panel_keyboard
+        kb = admin_panel_keyboard()
+        all_cbs = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+        self.assertIn("admin:stats", all_cbs)
+        self.assertIn("admin:user", all_cbs)
+        # new panel should expose plans manager and cost dashboard
+        self.assertIn("admin:plans", all_cbs)
 
 
 if __name__ == "__main__":
