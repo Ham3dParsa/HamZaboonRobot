@@ -7,6 +7,7 @@ from pathlib import Path
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from config import APP_TZ, BROADCAST_MAX_CONCURRENCY, DB_PATH, is_owner
@@ -219,6 +220,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         if _BROADCAST_RUNNING:
             await notify_callback(update.callback_query, "یک ارسال همگانی در حال انجام است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
+        await notify_callback(update.callback_query, "در حال ارسال…", intent=CallbackNoticeIntent.INFO)
         _BROADCAST_RUNNING = True
         try:
             users = db.all_active_users()
@@ -240,7 +242,10 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
                     *(_broadcast_send_one(context.bot, u["user_id"], send_text, sem, send_kwargs) for u in chunk)
                 )
                 sent += sum(1 for r in results if r)
-            await notify_callback(update.callback_query, "ارسال شد.", intent=CallbackNoticeIntent.SUCCESS)
+            try:
+                await notify_callback(update.callback_query, "ارسال شد.", intent=CallbackNoticeIntent.SUCCESS)
+            except BadRequest:
+                pass
             await send_pretty.say(
                 update,
                 context,
@@ -493,6 +498,10 @@ def _register_admin_flows() -> None:
                 raw=send_pretty.RawFormat.PLAIN,
             )
             return
+        if len(msg) > 4000:
+            context.user_data["awaiting"] = awaiting
+            await say(update, context, "متن طولانی است (حداکثر ۴۰۰۰ کاراکتر). لطفاً کوتاه‌تر بفرستید.", raw=RawFormat.PLAIN, mode="send")
+            return
         # Capture HTML-preserving representation (R3/R4).
         html = None
         try:
@@ -503,9 +512,11 @@ def _register_admin_flows() -> None:
         if not html:
             html = msg
         # Store pending for preview+confirm (no transaction held across await).
-        context.user_data["pending_broadcast"] = {"text": msg, "html": html}
-        mark_awaiting_consumed(context)
+        # Count is cached in pending_broadcast so preview needs only one DB scan;
+        # confirm re-queries for a fresh recipient list (users may have changed).
         count = len(db.all_active_users())
+        context.user_data["pending_broadcast"] = {"text": msg, "html": html, "count": count}
+        mark_awaiting_consumed(context)
         use_html = bool(html and html != msg)
         preview_text = f"{html_escape('👁 پیش‌نمایش پیام همگانی (')}{count}{html_escape(' کاربر):')}\n\n{html}\n\n{html_escape('تایید می‌کنید؟')}"
         await send_pretty.say(

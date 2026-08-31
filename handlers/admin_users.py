@@ -153,6 +153,9 @@ async def handle_admin_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             await _send_with_retry(context.bot, user_id, send_text, **kwargs)
         except Exception:
             logger.exception("admin message to user %s failed", user_id)
+            context.user_data.pop("pending_dm", None)
+            mark_awaiting_consumed(context)
+            context.user_data.pop("awaiting", None)
             await notify_callback(update.callback_query, "ارسال ناموفق بود.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             await _edit_or_send(update, context, "ارسال پیام ناموفق بود (کاربر یافت نشد یا ربات را بلاک کرده).")
             return
@@ -283,6 +286,10 @@ async def _handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYP
             "متن پیام خالی است. دوباره بفرستید یا لغو کنید.",
             raw=RawFormat.PLAIN, mode="send",
         )
+        return
+    if len(msg) > 4000:
+        context.user_data["awaiting"] = awaiting
+        await say(update, context, "متن طولانی است (حداکثر ۴۰۰۰ کاراکتر). لطفاً کوتاه‌تر بفرستید.", raw=RawFormat.PLAIN, mode="send")
         return
     # Capture HTML-preserving representation for format preservation (R3).
     html = None
