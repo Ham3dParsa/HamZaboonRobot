@@ -115,10 +115,12 @@ def _llm_cost_range_bounds(range_name: str) -> tuple[str, str, str]:
         label = "30d"
     elif range_name == "all":
         return "", "", "ALL"
-    else:
+    elif range_name == "mtd":
         start = today.replace(day=1)
         end = today
         label = "MTD"
+    else:
+        raise ValueError(f"Unknown llm range {range_name!r}")
     return start.isoformat(), end.isoformat(), label
 
 

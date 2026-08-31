@@ -493,7 +493,7 @@ def _register_admin_flows() -> None:
             preset_name, field_idx = parts[1], parts[2]
             await _handle_full_edit_input(update, context, preset_name, int(field_idx), text)
 
-    for key in ("llm_cost_user", "llm_cost_model", "llm_price_rate", "llm_cost_custom_start"):
+    for key in ("llm_cost_user", "llm_cost_model", "llm_price_rate"):
         register_flow(key, _handle_cost_text)
 
     register_flow("admin_set_plan", _handle_plans_set_plan)

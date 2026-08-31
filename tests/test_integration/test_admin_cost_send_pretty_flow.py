@@ -157,8 +157,7 @@ class AdminCostSendPrettyFlowTest(unittest.TestCase):
                 self.assertEqual(kwargs["backend"], Backend.RICH)
                 self.assertEqual(ctx.user_data["llm_cost_state"]["range"], val)
                 # rendered rich text contains overview heading
-                msg = kwargs.get("args", mock_say.call_args[0][2] if len(mock_say.call_args[0]) > 2 else None)
-                # fallback: check keyword 'content' is Message
+                # check content is Message and renders
                 content = mock_say.call_args[0][2] if len(mock_say.call_args[0]) > 2 else mock_say.call_args[1].get("content")
                 if content is not None:
                     rendered = content.render(Backend.RICH)
