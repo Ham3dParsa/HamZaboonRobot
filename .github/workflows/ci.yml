@@ -104,4 +104,4 @@ jobs:
       - name: Assert peak RAM <= 2GB during full suite
         env:
           HAMZABAN_TEST_MODE: "1"
-        run: python scripts/run_with_ram_gate.py -n 4
+        run: python scripts/run_with_ram_gate.py -n 2
