@@ -53,7 +53,12 @@ class EarlyAwaitingResetTest(unittest.TestCase):
         update.effective_user.id = user_id
         update.effective_chat.id = user_id
         update.callback_query = None
-        update.message.text = text
+        msg = MagicMock()
+        msg.text = text
+        msg.text_html = text
+        msg.reply_text = AsyncMock()
+        update.message = msg
+        update.effective_message = msg
         return update
 
     def _make_context(self):
@@ -235,23 +240,22 @@ class EarlyAwaitingResetTest(unittest.TestCase):
         self.assertIsNone(ctx.user_data["awaiting"])
 
     def test_text_router_broadcast_consumed_no_rollback(self):
-        """Real broadcast flow: messages sent, final reply fails -> no re-arm/re-send."""
+        """Real broadcast flow (preview): preview reply fails -> awaiting consumed, no re-arm."""
         from bot import text_router
 
         ctx = self._make_context()
         ctx.user_data["awaiting"] = "admin_broadcast"
         update = self._make_text_update("hello all")
-        update.message.reply_text = AsyncMock(side_effect=RuntimeError("send failed"))
+        # Make the preview say fail (via send_pretty.say)
         users = [{"user_id": 2}, {"user_id": 3}]
 
         with patch("services.db.all_active_users", return_value=users), patch(
-            "handlers.admin._send_with_retry", new_callable=AsyncMock
-        ) as send, patch("bot.is_owner", return_value=True):
+            "handlers.admin.send_pretty.say", new=AsyncMock(side_effect=RuntimeError("send failed"))
+        ), patch("bot.is_owner", return_value=True):
             with self.assertRaises(RuntimeError):
                 asyncio.run(text_router(update, ctx))
 
         self.assertIsNone(ctx.user_data["awaiting"])
-        self.assertEqual(send.await_count, 2)
 
     def test_text_router_unknown_awaiting_falls_through_to_menu(self):
         """Stale/unknown awaiting falls through to the main-menu reply, no marker left."""
