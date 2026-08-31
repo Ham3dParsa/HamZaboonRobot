@@ -156,6 +156,19 @@ def find_duplicate(user_id: int, text: str, lang: str) -> Optional[str]:
     return row["token"]
 
 
+def find_duplicate_by_word(user_id: int, word: str, lang: str) -> Optional[str]:
+    """Return token of a prior unexpired card with same normalized ``word``.
+
+    Word-based cache (post-AI): matches ``normalize_word(word)`` for same
+    user+lang, so synonym Persian queries mapping to same English word (e.g.
+    ``بوته``/``درختچه`` -> ``shrub``) are detected after AI. Pure DB read.
+    """
+    row = db.find_unexpired_query_by_word(user_id, word, lang)
+    if not row:
+        return None
+    return row["token"]
+
+
 async def ask(
     user_id: int,
     text: str,
@@ -247,6 +260,36 @@ async def ask(
         )
         await asyncio.to_thread(db.release_word_query, user_id)
         return AskResult(kind="persist_error")
+
+    # Word-based cache (post-AI): if same normalized English word already cached
+    # for this user+lang, treat as duplicate, refund quota, create alias for
+    # future exact-text hits, and return duplicate (no extra quota/AI next time).
+    if not skip_duplicate:
+        dup_word_row = await asyncio.to_thread(
+            db.find_unexpired_query_by_word, user_id, str(data.get("word", "")), lang
+        )
+        if dup_word_row is not None:
+            try:
+                json.loads(dup_word_row["result_json"])
+            except (TypeError, json.JSONDecodeError, KeyError):
+                dup_word_row = None
+        if dup_word_row is not None:
+            await asyncio.to_thread(db.release_word_query, user_id)
+            # Alias: store new query_text -> same card so next exact hit is pre-AI.
+            try:
+                alias_data = json.loads(dup_word_row["result_json"])
+                if isinstance(alias_data, dict) and alias_data.get("word"):
+                    await asyncio.to_thread(
+                        db.create_query_result,
+                        user_id,
+                        text,
+                        dup_word_row["word"],
+                        lang,
+                        alias_data,
+                    )
+            except Exception:
+                logger.exception("alias insert failed in word_query.ask user_id=%s", user_id)
+            return AskResult(kind="duplicate", token=dup_word_row["token"])
 
     try:
         query_token = await asyncio.to_thread(

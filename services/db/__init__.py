@@ -213,6 +213,29 @@ def _normalize_query_text(text: str) -> str:
     return normalize_word(text)
 
 
+_QUERY_RESULTS_CAP = 100
+
+
+def _enforce_query_results_cap(conn, user_id: int, lang: str, cap: int = _QUERY_RESULTS_CAP) -> None:
+    """Enforce per-user+lang cap (cap=100) via LRU eviction.
+
+    Deletes oldest rows beyond cap, keeping most recent `cap` by created_at.
+    Cheap: only runs when row count exceeds cap; bounded by cap size.
+    """
+    count = conn.execute(
+        "SELECT COUNT(*) AS c FROM query_results WHERE user_id=? AND lang=?",
+        (user_id, lang),
+    ).fetchone()["c"]
+    if count > cap:
+        to_delete = count - cap
+        conn.execute(
+            "DELETE FROM query_results WHERE rowid IN ("
+            "SELECT rowid FROM query_results WHERE user_id=? AND lang=? "
+            "ORDER BY created_at ASC, rowid ASC LIMIT ?)",
+            (user_id, lang, to_delete),
+        )
+
+
 def create_query_result(
     user_id: int,
     query_text: str,
@@ -240,6 +263,7 @@ def create_query_result(
                 expires_at.isoformat(),
             ),
         )
+        _enforce_query_results_cap(conn, user_id, lang)
     return token
 
 
@@ -275,6 +299,36 @@ def find_unexpired_query(user_id: int, query_text: str, lang: str):
             "ORDER BY created_at DESC LIMIT 1",
             (user_id, lang, normalized, now),
         ).fetchone()
+
+
+def find_unexpired_query_by_word(user_id: int, word: str, lang: str):
+    """Return the most recent unexpired query_result for same user+lang+normalized word.
+
+    Post-AI dedup (word-based cache): matches on ``normalize_word(word)`` against
+    the stored ``word`` column (casefold+NFC). Uses ``user_id+lang`` index to
+    narrow, then Python filter (cap 100 keeps scan cheap). Returns None if no
+    unexpired word match or stored JSON is corrupt is handled by caller.
+    """
+    normalized = normalize_word(word)
+    if not normalized:
+        return None
+    now = _utc_now().isoformat()
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM query_results "
+            "WHERE user_id=? AND lang=? AND expires_at>? "
+            "ORDER BY created_at DESC",
+            (user_id, lang, now),
+        ).fetchall()
+    for r in rows:
+        if normalize_word(r["word"] or "") == normalized:
+            # Validate JSON still parseable (corrupt rows treated as miss)
+            try:
+                json.loads(r["result_json"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            return r
+    return None
 
 
 def mark_query_result_saved(token: str, saved_word_id: int | None = None):
