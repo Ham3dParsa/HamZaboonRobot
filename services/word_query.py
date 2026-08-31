@@ -266,6 +266,7 @@ async def ask(
                     dup_word_row = None
         if dup_word_row is not None:
             # Alias: store new query_text -> same card so next exact hit is pre-AI.
+            # exclude_token keeps source alive if cap would evict it.
             try:
                 await asyncio.to_thread(
                     db.create_query_result,
@@ -274,6 +275,7 @@ async def ask(
                     dup_word_row["word"],
                     lang,
                     alias_data,
+                    exclude_token=dup_word_row["token"],
                 )
             except Exception:
                 logger.exception("alias insert failed in word_query.ask user_id=%s", user_id)

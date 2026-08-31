@@ -216,25 +216,43 @@ def _normalize_query_text(text: str) -> str:
 _QUERY_RESULTS_CAP = 100
 
 
-def _enforce_query_results_cap(conn, user_id: int, lang: str, cap: int = _QUERY_RESULTS_CAP) -> None:
+def _enforce_query_results_cap(
+    conn, user_id: int, lang: str, cap: int = _QUERY_RESULTS_CAP, exclude_token: str | None = None
+) -> None:
     """Enforce per-user+lang cap (cap=100) via LRU eviction on unexpired rows.
 
     Counts only unexpired rows so not-yet-purged expired rows don't evict fresh
-    ones. Bounded by cap size.
+    ones. ``exclude_token`` keeps the dedup source alive when alias insert would
+    otherwise evict it. Bounded by cap size.
     """
     now = _utc_now().isoformat()
-    count = conn.execute(
-        "SELECT COUNT(*) AS c FROM query_results WHERE user_id=? AND lang=? AND expires_at>?",
-        (user_id, lang, now),
-    ).fetchone()["c"]
-    if count > cap:
-        to_delete = count - cap
+    if exclude_token:
+        total = conn.execute(
+            "SELECT COUNT(*) AS c FROM query_results WHERE user_id=? AND lang=? AND expires_at>?",
+            (user_id, lang, now),
+        ).fetchone()["c"]
+        if total <= cap:
+            return
+        to_delete = total - cap
         conn.execute(
             "DELETE FROM query_results WHERE rowid IN ("
-            "SELECT rowid FROM query_results WHERE user_id=? AND lang=? AND expires_at>? "
+            "SELECT rowid FROM query_results WHERE user_id=? AND lang=? AND expires_at>? AND token!=? "
             "ORDER BY created_at ASC, rowid ASC LIMIT ?)",
-            (user_id, lang, now, to_delete),
+            (user_id, lang, now, exclude_token, to_delete),
         )
+    else:
+        count = conn.execute(
+            "SELECT COUNT(*) AS c FROM query_results WHERE user_id=? AND lang=? AND expires_at>?",
+            (user_id, lang, now),
+        ).fetchone()["c"]
+        if count > cap:
+            to_delete = count - cap
+            conn.execute(
+                "DELETE FROM query_results WHERE rowid IN ("
+                "SELECT rowid FROM query_results WHERE user_id=? AND lang=? AND expires_at>? "
+                "ORDER BY created_at ASC, rowid ASC LIMIT ?)",
+                (user_id, lang, now, to_delete),
+            )
 
 
 def create_query_result(
@@ -244,6 +262,7 @@ def create_query_result(
     lang: str,
     result_data: dict,
     ttl_seconds: int = 30 * 24 * 60 * 60,
+    exclude_token: str | None = None,
 ) -> str:
     token = secrets.token_hex(16)
     now = _utc_now()
@@ -264,7 +283,7 @@ def create_query_result(
                 expires_at.isoformat(),
             ),
         )
-        _enforce_query_results_cap(conn, user_id, lang)
+        _enforce_query_results_cap(conn, user_id, lang, exclude_token=exclude_token)
     return token
 
 
