@@ -1,0 +1,59 @@
+name: opencode-review
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: opencode-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  checks: read
+  id-token: write
+
+jobs:
+  review:
+    # Rule 1 & 4: only ready PRs, skip bots & forks (secrets not passed on forks)
+    if: |
+      github.event.pull_request.draft == false &&
+      github.actor != 'dependabot[bot]' &&
+      github.actor != 'renovate[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: anomalyco/opencode/github@latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        with:
+          # Rule 2: Muse Spark 1.2 free via Zen (free, 82.9% Terminal, 1M/131K)
+          model: opencode/muse-spark-1.2-contributor-free
+          # Rule 3: Strict + all focus + gate Warnings+ + REVIEW.md + fast
+          prompt: |
+            You are the HamZaboon PR reviewer. Be STRICT: flag all potential issues, prioritize quality and security.
+            PR Gate Threshold is "Warnings and above" — mark every finding as [critical], [warning] or [info]. Fail the check if any [critical] or [warning] exists.
+
+            Focus Areas (all enabled):
+            - Security vulnerabilities (SQL injection, XSS, auth, raw key exposure)
+            - Performance issues (N+1, inefficient loops, blocking async)
+            - Bug detection (logic errors, edge cases, race conditions)
+            - Code style (formatting, naming — but do not flag whitespace only, ruff handles it)
+            - Test coverage (missing tests for behavior changes — require tests/test_integration where needed)
+            - Documentation (missing comments, unclear APIs)
+
+            First read ./REVIEW.md from the base branch (git show origin/main:REVIEW.md); if present, treat it as the source of truth for repo-specific traps:
+            - Non-idempotent Telegram send: _send_with_retry only on RetryAfter, not on TimedOut/NetworkError
+            - All dynamic values in MarkdownV2 must go through escape_mdv2()
+            - Callback wiring: every callback_data prefix needs a router + tests/test_wiring.py
+            - Secrets as UPPERCASE env-name refs via resolve_api_key(), never raw
+            - APP_TIMEZONE for app-day, UTC for metadata
+
+            Output: one confirmed issue per inline comment with file_path:line_number, severity tag, and the positive fix. Keep comments concise for speed. Update the summary comment in place. Set status to APPROVED only if zero [critical]/[warning].

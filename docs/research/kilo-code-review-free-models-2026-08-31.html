@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تصمیم‌گیری مدل رایگان Kilo Code Review — با مقایسه Hy3</title>
+<style>
+  :root{
+    --bg:#0d0f13; --panel:#14171e; --panel2:#1a1f2a; --border:#232838;
+    --text:#e8eaf0; --muted:#9aa0b2; --dim:#6b7288;
+    --blue:#7aa2ff; --green:#34d399; --yellow:#facc15; --red:#f87171;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,Vazirmatn,Estedad,Tahoma,system-ui,sans-serif;line-height:1.8;-webkit-font-smoothing:antialiased}
+  a{color:var(--blue);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{font-family:ui-monospace,Cascadia Code,Consolas,monospace;font-size:12.5px;background:#1e2433;border:1px solid var(--border);padding:2px 7px;border-radius:7px;direction:ltr;display:inline-block}
+  .mono{font-family:ui-monospace,monospace;direction:ltr}
+  /* 1440p optimized container */
+  .wrap{max-width:1320px;margin:0 auto;padding:36px 32px 80px}
+  header{margin-bottom:28px}
+  header h1{font-size:32px;margin:0 0 6px;letter-spacing:-.02em}
+  header .meta{color:var(--muted);font-size:13px;display:flex;gap:16px;flex-wrap:wrap}
+  header .meta span{border-left:1px solid var(--border);padding-left:16px}
+  header .meta span:last-child{border:0}
+  .hero{display:grid;grid-template-columns:1.15fr .85fr;gap:18px;margin:22px 0 28px}
+  .hero-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:22px 22px}
+  .hero-card h2{margin:0 0 8px;font-size:18px}
+  .hero-card p{margin:0;color:var(--muted);font-size:14px}
+  .verdict{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
+  .pill{font-size:12px;padding:5px 10px;border-radius:999px;border:1px solid var(--border);background:var(--panel2);color:var(--muted)}
+  .pill.hot{background:rgba(52,211,153,.12);color:var(--green);border-color:rgba(52,211,153,.25)}
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
+  .kpi{background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:14px;text-align:center}
+  .kpi b{font-size:22px;display:block}
+  .kpi em{font-style:normal;font-size:11px;color:var(--muted)}
+  /* Table */
+  .section{margin-top:36px}
+  .section-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-bottom:14px}
+  .section-head h2{margin:0;font-size:20px}
+  .section-head p{margin:0;color:var(--muted);font-size:13px}
+  .table-wrap{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--dim);background:#151a27;padding:12px 12px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap}
+  td{padding:12px 12px;border-bottom:1px solid rgba(35,40,56,.6);vertical-align:middle}
+  tr:last-child td{border-bottom:0}
+  tr:hover td{background:#171d2b}
+  td.ltr{text-align:left;direction:ltr;font-family:ui-monospace,monospace;font-size:12.5px}
+  .bar{height:6px;background:#1e2433;border-radius:999px;overflow:hidden;margin-top:6px}
+  .bar i{display:block;height:100%;background:var(--blue);border-radius:999px}
+  .bar.green i{background:var(--green)}
+  .badge{font-size:10px;padding:3px 7px;border-radius:999px;border:1px solid var(--border);color:var(--muted);margin-right:6px;vertical-align:middle}
+  .badge.free{background:rgba(52,211,153,.1);color:var(--green);border-color:rgba(52,211,153,.22)}
+  .badge.paid{background:rgba(122,162,255,.1);color:var(--blue);border-color:rgba(122,162,255,.22)}
+  .badge.old{background:rgba(248,113,113,.1);color:var(--red);border-color:rgba(248,113,113,.22)}
+  /* Decision grid for 1440p */
+  .decisions{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:14px}
+  .decision{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:20px 20px;display:flex;flex-direction:column}
+  .decision.recommended{border-color:rgba(52,211,153,.35);box-shadow:0 0 0 1px rgba(52,211,153,.15), 0 8px 30px rgba(0,0,0,.25)}
+  .decision h3{margin:0 0 6px;font-size:16px;display:flex;align-items:center;gap:8px}
+  .decision .desc{color:var(--muted);font-size:13px;margin:0 0 12px;min-height:36px}
+  .decision .meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0 12px}
+  .meta-grid div{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:10px 10px;text-align:center}
+  .meta-grid b{font-size:13px;display:block}
+  .meta-grid span{font-size:11px;color:var(--muted)}
+  .pros{font-size:13px;margin:8px 0 0;padding:0 16px 0 0}
+  .pros li{margin:4px 0}
+  .pros li::marker{color:var(--muted)}
+  .btn{margin-top:14px;display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--blue);color:#0b0f1a;border:0;border-radius:10px;padding:10px 14px;font-weight:700;font-size:13px;cursor:pointer}
+  .btn.ghost{background:transparent;color:var(--text);border:1px solid var(--border)}
+  .step{background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:14px 14px;margin:10px 0}
+  .step b{color:var(--text)}
+  .step p{margin:6px 0 0;color:var(--muted);font-size:13px}
+  .step code{margin-top:6px}
+  .alert{border-radius:10px;padding:12px 14px;font-size:13px;border:1px solid var(--border);margin:10px 0}
+  .alert.warn{background:rgba(250,204,21,.08);border-color:rgba(250,204,21,.22);color:#fde68a}
+  .alert.ok{background:rgba(52,211,153,.08);border-color:rgba(52,211,153,.22);color:#a7f3d0}
+  .alert.err{background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.22);color:#fecaca}
+  .foot{margin-top:44px;padding-top:18px;border-top:1px solid var(--border);color:var(--muted);font-size:12px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  @media(max-width:1100px){.hero{grid-template-columns:1fr} .decisions{grid-template-columns:1fr} .wrap{max-width:900px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>کدام مدل رایگان را برای Kilo Code Review انتخاب کنم؟</h1>
+  <div class="meta">
+    <span>۳۱ آگوست ۲۰۲۶ — لایو از <span class="mono">api.kilo.ai</span> و <span class="mono">openrouter.ai</span></span>
+    <span>تست واقعی: PR #499 — <span class="mono">kilo-auto/free → Output limit hit</span></span>
+    <span>تو الان: <span class="mono">muse-spark-1.2-contributor-free</span> روی <span class="mono">opencode.ai/zen</span> بدون شارژ</span>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="hero-card">
+    <h2>تصمیم سریع — اگر وقت نداری</h2>
+    <p>برای PR متوسط مثل #499 (۹۲K ورودی) <code>kilo-auto/free</code> به سقف ۱۰K خورد. Hy3 قبلا ۳۲K سقف داشت و نمی‌خورد. الان بهترین جایگزینِ بدون دردسر داخل Zen همین <span class="mono">muse-spark-1.2-contributor-free</span> است — هم رایگانه، هم از همه freeهای Kilo/OpenRouter دقیق‌تره.</p>
+    <div class="verdict">
+      <span class="pill hot">پیشنهاد اول: Zen + Muse Spark 1.2 — بدون شارژ</span>
+      <span class="pill">جایگزین Kilo-only: laguna-s-2.1 → minimax-m3</span>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><b>82.9%</b><em>Terminal-Bench<br>muse spark 1.2</em></div>
+      <div class="kpi"><b>70.2%</b><em>laguna-s-2.1<br>بهترین free Kilo</em></div>
+      <div class="kpi"><b>59.5%</b><em>step-3.7-flash<br>که دیده بودی</em></div>
+    </div>
+  </div>
+  <div class="hero-card">
+    <h2>چرا این عددها مهم‌اند؟</h2>
+    <p>برای بازبینی کد، Terminal-Bench مهم‌تر از SWE-Verified است — چون مثل خود Code Review ترمینال و ابزار را تست می‌کند. Hy3 روی همین ۷۱.۷٪ بود.</p>
+    <ul style="margin:10px 0 0;padding-right:18px;font-size:13px;color:var(--muted)">
+      <li>بالای ۸۰٪ = frontier (spark 1.2 / deepseek flash)</li>
+      <li>۷۰٪ = بهترین free فعلی (laguna)</li>
+      <li>زیر ۶۰٪ = step-3.7 — برای PR بزرگ به سقف نمی‌خورد ولی چشمش خطا را بیشتر رد می‌کند</li>
+    </ul>
+    <div class="alert ok" style="margin-top:14px">نکته تو: Zen الان بدون شارژ هم <span class="mono">muse-spark-1.2-contributor-free</span> را می‌دهد — فقط پرامپت برای ترین Meta استفاده می‌شود.</div>
+  </div>
+</div>
+
+<!-- TABLE WITH HY3 -->
+<div class="section">
+  <div class="section-head">
+    <h2>جدول مقایسه — با Hy3 که قبلا داشتی</h2>
+    <p>فقط عددی که سند دارد. وزن مشابه، هارنس مشابه.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>مدل</th>
+          <th>وضعیت الان</th>
+          <th>Terminal-Bench 2.1</th>
+          <th>SWE-Pro</th>
+          <th>DeepSWE</th>
+          <th>سقف خروجی</th>
+          <th>حافظه</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="background:rgba(122,162,255,.06)">
+          <td class="ltr">tencent/hy3 <span class="badge old">حذف free</span><br><span style="color:var(--muted);font-size:11px">295B-A21B — مرجع تو</span></td>
+          <td><span class="badge old">حذف از ۲۱ July — الان $0.08/$0.33</span></td>
+          <td><b>71.7%</b><div class="bar" style="width:92px"><i style="width:71.7%"></i></div></td>
+          <td>57.9%</td>
+          <td>—</td>
+          <td>32K</td>
+          <td>128K</td>
+        </tr>
+        <tr style="background:rgba(52,211,153,.07)">
+          <td class="ltr">muse-spark-1.2 <span class="badge free">تو الان همین را داری</span></td>
+          <td><span class="badge free">Zen free — بدون شارژ</span></td>
+          <td><b>82.9%</b><div class="bar green" style="width:92px"><i style="width:82.9%"></i></div></td>
+          <td>—</td>
+          <td><b>59.3%</b></td>
+          <td>131K</td>
+          <td>1M</td>
+        </tr>
+        <tr>
+          <td class="ltr">muse-spark-1.1</td>
+          <td><span class="badge paid">پولی</span> $1.25/$4.25</td>
+          <td>80.0%</td>
+          <td>61.5%</td>
+          <td>53.3%</td>
+          <td>131K</td>
+          <td>1M</td>
+        </tr>
+        <tr>
+          <td class="ltr">deepseek v4 flash 0731</td>
+          <td><span class="badge paid">$0.14/$0.28</span></td>
+          <td>82.7%</td>
+          <td>52.6%</td>
+          <td>54.4%</td>
+          <td>1M</td>
+          <td>1M</td>
+        </tr>
+        <tr>
+          <td class="ltr">poolside/laguna-s-2.1:free <span class="badge free">بهترین free Kilo</span></td>
+          <td><span class="badge free">Kilo + OpenRouter</span></td>
+          <td>70.2%</td>
+          <td>59.4%</td>
+          <td>40.4%</td>
+          <td>32K</td>
+          <td>1M</td>
+        </tr>
+        <tr>
+          <td class="ltr">step-3.7-flash:free <span class="badge free">دیده بودی</span></td>
+          <td><span class="badge free">Kilo انحصاری</span></td>
+          <td>59.5%</td>
+          <td>56.3%</td>
+          <td>—</td>
+          <td>262K</td>
+          <td>256K</td>
+        </tr>
+        <tr>
+          <td class="ltr">minimax-m3:free</td>
+          <td><span class="badge free">Kilo + OpenRouter</span></td>
+          <td>66.0%</td>
+          <td>59.0%</td>
+          <td>—</td>
+          <td>1M</td>
+          <td>1M</td>
+        </tr>
+        <tr>
+          <td class="ltr">longcat-2.0-free</td>
+          <td><span class="badge free">Kilo انحصاری</span></td>
+          <td>AA 45.3%*</td>
+          <td>—</td>
+          <td>—</td>
+          <td>131K</td>
+          <td>1M</td>
+        </tr>
+        <tr>
+          <td class="ltr">kilo-auto/free</td>
+          <td><span class="badge free">روتر ۱۰K</span></td>
+          <td>—</td>
+          <td>—</td>
+          <td>—</td>
+          <td><b style="color:var(--red)">10K — همین فیل شد</b></td>
+          <td>256K</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="color:var(--dim);font-size:11px;margin:8px 2px 0">منابع: Hy3: <span class="mono">poolside.ai/blog/introducing-laguna-s-2-1</span> جدول مقایسه (Hy3 71.7 / 57.9) — muse-spark 1.2: <span class="mono">benchlm.ai/models/muse-spark-1-2</span> + <span class="mono">developer.meta.com/ai/models/muse-spark</span> — deepseek 0731: <span class="mono">aitoolsrecap.com</span> — laguna/step/minimax/longcat: <span class="mono">static.stepfun.com</span> + <span class="mono">benchlm.ai</span> — سقف Kilo: <span class="mono">api.kilo.ai/api/gateway/models</span> لایو ۳۱ Aug</p>
+</div>
+
+<!-- ZEN EXTERNAL CHECK -->
+<div class="section">
+  <div class="section-head">
+    <h2>آیا OpenCode Zen را می‌توان خارج از OpenCode استفاده کرد؟ — جواب کوتاه</h2>
+    <p>تحقیق از <span class="mono">opencode.ai/docs/zen</span> — ۳۱ آگوست ۲۰۲۶</p>
+  </div>
+  <div class="card" style="border-right:3px solid var(--green)">
+    <p><b>بله — ولی نه برای <span class="mono">app.kilo.ai/code-reviews</span></b></p>
+    <p style="color:var(--muted);font-size:13px">سند رسمی Zen صراحتا می‌گوید: <em>“Have <b>no lock-in</b> by allowing you to use it with <b>any other coding agent</b>.”</em> — یعنی هر کلاینتی که OpenAI/Anthropic-Compatible باشد می‌تواند به <span class="mono">https://opencode.ai/zen/v1</span> بزند. Docker Agent همین کار را می‌کند <span class="mono">docs.docker.com/ai/docker-agent/providers/opencode-zen</span>.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+      <div class="alert ok" style="margin:0"><b>کار می‌کند ✅</b><br>OpenCode TUI/CLI/IDE — با <code>/connect</code> + <code>opencode.json</code><br>هر کلاینت OpenAI-Compatible لوکال (Kilo IDE local <code>/review</code>، Docker Agent، curl) — با <code>baseURL: https://opencode.ai/zen/v1</code> و کلید Zen</div>
+      <div class="alert err" style="margin:0"><b>کار نمی‌کند ❌</b><br><span class="mono">app.kilo.ai/code-reviews?platform=github</span><br>مدل فقط از لیست Kilo Gateway + BYOK انتخاب می‌شود — فیلد Base URL ندارد. <span class="mono">kilo.ai/docs/automate/code-reviews/github</span>: “AI Model — Select from available models (default: Claude Sonnet 4.5)”</div>
+    </div>
+    <p style="font-size:12px;color:var(--dim);margin:10px 0 0">برای <span class="mono">muse-spark-1.2-contributor-free</span> علاوه بر این، باید <code>@ai-sdk/openai</code> روی <span class="mono">/v1/responses</span> باشد نه <code>openai-compatible</code> روی <span class="mono">/v1/chat/completions</span> — وگرنه ۵۰۰ می‌گیری <span class="mono">github.com/anomalyco/opencode/issues/44847</span>. همین هم دلیل دوم ناسازگاری با Kilo Cloud است.</p>
+  </div>
+</div>
+
+<!-- DECISIONS -->
+<div class="section">
+  <div class="section-head">
+    <h2>سه تصمیم — هر کدام با پیشنهاد و اطلاعات کنارش</h2>
+    <p>بهینه برای مانیتور ۲۷" ۱۴۴۰p — سه ستون، هر تصمیم مستقل</p>
+  </div>
+
+  <div class="decisions">
+
+    <!-- DECISION C: RECOMMENDED FIRST -->
+    <div class="decision recommended">
+      <h3>⭐ تصمیم ۱ — Zen + Muse Spark 1.2 <span class="badge free">فقط لوکال / OpenCode</span></h3>
+      <p class="desc">تو همین الان بدون شارژ داری باهاش چت می‌کنی — برای ریویو لوکال <code>/review</code> در OpenCode یا Kilo IDE عالیه، ولی به <span class="mono">app.kilo.ai/code-reviews</span> وصل نمی‌شود.</p>
+      <div class="meta-grid">
+        <div><b>82.9% Terminal</b><span>+۱۱ از Hy3</span></div>
+        <div><b>1M / 131K</b><span>ورودی / سقف خروجی</span></div>
+        <div><b>Free</b><span>روی Zen، بدون شارژ</span></div>
+        <div><b>برای: OpenCode</b><span>نه Kilo Cloud</span></div>
+      </div>
+      <ul class="pros">
+        <li>دقیق‌ترین free — برای <code>/review</code> لوکال PR #499 کافی بود</li>
+        <li>کلید فعلی‌ات کافیست — <span class="mono">opencode.json</span> با <code>@ai-sdk/openai</code></li>
+        <li>برای Kilo Cloud باید تصمیم ۲ را ببینی</li>
+      </ul>
+      <div class="alert ok">هزینه: $0 — فقط مجوز ترین Meta</div>
+      <div class="alert warn">برای app.kilo.ai بی‌خیالش شو — راهی برای روت نیست. اگر می‌خواهی PR ابری، برو تصمیم ۲.</div>
+    </div>
+
+    <!-- DECISION A -->
+    <div class="decision" style="border-color:rgba(122,162,255,.35);box-shadow:0 0 0 1px rgba(122,162,255,.12)">
+      <h3>✅ تصمیم ۲ — Kilo Cloud free <span class="badge free">برای app.kilo.ai/code-reviews</span></h3>
+      <p class="desc">این تنها گزینه برای همون صفحه‌ای که می‌خواهی پیکربندی کنی. Zen اینجا کار نمی‌کند.</p>
+      <div class="meta-grid">
+        <div><b>70.2% laguna</b><span>بهترین free Kilo<br>نزدیک Hy3</span></div>
+        <div><b>1M minimax</b><span>برای PR بزرگ</span></div>
+        <div><b>۲۰۰/ساعت</b><span>ریت Kilo</span></div>
+        <div><b>ریسک سقف: متوسط</b><span>laguna 32K</span></div>
+      </div>
+      <ul class="pros">
+        <li><b>PR کوچک &lt;30K:</b> <span class="mono">laguna-s-2.1:free</span> با reasoning روی low — دقیق‌ترین free Kilo</li>
+        <li><b>PR متوسط/بزرگ:</b> <span class="mono">minimax-m3:free</span> یا <span class="mono">longcat-2.0-free</span> — سقف ۱M/۱۳۱K</li>
+        <li><span class="mono">kilo-auto/free</span> فقط PR کوچک — برای #499 کم بود</li>
+      </ul>
+      <div class="alert err">Hy3 سابق ۷۱.۷٪ بود — laguna با ۷۰.۲٪ تقریبا هم‌سطح آن است، ولی minimax از نظر سرعت ۲ برابر step است.</div>
+    </div>
+
+    <!-- DECISION B -->
+    <div class="decision">
+      <h3>تصمیم ۳ — فقط OpenRouter free</h3>
+      <p class="desc">اگر می‌خواهی بیرون Kilo و با OpenRouter بمانی.</p>
+      <div class="meta-grid">
+        <div><b>glm-5.2 عالی</b><span>ولی فقط OpenRouter</span></div>
+        <div><b>۵۰/روز</b><span>بدون شارژ</span></div>
+        <div><b>۱۰۰۰/روز</b><span>با یک بار $10 شارژ</span></div>
+        <div><b>ریسک سقف: زیاد</b><span>بدون $10 دو PR و تمام</span></div>
+      </div>
+      <ul class="pros">
+        <li>ترتیب: <span class="mono">z-ai/glm-5.2:free</span> → <span class="mono">laguna-s-2.1:free</span> → <span class="mono">m3:free</span></li>
+        <li>glm-5.2 از Hy3 جلوتره ولی روی Kilo نیست</li>
+        <li>برای کدبیس بدون شارژ $10 قابل اعتماد نیست</li>
+      </ul>
+      <div class="alert warn">برای بازبینی کدبیس حتما $10 شارژ کن تا ۵۰ به ۱۰۰۰ برسد — هنوز inference رایگان می‌ماند.</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- STEP BY STEP -->
+<div class="section">
+  <div class="section-head">
+    <h2>آموزش گام‌به‌گام — برای دو حالت جدا</h2>
+    <p>یکی برای OpenCode / Kilo IDE لوکال (می‌شود)، یکی برای app.kilo.ai ابری (نمی‌شود)</p>
+  </div>
+  <div class="table-wrap" style="padding:18px 20px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div>
+        <h3 style="margin:0 0 8px;font-size:14px;color:var(--green)">✅ حالت A — ریویو لوکال با Zen (می‌شود)</h3>
+        <div class="step">
+          <b>گام ۱ — کلیدت را بردار</b>
+          <p>همین کی که الان داری (<span class="mono">opencode.ai/zen/v1</span>). اگر اکانت جدید خواستی: <span class="mono">opencode.ai/zen</span> → Sign in → API Keys.</p>
+        </div>
+        <div class="step">
+          <b>گام ۲ — OpenCode یا Kilo IDE</b>
+          <p>فایل <span class="mono">~/.config/opencode/opencode.json</span> را بساز/ادیت کن (روش امن با env):</p>
+          <code>{ "provider": { "opencode-zen": { "npm": "@ai-sdk/openai", "name": "OpenCode Zen", "options": { "baseURL": "https://opencode.ai/zen/v1", "apiKey": "{env:OPENCODE_API_KEY}" }, "models": { "muse-spark-1.2-contributor-free": {"name":"Muse Spark 1.2 Free"} } } } }</code>
+        </div>
+        <div class="step">
+          <b>گام ۳ — تست</b>
+          <p><code>curl https://opencode.ai/zen/v1/responses -H "Authorization: Bearer $OPENCODE_API_KEY" -d '{"model":"muse-spark-1.2-contributor-free","input":"Say hello"}'</code> باید ۲۰۰ بده. بعد در ترمینال <code>/review branch</code> بزن.</p>
+        </div>
+      </div>
+      <div>
+        <h3 style="margin:0 0 8px;font-size:14px;color:var(--blue)">☁️ حالت B — app.kilo.ai/code-reviews (نمی‌شود با Zen)</h3>
+        <div class="step">
+          <b>گام ۱ — برو همون صفحه‌ای که می‌خواهی</b>
+          <p><span class="mono">app.kilo.ai/code-reviews?platform=github</span> → <b>Enable AI Code Review</b> → <b>AI Model</b></p>
+        </div>
+        <div class="step">
+          <b>گام ۲ — از لیست Kilo انتخاب کن</b>
+          <p>فقط این‌ها free و بدون مشکل سقف‌اند — Zen اینجا نیست:</p>
+          <code>PR کوچک: poolside/laguna-s-2.1:free<br>PR متوسط/بزرگ (#499): minimax-m3:free یا meituan/longcat-2.0-free<br>هرگز: kilo-auto/free (10K)</code>
+        </div>
+        <div class="step">
+          <b>گام ۳ — Save و تست PR</b>
+          <p>روی همان commit <span class="mono">827635f89c74</span> دوباره Review بزن. با <span class="mono">minimax-m3:free</span> سقف ۱M داری و دیگر به output limit نمی‌خوری.</p>
+        </div>
+        <div class="alert err" style="margin-top:10px">اگر هدفت همین صفحه ابری است، بی‌خیال Zen شو — الان راهی برای روت کردنش به Kilo Cloud نیست. گزینه‌های کنونی Kilo free را استفاده کن.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="foot">
+  <span>فایل: <span class="mono">docs/research/kilo-code-review-free-models-2026-08-31.html</span> — بهینه برای 1440p — تم تیره</span>
+  <span>ساخته شده با <span class="mono">muse-spark-1.2-contributor-free</span> روی Zen — بدون شارژ</span>
+</div>
+
+</div>
+</body>
+</html>
