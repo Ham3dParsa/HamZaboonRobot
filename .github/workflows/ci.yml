@@ -73,7 +73,7 @@ jobs:
 
       - name: Test Report
         uses: dorny/test-reporter@v1
-        if: always()
+        if: always() && hashFiles('junit/test-results.xml') != ''
         with:
           name: Test Results (${{ matrix.python-version }})
           path: junit/test-results.xml
