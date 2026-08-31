@@ -237,6 +237,20 @@ class AdminUserFlowTest(unittest.TestCase):
             args = update.callback_query.answer.call_args[0]
             self.assertIn("\u0641\u0642\u0637 \u0645\u0627\u0644\u06a9 \u0631\u0628\u0627\u062a", args[0])
 
+    def test_export_csv_sanitizes_formula_injection(self):
+        # Direct DB insert with formula-like username, then export
+        with db.transaction() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO users(user_id, username, created_at) VALUES (?, ?, ?)",
+                (999, "=2+2", "2026-08-31T00:00:00"),
+            )
+        csv_text = db.export_users_csv()
+        # csv writer quotes, but our guard prefixes with '
+        self.assertIn("'=2+2", csv_text)
+        # also check header and no secrets
+        self.assertTrue(csv_text.startswith("user_id,username"))
+        self.assertNotIn("api_key", csv_text.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,7 +9,7 @@ admin monolith delegates to this module.
 import io
 from datetime import timedelta
 
-from services.db.schema import _today
+from services.db.schema import _today, _utc_now
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -81,13 +81,16 @@ async def handle_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 reply_markup=stats_back_keyboard(),
             )
         elif sub == "growth":
-            today = _today()
-            d7 = (today - timedelta(days=7)).isoformat()
-            d30 = (today - timedelta(days=30)).isoformat()
-            new_7 = db.count_new_users_since(d7)
-            new_30 = db.count_new_users_since(d30)
-            created_before_7 = db.count_users_created_before(d7)
-            retained_7 = db.count_retained_users(d7, d7)
+            # created_at is UTC (_utc_now), last_active_date is APP_TIMEZONE (_today)
+            today_app = _today()
+            today_utc = _utc_now().date()
+            d7_app = (today_app - timedelta(days=7)).isoformat()
+            d7_utc = (today_utc - timedelta(days=7)).isoformat()
+            d30_utc = (today_utc - timedelta(days=30)).isoformat()
+            new_7 = db.count_new_users_since(d7_utc)
+            new_30 = db.count_new_users_since(d30_utc)
+            created_before_7 = db.count_users_created_before(d7_utc)
+            retained_7 = db.count_retained_users(d7_utc, d7_app)
             ret_pct = round(retained_7 / created_before_7 * 100) if created_before_7 else 0
             await _edit_or_send(
                 update, context,
@@ -107,6 +110,8 @@ async def handle_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE,
             fe = db.count_first_exposure_completion()
             fe_pct = round(fe["done"] / fe["total"] * 100) if fe["total"] else 0
             top = db.get_top_users_by_streak(20)
+            # Filter zero-streak users — empty-state if no active streak
+            top_active = [u for u in top if (u.get("streak") or 0) > 0]
             lines = [
                 f"📚 درگیری یادگیری\n\n"
                 f"• کل مرورهای SRS: {to_persian_digits(reviews)}\n"
@@ -114,9 +119,9 @@ async def handle_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 f"• میانگین لغت ذخیره‌شده به ازای هر کاربر: {to_persian_digits(avg)}\n"
                 f"• تکمیل first-exposure: {to_persian_digits(fe_pct)}٪",
             ]
-            if top:
+            if top_active:
                 lines.append("\n🏆 برترین‌ها (استریک):")
-                for idx, u in enumerate(top, 1):
+                for idx, u in enumerate(top_active, 1):
                     name = f"@{u['username']}" if u.get("username") else str(u["user_id"])
                     lines.append(f"{to_persian_digits(idx)}. {name} — {to_persian_digits(u['streak'] or 0)}")
             else:
