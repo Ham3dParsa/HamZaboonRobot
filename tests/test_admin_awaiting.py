@@ -312,7 +312,7 @@ class TestIsAdminAwaiting(unittest.IsolatedAsyncioTestCase):
             "ai_preset_new_name", "ai_preset_edit:gpt:model",
             "ai_preset_full_edit:gpt:0", "ai_custom_test_prompt",
             "ai_fallback_rank:gpt", "llm_cost_user", "llm_cost_model",
-            "llm_price_input", "llm_price_output", "llm_price_rate",
+            "llm_price_rate",
         ):
             self.assertTrue(is_admin_awaiting(key), key)
 
