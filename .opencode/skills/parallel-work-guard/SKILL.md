@@ -100,7 +100,7 @@ parallel-capable environment. It is the isolation contract on top of §5/§7.
    Conventional Commits, per §7.
 7. **Push & PR** — push the branch and open the PR via
    `gh pr create --fill --base main`, linking resolved issues.
-8. **Kilo-CI loop** — after creating or updating the PR, load the `kilo-ci-loop` skill (poll Kilo deltas, checks, and merge-conflict rebase until mergeable).
+8. **Kilo-CI loop** — after creating or updating the PR, load the `kilo-ci-loop` skill (poll Kilo + OpenCode deltas, checks, and merge-conflict rebase until mergeable).
 9. **Merge & cleanup** — on owner instruction (or an explicit "merge it"),
    `gh pr merge --squash`, then remove the worktree, delete the local branch,
    and release the claim:

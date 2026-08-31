@@ -35,7 +35,7 @@ author_url: https://github.com/Ham3dParsa
 - **PR creation**: `gh pr create --fill --base main` — owner reviews on GitHub UI.
   If the PR resolves tracked issues, link them in the body (e.g., "Resolves #N").
   If `gh` is unavailable, provide the GitHub PR creation URL as a fallback.
-- **CI monitoring**: after PR push, load the `kilo-ci-loop` skill for `gh pr checks` + Kilo delta polling (do not re-implement the loop here).
+- **CI monitoring**: after PR push, load the `kilo-ci-loop` skill for `gh pr checks` + Kilo + OpenCode delta polling (do not re-implement the loop here).
 - **Agent-initiated merge**: only on explicit owner instruction ("merge it" or equivalent).
   MUST run `gh pr checks` and confirm all required checks pass before `gh pr merge --squash` (see `kilo-ci-loop` for conflict rebase handling when `mergeable` is `CONFLICTING`).
 - **Merge method**: **Squash and merge** (single commit on `main`).
