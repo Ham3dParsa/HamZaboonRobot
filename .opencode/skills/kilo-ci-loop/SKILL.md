@@ -31,13 +31,13 @@ Persist `id->h` to `$env:TEMP/opencode/reviewer_seen_<n>.json` (fallback: also c
 gh api repos/Ham3dParsa/HamZaboonRobot/pulls/comments/<id> --jq '.body'
 gh api repos/Ham3dParsa/HamZaboonRobot/issues/comments/<id> --jq '.body'
 ```
-Filter `jq` to reviewer bots only (avoids noise from human comments), wrap `ConvertFrom-Json` in `try/catch` to survive transient `gh api` errors with `$ErrorActionPreference='Stop'`. Tag each delta by `user` (`kilo-code-bot[bot]` vs `opencode-agent[bot]`) in the preview log. Sleep `90-120s` (default 90, clamped), `30m` timeout. Each fix commit must be pushed — both reviewers re-review only after push.
+Filter `jq` to reviewer bots only, check `$LASTEXITCODE` after each `gh api` (on non-zero return `apiFailed` and skip `seen` update to avoid clobbering baseline), wrap `ConvertFrom-Json` with `$line=$_; try{...}catch{return}` (use `return` not `continue` inside `ForEach-Object`). Migrate legacy `kilo_seen_<PR>.json` to `reviewer_seen_<PR>.json` on first fallback hit. Tag each delta by `user`. Sleep `90-120s` (default 90, clamped), `30m` timeout. Each fix commit must be pushed — both reviewers re-review only after push.
 
 ### 2. Poll CI
 ```powershell
 gh pr checks <n>
 ```
-Require `label` `test (3.10)` `test (3.13)` `ram-gate` `Kilo Code Review` `review` (opencode-review) = `pass` — match anchored per-line `(?m)^\s*<name>\s+pass` to avoid `review` substring matching `Kilo Code Review` (see `scripts/kilo_ci_loop.ps1:Test-Checks`). On `fail`, `gh run view <run> --log-failed`, fix before re-poll. Do not merge with blocking failures.
+Require `label` `test (3.10)` `test (3.13)` `ram-gate` `Kilo Code Review` `review` (opencode-review) = `pass` — match anchored `(?m)^\s*<name>\b\s+pass` with `\b` to avoid `review` matching `review-docs` or `Kilo Code Review` substring (see `scripts/kilo_ci_loop.ps1:Test-Checks` + `Test-Mergeable`; both wrapped in `try/catch` to allow retry on transient `gh` failure). On `fail`, `gh run view <run> --log-failed`, fix before re-poll. Do not merge with blocking failures.
 
 ### 3. Handle conflict
 If `CONFLICTING`:

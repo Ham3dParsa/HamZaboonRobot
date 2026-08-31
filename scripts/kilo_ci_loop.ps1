@@ -53,9 +53,16 @@ $null = New-Item -ItemType Directory -Force -Path (Split-Path $seenPath) -ErrorA
 
 function Load-Seen {
     $p = $seenPath
-    if (-not (Test-Path $p) -and (Test-Path $legacySeenPath)) { $p = $legacySeenPath }
+    $isLegacy = $false
+    if (-not (Test-Path $p) -and (Test-Path $legacySeenPath)) { $p = $legacySeenPath; $isLegacy = $true }
     if (Test-Path $p) {
-        try { return (Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable) } catch { return @{} }
+        try {
+            $data = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable
+            if ($isLegacy -and $data.Count -gt 0) {
+                try { Save-Seen $data } catch { Write-Warning "migrate legacy seen failed: $_" }
+            }
+            return $data
+        } catch { return @{} }
     }
     return @{}
 }
@@ -67,9 +74,12 @@ function Save-Seen([hashtable]$h) {
 function Get-ReviewerDelta {
     param([hashtable]$seen)
     $deltas = @()
-    # Pull review comments (inline) and Issue comments (summary) — filter to both reviewers only
+    $apiFailed = $false
     $pullJson = gh api "repos/Ham3dParsa/HamZaboonRobot/pulls/$PR/comments" --jq '.[] | select(.user.login=="kilo-code-bot[bot]" or .user.login=="opencode-agent[bot]") | {id, h:(.body|length), user:.user.login, path, line}' 2>&1
+    if ($LASTEXITCODE -ne 0) { Write-Warning "gh api pulls/comments failed: $pullJson"; $apiFailed = $true }
     $issueJson = gh api "repos/Ham3dParsa/HamZaboonRobot/issues/$PR/comments" --jq '.[] | select(.user.login=="kilo-code-bot[bot]" or .user.login=="opencode-agent[bot]") | {id, h:(.body|length), user:.user.login}' 2>&1
+    if ($LASTEXITCODE -ne 0) { Write-Warning "gh api issues/comments failed: $issueJson"; $apiFailed = $true }
+    if ($apiFailed) { return @{ rows=@(); deltas=@(); apiFailed=$true } }
     $rows = @()
     if ($pullJson) { $rows += ($pullJson | ForEach-Object { $line=$_; try { $line | ConvertFrom-Json } catch { Write-Warning "skip bad pull json: $line : $_"; return } }) }
     if ($issueJson) { $rows += ($issueJson | ForEach-Object { $line=$_; try { $line | ConvertFrom-Json } catch { Write-Warning "skip bad issue json: $line : $_"; return } }) }
@@ -81,16 +91,23 @@ function Get-ReviewerDelta {
             $deltas += @{ id = $id; h = $h; prev = $prev; row = $r }
         }
     }
-    return @{ rows = $rows; deltas = $deltas }
+    return @{ rows = $rows; deltas = $deltas; apiFailed = $false }
 }
 
 function Test-Checks {
-    $out = gh pr checks $PR 2>&1 | Out-String
+    try {
+        $out = gh pr checks $PR 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) { throw "gh pr checks exit $LASTEXITCODE : $out" }
+    } catch {
+        Write-Warning "Test-Checks failed: $_"
+        $required = @('label','test (3.10)','test (3.13)','ram-gate','Kilo Code Review','review')
+        return @{ out = ""; missing = $required; fail = $true }
+    }
     Write-Host $out
     $required = @('label','test (3.10)','test (3.13)','ram-gate','Kilo Code Review','review')
     $missingPass = @()
     foreach ($name in $required) {
-        $pattern = "(?m)^\s*$([regex]::Escape($name))\s+pass"
+        $pattern = "(?m)^\s*$([regex]::Escape($name))\b\s+pass"
         if ($out -notmatch $pattern) { $missingPass += $name }
     }
     $fail = $out -match '\bfail\b' -or $missingPass.Count -gt 0
@@ -120,37 +137,42 @@ while ((Get-Date) -lt $deadline) {
     $rows = $deltaRes.rows
     $deltas = $deltaRes.deltas
 
-    # Build new seen map from current rows (id->h)
-    $newSeen = @{}
-    foreach ($r in $rows) { $newSeen["$($r.id)"] = [int]$r.h }
-
-    if ($deltas.Count -gt 0) {
-        Write-Host "[reviewer] $($deltas.Count) delta(s):" -ForegroundColor Yellow
-        foreach ($d in $deltas) {
-            $id = $d.id; $h = $d.h; $prev = $d.prev
-            $bot = if ($d.row.user) { $d.row.user } else { "unknown" }
-            $where = if ($d.row.path) { "$($d.row.path):$($d.row.line)" } else { "issue-comment" }
-            Write-Host "  + id $id [$bot] h $prev -> $h @ $where"
-            # Fetch full body only for deltas
-            $isPull = $null -ne $d.row.path
-            if ($isPull) {
-                $body = gh api "repos/Ham3dParsa/HamZaboonRobot/pulls/comments/$id" --jq '.body' 2>&1 | Out-String
-            } else {
-                $body = gh api "repos/Ham3dParsa/HamZaboonRobot/issues/comments/$id" --jq '.body' 2>&1 | Out-String
-            }
-            $preview = ($body | Select-Object -First 1) -replace "`n"," " 
-            if ($preview.Length -gt 400) { $preview = $preview.Substring(0,400) + " ..." }
-            Write-Host "    preview: $preview" -ForegroundColor DarkGray
-            # Persist full body for audit if needed: $env:TEMP/opencode/reviewer_body_<id>.md
-            $bodyPath = Join-Path $env:TEMP "opencode\reviewer_body_${id}.md"
-            $body | Set-Content -Path $bodyPath -Encoding UTF8
-        }
-        $seen = $newSeen
-        Save-Seen $seen
+    $apiFailed = $deltaRes.apiFailed
+    if ($apiFailed) {
+        Write-Warning "[reviewer] api failed — skip seen update, retry next poll"
     } else {
-        Write-Host "[reviewer] no delta (seen $($seen.Count) ids)" -ForegroundColor DarkGray
-        # Keep seen in sync if rows changed due to deletions
-        if ($newSeen.Count -ne $seen.Count) { $seen = $newSeen; Save-Seen $seen }
+        # Build new seen map from current rows (id->h)
+        $newSeen = @{}
+        foreach ($r in $rows) { $newSeen["$($r.id)"] = [int]$r.h }
+
+        if ($deltas.Count -gt 0) {
+            Write-Host "[reviewer] $($deltas.Count) delta(s):" -ForegroundColor Yellow
+            foreach ($d in $deltas) {
+                $id = $d.id; $h = $d.h; $prev = $d.prev
+                $bot = if ($d.row.user) { $d.row.user } else { "unknown" }
+                $where = if ($d.row.path) { "$($d.row.path):$($d.row.line)" } else { "issue-comment" }
+                Write-Host "  + id $id [$bot] h $prev -> $h @ $where"
+                # Fetch full body only for deltas
+                $isPull = $null -ne $d.row.path
+                if ($isPull) {
+                    $body = gh api "repos/Ham3dParsa/HamZaboonRobot/pulls/comments/$id" --jq '.body' 2>&1 | Out-String
+                } else {
+                    $body = gh api "repos/Ham3dParsa/HamZaboonRobot/issues/comments/$id" --jq '.body' 2>&1 | Out-String
+                }
+                $preview = ($body | Select-Object -First 1) -replace "`n"," " 
+                if ($preview.Length -gt 400) { $preview = $preview.Substring(0,400) + " ..." }
+                Write-Host "    preview: $preview" -ForegroundColor DarkGray
+                # Persist full body for audit if needed: $env:TEMP/opencode/reviewer_body_<id>.md
+                $bodyPath = Join-Path $env:TEMP "opencode\reviewer_body_${id}.md"
+                $body | Set-Content -Path $bodyPath -Encoding UTF8
+            }
+            $seen = $newSeen
+            Save-Seen $seen
+        } else {
+            Write-Host "[reviewer] no delta (seen $($seen.Count) ids)" -ForegroundColor DarkGray
+            # Keep seen in sync if rows changed due to deletions
+            if ($newSeen.Count -ne $seen.Count) { $seen = $newSeen; Save-Seen $seen }
+        }
     }
 
     # 2. CI checks
@@ -188,8 +210,8 @@ while ((Get-Date) -lt $deadline) {
     $allChecksPass = $checksPass -and $mergeable -eq 'MERGEABLE' -and ($mergeState -eq 'CLEAN' -or $mergeState -eq 'UNSTABLE')
     # Skill completion: all deltas fetched + all required checks pass + mergeable MERGEABLE
     if ($allChecksPass) {
-        # Verify both reviewers explicitly pass (anchored to avoid substring collision)
-        if ($checkRes.out -match '(?m)^\s*Kilo Code Review\s+pass' -and $checkRes.out -match '(?m)^\s*review\s+pass') {
+        # Verify both reviewers explicitly pass (anchored + \b to avoid substring collision)
+        if ($checkRes.out -match '(?m)^\s*Kilo Code Review\b\s+pass' -and $checkRes.out -match '(?m)^\s*review\b\s+pass') {
             Write-Host "`n[done] All required checks pass + MERGEABLE + Kilo & OpenCode pass — ready to merge" -ForegroundColor Green
             Write-Host "      Evidence: gh pr checks $PR"
             exit 0
