@@ -15,6 +15,11 @@ DEFAULT_AI_MODEL = os.getenv("AI_MODEL", "gapgpt-qwen-3.6")
 # API-key encryption is fail-closed: keys cannot be encrypted or decrypted.
 AI_MASTER_KEY = os.getenv("AI_MASTER_KEY", "")
 
+# Optional SOCKS/HTTP proxy for AI provider calls (e.g. socks5://127.0.0.1:1080).
+# When set, only OpenAI-compatible AI calls are routed via this proxy
+# (Telegram traffic stays direct). Unset by default.
+AI_PROXY_URL = os.getenv("AI_PROXY_URL", "")
+
 DB_PATH = os.getenv("DB_PATH", "hamzaban.db")
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Tehran")
 
