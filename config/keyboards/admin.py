@@ -150,6 +150,22 @@ def user_reset_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
     ])
 
 
+def dm_preview_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ تایید ارسال", callback_data=f"admin:user:msg_confirm:{user_id}")],
+        [InlineKeyboardButton("✏️ ویرایش", callback_data=f"admin:user:msg_edit:{user_id}"),
+         InlineKeyboardButton("❌ لغو", callback_data=f"admin:user:msg_cancel:{user_id}")],
+    ])
+
+
+def broadcast_preview_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ تایید همگانی", callback_data="admin:broadcast_confirm")],
+        [InlineKeyboardButton("✏️ ویرایش", callback_data="admin:broadcast_edit"),
+         InlineKeyboardButton("❌ لغو", callback_data="admin:broadcast_cancel")],
+    ])
+
+
 
 def user_activity_keyboard(current_status: str) -> InlineKeyboardMarkup:
     """Inline keyboard showing USER_ACTIVITY log toggle with current status."""

@@ -81,7 +81,11 @@ def _quota_line(status: dict) -> str:
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     db.reset_user_blocked(user.id)
-    db.create_user_if_needed(user.id, user.username or user.first_name or "")
+    db.create_user_if_needed(
+        user.id,
+        user.username or user.first_name or "",
+        getattr(user, "full_name", None) or getattr(user, "first_name", None),
+    )
     row = db.get_user(user.id)
 
     log_user_activity(

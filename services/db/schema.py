@@ -480,6 +480,7 @@ def init_db(path: str | None = None):
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
                 username TEXT,
+                full_name TEXT,
                 target_lang TEXT,
                 goal TEXT,
                 level TEXT NOT NULL DEFAULT 'beginner',
@@ -638,6 +639,8 @@ def init_db(path: str | None = None):
                 conn.execute(f"ALTER TABLE users ADD COLUMN {name} {definition}")
         if "bot_blocked" not in columns:
             conn.execute("ALTER TABLE users ADD COLUMN bot_blocked INTEGER DEFAULT 0")
+        if "full_name" not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN full_name TEXT")
         conn.commit()
         saved_word_columns = {
             row["name"]

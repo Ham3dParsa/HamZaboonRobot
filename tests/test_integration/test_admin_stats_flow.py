@@ -1,8 +1,9 @@
-"""Integration tests for the admin stats flow (Finding #7, task 7.5).
+"""Integration tests for the admin stats flow (Finding #7, task 7.5) — Phase 5 polish.
 
 Covers routing admin:stats and admin:stats:* callbacks through the real
 _handle_admin_callback dispatch into handlers.admin_stats.handle_admin_stats.
-Uses an isolated scratch DB; no production data is touched.
+Uses an isolated scratch DB; verifies Top-20 learning block renders full_name
+and Persian digits.
 """
 
 from __future__ import annotations
@@ -26,7 +27,12 @@ class AdminStatsFlowTest(unittest.TestCase):
         db.DB_PATH = new_path
         db_schema.DB_PATH = new_path
         db.init_db()
-        db.create_user_if_needed(1, "learner")
+        # Phase 5: create learner with full_name
+        try:
+            db.create_user_if_needed(1, "learner", "Learner One")
+        except TypeError:
+            db.create_user_if_needed(1, "learner")
+            db.update_user_full_name(1, "Learner One")
         self.owner_patcher = patch("handlers.admin.is_owner", return_value=True)
         self.owner_patcher.start()
         self.addCleanup(self.owner_patcher.stop)
@@ -99,15 +105,46 @@ class AdminStatsFlowTest(unittest.TestCase):
                 ctx = self._make_context()
                 asyncio.run(_handle_admin_callback(update, ctx, action))
                 update.callback_query.edit_message_text.assert_called_once()
-                # learning panel must contain the Persian learning header
                 if action == "stats:learning":
                     text = update.callback_query.edit_message_text.call_args[0][0]
-                    # Persian header for learning engagement
                     self.assertIn("\u062f\u0631\u06af\u06cc\u0631\u06cc \u06cc\u0627\u062f\u06af\u06cc\u0631\u06cc", text)
-                    # Top-20 block: either header or empty-state sentence
                     self.assertTrue(
                         "\u0628\u0631\u062a\u0631\u06cc\u0646" in text or "\u0647\u0646\u0648\u0632 \u06a9\u0627\u0631\u0628\u0631\u06cc \u0628\u0627 \u0627\u0633\u062a\u0631\u06cc\u06a9" in text
                     )
+
+    def test_stats_learning_full_name_in_top20(self):
+        """Learning panel Top-20 must render full_name when present (Phase 5)."""
+        from handlers.admin import _handle_admin_callback
+
+        mocked_top = [
+            {"user_id": 42, "username": "alice", "full_name": "Alice Wonder", "streak": 7, "plan": "silver"},
+            {"user_id": 7, "username": "bob", "full_name": "", "streak": 3, "plan": "free"},
+            {"user_id": 8, "username": None, "full_name": "No Username", "streak": 2, "plan": "free"},
+        ]
+        update = self._make_callback_update("admin:stats:learning")
+        ctx = self._make_context()
+        with patch("handlers.admin_stats.db.get_top_users_by_streak", return_value=mocked_top):
+            asyncio.run(_handle_admin_callback(update, ctx, "stats:learning"))
+        text = update.callback_query.edit_message_text.call_args[0][0]
+        # full_name + username combo
+        self.assertIn("Alice Wonder", text)
+        self.assertIn("@alice", text)
+        # fallback to username when full_name empty
+        self.assertIn("@bob", text)
+        # fallback to full_name alone when username missing
+        self.assertIn("No Username", text)
+        # Persian digits for streak 7 -> ۷
+        self.assertIn("\u06f7", text)
+
+    def test_stats_learning_empty_state(self):
+        from handlers.admin import _handle_admin_callback
+
+        update = self._make_callback_update("admin:stats:learning")
+        ctx = self._make_context()
+        with patch("handlers.admin_stats.db.get_top_users_by_streak", return_value=[]):
+            asyncio.run(_handle_admin_callback(update, ctx, "stats:learning"))
+        text = update.callback_query.edit_message_text.call_args[0][0]
+        self.assertIn("\u0647\u0646\u0648\u0632 \u06a9\u0627\u0631\u0628\u0631\u06cc \u0628\u0627 \u0627\u0633\u062a\u0631\u06cc\u06a9", text)
 
     def test_stats_growth_contains_persian_header(self):
         from handlers.admin import _handle_admin_callback

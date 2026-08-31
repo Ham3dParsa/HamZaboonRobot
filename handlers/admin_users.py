@@ -25,12 +25,15 @@ from telegram.ext import ContextTypes
 
 from services import db
 from services.send_pretty import RawFormat, say
+from telegram.constants import ParseMode
+
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.formatting import to_persian_digits
 from services.utils.helpers import _edit_or_send, _send_with_retry
 from config.catalog import goal_label, language_label, level_label
 from config.keyboards import (
     admin_awaiting_inline_keyboard,
+    dm_preview_keyboard,
     user_management_keyboard,
     user_profile_keyboard,
     user_reset_confirm_keyboard,
@@ -51,21 +54,23 @@ def _profile_text_and_keyboard(user_id: int) -> tuple[str, InlineKeyboardMarkup]
     lang = language_label(row["target_lang"]) if row["target_lang"] else "—"
     goal = goal_label(row["goal"]) if row["goal"] else "—"
     level = level_label(row["level"]) if row["level"] else "—"
+    full_name = (dict(row).get("full_name") or "").strip()
+    full_name_display = full_name if full_name else "—"
+    username_display = f"@{row['username']}" if row["username"] else "—"
+    last_active = to_persian_digits(row["last_active_date"]) if row["last_active_date"] else "—"
+    created_at = to_persian_digits(row["created_at"]) if row["created_at"] else "—"
     text = (
         "👤 پروفایل کاربر\n\n"
-        f"🆔 شناسه: {to_persian_digits(row['user_id'])}\n"
-        f"👤 نام‌کاربری: @{row['username'] or '—'}\n"
-        f"💳 پلن: {plan_label}\n"
-        f"🌐 زبان: {lang}\n"
-        f"🎯 هدف: {goal}\n"
-        f"📚 سطح: {level}\n"
-        f"🔥 استریک: {to_persian_digits(row['streak'] or 0)}\n"
-        f"📅 آخرین فعالیت: {row['last_active_date'] or '—'}\n"
-        f"📝 ثبت‌نام: {row['created_at'] or '—'}\n"
+        f"┌ نام کامل     │ {full_name_display}\n"
+        f"├ شناسه       │ {to_persian_digits(row['user_id'])}\n"
+        f"├ نام‌کاربری  │ {username_display}\n"
+        f"├ پلن        │ {plan_label}\n"
+        f"├ زبان/هدف/سطح │ {lang} / {goal} / {level}\n"
+        f"├ استریک      │ {to_persian_digits(row['streak'] or 0)} 🔥\n"
+        f"├ لغات/مرور/جلسات │ {to_persian_digits(stats['saved_words'])} / {to_persian_digits(stats['review_events'])} / {to_persian_digits(stats['study_sessions'])}\n"
+        f"├ آخرین فعالیت │ {last_active}\n"
+        f"└ ثبت‌نام     │ {created_at}\n"
         f"🚫 بلاک: {'بله' if blocked else 'خیر'}\n"
-        f"💾 لغات ذخیره‌شده: {to_persian_digits(stats['saved_words'])}\n"
-        f"🔁 مرورها: {to_persian_digits(stats['review_events'])}\n"
-        f"📚 جلسات مطالعه: {to_persian_digits(stats['study_sessions'])}\n"
     )
     return text, user_profile_keyboard(user_id, blocked)
 
@@ -123,6 +128,63 @@ async def handle_admin_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         await _edit_or_send(
             update, context,
             f"نام پلن را برای کاربر {user_id} بفرستید (مثال: silver):",
+            reply_markup=admin_awaiting_inline_keyboard(),
+        )
+        return
+    if action.startswith("user:msg_confirm:"):
+        try:
+            user_id = int(action.split(":", 2)[2])
+        except (IndexError, ValueError):
+            await notify_callback(update.callback_query, "شناسه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        pending = context.user_data.get("pending_dm")
+        if not pending or int(pending.get("user_id", -1)) != user_id:
+            await notify_callback(update.callback_query, "پیش‌نمایشی یافت نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        html = pending.get("html") or pending.get("text", "")
+        text_val = pending.get("text", "")
+        kwargs = {}
+        if html and html != text_val:
+            kwargs["parse_mode"] = ParseMode.HTML
+            send_text = html
+        else:
+            send_text = text_val
+        try:
+            await _send_with_retry(context.bot, user_id, send_text, **kwargs)
+        except Exception:
+            logger.exception("admin message to user %s failed", user_id)
+            await notify_callback(update.callback_query, "ارسال ناموفق بود.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            await _edit_or_send(update, context, "ارسال پیام ناموفق بود (کاربر یافت نشد یا ربات را بلاک کرده).")
+            return
+        context.user_data.pop("pending_dm", None)
+        mark_awaiting_consumed(context)
+        context.user_data.pop("awaiting", None)
+        await notify_callback(update.callback_query, "ارسال شد.", intent=CallbackNoticeIntent.SUCCESS)
+        await _edit_or_send(update, context, "پیام ارسال شد.")
+        return
+    if action.startswith("user:msg_cancel:"):
+        try:
+            user_id = int(action.split(":", 2)[2])
+        except (IndexError, ValueError):
+            user_id = None
+        context.user_data.pop("pending_dm", None)
+        mark_awaiting_consumed(context)
+        context.user_data.pop("awaiting", None)
+        await notify_callback(update.callback_query, "لغو شد.", intent=CallbackNoticeIntent.INFO)
+        await _edit_or_send(update, context, "لغو شد.")
+        return
+    if action.startswith("user:msg_edit:"):
+        try:
+            user_id = int(action.split(":", 2)[2])
+        except (IndexError, ValueError):
+            await notify_callback(update.callback_query, "شناسه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        context.user_data.pop("pending_dm", None)
+        context.user_data["awaiting"] = f"admin_user_message:{user_id}"
+        await notify_callback(update.callback_query)
+        await _edit_or_send(
+            update, context,
+            f"متن پیام به کاربر {user_id} را دوباره بفرستید:",
             reply_markup=admin_awaiting_inline_keyboard(),
         )
         return
@@ -222,22 +284,28 @@ async def _handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYP
             raw=RawFormat.PLAIN, mode="send",
         )
         return
+    # Capture HTML-preserving representation for format preservation (R3).
+    html = None
     try:
-        await _send_with_retry(context.bot, user_id, msg)
+        em = getattr(update, "effective_message", None) or getattr(update, "message", None)
+        html = getattr(em, "text_html", None) if em is not None else None
     except Exception:
-        logger.exception("admin message to user %s failed", user_id)
-        context.user_data["awaiting"] = awaiting
-        await say(
-            update, context,
-            "ارسال پیام ناموفق بود (کاربر یافت نشد یا ربات را بلاک کرده).",
-            raw=RawFormat.PLAIN, mode="send",
-        )
-        return
+        html = None
+    if not html:
+        html = msg
+    context.user_data["pending_dm"] = {"user_id": user_id, "text": msg, "html": html}
+    # Awaiting is consumed for the text input; preview is callback-driven.
     mark_awaiting_consumed(context)
+    preview = html
+    # Render preview to admin with format preservation.
+    use_html = bool(preview and preview != msg)
+    preview_text = f"👁 پیش‌نمایش پیام به کاربر {user_id}:\n\n{preview}\n\nتایید می‌کنید؟"
     await say(
         update, context,
-        "پیام ارسال شد.",
-        raw=RawFormat.PLAIN, mode="send",
+        preview_text,
+        raw=RawFormat.HTML if use_html else RawFormat.PLAIN,
+        keyboard=dm_preview_keyboard(user_id),
+        mode="send",
     )
 
 

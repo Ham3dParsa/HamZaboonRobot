@@ -122,7 +122,14 @@ async def handle_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE,
             if top_active:
                 lines.append("\n🏆 برترین‌ها (استریک):")
                 for idx, u in enumerate(top_active, 1):
-                    name = f"@{u['username']}" if u.get("username") else str(u["user_id"])
+                    full_name = (u.get("full_name") or "").strip()
+                    if full_name:
+                        if u.get("username"):
+                            name = f"{full_name} (@{u['username']})"
+                        else:
+                            name = full_name
+                    else:
+                        name = f"@{u['username']}" if u.get("username") else str(u["user_id"])
                     lines.append(f"{to_persian_digits(idx)}. {name} — {to_persian_digits(u['streak'] or 0)}")
             else:
                 lines.append("\n(هنوز کاربری با استریک ثبت نشده)")

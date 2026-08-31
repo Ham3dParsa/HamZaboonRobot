@@ -52,6 +52,7 @@ from services.db.users import (
     get_display_toggles,
     get_quota_status,
     create_user_if_needed,
+    update_user_full_name,
     set_user_lang_goal,
     set_user_level,
     set_presentation_preference,

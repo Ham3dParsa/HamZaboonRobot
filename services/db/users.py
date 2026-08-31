@@ -186,11 +186,32 @@ def get_quota_status(user_id: int) -> dict | None:
     }
 
 
-def create_user_if_needed(user_id: int, username: str):
+def create_user_if_needed(user_id: int, username: str, full_name: str | None = None):
+    if not isinstance(username, str):
+        username = ""
+    if full_name is not None and not isinstance(full_name, str):
+        full_name = None
     with transaction() as conn:
         conn.execute(
             "INSERT OR IGNORE INTO users(user_id, username, created_at) VALUES (?, ?, ?)",
             (user_id, username, _utc_now().isoformat()),
+        )
+        # Keep username/full_name fresh on subsequent starts without overwriting
+        # with empty values. full_name uses COALESCE so None preserves existing.
+        if username or full_name is not None:
+            conn.execute(
+                "UPDATE users SET username=COALESCE(NULLIF(?, ''), username), "
+                "full_name=COALESCE(?, full_name) WHERE user_id=?",
+                (username, full_name, user_id),
+            )
+
+
+def update_user_full_name(user_id: int, full_name: str | None) -> None:
+    """Update a user's display full_name (no Telegram imports in db layer)."""
+    with transaction() as conn:
+        conn.execute(
+            "UPDATE users SET full_name=? WHERE user_id=?",
+            (full_name, user_id),
         )
 
 
@@ -527,7 +548,7 @@ def get_user_learning_stats(user_id: int) -> dict:
 def get_top_users_by_streak(limit: int = 20) -> list[dict]:
     """Top users ordered by streak DESC.
 
-    Returns list of dicts with keys user_id, username, streak, plan.
+    Returns list of dicts with keys user_id, username, full_name, streak, plan.
     """
     try:
         limit = int(limit)
@@ -539,7 +560,7 @@ def get_top_users_by_streak(limit: int = 20) -> list[dict]:
         limit = 100
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT user_id, username, streak, plan FROM users "
+            "SELECT user_id, username, full_name, streak, plan FROM users "
             "ORDER BY streak DESC, user_id ASC LIMIT ?",
             (limit,),
         ).fetchall()
