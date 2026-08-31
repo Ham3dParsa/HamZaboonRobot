@@ -44,8 +44,8 @@ from services.utils.helpers import (
 
 logger = logging.getLogger(__name__)
 
-# Feature flag — opt-in, default off (copy-as-plain-text / rollback safety).
-RICH_ENABLED = False
+# Feature flag — enabled; 404 latch handles old API servers (fallback to MDV2).
+RICH_ENABLED = True
 
 # Bot instances (`id(bot)`) for which Rich Messages are known unsupported.
 _rich_disabled: set[int] = set()
