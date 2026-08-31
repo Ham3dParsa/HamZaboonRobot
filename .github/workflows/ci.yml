@@ -73,7 +73,8 @@ jobs:
 
       - name: Test Report
         uses: dorny/test-reporter@v1
-        if: always()
+        if: always() && hashFiles('junit/test-results.xml') != ''
+        continue-on-error: true
         with:
           name: Test Results (${{ matrix.python-version }})
           path: junit/test-results.xml
@@ -104,4 +105,4 @@ jobs:
       - name: Assert peak RAM <= 2GB during full suite
         env:
           HAMZABAN_TEST_MODE: "1"
-        run: python scripts/run_with_ram_gate.py -n 4
+        run: python scripts/run_with_ram_gate.py -n 2

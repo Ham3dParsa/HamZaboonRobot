@@ -1,8 +1,8 @@
 """Admin cost/LLM domain module (Finding #7, task 7.5).
 
-Migrate step: the LLM cost/pricing handler logic now lives here instead of the
-admin monolith. The admin monolith (and bot.py) import the cost functions from
-this module. All behavior and callback strings are unchanged.
+R3/R4/R5: RichMessage tables, max 4 cols, English + Persian legend, ✅ markers.
+R1: pricing page keeps only USD→Toman rate (no input/output price UI).
+R6: selected buttons show ✅ (keyboard side; state reflected here).
 """
 
 import calendar
@@ -17,7 +17,17 @@ from handlers.flows import mark_awaiting_consumed
 from config import APP_TZ
 from services import db
 from services.ai import ai_read_cache
-from services.send_pretty import RawFormat, say
+from services.send_pretty import (
+    Backend,
+    Message,
+    RawFormat,
+    bold,
+    heading,
+    plain,
+    quote,
+    say,
+    table,
+)
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send
 from config.keyboards import (
@@ -32,6 +42,25 @@ from config.keyboards import (
 
 _app_timezone = APP_TZ
 
+# breakdown tab values – single active breakdown at a time (R4/R5)
+_BREAKDOWN_TABS = ("preset", "plan", "kind", "model", "user", "preset_kind")
+_BREAKDOWN_LABELS = {
+    "preset": "🔧 By preset",
+    "plan": "📦 By plan",
+    "kind": "🧩 By request kind",
+    "model": "🤖 By model",
+    "user": "👤 By user",
+    "preset_kind": "🧩 By Preset×Kind",
+}
+_BREAKDOWN_GROUP = {
+    "preset": "preset_name",
+    "plan": "plan",
+    "kind": "request_kind",
+    "model": "model",
+    "user": "user_id",
+    "preset_kind": "preset_kind",  # composite – handled separately
+}
+
 
 def _llm_cost_default_state() -> dict[str, object]:
     return {
@@ -42,6 +71,7 @@ def _llm_cost_default_state() -> dict[str, object]:
         "request_kind": None,
         "model": None,
         "outcome": None,
+        "breakdown": "preset",
     }
 
 
@@ -85,10 +115,12 @@ def _llm_cost_range_bounds(range_name: str) -> tuple[str, str, str]:
         label = "30d"
     elif range_name == "all":
         return "", "", "ALL"
-    else:
+    elif range_name == "mtd":
         start = today.replace(day=1)
         end = today
         label = "MTD"
+    else:
+        raise ValueError(f"Unknown llm range {range_name!r}")
     return start.isoformat(), end.isoformat(), label
 
 
@@ -109,6 +141,69 @@ def _llm_cost_currency_text(cost_usd: float, cost_toman: float) -> str:
     return f"${cost_usd:,.4f} / {round(cost_toman):,} Toman"
 
 
+# ---------- R3 helpers: currency mode + triple formatting ----------
+
+def _llm_cost_currency_mode(context: ContextTypes.DEFAULT_TYPE | None = None, override: str | None = None) -> str:
+    if override in {"usd", "toman", "both"}:
+        return override
+    if context is not None:
+        try:
+            mode = context.user_data.get("llm_cost_currency", "both")  # type: ignore[union-attr]
+        except Exception:
+            mode = "both"
+        if mode in {"usd", "toman", "both"}:
+            return mode
+    return "both"
+
+
+def _fmt_cost_triple(
+    in_usd: float,
+    out_usd: float,
+    total_usd: float,
+    in_toman: float,
+    out_toman: float,
+    total_toman: float,
+    mode: str = "both",
+) -> str:
+    mode = mode if mode in {"usd", "toman", "both"} else "both"
+    if mode == "usd":
+        return f"${in_usd:.4f} / ${out_usd:.4f} / ${total_usd:.4f}"
+    if mode == "toman":
+        return f"{round(in_toman):,} / {round(out_toman):,} / {round(total_toman):,} T"
+    # both – show USD triple + toman total in parens to stay compact (1 cell)
+    # e.g. "$0.0100 / $0.0050 / $0.0150 (1,500 T)"
+    usd_part = f"${in_usd:.4f} / ${out_usd:.4f} / ${total_usd:.4f}"
+    toman_part = f"{round(total_toman):,} T"
+    return f"{usd_part} ({toman_part})"
+
+
+def _fmt_avg_triple(
+    in_usd: float,
+    out_usd: float,
+    total_usd: float,
+    in_toman: float,
+    out_toman: float,
+    total_toman: float,
+    req: int,
+    mode: str = "both",
+) -> str:
+    if not req:
+        return "—"
+    return _fmt_cost_triple(
+        in_usd / req,
+        out_usd / req,
+        total_usd / req,
+        in_toman / req,
+        out_toman / req,
+        total_toman / req,
+        mode,
+    )
+
+
+def _fmt_tokens_triple(prompt: int, completion: int, total: int) -> str:
+    return f"{prompt:,} / {completion:,} / {total:,}"
+
+
 def _llm_cost_projection(filters: dict[str, object]) -> tuple[str, str, float] | None:
     month_start = datetime.datetime.now(_app_timezone).date().replace(day=1)
     today = datetime.datetime.now(_app_timezone).date()
@@ -125,7 +220,6 @@ def _llm_cost_projection(filters: dict[str, object]) -> tuple[str, str, float] |
     elapsed_days = max((today - month_start).days + 1, 1)
     linear_usd = (cost_usd / elapsed_days) * month_days
     linear_toman = (cost_toman / elapsed_days) * month_days
-    # Ticket #9: single GROUP BY query instead of fetching 5000 rows to Python
     daily_costs = db.daily_costs_grouped(projection_filters)
     recent_days = sorted(daily_costs)[-7:]
     if recent_days:
@@ -180,7 +274,12 @@ def _llm_cost_status_icon(outcome: object) -> str:
     }.get(str(outcome), "❌")
 
 
-def _llm_cost_report_text(state: dict[str, object]) -> str:
+# ---------- RichMessage builder (R3/R4/R5) ----------
+
+def _build_llm_cost_message(
+    state: dict[str, object],
+    currency_mode: str = "both",
+) -> Message:
     filters = _llm_cost_query_filters(state)
     summary = db.summarize_llm_requests(filters)
     request_count = int(summary.get("request_count") or 0)
@@ -189,8 +288,11 @@ def _llm_cost_report_text(state: dict[str, object]) -> str:
     total_tokens = int(summary.get("total_tokens") or 0)
     cost_usd = float(summary.get("cost_usd") or 0)
     cost_toman = float(summary.get("cost_toman") or 0)
+    input_cost_usd = float(summary.get("input_cost_usd") or 0)
+    output_cost_usd = float(summary.get("output_cost_usd") or 0)
+    input_cost_toman = float(summary.get("input_cost_toman") or 0)
+    output_cost_toman = float(summary.get("output_cost_toman") or 0)
     avg_latency = summary.get("avg_latency_ms")
-    avg_cost = cost_usd / request_count if request_count else 0.0
     success_count = int(summary.get("success_count") or 0)
     billed_failures = int(summary.get("billed_failure_count") or 0)
     zero_cost_failures = int(summary.get("zero_cost_failure_count") or 0)
@@ -199,114 +301,153 @@ def _llm_cost_report_text(state: dict[str, object]) -> str:
     success_rate = _llm_cost_percent(success_count, request_count)
     billed_failure_rate = _llm_cost_percent(billed_failures, request_count)
     range_label = str(state.get("range") or "mtd").upper()
+    currency_mode = currency_mode if currency_mode in {"usd", "toman", "both"} else "both"
 
-    lines = [
-        "📊 LLM Cost Dashboard",
-        f"Scope: {_llm_cost_state_label(state)}",
-        "",
-        f"Overview — {range_label}",
-        f"📨 Requests: {request_count:,}",
-        f"💳 Spend: {_llm_cost_currency_text(cost_usd, cost_toman)}",
-        f"🪙 Avg cost/request: {_llm_cost_currency_text(avg_cost, avg_cost * db.get_llm_cost_profile()['usd_to_toman_rate'])}",
-        f"✅ Success rate: {success_rate} ({success_count:,})",
-        f"❌ Billed failure rate: {billed_failure_rate} ({billed_failures:,})",
-        "",
-        f"🧮 Tokens: prompt {prompt_tokens:,} • completion {completion_tokens:,} • total {total_tokens:,}",
-        f"⏱ Avg latency: {round(float(avg_latency), 1) if avg_latency is not None else 0.0} ms",
+    msg = Message()
+    # heading – static literal pre-escaped (English)
+    msg.add_line(heading(2, plain("📊 LLM Cost — Overview")))
+    msg.add_line(quote(plain(f"Scope: {_llm_cost_state_label(state)} • Range: {range_label} • Currency: {currency_mode}")))
+
+    # Overview KPI table – exactly 4 cols (R3 max 4)
+    # Header: Metric | Value | Cost | Note
+    overview_header = (plain("Metric"), plain("Value"), plain("Cost"), plain("Note"))
+    cost_triple = _fmt_cost_triple(input_cost_usd, output_cost_usd, cost_usd, input_cost_toman, output_cost_toman, cost_toman, currency_mode)
+    avg_triple = _fmt_avg_triple(input_cost_usd, output_cost_usd, cost_usd, input_cost_toman, output_cost_toman, cost_toman, request_count, currency_mode)
+    tokens_triple = _fmt_tokens_triple(prompt_tokens, completion_tokens, total_tokens)
+    latency_str = f"{round(float(avg_latency), 1) if avg_latency is not None else 0.0} ms"
+    # Keep legacy substrings for compat: "✅ Success rate" and "❌ Billed failure rate" as Metric labels
+    overview_rows = [
+        (plain("📨 Requests"), plain(f"{request_count:,}"), plain(cost_triple), plain(f"✅ Success rate: {success_rate}")),
+        (plain("🪙 Avg cost/req"), plain("—"), plain(avg_triple), plain(f"avg in/out/total")),
+        (plain("🧮 Tokens"), plain(tokens_triple), plain("—"), plain("prompt / completion / total")),
+        (plain("⏱ Avg latency"), plain(latency_str), plain("—"), plain("ms")),
+        (plain("✅ Success rate"), plain(f"{success_rate} ({success_count:,})"), plain("—"), plain("success")),
+        (plain("❌ Billed failure rate"), plain(f"{billed_failure_rate} ({billed_failures:,})"), plain(_fmt_cost_triple(0, 0, billed_failure_cost_usd, 0, 0, billed_failure_cost_toman, currency_mode)), plain("billed fail")),
     ]
+    msg.add_line(table(overview_header, *overview_rows))
 
+    # Health / attention block – keep legacy phrases for tests
     if billed_failures > 0 or (request_count and billed_failures / request_count >= 0.2):
-        lines.extend(
-            [
-                "",
-                "⚠️ Attention required",
-                f"💵 Billed failures: {billed_failures:,} "
-                f"({_llm_cost_currency_text(billed_failure_cost_usd, billed_failure_cost_toman)})",
-                f"⚠️ Zero-cost failures: {zero_cost_failures:,}",
-            ]
-        )
+        msg.add_line(quote(plain(f"⚠️ Attention required — 💵 Billed failures: {billed_failures:,} ({_llm_cost_currency_text(billed_failure_cost_usd, billed_failure_cost_toman)}) • ⚠️ Zero-cost failures: {zero_cost_failures:,}")))
     else:
-        lines.extend(["", "✅ System health: no billable failures"])
+        msg.add_line(quote(plain("✅ System health: no billable failures")))
 
-    lines.append("")
-    lines.append("راهنما: ✅ = موفق | ❌ = خطای هزینه‌دار | ⚠️ = خطای بدون هزینه")
+    # Persian legend – small quote (R3 English+Persian legend, ✅ markers)
+    msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
 
-    projection = None
+    # Projection – 4-col table when MTD (kept compact, max 4 cols)
     if state.get("range") == "mtd":
         projection = _llm_cost_projection(filters)
-    if projection:
-        linear, rolling, ratio = projection
-        lines.extend(
-            [
-                "",
-                "📈 Month-end Projection",
-                f"- Linear: {linear} (MTD run rate)",
-                f"- Rolling 7-day: {rolling} (recent daily average)",
+        if projection:
+            linear, rolling, ratio = projection
+            msg.add_line(heading(3, plain("📈 Month-end Projection")))
+            proj_header = (plain("Projection"), plain("Value"), plain("Cost"), plain("Note"))
+            proj_rows = [
+                (plain("Linear"), plain("MTD run rate"), plain(linear), plain("—")),
+                (plain("Rolling 7d"), plain("recent daily avg"), plain(rolling), plain(f"{ratio:.1f}×" if ratio >= 2 else "—")),
             ]
-        )
-        if ratio >= 2:
-            lines.append(f"⚠️ Rolling projection is {ratio:.1f}× the linear projection")
+            msg.add_line(table(proj_header, *proj_rows))
+            if ratio >= 2:
+                msg.add_line(quote(plain(f"⚠️ Rolling projection is {ratio:.1f}× the linear projection")))
+            # also keep legacy line for test substring "📈 Month-end Projection"
+            # already added as heading; table covers details
 
-    breakdown_specs = [
-        ("📦 By plan", "plan"),
-        ("🔧 By preset", "preset_name"),
-        ("🧩 By request kind", "request_kind"),
-        ("🤖 By model", "model"),
-    ]
-    if state.get("user_id") is None:
-        breakdown_specs.append(("👤 By user", "user_id"))
-    for title, key in breakdown_specs:
-        rows = db.breakdown_llm_requests(key, filters, limit=5)
-        lines.append("")
-        lines.append(title + ":")
+    # Breakdown – single active tab (R4 4 cols + R5 composite)
+    breakdown = str(state.get("breakdown") or "preset")
+    if breakdown not in _BREAKDOWN_TABS:
+        breakdown = "preset"
+    title = _BREAKDOWN_LABELS.get(breakdown, breakdown)
+    msg.add_line(heading(3, plain(f"{title} — top 5 by spend")))
+
+    # breakdown table header 4 cols: Name | Req | Avg Cost | Share (R4)
+    bd_header = (plain("Name"), plain("Req"), plain("Avg Cost"), plain("Share"))
+
+    if breakdown == "preset_kind":
+        rows = db.breakdown_llm_requests_preset_kind(filters, limit=5)
         if not rows:
-            lines.append("- none")
-            continue
-        for row in rows:
-            bucket = row.get("bucket")
-            if key == "plan":
-                bucket = {
-                    "free": "free",
-                    "silver": "silver",
-                    "gold": "gold",
-                }.get(str(bucket), str(bucket))
-            lines.append(
-                f"- {bucket}: {int(row.get('request_count') or 0):,} req • "
-                f"{_llm_cost_currency_text(float(row.get('cost_usd') or 0), float(row.get('cost_toman') or 0))} • "
-                f"{_llm_cost_percent(float(row.get('cost_usd') or 0), cost_usd)} spend • "
-                f"{_llm_cost_percent(int(row.get('billed_failure_count') or 0), int(row.get('request_count') or 0))} billed fail"
-            )
+            msg.add_line(quote(plain("— none")))
+        else:
+            bd_rows = []
+            for row in rows:
+                bucket = str(row.get("bucket") or "—")
+                req = int(row.get("request_count") or 0)
+                in_usd = float(row.get("input_cost_usd") or 0)
+                out_usd = float(row.get("output_cost_usd") or 0)
+                c_usd = float(row.get("cost_usd") or 0)
+                in_t = float(row.get("input_cost_toman") or 0)
+                out_t = float(row.get("output_cost_toman") or 0)
+                c_t = float(row.get("cost_toman") or 0)
+                avg = _fmt_avg_triple(in_usd, out_usd, c_usd, in_t, out_t, c_t, req, currency_mode)
+                share = _llm_cost_percent(c_usd, cost_usd)
+                bd_rows.append((plain(bucket), plain(f"{req:,}"), plain(avg), plain(share)))
+            msg.add_line(table(bd_header, *bd_rows))
+    else:
+        group_by = _BREAKDOWN_GROUP.get(breakdown, "preset_name")
+        rows = db.breakdown_llm_requests(group_by, filters, limit=5)
+        if not rows:
+            msg.add_line(quote(plain("— none")))
+        else:
+            bd_rows = []
+            for row in rows:
+                bucket = row.get("bucket")
+                if group_by == "plan":
+                    bucket = {"free": "free", "silver": "silver", "gold": "gold"}.get(str(bucket), str(bucket))
+                bucket = str(bucket or "—")
+                req = int(row.get("request_count") or 0)
+                in_usd = float(row.get("input_cost_usd") or 0)
+                out_usd = float(row.get("output_cost_usd") or 0)
+                c_usd = float(row.get("cost_usd") or 0)
+                in_t = float(row.get("input_cost_toman") or 0)
+                out_t = float(row.get("output_cost_toman") or 0)
+                c_t = float(row.get("cost_toman") or 0)
+                avg = _fmt_avg_triple(in_usd, out_usd, c_usd, in_t, out_t, c_t, req, currency_mode)
+                share = _llm_cost_percent(c_usd, cost_usd)
+                bd_rows.append((plain(bucket), plain(f"{req:,}"), plain(avg), plain(share)))
+            msg.add_line(table(bd_header, *bd_rows))
 
+    # Recent requests detail – 4-col table (R3 max 4) when detail=True
     if state.get("detail"):
         rows = db.recent_llm_requests(filters, limit=10)
-        lines.extend(["", "🧾 Recent Requests"])
+        msg.add_line(heading(3, plain("🧾 Recent Requests")))
         if not rows:
-            lines.append("- none")
+            msg.add_line(quote(plain("— none")))
         else:
+            recent_header = (plain("Time"), plain("Status"), plain("Kind · Model"), plain("Cost"))
+            recent_rows = []
             for row in rows:
-                lines.append(
-                    f"- {str(row['created_at'])[:19]} "
-                    f"{_llm_cost_status_icon(row['outcome'])} {row['outcome']} | "
-                    f"{row['request_kind']} | {row['model']} | "
-                    f"user {row['user_id']} / {row['plan']} | "
-                    f"{int(row['total_tokens'] or 0):,} tok | "
-                    f"{_llm_cost_currency_text(float(row['cost_usd'] or 0), float(row['cost_toman'] or 0))} | "
-                    f"{round(float(row['latency_ms']), 1) if row['latency_ms'] is not None else 0.0} ms"
-                )
+                t = str(row.get("created_at") or "")[:19]
+                icon = _llm_cost_status_icon(row.get("outcome"))
+                status = f"{icon} {row.get('outcome')}"
+                kind_model = f"{row.get('request_kind')} · {row.get('model')}"
+                c_usd = float(row.get("cost_usd") or 0)
+                c_toman = float(row.get("cost_toman") or 0)
+                # for single-request triple, in/out unknown → show total only as triple with 0 in/out
+                cost_cell = _llm_cost_currency_text(c_usd, c_toman)
+                recent_rows.append((plain(t), plain(status), plain(kind_model), plain(cost_cell)))
+            msg.add_line(table(recent_header, *recent_rows))
 
-    return "\n".join(lines)
+    return msg
+
+
+def _llm_cost_report_text(state: dict[str, object]) -> str:
+    """Backward-compat string wrapper (tests expect str).
+
+    New code should use :func:`_build_llm_cost_message` which returns a
+    :class:`Message` for ``Backend.RICH`` rendering.
+    """
+    msg = _build_llm_cost_message(state, currency_mode="both")
+    return msg.render(Backend.RICH)
 
 
 def _llm_pricing_text() -> str:
+    # R1: only USD→Toman rate remains; input/output price UI removed
     profile = db.get_llm_cost_profile()
     return "\n".join(
         [
-            "LLM pricing defaults",
-            f"- Input: ${profile['input_cost_usd_per_million']:,.4f} / 1M tokens",
-            f"- Output: ${profile['output_cost_usd_per_million']:,.4f} / 1M tokens",
+            "LLM pricing — rate only (R1)",
             f"- USD→Toman: {profile['usd_to_toman_rate']:,.0f}",
             "",
-            "These values are the active defaults used by new requests unless the admin updates them.",
+            "Use the button below to update the conversion rate.",
         ]
     )
 
@@ -320,23 +461,20 @@ async def _show_llm_cost_dashboard(
     state = _llm_cost_state(context)
     if detail is not None:
         state = _llm_cost_set_state(context, detail=detail)
-    text = _llm_cost_report_text(state)
+    currency_mode = _llm_cost_currency_mode(context)
+    msg = _build_llm_cost_message(state, currency_mode=currency_mode)
+    kb = llm_cost_dashboard_keyboard(
+        bool(state.get("detail")),
+        active_range=str(state.get("range") or "mtd"),
+        breakdown=str(state.get("breakdown") or "preset"),
+        currency=_llm_cost_currency_mode(context),
+    )
+    # route through shared RICH path (retry/concurrency via send_pretty)
     if update.callback_query:
-        await _edit_or_send(
-            update,
-            context,
-            text,
-            reply_markup=llm_cost_dashboard_keyboard(bool(state.get("detail"))),
-        )
+        # Use say with Backend.RICH which edits the callback message
+        await say(update, context, msg, backend=Backend.RICH, keyboard=kb, mode="auto")
     else:
-        await say(
-            update,
-            context,
-            text,
-            raw=RawFormat.PLAIN,
-            keyboard=llm_cost_dashboard_keyboard(bool(state.get("detail"))),
-            mode="auto",
-        )
+        await say(update, context, msg, backend=Backend.RICH, keyboard=kb, mode="auto")
 
 
 async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
@@ -346,24 +484,9 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     action = parts[1]
     if action == "pricing" and len(parts) >= 2:
+        # R1: only set_rate remains; input/output removed
         if len(parts) == 2 or (len(parts) == 3 and parts[2] == "back"):
             await _show_llm_cost_dashboard(update, context)
-        elif len(parts) == 3 and parts[2] == "set_input":
-            context.user_data["awaiting"] = "llm_price_input"
-            await _edit_or_send(
-                update,
-                context,
-                "Send input cost per 1M tokens in USD:",
-                reply_markup=admin_awaiting_inline_keyboard(),
-            )
-        elif len(parts) == 3 and parts[2] == "set_output":
-            context.user_data["awaiting"] = "llm_price_output"
-            await _edit_or_send(
-                update,
-                context,
-                "Send output cost per 1M tokens in USD:",
-                reply_markup=admin_awaiting_inline_keyboard(),
-            )
         elif len(parts) == 3 and parts[2] == "set_rate":
             context.user_data["awaiting"] = "llm_price_rate"
             await _edit_or_send(
@@ -372,11 +495,32 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 "Send the USD→Toman rate:",
                 reply_markup=admin_awaiting_inline_keyboard(),
             )
+        elif len(parts) == 3 and parts[2] in {"set_input", "set_output"}:
+            # removed per R1 – inform admin
+            await notify_callback(update.callback_query, "قیمت ورودی/خروجی حذف شد — فقط نرخ تبدیل فعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         else:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     if action == "range" and len(parts) == 3:
-        _llm_cost_set_state(context, range=parts[2], detail=False)
+        val = parts[2]
+        if val not in {"today", "7d", "30d", "mtd", "all"}:
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        _llm_cost_set_state(context, range=val, detail=False)
+        await _show_llm_cost_dashboard(update, context)
+    elif action == "breakdown" and len(parts) == 3:
+        tab = parts[2]
+        if tab not in _BREAKDOWN_TABS:
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        _llm_cost_set_state(context, breakdown=tab)
+        await _show_llm_cost_dashboard(update, context)
+    elif action == "currency" and len(parts) == 3:
+        mode = parts[2]
+        if mode not in {"usd", "toman", "both"}:
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        context.user_data["llm_cost_currency"] = mode
         await _show_llm_cost_dashboard(update, context)
     elif action == "set" and len(parts) == 3:
         field = parts[2]
@@ -446,12 +590,7 @@ async def _handle_cost_text_input(
     awaiting: str,
     text: str,
 ) -> None:
-    """Route LLM-cost / pricing text-input awaiting states to their handlers.
-
-    Mirrors the inline blocks that previously lived in the admin monolith's
-    text-input dispatch. Registered in handlers/flows.py (R2). Behavior and
-    awaiting strings are unchanged.
-    """
+    """Route LLM-cost / pricing text-input awaiting states to their handlers."""
     if awaiting == "llm_cost_user":
         if text.casefold() in {"all", "همه", "none", "null"}:
             _llm_cost_set_state(context, user_id=None)
@@ -480,7 +619,7 @@ async def _handle_cost_text_input(
         await _show_llm_cost_dashboard(update, context)
         return
 
-    if awaiting in {"llm_price_input", "llm_price_output", "llm_price_rate"}:
+    if awaiting == "llm_price_rate":
         try:
             value = float(text.replace(",", "").strip())
             if value < 0:
@@ -490,34 +629,19 @@ async def _handle_cost_text_input(
             await say(
                 update,
                 context,
-                "عدد معتبر بفرست، مثلاً 0.12 یا 65000.",
+                "عدد معتبر بفرست، مثلاً 65000.",
                 raw=RawFormat.PLAIN,
                 keyboard=admin_awaiting_inline_keyboard(),
                 mode="send",
             )
             return
         profile = db.get_llm_cost_profile()
-        if awaiting == "llm_price_input":
-            db.set_llm_cost_profile(
-                input_cost_usd_per_million=value,
-                output_cost_usd_per_million=profile["output_cost_usd_per_million"],
-                usd_to_toman_rate=profile["usd_to_toman_rate"],
-            )
-        elif awaiting == "llm_price_output":
-            db.set_llm_cost_profile(
-                input_cost_usd_per_million=profile["input_cost_usd_per_million"],
-                output_cost_usd_per_million=value,
-                usd_to_toman_rate=profile["usd_to_toman_rate"],
-            )
-        else:
-            db.set_llm_cost_profile(
-                input_cost_usd_per_million=profile["input_cost_usd_per_million"],
-                output_cost_usd_per_million=profile["output_cost_usd_per_million"],
-                usd_to_toman_rate=value,
-            )
-        mark_awaiting_consumed(context)  # cost-profile write is irreversible (B5/Kilo CRITICAL)
-        # The AI hot path caches the cost profile (BOT-2); bust it so the next
-        # recorded request uses the freshly saved prices.
+        db.set_llm_cost_profile(
+            input_cost_usd_per_million=profile["input_cost_usd_per_million"],
+            output_cost_usd_per_million=profile["output_cost_usd_per_million"],
+            usd_to_toman_rate=value,
+        )
+        mark_awaiting_consumed(context)
         ai_read_cache.invalidate_cost_profile()
         await say(update, context, _llm_pricing_text(), raw=RawFormat.PLAIN, mode="send")
         return
@@ -528,13 +652,6 @@ async def handle_cost_callback(
     context: ContextTypes.DEFAULT_TYPE,
     action: str,
 ) -> None:
-    """Route cost/LLM-cost admin callback sub-actions to their handlers.
-
-    Mirrors the inline ``admin:cost_dashboard`` / ``admin:llm_costs`` /
-    ``admin:llm_pricing`` branches that previously lived in the admin monolith's
-    ``_handle_admin_callback``. The owner check is performed by the caller.
-    Behavior and action strings are unchanged.
-    """
     if action == "llm_costs":
         await _show_llm_cost_dashboard(update, context)
     elif action == "llm_pricing":
@@ -566,6 +683,10 @@ __all__ = [
     "_llm_cost_query_filters",
     "_llm_cost_range_bounds",
     "_llm_cost_report_text",
+    "_build_llm_cost_message",
+    "_fmt_cost_triple",
+    "_fmt_avg_triple",
+    "_llm_cost_currency_mode",
     "_llm_cost_set_state",
     "_llm_cost_state",
     "_llm_cost_state_label",
