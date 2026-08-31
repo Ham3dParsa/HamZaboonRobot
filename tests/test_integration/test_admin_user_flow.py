@@ -117,6 +117,12 @@ class AdminUserFlowTest(unittest.TestCase):
         with patch("handlers.admin_users.say", new=AsyncMock()) as mock_say:
             asyncio.run(text_router(update, ctx, "admin_user_search", "42"))
             mock_say.assert_called()
+            # Kilo: verify RichMessage backend/is_rtl/Message type
+            kwargs = mock_say.call_args[1] if len(mock_say.call_args) > 1 else {}
+            self.assertEqual(kwargs.get("backend"), Backend.RICH)
+            self.assertTrue(kwargs.get("is_rtl") is True)
+            content = mock_say.call_args[0][2] if len(mock_say.call_args[0]) > 2 else kwargs.get("content")
+            self.assertIsInstance(content, Message)
             texts = []
             for call in mock_say.call_args_list:
                 args = call[0]
@@ -139,6 +145,11 @@ class AdminUserFlowTest(unittest.TestCase):
         with patch("handlers.admin_users.say", new=AsyncMock()) as mock_say2:
             asyncio.run(text_router(update2, ctx2, "admin_user_search", "@alice"))
             mock_say2.assert_called()
+            kwargs2 = mock_say2.call_args[1] if len(mock_say2.call_args) > 1 else {}
+            self.assertEqual(kwargs2.get("backend"), Backend.RICH)
+            self.assertTrue(kwargs2.get("is_rtl") is True)
+            content2 = mock_say2.call_args[0][2] if len(mock_say2.call_args[0]) > 2 else kwargs2.get("content")
+            self.assertIsInstance(content2, Message)
 
     def test_search_not_found_keeps_awaiting(self):
         update = self._make_text_update("9999")
@@ -181,6 +192,16 @@ class AdminUserFlowTest(unittest.TestCase):
             asyncio.run(text_router(update, ctx, "admin_user_set_plan:42", "gold"))
             self.assertEqual(db.get_user(42)["plan"], "gold")
             mock_say.assert_called()
+            # at least one say call must be the Rich profile table
+            found_rich = False
+            for c in mock_say.call_args_list:
+                kw = c[1] if len(c) > 1 else {}
+                if kw.get("backend") == Backend.RICH:
+                    self.assertTrue(kw.get("is_rtl") is True)
+                    content = c[0][2] if len(c[0]) > 2 else kw.get("content")
+                    self.assertIsInstance(content, Message)
+                    found_rich = True
+            self.assertTrue(found_rich, "expected a Backend.RICH profile render")
             texts = []
             for c in mock_say.call_args_list:
                 args = c[0]

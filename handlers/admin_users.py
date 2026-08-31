@@ -45,14 +45,17 @@ logger = logging.getLogger(__name__)
 
 def _build_profile_message(row, stats, blocked: bool) -> Message:
     """Build a RichMessage table for the user profile (RTL, no box-drawing)."""
-    full_name = (dict(row).get("full_name") or "").strip().replace("\n", " ")[:50] or "—"
-    username = f"@{row['username']}" if row["username"] else "—"
-    plan_label = (db.get_plan(row["plan"] or "free") or {}).get("display_name", row["plan"] or "free")
-    lang = language_label(row["target_lang"]) if row["target_lang"] else "—"
-    goal = goal_label(row["goal"]) if row["goal"] else "—"
-    level = level_label(row["level"]) if row["level"] else "—"
-    last_active = row["last_active_date"] or "—"
-    created_at = row["created_at"] or "—"
+    def _sanitize(v: str) -> str:
+        return v.replace("|", "\\|").replace("\n", " ")
+
+    full_name = _sanitize((dict(row).get("full_name") or "").strip().replace("\n", " ")[:50] or "—")
+    username = _sanitize(f"@{row['username']}" if row["username"] else "—")
+    plan_label = _sanitize((db.get_plan(row["plan"] or "free") or {}).get("display_name", row["plan"] or "free"))
+    lang = _sanitize(language_label(row["target_lang"]) if row["target_lang"] else "—")
+    goal = _sanitize(goal_label(row["goal"]) if row["goal"] else "—")
+    level = _sanitize(level_label(row["level"]) if row["level"] else "—")
+    last_active = _sanitize(row["last_active_date"] or "—")
+    created_at = _sanitize(row["created_at"] or "—")
     msg = Message()
     msg.add_line(bold("👤 پروفایل کاربر"))
     hdr = (bold("فیلد"), bold("مقدار"))
@@ -84,8 +87,8 @@ def _profile_text_and_keyboard(user_id: int) -> tuple[Message, InlineKeyboardMar
     stats = db.get_user_learning_stats(user_id)
     blocked = bool(row["bot_blocked"])
     msg = _build_profile_message(row, stats, blocked)
-    msg.set_keyboard(user_profile_keyboard(user_id, blocked))
-    return msg, user_profile_keyboard(user_id, blocked)
+    keyboard = user_profile_keyboard(user_id, blocked)
+    return msg, keyboard
 
 
 async def _show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
@@ -97,7 +100,7 @@ async def _show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         return
     msg, keyboard = result
     # RichMessage handles RTL + table natively via telegram_rich
-    await say(update, context, msg, backend=Backend.RICH, keyboard=keyboard)
+    await say(update, context, msg, backend=Backend.RICH, is_rtl=True, keyboard=keyboard)
 
 
 async def _send_profile_message(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
@@ -110,7 +113,7 @@ async def _send_profile_message(update: Update, context: ContextTypes.DEFAULT_TY
         return
     msg, keyboard = result
     await say(
-        update, context, msg, backend=Backend.RICH, keyboard=keyboard, mode="send",
+        update, context, msg, backend=Backend.RICH, is_rtl=True, keyboard=keyboard, mode="send",
     )
 
 
