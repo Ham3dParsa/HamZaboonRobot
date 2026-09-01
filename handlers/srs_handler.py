@@ -11,6 +11,7 @@ from services import db, send_pretty
 from services import word_query
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.activity_log import log_user_activity
+from services.scheduling import THROTTLE_TEXT, try_acquire_per_user_slot
 from services.session import resolve_grade, SessionNode
 from services.routing import register
 from services.utils.formatting import (
@@ -236,6 +237,14 @@ async def _handle_srs_review(
     if user_id != target_user_id:
         await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
+    # --- per-user spam guard (plan-27) atomic before FSRS update ---
+    if not try_acquire_per_user_slot(user_id, "srs_grade"):
+        await notify_callback(
+            update.callback_query,
+            THROTTLE_TEXT,
+            intent=CallbackNoticeIntent.THROTTLE,
+        )
+        return
     session = get_active_study_session(user_id, context)
     if session is not None and word_id in session.graded_word_ids:
         already_graded = True
@@ -361,6 +370,14 @@ async def _handle_first_exposure_grade(
     user_id = update.effective_user.id
     if user_id != target_user_id:
         await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    # --- per-user spam guard (plan-27) atomic before FSRS update ---
+    if not try_acquire_per_user_slot(user_id, "srs_grade"):
+        await notify_callback(
+            update.callback_query,
+            THROTTLE_TEXT,
+            intent=CallbackNoticeIntent.THROTTLE,
+        )
         return
     session = get_active_study_session(user_id, context)
     if session is not None and word_id in session.graded_word_ids:

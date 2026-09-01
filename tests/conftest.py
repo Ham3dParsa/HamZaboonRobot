@@ -160,3 +160,22 @@ def _telegram_offline_pinned():
         yield
     finally:
         bot._telegram_offline = old
+
+
+@pytest.fixture(autouse=True)
+def _per_user_rate_cleared():
+    try:
+        from services.scheduling import _clear_rate_buckets
+
+        _clear_rate_buckets()
+    except Exception:
+        pass
+    try:
+        yield
+    finally:
+        try:
+            from services.scheduling import _clear_rate_buckets
+
+            _clear_rate_buckets()
+        except Exception:
+            pass
