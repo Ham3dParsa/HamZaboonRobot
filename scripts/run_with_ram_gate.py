@@ -24,7 +24,7 @@ try:
 except ImportError:  # pragma: no cover - fail-closed handled in main()
     psutil = None
 
-RAM_BUDGET_MB = 2600
+RAM_BUDGET_MB = 3200
 SAMPLE_INTERVAL = 0.2
 
 

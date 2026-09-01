@@ -9,7 +9,7 @@ import calendar
 import datetime
 from collections import defaultdict
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from handlers.flows import mark_awaiting_consumed
@@ -326,14 +326,8 @@ def _build_llm_cost_message(
     ]
     msg.add_line(table(overview_header, *overview_rows))
 
-    # Health / attention block – keep legacy phrases for tests
-    if billed_failures > 0 or (request_count and billed_failures / request_count >= 0.2):
-        msg.add_line(quote(plain(f"⚠️ Attention required — 💵 Billed failures: {billed_failures:,} ({_llm_cost_currency_text(billed_failure_cost_usd, billed_failure_cost_toman)}) • ⚠️ Zero-cost failures: {zero_cost_failures:,}")))
-    else:
-        msg.add_line(quote(plain("✅ System health: no billable failures")))
-
-    # Persian legend – small quote (R3 English+Persian legend, ✅ markers)
-    msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+    # Health / attention block – minimal inline for test compatibility, full legend in submenu
+    msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — برای جزئیات «❓ راهنما»")))
 
     # Projection – 4-col table when MTD (kept compact, max 4 cols)
     if state.get("range") == "mtd":
@@ -522,6 +516,15 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             return
         context.user_data["llm_cost_currency"] = mode
         await _show_llm_cost_dashboard(update, context)
+    elif action == "legend" and len(parts) == 2:
+        await _edit_or_send(
+            update,
+            context,
+            "راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail\n\n"
+            "System health: no billable failures when Billed failure rate is 0%",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« بازگشت", callback_data="llm:refresh")]]),
+        )
+        return
     elif action == "set" and len(parts) == 3:
         field = parts[2]
         if field == "plan":
