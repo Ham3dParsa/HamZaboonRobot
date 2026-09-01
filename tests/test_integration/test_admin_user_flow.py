@@ -102,19 +102,36 @@ class AdminUserFlowTest(unittest.TestCase):
 
     def test_search_resolves(self):
         # search resolves via text_router with admin_user_search — rich table
+        from services.send_pretty import Backend, Message
+
+        def _to_str(v):
+            if isinstance(v, Message):
+                try:
+                    return v.render(Backend.PLAIN)
+                except Exception:
+                    return str(v)
+            return str(v) if v else ""
+
         update = self._make_text_update("42")
         ctx = self._ctx()
         with patch("handlers.admin_users.say", new=AsyncMock()) as mock_say:
             asyncio.run(text_router(update, ctx, "admin_user_search", "42"))
             mock_say.assert_called()
+            # Kilo: verify RichMessage backend/is_rtl/Message type
+            kwargs = mock_say.call_args[1] if len(mock_say.call_args) > 1 else {}
+            self.assertEqual(kwargs.get("backend"), Backend.RICH)
+            self.assertTrue(kwargs.get("is_rtl") is True)
+            content = mock_say.call_args[0][2] if len(mock_say.call_args[0]) > 2 else kwargs.get("content")
+            self.assertIsInstance(content, Message)
             texts = []
             for call in mock_say.call_args_list:
                 args = call[0]
                 txt = args[2] if len(args) > 2 else ""
-                # kwargs variant
                 if not txt:
-                    txt = call[1].get("text", "") if len(call) > 1 else ""
-                texts.append(txt)
+                    txt = call[1].get("content", "") if len(call) > 1 else ""
+                    if not txt:
+                        txt = call[1].get("text", "") if len(call) > 1 else ""
+                texts.append(_to_str(txt))
             combined = " ".join(texts)
             # rich table contains full_name header and value, and Persian digits
             self.assertIn("\u0646\u0627\u0645 \u06a9\u0627\u0645\u0644", combined)
@@ -128,6 +145,11 @@ class AdminUserFlowTest(unittest.TestCase):
         with patch("handlers.admin_users.say", new=AsyncMock()) as mock_say2:
             asyncio.run(text_router(update2, ctx2, "admin_user_search", "@alice"))
             mock_say2.assert_called()
+            kwargs2 = mock_say2.call_args[1] if len(mock_say2.call_args) > 1 else {}
+            self.assertEqual(kwargs2.get("backend"), Backend.RICH)
+            self.assertTrue(kwargs2.get("is_rtl") is True)
+            content2 = mock_say2.call_args[0][2] if len(mock_say2.call_args[0]) > 2 else kwargs2.get("content")
+            self.assertIsInstance(content2, Message)
 
     def test_search_not_found_keeps_awaiting(self):
         update = self._make_text_update("9999")
@@ -154,13 +176,39 @@ class AdminUserFlowTest(unittest.TestCase):
         self.assertEqual(row2["bot_blocked"], 0)
 
     def test_set_plan_flow(self):
+        from services.send_pretty import Backend, Message
+
+        def _to_str(v):
+            if isinstance(v, Message):
+                try:
+                    return v.render(Backend.PLAIN)
+                except Exception:
+                    return str(v)
+            return str(v) if v else ""
+
         update = self._make_text_update("gold")
         ctx = self._ctx()
         with patch("handlers.admin_users.say", new=AsyncMock()) as mock_say:
             asyncio.run(text_router(update, ctx, "admin_user_set_plan:42", "gold"))
             self.assertEqual(db.get_user(42)["plan"], "gold")
             mock_say.assert_called()
-            texts = [c[0][2] for c in mock_say.call_args_list if len(c[0]) > 2]
+            # at least one say call must be the Rich profile table
+            found_rich = False
+            for c in mock_say.call_args_list:
+                kw = c[1] if len(c) > 1 else {}
+                if kw.get("backend") == Backend.RICH:
+                    self.assertTrue(kw.get("is_rtl") is True)
+                    content = c[0][2] if len(c[0]) > 2 else kw.get("content")
+                    self.assertIsInstance(content, Message)
+                    found_rich = True
+            self.assertTrue(found_rich, "expected a Backend.RICH profile render")
+            texts = []
+            for c in mock_say.call_args_list:
+                args = c[0]
+                v = args[2] if len(args) > 2 else c[1].get("content", "") if len(c) > 1 else ""
+                if not v:
+                    v = c[1].get("text", "") if len(c) > 1 else ""
+                texts.append(_to_str(v))
             combined = " ".join(texts)
             self.assertIn("gold", combined)
 
@@ -358,6 +406,25 @@ class AdminUserFlowTest(unittest.TestCase):
         self.assertIn("admin:user", all_cbs)
         # new panel should expose plans manager and cost dashboard
         self.assertIn("admin:plans", all_cbs)
+
+    def test_profile_table_escapes_pipe_newline(self):
+        """Pipe/newline in full_name must not break RICH table columns."""
+        from handlers.admin_users import _build_profile_message
+        from services.send_pretty import Backend
+
+        db.update_user_full_name(42, "a|b\nc")
+        row = db.get_user(42)
+        stats = db.get_user_learning_stats(42)
+        msg = _build_profile_message(row, stats, False)
+        rich = msg.render(Backend.RICH)
+        # pipe escaped once via _escape_rich -> \|
+        self.assertIn("\\|", rich)
+        self.assertNotIn("\\\\\\|", rich)
+        # newline sanitized to space, single logical row
+        self.assertNotIn("a|b\nc", rich)
+        # fallback plain degradable (Table not supported in MDV2, but plain works)
+        plain = msg.render(Backend.PLAIN)
+        self.assertIsInstance(plain, str)
 
 
 if __name__ == "__main__":
