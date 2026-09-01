@@ -9,7 +9,7 @@ import calendar
 import datetime
 from collections import defaultdict
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import Update
 from telegram.ext import ContextTypes
 
 from handlers.flows import mark_awaiting_consumed
@@ -38,6 +38,7 @@ from config.keyboards import (
     llm_cost_plan_keyboard,
     llm_cost_pricing_keyboard,
     llm_cost_status_keyboard,
+    llm_legend_back_keyboard,
 )
 
 _app_timezone = APP_TZ
@@ -326,8 +327,14 @@ def _build_llm_cost_message(
     ]
     msg.add_line(table(overview_header, *overview_rows))
 
-    # Health / attention block – minimal inline for test compatibility, full legend in submenu
-    msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — برای جزئیات «❓ راهنما»")))
+    # Health / attention block – keep legacy phrases for tests
+    if billed_failures > 0:
+        msg.add_line(quote(plain(f"⚠️ Attention required — 💵 Billed failures: {billed_failures:,} ({_llm_cost_currency_text(billed_failure_cost_usd, billed_failure_cost_toman)}) • ⚠️ Zero-cost failures: {zero_cost_failures:,}")))
+    else:
+        msg.add_line(quote(plain("✅ System health: no billable failures")))
+
+    # Persian legend – small quote (R3 English+Persian legend, ✅ markers)
+    msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
 
     # Projection – 4-col table when MTD (kept compact, max 4 cols)
     if state.get("range") == "mtd":
@@ -522,7 +529,7 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             context,
             "راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail\n\n"
             "System health: no billable failures when Billed failure rate is 0%",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« بازگشت", callback_data="llm:refresh")]]),
+            reply_markup=llm_legend_back_keyboard(),
         )
         return
     elif action == "set" and len(parts) == 3:

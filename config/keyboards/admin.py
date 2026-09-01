@@ -306,6 +306,10 @@ def llm_cost_dashboard_keyboard(
     )
 
 
+def llm_legend_back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton("« بازگشت", callback_data="llm:refresh")]])
+
+
 
 def llm_cost_plan_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
