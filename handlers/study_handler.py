@@ -1210,8 +1210,8 @@ async def _handle_session_summary_callback(
 # R10: persistent session reports — /reports command + callback
 # ---------------------------------------------------------------------------
 
-def _reports_group_key(iso_str: str) -> str:
-    """Single-source delegation to services/utils/formatting.reports_jalali_group_key (R6)."""
+def _reports_group_key(iso_str: str) -> str:  # noqa: keep for wiring compat (delegates to single source)
+    """Deprecated wrapper — use services.utils.formatting.reports_jalali_group_key directly."""
     from services.utils.formatting import reports_jalali_group_key
 
     return reports_jalali_group_key(iso_str or "")
@@ -1241,7 +1241,7 @@ def _reports_list_payload(user_id: int):
     for day_key in sorted(grouped.keys(), reverse=True):
         day_entries = grouped[day_key]
         first_iso = getattr(day_entries[0], "created_at", "") or day_entries[0].session_date or ""
-        day_label = jalali_day_label(first_iso) if first_iso else escape_mdv2(day_key)
+        day_label = jalali_day_label(first_iso) if first_iso else day_key
         # jalali_day_label already returns Persian digits; escape only the separator
         count = to_persian_digits(len(day_entries))
         # day_label is plain Persian (no mdv2 special chars except maybe), escape it
@@ -1320,7 +1320,7 @@ async def _handle_reports_callback(
 
         # header uses jalali day label
         first_iso = getattr(day_entries[0], "created_at", "") or ""
-        header_label = _jdl(first_iso) if first_iso else escape_mdv2(day_key)
+        header_label = _jdl(first_iso) if first_iso else day_key
         text = "*" + escape_mdv2(header_label) + "*\n" + escape_mdv2(f"— {len(day_entries)} نشست")
         keyboard = reports_day_keyboard(day_key, day_entries)
         await send_pretty.say(

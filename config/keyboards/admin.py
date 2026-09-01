@@ -706,8 +706,8 @@ def session_summary_legend_keyboard(page_index: int, nonce: str) -> InlineKeyboa
 # pages of `report.pages`. Back returns to the recent-reports list.
 
 
-def _reports_group_key(iso_str: str) -> str:
-    """Single-source delegation to services/utils/formatting.reports_jalali_group_key (R6)."""
+def _reports_group_key(iso_str: str) -> str:  # noqa: keep for wiring compat (delegates to single source)
+    """Deprecated wrapper — use services.utils.formatting.reports_jalali_group_key directly."""
     from services.utils.formatting import reports_jalali_group_key
 
     return reports_jalali_group_key(iso_str or "")
@@ -742,14 +742,12 @@ def reports_days_keyboard(grouped: dict[str, list]) -> InlineKeyboardMarkup:
 
 def reports_day_keyboard(day_key: str, entries: list) -> InlineKeyboardMarkup:
     """Second level: one button per session sorted ASC for per-day numbering (R3,R8)."""
-    from services.utils.formatting import jalali_time_label, to_persian_digits as _tpd
+    from services.utils.formatting import jalali_time_label, parse_iso_to_app_tz, to_persian_digits as _tpd
 
     # sort ASC by actual Tehran time (parse, not lexicographic — C5)
     def _sort_key(e):
-        from services.utils.formatting import _parse_iso_to_app_tz
-
         iso = getattr(e, "created_at", "") or ""
-        dt = _parse_iso_to_app_tz(iso)
+        dt = parse_iso_to_app_tz(iso)
         return dt if dt is not None else iso
 
     sorted_entries = sorted(entries, key=_sort_key)

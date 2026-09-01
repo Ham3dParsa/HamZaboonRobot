@@ -684,6 +684,10 @@ def reports_jalali_group_key(iso_str: str) -> str:
         return s[:10] if len(s) >= 10 else ""
     return dt_app.date().isoformat()
 
+
+# Public alias — config/handlers must import this, not the private _parse helper.
+parse_iso_to_app_tz = _parse_iso_to_app_tz
+
 # Tier → header line (R5/R7). Values are static, so no escaping needed.
 _TIER_LABEL = {
     "excellent": "⚡️ پیشرفت کلی این نشست: عالی",

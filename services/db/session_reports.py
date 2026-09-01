@@ -116,8 +116,8 @@ def list_recent_reports(
                 learned = rep.learned_count
                 reviewed = rep.reviewed_count
             except Exception:
-                # corrupt payload -> keep zeros, load_report will purge later
-                pass
+                logger.warning("corrupt report_json id=%s user_id=%s", row["id"], user_id, exc_info=True)
+                # keep zeros; detail path load_report will purge
         entries.append(
             ReportEntry(
                 report_id=row["id"],
