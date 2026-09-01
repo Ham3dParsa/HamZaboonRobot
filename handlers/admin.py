@@ -800,11 +800,20 @@ async def cmd_restore(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle uploaded database file for restore (accepts PV and group, no strict awaiting gate)."""
+    """Handle uploaded database file for restore.
+
+    Contract L3: unified flow works in both PV and group for owner.
+    Intentionally no strict awaiting gate — owner check is the safety
+    boundary; file is still validated (size + SQLite header) before
+    import. Pop awaiting if present so retry upload works without
+    re-issuing /restore.
+    """
     if not is_owner(update.effective_user.id):
         await say(update, context, "فقط مالک ربات دسترسی داره.", raw=RawFormat.PLAIN, mode="send")
         return
-    # accept both PV and group; also allow without awaiting when owner sends .db file
+    # Per contract: allow owner .db upload in PV or group without
+    # requiring awaiting == admin_restore (group flow would otherwise
+    # need extra gate). Validation below is the destructive-op guard.
     context.user_data.pop("awaiting", None)
 
     _MAX_RESTORE_BYTES = 100 * 1024 * 1024

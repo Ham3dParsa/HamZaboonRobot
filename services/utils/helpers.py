@@ -1,4 +1,5 @@
 import asyncio
+import io
 import logging
 import math
 import os
@@ -464,23 +465,52 @@ async def _clear_awaiting_prompt(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def _send_document_with_retry(bot, chat_id: int, document, **kwargs):
     """Send a document with retry/slot semantics mirroring _send_with_retry but for send_document."""
-    # Capture raw bytes so BytesIO can be rewound/recreated on RetryAfter retries
-    # (otherwise second attempt sends empty file).
+    # Capture raw bytes + filename so both BytesIO and InputFile survive RetryAfter retries
+    # (InputFile has no getvalue; its bytes live in input_file_content).
     _doc_bytes: bytes | None = None
-    if hasattr(document, "getvalue"):
-        try:
-            _doc_bytes = document.getvalue()
-        except Exception:
-            _doc_bytes = None
+    _doc_filename: str | None = kwargs.get("filename")
+    _is_inputfile = False
+    try:
+        from telegram import InputFile as _InputFile
+
+        if isinstance(document, _InputFile):
+            _is_inputfile = True
+            _doc_filename = getattr(document, "filename", None) or _doc_filename
+            content = getattr(document, "input_file_content", None)
+            if isinstance(content, (bytes, bytearray)):
+                _doc_bytes = bytes(content)
+            elif hasattr(content, "getvalue"):
+                try:
+                    _doc_bytes = content.getvalue()
+                except Exception:
+                    _doc_bytes = None
+            elif hasattr(content, "read"):
+                try:
+                    _doc_bytes = content.read()
+                    if isinstance(_doc_bytes, bytearray):
+                        _doc_bytes = bytes(_doc_bytes)
+                except Exception:
+                    _doc_bytes = None
+        elif hasattr(document, "getvalue"):
+            try:
+                _doc_bytes = document.getvalue()
+            except Exception:
+                _doc_bytes = None
+            if _doc_filename is None:
+                _doc_filename = getattr(document, "name", None)
+    except Exception:
+        pass
     for attempt in range(3):
         try:
             async with _telegram_slots:
                 doc_to_send = document
                 if _doc_bytes is not None:
-                    # Recreate fresh BytesIO each attempt so position is 0
-                    import io as _io
-                    doc_to_send = _io.BytesIO(_doc_bytes)
-                    # preserve filename hint if caller passed via kwargs filename
+                    if _is_inputfile:
+                        from telegram import InputFile as _IF2
+
+                        doc_to_send = _IF2(io.BytesIO(_doc_bytes), filename=_doc_filename or "file.db")
+                    else:
+                        doc_to_send = io.BytesIO(_doc_bytes)
                 result = await bot.send_document(chat_id=chat_id, document=doc_to_send, **kwargs)
                 _reset_telegram_cb()
                 return result

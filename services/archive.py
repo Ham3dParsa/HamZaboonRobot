@@ -4,6 +4,9 @@ import io
 import re
 import logging
 import asyncio
+import subprocess
+
+from telegram import InputFile
 
 from config import ARCHIVE_CHAT_ID, APP_TZ
 from services import db
@@ -41,7 +44,18 @@ def resolved_archive_chat_id() -> int | None:
     return None
 
 
+def _get_git_version() -> str:
+    """Return short git HEAD, with timeout and FileNotFound handling. Cheap; call via to_thread."""
+    try:
+        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True, timeout=2).strip()
+    except FileNotFoundError:
+        return ""
+    except Exception:
+        return ""
+
+
 def build_backup_caption(data_len: int) -> str:
+    """Build caption synchronously — MUST be called via asyncio.to_thread (DB + git)."""
     now_app = datetime.datetime.now(APP_TZ)
     now_utc = datetime.datetime.now(datetime.timezone.utc)
     size_mb = data_len / (1024 * 1024)
@@ -66,12 +80,7 @@ def build_backup_caption(data_len: int) -> str:
                 schema_version = "?"
     except Exception:
         pass
-    git_version = ""
-    try:
-        import subprocess
-        git_version = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True, timeout=2).strip()
-    except Exception:
-        git_version = ""
+    git_version = _get_git_version()
     lines = [
         "📦 پشتیبان دیتابیس",
         f"🕐 {now_app.strftime('%Y-%m-%d %H:%M:%S')} {getattr(APP_TZ, 'key', str(APP_TZ))} / {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC",
@@ -105,7 +114,6 @@ async def do_backup(bot, owner_user_id: int, dest_chat_id: int | None = None):
     data = await asyncio.to_thread(db.export_db_bytes)
     caption = await asyncio.to_thread(build_backup_caption, len(data))
     fname = f"hamzaban_backup_{datetime.datetime.now(APP_TZ).strftime('%Y%m%d_%H%M%S')}.db"
-    from telegram import InputFile
 
     await _send_document_with_retry(
         bot, target, document=InputFile(io.BytesIO(data), filename=fname), caption=caption

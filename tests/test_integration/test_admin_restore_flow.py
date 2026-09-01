@@ -75,8 +75,12 @@ class AdminRestoreFlowTests(unittest.IsolatedAsyncioTestCase):
             await cmd_backup(update, context)
 
         document = context.bot.send_document.await_args.kwargs["document"]
-        self.assertIsInstance(document, io.BytesIO)
-        self.assertTrue(document.getvalue().startswith(b"SQLite format 3\x00"))
+        # do_backup wraps bytes in InputFile for correct filename handling
+        from telegram import InputFile
+
+        self.assertIsInstance(document, InputFile)
+        self.assertTrue(document.input_file_content.startswith(b"SQLite format 3\x00"))
+        self.assertTrue(document.filename.endswith(".db"))
 
     async def test_auto_backup_runs_all_file_work_in_worker(self):
         context = MagicMock()
