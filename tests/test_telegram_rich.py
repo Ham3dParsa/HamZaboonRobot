@@ -2,7 +2,7 @@
 
 Covers the isolated ``services.telegram_rich`` seam: payload shape, the
 capability latch on 404, transient-error (no-resend) behavior, the edit path,
-and the off-by-default feature flag routing to MarkdownV2.
+and the enabled-by-default feature flag routing to MarkdownV2.
 """
 
 import unittest
@@ -74,14 +74,40 @@ class TestRichDelivery(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(telegram_rich.RICH_ENABLED)
         # Env override check via patch without reload pollution
         with patch.dict("os.environ", {"RICH_ENABLED": "false"}):
-            # Re-evaluate the expression directly
-            val = __import__("os").getenv("RICH_ENABLED", "true").lower() in (
+            # Re-evaluate the expression directly (strip to match production)
+            val = __import__("os").getenv("RICH_ENABLED", "true").strip().lower() in (
                 "1",
                 "true",
                 "yes",
                 "on",
             )
             self.assertFalse(val)
+
+    async def test_send_pretty_rich_fallback_via_send(self):
+        """Handler-level integration: send via Backend.RICH with mocked 404/BadRequest falls back to MDV2."""
+        from services.send_pretty import Backend, Message, plain, send
+        from telegram.error import BadRequest
+
+        # 404 latch path
+        bot = _make_bot({"message_id": 1})
+        bot.do_api_request = AsyncMock(side_effect=EndPointNotFound("404"))
+        msg = Message()
+        msg.add_line(plain("hello rich"))
+        with patch.object(telegram_rich, "_send_with_retry", new=AsyncMock(return_value=99)) as fb:
+            mid = await send(1, msg, bot=bot, backend=Backend.RICH)
+            fb.assert_awaited_once()
+            self.assertEqual(mid, 99)
+
+        # BadRequest fallback path
+        telegram_rich._rich_disabled.clear()
+        bot2 = _make_bot({"message_id": 2})
+        bot2.do_api_request = AsyncMock(side_effect=BadRequest("bad"))
+        msg2 = Message()
+        msg2.add_line(plain("hello again"))
+        with patch.object(telegram_rich, "_send_with_retry", new=AsyncMock(return_value=100)) as fb2:
+            mid2 = await send(1, msg2, bot=bot2, backend=Backend.RICH)
+            fb2.assert_awaited_once()
+            self.assertEqual(mid2, 100)
 
 
 if __name__ == "__main__":
