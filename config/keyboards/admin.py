@@ -103,7 +103,7 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
 
 
 
-def backup_restore_keyboard(archive_id: str | None = None) -> InlineKeyboardMarkup:
+def backup_restore_keyboard() -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton("📤 پشتیبان الان", callback_data="admin:backup_restore:backup_now")],
         [InlineKeyboardButton("♻️ بازیابی", callback_data="admin:backup_restore:restore")],

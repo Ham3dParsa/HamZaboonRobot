@@ -105,5 +105,9 @@ async def do_backup(bot, owner_user_id: int, dest_chat_id: int | None = None):
     data = await asyncio.to_thread(db.export_db_bytes)
     caption = await asyncio.to_thread(build_backup_caption, len(data))
     fname = f"hamzaban_backup_{datetime.datetime.now(APP_TZ).strftime('%Y%m%d_%H%M%S')}.db"
-    await _send_document_with_retry(bot, target, document=io.BytesIO(data), filename=fname, caption=caption)
+    from telegram import InputFile
+
+    await _send_document_with_retry(
+        bot, target, document=InputFile(io.BytesIO(data), filename=fname), caption=caption
+    )
     return target

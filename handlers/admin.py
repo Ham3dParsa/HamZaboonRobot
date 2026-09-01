@@ -804,12 +804,8 @@ async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not is_owner(update.effective_user.id):
         await say(update, context, "فقط مالک ربات دسترسی داره.", raw=RawFormat.PLAIN, mode="send")
         return
-    # accept both PV and group; only clear awaiting if present (no strict gate)
-    if context.user_data.get("awaiting") == "admin_restore":
-        context.user_data.pop("awaiting", None)
-    else:
-        # also allow without awaiting when owner sends .db file (group or PV)
-        context.user_data.pop("awaiting", None)
+    # accept both PV and group; also allow without awaiting when owner sends .db file
+    context.user_data.pop("awaiting", None)
 
     _MAX_RESTORE_BYTES = 100 * 1024 * 1024
     try:

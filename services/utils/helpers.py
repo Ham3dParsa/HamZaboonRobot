@@ -467,7 +467,6 @@ async def _send_document_with_retry(bot, chat_id: int, document, **kwargs):
     # Capture raw bytes so BytesIO can be rewound/recreated on RetryAfter retries
     # (otherwise second attempt sends empty file).
     _doc_bytes: bytes | None = None
-    _doc_filename: str | None = None
     if hasattr(document, "getvalue"):
         try:
             _doc_bytes = document.getvalue()
@@ -493,12 +492,6 @@ async def _send_document_with_retry(bot, chat_id: int, document, **kwargs):
         except RetryAfter as exc:
             if attempt == 2:
                 raise
-            # ensure next loop's BytesIO starts at 0 (recreated above); also seek original if reused externally
-            try:
-                if hasattr(document, "seek"):
-                    document.seek(0)
-            except Exception:
-                pass
             await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
             raise
