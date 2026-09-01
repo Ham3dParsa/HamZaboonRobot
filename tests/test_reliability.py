@@ -161,9 +161,29 @@ class ReliabilityPersistenceTests(unittest.TestCase):
             usd_to_toman_rate=50000,
             latency_ms=123,
         )
-        text = _llm_cost_report_text(
+        # hub: overview and recent are separate views; test both
+        overview_text = _llm_cost_report_text(
             {
                 "range": "mtd",
+                "view": "overview",
+                "show_projection": True,
+                "detail": False,
+                "plan": "gold",
+                "user_id": 1,
+                "request_kind": "grammar_tip",
+                "model": "test-model",
+                "outcome": "success",
+            }
+        )
+        self.assertIn("📊 LLM Cost —", overview_text)
+        self.assertIn("Filters: MTD", overview_text)
+        self.assertIn("gold", overview_text)
+        self.assertIn("Success rate", overview_text)
+        self.assertIn("Projection", overview_text)
+        recent_text = _llm_cost_report_text(
+            {
+                "range": "mtd",
+                "view": "recent",
                 "detail": True,
                 "plan": "gold",
                 "user_id": 1,
@@ -172,13 +192,8 @@ class ReliabilityPersistenceTests(unittest.TestCase):
                 "outcome": "success",
             }
         )
-        self.assertIn("📊 LLM Cost — Overview", text)
-        self.assertIn("gold", text)
-        self.assertIn("1", text)
-        self.assertIn("🧾 Recent Requests", text)
-        self.assertIn("Month", text)
-        self.assertIn("Projection", text)
-        self.assertIn("Success rate", text)
+        self.assertIn("🧾 Recent Requests", recent_text)
+        self.assertIn("1", recent_text)
 
     def test_llm_dashboard_breakdowns_include_failure_rate(self):
         db.add_llm_request(

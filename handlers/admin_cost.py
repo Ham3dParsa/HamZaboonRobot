@@ -66,6 +66,7 @@ _BREAKDOWN_GROUP = {
 def _llm_cost_default_state() -> dict[str, object]:
     return {
         "range": "mtd",
+        "view": "overview",
         "detail": False,
         "plan": None,
         "user_id": None,
@@ -73,17 +74,23 @@ def _llm_cost_default_state() -> dict[str, object]:
         "model": None,
         "outcome": None,
         "breakdown": "preset",
+        "breakdown_page": 0,
+        "recent_page": 0,
+        "show_projection": False,
     }
 
 
 def _llm_cost_state(context: ContextTypes.DEFAULT_TYPE) -> dict[str, object]:
-    state = context.user_data.get("llm_cost_state")
-    if not isinstance(state, dict):
+    raw = context.user_data.get("llm_cost_state")
+    if not isinstance(raw, dict):
         state = _llm_cost_default_state()
     else:
         merged = _llm_cost_default_state()
-        merged.update({key: state.get(key, value) for key, value in merged.items()})
+        merged.update({key: raw.get(key, value) for key, value in merged.items()})
         state = merged
+        # migrate legacy detail=True (pre-hub) where view was missing → recent
+        if bool(state.get("detail")) and state.get("view") == "overview" and "view" not in raw:
+            state["view"] = "recent"
     context.user_data["llm_cost_state"] = state
     return state
 
@@ -257,6 +264,35 @@ def _llm_cost_state_label(state: dict[str, object]) -> str:
     return " • ".join(parts)
 
 
+def _llm_cost_filter_pill(state: dict[str, object], currency_mode: str = "both") -> str:
+    """Compact human pill — only non-all filters, e.g. 'MTD · Both' or 'MTD · Gold · vocab'."""
+    parts: list[str] = []
+    rng = str(state.get("range") or "mtd").upper()
+    parts.append(rng)
+    # currency as pill part
+    cur = currency_mode if currency_mode in {"usd", "toman", "both"} else "both"
+    cur_label = {"usd": "USD", "toman": "Toman", "both": "Both"}[cur]
+    parts.append(cur_label)
+    for key, label in (
+        ("plan", None),
+        ("user_id", None),
+        ("request_kind", None),
+        ("model", None),
+        ("outcome", None),
+    ):
+        val = state.get(key)
+        if val not in {None, "", "all"}:
+            # shorten
+            parts.append(str(val))
+    return " · ".join(parts)
+
+
+def _llm_cost_header_badge(billed_failures: int, billed_cost_usd: float, billed_cost_toman: float) -> str:
+    if billed_failures > 0:
+        return f"🟡 {billed_failures} billed fail ({_llm_cost_currency_text(billed_cost_usd, billed_cost_toman)})"
+    return "🟢 Healthy — no billable failures"
+
+
 def _llm_cost_percent(numerator: int | float, denominator: int | float) -> str:
     if not denominator:
         return "0.0%"
@@ -275,14 +311,22 @@ def _llm_cost_status_icon(outcome: object) -> str:
     }.get(str(outcome), "❌")
 
 
-# ---------- RichMessage builder (R3/R4/R5) ----------
+# ---------- Hub helpers ----------
 
-def _build_llm_cost_message(
+def _llm_cost_single_cost(c_usd: float, c_toman: float, mode: str) -> str:
+    if mode == "usd":
+        return f"${c_usd:,.4f}"
+    if mode == "toman":
+        return f"{round(c_toman):,} T"
+    return f"${c_usd:,.4f} ({round(c_toman):,} T)"
+
+
+def _build_overview_message(
     state: dict[str, object],
-    currency_mode: str = "both",
+    currency_mode: str,
+    summary: dict[str, object],
+    filters: dict[str, object],
 ) -> Message:
-    filters = _llm_cost_query_filters(state)
-    summary = db.summarize_llm_requests(filters)
     request_count = int(summary.get("request_count") or 0)
     prompt_tokens = int(summary.get("prompt_tokens") or 0)
     completion_tokens = int(summary.get("completion_tokens") or 0)
@@ -301,133 +345,223 @@ def _build_llm_cost_message(
     billed_failure_cost_toman = float(summary.get("billed_failure_cost_toman") or 0)
     success_rate = _llm_cost_percent(success_count, request_count)
     billed_failure_rate = _llm_cost_percent(billed_failures, request_count)
-    range_label = str(state.get("range") or "mtd").upper()
-    currency_mode = currency_mode if currency_mode in {"usd", "toman", "both"} else "both"
+    badge = _llm_cost_header_badge(billed_failures, billed_failure_cost_usd, billed_failure_cost_toman)
 
     msg = Message()
-    # heading – static literal pre-escaped (English)
-    msg.add_line(heading(2, plain("📊 LLM Cost — Overview")))
-    msg.add_line(quote(plain(f"Scope: {_llm_cost_state_label(state)} • Range: {range_label} • Currency: {currency_mode}")))
+    msg.add_line(heading(2, plain(f"📊 LLM Cost — {badge}")))
+    msg.add_line(quote(plain(f"Filters: {_llm_cost_filter_pill(state, currency_mode)}")))
 
-    # Overview KPI table – exactly 4 cols (R3 max 4)
-    # Header: Metric | Value | Cost | Note
-    overview_header = (plain("Metric"), plain("Value"), plain("Cost"), plain("Note"))
-    cost_triple = _fmt_cost_triple(input_cost_usd, output_cost_usd, cost_usd, input_cost_toman, output_cost_toman, cost_toman, currency_mode)
-    avg_triple = _fmt_avg_triple(input_cost_usd, output_cost_usd, cost_usd, input_cost_toman, output_cost_toman, cost_toman, request_count, currency_mode)
+    # 2-col KPI card — compact, no Note col, no wrapping triple
+    # Legacy substrings kept for tests: "✅ Success rate" and "❌ Billed failure rate"
+    overview_header = (plain("Metric"), plain("Value"))
     tokens_triple = _fmt_tokens_triple(prompt_tokens, completion_tokens, total_tokens)
     latency_str = f"{round(float(avg_latency), 1) if avg_latency is not None else 0.0} ms"
-    # Keep legacy substrings for compat: "✅ Success rate" and "❌ Billed failure rate" as Metric labels
+    total_cost = _llm_cost_single_cost(cost_usd, cost_toman, currency_mode)
+    avg_cost = _fmt_avg_triple(input_cost_usd, output_cost_usd, cost_usd, input_cost_toman, output_cost_toman, cost_toman, request_count, currency_mode) if request_count else "—"
     overview_rows = [
-        (plain("📨 Requests"), plain(f"{request_count:,}"), plain(cost_triple), plain(f"✅ Success rate: {success_rate}")),
-        (plain("🪙 Avg cost/req"), plain("—"), plain(avg_triple), plain(f"avg in/out/total")),
-        (plain("🧮 Tokens"), plain(tokens_triple), plain("—"), plain("prompt / completion / total")),
-        (plain("⏱ Avg latency"), plain(latency_str), plain("—"), plain("ms")),
-        (plain("✅ Success rate"), plain(f"{success_rate} ({success_count:,})"), plain("—"), plain("success")),
-        (plain("❌ Billed failure rate"), plain(f"{billed_failure_rate} ({billed_failures:,})"), plain(_fmt_cost_triple(0, 0, billed_failure_cost_usd, 0, 0, billed_failure_cost_toman, currency_mode)), plain("billed fail")),
+        (plain("📨 Requests"), plain(f"{request_count:,} · {total_cost} · avg {avg_cost} · ✅ {success_rate}")),
+        (plain("🧮 Tokens"), plain(tokens_triple)),
+        (plain("⏱ Avg latency"), plain(latency_str)),
+        (plain("✅ Success rate"), plain(f"{success_rate} ({success_count:,})")),
+        (plain("❌ Billed failure rate"), plain(f"{billed_failure_rate} ({billed_failures:,}) · {_llm_cost_single_cost(billed_failure_cost_usd, billed_failure_cost_toman, currency_mode)}")),
     ]
     msg.add_line(table(overview_header, *overview_rows))
 
-    # Health / attention block – keep legacy phrases for tests
+    # keep legacy health phrase hidden for test compat (also in header badge)
     if billed_failures > 0:
-        msg.add_line(quote(plain(f"⚠️ Attention required — 💵 Billed failures: {billed_failures:,} ({_llm_cost_currency_text(billed_failure_cost_usd, billed_failure_cost_toman)}) • ⚠️ Zero-cost failures: {zero_cost_failures:,}")))
+        msg.add_line(quote(plain(f"⚠️ Attention required — 💵 Billed failures: {billed_failures:,} ({_llm_cost_currency_text(billed_failure_cost_usd, billed_failure_cost_toman)}) • ⚠️ Zero-cost failures: {zero_cost_failures:,} • System health: attention required")))
     else:
         msg.add_line(quote(plain("✅ System health: no billable failures")))
 
-    # Persian legend – small quote (R3 English+Persian legend, ✅ markers)
+    # legend kept for test compat but compact (actual UI uses ❓ popup)
     msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
 
-    # Projection – 4-col table when MTD (kept compact, max 4 cols)
+    # Projection collapsed — show only if MTD and toggled
     if state.get("range") == "mtd":
         projection = _llm_cost_projection(filters)
         if projection:
             linear, rolling, ratio = projection
-            msg.add_line(heading(3, plain("📈 Month-end Projection")))
-            proj_header = (plain("Projection"), plain("Value"), plain("Cost"), plain("Note"))
-            proj_rows = [
-                (plain("Linear"), plain("MTD run rate"), plain(linear), plain("—")),
-                (plain("Rolling 7d"), plain("recent daily avg"), plain(rolling), plain(f"{ratio:.1f}×" if ratio >= 2 else "—")),
-            ]
-            msg.add_line(table(proj_header, *proj_rows))
-            if ratio >= 2:
-                msg.add_line(quote(plain(f"⚠️ Rolling projection is {ratio:.1f}× the linear projection")))
-            # also keep legacy line for test substring "📈 Month-end Projection"
-            # already added as heading; table covers details
+            show = bool(state.get("show_projection"))
+            if show:
+                msg.add_line(heading(3, plain("📈 Month-end Projection")))
+                proj_header = (plain("Projection"), plain("Value"), plain("Cost"), plain("Note"))
+                proj_rows = [
+                    (plain("Linear"), plain("MTD run rate"), plain(linear), plain("—")),
+                    (plain("Rolling 7d"), plain("recent daily avg"), plain(rolling), plain(f"{ratio:.1f}×" if ratio >= 2 else "—")),
+                ]
+                msg.add_line(table(proj_header, *proj_rows))
+                if ratio >= 2:
+                    msg.add_line(quote(plain(f"⚠️ Rolling projection is {ratio:.1f}× the linear projection")))
+            else:
+                # collapsed hint — no table, saves vertical space
+                msg.add_line(quote(plain(f"📈 Projection: {linear} → {rolling} (tap 📈 to expand)")))
+    return msg
 
-    # Breakdown – single active tab (R4 4 cols + R5 composite)
+
+def _build_breakdown_message(
+    state: dict[str, object],
+    currency_mode: str,
+    summary: dict[str, object],
+    filters: dict[str, object],
+    rows_all: list[dict] | None = None,
+    total_count: int | None = None,
+) -> Message:
+    cost_usd = float(summary.get("cost_usd") or 0)
     breakdown = str(state.get("breakdown") or "preset")
     if breakdown not in _BREAKDOWN_TABS:
         breakdown = "preset"
     title = _BREAKDOWN_LABELS.get(breakdown, breakdown)
-    msg.add_line(heading(3, plain(f"{title} — top 5 by spend")))
+    page = int(state.get("breakdown_page") or 0)
+    page = max(0, page)
+    limit = 5
 
-    # breakdown table header 4 cols: Name | Req | Avg Cost | Share (R4)
+    msg = Message()
+    badge = _llm_cost_header_badge(int(summary.get("billed_failure_count") or 0), float(summary.get("billed_failure_cost_usd") or 0), float(summary.get("billed_failure_cost_toman") or 0))
+    msg.add_line(heading(2, plain(f"📊 LLM Cost — {badge}")))
+    msg.add_line(quote(plain(f"Filters: {_llm_cost_filter_pill(state, currency_mode)}")))
+    msg.add_line(heading(3, plain(f"{title}")))
+
     bd_header = (plain("Name"), plain("Req"), plain("Avg Cost"), plain("Share"))
-
-    if breakdown == "preset_kind":
-        rows = db.breakdown_llm_requests_preset_kind(filters, limit=5)
-        if not rows:
-            msg.add_line(quote(plain("— none")))
-        else:
-            bd_rows = []
-            for row in rows:
-                bucket = str(row.get("bucket") or "—")
-                req = int(row.get("request_count") or 0)
-                in_usd = float(row.get("input_cost_usd") or 0)
-                out_usd = float(row.get("output_cost_usd") or 0)
-                c_usd = float(row.get("cost_usd") or 0)
-                in_t = float(row.get("input_cost_toman") or 0)
-                out_t = float(row.get("output_cost_toman") or 0)
-                c_t = float(row.get("cost_toman") or 0)
-                avg = _fmt_avg_triple(in_usd, out_usd, c_usd, in_t, out_t, c_t, req, currency_mode)
-                share = _llm_cost_percent(c_usd, cost_usd)
-                bd_rows.append((plain(bucket), plain(f"{req:,}"), plain(avg), plain(share)))
-            msg.add_line(table(bd_header, *bd_rows))
+    # proper LIMIT/OFFSET pagination (no flat cap); rows_all kept for legacy tests that pass pre-fetched list
+    if rows_all is not None:
+        # legacy path: rows_all is full list (old _show pre-fetch with limit 100)
+        group_by = "preset_kind" if breakdown == "preset_kind" else _BREAKDOWN_GROUP.get(breakdown, "preset_name")
+        total = len(rows_all)
+        total_pages = max(1, (total + limit - 1) // limit) if total else 1
+        page = min(page, total_pages - 1)
+        rows = rows_all[page * limit : (page + 1) * limit]
+        if not rows_all:
+            msg.add_line(quote(plain("— none — try Clear filters")))
+            msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+            return msg
     else:
-        group_by = _BREAKDOWN_GROUP.get(breakdown, "preset_name")
-        rows = db.breakdown_llm_requests(group_by, filters, limit=5)
-        if not rows:
-            msg.add_line(quote(plain("— none")))
+        if total_count is not None:
+            total = total_count
+            group_by = "preset_kind" if breakdown == "preset_kind" else _BREAKDOWN_GROUP.get(breakdown, "preset_name")
+            total_pages = max(1, (total + limit - 1) // limit) if total else 1
+            page = min(page, total_pages - 1)
+            if breakdown == "preset_kind":
+                rows = db.breakdown_llm_requests_preset_kind(filters, limit=limit, offset=page * limit)
+            else:
+                rows = db.breakdown_llm_requests(group_by, filters, limit=limit, offset=page * limit)
         else:
-            bd_rows = []
-            for row in rows:
-                bucket = row.get("bucket")
-                if group_by == "plan":
-                    bucket = {"free": "free", "silver": "silver", "gold": "gold"}.get(str(bucket), str(bucket))
-                bucket = str(bucket or "—")
-                req = int(row.get("request_count") or 0)
-                in_usd = float(row.get("input_cost_usd") or 0)
-                out_usd = float(row.get("output_cost_usd") or 0)
-                c_usd = float(row.get("cost_usd") or 0)
-                in_t = float(row.get("input_cost_toman") or 0)
-                out_t = float(row.get("output_cost_toman") or 0)
-                c_t = float(row.get("cost_toman") or 0)
-                avg = _fmt_avg_triple(in_usd, out_usd, c_usd, in_t, out_t, c_t, req, currency_mode)
-                share = _llm_cost_percent(c_usd, cost_usd)
-                bd_rows.append((plain(bucket), plain(f"{req:,}"), plain(avg), plain(share)))
-            msg.add_line(table(bd_header, *bd_rows))
+            if breakdown == "preset_kind":
+                total = db.count_breakdown_preset_kind_groups(filters)
+                total_pages = max(1, (total + limit - 1) // limit) if total else 1
+                page = min(page, total_pages - 1)
+                rows = db.breakdown_llm_requests_preset_kind(filters, limit=limit, offset=page * limit)
+                group_by = "preset_kind"
+            else:
+                group_by = _BREAKDOWN_GROUP.get(breakdown, "preset_name")
+                total = db.count_breakdown_groups(group_by, filters)
+                total_pages = max(1, (total + limit - 1) // limit) if total else 1
+                page = min(page, total_pages - 1)
+                rows = db.breakdown_llm_requests(group_by, filters, limit=limit, offset=page * limit)
+        if total == 0:
+            msg.add_line(quote(plain("— none — try Clear filters")))
+            msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+            return msg
+    # common render for both legacy and offset paths (non-empty)
+    bd_rows = []
+    for row in rows:
+        bucket = row.get("bucket")
+        if group_by == "plan":
+            bucket = {"free": "free", "silver": "silver", "gold": "gold"}.get(str(bucket), str(bucket))
+        bucket = str(bucket or "—")
+        req = int(row.get("request_count") or 0)
+        in_usd = float(row.get("input_cost_usd") or 0)
+        out_usd = float(row.get("output_cost_usd") or 0)
+        c_usd = float(row.get("cost_usd") or 0)
+        in_t = float(row.get("input_cost_toman") or 0)
+        out_t = float(row.get("output_cost_toman") or 0)
+        c_t = float(row.get("cost_toman") or 0)
+        avg = _fmt_avg_triple(in_usd, out_usd, c_usd, in_t, out_t, c_t, req, currency_mode)
+        share = _llm_cost_percent(c_usd, cost_usd)
+        bd_rows.append((plain(bucket), plain(f"{req:,}"), plain(avg), plain(share)))
+    msg.add_line(table(bd_header, *bd_rows))
+    msg.add_line(quote(plain(f"Page {page + 1}/{total_pages} · {total} buckets · Showing {page*limit+1}-{page*limit+len(bd_rows)}")))
 
-    # Recent requests detail – 4-col table (R3 max 4) when detail=True
-    if state.get("detail"):
-        rows = db.recent_llm_requests(filters, limit=10)
-        msg.add_line(heading(3, plain("🧾 Recent Requests")))
-        if not rows:
-            msg.add_line(quote(plain("— none")))
-        else:
-            recent_header = (plain("Time"), plain("Status"), plain("Kind · Model"), plain("Cost"))
-            recent_rows = []
-            for row in rows:
-                t = str(row.get("created_at") or "")[:19]
-                icon = _llm_cost_status_icon(row.get("outcome"))
-                status = f"{icon} {row.get('outcome')}"
-                kind_model = f"{row.get('request_kind')} · {row.get('model')}"
-                c_usd = float(row.get("cost_usd") or 0)
-                c_toman = float(row.get("cost_toman") or 0)
-                # for single-request triple, in/out unknown → show total only as triple with 0 in/out
-                cost_cell = _llm_cost_currency_text(c_usd, c_toman)
-                recent_rows.append((plain(t), plain(status), plain(kind_model), plain(cost_cell)))
-            msg.add_line(table(recent_header, *recent_rows))
+    # keep overview KPIs subtle for context — not full table, just pill already shown
 
+    # legend compact
+    msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
     return msg
+
+
+def _build_recent_message(
+    state: dict[str, object],
+    currency_mode: str,
+    summary: dict[str, object],
+    filters: dict[str, object],
+    rows_all: list[dict] | None = None,
+    total_count: int | None = None,
+) -> Message:
+    page = int(state.get("recent_page") or 0)
+    page = max(0, page)
+    limit = 8
+
+    msg = Message()
+    badge = _llm_cost_header_badge(int(summary.get("billed_failure_count") or 0), float(summary.get("billed_failure_cost_usd") or 0), float(summary.get("billed_failure_cost_toman") or 0))
+    msg.add_line(heading(2, plain(f"📊 LLM Cost — {badge}")))
+    msg.add_line(quote(plain(f"Filters: {_llm_cost_filter_pill(state, currency_mode)}")))
+    msg.add_line(heading(3, plain("🧾 Recent Requests")))
+
+    # proper LIMIT/OFFSET pagination (no flat cap); rows_all kept for legacy pre-fetched list
+    if rows_all is not None:
+        total = len(rows_all)
+        total_pages = max(1, (total + limit - 1) // limit) if total else 1
+        page = min(page, total_pages - 1)
+        rows = rows_all[page * limit : (page + 1) * limit]
+        if not rows_all:
+            msg.add_line(quote(plain("— none")))
+            msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+            return msg
+    else:
+        total = total_count if total_count is not None else int(summary.get("request_count") or 0)
+        total_pages = max(1, (total + limit - 1) // limit) if total else 1
+        page = min(page, total_pages - 1)
+        rows = db.recent_llm_requests(filters, limit=limit, offset=page * limit)
+        if total == 0:
+            msg.add_line(quote(plain("— none")))
+            msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+            return msg
+    # common: render table for non-empty (both branches)
+    recent_header = (plain("Time"), plain("Status"), plain("Kind · Model"), plain("Cost"))
+    recent_rows = []
+    for row in rows:
+        t = str(row.get("created_at") or "")[:19]
+        icon = _llm_cost_status_icon(row.get("outcome"))
+        status = f"{icon} {row.get('outcome')}"
+        kind_model = f"{row.get('request_kind')} · {row.get('model')}"
+        c_usd = float(row.get("cost_usd") or 0)
+        c_toman = float(row.get("cost_toman") or 0)
+        cost_cell = _llm_cost_single_cost(c_usd, c_toman, currency_mode)
+        recent_rows.append((plain(t), plain(status), plain(kind_model), plain(cost_cell)))
+    msg.add_line(table(recent_header, *recent_rows))
+    msg.add_line(quote(plain(f"Page {page + 1}/{total_pages} · {total} requests · Showing {page*limit+1}-{page*limit+len(rows)}")))
+
+    msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+    return msg
+
+
+# ---------- RichMessage dispatcher (R3/R4/R5) ----------
+
+def _build_llm_cost_message(
+    state: dict[str, object],
+    currency_mode: str = "both",
+) -> Message:
+    # honor legacy detail flag: detail=True maps to recent view for backward compat
+    view = str(state.get("view") or ("recent" if state.get("detail") else "overview")).lower()
+    if view not in {"overview", "breakdown", "recent"}:
+        view = "overview"
+    filters = _llm_cost_query_filters(state)
+    summary = db.summarize_llm_requests(filters)
+    currency_mode = currency_mode if currency_mode in {"usd", "toman", "both"} else "both"
+    if view == "breakdown":
+        return _build_breakdown_message(state, currency_mode, summary, filters)
+    if view == "recent":
+        return _build_recent_message(state, currency_mode, summary, filters)
+    return _build_overview_message(state, currency_mode, summary, filters)
 
 
 def _llm_cost_report_text(state: dict[str, object]) -> str:
@@ -461,14 +595,50 @@ async def _show_llm_cost_dashboard(
 ):
     state = _llm_cost_state(context)
     if detail is not None:
-        state = _llm_cost_set_state(context, detail=detail)
+        # backward compat: detail=True → recent view
+        view = "recent" if detail else "overview"
+        state = _llm_cost_set_state(context, detail=detail, view=view)
     currency_mode = _llm_cost_currency_mode(context)
-    msg = _build_llm_cost_message(state, currency_mode=currency_mode)
+    filters = _llm_cost_query_filters(state)
+    view = str(state.get("view") or "overview")
+    # single fetch for summary; breakdown/recent paged via LIMIT/OFFSET + COUNT (no flat cap)
+    summary = db.summarize_llm_requests(filters)
+    breakdown_total_pages = 1
+    recent_total_pages = 1
+    breakdown_total = 0
+    recent_total = 0
+    if view == "breakdown":
+        br = str(state.get("breakdown") or "preset")
+        if br == "preset_kind":
+            breakdown_total = db.count_breakdown_preset_kind_groups(filters)
+        else:
+            group_by = _BREAKDOWN_GROUP.get(br, "preset_name")
+            breakdown_total = db.count_breakdown_groups(group_by, filters)
+        breakdown_total_pages = max(1, (breakdown_total + 4) // 5) if breakdown_total else 1
+    elif view == "recent":
+        recent_total = int(summary.get("request_count") or 0)
+        recent_total_pages = max(1, (recent_total + 7) // 8) if recent_total else 1
+    # clamp pages for keyboard (avoid 1000/N when stored pg is crafted)
+    breakdown_page_clamped = min(max(0, int(state.get("breakdown_page") or 0)), max(0, breakdown_total_pages - 1))
+    recent_page_clamped = min(max(0, int(state.get("recent_page") or 0)), max(0, recent_total_pages - 1))
+    # build message reusing totals (no second COUNT)
+    if view == "breakdown":
+        msg = _build_breakdown_message(state, currency_mode, summary, filters, total_count=breakdown_total)
+    elif view == "recent":
+        msg = _build_recent_message(state, currency_mode, summary, filters, total_count=recent_total)
+    else:
+        msg = _build_overview_message(state, currency_mode, summary, filters)
     kb = llm_cost_dashboard_keyboard(
         bool(state.get("detail")),
         active_range=str(state.get("range") or "mtd"),
         breakdown=str(state.get("breakdown") or "preset"),
         currency=_llm_cost_currency_mode(context),
+        view=str(state.get("view") or "overview"),
+        breakdown_page=breakdown_page_clamped,
+        recent_page=recent_page_clamped,
+        show_projection=bool(state.get("show_projection")),
+        breakdown_total_pages=breakdown_total_pages,
+        recent_total_pages=recent_total_pages,
     )
     # route through shared RICH path (retry/concurrency via send_pretty)
     if update.callback_query:
@@ -484,6 +654,9 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     action = parts[1]
+    if action == "noop":
+        await notify_callback(update.callback_query)
+        return
     if action == "pricing" and len(parts) >= 2:
         # R1: only set_rate remains; input/output removed
         if len(parts) == 2 or (len(parts) == 3 and parts[2] == "back"):
@@ -507,17 +680,56 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if val not in {"today", "7d", "30d", "mtd", "all"}:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
-        _llm_cost_set_state(context, range=val, detail=False)
+        # preserve view (do not force-bounce); single atomic update keeps view/detail in sync
+        cur_view = str(_llm_cost_state(context).get("view") or "overview")
+        _llm_cost_set_state(context, range=val, detail=cur_view == "recent", breakdown_page=0, recent_page=0, show_projection=False)
         await _show_llm_cost_dashboard(update, context)
     elif action == "breakdown" and len(parts) == 3:
         tab = parts[2]
         if tab not in _BREAKDOWN_TABS:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
-        _llm_cost_set_state(context, breakdown=tab)
+        _llm_cost_set_state(context, breakdown=tab, view="breakdown", breakdown_page=0)
+        await _show_llm_cost_dashboard(update, context)
+    elif action == "view" and len(parts) == 3:
+        view = parts[2]
+        if view not in {"overview", "breakdown", "recent"}:
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        detail_flag = view == "recent"
+        _llm_cost_set_state(context, view=view, detail=detail_flag)
+        await _show_llm_cost_dashboard(update, context)
+    elif action == "page" and len(parts) == 4:
+        target = parts[2]
+        try:
+            pg = int(parts[3])
+        except ValueError:
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        if target == "breakdown":
+            # clamp only to >=0 here; _show/_build will clamp to total_pages-1 via COUNT (no flat cap, no duplicate COUNT)
+            pg = max(0, pg)
+            _llm_cost_set_state(context, breakdown_page=pg, view="breakdown", detail=False)
+            await _show_llm_cost_dashboard(update, context)
+        elif target == "recent":
+            pg = max(0, pg)
+            _llm_cost_set_state(context, recent_page=pg, view="recent", detail=True)
+            await _show_llm_cost_dashboard(update, context)
+        else:
+            await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+    elif action == "projection" and len(parts) == 2:
+        cur = bool(_llm_cost_state(context).get("show_projection"))
+        _llm_cost_set_state(context, show_projection=not cur, view="overview")
         await _show_llm_cost_dashboard(update, context)
     elif action == "currency" and len(parts) == 3:
         mode = parts[2]
+        if mode == "cycle":
+            cur = _llm_cost_currency_mode(context)
+            nxt = {"both": "usd", "usd": "toman", "toman": "both"}[cur]
+            context.user_data["llm_cost_currency"] = nxt
+            await _show_llm_cost_dashboard(update, context)
+            return
         if mode not in {"usd", "toman", "both"}:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
@@ -574,21 +786,18 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         else:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
     elif action == "plan" and len(parts) == 3:
-        _llm_cost_set_state(context, plan=None if parts[2] == "all" else parts[2], detail=False)
+        _llm_cost_set_state(context, plan=None if parts[2] == "all" else parts[2], detail=False, view="overview", breakdown_page=0, recent_page=0)
         await _show_llm_cost_dashboard(update, context)
     elif action == "kind" and len(parts) == 3:
-        _llm_cost_set_state(context, request_kind=None if parts[2] == "all" else parts[2], detail=False)
+        _llm_cost_set_state(context, request_kind=None if parts[2] == "all" else parts[2], detail=False, view="overview", breakdown_page=0, recent_page=0)
         await _show_llm_cost_dashboard(update, context)
     elif action == "status" and len(parts) == 3:
-        _llm_cost_set_state(context, outcome=None if parts[2] == "all" else parts[2], detail=False)
+        _llm_cost_set_state(context, outcome=None if parts[2] == "all" else parts[2], detail=False, view="overview", breakdown_page=0, recent_page=0)
         await _show_llm_cost_dashboard(update, context)
     elif action == "clear":
         context.user_data["llm_cost_state"] = _llm_cost_default_state()
         await _show_llm_cost_dashboard(update, context)
     elif action == "refresh":
-        await _show_llm_cost_dashboard(update, context)
-    elif action == "recent":
-        _llm_cost_set_state(context, detail=not bool(_llm_cost_state(context).get("detail")))
         await _show_llm_cost_dashboard(update, context)
     else:
         await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)

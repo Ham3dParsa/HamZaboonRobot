@@ -122,8 +122,8 @@ class TestCostReportEmojiR8(unittest.TestCase):
         text = admin_cost._llm_cost_report_text(admin_cost._llm_cost_default_state())
         self.assertIn("✅ Success rate", text)
         self.assertIn("❌ Billed failure rate", text)
-        # Outcome markers must not reuse the ON/OFF toggle emoji.
-        self.assertNotIn("🟢", text)
+        # Health badge uses 🟢/🟡, outcome markers must not reuse toggle emoji as status.
+        self.assertIn("🟢 Healthy", text)
         self.assertNotIn("⚫", text)
         self.assertNotIn("🔴", text)
         self.assertNotIn("⚪", text)
