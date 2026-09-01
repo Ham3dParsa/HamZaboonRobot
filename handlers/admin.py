@@ -401,6 +401,53 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         await notify_callback(update.callback_query)
         msg = await say(update, context, "متن پیام حالت تعمیر را بنویسید (برای کاربران هنگام تعمیر نمایش داده می‌شود):", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
         _store_awaiting_msg(context, update, msg)
+    elif action == "backup_restore" or action.startswith("backup_restore:"):
+        # Unified backup/restore submenu (contract: single menu)
+        from config.keyboards.admin import backup_restore_keyboard
+        from services.archive import resolved_archive_chat_id
+        sub = action[len("backup_restore"):].lstrip(":")
+        if not sub:
+            arch = db.get_setting("archive_chat_id", "") or "-"
+            await _edit_or_send(update, context, f"💾 پشتیبان & بازیابی\nآرشیو فعلی: {arch}", reply_markup=backup_restore_keyboard())
+            await notify_callback(update.callback_query)
+            return
+        if sub == "backup_now":
+            await notify_callback(update.callback_query, "در حال تهیه پشتیبان…", intent=CallbackNoticeIntent.INFO)
+            try:
+                from services.archive import do_backup
+                await do_backup(context.bot, update.effective_user.id)
+                await notify_callback(update.callback_query, "ارسال شد.", intent=CallbackNoticeIntent.SUCCESS)
+            except Exception as exc:
+                logger.exception("Backup failed")
+                await _edit_or_send(update, context, f"خطا در تهیه پشتیبان: {exc}", reply_markup=backup_restore_keyboard())
+            return
+        elif sub == "restore":
+            context.user_data["awaiting"] = "admin_restore"
+            await notify_callback(update.callback_query)
+            await _edit_or_send(update, context, "فایل دیتابیس (.db) را آپلود کنید.\n⚠️ این کار دیتابیس فعلی را کاملاً جایگزین می‌کند.", reply_markup=admin_awaiting_inline_keyboard())
+            return
+        elif sub == "set_archive":
+            context.user_data["awaiting"] = "admin_archive_chat_id"
+            await notify_callback(update.callback_query)
+            await say(update, context, "آیدی گروه آرشیو را بفرست (مثلاً -100123...). برای لغو /cancel:", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
+            return
+        elif sub == "clear_archive":
+            db.set_setting("archive_chat_id", "")
+            await _edit_or_send(update, context, "آرشیو پاک شد.", reply_markup=backup_restore_keyboard())
+            await notify_callback(update.callback_query, "پاک شد", intent=CallbackNoticeIntent.SUCCESS)
+            return
+        elif sub == "test_archive":
+            from services.archive import resolved_archive_chat_id, is_bot_admin
+            cid = resolved_archive_chat_id()
+            if not cid:
+                await notify_callback(update.callback_query, "آرشیو تنظیم نشده.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+                return
+            ok = await is_bot_admin(context.bot, cid)
+            await notify_callback(update.callback_query, "ربات ادمین است ✅" if ok else "ربات ادمین نیست ❌", intent=CallbackNoticeIntent.INFO)
+            return
+        else:
+            await notify_callback(update.callback_query, "عملیات نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
     elif action == "tts_cache":
         from config import resolve_tts_cache_chat_id
         cid = resolve_tts_cache_chat_id()
@@ -429,28 +476,6 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
                 await notify_callback(update.callback_query, "تست ارسال شد", intent=CallbackNoticeIntent.SUCCESS)
             except Exception as e:
                 await notify_callback(update.callback_query, f"خطا: {e}", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-    elif action == "backup":
-        # O-backup-panel: callback entry that mirrors /backup command
-        await notify_callback(update.callback_query, "در حال تهیه پشتیبان…", intent=CallbackNoticeIntent.INFO)
-        try:
-            data = await asyncio.to_thread(db.export_db_bytes)
-            await update.effective_message.reply_document(
-                document=io.BytesIO(data),
-                filename=f"hamzaban_backup_{datetime.datetime.now(_app_timezone).strftime('%Y%m%d_%H%M%S')}.db",
-                caption="📦 پشتیبان دیتابیس",
-            )
-        except Exception as exc:
-            logger.exception("Backup failed")
-            await _edit_or_send(update, context, f"خطا در تهیه پشتیبان: {exc}", reply_markup=admin_panel_keyboard())
-    elif action == "restore":
-        context.user_data["awaiting"] = "admin_restore"
-        await notify_callback(update.callback_query)
-        msg = await _edit_or_send(
-            update, context,
-            "فایل دیتابیس (.db) را آپلود کنید.\n⚠️ این کار دیتابیس فعلی را کاملاً جایگزین می‌کند.",
-            reply_markup=admin_awaiting_inline_keyboard(),
-        )
-        _store_awaiting_msg(context, update, msg)
     elif action.startswith("display_toggle:confirm:"):
         field = action.split(":", 2)[2]
         from config.catalog import DISPLAY_TOGGLE_FIELDS, HIGH_VALUE_TOGGLES
@@ -667,6 +692,22 @@ def _register_admin_flows() -> None:
         await say(update, context, "لطفاً یک فایل دیتابیس (.db) آپلود کنید.\n"
             "دوباره /restore را بزنید.", raw=RawFormat.PLAIN, mode="send")
 
+    async def _handle_admin_archive_chat_id(update, context, awaiting, text):
+        from services.archive import validate_archive_chat_id
+        raw = text.strip()
+        if raw in ("", "clear", "0", "-"):
+            db.set_setting("archive_chat_id", "")
+            mark_awaiting_consumed(context)
+            await say(update, context, "✅ آرشیو پاک شد.", raw=RawFormat.PLAIN, mode="send")
+            return
+        if not validate_archive_chat_id(raw):
+            context.user_data["awaiting"] = awaiting
+            await say(update, context, "آیدی نامعتبر است. باید ^-100\\d{5,}$ یا ^-\\d{5,}$ باشد. دوباره بفرست یا لغو کن.", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
+            return
+        db.set_setting("archive_chat_id", raw)
+        mark_awaiting_consumed(context)
+        await say(update, context, f"✅ آرشیو روی {raw} تنظیم شد.", raw=RawFormat.PLAIN, mode="send")
+
     async def _handle_ai_preset_name(update, context, awaiting, text):
         await _handle_ai_preset_new_name(update, context, text)
 
@@ -705,6 +746,7 @@ def _register_admin_flows() -> None:
     register_flow("admin_set_plan", _handle_plans_set_plan)
     register_flow("admin_broadcast", _handle_admin_broadcast)
     register_flow("admin_restore", _handle_admin_restore)
+    register_flow("admin_archive_chat_id", _handle_admin_archive_chat_id)
     register_flow("admin_maintenance_msg", _handle_admin_maintenance_msg)
     register_flow("admin_tts_cache_chat_id", _handle_admin_tts_cache)
     register_flow("ai_preset_new_name", _handle_ai_preset_name)
@@ -734,17 +776,13 @@ _register_admin_flows()
 # ======== Backup / Restore ========
 
 async def cmd_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send the current database file to the admin."""
+    """Send the current database file to the admin (via archive service)."""
     if not is_owner(update.effective_user.id):
         await say(update, context, "فقط مالک ربات دسترسی داره.", raw=RawFormat.PLAIN, mode="send")
         return
     try:
-        data = await asyncio.to_thread(db.export_db_bytes)
-        await update.message.reply_document(
-            document=io.BytesIO(data),
-            filename=f"hamzaban_backup_{datetime.datetime.now(_app_timezone).strftime('%Y%m%d_%H%M%S')}.db",
-            caption="📦 پشتیبان دیتابیس",
-        )
+        from services.archive import do_backup
+        await do_backup(context.bot, update.effective_user.id)
     except Exception as exc:
         logger.exception("Backup failed")
         await say(update, context, f"خطا در تهیه پشتیبان: {exc}", raw=RawFormat.PLAIN, mode="send")
@@ -762,14 +800,16 @@ async def cmd_restore(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle uploaded database file for restore."""
+    """Handle uploaded database file for restore (accepts PV and group, no strict awaiting gate)."""
     if not is_owner(update.effective_user.id):
         await say(update, context, "فقط مالک ربات دسترسی داره.", raw=RawFormat.PLAIN, mode="send")
         return
-    if context.user_data.get("awaiting") != "admin_restore":
-        await say(update, context, "ابتدا /restore را بزنید.", raw=RawFormat.PLAIN, mode="send")
-        return
-    context.user_data.pop("awaiting", None)
+    # accept both PV and group; only clear awaiting if present (no strict gate)
+    if context.user_data.get("awaiting") == "admin_restore":
+        context.user_data.pop("awaiting", None)
+    else:
+        # also allow without awaiting when owner sends .db file (group or PV)
+        context.user_data.pop("awaiting", None)
 
     _MAX_RESTORE_BYTES = 100 * 1024 * 1024
     try:
@@ -793,6 +833,8 @@ async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await say(update, context, f"❌ خطا در بازگردانی: {exc}", raw=RawFormat.PLAIN, mode="send")
 
 
+_AUTO_BACKUP_LOCK = asyncio.Lock()
+
 def _create_auto_backup() -> str | None:
     if not db.get_bool_setting("auto_backup_enabled", True):
         return None
@@ -801,7 +843,7 @@ def _create_auto_backup() -> str | None:
     timestamp = datetime.datetime.now(_app_timezone).strftime("%Y%m%d_%H%M%S")
     backup_path = os.path.join(backup_dir, f"hamzaban_auto_{timestamp}.db")
     Path(backup_path).write_bytes(db.export_db_bytes())
-    cutoff = datetime.datetime.now(_app_timezone).timestamp() - 30 * 86400
+    cutoff = datetime.datetime.now(_app_timezone).timestamp() - 3 * 86400
     for fname in os.listdir(backup_dir):
         fpath = os.path.join(backup_dir, fname)
         if fname.startswith("hamzaban_auto_") and fname.endswith(".db"):
@@ -814,13 +856,26 @@ def _create_auto_backup() -> str | None:
 
 
 async def auto_backup_job(context: ContextTypes.DEFAULT_TYPE):
-    """Periodic auto-backup: save a timestamped copy locally."""
-    try:
-        backup_path = await asyncio.to_thread(_create_auto_backup)
-        if backup_path:
-            logger.info("Auto-backup saved: %s", backup_path)
-    except Exception as exc:
-        logger.exception("Auto-backup failed: %s", exc)
+    """Periodic auto-backup: save locally and push to archive group if configured."""
+    # decoupled from OWNER_ID gate: run if resolved archive or OWNER_ID
+    from services.archive import resolved_archive_chat_id, do_backup
+    from config import OWNER_ID as _OID
+    if resolved_archive_chat_id() is None and _OID == 0:
+        return
+    if _AUTO_BACKUP_LOCK.locked():
+        return
+    async with _AUTO_BACKUP_LOCK:
+        try:
+            backup_path = await asyncio.to_thread(_create_auto_backup)
+            if backup_path:
+                logger.info("Auto-backup saved: %s", backup_path)
+            # push to archive/PV without quote
+            try:
+                await do_backup(context.bot, _OID)
+            except Exception as exc:
+                logger.warning("Auto-backup push failed: %s", exc)
+        except Exception as exc:
+            logger.exception("Auto-backup failed: %s", exc)
 
 
 # ======== Registry registration (R1, coarse) ========

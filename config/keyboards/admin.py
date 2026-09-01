@@ -94,14 +94,25 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
              InlineKeyboardButton("📋 سطح لاگ", callback_data="admin:log_level")],
             [InlineKeyboardButton(BTN_ADMIN_BROADCAST, callback_data="admin:broadcast"),
              InlineKeyboardButton(IBTN_USER_ACTIVITY_LOG, callback_data="admin:user_activity_log")],
-            [InlineKeyboardButton("💾 پشتیبان", callback_data="admin:backup"),
-             InlineKeyboardButton("♻️ بازیابی", callback_data="admin:restore")],
+            [InlineKeyboardButton("💾 پشتیبان & بازیابی", callback_data="admin:backup_restore")],
             [InlineKeyboardButton("🎙 کش TTS", callback_data="admin:tts_cache")],
             [InlineKeyboardButton("🎛 نمایش کارت", callback_data="admin:display_toggles")],
             [InlineKeyboardButton("🔧 حالت تعمیر", callback_data="admin:maintenance")],
         ]
     )
 
+
+
+def backup_restore_keyboard(archive_id: str | None = None) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton("📤 پشتیبان الان", callback_data="admin:backup_restore:backup_now")],
+        [InlineKeyboardButton("♻️ بازیابی", callback_data="admin:backup_restore:restore")],
+        [InlineKeyboardButton("⚙️ تنظیم گروه آرشیو", callback_data="admin:backup_restore:set_archive")],
+        [InlineKeyboardButton("🗑 پاک کردن آرشیو", callback_data="admin:backup_restore:clear_archive")],
+        [InlineKeyboardButton("✅ تست آرشیو", callback_data="admin:backup_restore:test_archive")],
+        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
+    ]
+    return InlineKeyboardMarkup(rows)
 
 
 def maintenance_keyboard(active: bool) -> InlineKeyboardMarkup:

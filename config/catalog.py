@@ -219,6 +219,7 @@ SETTINGS_KEYS = {
     "tts_cache_chat_id":               {"key": "tts_cache_chat_id", "type": "str", "default": "", "scope": "global"},
     "{card_type}_mode":                {"key": "{card_type}_mode", "type": "str", "default": "staged", "scope": "global", "pattern": True},
     "{card_type}_mode_gate":           {"key": "{card_type}_mode_gate", "type": "str", "default": "premium", "scope": "global", "pattern": True},
+    "archive_chat_id":                {"key": "archive_chat_id", "type": "str", "default": "", "scope": "global"},
 }
 
 def settings_key(name: str) -> dict:

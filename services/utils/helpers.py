@@ -460,3 +460,24 @@ async def _clear_awaiting_prompt(context: ContextTypes.DEFAULT_TYPE) -> None:
         pass
     except Exception:
         logger.exception("Failed to clear awaiting prompt")
+
+
+async def _send_document_with_retry(bot, chat_id: int, document, **kwargs):
+    """Send a document with retry/slot semantics mirroring _send_with_retry but for send_document."""
+    for attempt in range(3):
+        try:
+            async with _telegram_slots:
+                result = await bot.send_document(chat_id=chat_id, document=document, **kwargs)
+                _reset_telegram_cb()
+                return result
+        except Forbidden:
+            db.set_user_blocked(chat_id)
+            raise
+        except BadRequest:
+            raise
+        except RetryAfter as exc:
+            if attempt == 2:
+                raise
+            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
+        except (TimedOut, NetworkError):
+            raise
