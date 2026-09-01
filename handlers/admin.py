@@ -313,12 +313,10 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             _BROADCAST_RUNNING = False
         return
     elif action == "broadcast_cancel":
-        context.user_data.pop("pending_broadcast", None)
-        mark_awaiting_consumed(context)
-        context.user_data.pop("awaiting", None)
+        clear_admin_pending_state(context)
         await _clear_awaiting_prompt(context)
-        await notify_callback(update.callback_query, "لغو شد.", intent=CallbackNoticeIntent.INFO)
         await _edit_or_send(update, context, "لغو شد.", reply_markup=admin_panel_keyboard())
+        await notify_callback(update.callback_query, "لغو شد.", intent=CallbackNoticeIntent.INFO)
         return
     elif action == "broadcast_edit":
         context.user_data.pop("pending_broadcast", None)

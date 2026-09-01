@@ -150,6 +150,7 @@ async def _finish_llm_wait_state(wait_message, bot=None):
 
 
 async def _exit_awaiting_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, *, via_callback: bool = False):
+    await _clear_awaiting_prompt(context)
     context.user_data.pop("awaiting", None)
     user_id = update.effective_user.id
     reply_markup = main_menu(user_id == OWNER_ID)

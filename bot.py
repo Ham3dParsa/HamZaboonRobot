@@ -94,6 +94,7 @@ from services.utils.helpers import (
     _user_activity_line,
     _CANCEL_INPUTS,
     apply_log_level,
+    clear_admin_pending_state,
     exit_admin_awaiting_cancel,
 )
 
@@ -723,15 +724,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "flow:cancel":
         awaiting = context.user_data.get("awaiting", "")
         if awaiting:
-            if awaiting.startswith("ai_preset_edit:"):
-                parts = awaiting.split(":", 2)
-                preset_name = parts[1] if len(parts) == 3 else ""
-                if preset_name:
-                    context.user_data.setdefault("preset_edits", {}).pop(preset_name, None)
-            elif awaiting.startswith("ai_preset_full_edit:"):
-                context.user_data.pop("full_edit", None)
-            elif awaiting.startswith("admin_plan_full_edit:"):
-                context.user_data.pop("plan_full_edit", None)
+            clear_admin_pending_state(context)
+            await _clear_awaiting_prompt(context)
             await _exit_awaiting_flow(update, context, via_callback=True)
         else:
             await notify_callback(update.callback_query, "فعلاً چیزی برای لغو نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
