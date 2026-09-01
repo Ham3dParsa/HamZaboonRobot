@@ -68,6 +68,8 @@ def _coerce_tts_cache_chat_id(raw: str) -> int | None:
     except ValueError:
         return None
 
+ARCHIVE_CHAT_ID = os.getenv("ARCHIVE_CHAT_ID", "").strip()
+
 
 
 AI_MAX_CONCURRENCY = int(os.getenv("AI_MAX_CONCURRENCY", "2"))

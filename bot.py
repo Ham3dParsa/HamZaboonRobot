@@ -1294,12 +1294,13 @@ def main():
             interval=1800,
             first=1800,
         )
+        # archive auto-backup decoupled: runs if resolved_archive_chat_id or OWNER_ID
+        app.job_queue.run_repeating(
+            auto_backup_job,
+            interval=10800,
+            first=60,
+        )
         if OWNER_ID != 0:
-            app.job_queue.run_repeating(
-                auto_backup_job,
-                interval=21600,
-                first=21600,
-            )
             app.job_queue.run_repeating(
                 primary_retry_job,
                 interval=1800,
