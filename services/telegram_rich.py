@@ -45,6 +45,7 @@ from services.utils.helpers import (
 logger = logging.getLogger(__name__)
 
 # Feature flag — enabled; 404 latch handles old API servers (fallback to MDV2).
+# To disable, change this line and redeploy (no env kill-switch per owner decision).
 RICH_ENABLED = True
 
 # Bot instances (`id(bot)`) for which Rich Messages are known unsupported.
