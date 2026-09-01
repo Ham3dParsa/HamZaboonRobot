@@ -1,17 +1,25 @@
 import json
 import logging
-import os
 import re
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-
-from openai import OpenAI
+from urllib.parse import urlparse as _urlparse
 
 import httpx
+from openai import OpenAI
+
+try:
+    from openai import DefaultHttpxClient as _HttpxClient  # type: ignore
+except ImportError:
+    try:
+        from openai._httpx2 import Client as _HttpxClient  # type: ignore
+    except ImportError:
+        _HttpxClient = httpx.Client  # type: ignore
 
 from config import (
     AI_MAX_OUTPUT_TOKENS,
+    AI_PROXY_STRICT,
     AI_PROXY_URL,
     AI_TEMPERATURE,
     AI_TIMEOUT_SECONDS,
@@ -51,10 +59,46 @@ def create_client(preset: dict | None = None, *, api_key_override: str | None = 
     )
     timeout = preset_fields.resolve(preset, "timeout_seconds")
     # Optional proxy for geoblock bypass (e.g. Hetzner DE -> clean exit).
-    # Env-driven (AI_PROXY_URL) so no code change needed on server;
+    # Env-driven (AI_PROXY_URL) only - no per-preset column (keeps single source).
     # Telegram traffic is unaffected (only this OpenAI client uses it).
-    proxy_url = (preset.get("proxy_url") if isinstance(preset, dict) else None) or AI_PROXY_URL
-    http_client = httpx.Client(proxy=proxy_url, trust_env=False) if proxy_url else None
+    http_client = None
+    if AI_PROXY_URL:
+        try:
+            http_client = _HttpxClient(
+                proxy=AI_PROXY_URL,
+                timeout=httpx.Timeout(timeout),
+                trust_env=False,
+            )
+        except (httpx.ProxyError, httpx.InvalidURL, ImportError) as exc:
+            # Narrow: only proxy/URL/import errors. Fallback to direct is intentional
+            # to avoid total outage when proxy is temporarily bad, but emit error-level
+            # so operator knows geoblock bypass is off. Strict mode fails fast.
+            try:
+                _p = _urlparse(AI_PROXY_URL)
+                _redacted = f"{_p.scheme}://{_p.hostname or '?'}:{_p.port or ''}".rstrip(":")
+            except Exception:
+                _redacted = "<invalid proxy>"
+            log.error(
+                "AI_PROXY_URL %s invalid (%s), falling back to direct (geoblock bypass disabled)",
+                _redacted,
+                type(exc).__name__,
+            )
+            if AI_PROXY_STRICT:
+                raise
+        except Exception as exc:
+            # Unexpected bug during proxy setup - fail-fast after redacted log
+            try:
+                _p = _urlparse(AI_PROXY_URL)
+                _redacted = f"{_p.scheme}://{_p.hostname or '?'}:{_p.port or ''}".rstrip(":")
+            except Exception:
+                _redacted = "<invalid proxy>"
+            log.error(
+                "AI_PROXY_URL %s unexpected error (%s), failing AI call",
+                _redacted,
+                type(exc).__name__,
+            )
+            raise
+
     return OpenAI(
         base_url=base_url,
         api_key=api_key,
@@ -121,6 +165,11 @@ def test_connection(
             "error_class": type(exc).__name__,
             "error_message": str(exc)[:500],
         }
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
 
 
 def custom_test_card(
@@ -141,6 +190,7 @@ def custom_test_card(
     """
     telemetry: dict[str, object] = {}
     error: Exception | None = None
+    client = None
     try:
         if preset is None:
             preset = db.get_active_preset()
@@ -167,6 +217,11 @@ def custom_test_card(
         error = exc
         raise
     finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
         # Log to config_tests table instead of llm_requests
         db.log_config_test(
             test_type="custom",
@@ -644,30 +699,36 @@ def _request_json(
     telemetry["request_kind"] = request_kind
     extra_body = {"reasoning_effort": reasoning} if reasoning not in (None, "", "none") else None
     try:
-        kwargs: dict = dict(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=temp,
-            max_tokens=mtokens,
-        )
-        if extra_body is not None:
-            kwargs["extra_body"] = extra_body
-        resp = client.chat.completions.create(**kwargs)
-    except Exception as exc:
-        if getattr(exc, "status_code", None) == 429 or "RateLimitError" in type(exc).__name__:
-            raise RateLimitError(str(exc)) from exc
-        raise
-    telemetry["usage"] = resp.usage
-    telemetry["latency_ms"] = (time.monotonic() - started) * 1000
-    content = resp.choices[0].message.content or ""
-    try:
-        return _extract_json(content)
-    except Exception as exc:
-        telemetry["error"] = exc
-        raise
+        try:
+            kwargs: dict = dict(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=temp,
+                max_tokens=mtokens,
+            )
+            if extra_body is not None:
+                kwargs["extra_body"] = extra_body
+            resp = client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            if getattr(exc, "status_code", None) == 429 or "RateLimitError" in type(exc).__name__:
+                raise RateLimitError(str(exc)) from exc
+            raise
+        telemetry["usage"] = resp.usage
+        telemetry["latency_ms"] = (time.monotonic() - started) * 1000
+        content = resp.choices[0].message.content or ""
+        try:
+            return _extract_json(content)
+        except Exception as exc:
+            telemetry["error"] = exc
+            raise
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
 
 
 def ask_json(

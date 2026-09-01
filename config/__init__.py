@@ -18,7 +18,26 @@ AI_MASTER_KEY = os.getenv("AI_MASTER_KEY", "")
 # Optional SOCKS/HTTP proxy for AI provider calls (e.g. socks5://127.0.0.1:1080).
 # When set, only OpenAI-compatible AI calls are routed via this proxy
 # (Telegram traffic stays direct). Unset by default.
-AI_PROXY_URL = os.getenv("AI_PROXY_URL", "")
+AI_PROXY_URL = os.getenv("AI_PROXY_URL", "").strip()
+# When true, a bad AI_PROXY_URL fails fast instead of silently falling back to direct
+# (which would re-expose geoblock). Default 0 keeps fallback for availability.
+AI_PROXY_STRICT = os.getenv("AI_PROXY_STRICT", "false").lower() in {"1", "true", "yes"}
+if AI_PROXY_URL:
+    from urllib.parse import urlparse as _urlparse
+
+    _parsed = _urlparse(AI_PROXY_URL)
+    if _parsed.scheme not in {"http", "https", "socks5", "socks5h"}:
+        import logging as _plog
+
+        _plog.getLogger(__name__).warning(
+            "AI_PROXY_URL has unsupported scheme %r, disabling proxy", _parsed.scheme
+        )
+        AI_PROXY_URL = ""
+    elif not _parsed.hostname:
+        import logging as _plog
+
+        _plog.getLogger(__name__).warning("AI_PROXY_URL missing hostname, disabling proxy")
+        AI_PROXY_URL = ""
 
 DB_PATH = os.getenv("DB_PATH", "hamzaban.db")
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Tehran")
