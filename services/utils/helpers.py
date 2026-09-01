@@ -347,10 +347,52 @@ async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
 
 
 async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
+    # Capture InputFile bytes+filename so RetryAfter retries recreate a fresh InputFile
+    # (InputFile has no getvalue; bytes live in input_file_content). Parity with _send_document_with_retry.
+    _voice_filename: str | None = kwargs.pop("filename", None)
+    _voice_bytes: bytes | None = None
+    _voice_is_inputfile = False
+    try:
+        if isinstance(voice, InputFile):
+            _voice_is_inputfile = True
+            _voice_filename = getattr(voice, "filename", None) or _voice_filename
+            content = getattr(voice, "input_file_content", None)
+            if isinstance(content, (bytes, bytearray)):
+                _voice_bytes = bytes(content)
+            elif hasattr(content, "getvalue"):
+                try:
+                    _voice_bytes = content.getvalue()
+                except Exception:
+                    _voice_bytes = None
+            elif hasattr(content, "read"):
+                try:
+                    _voice_bytes = content.read()
+                    if isinstance(_voice_bytes, bytearray):
+                        _voice_bytes = bytes(_voice_bytes)
+                except Exception:
+                    _voice_bytes = None
+        elif hasattr(voice, "getvalue"):
+            try:
+                _voice_bytes = voice.getvalue()
+            except Exception:
+                _voice_bytes = None
+            if _voice_filename is None:
+                _voice_filename = getattr(voice, "name", None)
+    except Exception:
+        pass
     for attempt in range(3):
         try:
             async with _telegram_slots:
-                result = await bot.send_voice(chat_id=chat_id, voice=voice, **kwargs)
+                voice_to_send = voice
+                if _voice_bytes is not None:
+                    if _voice_is_inputfile:
+                        voice_to_send = InputFile(io.BytesIO(_voice_bytes), filename=_voice_filename or "voice.mp3")
+                    else:
+                        if _voice_filename:
+                            voice_to_send = InputFile(io.BytesIO(_voice_bytes), filename=_voice_filename)
+                        else:
+                            voice_to_send = io.BytesIO(_voice_bytes)
+                result = await bot.send_voice(chat_id=chat_id, voice=voice_to_send, **kwargs)
                 _reset_telegram_cb()
                 return result
         except Forbidden:

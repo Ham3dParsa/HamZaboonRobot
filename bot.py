@@ -1167,7 +1167,6 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
             path = await tts.pronounce(word, lang)
             if chat_id:
                 try:
-                    filename = tts.tts_filename(word, lang)
                     voice_bytes = await asyncio.to_thread(path.read_bytes)
                     # send to channel with caption+filename
                     msg = await _send_voice_with_retry(
@@ -1175,7 +1174,6 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
                         chat_id,
                         voice_bytes,
                         caption=caption,
-                        filename=filename,
                     )
                     # extract file_id
                     fid = None
@@ -1197,6 +1195,8 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
                             reply_to_message_id=update.callback_query.message.message_id,
                         )
                         return
+                except (Forbidden, BadRequest) as exc:
+                    log.warning("TTS channel cache upload blocked/bad request (%s), fallback to direct", exc)
                 except Exception:
                     log.exception("TTS channel cache upload failed, fallback to direct")
             # fallback direct
@@ -1208,13 +1208,26 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
                 caption=caption,
                 reply_to_message_id=update.callback_query.message.message_id,
             )
+    except (Forbidden, BadRequest) as exc:
+        log.warning("TTS pronunciation blocked/bad request (%s)", exc)
+        try:
+            await _send_with_retry(
+                context.bot,
+                update.effective_chat.id,
+                "متأسفانه تولید تلفظ با خطا مواجه شد. لطفاً کمی بعد دوباره تلاش کنید.",
+            )
+        except Exception:
+            log.exception("TTS fallback notice failed (Forbidden/BadRequest path)")
     except Exception:
         log.exception("TTS pronunciation failed")
-        await _send_with_retry(
-            context.bot,
-            update.effective_chat.id,
-            "متأسفانه تولید تلفظ با خطا مواجه شد. لطفاً کمی بعد دوباره تلاش کنید.",
-        )
+        try:
+            await _send_with_retry(
+                context.bot,
+                update.effective_chat.id,
+                "متأسفانه تولید تلفظ با خطا مواجه شد. لطفاً کمی بعد دوباره تلاش کنید.",
+            )
+        except Exception:
+            log.exception("TTS fallback notice failed")
 
 
 async def primary_retry_job(context: ContextTypes.DEFAULT_TYPE):
