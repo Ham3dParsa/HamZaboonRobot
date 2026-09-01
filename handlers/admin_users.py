@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 def _build_profile_message(row, stats, blocked: bool) -> Message:
     """Build a RichMessage table for the user profile (RTL, no box-drawing)."""
     def _sanitize(v: str) -> str:
-        return v.replace("|", "\\|").replace("\n", " ")
+        return v.replace("\n", " ").replace("\r", " ")
 
     full_name = _sanitize((dict(row).get("full_name") or "").strip().replace("\n", " ")[:50] or "—")
     username = _sanitize(f"@{row['username']}" if row["username"] else "—")

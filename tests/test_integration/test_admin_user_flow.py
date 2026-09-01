@@ -407,6 +407,25 @@ class AdminUserFlowTest(unittest.TestCase):
         # new panel should expose plans manager and cost dashboard
         self.assertIn("admin:plans", all_cbs)
 
+    def test_profile_table_escapes_pipe_newline(self):
+        """Pipe/newline in full_name must not break RICH table columns."""
+        from handlers.admin_users import _build_profile_message
+        from services.send_pretty import Backend
+
+        db.update_user_full_name(42, "a|b\nc")
+        row = db.get_user(42)
+        stats = db.get_user_learning_stats(42)
+        msg = _build_profile_message(row, stats, False)
+        rich = msg.render(Backend.RICH)
+        # pipe escaped once via _escape_rich -> \|
+        self.assertIn("\\|", rich)
+        self.assertNotIn("\\\\\\|", rich)
+        # newline sanitized to space, single logical row
+        self.assertNotIn("a|b\nc", rich)
+        # fallback plain degradable (Table not supported in MDV2, but plain works)
+        plain = msg.render(Backend.PLAIN)
+        self.assertIsInstance(plain, str)
+
 
 if __name__ == "__main__":
     unittest.main()
