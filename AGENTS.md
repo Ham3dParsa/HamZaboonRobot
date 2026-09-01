@@ -134,9 +134,16 @@ learner-facing message.
 Load the relevant skill by trigger (see §9). Core discipline:
 
 0. Contract locked (§2) before any code.
-1. Fresh branch `type/short-desc` from latest `origin/main`; **work in an
-   isolated git worktree** (see `using-git-worktrees`). Run `parallel-work-guard`
-   seam check before locking and before starting.
+1. Worktree Isolation Gate — primary worktree (`HamZaban` root) stays on `main`
+   and stays clean: never `git checkout`/`switch`/`branch` there. For every
+   task, create an isolated worktree at `.worktrees/<type/short-desc>` via
+   `git worktree add .worktrees/<branch> -b <branch> origin/main` (see
+   `using-git-worktrees` + `parallel-work-guard`), `cd` there, and do ALL
+   edits/commits/tests inside it (`git rev-parse --show-toplevel` ≠ primary).
+   Gate passes when `git -C <primary> branch --show-current == main` and
+   `git -C <primary> status --porcelain` clean, and `git worktree list` shows
+   the task worktree. If primary is dirty, treat it as read-only — do not
+   stash/commit it.
 2. Write focused tests from the behavior spec + locked contract, not internals.
    Behavioral changes (handlers/keyboards/DB/quota/AI/callbacks) need
    `tests/test_integration/`; callback/router changes need a
@@ -233,16 +240,19 @@ when the owner explicitly asks for detail. Bullets over prose.
 
 ## Appendix A: Self-Check
 
-**Before implementation:** all gaps as numbered rules with options + trade-offs;
-owner chose each; Contract Lock Template filled; `GATE STATUS = LOCKED`;
-`<SYSTEM_GATE> Contract lock required before proceeding </SYSTEM_GATE>` present;
-no code before lock; callback impact assessed; §2.2 §2.3 compliant; `grep`
-verified no duplicate domain logic (§3).
+**Before implementation:** primary on `main` clean and worktree isolated (§6.1
+gate passed: `git -C <primary> branch --show-current == main`, `git -C <primary>
+status --porcelain` clean, work inside `.worktrees/<branch>`); all gaps as
+numbered rules with options + trade-offs; owner chose each; Contract Lock
+Template filled; `GATE STATUS = LOCKED`; `<SYSTEM_GATE> Contract lock required
+before proceeding </SYSTEM_GATE>` present; no code before lock; callback impact
+assessed; §2.2 §2.3 compliant; `grep` verified no duplicate domain logic (§3).
 
-**Before commit:** validation suite passed (§7); `git diff --check` + staged
-clean; no secrets; single logical commit; explicit `git add`; branch
-`type/short-desc`; `<SYSTEM_GATE> Git validation required before commit
-</SYSTEM_GATE>` present; `<SYSTEM_GATE> Independent review required before commit
-</SYSTEM_GATE>` present (§6.3 gate passed: `hamzaban-reviewer` Task completed — 0
-confirmed findings or all fixed and re-verified); failures classified
-(§6 Test-sync); dead references removed (§6 Route-delete).
+**Before commit:** work inside `.worktrees/<branch>` (§6.1 primary still on
+`main` clean); validation suite passed (§7); `git diff --check` + staged clean;
+no secrets; single logical commit; explicit `git add`; branch `type/short-desc`;
+`<SYSTEM_GATE> Git validation required before commit </SYSTEM_GATE>` present;
+`<SYSTEM_GATE> Independent review required before commit </SYSTEM_GATE>` present
+(§6.3 gate passed: `hamzaban-reviewer` Task completed — 0 confirmed findings or
+all fixed and re-verified); failures classified (§6 Test-sync); dead references
+removed (§6 Route-delete).
