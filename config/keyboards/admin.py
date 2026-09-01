@@ -714,9 +714,9 @@ def reports_days_keyboard(grouped: dict[str, list]) -> InlineKeyboardMarkup:
 
     rows: list[list[InlineKeyboardButton]] = []
     _iso_re = _re.compile(r"^\d{4}-\d{2}-\d{2}$")
-    # Sort ISO day keys DESC; non-ISO fallback keys last (never create reports:day for them)
+    # Sort ISO day keys DESC; non-ISO fallback keys last
     def _day_sort_key(k: str):
-        return (0, k) if _iso_re.match(k) else (1, k)
+        return (1, k) if _iso_re.match(k) else (0, k)
 
     for day_key in sorted(grouped.keys(), key=_day_sort_key, reverse=True):
         entries = grouped[day_key]
@@ -747,7 +747,6 @@ def reports_days_keyboard(grouped: dict[str, list]) -> InlineKeyboardMarkup:
 def reports_day_keyboard(day_key: str, entries: list) -> InlineKeyboardMarkup:
     """Second level: one button per session sorted ASC for per-day numbering (R3,R8)."""
     from services.utils.formatting import jalali_time_label, parse_iso_to_app_tz, to_persian_digits as _tpd
-    import datetime as _dt
 
     # sort ASC by actual Tehran time — consistent tuple key to avoid datetime/str mix (Kilo)
     def _sort_key(e):
