@@ -35,6 +35,7 @@ from services.utils.helpers import (
     _send_with_retry,
 )
 from config.keyboards import (
+    BTN_SETTINGS,
     DISPLAY_TOGGLE_FA_LABELS,
     display_toggle_confirm_keyboard,
     main_menu,
@@ -468,7 +469,7 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     await say(
         update,
         context,
-        "⚙️ تنظیمات و پروفایل من:\nاز دکمه‌های زیر یکی را انتخاب کن.",
+        f"{BTN_SETTINGS}:\nاز دکمه‌های زیر یکی را انتخاب کن.",
         keyboard=settings_inline_keyboard(lang_name, goal_name, level_name),
         raw=RawFormat.PLAIN,
     )

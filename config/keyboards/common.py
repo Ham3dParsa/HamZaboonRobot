@@ -19,14 +19,17 @@ from .constants import *  # noqa: F401,F403
 # --- Presentation ---
 
 def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
-    rows = [
-        [BTN_STUDY_SESSION],
-        [BTN_ASK_WORD],
-        [BTN_SETTINGS],
-        [BTN_HELP],
-    ]
     if is_owner:
-        rows.append([BTN_ADMIN])
+        rows = [
+            [BTN_ADMIN],
+            [BTN_STUDY_SESSION, BTN_ASK_WORD],
+            [BTN_SETTINGS, BTN_HELP],
+        ]
+    else:
+        rows = [
+            [BTN_STUDY_SESSION, BTN_ASK_WORD],
+            [BTN_SETTINGS, BTN_HELP],
+        ]
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
