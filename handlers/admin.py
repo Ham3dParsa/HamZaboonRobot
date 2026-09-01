@@ -502,11 +502,12 @@ async def handle_flow_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     not only admin ones (e.g., ``ask_word`` is also supported). Behavior is
     unchanged.
     """
-    awaiting = context.user_data.get("awaiting", "")
+    awaiting = context.user_data.get("awaiting", "") or ""
+    clear_admin_pending_state(context)
+    await _clear_awaiting_prompt(context)
     if awaiting.startswith("ai_preset_edit:"):
         parts = awaiting.split(":", 2)
         preset_name = parts[1] if len(parts) == 3 else ""
-        context.user_data.pop("awaiting", None)
         if preset_name:
             await _edit_ai_preset(update, context, preset_name)
         else:
@@ -514,8 +515,6 @@ async def handle_flow_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif awaiting.startswith("ai_preset_full_edit:"):
         parts = awaiting.split(":", 2)
         preset_name = parts[1] if len(parts) >= 2 else ""
-        context.user_data.pop("full_edit", None)
-        context.user_data.pop("awaiting", None)
         await _edit_ai_preset(update, context, preset_name)
     elif awaiting.startswith("admin_plan_full_edit:"):
         context.user_data.pop("plan_full_edit", None)
