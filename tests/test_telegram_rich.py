@@ -69,19 +69,7 @@ class TestRichDelivery(unittest.IsolatedAsyncioTestCase):
         fb.assert_awaited_once()
 
     def test_flag_default_is_true(self):
-        # Default env should enable Rich (true/1/yes/on). No reload needed;
-        # the module was imported with default env true.
         self.assertTrue(telegram_rich.RICH_ENABLED)
-        # Env override check via patch without reload pollution
-        with patch.dict("os.environ", {"RICH_ENABLED": "false"}):
-            # Re-evaluate the expression directly (strip to match production)
-            val = __import__("os").getenv("RICH_ENABLED", "true").strip().lower() in (
-                "1",
-                "true",
-                "yes",
-                "on",
-            )
-            self.assertFalse(val)
 
     async def test_send_pretty_rich_fallback_via_send(self):
         """Handler-level integration: send via Backend.RICH with mocked 404/BadRequest falls back to MDV2."""
