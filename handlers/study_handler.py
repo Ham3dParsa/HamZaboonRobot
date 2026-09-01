@@ -1315,8 +1315,8 @@ async def _handle_reports_callback(
         from config.keyboards.admin import reports_day_keyboard
         from services.utils.formatting import jalali_day_label as _jdl
 
-        # header uses jalali day label
-        first_iso = getattr(day_entries[0], "created_at", "") or ""
+        # header uses jalali day label — fallback to session_date like _reports_list_payload
+        first_iso = getattr(day_entries[0], "created_at", "") or getattr(day_entries[0], "session_date", "") or ""
         header_label = _jdl(first_iso) if first_iso else day_key
         text = "*" + escape_mdv2(header_label) + "*\n" + escape_mdv2(f"— {to_persian_digits(len(day_entries))} نشست")
         keyboard = reports_day_keyboard(day_key, day_entries)

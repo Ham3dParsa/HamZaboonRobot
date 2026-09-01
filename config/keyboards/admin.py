@@ -708,13 +708,24 @@ def session_summary_legend_keyboard(page_index: int, nonce: str) -> InlineKeyboa
 
 def reports_days_keyboard(grouped: dict[str, list]) -> InlineKeyboardMarkup:
     """Two-level top: one button per jalali day (R1,R2,R4)."""
+    import re as _re
+
     from services.utils.formatting import jalali_day_label, to_persian_digits as _tpd
 
     rows: list[list[InlineKeyboardButton]] = []
-    # Sort day keys DESC (newest day first) for UX
-    for day_key in sorted(grouped.keys(), reverse=True):
+    _iso_re = _re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    # Sort ISO day keys DESC; non-ISO fallback keys last (never create reports:day for them)
+    def _day_sort_key(k: str):
+        return (0, k) if _iso_re.match(k) else (1, k)
+
+    for day_key in sorted(grouped.keys(), key=_day_sort_key, reverse=True):
         entries = grouped[day_key]
         if not entries:
+            continue
+        # Fallback bucket (no ISO date) — emit direct detail buttons, no day drill-down
+        if not _iso_re.match(day_key):
+            for e in entries:
+                rows.append([InlineKeyboardButton(f"📄 گزارش #{e.report_id}", callback_data=f"reports:detail:{e.report_id}:0")])
             continue
         # label uses first entry's created_at for jalali day
         first_iso = getattr(entries[0], "created_at", "") or ""
