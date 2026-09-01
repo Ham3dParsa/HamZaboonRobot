@@ -515,7 +515,10 @@ async def handle_flow_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif awaiting.startswith("ai_preset_full_edit:"):
         parts = awaiting.split(":", 2)
         preset_name = parts[1] if len(parts) >= 2 else ""
-        await _edit_ai_preset(update, context, preset_name)
+        if preset_name:
+            await _edit_ai_preset(update, context, preset_name)
+        else:
+            await _show_ai_settings(update, context)
     elif awaiting.startswith("admin_plan_full_edit:"):
         context.user_data.pop("plan_full_edit", None)
         await _exit_awaiting_flow(update, context, via_callback=True)

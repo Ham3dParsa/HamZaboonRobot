@@ -401,6 +401,14 @@ def _store_awaiting_msg(context: ContextTypes.DEFAULT_TYPE, update: Update, msg)
     we only read ``effective_message`` as fallback — never ``callback_query.message``
     directly — and we always prefer ``msg.message_id`` when ``msg`` carries one.
     """
+    # Callback updates: effective_message aliases callback_query.message in PTB,
+    # so say()/_edit_or_send returning None/True (edit not-modified) would write
+    # the button message_id into _awaiting_msg and later _clear_awaiting_prompt
+    # would strip the admin menu instead of the prompt. On callback updates with
+    # no real Message (None/bool) we skip the store — awaiting text stays in
+    # user_data["awaiting"] and will be cleared via clear_admin_pending_state.
+    if (msg is None or isinstance(msg, bool)) and getattr(update, "callback_query", None) is not None:
+        return
     try:
         mid = None
         cid = None
