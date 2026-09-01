@@ -66,14 +66,7 @@ jobs:
         continue-on-error: true
         env:
           HAMZABAN_TEST_MODE: "1"
-        run: |
-          set -o pipefail
-          python -m pytest tests/ -n 4 --junitxml=junit/test-results.xml -v 2>&1 | tee /tmp/pytest.log
-          ec=${PIPESTATUS[0]}
-          echo "PYTEST_EXIT:$ec"
-          grep -i "FAILED\|ERROR" /tmp/pytest.log | head -n 100 || true
-          grep -i "failure" junit/test-results.xml | head -n 20 || echo "no failures in xml"
-          exit $ec
+        run: python -m pytest tests/ -n 4 --junitxml=junit/test-results.xml -v
 
       - name: Check whitespace errors
         run: git diff --check
