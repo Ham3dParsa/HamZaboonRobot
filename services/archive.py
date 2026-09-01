@@ -11,8 +11,6 @@ from services.utils.helpers import _send_document_with_retry
 
 logger = logging.getLogger(__name__)
 
-_ARCHIVE_RE = re.compile(r"^-100\d{5,}$|^-\\d{5,}$")
-# contract requires ^-100\d{5,}$ or ^-\d{5,}$ -> use compiled above (second alt needs ^-\d{5,}$)
 _ARCHIVE_RE = re.compile(r"^-100\d{5,}$|^-\d{5,}$")
 
 
@@ -97,11 +95,15 @@ async def is_bot_admin(bot, chat_id: int) -> bool:
 
 
 async def do_backup(bot, owner_user_id: int, dest_chat_id: int | None = None):
-    data = await asyncio.to_thread(db.export_db_bytes)
-    caption = build_backup_caption(len(data))
     target = dest_chat_id if dest_chat_id is not None else resolved_archive_chat_id()
     if target is None:
         target = owner_user_id
+    # Guard: never send to 0 (unconfigured OWNER_ID + no archive)
+    if not target:
+        logger.warning("do_backup: no valid target (archive unset and owner_id==0), skipping")
+        return None
+    data = await asyncio.to_thread(db.export_db_bytes)
+    caption = await asyncio.to_thread(build_backup_caption, len(data))
     fname = f"hamzaban_backup_{datetime.datetime.now(APP_TZ).strftime('%Y%m%d_%H%M%S')}.db"
     await _send_document_with_retry(bot, target, document=io.BytesIO(data), filename=fname, caption=caption)
     return target

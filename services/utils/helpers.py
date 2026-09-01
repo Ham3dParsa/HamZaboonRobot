@@ -464,10 +464,25 @@ async def _clear_awaiting_prompt(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def _send_document_with_retry(bot, chat_id: int, document, **kwargs):
     """Send a document with retry/slot semantics mirroring _send_with_retry but for send_document."""
+    # Capture raw bytes so BytesIO can be rewound/recreated on RetryAfter retries
+    # (otherwise second attempt sends empty file).
+    _doc_bytes: bytes | None = None
+    _doc_filename: str | None = None
+    if hasattr(document, "getvalue"):
+        try:
+            _doc_bytes = document.getvalue()
+        except Exception:
+            _doc_bytes = None
     for attempt in range(3):
         try:
             async with _telegram_slots:
-                result = await bot.send_document(chat_id=chat_id, document=document, **kwargs)
+                doc_to_send = document
+                if _doc_bytes is not None:
+                    # Recreate fresh BytesIO each attempt so position is 0
+                    import io as _io
+                    doc_to_send = _io.BytesIO(_doc_bytes)
+                    # preserve filename hint if caller passed via kwargs filename
+                result = await bot.send_document(chat_id=chat_id, document=doc_to_send, **kwargs)
                 _reset_telegram_cb()
                 return result
         except Forbidden:
@@ -478,6 +493,12 @@ async def _send_document_with_retry(bot, chat_id: int, document, **kwargs):
         except RetryAfter as exc:
             if attempt == 2:
                 raise
+            # ensure next loop's BytesIO starts at 0 (recreated above); also seek original if reused externally
+            try:
+                if hasattr(document, "seek"):
+                    document.seek(0)
+            except Exception:
+                pass
             await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
             raise

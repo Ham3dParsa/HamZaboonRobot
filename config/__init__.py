@@ -69,7 +69,6 @@ def _coerce_tts_cache_chat_id(raw: str) -> int | None:
         return None
 
 ARCHIVE_CHAT_ID = os.getenv("ARCHIVE_CHAT_ID", "").strip()
-TTS_CACHE_CHAT_ID = os.getenv("TTS_CACHE_CHAT_ID", "").strip()
 
 
 
