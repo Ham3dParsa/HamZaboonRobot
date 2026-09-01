@@ -531,7 +531,11 @@ async def handle_flow_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     unchanged.
     """
     awaiting = context.user_data.get("awaiting", "") or ""
+    # Preserve unsaved preset edits when navigating back from field edit (tested).
+    _saved_preset_edits = context.user_data.get("preset_edits")
     clear_admin_pending_state(context)
+    if _saved_preset_edits is not None and awaiting.startswith("ai_preset_edit:"):
+        context.user_data["preset_edits"] = _saved_preset_edits
     await _clear_awaiting_prompt(context)
     if awaiting.startswith("ai_preset_edit:"):
         parts = awaiting.split(":", 2)

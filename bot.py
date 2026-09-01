@@ -69,6 +69,7 @@ from config.keyboards import (
     BTN_SETTINGS,
     BTN_CANCEL,
     BTN_BACK,
+    BTN_HELP,
 )
 
 from services.utils.formatting import (
