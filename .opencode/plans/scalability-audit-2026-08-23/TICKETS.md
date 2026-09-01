@@ -17,6 +17,7 @@
 | 24 | O-grammar-standalone | send_grammar_tip retire (export, disable) | complete | #478 `99471e0` + test-sync `35eafda` |
 | 22 | utils-impure | utils pure (quota/prompt → domain) | complete | #481 `834076f` `ceb8a48` |
 | 21 | god-modules | split keyboards (phase 1) | complete | #486 `702947e` ruff F811 fix `c4b8cca` Kilo 0 issues |
+| 27 | per-user-lock | per-user spam guard 5/10s (scheduling) | complete | #525 `fc05c98` Kilo CRITICALs fixed (atomic lock, THROTTLE) |
 | 11 | db-on-loop | DB off event loop (`to_thread` srs_handler+word_query) | complete | #477 `a17e23e` |
 | 12 | busy-timeout | busy_timeout 5s→10s | complete | #477 `a17e23e` |
 

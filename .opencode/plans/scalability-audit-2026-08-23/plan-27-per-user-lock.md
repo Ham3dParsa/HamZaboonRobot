@@ -4,10 +4,10 @@ description: A-remaining #27 per-user-lock spam guard for costly flows
 created: 2026-09-01
 base_commit: 9e5184a66aba58e720297886a305c9936dc90ca0
 branch: fix/per-user-lock
-status: in-progress
+status: complete
 ---
 
-STATE: phase 0/3 — status: in-progress — focus: lock + TDD for per-user-lock
+STATE: phase 3/3 — status: complete — focus: merged #525 fc05c98 (per-user-lock 5/10s, Kilo CRITICALs fixed)
 
 # Plan 27 — per-user-lock spam guard (scalability-audit A-remaining)
 
@@ -68,6 +68,8 @@ GATE STATUS: LOCKED
 
 | Phase | Topic | Blocking edges | Status |
 |-------|-------|---------------|--------|
-| 01 | Core guard in scheduling (sliding window) | — | pending |
-| 02 | Handler integration (study/srs/query) | 01 | pending |
-| 03 | Tests + wiring + docs | 01,02 | pending |
+| 01 | Core guard in scheduling (sliding window) | — | complete (scheduling.py try_acquire atomic + _rate_lock) |
+| 02 | Handler integration (study/srs/query) | 01 | complete (study/srs/bot + THROTTLE_TEXT + owner bypass) |
+| 03 | Tests + wiring + docs | 01,02 | complete (conftest clear, admin test fix, 1595 passed) |
+
+Evidence: PR #525 fc05c98 merged 2026-09-01, CI label/test(3.10/3.13)/ram-gate/review/Kilo pass, 1595 passed locally, Kilo CRITICALs (atomic lock, THROTTLE alert) fixed in c564527.
