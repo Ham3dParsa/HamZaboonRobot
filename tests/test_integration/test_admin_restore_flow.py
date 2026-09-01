@@ -79,7 +79,17 @@ class AdminRestoreFlowTests(unittest.IsolatedAsyncioTestCase):
         from telegram import InputFile
 
         self.assertIsInstance(document, InputFile)
-        self.assertTrue(document.input_file_content.startswith(b"SQLite format 3\x00"))
+        content = document.input_file_content
+        if hasattr(content, "getvalue"):
+            content = content.getvalue()
+        elif hasattr(content, "read"):
+            try:
+                content = content.read()
+            except Exception:
+                pass
+        if isinstance(content, bytearray):
+            content = bytes(content)
+        self.assertTrue(isinstance(content, (bytes, bytearray)) and bytes(content).startswith(b"SQLite format 3\x00"))
         self.assertTrue(document.filename.endswith(".db"))
 
     async def test_auto_backup_runs_all_file_work_in_worker(self):

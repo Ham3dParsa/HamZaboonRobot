@@ -5,7 +5,7 @@ import math
 import os
 import re
 
-from telegram import Update
+from telegram import InputFile, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
@@ -467,13 +467,11 @@ async def _send_document_with_retry(bot, chat_id: int, document, **kwargs):
     """Send a document with retry/slot semantics mirroring _send_with_retry but for send_document."""
     # Capture raw bytes + filename so both BytesIO and InputFile survive RetryAfter retries
     # (InputFile has no getvalue; its bytes live in input_file_content).
+    _doc_filename: str | None = kwargs.pop("filename", None)
     _doc_bytes: bytes | None = None
-    _doc_filename: str | None = kwargs.get("filename")
     _is_inputfile = False
     try:
-        from telegram import InputFile as _InputFile
-
-        if isinstance(document, _InputFile):
+        if isinstance(document, InputFile):
             _is_inputfile = True
             _doc_filename = getattr(document, "filename", None) or _doc_filename
             content = getattr(document, "input_file_content", None)
@@ -506,11 +504,13 @@ async def _send_document_with_retry(bot, chat_id: int, document, **kwargs):
                 doc_to_send = document
                 if _doc_bytes is not None:
                     if _is_inputfile:
-                        from telegram import InputFile as _IF2
-
-                        doc_to_send = _IF2(io.BytesIO(_doc_bytes), filename=_doc_filename or "file.db")
+                        doc_to_send = InputFile(io.BytesIO(_doc_bytes), filename=_doc_filename or "file.db")
                     else:
-                        doc_to_send = io.BytesIO(_doc_bytes)
+                        # Preserve filename for BytesIO as well — wrap in InputFile
+                        if _doc_filename:
+                            doc_to_send = InputFile(io.BytesIO(_doc_bytes), filename=_doc_filename)
+                        else:
+                            doc_to_send = io.BytesIO(_doc_bytes)
                 result = await bot.send_document(chat_id=chat_id, document=doc_to_send, **kwargs)
                 _reset_telegram_cb()
                 return result
