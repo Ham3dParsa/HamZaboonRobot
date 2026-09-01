@@ -190,18 +190,12 @@ class AdminUserFlowTest(unittest.TestCase):
         ctx = self._ctx()
         with patch("handlers.admin_users.say", new=AsyncMock()) as mock_say:
             asyncio.run(text_router(update, ctx, "admin_user_set_plan:42", "gold"))
-            self.assertEqual(db.get_user(42)["plan"], "gold")
+            # preview must not immediately write plan
+            self.assertEqual(db.get_user(42)["plan"], "silver")
+            self.assertIn("pending_plan", ctx.user_data)
+            self.assertEqual(ctx.user_data["pending_plan"]["user_id"], 42)
+            self.assertEqual(ctx.user_data["pending_plan"]["new_plan"], "gold")
             mock_say.assert_called()
-            # at least one say call must be the Rich profile table
-            found_rich = False
-            for c in mock_say.call_args_list:
-                kw = c[1] if len(c) > 1 else {}
-                if kw.get("backend") == Backend.RICH:
-                    self.assertTrue(kw.get("is_rtl") is True)
-                    content = c[0][2] if len(c[0]) > 2 else kw.get("content")
-                    self.assertIsInstance(content, Message)
-                    found_rich = True
-            self.assertTrue(found_rich, "expected a Backend.RICH profile render")
             texts = []
             for c in mock_say.call_args_list:
                 args = c[0]
@@ -211,6 +205,15 @@ class AdminUserFlowTest(unittest.TestCase):
                 texts.append(_to_str(v))
             combined = " ".join(texts)
             self.assertIn("gold", combined)
+            # confirm callback now performs the write
+            from handlers.admin_users import handle_admin_user
+            cb_update = self._cb("admin:user:plan_confirm:42:gold")
+            # patch say used by _show_profile after confirm
+            with patch("handlers.admin_users.say", new=AsyncMock()):
+                asyncio.run(handle_admin_user(cb_update, ctx, "user:plan_confirm:42:gold"))
+            self.assertEqual(db.get_user(42)["plan"], "gold")
+            self.assertNotIn("pending_plan", ctx.user_data)
+            cb_update.callback_query.answer.assert_called()
 
         ctx2 = self._ctx()
         update2 = self._make_text_update("invalid_plan")

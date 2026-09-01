@@ -479,6 +479,7 @@ _ADMIN_SUB_ROUTER_FUNCS = [
     ("handlers/admin_cost.py", "handle_cost_callback", set()),
     ("handlers/admin_plans.py", "handle_plan_callback", set()),
     ("handlers/admin_ai.py", "handle_ai_callback", set()),
+    ("handlers/admin_users.py", "handle_admin_user", set()),
 ]
 
 # Coarse delegating prefixes emitted by the thin _handle_admin_callback dispatcher.

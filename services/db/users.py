@@ -527,7 +527,21 @@ def count_first_exposure_completion() -> dict:
 
 
 def get_user_learning_stats(user_id: int) -> dict:
-    """Per-user learning stats: saved_words, review_events, study_sessions counts."""
+    """Per-user learning stats: saved_words, review_events, study_sessions counts.
+
+    Q7: ``study_sessions`` previously counted the ``study_sessions`` table which
+    has ``user_id`` as PK (0/1). The true completion count lives in
+    ``session_reports`` (one row per finished session, see
+    ``services/db/session_reports.py``). We now count that table and keep
+    ``study_sessions`` as an alias for backwards-compat.
+
+    Q6: also returns a word breakdown: ``total`` (= saved_words), ``learned``
+    (``first_exposure_done=1``), ``not_exposed`` (``total - learned``) and
+    ``due`` (``next_review_at`` <= today, app timezone). ``due`` uses the same
+    TEXT comparison as the simple spec; the full FSRS eligibility lives in
+    ``due_words_for_user``.
+    """
+    today_iso = _today().isoformat()
     with get_conn() as conn:
         sw = conn.execute(
             "SELECT COUNT(*) AS cnt FROM saved_words WHERE user_id=?", (user_id,)
@@ -535,13 +549,37 @@ def get_user_learning_stats(user_id: int) -> dict:
         re = conn.execute(
             "SELECT COUNT(*) AS cnt FROM review_events WHERE user_id=?", (user_id,)
         ).fetchone()
-        ss = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM study_sessions WHERE user_id=?", (user_id,)
+        # Q7 fix: session_reports is the real per-session history (study_sessions
+        # can only ever be 0/1 because user_id is its PK).
+        sr = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM session_reports WHERE user_id=?", (user_id,)
         ).fetchone()
+        # Q6 breakdown — single aggregated query (no await across transaction, read-only).
+        br = conn.execute(
+            "SELECT COUNT(*) AS total, "
+            "COALESCE(SUM(CASE WHEN first_exposure_done=1 THEN 1 ELSE 0 END), 0) AS learned, "
+            "COALESCE(SUM(CASE WHEN next_review_at IS NOT NULL AND next_review_at <= ? THEN 1 ELSE 0 END), 0) AS due "
+            "FROM saved_words WHERE user_id=?",
+            (today_iso, user_id),
+        ).fetchone()
+        saved_words = int(sw["cnt"]) if sw else 0
+        review_events = int(re["cnt"]) if re else 0
+        session_reports = int(sr["cnt"]) if sr else 0
+        total = int(br["total"]) if br and br["total"] is not None else saved_words
+        learned = int(br["learned"]) if br and br["learned"] is not None else 0
+        due = int(br["due"]) if br and br["due"] is not None else 0
+        not_exposed = max(0, total - learned)
         return {
-            "saved_words": int(sw["cnt"]) if sw else 0,
-            "review_events": int(re["cnt"]) if re else 0,
-            "study_sessions": int(ss["cnt"]) if ss else 0,
+            "saved_words": saved_words,
+            "review_events": review_events,
+            # Q7: fixed — reflects completed sessions via session_reports
+            "study_sessions": session_reports,
+            "session_reports": session_reports,
+            # Q6 detailed word stats
+            "total": total,
+            "learned": learned,
+            "not_exposed": not_exposed,
+            "due": due,
         }
 
 

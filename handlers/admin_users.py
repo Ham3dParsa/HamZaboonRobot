@@ -28,13 +28,16 @@ from services.send_pretty import Backend, Message, RawFormat, bold, plain, say, 
 from telegram.constants import ParseMode
 
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
-from services.utils.formatting import html_escape, to_persian_digits
+from services.utils.formatting import html_escape, to_jalali_str, to_persian_digits
 from services.utils.helpers import _edit_or_send, _send_with_retry
+from config import is_owner
 from config.catalog import goal_label, language_label, level_label
 from config.keyboards import (
     admin_awaiting_inline_keyboard,
     dm_preview_keyboard,
+    user_block_confirm_keyboard,
     user_management_keyboard,
+    user_plan_confirm_keyboard,
     user_profile_keyboard,
     user_reset_confirm_keyboard,
 )
@@ -44,7 +47,12 @@ logger = logging.getLogger(__name__)
 
 
 def _build_profile_message(row, stats, blocked: bool) -> Message:
-    """Build a RichMessage table for the user profile (RTL, no box-drawing)."""
+    """Build a RichMessage table for the user profile (RTL, no box-drawing).
+
+    Q5: 9-row compact table (was 14). Combines language/goal/level into one row,
+    merges word stats into a detailed ``لغات`` row and activity into ``آمار``.
+    Dates are rendered via ``to_jalali_str`` (Persian digits, Jalali calendar).
+    """
     def _sanitize(v: str) -> str:
         return v.replace("\n", " ").replace("\r", " ")
 
@@ -54,8 +62,30 @@ def _build_profile_message(row, stats, blocked: bool) -> Message:
     lang = _sanitize(language_label(row["target_lang"]) if row["target_lang"] else "—")
     goal = _sanitize(goal_label(row["goal"]) if row["goal"] else "—")
     level = _sanitize(level_label(row["level"]) if row["level"] else "—")
-    last_active = _sanitize(row["last_active_date"] or "—")
-    created_at = _sanitize(row["created_at"] or "—")
+    combo_lang_goal_level = _sanitize(f"{lang} / {goal} / {level}")
+    # Q6 detailed word breakdown (stats now carries learned/not_exposed/due)
+    total = stats.get("total", stats.get("saved_words", 0)) or 0
+    learned = stats.get("learned", 0) or 0
+    not_exposed = stats.get("not_exposed", 0) or 0
+    due = stats.get("due", 0) or 0
+    lughat_val = _sanitize(
+        f"{to_persian_digits(total)} (آموخته {to_persian_digits(learned)} | "
+        f"ناآشنا {to_persian_digits(not_exposed)} | سررسید {to_persian_digits(due)})"
+    )
+    review = stats.get("review_events", 0) or 0
+    sessions = stats.get("study_sessions", stats.get("session_reports", 0)) or 0
+    streak_val = row["streak"] or 0
+    amar_val = _sanitize(
+        f"{to_persian_digits(review)} مرور | {to_persian_digits(sessions)} جلسه | "
+        f"استریک {to_persian_digits(streak_val)} 🔥"
+    )
+    # Jalali dates (Q2) — to_jalali_str already returns Persian digits
+    raw_last = (row["last_active_date"] or "").strip() if isinstance(row["last_active_date"], str) else (row["last_active_date"] or "")
+    raw_created = (row["created_at"] or "").strip() if isinstance(row["created_at"], str) else (row["created_at"] or "")
+    last_active = _sanitize(to_jalali_str(raw_last) if raw_last else "—")
+    created_at = _sanitize(to_jalali_str(raw_created) if raw_created else "—")
+    # Block status folded into plan row suffix to keep 9 rows (keyboard already shows block toggle)
+    plan_with_block = _sanitize(f"{plan_label} {'(مسدود)' if blocked else ''}".strip())
     msg = Message()
     msg.add_line(bold("👤 پروفایل کاربر"))
     hdr = (bold("فیلد"), bold("مقدار"))
@@ -63,17 +93,12 @@ def _build_profile_message(row, stats, blocked: bool) -> Message:
         (plain("نام کامل"), plain(full_name)),
         (plain("شناسه"), plain(to_persian_digits(row["user_id"]))),
         (plain("نام کاربری"), plain(username)),
-        (plain("پلن"), plain(plan_label)),
-        (plain("زبان"), plain(lang)),
-        (plain("هدف"), plain(goal)),
-        (plain("سطح"), plain(level)),
-        (plain("استریک"), plain(f"{to_persian_digits(row['streak'] or 0)} 🔥")),
-        (plain("لغات ذخیره"), plain(to_persian_digits(stats["saved_words"]))),
-        (plain("مرورها"), plain(to_persian_digits(stats["review_events"]))),
-        (plain("جلسات مطالعه"), plain(to_persian_digits(stats["study_sessions"]))),
-        (plain("آخرین فعالیت"), plain(to_persian_digits(last_active))),
-        (plain("ثبت‌نام"), plain(to_persian_digits(created_at))),
-        (plain("بلاک"), plain("بله" if blocked else "خیر")),
+        (plain("پلن"), plain(plan_with_block)),
+        (plain("زبان / هدف / سطح"), plain(combo_lang_goal_level)),
+        (plain("لغات"), plain(lughat_val)),
+        (plain("آمار"), plain(amar_val)),
+        (plain("آخرین فعالیت"), plain(last_active)),
+        (plain("ثبت‌نام"), plain(created_at)),
     ]
     msg.add_line(table(hdr, *rows))
     return msg
@@ -137,6 +162,41 @@ async def handle_admin_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         return
     if action.startswith("user:profile:"):
         await _show_profile(update, context, int(action.split(":", 2)[2]))
+        return
+    if action.startswith("user:plan_confirm:"):
+        # Q4 plan double-confirm: format user:plan_confirm:<id>:<plan>
+        parts = action.split(":")
+        try:
+            user_id = int(parts[2]) if len(parts) > 2 else 0
+            new_plan = parts[3].strip().lower() if len(parts) > 3 else ""
+        except (IndexError, ValueError):
+            await notify_callback(update.callback_query, "شناسه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        if not db.valid_plan_name(new_plan):
+            await notify_callback(update.callback_query, "نام پلن نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        pending = context.user_data.get("pending_plan")
+        if not pending or int(pending.get("user_id", -1)) != user_id or pending.get("new_plan") != new_plan:
+            await notify_callback(update.callback_query, "پیش‌نمایشی یافت نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        context.user_data.pop("pending_plan", None)
+        mark_awaiting_consumed(context)
+        context.user_data.pop("awaiting", None)
+        db.set_plan(user_id, new_plan)
+        await notify_callback(update.callback_query, "پلن تغییر کرد.", intent=CallbackNoticeIntent.SUCCESS)
+        await _show_profile(update, context, user_id)
+        return
+    if action.startswith("user:plan_cancel:"):
+        try:
+            user_id = int(action.split(":", 2)[2])
+        except (IndexError, ValueError):
+            await notify_callback(update.callback_query, "شناسه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        context.user_data.pop("pending_plan", None)
+        mark_awaiting_consumed(context)
+        context.user_data.pop("awaiting", None)
+        await notify_callback(update.callback_query, "لغو شد.", intent=CallbackNoticeIntent.INFO)
+        await _show_profile(update, context, user_id)
         return
     if action.startswith("user:plan:"):
         user_id = int(action.split(":", 2)[2])
@@ -218,20 +278,73 @@ async def handle_admin_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             reply_markup=admin_awaiting_inline_keyboard(),
         )
         return
+    if action.startswith("user:block_confirm:"):
+        try:
+            user_id = int(action.split(":", 2)[2])
+        except (IndexError, ValueError):
+            await notify_callback(update.callback_query, "شناسه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        pending = context.user_data.get("pending_block")
+        if not pending or int(pending.get("user_id", -1)) != user_id:
+            await notify_callback(update.callback_query, "پیش‌نمایشی یافت نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        context.user_data.pop("pending_block", None)
+        mark_awaiting_consumed(context)
+        context.user_data.pop("awaiting", None)
+        db.set_user_blocked(user_id)
+        await notify_callback(update.callback_query, "بلاک شد.", intent=CallbackNoticeIntent.SUCCESS)
+        await _show_profile(update, context, user_id)
+        return
+    if action.startswith("user:block_cancel:"):
+        try:
+            user_id = int(action.split(":", 2)[2])
+        except (IndexError, ValueError):
+            await notify_callback(update.callback_query, "شناسه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        context.user_data.pop("pending_block", None)
+        mark_awaiting_consumed(context)
+        context.user_data.pop("awaiting", None)
+        await notify_callback(update.callback_query, "لغو شد.", intent=CallbackNoticeIntent.INFO)
+        await _show_profile(update, context, user_id)
+        return
     if action.startswith("user:block:"):
-        user_id = int(action.split(":", 2)[2])
+        try:
+            user_id = int(action.split(":", 2)[2])
+        except (IndexError, ValueError):
+            await notify_callback(update.callback_query, "شناسه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        # Q3 self-block guard: owner blocking themselves requires double confirm
+        if is_owner(user_id):
+            row = db.get_user(user_id)
+            blocked = bool(row["bot_blocked"]) if row else False
+            if not blocked:
+                context.user_data["pending_block"] = {"user_id": user_id}
+                await _edit_or_send(
+                    update, context,
+                    "⚠️ هشدار: در حال مسدود کردن خودتان (مالک ربات) هستید! آیا مطمئن هستید؟",
+                    reply_markup=user_block_confirm_keyboard(user_id),
+                )
+                return
         db.set_user_blocked(user_id)
         await notify_callback(update.callback_query, "بلاک شد.", intent=CallbackNoticeIntent.SUCCESS)
         await _show_profile(update, context, user_id)
         return
     if action.startswith("user:unblock:"):
-        user_id = int(action.split(":", 2)[2])
+        try:
+            user_id = int(action.split(":", 2)[2])
+        except (IndexError, ValueError):
+            await notify_callback(update.callback_query, "شناسه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
         db.reset_user_blocked(user_id)
         await notify_callback(update.callback_query, "رفع بلاک شد.", intent=CallbackNoticeIntent.SUCCESS)
         await _show_profile(update, context, user_id)
         return
     if action.startswith("user:reset:"):
-        user_id = int(action.split(":", 2)[2])
+        try:
+            user_id = int(action.split(":", 2)[2])
+        except (IndexError, ValueError):
+            await notify_callback(update.callback_query, "شناسه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
         await _edit_or_send(
             update, context,
             "⚠️ ریست پیشرفت تمام لغات ذخیره‌شده، مرورها و جلسات این کاربر را حذف "
@@ -240,13 +353,21 @@ async def handle_admin_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         )
         return
     if action.startswith("user:reset_confirm:"):
-        user_id = int(action.split(":", 2)[2])
+        try:
+            user_id = int(action.split(":", 2)[2])
+        except (IndexError, ValueError):
+            await notify_callback(update.callback_query, "شناسه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
         db.reset_user_progress(user_id)
         await notify_callback(update.callback_query, "پیشرفت ریست شد.", intent=CallbackNoticeIntent.SUCCESS)
         await _show_profile(update, context, user_id)
         return
     if action.startswith("user:reset_cancel:"):
-        user_id = int(action.split(":", 2)[2])
+        try:
+            user_id = int(action.split(":", 2)[2])
+        except (IndexError, ValueError):
+            await notify_callback(update.callback_query, "شناسه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
         await notify_callback(update.callback_query, "لغو شد.", intent=CallbackNoticeIntent.INFO)
         await _show_profile(update, context, user_id)
         return
@@ -283,14 +404,18 @@ async def _handle_user_set_plan(update: Update, context: ContextTypes.DEFAULT_TY
             raw=RawFormat.PLAIN, mode="send",
         )
         return
-    db.set_plan(user_id, plan)
-    mark_awaiting_consumed(context)  # plan write is irreversible (B5/Kilo CRITICAL)
+    # Q4 double-confirm: no DB write before confirm — show preview instead
+    row = db.get_user(user_id)
+    old_plan = (row["plan"] or "free") if row else "free"
+    context.user_data["pending_plan"] = {"user_id": user_id, "new_plan": plan, "old_plan": old_plan}
+    mark_awaiting_consumed(context)
     await say(
         update, context,
-        f"پلن کاربر {user_id} به {plan} تغییر کرد.",
-        raw=RawFormat.PLAIN, mode="send",
+        f"پلن کاربر {user_id} از {old_plan} به {plan} تغییر کند؟",
+        raw=RawFormat.PLAIN,
+        keyboard=user_plan_confirm_keyboard(user_id, plan),
+        mode="send",
     )
-    await _send_profile_message(update, context, user_id)
 
 
 async def _handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE, awaiting: str, text: str):
