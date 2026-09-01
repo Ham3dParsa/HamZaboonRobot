@@ -142,6 +142,8 @@ async def _get_tts_lock(key: str) -> asyncio.Lock:
         return lock
 
 
+_TTS_TIMEOUT_S = 12
+
 async def pronounce(word: str, lang: str) -> Path:
     path = _cache_path(word, lang)
     if path.exists():
@@ -151,7 +153,7 @@ async def pronounce(word: str, lang: str) -> Path:
     async with lock:
         if path.exists():
             return path
-        await _ensure_voices()
+        await asyncio.wait_for(_ensure_voices(), timeout=_TTS_TIMEOUT_S)
         voice = _default_voice(lang)
         communicate = edge_tts.Communicate(word, voice)
         # Atomic write: save to temp file in same dir then replace
@@ -160,7 +162,7 @@ async def pronounce(word: str, lang: str) -> Path:
         )
         os.close(tmp_fd)
         try:
-            await communicate.save(tmp_path)
+            await asyncio.wait_for(communicate.save(tmp_path), timeout=_TTS_TIMEOUT_S)
             os.replace(tmp_path, str(path))
         finally:
             try:
