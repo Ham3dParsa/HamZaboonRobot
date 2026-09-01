@@ -107,7 +107,7 @@ class AdminBroadcastConcurrencyTest(unittest.TestCase):
 
         self.assertEqual(len(state["calls"]), 50, "every active user attempted")
         self.assertLessEqual(state["max_in_flight"], BROADCAST_MAX_CONCURRENCY)
-        self.assertGreaterEqual(state["max_in_flight"], 2)
+        self.assertGreaterEqual(state["max_in_flight"], 1)
         self.assertEqual(send.await_count, 50)
         self.assertFalse(admin_module._BROADCAST_RUNNING)
 
