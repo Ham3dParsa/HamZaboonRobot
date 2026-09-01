@@ -87,6 +87,7 @@ from handlers.admin_ai import (
     handle_ai_callback,
 )
 from config.keyboards import (
+    BTN_ADMIN_USER_MANAGE,
     admin_panel_keyboard,
     broadcast_preview_keyboard,
     main_menu,
@@ -209,7 +210,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             context.user_data.pop("pending_block", None)
             context.user_data.pop("_awaiting_pending", None)
             await _clear_awaiting_prompt(context)
-            await _edit_or_send(update, context, "👤 مدیریت کاربر", reply_markup=user_management_keyboard())
+            await _edit_or_send(update, context, BTN_ADMIN_USER_MANAGE, reply_markup=user_management_keyboard())
             await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
         elif awaiting.startswith("admin_broadcast") or has_pending_broadcast:
             context.user_data.pop("awaiting", None)
@@ -225,14 +226,19 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             await _show_llm_cost_dashboard(update, context)
             await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
         elif awaiting.startswith("ai_preset_edit:"):
-            preset_name = awaiting.split(":", 1)[1].rsplit(":", 1)[0]
+            parts = awaiting.split(":", 2)
+            preset_name = parts[1] if len(parts) == 3 else ""
             context.user_data.pop("awaiting", None)
             context.user_data.pop("_awaiting_pending", None)
             await _clear_awaiting_prompt(context)
-            await _edit_ai_preset(update, context, preset_name)
+            if preset_name:
+                await _edit_ai_preset(update, context, preset_name)
+            else:
+                await _show_ai_settings(update, context)
             await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
         elif awaiting.startswith("ai_preset_full_edit:"):
-            preset_name = awaiting.split(":", 2)[1] if ":" in awaiting else ""
+            parts = awaiting.split(":", 2)
+            preset_name = parts[1] if len(parts) >= 2 else ""
             context.user_data.pop("full_edit", None)
             context.user_data.pop("awaiting", None)
             context.user_data.pop("_awaiting_pending", None)
@@ -513,11 +519,16 @@ async def handle_flow_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     awaiting = context.user_data.get("awaiting", "")
     if awaiting.startswith("ai_preset_edit:"):
-        preset_name = awaiting.split(":", 1)[1].rsplit(":", 1)[0]
+        parts = awaiting.split(":", 2)
+        preset_name = parts[1] if len(parts) == 3 else ""
         context.user_data.pop("awaiting", None)
-        await _edit_ai_preset(update, context, preset_name)
+        if preset_name:
+            await _edit_ai_preset(update, context, preset_name)
+        else:
+            await _show_ai_settings(update, context)
     elif awaiting.startswith("ai_preset_full_edit:"):
-        preset_name = awaiting.split(":", 2)[1]
+        parts = awaiting.split(":", 2)
+        preset_name = parts[1] if len(parts) >= 2 else ""
         context.user_data.pop("full_edit", None)
         context.user_data.pop("awaiting", None)
         await _edit_ai_preset(update, context, preset_name)

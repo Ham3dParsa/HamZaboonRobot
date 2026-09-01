@@ -94,6 +94,7 @@ from services.utils.helpers import (
     _user_activity_line,
     _CANCEL_INPUTS,
     apply_log_level,
+    exit_admin_awaiting_cancel,
 )
 
 from services.utils.validation import (
@@ -635,10 +636,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if awaiting:
         if _is_cancel_input(text):
             if is_owner(user_id) and is_admin_awaiting(awaiting):
-                context.user_data.pop("awaiting", None)
-                context.user_data.pop(AWAITING_PENDING_KEY, None)
-                await _clear_awaiting_prompt(context)
-                await _edit_or_send(update, context, "لغو شد.", reply_markup=admin_panel_keyboard())
+                await exit_admin_awaiting_cancel(update, context)
                 return
             await _exit_awaiting_flow(update, context)
             return
@@ -726,8 +724,10 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         awaiting = context.user_data.get("awaiting", "")
         if awaiting:
             if awaiting.startswith("ai_preset_edit:"):
-                preset_name = awaiting.split(":", 1)[1].rsplit(":", 1)[0]
-                context.user_data.setdefault("preset_edits", {}).pop(preset_name, None)
+                parts = awaiting.split(":", 2)
+                preset_name = parts[1] if len(parts) == 3 else ""
+                if preset_name:
+                    context.user_data.setdefault("preset_edits", {}).pop(preset_name, None)
             elif awaiting.startswith("ai_preset_full_edit:"):
                 context.user_data.pop("full_edit", None)
             elif awaiting.startswith("admin_plan_full_edit:"):

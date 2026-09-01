@@ -170,6 +170,16 @@ async def _exit_awaiting_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text("لغو شد.", reply_markup=reply_markup)
 
 
+async def exit_admin_awaiting_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Admin text-cancel path: clear all pending admin state and return to panel."""
+    clear_admin_pending_state(context)
+    await _clear_awaiting_prompt(context)
+    # Lazy import to avoid circular dependency with config.keyboards
+    from config.keyboards import admin_panel_keyboard
+
+    await _edit_or_send(update, context, "لغو شد.", reply_markup=admin_panel_keyboard())
+
+
 async def _edit_or_send(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, **kwargs):
     """Thin adapter (R3) routing through ``services.send_pretty.say``.
 
@@ -356,14 +366,37 @@ async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
             raise
 
 
+_ADMIN_PENDING_KEYS: tuple[str, ...] = (
+    "pending_dm",
+    "pending_plan",
+    "pending_block",
+    "pending_broadcast",
+    "full_edit",
+    "plan_full_edit",
+    "preset_edits",
+)
+
+_AWAITING_PENDING_KEY = "_awaiting_pending"
+
+
+def clear_admin_pending_state(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Clear all admin pending state keys (single source for cancel/back cleanup)."""
+    for _k in _ADMIN_PENDING_KEYS:
+        context.user_data.pop(_k, None)
+    context.user_data.pop(_AWAITING_PENDING_KEY, None)
+    context.user_data.pop("awaiting", None)
+    # _awaiting_msg is cleared by _clear_awaiting_prompt, not here
+
+
 def _store_awaiting_msg(context: ContextTypes.DEFAULT_TYPE, update: Update, msg) -> None:
     """Store the prompt message id so its keyboard can be cleared on consume/cancel.
 
     Single source of truth — imported by handlers/admin.py and handlers/admin_users.py.
 
     Handles the edit-path where ``_edit_or_send`` returns ``True``/``None`` instead
-    of a Message: falls back to ``callback_query.message`` / ``effective_message``
-    and ``effective_chat`` so a prompt is always stored when possible.
+    of a Message: falls back to ``effective_message`` so a prompt is always stored
+    when possible. Never falls back to ``callback_query.message`` which is the
+    button message, not the prompt.
     """
     try:
         mid = None
@@ -376,28 +409,18 @@ def _store_awaiting_msg(context: ContextTypes.DEFAULT_TYPE, update: Update, msg)
             # Some send helpers return int message_id directly
             if mid is None and isinstance(msg, int):
                 mid = msg
-        if mid is None:
-            try:
-                cq = getattr(update, "callback_query", None)
-                if cq is not None:
-                    cm = getattr(cq, "message", None)
-                    if cm is not None:
-                        mid = getattr(cm, "message_id", None)
-                        if cid is None:
-                            chat = getattr(cm, "chat", None)
-                            if chat is not None:
-                                cid = getattr(chat, "id", None)
-            except Exception:
-                pass
+        # Only fallback to effective_message (prompt-related), not callback_query.message
         if mid is None:
             try:
                 em = getattr(update, "effective_message", None)
                 if em is not None:
-                    mid = getattr(em, "message_id", None)
-                    if cid is None:
-                        chat = getattr(em, "chat", None)
-                        if chat is not None:
-                            cid = getattr(chat, "id", None)
+                    em_mid = getattr(em, "message_id", None)
+                    if em_mid is not None:
+                        mid = em_mid
+                        if cid is None:
+                            chat = getattr(em, "chat", None)
+                            if chat is not None:
+                                cid = getattr(chat, "id", None)
             except Exception:
                 pass
         if cid is None and getattr(update, "effective_chat", None) is not None:
@@ -425,4 +448,4 @@ async def _clear_awaiting_prompt(context: ContextTypes.DEFAULT_TYPE) -> None:
     except BadRequest:
         pass
     except Exception:
-        pass
+        logger.exception("Failed to clear awaiting prompt")
