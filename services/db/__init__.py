@@ -475,6 +475,8 @@ from services.db.cost_tracking import (
     add_llm_request,
     breakdown_llm_requests,
     breakdown_llm_requests_preset_kind,
+    count_breakdown_groups,
+    count_breakdown_preset_kind_groups,
     daily_costs_grouped,
     delete_llm_requests,
     recent_llm_requests,

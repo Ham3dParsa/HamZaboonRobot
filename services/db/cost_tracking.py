@@ -130,6 +130,7 @@ def breakdown_llm_requests(
     group_by: str,
     filters: dict[str, object] | None = None,
     limit: int = 10,
+    offset: int = 0,
 ) -> list[dict[str, object]]:
     if group_by not in {"user_id", "plan", "request_kind", "model", "outcome", "preset_name"}:
         raise ValueError(f"Unsupported LLM breakdown: {group_by}")
@@ -157,8 +158,8 @@ def breakdown_llm_requests(
             f"{where} "
             f"GROUP BY {group_by} "
             "ORDER BY cost_usd DESC, request_count DESC, bucket ASC "
-            "LIMIT ?",
-            [*params, limit],
+            "LIMIT ? OFFSET ?",
+            [*params, limit, offset],
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -166,6 +167,7 @@ def breakdown_llm_requests(
 def breakdown_llm_requests_preset_kind(
     filters: dict[str, object] | None = None,
     limit: int = 10,
+    offset: int = 0,
 ) -> list[dict[str, object]]:
     """Group by preset_name × request_kind composite (R5 B).
 
@@ -197,10 +199,37 @@ def breakdown_llm_requests_preset_kind(
             f"{where} "
             "GROUP BY preset_name, request_kind "
             "ORDER BY cost_usd DESC, request_count DESC, bucket ASC "
-            "LIMIT ?",
-            [*params, limit],
+            "LIMIT ? OFFSET ?",
+            [*params, limit, offset],
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def count_breakdown_groups(
+    group_by: str,
+    filters: dict[str, object] | None = None,
+) -> int:
+    if group_by not in {"user_id", "plan", "request_kind", "model", "outcome", "preset_name"}:
+        raise ValueError(f"Unsupported LLM breakdown: {group_by}")
+    where, params = _llm_request_filters_where(filters or {})
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS cnt FROM (SELECT 1 FROM llm_requests{where} GROUP BY {group_by})",
+            params,
+        ).fetchone()
+    return int(row["cnt"] or 0) if row else 0
+
+
+def count_breakdown_preset_kind_groups(
+    filters: dict[str, object] | None = None,
+) -> int:
+    where, params = _llm_request_filters_where(filters or {})
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS cnt FROM (SELECT 1 FROM llm_requests{where} GROUP BY preset_name, request_kind)",
+            params,
+        ).fetchone()
+    return int(row["cnt"] or 0) if row else 0
 
 
 def recent_llm_requests(

@@ -354,7 +354,6 @@ def _build_overview_message(
     # 2-col KPI card — compact, no Note col, no wrapping triple
     # Legacy substrings kept for tests: "✅ Success rate" and "❌ Billed failure rate"
     overview_header = (plain("Metric"), plain("Value"))
-    avg_triple = _fmt_avg_triple(input_cost_usd, output_cost_usd, cost_usd, input_cost_toman, output_cost_toman, cost_toman, request_count, currency_mode)
     tokens_triple = _fmt_tokens_triple(prompt_tokens, completion_tokens, total_tokens)
     latency_str = f"{round(float(avg_latency), 1) if avg_latency is not None else 0.0} ms"
     total_cost = _llm_cost_single_cost(cost_usd, cost_toman, currency_mode)
@@ -414,7 +413,6 @@ def _build_breakdown_message(
     page = int(state.get("breakdown_page") or 0)
     page = max(0, page)
     limit = 5
-    fetch_limit = 100
 
     msg = Message()
     badge = _llm_cost_header_badge(int(summary.get("billed_failure_count") or 0), float(summary.get("billed_failure_cost_usd") or 0), float(summary.get("billed_failure_cost_toman") or 0))
@@ -423,22 +421,35 @@ def _build_breakdown_message(
     msg.add_line(heading(3, plain(f"{title}")))
 
     bd_header = (plain("Name"), plain("Req"), plain("Avg Cost"), plain("Share"))
-    if rows_all is None:
+    # proper LIMIT/OFFSET pagination (no flat cap); rows_all kept for legacy tests that pass pre-fetched list
+    if rows_all is not None:
+        # legacy path: rows_all is full list (old _show pre-fetch with limit 100)
+        group_by = "preset_kind" if breakdown == "preset_kind" else _BREAKDOWN_GROUP.get(breakdown, "preset_name")
+        total = len(rows_all)
+        total_pages = max(1, (total + limit - 1) // limit) if total else 1
+        page = min(page, total_pages - 1)
+        rows = rows_all[page * limit : (page + 1) * limit]
+        if not rows_all:
+            msg.add_line(quote(plain("— none — try Clear filters")))
+            msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+            return msg
+    else:
         if breakdown == "preset_kind":
-            rows_all = db.breakdown_llm_requests_preset_kind(filters, limit=fetch_limit)
+            total = db.count_breakdown_preset_kind_groups(filters)
+            total_pages = max(1, (total + limit - 1) // limit) if total else 1
+            page = min(page, total_pages - 1)
+            rows = db.breakdown_llm_requests_preset_kind(filters, limit=limit, offset=page * limit)
             group_by = "preset_kind"
         else:
             group_by = _BREAKDOWN_GROUP.get(breakdown, "preset_name")
-            rows_all = db.breakdown_llm_requests(group_by, filters, limit=fetch_limit)
-    else:
-        group_by = "preset_kind" if breakdown == "preset_kind" else _BREAKDOWN_GROUP.get(breakdown, "preset_name")
-    total = len(rows_all)
-    total_pages = max(1, (total + limit - 1) // limit) if total else 1
-    page = min(page, total_pages - 1)
-    rows = rows_all[page * limit : (page + 1) * limit]
-    if not rows_all:
-        msg.add_line(quote(plain("— none — try Clear filters")))
-    else:
+            total = db.count_breakdown_groups(group_by, filters)
+            total_pages = max(1, (total + limit - 1) // limit) if total else 1
+            page = min(page, total_pages - 1)
+            rows = db.breakdown_llm_requests(group_by, filters, limit=limit, offset=page * limit)
+        if total == 0:
+            msg.add_line(quote(plain("— none — try Clear filters")))
+            msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+            return msg
         bd_rows = []
         for row in rows:
             bucket = row.get("bucket")
@@ -475,7 +486,6 @@ def _build_recent_message(
     page = int(state.get("recent_page") or 0)
     page = max(0, page)
     limit = 8
-    fetch_limit = 80
 
     msg = Message()
     badge = _llm_cost_header_badge(int(summary.get("billed_failure_count") or 0), float(summary.get("billed_failure_cost_usd") or 0), float(summary.get("billed_failure_cost_toman") or 0))
@@ -483,28 +493,39 @@ def _build_recent_message(
     msg.add_line(quote(plain(f"Filters: {_llm_cost_filter_pill(state, currency_mode)}")))
     msg.add_line(heading(3, plain("🧾 Recent Requests")))
 
-    if rows_all is None:
-        rows_all = db.recent_llm_requests(filters, limit=fetch_limit)
-    total = len(rows_all)
-    total_pages = max(1, (total + limit - 1) // limit) if total else 1
-    page = min(page, total_pages - 1)
-    rows = rows_all[page * limit : (page + 1) * limit]
-    if not rows_all:
-        msg.add_line(quote(plain("— none")))
+    # proper LIMIT/OFFSET pagination (no flat cap); rows_all kept for legacy pre-fetched list
+    if rows_all is not None:
+        total = len(rows_all)
+        total_pages = max(1, (total + limit - 1) // limit) if total else 1
+        page = min(page, total_pages - 1)
+        rows = rows_all[page * limit : (page + 1) * limit]
+        if not rows_all:
+            msg.add_line(quote(plain("— none")))
+            msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+            return msg
     else:
-        recent_header = (plain("Time"), plain("Status"), plain("Kind · Model"), plain("Cost"))
-        recent_rows = []
-        for row in rows:
-            t = str(row.get("created_at") or "")[:19]
-            icon = _llm_cost_status_icon(row.get("outcome"))
-            status = f"{icon} {row.get('outcome')}"
-            kind_model = f"{row.get('request_kind')} · {row.get('model')}"
-            c_usd = float(row.get("cost_usd") or 0)
-            c_toman = float(row.get("cost_toman") or 0)
-            cost_cell = _llm_cost_single_cost(c_usd, c_toman, currency_mode)
-            recent_rows.append((plain(t), plain(status), plain(kind_model), plain(cost_cell)))
-        msg.add_line(table(recent_header, *recent_rows))
-        msg.add_line(quote(plain(f"Page {page + 1}/{total_pages} · {total} requests · Showing {page*limit+1}-{page*limit+len(rows)}")))
+        total = int(summary.get("request_count") or 0)
+        total_pages = max(1, (total + limit - 1) // limit) if total else 1
+        page = min(page, total_pages - 1)
+        rows = db.recent_llm_requests(filters, limit=limit, offset=page * limit)
+        if total == 0:
+            msg.add_line(quote(plain("— none")))
+            msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+            return msg
+    # common: render table for non-empty (both branches)
+    recent_header = (plain("Time"), plain("Status"), plain("Kind · Model"), plain("Cost"))
+    recent_rows = []
+    for row in rows:
+        t = str(row.get("created_at") or "")[:19]
+        icon = _llm_cost_status_icon(row.get("outcome"))
+        status = f"{icon} {row.get('outcome')}"
+        kind_model = f"{row.get('request_kind')} · {row.get('model')}"
+        c_usd = float(row.get("cost_usd") or 0)
+        c_toman = float(row.get("cost_toman") or 0)
+        cost_cell = _llm_cost_single_cost(c_usd, c_toman, currency_mode)
+        recent_rows.append((plain(t), plain(status), plain(kind_model), plain(cost_cell)))
+    msg.add_line(table(recent_header, *recent_rows))
+    msg.add_line(quote(plain(f"Page {page + 1}/{total_pages} · {total} requests · Showing {page*limit+1}-{page*limit+len(rows)}")))
 
     msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
     return msg
@@ -567,28 +588,26 @@ async def _show_llm_cost_dashboard(
     currency_mode = _llm_cost_currency_mode(context)
     filters = _llm_cost_query_filters(state)
     view = str(state.get("view") or "overview")
-    # single fetch for summary + rows (reuse in builders to avoid double DB read)
+    # single fetch for summary; breakdown/recent paged via LIMIT/OFFSET + COUNT (no flat cap)
     summary = db.summarize_llm_requests(filters)
     breakdown_total_pages = 1
     recent_total_pages = 1
-    rows_all_breakdown: list[dict] | None = None
-    rows_all_recent: list[dict] | None = None
     if view == "breakdown":
         br = str(state.get("breakdown") or "preset")
         if br == "preset_kind":
-            rows_all_breakdown = db.breakdown_llm_requests_preset_kind(filters, limit=100)
+            total = db.count_breakdown_preset_kind_groups(filters)
         else:
             group_by = _BREAKDOWN_GROUP.get(br, "preset_name")
-            rows_all_breakdown = db.breakdown_llm_requests(group_by, filters, limit=100)
-        breakdown_total_pages = max(1, (len(rows_all_breakdown) + 4) // 5) if rows_all_breakdown else 1
+            total = db.count_breakdown_groups(group_by, filters)
+        breakdown_total_pages = max(1, (total + 4) // 5) if total else 1
     elif view == "recent":
-        rows_all_recent = db.recent_llm_requests(filters, limit=80)
-        recent_total_pages = max(1, (len(rows_all_recent) + 7) // 8) if rows_all_recent else 1
-    # build message reusing pre-fetched summary/rows (no second DB fetch)
+        total = int(summary.get("request_count") or 0)
+        recent_total_pages = max(1, (total + 7) // 8) if total else 1
+    # build message (builders use LIMIT/OFFSET internally, no second summary fetch)
     if view == "breakdown":
-        msg = _build_breakdown_message(state, currency_mode, summary, filters, rows_all=rows_all_breakdown)
+        msg = _build_breakdown_message(state, currency_mode, summary, filters)
     elif view == "recent":
-        msg = _build_recent_message(state, currency_mode, summary, filters, rows_all=rows_all_recent)
+        msg = _build_recent_message(state, currency_mode, summary, filters)
     else:
         msg = _build_overview_message(state, currency_mode, summary, filters)
     kb = llm_cost_dashboard_keyboard(
@@ -643,7 +662,11 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if val not in {"today", "7d", "30d", "mtd", "all"}:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
-        _llm_cost_set_state(context, range=val, detail=False, view="overview", breakdown_page=0, recent_page=0, show_projection=False)
+        # preserve view (do not force-bounce to overview); just reset paging and projection
+        _llm_cost_set_state(context, range=val, detail=False, breakdown_page=0, recent_page=0, show_projection=False)
+        # sync detail with current view (detail True iff view == recent)
+        cur_view = str(_llm_cost_state(context).get("view") or "overview")
+        _llm_cost_set_state(context, detail=cur_view == "recent")
         await _show_llm_cost_dashboard(update, context)
     elif action == "breakdown" and len(parts) == 3:
         tab = parts[2]
@@ -772,11 +795,6 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data["llm_cost_state"] = _llm_cost_default_state()
         await _show_llm_cost_dashboard(update, context)
     elif action == "refresh":
-        await _show_llm_cost_dashboard(update, context)
-    elif action == "recent":
-        is_recent = str(_llm_cost_state(context).get("view") or "overview") == "recent"
-        nxt = "overview" if is_recent else "recent"
-        _llm_cost_set_state(context, view=nxt, detail=nxt == "recent")
         await _show_llm_cost_dashboard(update, context)
     else:
         await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
