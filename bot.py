@@ -67,9 +67,9 @@ from config.keyboards import (
     BTN_ASK_WORD,
     BTN_ADMIN,
     BTN_SETTINGS,
+    BTN_HELP,
     BTN_CANCEL,
     BTN_BACK,
-    BTN_HELP,
 )
 
 from services.utils.formatting import (
