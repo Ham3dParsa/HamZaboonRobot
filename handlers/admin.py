@@ -15,7 +15,7 @@ from services import db, send_pretty
 from services.send_pretty import RawFormat, say
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.formatting import html_escape
-from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _exit_awaiting_flow, _send_with_retry, _store_awaiting_msg
+from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _exit_awaiting_flow, _send_with_retry, _store_awaiting_msg, clear_admin_pending_state
 from handlers.admin_stats import handle_admin_stats
 from handlers.admin_users import handle_admin_user
 from handlers.admin_cost import (
@@ -204,32 +204,24 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             or awaiting.startswith("admin_user_message")
             or has_pending_user
         ):
-            context.user_data.pop("awaiting", None)
-            context.user_data.pop("pending_dm", None)
-            context.user_data.pop("pending_plan", None)
-            context.user_data.pop("pending_block", None)
-            context.user_data.pop("_awaiting_pending", None)
+            clear_admin_pending_state(context)
             await _clear_awaiting_prompt(context)
             await _edit_or_send(update, context, BTN_ADMIN_USER_MANAGE, reply_markup=user_management_keyboard())
             await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
         elif awaiting.startswith("admin_broadcast") or has_pending_broadcast:
-            context.user_data.pop("awaiting", None)
-            context.user_data.pop("pending_broadcast", None)
-            context.user_data.pop("_awaiting_pending", None)
+            clear_admin_pending_state(context)
             await _clear_awaiting_prompt(context)
             await _edit_or_send(update, context, "پنل مدیریت ربات:", reply_markup=admin_panel_keyboard())
             await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
         elif awaiting.startswith("llm_cost") or awaiting == "llm_price_rate":
-            context.user_data.pop("awaiting", None)
-            context.user_data.pop("_awaiting_pending", None)
+            clear_admin_pending_state(context)
             await _clear_awaiting_prompt(context)
             await _show_llm_cost_dashboard(update, context)
             await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
         elif awaiting.startswith("ai_preset_edit:"):
             parts = awaiting.split(":", 2)
             preset_name = parts[1] if len(parts) == 3 else ""
-            context.user_data.pop("awaiting", None)
-            context.user_data.pop("_awaiting_pending", None)
+            clear_admin_pending_state(context)
             await _clear_awaiting_prompt(context)
             if preset_name:
                 await _edit_ai_preset(update, context, preset_name)
@@ -239,9 +231,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         elif awaiting.startswith("ai_preset_full_edit:"):
             parts = awaiting.split(":", 2)
             preset_name = parts[1] if len(parts) >= 2 else ""
-            context.user_data.pop("full_edit", None)
-            context.user_data.pop("awaiting", None)
-            context.user_data.pop("_awaiting_pending", None)
+            clear_admin_pending_state(context)
             await _clear_awaiting_prompt(context)
             if preset_name:
                 await _edit_ai_preset(update, context, preset_name)
@@ -249,26 +239,21 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
                 await _show_ai_settings(update, context)
             await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
         elif awaiting.startswith("admin_plan_full_edit:"):
-            context.user_data.pop("plan_full_edit", None)
-            context.user_data.pop("_awaiting_pending", None)
+            clear_admin_pending_state(context)
             await _clear_awaiting_prompt(context)
             await _exit_awaiting_flow(update, context, via_callback=True)
         elif awaiting.startswith("ai_") or awaiting.startswith("admin_group") or awaiting.startswith("admin_ai"):
-            context.user_data.pop("awaiting", None)
-            context.user_data.pop("_awaiting_pending", None)
+            clear_admin_pending_state(context)
             await _clear_awaiting_prompt(context)
             await _show_ai_settings(update, context)
             await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
         else:
-            context.user_data.pop("awaiting", None)
-            context.user_data.pop("_awaiting_pending", None)
+            clear_admin_pending_state(context)
             await _clear_awaiting_prompt(context)
             await _edit_or_send(update, context, "پنل مدیریت ربات:", reply_markup=admin_panel_keyboard())
             await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
     elif action == "cancel":
-        context.user_data.pop("awaiting", None)
-        context.user_data.pop("preset_edits", None)
-        context.user_data.pop("full_edit", None)
+        clear_admin_pending_state(context)
         await _clear_awaiting_prompt(context)
         await _edit_or_send(update, context, "عملیات لغو شد.", reply_markup=admin_panel_keyboard())
         await notify_callback(update.callback_query, "لغو شد", intent=CallbackNoticeIntent.INFO)
@@ -416,7 +401,8 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif action == "maintenance:edit":
         context.user_data["awaiting"] = "admin_maintenance_msg"
         await notify_callback(update.callback_query)
-        await say(update, context, "متن پیام حالت تعمیر را بنویسید (برای کاربران هنگام تعمیر نمایش داده می‌شود):", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
+        msg = await say(update, context, "متن پیام حالت تعمیر را بنویسید (برای کاربران هنگام تعمیر نمایش داده می‌شود):", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
+        _store_awaiting_msg(context, update, msg)
     elif action == "backup":
         # O-backup-panel: callback entry that mirrors /backup command
         await notify_callback(update.callback_query, "در حال تهیه پشتیبان…", intent=CallbackNoticeIntent.INFO)
@@ -433,11 +419,12 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif action == "restore":
         context.user_data["awaiting"] = "admin_restore"
         await notify_callback(update.callback_query)
-        await _edit_or_send(
+        msg = await _edit_or_send(
             update, context,
             "فایل دیتابیس (.db) را آپلود کنید.\n⚠️ این کار دیتابیس فعلی را کاملاً جایگزین می‌کند.",
             reply_markup=admin_awaiting_inline_keyboard(),
         )
+        _store_awaiting_msg(context, update, msg)
     elif action.startswith("display_toggle:confirm:"):
         field = action.split(":", 2)[2]
         from config.catalog import DISPLAY_TOGGLE_FIELDS, HIGH_VALUE_TOGGLES
@@ -712,8 +699,9 @@ async def cmd_restore(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await say(update, context, "فقط مالک ربات دسترسی داره.", raw=RawFormat.PLAIN, mode="send")
         return
     context.user_data["awaiting"] = "admin_restore"
-    await say(update, context, "فایل دیتابیس (.db) را آپلود کنید.\n"
+    msg = await say(update, context, "فایل دیتابیس (.db) را آپلود کنید.\n"
         "⚠️ این کار دیتابیس فعلی را کاملاً جایگزین می‌کند.", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
+    _store_awaiting_msg(context, update, msg)
 
 
 async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):

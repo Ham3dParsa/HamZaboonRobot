@@ -393,10 +393,12 @@ def _store_awaiting_msg(context: ContextTypes.DEFAULT_TYPE, update: Update, msg)
 
     Single source of truth — imported by handlers/admin.py and handlers/admin_users.py.
 
-    Handles the edit-path where ``_edit_or_send`` returns ``True``/``None`` instead
-    of a Message: falls back to ``effective_message`` so a prompt is always stored
-    when possible. Never falls back to ``callback_query.message`` which is the
-    button message, not the prompt.
+    Primary source is the Message returned by ``say``/``_edit_or_send`` (``msg``);
+    ``update`` is only used as fallback for the edit-path where the helper returns
+    ``True``/``None`` (the prompt is the edited message). In PTB
+    ``effective_message`` and ``callback_query.message`` alias the same object, so
+    we only read ``effective_message`` as fallback — never ``callback_query.message``
+    directly — and we always prefer ``msg.message_id`` when ``msg`` carries one.
     """
     try:
         mid = None
