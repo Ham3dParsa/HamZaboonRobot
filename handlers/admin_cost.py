@@ -618,6 +618,9 @@ async def _show_llm_cost_dashboard(
     elif view == "recent":
         recent_total = int(summary.get("request_count") or 0)
         recent_total_pages = max(1, (recent_total + 7) // 8) if recent_total else 1
+    # clamp pages for keyboard (avoid 1000/N when stored pg is crafted)
+    breakdown_page_clamped = min(max(0, int(state.get("breakdown_page") or 0)), max(0, breakdown_total_pages - 1))
+    recent_page_clamped = min(max(0, int(state.get("recent_page") or 0)), max(0, recent_total_pages - 1))
     # build message reusing totals (no second COUNT)
     if view == "breakdown":
         msg = _build_breakdown_message(state, currency_mode, summary, filters, total_count=breakdown_total)
@@ -631,8 +634,8 @@ async def _show_llm_cost_dashboard(
         breakdown=str(state.get("breakdown") or "preset"),
         currency=_llm_cost_currency_mode(context),
         view=str(state.get("view") or "overview"),
-        breakdown_page=int(state.get("breakdown_page") or 0),
-        recent_page=int(state.get("recent_page") or 0),
+        breakdown_page=breakdown_page_clamped,
+        recent_page=recent_page_clamped,
         show_projection=bool(state.get("show_projection")),
         breakdown_total_pages=breakdown_total_pages,
         recent_total_pages=recent_total_pages,
@@ -677,11 +680,9 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if val not in {"today", "7d", "30d", "mtd", "all"}:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
-        # preserve view (do not force-bounce to overview); just reset paging and projection
-        _llm_cost_set_state(context, range=val, detail=False, breakdown_page=0, recent_page=0, show_projection=False)
-        # sync detail with current view (detail True iff view == recent)
+        # preserve view (do not force-bounce); single atomic update keeps view/detail in sync
         cur_view = str(_llm_cost_state(context).get("view") or "overview")
-        _llm_cost_set_state(context, detail=cur_view == "recent")
+        _llm_cost_set_state(context, range=val, detail=cur_view == "recent", breakdown_page=0, recent_page=0, show_projection=False)
         await _show_llm_cost_dashboard(update, context)
     elif action == "breakdown" and len(parts) == 3:
         tab = parts[2]
@@ -706,26 +707,12 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         if target == "breakdown":
-            # clamp via COUNT (no flat-cap fetch) to avoid 100-row cap
-            state = _llm_cost_state(context)
-            filters = _llm_cost_query_filters(state)
-            br = str(state.get("breakdown") or "preset")
-            if br == "preset_kind":
-                total = db.count_breakdown_preset_kind_groups(filters)
-            else:
-                group_by = _BREAKDOWN_GROUP.get(br, "preset_name")
-                total = db.count_breakdown_groups(group_by, filters)
-            total_pages = max(1, (total + 4) // 5) if total else 1
-            pg = min(max(0, pg), total_pages - 1)
+            # clamp only to >=0 here; _show/_build will clamp to total_pages-1 via COUNT (no flat cap, no duplicate COUNT)
+            pg = max(0, pg)
             _llm_cost_set_state(context, breakdown_page=pg, view="breakdown", detail=False)
             await _show_llm_cost_dashboard(update, context)
         elif target == "recent":
-            state = _llm_cost_state(context)
-            filters = _llm_cost_query_filters(state)
-            summary = db.summarize_llm_requests(filters)
-            total = int(summary.get("request_count") or 0)
-            total_pages = max(1, (total + 7) // 8) if total else 1
-            pg = min(max(0, pg), total_pages - 1)
+            pg = max(0, pg)
             _llm_cost_set_state(context, recent_page=pg, view="recent", detail=True)
             await _show_llm_cost_dashboard(update, context)
         else:

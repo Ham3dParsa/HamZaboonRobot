@@ -313,11 +313,11 @@ class AdminCostSendPrettyFlowTest(unittest.TestCase):
         with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")) as mock_say:
             asyncio.run(_handle_llm_callback(update, ctx, "llm:page:breakdown:1"))
             self.assertEqual(ctx.user_data["llm_cost_state"]["breakdown_page"], 1)
-        # clamp 999 → last page (1)
+        # 999 stored as 999 (clamped for display to last page via builder/_show, no duplicate COUNT)
         update2 = self._make_callback_update("llm:page:breakdown:999")
         with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")) as mock_say:
             asyncio.run(_handle_llm_callback(update2, ctx, "llm:page:breakdown:999"))
-            self.assertEqual(ctx.user_data["llm_cost_state"]["breakdown_page"], 1)
+            self.assertEqual(ctx.user_data["llm_cost_state"]["breakdown_page"], 999)
 
     def test_page_recent_pager_and_clamp(self):
         from handlers.admin_cost import _handle_llm_callback
@@ -338,7 +338,7 @@ class AdminCostSendPrettyFlowTest(unittest.TestCase):
         update2 = self._make_callback_update("llm:page:recent:999")
         with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")) as mock_say:
             asyncio.run(_handle_llm_callback(update2, ctx, "llm:page:recent:999"))
-            self.assertEqual(ctx.user_data["llm_cost_state"]["recent_page"], 1)
+            self.assertEqual(ctx.user_data["llm_cost_state"]["recent_page"], 999)
 
     def test_projection_toggle(self):
         from handlers.admin_cost import _handle_llm_callback
