@@ -1,4 +1,4 @@
-﻿from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 
 from .constants import *  # noqa: F401,F403
 from config.catalog import GOALS, LANGUAGES, LEVELS, language_label

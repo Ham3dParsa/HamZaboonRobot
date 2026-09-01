@@ -1,4 +1,4 @@
-﻿"""R2 CI gate: run the test suite and assert peak combined RAM stays <= 2 GB.
+"""R2 CI gate: run the test suite and assert peak combined RAM stays <= 2600 MB.
 
 Usage (local):  python scripts/run_with_ram_gate.py [-n 14]
 Usage (CI):     python scripts/run_with_ram_gate.py -n 4
@@ -71,7 +71,7 @@ def main() -> int:
     print(f"\n[RAM-GATE] wall={elapsed:.1f}s peak_combined_rss={peak:.0f}MB "
           f"(budget={RAM_BUDGET_MB}MB)")
     if psutil is None:
-        print("[RAM-GATE] FAIL: psutil not installed; the 2GB budget cannot "
+        print(f"[RAM-GATE] FAIL: psutil not installed; the {RAM_BUDGET_MB}MB budget cannot "
               "be enforced. Install psutil (pip install psutil).",
               file=sys.stderr)
         return 2
@@ -96,7 +96,7 @@ def main() -> int:
             return 128 - rc
         return rc or 2
     if peak > RAM_BUDGET_MB:
-        print("[RAM-GATE] FAIL: peak RAM exceeds the 2GB budget.", file=sys.stderr)
+        print(f"[RAM-GATE] FAIL: peak RAM exceeds the {RAM_BUDGET_MB}MB budget.", file=sys.stderr)
         return 1
     print("[RAM-GATE] OK: within budget.")
     return proc.returncode

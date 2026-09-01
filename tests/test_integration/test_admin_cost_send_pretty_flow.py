@@ -1,4 +1,4 @@
-﻿"""Integration tests for llm-cost dashboard (R3/R4/R5 + send_pretty).
+"""Integration tests for llm-cost dashboard (R3/R4/R5 + send_pretty).
 
 Verifies:
 - Backend.RICH rendering with 4-col tables (Name | Req | Avg Cost | Share)

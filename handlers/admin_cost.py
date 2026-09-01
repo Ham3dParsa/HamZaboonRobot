@@ -328,7 +328,7 @@ def _build_llm_cost_message(
     msg.add_line(table(overview_header, *overview_rows))
 
     # Health / attention block – keep legacy phrases for tests
-    if billed_failures > 0 or (request_count and billed_failures / request_count >= 0.2):
+    if billed_failures > 0:
         msg.add_line(quote(plain(f"⚠️ Attention required — 💵 Billed failures: {billed_failures:,} ({_llm_cost_currency_text(billed_failure_cost_usd, billed_failure_cost_toman)}) • ⚠️ Zero-cost failures: {zero_cost_failures:,}")))
     else:
         msg.add_line(quote(plain("✅ System health: no billable failures")))
