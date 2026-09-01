@@ -162,8 +162,8 @@ class AdminCostSendPrettyFlowTest(unittest.TestCase):
                 if content is not None:
                     rendered = content.render(Backend.RICH)
                     self.assertIn("LLM Cost", rendered)
-                    # overview table is always 4-col; breakdown header only when rows exist
-                    self.assertIn("Metric | Value | Cost | Note", rendered)
+                    # hub overview is 2-col card
+                    self.assertIn("Metric | Value", rendered)
 
     def test_breakdown_tabs_each_render_rich_4col(self):
         from handlers.admin_cost import _handle_llm_callback
@@ -228,15 +228,15 @@ class AdminCostSendPrettyFlowTest(unittest.TestCase):
             input_cost_usd_per_million=1.0, output_cost_usd_per_million=2.0,
             usd_to_toman_rate=60000, latency_ms=100, preset_name="preset_a",
         )
-        state = {"range": "all", "detail": False, "breakdown": "preset_kind", "plan": None, "user_id": None, "request_kind": None, "model": None, "outcome": None}
+        state = {"range": "all", "detail": False, "view": "breakdown", "breakdown": "preset_kind", "plan": None, "user_id": None, "request_kind": None, "model": None, "outcome": None}
         msg = _build_llm_cost_message(state, currency_mode="both")
         rendered = msg.render(Backend.RICH)
         # composite bucket format preset:kind (rich escapes underscores)
         self.assertIn("preset\\_a:daily\\_batch", rendered)
         self.assertIn("preset\\_a:custom\\_word", rendered)
         self.assertIn("Name | Req | Avg Cost | Share", rendered)
-        # overview table 4 cols
-        self.assertIn("Metric | Value | Cost | Note", rendered)
+        # hub: breakdown view shows Filters pill, not overview 4-col
+        self.assertIn("Filters:", rendered)
 
     def test_custom_range_rejected_as_invalid(self):
         from handlers.admin_cost import _handle_llm_callback

@@ -226,19 +226,39 @@ def llm_cost_dashboard_keyboard(
     active_range: str = "mtd",
     breakdown: str = "preset",
     currency: str = "both",
+    view: str = "overview",
+    breakdown_page: int = 0,
+    recent_page: int = 0,
+    show_projection: bool = False,
+    breakdown_total_pages: int = 1,
+    recent_total_pages: int = 1,
 ) -> InlineKeyboardMarkup:
-    """Cost dashboard — R6 active-state ✅ markers + custom range & breakdown tabs.
+    """Cost hub — view tabs + range + breakdown + pager + currency cycle.
 
-    Backward compat: ``llm_cost_dashboard_keyboard(bool)`` and
-    ``llm_cost_dashboard_keyboard()`` still work; new callers should pass
-    ``active_range``, ``breakdown``, and ``currency``. All active values are
-    normalized to lowercase for comparison.
+    Backward compat: ``llm_cost_dashboard_keyboard(bool)`` still works; new
+    callers pass ``view``/``breakdown_page``/``recent_page``/``show_projection``.
+    Active markers use ✅.
     """
     active_range = str(active_range or "mtd").lower()
     breakdown = str(breakdown or "preset").lower()
     currency = str(currency or "both").lower()
+    view = str(view or ("recent" if detail else "overview")).lower()
+    if view not in {"overview", "breakdown", "recent"}:
+        view = "overview"
+    breakdown_page = max(0, int(breakdown_page or 0))
+    recent_page = max(0, int(recent_page or 0))
+    breakdown_total_pages = max(1, int(breakdown_total_pages or 1))
+    recent_total_pages = max(1, int(recent_total_pages or 1))
 
-    # — Range row (6 options) → 3 rows × 2 cols to avoid clutter
+    # — View tabs (always) — segmented control
+    tabs_row = [
+        InlineKeyboardButton(_active_label(view == "overview", "Overview"), callback_data="llm:view:overview"),
+        InlineKeyboardButton(_active_label(view == "breakdown", "Breakdown"), callback_data="llm:view:breakdown"),
+        InlineKeyboardButton(_active_label(view == "recent", "Recent"), callback_data="llm:view:recent"),
+        InlineKeyboardButton("❓", callback_data="llm:legend"),
+    ]
+
+    # — Range row (5 options) → 3 rows × 2 cols
     _range_opts: list[tuple[str, str]] = [
         ("Today", "today"),
         ("7d", "7d"),
@@ -258,62 +278,78 @@ def llm_cost_dashboard_keyboard(
         ]
         range_rows.append(row)
 
-    # — Breakdown row (6 tabs) → 3 rows × 2 cols
-    _breakdown_opts: list[tuple[str, str]] = [
-        ("By Preset", "preset"),
-        ("By Plan", "plan"),
-        ("By Kind", "kind"),
-        ("By Model", "model"),
-        ("By User", "user"),
-        ("By Preset×Kind", "preset_kind"),
-    ]
+    # — Breakdown tabs (only on breakdown view) → 3 rows × 2 cols
     breakdown_rows: list[list[InlineKeyboardButton]] = []
-    for i in range(0, len(_breakdown_opts), 2):
-        chunk = _breakdown_opts[i : i + 2]
-        row = [
-            InlineKeyboardButton(
-                _active_label(val == breakdown, label),
-                callback_data=f"llm:breakdown:{val}",
-            )
-            for label, val in chunk
+    if view == "breakdown":
+        _breakdown_opts: list[tuple[str, str]] = [
+            ("By Preset", "preset"),
+            ("By Plan", "plan"),
+            ("By Kind", "kind"),
+            ("By Model", "model"),
+            ("By User", "user"),
+            ("By Preset×Kind", "preset_kind"),
         ]
-        breakdown_rows.append(row)
+        for i in range(0, len(_breakdown_opts), 2):
+            chunk = _breakdown_opts[i : i + 2]
+            row = [
+                InlineKeyboardButton(
+                    _active_label(val == breakdown, label),
+                    callback_data=f"llm:breakdown:{val}",
+                )
+                for label, val in chunk
+            ]
+            breakdown_rows.append(row)
 
-    # — Currency row (3 options) → 1 row × 3 cols (or 2+1); keep single row
-    _currency_opts: list[tuple[str, str]] = [
-        ("USD", "usd"),
-        ("Toman", "toman"),
-        ("Both", "both"),
-    ]
-    currency_row = [
-        InlineKeyboardButton(
-            _active_label(val == currency, label),
-            callback_data=f"llm:currency:{val}",
-        )
-        for label, val in _currency_opts
-    ]
+    # — Pager row (only when needed)
+    pager_row: list[list[InlineKeyboardButton]] = []
+    if view == "breakdown" and breakdown_total_pages > 1:
+        nav: list[InlineKeyboardButton] = []
+        if breakdown_page > 0:
+            nav.append(InlineKeyboardButton("◀", callback_data=f"llm:page:breakdown:{breakdown_page - 1}"))
+        else:
+            nav.append(InlineKeyboardButton("·", callback_data="llm:noop"))
+        nav.append(InlineKeyboardButton(f"{breakdown_page + 1}/{breakdown_total_pages}", callback_data="llm:noop"))
+        if breakdown_page + 1 < breakdown_total_pages:
+            nav.append(InlineKeyboardButton("▶", callback_data=f"llm:page:breakdown:{breakdown_page + 1}"))
+        else:
+            nav.append(InlineKeyboardButton("·", callback_data="llm:noop"))
+        pager_row.append(nav)
+    elif view == "recent" and recent_total_pages > 1:
+        nav = []
+        if recent_page > 0:
+            nav.append(InlineKeyboardButton("◀", callback_data=f"llm:page:recent:{recent_page - 1}"))
+        else:
+            nav.append(InlineKeyboardButton("·", callback_data="llm:noop"))
+        nav.append(InlineKeyboardButton(f"{recent_page + 1}/{recent_total_pages}", callback_data="llm:noop"))
+        if recent_page + 1 < recent_total_pages:
+            nav.append(InlineKeyboardButton("▶", callback_data=f"llm:page:recent:{recent_page + 1}"))
+        else:
+            nav.append(InlineKeyboardButton("·", callback_data="llm:noop"))
+        pager_row.append(nav)
 
-    # — Controls row(s): detail toggle / refresh / clear / legend / back
-    recent_label = IBTN_HIDE_RECENT if detail else IBTN_RECENT
-    controls_rows: list[list[InlineKeyboardButton]] = [
+    # — Currency cycle + projection + controls
+    cur_label = {"usd": "USD", "toman": "Toman", "both": "Both"}[currency] if currency in {"usd", "toman", "both"} else "Both"
+    controls_rows: list[list[InlineKeyboardButton]] = []
+    # first controls row: currency cycle + projection toggle (overview MTD only)
+    first_row = [InlineKeyboardButton(f"💱 {cur_label}", callback_data="llm:currency:cycle")]
+    if view == "overview":
+        proj_label = "📈 Hide" if show_projection else "📈 Show"
+        first_row.append(InlineKeyboardButton(proj_label, callback_data="llm:projection"))
+    first_row.append(InlineKeyboardButton(IBTN_REFRESH, callback_data="llm:refresh"))
+    controls_rows.append(first_row)
+    controls_rows.append(
         [
-            InlineKeyboardButton(recent_label, callback_data="llm:recent"),
-            InlineKeyboardButton(IBTN_REFRESH, callback_data="llm:refresh"),
-        ],
-        [
-            InlineKeyboardButton("❓ راهنما", callback_data="llm:legend"),
             InlineKeyboardButton(IBTN_CLEAR_FILTERS, callback_data="llm:clear"),
-        ],
-        [
             InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:cost_dashboard"),
-        ],
-    ]
+        ]
+    )
 
     return InlineKeyboardMarkup(
         [
+            [tabs_row[0], tabs_row[1], tabs_row[2], tabs_row[3]],
             *range_rows,
             *breakdown_rows,
-            currency_row,
+            *pager_row,
             *controls_rows,
         ]
     )
