@@ -37,6 +37,7 @@ class CallbackNoticeIntent(str, Enum):
     INFO = "info"
     IMPORTANT_ERROR = "important_error"
     SUCCESS_TOAST = "success_toast"
+    THROTTLE = "throttle"
 
 
 _SHOW_ALERT_BY_INTENT = {
@@ -44,6 +45,7 @@ _SHOW_ALERT_BY_INTENT = {
     CallbackNoticeIntent.INFO: False,
     CallbackNoticeIntent.IMPORTANT_ERROR: True,
     CallbackNoticeIntent.SUCCESS_TOAST: True,
+    CallbackNoticeIntent.THROTTLE: False,
 }
 
 

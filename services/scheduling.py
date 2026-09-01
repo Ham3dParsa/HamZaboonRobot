@@ -10,6 +10,8 @@ once at the top of handle_study_start(), before build_session_list().
 from __future__ import annotations
 
 import logging
+import time
+from collections import deque
 from datetime import date, datetime
 
 from config import APP_TZ
@@ -19,6 +21,40 @@ from services.db.schema import transaction
 logger = logging.getLogger(__name__)
 
 _app_tz = APP_TZ
+
+# ---- Per-user sliding-window rate guard (Phase 01, plan-27) ----
+# Lightweight in-memory memory-only guard for costly actions (5/10s).
+# No DB transaction across await; pure deque per (user_id, action).
+# Memory-only: resets on restart (documented tradeoff); no settings persistence.
+_RATE_WINDOW_SECONDS: float = 10.0
+_RATE_LIMIT: int = 5
+
+# In-memory buckets: (user_id, action) -> deque of timestamps (float epoch UTC)
+_buckets: dict[tuple[int, str], deque[float]] = {}
+
+
+def _now_ts(now: float | datetime | None) -> float:
+    if now is None:
+        return time.time()  # UTC epoch
+    if isinstance(now, datetime):
+        # Use UTC timestamp for metadata consistency (AGENTS.md §5)
+        return now.timestamp()
+    return float(now)
+
+
+def _prune(bucket: deque[float], now_ts: float) -> None:
+    cutoff = now_ts - _RATE_WINDOW_SECONDS
+    while bucket and bucket[0] <= cutoff:
+        bucket.popleft()
+
+
+def _clear_rate_buckets() -> None:
+    """Test helper: clear all in-memory rate buckets."""
+    _buckets.clear()
+
+
+# Alias for alternative test harness name
+_reset_rate_buckets = _clear_rate_buckets
 
 
 def _today_str() -> str:
@@ -133,3 +169,65 @@ def word_query_usage_text(row: dict) -> str:
         return f"📊 استفاده امروز: {used} / نامحدود"
     remaining = max(limit - used, 0)
     return f"📊 استفاده امروز: {used}/{limit} · باقی‌مانده: {remaining}"
+
+
+# ---- Public per-user rate guard API ----
+
+
+def is_rate_limited(
+    user_id: int, action: str, now: float | datetime | None = None
+) -> bool:
+    """Return True if user has hit the sliding-window limit for action (read-only)."""
+    key = (user_id, action)
+    bucket = _buckets.get(key)
+    if not bucket:
+        return False
+    _prune(bucket, _now_ts(now))
+    if not bucket:
+        _buckets.pop(key, None)
+        return False
+    return len(bucket) >= _RATE_LIMIT
+
+
+def try_acquire_per_user_slot(
+    user_id: int, action: str, now: float | datetime | None = None
+) -> bool:
+    """Atomic check+record: return True if slot acquired (allowed), False if throttled.
+
+    Prunes, checks limit, and appends atomically (single-threaded sync path is
+    atomic; outer per-user lock in bot.py serializes same-user callbacks).
+    """
+    key = (user_id, action)
+    ts = _now_ts(now)
+    bucket = _buckets.get(key)
+    if bucket is None:
+        bucket = deque()
+        _buckets[key] = bucket
+    _prune(bucket, ts)
+    if len(bucket) >= _RATE_LIMIT:
+        if not bucket:
+            _buckets.pop(key, None)
+        return False
+    bucket.append(ts)
+    return True
+
+
+def record_per_user_action(
+    user_id: int, action: str, now: float | datetime | None = None
+) -> None:
+    """Record an action occurrence (legacy, prefer try_acquire)."""
+    key = (user_id, action)
+    ts = _now_ts(now)
+    bucket = _buckets.get(key)
+    if bucket is None:
+        bucket = deque()
+        _buckets[key] = bucket
+    _prune(bucket, ts)
+    bucket.append(ts)
+
+
+def check_per_user_rate(
+    user_id: int, action: str, now: float | datetime | None = None
+) -> bool:
+    """Return True if allowed (not rate-limited). Does not record."""
+    return not is_rate_limited(user_id, action, now=now)

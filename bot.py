@@ -77,7 +77,7 @@ from services.utils.formatting import (
     format_card,
     phonetic_lines,
 )
-from services.scheduling import word_query_usage_text
+from services.scheduling import try_acquire_per_user_slot, word_query_usage_text
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 
 from services.utils.helpers import (
@@ -341,6 +341,21 @@ async def _process_ask_word(
     ``services.word_query.ask``, which owns validation, quota reservation, the
     AI 2-step pipeline and persistence, and branches on ``AskResult.kind``.
     """
+    # --- per-user spam guard (plan-27) atomic before quota/AI ---
+    if not try_acquire_per_user_slot(user_id, "query_ask"):
+        throttle_msg = "⏳ لطفاً کمی صبر کنید و دوباره تلاش کنید."
+        if update.callback_query is not None:
+            await notify_callback(
+                update.callback_query, throttle_msg, intent=CallbackNoticeIntent.THROTTLE
+            )
+        else:
+            await _send_with_retry(
+                context.bot,
+                update.effective_chat.id,
+                throttle_msg,
+                reply_markup=main_menu(is_owner(user_id)),
+            )
+        return
     limit = daily_word_query_limit_for_plan(row["plan"] if row else "free")
 
     # --- build the rate-limited 2-step generator (handler owns Telegram infra) ---

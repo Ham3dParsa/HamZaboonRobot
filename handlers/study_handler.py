@@ -42,6 +42,7 @@ from services.session.summary import WordReviewRecord, build_report
 from services.scheduling import (
     consume_session_slot,
     release_session_slot,
+    try_acquire_per_user_slot,
     _today_str,
 )
 from services.utils.formatting import (
@@ -286,6 +287,15 @@ async def handle_study_start(
 ) -> None:
     """Handle the '📚 شروع مطالعه' golden button callback."""
     user_id = update.effective_user.id
+    # --- per-user spam guard (plan-27) atomic before any quota/AI side effect ---
+    if not try_acquire_per_user_slot(user_id, "study_start"):
+        await _reply_or_answer(
+            update,
+            context,
+            "⏳ لطفاً کمی صبر کنید و دوباره تلاش کنید.",
+            intent=CallbackNoticeIntent.THROTTLE,
+        )
+        return
     row = db.get_user(user_id)
 
     if not row or not row["onboarded"]:
