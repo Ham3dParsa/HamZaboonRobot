@@ -1,7 +1,7 @@
-# HamZaboon Agent Guidance
+# HamZaban Agent Guidance
 
 Operating agreement for AI agents, Devin sessions, and human contributors on
-HamZaboon. When this file, `ROADMAP.md`, or the user's request conflict, follow
+HamZaban. When this file, `ROADMAP.md`, or the user's request conflict, follow
 the more specific and more recent instruction.
 
 GitHub Issues are the canonical issue registry; `ROADMAP.md` is product
@@ -134,19 +134,34 @@ learner-facing message.
 Load the relevant skill by trigger (see §9). Core discipline:
 
 0. Contract locked (§2) before any code.
-1. Fresh branch `type/short-desc` from latest `origin/main`; **work in an
-   isolated git worktree** (see `using-git-worktrees`). Run `parallel-work-guard`
-   seam check before locking and before starting.
+1. Worktree Isolation Gate — primary worktree (`HamZaban` root) stays on `main`
+   and stays clean: never `git checkout`/`switch`/`branch` there. For every
+   task, create an isolated worktree at `.worktrees/<type/short-desc>` via
+   `git worktree add .worktrees/<branch> -b <branch> origin/main` (see
+   `using-git-worktrees` + `parallel-work-guard`), `cd` there, and do ALL
+   edits/commits/tests inside it (`git rev-parse --show-toplevel` ≠ primary).
+   Gate passes when `git -C <primary> branch --show-current == main` and
+   `git -C <primary> status --porcelain` clean, and `git worktree list` shows
+   the task worktree. If primary is dirty, treat it as read-only — do not
+   stash/commit it.
 2. Write focused tests from the behavior spec + locked contract, not internals.
    Behavioral changes (handlers/keyboards/DB/quota/AI/callbacks) need
    `tests/test_integration/`; callback/router changes need a
    `tests/test_wiring.py` test.
-3. Stage explicitly (`git add file.py` — never `git add .`); Conventional
+3. Independent Review Gate — mandatory for behavioral changes: if change touches
+   handlers/DB/callbacks/AI/quota/schema/production `.py` (same scope as §7 Full
+   suite), launch `hamzaban-reviewer` via `Task(subagent_type="hamzaban-reviewer")`
+   BEFORE `pre-commit-gate`. Gate passes only when reviewer reports `0 confirmed
+   findings` or every confirmed finding is fixed and re-verified. Include
+   `<SYSTEM_GATE> Independent review required before commit </SYSTEM_GATE>`.
+   Fast-track docs/skills/agents/plans/formatting/comments/test-only (no behavior
+   change) skips this step — state it under `<SYSTEM_GATE>`.
+4. Stage explicitly (`git add file.py` — never `git add .`); Conventional
    Commits; push; open PR via `gh pr create --fill --base main` linking issues.
-4. Owner merges **Squash and merge**; agent may `gh pr merge --squash` only on
+5. Owner merges **Squash and merge**; agent may `gh pr merge --squash` only on
    explicit "merge it" after CI passes. Cleanup worktree, delete branch, release
    parallel claim, update issues/ROADMAP.
-5. Don't combine unrelated features/refactors/issue-cleanup in one PR.
+6. Don't combine unrelated features/refactors/issue-cleanup in one PR.
 
 **Route-delete rule:** routing a caller to a new path MUST delete the old path
 in the same PR — enforced by the dead-reference guard
@@ -156,10 +171,6 @@ unreferenced.
 **Test-sync rule:** a behavior change MUST update its test(s) in the same PR.
 Do not silently delete/disable a failing test or revert correct code to make it
 pass. Classify failure as bug vs. obsolete; if uncertain, ask per §2.
-
-**Independent review:** non-trivial changes launch the read-only
-`hamzaboon-reviewer` subagent (§10) before committing; fix confirmed findings
-and re-run until none remain.
 
 ## 7. Required Validation
 
@@ -207,9 +218,8 @@ branches).
 | `grill-to-spec` | Plan needs ambiguity resolution before execution. |
 | `tdd-enforcement` | Writing new logic or modifying behavior during implementation. |
 
-Subagents (`hamzaboon-db`, `hamzaboon-ai`, `hamzaboon-handler`,
-`hamzaboon-reviewer`) in `.opencode/agents/` offer domain-scoped tool
-permissions; `hamzaboon-reviewer` is read-only independent review.
+Subagents in `.opencode/agents/` — `hamzaban-reviewer`: read-only gate for
+§6.3; `hamzaban-db`/`-ai`/`-handler`: domain helpers.
 
 Global general skills (`~/.config/opencode/skills/`) are optional conveniences,
 not HamZaban gates.
@@ -230,14 +240,19 @@ when the owner explicitly asks for detail. Bullets over prose.
 
 ## Appendix A: Self-Check
 
-**Before implementation:** all gaps as numbered rules with options + trade-offs;
-owner chose each; Contract Lock Template filled; `GATE STATUS = LOCKED`;
-`<SYSTEM_GATE> Contract lock required before proceeding </SYSTEM_GATE>` present;
-no code before lock; callback impact assessed; §2.2 §2.3 compliant; `grep`
-verified no duplicate domain logic (§3).
+**Before implementation:** primary on `main` clean and worktree isolated (§6.1
+gate passed: `git -C <primary> branch --show-current == main`, `git -C <primary>
+status --porcelain` clean, work inside `.worktrees/<branch>`); all gaps as
+numbered rules with options + trade-offs; owner chose each; Contract Lock
+Template filled; `GATE STATUS = LOCKED`; `<SYSTEM_GATE> Contract lock required
+before proceeding </SYSTEM_GATE>` present; no code before lock; callback impact
+assessed; §2.2 §2.3 compliant; `grep` verified no duplicate domain logic (§3).
 
-**Before commit:** validation suite passed (§7); `git diff --check` + staged
-clean; no secrets; single logical commit; explicit `git add`; branch
-`type/short-desc`; `<SYSTEM_GATE> Git validation required before commit
-</SYSTEM_GATE>` present; failures classified (§6 Test-sync); dead references
-removed (§6 Route-delete); reviewer reported no confirmed findings.
+**Before commit:** work inside `.worktrees/<branch>` (§6.1 primary still on
+`main` clean); validation suite passed (§7); `git diff --check` + staged clean;
+no secrets; single logical commit; explicit `git add`; branch `type/short-desc`;
+`<SYSTEM_GATE> Git validation required before commit </SYSTEM_GATE>` present;
+`<SYSTEM_GATE> Independent review required before commit </SYSTEM_GATE>` present
+(§6.3 gate passed: `hamzaban-reviewer` Task completed — 0 confirmed findings or
+all fixed and re-verified); failures classified (§6 Test-sync); dead references
+removed (§6 Route-delete).
