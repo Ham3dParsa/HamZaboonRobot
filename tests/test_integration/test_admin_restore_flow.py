@@ -106,6 +106,7 @@ class AdminRestoreFlowTests(unittest.IsolatedAsyncioTestCase):
             patch("handlers.admin.DB_PATH", self.live_path),
             patch("handlers.admin.asyncio.to_thread", worker),
             patch("services.archive.asyncio.to_thread", worker),
+            patch("services.archive.resolved_archive_chat_id", return_value=-100123456789),
         ):
             await auto_backup_job(context)
 
