@@ -354,3 +354,75 @@ async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
             # Sending creates a NEW message each call; a timeout/network error
             # is ambiguous (may already be delivered). Never re-send a voice.
             raise
+
+
+def _store_awaiting_msg(context: ContextTypes.DEFAULT_TYPE, update: Update, msg) -> None:
+    """Store the prompt message id so its keyboard can be cleared on consume/cancel.
+
+    Single source of truth — imported by handlers/admin.py and handlers/admin_users.py.
+
+    Handles the edit-path where ``_edit_or_send`` returns ``True``/``None`` instead
+    of a Message: falls back to ``callback_query.message`` / ``effective_message``
+    and ``effective_chat`` so a prompt is always stored when possible.
+    """
+    try:
+        mid = None
+        cid = None
+        if msg is not None and not isinstance(msg, bool):
+            mid = getattr(msg, "message_id", None)
+            chat = getattr(msg, "chat", None)
+            if chat is not None:
+                cid = getattr(chat, "id", None)
+            # Some send helpers return int message_id directly
+            if mid is None and isinstance(msg, int):
+                mid = msg
+        if mid is None:
+            try:
+                cq = getattr(update, "callback_query", None)
+                if cq is not None:
+                    cm = getattr(cq, "message", None)
+                    if cm is not None:
+                        mid = getattr(cm, "message_id", None)
+                        if cid is None:
+                            chat = getattr(cm, "chat", None)
+                            if chat is not None:
+                                cid = getattr(chat, "id", None)
+            except Exception:
+                pass
+        if mid is None:
+            try:
+                em = getattr(update, "effective_message", None)
+                if em is not None:
+                    mid = getattr(em, "message_id", None)
+                    if cid is None:
+                        chat = getattr(em, "chat", None)
+                        if chat is not None:
+                            cid = getattr(chat, "id", None)
+            except Exception:
+                pass
+        if cid is None and getattr(update, "effective_chat", None) is not None:
+            try:
+                cid = update.effective_chat.id  # type: ignore[union-attr]
+            except Exception:
+                pass
+        if mid is None or cid is None:
+            return
+        context.user_data["_awaiting_msg"] = {"chat_id": cid, "message_id": mid}
+    except Exception:
+        pass
+
+
+async def _clear_awaiting_prompt(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Clear the stored awaiting prompt's keyboard, swallowing BadRequest.
+
+    Single source of truth — imported by handlers/admin.py and handlers/admin_users.py.
+    """
+    data = context.user_data.pop("_awaiting_msg", None)
+    if not data:
+        return
+    try:
+        await _edit_markup_with_retry(context.bot, data["chat_id"], data["message_id"], None)
+    except BadRequest:
+        pass
+    except Exception:
+        pass

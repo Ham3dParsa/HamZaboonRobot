@@ -15,7 +15,7 @@ from services import db, send_pretty
 from services.send_pretty import RawFormat, say
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.formatting import html_escape
-from services.utils.helpers import _edit_or_send, _exit_awaiting_flow, _send_with_retry
+from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _exit_awaiting_flow, _send_with_retry, _store_awaiting_msg
 from handlers.admin_stats import handle_admin_stats
 from handlers.admin_users import handle_admin_user
 from handlers.admin_cost import (
@@ -94,6 +94,7 @@ from config.keyboards import (
     maintenance_keyboard,
     log_level_keyboard,
     user_activity_keyboard,
+    user_management_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -192,25 +193,90 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif action.startswith("ai_") or action.startswith("fallback") or action in ("help:presets", "help:fallback_chain"):
         await handle_ai_callback(update, context, action)
     elif action == "back":
-        context.user_data.pop("awaiting", None)
-        await _edit_or_send(update, context, "پنل مدیریت ربات:", reply_markup=admin_panel_keyboard())
-        await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
+        awaiting = context.user_data.get("awaiting", "") or ""
+        has_pending_user = any(context.user_data.get(k) for k in ("pending_dm", "pending_plan", "pending_block"))
+        has_pending_broadcast = bool(context.user_data.get("pending_broadcast"))
+        # User-management awaiting or preview pending → back to user management
+        if (
+            awaiting.startswith("admin_user_search")
+            or awaiting.startswith("admin_user_set_plan")
+            or awaiting.startswith("admin_user_message")
+            or has_pending_user
+        ):
+            context.user_data.pop("awaiting", None)
+            context.user_data.pop("pending_dm", None)
+            context.user_data.pop("pending_plan", None)
+            context.user_data.pop("pending_block", None)
+            context.user_data.pop("_awaiting_pending", None)
+            await _clear_awaiting_prompt(context)
+            await _edit_or_send(update, context, "👤 مدیریت کاربر", reply_markup=user_management_keyboard())
+            await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
+        elif awaiting.startswith("admin_broadcast") or has_pending_broadcast:
+            context.user_data.pop("awaiting", None)
+            context.user_data.pop("pending_broadcast", None)
+            context.user_data.pop("_awaiting_pending", None)
+            await _clear_awaiting_prompt(context)
+            await _edit_or_send(update, context, "پنل مدیریت ربات:", reply_markup=admin_panel_keyboard())
+            await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
+        elif awaiting.startswith("llm_cost") or awaiting == "llm_price_rate":
+            context.user_data.pop("awaiting", None)
+            context.user_data.pop("_awaiting_pending", None)
+            await _clear_awaiting_prompt(context)
+            await _show_llm_cost_dashboard(update, context)
+            await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
+        elif awaiting.startswith("ai_preset_edit:"):
+            preset_name = awaiting.split(":", 1)[1].rsplit(":", 1)[0]
+            context.user_data.pop("awaiting", None)
+            context.user_data.pop("_awaiting_pending", None)
+            await _clear_awaiting_prompt(context)
+            await _edit_ai_preset(update, context, preset_name)
+            await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
+        elif awaiting.startswith("ai_preset_full_edit:"):
+            preset_name = awaiting.split(":", 2)[1] if ":" in awaiting else ""
+            context.user_data.pop("full_edit", None)
+            context.user_data.pop("awaiting", None)
+            context.user_data.pop("_awaiting_pending", None)
+            await _clear_awaiting_prompt(context)
+            if preset_name:
+                await _edit_ai_preset(update, context, preset_name)
+            else:
+                await _show_ai_settings(update, context)
+            await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
+        elif awaiting.startswith("admin_plan_full_edit:"):
+            context.user_data.pop("plan_full_edit", None)
+            context.user_data.pop("_awaiting_pending", None)
+            await _clear_awaiting_prompt(context)
+            await _exit_awaiting_flow(update, context, via_callback=True)
+        elif awaiting.startswith("ai_") or awaiting.startswith("admin_group") or awaiting.startswith("admin_ai"):
+            context.user_data.pop("awaiting", None)
+            context.user_data.pop("_awaiting_pending", None)
+            await _clear_awaiting_prompt(context)
+            await _show_ai_settings(update, context)
+            await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
+        else:
+            context.user_data.pop("awaiting", None)
+            context.user_data.pop("_awaiting_pending", None)
+            await _clear_awaiting_prompt(context)
+            await _edit_or_send(update, context, "پنل مدیریت ربات:", reply_markup=admin_panel_keyboard())
+            await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
     elif action == "cancel":
         context.user_data.pop("awaiting", None)
         context.user_data.pop("preset_edits", None)
         context.user_data.pop("full_edit", None)
+        await _clear_awaiting_prompt(context)
         await _edit_or_send(update, context, "عملیات لغو شد.", reply_markup=admin_panel_keyboard())
         await notify_callback(update.callback_query, "لغو شد", intent=CallbackNoticeIntent.INFO)
     elif action == "broadcast":
         context.user_data["awaiting"] = "admin_broadcast"
         await notify_callback(update.callback_query)
-        await send_pretty.send(
+        msg = await send_pretty.send(
             update.effective_chat.id,
             "متن پیام همگانی رو بفرست:",
             bot=context.bot,
             raw=send_pretty.RawFormat.PLAIN,
             keyboard=admin_awaiting_inline_keyboard(),
         )
+        _store_awaiting_msg(context, update, msg)
     elif action == "broadcast_confirm":
         pending = context.user_data.get("pending_broadcast")
         if not pending or not pending.get("text"):
@@ -259,6 +325,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         context.user_data.pop("pending_broadcast", None)
         mark_awaiting_consumed(context)
         context.user_data.pop("awaiting", None)
+        await _clear_awaiting_prompt(context)
         await notify_callback(update.callback_query, "لغو شد.", intent=CallbackNoticeIntent.INFO)
         await _edit_or_send(update, context, "لغو شد.", reply_markup=admin_panel_keyboard())
         return
@@ -266,13 +333,14 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         context.user_data.pop("pending_broadcast", None)
         context.user_data["awaiting"] = "admin_broadcast"
         await notify_callback(update.callback_query)
-        await send_pretty.send(
+        msg = await send_pretty.send(
             update.effective_chat.id,
             "متن پیام همگانی را دوباره بفرست:",
             bot=context.bot,
             raw=send_pretty.RawFormat.PLAIN,
             keyboard=admin_awaiting_inline_keyboard(),
         )
+        _store_awaiting_msg(context, update, msg)
         return
     elif action == "show_settings":
         try:
@@ -481,6 +549,7 @@ def _register_admin_flows() -> None:
     async def _handle_admin_broadcast(update, context, awaiting, text):
         if _BROADCAST_RUNNING:
             mark_awaiting_consumed(context)
+            await _clear_awaiting_prompt(context)
             await send_pretty.say(
                 update,
                 context,
@@ -490,17 +559,21 @@ def _register_admin_flows() -> None:
             return
         msg = text.strip() if isinstance(text, str) else ""
         if not msg:
+            await _clear_awaiting_prompt(context)
             context.user_data["awaiting"] = awaiting
-            await send_pretty.say(
+            m = await send_pretty.say(
                 update,
                 context,
                 "متن پیام خالی است. دوباره بفرستید یا لغو کنید.",
                 raw=send_pretty.RawFormat.PLAIN,
             )
+            _store_awaiting_msg(context, update, m)
             return
         if len(msg) > 4000:
+            await _clear_awaiting_prompt(context)
             context.user_data["awaiting"] = awaiting
-            await say(update, context, "متن طولانی است (حداکثر ۴۰۰۰ کاراکتر). لطفاً کوتاه‌تر بفرستید.", raw=RawFormat.PLAIN, mode="send")
+            m = await say(update, context, "متن طولانی است (حداکثر ۴۰۰۰ کاراکتر). لطفاً کوتاه‌تر بفرستید.", raw=RawFormat.PLAIN, mode="send")
+            _store_awaiting_msg(context, update, m)
             return
         # Capture HTML-preserving representation (R3/R4).
         html = None
@@ -517,6 +590,7 @@ def _register_admin_flows() -> None:
         count = len(db.all_active_users())
         context.user_data["pending_broadcast"] = {"text": msg, "html": html, "count": count}
         mark_awaiting_consumed(context)
+        await _clear_awaiting_prompt(context)
         use_html = bool(html and html != msg)
         preview_text = f"{html_escape('👁 پیش‌نمایش پیام همگانی (')}{count}{html_escape(' کاربر):')}\n\n{html}\n\n{html_escape('تایید می‌کنید؟')}"
         await send_pretty.say(
