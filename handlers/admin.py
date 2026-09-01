@@ -412,6 +412,8 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         await notify_callback(update.callback_query)
         await say(update, context, "آیدی کانال کش TTS را بفرست (مثلاً -100123...). برای غیرفعال کردن خالی بفرست.", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
     elif action == "tts_cache:clear":
+        # Empty stored value means explicitly disabled — resolve_tts_cache_chat_id
+        # will return None and NOT fall back to env TTS_CACHE_CHAT_ID.
         db.set_setting("tts_cache_chat_id", "")
         from config.keyboards.admin import tts_cache_keyboard
         await _edit_or_send(update, context, "🗑 کش TTS غیرفعال شد.", reply_markup=tts_cache_keyboard(""))
@@ -635,6 +637,8 @@ def _register_admin_flows() -> None:
         from config import validate_tts_cache_chat_id
         raw = (text or "").strip()
         if raw == "":
+            # Explicit "" intentionally disables TTS cache channel and suppresses
+            # env fallback (see resolve_tts_cache_chat_id docstring).
             db.set_setting("tts_cache_chat_id", "")
             mark_awaiting_consumed(context)
             context.user_data["awaiting"] = None

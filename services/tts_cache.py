@@ -64,33 +64,30 @@ def get_cached(cache_key: str) -> dict | None:
             _lru.move_to_end(cache_key)
             return dict(_lru[cache_key])
     _ensure_db()
-    conn = sqlite3.connect(_db_path(), timeout=10)
-    conn.row_factory = sqlite3.Row
-    try:
-        row = conn.execute("SELECT * FROM tts_cache WHERE cache_key=?", (cache_key,)).fetchone()
-        if not row:
-            return None
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        with _DB_LOCK:
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    with _DB_LOCK:
+        conn = sqlite3.connect(_db_path(), timeout=10)
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute("SELECT * FROM tts_cache WHERE cache_key=?", (cache_key,)).fetchone()
+            if not row:
+                return None
             try:
-                wc = sqlite3.connect(_db_path(), timeout=10)
-                try:
-                    wc.execute("UPDATE tts_cache SET last_used_at=? WHERE cache_key=?", (now, cache_key))
-                    wc.commit()
-                finally:
-                    wc.close()
+                conn.execute("UPDATE tts_cache SET last_used_at=? WHERE cache_key=?", (now, cache_key))
+                conn.commit()
             except Exception:
-                pass
-        d = dict(row)
-        d["last_used_at"] = now
-        with _lru_lock:
-            _lru[cache_key] = d
-            _lru.move_to_end(cache_key)
-            if len(_lru) > _LRU_CAP:
-                _lru.popitem(last=False)
-        return d
-    finally:
-        conn.close()
+                import logging as _logging
+                _logging.getLogger(__name__).warning("tts_cache last_used_at update failed for %r", cache_key, exc_info=True)
+            d = dict(row)
+            d["last_used_at"] = now
+            with _lru_lock:
+                _lru[cache_key] = d
+                _lru.move_to_end(cache_key)
+                if len(_lru) > _LRU_CAP:
+                    _lru.popitem(last=False)
+            return d
+        finally:
+            conn.close()
 
 def put_cached(cache_key: str, lang: str, text: str, file_id: str, file_unique_id: str, channel_message_id: int | None = None) -> None:
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()

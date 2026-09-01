@@ -1136,14 +1136,18 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
                 except Exception:
                     cached2 = None
                 if cached2 and cached2.get("file_id"):
-                    await _send_voice_with_retry(
-                        context.bot,
-                        update.effective_chat.id,
-                        cached2["file_id"],
-                        caption=caption,
-                        reply_to_message_id=update.callback_query.message.message_id,
-                    )
-                    return
+                    try:
+                        await _send_voice_with_retry(
+                            context.bot,
+                            update.effective_chat.id,
+                            cached2["file_id"],
+                            caption=caption,
+                            reply_to_message_id=update.callback_query.message.message_id,
+                        )
+                        return
+                    except Exception:
+                        log.warning("cached file_id send failed (inside lock), falling back to generate")
+                        # fall through to pronounce/generate path below
             path = await tts.pronounce(word, lang)
             if chat_id:
                 try:

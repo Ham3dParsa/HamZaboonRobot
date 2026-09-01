@@ -48,7 +48,7 @@ TTS_CACHE_DB_PATH = os.getenv("TTS_CACHE_DB_PATH", "tts_cache.db").strip() or "t
 
 
 def validate_tts_cache_chat_id(raw: str) -> int | None:
-    """Validate channel chat_id string. Empty means disabled (None). Returns int or raises ValueError."""
+    """Validate channel chat_id string. Returns int|None — None when empty/disabled; raises ValueError on invalid format."""
     s = (raw or "").strip()
     if not s:
         return None
@@ -208,24 +208,37 @@ def effective_daily_allowance(
     return daily_card_count_for_plan(effective_plan(plan, bypass_limits))
 
 
+def get_tts_cache_chat_id_raw() -> tuple[bool, str]:
+    """Return (exists, raw_value) for the tts_cache_chat_id setting via canonical accessor.
+
+    Uses services.db.settings.get_setting (single source; no inline SQL) with a
+    sentinel default to distinguish missing row (fallback to env) from an
+    explicit empty value (intentionally disabled).
+    """
+    from services.db.settings import get_setting as _get_setting
+    _sentinel = object()
+    val = _get_setting("tts_cache_chat_id", _sentinel)  # type: ignore[arg-type]
+    if val is _sentinel:
+        return False, ""
+    return True, str(val or "")
+
+
 def resolve_tts_cache_chat_id() -> int | None:
     """Resolve TTS cache channel id: settings wins else env.
 
-    Returns int chat_id or None when disabled. If settings key exists with
-    empty value (cleared via admin), it means explicitly disabled — no fallback
-    to env. Invalid stored/env values are treated as disabled (None).
+    Returns int|None — None when disabled (empty or invalid). If settings key
+    exists with empty value (cleared via admin or explicit ""), it means
+    intentionally disabled with no fallback to env. Invalid stored/env values
+    are treated as disabled (None).
     """
     try:
-        from services.db.schema import get_conn as _get_conn
-        with _get_conn() as _conn:
-            _row = _conn.execute("SELECT value FROM settings WHERE key=?", ("tts_cache_chat_id",)).fetchone()
-            if _row is not None:
-                # Explicit setting present — empty means disabled, no env fallback
-                v = (_row["value"] or "").strip()
-                if not v:
-                    return None
-                coerced = _coerce_tts_cache_chat_id(v)
-                return coerced  # None if invalid stored value
+        exists, raw = get_tts_cache_chat_id_raw()
+        if exists:
+            # Explicit setting present — empty means disabled, no env fallback
+            v = (raw or "").strip()
+            if not v:
+                return None
+            return _coerce_tts_cache_chat_id(v)  # None if invalid stored value
     except Exception:
         pass
     # No explicit setting row — fallback to env
