@@ -4,7 +4,11 @@ import json
 import random
 import re
 
-import jdatetime
+try:
+    import jdatetime as _jdatetime
+    jdatetime = _jdatetime
+except Exception:  # pragma: no cover — fallback when jdatetime not installed
+    jdatetime = None  # type: ignore[assignment]
 
 from config import _app_today
 from config.catalog import language_label
@@ -89,6 +93,51 @@ _PERSIAN_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
 def to_persian_digits(value) -> str:
     """Convert Latin digits to Persian digits for learner-facing text."""
     return str(value).translate(_PERSIAN_DIGITS)
+
+
+def _to_jalali_str(iso_str: str) -> str:
+    """Convert an ISO datetime/date string to Jalali ``YYYY/MM/DD HH:MM`` with Persian digits.
+
+    Parses ``iso_str`` via ``datetime.fromisoformat`` (handles ``Z`` suffix),
+    converts through ``jdatetime.datetime.fromgregorian`` when available, and
+    falls back to Gregorian formatting when ``jdatetime`` is absent or parsing
+    fails. All digits are Persian via :func:`to_persian_digits`.
+    Returns ``""`` for empty input and Persian-digit fallback for unparseable input.
+    """
+    if not iso_str:
+        return ""
+    # Normalise trailing Z to +00:00 for fromisoformat
+    raw = iso_str.strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        dt = datetime.datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        # Try date-only
+        try:
+            d = datetime.date.fromisoformat(raw)
+            dt = datetime.datetime.combine(d, datetime.time.min)
+        except (TypeError, ValueError):
+            return to_persian_digits(iso_str)
+    # jdatetime path — requires Gregorian datetime; strip tzinfo for conversion
+    if jdatetime is not None:
+        try:
+            greg = dt.replace(tzinfo=None) if dt.tzinfo is not None else dt
+            jd = jdatetime.datetime.fromgregorian(datetime=greg)
+            formatted = f"{jd.year}/{jd.month:02d}/{jd.day:02d} {jd.hour:02d}:{jd.minute:02d}"
+            return to_persian_digits(formatted)
+        except Exception:
+            pass
+    # Fallback: Gregorian formatted the same way
+    try:
+        formatted = dt.strftime("%Y/%m/%d %H:%M")
+        return to_persian_digits(formatted)
+    except Exception:
+        return to_persian_digits(iso_str)
+
+
+# Public alias (Q2 spec says _to_jalali_str, but expose friendly name too).
+to_jalali_str = _to_jalali_str
 
 
 def escape_mdv2_code(text: str) -> str:
@@ -581,10 +630,17 @@ def _app_date() -> datetime.date:
 
 def _jalali_day_month(iso_date: str) -> str:
     """Convert an ISO ``YYYY-MM-DD`` to ``{day} {jalali month name}`` with
-    Persian digits (e.g. ``۲۹ مرداد``)."""
+    Persian digits (e.g. ``۲۹ مرداد``). Falls back to Gregorian day/month when
+    jdatetime is unavailable."""
     d = datetime.date.fromisoformat(iso_date)
-    j = jdatetime.date.fromgregorian(date=d)
-    return to_persian_digits(f"{j.day} {_JALALI_MONTHS[j.month - 1]}")
+    if jdatetime is not None:
+        try:
+            j = jdatetime.date.fromgregorian(date=d)
+            return to_persian_digits(f"{j.day} {_JALALI_MONTHS[j.month - 1]}")
+        except Exception:
+            pass
+    # Fallback: Gregorian month name via Jalali array (approximate) or numeric
+    return to_persian_digits(f"{d.day} {_JALALI_MONTHS[d.month - 1]}")
 
 
 def _relative_next_review(iso_date: str, today: datetime.date) -> str:

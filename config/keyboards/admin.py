@@ -1,7 +1,6 @@
-from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
 from .constants import *  # noqa: F401,F403
-from config.catalog import GOALS, LANGUAGES, LEVELS, language_label
 
 
 
@@ -135,10 +134,10 @@ def user_profile_keyboard(user_id: int, blocked: bool) -> InlineKeyboardMarkup:
     block_label = "✅ رفع مسدودی" if blocked else "🚫 مسدود کردن"
     block_cb = f"admin:user:unblock:{user_id}" if blocked else f"admin:user:block:{user_id}"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("💳 تغییر پلن", callback_data=f"admin:user:plan:{user_id}")],
+        [InlineKeyboardButton("💳 تغییر پلن", callback_data=f"admin:user:plan:{user_id}"),
+         InlineKeyboardButton("✉️ پیام به کاربر", callback_data=f"admin:user:msg:{user_id}")],
         [InlineKeyboardButton(block_label, callback_data=block_cb)],
         [InlineKeyboardButton("♻️ ریست پیشرفت", callback_data=f"admin:user:reset:{user_id}")],
-        [InlineKeyboardButton("✉️ پیام به کاربر", callback_data=f"admin:user:msg:{user_id}")],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:user")],
     ])
 
@@ -147,6 +146,20 @@ def user_reset_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ بله، ریست شود", callback_data=f"admin:user:reset_confirm:{user_id}")],
         [InlineKeyboardButton("❌ انصراف", callback_data=f"admin:user:reset_cancel:{user_id}")],
+    ])
+
+
+def user_block_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ بله مسدود کن", callback_data=f"admin:user:block_confirm:{user_id}")],
+        [InlineKeyboardButton("❌ لغو", callback_data=f"admin:user:block_cancel:{user_id}")],
+    ])
+
+
+def user_plan_confirm_keyboard(user_id: int, new_plan: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ بله، تغییر بده", callback_data=f"admin:user:plan_confirm:{user_id}:{new_plan}")],
+        [InlineKeyboardButton("❌ لغو", callback_data=f"admin:user:plan_cancel:{user_id}")],
     ])
 
 
