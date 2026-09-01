@@ -41,8 +41,32 @@ if AI_PROXY_URL:
 
 DB_PATH = os.getenv("DB_PATH", "hamzaban.db")
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Tehran")
+import re as _re
+_TTS_CACHE_CHAT_ID_RE = _re.compile(r"^(?:-100\d{5,}|-\d{5,})$")
 TTS_CACHE_CHAT_ID = os.getenv("TTS_CACHE_CHAT_ID", "").strip()
 TTS_CACHE_DB_PATH = os.getenv("TTS_CACHE_DB_PATH", "tts_cache.db").strip() or "tts_cache.db"
+
+
+def validate_tts_cache_chat_id(raw: str) -> int | None:
+    """Validate channel chat_id string. Empty means disabled (None). Returns int or raises ValueError."""
+    s = (raw or "").strip()
+    if not s:
+        return None
+    if not _TTS_CACHE_CHAT_ID_RE.match(s):
+        raise ValueError("آیدی کانال نامعتبر است. مثال: -1001234567890 یا -12345")
+    return int(s)
+
+
+def _coerce_tts_cache_chat_id(raw: str) -> int | None:
+    s = (raw or "").strip()
+    if not s:
+        return None
+    if not _TTS_CACHE_CHAT_ID_RE.match(s):
+        return None
+    try:
+        return int(s)
+    except ValueError:
+        return None
 
 
 
@@ -184,15 +208,25 @@ def effective_daily_allowance(
     return daily_card_count_for_plan(effective_plan(plan, bypass_limits))
 
 
-def resolve_tts_cache_chat_id() -> str | None:
+def resolve_tts_cache_chat_id() -> int | None:
     """Resolve TTS cache channel id: settings wins else env.
-    Returns stripped string or None when disabled."""
+
+    Returns int chat_id or None when disabled. If settings key exists with
+    empty value (cleared via admin), it means explicitly disabled — no fallback
+    to env. Invalid stored/env values are treated as disabled (None).
+    """
     try:
-        from services.db.settings import get_setting as _get_setting
-        val = _get_setting("tts_cache_chat_id", "").strip()
-        if val:
-            return val
+        from services.db.schema import get_conn as _get_conn
+        with _get_conn() as _conn:
+            _row = _conn.execute("SELECT value FROM settings WHERE key=?", ("tts_cache_chat_id",)).fetchone()
+            if _row is not None:
+                # Explicit setting present — empty means disabled, no env fallback
+                v = (_row["value"] or "").strip()
+                if not v:
+                    return None
+                coerced = _coerce_tts_cache_chat_id(v)
+                return coerced  # None if invalid stored value
     except Exception:
         pass
-    env_val = (TTS_CACHE_CHAT_ID or "").strip()
-    return env_val or None
+    # No explicit setting row — fallback to env
+    return _coerce_tts_cache_chat_id(TTS_CACHE_CHAT_ID or "")

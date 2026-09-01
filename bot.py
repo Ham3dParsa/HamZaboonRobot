@@ -1246,6 +1246,11 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     db.init_db()
+    try:
+        from services.tts_cache import init_tts_cache_db
+        init_tts_cache_db()
+    except Exception:
+        log.exception("tts_cache db init failed")
     db_level = db.get_setting("log_level", "")
     if db_level:
         apply_log_level(db_level)
