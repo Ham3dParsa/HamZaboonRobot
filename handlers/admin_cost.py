@@ -340,7 +340,6 @@ def _build_overview_message(
     avg_latency = summary.get("avg_latency_ms")
     success_count = int(summary.get("success_count") or 0)
     billed_failures = int(summary.get("billed_failure_count") or 0)
-    zero_cost_failures = int(summary.get("zero_cost_failure_count") or 0)
     billed_failure_cost_usd = float(summary.get("billed_failure_cost_usd") or 0)
     billed_failure_cost_toman = float(summary.get("billed_failure_cost_toman") or 0)
     success_rate = _llm_cost_percent(success_count, request_count)
@@ -354,7 +353,7 @@ def _build_overview_message(
     # Dedicated Requests table (4-col LTR English, unslopped, no mdash)
     total_cost = _llm_cost_single_cost(cost_usd, cost_toman, currency_mode)
     avg_cost = _fmt_avg_triple(input_cost_usd, output_cost_usd, cost_usd, input_cost_toman, output_cost_toman, cost_toman, request_count, currency_mode) if request_count else "-"
-    requests_header = (plain("Requests"), plain("Count"), plain("Cost"), plain("Avg"))
+    requests_header = (plain("Metric"), plain("Count"), plain("Cost"), plain("Avg"))
     requests_row = (plain("Requests"), plain(f"{request_count:,}"), plain(total_cost), plain(avg_cost))
     msg.add_line(table(requests_header, requests_row))
 
