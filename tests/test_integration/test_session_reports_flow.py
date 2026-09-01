@@ -136,11 +136,10 @@ class SessionReportsFlowTests(unittest.TestCase):
         asyncio.run(send_reports_list(self._update(), ctx))
         text = ctx.bot.send_message.call_args.kwargs["text"]
         self.assertIn("گزارش‌های جلسات اخیر", text)
-        # R10 escaping regression: the numbered-list '.' separator must be
-        # escaped for MarkdownV2 (Telegram rejects an unescaped '.' with
-        # "Can't parse entities"). Assert exactly one escaping (no double \\).
-        self.assertIn("\\. ", text)
-        self.assertNotIn("\\\\. ", text)
+        # New jalali grouped format: day label + count "نشست" with Persian handling
+        # (replaces old numbered-list "\. " — ensure no double-escape).
+        self.assertIn("نشست", text)
+        self.assertNotIn("\\\\", text)
         markup = ctx.bot.send_message.call_args.kwargs.get("reply_markup")
         data = {btn.callback_data for row in markup.inline_keyboard for btn in row}
         self.assertTrue(any(d.startswith("reports:detail:") for d in data))
