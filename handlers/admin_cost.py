@@ -353,8 +353,8 @@ def _build_overview_message(
     # Dedicated Requests table (4-col LTR English, unslopped, no mdash)
     total_cost = _llm_cost_single_cost(cost_usd, cost_toman, currency_mode)
     avg_cost = _fmt_avg_triple(input_cost_usd, output_cost_usd, cost_usd, input_cost_toman, output_cost_toman, cost_toman, request_count, currency_mode) if request_count else "-"
-    requests_header = (plain("Metric"), plain("Count"), plain("Cost"), plain("Avg"))
-    requests_row = (plain("Requests"), plain(f"{request_count:,}"), plain(total_cost), plain(avg_cost))
+    requests_header = (plain("Requests"), plain("Count"), plain("Cost"), plain("Avg"))
+    requests_row = (plain("All"), plain(f"{request_count:,}"), plain(total_cost), plain(avg_cost))
     msg.add_line(table(requests_header, requests_row))
 
     # General metrics table (2-col LTR English, unslopped)
