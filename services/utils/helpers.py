@@ -150,6 +150,7 @@ async def _finish_llm_wait_state(wait_message, bot=None):
 
 
 async def _exit_awaiting_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, *, via_callback: bool = False):
+    await _clear_awaiting_prompt(context)
     context.user_data.pop("awaiting", None)
     user_id = update.effective_user.id
     reply_markup = main_menu(user_id == OWNER_ID)
@@ -168,6 +169,16 @@ async def _exit_awaiting_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
     await update.message.reply_text("لغو شد.", reply_markup=reply_markup)
+
+
+async def exit_admin_awaiting_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Admin text-cancel path: clear all pending admin state and return to panel."""
+    clear_admin_pending_state(context)
+    await _clear_awaiting_prompt(context)
+    # Lazy import to avoid circular dependency with config.keyboards
+    from config.keyboards import admin_panel_keyboard
+
+    await _edit_or_send(update, context, "لغو شد.", reply_markup=admin_panel_keyboard())
 
 
 async def _edit_or_send(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, **kwargs):
@@ -354,3 +365,98 @@ async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
             # Sending creates a NEW message each call; a timeout/network error
             # is ambiguous (may already be delivered). Never re-send a voice.
             raise
+
+
+_ADMIN_PENDING_KEYS: tuple[str, ...] = (
+    "pending_dm",
+    "pending_plan",
+    "pending_block",
+    "pending_broadcast",
+    "full_edit",
+    "plan_full_edit",
+    "preset_edits",
+)
+
+_AWAITING_PENDING_KEY = "_awaiting_pending"
+
+
+def clear_admin_pending_state(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Clear all admin pending state keys (single source for cancel/back cleanup)."""
+    for _k in _ADMIN_PENDING_KEYS:
+        context.user_data.pop(_k, None)
+    context.user_data.pop(_AWAITING_PENDING_KEY, None)
+    context.user_data.pop("awaiting", None)
+    # _awaiting_msg is cleared by _clear_awaiting_prompt, not here
+
+
+def _store_awaiting_msg(context: ContextTypes.DEFAULT_TYPE, update: Update, msg) -> None:
+    """Store the prompt message id so its keyboard can be cleared on consume/cancel.
+
+    Single source of truth — imported by handlers/admin.py and handlers/admin_users.py.
+
+    Primary source is the Message returned by ``say``/``_edit_or_send`` (``msg``);
+    ``update`` is only used as fallback for the edit-path where the helper returns
+    ``True``/``None`` (the prompt is the edited message). In PTB
+    ``effective_message`` and ``callback_query.message`` alias the same object, so
+    we only read ``effective_message`` as fallback — never ``callback_query.message``
+    directly — and we always prefer ``msg.message_id`` when ``msg`` carries one.
+    """
+    # Callback updates: effective_message aliases callback_query.message in PTB,
+    # so say()/_edit_or_send returning None/True (edit not-modified) would write
+    # the button message_id into _awaiting_msg and later _clear_awaiting_prompt
+    # would strip the admin menu instead of the prompt. On callback updates with
+    # no real Message (None/bool) we skip the store — awaiting text stays in
+    # user_data["awaiting"] and will be cleared via clear_admin_pending_state.
+    if (msg is None or isinstance(msg, bool)) and getattr(update, "callback_query", None) is not None:
+        return
+    try:
+        mid = None
+        cid = None
+        if msg is not None and not isinstance(msg, bool):
+            mid = getattr(msg, "message_id", None)
+            chat = getattr(msg, "chat", None)
+            if chat is not None:
+                cid = getattr(chat, "id", None)
+            # Some send helpers return int message_id directly
+            if mid is None and isinstance(msg, int):
+                mid = msg
+        # Only fallback to effective_message (prompt-related), not callback_query.message
+        if mid is None:
+            try:
+                em = getattr(update, "effective_message", None)
+                if em is not None:
+                    em_mid = getattr(em, "message_id", None)
+                    if em_mid is not None:
+                        mid = em_mid
+                        if cid is None:
+                            chat = getattr(em, "chat", None)
+                            if chat is not None:
+                                cid = getattr(chat, "id", None)
+            except Exception:
+                pass
+        if cid is None and getattr(update, "effective_chat", None) is not None:
+            try:
+                cid = update.effective_chat.id  # type: ignore[union-attr]
+            except Exception:
+                pass
+        if mid is None or cid is None:
+            return
+        context.user_data["_awaiting_msg"] = {"chat_id": cid, "message_id": mid}
+    except Exception:
+        pass
+
+
+async def _clear_awaiting_prompt(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Clear the stored awaiting prompt's keyboard, swallowing BadRequest.
+
+    Single source of truth — imported by handlers/admin.py and handlers/admin_users.py.
+    """
+    data = context.user_data.pop("_awaiting_msg", None)
+    if not data:
+        return
+    try:
+        await _edit_markup_with_retry(context.bot, data["chat_id"], data["message_id"], None)
+    except BadRequest:
+        pass
+    except Exception:
+        logger.exception("Failed to clear awaiting prompt")

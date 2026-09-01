@@ -29,7 +29,7 @@ from telegram.constants import ParseMode
 
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.formatting import html_escape, to_jalali_str, to_persian_digits
-from services.utils.helpers import _edit_or_send, _send_with_retry
+from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _send_with_retry, _store_awaiting_msg
 from config import is_owner
 from config.catalog import goal_label, language_label, level_label
 from config.keyboards import (
@@ -154,11 +154,12 @@ async def handle_admin_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     if action == "user:search":
         context.user_data["awaiting"] = "admin_user_search"
         await notify_callback(update.callback_query)
-        await _edit_or_send(
+        msg = await _edit_or_send(
             update, context,
             "شناسه کاربر (عدد) یا نام‌کاربری (@username) را بفرستید:",
             reply_markup=admin_awaiting_inline_keyboard(),
         )
+        _store_awaiting_msg(context, update, msg)
         return
     if action.startswith("user:profile:"):
         await _show_profile(update, context, int(action.split(":", 2)[2]))
@@ -202,11 +203,12 @@ async def handle_admin_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         user_id = int(action.split(":", 2)[2])
         context.user_data["awaiting"] = f"admin_user_set_plan:{user_id}"
         await notify_callback(update.callback_query)
-        await _edit_or_send(
+        msg = await _edit_or_send(
             update, context,
             f"نام پلن را برای کاربر {user_id} بفرستید (مثال: silver):",
             reply_markup=admin_awaiting_inline_keyboard(),
         )
+        _store_awaiting_msg(context, update, msg)
         return
     if action.startswith("user:msg_confirm:"):
         try:
@@ -262,21 +264,23 @@ async def handle_admin_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         context.user_data.pop("pending_dm", None)
         context.user_data["awaiting"] = f"admin_user_message:{user_id}"
         await notify_callback(update.callback_query)
-        await _edit_or_send(
+        msg = await _edit_or_send(
             update, context,
             f"متن پیام به کاربر {user_id} را دوباره بفرستید:",
             reply_markup=admin_awaiting_inline_keyboard(),
         )
+        _store_awaiting_msg(context, update, msg)
         return
     if action.startswith("user:msg:"):
         user_id = int(action.split(":", 2)[2])
         context.user_data["awaiting"] = f"admin_user_message:{user_id}"
         await notify_callback(update.callback_query)
-        await _edit_or_send(
+        msg = await _edit_or_send(
             update, context,
             f"متن پیام به کاربر {user_id} را بفرستید:",
             reply_markup=admin_awaiting_inline_keyboard(),
         )
+        _store_awaiting_msg(context, update, msg)
         return
     if action.startswith("user:block_confirm:"):
         try:
@@ -382,14 +386,17 @@ async def handle_admin_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 async def _handle_user_search(update: Update, context: ContextTypes.DEFAULT_TYPE, awaiting: str, text: str):
     row = db.find_user(text)
     if not row:
+        await _clear_awaiting_prompt(context)
         context.user_data["awaiting"] = "admin_user_search"
-        await say(
+        msg = await say(
             update, context,
             "کاربر پیدا نشد. دوباره بفرستید یا لغو کنید.",
             raw=RawFormat.PLAIN, mode="send",
         )
+        _store_awaiting_msg(context, update, msg)
         return
     mark_awaiting_consumed(context)  # profile resolved (B5/Kilo CRITICAL)
+    await _clear_awaiting_prompt(context)
     await _send_profile_message(update, context, row["user_id"])
 
 
@@ -397,18 +404,21 @@ async def _handle_user_set_plan(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = int(awaiting.split(":", 1)[1])
     plan = text.strip().lower()
     if not db.valid_plan_name(plan):
+        await _clear_awaiting_prompt(context)
         context.user_data["awaiting"] = awaiting
-        await say(
+        msg = await say(
             update, context,
             "نام پلن نامعتبر است (free، bronze، silver، gold، emerald).",
             raw=RawFormat.PLAIN, mode="send",
         )
+        _store_awaiting_msg(context, update, msg)
         return
     # Q4 double-confirm: no DB write before confirm — show preview instead
     row = db.get_user(user_id)
     old_plan = (row["plan"] or "free") if row else "free"
     context.user_data["pending_plan"] = {"user_id": user_id, "new_plan": plan, "old_plan": old_plan}
     mark_awaiting_consumed(context)
+    await _clear_awaiting_prompt(context)
     await say(
         update, context,
         f"پلن کاربر {user_id} از {old_plan} به {plan} تغییر کند؟",
@@ -422,16 +432,20 @@ async def _handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYP
     user_id = int(awaiting.split(":", 1)[1])
     msg = text.strip()
     if not msg:
+        await _clear_awaiting_prompt(context)
         context.user_data["awaiting"] = awaiting
-        await say(
+        m = await say(
             update, context,
             "متن پیام خالی است. دوباره بفرستید یا لغو کنید.",
             raw=RawFormat.PLAIN, mode="send",
         )
+        _store_awaiting_msg(context, update, m)
         return
     if len(msg) > 4000:
+        await _clear_awaiting_prompt(context)
         context.user_data["awaiting"] = awaiting
-        await say(update, context, "متن طولانی است (حداکثر ۴۰۰۰ کاراکتر). لطفاً کوتاه‌تر بفرستید.", raw=RawFormat.PLAIN, mode="send")
+        m = await say(update, context, "متن طولانی است (حداکثر ۴۰۰۰ کاراکتر). لطفاً کوتاه‌تر بفرستید.", raw=RawFormat.PLAIN, mode="send")
+        _store_awaiting_msg(context, update, m)
         return
     # Capture HTML-preserving representation for format preservation (R3).
     html = None
@@ -445,6 +459,7 @@ async def _handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data["pending_dm"] = {"user_id": user_id, "text": msg, "html": html}
     # Awaiting is consumed for the text input; preview is callback-driven.
     mark_awaiting_consumed(context)
+    await _clear_awaiting_prompt(context)
     preview = html
     # Render preview to admin with format preservation.
     use_html = bool(preview and preview != msg)

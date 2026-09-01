@@ -53,6 +53,7 @@ from config.catalog import (
 from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
 from config.keyboards import (
     main_menu,
+    admin_panel_keyboard,
     lang_inline_keyboard,
     goal_inline_keyboard,
     level_inline_keyboard,
@@ -79,7 +80,9 @@ from services.scheduling import word_query_usage_text
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 
 from services.utils.helpers import (
+    _clear_awaiting_prompt,
     _delete_with_retry,
+    _edit_or_send,
     _edit_with_retry,
     _exit_awaiting_flow,
     _finish_llm_wait_state,
@@ -91,6 +94,8 @@ from services.utils.helpers import (
     _user_activity_line,
     _CANCEL_INPUTS,
     apply_log_level,
+    clear_admin_pending_state,
+    exit_admin_awaiting_cancel,
 )
 
 from services.utils.validation import (
@@ -631,6 +636,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if awaiting:
         if _is_cancel_input(text):
+            if is_owner(user_id) and is_admin_awaiting(awaiting):
+                await exit_admin_awaiting_cancel(update, context)
+                return
             await _exit_awaiting_flow(update, context)
             return
 
@@ -716,13 +724,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "flow:cancel":
         awaiting = context.user_data.get("awaiting", "")
         if awaiting:
-            if awaiting.startswith("ai_preset_edit:"):
-                preset_name = awaiting.split(":", 1)[1].rsplit(":", 1)[0]
-                context.user_data.setdefault("preset_edits", {}).pop(preset_name, None)
-            elif awaiting.startswith("ai_preset_full_edit:"):
-                context.user_data.pop("full_edit", None)
-            elif awaiting.startswith("admin_plan_full_edit:"):
-                context.user_data.pop("plan_full_edit", None)
+            clear_admin_pending_state(context)
+            await _clear_awaiting_prompt(context)
             await _exit_awaiting_flow(update, context, via_callback=True)
         else:
             await notify_callback(update.callback_query, "فعلاً چیزی برای لغو نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
