@@ -41,6 +41,8 @@ if AI_PROXY_URL:
 
 DB_PATH = os.getenv("DB_PATH", "hamzaban.db")
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Tehran")
+TTS_CACHE_CHAT_ID = os.getenv("TTS_CACHE_CHAT_ID", "").strip()
+TTS_CACHE_DB_PATH = os.getenv("TTS_CACHE_DB_PATH", "tts_cache.db").strip() or "tts_cache.db"
 
 
 
@@ -180,3 +182,17 @@ def effective_daily_allowance(
     bypass_limits: bool = False,
 ) -> int:
     return daily_card_count_for_plan(effective_plan(plan, bypass_limits))
+
+
+def resolve_tts_cache_chat_id() -> str | None:
+    """Resolve TTS cache channel id: settings wins else env.
+    Returns stripped string or None when disabled."""
+    try:
+        from services.db.settings import get_setting as _get_setting
+        val = _get_setting("tts_cache_chat_id", "").strip()
+        if val:
+            return val
+    except Exception:
+        pass
+    env_val = (TTS_CACHE_CHAT_ID or "").strip()
+    return env_val or None
