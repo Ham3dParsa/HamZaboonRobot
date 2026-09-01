@@ -62,10 +62,16 @@ def _coerce_tts_cache_chat_id(raw: str) -> int | None:
     if not s:
         return None
     if not _TTS_CACHE_CHAT_ID_RE.match(s):
+        import logging as _clog
+
+        _clog.getLogger(__name__).warning("TTS_CACHE_CHAT_ID invalid %r — disabling TTS cache channel", raw)
         return None
     try:
         return int(s)
     except ValueError:
+        import logging as _clog2
+
+        _clog2.getLogger(__name__).warning("TTS_CACHE_CHAT_ID invalid %r — disabling TTS cache channel", raw, exc_info=True)
         return None
 
 ARCHIVE_CHAT_ID = os.getenv("ARCHIVE_CHAT_ID", "").strip()
@@ -240,8 +246,15 @@ def resolve_tts_cache_chat_id() -> int | None:
             v = (raw or "").strip()
             if not v:
                 return None
-            return _coerce_tts_cache_chat_id(v)  # None if invalid stored value
+            coerced = _coerce_tts_cache_chat_id(v)
+            if coerced is None and v:
+                import logging as _rlog
+
+                _rlog.getLogger(__name__).warning("tts_cache_chat_id setting invalid %r — disabling", v)
+            return coerced  # None if invalid stored value
     except Exception:
-        pass
+        import logging as _rlog2
+
+        _rlog2.getLogger(__name__).warning("resolve_tts_cache_chat_id failed to read setting", exc_info=True)
     # No explicit setting row — fallback to env
     return _coerce_tts_cache_chat_id(TTS_CACHE_CHAT_ID or "")

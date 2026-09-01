@@ -407,6 +407,7 @@ async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
         except RetryAfter as exc:
             if attempt == 2:
                 raise
+            logger.warning("send_voice RetryAfter %s attempt %s/3 chat_id=%s", exc.retry_after, attempt + 1, chat_id)
             await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
             # Sending creates a NEW message each call; a timeout/network error
