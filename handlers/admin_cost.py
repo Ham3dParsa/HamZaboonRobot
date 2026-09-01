@@ -9,7 +9,7 @@ import calendar
 import datetime
 from collections import defaultdict
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from handlers.flows import mark_awaiting_consumed
@@ -516,6 +516,15 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             return
         context.user_data["llm_cost_currency"] = mode
         await _show_llm_cost_dashboard(update, context)
+    elif action == "legend" and len(parts) == 2:
+        await _edit_or_send(
+            update,
+            context,
+            "راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail\n\n"
+            "System health: no billable failures when Billed failure rate is 0%",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« بازگشت", callback_data="llm:refresh")]]),
+        )
+        return
     elif action == "set" and len(parts) == 3:
         field = parts[2]
         if field == "plan":
