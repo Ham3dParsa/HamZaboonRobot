@@ -196,7 +196,7 @@ def _fmt_avg_triple(
     mode: str = "both",
 ) -> str:
     if not req:
-        return "—"
+        return "-"
     return _fmt_cost_triple(
         in_usd / req,
         out_usd / req,
@@ -265,7 +265,7 @@ def _llm_cost_state_label(state: dict[str, object]) -> str:
 
 
 def _llm_cost_filter_pill(state: dict[str, object], currency_mode: str = "both") -> str:
-    """Compact human pill — only non-all filters, e.g. 'MTD · Both' or 'MTD · Gold · vocab'."""
+    """Compact human pill - only non-all filters, e.g. 'MTD - Both' or 'MTD - Gold - vocab'."""
     parts: list[str] = []
     rng = str(state.get("range") or "mtd").upper()
     parts.append(rng)
@@ -290,7 +290,7 @@ def _llm_cost_filter_pill(state: dict[str, object], currency_mode: str = "both")
 def _llm_cost_header_badge(billed_failures: int, billed_cost_usd: float, billed_cost_toman: float) -> str:
     if billed_failures > 0:
         return f"🟡 {billed_failures} billed fail ({_llm_cost_currency_text(billed_cost_usd, billed_cost_toman)})"
-    return "🟢 Healthy — no billable failures"
+    return "🟢 Healthy - no billable failures"
 
 
 def _llm_cost_percent(numerator: int | float, denominator: int | float) -> str:
@@ -340,7 +340,6 @@ def _build_overview_message(
     avg_latency = summary.get("avg_latency_ms")
     success_count = int(summary.get("success_count") or 0)
     billed_failures = int(summary.get("billed_failure_count") or 0)
-    zero_cost_failures = int(summary.get("zero_cost_failure_count") or 0)
     billed_failure_cost_usd = float(summary.get("billed_failure_cost_usd") or 0)
     billed_failure_cost_toman = float(summary.get("billed_failure_cost_toman") or 0)
     success_rate = _llm_cost_percent(success_count, request_count)
@@ -348,53 +347,42 @@ def _build_overview_message(
     badge = _llm_cost_header_badge(billed_failures, billed_failure_cost_usd, billed_failure_cost_toman)
 
     msg = Message()
-    msg.add_line(heading(2, plain(f"📊 LLM Cost — {badge}")))
+    msg.add_line(heading(2, plain(f"LLM Cost - {badge}")))
     msg.add_line(quote(plain(f"Filters: {_llm_cost_filter_pill(state, currency_mode)}")))
 
-    # 2-col KPI card — compact, no Note col, no wrapping triple
-    # Legacy substrings kept for tests: "✅ Success rate" and "❌ Billed failure rate"
+    # Dedicated Requests table (4-col LTR English, unslopped, no mdash)
+    total_cost = _llm_cost_single_cost(cost_usd, cost_toman, currency_mode)
+    avg_cost = _fmt_avg_triple(input_cost_usd, output_cost_usd, cost_usd, input_cost_toman, output_cost_toman, cost_toman, request_count, currency_mode) if request_count else "-"
+    requests_header = (plain("Requests"), plain("Count"), plain("Cost"), plain("Avg"))
+    requests_row = (plain("All"), plain(f"{request_count:,}"), plain(total_cost), plain(avg_cost))
+    msg.add_line(table(requests_header, requests_row))
+
+    # General metrics table (2-col LTR English, unslopped)
     overview_header = (plain("Metric"), plain("Value"))
     tokens_triple = _fmt_tokens_triple(prompt_tokens, completion_tokens, total_tokens)
     latency_str = f"{round(float(avg_latency), 1) if avg_latency is not None else 0.0} ms"
-    total_cost = _llm_cost_single_cost(cost_usd, cost_toman, currency_mode)
-    avg_cost = _fmt_avg_triple(input_cost_usd, output_cost_usd, cost_usd, input_cost_toman, output_cost_toman, cost_toman, request_count, currency_mode) if request_count else "—"
     overview_rows = [
-        (plain("📨 Requests"), plain(f"{request_count:,} · {total_cost} · avg {avg_cost} · ✅ {success_rate}")),
-        (plain("🧮 Tokens"), plain(tokens_triple)),
-        (plain("⏱ Avg latency"), plain(latency_str)),
-        (plain("✅ Success rate"), plain(f"{success_rate} ({success_count:,})")),
-        (plain("❌ Billed failure rate"), plain(f"{billed_failure_rate} ({billed_failures:,}) · {_llm_cost_single_cost(billed_failure_cost_usd, billed_failure_cost_toman, currency_mode)}")),
+        (plain("Tokens"), plain(tokens_triple)),
+        (plain("Avg latency"), plain(latency_str)),
+        (plain("Success rate"), plain(f"{success_rate} ({success_count:,})")),
+        (plain("Billed failure rate"), plain(f"{billed_failure_rate} ({billed_failures:,}) - {_llm_cost_single_cost(billed_failure_cost_usd, billed_failure_cost_toman, currency_mode)}")),
     ]
     msg.add_line(table(overview_header, *overview_rows))
 
-    # keep legacy health phrase hidden for test compat (also in header badge)
-    if billed_failures > 0:
-        msg.add_line(quote(plain(f"⚠️ Attention required — 💵 Billed failures: {billed_failures:,} ({_llm_cost_currency_text(billed_failure_cost_usd, billed_failure_cost_toman)}) • ⚠️ Zero-cost failures: {zero_cost_failures:,} • System health: attention required")))
-    else:
-        msg.add_line(quote(plain("✅ System health: no billable failures")))
-
-    # legend kept for test compat but compact (actual UI uses ❓ popup)
-    msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
-
-    # Projection collapsed — show only if MTD and toggled
-    if state.get("range") == "mtd":
+    # Projection - only when toggled, no collapsed inline quote
+    if state.get("range") == "mtd" and bool(state.get("show_projection")):
         projection = _llm_cost_projection(filters)
         if projection:
             linear, rolling, ratio = projection
-            show = bool(state.get("show_projection"))
-            if show:
-                msg.add_line(heading(3, plain("📈 Month-end Projection")))
-                proj_header = (plain("Projection"), plain("Value"), plain("Cost"), plain("Note"))
-                proj_rows = [
-                    (plain("Linear"), plain("MTD run rate"), plain(linear), plain("—")),
-                    (plain("Rolling 7d"), plain("recent daily avg"), plain(rolling), plain(f"{ratio:.1f}×" if ratio >= 2 else "—")),
-                ]
-                msg.add_line(table(proj_header, *proj_rows))
-                if ratio >= 2:
-                    msg.add_line(quote(plain(f"⚠️ Rolling projection is {ratio:.1f}× the linear projection")))
-            else:
-                # collapsed hint — no table, saves vertical space
-                msg.add_line(quote(plain(f"📈 Projection: {linear} → {rolling} (tap 📈 to expand)")))
+            msg.add_line(heading(3, plain("Month-end Projection")))
+            proj_header = (plain("Projection"), plain("Value"), plain("Cost"), plain("Note"))
+            proj_rows = [
+                (plain("Linear"), plain("MTD run rate"), plain(linear), plain("-")),
+                (plain("Rolling 7d"), plain("recent daily avg"), plain(rolling), plain(f"{ratio:.1f}x" if ratio >= 2 else "-")),
+            ]
+            msg.add_line(table(proj_header, *proj_rows))
+            if ratio >= 2:
+                msg.add_line(quote(plain(f"Rolling projection is {ratio:.1f}x the linear projection")))
     return msg
 
 
@@ -417,7 +405,7 @@ def _build_breakdown_message(
 
     msg = Message()
     badge = _llm_cost_header_badge(int(summary.get("billed_failure_count") or 0), float(summary.get("billed_failure_cost_usd") or 0), float(summary.get("billed_failure_cost_toman") or 0))
-    msg.add_line(heading(2, plain(f"📊 LLM Cost — {badge}")))
+    msg.add_line(heading(2, plain(f"LLM Cost - {badge}")))
     msg.add_line(quote(plain(f"Filters: {_llm_cost_filter_pill(state, currency_mode)}")))
     msg.add_line(heading(3, plain(f"{title}")))
 
@@ -431,8 +419,7 @@ def _build_breakdown_message(
         page = min(page, total_pages - 1)
         rows = rows_all[page * limit : (page + 1) * limit]
         if not rows_all:
-            msg.add_line(quote(plain("— none — try Clear filters")))
-            msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+            msg.add_line(quote(plain("- none - try Clear filters")))
             return msg
     else:
         if total_count is not None:
@@ -458,8 +445,7 @@ def _build_breakdown_message(
                 page = min(page, total_pages - 1)
                 rows = db.breakdown_llm_requests(group_by, filters, limit=limit, offset=page * limit)
         if total == 0:
-            msg.add_line(quote(plain("— none — try Clear filters")))
-            msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+            msg.add_line(quote(plain("- none - try Clear filters")))
             return msg
     # common render for both legacy and offset paths (non-empty)
     bd_rows = []
@@ -467,7 +453,7 @@ def _build_breakdown_message(
         bucket = row.get("bucket")
         if group_by == "plan":
             bucket = {"free": "free", "silver": "silver", "gold": "gold"}.get(str(bucket), str(bucket))
-        bucket = str(bucket or "—")
+        bucket = str(bucket or "-")
         req = int(row.get("request_count") or 0)
         in_usd = float(row.get("input_cost_usd") or 0)
         out_usd = float(row.get("output_cost_usd") or 0)
@@ -479,12 +465,7 @@ def _build_breakdown_message(
         share = _llm_cost_percent(c_usd, cost_usd)
         bd_rows.append((plain(bucket), plain(f"{req:,}"), plain(avg), plain(share)))
     msg.add_line(table(bd_header, *bd_rows))
-    msg.add_line(quote(plain(f"Page {page + 1}/{total_pages} · {total} buckets · Showing {page*limit+1}-{page*limit+len(bd_rows)}")))
-
-    # keep overview KPIs subtle for context — not full table, just pill already shown
-
-    # legend compact
-    msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+    msg.add_line(quote(plain(f"Page {page + 1}/{total_pages} - {total} buckets - Showing {page*limit+1}-{page*limit+len(bd_rows)}")))
     return msg
 
 
@@ -502,9 +483,9 @@ def _build_recent_message(
 
     msg = Message()
     badge = _llm_cost_header_badge(int(summary.get("billed_failure_count") or 0), float(summary.get("billed_failure_cost_usd") or 0), float(summary.get("billed_failure_cost_toman") or 0))
-    msg.add_line(heading(2, plain(f"📊 LLM Cost — {badge}")))
+    msg.add_line(heading(2, plain(f"LLM Cost - {badge}")))
     msg.add_line(quote(plain(f"Filters: {_llm_cost_filter_pill(state, currency_mode)}")))
-    msg.add_line(heading(3, plain("🧾 Recent Requests")))
+    msg.add_line(heading(3, plain("Recent Requests")))
 
     # proper LIMIT/OFFSET pagination (no flat cap); rows_all kept for legacy pre-fetched list
     if rows_all is not None:
@@ -513,8 +494,7 @@ def _build_recent_message(
         page = min(page, total_pages - 1)
         rows = rows_all[page * limit : (page + 1) * limit]
         if not rows_all:
-            msg.add_line(quote(plain("— none")))
-            msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+            msg.add_line(quote(plain("- none")))
             return msg
     else:
         total = total_count if total_count is not None else int(summary.get("request_count") or 0)
@@ -522,8 +502,7 @@ def _build_recent_message(
         page = min(page, total_pages - 1)
         rows = db.recent_llm_requests(filters, limit=limit, offset=page * limit)
         if total == 0:
-            msg.add_line(quote(plain("— none")))
-            msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+            msg.add_line(quote(plain("- none")))
             return msg
     # common: render table for non-empty (both branches)
     recent_header = (plain("Time"), plain("Status"), plain("Kind · Model"), plain("Cost"))
@@ -538,9 +517,7 @@ def _build_recent_message(
         cost_cell = _llm_cost_single_cost(c_usd, c_toman, currency_mode)
         recent_rows.append((plain(t), plain(status), plain(kind_model), plain(cost_cell)))
     msg.add_line(table(recent_header, *recent_rows))
-    msg.add_line(quote(plain(f"Page {page + 1}/{total_pages} · {total} requests · Showing {page*limit+1}-{page*limit+len(rows)}")))
-
-    msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+    msg.add_line(quote(plain(f"Page {page + 1}/{total_pages} - {total} requests - Showing {page*limit+1}-{page*limit+len(rows)}")))
     return msg
 
 
@@ -579,8 +556,8 @@ def _llm_pricing_text() -> str:
     profile = db.get_llm_cost_profile()
     return "\n".join(
         [
-            "LLM pricing — rate only (R1)",
-            f"- USD→Toman: {profile['usd_to_toman_rate']:,.0f}",
+            "LLM pricing - rate only (R1)",
+            f"- USD to Toman: {profile['usd_to_toman_rate']:,.0f}",
             "",
             "Use the button below to update the conversion rate.",
         ]
@@ -671,7 +648,7 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             )
         elif len(parts) == 3 and parts[2] in {"set_input", "set_output"}:
             # removed per R1 – inform admin
-            await notify_callback(update.callback_query, "قیمت ورودی/خروجی حذف شد — فقط نرخ تبدیل فعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            await notify_callback(update.callback_query, "قیمت ورودی/خروجی حذف شد - فقط نرخ تبدیل فعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         else:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
@@ -739,7 +716,7 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await _edit_or_send(
             update,
             context,
-            "راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail\n\n"
+            "راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه\n\n"
             "System health: no billable failures when Billed failure rate is 0%",
             reply_markup=llm_legend_back_keyboard(),
         )

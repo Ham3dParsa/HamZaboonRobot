@@ -175,7 +175,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
                 "outcome": "success",
             }
         )
-        self.assertIn("📊 LLM Cost —", overview_text)
+        self.assertIn("LLM Cost", overview_text)
         self.assertIn("Filters: MTD", overview_text)
         self.assertIn("gold", overview_text)
         self.assertIn("Success rate", overview_text)
@@ -192,7 +192,7 @@ class ReliabilityPersistenceTests(unittest.TestCase):
                 "outcome": "success",
             }
         )
-        self.assertIn("🧾 Recent Requests", recent_text)
+        self.assertIn("Recent Requests", recent_text)
         self.assertIn("1", recent_text)
 
     def test_llm_dashboard_breakdowns_include_failure_rate(self):

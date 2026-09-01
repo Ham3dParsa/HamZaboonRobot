@@ -59,6 +59,21 @@ class TestRichDelivery(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["message_id"], 9)
         self.assertEqual(kwargs["rich_message"]["markdown"], "**x**")
 
+    async def test_edit_forwards_keyboard(self):
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        bot = _make_bot({"message_id": 9, "chat": {"id": 1}})
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("X", callback_data="x")]])
+        await telegram_rich.edit_rich_message(bot, 1, 9, "**x**", "x", keyboard=kb)
+        kwargs = bot.do_api_request.call_args.kwargs["api_kwargs"]
+        self.assertEqual(kwargs["reply_markup"], kb.to_dict())
+
+    async def test_edit_no_keyboard_no_markup(self):
+        bot = _make_bot({"message_id": 9, "chat": {"id": 1}})
+        await telegram_rich.edit_rich_message(bot, 1, 9, "**x**", "x", keyboard=None)
+        kwargs = bot.do_api_request.call_args.kwargs["api_kwargs"]
+        self.assertNotIn("reply_markup", kwargs)
+
     async def test_flag_off_routes_md_v2(self):
         bot = _make_bot(None)
         with patch.object(telegram_rich, "RICH_ENABLED", False):

@@ -174,6 +174,8 @@ async def edit_rich_message(
         "message_id": message_id,
         "rich_message": {"markdown": rich_markdown, "is_rtl": is_rtl},
     }
+    if keyboard is not None:
+        payload["reply_markup"] = keyboard.to_dict()
     try:
         await _rich_api_request(bot, "editMessageText", payload)
     except EndPointNotFound:

@@ -120,19 +120,18 @@ class TestCostReportEmojiR8(unittest.TestCase):
 
     def test_report_text_uses_r8_emoji_and_no_toggle_markers(self):
         text = admin_cost._llm_cost_report_text(admin_cost._llm_cost_default_state())
-        self.assertIn("✅ Success rate", text)
-        self.assertIn("❌ Billed failure rate", text)
-        # Health badge uses 🟢/🟡, outcome markers must not reuse toggle emoji as status.
+        # overview now has dedicated Requests table and general metrics without inline legend (R2+R4 unslopped)
+        self.assertIn("Success rate", text)
+        self.assertIn("Billed failure rate", text)
+        self.assertIn("Requests", text)
+        self.assertIn("Count", text)
+        # Health badge uses 🟢/🟡
         self.assertIn("🟢 Healthy", text)
         self.assertNotIn("⚫", text)
         self.assertNotIn("🔴", text)
         self.assertNotIn("⚪", text)
-        # Legend reflects the R8 mapping (updated for RichMessage triple format).
-        # Check parts separately to be robust to ZWNJ/escaping.
-        self.assertIn("راهنما:", text)
-        self.assertIn("✅ موفق", text)
-        self.assertIn("هزینه", text)
-        self.assertIn("بدون هزینه", text)
+        # legend only via popup, not inline in overview
+        self.assertNotIn("راهنما:", text)
 
 
 if __name__ == "__main__":
