@@ -407,8 +407,18 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         from services.archive import resolved_archive_chat_id
         sub = action[len("backup_restore"):].lstrip(":")
         if not sub:
-            arch = db.get_setting("archive_chat_id", "") or "-"
-            await _edit_or_send(update, context, f"💾 پشتیبان & بازیابی\nآرشیو فعلی: {arch}", reply_markup=backup_restore_keyboard())
+            raw_arch = db.get_setting("archive_chat_id", "") or ""
+            arch = raw_arch or "-"
+            warning = ""
+            if raw_arch:
+                from services.archive import validate_archive_chat_id
+
+                if not validate_archive_chat_id(raw_arch):
+                    warning = f"\n⚠️ مقدار ذخیره‌شده نامعتبر است: {raw_arch}"
+                    last_err = db.get_setting("archive_last_error", "")
+                    if last_err:
+                        warning += f"\n({last_err})"
+            await _edit_or_send(update, context, f"💾 پشتیبان & بازیابی\nآرشیو فعلی: {arch}{warning}", reply_markup=backup_restore_keyboard())
             await notify_callback(update.callback_query)
             return
         if sub == "backup_now":
@@ -438,12 +448,31 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             return
         elif sub == "test_archive":
             from services.archive import resolved_archive_chat_id, is_bot_admin
+            from telegram.error import BadRequest, Forbidden
+
             cid = resolved_archive_chat_id()
             if not cid:
-                await notify_callback(update.callback_query, "آرشیو تنظیم نشده.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+                raw = db.get_setting("archive_chat_id", "")
+                if raw and raw.strip():
+                    await notify_callback(update.callback_query, f"مقدار ذخیره‌شده نامعتبر است: {raw}", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+                else:
+                    await notify_callback(update.callback_query, "آرشیو تنظیم نشده.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
                 return
-            ok = await is_bot_admin(context.bot, cid)
-            await notify_callback(update.callback_query, "ربات ادمین است ✅" if ok else "ربات ادمین نیست ❌", intent=CallbackNoticeIntent.INFO)
+            try:
+                ok = await is_bot_admin(context.bot, cid)
+            except Forbidden as exc:
+                db.set_setting("archive_last_error", f"Forbidden: {exc}")
+                await notify_callback(update.callback_query, f"دسترسی ممنوع (Forbidden): {exc}", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+                return
+            except BadRequest as exc:
+                db.set_setting("archive_last_error", f"BadRequest: {exc}")
+                await notify_callback(update.callback_query, f"آیدی نامعتبر (BadRequest): {exc}", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+                return
+            except Exception as exc:
+                db.set_setting("archive_last_error", str(exc))
+                await notify_callback(update.callback_query, f"خطا در بررسی: {exc}", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+                return
+            await notify_callback(update.callback_query, "ربات ادمین است ✅" if ok else "ربات ادمین نیست ❌ — دسترسی ارسال ندارد", intent=CallbackNoticeIntent.INFO)
             return
         else:
             await notify_callback(update.callback_query, "عملیات نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
@@ -811,6 +840,12 @@ async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not is_owner(update.effective_user.id):
         await say(update, context, "فقط مالک ربات دسترسی داره.", raw=RawFormat.PLAIN, mode="send")
         return
+    # Audit log of restore attempt (P0)
+    try:
+        cid = getattr(update.effective_chat, "id", None)
+        logger.info("restore attempt by owner %s in chat %s", update.effective_user.id, cid)
+    except Exception:
+        pass
     # Per contract: allow owner .db upload in PV or group without
     # requiring awaiting == admin_restore (group flow would otherwise
     # need extra gate). Validation below is the destructive-op guard.

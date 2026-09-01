@@ -226,7 +226,8 @@ async def _send_with_retry(
                     _reset_telegram_cb()
                 return result
         except Forbidden:
-            db.set_user_blocked(chat_id)
+            if chat_id > 0:
+                db.set_user_blocked(chat_id)
             raise
         except BadRequest:
             raise
@@ -278,7 +279,8 @@ async def _edit_message_with_retry(
                 _reset_telegram_cb()
                 return result
         except Forbidden:
-            db.set_user_blocked(chat_id)
+            if chat_id > 0:
+                db.set_user_blocked(chat_id)
             raise
         except BadRequest:
             raise
@@ -313,7 +315,8 @@ async def _edit_markup_with_retry(
                 _reset_telegram_cb()
                 return result
         except Forbidden:
-            db.set_user_blocked(chat_id)
+            if chat_id > 0:
+                db.set_user_blocked(chat_id)
             raise
         except BadRequest:
             raise
@@ -396,7 +399,8 @@ async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
                 _reset_telegram_cb()
                 return result
         except Forbidden:
-            db.set_user_blocked(chat_id)
+            if chat_id > 0:
+                db.set_user_blocked(chat_id)
             raise
         except BadRequest:
             raise
@@ -557,7 +561,8 @@ async def _send_document_with_retry(bot, chat_id: int, document, **kwargs):
                 _reset_telegram_cb()
                 return result
         except Forbidden:
-            db.set_user_blocked(chat_id)
+            if chat_id > 0:
+                db.set_user_blocked(chat_id)
             raise
         except BadRequest:
             raise
