@@ -65,22 +65,22 @@ class AdminRestoreFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.get_setting("restore_sentinel"), "live")
 
     async def test_backup_sends_memory_snapshot(self):
-        message = MagicMock()
-        message.reply_document = AsyncMock()
         update = MagicMock()
         update.effective_user.id = 1
-        update.message = message
+        update.message = MagicMock()
         context = MagicMock()
+        context.bot.send_document = AsyncMock()
 
         with patch("handlers.admin.is_owner", return_value=True):
             await cmd_backup(update, context)
 
-        document = message.reply_document.await_args.kwargs["document"]
+        document = context.bot.send_document.await_args.kwargs["document"]
         self.assertIsInstance(document, io.BytesIO)
         self.assertTrue(document.getvalue().startswith(b"SQLite format 3\x00"))
 
     async def test_auto_backup_runs_all_file_work_in_worker(self):
         context = MagicMock()
+        context.bot.send_document = AsyncMock()
         original_to_thread = __import__("asyncio").to_thread
 
         async def run_in_worker(func, *args):
@@ -94,7 +94,8 @@ class AdminRestoreFlowTests(unittest.IsolatedAsyncioTestCase):
         ):
             await auto_backup_job(context)
 
-        self.assertEqual(worker.await_count, 1)
+        # _create_auto_backup runs in worker + backup push also uses to_thread (export)
+        self.assertGreaterEqual(worker.await_count, 1)
 
 
 if __name__ == "__main__":
