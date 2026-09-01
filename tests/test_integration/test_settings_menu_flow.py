@@ -40,7 +40,7 @@ class SettingsMenuViaTextRouterTests(unittest.IsolatedAsyncioTestCase):
             await bot.text_router(update, ctx)
 
         mock_say.assert_awaited_once_with(
-            update, ctx, "⚙️ تنظیمات و پروفایل من:\nاز دکمه‌های زیر یکی را انتخاب کن.", keyboard=ANY, raw=RawFormat.PLAIN
+            update, ctx, f"{BTN_SETTINGS}:\nاز دکمه‌های زیر یکی را انتخاب کن.", keyboard=ANY, raw=RawFormat.PLAIN
         )
         notify.assert_not_awaited()
 

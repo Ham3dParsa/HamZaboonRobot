@@ -14,7 +14,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from config import is_owner
+from config import feature_audience, is_owner
 from config.keyboards import main_menu
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.formatting import escape_mdv2
@@ -115,7 +115,7 @@ HELP_SECTIONS = [
         "title": "تلفظ (TTS)",
         "body": (
             "روی هر کارت دکمه‌ی 🔊 را بزن تا تلفظ همان واژه یا مثال به صورت ویس "
-            "برایت فرستاده شود. این قابلیت برای همه فعال است."
+            f"برایت فرستاده شود. این قابلیت {feature_audience('pronounce')} فعال است."
         ),
     },
     {

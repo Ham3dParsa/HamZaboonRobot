@@ -650,13 +650,13 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         async with _lock:
             await handle_study_start(update, context)
-    elif text == BTN_ASK_WORD:
+    elif text == BTN_ASK_WORD or text == "❓ پرسیدن یک واژه":
         await ask_for_ask_word(update, context)
-    elif text == BTN_SETTINGS:
+    elif text == BTN_SETTINGS or text == "⚙️ تنظیمات و پروفایل من":
         await _show_settings_menu(update, context)
     elif text == BTN_ADMIN:
         await open_admin_panel(update, context)
-    elif text == "راهنما":
+    elif text == BTN_HELP:
         await send_help_panel(update, context)
     else:
         await _send_with_retry(context.bot, update.effective_chat.id, "از دکمه‌های پایین استفاده کن 🙂", reply_markup=main_menu(is_owner(user_id)))
