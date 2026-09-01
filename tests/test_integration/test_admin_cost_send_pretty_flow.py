@@ -1,4 +1,4 @@
-"""Integration tests for llm-cost dashboard (R3/R4/R5 + send_pretty).
+﻿"""Integration tests for llm-cost dashboard (R3/R4/R5 + send_pretty).
 
 Verifies:
 - Backend.RICH rendering with 4-col tables (Name | Req | Avg Cost | Share)
@@ -250,19 +250,32 @@ class AdminCostSendPrettyFlowTest(unittest.TestCase):
                 mock_notify.assert_called_once()
 
     def test_legend_callback_shows_legend(self):
+        from unittest.mock import AsyncMock, patch
+        import asyncio
+
         from handlers.admin_cost import _handle_llm_callback
+        from telegram import InlineKeyboardMarkup
 
         update = self._make_callback_update("llm:legend")
         ctx = self._make_context()
         with patch("handlers.admin_cost._edit_or_send", new=AsyncMock()) as mock_edit:
             asyncio.run(_handle_llm_callback(update, ctx, "llm:legend"))
             mock_edit.assert_called_once()
-            # _edit_or_send(update, context, text, reply_markup=...)
             args = mock_edit.call_args[0]
             kwargs = mock_edit.call_args[1]
             text = args[2] if len(args) > 2 else kwargs.get("text", "")
-            self.assertIn("راهنما:", text)
+            self.assertIn("راهنما", text)
             self.assertIn("✅ موفق", text)
+            self.assertIsInstance(kwargs["reply_markup"], InlineKeyboardMarkup)
+            all_data = [btn.callback_data for row in kwargs["reply_markup"].inline_keyboard for btn in row]
+            self.assertIn("llm:refresh", all_data)
+
+    def test_dashboard_keyboard_contains_legend(self):
+        from config.keyboards.admin import llm_cost_dashboard_keyboard
+
+        kb = llm_cost_dashboard_keyboard()
+        all_data = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+        self.assertIn("llm:legend", all_data)
 
 
 if __name__ == "__main__":

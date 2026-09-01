@@ -1,4 +1,4 @@
-from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
+﻿from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 
 from .constants import *  # noqa: F401,F403
 from config.catalog import GOALS, LANGUAGES, LEVELS, language_label
@@ -304,6 +304,10 @@ def llm_cost_dashboard_keyboard(
             *controls_rows,
         ]
     )
+
+
+def llm_legend_back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton("« بازگشت", callback_data="llm:refresh")]])
 
 
 

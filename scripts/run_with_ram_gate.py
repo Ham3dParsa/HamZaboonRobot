@@ -1,4 +1,4 @@
-"""R2 CI gate: run the test suite and assert peak combined RAM stays <= 2 GB.
+﻿"""R2 CI gate: run the test suite and assert peak combined RAM stays <= 2 GB.
 
 Usage (local):  python scripts/run_with_ram_gate.py [-n 14]
 Usage (CI):     python scripts/run_with_ram_gate.py -n 4
@@ -8,7 +8,7 @@ set (RSS) of every Python process in the run tree every 0.2s, and exits non-zero
 if peak RAM exceeds the budget. pytest's own exit code is propagated, so this is
 both the correctness gate and the RAM gate in one command.
 
-Budget: 2048 MB (the TEST SAFETY CONTRACT resource target). 14 workers are the
+Budget: 2600 MB (the TEST SAFETY CONTRACT resource target). 14 workers are the
 measured cap (16 approaches the limit); do not raise workers without re-running
 this gate.
 """
@@ -24,7 +24,7 @@ try:
 except ImportError:  # pragma: no cover - fail-closed handled in main()
     psutil = None
 
-RAM_BUDGET_MB = 3200
+RAM_BUDGET_MB = 2600
 SAMPLE_INTERVAL = 0.2
 
 
