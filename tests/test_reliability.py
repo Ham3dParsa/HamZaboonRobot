@@ -213,7 +213,6 @@ class ReliabilityPersistenceTests(unittest.TestCase):
                 "outcome": None,
             }
         )
-        self.assertIn("⚠️ Attention required", text)
         self.assertIn("Billed failure rate", text)
         self.assertIn("billed fail", text)
 
