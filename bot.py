@@ -77,7 +77,7 @@ from services.utils.formatting import (
     format_card,
     phonetic_lines,
 )
-from services.scheduling import try_acquire_per_user_slot, word_query_usage_text
+from services.scheduling import THROTTLE_TEXT, try_acquire_per_user_slot, word_query_usage_text
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 
 from services.utils.helpers import (
@@ -343,7 +343,7 @@ async def _process_ask_word(
     """
     # --- per-user spam guard (plan-27) atomic before quota/AI ---
     if not try_acquire_per_user_slot(user_id, "query_ask"):
-        throttle_msg = "⏳ لطفاً کمی صبر کنید و دوباره تلاش کنید."
+        throttle_msg = THROTTLE_TEXT
         if update.callback_query is not None:
             await notify_callback(
                 update.callback_query, throttle_msg, intent=CallbackNoticeIntent.THROTTLE

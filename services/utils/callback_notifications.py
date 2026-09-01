@@ -45,7 +45,7 @@ _SHOW_ALERT_BY_INTENT = {
     CallbackNoticeIntent.INFO: False,
     CallbackNoticeIntent.IMPORTANT_ERROR: True,
     CallbackNoticeIntent.SUCCESS_TOAST: True,
-    CallbackNoticeIntent.THROTTLE: False,
+    CallbackNoticeIntent.THROTTLE: True,
 }
 
 

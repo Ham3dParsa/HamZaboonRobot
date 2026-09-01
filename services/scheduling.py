@@ -10,6 +10,7 @@ once at the top of handle_study_start(), before build_session_list().
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections import deque
 from datetime import date, datetime
@@ -26,11 +27,15 @@ _app_tz = APP_TZ
 # Lightweight in-memory memory-only guard for costly actions (5/10s).
 # No DB transaction across await; pure deque per (user_id, action).
 # Memory-only: resets on restart (documented tradeoff); no settings persistence.
+# Atomicity: sync prune+check+append is atomic under _rate_lock (threading.Lock)
+# and the outer per-user asyncio.Lock in bot.py serializes same-user callbacks.
 _RATE_WINDOW_SECONDS: float = 10.0
 _RATE_LIMIT: int = 5
+THROTTLE_TEXT = "⏳ لطفاً کمی صبر کنید و دوباره تلاش کنید."
 
 # In-memory buckets: (user_id, action) -> deque of timestamps (float epoch UTC)
 _buckets: dict[tuple[int, str], deque[float]] = {}
+_rate_lock = threading.Lock()
 
 
 def _now_ts(now: float | datetime | None) -> float:
@@ -50,11 +55,8 @@ def _prune(bucket: deque[float], now_ts: float) -> None:
 
 def _clear_rate_buckets() -> None:
     """Test helper: clear all in-memory rate buckets."""
-    _buckets.clear()
-
-
-# Alias for alternative test harness name
-_reset_rate_buckets = _clear_rate_buckets
+    with _rate_lock:
+        _buckets.clear()
 
 
 def _today_str() -> str:
@@ -178,21 +180,16 @@ def is_rate_limited(
     user_id: int, action: str, now: float | datetime | None = None
 ) -> bool:
     """Return True if user has hit the sliding-window limit for action (read-only)."""
-    import os as _os
-
-    if _os.environ.get("HAMZABAN_TEST_MODE") == "1":
-        cur = _os.environ.get("HAMZABAN_CURRENT_TEST", "")
-        if "per_user_lock" not in cur:
-            return False
     key = (user_id, action)
-    bucket = _buckets.get(key)
-    if not bucket:
-        return False
-    _prune(bucket, _now_ts(now))
-    if not bucket:
-        _buckets.pop(key, None)
-        return False
-    return len(bucket) >= _RATE_LIMIT
+    with _rate_lock:
+        bucket = _buckets.get(key)
+        if not bucket:
+            return False
+        _prune(bucket, _now_ts(now))
+        if not bucket:
+            _buckets.pop(key, None)
+            return False
+        return len(bucket) >= _RATE_LIMIT
 
 
 def try_acquire_per_user_slot(
@@ -200,34 +197,25 @@ def try_acquire_per_user_slot(
 ) -> bool:
     """Atomic check+record: return True if slot acquired (allowed), False if throttled.
 
-    Prunes, checks limit, and appends atomically (single-threaded sync path is
-    atomic; outer per-user lock in bot.py serializes same-user callbacks).
-
-    Test isolation: when HAMZABAN_TEST_MODE=1, the guard is bypassed for all
-    tests except the per_user_lock suite (identified via HAMZABAN_CURRENT_TEST),
-    so existing integration tests that do rapid grades are not spuriously
-    throttled while the dedicated per_user_lock tests still exercise the
-    throttle. This keeps the 5/10s prod behaviour unchanged.
+    Prunes, checks limit, and appends atomically under _rate_lock; outer
+    per-user asyncio.Lock in bot.py serializes same-user callbacks.
+    No HAMZABAN_TEST_MODE bypass — test isolation is via the autouse
+    _per_user_rate_cleared fixture which clears _buckets before each test.
     """
-    import os as _os
-
-    if _os.environ.get("HAMZABAN_TEST_MODE") == "1":
-        cur = _os.environ.get("HAMZABAN_CURRENT_TEST", "")
-        if "per_user_lock" not in cur:
-            return True
     key = (user_id, action)
     ts = _now_ts(now)
-    bucket = _buckets.get(key)
-    if bucket is None:
-        bucket = deque()
-        _buckets[key] = bucket
-    _prune(bucket, ts)
-    if len(bucket) >= _RATE_LIMIT:
-        if not bucket:
-            _buckets.pop(key, None)
-        return False
-    bucket.append(ts)
-    return True
+    with _rate_lock:
+        bucket = _buckets.get(key)
+        if bucket is None:
+            bucket = deque()
+            _buckets[key] = bucket
+        _prune(bucket, ts)
+        if len(bucket) >= _RATE_LIMIT:
+            if not bucket:
+                _buckets.pop(key, None)
+            return False
+        bucket.append(ts)
+        return True
 
 
 def record_per_user_action(
@@ -236,12 +224,13 @@ def record_per_user_action(
     """Record an action occurrence (legacy, prefer try_acquire)."""
     key = (user_id, action)
     ts = _now_ts(now)
-    bucket = _buckets.get(key)
-    if bucket is None:
-        bucket = deque()
-        _buckets[key] = bucket
-    _prune(bucket, ts)
-    bucket.append(ts)
+    with _rate_lock:
+        bucket = _buckets.get(key)
+        if bucket is None:
+            bucket = deque()
+            _buckets[key] = bucket
+        _prune(bucket, ts)
+        bucket.append(ts)
 
 
 def check_per_user_rate(

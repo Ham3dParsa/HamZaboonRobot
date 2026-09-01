@@ -11,7 +11,7 @@ from services import db, send_pretty
 from services import word_query
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.activity_log import log_user_activity
-from services.scheduling import try_acquire_per_user_slot
+from services.scheduling import THROTTLE_TEXT, try_acquire_per_user_slot
 from services.session import resolve_grade, SessionNode
 from services.routing import register
 from services.utils.formatting import (
@@ -241,7 +241,7 @@ async def _handle_srs_review(
     if not try_acquire_per_user_slot(user_id, "srs_grade"):
         await notify_callback(
             update.callback_query,
-            "⏳ لطفاً کمی صبر کنید و دوباره تلاش کنید.",
+            THROTTLE_TEXT,
             intent=CallbackNoticeIntent.THROTTLE,
         )
         return
@@ -375,7 +375,7 @@ async def _handle_first_exposure_grade(
     if not try_acquire_per_user_slot(user_id, "srs_grade"):
         await notify_callback(
             update.callback_query,
-            "⏳ لطفاً کمی صبر کنید و دوباره تلاش کنید.",
+            THROTTLE_TEXT,
             intent=CallbackNoticeIntent.THROTTLE,
         )
         return
