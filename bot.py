@@ -53,6 +53,7 @@ from config.catalog import (
 from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
 from config.keyboards import (
     main_menu,
+    admin_panel_keyboard,
     lang_inline_keyboard,
     goal_inline_keyboard,
     level_inline_keyboard,
@@ -79,7 +80,9 @@ from services.scheduling import word_query_usage_text
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 
 from services.utils.helpers import (
+    _clear_awaiting_prompt,
     _delete_with_retry,
+    _edit_or_send,
     _edit_with_retry,
     _exit_awaiting_flow,
     _finish_llm_wait_state,
@@ -631,6 +634,12 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if awaiting:
         if _is_cancel_input(text):
+            if is_owner(user_id) and is_admin_awaiting(awaiting):
+                context.user_data.pop("awaiting", None)
+                context.user_data.pop(AWAITING_PENDING_KEY, None)
+                await _clear_awaiting_prompt(context)
+                await _edit_or_send(update, context, "لغو شد.", reply_markup=admin_panel_keyboard())
+                return
             await _exit_awaiting_flow(update, context)
             return
 

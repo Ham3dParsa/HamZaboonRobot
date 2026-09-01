@@ -27,7 +27,7 @@ from services.utils.callback_codec import (
 from services.ai import ai
 from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
-from services.utils.helpers import _edit_or_send
+from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _store_awaiting_msg
 from services.send_pretty import Backend, Message, RawFormat, bold, code, italic, plain, say
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
@@ -622,7 +622,8 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:{field_idx}"
 
-    await say(update, context, msg, backend=Backend.HTML, keyboard=keyboard)
+    sent = await say(update, context, msg, backend=Backend.HTML, keyboard=keyboard)
+    _store_awaiting_msg(context, update, sent)
 
 
 def _validate_wizard_value(field_name: str, raw: str, preset_name: str) -> tuple | None:
@@ -697,6 +698,7 @@ async def _handle_full_edit_input(update: Update, context: ContextTypes.DEFAULT_
     if raw:
         result = _validate_wizard_value(field_name, raw, preset_name)
         if result is None:
+            await _clear_awaiting_prompt(context)
             context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:{field_idx}"
             await _show_wizard_field(update, context, preset_name, field_idx, preset)
             return
@@ -705,6 +707,7 @@ async def _handle_full_edit_input(update: Update, context: ContextTypes.DEFAULT_
     next_idx = field_idx + 1
     wizard["field_idx"] = next_idx
 
+    await _clear_awaiting_prompt(context)
     if next_idx >= TOTAL_WIZARD_FIELDS:
         await _show_wizard_summary(update, context, preset_name)
     else:
@@ -724,6 +727,7 @@ async def _handle_full_edit_next(update: Update, context: ContextTypes.DEFAULT_T
     wizard["field_idx"] = next_idx
 
     preset = db.get_preset(preset_name)
+    await _clear_awaiting_prompt(context)
     if next_idx >= TOTAL_WIZARD_FIELDS:
         await _show_wizard_summary(update, context, preset_name)
     else:
@@ -748,6 +752,7 @@ async def _handle_full_edit_pick_group(update: Update, context: ContextTypes.DEF
     wizard["field_idx"] = next_idx
 
     preset = db.get_preset(preset_name)
+    await _clear_awaiting_prompt(context)
     if next_idx >= TOTAL_WIZARD_FIELDS:
         await _show_wizard_summary(update, context, preset_name)
     else:
@@ -776,6 +781,7 @@ async def _handle_full_edit_back(update: Update, context: ContextTypes.DEFAULT_T
     prev_idx = current_idx - 1
     wizard["field_idx"] = prev_idx
     preset = db.get_preset(preset_name)
+    await _clear_awaiting_prompt(context)
     context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:{prev_idx}"
     await _show_wizard_field(update, context, preset_name, prev_idx, preset or {})
 

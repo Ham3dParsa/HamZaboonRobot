@@ -15,7 +15,7 @@ from services import db, plan_fields, send_pretty
 from services.send_pretty import RawFormat, say
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.formatting import html_escape
-from services.utils.helpers import _edit_or_send
+from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _store_awaiting_msg
 from config.keyboards import (
     admin_awaiting_inline_keyboard,
     awaiting_inline_keyboard,
@@ -106,7 +106,8 @@ async def _show_plan_wizard_field(update: Update, context: ContextTypes.DEFAULT_
     keyboard = plan_wizard_keyboard(name)
     context.user_data["awaiting"] = f"admin_plan_full_edit:{name}:{field_idx}"
 
-    await _edit_or_send(update, context, message, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    msg = await _edit_or_send(update, context, message, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    _store_awaiting_msg(context, update, msg)
 
 
 async def _handle_plan_wizard_input(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str, field_idx: int, text: str):
@@ -123,15 +124,19 @@ async def _handle_plan_wizard_input(update: Update, context: ContextTypes.DEFAUL
     if raw:
         result = plan_fields.validate_value(field_name, raw)
         if result is None:
+            await _clear_awaiting_prompt(context)
             context.user_data["awaiting"] = f"admin_plan_full_edit:{name}:{field_idx}"
-            await say(update, context, "فرمت نامعتبر. لطفاً مقدار معتبر بفرستید.", raw=RawFormat.PLAIN, keyboard=awaiting_inline_keyboard(), mode="send")
+            msg = await say(update, context, "فرمت نامعتبر. لطفاً مقدار معتبر بفرستید.", raw=RawFormat.PLAIN, keyboard=awaiting_inline_keyboard(), mode="send")
+            _store_awaiting_msg(context, update, msg)
             return
         wizard["values"][field_name] = result
     next_idx = field_idx + 1
     wizard["field_idx"] = next_idx
     if next_idx >= TOTAL_PLAN_WIZARD_FIELDS:
+        await _clear_awaiting_prompt(context)
         await _show_plan_wizard_summary(update, context, name)
     else:
+        await _clear_awaiting_prompt(context)
         context.user_data["awaiting"] = f"admin_plan_full_edit:{name}:{next_idx}"
         await _show_plan_wizard_field(update, context, name, next_idx, plan)
 
@@ -149,6 +154,7 @@ async def _handle_plan_wizard_next(update: Update, context: ContextTypes.DEFAULT
     next_idx = current_idx + 1
     wizard["field_idx"] = next_idx
     plan = db.get_plan(name)
+    await _clear_awaiting_prompt(context)
     if next_idx >= TOTAL_PLAN_WIZARD_FIELDS:
         await _show_plan_wizard_summary(update, context, name)
     else:
@@ -170,6 +176,7 @@ async def _handle_plan_wizard_back(update: Update, context: ContextTypes.DEFAULT
     prev_idx = current_idx - 1
     plan = db.get_plan(name)
     wizard["field_idx"] = prev_idx
+    await _clear_awaiting_prompt(context)
     context.user_data["awaiting"] = f"admin_plan_full_edit:{name}:{prev_idx}"
     await _show_plan_wizard_field(update, context, name, prev_idx, plan or {})
 
