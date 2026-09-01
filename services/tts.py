@@ -70,16 +70,58 @@ def _default_voice(lang: str) -> str:
     return next(iter(pool))
 
 
+def normalize_tts_text(text: str) -> str:
+    """Normalize whitespace for TTS key/caption (single source)."""
+    return " ".join((text or "").split())
+
+
+def tts_caption(text: str) -> str:
+    """Exact spoken text, whitespace-normalized, truncated to 1024 with …."""
+    norm = normalize_tts_text(text)
+    if len(norm) > 1024:
+        return norm[:1023] + "…"
+    return norm
+
+
+def tts_cache_key(text: str, lang: str) -> str:
+    """Stable dedup key: lang + normalized+casefolded text."""
+    norm = " ".join((text or "").split()).casefold()
+    return f"{lang}:{norm}"
+
+
+def _slugify(text: str, max_len: int = 60) -> str:
+    import re
+    norm = normalize_tts_text(text)
+    # Keep Unicode word characters (\w includes Persian/Arabic letters with UNICODE)
+    slug = re.sub(r"[^\w]+", "_", norm, flags=re.UNICODE).strip("_").lower()
+    if not slug:
+        slug = "tts"
+    if len(slug) > max_len:
+        slug = slug[:max_len].rstrip("_")
+    return slug
+
+
+def tts_filename(text: str, lang: str, now: object | None = None) -> str:
+    """Filename: time_lang_slug_hash.mp3  e.g. 20260901-143022_en_hello_a3f1.mp3"""
+    import datetime
+    dt = now
+    if dt is None:
+        from config import APP_TZ
+        dt = datetime.datetime.now(APP_TZ)
+    time_part = dt.strftime("%Y%m%d-%H%M%S")
+    slug = _slugify(text, 60)
+    h = hashlib.sha256(tts_cache_key(text, lang).encode()).hexdigest()[:8]
+    return f"{time_part}_{lang}_{slug}_{h}.mp3"
+
+
 def _cache_path(word: str, lang: str) -> Path:
     _TTS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    normalized = " ".join(word.split()).casefold()
-    key = hashlib.sha256(f"{lang}:{normalized}".encode()).hexdigest()[:16]
+    key = hashlib.sha256(tts_cache_key(word, lang).encode()).hexdigest()[:16]
     return _TTS_CACHE_DIR / f"{key}.mp3"
 
 
 def _tts_lock_key(word: str, lang: str) -> str:
-    normalized = " ".join(word.split()).casefold()
-    return f"{lang}:{normalized}"
+    return tts_cache_key(word, lang)
 
 
 async def _get_tts_lock(key: str) -> asyncio.Lock:

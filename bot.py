@@ -69,6 +69,7 @@ from config.keyboards import (
     BTN_SETTINGS,
     BTN_CANCEL,
     BTN_BACK,
+    BTN_HELP,
 )
 
 from services.utils.formatting import (
@@ -1099,14 +1100,99 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
     await notify_callback(update.callback_query, "🎧 در حال آماده‌سازی تلفظ…", intent=CallbackNoticeIntent.INFO)
 
     try:
-        path = await tts.pronounce(word, lang)
-        voice_bytes = await asyncio.to_thread(path.read_bytes)
-        await _send_voice_with_retry(
-            context.bot,
-            update.effective_chat.id,
-            voice_bytes,
-            reply_to_message_id=update.callback_query.message.message_id,
-        )
+        caption = tts.tts_caption(word)
+        cache_key = tts.tts_cache_key(word, lang)
+        chat_id = None
+        try:
+            from config import resolve_tts_cache_chat_id
+            chat_id = resolve_tts_cache_chat_id()
+        except Exception:
+            chat_id = None
+        from services import tts_cache as _tts_cache
+        # hit path: DB lookup -> send file_id
+        if chat_id:
+            try:
+                cached = await asyncio.to_thread(_tts_cache.get_cached, cache_key)
+            except Exception:
+                cached = None
+            if cached and cached.get("file_id"):
+                try:
+                    await _send_voice_with_retry(
+                        context.bot,
+                        update.effective_chat.id,
+                        cached["file_id"],
+                        caption=caption,
+                        reply_to_message_id=update.callback_query.message.message_id,
+                    )
+                    return
+                except Exception:
+                    log.warning("cached file_id send failed, falling back to generate")
+        # miss -> per-key lock -> generate -> channel upload
+        lock_key = tts._tts_lock_key(word, lang)
+        lock = await tts._get_tts_lock(lock_key)
+        async with lock:
+            if chat_id:
+                try:
+                    cached2 = await asyncio.to_thread(_tts_cache.get_cached, cache_key)
+                except Exception:
+                    cached2 = None
+                if cached2 and cached2.get("file_id"):
+                    try:
+                        await _send_voice_with_retry(
+                            context.bot,
+                            update.effective_chat.id,
+                            cached2["file_id"],
+                            caption=caption,
+                            reply_to_message_id=update.callback_query.message.message_id,
+                        )
+                        return
+                    except Exception:
+                        log.warning("cached file_id send failed (inside lock), falling back to generate")
+                        # fall through to pronounce/generate path below
+            path = await tts.pronounce(word, lang)
+            if chat_id:
+                try:
+                    filename = tts.tts_filename(word, lang)
+                    voice_bytes = await asyncio.to_thread(path.read_bytes)
+                    # send to channel with caption+filename
+                    msg = await _send_voice_with_retry(
+                        context.bot,
+                        chat_id,
+                        voice_bytes,
+                        caption=caption,
+                        filename=filename,
+                    )
+                    # extract file_id
+                    fid = None
+                    fuid = ""
+                    try:
+                        v = getattr(msg, "voice", None)
+                        if v is not None:
+                            fid = getattr(v, "file_id", None)
+                            fuid = getattr(v, "file_unique_id", "") or ""
+                    except Exception:
+                        pass
+                    if fid:
+                        await asyncio.to_thread(_tts_cache.put_cached, cache_key, lang, caption, fid, fuid, getattr(msg, "message_id", None))
+                        await _send_voice_with_retry(
+                            context.bot,
+                            update.effective_chat.id,
+                            fid,
+                            caption=caption,
+                            reply_to_message_id=update.callback_query.message.message_id,
+                        )
+                        return
+                except Exception:
+                    log.exception("TTS channel cache upload failed, fallback to direct")
+            # fallback direct
+            voice_bytes = await asyncio.to_thread(path.read_bytes)
+            await _send_voice_with_retry(
+                context.bot,
+                update.effective_chat.id,
+                voice_bytes,
+                caption=caption,
+                reply_to_message_id=update.callback_query.message.message_id,
+            )
     except Exception:
         log.exception("TTS pronunciation failed")
         await _send_with_retry(
@@ -1165,6 +1251,11 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     db.init_db()
+    try:
+        from services.tts_cache import init_tts_cache_db
+        init_tts_cache_db()
+    except Exception:
+        log.exception("tts_cache db init failed")
     db_level = db.get_setting("log_level", "")
     if db_level:
         apply_log_level(db_level)

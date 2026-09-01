@@ -401,6 +401,34 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         await notify_callback(update.callback_query)
         msg = await say(update, context, "متن پیام حالت تعمیر را بنویسید (برای کاربران هنگام تعمیر نمایش داده می‌شود):", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
         _store_awaiting_msg(context, update, msg)
+    elif action == "tts_cache":
+        from config import resolve_tts_cache_chat_id
+        cid = resolve_tts_cache_chat_id()
+        cur = str(cid) if cid is not None else ""
+        from config.keyboards.admin import tts_cache_keyboard
+        await _edit_or_send(update, context, f"🎙 کش TTS\nکانال فعلی: {cur or '—'}\nبرای تنظیم آیدی کانال (مثلاً -100...) دکمه تنظیم را بزنید.", reply_markup=tts_cache_keyboard(cur))
+    elif action == "tts_cache:set":
+        context.user_data["awaiting"] = "admin_tts_cache_chat_id"
+        await notify_callback(update.callback_query)
+        await say(update, context, "آیدی کانال کش TTS را بفرست (مثلاً -100123...). برای غیرفعال کردن خالی بفرست.", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
+    elif action == "tts_cache:clear":
+        # Empty stored value means explicitly disabled — resolve_tts_cache_chat_id
+        # will return None and NOT fall back to env TTS_CACHE_CHAT_ID.
+        db.set_setting("tts_cache_chat_id", "")
+        from config.keyboards.admin import tts_cache_keyboard
+        await _edit_or_send(update, context, "🗑 کش TTS غیرفعال شد.", reply_markup=tts_cache_keyboard(""))
+        await notify_callback(update.callback_query, "پاک شد", intent=CallbackNoticeIntent.SUCCESS)
+    elif action == "tts_cache:test":
+        from config import resolve_tts_cache_chat_id
+        cid = resolve_tts_cache_chat_id()
+        if not cid:
+            await notify_callback(update.callback_query, "کانال تنظیم نشده.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        else:
+            try:
+                await _send_with_retry(context.bot, cid, "🧪 تست کش TTS")
+                await notify_callback(update.callback_query, "تست ارسال شد", intent=CallbackNoticeIntent.SUCCESS)
+            except Exception as e:
+                await notify_callback(update.callback_query, f"خطا: {e}", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
     elif action == "backup":
         # O-backup-panel: callback entry that mirrors /backup command
         await notify_callback(update.callback_query, "در حال تهیه پشتیبان…", intent=CallbackNoticeIntent.INFO)
@@ -503,7 +531,11 @@ async def handle_flow_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     unchanged.
     """
     awaiting = context.user_data.get("awaiting", "") or ""
+    # Preserve unsaved preset edits when navigating back from field edit (tested).
+    _saved_preset_edits = context.user_data.get("preset_edits")
     clear_admin_pending_state(context)
+    if _saved_preset_edits is not None and awaiting.startswith("ai_preset_edit:"):
+        context.user_data["preset_edits"] = _saved_preset_edits
     await _clear_awaiting_prompt(context)
     if awaiting.startswith("ai_preset_edit:"):
         parts = awaiting.split(":", 2)
@@ -605,6 +637,30 @@ def _register_admin_flows() -> None:
         context.user_data["awaiting"] = None
         await say(update, context, "✅ پیام حالت تعمیر ذخیره شد.", raw=RawFormat.PLAIN, keyboard=main_menu(is_owner(update.effective_user.id)), mode="send")
 
+    async def _handle_admin_tts_cache(update, context, awaiting, text):
+        from config import validate_tts_cache_chat_id
+        raw = (text or "").strip()
+        if raw == "":
+            # Explicit "" intentionally disables TTS cache channel and suppresses
+            # env fallback (see resolve_tts_cache_chat_id docstring).
+            db.set_setting("tts_cache_chat_id", "")
+            mark_awaiting_consumed(context)
+            context.user_data["awaiting"] = None
+            from config.keyboards.admin import tts_cache_keyboard
+            await _edit_or_send(update, context, "✅ کانال کش TTS: — (غیرفعال)", reply_markup=tts_cache_keyboard(""))
+            return
+        try:
+            cid = validate_tts_cache_chat_id(raw)
+        except ValueError as exc:
+            context.user_data["awaiting"] = awaiting
+            await say(update, context, str(exc), raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
+            return
+        db.set_setting("tts_cache_chat_id", str(cid))
+        mark_awaiting_consumed(context)
+        context.user_data["awaiting"] = None
+        from config.keyboards.admin import tts_cache_keyboard
+        await _edit_or_send(update, context, f"✅ کانال کش TTS: {cid}", reply_markup=tts_cache_keyboard(str(cid)))
+
     async def _handle_admin_restore(update, context, awaiting, text):
         mark_awaiting_consumed(context)  # terminal re-prompt (B5/Kilo CRITICAL)
         context.user_data["awaiting"] = None
@@ -650,6 +706,7 @@ def _register_admin_flows() -> None:
     register_flow("admin_broadcast", _handle_admin_broadcast)
     register_flow("admin_restore", _handle_admin_restore)
     register_flow("admin_maintenance_msg", _handle_admin_maintenance_msg)
+    register_flow("admin_tts_cache_chat_id", _handle_admin_tts_cache)
     register_flow("ai_preset_new_name", _handle_ai_preset_name)
     register_flow("admin_ai_preset_new_name", _handle_ai_preset_name)
     register_flow("ai_custom_test_prompt", _handle_custom_test_prompt)

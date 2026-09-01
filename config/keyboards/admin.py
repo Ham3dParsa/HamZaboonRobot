@@ -70,6 +70,17 @@ def plan_wizard_summary_keyboard(name: str) -> InlineKeyboardMarkup:
 
 
 
+def tts_cache_keyboard(current: str) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(f"📢 کانال کش: {current or '—'}", callback_data="admin:noop")],
+        [InlineKeyboardButton("✏️ تنظیم کانال کش", callback_data="admin:tts_cache:set")],
+        [InlineKeyboardButton("🗑 پاک کردن", callback_data="admin:tts_cache:clear")],
+        [InlineKeyboardButton("🧪 تست", callback_data="admin:tts_cache:test")],
+        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
 def admin_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
@@ -85,6 +96,7 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
              InlineKeyboardButton(IBTN_USER_ACTIVITY_LOG, callback_data="admin:user_activity_log")],
             [InlineKeyboardButton("💾 پشتیبان", callback_data="admin:backup"),
              InlineKeyboardButton("♻️ بازیابی", callback_data="admin:restore")],
+            [InlineKeyboardButton("🎙 کش TTS", callback_data="admin:tts_cache")],
             [InlineKeyboardButton("🎛 نمایش کارت", callback_data="admin:display_toggles")],
             [InlineKeyboardButton("🔧 حالت تعمیر", callback_data="admin:maintenance")],
         ]

@@ -216,6 +216,7 @@ SETTINGS_KEYS = {
     "maintenance_message":             {"key": "maintenance_message", "type": "str", "default": DEFAULT_MAINTENANCE_MESSAGE, "scope": "global"},
     # Dynamic per-card-type admin-global modes + gates (key = f"{card_type}_mode" / f"{card_type}_mode_gate").
     # Defaults mirror services/db/users.py DEFAULT_CARD_MODE / DEFAULT_CARD_MODE_GATE.
+    "tts_cache_chat_id":               {"key": "tts_cache_chat_id", "type": "str", "default": "", "scope": "global"},
     "{card_type}_mode":                {"key": "{card_type}_mode", "type": "str", "default": "staged", "scope": "global", "pattern": True},
     "{card_type}_mode_gate":           {"key": "{card_type}_mode_gate", "type": "str", "default": "premium", "scope": "global", "pattern": True},
 }
