@@ -190,6 +190,7 @@ from .admin import (
     llm_cost_plan_keyboard,
     llm_cost_pricing_keyboard,
     llm_cost_status_keyboard,
+    llm_legend_back_keyboard,
     log_level_keyboard,
     maintenance_keyboard,
     plan_manager_keyboard,

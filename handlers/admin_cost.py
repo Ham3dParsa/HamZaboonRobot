@@ -1,4 +1,4 @@
-﻿"""Admin cost/LLM domain module (Finding #7, task 7.5).
+"""Admin cost/LLM domain module (Finding #7, task 7.5).
 
 R3/R4/R5: RichMessage tables, max 4 cols, English + Persian legend, ✅ markers.
 R1: pricing page keeps only USD→Toman rate (no input/output price UI).
@@ -38,8 +38,8 @@ from config.keyboards import (
     llm_cost_plan_keyboard,
     llm_cost_pricing_keyboard,
     llm_cost_status_keyboard,
+    llm_legend_back_keyboard,
 )
-from config.keyboards.admin import llm_legend_back_keyboard
 
 _app_timezone = APP_TZ
 
