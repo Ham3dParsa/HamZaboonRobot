@@ -158,17 +158,24 @@ async def _exit_awaiting_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
     if via_callback:
         try:
             await update.callback_query.edit_message_text("لغو شد.")
-        except BadRequest:
-            logger.info("cancel callback edit failed; sending new message")
+        except BadRequest as exc:
+            cb_data = getattr(getattr(update, "callback_query", None), "data", None)
+            chat_id = getattr(getattr(update, "effective_chat", None), "id", None)
+            logger.info("cancel callback edit failed user_id=%s chat_id=%s callback_data=%r: %s", user_id, chat_id, cb_data, exc, exc_info=True)
             await notify_callback(update.callback_query)
             await update.callback_query.message.reply_text("لغو شد.", reply_markup=reply_markup)
             return
+        cb_data = getattr(getattr(update, "callback_query", None), "data", None)
+        chat_id = getattr(getattr(update, "effective_chat", None), "id", None)
+        logger.debug("cancel callback succeeded user_id=%s chat_id=%s callback_data=%r via_callback=%s", user_id, chat_id, cb_data, via_callback)
         await notify_callback(
             update.callback_query,
             "لغو شد.",
             intent=CallbackNoticeIntent.INFO,
         )
         return
+    chat_id = getattr(getattr(update, "effective_chat", None), "id", None)
+    logger.debug("cancel via message user_id=%s chat_id=%s via_callback=%s", user_id, chat_id, via_callback)
     await update.message.reply_text("لغو شد.", reply_markup=reply_markup)
 
 

@@ -461,15 +461,30 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             try:
                 ok = await is_bot_admin(context.bot, cid)
             except Forbidden as exc:
-                db.set_setting("archive_last_error", f"Forbidden: {exc}")
+                logger.warning("test_archive Forbidden chat_id=%s raw=%s: %s", cid, cid, exc, exc_info=True)
+                try:
+                    db.set_setting("archive_last_error", f"Forbidden: {exc}")
+                    logger.debug("archive_last_error persisted chat_id=%s", cid)
+                except Exception:
+                    logger.debug("failed to persist archive_last_error chat_id=%s", cid, exc_info=True)
                 await notify_callback(update.callback_query, f"دسترسی ممنوع (Forbidden): {exc}", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
                 return
             except BadRequest as exc:
-                db.set_setting("archive_last_error", f"BadRequest: {exc}")
+                logger.warning("test_archive BadRequest chat_id=%s raw=%s: %s", cid, cid, exc, exc_info=True)
+                try:
+                    db.set_setting("archive_last_error", f"BadRequest: {exc}")
+                    logger.debug("archive_last_error persisted chat_id=%s", cid)
+                except Exception:
+                    logger.debug("failed to persist archive_last_error chat_id=%s", cid, exc_info=True)
                 await notify_callback(update.callback_query, f"آیدی نامعتبر (BadRequest): {exc}", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
                 return
             except Exception as exc:
-                db.set_setting("archive_last_error", str(exc))
+                logger.warning("test_archive error chat_id=%s: %s", cid, exc, exc_info=True)
+                try:
+                    db.set_setting("archive_last_error", str(exc))
+                    logger.debug("archive_last_error persisted chat_id=%s", cid)
+                except Exception:
+                    logger.debug("failed to persist archive_last_error chat_id=%s", cid, exc_info=True)
                 await notify_callback(update.callback_query, f"خطا در بررسی: {exc}", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
                 return
             await notify_callback(update.callback_query, "ربات ادمین است ✅" if ok else "ربات ادمین نیست ❌ — دسترسی ارسال ندارد", intent=CallbackNoticeIntent.INFO)
@@ -840,11 +855,12 @@ async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not is_owner(update.effective_user.id):
         await say(update, context, "فقط مالک ربات دسترسی داره.", raw=RawFormat.PLAIN, mode="send")
         return
-    # Audit log of restore attempt (P0)
+    # Audit log of restore attempt (P0) — include effective_chat.id
     try:
         cid = getattr(update.effective_chat, "id", None)
-        logger.info("restore attempt by owner %s in chat %s", update.effective_user.id, cid)
+        logger.info("restore attempt by owner %s in chat %s effective_chat.id=%s", update.effective_user.id, cid, cid)
     except Exception:
+        logger.debug("restore attempt log failed", exc_info=True)
         pass
     # Per contract: allow owner .db upload in PV or group without
     # requiring awaiting == admin_restore (group flow would otherwise
