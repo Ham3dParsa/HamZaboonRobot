@@ -87,6 +87,13 @@ jobs:
           grep -E "failure|testcase.*failure" junit/test-results.xml | head -n 200 || true
           echo "=== end ==="
 
+      - name: Upload junit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.python-version }}
+          path: junit/test-results.xml
+
       - name: Fail on test failure
         if: steps.test.outcome == 'failure'
         run: exit 1
