@@ -326,14 +326,8 @@ def _build_llm_cost_message(
     ]
     msg.add_line(table(overview_header, *overview_rows))
 
-    # Health / attention block – keep legacy phrases for tests
-    if billed_failures > 0 or (request_count and billed_failures / request_count >= 0.2):
-        msg.add_line(quote(plain(f"⚠️ Attention required — 💵 Billed failures: {billed_failures:,} ({_llm_cost_currency_text(billed_failure_cost_usd, billed_failure_cost_toman)}) • ⚠️ Zero-cost failures: {zero_cost_failures:,}")))
-    else:
-        msg.add_line(quote(plain("✅ System health: no billable failures")))
-
-    # Persian legend – small quote (R3 English+Persian legend, ✅ markers)
-    msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail")))
+    # Health / attention block – keep legacy phrases for tests (moved to legend submenu, keep minimal inline)
+    # Inline health removed per UX request; full legend is in sub-menu via ❓ button
 
     # Projection – 4-col table when MTD (kept compact, max 4 cols)
     if state.get("range") == "mtd":
