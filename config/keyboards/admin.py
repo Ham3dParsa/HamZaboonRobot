@@ -706,11 +706,87 @@ def session_summary_legend_keyboard(page_index: int, nonce: str) -> InlineKeyboa
 # pages of `report.pages`. Back returns to the recent-reports list.
 
 
-def reports_list_keyboard(entries) -> InlineKeyboardMarkup:
-    """List of recent reports — one button per report (R10-C).
+def _reports_group_key(iso_str: str) -> str:
+    """Single-source delegation to services/utils/formatting.reports_jalali_group_key (R6)."""
+    from services.utils.formatting import reports_jalali_group_key
 
-    Each button opens the report's summary overview (`reports:detail:<id>:0`).
+    return reports_jalali_group_key(iso_str or "")
+
+
+def reports_days_keyboard(grouped: dict[str, list]) -> InlineKeyboardMarkup:
+    """Two-level top: one button per jalali day (R1,R2,R4)."""
+    from services.utils.formatting import jalali_day_label, to_persian_digits as _tpd
+
+    rows: list[list[InlineKeyboardButton]] = []
+    # Sort day keys DESC (newest day first) for UX
+    for day_key in sorted(grouped.keys(), reverse=True):
+        entries = grouped[day_key]
+        if not entries:
+            continue
+        # label uses first entry's created_at for jalali day
+        first_iso = getattr(entries[0], "created_at", "") or ""
+        # fallback to session_date if needed
+        if not first_iso:
+            first_iso = getattr(entries[0], "session_date", "") or ""
+        label_day = jalali_day_label(first_iso) if first_iso else day_key
+        # count Persian digits
+        count_label = _tpd(len(entries))
+        text = f"📅 {label_day} — {count_label} نشست"
+        if len(entries) == 1:
+            cb = f"reports:detail:{entries[0].report_id}:0"
+        else:
+            cb = f"reports:day:{day_key}"
+        rows.append([InlineKeyboardButton(text, callback_data=cb)])
+    return InlineKeyboardMarkup(rows)
+
+
+def reports_day_keyboard(day_key: str, entries: list) -> InlineKeyboardMarkup:
+    """Second level: one button per session sorted ASC for per-day numbering (R3,R8)."""
+    from services.utils.formatting import jalali_time_label, to_persian_digits as _tpd
+
+    # sort ASC by actual Tehran time (parse, not lexicographic — C5)
+    def _sort_key(e):
+        from services.utils.formatting import _parse_iso_to_app_tz
+
+        iso = getattr(e, "created_at", "") or ""
+        dt = _parse_iso_to_app_tz(iso)
+        return dt if dt is not None else iso
+
+    sorted_entries = sorted(entries, key=_sort_key)
+    rows: list[list[InlineKeyboardButton]] = []
+    for idx, entry in enumerate(sorted_entries, 1):
+        iso = getattr(entry, "created_at", "") or ""
+        time_label = jalali_time_label(iso) if iso else "—"
+        total = getattr(entry, "total", 0) or 0
+        reviewed = getattr(entry, "reviewed_count", 0) or 0
+        learned = getattr(entry, "learned_count", 0) or 0
+        base = f"🕝 {time_label} — نشست {_tpd(idx)} · {_tpd(total)} واژه"
+        extra_parts: list[str] = []
+        if reviewed:
+            extra_parts.append(f"{_tpd(reviewed)} مرور")
+        if learned:
+            extra_parts.append(f"{_tpd(learned)} تازه")
+        extra = f" ({' · '.join(extra_parts)})" if extra_parts else ""
+        text = base + extra
+        rows.append([InlineKeyboardButton(text, callback_data=f"reports:detail:{entry.report_id}:0")])
+    rows.append([InlineKeyboardButton(IBTN_REPORTS_BACK_TO_DAYS, callback_data="reports:back")])
+    return InlineKeyboardMarkup(rows)
+
+
+def reports_list_keyboard(entries) -> InlineKeyboardMarkup:
+    """Backward compat flat list — delegates to grouped view for new code.
+
+    Kept for wiring tests; new handler uses reports_days_keyboard.
     """
+    # Build grouped dict for compat path: group by APP_TZ day
+    grouped: dict[str, list] = {}
+    for e in entries:
+        iso = getattr(e, "created_at", "") or getattr(e, "session_date", "") or ""
+        key = _reports_group_key(iso) or getattr(e, "session_date", "") or str(e.report_id)
+        grouped.setdefault(key, []).append(e)
+    if grouped:
+        return reports_days_keyboard(grouped)
+    # fallback flat when no created_at (legacy)
     rows = [
         [InlineKeyboardButton(
             entry.session_date,

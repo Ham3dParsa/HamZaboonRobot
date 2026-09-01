@@ -197,6 +197,8 @@ from .admin import (
     plan_view_keyboard,
     plan_wizard_keyboard,
     plan_wizard_summary_keyboard,
+    reports_day_keyboard,
+    reports_days_keyboard,
     reports_detail_keyboard,
     reports_list_keyboard,
     reports_summary_keyboard,

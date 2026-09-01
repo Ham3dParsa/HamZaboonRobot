@@ -10,7 +10,7 @@ try:
 except Exception:  # pragma: no cover — fallback when jdatetime not installed
     jdatetime = None  # type: ignore[assignment]
 
-from config import _app_today
+from config import APP_TZ, _app_today
 from config.catalog import language_label
 from services.utils.validation import _CUSTOM_WORD_MAX_WORDS
 
@@ -608,6 +608,81 @@ _JALALI_MONTHS = (
     "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
     "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند",
 )
+
+# Persian weekday names Monday=0 -> دوشنبه ... Sunday=6 -> یکشنبه ; derived from Gregorian weekday.
+_JALALI_WEEKDAYS = ("دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه", "یکشنبه")
+
+
+def _weekday_name(dt: datetime.date) -> str:
+    """Persian weekday for a Gregorian date."""
+    return _JALALI_WEEKDAYS[dt.weekday()]
+
+
+def _parse_iso_to_app_tz(iso_str: str) -> datetime.datetime | None:
+    """Parse ISO string and convert to APP_TZ. Returns None on failure."""
+    if not iso_str or not isinstance(iso_str, str):
+        return None
+    raw = iso_str.strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        dt = datetime.datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    try:
+        return dt.astimezone(APP_TZ)
+    except Exception:
+        return dt
+
+
+def jalali_day_label(iso_str: str) -> str:
+    """Convert UTC ISO datetime to Tehran Jalali day label.
+
+    Returns "{weekday} {day} {month} {year}" with Persian digits, e.g.
+    "جمعه ۹ خرداد ۱۴۰۴". Falls back to Gregorian "YYYY/MM/DD weekday" style
+    when jdatetime unavailable. Returns "—" for empty/invalid input.
+    """
+    if not iso_str or not isinstance(iso_str, str):
+        return "—"
+    dt_app = _parse_iso_to_app_tz(iso_str)
+    if dt_app is None:
+        return "—"
+    greg_date = dt_app.date()
+    weekday = _weekday_name(greg_date)
+    if jdatetime is not None:
+        try:
+            jd = jdatetime.date.fromgregorian(date=greg_date)
+            return to_persian_digits(f"{weekday} {jd.day} {_JALALI_MONTHS[jd.month - 1]} {jd.year}")
+        except Exception:
+            pass
+    # Fallback: Gregorian numeric with Persian digits + weekday (no Jalali month when jdatetime absent)
+    return to_persian_digits(f"{weekday} {greg_date.day}/{greg_date.month}/{greg_date.year}")
+
+
+def jalali_time_label(iso_str: str) -> str:
+    """Convert UTC ISO datetime to Tehran HH:MM with Persian digits.
+
+    Returns "—" for empty/invalid input.
+    """
+    if not iso_str or not isinstance(iso_str, str):
+        return "—"
+    dt_app = _parse_iso_to_app_tz(iso_str)
+    if dt_app is None:
+        return "—"
+    return to_persian_digits(f"{dt_app.hour:02d}:{dt_app.minute:02d}")
+
+
+def reports_jalali_group_key(iso_str: str) -> str:
+    """Gregorian YYYY-MM-DD in APP_TZ for /reports grouping (R6, single source)."""
+    dt_app = _parse_iso_to_app_tz(iso_str)
+    if dt_app is None:
+        s = (iso_str or "").strip()
+        return s[:10] if len(s) >= 10 else ""
+    return dt_app.date().isoformat()
 
 # Tier → header line (R5/R7). Values are static, so no escaping needed.
 _TIER_LABEL = {
