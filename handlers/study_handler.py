@@ -1210,13 +1210,6 @@ async def _handle_session_summary_callback(
 # R10: persistent session reports — /reports command + callback
 # ---------------------------------------------------------------------------
 
-def _reports_group_key(iso_str: str) -> str:  # noqa: keep for wiring compat (delegates to single source)
-    """Deprecated wrapper — use services.utils.formatting.reports_jalali_group_key directly."""
-    from services.utils.formatting import reports_jalali_group_key
-
-    return reports_jalali_group_key(iso_str or "")
-
-
 def _reports_list_payload(user_id: int):
     """Build the recent-reports list message + keyboard grouped by jalali day (R1,R6).
 
@@ -1230,11 +1223,13 @@ def _reports_list_payload(user_id: int):
     entries = db.list_recent_reports(user_id)
     if not entries:
         return escape_mdv2("در ۳ روز اخیر گزارشی موجود نیست."), None
-    # group by APP_TZ day
+    # group by APP_TZ day — single source
+    from services.utils.formatting import reports_jalali_group_key
+
     grouped: dict[str, list] = {}
     for e in entries:
         iso = getattr(e, "created_at", "") or e.session_date or ""
-        key = _reports_group_key(iso) or e.session_date or str(e.report_id)
+        key = reports_jalali_group_key(iso) or e.session_date or str(e.report_id)
         grouped.setdefault(key, []).append(e)
     # text: header + per-day lines sorted DESC by day
     lines: list[str] = []
@@ -1300,12 +1295,14 @@ async def _handle_reports_callback(
                 intent=CallbackNoticeIntent.IMPORTANT_ERROR,
             )
             return
-        # Re-group entries and filter to that day
+        # Re-group entries and filter to that day — single source
+        from services.utils.formatting import reports_jalali_group_key as _rgk
+
         entries = db.list_recent_reports(user_id)
         grouped: dict[str, list] = {}
         for e in entries:
             iso = getattr(e, "created_at", "") or e.session_date or ""
-            k = _reports_group_key(iso) or e.session_date or str(e.report_id)
+            k = _rgk(iso) or e.session_date or str(e.report_id)
             grouped.setdefault(k, []).append(e)
         day_entries = grouped.get(day_key, [])
         if not day_entries:
@@ -1321,7 +1318,7 @@ async def _handle_reports_callback(
         # header uses jalali day label
         first_iso = getattr(day_entries[0], "created_at", "") or ""
         header_label = _jdl(first_iso) if first_iso else day_key
-        text = "*" + escape_mdv2(header_label) + "*\n" + escape_mdv2(f"— {len(day_entries)} نشست")
+        text = "*" + escape_mdv2(header_label) + "*\n" + escape_mdv2(f"— {to_persian_digits(len(day_entries))} نشست")
         keyboard = reports_day_keyboard(day_key, day_entries)
         await send_pretty.say(
             update, context, text,

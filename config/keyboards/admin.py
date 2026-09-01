@@ -706,13 +706,6 @@ def session_summary_legend_keyboard(page_index: int, nonce: str) -> InlineKeyboa
 # pages of `report.pages`. Back returns to the recent-reports list.
 
 
-def _reports_group_key(iso_str: str) -> str:  # noqa: keep for wiring compat (delegates to single source)
-    """Deprecated wrapper — use services.utils.formatting.reports_jalali_group_key directly."""
-    from services.utils.formatting import reports_jalali_group_key
-
-    return reports_jalali_group_key(iso_str or "")
-
-
 def reports_days_keyboard(grouped: dict[str, list]) -> InlineKeyboardMarkup:
     """Two-level top: one button per jalali day (R1,R2,R4)."""
     from services.utils.formatting import jalali_day_label, to_persian_digits as _tpd
@@ -743,12 +736,15 @@ def reports_days_keyboard(grouped: dict[str, list]) -> InlineKeyboardMarkup:
 def reports_day_keyboard(day_key: str, entries: list) -> InlineKeyboardMarkup:
     """Second level: one button per session sorted ASC for per-day numbering (R3,R8)."""
     from services.utils.formatting import jalali_time_label, parse_iso_to_app_tz, to_persian_digits as _tpd
+    import datetime as _dt
 
-    # sort ASC by actual Tehran time (parse, not lexicographic — C5)
+    # sort ASC by actual Tehran time — consistent tuple key to avoid datetime/str mix (Kilo)
     def _sort_key(e):
         iso = getattr(e, "created_at", "") or ""
         dt = parse_iso_to_app_tz(iso)
-        return dt if dt is not None else iso
+        if dt is not None:
+            return (0, dt)
+        return (1, iso)
 
     sorted_entries = sorted(entries, key=_sort_key)
     rows: list[list[InlineKeyboardButton]] = []
@@ -776,11 +772,13 @@ def reports_list_keyboard(entries) -> InlineKeyboardMarkup:
 
     Kept for wiring tests; new handler uses reports_days_keyboard.
     """
-    # Build grouped dict for compat path: group by APP_TZ day
+    # Build grouped dict for compat path: group by APP_TZ day (single source)
+    from services.utils.formatting import reports_jalali_group_key
+
     grouped: dict[str, list] = {}
     for e in entries:
         iso = getattr(e, "created_at", "") or getattr(e, "session_date", "") or ""
-        key = _reports_group_key(iso) or getattr(e, "session_date", "") or str(e.report_id)
+        key = reports_jalali_group_key(iso) or getattr(e, "session_date", "") or str(e.report_id)
         grouped.setdefault(key, []).append(e)
     if grouped:
         return reports_days_keyboard(grouped)
