@@ -160,38 +160,57 @@ class AdminAwaitingTextCancelTest(unittest.TestCase):
 
 
 class AwaitingPromptCaptureTest(unittest.TestCase):
-    """_store_awaiting_msg must not store callback_query.message when msg is None."""
+    """_store_awaiting_msg must not store button message when msg is None on callback updates."""
 
     def test_fallback_uses_effective_message_not_callback_query(self):
+        """Callback update with msg=None must store nothing (PTB alias guard)."""
         from services.utils.helpers import _store_awaiting_msg
 
         ctx = MagicMock()
         ctx.user_data = {}
-        # msg is None (say() returned None)
+        # msg is None (say() returned None/bool)
         msg = None
-        # callback_query.message is button message id 999
+        # In PTB effective_message aliases callback_query.message on callback updates
         cb_msg = MagicMock()
         cb_msg.message_id = 999
         cb_chat = MagicMock()
         cb_chat.id = 111
         cb_msg.chat = cb_chat
-        # effective_message is prompt-related id 555
+        update = MagicMock()
+        update.callback_query = MagicMock()
+        update.callback_query.message = cb_msg
+        # realistic alias: effective_message is the same object as callback_query.message
+        update.effective_message = cb_msg
+        update.effective_chat = MagicMock()
+        update.effective_chat.id = 111
+
+        _store_awaiting_msg(ctx, update, msg)
+        # helpers.py:410 returns early for None/bool msg on callback updates
+        # to avoid storing the button message_id; awaiting stays via user_data["awaiting"]
+        self.assertNotIn("_awaiting_msg", ctx.user_data)
+
+    def test_fallback_uses_effective_message_when_no_callback(self):
+        """Non-callback update with msg=None should fallback to effective_message."""
+        from services.utils.helpers import _store_awaiting_msg
+
+        ctx = MagicMock()
+        ctx.user_data = {}
+        msg = None
         em = MagicMock()
         em.message_id = 555
         em_chat = MagicMock()
         em_chat.id = 111
         em.chat = em_chat
         update = MagicMock()
-        update.callback_query = MagicMock()
-        update.callback_query.message = cb_msg
+        update.callback_query = None
         update.effective_message = em
         update.effective_chat = MagicMock()
         update.effective_chat.id = 111
 
         _store_awaiting_msg(ctx, update, msg)
         self.assertIn("_awaiting_msg", ctx.user_data)
-        # must be 555 from effective_message, not 999 from callback_query.message
         self.assertEqual(ctx.user_data["_awaiting_msg"]["message_id"], 555)
+        self.assertEqual(ctx.user_data["_awaiting_msg"]["chat_id"], 111)
 
     def test_store_uses_msg_when_available(self):
         from services.utils.helpers import _store_awaiting_msg
