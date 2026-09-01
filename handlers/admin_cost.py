@@ -39,6 +39,7 @@ from config.keyboards import (
     llm_cost_pricing_keyboard,
     llm_cost_status_keyboard,
 )
+from config.keyboards.admin import llm_legend_back_keyboard
 
 _app_timezone = APP_TZ
 
@@ -522,6 +523,15 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             return
         context.user_data["llm_cost_currency"] = mode
         await _show_llm_cost_dashboard(update, context)
+    elif action == "legend" and len(parts) == 2:
+        await _edit_or_send(
+            update,
+            context,
+            "راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — Legend: ✅ success | ❌ billed fail | ⚠️ zero-cost fail\n\n"
+            "System health: no billable failures when Billed failure rate is 0%",
+            reply_markup=llm_legend_back_keyboard(),
+        )
+        return
     elif action == "set" and len(parts) == 3:
         field = parts[2]
         if field == "plan":

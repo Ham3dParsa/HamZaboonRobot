@@ -280,7 +280,7 @@ def llm_cost_dashboard_keyboard(
         for label, val in _currency_opts
     ]
 
-    # — Controls row(s): detail toggle / refresh / clear / back
+    # — Controls row(s): detail toggle / refresh / clear / legend / back
     recent_label = IBTN_HIDE_RECENT if detail else IBTN_RECENT
     controls_rows: list[list[InlineKeyboardButton]] = [
         [
@@ -288,7 +288,10 @@ def llm_cost_dashboard_keyboard(
             InlineKeyboardButton(IBTN_REFRESH, callback_data="llm:refresh"),
         ],
         [
+            InlineKeyboardButton("❓ راهنما", callback_data="llm:legend"),
             InlineKeyboardButton(IBTN_CLEAR_FILTERS, callback_data="llm:clear"),
+        ],
+        [
             InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:cost_dashboard"),
         ],
     ]
@@ -301,6 +304,10 @@ def llm_cost_dashboard_keyboard(
             *controls_rows,
         ]
     )
+
+
+def llm_legend_back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton("« بازگشت", callback_data="llm:refresh")]])
 
 
 

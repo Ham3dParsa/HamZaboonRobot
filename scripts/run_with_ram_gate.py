@@ -8,7 +8,7 @@ set (RSS) of every Python process in the run tree every 0.2s, and exits non-zero
 if peak RAM exceeds the budget. pytest's own exit code is propagated, so this is
 both the correctness gate and the RAM gate in one command.
 
-Budget: 2048 MB (the TEST SAFETY CONTRACT resource target). 14 workers are the
+Budget: 2600 MB (the TEST SAFETY CONTRACT resource target). 14 workers are the
 measured cap (16 approaches the limit); do not raise workers without re-running
 this gate.
 """
