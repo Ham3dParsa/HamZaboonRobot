@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 # Feature flag — enabled by default; 404 latch handles old API servers (fallback to MDV2).
 # Kill-switch: set RICH_ENABLED=false/0 to force MDV2 without redeploy.
-RICH_ENABLED = os.getenv("RICH_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+RICH_ENABLED = os.getenv("RICH_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
 
 # Bot instances (`id(bot)`) for which Rich Messages are known unsupported.
 _rich_disabled: set[int] = set()
