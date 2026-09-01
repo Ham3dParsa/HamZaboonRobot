@@ -312,6 +312,17 @@ async def handle_study_start(
 
     plan = row["plan"] or "free"
 
+    # --- per-user spam guard (plan-27) atomic before any quota/AI side effect ---
+    # Owner bypass respects OWNER_BYPASS_LIMITS for testing
+    if not (is_owner(user_id) and OWNER_BYPASS_LIMITS) and not try_acquire_per_user_slot(user_id, "study_start"):
+        await _reply_or_answer(
+            update,
+            context,
+            THROTTLE_TEXT,
+            intent=CallbackNoticeIntent.THROTTLE,
+        )
+        return
+
     # --- resume existing session (Decision 30: don't double-count slots) ---
     existing = context.user_data.get("current_session")
     if existing is not None and existing.nodes:
@@ -1231,9 +1242,16 @@ def _reports_list_payload(user_id: int):
         iso = getattr(e, "created_at", "") or e.session_date or ""
         key = reports_jalali_group_key(iso) or e.session_date or str(e.report_id)
         grouped.setdefault(key, []).append(e)
-    # text: header + per-day lines sorted DESC by day
+    # text: header + per-day lines sorted DESC ISO, fallback last (match keyboard)
+    import re as _re2
+
+    _iso_re2 = _re2.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+    def _day_sort_key2(k: str):
+        return (1, k) if _iso_re2.match(k) else (0, k)
+
     lines: list[str] = []
-    for day_key in sorted(grouped.keys(), reverse=True):
+    for day_key in sorted(grouped.keys(), key=_day_sort_key2, reverse=True):
         day_entries = grouped[day_key]
         first_iso = getattr(day_entries[0], "created_at", "") or day_entries[0].session_date or ""
         day_label = jalali_day_label(first_iso) if first_iso else day_key

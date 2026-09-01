@@ -125,6 +125,25 @@ class ReportsKeyboardsGroupingTests(unittest.TestCase):
         kb = reports_list_keyboard([e])
         self.assertIsNotNone(kb)
 
+    def test_reports_days_keyboard_fallback_bucket(self):
+        from config.keyboards.admin import reports_days_keyboard
+
+        # Legacy row with no created_at/session_date → fallback key str(report_id)
+        e = ReportEntry(report_id=42, session_date="", created_at="", total=0)
+        # Simulate grouped as handler does: key = str(42)
+        grouped = {"42": [e], "2026-09-01": [ReportEntry(report_id=1, session_date="2026-09-01", created_at="2026-09-01T10:00:00+00:00", total=1)]}
+        kb = reports_days_keyboard(grouped)
+        data = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+        # Fallback bucket must render direct detail, not reports:day:42
+        self.assertIn("reports:detail:42:0", data)
+        self.assertNotIn("reports:day:42", data)
+        # ISO day still renders correctly
+        self.assertTrue(any(d.startswith("reports:day:2026-09-01") or d == "reports:detail:1:0" for d in data))
+        # Fallback should sort after ISO day (last row)
+        labels = [btn.text for row in kb.inline_keyboard for btn in row]
+        # Last label should be fallback 📄 گزارش #42
+        self.assertIn("📄 گزارش #42", labels[-1])
+
 
 if __name__ == "__main__":
     unittest.main()
