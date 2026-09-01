@@ -80,6 +80,13 @@ jobs:
           path: junit/test-results.xml
           reporter: java-junit
 
+      - name: Debug junit failures
+        if: always()
+        run: |
+          echo "=== junit failures ==="
+          grep -E "failure|testcase.*failure" junit/test-results.xml | head -n 200 || true
+          echo "=== end ==="
+
       - name: Fail on test failure
         if: steps.test.outcome == 'failure'
         run: exit 1
@@ -106,3 +113,9 @@ jobs:
         env:
           HAMZABAN_TEST_MODE: "1"
         run: python scripts/run_with_ram_gate.py -n 2
+
+      - name: Debug ram-gate junit
+        if: always()
+        run: |
+          cat junit/test-results.xml 2>&1 | head -n 20 || true
+          ps aux 2>&1 | head -n 20 || true
