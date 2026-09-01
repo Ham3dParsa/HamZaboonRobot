@@ -404,6 +404,7 @@ def _build_breakdown_message(
     currency_mode: str,
     summary: dict[str, object],
     filters: dict[str, object],
+    rows_all: list[dict] | None = None,
 ) -> Message:
     cost_usd = float(summary.get("cost_usd") or 0)
     breakdown = str(state.get("breakdown") or "preset")
@@ -413,7 +414,6 @@ def _build_breakdown_message(
     page = int(state.get("breakdown_page") or 0)
     page = max(0, page)
     limit = 5
-    # fetch one extra to detect has_next without count query
     fetch_limit = 100
 
     msg = Message()
@@ -423,12 +423,15 @@ def _build_breakdown_message(
     msg.add_line(heading(3, plain(f"{title}")))
 
     bd_header = (plain("Name"), plain("Req"), plain("Avg Cost"), plain("Share"))
-    if breakdown == "preset_kind":
-        rows_all = db.breakdown_llm_requests_preset_kind(filters, limit=fetch_limit)
-        group_by = "preset_kind"
+    if rows_all is None:
+        if breakdown == "preset_kind":
+            rows_all = db.breakdown_llm_requests_preset_kind(filters, limit=fetch_limit)
+            group_by = "preset_kind"
+        else:
+            group_by = _BREAKDOWN_GROUP.get(breakdown, "preset_name")
+            rows_all = db.breakdown_llm_requests(group_by, filters, limit=fetch_limit)
     else:
-        group_by = _BREAKDOWN_GROUP.get(breakdown, "preset_name")
-        rows_all = db.breakdown_llm_requests(group_by, filters, limit=fetch_limit)
+        group_by = "preset_kind" if breakdown == "preset_kind" else _BREAKDOWN_GROUP.get(breakdown, "preset_name")
     total = len(rows_all)
     total_pages = max(1, (total + limit - 1) // limit) if total else 1
     page = min(page, total_pages - 1)
@@ -467,6 +470,7 @@ def _build_recent_message(
     currency_mode: str,
     summary: dict[str, object],
     filters: dict[str, object],
+    rows_all: list[dict] | None = None,
 ) -> Message:
     page = int(state.get("recent_page") or 0)
     page = max(0, page)
@@ -479,7 +483,8 @@ def _build_recent_message(
     msg.add_line(quote(plain(f"Filters: {_llm_cost_filter_pill(state, currency_mode)}")))
     msg.add_line(heading(3, plain("🧾 Recent Requests")))
 
-    rows_all = db.recent_llm_requests(filters, limit=fetch_limit)
+    if rows_all is None:
+        rows_all = db.recent_llm_requests(filters, limit=fetch_limit)
     total = len(rows_all)
     total_pages = max(1, (total + limit - 1) // limit) if total else 1
     page = min(page, total_pages - 1)
@@ -560,23 +565,32 @@ async def _show_llm_cost_dashboard(
         view = "recent" if detail else "overview"
         state = _llm_cost_set_state(context, detail=detail, view=view)
     currency_mode = _llm_cost_currency_mode(context)
-    # compute total pages for pager (best-effort, for keyboard)
     filters = _llm_cost_query_filters(state)
     view = str(state.get("view") or "overview")
+    # single fetch for summary + rows (reuse in builders to avoid double DB read)
+    summary = db.summarize_llm_requests(filters)
     breakdown_total_pages = 1
     recent_total_pages = 1
+    rows_all_breakdown: list[dict] | None = None
+    rows_all_recent: list[dict] | None = None
     if view == "breakdown":
         br = str(state.get("breakdown") or "preset")
         if br == "preset_kind":
-            rows_all = db.breakdown_llm_requests_preset_kind(filters, limit=100)
+            rows_all_breakdown = db.breakdown_llm_requests_preset_kind(filters, limit=100)
         else:
             group_by = _BREAKDOWN_GROUP.get(br, "preset_name")
-            rows_all = db.breakdown_llm_requests(group_by, filters, limit=100)
-        breakdown_total_pages = max(1, (len(rows_all) + 4) // 5) if rows_all else 1
-    if view == "recent":
-        rows_all = db.recent_llm_requests(filters, limit=80)
-        recent_total_pages = max(1, (len(rows_all) + 7) // 8) if rows_all else 1
-    msg = _build_llm_cost_message(state, currency_mode=currency_mode)
+            rows_all_breakdown = db.breakdown_llm_requests(group_by, filters, limit=100)
+        breakdown_total_pages = max(1, (len(rows_all_breakdown) + 4) // 5) if rows_all_breakdown else 1
+    elif view == "recent":
+        rows_all_recent = db.recent_llm_requests(filters, limit=80)
+        recent_total_pages = max(1, (len(rows_all_recent) + 7) // 8) if rows_all_recent else 1
+    # build message reusing pre-fetched summary/rows (no second DB fetch)
+    if view == "breakdown":
+        msg = _build_breakdown_message(state, currency_mode, summary, filters, rows_all=rows_all_breakdown)
+    elif view == "recent":
+        msg = _build_recent_message(state, currency_mode, summary, filters, rows_all=rows_all_recent)
+    else:
+        msg = _build_overview_message(state, currency_mode, summary, filters)
     kb = llm_cost_dashboard_keyboard(
         bool(state.get("detail")),
         active_range=str(state.get("range") or "mtd"),
@@ -654,10 +668,26 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         if target == "breakdown":
-            _llm_cost_set_state(context, breakdown_page=max(0, pg), view="breakdown")
+            # clamp to total_pages-1 to avoid persisted 999 → 1000/N
+            state = _llm_cost_state(context)
+            filters = _llm_cost_query_filters(state)
+            br = str(state.get("breakdown") or "preset")
+            if br == "preset_kind":
+                rows = db.breakdown_llm_requests_preset_kind(filters, limit=100)
+            else:
+                group_by = _BREAKDOWN_GROUP.get(br, "preset_name")
+                rows = db.breakdown_llm_requests(group_by, filters, limit=100)
+            total_pages = max(1, (len(rows) + 4) // 5) if rows else 1
+            pg = min(max(0, pg), total_pages - 1)
+            _llm_cost_set_state(context, breakdown_page=pg, view="breakdown", detail=False)
             await _show_llm_cost_dashboard(update, context)
         elif target == "recent":
-            _llm_cost_set_state(context, recent_page=max(0, pg), view="recent", detail=True)
+            state = _llm_cost_state(context)
+            filters = _llm_cost_query_filters(state)
+            rows = db.recent_llm_requests(filters, limit=80)
+            total_pages = max(1, (len(rows) + 7) // 8) if rows else 1
+            pg = min(max(0, pg), total_pages - 1)
+            _llm_cost_set_state(context, recent_page=pg, view="recent", detail=True)
             await _show_llm_cost_dashboard(update, context)
         else:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
@@ -730,13 +760,13 @@ async def _handle_llm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         else:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
     elif action == "plan" and len(parts) == 3:
-        _llm_cost_set_state(context, plan=None if parts[2] == "all" else parts[2], detail=False)
+        _llm_cost_set_state(context, plan=None if parts[2] == "all" else parts[2], detail=False, view="overview", breakdown_page=0, recent_page=0)
         await _show_llm_cost_dashboard(update, context)
     elif action == "kind" and len(parts) == 3:
-        _llm_cost_set_state(context, request_kind=None if parts[2] == "all" else parts[2], detail=False)
+        _llm_cost_set_state(context, request_kind=None if parts[2] == "all" else parts[2], detail=False, view="overview", breakdown_page=0, recent_page=0)
         await _show_llm_cost_dashboard(update, context)
     elif action == "status" and len(parts) == 3:
-        _llm_cost_set_state(context, outcome=None if parts[2] == "all" else parts[2], detail=False)
+        _llm_cost_set_state(context, outcome=None if parts[2] == "all" else parts[2], detail=False, view="overview", breakdown_page=0, recent_page=0)
         await _show_llm_cost_dashboard(update, context)
     elif action == "clear":
         context.user_data["llm_cost_state"] = _llm_cost_default_state()

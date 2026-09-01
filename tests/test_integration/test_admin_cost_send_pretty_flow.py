@@ -277,6 +277,109 @@ class AdminCostSendPrettyFlowTest(unittest.TestCase):
         all_data = [btn.callback_data for row in kb.inline_keyboard for btn in row]
         self.assertIn("llm:legend", all_data)
 
+    def test_view_tabs_switch_view(self):
+        from handlers.admin_cost import _handle_llm_callback
+        from services.send_pretty import Backend
+
+        for view in ("overview", "breakdown", "recent"):
+            update = self._make_callback_update(f"llm:view:{view}")
+            ctx = self._make_context()
+            with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")) as mock_say:
+                asyncio.run(_handle_llm_callback(update, ctx, f"llm:view:{view}"))
+                mock_say.assert_called_once()
+                self.assertEqual(ctx.user_data["llm_cost_state"]["view"], view)
+                self.assertEqual(mock_say.call_args[1]["backend"], Backend.RICH)
+                content = mock_say.call_args[0][2] if len(mock_say.call_args[0]) > 2 else None
+                if content is not None:
+                    rendered = content.render(Backend.RICH)
+                    self.assertIn("LLM Cost", rendered)
+
+    def test_page_breakdown_pager_and_clamp(self):
+        from handlers.admin_cost import _handle_llm_callback
+        from services.send_pretty import Backend
+
+        # seed 6 presets to get 2 pages (5pp)
+        for i in range(6):
+            db.add_llm_request(
+                user_id=1, plan="free", request_kind="daily_batch", model="gpt-test",
+                outcome="success", prompt_tokens=10, completion_tokens=10, total_tokens=20,
+                input_cost_usd_per_million=1.0, output_cost_usd_per_million=1.0,
+                usd_to_toman_rate=60000, latency_ms=10, preset_name=f"preset_{i}",
+            )
+        ctx = self._make_context()
+        ctx.user_data["llm_cost_state"] = {"range": "all", "view": "breakdown", "breakdown": "preset", "breakdown_page": 0, "detail": False}
+        # go to page 1
+        update = self._make_callback_update("llm:page:breakdown:1")
+        with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")) as mock_say:
+            asyncio.run(_handle_llm_callback(update, ctx, "llm:page:breakdown:1"))
+            self.assertEqual(ctx.user_data["llm_cost_state"]["breakdown_page"], 1)
+        # clamp 999 → last page (1)
+        update2 = self._make_callback_update("llm:page:breakdown:999")
+        with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")) as mock_say:
+            asyncio.run(_handle_llm_callback(update2, ctx, "llm:page:breakdown:999"))
+            self.assertEqual(ctx.user_data["llm_cost_state"]["breakdown_page"], 1)
+
+    def test_page_recent_pager_and_clamp(self):
+        from handlers.admin_cost import _handle_llm_callback
+
+        for i in range(9):
+            db.add_llm_request(
+                user_id=1, plan="free", request_kind="custom_word", model="gpt-test",
+                outcome="success", prompt_tokens=10, completion_tokens=10, total_tokens=20,
+                input_cost_usd_per_million=1.0, output_cost_usd_per_million=1.0,
+                usd_to_toman_rate=60000, latency_ms=10, preset_name="preset_a",
+            )
+        ctx = self._make_context()
+        ctx.user_data["llm_cost_state"] = {"range": "all", "view": "recent", "recent_page": 0, "detail": True}
+        update = self._make_callback_update("llm:page:recent:1")
+        with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")) as mock_say:
+            asyncio.run(_handle_llm_callback(update, ctx, "llm:page:recent:1"))
+            self.assertEqual(ctx.user_data["llm_cost_state"]["recent_page"], 1)
+        update2 = self._make_callback_update("llm:page:recent:999")
+        with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")) as mock_say:
+            asyncio.run(_handle_llm_callback(update2, ctx, "llm:page:recent:999"))
+            self.assertEqual(ctx.user_data["llm_cost_state"]["recent_page"], 1)
+
+    def test_projection_toggle(self):
+        from handlers.admin_cost import _handle_llm_callback
+
+        ctx = self._make_context()
+        ctx.user_data["llm_cost_state"] = {"range": "mtd", "view": "overview", "show_projection": False}
+        update = self._make_callback_update("llm:projection")
+        with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")):
+            asyncio.run(_handle_llm_callback(update, ctx, "llm:projection"))
+            self.assertTrue(ctx.user_data["llm_cost_state"]["show_projection"])
+        with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")):
+            asyncio.run(_handle_llm_callback(update, ctx, "llm:projection"))
+            self.assertFalse(ctx.user_data["llm_cost_state"]["show_projection"])
+
+    def test_currency_cycle(self):
+        from handlers.admin_cost import _handle_llm_callback
+
+        ctx = self._make_context()
+        ctx.user_data["llm_cost_currency"] = "both"
+        update = self._make_callback_update("llm:currency:cycle")
+        with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")):
+            asyncio.run(_handle_llm_callback(update, ctx, "llm:currency:cycle"))
+            self.assertEqual(ctx.user_data["llm_cost_currency"], "usd")
+        with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")):
+            asyncio.run(_handle_llm_callback(update, ctx, "llm:currency:cycle"))
+            self.assertEqual(ctx.user_data["llm_cost_currency"], "toman")
+        with patch("handlers.admin_cost.say", new=AsyncMock(return_value="sent")):
+            asyncio.run(_handle_llm_callback(update, ctx, "llm:currency:cycle"))
+            self.assertEqual(ctx.user_data["llm_cost_currency"], "both")
+
+    def test_noop_callback(self):
+        from handlers.admin_cost import _handle_llm_callback
+
+        update = self._make_callback_update("llm:noop")
+        ctx = self._make_context()
+        with patch("handlers.admin_cost.notify_callback", new=AsyncMock()) as mock_notify:
+            with patch("handlers.admin_cost.say", new=AsyncMock()) as mock_say:
+                asyncio.run(_handle_llm_callback(update, ctx, "llm:noop"))
+                mock_notify.assert_called_once()
+                mock_say.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
