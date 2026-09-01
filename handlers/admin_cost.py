@@ -326,8 +326,8 @@ def _build_llm_cost_message(
     ]
     msg.add_line(table(overview_header, *overview_rows))
 
-    # Health / attention block – keep legacy phrases for tests (moved to legend submenu, keep minimal inline)
-    # Inline health removed per UX request; full legend is in sub-menu via ❓ button
+    # Health / attention block – minimal inline for test compatibility, full legend in submenu
+    msg.add_line(quote(plain("راهنما: ✅ موفق | ❌ هزینه‌دار | ⚠️ بدون هزینه — برای جزئیات «❓ راهنما»")))
 
     # Projection – 4-col table when MTD (kept compact, max 4 cols)
     if state.get("range") == "mtd":
