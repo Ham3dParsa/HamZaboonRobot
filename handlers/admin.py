@@ -7,7 +7,7 @@ from pathlib import Path
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ParseMode
-from telegram.error import BadRequest
+from telegram.error import BadRequest, Forbidden
 from telegram.ext import ContextTypes
 
 from config import APP_TZ, BROADCAST_MAX_CONCURRENCY, DB_PATH, is_owner
@@ -15,8 +15,9 @@ from services import db, send_pretty
 from services.send_pretty import RawFormat, say
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.formatting import html_escape
-from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _exit_awaiting_flow, _send_with_retry, _store_awaiting_msg, clear_admin_pending_state
+from services.utils.helpers import _clear_awaiting_prompt, _delete_with_retry, _edit_or_send, _exit_awaiting_flow, _send_with_retry, _store_awaiting_msg, clear_admin_pending_state
 from handlers.admin_stats import handle_admin_stats
+import handlers.admin_users as _admin_users_mod
 from handlers.admin_users import handle_admin_user
 from handlers.admin_cost import (
     _handle_cost_text_input,
@@ -88,6 +89,7 @@ from handlers.admin_ai import (
 )
 from config.keyboards import (
     BTN_ADMIN_USER_MANAGE,
+    IBTN_CLOSE,
     admin_panel_keyboard,
     broadcast_preview_keyboard,
     main_menu,
@@ -183,6 +185,55 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
     if not is_owner(update.effective_user.id):
         await notify_callback(update.callback_query, "فقط مالک ربات دسترسی داره.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
+    if action == "close":
+        # capture awaiting prompt before clear (for distinct delete attempt)
+        awaiting_data = context.user_data.get("_awaiting_msg")
+        # pre-compute callback message tup for dedupe check (avoid redundant edit+delete)
+        _cb_tup: tuple[int, int] | None = None
+        try:
+            q = getattr(update, "callback_query", None)
+            if q is not None and getattr(q, "message", None) is not None:
+                msg = q.message
+                chat = getattr(msg, "chat", None)
+                cid = getattr(chat, "id", None) if chat is not None else None
+                if cid is None:
+                    ec = getattr(update, "effective_chat", None)
+                    cid = getattr(ec, "id", None) if ec is not None else None
+                mid = getattr(msg, "message_id", None)
+                if cid is not None and mid is not None:
+                    _cb_tup = (int(cid), int(mid))
+        except Exception:
+            pass
+        _awaiting_tup: tuple[int, int] | None = None
+        if isinstance(awaiting_data, dict):
+            try:
+                ac = awaiting_data.get("chat_id")
+                am = awaiting_data.get("message_id")
+                if ac is not None and am is not None:
+                    _awaiting_tup = (int(ac), int(am))
+            except Exception:
+                pass
+        clear_admin_pending_state(context)
+        # skip redundant _clear_awaiting_prompt edit when both tups are same message
+        if _awaiting_tup is not None and _cb_tup is not None and _awaiting_tup == _cb_tup:
+            context.user_data.pop("_awaiting_msg", None)
+        else:
+            await _clear_awaiting_prompt(context)
+        # build deduped delete list
+        to_delete: list[tuple[int, int]] = []
+        if _cb_tup is not None:
+            to_delete.append(_cb_tup)
+        if _awaiting_tup is not None and _awaiting_tup not in to_delete:
+            to_delete.append(_awaiting_tup)
+        for cid, mid in to_delete:
+            try:
+                await _delete_with_retry(context.bot, cid, mid)
+            except (BadRequest, Forbidden):
+                pass
+            except Exception:
+                logger.exception("admin:close delete failed cid=%s mid=%s", cid, mid)
+        await notify_callback(update.callback_query, "بسته شد.", intent=CallbackNoticeIntent.INFO)
+        return
     if action == "stats" or action.startswith("stats:"):
         await handle_admin_stats(update, context, action)
     elif action == "user" or action.startswith("user:"):
@@ -195,19 +246,71 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         await handle_ai_callback(update, context, action)
     elif action == "back":
         awaiting = context.user_data.get("awaiting", "") or ""
-        has_pending_user = any(context.user_data.get(k) for k in ("pending_dm", "pending_plan", "pending_block"))
         has_pending_broadcast = bool(context.user_data.get("pending_broadcast"))
-        # User-management awaiting or preview pending → back to user management
-        if (
-            awaiting.startswith("admin_user_search")
-            or awaiting.startswith("admin_user_set_plan")
-            or awaiting.startswith("admin_user_message")
-            or has_pending_user
-        ):
+        # R1 hierarchical: pending preview -> profile
+        pending_uid = None
+        for _k in ("pending_dm", "pending_plan", "pending_block"):
+            _p = context.user_data.get(_k)
+            if isinstance(_p, dict) and _p.get("user_id") is not None:
+                try:
+                    pending_uid = int(_p.get("user_id"))
+                    break
+                except Exception:
+                    continue
+        if pending_uid is not None:
+            clear_admin_pending_state(context)
+            await _clear_awaiting_prompt(context)
+            await _admin_users_mod._show_profile(update, context, pending_uid)
+            await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
+            return
+        # pending exists but no user_id -> fallback to last id else root
+        has_pending_user = any(context.user_data.get(k) for k in ("pending_dm", "pending_plan", "pending_block"))
+        if has_pending_user:
+            _last = context.user_data.get("admin_last_user_id")
+            if _last is not None:
+                try:
+                    _last_uid = int(_last)
+                    clear_admin_pending_state(context)
+                    await _clear_awaiting_prompt(context)
+                    await _admin_users_mod._show_profile(update, context, _last_uid)
+                    await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
+                    return
+                except Exception:
+                    pass
             clear_admin_pending_state(context)
             await _clear_awaiting_prompt(context)
             await _edit_or_send(update, context, BTN_ADMIN_USER_MANAGE, reply_markup=user_management_keyboard())
             await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
+            return
+        # R2 awaiting typing -> profile
+        if awaiting.startswith("admin_user_message:") or awaiting.startswith("admin_user_set_plan:"):
+            _uid = None
+            try:
+                _uid = int(awaiting.split(":", 1)[1])
+            except Exception:
+                _uid = None
+            if _uid is None:
+                _last = context.user_data.get("admin_last_user_id")
+                if _last is not None:
+                    try:
+                        _uid = int(_last)
+                    except Exception:
+                        _uid = None
+            clear_admin_pending_state(context)
+            await _clear_awaiting_prompt(context)
+            if _uid is not None:
+                await _admin_users_mod._show_profile(update, context, _uid)
+            else:
+                await _edit_or_send(update, context, BTN_ADMIN_USER_MANAGE, reply_markup=user_management_keyboard())
+            await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
+            return
+        # R3 search -> root
+        if awaiting.startswith("admin_user_search"):
+            clear_admin_pending_state(context)
+            await _clear_awaiting_prompt(context)
+            await _edit_or_send(update, context, BTN_ADMIN_USER_MANAGE, reply_markup=user_management_keyboard())
+            await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
+            return
         elif awaiting.startswith("admin_broadcast") or has_pending_broadcast:
             clear_admin_pending_state(context)
             await _clear_awaiting_prompt(context)
@@ -341,7 +444,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
                 "🤖 هیچ پیش‌تنظیم فعالی وجود ندارد. برای استفاده از هوش مصنوعی، "
                 "یک پیش‌تنظیم بسازید و فعال کنید.",
                 parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data="admin:back")]]),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data="admin:back")], [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")]]),
             )
             return
         masked = db.mask_key(db.resolve_preset_key(preset))
@@ -354,7 +457,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             f"🌐 Base URL: <b>{html_escape(str(preset.get('base_url', '—'))) }</b>\n"
             f"🔑 API Key: <code>{html_escape(masked)}</code>",
             parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data="admin:back")]]),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data="admin:back")], [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")]]),
         )
     elif action == "noop":
         await notify_callback(update.callback_query)
@@ -448,7 +551,6 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             return
         elif sub == "test_archive":
             from services.archive import resolved_archive_chat_id, is_bot_admin
-            from telegram.error import BadRequest, Forbidden
 
             cid = resolved_archive_chat_id()
             if not cid:

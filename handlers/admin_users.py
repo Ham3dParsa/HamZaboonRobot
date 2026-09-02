@@ -29,7 +29,7 @@ from telegram.constants import ParseMode
 
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.formatting import html_escape, to_jalali_str, to_persian_digits
-from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _send_with_retry, _store_awaiting_msg
+from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _send_with_retry, _store_awaiting_msg, clear_admin_pending_state
 from config import is_owner
 from config.catalog import goal_label, language_label, level_label
 from config.keyboards import (
@@ -123,6 +123,10 @@ async def _show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE, user
             update.callback_query, "کاربر پیدا نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR
         )
         return
+    try:
+        context.user_data["admin_last_user_id"] = int(user_id)
+    except Exception:
+        pass
     msg, keyboard = result
     # RichMessage handles RTL + table natively via telegram_rich
     await say(update, context, msg, backend=Backend.RICH, is_rtl=True, keyboard=keyboard)
@@ -136,6 +140,10 @@ async def _send_profile_message(update: Update, context: ContextTypes.DEFAULT_TY
             update, context, "کاربر پیدا نشد.", raw=RawFormat.PLAIN, mode="send",
         )
         return
+    try:
+        context.user_data["admin_last_user_id"] = int(user_id)
+    except Exception:
+        pass
     msg, keyboard = result
     await say(
         update, context, msg, backend=Backend.RICH, is_rtl=True, keyboard=keyboard, mode="send",
@@ -249,11 +257,19 @@ async def handle_admin_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             user_id = int(action.split(":", 2)[2])
         except (IndexError, ValueError):
             user_id = None
-        context.user_data.pop("pending_dm", None)
-        mark_awaiting_consumed(context)
-        context.user_data.pop("awaiting", None)
+        if user_id is None:
+            try:
+                _last = context.user_data.get("admin_last_user_id")
+                user_id = int(_last) if _last is not None else None
+            except Exception:
+                user_id = None
+        clear_admin_pending_state(context)
+        await _clear_awaiting_prompt(context)
         await notify_callback(update.callback_query, "لغو شد.", intent=CallbackNoticeIntent.INFO)
-        await _edit_or_send(update, context, "لغو شد.")
+        if user_id is not None:
+            await _show_profile(update, context, user_id)
+        else:
+            await _edit_or_send(update, context, "لغو شد.")
         return
     if action.startswith("user:msg_edit:"):
         try:
