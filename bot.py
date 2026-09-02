@@ -1175,6 +1175,29 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
         # pronounce is sufficient.
         # miss -> generate -> channel upload (pronounce owns per-key serialization)
         path = await tts.pronounce(word, lang)
+        # Re-check cache after pronounce to avoid redundant channel uploads
+        # when concurrent same-key requests from different users both missed
+        # the initial check. No lock held — pronounce already serialized file
+        # generation; this just deduplicates Telegram uploads.
+        if chat_id:
+            try:
+                cached_after = await asyncio.to_thread(_tts_cache.get_cached, cache_key)
+            except Exception:
+                log.warning("tts_cache get_cached (after pronounce) failed cache_key=%r user_id=%s lang=%s word=%r", cache_key, user_id, lang, word, exc_info=True)
+                cached_after = None
+            if cached_after and cached_after.get("file_id"):
+                log.info("tts file_id hit (after pronounce) user_id=%s lang=%s key=%r file_id_prefix=%r word=%r", user_id, lang, cache_key, str(cached_after["file_id"])[:12], word)
+                try:
+                    await _send_voice_with_retry(
+                        context.bot,
+                        update.effective_chat.id,
+                        cached_after["file_id"],
+                        caption=caption,
+                        reply_to_message_id=update.callback_query.message.message_id,
+                    )
+                    return
+                except Exception:
+                    log.warning("cached file_id send failed (after pronounce), falling back to channel upload user_id=%s lang=%s word=%r key=%r", user_id, lang, word, cache_key, exc_info=True)
         if chat_id:
             try:
                 voice_bytes = await asyncio.to_thread(path.read_bytes)
