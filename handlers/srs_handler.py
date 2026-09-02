@@ -238,7 +238,7 @@ async def _handle_srs_review(
         await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     # --- per-user spam guard (plan-27) atomic before FSRS update ---
-    if not try_acquire_per_user_slot(user_id, "srs_grade"):
+    if not try_acquire_per_user_slot(user_id, "srs_grade_review"):
         await notify_callback(
             update.callback_query,
             THROTTLE_TEXT,
@@ -372,7 +372,7 @@ async def _handle_first_exposure_grade(
         await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     # --- per-user spam guard (plan-27) atomic before FSRS update ---
-    if not try_acquire_per_user_slot(user_id, "srs_grade"):
+    if not try_acquire_per_user_slot(user_id, "srs_grade_first"):
         await notify_callback(
             update.callback_query,
             THROTTLE_TEXT,

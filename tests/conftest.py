@@ -28,12 +28,15 @@ test, which makes ``bot.text_router``/``callback_router`` early-return offline
 for later tests on the same xdist worker.
 """
 
+import logging
 import os
 import shutil
 import tempfile
 import threading
 
 import pytest
+
+logger = logging.getLogger(__name__)
 
 # P1.4: importing ``services.db`` (below) warms the DB module so cold single-file
 # collection cannot hit the circular-import cycle (see module docstring).
@@ -164,18 +167,20 @@ def _telegram_offline_pinned():
 
 @pytest.fixture(autouse=True)
 def _per_user_rate_cleared():
-    try:
-        from services.scheduling import _clear_rate_buckets
+    def _try_clear() -> None:
+        try:
+            import services.scheduling as _sched
 
-        _clear_rate_buckets()
-    except Exception:
-        pass
+            _clear = getattr(_sched, "_clear_rate_buckets", None)
+            if _clear is None:
+                _clear = getattr(_sched, "_reset_rate_buckets", None)
+            if _clear is not None:
+                _clear()
+        except Exception:
+            logger.debug("failed to clear per-user rate buckets", exc_info=True)
+
+    _try_clear()
     try:
         yield
     finally:
-        try:
-            from services.scheduling import _clear_rate_buckets
-
-            _clear_rate_buckets()
-        except Exception:
-            pass
+        _try_clear()

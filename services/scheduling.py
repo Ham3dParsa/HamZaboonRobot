@@ -29,9 +29,25 @@ _app_tz = APP_TZ
 # Memory-only: resets on restart (documented tradeoff); no settings persistence.
 # Atomicity: sync prune+check+append is atomic under _rate_lock (threading.Lock)
 # and the outer per-user asyncio.Lock in bot.py serializes same-user callbacks.
+# Phase 02 polish: split srs_grade into srs_grade_review / srs_grade_first.
 _RATE_WINDOW_SECONDS: float = 10.0
 _RATE_LIMIT: int = 5
 THROTTLE_TEXT = "⏳ لطفاً کمی صبر کنید و دوباره تلاش کنید."
+
+# Per-action limits (all 5/10s now; hook for future settings-driven tuning).
+_RATE_LIMITS: dict[str, int] = {
+    "study_start": 5,
+    "query_ask": 5,
+    "grammar_tip": 5,
+    "srs_grade_review": 5,
+    "srs_grade_first": 5,
+    # Backward compat: legacy "srs_grade" bucket still honoured (tests + old callers).
+    "srs_grade": 5,
+}
+
+
+def _limit_for(action: str) -> int:
+    return _RATE_LIMITS.get(action, _RATE_LIMIT)
 
 # In-memory buckets: (user_id, action) -> deque of timestamps (float epoch UTC)
 _buckets: dict[tuple[int, str], deque[float]] = {}
@@ -181,6 +197,7 @@ def is_rate_limited(
 ) -> bool:
     """Return True if user has hit the sliding-window limit for action (read-only)."""
     key = (user_id, action)
+    limit = _limit_for(action)
     with _rate_lock:
         bucket = _buckets.get(key)
         if not bucket:
@@ -189,7 +206,7 @@ def is_rate_limited(
         if not bucket:
             _buckets.pop(key, None)
             return False
-        return len(bucket) >= _RATE_LIMIT
+        return len(bucket) >= limit
 
 
 def try_acquire_per_user_slot(
@@ -204,13 +221,14 @@ def try_acquire_per_user_slot(
     """
     key = (user_id, action)
     ts = _now_ts(now)
+    limit = _limit_for(action)
     with _rate_lock:
         bucket = _buckets.get(key)
         if bucket is None:
             bucket = deque()
             _buckets[key] = bucket
         _prune(bucket, ts)
-        if len(bucket) >= _RATE_LIMIT:
+        if len(bucket) >= limit:
             if not bucket:
                 _buckets.pop(key, None)
             return False
