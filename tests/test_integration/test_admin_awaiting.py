@@ -115,17 +115,44 @@ class AdminAwaitingTextCancelTest(unittest.TestCase):
             mock_generic.assert_not_called()
 
     def test_back_user_management_routing(self):
-        """admin:back while awaiting user-search or pending_dm -> user management."""
+        """admin:back hierarchical: preview/typing -> profile, search -> root."""
         from handlers.admin import _handle_admin_callback
         from config.keyboards.constants import BTN_ADMIN_USER_MANAGE
 
-        for awaiting_val, pending in [
-            ("admin_user_search", {}),
-            ("admin_user_set_plan:42", {}),
-            ("admin_user_message:42", {}),
-            ("", {"pending_dm": {"user_id": 42, "text": "hi"}}),
-            ("", {"pending_plan": {"user_id": 42, "new_plan": "gold"}}),
-            ("", {"pending_block": {"user_id": 42}}),
+        # R3: search -> root
+        ctx = MagicMock()
+        ctx.user_data = {"awaiting": "admin_user_search", "_awaiting_pending": True}
+        ctx.bot = AsyncMock()
+        q = MagicMock()
+        q.data = "admin:back"
+        q.answer = AsyncMock()
+        q.edit_message_text = AsyncMock()
+        msg = MagicMock()
+        msg.edit_text = AsyncMock()
+        update = MagicMock()
+        update.effective_user.id = 1
+        update.effective_chat.id = 1
+        update.callback_query = q
+        update.effective_message = msg
+        q.message = msg
+        with patch("handlers.admin._edit_or_send", new=AsyncMock()) as mock_edit, \
+             patch("handlers.admin._clear_awaiting_prompt", new=AsyncMock()), \
+             patch("handlers.admin_users._show_profile", new=AsyncMock()) as mock_show:
+            asyncio.run(_handle_admin_callback(update, ctx, "back"))
+            mock_edit.assert_called_once()
+            args, kwargs = mock_edit.call_args
+            text_arg = args[2] if len(args) > 2 else kwargs.get("text", "")
+            self.assertEqual(text_arg, BTN_ADMIN_USER_MANAGE)
+            mock_show.assert_not_called()
+            self.assertNotIn("awaiting", ctx.user_data)
+
+        # R1/R2: pending and awaiting typing -> profile
+        for awaiting_val, pending, expected_uid in [
+            ("admin_user_set_plan:42", {}, 42),
+            ("admin_user_message:42", {}, 42),
+            ("", {"pending_dm": {"user_id": 42, "text": "hi"}}, 42),
+            ("", {"pending_plan": {"user_id": 42, "new_plan": "gold"}}, 42),
+            ("", {"pending_block": {"user_id": 42}}, 42),
         ]:
             with self.subTest(awaiting=awaiting_val, pending=pending):
                 ctx = MagicMock()
@@ -146,13 +173,12 @@ class AdminAwaitingTextCancelTest(unittest.TestCase):
                 update.effective_message = msg
                 q.message = msg
                 with patch("handlers.admin._edit_or_send", new=AsyncMock()) as mock_edit, \
-                     patch("handlers.admin._clear_awaiting_prompt", new=AsyncMock()):
+                     patch("handlers.admin._clear_awaiting_prompt", new=AsyncMock()), \
+                     patch("handlers.admin_users._show_profile", new=AsyncMock()) as mock_show:
                     asyncio.run(_handle_admin_callback(update, ctx, "back"))
-                    mock_edit.assert_called_once()
-                    args, kwargs = mock_edit.call_args
-                    # _edit_or_send(update, context, text, ...) -> text is args[2]
-                    text_arg = args[2] if len(args) > 2 else kwargs.get("text", "")
-                    self.assertEqual(text_arg, BTN_ADMIN_USER_MANAGE)
+                    mock_show.assert_called_once()
+                    self.assertEqual(mock_show.call_args[0][2], expected_uid)
+                    mock_edit.assert_not_called()
                     self.assertNotIn("pending_dm", ctx.user_data)
                     self.assertNotIn("pending_plan", ctx.user_data)
                     self.assertNotIn("pending_block", ctx.user_data)

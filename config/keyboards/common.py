@@ -79,7 +79,7 @@ def admin_awaiting_inline_keyboard() -> InlineKeyboardMarkup:
         _awaiting_row(
             back_cb="admin:back", back_label="↩️ بازگشت",
             cancel_cb="admin:cancel", cancel_label="❌ لغو",
-        )
+        ) + [[InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")]]
     )
 
 
@@ -109,6 +109,7 @@ def display_toggles_keyboard(current: dict) -> InlineKeyboardMarkup:
         label = DISPLAY_TOGGLE_FA_LABELS.get(field, field)
         rows.append([InlineKeyboardButton(f"{marker} {label}", callback_data=f"admin:display_toggle:{field}")])
     rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")])
+    rows.append([InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")])
     return InlineKeyboardMarkup(rows)
 
 

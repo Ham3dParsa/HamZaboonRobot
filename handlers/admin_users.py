@@ -117,6 +117,10 @@ def _profile_text_and_keyboard(user_id: int) -> tuple[Message, InlineKeyboardMar
 
 
 async def _show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
+    try:
+        context.user_data["admin_last_user_id"] = int(user_id)
+    except Exception:
+        pass
     result = _profile_text_and_keyboard(user_id)
     if result is None:
         await notify_callback(
@@ -130,6 +134,10 @@ async def _show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE, user
 
 async def _send_profile_message(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
     """Send the profile card as a fresh message (used after text-input flows)."""
+    try:
+        context.user_data["admin_last_user_id"] = int(user_id)
+    except Exception:
+        pass
     result = _profile_text_and_keyboard(user_id)
     if result is None:
         await say(
@@ -249,11 +257,21 @@ async def handle_admin_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             user_id = int(action.split(":", 2)[2])
         except (IndexError, ValueError):
             user_id = None
+        if user_id is None:
+            try:
+                _last = context.user_data.get("admin_last_user_id")
+                user_id = int(_last) if _last is not None else None
+            except Exception:
+                user_id = None
         context.user_data.pop("pending_dm", None)
         mark_awaiting_consumed(context)
         context.user_data.pop("awaiting", None)
+        await _clear_awaiting_prompt(context)
         await notify_callback(update.callback_query, "لغو شد.", intent=CallbackNoticeIntent.INFO)
-        await _edit_or_send(update, context, "لغو شد.")
+        if user_id is not None:
+            await _show_profile(update, context, user_id)
+        else:
+            await _edit_or_send(update, context, "لغو شد.")
         return
     if action.startswith("user:msg_edit:"):
         try:

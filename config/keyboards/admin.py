@@ -29,6 +29,7 @@ def plan_manager_keyboard(plans: list[dict]) -> InlineKeyboardMarkup:
             InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:plans:edit:{p.get('name')}"),
         ])
     rows.append([InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:back")])
+    rows.append([InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -40,6 +41,7 @@ def plan_view_keyboard(name: str, is_active: bool) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(IBTN_FULL_EDIT_WIZARD, callback_data=f"admin:plans:edit:{name}")],
         [InlineKeyboardButton(toggle_label, callback_data=f"admin:plans:set_active:{name}")],
         [InlineKeyboardButton(IBTN_BACK, callback_data="admin:plans")],
+        [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -57,7 +59,8 @@ def plan_wizard_keyboard(name: str) -> InlineKeyboardMarkup:
         InlineKeyboardButton(IBTN_FULL_EDIT_SKIP, callback_data=f"admin:plans:full_edit_skip:{name}"),
         InlineKeyboardButton(IBTN_FULL_EDIT_CANCEL_WIZARD, callback_data=f"admin:plans:full_edit_cancel:{name}"),
     ]
-    return InlineKeyboardMarkup([buttons])
+    buttons_close = [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")]
+    return InlineKeyboardMarkup([buttons, buttons_close])
 
 
 
@@ -65,6 +68,7 @@ def plan_wizard_summary_keyboard(name: str) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(IBTN_FULL_EDIT_SAVE_ALL, callback_data=f"admin:plans:full_edit_save:{name}"),
          InlineKeyboardButton(IBTN_FULL_EDIT_CANCEL_WIZARD, callback_data=f"admin:plans:full_edit_cancel:{name}")],
+        [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -77,6 +81,7 @@ def tts_cache_keyboard(current: str) -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🗑 پاک کردن", callback_data="admin:tts_cache:clear")],
         [InlineKeyboardButton("🧪 تست", callback_data="admin:tts_cache:test")],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
+        [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -98,6 +103,7 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton("🎙 کش TTS", callback_data="admin:tts_cache")],
             [InlineKeyboardButton("🎛 نمایش کارت", callback_data="admin:display_toggles")],
             [InlineKeyboardButton("🔧 حالت تعمیر", callback_data="admin:maintenance")],
+            [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
         ]
     )
 
@@ -111,6 +117,7 @@ def backup_restore_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🗑 پاک کردن آرشیو", callback_data="admin:backup_restore:clear_archive")],
         [InlineKeyboardButton("✅ تست آرشیو", callback_data="admin:backup_restore:test_archive")],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
+        [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -122,6 +129,7 @@ def maintenance_keyboard(active: bool) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(toggle_label, callback_data="admin:maintenance:toggle")],
             [InlineKeyboardButton("✏️ ویرایش پیام حالت تعمیر", callback_data="admin:maintenance:edit")],
             [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
+            [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
         ]
     )
 
@@ -136,6 +144,7 @@ def stats_menu_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("📈 رشد و بازگشت", callback_data="admin:stats:growth"),
          InlineKeyboardButton("📤 خروجی CSV", callback_data="admin:stats:export")],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
+        [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
 
 
@@ -143,6 +152,7 @@ def stats_menu_keyboard() -> InlineKeyboardMarkup:
 def stats_back_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔙 بازگشت به آمار", callback_data="admin:stats")],
+        [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
 
 
@@ -150,6 +160,7 @@ def user_management_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔍 جستجوی کاربر", callback_data="admin:user:search")],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
+        [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
 
 
@@ -162,6 +173,7 @@ def user_profile_keyboard(user_id: int, blocked: bool) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(block_label, callback_data=block_cb)],
         [InlineKeyboardButton("♻️ ریست پیشرفت", callback_data=f"admin:user:reset:{user_id}")],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:user")],
+        [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
 
 
@@ -169,6 +181,7 @@ def user_reset_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ بله، ریست شود", callback_data=f"admin:user:reset_confirm:{user_id}")],
         [InlineKeyboardButton("❌ انصراف", callback_data=f"admin:user:reset_cancel:{user_id}")],
+        [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
 
 
@@ -176,6 +189,7 @@ def user_block_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ بله مسدود کن", callback_data=f"admin:user:block_confirm:{user_id}")],
         [InlineKeyboardButton("❌ لغو", callback_data=f"admin:user:block_cancel:{user_id}")],
+        [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
 
 
@@ -183,6 +197,7 @@ def user_plan_confirm_keyboard(user_id: int, new_plan: str) -> InlineKeyboardMar
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ بله، تغییر بده", callback_data=f"admin:user:plan_confirm:{user_id}:{new_plan}")],
         [InlineKeyboardButton("❌ لغو", callback_data=f"admin:user:plan_cancel:{user_id}")],
+        [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
 
 
@@ -191,6 +206,7 @@ def dm_preview_keyboard(user_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton("✅ تایید ارسال", callback_data=f"admin:user:msg_confirm:{user_id}")],
         [InlineKeyboardButton("✏️ ویرایش", callback_data=f"admin:user:msg_edit:{user_id}"),
          InlineKeyboardButton("❌ لغو", callback_data=f"admin:user:msg_cancel:{user_id}")],
+        [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
 
 
@@ -199,6 +215,7 @@ def broadcast_preview_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("✅ تایید همگانی", callback_data="admin:broadcast_confirm")],
         [InlineKeyboardButton("✏️ ویرایش", callback_data="admin:broadcast_edit"),
          InlineKeyboardButton("❌ لغو", callback_data="admin:broadcast_cancel")],
+        [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
 
 
@@ -210,6 +227,7 @@ def user_activity_keyboard(current_status: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"{marker} لاگ فعالیت کاربر: {status_fa}", callback_data="admin:user_activity:toggle")],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
+        [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
 
 
@@ -222,6 +240,7 @@ def log_level_keyboard(current_level: str) -> InlineKeyboardMarkup:
         marker = "✅ " if level == current_level else ""
         rows.append([InlineKeyboardButton(f"{marker}{level}", callback_data=f"admin:log_level:set:{level}")])
     rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")])
+    rows.append([InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -240,6 +259,7 @@ def admin_cost_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(IBTN_LLM_COST, callback_data="admin:llm_costs")],
             [InlineKeyboardButton(IBTN_LLM_PRICING, callback_data="admin:llm_pricing")],
             [InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:back")],
+            [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
         ]
     )
 
@@ -366,6 +386,7 @@ def llm_cost_dashboard_keyboard(
             InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:cost_dashboard"),
         ]
     )
+    controls_rows.append([InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")])
 
     return InlineKeyboardMarkup(
         [
@@ -379,7 +400,7 @@ def llm_cost_dashboard_keyboard(
 
 
 def llm_legend_back_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[InlineKeyboardButton("« بازگشت", callback_data="llm:refresh")]])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("« بازگشت", callback_data="llm:refresh")], [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")]])
 
 
 
@@ -391,7 +412,8 @@ def llm_cost_plan_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(IBTN_FREE, callback_data="llm:plan:free"),
                 InlineKeyboardButton(IBTN_SILVER, callback_data="llm:plan:silver"),
                 InlineKeyboardButton(IBTN_GOLD, callback_data="llm:plan:gold"),
-            ]
+            ],
+            [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
         ]
     )
 
@@ -405,7 +427,8 @@ def llm_cost_kind_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(IBTN_KIND_DAILY, callback_data="llm:kind:daily_batch"),
                 InlineKeyboardButton(IBTN_KIND_CUSTOM, callback_data="llm:kind:custom_word"),
                 InlineKeyboardButton(IBTN_KIND_GRAMMAR, callback_data="llm:kind:grammar_tip"),
-            ]
+            ],
+            [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
         ]
     )
 
@@ -419,7 +442,8 @@ def llm_cost_status_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(IBTN_STATUS_SUCCESS, callback_data="llm:status:success"),
                 InlineKeyboardButton(IBTN_STATUS_FAIL_BILLED, callback_data="llm:status:failure_billed"),
                 InlineKeyboardButton(IBTN_STATUS_FAIL_ZERO, callback_data="llm:status:failure_zero_cost"),
-            ]
+            ],
+            [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
         ]
     )
 
@@ -437,6 +461,7 @@ def llm_cost_pricing_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(IBTN_PRICE_BACK, callback_data="llm:pricing:back"),
             ],
+            [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
         ]
     )
 
@@ -456,6 +481,7 @@ def ai_settings_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton("🏷️ مدیریت گروه‌ها", callback_data="admin:ai_preset:group_manager")],
             [InlineKeyboardButton(IBTN_HELP_PRESETS, callback_data="admin:help:presets")],
             [InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:back")],
+            [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
         ]
     )
 
@@ -520,6 +546,7 @@ def ai_presets_list_keyboard(
     rows.append([InlineKeyboardButton(toggle_label, callback_data=f"admin:ai_preset:view_mode:{toggle_mode}")])
     rows.append([InlineKeyboardButton(IBTN_ADD_CUSTOM, callback_data="admin:ai_preset:add")])
     rows.append([InlineKeyboardButton(IBTN_BACK_TO_PANEL, callback_data="admin:ai_settings")])
+    rows.append([InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -535,6 +562,7 @@ def ai_preset_view_keyboard(preset: dict, active_name: str) -> InlineKeyboardMar
     rows.append([InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{preset_token(name)}")])
     rows.append([InlineKeyboardButton(IBTN_DUPLICATE, callback_data=f"admin:ai_preset:duplicate:{preset_token(name)}")])
     rows.append([InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_presets")])
+    rows.append([InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -588,6 +616,7 @@ def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None) -> Inl
     rows.append([InlineKeyboardButton(IBTN_DISCARD_ALL, callback_data=f"admin:ai_preset:discard_all:{preset_ref}")])
     rows.append([InlineKeyboardButton(IBTN_SAVE_PRESET, callback_data=f"admin:ai_preset:save:{preset_ref}")])
     rows.append([InlineKeyboardButton(IBTN_CANCEL_EDIT, callback_data=f"admin:ai_preset:view:{preset_ref}")])
+    rows.append([InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -600,6 +629,7 @@ def ai_fallback_keyboard(primary: str, fallback: str, active: str) -> InlineKeyb
             [InlineKeyboardButton(f"Fallback: {fallback}", callback_data="admin:ai_fallback:set_fallback")],
             [InlineKeyboardButton(IBTN_RESET_PRIMARY, callback_data="admin:ai_fallback:reset")],
             [InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_settings")],
+            [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
         ]
     )
 
@@ -625,6 +655,7 @@ def fallback_chain_keyboard(chain: list[dict]) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton(IBTN_CONSUMPTION_DETAILS, callback_data="admin:fallback:usage_details")])
     rows.append([InlineKeyboardButton(IBTN_HELP_FALLBACK, callback_data="admin:help:fallback_chain")])
     rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")])
+    rows.append([InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")])
     return InlineKeyboardMarkup(rows)
 
 
