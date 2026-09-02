@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -9,6 +10,8 @@ from pathlib import Path
 import edge_tts
 
 from config.catalog import LANGUAGES
+
+logger = logging.getLogger(__name__)
 
 _TTS_CACHE_DIR = Path("tts_cache")
 
@@ -50,9 +53,15 @@ def voice_for(lang: str) -> str:
 async def _ensure_voices():
     global _VOICES, _VOICES_LOADED
     if _VOICES_LOADED:
+        logger.debug("tts _ensure_voices cache hit")
         return
+    logger.debug("tts _ensure_voices cache miss — fetching voices")
     codes = set(LANGUAGES) | {"fa"}
-    raw = await edge_tts.list_voices()
+    try:
+        raw = await edge_tts.list_voices()
+    except Exception:
+        logger.exception("tts _ensure_voices failed to list voices")
+        raise
     for v in raw:
         c = v["Locale"][:2]
         if c in codes:
@@ -147,14 +156,25 @@ _TTS_TIMEOUT_S = 12
 async def pronounce(word: str, lang: str) -> Path:
     path = _cache_path(word, lang)
     if path.exists():
+        logger.debug("tts pronounce cache hit lang=%s word=%r path=%s", lang, word, path)
         return path
+    logger.debug("tts pronounce cache miss lang=%s word=%r", lang, word)
     key = _tts_lock_key(word, lang)
     lock = await _get_tts_lock(key)
     async with lock:
         if path.exists():
+            logger.debug("tts pronounce cache hit (inside lock) lang=%s word=%r", lang, word)
             return path
-        await asyncio.wait_for(_ensure_voices(), timeout=_TTS_TIMEOUT_S)
+        try:
+            await asyncio.wait_for(_ensure_voices(), timeout=_TTS_TIMEOUT_S)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            logger.warning("tts _ensure_voices timeout/cancel lang=%s word=%r", lang, word, exc_info=True)
+            raise
+        except Exception:
+            logger.exception("tts _ensure_voices failed lang=%s word=%r", lang, word)
+            raise
         voice = _default_voice(lang)
+        logger.debug("tts pronounce generating lang=%s voice=%s word=%r", lang, voice, word)
         communicate = edge_tts.Communicate(word, voice)
         # Atomic write: save to temp file in same dir then replace
         tmp_fd, tmp_path = tempfile.mkstemp(
@@ -162,7 +182,25 @@ async def pronounce(word: str, lang: str) -> Path:
         )
         os.close(tmp_fd)
         try:
-            await asyncio.wait_for(communicate.save(tmp_path), timeout=_TTS_TIMEOUT_S)
+            try:
+                await asyncio.wait_for(communicate.save(tmp_path), timeout=_TTS_TIMEOUT_S)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                logger.warning(
+                    "tts communicate.save timeout/cancel lang=%s voice=%s word=%r",
+                    lang,
+                    voice,
+                    word,
+                    exc_info=True,
+                )
+                raise
+            except Exception:
+                logger.exception(
+                    "tts communicate.save failed lang=%s voice=%s word=%r",
+                    lang,
+                    voice,
+                    word,
+                )
+                raise
             os.replace(tmp_path, str(path))
         finally:
             try:

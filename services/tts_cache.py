@@ -1,5 +1,6 @@
 """TTS file_id cache — separate tts_cache.db + in-memory LRU."""
 import datetime
+import logging
 import os
 import sqlite3
 import threading
@@ -7,6 +8,8 @@ from collections import OrderedDict
 from pathlib import Path
 
 from config import TTS_CACHE_DB_PATH
+
+logger = logging.getLogger(__name__)
 
 _LRU_CAP = 3000
 _lru: OrderedDict[str, dict] = OrderedDict()
@@ -62,32 +65,41 @@ def get_cached(cache_key: str) -> dict | None:
     with _lru_lock:
         if cache_key in _lru:
             _lru.move_to_end(cache_key)
+            logger.debug("tts_cache LRU hit key=%r", cache_key)
             return dict(_lru[cache_key])
+    logger.debug("tts_cache LRU miss key=%r", cache_key)
     _ensure_db()
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    with _DB_LOCK:
-        conn = sqlite3.connect(_db_path(), timeout=10)
-        conn.row_factory = sqlite3.Row
-        try:
-            row = conn.execute("SELECT * FROM tts_cache WHERE cache_key=?", (cache_key,)).fetchone()
-            if not row:
-                return None
+    try:
+        with _DB_LOCK:
+            conn = sqlite3.connect(_db_path(), timeout=10)
+            conn.row_factory = sqlite3.Row
             try:
-                conn.execute("UPDATE tts_cache SET last_used_at=? WHERE cache_key=?", (now, cache_key))
-                conn.commit()
-            except Exception:
-                import logging as _logging
-                _logging.getLogger(__name__).warning("tts_cache last_used_at update failed for %r", cache_key, exc_info=True)
-            d = dict(row)
-            d["last_used_at"] = now
-            with _lru_lock:
-                _lru[cache_key] = d
-                _lru.move_to_end(cache_key)
-                if len(_lru) > _LRU_CAP:
-                    _lru.popitem(last=False)
-            return d
-        finally:
-            conn.close()
+                row = conn.execute("SELECT * FROM tts_cache WHERE cache_key=?", (cache_key,)).fetchone()
+                if not row:
+                    logger.debug("tts_cache DB miss key=%r", cache_key)
+                    return None
+                logger.debug("tts_cache DB hit key=%r", cache_key)
+                try:
+                    conn.execute("UPDATE tts_cache SET last_used_at=? WHERE cache_key=?", (now, cache_key))
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    logger.warning("tts_cache last_used_at update failed for %r", cache_key, exc_info=True)
+                except Exception:
+                    logger.warning("tts_cache last_used_at update failed for %r", cache_key, exc_info=True)
+                d = dict(row)
+                d["last_used_at"] = now
+                with _lru_lock:
+                    _lru[cache_key] = d
+                    _lru.move_to_end(cache_key)
+                    if len(_lru) > _LRU_CAP:
+                        _lru.popitem(last=False)
+                return d
+            finally:
+                conn.close()
+    except sqlite3.OperationalError:
+        logger.warning("tts_cache get_cached OperationalError key=%r", cache_key, exc_info=True)
+        return None
 
 def put_cached(cache_key: str, lang: str, text: str, file_id: str, file_unique_id: str, channel_message_id: int | None = None) -> None:
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
