@@ -688,6 +688,19 @@ def reports_jalali_group_key(iso_str: str) -> str:
 # Public alias — config/handlers must import this, not the private _parse helper.
 parse_iso_to_app_tz = _parse_iso_to_app_tz
 
+# Single source for reports day-key validation + sort (Kilo §3)
+_ISO_DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def is_iso_day_key(s: str) -> bool:
+    """True if s is YYYY-MM-DD (reports day key)."""
+    return bool(_ISO_DAY_RE.match(s or ""))
+
+
+def reports_day_sort_key(k: str) -> tuple[int, str]:
+    """Sort key for reports day keys: ISO days first (DESC), fallback last."""
+    return (1, k) if _ISO_DAY_RE.match(k or "") else (0, k)
+
 # Tier → header line (R5/R7). Values are static, so no escaping needed.
 _TIER_LABEL = {
     "excellent": "⚡️ پیشرفت کلی این نشست: عالی",

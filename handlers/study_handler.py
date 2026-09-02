@@ -1231,16 +1231,11 @@ def _reports_list_payload(user_id: int):
         iso = getattr(e, "created_at", "") or e.session_date or ""
         key = reports_jalali_group_key(iso) or e.session_date or str(e.report_id)
         grouped.setdefault(key, []).append(e)
-    # text: header + per-day lines sorted DESC ISO, fallback last (match keyboard)
-    import re as _re2
-
-    _iso_re2 = _re2.compile(r"^\d{4}-\d{2}-\d{2}$")
-
-    def _day_sort_key2(k: str):
-        return (1, k) if _iso_re2.match(k) else (0, k)
+    # text: header + per-day lines sorted DESC ISO, fallback last (match keyboard) — single source
+    from services.utils.formatting import reports_day_sort_key
 
     lines: list[str] = []
-    for day_key in sorted(grouped.keys(), key=_day_sort_key2, reverse=True):
+    for day_key in sorted(grouped.keys(), key=reports_day_sort_key, reverse=True):
         day_entries = grouped[day_key]
         first_iso = getattr(day_entries[0], "created_at", "") or day_entries[0].session_date or ""
         day_label = jalali_day_label(first_iso) if first_iso else day_key
@@ -1295,7 +1290,8 @@ async def _handle_reports_callback(
     if action.startswith("day:"):
         day_key = action.split(":", 1)[1] if ":" in action else ""
         # Validate day_key is ISO date — only digits and '-' allowed; others are treated as expired.
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day_key):
+        from services.utils.formatting import is_iso_day_key as _is_iso
+        if not _is_iso(day_key):
             await notify_callback(
                 update.callback_query,
                 "این گزارش منقضی شده است.",

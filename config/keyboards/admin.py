@@ -708,22 +708,15 @@ def session_summary_legend_keyboard(page_index: int, nonce: str) -> InlineKeyboa
 
 def reports_days_keyboard(grouped: dict[str, list]) -> InlineKeyboardMarkup:
     """Two-level top: one button per jalali day (R1,R2,R4)."""
-    import re as _re
-
-    from services.utils.formatting import jalali_day_label, to_persian_digits as _tpd
+    from services.utils.formatting import is_iso_day_key, jalali_day_label, reports_day_sort_key, to_persian_digits as _tpd
 
     rows: list[list[InlineKeyboardButton]] = []
-    _iso_re = _re.compile(r"^\d{4}-\d{2}-\d{2}$")
-    # Sort ISO day keys DESC; non-ISO fallback keys last
-    def _day_sort_key(k: str):
-        return (1, k) if _iso_re.match(k) else (0, k)
-
-    for day_key in sorted(grouped.keys(), key=_day_sort_key, reverse=True):
+    for day_key in sorted(grouped.keys(), key=reports_day_sort_key, reverse=True):
         entries = grouped[day_key]
         if not entries:
             continue
         # Fallback bucket (no ISO date) — emit direct detail buttons, no day drill-down
-        if not _iso_re.match(day_key):
+        if not is_iso_day_key(day_key):
             for e in entries:
                 rows.append([InlineKeyboardButton(f"📄 گزارش #{e.report_id}", callback_data=f"reports:detail:{e.report_id}:0")])
             continue
