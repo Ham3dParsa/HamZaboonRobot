@@ -94,7 +94,11 @@ class AdminCloseHandlerTest(unittest.TestCase):
                 self.assertTrue(query.answer.called)
                 # ensure notify used correct text (at least one answer call)
                 answered_texts = [str(c.args[0]) if c.args else "" for c in query.answer.call_args_list]
-                self.assertTrue(any("بسته شد" in t for t in answered_texts) or query.answer.called)
+                self.assertTrue(query.answer.called)
+                self.assertTrue(
+                    any("بسته شد" in t for t in answered_texts),
+                    f"close notify text missing: {answered_texts}",
+                )
 
     def test_close_swallows_badrequest(self):
         from handlers.admin import _handle_admin_callback

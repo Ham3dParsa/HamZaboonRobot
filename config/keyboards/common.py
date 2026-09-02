@@ -116,13 +116,15 @@ def display_toggles_keyboard(current: dict) -> InlineKeyboardMarkup:
 def display_toggle_confirm_keyboard(field: str, *, is_admin: bool = False) -> InlineKeyboardMarkup:
     """Two-step confirm for disabling a HIGH_VALUE toggle (R9 warning)."""
     prefix = "admin:display_toggle" if is_admin else "settings:display_toggle"
-    return InlineKeyboardMarkup([
+    rows: list[list[InlineKeyboardButton]] = [
         [
             InlineKeyboardButton("✅ بله، خاموش کن", callback_data=f"{prefix}:confirm:{field}"),
             InlineKeyboardButton("❌ انصراف", callback_data=f"{prefix}:cancel"),
         ],
-        [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
-    ])
+    ]
+    if is_admin:
+        rows.append([InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")])
+    return InlineKeyboardMarkup(rows)
 
 
 def user_display_toggles_keyboard(current: dict, forced: dict | None = None) -> InlineKeyboardMarkup:
