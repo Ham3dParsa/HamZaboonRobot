@@ -926,6 +926,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("tts:pronounce:"):
         _lock = _get_user_lock(update.effective_user.id)
         if _lock.locked():
+            log.info("tts pronounce throttled user_id=%s data=%r", update.effective_user.id, data)
             await notify_callback(update.callback_query, "لطفاً کمی صبر کنید…", intent=CallbackNoticeIntent.INFO)
             return
         async with _lock:
@@ -1053,19 +1054,24 @@ async def connection_health_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
+    user_id = update.effective_user.id
+    chat_id = getattr(getattr(update, "effective_chat", None), "id", None)
+    log.info("tts pronounce entry user_id=%s chat_id=%s data=%r", user_id, chat_id, data)
     parts = data.split(":")
     if len(parts) < 2:
+        log.warning("tts pronounce invalid data user_id=%s chat_id=%s data=%r", user_id, chat_id, data)
         await notify_callback(update.callback_query, "دکمه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     source = parts[0]
     if source not in {"q", "s"}:
+        log.warning("tts pronounce invalid source user_id=%s data=%r", user_id, data)
         await notify_callback(update.callback_query, "دکمه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
-    user_id = update.effective_user.id
     row = db.get_user(user_id)
     if not row or not row["onboarded"]:
+        log.info("tts pronounce not onboarded user_id=%s", user_id)
         await notify_callback(update.callback_query, "ابتدا /start را بزنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
@@ -1074,11 +1080,13 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
 
     if source == "q":
         if len(parts) != 2:
+            log.warning("tts pronounce invalid q parts user_id=%s data=%r", user_id, data)
             await notify_callback(update.callback_query, "دکمه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         token = parts[1]
         qr = db.get_query_result(token, user_id=user_id)
         if not qr:
+            log.info("tts pronounce expired token user_id=%s token=%r", user_id, token)
             await notify_callback(update.callback_query, "این نتیجه منقضی شده است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         word = qr["word"]
@@ -1086,29 +1094,35 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
 
     elif source == "s":
         if len(parts) != 3:
+            log.warning("tts pronounce invalid s parts user_id=%s data=%r", user_id, data)
             await notify_callback(update.callback_query, "دکمه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         try:
             target_user_id = int(parts[1])
             word_id = int(parts[2])
         except ValueError:
+            log.warning("tts pronounce invalid s ids user_id=%s data=%r", user_id, data)
             await notify_callback(update.callback_query, "دکمه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         if user_id != target_user_id:
+            log.warning("tts pronounce cross-user user_id=%s target_user_id=%s data=%r", user_id, target_user_id, data)
             await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         sw = db.get_saved_word(word_id, user_id=user_id)
         if not sw:
+            log.info("tts pronounce saved_word not found user_id=%s word_id=%s", user_id, parts[2])
             await notify_callback(update.callback_query, "واژه در مرور شما پیدا نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         word = sw["word"]
         lang = sw["lang"]
 
     else:
+        log.warning("tts pronounce invalid source branch user_id=%s data=%r", user_id, data)
         await notify_callback(update.callback_query, "دکمه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
     if not word or not lang:
+        log.warning("tts pronounce missing word/lang user_id=%s word=%r lang=%r data=%r", user_id, word, lang, data)
         await notify_callback(update.callback_query, "واژه یا زبان نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
@@ -1130,16 +1144,17 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
             try:
                 cached = await asyncio.to_thread(_tts_cache.get_cached, cache_key)
             except Exception:
-                log.debug("tts_cache get_cached failed cache_key=%r", cache_key, exc_info=True)
+                log.warning("tts_cache get_cached failed cache_key=%r user_id=%s lang=%s word=%r", cache_key, user_id, lang, word, exc_info=True)
                 cached = None
             if cached and cached.get("file_id"):
                 fid_prefix = str(cached["file_id"])[:12]
-                log.debug(
-                    "tts file_id hit user_id=%s lang=%s key=%r file_id_prefix=%r",
+                log.info(
+                    "tts file_id hit user_id=%s lang=%s key=%r file_id_prefix=%r word=%r",
                     user_id,
                     lang,
                     cache_key,
                     fid_prefix,
+                    word,
                 )
                 try:
                     await _send_voice_with_retry(
@@ -1151,7 +1166,7 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
                     )
                     return
                 except Exception:
-                    log.warning("cached file_id send failed, falling back to generate", exc_info=True)
+                    log.warning("cached file_id send failed, falling back to generate user_id=%s lang=%s word=%r key=%r", user_id, lang, word, cache_key, exc_info=True)
         # miss -> per-key lock -> generate -> channel upload
         lock_key = tts._tts_lock_key(word, lang)
         lock = await tts._get_tts_lock(lock_key)
@@ -1160,15 +1175,16 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
                 try:
                     cached2 = await asyncio.to_thread(_tts_cache.get_cached, cache_key)
                 except Exception:
-                    log.debug("tts_cache get_cached (inside lock) failed cache_key=%r", cache_key, exc_info=True)
+                    log.warning("tts_cache get_cached (inside lock) failed cache_key=%r user_id=%s lang=%s word=%r", cache_key, user_id, lang, word, exc_info=True)
                     cached2 = None
                 if cached2 and cached2.get("file_id"):
-                    log.debug(
-                        "tts file_id hit (inside lock) user_id=%s lang=%s key=%r file_id_prefix=%r",
+                    log.info(
+                        "tts file_id hit (inside lock) user_id=%s lang=%s key=%r file_id_prefix=%r word=%r",
                         user_id,
                         lang,
                         cache_key,
                         str(cached2["file_id"])[:12],
+                        word,
                     )
                     try:
                         await _send_voice_with_retry(
@@ -1180,7 +1196,7 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
                         )
                         return
                     except Exception:
-                        log.warning("cached file_id send failed (inside lock), falling back to generate", exc_info=True)
+                        log.warning("cached file_id send failed (inside lock), falling back to generate user_id=%s lang=%s word=%r key=%r", user_id, lang, word, cache_key, exc_info=True)
                         # fall through to pronounce/generate path below
             path = await tts.pronounce(word, lang)
             if chat_id:
@@ -1251,7 +1267,7 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
                 )
                 raise
     except (Forbidden, BadRequest) as exc:
-        log.warning("TTS pronunciation blocked/bad request (%s)", exc)
+        log.warning("TTS pronunciation blocked/bad request user_id=%s lang=%s word=%r key=%r exc=%s", user_id, lang, word, cache_key if 'cache_key' in locals() else None, exc, exc_info=True)
         try:
             await _send_with_retry(
                 context.bot,
@@ -1259,9 +1275,12 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
                 "متأسفانه تولید تلفظ با خطا مواجه شد. لطفاً کمی بعد دوباره تلاش کنید.",
             )
         except Exception:
-            log.exception("TTS fallback notice failed (Forbidden/BadRequest path)")
+            log.exception("TTS fallback notice failed (Forbidden/BadRequest path) user_id=%s lang=%s word=%r", user_id, lang, word, exc_info=True)
+        except BaseException:
+            log.exception("TTS fallback notice BaseException (Forbidden/BadRequest path) user_id=%s lang=%s word=%r", user_id, lang, word)
+            raise
     except Exception:
-        log.exception("TTS pronunciation failed")
+        log.exception("TTS pronunciation failed user_id=%s lang=%s word=%r cache_key=%r", user_id, lang, word if 'word' in locals() else None, cache_key if 'cache_key' in locals() else None)
         try:
             await _send_with_retry(
                 context.bot,
@@ -1269,7 +1288,13 @@ async def _handle_tts_pronounce(update: Update, context: ContextTypes.DEFAULT_TY
                 "متأسفانه تولید تلفظ با خطا مواجه شد. لطفاً کمی بعد دوباره تلاش کنید.",
             )
         except Exception:
-            log.exception("TTS fallback notice failed")
+            log.exception("TTS fallback notice failed user_id=%s lang=%s word=%r", user_id, lang, word, exc_info=True)
+        except BaseException:
+            log.exception("TTS fallback notice BaseException user_id=%s lang=%s word=%r", user_id, lang, word)
+            raise
+    except BaseException:
+        log.exception("TTS pronunciation BaseException user_id=%s lang=%s word=%r cache_key=%r", user_id, lang, word if 'word' in locals() else None, cache_key if 'cache_key' in locals() else None)
+        raise
 
 
 async def primary_retry_job(context: ContextTypes.DEFAULT_TYPE):

@@ -419,6 +419,10 @@ async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
         except (TimedOut, NetworkError):
             # Sending creates a NEW message each call; a timeout/network error
             # is ambiguous (may already be delivered). Never re-send a voice.
+            logger.warning("send_voice TimedOut/NetworkError attempt %s/3 chat_id=%s", attempt + 1, chat_id, exc_info=True)
+            raise
+        except BaseException:
+            logger.exception("send_voice BaseException chat_id=%s", chat_id)
             raise
 
 
