@@ -312,17 +312,6 @@ async def handle_study_start(
 
     plan = row["plan"] or "free"
 
-    # --- per-user spam guard (plan-27) atomic before any quota/AI side effect ---
-    # Owner bypass respects OWNER_BYPASS_LIMITS for testing
-    if not (is_owner(user_id) and OWNER_BYPASS_LIMITS) and not try_acquire_per_user_slot(user_id, "study_start"):
-        await _reply_or_answer(
-            update,
-            context,
-            THROTTLE_TEXT,
-            intent=CallbackNoticeIntent.THROTTLE,
-        )
-        return
-
     # --- resume existing session (Decision 30: don't double-count slots) ---
     existing = context.user_data.get("current_session")
     if existing is not None and existing.nodes:

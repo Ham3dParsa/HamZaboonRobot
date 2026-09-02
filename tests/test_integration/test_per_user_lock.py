@@ -29,9 +29,6 @@ def _clear_rate():
 
 
 class PerUserLockStudyTest(unittest.TestCase):
-    # Use isolated user_id to avoid cross-test bucket pollution (xdist workers share global _buckets per process)
-    _UID = 101
-
     def setUp(self):
         import bot
 
@@ -45,11 +42,11 @@ class PerUserLockStudyTest(unittest.TestCase):
         db.DB_PATH = new_path
         db_schema.DB_PATH = new_path
         db.init_db()
-        db.create_user_if_needed(self._UID, "learner")
-        db.set_user_lang_goal(self._UID, "en", "general")
-        db.set_user_level(self._UID, "beginner")
+        db.create_user_if_needed(1, "learner")
+        db.set_user_lang_goal(1, "en", "general")
+        db.set_user_level(1, "beginner")
         with db.get_conn() as conn:
-            conn.execute("UPDATE users SET onboarded=1, plan='free' WHERE user_id=?", (self._UID,))
+            conn.execute("UPDATE users SET onboarded=1, plan='free' WHERE user_id=1")
             conn.commit()
 
     def tearDown(self):
@@ -63,7 +60,7 @@ class PerUserLockStudyTest(unittest.TestCase):
         from services.scheduling import _session_key
 
         with db.get_conn() as conn:
-            row = conn.execute("SELECT value FROM settings WHERE key=?", (_session_key(self._UID),)).fetchone()
+            row = conn.execute("SELECT value FROM settings WHERE key=?", (_session_key(1),)).fetchone()
         return int(row["value"]) if row and row["value"] else 0
 
     def _context(self):
@@ -77,7 +74,7 @@ class PerUserLockStudyTest(unittest.TestCase):
 
     def _update(self):
         update = MagicMock()
-        update.effective_user.id = self._UID
+        update.effective_user.id = 1
         update.effective_chat.id = 100
         update.callback_query = MagicMock()
         update.callback_query.answer = AsyncMock()
@@ -94,7 +91,7 @@ class PerUserLockStudyTest(unittest.TestCase):
             source_tier=1,
             card_data={"word": "hello"},
             source_id=word_id,
-            activity_meta={"user_id": self._UID},
+            activity_meta={"user_id": 1},
             grade_policy_ref="srs_review",
         )
 
@@ -104,11 +101,11 @@ class PerUserLockStudyTest(unittest.TestCase):
 
         # Need words to build session; seed one
         card = {"word": "hello", "fa_meaning": "سلام", "fa_explanation": "ت", "examples": ["Hi"], "example_translations": ["سلام"], "synonyms": [], "antonyms": [], "grammar_tip": ""}
-        db.add_saved_word(self._UID, "w1", "en", card)
+        db.add_saved_word(1, "w1", "en", card)
         with db.get_conn() as conn:
             wid = conn.execute("SELECT id FROM saved_words WHERE word='w1'").fetchone()["id"]
         # ensure exposing so build can use it if not mocked
-        db.grade_first_exposure(wid, 3, self._UID)
+        db.grade_first_exposure(wid, 3, 1)
 
         node = self._node(wid)
 
@@ -116,7 +113,7 @@ class PerUserLockStudyTest(unittest.TestCase):
         patch_limit = patch("services.scheduling._max_sessions_for_plan", return_value=10)
         patch_limit.start()
         # mock build to always return a node, and send to succeed
-        build_patcher = patch("handlers.study_handler.build_session_list", return_value=([node], {"user_id": self._UID, "remaining_slots": 0}))
+        build_patcher = patch("handlers.study_handler.build_session_list", return_value=([node], {"user_id": 1, "remaining_slots": 0}))
         build_patcher.start()
         send_patcher = patch("services.send_pretty.send", new=AsyncMock(return_value=MagicMock(message_id=100)))
         send_patcher.start()
@@ -138,7 +135,7 @@ class PerUserLockStudyTest(unittest.TestCase):
                     ctx = self._context()
                     update = self._update()
                     # clear persisted session to force fresh build each time
-                    db.clear_study_session(self._UID)
+                    db.clear_study_session(1)
                     asyncio.run(handle_study_start(update, ctx))
                     # verify throttle not triggered for first 5
                     answer_text = ""
@@ -146,12 +143,12 @@ class PerUserLockStudyTest(unittest.TestCase):
                         answer_text = update.callback_query.answer.call_args[0][0] if update.callback_query.answer.call_args[0] else ""
                     self.assertNotIn("صبر کنید", answer_text)
                     # persisted session would exist; clear for next iteration
-                    db.clear_study_session(self._UID)
+                    db.clear_study_session(1)
 
                 # 6th click should be throttled — no consume
                 ctx6 = self._context()
                 update6 = self._update()
-                db.clear_study_session(self._UID)
+                db.clear_study_session(1)
                 asyncio.run(handle_study_start(update6, ctx6))
                 # Throttle answer
                 self.assertTrue(update6.callback_query.answer.await_count >= 1)
@@ -167,7 +164,6 @@ class PerUserLockStudyTest(unittest.TestCase):
 
 
 class PerUserLockSrsTest(unittest.TestCase):
-    _UID = 102
     def setUp(self):
         import bot
 
@@ -181,11 +177,11 @@ class PerUserLockSrsTest(unittest.TestCase):
         db.DB_PATH = new_path
         db_schema.DB_PATH = new_path
         db.init_db()
-        db.create_user_if_needed(self._UID, "learner")
-        db.set_user_lang_goal(self._UID, "en", "general")
-        db.set_user_level(self._UID, "beginner")
+        db.create_user_if_needed(1, "learner")
+        db.set_user_lang_goal(1, "en", "general")
+        db.set_user_level(1, "beginner")
         with db.get_conn() as conn:
-            conn.execute("UPDATE users SET onboarded=1 WHERE user_id=?", (self._UID,))
+            conn.execute("UPDATE users SET onboarded=1 WHERE user_id=1")
             conn.commit()
 
     def tearDown(self):
@@ -197,11 +193,11 @@ class PerUserLockSrsTest(unittest.TestCase):
 
     def _seed_due_word(self, word):
         card = {"word": word, "fa_meaning": "م", "fa_explanation": "ت", "examples": ["A"], "example_translations": ["م"]}
-        db.add_saved_word(self._UID, word, "en", card)
+        db.add_saved_word(1, word, "en", card)
         with db.get_conn() as conn:
-            row = conn.execute("SELECT id FROM saved_words WHERE user_id=? AND word=?", (self._UID, word)).fetchone()
+            row = conn.execute("SELECT id FROM saved_words WHERE user_id=1 AND word=?", (word,)).fetchone()
             wid = row["id"]
-        db.grade_first_exposure(wid, 3, self._UID)
+        db.grade_first_exposure(wid, 3, 1)
         # make due by setting next_review_at in past
         with db.get_conn() as conn:
             conn.execute("UPDATE saved_words SET next_review_at='2000-01-01T00:00:00+00:00' WHERE id=?", (wid,))
@@ -213,10 +209,10 @@ class PerUserLockSrsTest(unittest.TestCase):
         q.answer = AsyncMock()
         q.message = MagicMock()
         upd = MagicMock()
-        upd.effective_user.id = self._UID
+        upd.effective_user.id = 1
         upd.effective_chat.id = 100
         upd.callback_query = q
-        upd.callback_query.data = f"srs:3:{self._UID}:{word_id}"
+        upd.callback_query.data = f"srs:3:1:{word_id}"
         return upd
 
     def _ctx(self):
@@ -246,7 +242,7 @@ class PerUserLockSrsTest(unittest.TestCase):
         from handlers.study_handler import SessionState
 
         def make_state_for(wid):
-            node = SessionNode(activity_type="srs_review", source_tier=1, card_data={"word": f"w{wid}"}, source_id=wid, activity_meta={"user_id": self._UID}, grade_policy_ref="srs_review")
+            node = SessionNode(activity_type="srs_review", source_tier=1, card_data={"word": f"w{wid}"}, source_id=wid, activity_meta={"user_id": 1}, grade_policy_ref="srs_review")
             st = SessionState(
                 nodes=[node],
                 total_cards=1,
@@ -278,7 +274,7 @@ class PerUserLockSrsTest(unittest.TestCase):
                 call_count["n"] = i
                 upd = self._make_update(wids[i])
                 ctx = self._ctx()
-                asyncio.run(_handle_srs_review(upd, 3, str(self._UID), str(wids[i]), ctx))
+                asyncio.run(_handle_srs_review(upd, 3, "1", str(wids[i]), ctx))
                 # not throttled
                 texts = [c[0][0] for c in upd.callback_query.answer.call_args_list if c[0]]
                 self.assertFalse(any(THROTTLE_TEXT in (t or "") for t in texts), f"unexpected throttle at i={i}")
@@ -287,14 +283,13 @@ class PerUserLockSrsTest(unittest.TestCase):
             call_count["n"] = 5
             upd6 = self._make_update(wids[5])
             ctx6 = self._ctx()
-            asyncio.run(_handle_srs_review(upd6, 3, str(self._UID), str(wids[5]), ctx6))
+            asyncio.run(_handle_srs_review(upd6, 3, "1", str(wids[5]), ctx6))
             texts6 = [c[0][0] for c in upd6.callback_query.answer.call_args_list if c[0]]
             self.assertTrue(any(THROTTLE_TEXT in (t or "") for t in texts6), f"expected throttle, got {texts6}")
             self.assertEqual(len(grade_calls), 5, "6th throttled must not call grade_word_review")
 
 
 class PerUserLockQueryTest(unittest.TestCase):
-    _UID = 103
     def setUp(self):
         import bot
 
@@ -308,11 +303,11 @@ class PerUserLockQueryTest(unittest.TestCase):
         db.DB_PATH = new_path
         db_schema.DB_PATH = new_path
         db.init_db()
-        db.create_user_if_needed(self._UID, "learner")
-        db.set_user_lang_goal(self._UID, "en", "general")
-        db.set_user_level(self._UID, "beginner")
+        db.create_user_if_needed(1, "learner")
+        db.set_user_lang_goal(1, "en", "general")
+        db.set_user_level(1, "beginner")
         with db.get_conn() as conn:
-            conn.execute("UPDATE users SET onboarded=1, plan='emerald' WHERE user_id=?", (self._UID,))
+            conn.execute("UPDATE users SET onboarded=1, plan='emerald' WHERE user_id=1")
             conn.commit()
         self.card = {
             "word": "hello",
@@ -340,7 +335,7 @@ class PerUserLockQueryTest(unittest.TestCase):
         chat.id = 100
         chat.send_action = AsyncMock()
         upd = MagicMock()
-        upd.effective_user.id = self._UID
+        upd.effective_user.id = 1
         upd.effective_chat = chat
         upd.message = msg
         upd.effective_message = msg
@@ -391,7 +386,7 @@ class PerUserLockQueryTest(unittest.TestCase):
                 sent_texts = [c.kwargs.get("text", "") for c in ctx.bot.send_message.call_args_list]
                 self.assertTrue(any(THROTTLE_TEXT in (t or "") for t in sent_texts), f"expected throttle, got {sent_texts}")
                 # quota should be 5, not 6
-                row = db.get_user(self._UID)
+                row = db.get_user(1)
                 self.assertEqual(row["words_asked_today"], 5, "throttled request must not burn quota")
 
         # also verify that after window, a different user is not throttled (isolation)
