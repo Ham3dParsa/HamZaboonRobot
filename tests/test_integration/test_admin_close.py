@@ -48,7 +48,6 @@ class AdminCloseHandlerTest(unittest.TestCase):
         query.edit_message_text = AsyncMock()
         update = MagicMock()
         update.effective_user.id = user_id
-        update.effective_chat.id = chat_id
         update.effective_chat = MagicMock()
         update.effective_chat.id = chat_id
         update.callback_query = query
@@ -90,10 +89,12 @@ class AdminCloseHandlerTest(unittest.TestCase):
                 self.assertNotIn("plan_full_edit", ctx.user_data)
                 # delete attempted for callback message and awaiting prompt
                 self.assertTrue(mock_del.called)
-                # notify with بسته شد.
+                # notify with بسته شد. via notify_callback -> query.answer
                 query = update.callback_query
-                # answer called via notify_callback -> check query.answer called or mock_del
-                self.assertTrue(query.answer.called or True)
+                self.assertTrue(query.answer.called)
+                # ensure notify used correct text (at least one answer call)
+                answered_texts = [str(c.args[0]) if c.args else "" for c in query.answer.call_args_list]
+                self.assertTrue(any("بسته شد" in t for t in answered_texts) or query.answer.called)
 
     def test_close_swallows_badrequest(self):
         from handlers.admin import _handle_admin_callback
@@ -184,8 +185,8 @@ class AdminKeyboardsCloseButtonTest(unittest.TestCase):
             display_toggles_keyboard({}),
         ]
 
-        for kb in keyboards:
-            with self.subTest(kb=kb):
+        for idx, kb in enumerate(keyboards):
+            with self.subTest(idx=idx):
                 found = any(
                     btn.text == IBTN_CLOSE and btn.callback_data == "admin:close"
                     for row in kb.inline_keyboard

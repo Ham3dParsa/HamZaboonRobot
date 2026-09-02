@@ -17,6 +17,7 @@ from services.utils.callback_notifications import CallbackNoticeIntent, notify_c
 from services.utils.formatting import html_escape
 from services.utils.helpers import _clear_awaiting_prompt, _delete_with_retry, _edit_or_send, _exit_awaiting_flow, _send_with_retry, _store_awaiting_msg, clear_admin_pending_state
 from handlers.admin_stats import handle_admin_stats
+import handlers.admin_users as _admin_users_mod
 from handlers.admin_users import handle_admin_user
 from handlers.admin_cost import (
     _handle_cost_text_input,
@@ -187,10 +188,8 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
     if action == "close":
         # capture awaiting prompt before clear (for distinct delete attempt)
         awaiting_data = context.user_data.get("_awaiting_msg")
-        clear_admin_pending_state(context)
-        await _clear_awaiting_prompt(context)
-        # try to delete callback message and awaiting prompt (if distinct)
-        to_delete: list[tuple[int, int]] = []
+        # pre-compute callback message tup for dedupe check (avoid redundant edit+delete)
+        _cb_tup: tuple[int, int] | None = None
         try:
             q = getattr(update, "callback_query", None)
             if q is not None and getattr(q, "message", None) is not None:
@@ -202,19 +201,30 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
                     cid = getattr(ec, "id", None) if ec is not None else None
                 mid = getattr(msg, "message_id", None)
                 if cid is not None and mid is not None:
-                    to_delete.append((int(cid), int(mid)))
+                    _cb_tup = (int(cid), int(mid))
         except Exception:
             pass
+        _awaiting_tup: tuple[int, int] | None = None
         if isinstance(awaiting_data, dict):
             try:
                 ac = awaiting_data.get("chat_id")
                 am = awaiting_data.get("message_id")
                 if ac is not None and am is not None:
-                    tup = (int(ac), int(am))
-                    if tup not in to_delete:
-                        to_delete.append(tup)
+                    _awaiting_tup = (int(ac), int(am))
             except Exception:
                 pass
+        clear_admin_pending_state(context)
+        # skip redundant _clear_awaiting_prompt edit when both tups are same message
+        if _awaiting_tup is not None and _cb_tup is not None and _awaiting_tup == _cb_tup:
+            context.user_data.pop("_awaiting_msg", None)
+        else:
+            await _clear_awaiting_prompt(context)
+        # build deduped delete list
+        to_delete: list[tuple[int, int]] = []
+        if _cb_tup is not None:
+            to_delete.append(_cb_tup)
+        if _awaiting_tup is not None and _awaiting_tup not in to_delete:
+            to_delete.append(_awaiting_tup)
         for cid, mid in to_delete:
             try:
                 await _delete_with_retry(context.bot, cid, mid)
@@ -250,9 +260,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         if pending_uid is not None:
             clear_admin_pending_state(context)
             await _clear_awaiting_prompt(context)
-            from handlers.admin_users import _show_profile as _adm_show
-
-            await _adm_show(update, context, pending_uid)
+            await _admin_users_mod._show_profile(update, context, pending_uid)
             await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
             return
         # pending exists but no user_id -> fallback to last id else root
@@ -264,9 +272,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
                     _last_uid = int(_last)
                     clear_admin_pending_state(context)
                     await _clear_awaiting_prompt(context)
-                    from handlers.admin_users import _show_profile as _adm_show2
-
-                    await _adm_show2(update, context, _last_uid)
+                    await _admin_users_mod._show_profile(update, context, _last_uid)
                     await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)
                     return
                 except Exception:
@@ -293,9 +299,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
             clear_admin_pending_state(context)
             await _clear_awaiting_prompt(context)
             if _uid is not None:
-                from handlers.admin_users import _show_profile as _adm_show3
-
-                await _adm_show3(update, context, _uid)
+                await _admin_users_mod._show_profile(update, context, _uid)
             else:
                 await _edit_or_send(update, context, BTN_ADMIN_USER_MANAGE, reply_markup=user_management_keyboard())
             await notify_callback(update.callback_query, "بازگشت", intent=CallbackNoticeIntent.INFO)

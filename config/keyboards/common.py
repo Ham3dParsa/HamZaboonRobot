@@ -121,6 +121,7 @@ def display_toggle_confirm_keyboard(field: str, *, is_admin: bool = False) -> In
             InlineKeyboardButton("✅ بله، خاموش کن", callback_data=f"{prefix}:confirm:{field}"),
             InlineKeyboardButton("❌ انصراف", callback_data=f"{prefix}:cancel"),
         ],
+        [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
 
 
