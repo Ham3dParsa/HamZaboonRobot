@@ -32,6 +32,10 @@ class ReportEntry:
 
     report_id: int
     session_date: str
+    created_at: str = ""
+    total: int = 0
+    learned_count: int = 0
+    reviewed_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -93,12 +97,38 @@ def list_recent_reports(
     with transaction() as conn:
         conn.execute("DELETE FROM session_reports WHERE created_at < ?", (cutoff,))
         rows = conn.execute(
-            "SELECT id, session_date FROM session_reports "
+            "SELECT id, session_date, created_at, report_json FROM session_reports "
             "WHERE user_id=? AND created_at >= ? "
             "ORDER BY created_at DESC",
             (user_id, cutoff),
         ).fetchall()
-    return [ReportEntry(report_id=row["id"], session_date=row["session_date"]) for row in rows]
+    entries: list[ReportEntry] = []
+    for row in rows:
+        created_at = row["created_at"] or ""
+        total = 0
+        learned = 0
+        reviewed = 0
+        raw_json = row["report_json"]
+        if raw_json:
+            try:
+                rep = deserialize_report(raw_json)
+                total = rep.total
+                learned = rep.learned_count
+                reviewed = rep.reviewed_count
+            except Exception:
+                logger.warning("corrupt report_json id=%s user_id=%s", row["id"], user_id, exc_info=True)
+                # keep zeros; detail path load_report will purge
+        entries.append(
+            ReportEntry(
+                report_id=row["id"],
+                session_date=row["session_date"],
+                created_at=created_at,
+                total=total,
+                learned_count=learned,
+                reviewed_count=reviewed,
+            )
+        )
+    return entries
 
 
 def load_report(report_id: int, user_id: int) -> LoadedReport | None:

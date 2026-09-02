@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -1210,23 +1211,41 @@ async def _handle_session_summary_callback(
 # ---------------------------------------------------------------------------
 
 def _reports_list_payload(user_id: int):
-    """Build the recent-reports list message + keyboard (R10-C/D/E).
+    """Build the recent-reports list message + keyboard grouped by jalali day (R1,R6).
 
-    Returns ``(text, keyboard)``. The text is a ready-to-render MarkdownV2
-    string (dynamic session dates are escaped); the keyboard has one button per
-    report. Returns a plain empty-state notice when nothing is in the window.
+    Returns ``(text, keyboard)``. Text is MarkdownV2 header plus per-day jalali
+    labels with counts. Keyboard is two-level day grouping via
+    ``reports_days_keyboard``. Single-session days go direct per R4.
     """
+    from config.keyboards.admin import reports_days_keyboard
+    from services.utils.formatting import jalali_day_label
+
     entries = db.list_recent_reports(user_id)
     if not entries:
         return escape_mdv2("در ۳ روز اخیر گزارشی موجود نیست."), None
-    lines = [
-        # The '.' separator is a MarkdownV2-reserved char; route it through the
-        # central escaper like every other value (R10 escaping regression).
-        f"{to_persian_digits(i)}{escape_mdv2('.')} {escape_mdv2(e.session_date)}"
-        for i, e in enumerate(entries, 1)
-    ]
+    # group by APP_TZ day — single source
+    from services.utils.formatting import reports_jalali_group_key
+
+    grouped: dict[str, list] = {}
+    for e in entries:
+        iso = getattr(e, "created_at", "") or e.session_date or ""
+        key = reports_jalali_group_key(iso) or e.session_date or str(e.report_id)
+        grouped.setdefault(key, []).append(e)
+    # text: header + per-day lines sorted DESC ISO, fallback last (match keyboard) — single source
+    from services.utils.formatting import reports_day_sort_key
+
+    lines: list[str] = []
+    for day_key in sorted(grouped.keys(), key=reports_day_sort_key, reverse=True):
+        day_entries = grouped[day_key]
+        first_iso = getattr(day_entries[0], "created_at", "") or day_entries[0].session_date or ""
+        day_label = jalali_day_label(first_iso) if first_iso else day_key
+        # jalali_day_label already returns Persian digits; escape only the separator
+        count = to_persian_digits(len(day_entries))
+        # day_label is plain Persian (no mdv2 special chars except maybe), escape it
+        # but jalali labels contain only Persian words/digits/spaces, safe to escape
+        lines.append(f"{escape_mdv2(day_label)} — {count} نشست")
     text = "*" + escape_mdv2("گزارش‌های جلسات اخیر:") + "*\n" + "\n".join(lines)
-    return text, reports_list_keyboard(entries)
+    return text, reports_days_keyboard(grouped)
 
 
 async def send_reports_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1262,6 +1281,48 @@ async def _handle_reports_callback(
 
     if action in ("back", "list"):
         text, keyboard = _reports_list_payload(user_id)
+        await send_pretty.say(
+            update, context, text,
+            raw=send_pretty.RawFormat.MDV2, keyboard=keyboard,
+        )
+        return
+
+    if action.startswith("day:"):
+        day_key = action.split(":", 1)[1] if ":" in action else ""
+        # Validate day_key is ISO date — only digits and '-' allowed; others are treated as expired.
+        from services.utils.formatting import is_iso_day_key as _is_iso
+        if not _is_iso(day_key):
+            await notify_callback(
+                update.callback_query,
+                "این گزارش منقضی شده است.",
+                intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+            )
+            return
+        # Re-group entries and filter to that day — single source
+        from services.utils.formatting import reports_jalali_group_key as _rgk
+
+        entries = db.list_recent_reports(user_id)
+        grouped: dict[str, list] = {}
+        for e in entries:
+            iso = getattr(e, "created_at", "") or e.session_date or ""
+            k = _rgk(iso) or e.session_date or str(e.report_id)
+            grouped.setdefault(k, []).append(e)
+        day_entries = grouped.get(day_key, [])
+        if not day_entries:
+            await notify_callback(
+                update.callback_query,
+                "این گزارش منقضی شده است.",
+                intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+            )
+            return
+        from config.keyboards.admin import reports_day_keyboard
+        from services.utils.formatting import jalali_day_label as _jdl
+
+        # header uses jalali day label — fallback to session_date like _reports_list_payload
+        first_iso = getattr(day_entries[0], "created_at", "") or getattr(day_entries[0], "session_date", "") or ""
+        header_label = _jdl(first_iso) if first_iso else day_key
+        text = "*" + escape_mdv2(header_label) + "*\n" + escape_mdv2(f"— {to_persian_digits(len(day_entries))} نشست")
+        keyboard = reports_day_keyboard(day_key, day_entries)
         await send_pretty.say(
             update, context, text,
             raw=send_pretty.RawFormat.MDV2, keyboard=keyboard,

@@ -831,8 +831,12 @@ class TestCallbackWiring(unittest.TestCase):
             keyboards_text = "".join(p.read_text(encoding="utf-8") for p in Path("config/keyboards").glob("*.py"))
         self.assertIn('callback_data="reports:back"', keyboards_text)
         self.assertIn('callback_data=f"reports:detail:{entry.report_id}:0"', keyboards_text)
+        # Jalali grouping: day drill-down + back branch
+        self.assertIn('reports:day:', keyboards_text)
         handler_text = Path("handlers/study_handler.py").read_text(encoding="utf-8")
         self.assertIn('register("reports", _handle_reports_callback)', handler_text)
+        self.assertIn('action.startswith("day:")', handler_text)
+        self.assertIn('reports_day_keyboard', handler_text)
 
     # ------------------------------------------------------------------
     # Reverse direction: routes and imports must resolve to real symbols.
