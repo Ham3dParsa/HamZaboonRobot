@@ -30,7 +30,10 @@ fi
 
 # 2) Ensure cron is running (container has no systemd) and install cron-jobs
 service cron start 2>&1 | head -5 || cron 2>&1 | head -5 || true
-if [ -f "$BASE_ROOT/cron-jobs" ]; then cp -f "$BASE_ROOT/cron-jobs" /etc/cron.d/xray-update && chmod 0644 /etc/cron.d/xray-update || true; fi
+if [ -f "$BASE_ROOT/cron-jobs" ]; then
+  # /etc/cron.d requires user field (minute hour dom month dow USER command)
+  echo "0 */6 * * * root /usr/local/bin/update_xray_subscription.sh >> /var/log/xray_update.log 2>&1" > /etc/cron.d/xray-update && chmod 0644 /etc/cron.d/xray-update || true
+fi
 
 # 3) Restore persistent subscription state and install helper scripts from repo
 [ -f "$XRAY_DIR/clean.json" ] && cp -f "$XRAY_DIR/clean.json" /tmp/clean.json || true
@@ -42,7 +45,7 @@ if [ -f "$BASE_ROOT/scripts/xray/update_subscription.sh" ]; then cp -f "$BASE_RO
 
 # 4) Rebuild Xray config from clean list (fallback to outs if clean missing)
 if [ -f /tmp/clean.json ] || [ -f "$XRAY_DIR/clean.json" ]; then
-  if [ -x /usr/local/bin/rebuild-xray.py ]; then python3 /usr/local/bin/rebuild-xray.py 2>&1 | head -5; else echo "[chabok-pre-start] WARN: rebuild-xray.py missing"; fi
+  if [ -x /usr/local/bin/rebuild-xray.py ]; then python3 /usr/local/bin/rebuild-xray.py 2>&1 | head -5 || echo "[chabok-pre-start] WARN: rebuild-xray.py failed - keep previous config"; else echo "[chabok-pre-start] WARN: rebuild-xray.py missing"; fi
 fi
 
 # 5) Verify proxy env (set in Chabokan dashboard, not console) - redact credentials
