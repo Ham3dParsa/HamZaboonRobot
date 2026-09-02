@@ -216,19 +216,90 @@ def _reset_telegram_cb():
     bot._consecutive_health_failures = 0
 
 
-async def _send_with_retry(
+def _capture_media_bytes(media, filename_hint: str | None = None) -> tuple[bytes | None, str | None, bool]:
+    """Extract re-creatable bytes + filename from InputFile/BytesIO for RetryAfter retries.
+
+    Returns (raw_bytes, filename, is_inputfile). raw_bytes is None when the
+    media cannot be captured (file-id/path callers — not retried via bytes).
+    Single source for both voice and document senders (R2).
+    """
+    filename: str | None = filename_hint
+    raw_bytes: bytes | None = None
+    is_inputfile = False
+    try:
+        if isinstance(media, InputFile):
+            is_inputfile = True
+            filename = getattr(media, "filename", None) or filename
+            content = getattr(media, "input_file_content", None)
+            if isinstance(content, (bytes, bytearray)):
+                raw_bytes = bytes(content)
+            elif hasattr(content, "getvalue"):
+                try:
+                    raw_bytes = content.getvalue()
+                except Exception:
+                    raw_bytes = None
+            elif hasattr(content, "read"):
+                try:
+                    raw_bytes = content.read()
+                    if isinstance(raw_bytes, bytearray):
+                        raw_bytes = bytes(raw_bytes)
+                except Exception:
+                    raw_bytes = None
+        elif hasattr(media, "getvalue"):
+            try:
+                raw_bytes = media.getvalue()
+            except Exception:
+                raw_bytes = None
+            if filename is None:
+                filename = getattr(media, "name", None)
+    except Exception:
+        pass
+    return raw_bytes, filename, is_inputfile
+
+
+async def _send_media_with_retry(
     bot,
     chat_id: int,
-    text: str,
     *,
+    method: str,
+    media_kw: str | None = None,
+    media=None,
+    filename: str | None = None,
     reset_telegram_cb: bool = True,
+    idempotent: bool = False,
     **kwargs,
 ):
+    """Single retry core for all Telegram sends (R1).
+
+    ``idempotent`` controls whether TimedOut/NetworkError is retried.
+    For sends (non-idempotent) these are never retried — the message may
+    already be delivered and a retry would duplicate. Clamped RetryAfter
+    (30s) is the only retried error for sends. ``_telegram_slots`` is the
+    shared concurrency limiter; long-term it should move to services/telegram
+    (documented here, move deferred to keep this phase low-risk).
+    """
+    # Pre-capture bytes once so RetryAfter retries can rebuild InputFile
+    raw_bytes: bytes | None = None
+    fname: str | None = filename
+    is_inputfile = False
+    if media_kw is not None and media is not None:
+        raw_bytes, fname, is_inputfile = _capture_media_bytes(media, filename)
     for attempt in range(3):
         try:
             async with _telegram_slots:
-                send_kwargs = {"chat_id": chat_id, "text": text, **kwargs}
-                result = await bot.send_message(**send_kwargs)
+                if media_kw is not None:
+                    to_send = media
+                    if raw_bytes is not None:
+                        if is_inputfile:
+                            to_send = InputFile(io.BytesIO(raw_bytes), filename=fname or ("voice.mp3" if media_kw == "voice" else "file.db"))
+                        else:
+                            if fname:
+                                to_send = InputFile(io.BytesIO(raw_bytes), filename=fname)
+                            else:
+                                to_send = io.BytesIO(raw_bytes)
+                    result = await getattr(bot, method)(chat_id=chat_id, **{media_kw: to_send}, **kwargs)
+                else:
+                    result = await getattr(bot, method)(chat_id=chat_id, text=media, **kwargs)
                 if reset_telegram_cb:
                     _reset_telegram_cb()
                 return result
@@ -243,10 +314,24 @@ async def _send_with_retry(
                 raise
             await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
-            # Sending creates a NEW message each call, so a timeout/network
-            # error is ambiguous (the message may already be delivered).
-            # Re-sending would produce a duplicate, so never retry sends.
-            raise
+            if not idempotent:
+                raise
+            if attempt == 2:
+                raise
+            await asyncio.sleep(_retry_sleep(attempt))
+
+
+async def _send_with_retry(
+    bot,
+    chat_id: int,
+    text: str,
+    *,
+    reset_telegram_cb: bool = True,
+    **kwargs,
+):
+    return await _send_media_with_retry(
+        bot, chat_id, method="send_message", media_kw=None, media=text, reset_telegram_cb=reset_telegram_cb, idempotent=False, **kwargs
+    )
 
 
 async def _edit_with_retry(query, text, **kwargs):
@@ -357,73 +442,10 @@ async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
 
 
 async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
-    # Capture InputFile bytes+filename so RetryAfter retries recreate a fresh InputFile
-    # (InputFile has no getvalue; bytes live in input_file_content). Parity with _send_document_with_retry.
-    _voice_filename: str | None = kwargs.pop("filename", None)
-    _voice_bytes: bytes | None = None
-    _voice_is_inputfile = False
-    try:
-        if isinstance(voice, InputFile):
-            _voice_is_inputfile = True
-            _voice_filename = getattr(voice, "filename", None) or _voice_filename
-            content = getattr(voice, "input_file_content", None)
-            if isinstance(content, (bytes, bytearray)):
-                _voice_bytes = bytes(content)
-            elif hasattr(content, "getvalue"):
-                try:
-                    _voice_bytes = content.getvalue()
-                except Exception:
-                    _voice_bytes = None
-            elif hasattr(content, "read"):
-                try:
-                    _voice_bytes = content.read()
-                    if isinstance(_voice_bytes, bytearray):
-                        _voice_bytes = bytes(_voice_bytes)
-                except Exception:
-                    _voice_bytes = None
-        elif hasattr(voice, "getvalue"):
-            try:
-                _voice_bytes = voice.getvalue()
-            except Exception:
-                _voice_bytes = None
-            if _voice_filename is None:
-                _voice_filename = getattr(voice, "name", None)
-    except Exception:
-        pass
-    for attempt in range(3):
-        try:
-            async with _telegram_slots:
-                voice_to_send = voice
-                if _voice_bytes is not None:
-                    if _voice_is_inputfile:
-                        voice_to_send = InputFile(io.BytesIO(_voice_bytes), filename=_voice_filename or "voice.mp3")
-                    else:
-                        if _voice_filename:
-                            voice_to_send = InputFile(io.BytesIO(_voice_bytes), filename=_voice_filename)
-                        else:
-                            voice_to_send = io.BytesIO(_voice_bytes)
-                result = await bot.send_voice(chat_id=chat_id, voice=voice_to_send, **kwargs)
-                _reset_telegram_cb()
-                return result
-        except Forbidden:
-            if chat_id > 0:
-                db.set_user_blocked(chat_id)
-            raise
-        except BadRequest:
-            raise
-        except RetryAfter as exc:
-            if attempt == 2:
-                raise
-            logger.warning("send_voice RetryAfter %s attempt %s/3 chat_id=%s", exc.retry_after, attempt + 1, chat_id)
-            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
-        except (TimedOut, NetworkError):
-            # Sending creates a NEW message each call; a timeout/network error
-            # is ambiguous (may already be delivered). Never re-send a voice.
-            logger.warning("send_voice TimedOut/NetworkError attempt %s/3 chat_id=%s", attempt + 1, chat_id, exc_info=True)
-            raise
-        except BaseException:
-            logger.exception("send_voice BaseException chat_id=%s", chat_id)
-            raise
+    """Backward-compat wrapper — delegates to unified _send_media_with_retry."""
+    # Parity: _voice_is_inputfile / InputFile(io.BytesIO(_voice_bytes) handled via _capture_media_bytes
+    filename = kwargs.pop("filename", None)
+    return await _send_media_with_retry(bot, chat_id, method="send_voice", media_kw="voice", media=voice, filename=filename, idempotent=False, **kwargs)
 
 
 _ADMIN_PENDING_KEYS: tuple[str, ...] = (
@@ -522,65 +544,6 @@ async def _clear_awaiting_prompt(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def _send_document_with_retry(bot, chat_id: int, document, **kwargs):
-    """Send a document with retry/slot semantics mirroring _send_with_retry but for send_document."""
-    # Capture raw bytes + filename so both BytesIO and InputFile survive RetryAfter retries
-    # (InputFile has no getvalue; its bytes live in input_file_content).
-    _doc_filename: str | None = kwargs.pop("filename", None)
-    _doc_bytes: bytes | None = None
-    _is_inputfile = False
-    try:
-        if isinstance(document, InputFile):
-            _is_inputfile = True
-            _doc_filename = getattr(document, "filename", None) or _doc_filename
-            content = getattr(document, "input_file_content", None)
-            if isinstance(content, (bytes, bytearray)):
-                _doc_bytes = bytes(content)
-            elif hasattr(content, "getvalue"):
-                try:
-                    _doc_bytes = content.getvalue()
-                except Exception:
-                    _doc_bytes = None
-            elif hasattr(content, "read"):
-                try:
-                    _doc_bytes = content.read()
-                    if isinstance(_doc_bytes, bytearray):
-                        _doc_bytes = bytes(_doc_bytes)
-                except Exception:
-                    _doc_bytes = None
-        elif hasattr(document, "getvalue"):
-            try:
-                _doc_bytes = document.getvalue()
-            except Exception:
-                _doc_bytes = None
-            if _doc_filename is None:
-                _doc_filename = getattr(document, "name", None)
-    except Exception:
-        pass
-    for attempt in range(3):
-        try:
-            async with _telegram_slots:
-                doc_to_send = document
-                if _doc_bytes is not None:
-                    if _is_inputfile:
-                        doc_to_send = InputFile(io.BytesIO(_doc_bytes), filename=_doc_filename or "file.db")
-                    else:
-                        # Preserve filename for BytesIO as well — wrap in InputFile
-                        if _doc_filename:
-                            doc_to_send = InputFile(io.BytesIO(_doc_bytes), filename=_doc_filename)
-                        else:
-                            doc_to_send = io.BytesIO(_doc_bytes)
-                result = await bot.send_document(chat_id=chat_id, document=doc_to_send, **kwargs)
-                _reset_telegram_cb()
-                return result
-        except Forbidden:
-            if chat_id > 0:
-                db.set_user_blocked(chat_id)
-            raise
-        except BadRequest:
-            raise
-        except RetryAfter as exc:
-            if attempt == 2:
-                raise
-            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
-        except (TimedOut, NetworkError):
-            raise
+    """Backward-compat wrapper — delegates to unified _send_media_with_retry."""
+    filename = kwargs.pop("filename", None)
+    return await _send_media_with_retry(bot, chat_id, method="send_document", media_kw="document", media=document, filename=filename, idempotent=False, **kwargs)
