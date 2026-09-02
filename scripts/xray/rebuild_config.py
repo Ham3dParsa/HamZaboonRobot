@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import pathlib
 
 # Use persistent clean list if available, fallback to outs
@@ -10,7 +11,8 @@ if not pathlib.Path(src).exists():
     src = "/tmp/clean.json"
 if not pathlib.Path(src).exists():
     src = "/tmp/outs.json"
-outs = json.load(open(src))
+with open(src) as f:
+    outs = json.load(f)
 cfg = {
     "inbounds": [
         {"port": 1080, "protocol": "socks", "settings": {"auth": "noauth", "udp": True}},
@@ -28,8 +30,14 @@ cfg = {
 }
 # Use persistent path if available, fallback to legacy
 out_path = "/app/hamzaban/.xray/config.json" if pathlib.Path("/app/hamzaban/.xray").exists() else "/usr/local/etc/xray/config.json"
-pathlib.Path(out_path).write_text(json.dumps(cfg, indent=2))
+tmp_path = out_path + ".tmp"
+pathlib.Path(tmp_path).write_text(json.dumps(cfg, indent=2))
+os.replace(tmp_path, out_path)
 # Also keep legacy path for compatibility
 if out_path != "/usr/local/etc/xray/config.json":
-    pathlib.Path("/usr/local/etc/xray/config.json").write_text(json.dumps(cfg, indent=2))
+    legacy = "/usr/local/etc/xray/config.json"
+    pathlib.Path(legacy).parent.mkdir(parents=True, exist_ok=True)
+    tmp2 = legacy + ".tmp"
+    pathlib.Path(tmp2).write_text(json.dumps(cfg, indent=2))
+    os.replace(tmp2, legacy)
 print(f"built {len(outs)} from {src} -> {out_path}")

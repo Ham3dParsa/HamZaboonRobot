@@ -1,22 +1,26 @@
 #!/bin/bash
 set -euo pipefail
-SUB="${XRAY_SUB_URL:-https://paste-this-link-into-your-client.xirix.li/subscription/ZWhzYW4sMTc4MDQ4OTY4NwbiZ3QGgpea}"
+SUB="${XRAY_SUB_URL:-}"
 LOCK=/tmp/xray_update.lock
 LOG=/var/log/xray_update.log
 exec 9>"$LOCK"; flock -n 9 || { echo "$(date) busy" >> "$LOG"; exit 0; }
+if [ -z "$SUB" ]; then echo "$(date) XRAY_SUB_URL empty - skip" >> "$LOG"; exit 0; fi
 echo "=== $(date) fetch ===" >> "$LOG"
 if ! python3 /usr/local/bin/sub2xray.py "$SUB" > /tmp/outs.new 2>>"$LOG"; then echo "fetch fail" >> "$LOG"; exit 0; fi
 CNT=$(python3 -c "import json; print(len(json.load(open('/tmp/outs.new'))))")
 if [ "$CNT" -lt 5 ]; then echo "too few $CNT" >> "$LOG"; exit 0; fi
 mv /tmp/outs.new /tmp/outs.json
 cp -f /tmp/outs.json /app/hamzaban/.xray/outs.json 2>&1 | head || true
-K=$(PYTHONPATH=/app/hamzaban python3 -c "from services.db import get_active_preset, resolve_preset_key; print(resolve_preset_key(get_active_preset()))" 2>/dev/null || cat /app/hamzaban/.xray/k2 2>/dev/null || echo "")
-MODEL=$(PYTHONPATH=/app/hamzaban python3 -c "from services.db import get_active_preset; import services.ai.preset_fields as pf; print(pf.resolve(get_active_preset(),'model'))" 2>/dev/null || echo "gemini-3.5-flash-lite")
+K=$(PYTHONPATH=/app/hamzaban python3 -c "from services.db import get_active_preset, resolve_preset_key; print(resolve_preset_key(get_active_preset()) or '')" 2>/dev/null || echo "")
+MODEL=$(PYTHONPATH=/app/hamzaban python3 -c "from services.db import get_active_preset; import services.ai.preset_fields as pf; v=pf.resolve(get_active_preset(),'model'); print(v if v else '')" 2>/dev/null || echo "")
+if [ -z "$MODEL" ]; then MODEL=$(PYTHONPATH=/app/hamzaban python3 -c "from config import DEFAULT_AI_MODEL; print(DEFAULT_AI_MODEL)" 2>/dev/null || echo ""); fi
 if [ -z "$K" ]; then echo "no K" >> "$LOG"; exit 0; fi
+if [ -z "$MODEL" ]; then echo "no MODEL" >> "$LOG"; exit 0; fi
 export K; export MODEL
 python3 << 'PY' 2>&1 | tee -a "$LOG"
 import json, subprocess, time, pathlib, os
-outs=json.load(open("/tmp/outs.json"))
+with open("/tmp/outs.json") as f:
+    outs=json.load(f)
 K=os.environ["K"]; MODEL=os.environ["MODEL"]
 clean=[]
 for o in outs:
@@ -36,17 +40,20 @@ for o in outs:
     finally:
         proc.terminate()
         try: proc.wait(timeout=2)
-        except: proc.kill()
+        except subprocess.TimeoutExpired: proc.kill()
         time.sleep(0.2)
 open("/tmp/clean.json","w").write(json.dumps(clean))
 open("/app/hamzaban/.xray/clean.json","w").write(json.dumps(clean))
-open("/app/hamzaban/.xray/outs.json","w").write(json.dumps(clean))
 print(f"CLEAN {len(clean)}/{len(outs)}")
 PY
 if [ ! -s /tmp/clean.json ]; then echo "no clean" >> "$LOG"; exit 0; fi
 cp -f /tmp/clean.json /app/hamzaban/.xray/clean.json 2>&1 | head || true
 python3 /usr/local/bin/rebuild-xray.py 2>>"$LOG"
-timeout 3 xray run -c /app/hamzaban/.xray/config.json > /tmp/xray_test.log 2>&1 & sleep 2; pkill -f "xray.*xray_test" 2>&1 | head
+timeout 3 xray run -c /app/hamzaban/.xray/config.json > /tmp/xray_test.log 2>&1 & sleep 2; pkill -f "xray.*config.json" 2>&1 | head || true
 if grep -q "Failed" /tmp/xray_test.log; then echo "config test failed" >> "$LOG"; exit 1; fi
-if command -v supervisorctl >/dev/null 2>&1; then supervisorctl restart xray 2>&1 | head || pkill -f "xray run" || true; sleep 1; nohup /usr/local/bin/xray run -c /app/hamzaban/.xray/config.json > /var/log/xray.log 2>&1 & else pkill -f "xray run" || true; sleep 1; nohup /usr/local/bin/xray run -c /app/hamzaban/.xray/config.json > /var/log/xray.log 2>&1 & fi
+if command -v supervisorctl >/dev/null 2>&1; then
+  supervisorctl restart xray 2>&1 | head || { pkill -f "xray run" || true; sleep 1; nohup /usr/local/bin/xray run -c /app/hamzaban/.xray/config.json > /var/log/xray.log 2>&1 & }
+else
+  pkill -f "xray run" || true; sleep 1; nohup /usr/local/bin/xray run -c /app/hamzaban/.xray/config.json > /var/log/xray.log 2>&1 &
+fi
 sleep 2; pgrep -f "xray" && echo "$(date) ok $(python3 -c "import json; print(len(json.load(open('/app/hamzaban/.xray/clean.json'))))") nodes" >> "$LOG"

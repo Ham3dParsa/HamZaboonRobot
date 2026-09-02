@@ -3,6 +3,7 @@ set -euo pipefail
 # HamZaban - persistent Xray bootstrap for Chabokan Python hosting
 # Runs on every deploy, before app start. Idempotent.
 export DEBIAN_FRONTEND=noninteractive
+BASE_ROOT="${BASE_ROOT:-/app/hamzaban}"
 XRAY_DIR="/app/hamzaban/.xray"
 mkdir -p "$XRAY_DIR" /var/log/xray
 # Ensure log file exists for supervisor/cron
@@ -22,8 +23,9 @@ if ! command -v xray >/dev/null 2>&1; then
   rm -f /tmp/xray.zip
 fi
 
-# 2) Ensure cron is running (container has no systemd)
+# 2) Ensure cron is running (container has no systemd) and install cron-jobs
 service cron start 2>&1 | head -5 || cron 2>&1 | head -5 || true
+if [ -f "$BASE_ROOT/cron-jobs" ]; then cp -f "$BASE_ROOT/cron-jobs" /etc/cron.d/xray-update && chmod 0644 /etc/cron.d/xray-update || true; fi
 
 # 3) Restore persistent subscription state and install helper scripts from repo
 [ -f "$XRAY_DIR/clean.json" ] && cp -f "$XRAY_DIR/clean.json" /tmp/clean.json || true
@@ -40,5 +42,18 @@ fi
 
 # 5) Verify proxy env (set in Chabokan dashboard, not console) - redact credentials
 if [ -z "$AI_PROXY_URL" ]; then echo "[chabok-pre-start] WARN: AI_PROXY_URL empty - geoblock bypass OFF"; else _host=$(echo "$AI_PROXY_URL" | sed -E 's|.*://||; s|.*@||; s|:.*||'); echo "[chabok-pre-start] AI_PROXY_URL set (host=$_host)"; fi
+
+# 6) Launch supervisord if available (supervisor installed above)
+if command -v supervisord >/dev/null 2>&1 && [ -f "$BASE_ROOT/supervisor.conf" ]; then
+  mkdir -p /var/run /var/log/supervisor
+  # install supervisor.conf to standard location if needed
+  if [ "$BASE_ROOT/supervisor.conf" != "/app/hamzaban/supervisor.conf" ]; then cp -f "$BASE_ROOT/supervisor.conf" /app/hamzaban/supervisor.conf 2>&1 | head || true; fi
+  if ! pgrep -f supervisord >/dev/null 2>&1; then
+    supervisord -c /app/hamzaban/supervisor.conf 2>&1 | head -5 || true
+  else
+    supervisorctl -c /app/hamzaban/supervisor.conf reread 2>&1 | head -5 || true
+    supervisorctl -c /app/hamzaban/supervisor.conf update 2>&1 | head -5 || true
+  fi
+fi
 
 echo "[chabok-pre-start] done"

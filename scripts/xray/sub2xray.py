@@ -2,6 +2,7 @@
 import base64
 import json
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -10,7 +11,12 @@ if len(sys.argv) < 2:
     sys.exit(1)
 sub = sys.argv[1]
 req = urllib.request.Request(sub, headers={"User-Agent": "Mozilla/5.0"})
-raw = urllib.request.urlopen(req, timeout=20).read()
+try:
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        raw = resp.read()
+except (urllib.error.URLError, urllib.error.HTTPError) as e:
+    print(f"fetch fail: {e}", file=sys.stderr)
+    sys.exit(1)
 try:
     txt = raw.decode().strip()
     txt += "=" * (-len(txt) % 4)
