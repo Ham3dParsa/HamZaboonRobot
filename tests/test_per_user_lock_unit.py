@@ -136,3 +136,18 @@ def test_check_and_is_limited_consistency():
         _record(uid, action, now=base + i * 0.2)
     assert _is_limited(uid, action, now=base + 1)
     assert _check(uid, action, now=base + 1) is False
+
+
+def test_srs_split_isolation():
+    uid = 6006
+    base = 6_000_000.0
+    for i in range(5):
+        _record(uid, "srs_grade_review", now=base + i * 0.1)
+    assert _is_limited(uid, "srs_grade_review", now=base + 1)
+    assert not _is_limited(uid, "srs_grade_first", now=base + 1)
+    # legacy alias still isolated
+    assert not _is_limited(uid, "srs_grade", now=base + 1)
+    for i in range(5):
+        _record(uid, "srs_grade_first", now=base + i * 0.1)
+    assert _is_limited(uid, "srs_grade_first", now=base + 1)
+    assert _is_limited(uid, "srs_grade_review", now=base + 1)
