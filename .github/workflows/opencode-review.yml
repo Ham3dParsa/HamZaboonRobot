@@ -63,4 +63,5 @@ jobs:
             Optional / defer:
             - [ ] file_path:line_number [info] description — defer reason
             Traps checked: list REVIEW.md traps verified (or "none relevant")
+            Footer (always at end of comment): Model: opencode/muse-spark-1.3-contributor-free · Tokens: input/output/cached (use actual run values)
             Update the summary comment in place. Set status to APPROVED only if zero [critical]/[warning].
