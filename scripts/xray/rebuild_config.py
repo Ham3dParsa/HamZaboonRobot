@@ -2,6 +2,7 @@
 import json
 import os
 import pathlib
+import sys
 
 # Use persistent clean list if available, fallback to outs
 src = "/app/hamzaban/.xray/clean.json"
@@ -13,6 +14,9 @@ if not pathlib.Path(src).exists():
     src = "/tmp/outs.json"
 with open(src) as f:
     outs = json.load(f)
+if not isinstance(outs, list) or len(outs) == 0:
+    print(f"rebuild_config: no nodes in {src} - abort, keep previous config", file=sys.stderr)
+    sys.exit(1)
 cfg = {
     "inbounds": [
         {"port": 1080, "protocol": "socks", "settings": {"auth": "noauth", "udp": True}},

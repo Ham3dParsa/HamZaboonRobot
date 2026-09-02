@@ -5,14 +5,19 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 BASE_ROOT="${BASE_ROOT:-/app/hamzaban}"
 XRAY_DIR="/app/hamzaban/.xray"
-mkdir -p "$XRAY_DIR" /var/log/xray
-# Ensure log file exists for supervisor/cron
+mkdir -p "$XRAY_DIR" /var/log/xray /var/log/supervisor
+# Ensure log file exists for supervisor/cron (canonical path /var/log/xray/xray.log)
 touch /var/log/xray/xray.log 2>&1 | head || true
 
-# 1) Install Xray if missing (console installs are ephemeral) - pin version + verify checksum
+# 1) Ensure supervisor/cron present even if xray cached
+if ! command -v supervisord >/dev/null 2>&1 || ! command -v cron >/dev/null 2>&1; then
+  apt-get update -qq
+  apt-get install -y --no-install-recommends cron supervisor || true
+fi
+# Install Xray if missing (console installs are ephemeral) - pin version + verify checksum
 if ! command -v xray >/dev/null 2>&1; then
   apt-get update -qq
-  apt-get install -y --no-install-recommends unzip curl ca-certificates cron supervisor
+  apt-get install -y --no-install-recommends unzip curl ca-certificates || true
   XRAY_VERSION="v26.3.27"
   XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip"
   curl -fsSL --retry 3 --connect-timeout 10 "$XRAY_URL" -o /tmp/xray.zip
