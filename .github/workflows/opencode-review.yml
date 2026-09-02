@@ -34,8 +34,8 @@ jobs:
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         with:
-          # Rule 2: Muse Spark 1.2 free via Zen (free, 82.9% Terminal, 1M/131K)
-          model: opencode/muse-spark-1.2-contributor-free
+          # Rule 2: Muse Spark 1.3 free via Zen
+          model: opencode/muse-spark-1.3-contributor-free
           # Rule 3: Strict + all focus + gate Warnings+ + REVIEW.md + fast
           prompt: |
             You are the HamZaboon PR reviewer. Be STRICT: flag all potential issues, prioritize quality and security.
