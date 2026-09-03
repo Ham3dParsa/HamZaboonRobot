@@ -1,0 +1,165 @@
+{
+  "rock": [
+    {
+      "sense_id": "rock#1",
+      "gloss": "To play, perform, or enjoy rock music, especially with a lot of skill ",
+      "score": 0.118,
+      "sense_cefr": "B2",
+      "topic": "Other / Abstract",
+      "tsrc": "keyword-other",
+      "merged_from": []
+    },
+    {
+      "sense_id": "rock#23",
+      "gloss": "To move gently back and forth.",
+      "score": 0.1157,
+      "sense_cefr": "B2",
+      "topic": "Other / Abstract",
+      "tsrc": "keyword-other",
+      "merged_from": [
+        "rock#22"
+      ]
+    },
+    {
+      "sense_id": "rock#39",
+      "gloss": "A crystal used to control the radio frequency.",
+      "score": 0.1157,
+      "sense_cefr": "B2",
+      "topic": "Other / Abstract",
+      "tsrc": "keyword-other",
+      "merged_from": []
+    },
+    {
+      "sense_id": "rock#4",
+      "gloss": "To sway or tilt violently back and forth.",
+      "score": 0.1067,
+      "sense_cefr": "B2",
+      "topic": "Other / Abstract",
+      "tsrc": "keyword-other",
+      "merged_from": []
+    }
+  ],
+  "light": [
+    {
+      "sense_id": "light#62",
+      "gloss": "any device serving as a source of illumination",
+      "score": 0.1483,
+      "sense_cefr": "A1",
+      "topic": "Other / Abstract",
+      "tsrc": "keyword-other",
+      "merged_from": []
+    },
+    {
+      "sense_id": "light#7",
+      "gloss": "demanding little effort; not burdensome",
+      "score": 0.1368,
+      "sense_cefr": "A1",
+      "topic": "Other / Abstract",
+      "tsrc": "keyword-other",
+      "merged_from": []
+    },
+    {
+      "sense_id": "light#21",
+      "gloss": "less than the correct or legal or full amount often deliberately so",
+      "score": 0.0907,
+      "sense_cefr": "B2",
+      "topic": "Other / Abstract",
+      "tsrc": "keyword-other",
+      "merged_from": []
+    },
+    {
+      "sense_id": "light#42",
+      "gloss": "(physics) electromagnetic radiation that can produce a visual sensatio",
+      "score": 0.0884,
+      "sense_cefr": "B2",
+      "topic": "Science & Technology",
+      "tsrc": "evp-domain",
+      "merged_from": []
+    }
+  ],
+  "pass": [
+    {
+      "sense_id": "pass#55",
+      "gloss": "An attempt.",
+      "score": 0.1004,
+      "sense_cefr": "A2",
+      "topic": "Other / Abstract",
+      "tsrc": "keyword-other",
+      "merged_from": []
+    },
+    {
+      "sense_id": "pass#8",
+      "gloss": "cause to pass",
+      "score": 0.0999,
+      "sense_cefr": "A2",
+      "topic": "Other / Abstract",
+      "tsrc": "keyword-other",
+      "merged_from": []
+    },
+    {
+      "sense_id": "pass#48",
+      "gloss": "a difficult juncture",
+      "score": 0.0984,
+      "sense_cefr": "A2",
+      "topic": "Other / Abstract",
+      "tsrc": "keyword-other",
+      "merged_from": []
+    },
+    {
+      "sense_id": "pass#25",
+      "gloss": "a complimentary ticket",
+      "score": 0.096,
+      "sense_cefr": "A2",
+      "topic": "Other / Abstract",
+      "tsrc": "keyword-other",
+      "merged_from": []
+    }
+  ],
+  "flat": [
+    {
+      "sense_id": "flat#14",
+      "gloss": "A complete domicile occupying only part of a building, especially one ",
+      "score": 0.1093,
+      "sense_cefr": "B1",
+      "topic": "Other / Abstract",
+      "tsrc": "keyword-other",
+      "merged_from": []
+    },
+    {
+      "sense_id": "flat#5",
+      "gloss": "in a forthright manner; candidly or frankly",
+      "score": 0.0979,
+      "sense_cefr": "B1",
+      "topic": "Other / Abstract",
+      "tsrc": "keyword-other",
+      "merged_from": []
+    },
+    {
+      "sense_id": "flat#20",
+      "gloss": "The most prominent flat part of something.",
+      "score": 0.0974,
+      "sense_cefr": "A2",
+      "topic": "Other / Abstract",
+      "tsrc": "keyword-other",
+      "merged_from": []
+    },
+    {
+      "sense_id": "flat#40",
+      "gloss": "having a surface without slope, tilt in which no part is higher or low",
+      "score": 0.0888,
+      "sense_cefr": "A2",
+      "topic": "Other / Abstract",
+      "tsrc": "keyword-other",
+      "merged_from": []
+    },
+    {
+      "sense_id": "flat#13",
+      "gloss": "stretched out and lying at full length along the ground",
+      "score": 0.084,
+      "sense_cefr": "A2",
+      "topic": "Other / Abstract",
+      "tsrc": "keyword-other",
+      "merged_from": []
+    }
+  ]
+}

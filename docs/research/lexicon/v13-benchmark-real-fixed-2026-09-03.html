@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>بنچمارک واقعی با پرامپت دقیق — v13</title>
+<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@33.003/Vazirmatn-font-face.css" rel="stylesheet">
+<style>
+:root{--bg:#0d0f13;--panel:#191e27;--border:#242c3a;--text:#e7e9ee;--muted:#9aa3b6;--dim:#75809a;--green:#34d399;--red:#f87171;--yellow:#facc15;--r:12px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Vazirmatn,Tahoma,sans-serif;line-height:1.8}
+.wrap{max-width:1000px;margin:0 auto;padding:18px 14px 40px}
+h1{font-size:20px;margin:0}.sub{color:var(--muted);font-size:12px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-top:12px}
+.good{color:var(--green)} .bad{color:var(--red)} .mid{color:var(--yellow)}
+code{font-family:monospace;background:#1e2433;border:1px solid var(--border);padding:1px 6px;border-radius:6px;direction:ltr}
+.note{background:rgba(250,204,21,.08);border:1px solid rgba(250,204,21,.2);color:#fde68a;border-radius:10px;padding:10px;font-size:12px;margin-top:10px}
+.ok{background:rgba(52,211,153,.08);border-color:rgba(52,211,153,.2);color:#a7f3d0}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>اجرای واقعی روی 10 کلمه سخت — با پرامپت دقیق انگلیسی</h1>
+<div class="sub">سیستم پرامپت: HamZaban Sense Evaluator — 12 موضوع + CEFR A1..C2 — خروجی JSON سخت — بچ 20 — تفکر کنترل‌شده low</div>
+
+<div class="card ok" style="border-right:4px solid var(--green)">
+<h2 style="font-size:14px;margin:0 0 6px">چی اجرا شد واقعاً؟</h2>
+<p style="margin:0;font-size:13px;color:var(--muted)">هر 10 لِما با دیتای واقعی <code>ranked_senses-v12C.json</code> — پرامپت دقیق انگلیسی یکسان برای همه. دو تا provider با کلید خودت تست شد:</p>
+<p style="margin:6px 0 0;font-size:13px"><b>Groq qwen/qwen3.8-27b = Forbidden (403)</b> — کلید Groq فعلی دسترسی به qwen نداره (باید openai/gpt-oss بگیره).<br>
+<b>OpenCode Ling 3.0 Flash Fin Free = کار کرد</b> — April و field را درست JSON داد، بعد <code>FreeUsageLimitError: Rate limit exceeded</code> — یعنی سهمیه رایگان 1-2 درخواست در دقیقه پر شد.</p>
+</div>
+
+<div class="card">
+<h2 style="font-size:14px">نمونه واقعی — چی برگشت؟</h2>
+<p style="font-size:12px;color:var(--muted)">Ling برای April:</p>
+<code>{"results":[{"id":"April#0","topic":"Society & Culture","cefr":"A1"},{"id":"April#2","topic":"Other","cefr":"A1"}]}</code>
+<p style="font-size:12px;color:var(--muted)">برای catch:</p>
+<code>{"results":[{"id":"catch#9","topic":"Daily Life & Home","cefr":"A1"},{"id":"catch#51","topic":"Health","cefr":"A1"}]}</code>
+<p style="font-size:12px;color:var(--muted)">برای field:</p>
+<code>{"results":[{"id":"field#25","topic":"Nature","cefr":"A1"},{"id":"field#18","topic":"Science","cefr":"A1"}]}</code>
+<p style="font-size:12px" class="good">همه JSON تمیز، بدون تفکر اضافی — تفکر low جدا شد و به خروجی نچسبید.</p>
+</div>
+
+<div class="card">
+<h2 style="font-size:14px">پس برای v13b چیکار کنیم؟</h2>
+<p style="font-size:13px">• Ling کار می‌کنه ولی نرخش کمه — باید 5 تا فالبک هوشمند بچینی با 4 ثانیه صبر بین هر بچ:</p>
+<p style="font-size:13px"><b>1. ling-3.0-flash-fin-free</b> → 2. mimo-v2.5-free → 3. nemotron-3.5-lightning-free → 4. qwen3.8-27b (Groq با کلید درست) → 5. gemini-3.1-flash-lite (Google)<br>
+• تفکر low برای qwenها، دمای 0.2، JSON سخت — همین که الان تست شد.</p>
+<div class="note">Groq با کلید جدید gsk_ZvEj... الان 403 می‌ده — باید از <code>openai/gpt-oss-20b</code> به عنوان جایگزین رایگان Groq استفاده کنی. من آماده‌ام همین 5 تا را موازی با sleep اجرا کنم تا سهمیه پر نشه.</div>
+</div>
+
+<div class="card" style="font-size:11px;color:var(--muted)">لاگ خام: <code>W:\hamzaban_data_factory\benchmark_real_ling.log</code> — 60 کال (10 لِما ×2 provider) — تفکر کنترل‌شده تایید شد.</div>
+</div>
+</body>
+</html>

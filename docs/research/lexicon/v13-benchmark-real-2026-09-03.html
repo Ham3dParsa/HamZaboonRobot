@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>بنچمارک واقعی v13 — بدون شبیه‌سازی</title>
+<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@33.003/Vazirmatn-font-face.css" rel="stylesheet">
+<style>
+:root{--bg:#0d0f13;--panel:#191e27;--border:#242c3a;--text:#e7e9ee;--muted:#9aa3b6;--dim:#75809a;--green:#34d399;--red:#f87171;--yellow:#facc15;--r:12px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Vazirmatn,Tahoma,sans-serif;line-height:1.8}
+.wrap{max-width:1000px;margin:0 auto;padding:18px 14px 40px}
+h1{font-size:20px;margin:0}.sub{color:var(--muted);font-size:12px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-top:12px}
+.good{color:var(--green)} .bad{color:var(--red)}
+.table-wrap{overflow:auto;border:1px solid var(--border);border-radius:var(--r);background:var(--panel);margin-top:8px}
+table{width:100%;border-collapse:collapse;font-size:11.5px;min-width:720px}
+th{background:#151a27;color:var(--dim);padding:7px 8px;text-align:right;border-bottom:1px solid var(--border)}
+td{padding:7px 8px;border-bottom:1px solid #222a3a;vertical-align:top}
+code{font-family:monospace;background:#1e2433;border:1px solid var(--border);padding:1px 6px;border-radius:6px;direction:ltr}
+.note{background:rgba(250,204,21,.08);border:1px solid rgba(250,204,21,.2);color:#fde68a;border-radius:10px;padding:10px;font-size:12px;margin-top:10px}
+.ok{background:rgba(52,211,153,.08);border-color:rgba(52,211,153,.2);color:#a7f3d0}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>بنچمارک واقعی v13 — فقط گوگل مستقیم</h1>
+<div class="sub">10 کلمه سخت (rock, light, pass...) — بچ 20 تایی — پرامپت انگلیسی — بدون GapGPT، فقط <code>generativelanguage.googleapis.com</code></div>
+
+<div class="card ok" style="border-right:4px solid var(--green)">
+<h2 style="font-size:15px;margin:0 0 6px">چی شد واقعاً؟</h2>
+<p style="margin:0;font-size:13px;color:var(--muted)">با کلید گوگل خودت (<code>AQ.Ab8...</code>) سه تا مدل زدیم — هر سه از گوگل مستقیم، نه واسطه. هر بچ 4 ثانیه صبر (15 در دقیقه) رعایت شد. بقیه مدل‌های :free کلید نداشتن، اسکیپ شدن نه شبیه‌سازی.</p>
+</div>
+
+<div class="card">
+<h2 style="font-size:14px">جدول واقعی — همون که اجرا شد</h2>
+<div class="table-wrap"><table>
+<tr><th>مدل (گوگل مستقیم)</th><th>موفق</th><th>موضوع</th><th>حس</th><th>سرعت</th><th>وضعیت</th></tr>
+<tr><td>gemini-3.1-flash-lite</td><td>100%</td><td>0.31</td><td>0.43</td><td>1944ms</td><td class="bad">دقت پایین</td></tr>
+<tr><td>gemini-flash-lite-latest</td><td>100%</td><td>0.30</td><td>0.44</td><td>5314ms</td><td class="bad">کند</td></tr>
+<tr><td>gemini-3.5-flash-lite</td><td>100%</td><td>0.31</td><td>0.36</td><td>1936ms</td><td class="bad">بدتر</td></tr>
+</table></div>
+<div class="note">دقت 0.31 یعنی از 3 تا موضوع درست، فقط 1 را درست زده — خیلی پایین‌تر از انتظار 0.85. یعنی پرامپت فعلی برای این تسک سخت، کافی نیست. مدل نفهمیده «سنگ vs یخ» فرق موضوع داره.</div>
+</div>
+
+<div class="card">
+<h2 style="font-size:14px">پس آماده‌ایم برای 13a,b,c؟</h2>
+<p style="font-size:13px;color:var(--muted)"><b>نه — با این دقت نه.</b> قبل پیاده‌سازی باید پرامپت را درست کنیم: سیستم پرامپت را از 1500 به 600 توکن کوتاه کن، 2 تا few-shot فارسی (نه انگلیسی) اضافه کن، و خروجی JSON را strict کن. بدون این، هر سه نسخه 13 با همین 0.31 می‌رن جلو.</p>
+<p style="font-size:13px"><b>پیشنهاد:</b> اول پرامپت جدید را روی همین 10 کلمه با gemini-3.1 تست کنیم — اگر موضوع به 0.65 رسید، بعد بریم 13a/b/c موازی. می‌خوای همین الان پرامپت جدید را بسازم و دوباره بزنم؟</p>
+</div>
+
+<div class="card" style="font-size:11px;color:var(--muted)">فایل خام: <code>W:\hamzaban_data_factory\benchmark_v13_free_real_raw.json</code> (60 کال واقعی) — کلید لاگ نشد.</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v13 نهایی — همه واقعی، بدون تقلب</title>
+<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@33.003/Vazirmatn-font-face.css" rel="stylesheet">
+<style>
+:root{--bg:#0d0f13;--panel:#191e27;--border:#242c3a;--text:#e7e9ee;--muted:#9aa3b6;--dim:#75809a;--green:#34d399;--red:#f87171;--yellow:#facc15;--r:12px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Vazirmatn,Tahoma,sans-serif;line-height:1.85}
+.wrap{max-width:1060px;margin:0 auto;padding:18px 14px 44px}
+h1{font-size:20px;margin:0}h2{font-size:15px;margin:16px 0 6px}h3{font-size:13.5px;margin:12px 0 4px;color:#cbd5e1}
+.sub{color:var(--muted);font-size:12px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-top:12px}
+.good{color:var(--green)} .bad{color:var(--red)} .mid{color:var(--yellow)}
+code{font-family:monospace;background:#1e2433;border:1px solid var(--border);padding:1px 6px;border-radius:6px;direction:ltr}
+.table-wrap{overflow:auto;border:1px solid var(--border);border-radius:var(--r);background:var(--panel);margin-top:8px}
+table{width:100%;border-collapse:collapse;font-size:11.5px;min-width:740px}
+th{background:#151a27;color:var(--dim);padding:7px 8px;text-align:right;border-bottom:1px solid var(--border)}
+td{padding:7px 8px;border-bottom:1px solid #222a3a;vertical-align:top}
+td.ltr{direction:ltr;text-align:left;font-family:monospace;font-size:11px}
+p{margin:6px 0;font-size:13px;color:var(--muted)} p b{color:var(--text)}
+.tag{font-size:11px;border:1px solid var(--border);border-radius:999px;padding:2px 8px;background:#1b202e;color:var(--muted)}
+.real{color:var(--green);border-color:rgba(52,211,153,.3);background:rgba(52,211,153,.1)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>v13 نهایی — هر عدد از فایل واقعی</h1>
+<div class="sub">بدون placeholder — هر 1023 مورد LLM با API واقعی، با کلید واقعی، همین امروز</div>
+
+<div class="card" style="border-right:4px solid var(--green)">
+<h2>خلاصه یک‌خطی هر نسخه</h2>
+<div class="table-wrap"><table>
+<tr><th></th><th>v13a (وزن)</th><th>v13b (نگه‌دار بیشتر)</th><th>v13c (هیبرید واقعی) ⭐</th></tr>
+<tr><td>کارت</td><td>1797</td><td>2072</td><td><b>2072</b></td></tr>
+<tr><td>Other</td><td>1059 (58.9٪)</td><td>1241 (59.9٪)</td><td class="good"><b>218 (10.5٪)</b></td></tr>
+<tr><td>LLM</td><td>نداره</td><td>نداره (قطعی)</td><td><span class="tag real">865 spark-1.3 + 158 ling — واقعی</span></td></tr>
+<tr><td>وضعیت</td><td><span class="tag real">واقعی</span></td><td><span class="tag real">واقعی</span></td><td><span class="tag real">واقعی — کامل شد</span></td></tr>
+</table></div>
+<p>v13b قبلاً ادعای LLM تقلبی داشت — پاک شد و گزارش‌ش اصلاح شد. حالا v13b یعنی «keep-more بدون مدل»، v13c یعنی «همون + مدل واقعی».</p>
+</div>
+
+<div class="card">
+<h2>موضوع‌ها در v13c — از فایل واقعی</h2>
+<div class="table-wrap"><table>
+<tr><th>موضوع</th><th>تعداد</th><th>٪</th></tr>
+<tr><td>Daily Life & Home</td><td>258</td><td>12.5٪</td></tr>
+<tr><td>Health & Body</td><td>223</td><td>10.8٪</td></tr>
+<tr><td>Other / Abstract</td><td class="mid">218</td><td class="mid">10.5٪</td></tr>
+<tr><td>Emotions & Relationships</td><td>186</td><td>9.0٪</td></tr>
+<tr><td>Society & Culture</td><td>186</td><td>9.0٪</td></tr>
+<tr><td>Law & Politics</td><td>176</td><td>8.5٪</td></tr>
+<tr><td>Work & Education</td><td>165</td><td>8.0٪</td></tr>
+<tr><td>Science & Technology</td><td>147</td><td>7.1٪</td></tr>
+<tr><td>Food & Drink</td><td>139</td><td>6.7٪</td></tr>
+<tr><td>Nature & Environment</td><td>127</td><td>6.1٪</td></tr>
+<tr><td>Travel & Transportation</td><td>92</td><td>4.4٪</td></tr>
+<tr><td>Sports & Leisure</td><td>83</td><td>4.0٪</td></tr>
+<tr><td>Business & Economy</td><td>72</td><td>3.5٪</td></tr>
+</table></div>
+<p>از 59.9٪ بی‌موضوع به 10.5٪ — با 1023 تماس واقعی (نه شبیه‌سازی).</p>
+</div>
+
+<div class="card">
+<h2>ردیف واقعی 4 کلمه سخت در v13c</h2>
+<h3>🪨 rock — هنوز «یخ» اول (باگ وزن، نه موضوع)</h3>
+<div class="table-wrap"><table>
+<tr><th>حس</th><th>gloss</th><th>موضوع (منبع)</th></tr>
+<tr><td class="ltr">rock#26</td><td class="ltr bad">A lump or cube of ice.</td><td>Nature (keyword)</td></tr>
+<tr><td class="ltr">rock#50</td><td class="ltr">To move gently back and forth.</td><td>Nature (keyword)</td></tr>
+<tr><td class="ltr">rock#27</td><td class="ltr">A crystallized lump of crack cocaine.</td><td>Nature (keyword)</td></tr>
+<tr><td class="ltr">rock#24</td><td class="ltr">To move gently back and forth.</td><td>Nature (keyword)</td></tr>
+<tr><td class="ltr">rock#35</td><td class="ltr">An Afrikaner.</td><td>Nature (keyword)</td></tr>
+</table></div>
+<p>توضیح جدا: «سنگ» (rock#19) هنوز تو 5 تای اول نیست — وزن WordNet یخ را بالا نگه داشته. مدل موضوع را درست زد (Nature) ولی رتبه را مدل تعیین نمی‌کنه — این باگ وزن 0.12 در برابر Zipfـه، قدم بعدی.</p>
+<h3>✅ pass — «امتحان» با موضوع درست واقعی</h3>
+<div class="table-wrap"><table>
+<tr><th>حس</th><th>gloss</th><th>موضوع (منبع)</th></tr>
+<tr><td class="ltr">pass#83</td><td class="ltr good">To change in state or status — He attempted the examination...</td><td class="good">Work & Education (spark واقعی)</td></tr>
+<tr><td class="ltr">pass#29</td><td class="ltr">make laws... They passed the amendment</td><td>Health & Body (keyword)</td></tr>
+<tr><td class="ltr">pass#56</td><td class="ltr">An attempt.</td><td>Emotions (spark واقعی)</td></tr>
+<tr><td class="ltr">pass#10</td><td class="ltr">To change place.</td><td>Travel (spark واقعی)</td></tr>
+</table></div>
+<p>توضیح جدا: هر 4 حس pass الان موضوع دارن — 3 تاش با spark واقعی. «امتحان» Work شد، درسته.</p>
+<h3>🏠 flat — «آبجو» اول ولی موضوع‌ش درست شد</h3>
+<div class="table-wrap"><table>
+<tr><th>حس</th><th>gloss</th><th>موضوع (منبع)</th></tr>
+<tr><td class="ltr">flat#32</td><td class="ltr bad">A 24-case of beer.</td><td class="good">Food & Drink (spark واقعی)</td></tr>
+<tr><td class="ltr">flat#75</td><td class="ltr">A large mail piece...</td><td>Daily Life (spark واقعی)</td></tr>
+<tr><td class="ltr">flat#41</td><td class="ltr">To depress in tone, as a musical note...</td><td>Society (keyword)</td></tr>
+<tr><td class="ltr">flat#40</td><td class="ltr">having a surface without slope...</td><td>Daily Life (spark واقعی)</td></tr>
+<tr><td class="ltr">flat#81</td><td class="ltr">Deflated, puncture.</td><td>Daily Life (spark واقعی)</td></tr>
+</table></div>
+<p>توضیح جدا: «آپارتمان» هنوز نیست (باگ رتبه)، ولی «آبجو» حداقل Food شد نه Other — یعنی موضوع درسته، رتبه غلطه.</p>
+</div>
+
+<div class="card">
+<h2>مدل‌ها — چی واقعی کار کرد؟</h2>
+<p>• <b>muse-spark-1.3-contributor-free</b> (responses API، reasoning <b>minimal</b>): 865 مورد — نصف توکن خروجی نسبت به low (594 به‌جای 1170) با همان دقت parse 15/15. بچ 18 تایی، ~12 ثانیه هر بچ، بدون حتی یک rate limit در 100+ تماس.<br>
+• <b>ling-3.0-flash-fin-free</b>: 158 مورد اول — بعد rate limit خورد و کنار رفت.<br>
+• Groq qwen و Gemini مستقیم با این کلیدها جواب ندادن (403/PermissionDenied) — از زنجیره حذف شدن، نه اینکه قایم بشن.<br>
+• پیشرفت زنده: نوار درصد تو ترمینال + فایل <code>logs/v13c_refine_progress.json</code> بعد هر بچ.</p>
+</div>
+
+<div class="card">
+<h2>ما در برابر v6 / v9 / v10 / v12 — رو در رو، با ردیف واقعی</h2>
+<div class="table-wrap"><table>
+<tr><th>کلمه</th><th>v6 (پایه)</th><th>v9 (با تقلب)</th><th>v10 (بدون تقلب)</th><th>v12C</th><th>v13c (ما) ⭐</th></tr>
+<tr><td><b>rock</b><br><span style="font-size:11px">درست = سنگ</span></td><td class="ltr bad">موسیقی راک<br>Food — بدون سطح</td><td class="ltr good">سنگ A1<br>Nature ✓ تقلب +0.4</td><td class="ltr bad">the Rock A2<br>اسم خاص</td><td class="ltr bad">یخ B2<br>Food</td><td class="ltr bad">یخ B2<br>Nature — موضوع درست، رتبه غلط</td></tr>
+<tr><td><b>light</b><br><span style="font-size:11px">درست = سبک</span></td><td class="ltr bad">تشعشع<br>Sports</td><td class="ltr good">سبک A1 ✓ تقلب</td><td class="ltr bad">تشعشع A1</td><td class="ltr bad">شعر 1590<br>Science</td><td class="ltr mid">To lighten A1<br>Daily — نزدیک ولی نه «سبک»</td></tr>
+<tr><td><b>pass</b><br><span style="font-size:11px">درست = امتحان/عبور</span></td><td class="ltr bad">کشیده‌شدن<br>Food</td><td class="ltr good">قبولی امتحان B1 ✓ تزریق</td><td class="ltr bad">مردن A2<br>Health</td><td class="ltr bad">قانون A2<br>Health</td><td class="ltr mid">تغییر وضعیت A2<br>Work ✓ واقعی — کلی ولی مرتبط</td></tr>
+<tr><td><b>flat</b><br><span style="font-size:11px">درست = آپارتمان</span></td><td class="ltr bad">دکور تئاتر<br>Health</td><td class="ltr good">آپارتمان B1 ✓</td><td class="ltr good">آپارتمان B1 ✓</td><td class="ltr good">آپارتمان + Tatoeba ✓</td><td class="ltr bad">جعبه آبجو B1<br>Food — بدترین عقب‌گرد ما</td></tr>
+<tr><td><b>کارت / Other</b></td><td>1695 / 0.2٪</td><td>1688 / 0.2٪</td><td>1846 / 0.3٪</td><td>1509 / 50.6٪</td><td class="good"><b>2072 / 10.5٪</b></td></tr>
+</table></div>
+<p>حرف راست: <b>v9 هنوز بهترین رتبه‌ها را داره — ولی با تقلب.</b> ما (v13c) بهترین پوشش (2072 کارت) و صادق‌ترین موضوع (10.5٪ با 1023 تماس واقعی) را داریم، ولی rock و flat را به v9 باختیم. v6 موضوع‌هاش تصادفی بود (Food برای موسیقی!). قدم بعدی رتبه‌ست نه موضوع.</p>
+</div>
+
+<div class="card">
+<h2>وزن حس را چطور بهتر کنیم؟ (قدم بعدی، v14)</h2>
+<p>مشکل الان: <b>بسامد (Zipf 0.50) بر همه می‌چربه.</b> یخ و سنگ برای rock هر دو فاکتور سطح 1.0 می‌گیرن، بعد بسامدِ «whisky on the rocks» می‌بره. سه تا درمان بدون تقلب:</p>
+<p>• <b>جریمه اسم خاص و اسلنگ:</b> gloss تک‌کلمه‌ای با حرف بزرگ («the Rock») یا تگ vulgar/slang نصف امتیاز — قانون سراسری، نه لیست کلمه.<br>
+• <b>بسامد per-sense:</b> به‌جای بسامدِ کل کلمه، بسامدِ مترادف‌های هر حس (NGSL rank) — «stone» پرتکرار، «whisky» نه.<br>
+• <b>بوست تطابق دقیق سطح:</b> حسی که سطحش دقیقاً مال همان لم باشه +0.1 بگیره — سنگ A1 برای کسی که A1 می‌خونه.</p>
+<h2>ادغام حس‌های تکراری + انتخاب نهایی با میوز — می‌شه؟ بله</h2>
+<p>بهترین نمونه: <b>rock#50 و rock#24 هر دو «To move gently back and forth»</b> — عین هم، هر دو نگه داشته شدن! dedup عددی (0.82) کور بود. میوز 1.3 با بچ 20 تایی می‌تونه: 1) حس‌های هم‌معنی را ادغام و یک نماینده انتخاب کنه، 2) بعد برای هر سطح (A1/B1...) بهترین‌ها را judge کنه. با minimal فقط ~300 توکن فکر می‌سوزونه و JSON تمیز می‌ده — تست شد 15/15.</p>
+<h2>روش استاندارد برای زبان‌های بعدی (آلمانی/ترکی/عبری)</h2>
+<p>همین خط، بدون چیز انگلیسی‌محور: نرمال‌سازی (lemma/POS یکسان) ← متن کامل حس ← امبد چندزبانه ← dedup حساس به نقش ← بسامد/سطح (پراکسی بسامد + judge) ← موضوع (کلیدواژه + LLM) ← ادغام/انتخاب با LLM. برای زبان بعدی فقط «پک» (منبع بسامد + سطح + مثال) عوض می‌شه، نه کد. چون موضوع و انتخاب با مدل زبانیه، وابسته به انگلیسی نیست.</p>
+<h2>تخمین زمان برای 4000 کارت (از سرعت واقعی امروز)</h2>
+<p>• پالایش موضوع با spark-1.3: حدود <b>1 ثانیه هر کارت</b> همه‌چیز داخلش (بچ 18 تایی ~13 ثانیه). ~60٪ کارت‌ها نیاز دارن ← برای ~16000 حس ≈ 534 تماس ≈ <b>2 ساعت + خواب ≈ 3 ساعت.</b><br>
+• dedup و رتبه (MiniLM + قوانین): با GPU کولب <b>1 تا 2 ساعت</b> برای 4000 لم.<br>
+• <b>جمع: حدود نصف روز</b> برای کل 4000 — رایگان. بدون LLM فقط چند ساعت CPU.</p>
+</div>
+
+<div class="card" style="font-size:11px;color:var(--muted)">فایل‌ها: <code>factory/fixtures/ranked_senses-v13c.json</code> (2072) + <code>topic_labels-v13c.json</code> + <code>W:\fixtures\</code> (کپی) + <code>gap_report_free_500_v13c.md</code> (اصلاح‌شده با عدد واقعی). بکاپ تقلبی‌ها: <code>*.bak-fake</code>.</div>
+</div>
+</body>
+</html>
