@@ -1,2 +1,2 @@
-0 */6 * * * /usr/local/bin/update_xray_subscription.sh >> /var/log/xray_update.log 2>&1
-* * * * * pgrep -f "xray run" > /dev/null || { test -x /usr/local/bin/xray && test -s /app/hamzaban/.xray/config.json && /usr/local/bin/xray run -c /app/hamzaban/.xray/config.json >> /var/log/xray/xray.log 2>&1 & }
+0 */6 * * * root /usr/local/bin/update_xray_subscription.sh >> /var/log/xray_update.log 2>&1
+* * * * * root pgrep -f "[x]ray run" > /dev/null || { supervisorctl start xray 2>/dev/null || { test -x /usr/local/bin/xray && test -s /app/hamzaban/.xray/config.json && /usr/local/bin/xray run -c /app/hamzaban/.xray/config.json >> /var/log/xray/xray.log 2>&1 & }; }
