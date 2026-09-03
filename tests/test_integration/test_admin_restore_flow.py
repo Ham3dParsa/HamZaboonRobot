@@ -6,7 +6,7 @@ import unittest
 from contextlib import closing
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from handlers.admin import auto_backup_job, cmd_backup, handle_restore_doc
+from handlers.admin_backup import auto_backup_job, cmd_backup, handle_restore_doc
 from services import db
 from services.db import schema as db_schema
 
@@ -52,8 +52,8 @@ class AdminRestoreFlowTests(unittest.IsolatedAsyncioTestCase):
         context.user_data = {"awaiting": "admin_restore"}
 
         with (
-            patch("handlers.admin.is_owner", return_value=True),
-            patch("handlers.admin.DB_PATH", self.live_path),
+            patch("handlers.admin_backup.is_owner", return_value=True),
+            patch("handlers.admin_backup.DB_PATH", self.live_path),
         ):
             await handle_restore_doc(update, context)
 
@@ -71,7 +71,7 @@ class AdminRestoreFlowTests(unittest.IsolatedAsyncioTestCase):
         context = MagicMock()
         context.bot.send_document = AsyncMock()
 
-        with patch("handlers.admin.is_owner", return_value=True):
+        with patch("handlers.admin_backup.is_owner", return_value=True):
             await cmd_backup(update, context)
 
         document = context.bot.send_document.await_args.kwargs["document"]
@@ -103,8 +103,8 @@ class AdminRestoreFlowTests(unittest.IsolatedAsyncioTestCase):
         worker = AsyncMock(side_effect=run_in_worker)
 
         with (
-            patch("handlers.admin.DB_PATH", self.live_path),
-            patch("handlers.admin.asyncio.to_thread", worker),
+            patch("handlers.admin_backup.DB_PATH", self.live_path),
+            patch("handlers.admin_backup.asyncio.to_thread", worker),
             patch("services.archive.asyncio.to_thread", worker),
             patch("services.archive.resolved_archive_chat_id", return_value=-100123456789),
         ):
@@ -129,11 +129,10 @@ class AdminRestoreFlowTests(unittest.IsolatedAsyncioTestCase):
         context2.bot.send_document = AsyncMock()
         with (
             patch("services.archive.resolved_archive_chat_id", return_value=None),
-            patch("handlers.admin.db.get_bool_setting", return_value=True),
+            patch("handlers.admin_backup.db.get_bool_setting", return_value=True),
             patch("config.OWNER_ID", 0),
         ):
-            # need to ensure handlers.admin sees OWNER_ID==0 via imported alias _OID
-            import handlers.admin as admin_mod
+            import handlers.admin_backup as admin_mod
             orig_oid = admin_mod.__dict__.get("_OID", None)
             # auto_backup_job imports OWNER_ID inside function, so patching config.OWNER_ID suffices
             await admin_mod.auto_backup_job(context2)
@@ -145,10 +144,14 @@ class AdminRestoreFlowTests(unittest.IsolatedAsyncioTestCase):
 
         registered = {p for (p, _, _) in ROUTES}
         self.assertIn("admin", registered)
-        text = Path("handlers/admin.py").read_text(encoding="utf-8")
-        self.assertIn("backup_restore", text)
-        self.assertNotIn('action == "backup"', text)
-        self.assertNotIn('action == "restore"', text)
+        admin_text = Path("handlers/admin.py").read_text(encoding="utf-8")
+        backup_text = Path("handlers/admin_backup.py").read_text(encoding="utf-8")
+        # Thin dispatcher delegates; leaf branches live in the sub-router.
+        self.assertIn("handle_admin_backup_callback", admin_text)
+        self.assertNotIn("def handle_admin_backup_callback", admin_text)
+        self.assertNotIn("def cmd_backup", admin_text)
+        self.assertNotIn("def auto_backup_job", admin_text)
+        self.assertNotIn('action == "restore"', admin_text)
 
 
 if __name__ == "__main__":

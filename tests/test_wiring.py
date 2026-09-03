@@ -474,12 +474,13 @@ def _collect_router_handlers() -> set[str]:
 
 
 _ADMIN_SUB_ROUTER_FUNCS = [
-    ("handlers/admin.py", "_handle_admin_callback", {"stats:", "plans:", "fallback", "ai_"}),
+    ("handlers/admin.py", "_handle_admin_callback", {"stats:", "plans:", "fallback", "ai_", "backup_restore", "backup_restore:"}),
     ("handlers/admin_stats.py", "handle_admin_stats", set()),
     ("handlers/admin_cost.py", "handle_cost_callback", set()),
     ("handlers/admin_plans.py", "handle_plan_callback", set()),
     ("handlers/admin_ai.py", "handle_ai_callback", set()),
     ("handlers/admin_users.py", "handle_admin_user", set()),
+    ("handlers/admin_backup.py", "handle_admin_backup_callback", set()),
 ]
 
 # Coarse delegating prefixes emitted by the thin _handle_admin_callback dispatcher.
@@ -528,13 +529,13 @@ def _collect_admin_sub_actions() -> set[str]:
     After the Finding #7 split, ``admin:`` sub-actions are handled by
     ``_handle_admin_callback`` (handlers/admin.py) which delegates by prefix to
     per-domain sub-routers (handle_admin_stats, handle_cost_callback,
-    handle_plan_callback, handle_ai_callback). Collect every ``action == "..."``
+    handle_plan_callback, handle_ai_callback, handle_admin_backup_callback). Collect every ``action == "..."``
     and ``action.startswith("...")`` comparison across all admin sub-routers so
     the wiring guard validates the full set. ``_handle_llm_callback`` is excluded
     because it serves the ``llm:`` prefix, not ``admin:``.
 
     The thin dispatcher's coarse delegating prefixes (``stats:``, ``plans:``,
-    ``fallback``, ``ai_``) are excluded so the guard still requires the concrete
+    ``fallback``, ``ai_``, ``backup_restore``) are excluded so the guard still requires the concrete
     leaf branches to exist in a sub-router.
     """
     actions: set[str] = set()
@@ -571,6 +572,7 @@ _ADMIN_AWAITING_MODULES = [
     "handlers/admin_cost.py",
     "handlers/admin_plans.py",
     "handlers/admin_ai.py",
+    "handlers/admin_backup.py",
 ]
 
 

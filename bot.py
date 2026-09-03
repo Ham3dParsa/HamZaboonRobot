@@ -148,6 +148,8 @@ _BUILTIN_CALLBACK_PREFIXES: tuple[str, ...] = (
 from handlers.admin import (
     open_admin_panel,
     handle_flow_back,
+)
+from handlers.admin_backup import (
     cmd_backup,
     cmd_restore,
     handle_restore_doc,
