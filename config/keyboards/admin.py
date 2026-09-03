@@ -558,6 +558,7 @@ def ai_preset_view_keyboard(preset: dict, active_name: str) -> InlineKeyboardMar
     rows = []
     if name != active_name:
         rows.append([InlineKeyboardButton(IBTN_ACTIVATE_THIS, callback_data=f"admin:ai_preset:activate:{preset_token(name)}")])
+    rows.append([InlineKeyboardButton(IBTN_AI_TEST, callback_data=f"admin:ai_preset:test:{preset_token(name)}")])
     rows.append([InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:ai_preset:edit:{preset_token(name)}")])
     rows.append([InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{preset_token(name)}")])
     rows.append([InlineKeyboardButton(IBTN_DUPLICATE, callback_data=f"admin:ai_preset:duplicate:{preset_token(name)}")])
