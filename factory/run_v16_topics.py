@@ -39,8 +39,11 @@
 # (owner 2026-09-03) + explicit owner run order; factory-research scope, no prod code, no commit.
 import argparse, json, pathlib, re, sys, time
 import urllib.request
+import urllib.error
 
 ROOT = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
+from llm_json import extract_json, raise_for_auth, AuthError
 FX = ROOT / "fixtures"
 IN_RANKED = FX / "ranked_senses-v14c.json"
 OUT_LABELS = FX / "topic_labels-v16.json"
@@ -162,7 +165,8 @@ def evp_fallback_label(lemma, gloss):
         dom = _v.get("domain", "Other / Abstract")
         if dom == "Other / Abstract":
             continue
-        if gw and gw in gl:
+        # Word-boundary match: raw substring lets guideword "art" hit "heart".
+        if gw and re.search(r"\b" + re.escape(gw) + r"\b", gl):
             new = MIGRATE_DEFAULT.get(dom)
             if new:
                 return new
@@ -251,13 +255,6 @@ def call_responses(api_key, model, user_text, timeout=180):
     return "".join(parts)
 
 
-def extract_json(text):
-    m = re.search(r"\{.*\}", text, re.S)
-    if not m:
-        raise ValueError("no JSON object")
-    return json.loads(m.group(0))
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
@@ -309,12 +306,20 @@ def main():
                         data = extract_json(call_responses(key, model, user_text))
                         ok, used = True, model
                         break
+                    except AuthError:
+                        raise
+                    except urllib.error.HTTPError as _he:
+                        raise_for_auth(_he)
                     except Exception:
                         try:
                             data = extract_json(call_responses(
                                 key, model, "Your last reply was not valid JSON. Re-send ONLY the JSON object.\n" + user_text))
                             ok, used = True, model
                             break
+                        except AuthError:
+                            raise
+                        except urllib.error.HTTPError as _he2:
+                            raise_for_auth(_he2)
                         except Exception:
                             time.sleep(5)
                 if ok:
