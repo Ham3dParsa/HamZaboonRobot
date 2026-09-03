@@ -228,5 +228,92 @@ class AiPresetCreateFlowTest(unittest.TestCase):
         self.assertEqual(len(sdb.get_presets()), before, "must not recreate a deleted preset")
 
 
+class AiPresetDetailAndActivateTest(unittest.TestCase):
+    """Detail view test button and auto-enable-on-activate (reviewer must-fix)."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.previous_db_path = db.DB_PATH
+        self.previous_db_schema_path = db_schema.DB_PATH
+        new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db.DB_PATH = new_path
+        db_schema.DB_PATH = new_path
+        db.init_db()
+        db.create_user_if_needed(1, "learner")
+        self.owner_patcher = patch("handlers.admin.is_owner", return_value=True)
+        self.owner_patcher.start()
+        self.addCleanup(self.owner_patcher.stop)
+        self.flow_ctx = self._make_context()
+
+    def tearDown(self):
+        db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
+        self.tempdir.cleanup()
+
+    def _make_context(self):
+        ctx = MagicMock()
+        ctx.user_data = {}
+        ctx.bot = AsyncMock()
+        return ctx
+
+    def _make_callback_update(self, data: str, user_id: int = 1):
+        query = MagicMock()
+        query.data = data
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update = MagicMock()
+        update.effective_user.id = user_id
+        update.effective_chat.id = user_id
+        update.callback_query = query
+        return update
+
+    def _callback(self, action: str):
+        from handlers.admin import _handle_admin_callback
+
+        data = f"admin:{action}"
+        update = self._make_callback_update(data)
+        asyncio.run(_handle_admin_callback(update, self.flow_ctx, action))
+        return update
+
+    def test_detail_view_has_test_button(self):
+        db.set_preset("view_test", base_url="https://x", model="m", api_key="sk-test")
+        # Drive to detail view via view callback
+        from services.utils.callback_codec import preset_token
+
+        up = self._callback(f"ai_preset:view:{preset_token('view_test')}")
+        markup = up.callback_query.edit_message_text.call_args.kwargs["reply_markup"].to_json()
+        self.assertIn("ai_preset:test:", markup)
+
+    def test_detail_test_incomplete_shows_hint(self):
+        db.set_preset("incomplete_detail", base_url="", model="", api_key="")
+        from services.utils.callback_codec import preset_token
+
+        up = self._callback(f"ai_preset:test:{preset_token('incomplete_detail')}")
+        # Incomplete should render hint, not call live network
+        text = up.callback_query.edit_message_text.call_args.args[0]
+        self.assertIn("کامل نیست", text)
+
+    def test_detail_test_success_branch(self):
+        db.set_preset("complete_detail", base_url="https://x", model="m", api_key="sk-test")
+        from services.utils.callback_codec import preset_token
+
+        with patch("services.ai.ai.test_connection", return_value={"success": True, "latency_ms": 42}) as mock_test:
+            up = self._callback(f"ai_preset:test:{preset_token('complete_detail')}")
+            mock_test.assert_called_once()
+            text = up.callback_query.edit_message_text.call_args.args[0]
+            self.assertIn("اتصال موفق", text)
+
+    def test_activate_disabled_auto_enables(self):
+        # New presets are created disabled; activate should auto-enable and set primary
+        db.set_preset("to_activate", base_url="https://x", model="m", api_key="sk-test", enabled=0)
+        self.assertEqual(db.get_preset("to_activate")["enabled"], 0)
+        from services.utils.callback_codec import preset_token
+
+        self._callback(f"ai_preset:activate:{preset_token('to_activate')}")
+        preset = db.get_preset("to_activate")
+        self.assertEqual(preset["enabled"], 1, "activate must auto-enable disabled preset")
+        self.assertEqual(db.get_active_preset_name(), "to_activate")
+
+
 if __name__ == "__main__":
     unittest.main()

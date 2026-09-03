@@ -10,6 +10,7 @@ from ``bot.py``; dispatch flows through ``handlers.admin``.
 
 import asyncio
 import hashlib
+import logging
 import re
 from urllib.parse import quote, unquote
 
@@ -378,7 +379,6 @@ async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def _activate_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
     """Activate a preset as primary."""
-    import logging
     log = logging.getLogger(__name__)
     preset = db.get_preset(preset_name)
     if not preset:
@@ -406,7 +406,8 @@ async def _activate_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE
     if success:
         await notify_callback(update.callback_query, f"پیش‌تنظیم {preset_name} فعال شد", intent=CallbackNoticeIntent.SUCCESS)
     else:
-        log.warning("activate_preset returned False for %s (enabled=%s)", preset_name, preset.get("enabled"))
+        fresh = db.get_preset(preset_name)
+        log.warning("activate_preset returned False for %s (enabled=%s)", preset_name, fresh.get("enabled") if fresh else None)
         await notify_callback(update.callback_query, "خطا در فعال‌سازی: پیش‌تنظیم فعال نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
     await _show_ai_preset_view(update, context, preset_name)
 
@@ -527,8 +528,8 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
     if field_name == "api_key":
         try:
             await update.message.delete()
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("delete api_key message failed: %s", exc)
 
     context.user_data.pop("awaiting", None)
 
@@ -729,8 +730,8 @@ async def _handle_full_edit_input(update: Update, context: ContextTypes.DEFAULT_
     if field_name == "api_key" and raw:
         try:
             await update.message.delete()
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("delete wizard api_key msg failed: %s", exc)
 
     wizard = context.user_data.get("full_edit", {})
     if wizard.get("preset") != preset_name:
@@ -1374,7 +1375,8 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
     name = state.get("name", "")
     preset = db.get_preset(name)
     # Fail-closed guard: all three connection fields must be present and resolvable.
-    if not (preset and preset.get("base_url") and preset.get("model") and db.resolve_preset_key(preset)):
+    resolved_key = db.resolve_preset_key(preset) if preset else ""
+    if not (preset and preset.get("base_url") and preset.get("model") and resolved_key):
         msg = Message()
         msg.add_line(plain("⚠️ "), bold("تست اتصال برای پیش‌تنظیم تازه"))
         msg.add_line()
@@ -1395,7 +1397,7 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
     result = await asyncio.to_thread(
         ai.test_connection,
         base_url=preset.get("base_url", ""),
-        api_key=db.resolve_preset_key(preset),
+        api_key=resolved_key,
         model=preset.get("model", ""),
         timeout=preset_fields.resolve(preset, "timeout_seconds"),
     )
@@ -1445,7 +1447,8 @@ async def _test_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
     if not preset:
         await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
-    if not (preset.get("base_url") and preset.get("model") and db.resolve_preset_key(preset)):
+    resolved_key = db.resolve_preset_key(preset)
+    if not (preset.get("base_url") and preset.get("model") and resolved_key):
         msg = Message()
         msg.add_line(plain("⚠️ "), bold("اتصال ممکن نیست"))
         msg.add_line(plain("base_url / model / api_key کامل نیست. اول در ویرایش کامل پر کنید."))
@@ -1455,7 +1458,7 @@ async def _test_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
     result = await asyncio.to_thread(
         ai.test_connection,
         base_url=preset.get("base_url", ""),
-        api_key=db.resolve_preset_key(preset),
+        api_key=resolved_key,
         model=preset.get("model", ""),
         timeout=preset_fields.resolve(preset, "timeout_seconds"),
     )
@@ -2217,8 +2220,8 @@ async def _handle_ai_text_input(
         # Delete user message containing plaintext key
         try:
             await update.message.delete()
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("delete batch key msg failed: %s", exc)
         groups = _detect_key_groups()
         target = next((g for g in groups if g["key_hash"] == key_hash), None)
         if target:
