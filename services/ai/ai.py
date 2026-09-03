@@ -127,7 +127,7 @@ def _model(preset: dict | None = None) -> str:
 
 
 def _is_responses_preset(preset: dict | None, model: str | None = None) -> bool:
-    """True if this preset must use OpenAI Responses API (muse-spark/gpt on Zen)."""
+    """True if this preset must use OpenAI Responses API (muse-spark on Zen)."""
     if preset is None and model is None:
         return False
     base = ""
@@ -138,11 +138,11 @@ def _is_responses_preset(preset: dict | None, model: str | None = None) -> bool:
             m = preset_fields.resolve(preset, "model") or ""
     base_l = base.lower().strip()
     m_l = m.lower().strip()
-    # Explicit /responses base always means responses
-    if "/responses" in base_l:
+    # Explicit /responses base always means responses (path segment)
+    if base_l.rstrip("/").lower().endswith("/responses"):
         return True
-    # muse-spark on Zen is always responses (chat/completions 404s)
-    if "muse-spark" in m_l:
+    # muse-spark on Zen is always responses (chat/completions 404s); require Zen base
+    if "muse-spark" in m_l and "opencode.ai/zen" in base_l:
         return True
     return False
 
@@ -271,11 +271,28 @@ def custom_test_card(
             )
             if reasoning not in (None, "", "none"):
                 kwargs["reasoning"] = {"effort": reasoning}
-            temp = preset_fields.resolve(preset or {}, "temperature")
-            if temp is not None:
-                kwargs["temperature"] = temp
             resp = client.responses.create(**kwargs)
-            telemetry["usage"] = getattr(resp, "usage", None)
+            raw_usage = getattr(resp, "usage", None)
+            if raw_usage is not None:
+                try:
+                    pt = getattr(raw_usage, "input_tokens", None)
+                    ct = getattr(raw_usage, "output_tokens", None)
+                    tt = getattr(raw_usage, "total_tokens", None)
+                    if isinstance(raw_usage, dict):
+                        pt = raw_usage.get("input_tokens", pt)
+                        ct = raw_usage.get("output_tokens", ct)
+                        tt = raw_usage.get("total_tokens", tt)
+                    class _U2:
+                        pass
+                    norm2 = _U2()
+                    norm2.prompt_tokens = pt or 0
+                    norm2.completion_tokens = ct or 0
+                    norm2.total_tokens = tt or 0
+                    telemetry["usage"] = norm2
+                except Exception:
+                    telemetry["usage"] = raw_usage
+            else:
+                telemetry["usage"] = None
             telemetry["latency_ms"] = (time.monotonic() - started) * 1000
             telemetry["model"] = model
             telemetry["request_kind"] = request_kind
@@ -795,7 +812,7 @@ def _request_json(
     try:
         try:
             if use_responses:
-                # OpenAI Responses API (Zen Muse/GPT)
+                # OpenAI Responses API (Zen Muse/GPT) - temperature is not supported for always-thinking models
                 kwargs: dict = dict(
                     model=model,
                     input=[
@@ -804,9 +821,6 @@ def _request_json(
                     ],
                     max_output_tokens=mtokens,
                 )
-                # temperature is supported as top-level for some models; include if not default
-                if temp is not None:
-                    kwargs["temperature"] = temp
                 if reasoning not in (None, "", "none"):
                     kwargs["reasoning"] = {"effort": reasoning}
                 resp = client.responses.create(**kwargs)
@@ -827,7 +841,29 @@ def _request_json(
             if getattr(exc, "status_code", None) == 429 or "RateLimitError" in type(exc).__name__:
                 raise RateLimitError(str(exc)) from exc
             raise
-        telemetry["usage"] = getattr(resp, "usage", None)
+        raw_usage = getattr(resp, "usage", None)
+        if use_responses and raw_usage is not None:
+            # Normalize Responses usage (input/output) to chat shape for cost/limiter
+            try:
+                pt = getattr(raw_usage, "input_tokens", None)
+                ct = getattr(raw_usage, "output_tokens", None)
+                tt = getattr(raw_usage, "total_tokens", None)
+                if isinstance(raw_usage, dict):
+                    pt = raw_usage.get("input_tokens", pt)
+                    ct = raw_usage.get("output_tokens", ct)
+                    tt = raw_usage.get("total_tokens", tt)
+                # Build normalized object with expected attrs
+                class _U:
+                    pass
+                norm = _U()
+                norm.prompt_tokens = pt or 0
+                norm.completion_tokens = ct or 0
+                norm.total_tokens = tt or 0
+                telemetry["usage"] = norm
+            except Exception:
+                telemetry["usage"] = raw_usage
+        else:
+            telemetry["usage"] = raw_usage
         telemetry["latency_ms"] = (time.monotonic() - started) * 1000
         if use_responses:
             # Responses: output_text or output[0].content[0].text
