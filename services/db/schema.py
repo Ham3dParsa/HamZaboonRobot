@@ -935,7 +935,7 @@ def _encrypt_key_columns(conn):
     """Phase 5 (R3): encrypt API keys at rest across all storage sites.
 
     Converts any still-plaintext or ``$ENV`` reference stored in
-    ``ai_presets.api_key``, ``preset_groups.api_key``, and ``settings.ai_api_key``
+    ``ai_presets.api_key`` and ``preset_groups.api_key``
     into Fernet ciphertext. Idempotent: a value that already decrypts under the
     current master key is left untouched (so an unchanged re-run, a plaintext
     value, or a token from a *previous* key after rotation are all handled by
@@ -972,13 +972,6 @@ def _encrypt_key_columns(conn):
             conn.execute(
                 "UPDATE preset_groups SET api_key=? WHERE group_label=?",
                 (enc, row["group_label"]),
-            )
-    row = conn.execute("SELECT value FROM settings WHERE key='ai_api_key'").fetchone()
-    if row:
-        enc = _encrypt(row["value"] or "")
-        if enc != (row["value"] or ""):
-            conn.execute(
-                "UPDATE settings SET value=? WHERE key='ai_api_key'", (enc,)
             )
 
 
