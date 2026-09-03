@@ -388,6 +388,7 @@ def _retry_primary_preset():
         api_key=api_key,
         model=preset.get("model", ""),
         timeout=preset_fields.resolve(preset, "timeout_seconds"),
+        reasoning_effort=preset_fields.resolve(preset, "reasoning_effort"),
     )
     if result["success"]:
         db.set_bool_setting("ai_fallback_active", False)

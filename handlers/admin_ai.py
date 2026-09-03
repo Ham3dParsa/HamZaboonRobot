@@ -1563,10 +1563,11 @@ async def _test_ai_connection(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     result = await asyncio.to_thread(
         ai.test_connection,
-        base_url=active.get("base_url", ""),
-        api_key=db.resolve_preset_key(active),
-        model=active.get("model", ""),
-        timeout=preset_fields.resolve(active, "timeout_seconds"),
+        active.get("base_url", ""),
+        db.resolve_preset_key(active),
+        active.get("model", ""),
+        preset_fields.resolve(active, "timeout_seconds"),
+        preset_fields.resolve(active, "reasoning_effort"),
     )
 
     msg = Message()
