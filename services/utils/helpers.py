@@ -240,6 +240,10 @@ def _capture_media_bytes(media, filename_hint: str | None = None) -> tuple[bytes
                     raw_bytes = None
             elif hasattr(content, "read"):
                 try:
+                    try:
+                        content.seek(0)
+                    except Exception:
+                        pass
                     raw_bytes = content.read()
                     if isinstance(raw_bytes, bytearray):
                         raw_bytes = bytes(raw_bytes)
@@ -257,6 +261,11 @@ def _capture_media_bytes(media, filename_hint: str | None = None) -> tuple[bytes
     return raw_bytes, filename, is_inputfile
 
 
+# Allowlist for _send_media_with_retry dispatch — caller-controlled method
+# strings must never reach arbitrary Bot attributes (e.g. ban_chat_member).
+_SEND_METHOD_ALLOWLIST: tuple[str, ...] = ("send_message", "send_voice", "send_document")
+
+
 async def _send_media_with_retry(
     bot,
     chat_id: int,
@@ -266,18 +275,24 @@ async def _send_media_with_retry(
     media=None,
     filename: str | None = None,
     reset_telegram_cb: bool = True,
-    idempotent: bool = False,
     **kwargs,
 ):
     """Single retry core for all Telegram sends (R1).
 
-    ``idempotent`` controls whether TimedOut/NetworkError is retried.
-    For sends (non-idempotent) these are never retried — the message may
-    already be delivered and a retry would duplicate. Clamped RetryAfter
-    (30s) is the only retried error for sends. ``_telegram_slots`` is the
-    shared concurrency limiter; long-term it should move to services/telegram
-    (documented here, move deferred to keep this phase low-risk).
+    Sends are non-idempotent: TimedOut/NetworkError are never retried — the
+    message may already be delivered and a retry would duplicate. Clamped
+    RetryAfter (30s) is the only retried error for sends. ``_telegram_slots``
+    is the shared concurrency limiter; long-term it should move to
+    services/telegram (documented here, move deferred to keep this phase
+    low-risk).
     """
+    if method not in _SEND_METHOD_ALLOWLIST:
+        raise ValueError(f"unsupported send method: {method!r}")
+    if media_kw not in (None, "voice", "document"):
+        raise ValueError(f"unsupported media_kw: {media_kw!r}")
+    _EXPECTED = {"send_message": None, "send_voice": "voice", "send_document": "document"}
+    if _EXPECTED[method] != media_kw:
+        raise ValueError(f"media_kw/method mismatch: {media_kw!r} with {method!r}")
     # Pre-capture bytes once so RetryAfter retries can rebuild InputFile
     raw_bytes: bytes | None = None
     fname: str | None = filename
@@ -312,13 +327,16 @@ async def _send_media_with_retry(
         except RetryAfter as exc:
             if attempt == 2:
                 raise
+            logger.warning(
+                "send RetryAfter %s attempt %s/3 chat_id=%s method=%s",
+                exc.retry_after, attempt + 1, chat_id, method,
+            )
             await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
         except (TimedOut, NetworkError):
-            if not idempotent:
-                raise
-            if attempt == 2:
-                raise
-            await asyncio.sleep(_retry_sleep(attempt))
+            raise
+        except BaseException:
+            logger.exception("send failed chat_id=%s method=%s", chat_id, method)
+            raise
 
 
 async def _send_with_retry(
@@ -330,7 +348,7 @@ async def _send_with_retry(
     **kwargs,
 ):
     return await _send_media_with_retry(
-        bot, chat_id, method="send_message", media_kw=None, media=text, reset_telegram_cb=reset_telegram_cb, idempotent=False, **kwargs
+        bot, chat_id, method="send_message", media_kw=None, media=text, reset_telegram_cb=reset_telegram_cb, **kwargs
     )
 
 
@@ -442,10 +460,9 @@ async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
 
 
 async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
-    """Backward-compat wrapper — delegates to unified _send_media_with_retry."""
-    # Parity: _voice_is_inputfile / InputFile(io.BytesIO(_voice_bytes) handled via _capture_media_bytes
+    """Backward-compat wrapper — delegates to unified _send_media_with_retry (R1/R2)."""
     filename = kwargs.pop("filename", None)
-    return await _send_media_with_retry(bot, chat_id, method="send_voice", media_kw="voice", media=voice, filename=filename, idempotent=False, **kwargs)
+    return await _send_media_with_retry(bot, chat_id, method="send_voice", media_kw="voice", media=voice, filename=filename, **kwargs)
 
 
 _ADMIN_PENDING_KEYS: tuple[str, ...] = (
@@ -544,6 +561,6 @@ async def _clear_awaiting_prompt(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def _send_document_with_retry(bot, chat_id: int, document, **kwargs):
-    """Backward-compat wrapper — delegates to unified _send_media_with_retry."""
+    """Backward-compat wrapper — delegates to unified _send_media_with_retry (R1/R2)."""
     filename = kwargs.pop("filename", None)
-    return await _send_media_with_retry(bot, chat_id, method="send_document", media_kw="document", media=document, filename=filename, idempotent=False, **kwargs)
+    return await _send_media_with_retry(bot, chat_id, method="send_document", media_kw="document", media=document, filename=filename, **kwargs)

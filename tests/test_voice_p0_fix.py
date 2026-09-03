@@ -17,8 +17,12 @@ def test_channel_upload_no_filename_kwarg():
 
 def test_send_voice_retry_has_inputfile_parity():
     text = pathlib.Path("services/utils/helpers.py").read_text(encoding="utf-8")
-    assert "_voice_is_inputfile" in text
-    assert "InputFile(io.BytesIO(_voice_bytes)" in text
+    # Phase-03 unified seam: byte capture lives in _capture_media_bytes and
+    # RetryAfter rebuilds via InputFile(io.BytesIO(raw_bytes), ...) (R2).
+    # Behavior (identical-bytes resend) is covered by
+    # test_send_media_with_retry_rebuilds_inputfile_bytes_on_retry_after.
+    assert "_capture_media_bytes" in text
+    assert "InputFile(io.BytesIO(raw_bytes)" in text
 
 def test_tts_has_timeout():
     text = pathlib.Path("services/tts.py").read_text(encoding="utf-8")

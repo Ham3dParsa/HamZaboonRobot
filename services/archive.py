@@ -150,10 +150,11 @@ async def do_backup(bot, owner_user_id: int, dest_chat_id: int | None = None):
     if len(caption) > 1024:
         caption = caption[:1021] + "..."
     fname = f"hamzaban_backup_{datetime.datetime.now(APP_TZ).strftime('%Y%m%d_%H%M%S')}.db"
+    payload = InputFile(io.BytesIO(data), filename=fname)
 
     try:
         await _send_media_with_retry(
-            bot, target, method="send_document", media_kw="document", media=InputFile(io.BytesIO(data), filename=fname), caption=caption
+            bot, target, method="send_document", media_kw="document", media=payload, caption=caption
         )
     except Exception as exc:
         from telegram.error import BadRequest, Forbidden
