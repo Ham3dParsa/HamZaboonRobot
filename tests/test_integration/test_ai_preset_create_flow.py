@@ -195,12 +195,13 @@ class AiPresetCreateFlowTest(unittest.TestCase):
         self._enter_name("incomplete_preset")
         self._callback("ai_preset:create:priority:bottom")
         self._callback("ai_preset:create:status:off")
-        # Drive the create:test callback while still incomplete
-        up = self._callback("ai_preset:create:test")
-        kwargs = up.callback_query.edit_message_text.call_args.kwargs
-        # The warning is rendered and offers full edit
-        self.assertIn("full_edit", str(kwargs.get("reply_markup").to_json()))
-        # No real connection attempt should have been made (empty fields)
+        # Drive the create:test callback while still incomplete - must not call live network
+        with patch("services.ai.ai.test_connection") as mock_test:
+            up = self._callback("ai_preset:create:test")
+            mock_test.assert_not_called()
+            kwargs = up.callback_query.edit_message_text.call_args.kwargs
+            # The warning is rendered and offers full edit
+            self.assertIn("full_edit", str(kwargs.get("reply_markup").to_json()))
 
     def test_finish_create_guards_empty_state_no_row_created(self):
         """Kilo R7: a lost/stale create state must not persist an empty-PK preset."""
@@ -288,10 +289,11 @@ class AiPresetDetailAndActivateTest(unittest.TestCase):
         db.set_preset("incomplete_detail", base_url="", model="", api_key="")
         from services.utils.callback_codec import preset_token
 
-        up = self._callback(f"ai_preset:test:{preset_token('incomplete_detail')}")
-        # Incomplete should render hint, not call live network
-        text = up.callback_query.edit_message_text.call_args.args[0]
-        self.assertIn("کامل نیست", text)
+        with patch("services.ai.ai.test_connection") as mock_test:
+            up = self._callback(f"ai_preset:test:{preset_token('incomplete_detail')}")
+            mock_test.assert_not_called()
+            text = up.callback_query.edit_message_text.call_args.args[0]
+            self.assertIn("کامل نیست", text)
 
     def test_detail_test_success_branch(self):
         db.set_preset("complete_detail", base_url="https://x", model="m", api_key="sk-test")
@@ -313,6 +315,25 @@ class AiPresetDetailAndActivateTest(unittest.TestCase):
         preset = db.get_preset("to_activate")
         self.assertEqual(preset["enabled"], 1, "activate must auto-enable disabled preset")
         self.assertEqual(db.get_active_preset_name(), "to_activate")
+
+    def test_activate_failure_return_false_shows_error(self):
+        db.set_preset("fail_preset", base_url="https://x", model="m", api_key="sk-test", enabled=1)
+        from services.utils.callback_codec import preset_token
+
+        with patch("services.db.preset_registry.activate_preset", return_value=False):
+            up = self._callback(f"ai_preset:activate:{preset_token('fail_preset')}")
+            # Should have answered with error and re-rendered view
+            self.assertTrue(up.callback_query.answer.called)
+            self.assertTrue(up.callback_query.edit_message_text.called)
+
+    def test_activate_failure_raises_shows_error(self):
+        db.set_preset("raise_preset", base_url="https://x", model="m", api_key="sk-test", enabled=1)
+        from services.utils.callback_codec import preset_token
+
+        with patch("services.db.preset_registry.activate_preset", side_effect=RuntimeError("boom")):
+            up = self._callback(f"ai_preset:activate:{preset_token('raise_preset')}")
+            self.assertTrue(up.callback_query.answer.called)
+            self.assertTrue(up.callback_query.edit_message_text.called)
 
 
 if __name__ == "__main__":
