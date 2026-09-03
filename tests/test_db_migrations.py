@@ -172,6 +172,7 @@ class AiPresetsMigrationsTests(unittest.TestCase):
                     timeout_seconds REAL DEFAULT 30.0,
                     temperature REAL DEFAULT 0.6,
                     max_output_tokens INTEGER DEFAULT 4096,
+                    is_custom INTEGER DEFAULT 0,
                     priority INTEGER DEFAULT 0,
                     enabled INTEGER DEFAULT 1,
                     is_emergency INTEGER DEFAULT 0
@@ -209,8 +210,8 @@ class AiPresetsMigrationsTests(unittest.TestCase):
             """)
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('ai_primary_preset', 'gapgpt_gemini_lite')")
             conn.execute(
-                "INSERT INTO ai_presets(name, base_url, model, api_key, priority) "
-                "VALUES ('legacy_hp', 'https://x', 'gpt-test', '', 3)"
+                "INSERT INTO ai_presets(name, base_url, model, api_key, is_custom, priority) "
+                "VALUES ('legacy_hp', 'https://x', 'gpt-test', '$HpOF_API_KEY', 1, 3)"
             )
             conn.commit()
         finally:
@@ -222,6 +223,9 @@ class AiPresetsMigrationsTests(unittest.TestCase):
         cols = self._get_columns("ai_presets")
         for col_name in ("input_cost_per_million", "output_cost_per_million", "group_label", "in_fallback_chain"):
             self.assertIn(col_name, cols, f"Column {col_name} not added by migration")
+        # Phase 4: the obsolete is_custom column must be dropped on upgrade,
+        # and every prior row must survive (becoming an ordinary preset).
+        self.assertNotIn("is_custom", cols, "is_custom column must be dropped by migration")
         with db_module.get_conn() as conn:
             row = conn.execute(
                 "SELECT name, base_url, model, api_key, priority FROM ai_presets WHERE name='legacy_hp'"
@@ -231,6 +235,49 @@ class AiPresetsMigrationsTests(unittest.TestCase):
         self.assertEqual(row["priority"], 3)
         llm_cols = self._get_columns("llm_requests")
         self.assertIn("preset_name", llm_cols, "preset_name not added to llm_requests")
+
+    def test_rebuild_coalesces_legacy_null_api_key(self):
+        # A prior schema could store a NULL api_key (nullable column). The Phase 4
+        # rebuild rewrites ai_presets with api_key TEXT NOT NULL, so the migration
+        # must COALESCE any legacy NULL to '' rather than raise IntegrityError.
+        conn = sqlite3.connect(db_module.DB_PATH)
+        try:
+            conn.execute("""
+                CREATE TABLE ai_presets (
+                    name TEXT PRIMARY KEY,
+                    base_url TEXT,
+                    model TEXT,
+                    api_key TEXT,
+                    priority INTEGER DEFAULT 0,
+                    enabled INTEGER DEFAULT 1,
+                    is_custom INTEGER DEFAULT 0
+                )
+            """)
+            conn.execute(
+                "INSERT INTO ai_presets(name, base_url, model, api_key, priority) "
+                "VALUES ('null_key', 'https://x', 'gpt-test', NULL, 2)"
+            )
+            conn.execute("""
+                CREATE TABLE llm_requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT
+                )
+            """)
+            conn.commit()
+        finally:
+            conn.close()
+
+        with db_module.get_conn() as conn:
+            db_module._init_ai_presets_table(conn)
+
+        with db_module.get_conn() as conn:
+            row = conn.execute(
+                "SELECT name, api_key, priority FROM ai_presets WHERE name='null_key'"
+            ).fetchone()
+        self.assertIsNotNone(row, "legacy NULL-api_key row must survive the rebuild")
+        self.assertEqual(row["api_key"], "", "legacy NULL api_key must be coerced to ''")
+        self.assertEqual(row["priority"], 2, "other columns must be preserved")
+        cols = self._get_columns("ai_presets")
+        self.assertNotIn("is_custom", cols, "is_custom must be dropped by the rebuild")
 
     def test_fresh_db_saved_words_entry_source_default(self):
         db_module.init_db()

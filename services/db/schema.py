@@ -62,7 +62,8 @@ def ai_presets_column_names() -> list[str]:
 
 def _ai_presets_create_sql(if_not_exists: bool = False) -> str:
     """Return a CREATE TABLE statement for ai_presets from the canonical column
-    set (single source of truth)."""
+    set (single source of truth), so the fresh schema and the rebuild migration
+    can never drift. The rebuild uses a plain CREATE (no IF NOT EXISTS)."""
     cols = ",\n                ".join(_AI_PRESETS_COLUMNS)
     prefix = "CREATE TABLE IF NOT EXISTS " if if_not_exists else "CREATE TABLE "
     return f"{prefix}ai_presets (\n                {cols}\n            );"
@@ -927,6 +928,41 @@ def _init_ai_presets_table(conn):
             api_key TEXT NOT NULL DEFAULT ''
         );
         """
+    )
+    # Phase 4 migration: drop the now-obsolete is_custom column. Existing DBs
+    # (created before Phase 4, or reintroduced via an admin restore of a
+    # pre-Phase-4 backup) may still have it; a fresh DB never does. Because
+    # SQLite cannot always DROP COLUMN portably, rebuild the table without the
+    # column when it is present. All rows are preserved (they become ordinary
+    # presets). We rebuild with the full new column set and copy every remaining
+    # column by name so migrated columns (costs, group_label, in_fallback_chain,
+    # etc.) are never lost.
+    _cols = {row["name"] for row in conn.execute("PRAGMA table_info(ai_presets)").fetchall()}
+    if "is_custom" in _cols:
+        _keep = [c for c in _cols if c != "is_custom"]
+        _cols_sql = ", ".join(_keep)
+        # api_key is NOT NULL in the canonical schema; coerce any legacy NULL to
+        # '' so the INSERT can never raise IntegrityError and block startup.
+        _sel_sql = ", ".join(
+            "COALESCE(api_key, '')" if c == "api_key" else c for c in _keep
+        )
+        conn.execute("ALTER TABLE ai_presets RENAME TO ai_presets_old")
+        conn.execute(_ai_presets_create_sql())
+        conn.execute(
+            f"INSERT INTO ai_presets({_cols_sql}) SELECT {_sel_sql} FROM ai_presets_old"
+        )
+        conn.execute("DROP TABLE ai_presets_old")
+    # Data fix (R3A): historical databases seeded before the "$ENV" convention
+    # stored the HpOF env-var name bare (e.g. "HpOF_API_KEY" without the "$"
+    # prefix), so resolve_api_key treated it as a literal key and the provider
+    # rejected it. Prefix "$" idempotently — only for these known HP presets
+    # and only when the stored value is exactly the bare env name (never
+    # touching custom/ELI/GAPGPT keys or real literal key values). Kept as the
+    # repair path for never-migrated DBs and admin restores of pre-R3A backups.
+    conn.execute(
+        "UPDATE ai_presets SET api_key = '$' || api_key "
+        "WHERE name IN ('g3_6_f_HP', 'g3_5_f_HP', 'g3_5_FL_HP', 'g3_1_FL_HP') "
+        "AND api_key = 'HpOF_API_KEY'"
     )
     conn.commit()
 
