@@ -1138,6 +1138,54 @@ class NetworkResilienceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "ok")
         self.assertEqual(bot_mock.send_voice.call_count, 2)
 
+    async def test_send_media_with_retry_rebuilds_inputfile_bytes_on_retry_after(self):
+        """RetryAfter retry must resend identical bytes via rebuilt InputFile (R2)."""
+        from telegram import InputFile
+        import io as _io
+        payload = InputFile(_io.BytesIO(b"voice-bytes"), filename="v.mp3")
+        bot_mock = MagicMock()
+        bot_mock.send_voice = AsyncMock(side_effect=[RetryAfter(1), "ok"])
+        with patch.object(asyncio, "sleep", new=AsyncMock()):
+            result = await helpers._send_media_with_retry(
+                bot_mock, 123, method="send_voice", media_kw="voice", media=payload
+            )
+        self.assertEqual(result, "ok")
+        self.assertEqual(bot_mock.send_voice.call_count, 2)
+        for call in bot_mock.send_voice.call_args_list:
+            sent = call.kwargs["voice"]
+            self.assertIsInstance(sent, InputFile)
+            self.assertEqual(sent.filename, "v.mp3")
+            content = sent.input_file_content
+            if hasattr(content, "getvalue"):
+                raw = content.getvalue()
+            elif hasattr(content, "read"):
+                try:
+                    content.seek(0)
+                except Exception:
+                    pass
+                raw = content.read()
+            else:
+                raw = content
+            self.assertEqual(bytes(raw), b"voice-bytes")
+
+    async def test_send_media_with_retry_does_not_retry_document_on_timeout(self):
+        """Document sends are non-idempotent: TimedOut raises after 1 attempt (R1)."""
+        bot_mock = MagicMock()
+        bot_mock.send_document = AsyncMock(side_effect=TimedOut("timeout"))
+        with self.assertRaises(TimedOut):
+            await helpers._send_media_with_retry(
+                bot_mock, 123, method="send_document", media_kw="document", media=b"db-bytes"
+            )
+        self.assertEqual(bot_mock.send_document.call_count, 1)
+
+    async def test_send_media_with_retry_rejects_unknown_method(self):
+        """Arbitrary Bot method dispatch is blocked by the allowlist."""
+        bot_mock = MagicMock()
+        with self.assertRaises(ValueError):
+            await helpers._send_media_with_retry(
+                bot_mock, 123, method="ban_chat_member", media_kw=None, media="x"
+            )
+
     async def test_edit_message_with_retry_calls_reset_on_success(self):
         bot_mock = MagicMock()
         bot_mock.edit_message_text = AsyncMock(return_value="ok")

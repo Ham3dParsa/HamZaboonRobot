@@ -10,7 +10,7 @@ from telegram import InputFile
 
 from config import ARCHIVE_CHAT_ID, APP_TZ
 from services import db
-from services.utils.helpers import _send_document_with_retry
+from services.utils.helpers import _send_media_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -150,10 +150,11 @@ async def do_backup(bot, owner_user_id: int, dest_chat_id: int | None = None):
     if len(caption) > 1024:
         caption = caption[:1021] + "..."
     fname = f"hamzaban_backup_{datetime.datetime.now(APP_TZ).strftime('%Y%m%d_%H%M%S')}.db"
+    payload = InputFile(io.BytesIO(data), filename=fname)
 
     try:
-        await _send_document_with_retry(
-            bot, target, document=InputFile(io.BytesIO(data), filename=fname), caption=caption
+        await _send_media_with_retry(
+            bot, target, method="send_document", media_kw="document", media=payload, caption=caption
         )
     except Exception as exc:
         from telegram.error import BadRequest, Forbidden
@@ -169,8 +170,8 @@ async def do_backup(bot, owner_user_id: int, dest_chat_id: int | None = None):
             if target != owner_user_id and owner_user_id:
                 logger.warning("do_backup fallback to owner owner_user_id=%s target=%s after Forbidden", owner_user_id, target, exc_info=True)
                 try:
-                    await _send_document_with_retry(
-                        bot, owner_user_id, document=InputFile(io.BytesIO(data), filename=fname), caption=caption
+                    await _send_media_with_retry(
+                        bot, owner_user_id, method="send_document", media_kw="document", media=InputFile(io.BytesIO(data), filename=fname), caption=caption
                     )
                     logger.warning("do_backup fallback to owner PV %s succeeded owner_user_id=%s target=%s", owner_user_id, owner_user_id, target, exc_info=True)
                     return owner_user_id
