@@ -161,6 +161,9 @@ def main():
                                     "done_lemmas": done, "failed_lemmas": failed,
                                     "merged_cards": merged_total}, ensure_ascii=False), encoding="utf-8")
         out_all += [dict(r, ranked_senses=done[r["lemma"]]) for r in batch]
+    if a.dry_run:
+        print("dry-run: no files written")
+        return
     OUT_RANKED.write_text(json.dumps(out_all, ensure_ascii=False), encoding="utf-8")
     print(f"v14b: {len(out_all)} lemmas, {sum(len(x['ranked_senses']) for x in out_all)} cards, merged={merged_total}, failed={len(failed)}")
 

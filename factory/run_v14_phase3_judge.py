@@ -193,10 +193,11 @@ def main():
                     done[r["lemma"]] = {"picks": deterministic_picks(r), "topics": []}
                     failed.append(r["lemma"])
             time.sleep(SLEEP)
-            PROG.write_text(json.dumps({"done_batches": i // BATCH + 1,
-                                        "total_batches": (len(ranked) + BATCH - 1) // BATCH,
-                                        "done_lemmas": done, "failed_lemmas": failed,
-                                        "model_calls": calls}, ensure_ascii=False), encoding="utf-8")
+            if not a.dry_run:
+                PROG.write_text(json.dumps({"done_batches": i // BATCH + 1,
+                                            "total_batches": (len(ranked) + BATCH - 1) // BATCH,
+                                            "done_lemmas": done, "failed_lemmas": failed,
+                                            "model_calls": calls}, ensure_ascii=False), encoding="utf-8")
         for r in batch:
             d = done[r["lemma"]]
             tmap = {t["id"]: t for t in d.get("topics", [])}
@@ -218,6 +219,9 @@ def main():
                                    "p": s.get("score", 0)})
             out_all.append({**r, "ranked_senses": senses, "picks": d["picks"],
                             "pick_source": "deterministic" if r["lemma"] in failed else "judge"})
+    if a.dry_run:
+        print("dry-run: no files written")
+        return
     OUT_RANKED.write_text(json.dumps(out_all, ensure_ascii=False), encoding="utf-8")
     OUT_TOPICS.write_text(json.dumps(topic_rows, ensure_ascii=False), encoding="utf-8")
     judged = sum(1 for r in out_all if r["pick_source"] == "judge")

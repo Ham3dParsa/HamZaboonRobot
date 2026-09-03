@@ -207,11 +207,15 @@ def main():
                     if r["lemma"] not in failed:
                         failed.append(r["lemma"])
             time.sleep(SLEEP)
-            PROG.write_text(json.dumps({"done_batches": i // BATCH + 1,
-                                        "total_batches": (len(ranked) + BATCH - 1) // BATCH,
-                                        "done_lemmas": done, "failed_lemmas": failed,
-                                        "model_calls": calls}, ensure_ascii=False), encoding="utf-8")
+            if not a.dry_run:
+                PROG.write_text(json.dumps({"done_batches": i // BATCH + 1,
+                                            "total_batches": (len(ranked) + BATCH - 1) // BATCH,
+                                            "done_lemmas": done, "failed_lemmas": failed,
+                                            "model_calls": calls}, ensure_ascii=False), encoding="utf-8")
     out_all = [{"lemma": r["lemma"], "vectors": done[r["lemma"]]} for r in ranked]
+    if a.dry_run:
+        print("dry-run: no files written")
+        return
     OUT_VECTORS.write_text(json.dumps(out_all, ensure_ascii=False), encoding="utf-8")
     n_senses = sum(len(x["vectors"]) for x in out_all)
     n_multi = sum(1 for x in out_all for v in x["vectors"] if len(v["vector"]) > 1)

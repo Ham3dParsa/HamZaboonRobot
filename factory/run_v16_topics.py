@@ -271,7 +271,8 @@ def main():
         ranked.sort(key=lambda r: want.index(r["lemma"]))
     elif a.limit:
         ranked = ranked[:a.limit]
-    OUT_MIGRATION.write_text(json.dumps(MIGRATION, ensure_ascii=False, indent=1), encoding="utf-8")
+    if not a.dry_run:
+        OUT_MIGRATION.write_text(json.dumps(MIGRATION, ensure_ascii=False, indent=1), encoding="utf-8")
     prog = json.loads(PROG.read_text(encoding="utf-8")) if PROG.exists() else {}
     done = prog.get("done_lemmas", {})
     failed = prog.get("failed_lemmas", [])
@@ -342,10 +343,11 @@ def main():
                     if r["lemma"] not in failed:
                         failed.append(r["lemma"])
             time.sleep(SLEEP)
-            PROG.write_text(json.dumps({"done_batches": i // BATCH + 1,
-                                        "total_batches": (len(ranked) + BATCH - 1) // BATCH,
-                                        "done_lemmas": done, "failed_lemmas": failed,
-                                        "model_calls": calls}, ensure_ascii=False), encoding="utf-8")
+            if not a.dry_run:
+                PROG.write_text(json.dumps({"done_batches": i // BATCH + 1,
+                                            "total_batches": (len(ranked) + BATCH - 1) // BATCH,
+                                            "done_lemmas": done, "failed_lemmas": failed,
+                                            "model_calls": calls}, ensure_ascii=False), encoding="utf-8")
     labels_out, vectors_out = [], []
     for r in ranked:
         vecs = []
@@ -358,6 +360,9 @@ def main():
                                "confidence": x["confidence"], "topic_source": src, "p": s.get("score")})
             vecs.append({"sense_id": x["sense_id"], "vector": x["vector"], "source": x["source"]})
         vectors_out.append({"lemma": r["lemma"], "vectors": vecs})
+    if a.dry_run:
+        print("dry-run: no files written")
+        return
     OUT_LABELS.write_text(json.dumps(labels_out, ensure_ascii=False), encoding="utf-8")
     OUT_VECTORS.write_text(json.dumps(vectors_out, ensure_ascii=False), encoding="utf-8")
     n_multi = sum(1 for l in vectors_out for v in l["vectors"] if len(v["vector"]) > 1)

@@ -265,10 +265,11 @@ def main():
                     if t["lemma"] not in failed:
                         failed.append(t["lemma"])
             time.sleep(SLEEP)
-            PROG.write_text(json.dumps({"done_batches": i // BATCH + 1,
-                                        "total_batches": (len(todo_lemmas) + BATCH - 1) // BATCH,
-                                        "done_lemmas": done, "failed_lemmas": failed,
-                                        "model_calls": calls}, ensure_ascii=False), encoding="utf-8")
+            if not a.dry_run:
+                PROG.write_text(json.dumps({"done_batches": i // BATCH + 1,
+                                            "total_batches": (len(todo_lemmas) + BATCH - 1) // BATCH,
+                                            "done_lemmas": done, "failed_lemmas": failed,
+                                            "model_calls": calls}, ensure_ascii=False), encoding="utf-8")
     # Merge: full 1676 rows. Non-Other kept byte-identical except file; Others replaced where relabeled.
     new_by_sense = {}
     for lemma, items in done.items():
@@ -306,6 +307,9 @@ def main():
                     n_relabel += 0
                     n_still_other += 1
         vectors_out.append({"lemma": r["lemma"], "vectors": vecs})
+    if a.dry_run:
+        print("dry-run: no files written")
+        return
     OUT_LABELS.write_text(json.dumps(labels_out, ensure_ascii=False), encoding="utf-8")
     OUT_VECTORS.write_text(json.dumps(vectors_out, ensure_ascii=False), encoding="utf-8")
     n_multi = sum(1 for l in vectors_out for v in l["vectors"] if len(v["vector"]) > 1)
