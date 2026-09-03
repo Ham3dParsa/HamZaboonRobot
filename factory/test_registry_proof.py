@@ -23,6 +23,71 @@ sys.path.insert(0, os.path.dirname(_HERE))
 from factory import registry as R  # noqa: E402
 
 FX = os.path.join(_HERE, "fixtures")
+NEED_FIXTURES = ("uniq_senses-v14a.json", "ranked_senses-v14a.json",
+                 "ranked_senses-v14b.json", "ranked_senses-v14c.json",
+                 "topic_labels-v16b.json")
+
+
+def _synthetic_fx(tmp):
+    """Tiny hermetic fixtures so the proof runs on a fresh checkout where
+    the big W:-only fixture JSONs are absent. Same shapes, 2 lemmas."""
+    d = os.path.join(tmp, "syn_fx")
+    os.makedirs(d, exist_ok=True)
+    uniq = [
+        {"lemma": "apple", "pos": "noun", "cefr": "A1", "uniq_senses": [
+            {"sense_id": "apple#0", "gloss": "A round fruit", "synonyms": []},
+            {"sense_id": "apple#1", "gloss": "A tech company",
+             "synonyms": []}]},
+        {"lemma": "run", "pos": "verb", "cefr": "A2", "uniq_senses": [
+            {"sense_id": "run#0", "gloss": "To move fast", "synonyms": []},
+            {"sense_id": "run#1", "gloss": "To move quickly",
+             "synonyms": []}]},
+    ]
+    ra = [
+        {"lemma": "apple", "cefr": "A1", "ranked_senses": [
+            {"sense_id": "apple#0", "gloss": "A round fruit",
+             "sense_cefr": "A1"},
+            {"sense_id": "apple#1", "gloss": "A tech company",
+             "sense_cefr": "B2"}]},
+        {"lemma": "run", "cefr": "A2", "ranked_senses": [
+            {"sense_id": "run#0", "gloss": "To move fast", "sense_cefr": "A2"},
+            {"sense_id": "run#1", "gloss": "To move quickly",
+             "sense_cefr": "A2"}]},
+    ]
+    rb = [
+        {"lemma": "apple", "cefr": "A1", "ranked_senses": [
+            {"sense_id": "apple#0", "gloss": "A round fruit",
+             "sense_cefr": "A1", "merged_from": []},
+            {"sense_id": "apple#1", "gloss": "A tech company",
+             "sense_cefr": "B2", "merged_from": []}]},
+        {"lemma": "run", "cefr": "A2", "ranked_senses": [
+            {"sense_id": "run#0", "gloss": "To move fast", "sense_cefr": "A2",
+             "merged_from": ["run#1"]}]},
+    ]
+    rc = [
+        {"lemma": "apple", "cefr": "A1", "pick_source": "judge",
+         "ranked_senses": rb[0]["ranked_senses"]},
+        {"lemma": "run", "cefr": "A2", "pick_source": "judge",
+         "ranked_senses": rb[1]["ranked_senses"]},
+    ]
+    topics = [
+        {"sense_id": "apple#0"}, {"sense_id": "apple#1"},
+        {"sense_id": "run#0"},
+    ]
+    for name, rows in (("uniq_senses-v14a.json", uniq),
+                       ("ranked_senses-v14a.json", ra),
+                       ("ranked_senses-v14b.json", rb),
+                       ("ranked_senses-v14c.json", rc),
+                       ("topic_labels-v16b.json", topics)):
+        with open(os.path.join(d, name), "w", encoding="utf-8") as fh:
+            json.dump(rows, fh, ensure_ascii=False)
+    return d
+
+
+def _resolve_fx(tmp):
+    if all(os.path.exists(os.path.join(FX, n)) for n in NEED_FIXTURES):
+        return FX, False
+    return _synthetic_fx(tmp), True
 
 
 def q(db, sql, params=()):
@@ -41,10 +106,12 @@ def snap(db, lang="en"):
 def main():
     tmp = tempfile.mkdtemp(prefix="regproof-")
     db = os.path.join(tmp, "registry.db")
+    fx, synthetic = _resolve_fx(tmp)
+    print("fixtures:", "SYNTHETIC (fresh-checkout mode)" if synthetic else FX)
 
     # (a) import twice -> identical counts, no dupes.
-    first = R.migrate_v14(db, FX)
-    second = R.migrate_v14(db, FX)
+    first = R.migrate_v14(db, fx)
+    second = R.migrate_v14(db, fx)
     assert first == second, (first, second)
     dupes = q(db, "SELECT pre_card_id, COUNT(*) c FROM precards"
                   " GROUP BY lang, pre_card_id HAVING c > 1")
@@ -53,12 +120,12 @@ def main():
 
     # (b) 20 shuffled duplicate lemmas -> zero new rows.
     before = snap(db)
-    uniq = json.load(open(os.path.join(FX, "uniq_senses-v14a.json"),
+    uniq = json.load(open(os.path.join(fx, "uniq_senses-v14a.json"),
                           encoding="utf-8"))
-    ra = json.load(open(os.path.join(FX, "ranked_senses-v14a.json"),
+    ra = json.load(open(os.path.join(fx, "ranked_senses-v14a.json"),
                         encoding="utf-8"))
     by_lc = {(r["lemma"], r["cefr"]): r for r in ra}
-    sample = random.Random(0).sample(uniq, 20)
+    sample = random.Random(0).sample(uniq, min(20, len(uniq)))
     new_rows = 0
     for u in sample:
         R.upsert_lemma(db, "en", u["lemma"], u["pos"], cefr=u.get("cefr"),
@@ -102,19 +169,23 @@ def main():
                          "legacy-import", "x") == "reprocess"
     print("PASS (c) de isolated (3/3/3), en untouched, fingerprint ok")
 
-    # (d) batch claim / complete / stale-lease cycle.
-    t1 = R.claim_batch(db, "en", 10)
+    # (d) batch claim / complete / stale-lease cycle (sizes scale to fixture set).
+    pending_n = len(R.get_pending(db, "en"))
+    quota = min(10, pending_n)
+    done_n = min(3, quota)
+    rest_n = quota - done_n
+    t1 = R.claim_batch(db, "en", quota)
     assert re.fullmatch(r"FINAL-en-\d{8}-\d{2,}", t1), t1
     items = [r["pre_card_id"] for r in q(
         db, "SELECT pre_card_id FROM batch_items WHERE ticket=?", (t1,))]
-    assert len(items) == 10, len(items)
-    for pid in items[:3]:
+    assert len(items) == quota, (len(items), quota)
+    for pid in items[:done_n]:
         assert R.complete_batch_item(db, t1, pid, "final-%s" % pid) is True
-    assert snap(db, "en")["converted"] == 3
+    assert snap(db, "en")["converted"] == done_n
     # double-complete / double-convert refused.
     assert R.complete_batch_item(db, t1, items[0], "final-other") is False
     assert R.mark_converted(db, "en", items[0], "final-other") is False
-    # fresh lease -> no requeue; backdated lease -> requeue 7, done kept.
+    # fresh lease -> no requeue; backdated lease -> requeue rest, done kept.
     assert R.requeue_stale(db, t1) == 0
     con = sqlite3.connect(db)
     try:
@@ -127,24 +198,27 @@ def main():
         con.commit()
     finally:
         con.close()
-    assert R.requeue_stale(db, t1) == 7
+    assert R.requeue_stale(db, t1) == rest_n
     left = {r["pre_card_id"]: r["status"] for r in q(
         db, "SELECT pre_card_id, status FROM batch_items WHERE ticket=?",
         (t1,))}
-    assert sum(1 for s in left.values() if s == "done") == 3
-    assert sum(1 for s in left.values() if s == "queued") == 7
-    # reclaim: seq bumps, all 7 re-queued items claimed, never double-claimed.
-    t2 = R.claim_batch(db, "en", 10)
+    assert sum(1 for s in left.values() if s == "done") == done_n
+    assert sum(1 for s in left.values() if s == "queued") == rest_n
+    # reclaim: seq bumps, all rest re-queued items claimed, never double-claimed.
+    t2 = R.claim_batch(db, "en", quota)
     assert t2 != t1 and t2.rsplit("-", 1)[0] == t1.rsplit("-", 1)[0], (t1, t2)
     t2items = [r["pre_card_id"] for r in q(
         db, "SELECT pre_card_id FROM batch_items WHERE ticket=?", (t2,))]
-    assert set(items[3:]) <= set(t2items)
+    assert set(items[done_n:]) <= set(t2items)
     clash = q(db, "SELECT pre_card_id FROM batch_items"
                   " WHERE status='claimed' GROUP BY pre_card_id HAVING COUNT(*) > 1")
     assert clash == [], clash
-    assert R.complete_batch_item(db, t2, items[3], "final-%s" % items[3]) is True
-    assert snap(db, "en")["converted"] == 4
-    print("PASS (d) batch cycle: %s -> %s, converted=4, no double-claim" % (t1, t2))
+    final_converted = done_n
+    if items[done_n:]:
+        assert R.complete_batch_item(db, t2, items[done_n], "final-%s" % items[done_n]) is True
+        final_converted = done_n + 1
+    assert snap(db, "en")["converted"] == final_converted
+    print("PASS (d) batch cycle: %s -> %s, converted=%d, no double-claim" % (t1, t2, final_converted))
 
     print("ALL PROOF TESTS PASS on", db)
 
