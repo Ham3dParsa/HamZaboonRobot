@@ -258,8 +258,12 @@ def add_precard(db, lang, lemma_key, gloss, sense_cefr=None,
 
 
 def mark_merged(db, lang, survivor_id, dropped_id):
-    """Flag a dropped pre-card superseded by survivor. Idempotent."""
-    if survivor_id == dropped_id:
+    """Flag a dropped pre-card superseded by survivor. Idempotent.
+
+    Fail-closed: survivor_id None/empty leaves the card ACTIVE (unresolved),
+    never superseded-to-NULL (that hid cards from get_pending with no lineage).
+    """
+    if not survivor_id or survivor_id == dropped_id:
         return False
     with _write(db) as con:
         cur = con.execute(
