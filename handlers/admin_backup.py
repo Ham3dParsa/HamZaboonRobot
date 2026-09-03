@@ -217,7 +217,12 @@ _AUTO_BACKUP_LOCK = asyncio.Lock()
 def _create_auto_backup() -> str | None:
     if not db.get_bool_setting("auto_backup_enabled", True):
         return None
-    backup_dir = os.path.join(os.path.dirname(DB_PATH) or ".", ARCHIVE_BACKUP_DIR)
+    base_dir = os.path.realpath(os.path.dirname(DB_PATH) or ".")
+    candidate = os.path.realpath(os.path.join(base_dir, ARCHIVE_BACKUP_DIR))
+    if candidate != base_dir and not candidate.startswith(base_dir + os.sep):
+        logger.warning("ARCHIVE_BACKUP_DIR=%r escapes DB dir; falling back to default", ARCHIVE_BACKUP_DIR)
+        candidate = os.path.join(base_dir, "backups")
+    backup_dir = candidate
     os.makedirs(backup_dir, exist_ok=True)
     timestamp = datetime.datetime.now(_app_timezone).strftime("%Y%m%d_%H%M%S")
     backup_path = os.path.join(backup_dir, f"hamzaban_auto_{timestamp}.db")
