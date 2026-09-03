@@ -6,8 +6,10 @@ set -eu
 # HamZaban - persistent Xray bootstrap for Chabokan Python hosting
 # Runs on every deploy, before app start. Idempotent.
 export DEBIAN_FRONTEND=noninteractive
-BASE_ROOT="${BASE_ROOT:-/app}"
-XRAY_DIR="${XRAY_DIR:-$BASE_ROOT/.xray}"
+# Canonical server root: the repo always deploys to /app on this platform
+# (single source — no override; cron-jobs and supervisor.conf use the same).
+BASE_ROOT="/app"
+XRAY_DIR="/app/.xray"
 mkdir -p "$XRAY_DIR" /var/log/xray /var/log/supervisor
 # Ensure log file exists for supervisor/cron (canonical path /var/log/xray/xray.log)
 touch /var/log/xray/xray.log 2>&1 | head || true
@@ -40,6 +42,15 @@ if [ -f "$BASE_ROOT/cron-jobs" ]; then
 fi
 
 # 3) Restore persistent subscription state and install helper scripts from repo
+# One-time migration from the pre-#548 layout (/app/hamzaban/.xray): copy any
+# state file missing at the new path so clean/outs/sub_url survive the switch.
+if [ -d /app/hamzaban/.xray ]; then
+  for _f in clean.json outs.json sub_url; do
+    if [ ! -s "$XRAY_DIR/$_f" ] && [ -s "/app/hamzaban/.xray/$_f" ]; then cp -f "/app/hamzaban/.xray/$_f" "$XRAY_DIR/$_f" || true; fi
+  done
+  unset _f
+  if [ -f "$XRAY_DIR/sub_url" ]; then chmod 0600 "$XRAY_DIR/sub_url" 2>/dev/null || true; fi
+fi
 [ -f "$XRAY_DIR/clean.json" ] && cp -f "$XRAY_DIR/clean.json" /tmp/clean.json || true
 [ -f "$XRAY_DIR/outs.json" ] && cp -f "$XRAY_DIR/outs.json" /tmp/outs.json || true
 # Install helper scripts from repo (they are ephemeral in /usr/local/bin)
