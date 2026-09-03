@@ -72,12 +72,12 @@ class AdminSendPrettyFlowTest(unittest.TestCase):
                 self.assertIn("keyboard", kwargs)
 
     def test_access_denied_uses_say(self):
-        from handlers.admin import cmd_backup
+        from handlers.admin_backup import cmd_backup
 
         update = self._make_update()
         ctx = self._make_ctx()
-        with patch("handlers.admin.is_owner", return_value=False):
-            with patch("handlers.admin.say", new=AsyncMock(return_value="sent")) as mock_say:
+        with patch("handlers.admin_backup.is_owner", return_value=False):
+            with patch("handlers.admin_backup.say", new=AsyncMock(return_value="sent")) as mock_say:
                 asyncio.run(cmd_backup(update, ctx))
                 mock_say.assert_called_once()
                 args, kwargs = mock_say.call_args
@@ -88,13 +88,13 @@ class AdminSendPrettyFlowTest(unittest.TestCase):
                 self.assertEqual(kwargs.get("mode"), "send")
 
     def test_backup_error_uses_say_plain_dynamic(self):
-        from handlers.admin import cmd_backup
+        from handlers.admin_backup import cmd_backup
 
         update = self._make_update()
         ctx = self._make_ctx()
-        with patch("handlers.admin.is_owner", return_value=True):
-            with patch("handlers.admin.db.export_db_bytes", side_effect=RuntimeError("boom")):
-                with patch("handlers.admin.say", new=AsyncMock(return_value="sent")) as mock_say:
+        with patch("handlers.admin_backup.is_owner", return_value=True):
+            with patch("handlers.admin_backup.db.export_db_bytes", side_effect=RuntimeError("boom")):
+                with patch("handlers.admin_backup.say", new=AsyncMock(return_value="sent")) as mock_say:
                     asyncio.run(cmd_backup(update, ctx))
                     mock_say.assert_called_once()
                     args, kwargs = mock_say.call_args
@@ -106,7 +106,7 @@ class AdminSendPrettyFlowTest(unittest.TestCase):
                     self.assertEqual(kwargs.get("mode"), "send")
 
     def test_restore_error_uses_say_plain(self):
-        from handlers.admin import handle_restore_doc
+        from handlers.admin_backup import handle_restore_doc
 
         update = self._make_update()
         # simulate large file error path
@@ -117,8 +117,8 @@ class AdminSendPrettyFlowTest(unittest.TestCase):
         update.message = update.effective_message
         ctx = self._make_ctx()
         ctx.user_data["awaiting"] = "admin_restore"
-        with patch("handlers.admin.is_owner", return_value=True):
-            with patch("handlers.admin.say", new=AsyncMock(return_value="sent")) as mock_say:
+        with patch("handlers.admin_backup.is_owner", return_value=True):
+            with patch("handlers.admin_backup.say", new=AsyncMock(return_value="sent")) as mock_say:
                 asyncio.run(handle_restore_doc(update, ctx))
                 mock_say.assert_called_once()
                 args, kwargs = mock_say.call_args
@@ -129,12 +129,12 @@ class AdminSendPrettyFlowTest(unittest.TestCase):
                 self.assertEqual(kwargs.get("mode"), "send")
 
     def test_cmd_restore_uses_say_with_keyboard(self):
-        from handlers.admin import cmd_restore
+        from handlers.admin_backup import cmd_restore
 
         update = self._make_update()
         ctx = self._make_ctx()
-        with patch("handlers.admin.is_owner", return_value=True):
-            with patch("handlers.admin.say", new=AsyncMock(return_value="sent")) as mock_say:
+        with patch("handlers.admin_backup.is_owner", return_value=True):
+            with patch("handlers.admin_backup.say", new=AsyncMock(return_value="sent")) as mock_say:
                 asyncio.run(cmd_restore(update, ctx))
                 mock_say.assert_called_once()
                 args, kwargs = mock_say.call_args
@@ -182,6 +182,7 @@ class AdminSendPrettyFlowTest(unittest.TestCase):
 
     def test_raw_plain_count(self):
         text = Path("handlers/admin.py").read_text(encoding="utf-8")
+        text += Path("handlers/admin_backup.py").read_text(encoding="utf-8")
         self.assertGreaterEqual(text.count("raw=RawFormat.PLAIN"), 11)
         # also ensure at least 11 say calls with mode send
         self.assertGreaterEqual(text.count('mode="send"'), 11)

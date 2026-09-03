@@ -60,6 +60,10 @@ def _coerce_tts_cache_chat_id(raw: str) -> int | None:
 
 ARCHIVE_CHAT_ID = os.getenv("ARCHIVE_CHAT_ID", "").strip()
 
+# Archive auto-backup retention + local backup dir (single owner, phase 02 R3).
+ARCHIVE_BACKUP_DIR = os.getenv("ARCHIVE_BACKUP_DIR", "backups").strip() or "backups"
+ARCHIVE_AUTO_BACKUP_RETENTION_DAYS = int(os.getenv("ARCHIVE_AUTO_BACKUP_RETENTION_DAYS", "3"))
+
 
 
 AI_MAX_CONCURRENCY = int(os.getenv("AI_MAX_CONCURRENCY", "2"))

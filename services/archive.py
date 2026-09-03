@@ -23,7 +23,29 @@ def validate_archive_chat_id(value: str) -> bool:
     return bool(_ARCHIVE_RE.match(value.strip()))
 
 
+def report_archive_error(msg: str) -> None:
+    """Persist *msg* as ``archive_last_error`` (single owner of the write)."""
+    try:
+        db.set_setting("archive_last_error", msg)
+        logger.debug("archive_last_error persisted msg=%r", msg)
+    except Exception:
+        logger.debug("failed to persist archive_last_error msg=%r", msg, exc_info=True)
+
+
+def clear_archive_error() -> None:
+    """Clear a stale ``archive_last_error`` after a successful backup."""
+    try:
+        db.set_setting("archive_last_error", "")
+    except Exception:
+        logger.debug("failed to clear archive_last_error", exc_info=True)
+
+
 def resolved_archive_chat_id() -> int | None:
+    """Resolve the archive chat id without DB write side-effects.
+
+    Pure getter: invalid stored values return None and do NOT persist
+    ``archive_last_error`` — callers report via :func:`report_archive_error`.
+    """
     raw = db.get_setting("archive_chat_id", "")
     if raw and raw.strip():
         raw = raw.strip()
@@ -32,19 +54,9 @@ def resolved_archive_chat_id() -> int | None:
                 return int(raw)
             except ValueError:
                 logger.warning("resolved_archive_chat_id: stored value %r failed int conversion raw=%r", raw, raw, exc_info=True)
-                try:
-                    db.set_setting("archive_last_error", f"invalid archive_chat_id: {raw}")
-                    logger.debug("archive_last_error persisted raw=%r", raw)
-                except Exception:
-                    logger.debug("failed to persist archive_last_error raw=%r", raw, exc_info=True)
                 return None
         # invalid stored value -> treat as disabled (do not fallback) and warn admin
         logger.warning("resolved_archive_chat_id: invalid stored archive_chat_id %r raw=%r — treating as disabled", raw, raw, exc_info=True)
-        try:
-            db.set_setting("archive_last_error", f"invalid archive_chat_id: {raw}")
-            logger.debug("archive_last_error persisted raw=%r", raw)
-        except Exception:
-            logger.debug("failed to persist archive_last_error raw=%r", raw, exc_info=True)
         return None
     # no settings value -> fallback to env
     env = (ARCHIVE_CHAT_ID or "").strip()
@@ -161,11 +173,7 @@ async def do_backup(bot, owner_user_id: int, dest_chat_id: int | None = None):
 
         if isinstance(exc, Forbidden):
             logger.warning("do_backup Forbidden to target %s owner_user_id=%s target=%s raw=%s: %s", target, owner_user_id, target, target, exc, exc_info=True)
-            try:
-                db.set_setting("archive_last_error", f"Forbidden to {target}: {exc}")
-                logger.debug("archive_last_error persisted target=%s owner_user_id=%s", target, owner_user_id)
-            except Exception:
-                logger.debug("failed to persist archive_last_error target=%s owner_user_id=%s", target, owner_user_id, exc_info=True)
+            report_archive_error(f"Forbidden to {target}: {exc}")
             # Fallback: notify owner PV if we were targeting archive channel
             if target != owner_user_id and owner_user_id:
                 logger.warning("do_backup fallback to owner owner_user_id=%s target=%s after Forbidden", owner_user_id, target, exc_info=True)
@@ -174,18 +182,16 @@ async def do_backup(bot, owner_user_id: int, dest_chat_id: int | None = None):
                         bot, owner_user_id, method="send_document", media_kw="document", media=InputFile(io.BytesIO(data), filename=fname), caption=caption
                     )
                     logger.warning("do_backup fallback to owner PV %s succeeded owner_user_id=%s target=%s", owner_user_id, owner_user_id, target, exc_info=True)
+                    clear_archive_error()
                     return owner_user_id
                 except Exception:
                     logger.warning("do_backup fallback to owner PV %s failed owner_user_id=%s target=%s", owner_user_id, owner_user_id, target, exc_info=True)
                     pass
         elif isinstance(exc, BadRequest):
             logger.warning("do_backup BadRequest to target %s owner_user_id=%s target=%s raw=%s: %s", target, owner_user_id, target, target, exc, exc_info=True)
-            try:
-                db.set_setting("archive_last_error", f"BadRequest to {target}: {exc}")
-                logger.debug("archive_last_error persisted target=%s owner_user_id=%s", target, owner_user_id)
-            except Exception:
-                logger.debug("failed to persist archive_last_error target=%s owner_user_id=%s", target, owner_user_id, exc_info=True)
+            report_archive_error(f"BadRequest to {target}: {exc}")
         else:
             logger.warning("do_backup error to target %s owner_user_id=%s: %s", target, owner_user_id, exc, exc_info=True)
         raise
+    clear_archive_error()
     return target

@@ -23,6 +23,7 @@ This is disclosed reference — loaded only when parallel-work-guard fires.
 | 10 | Telegram UI -> Plans | handlers/admin_plans.py | handle_plan_callback, _start_plan_wizard, _show_plan_list |
 | 11 | Telegram UI -> Cost | handlers/admin_cost.py | handle_cost_callback, _show_llm_cost_dashboard |
 | 12 | Telegram UI -> AI Config | handlers/admin_ai.py | handle_ai_callback, _show_ai_presets, _show_ai_settings |
+| 20 | Telegram UI -> Backup | handlers/admin_backup.py | handle_admin_backup_callback, cmd_backup, cmd_restore, handle_restore_doc, auto_backup_job |
 | 13 | TTS Provider | services/tts.py | async pronounce(word, lang) |
 | 14 | Scheduling/Quota | services/scheduling.py | daily_session_budget(), consume_session_slot(), release_session_slot() |
 | 15 | Telegram Callback Notifications | services/utils/callback_notifications.py | notify_callback(query, text, intent=...) |
