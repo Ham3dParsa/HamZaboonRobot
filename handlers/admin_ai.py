@@ -75,7 +75,7 @@ _FIELD_HELP = {
     "input_cost_per_million": "هزینه هر یک میلیون توکن ورودی (درخواست) به دلار. خالی = استفاده از مقدار سراسری تنظیم شده در داشبورد هزینه.",
     "output_cost_per_million": "هزینه هر یک میلیون توکن خروجی (پاسخ) به دلار. خالی = استفاده از مقدار سراسری.",
     "group_label": "برچسب دلخواه برای گروه‌بندی پریست‌هایی که کلید API مشترک دارند. نمونه: «سرویس‌دهنده اصلی» یا «پشتیبان رایگان»",
-    "reasoning_effort": "میزان تلاش استدلال مدل‌های thinking: none (غیرفعال)، low، medium یا high. فقط وقتی مقدار none نیست به درخواست اضافه می‌شود.",
+    "reasoning_effort": "میزان تلاش استدلال: none (حذف از درخواست؛ برای مدل‌های بدون تفکر)، minimal (کمترین توکن، پیشنهادی برای Spark)، low، medium، high، xhigh. فقط وقتی none نیست ارسال می‌شود. Spark 1.3 همیشه فکر می‌کند و none با 400 خطا می‌دهد؛ از minimal یا low استفاده کنید.",
 }
 
 # Canonical all-English short label map. Single source of truth for the
@@ -511,7 +511,7 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
                 raise ValueError
         elif field_name == "reasoning_effort":
             value = raw.strip().lower()
-            if value not in ("none", "low", "medium", "high"):
+            if value not in ("none", "minimal", "low", "medium", "high", "xhigh"):
                 raise ValueError
         else:
             value = raw
@@ -707,7 +707,7 @@ def _validate_wizard_value(field_name: str, raw: str, preset_name: str) -> tuple
             return (raw,)
         elif field_name == "reasoning_effort":
             v = raw.strip().lower()
-            if v not in ("none", "low", "medium", "high"):
+            if v not in ("none", "minimal", "low", "medium", "high", "xhigh"):
                 return None
             return (v,)
         else:
@@ -1448,11 +1448,20 @@ async def _test_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
         await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     resolved_key = db.resolve_preset_key(preset)
+    from services.utils.callback_codec import preset_token
+
+    preset_ref = preset_token(preset_name)
     if not (preset.get("base_url") and preset.get("model") and resolved_key):
         msg = Message()
         msg.add_line(plain("⚠️ "), bold("اتصال ممکن نیست"))
         msg.add_line(plain("base_url / model / api_key کامل نیست. اول در ویرایش کامل پر کنید."))
-        await say(update, context, msg, backend=Backend.HTML)
+        keyboard = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("✏️ ادامه ویرایش کامل", callback_data=f"admin:ai_preset:full_edit:{preset_ref}")],
+                [InlineKeyboardButton("↩️ بازگشت", callback_data=f"admin:ai_preset:view:{preset_ref}")],
+            ]
+        )
+        await say(update, context, msg, backend=Backend.HTML, keyboard=keyboard)
         return
     await notify_callback(update.callback_query, "در حال تست اتصال...", intent=CallbackNoticeIntent.INFO)
     result = await asyncio.to_thread(
@@ -1469,7 +1478,13 @@ async def _test_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
     else:
         msg.add_line(plain("❌ "), bold("خطا در اتصال"))
         msg.add_line(plain("خطا: "), plain(str(result.get("error_message", ""))))
-    await say(update, context, msg, backend=Backend.HTML)
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔁 تست مجدد", callback_data=f"admin:ai_preset:test:{preset_ref}")],
+            [InlineKeyboardButton("↩️ بازگشت", callback_data=f"admin:ai_preset:view:{preset_ref}")],
+        ]
+    )
+    await say(update, context, msg, backend=Backend.HTML, keyboard=keyboard)
 
 
 async def _handle_create_priority_choice(
