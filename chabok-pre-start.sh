@@ -34,8 +34,11 @@ fi
 # 2) Ensure cron is running (container has no systemd) and install cron-jobs
 service cron start 2>&1 | head -5 || cron 2>&1 | head -5 || true
 if [ -f "$BASE_ROOT/cron-jobs" ]; then
-  # /etc/cron.d requires user field (minute hour dom month dow USER command)
-  echo "0 */6 * * * root /usr/local/bin/update_xray_subscription.sh >> /var/log/xray_update.log 2>&1" > /etc/cron.d/xray-update && chmod 0644 /etc/cron.d/xray-update || true
+  # /etc/cron.d requires user field (minute hour dom month dow USER command).
+  # Two lines: 6h subscription refresh + 1m xray keepalive (guarded: needs
+  # binary + built config, so an empty box never boot-loops). Bot itself is
+  # platform-managed via start.sh — no bot keepalive here (twin pollers).
+  { echo "0 */6 * * * root /usr/local/bin/update_xray_subscription.sh >> /var/log/xray_update.log 2>&1"; echo "* * * * * root pgrep -f \"xray run\" > /dev/null || { test -x /usr/local/bin/xray && test -s /app/hamzaban/.xray/config.json && /usr/local/bin/xray run -c /app/hamzaban/.xray/config.json >> /var/log/xray/xray.log 2>&1 & }"; } > /etc/cron.d/xray-update && chmod 0644 /etc/cron.d/xray-update || true
 fi
 
 # 3) Restore persistent subscription state and install helper scripts from repo
