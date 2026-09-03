@@ -1,0 +1,83 @@
+{
+ "Daily Life & Home": {
+  "new": [
+   "Daily Life & Home"
+  ],
+  "rule": "identity (unchanged head)"
+ },
+ "Food & Drink": {
+  "new": [
+   "Food & Drink"
+  ],
+  "rule": "identity (unchanged head)"
+ },
+ "Health & Body": {
+  "new": [
+   "Health & Body"
+  ],
+  "rule": "identity (unchanged head)"
+ },
+ "Work & Education": {
+  "new": [
+   "Work & Careers",
+   "Education & Exams"
+  ],
+  "rule": "split: job/meeting/office/professional life -> Work & Careers; exam/school/study/learning -> Education & Exams"
+ },
+ "Travel & Transportation": {
+  "new": [
+   "Travel & Transportation"
+  ],
+  "rule": "identity (unchanged head)"
+ },
+ "Society & Culture": {
+  "new": [
+   "Society",
+   "Arts & Culture"
+  ],
+  "rule": "split: community/tradition/social life -> Society; art/film/music/literature -> Arts & Culture"
+ },
+ "Nature & Environment": {
+  "new": [
+   "Animals & Living Beings",
+   "Nature & Environment"
+  ],
+  "rule": "split: living beings/animals (even if edible) -> Animals & Living Beings; plants/earth/air/water/weather -> Nature & Environment"
+ },
+ "Science & Technology": {
+  "new": [
+   "Science & Technology"
+  ],
+  "rule": "identity (unchanged head)"
+ },
+ "Business & Economy": {
+  "new": [
+   "Business & Economy"
+  ],
+  "rule": "identity (unchanged head)"
+ },
+ "Law & Politics": {
+  "new": [
+   "Law & Politics"
+  ],
+  "rule": "identity (unchanged head)"
+ },
+ "Sports & Leisure": {
+  "new": [
+   "Sports & Leisure"
+  ],
+  "rule": "identity (unchanged head)"
+ },
+ "Emotions & Relationships": {
+  "new": [
+   "Emotions & Relationships"
+  ],
+  "rule": "identity (unchanged head)"
+ },
+ "Other / Abstract": {
+  "new": [
+   "Other / Abstract"
+  ],
+  "rule": "identity (unchanged head)"
+ }
+}

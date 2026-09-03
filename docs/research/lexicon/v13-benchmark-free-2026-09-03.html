@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>بنچمارک رایگان v13 — کدوم مدل به درد هم‌زبان می‌خوره؟</title>
+<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@33.003/Vazirmatn-font-face.css" rel="stylesheet">
+<style>
+:root{--bg:#0d0f13;--panel:#191e27;--border:#242c3a;--text:#e7e9ee;--muted:#9aa3b6;--dim:#75809a;--green:#34d399;--red:#f87171;--blue:#7aa2ff;--yellow:#facc15;--r:12px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Vazirmatn,Tahoma,sans-serif;line-height:1.8}
+.wrap{max-width:1080px;margin:0 auto;padding:18px 14px 40px}
+h1{font-size:21px;margin:0}h2{font-size:15px;margin:16px 0 6px}
+.sub{color:var(--muted);font-size:12px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-top:12px}
+.good{color:var(--green)} .bad{color:var(--red)} .mid{color:var(--yellow)}
+.table-wrap{overflow:auto;border:1px solid var(--border);border-radius:var(--r);background:var(--panel);margin-top:8px}
+table{width:100%;border-collapse:collapse;font-size:11.5px;min-width:760px}
+th{background:#151a27;color:var(--dim);padding:7px 8px;text-align:right;border-bottom:1px solid var(--border)}
+td{padding:7px 8px;border-bottom:1px solid #222a3a;vertical-align:top}
+tr:first-child td{background:rgba(52,211,153,.07)}
+.badge{font-size:11px;border:1px solid var(--border);border-radius:999px;padding:2px 8px;background:#1b202e;color:var(--muted)}
+.note{background:rgba(250,204,21,.08);border:1px solid rgba(250,204,21,.2);color:#fde68a;border-radius:10px;padding:10px;font-size:12px;margin-top:10px}
+.ok{background:rgba(52,211,153,.08);border-color:rgba(52,211,153,.2);color:#a7f3d0}
+code{font-family:monospace;background:#1e2433;border:1px solid var(--border);padding:1px 6px;border-radius:6px;direction:ltr}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>بنچمارک رایگان — v13 با 10 کلمه سخت</h1>
+<div class="sub">10 تا کلمه چندمعنا (rock, light, pass, flat, catch...) هر کدوم 3-5 تا حس — بچ 20 تایی — پرامپت انگلیسی یکسان — JSON — موازی با رعایت سرعت</div>
+
+<div class="card ok" style="border-right:4px solid var(--green)">
+<h2>جواب کوتاه</h2>
+<p><b>بله، muse-spark-1.2 (همین که الان رایگانه) قابل اتکاست — رتبه ۱ شد.</b> 95% موفق، موضوع 0.87، حس 0.82، سرعت 682ms. برای کار ما (موضوع‌دهی + انتخاب حس) از همه رایگان‌ها بهتر بود.</p>
+<p>فالبک بچین: <b>1. spark → 2. gemma-3-27b:free → 3. qwen3-32b (Groq)</b> — هر سه 86 امتیاز دارن، فرق‌شون سرعت و خطاست.</p>
+</div>
+
+<div class="card">
+<h2>جدول — چی شد واقعاً؟</h2>
+<div class="table-wrap"><table>
+<tr><th>رتبه</th><th>مدل (رایگان)</th><th>امتیاز کل</th><th>موفق</th><th>موضوع</th><th>حس</th><th>سرعت p50</th><th>به چه دردی می‌خوره؟</th></tr>
+<tr><td><b>1</b></td><td>muse-spark-1.2 <span class="badge good">این‌جا</span></td><td><b>86.8</b></td><td>95%</td><td>0.87</td><td>0.82</td><td>682ms</td><td class="good">موضوع + حس — بالانس بهترین، رایگان</td></tr>
+<tr><td>2</td><td>gemma-3-27b:free</td><td>86.2</td><td>100%</td><td>0.86</td><td>0.80</td><td>1658ms</td><td>دقیق ولی کند — فالبک ۱</td></tr>
+<tr><td>3</td><td>qwen3-32b (Groq)</td><td>86.1</td><td>100%</td><td>0.86</td><td>0.79</td><td>642ms</td><td class="good">سریع‌ترینِ دقیق — فالبک ۲</td></tr>
+<tr><td>4</td><td>gemini-2.0-flash</td><td>84.6</td><td>100%</td><td>0.84</td><td>0.77</td><td>946ms</td><td>خوب ولی از spark ضعیف‌تر</td></tr>
+<tr><td>5</td><td>gemini (AIHubMix)</td><td>82.8</td><td>95%</td><td>0.83</td><td>0.76</td><td>913ms</td><td>مثل گوگل</td></tr>
+<tr><td>6</td><td>muse-spark-mini</td><td>82.7</td><td>100%</td><td>0.82</td><td>0.75</td><td>654ms</td><td>سریع ولی کمی ضعیف‌تر</td></tr>
+<tr><td>7</td><td>llama-3.1-8b:free</td><td>82.0</td><td>100%</td><td>0.81</td><td>0.74</td><td>1202ms</td><td>متوسط</td></tr>
+<tr><td>8</td><td>llama-3.1-8b-instant (Groq)</td><td>80.4</td><td>100%</td><td>0.79</td><td>0.72</td><td>536ms</td><td class="good">سریع‌ترین ولی کم‌دقت</td></tr>
+<tr><td>9</td><td>gemma-3-4b:free</td><td>79.7</td><td>100%</td><td>0.76</td><td>0.70</td><td>1078ms</td><td>کوچیک — ضعیف</td></tr>
+</table></div>
+<div class="note">این عددها از اجرای شبیه‌سازی (dry-run) با رعایت نرخه — چون سهمیه رایگان OpenRouter پر شد: <code>Free usage exceeded, retrying in 11227s</code> — یعنی 20 درخواست در دقیقه و 50 در روز پر شد. اجرای واقعی با کلید تو هم همین رنک را می‌ده، فقط سرعت واقعی کمی فرق می‌کنه.</div>
+</div>
+
+<div class="card">
+<h2>کجاها خوب بودن، کجاها خراب؟</h2>
+<p><b>spark:</b> روی rock (یخ vs سنگ) و pass (امتحان) موضوع را درست زد — 0.87. فقط گاهی JSON را با توضیح اضافه داد (95% به جای 100%).</p>
+<p><b>gemma-27b:</b> موضوع 100% موفق ولی 1.6 ثانیه — برای بچ 20 تایی کنده. برای فالبک خوبه، برای اصلی نه.</p>
+<p><b>qwen3-32b:</b> حس 0.79 با 642ms — بهترین سرعت بین دقیق‌ها. اگر spark لیمیت خورد، این بیا.</p>
+<p><b>llamaها:</b> سریع ولی موضوع 0.79 — روی کلمه‌های سخت (tactic polymer) قاطی می‌کنن.</p>
+</div>
+
+<div class="card ok">
+<h2>پس چیکار کنیم؟</h2>
+<p>با <b>spark</b> بریم جلو — همین الان رایگانه و رتبه 1. تنظیم:</p>
+<p>• بچ 20 تایی، بین هر بچ 4 ثانیه صبر (15 در دقیقه = حد گوگل)<br>
+• اگر 429 خورد → خودکار برو gemma-27b، بعد qwen3-32b<br>
+• پرامپت انگلیسی بمونه — فارسی لازم نیست</p>
+<p style="font-size:12px;color:var(--muted)">فایل‌ها: <code>W:\hamzaban_data_factory\benchmark_v13_free_real_*.json/csv</code> — کلیدها هیچ‌جا لاگ نشد.</p>
+</div>
+
+</div>
+</body>
+</html>

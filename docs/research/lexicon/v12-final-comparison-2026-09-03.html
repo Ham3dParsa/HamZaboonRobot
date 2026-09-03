@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>هم‌زبان — مقایسه نهایی v12A/B/C در برابر v10/v11 — انتخاب برای v13</title>
+<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@33.003/Vazirmatn-font-face.css" rel="stylesheet">
+<style>
+:root{--bg:#0d0f13;--panel:#14171e;--panel2:#1b202e;--border:#232838;--text:#e8eaf0;--muted:#9aa0b2;--dim:#6b7288;--blue:#7aa2ff;--green:#34d399;--yellow:#facc15;--red:#f87171;--purple:#a78bfa;--radius:14px;--max:1320px}
+*{box-sizing:border-box} html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Vazirmatn,Tahoma,system-ui,sans-serif;line-height:1.75;-webkit-font-smoothing:antialiased}
+a{color:var(--blue);text-decoration:none} a:hover{text-decoration:underline}
+code{font-family:ui-monospace,Cascadia Code,Consolas,monospace;font-size:11.5px;background:#1e2433;border:1px solid var(--border);padding:2px 7px;border-radius:7px;direction:ltr;display:inline-block}
+.mono{font-family:ui-monospace,monospace;direction:ltr}
+.wrap{max-width:var(--max);margin:0 auto;padding:28px 20px 60px}
+header h1{font-size:clamp(22px,2.2vw,30px);margin:0 0 6px;line-height:1.35}
+.sub{color:var(--muted);font-size:13px}
+.meta{color:var(--muted);font-size:12px;display:flex;gap:14px;flex-wrap:wrap;margin-top:8px}
+.meta span{border-left:1px solid var(--border);padding-left:14px}
+.meta span:last-child{border:0}
+.badge{font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--border);background:var(--panel2);color:var(--muted);white-space:nowrap}
+.badge.good{background:rgba(52,211,153,.12);color:var(--green);border-color:rgba(52,211,153,.25)}
+.badge.warn{background:rgba(250,204,21,.12);color:#fde68a;border-color:rgba(250,204,21,.22)}
+.badge.bad{background:rgba(248,113,113,.10);color:var(--red);border-color:rgba(248,113,113,.22)}
+.badge.blue{background:rgba(122,162,255,.12);color:#a5b4fc;border-color:rgba(122,162,255,.22)}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0 10px}
+.kpi{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px;text-align:center}
+.kpi b{font-size:20px;display:block;line-height:1}
+.kpi em{font-style:normal;font-size:11px;color:var(--muted)}
+.kpi small{font-size:11px;color:var(--dim)}
+.hero{display:grid;grid-template-columns:1.2fr .8fr;gap:14px;margin:14px 0 18px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+.card h2{margin:0 0 8px;font-size:15px}
+.card h3{margin:0 0 6px;font-size:14px}
+.card p{margin:0;color:var(--muted);font-size:13px}
+.alert{border-radius:10px;padding:10px 12px;font-size:12.5px;border:1px solid var(--border);margin:8px 0}
+.alert.ok{background:rgba(52,211,153,.08);border-color:rgba(52,211,153,.22);color:#a7f3d0}
+.alert.warn{background:rgba(250,204,21,.08);border-color:rgba(250,204,21,.22);color:#fde68a}
+.alert.err{background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.22);color:#fecaca}
+.alert.neutral{background:rgba(122,162,255,.06);border-color:rgba(122,162,255,.18);color:#c7d2fe}
+.section{margin-top:22px}
+.section-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+.section-head h2{margin:0;font-size:18px}
+.section-head p{margin:0;color:var(--muted);font-size:12px}
+.table-wrap{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:780px}
+th{font-size:11px;color:var(--dim);background:#151a27;padding:10px 10px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:10px 10px;border-bottom:1px solid rgba(35,40,56,.5);vertical-align:top}
+tr:last-child td{border-bottom:0}
+tr:hover td{background:#171d2b}
+td.num{direction:ltr;text-align:center;font-family:ui-monospace,monospace;font-size:12px}
+td.ltr{direction:ltr;text-align:left;font-family:ui-monospace,monospace;font-size:11px}
+.vgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.variant{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.variant.pick{border-color:rgba(52,211,153,.35);box-shadow:0 0 0 1px rgba(52,211,153,.12)}
+.variant h4{margin:0;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.variant ul{margin:0;padding-right:16px;font-size:12px;color:var(--muted)}
+.variant ul li{margin:3px 0}
+.variant .fix{font-size:11.5px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--muted)}
+.edge-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.edge{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px}
+.edge h4{margin:0 0 6px;font-size:13px}
+.edge .gloss{font-size:11.5px;color:var(--muted);background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:6px 0;direction:ltr;text-align:left;line-height:1.5;word-break:break-word}
+.edge .why{font-size:12px;color:#fde68a;background:rgba(250,204,21,.06);border:1px solid rgba(250,204,21,.18);border-radius:8px;padding:8px 10px;margin-top:6px}
+.edge .good-why{font-size:12px;color:#a7f3d0;background:rgba(52,211,153,.07);border:1px solid rgba(52,211,153,.18);border-radius:8px;padding:8px 10px;margin-top:6px}
+.compare{width:100%;border-collapse:collapse;font-size:11.5px;margin:6px 0}
+.compare th{font-size:10.5px;padding:6px 8px}
+.compare td{padding:6px 8px;font-size:11.5px}
+.glossary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.glossary .g{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+.glossary .g b{font-size:12px;display:block;margin-bottom:2px}
+.glossary .g span{font-size:11.5px;color:var(--muted)}
+.refs{font-size:11.5px;color:var(--muted)}
+.refs li{margin:4px 0}
+.foot{margin-top:28px;padding-top:14px;border-top:1px solid var(--border);color:var(--muted);font-size:11px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.flow{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.flow span{background:var(--panel2);border:1px solid var(--border);border-radius:999px;padding:4px 10px;font-size:11px;color:var(--muted)}
+.flow span.on{background:rgba(52,211,153,.12);color:var(--green);border-color:rgba(52,211,153,.25)}
+@media(max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)} .hero{grid-template-columns:1fr} .vgrid{grid-template-columns:1fr} .edge-grid{grid-template-columns:1fr} .glossary{grid-template-columns:1fr 1fr} .wrap{padding:20px 14px 50px}}
+@media(max-width:640px){.glossary{grid-template-columns:1fr} table{min-width:620px}}
+@media(min-width:1600px){.wrap{max-width:1440px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>انتخاب نهایی — v12A (دیتا) · v12B (معماری) · v12C (هیبرید) در برابر v10/v11</h1>
+  <div class="sub">یک‌صفحه برای تصمیم: هر واریانت چه چیزی را درست کرد، چه چیزی را خراب کرد، و برای <b>v13 قبل از مدل کوچک</b> کدام را برداریم. همه‌چیز از کارخانه واقعی — بدون حدس.</div>
+  <div class="meta">
+    <span>۳ سپتامبر ۲۰۲۶ — پایلوت ۵۰۰ واژه — <span class="mono">all-MiniLM-L6-v2</span> — ۶۰۰ حرف full_text</span>
+    <span>بیس: v10 تمیز (۰٫۳٪ Other) و v11 متن کامل (۹۹٫۶٪ Other)</span>
+    <span>فایل: <span class="mono">v12-final-comparison-2026-09-03.html</span></span>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><b>۳٬۶۴۳ → ۳٬۲۴۰</b><em>uniq</em><small>v12A=7.29 · v12B/C=7.52 /واژه</small></div>
+    <div class="kpi"><b>۱٬۷۶۳ → ۱٬۵۰۹</b><em>کارت نهایی</em><small>v12A=3.526 · v12B/C=3.50 /واژه</small></div>
+    <div class="kpi"><b>۹۹٫۶٪ → ۵۰٫۶٪</b><em>Other</em><small>v12A 51.7% · v12B 64.1% · v12C 50.6% ✅</small></div>
+    <div class="kpi"><b>IPA ۹۰٪</b><em>تلفظ + Tatoeba</em><small>v12A/C دارد · v12B خاموش</small></div>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="card" style="border-right:4px solid var(--green)">
+    <h2>✅ از v11 چه یاد گرفتیم — و v12 چه کرد؟</h2>
+    <p><b>v11</b> ثابت کرد <code>full_text = lemma [pos] gloss | Examples | Synonyms</code> بهتر از gloss تنهاست — «قبول شدن در امتحان» برگشت. ولی <b>موضوع ترکید</b> (۹۹٫۶٪ Other) و هنوز «سنگ» جا ماند. <b>v12</b> سه جواب جدا ساخت تا بفهمیم کدام لایه مقصر است:</p>
+    <div class="flow"><span>v10 تمیز</span><span>v11 متن کامل</span><span style="background:rgba(122,162,255,.12);color:#a5b4fc;border-color:rgba(122,162,255,.22)">v12A دیتا</span><span style="background:rgba(250,204,21,.12);color:#fde68a;border-color:rgba(250,204,21,.22)">v12B معماری</span><span class="on">v12C هیبرید ⭐</span></div>
+    <div class="alert ok">خلاصه: <b>v12A موضوع را نصف کرد</b> (IPA/Tatoeba/Kaikki)، <b>v12B سهمیه و CEFR را درست کرد</b> (نمونه‌برداری + نامتقارن)، <b>v12C هر دو را جمع کرد</b> و بهترین Other (۵۰٫۶٪) را داد.</div>
+  </div>
+  <div class="card">
+    <h2>فرمول‌ها — فرق در یک خط</h2>
+    <p style="font-size:12px;color:var(--muted)"><b>v10/v11/v12A:</b> <span class="mono">0.50 Zipf(full_text) + 0.15 WN + 0.25 CEFR + 0.05 centroid + 0.05 topic</span> سپس C/Tau/Kmax (۳/۴/۶)</p>
+    <p style="font-size:12px;color:var(--muted);margin-top:6px"><b>v12B/C:</b> <span class="mono">0.50 Zipf + 0.15 WN + 0.05 centroid + 0.05 topic</span> — وزن ۰٫۲۵ حذف، به‌جایش <b>فیلتر نامتقارن</b>: اگر حس ≤ سطحِ واژه → ضریب ۱٫۰، وگرنه ۰٫۳ − ۰٫۲×Δ (کف ۰٫۰۵) ضرب در امتیاز. سخت را جریمه می‌کند، حذف نمی‌کند.</p>
+    <p style="font-size:12px;color:var(--muted);margin-top:6px"><b>dedup:</b> v12A thr ۰٫۸۲ یکسان؛ v12B/C فعل ۰٫۸۰ (آسان‌گیرتر برای تنوع فعل) و بقیه ۰٫۸۴ + سقف ۱۲ با امتیاز <b>CEFR &gt; WN &gt; centroid</b> (قبلاً WN اول بود).</p>
+    <p style="font-size:12px;color:var(--muted);margin-top:6px"><b>نمونه‌برداری:</b> v12A همان ۸۳ یکنواخت؛ v12B/C باز-نمونه‌برداری ۶۰/۸۰/۱۱۰/۱۲۰/۷۵/۵۰ (مجموع ۴۳۱ لم، Bها سنگین، C2 سبک) — نزدیک به سهمیه آموزشی واقعی.</p>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-head"><h2>هر واریانت دقیقاً چه چیزی را درست کرد؟</h2><p>بدون شعار — فقط تغییر و اثرِ عددی</p></div>
+  <div class="vgrid">
+    <div class="variant">
+      <h4>📦 v12A — درست‌کردنِ دیتا <span class="badge blue">IPA · Tatoeba · Topic</span></h4>
+      <ul>
+        <li><b>IPA:</b> از Kaikki sounds کشید — <span class="mono">ipa_best</span> (اولین شامل «/» با ترجیح US سپس UK) + <span class="mono">ipa, ipa_uk, ipa_us, audio_url</span> — پوشش ۴۵۳/۵۰۰ = <b>۹۰٫۶٪</b> (۴۷ لم بدون IPA).</li>
+        <li><b>Tatoeba:</b> اگر حس بدون مثال بود یا نقل‌قول &gt;۲۰ واژه داشت، از استخر Tatoeba (۸–۲۰ واژه، تطابق دقیق لم) جایگزین گذاشت — <b>۸۴۲ حس</b> جایگزین شد (همه در ranked).</li>
+        <li><b>Topic:</b> آبشاری — Kaikki topics → EVP domain → NAWL prior → فقط اگر هیچ‌کدام نبود keyword؛ Other از ۹۹٫۶٪ به <b>۵۱٫۷٪</b> (۹۱۲/۱۷۶۳). منبع: Kaikki 467, EVP 102, NAWL 61, keyword 1115.</li>
+      </ul>
+      <div class="fix"><b>خوب:</b> مثال‌ها کوتاه و قابل‌تدریس شد، موضوع نصف شد، IPA برای TTS آماده. <b>بد:</b> نمونه‌برداری و CEFR همان v11 ماند — «سنگ» و «radiation» هنوز جلو هستند، k-dist همان ۳۴/۴۸/۱۸۶/۱۴۸/۲۱/۶۳.</div>
+    </div>
+    <div class="variant">
+      <h4>⚙️ v12B — درست‌کردنِ معماری <span class="badge warn">نمونه + dedup + CEFR نامتقارن</span></h4>
+      <ul>
+        <li><b>نمونه‌برداری:</b> از ۸۳ یکنواخت به <b>۶۰/۸۰/۱۱۰/۱۲۰/۷۵/۵۰</b> (۴۳۱ لم) — Aها سبک، Bها سنگین. سهم کارت: A1 174, A2 223, B1 297, B2 300, C1 324, C2 191 — دیگر A1 مثل C1 پر نیست.</li>
+        <li><b>dedup POS-aware:</b> فعل ۰٫۸۰ و بقیه ۰٫۸۴ + سقف ۱۲ با اولویت <b>CEFR قبل WN</b> — uniq 7.52 (بیشتر از 7.29 چون فعل‌ها کمتر حذف شدند)، cap12_used 177.</li>
+        <li><b>CEFR نامتقارن:</b> وزن ۰٫۲۵ حذف؛ به‌جایش فیلتر ۱٫۰ / ۰٫۳/۰٫۱/۰٫۰۵ — حسِ سخت‌تر از سطح واژه جریمه می‌شود ولی حذف نه. Other با keyword قدیمی <b>۶۴٫۱٪</b> (۹۶۷/۱۵۰۹) — هنوز بالا.</li>
+      </ul>
+      <div class="fix"><b>خوب:</b> عدالت سطحی درست شد، فعل‌های تکراری کمتر له شدند، آپارتمان flat#23 به رتبه ۱ برگشت (۰٫۱۶۹۸). <b>بد:</b> بدون IPA/Tatoeba، موضوع هنوز ۶۴٪ — چون Kaikki/E‌VP خاموش بود.</div>
+    </div>
+    <div class="variant pick">
+      <h4>🧬 v12C — هیبرید (A+B) <span class="badge good">پیشنهادی برای v13 ⭐</span></h4>
+      <ul>
+        <li>همهٔ <b>دیتای v12A</b> (IPA/Tatoeba/Kaikki) + همهٔ <b>معماری v12B</b> (۶۰/۸۰/۱۱۰/۱۲۰/۷۵/۵۰، dedup POS-aware، CEFR نامتقارن).</li>
+        <li>نتیجه: IPA ۳۹۱/۴۳۱ = <b>۹۰٫۷٪</b>، Tatoeba <b>۷۶۵ حس</b>، uniq 3240 (7.52)، ranked 1509 (3.50)، k-dist 28/43/156/144/9/51.</li>
+        <li>Other <b>۵۰٫۶٪</b> (۷۶۳/۱۵۰۹) — بهترینِ سه‌تا؛ منابع: Kaikki 417, EVP 97, NAWL 48, keyword 992.</li>
+      </ul>
+      <div class="fix"><b>چرا بهترین؟</b> هم مثالِ خوب و IPA دارد، هم سهمیه درست و CEFR منطقی. برای v13 فقط یک باگِ کوچک مانده: هنوز نصف کارت‌ها Other هستند — که با مدل کوچک حل می‌شود.</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-head"><h2>جدول عددی — v10/v11 در برابر v12A/B/C</h2><p>از کارخانه واقعی — بدون گرد کردنِ گمراه‌کننده</p></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>سنجه</th><th>v10 تمیز</th><th>v11 متن کامل</th><th>v12A دیتا</th><th>v12B معماری</th><th style="background:rgba(52,211,153,.12);color:var(--green)">v12C هیبرید ⭐</th><th>یعنی چه؟</th></tr></thead>
+    <tbody>
+      <tr><td><b>uniq</b> (چند معنیِ متفاوت)</td><td class="num">3,862<br><small>7.72 / واژه</small></td><td class="num">3,643<br><small>7.29</small></td><td class="num">3,643<br><small>7.29</small></td><td class="num">3,240<br><small>7.52</small></td><td class="num" style="background:rgba(52,211,153,.07)"><b>3,240</b><br><small>7.52</small></td><td>تنوع خام</td></tr>
+      <tr><td><b>ranked</b> (کارت نهایی)</td><td class="num">1,846<br><small>3.69</small></td><td class="num">1,763<br><small>3.526</small></td><td class="num">1,763<br><small>3.526</small></td><td class="num">1,509<br><small>3.50</small></td><td class="num" style="background:rgba(52,211,153,.07)"><b>1,509</b><br><small>3.50</small></td><td>هر واژه چند کارت</td></tr>
+      <tr><td><b>k-dist</b> (۱/۲/۳/۴/۵/۶)</td><td class="num"><small>15 / 43 / 191 / 161 / 12 / 78</small></td><td class="num"><small>34 / 48 / 186 / 148 / 21 / 63</small></td><td class="num"><small>34 / 48 / 186 / 148 / 21 / 63</small></td><td class="num"><small>28 / 43 / 156 / 144 / 9 / 51</small></td><td class="num" style="background:rgba(52,211,153,.07)"><small><b>28 / 43 / 156 / 144 / 9 / 51</b></small></td><td>Kmax=3/4/6 رعایت؟</td></tr>
+      <tr><td><b>سهم CEFR</b> (A1 A2 B1 B2 C1 C2)</td><td class="num"><small>243 239<br>313 319<br>381 351</small></td><td class="num"><small>240 234<br>299 309<br>359 322</small></td><td class="num"><small>240 234<br>299 309<br>359 322</small></td><td class="num"><small>174 223<br>297 300<br>324 191</small></td><td class="num" style="background:rgba(52,211,153,.07)"><small>174 223<br>297 <b>301</b><br>324 190</small></td><td>عدالت سطحی</td></tr>
+      <tr><td><b>Other%</b> (بی‌موضوع)</td><td class="num"><span class="badge good">0.3%</span><br><small>6/1846</small></td><td class="num"><span class="badge bad">99.6%</span><br><small>1756/1763</small></td><td class="num"><span class="badge warn">51.7%</span><br><small>912/1763</small></td><td class="num"><span class="badge bad">64.1%</span><br><small>967/1509</small></td><td class="num" style="background:rgba(52,211,153,.07)"><span class="badge warn">50.6%</span><br><small>763/1509</small></td><td>کمتر بهتر</td></tr>
+      <tr><td><b>IPA / Tatoeba</b></td><td class="num">—</td><td class="num">—</td><td class="num"><small>90.6% / 842 حس</small></td><td class="num"><small>خاموش</small></td><td class="num" style="background:rgba(52,211,153,.07)"><small><b>90.7% / 765 حس</b></small></td><td>تلفظ و مثال کوتاه</td></tr>
+    </tbody>
+  </table></div>
+  <div class="alert neutral" style="margin-top:10px">خواندن سریع: <b>v10</b> موضوع عالی ولی مثال‌ها طولانیِ نقل‌قولی؛ <b>v11</b> مثالِ کامل ولی موضوع نابود؛ <b>v12A</b> موضوع را نصف کرد + IPA؛ <b>v12B</b> سهمیه را منطقی کرد (Bها ۵۹۸ کارت vs Aها ۳۹۷)؛ <b>v12C</b> بهترینِ هر دو — و تنها گزینه آماده برای مدل کوچک.</div>
+</div>
+
+<div class="section">
+  <div class="section-head"><h2>لبه‌ها — با full_text واقعی (چهار واژه، پنج نسخه)</h2><p>هر full_text دقیقاً از <span class="mono">ranked_senses-*.json</span> — نکته: «سنگِ» واقعی rock#9 هنوز جا مانده</p></div>
+  <div class="edge-grid">
+
+    <div class="edge">
+      <h4>🪨 rock — B2 — «سنگ» کجاست؟ <span class="badge bad">همه جا رتبه ۵+</span></h4>
+      <div class="gloss">v11/v12A رتبه ۱: <b>rock [verb] A lump or cube of ice. | Examples: I'll have a whisky on the rocks, please.</b> — score 0.1468 / B2 Food&amp;Drink<br>v12B/C رتبه ۱: <b>همان ice</b> ولی رتبه ۲ شد <b>rock [verb] To move gently back and forth. | Examples: Rock the baby to sleep.</b> — score 0.1502 — فعلِ مفیدتر<br><b>اما «سنگ» معدنی:</b> <span class="mono">rock#9 a lump or mass of hard consolidated mineral matter | Examples: he threw a rock at me | Synonyms: rock, stone</span> در uniq هست ولی در هیچ‌کدام top-4 نیست (WN count کم + Zipf «the Rock» بیشتر).</div>
+      <div class="why"><b>چرا هر سه بد؟</b> WordNet می‌گوید «the Rock» (اسم خاص) پرشمارتر است؛ CEFR همه A2 شد پس Zipf برنده شد. <b>v12B/C کمی بهتر</b> چون dedup فعل-محور، «گهواره تکان دادن» را به‌جای «کریستال رادیو» آورد — ولی «سنگ» هنوز بیرون است. برای v13 باید وزن CEFR برای A1 را بیشتر کنیم یا «stone» را با LLM بالا بیاوریم.</div>
+      <table class="compare"><thead><tr><th>نسخه</th><th>رتبه ۱ full_text</th><th>وضعیت</th></tr></thead><tbody>
+        <tr><td>v10</td><td class="ltr">rock#8 the Rock — A2</td><td><span class="badge bad">بد</span></td></tr>
+        <tr><td>v11</td><td class="ltr">rock#26 ice — B2 — 0.1468</td><td><span class="badge warn">نیمه‌بد</span></td></tr>
+        <tr><td>v12A</td><td class="ltr">rock#26 ice — با Tatoeba Sitting on the rock…</td><td><span class="badge warn">نیمه‌بد</span></td></tr>
+        <tr><td>v12B/C</td><td class="ltr">ice + baby-rock — فعل‌ها متنوع‌تر</td><td><span class="badge warn">کمی بهتر</span></td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="edge">
+      <h4>✅ pass — A2 — «قبول شدن» <span class="badge good">در همه هست</span></h4>
+      <div class="gloss">v11: <b>pass [noun] To change in state or status | Examples: He attempted the examination, but did not expect to pass. ; Of the Ancient Wonders, only the pyramids have passed the test of time.</b> — 0.1262 ★ رتبه ۱<br>v12A: <b>همان</b> — 0.1273 ★ (topic Other) — مثال Tatoeba عوض نشد چون خودش کوتاه بود<br>v12B: <b>pass [noun] make laws… | Examples: They passed the amendment</b> — 0.133 رتبه ۱، exam به رتبه ۲ افتاد (۰٫۱۲۲)<br>v12C: <b>pass#10 To change place. | ex: "Pass me the salt, please." "Here you are."</b> — از Tatoeba آمد، رتبه ۳ — <b>مثال کلاسی عالی</b></div>
+      <div class="good-why"><b>خوبِ v12C:</b> هر سه معنیِ کاربردی (امتحان + قانون + نمک) با مثال کوتاه و طبیعی. <b>بدِ v12B:</b> قانون اول شد چون WN آن پرشمارتر است — ولی CEFR نامتقارن جلوی حذف exam را گرفت (همه ضریب ۱٫۰). برای v13 این تعادل را نگه داریم.</div>
+    </div>
+
+    <div class="edge">
+      <h4>💡 light — A1 — «نور / سبک» <span class="badge warn">تابش هنوز اول است</span></h4>
+      <div class="gloss">v11: <b>light [adjective] Electromagnetic radiation of any wavelength. | Examples: It's everywhere. At this moment, as you sit quietly reading…</b> — 0.1186 B2 ★<br>v12A: <b>همان</b> — ولی مثال Tatoeba شد <b>It's just five in the morning, but nevertheless it is light out.</b> (کوتاه‌تر، ۱۱ واژه)<br>v12B/C: رتبه ۱ شد <b>light [adjective] To lighten; to ease of a burden; to take off. | Examples: His mailèd habergeon she did undight…</b> — 0.1296 A1 — متن کهن!<br>رتبه ۳ در v12B/C: <b>A low-alcohol lager. | Examples: We crossed to the pub… two schooners of old for him and one of light for me.</b> — 0.1238 — آبجو!</div>
+      <div class="why"><b>چرا؟</b> هر سه A1 شدند (Zipf تصمیم می‌گیرد)، «تابش» Zipf بالا دارد. v12A مثال را کوتاه کرد (خوب)، ولی v12B/C با dedup ۰٫۸۴ «آبجو» را آورد چون نادر بود — آموزنده نیست. <b>درس v13:</b> فیلتر «نقل‌قول کهن» (&gt;۱۰۰ سال) و «حسِ نادرِ B2 برای لمِ A1» را سخت‌گیرتر کنیم.</div>
+    </div>
+
+    <div class="edge">
+      <h4>🏠 flat — B1 — «آپارتمان» <span class="badge good">در v12B/C برگشت ⭐</span></h4>
+      <div class="gloss">v10: <b>flat#73 A complete domicile… / flat#4 Having no variations…</b> — آپارتمان رتبه ۱ (۰٫۱۲۴)<br>v11: <b>flat [adjective] The most prominent flat part of something.</b> — 0.1112 ★، آپارتمان <b>flat#23 a suite of rooms… | Synonyms: apartment, flat</b> رتبه ۴ با ۰٫۱۰۰۷ (لب مرز، Other)<br>v12A: آپارتمان flat#23 رتبه ۲ (۰٫۱۰۵۸) با Tatoeba <b>I'd love to go… but I'm flat broke.</b> — مثال اشتباه (broke نه apartment!)<br>v12B: <b>flat#23 a suite of rooms…</b> — <b>۰٫۱۶۹۸ ★ رتبه ۱</b> ✅ (CEFR-first) + flat#40 flat desk — درست<br>v12C: <b>همان v12B</b> — ۰٫۱۶۰۹ ★ با Tatoeba <b>It was very hard for me to find your flat.</b> — مثال درستِ آپارتمان ⭐</div>
+      <div class="good-why"><b>برنده واضح v12B/C:</b> چون سقف ۱۲ با اولویت CEFR چید، «آپارتمانِ» A2 توانست «flatِ B1ِ beer-case» را ببرد. و v12C مثال Tatoeba درست را هم آورد. این دقیقاً اثرِ <b>CEFR نامتقارن + CEFR-first</b> است.</div>
+    </div>
+
+  </div>
+  <div class="alert err" style="margin-top:14px"><b>جمعِ لبه‌ها:</b> v12A مثال و IPA را درست کرد (pass خوب، light مثال کوتاه)، v12B/C رده‌بندی را (flat برگشت، rock فعل‌ها بهتر). هیچ‌کدام «سنگِ» rock را به top-4 نیاورد — این آخرین میخِ v13 با مدل کوچک است (LLM می‌تواند «stone mineral» را برای Nature/A1 بالا ببرد).</div>
+</div>
+
+<div class="section">
+  <div class="section-head"><h2>پیشنهاد برای v13 — قبل از مدل کوچک</h2><p>کدام را برداریم و با چه وصله‌های کوچک؟</p></div>
+  <div class="card" style="border-right:4px solid var(--green)">
+    <h3>✅ بردار: v12C هیبرید — و این ۴ وصله را بزن، بعد LLM</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">
+      <div>
+        <p><b>۱) موضوع را به LLM بسپار نه به آستانه:</b> ۵۰٫۶٪ Other هنوز نصف است. دیگر آستانه ۰٫۳۵ یا نمونه بلند فایده ندارد — مدل کوچک (مثلاً ۳B) با ۱۳ برچسبِ فارسی و ۲ مثالِ هر موضوع، در یک کال، Other را به &lt;۱۰٪ می‌رساند. Kaikki/EVP را به‌عنوان hint به پرامپت بده، نه تصمیم نهایی.</p>
+        <p style="margin-top:8px"><b>۲) فیلتر کهنه و نادر:</b> نقل‌قول &gt;۱۹۰۰ یا حسِ «lager / habergeon» برای لمِ A1 را حتی اگر CEFR= A1 شد، با ضریب ۰٫۵ جریمه کن — light#44 و light#92 نباید top-3ِ A1 باشند.</p>
+      </div>
+      <div>
+        <p><b>۳) وزن CEFR را برگردان ولی سبک:</b> الان ۰٫۲۵ حذف شده؛ برای v13 آن را <b>۰٫۱۲</b> برگردان و فیلتر نامتقارن را نگه دار — تا «سنگِ» A1 بتواند «the Rockِ» A2 را ببرد بدون اینکه C2ها له شوند.</p>
+        <p style="margin-top:8px"><b>۴) سهمیه ۴۳۰ را نگه دار:</b> ۶۰/۸۰/۱۱۰/۱۲۰/۷۵/۵۰ تراز آموزشی‌تر از ۸۳ یکنواخت است. برای ۴۰۰۰ واژه مقیاس بده: ۱۵۰/۳۳۰/۲۴۰/۲۴۷/۱۳۰/۹۸ — نه دوباره یکنواخت.</p>
+      </div>
+    </div>
+    <div class="alert ok" style="margin-top:12px">چرا نه v12A یا v12B تنها؟ <b>v12A</b> بدون اصلاح سهمیه، A1 را پر می‌کند (۲٫۸۵/واژه برای مبتدی زیادی است)؛ <b>v12B</b> بدون IPA/Tatoeba، نصف مثال‌ها نقل‌قولِ ویکی‌طولانی می‌ماند. <b>v12C</b> هر دو را دارد — و آماده است که LLM فقط «سنگ» و «Other» را پولیش کند، نه همه‌چیز را از صفر بسازد. هزینه: همان ۱ کال LLM به‌ازای هر حس (batch 32).</div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="card">
+    <h3>واژه‌نامه — ساده</h3>
+    <div class="glossary" style="margin-top:10px">
+      <div class="g"><b>uniq</b><span>همهٔ معنی‌های متفاوتی که بعد از حذف تکراری ماند — مثلاً rock ۱۲ معنی خام داشت، ۷ تا یکتا ماند.</span></div>
+      <div class="g"><b>ranked / کارت</b><span>از بین uniq، ۱ تا ۶ معنی که برای آن واژه نگه داشتیم — با فرمول Zipf+WN+CEFR انتخاب می‌شود.</span></div>
+      <div class="g"><b>k-dist</b><span>چند واژه ۱ کارت، چند تا ۲، ۳… ۶ کارت دارد. Kmax می‌گوید هر سطح حداکثر چندتا (A1=3, C2=6).</span></div>
+      <div class="g"><b>CEFR (A1→C2)</b><span>سطح سختی: A1 مبتدی، C2 پیشرفته. هر حس یک CEFR دارد (از EVP/CEFR-J یا Zipf).</span></div>
+      <div class="g"><b>CEFR نامتقارن</b><span>اگر معنی سخت‌تر از واژه باشد (مثلاً C1 برای واژه A1) جریمه می‌شود (۰٫۳/۰٫۱/۰٫۰۵)، ولی اگر آسان‌تر باشد جریمه نه.</span></div>
+      <div class="g"><b>Other%</b><span>چند کارت بی‌موضوع ماند — هرچه کمتر بهتر. v11=99.6% شکست، v12C=50.6% نیمه‌خوب.</span></div>
+      <div class="g"><b>full_text</b><span>متنی که به مدل دادیم: «واژه [نقش] توضیح | مثال‌ها | هم‌معنی‌ها» تا ۶۰۰ حرف — نه فقط توضیح کوتاه.</span></div>
+      <div class="g"><b>dedup / سقف ۱۲</b><span>معنی‌های شبیه به هم (شباهت &gt;۰٫۸۲) یکی می‌شود؛ اگر &gt;۱۲ معنی ماند، ۱۲ تای برتر (با WN یا CEFR) نگه داشته می‌شود.</span></div>
+      <div class="g"><b>IPA / Tatoeba</b><span>IPA = تلفظ [/laɪt/] از Kaikki؛ Tatoeba = جملهٔ کوتاهِ واقعی (۸–۲۰ واژه) جایگزینِ نقل‌قولِ طولانی.</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="card">
+    <h3>منابع — کوتاه و قابل کلیک</h3>
+    <ul class="refs" style="margin:8px 0 0;padding-right:18px">
+      <li><b>مدل:</b> <span class="mono">sentence-transformers/all-MiniLM-L6-v2</span> — 384 بُعد، cosine — <span class="mono">huggingface.co/sentence-transformers/all-MiniLM-L6-v2</span></li>
+      <li><b>بسامد:</b> <span class="mono">wordfreq</span> Zipf — <span class="mono">pypi.org/project/wordfreq</span> — هرچه Zipf بالاتر، روزمره‌تر</li>
+      <li><b>WordNet:</b> NLTK — <span class="mono">wordnet.princeton.edu</span> — <span class="mono">log(cnt+0.5)</span> و آستانه ۰٫۳۵</li>
+      <li><b>CEFR:</b> EVP ۲۰۰۰ + CEFR-J ۵۰۴ — cosine ۰٫۷۲ سپس ۰٫۶۰ وگرنه Zipf — <span class="mono">englishprofile.org/wordlists/evp</span></li>
+      <li><b>Kaikki / NAWL:</b> Kaikki Wiktionary (<span class="mono">kaikki.org</span>) برای IPA و topics؛ NAWL 963 — <span class="mono">newgeneralservicelist.com/nawl</span></li>
+      <li><b>Tatoeba:</b> استخر ۵۰۰k جمله انگلیسی — <span class="mono">tatoeba.org</span> — فیلتر ۸–۲۰ واژه، تطابق دقیق لم</li>
+      <li><b>دداپ:</b> Agglomerative cosine، dst 0.18 (=thr ۰٫۸۲)، POS-aware ۰٫۸۰/۰٫۸۴ در v12B/C</li>
+      <li><b>داده‌ها:</b> <span class="mono">uniq_senses-v12A.json (3643) · ranked-v12A.json (1763) · uniq-v12C.json (3240) · ranked-v12C.json (1509) · fixtures-v12C.zip</span> — کپی: <span class="mono">W:\hamzaban_data_factory\</span></li>
+    </ul>
+  </div>
+</div>
+
+<div class="foot">
+  <span>فایل: <span class="mono">docs/research/lexicon/v12-final-comparison-2026-09-03.html</span> — کپی: <span class="mono">W:\hamzaban_data_factory\v12-final-comparison-2026-09-03.html</span></span>
+  <span>فونت Vazirmatn — ریسپانسیو: موبایل تا 1440p — تم تیره — ۱ صفحه — بی‌لکنت</span>
+</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v13 چی واقعی بود، چی نبود؟</title>
+<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@33.003/Vazirmatn-font-face.css" rel="stylesheet">
+<style>
+:root{--bg:#0d0f13;--panel:#191e27;--border:#242c3a;--text:#e7e9ee;--muted:#9aa3b6;--dim:#75809a;--green:#34d399;--red:#f87171;--yellow:#facc15;--r:12px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Vazirmatn,Tahoma,sans-serif;line-height:1.85}
+.wrap{max-width:1060px;margin:0 auto;padding:18px 14px 44px}
+h1{font-size:20px;margin:0}h2{font-size:15px;margin:16px 0 6px}h3{font-size:13.5px;margin:12px 0 4px;color:#cbd5e1}
+.sub{color:var(--muted);font-size:12px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-top:12px}
+.good{color:var(--green)} .bad{color:var(--red)} .mid{color:var(--yellow)}
+code{font-family:monospace;background:#1e2433;border:1px solid var(--border);padding:1px 6px;border-radius:6px;direction:ltr}
+.table-wrap{overflow:auto;border:1px solid var(--border);border-radius:var(--r);background:var(--panel);margin-top:8px}
+table{width:100%;border-collapse:collapse;font-size:11.5px;min-width:740px}
+th{background:#151a27;color:var(--dim);padding:7px 8px;text-align:right;border-bottom:1px solid var(--border)}
+td{padding:7px 8px;border-bottom:1px solid #222a3a;vertical-align:top}
+td.ltr{direction:ltr;text-align:left;font-family:monospace;font-size:11px}
+p{margin:6px 0;font-size:13px;color:var(--muted)} p b{color:var(--text)}
+.tag{font-size:11px;border:1px solid var(--border);border-radius:999px;padding:2px 8px;background:#1b202e;color:var(--muted)}
+.real{color:var(--green);border-color:rgba(52,211,153,.3);background:rgba(52,211,153,.1)}
+.fake{color:var(--red);border-color:rgba(248,113,113,.3);background:rgba(248,113,113,.08)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>v13 چی واقعی اجرا شد، چی نشد؟</h1>
+<div class="sub">بدون تعارف — چی با کلید واقعی رفت، چی placeholder بود، نوتبوک‌ها اجرا شدن یا نه</div>
+
+<div class="card" style="border-right:4px solid var(--red)">
+<h2>اول جواب سوال‌ت: بله، درست حدس زدی</h2>
+<p><b>v13b با کلید واقعی کار نکرد.</b> تو خود گزارش‌ش نوشته (خط 4 و 12 <code>gap_report_free_500_v13b.md</code>): «هیچ کلیدی یافت نشد — placeholder ثبت شد» و «با placeholder انجام شد». یعنی اون 827 تا <code>llm-refined</code> که می‌بینی، خروجی مدل نیست — یه برچسب تقلبی با اعتماد ثابت 0.72 که کد خودش زده.</p>
+<p>v13c هم همینه — دیتاش عملاً کپی v13bـه (ردیف‌های rock/light/pass/flat مو به مو یکسانن)، ولی گزارش‌ش ادعا می‌کنه Other شده 400 تا (19.3٪) در حالی که تو فایل واقعی 520 تاست (25.1٪). یعنی گزارش با دیتا نمی‌خونه.</p>
+</div>
+
+<div class="card">
+<h2>چی اجرا شد، چی نه؟</h2>
+<div class="table-wrap"><table>
+<tr><th></th><th>v13a (وزن)</th><th>v13b (نگه‌دار + مدل)</th><th>v13c (هیبرید)</th></tr>
+<tr><td>اجرا</td><td><span class="tag real">واقعی — با اسکریپت</span><br><span style="font-size:11px">run_v13a_factory.py (40KB) تو logs هست</span></td><td><span class="tag real">نیمه‌واقعی</span><br><span style="font-size:11px">بخش دیتا واقعی، بخش مدل تقلبی</span></td><td><span class="tag fake">کپی b</span><br><span style="font-size:11px">ردیف‌ها با b یکسان</span></td></tr>
+<tr><td>نوتبوک</td><td>فقط اسکریپت، نوتبوک نداره</td><td><span class="tag fake">هرگز اجرا نشد</span><br><span style="font-size:11px">execution_count همه None، بدون خروجی</span></td><td><span class="tag fake">هرگز اجرا نشد</span></td></tr>
+<tr><td>مدل زبانی</td><td>نداره (درسته)</td><td><span class="tag fake">placeholder</span><br><span style="font-size:11px">conf ثابت 0.72</span></td><td><span class="tag fake">placeholder</span></td></tr>
+<tr><td>کارت</td><td>1797</td><td>2072</td><td>2072</td></tr>
+<tr><td>Other واقعی (تو فایل)</td><td>1059 (58.9٪)</td><td>520 (25.1٪)</td><td>520 (25.1٪) — نه 400</td></tr>
+</table></div>
+</div>
+
+<div class="card">
+<h2>ردیف واقعی — همون که تو فایل ranked هست</h2>
+<p>نه عدد، نه ادعا — ببین هر نسخه برای 4 کلمه سخت چی نگه داشته:</p>
+<h3>🪨 rock — B2 — «سنگ» هنوز نیست</h3>
+<div class="table-wrap"><table>
+<tr><th></th><th>v13a</th><th>v13b</th><th>v13c</th></tr>
+<tr><td>اول</td><td class="ltr bad">rock#26 A lump or cube of ice. (B2)</td><td class="ltr bad">rock#26 A lump or cube of ice. (B2)</td><td class="ltr bad">rock#26 A lump or cube of ice. (B2)</td></tr>
+<tr><td>دوم</td><td class="ltr">rock#50 To move gently back and forth. (A2)</td><td class="ltr">rock#50 To move gently back and forth. (A2)</td><td class="ltr">rock#50 To move gently back and forth. (A2)</td></tr>
+<tr><td>پنجم</td><td class="ltr">— (فقط 4 تا)</td><td class="ltr bad">rock#35 An Afrikaner. (B2)</td><td class="ltr bad">rock#35 An Afrikaner. (B2)</td></tr>
+</table></div>
+<p>توضیح جدا: هر سه «یخ» اولن — «سنگِ» rock#19 که تو v9 بود، تو هیچ‌کدوم از v13ها تو 5 تای اول نیست. وزن 0.30 هم نتونست یخ B2 را ببره. این باگ واقعیه، نه تقلب.</p>
+
+<h3>💡 light — A1</h3>
+<div class="table-wrap"><table>
+<tr><th></th><th>v13a (3 تا)</th><th>v13b (4 تا)</th><th>v13c (4 تا)</th></tr>
+<tr><td>اول</td><td class="ltr">light#44 To lighten; to ease of a burden (A1)</td><td class="ltr">light#44 To lighten... (A1)</td><td class="ltr">light#44 To lighten... (A1)</td></tr>
+<tr><td>دوم</td><td class="ltr">light#92 A low-alcohol lager. (A1)</td><td class="ltr">light#92 A low-alcohol lager. (A1)</td><td class="ltr">light#92 A low-alcohol lager. (A1)</td></tr>
+<tr><td>سوم</td><td class="ltr">light#56 any device... illumination (A1)</td><td class="ltr">light#56 any device... (A1)</td><td class="ltr">light#56 any device... (A1)</td></tr>
+</table></div>
+<p>توضیح جدا: هر سه «سبکِ وزنی» ندارن — «آبجو سبک» دوم شده که برای A1 بی‌فایده‌ست. keep-more فقط تعداد را برد بالا (3→4) ولی کیفیت نه.</p>
+
+<h3>✅ pass — A2 — «امتحان» برگشت ولی کلی</h3>
+<div class="table-wrap"><table>
+<tr><th></th><th>v13a</th><th>v13b</th><th>v13c</th></tr>
+<tr><td>اول</td><td class="ltr mid">pass#83 To change in state or status (A2, Other)</td><td class="ltr mid">pass#83 To change in state or status (A2, Work)</td><td class="ltr mid">pass#83 To change in state or status (A2, Work)</td></tr>
+</table></div>
+<p>توضیح جدا: مثال‌ش «He attempted the examination» هست — یعنی «امتحان» برگشته، ولی gloss کلیه («تغییر وضعیت») نه «قبولی در امتحان» مثل v9. موضوعش تو b/c شده Work (با برچسب تقلبی llm-refined) — تو a همون Other مونده. یعنی بهبود موضوع b/c واقعی نیست.</p>
+
+<h3>🏠 flat — B1 — بدترین عقب‌گرد</h3>
+<div class="table-wrap"><table>
+<tr><th></th><th>v13a</th><th>v13b/c</th></tr>
+<tr><td>اول</td><td class="ltr bad">flat#32 A 24-case of beer. (B1, Other)</td><td class="ltr bad">flat#32 A 24-case of beer. (B1, Health)</td></tr>
+</table></div>
+<p>توضیح جدا: «آپارتمان» که از v7 تا v10 اول بود، تو هیچ‌کدوم از v13ها تو 4-5 تای اول نیست — «جعبه 24 تایی آبجو» اول شده. این بدترین رگرسیون v13ـه و ربطی به مدل نداره — وزن Zipf آبجو را برده بالا.</p>
+</div>
+
+<div class="card" style="border-right:4px solid var(--green)">
+<h2>پس چی قابل اتکاست، چی نه؟</h2>
+<p>• <b>قابل اتکا:</b> وزن 0.30 + keep-more (Kmax 4/5/7 → 2072 کارت) + IPA 90٪ + Tatoeba + POS-aware dedup — اینا واقعاً اجرا شدن.<br>
+• <b>غیرقابل اتکا:</b> هر عددی که می‌گه «LLM درست کرد» (Other 25٪ و 19٪) — چون placeholder بود. عدد واقعی Other بدون مدل، 58.9٪ـه (v13a).<br>
+• <b>باگ گزارش v13c:</b> می‌گه 400 Other ولی فایل 520 تاست — به گزارش اعتماد نکن، به فایل اعتماد کن.</p>
+<p><b>قدم بعدی درست:</b> 1) flat و rock را با وزن واقعی درست کن (نه مدل)، 2) بعد نوتبوک‌ها را واقعاً اجرا کن (نه فقط کد)، 3) بعد مدل را با کلید واقعی فقط برای Otherهای باقی‌مونده بیار — همون 5 تایی (spark → gemini → nemotron) با 4 ثانیه صبر.</p>
+</div>
+
+<div class="card" style="font-size:11px;color:var(--muted)">سند: <code>factory/fixtures/ranked_senses-v13a/b/c.json</code> + <code>topic_labels-v13*.json</code> (شمارش واقعی بالا) + <code>gap_report_free_500_v13*.md:4,12</code> (اعتراف placeholder) + نوتبوک‌ها execution_count=None. فایل‌ها فقط تو <code>factory/fixtures</code> هستن، هنوز به <code>W:\fixtures</code> کپی نشدن.</div>
+</div>
+</body>
+</html>

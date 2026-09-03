@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v14 نهایی — داور مدل، ۱۲۶ تماس واقعی</title>
+<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@33.003/Vazirmatn-font-face.css" rel="stylesheet">
+<style>
+:root{--bg:#0d0f13;--panel:#191e27;--border:#242c3a;--text:#e7e9ee;--muted:#9aa3b6;--dim:#75809a;--green:#34d399;--red:#f87171;--yellow:#facc15;--r:12px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Vazirmatn,Tahoma,sans-serif;line-height:1.85}
+.wrap{max-width:1060px;margin:0 auto;padding:18px 14px 44px}
+h1{font-size:20px;margin:0}h2{font-size:15px;margin:16px 0 6px}h3{font-size:13.5px;margin:12px 0 4px;color:#cbd5e1}
+.sub{color:var(--muted);font-size:12px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-top:12px}
+.good{color:var(--green)} .bad{color:var(--red)} .mid{color:var(--yellow)}
+code{font-family:monospace;background:#1e2433;border:1px solid var(--border);padding:1px 6px;border-radius:6px;direction:ltr}
+.table-wrap{overflow:auto;border:1px solid var(--border);border-radius:var(--r);background:var(--panel);margin-top:8px}
+table{width:100%;border-collapse:collapse;font-size:11.5px;min-width:740px}
+th{background:#151a27;color:var(--dim);padding:7px 8px;text-align:right;border-bottom:1px solid var(--border)}
+td{padding:7px 8px;border-bottom:1px solid #222a3a;vertical-align:top}
+td.ltr{direction:ltr;text-align:left;font-family:monospace;font-size:11px}
+.en{direction:ltr;unicode-bidi:isolate;font-family:monospace;font-size:11px}
+p{margin:6px 0;font-size:13px;color:var(--muted)} p b{color:var(--text)}
+.tag{font-size:11px;border:1px solid var(--border);border-radius:999px;padding:2px 8px;background:#1b202e;color:var(--muted)}
+.real{color:var(--green);border-color:rgba(52,211,153,.3);background:rgba(52,211,153,.1)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>v14 نهایی — از 2101 کارت تا 1676، با داور</h1>
+<div class="sub">126 تماس واقعی با muse-spark-1.3. همه fallbackها بیکار ماندند</div>
+
+<div class="card" style="border-right:4px solid var(--green)">
+<h2>سه نسخه در یک نگاه</h2>
+<div class="table-wrap"><table>
+<tr><th></th><th>v13c</th><th>v14a (قطعی)</th><th>v14c (نهایی)</th></tr>
+<tr><td>کارت</td><td>2072</td><td>2101</td><td class="good"><b>1676</b></td></tr>
+<tr><td>Other</td><td class="good">218 (10.5٪)</td><td>1871 (89.1٪)</td><td class="mid">453 (27.0٪)</td></tr>
+<tr><td>تماس مدل</td><td>1023</td><td>0</td><td>126</td></tr>
+<tr><td>ادغام تکراری‌ها</td><td>نداشت</td><td>15 عین‌هم</td><td class="good">367 کارت (پارافریز هم)</td></tr>
+<tr><td>انتخاب per-level</td><td>فرمول C/Tau</td><td>فرمول C/Tau</td><td class="good">داور (494 لم) + فرمول (6 لم)</td></tr>
+</table></div>
+<p>v14c از v13c کم‌حجم‌تر و تمیزتر است (425 کارت تکراری کمتر)، ولی در موضوع هنوز عقب است: ۲۷٪ در برابر ۱۰.۵٪. دلیلش را پایین می‌گویم. این عقب‌افتادگی واقعی است و با یک ران اضافه قابل جبران.</p>
+</div>
+
+<div class="card">
+<h2>داور برای هر سطح چه انتخاب کرد</h2>
+<div class="table-wrap"><table>
+<tr><th>کلمه</th><th>مبتدی</th><th>متوسط</th><th>پیشرفته</th></tr>
+<tr><td><b>rock</b></td><td class="ltr">تکان، sway</td><td class="ltr">تکان، موسیقی، sway</td><td class="ltr">موسیقی، تکان، کریستال، sway</td></tr>
+<tr><td><b>flat</b></td><td class="ltr">سطح صاف، آپارتمان</td><td class="ltr">سطح صاف، آپارتمان +۱</td><td class="ltr">سطح صاف، آپارتمان +۲</td></tr>
+<tr><td><b>light</b></td><td class="ltr">لامپ، سبک (فرمول، بدون داور)</td><td class="ltr">همان + کمبود</td><td class="ltr">همان + تشعشع</td></tr>
+<tr><td><b>pass</b></td><td class="ltr">گذراندن، بلیط</td><td class="ltr">+ گردنه</td><td class="ltr">+ تلاش</td></tr>
+</table></div>
+<p>منطق داور برای rock خواندنی است. موسیقی را فقط برای پیشرفته اول گذاشت. برای مبتدی «تکان خوردن» را انتخاب کرد که ساده و پرتکرار است. ایرادش این است که «سنگ» اصلاً در لیست نبود تا انتخابش کند. نگهبان EVP سنگ را به uniq برگردانده بود، ولی رتبه‌بندی آن را در top-4 نگه نداشت. پس درس v14 این است: برگرداندن کافی نیست، باید امتیاز بوست هم بگیرد. این کار فاز بعد است، نه امروز.</p>
+<p>درباره pass هم یک توضیح لازم است. «قبول شدن در امتحان» در داده‌های ما وجود ندارد. فقط v9 آن را دستی تزریق کرده بود. داور از بین چیزهای موجود، «گذراندن» را برای مبتدی انتخاب کرد که دفاع‌کردنی است.</p>
+</div>
+
+<div class="card">
+<h2>چرا Other ۲۷٪ شد</h2>
+<p>دو علت دارد. یکی اینکه داور برای کلماتی مثل about و always و anything واقعاً Other را نگه داشت. اینها معنی انتزاعی دارند و زور چسباندنشان به «ورزش» یا «غذا» اشتباه است. v13c با ۱۰۲۳ تماس به ۱۰.۵٪ رسید چون مدل را وادار کرد بیشتر حدس بزند. ما با ۱۲۶ تماس به ۲۷٪ رسیدیم. با یک ران تکمیلی روی ۴۵۳ مورد باقی‌مانده، فاصله بسته می‌شود.</p>
+<p>علت دوم: موضوع‌های غیر-Other ما قابل دفاع‌اند. Society با ۱۸۷ در صدر است، بعد Emotions و SciTech. این توزیع با v13c فرق دارد ولی دلیلش این است که v14c کارت‌های تکراری را حذف کرده و ترکیب عوض شده.</p>
+</div>
+
+<div class="card">
+<h2>هزینه واقعی</h2>
+<p>۱۲۶ تماس، همه روی spark-1.3 با reasoning حداقلی. هیچ‌کدام از چهار مدل fallback صدا زده نشدند. برای ۴۰۰۰ کارت، با همین نرخ می‌شود حدود ۱۰۰۰ تماس و ۵ تا ۶ ساعت. رایگان.</p>
+</div>
+
+<div class="card">
+<h2>هفت کلمه، چهار نسخه، ردیف واقعی</h2>
+<p>این بخش قلب گزارش است. هر کلمه یک بلوک جدا دارد. سطرها ویژگی‌اند و ستون‌ها نسخه‌ها. چشم را عمودی حرکت بده و ببین هر نسخه با همان کلمه چه کرد. سطر «تناسب مثال» را خودم از روی داده زدم، نه از حدس.</p>
+<div class="table-wrap"><table>
+<tr><th>کلمه</th><th>v12C</th><th>v13c</th><th>v14a</th><th>v14c + انتخاب داور</th></tr>
+<h3>rock — از یخ تا موسیقی</h3>
+<div class="table-wrap"><table>
+<tr><th>ویژگی</th><th>v12C</th><th>v13c</th><th>v14a</th><th>v14c</th></tr>
+<tr><td>حس اول</td><td><span class="en">lump of ice</span> (یخ)</td><td><span class="en">lump of ice</span> (یخ)</td><td><span class="en">play rock music</span> (موسیقی)</td><td><span class="en">play rock music</span> (موسیقی)</td></tr>
+<tr><td>سطح / موضوع</td><td><span class="en">B2 / Food</span></td><td><span class="en">B2 / Nature</span></td><td><span class="en">B2 / Other</span></td><td><span class="en">B2 / Society</span></td></tr>
+<tr><td>مثال</td><td><span class="en">whisky on the rocks</span></td><td><span class="en">whisky on the rocks</span></td><td><span class="en">Let's rock!</span></td><td><span class="en">Let's rock!</span></td></tr>
+<tr><td>تناسب مثال</td><td class="good">می‌خورد</td><td class="good">می‌خورد</td><td class="good">می‌خورد</td><td class="good">می‌خورد</td></tr>
+<tr><td>انتخاب داور</td><td>—</td><td>—</td><td>—</td><td>مبتدی: تکان / پیشرفته: موسیقی اول</td></tr>
+</table></div>
+<h3>light — از شعر ۱۵۹۰ تا لامپ</h3>
+<div class="table-wrap"><table>
+<tr><th>ویژگی</th><th>v12C</th><th>v13c</th><th>v14a</th><th>v14c</th></tr>
+<tr><td>حس اول</td><td><span class="en">to lighten a burden</span> (فعل بی‌ربط)</td><td><span class="en">to lighten a burden</span> (همان)</td><td><span class="en">source of illumination</span> (لامپ)</td><td><span class="en">source of illumination</span> (لامپ)</td></tr>
+<tr><td>سطح / موضوع</td><td><span class="en">A1 / Science</span></td><td><span class="en">A1 / Daily</span></td><td><span class="en">A1 / Other</span></td><td><span class="en">A1 / Other</span></td></tr>
+<tr><td>مثال</td><td><span class="en">Spenser poem, 1590</span></td><td><span class="en">Spenser poem, 1590</span></td><td><span class="en">turned off the lights</span></td><td><span class="en">turned off the lights</span></td></tr>
+<tr><td>تناسب مثال</td><td class="bad">ناجور (شعر کهن!)</td><td class="bad">ناجور</td><td class="good">می‌خورد</td><td class="good">می‌خورد</td></tr>
+<tr><td>انتخاب داور</td><td>—</td><td>—</td><td>—</td><td>fallback قطعی — مبتدی: لامپ، سبک</td></tr>
+</table></div>
+<h3>pass — تلاش، نه امتحان</h3>
+<div class="table-wrap"><table>
+<tr><th>ویژگی</th><th>v12C</th><th>v13c</th><th>v14a</th><th>v14c</th></tr>
+<tr><td>حس اول</td><td><span class="en">make laws</span> (قانون‌گذاری)</td><td><span class="en">change in state</span> (تغییر وضعیت)</td><td><span class="en">an attempt</span> (تلاش)</td><td><span class="en">an attempt</span> (تلاش)</td></tr>
+<tr><td>سطح / موضوع</td><td><span class="en">A2 / Health</span></td><td><span class="en">A2 / Other</span></td><td><span class="en">A2 / Other</span></td><td><span class="en">A2 / Other</span></td></tr>
+<tr><td>مثال</td><td><span class="en">passed the amendment</span></td><td><span class="en">attempted the examination</span></td><td><span class="en">kicked his friend</span></td><td><span class="en">kicked his friend</span></td></tr>
+<tr><td>تناسب مثال</td><td class="good">می‌خورد</td><td class="bad">ناجور (مثال امتحان برای «وضعیت»!)</td><td class="mid">لب‌مرز</td><td class="mid">لب‌مرز</td></tr>
+<tr><td>انتخاب داور</td><td>—</td><td>—</td><td>—</td><td>مبتدی: گذراندن، بلیط</td></tr>
+</table></div>
+<h3>flat — آپارتمان برمی‌گردد</h3>
+<div class="table-wrap"><table>
+<tr><th>ویژگی</th><th>v12C</th><th>v13c</th><th>v14a</th><th>v14c</th></tr>
+<tr><td>حس اول</td><td><span class="en">suite of rooms</span> (آپارتمان)</td><td><span class="en">24-case of beer</span> (آبجو!)</td><td><span class="en">complete domicile</span> (آپارتمان)</td><td><span class="en">complete domicile</span> (آپارتمان)</td></tr>
+<tr><td>سطح / موضوع</td><td><span class="en">A2 / Daily</span></td><td><span class="en">B1 / Other</span></td><td><span class="en">B1 / Other</span></td><td><span class="en">B1 / Daily</span></td></tr>
+<tr><td>مثال</td><td><span class="en">find your flat</span></td><td><span class="en">find your flat</span></td><td><span class="en">French flats</span></td><td><span class="en">French flats</span></td></tr>
+<tr><td>تناسب مثال</td><td class="good">می‌خورد</td><td class="bad">ناجور (مثال آپارتمان برای آبجو!)</td><td class="good">می‌خورد</td><td class="good">می‌خورد</td></tr>
+<tr><td>انتخاب داور</td><td>—</td><td>—</td><td>—</td><td>مبتدی: سطح صاف، آپارتمان</td></tr>
+</table></div>
+<h3>communicate — سه‌قلوها ادغام شدند</h3>
+<div class="table-wrap"><table>
+<tr><th>ویژگی</th><th>v12C</th><th>v13c</th><th>v14a</th><th>v14c</th></tr>
+<tr><td>حس اول</td><td><span class="en">To share</span> (یکی از ۳ عین‌هم)</td><td><span class="en">To share</span> (همان)</td><td><span class="en">transmit information</span></td><td><span class="en">transmit information</span></td></tr>
+<tr><td>سطح / موضوع</td><td><span class="en">A1 / Other</span></td><td><span class="en">B1 / Other</span></td><td><span class="en">B1 / Other</span></td><td><span class="en">B1 / Other</span></td></tr>
+<tr><td>مثال</td><td><span class="en">communicate with each other</span></td><td><span class="en">rooms communicate</span></td><td><span class="en">message to employees</span></td><td><span class="en">message to employees</span></td></tr>
+<tr><td>تناسب مثال</td><td class="good">می‌خورد</td><td class="bad">ناجور (مثال اتاق‌ها!)</td><td class="good">می‌خورد</td><td class="good">می‌خورد</td></tr>
+<tr><td>انتخاب داور</td><td>—</td><td>—</td><td>—</td><td>مبتدی همان؛ تکراری‌ها ادغام شدند</td></tr>
+</table></div>
+<h3>supporter — داور شخص را اول گذاشت</h3>
+<div class="table-wrap"><table>
+<tr><th>ویژگی</th><th>v12C</th><th>v13c</th><th>v14a</th><th>v14c</th></tr>
+<tr><td>حس اول</td><td><span class="en">person who supports</span> (شخص حامی)</td><td><span class="en">thing that supports</span> (چیز نگه‌دارنده)</td><td><span class="en">thing that supports</span> (همان)</td><td><span class="en">thing that supports</span> (همان)</td></tr>
+<tr><td>سطح / موضوع</td><td><span class="en">A2 / Other</span></td><td><span class="en">B1 / Other</span></td><td><span class="en">B1 / Other</span></td><td><span class="en">B1 / Other</span></td></tr>
+<tr><td>مثال</td><td><span class="en">supporter of rights</span></td><td><span class="en">supporter of rights</span></td><td><span class="en">attaching supporters</span></td><td><span class="en">attaching supporters</span></td></tr>
+<tr><td>تناسب مثال</td><td class="good">می‌خورد</td><td class="bad">ناجور (مثال آدم برای «چیز»!)</td><td class="good">می‌خورد</td><td class="good">می‌خورد</td></tr>
+<tr><td>انتخاب داور</td><td>—</td><td>—</td><td>—</td><td>هر سه سطح: شخص حامی اول</td></tr>
+</table></div>
+<h3>time — داور سطح‌بندی کرد</h3>
+<div class="table-wrap"><table>
+<tr><th>ویژگی</th><th>v12C</th><th>v13c</th><th>v14a</th><th>v14c</th></tr>
+<tr><td>حس اول</td><td>— (در نمونه نبود)</td><td><span class="en">continuum of experience</span></td><td><span class="en">continuum of experience</span></td><td><span class="en">continuum of experience</span></td></tr>
+<tr><td>سطح / موضوع</td><td>—</td><td><span class="en">A1 / Other</span></td><td><span class="en">A1 / Other</span></td><td><span class="en">A1 / Other</span></td></tr>
+<tr><td>مثال</td><td>—</td><td><span class="en">have the time</span></td><td><span class="en">have the time</span></td><td><span class="en">have the time</span></td></tr>
+<tr><td>تناسب مثال</td><td>—</td><td class="mid">لب‌مرز</td><td class="mid">لب‌مرز</td><td class="mid">لب‌مرز</td></tr>
+<tr><td>انتخاب داور</td><td>—</td><td>—</td><td>—</td><td>مبتدی: حس‌های ساده‌تر؛ پیشرفته: همین حس</td></tr>
+</table></div>
+</table></div>
+<p>سه الگو از جدول بیرون می‌زند. اول، مثال‌های ناجور v13c: آبجو با مثال آپارتمان، share با مثال اتاق‌ها، نگه‌دارنده با مثال حامی حقوق زنان. v14 اینها را با قانون «فقط مثال بازمانده + فیلتر مدل» خشکاند. دوم، light از شعر ۱۵۹۰ به لامپ رسید. این دو سطر به‌تنهایی نشان می‌دهد جریمه نقش و جریمه شکل کار کرده. سوم، داور جایی می‌درخشد که فرمول سلیقه می‌خواهد: موسیقی فقط برای پیشرفته، شخص حامی برای همه.</p>
+</div>
+
+<div class="card">
+<h2>معماری v14c چقدر بهینه است، و ۵۰۰۰ کارت چه می‌شود</h2>
+<p>صادقانه: معماری v14c برای ۵۰۰ خوب است، برای ۵۰۰۰ آماده نیست. دلیلش عدد است. کل پایپ‌لاین قطعی (dedup + رتبه) روی GPU محلی ۷ دقیقه طول کشید و با تعداد لم خطی بالا می‌رود. برای ۵۰۰۰ لم می‌شود حدود یک ساعت. بخش مدل ۱۲۶ تماس برای ۵۰۰ لم بود. با همان نرخ می‌شود حدود ۱۲۶۰ تماس و ۵ تا ۶ ساعت. هر دو خطی‌اند و غافلگیری ندارند. این خبر خوب است.</p>
+<p>خبر بد: سه چیز با مقیاس خراب می‌شود. یکی Other ۲۷٪ که گفتم؛ روی ۵۰۰۰ کارت می‌شود حدود ۱۳۵۰ کارت بی‌موضوع و آن‌وقت گزارش زشت می‌شود. دوم نگهبان EVP که برای ۵۰۰ لم جواب داد ولی recall بدون بوست رتبه، سنگ را top-4 نکرد؛ روی ۵۰۰۰ لم این شکاف بیشتر دیده می‌شود. سوم داور که ۶ لم را fallback کرد؛ نرخ خرابی ۱.۲٪ است و روی ۵۰۰۰ لم می‌شود ۶۰ لم. هر سه با همان ران تکمیلی که گفتم حل می‌شوند، ولی باید قبل از اسکیل حل شوند، نه بعدش.</p>
+<p>انتظار من از ۵۰۰۰ کارت با یافته‌های ۵۰۰ تایی: حدود ۱۶ تا ۱۷ هزار کارت نهایی (نرخ v14c می‌گوید ۳.۳۵ کارت هر لم)، حدود ۱۲۵۰ تماس مدل، حدود ۶ ساعت زمان، و Other زیر ۱۵٪ اگر ران تکمیلی موضوع اول اجرا شود. حاشیه خطا را ۲۰٪ بگیر. اگر Other بالای ۲۰٪ ماند، یعنی داور موضوع ضعیف است و باید پرامپتش عوض شود، نه اینکه بیشتر تماس بزنیم.</p>
+</div>
+
+<div class="card">
+<h2>نقشه راه: v15 و بعد</h2>
+<p>وضعیت فازها روشن است. فاز صفر (موجودی حس‌ها + امتیاز قطعی + ادغام عین‌هم) تمام شده. فاز یک (مدل: ادغام پارافریز، داور per-level، موضوع) همین v14c است و برای پایلوت ۵۰۰ تایی بسته شد. چیزی که مانده، سه کار است که هر کدام فاز خودش را دارد.</p>
+<p>اول، موضوع وزن‌دار چندتایی. الان هر کارت دقیقاً یک برچسب دارد و این را قبول دارم که کم است. «موسیقی راک» هم Society است هم Emotions. v15 به هر حس بردار موضوع می‌دهد: سه برچسب با وزن. این کار فاز یک-ب است، یعنی همان جنس کار v14c با یک پرامپت جدید، حدود ۶۰ تماس اضافه. نه بیشتر.</p>
+<p>دوم، وزن‌دهی موضوع برای هر هدف زبان‌آموز. این کار کارخانه نیست، کار سرو است. کارخانه بردار موضوع را تحویل می‌دهد و بات موقع ساختن جلسه، با توجه به هدف کاربر (آزمون، آکادمیک، کسب‌وکار، روزمره) وزن‌ها را جابه‌جا می‌کند. جدول هدف‌ها از قبل در کاتالوگ هست و فقط مپ هدف به موضوع لازم دارد که یک قرارداد جدا می‌خواهد. حس‌های کم‌بسامد برای پیشرفته و آزمونی‌ها هم همین‌جا معنی پیدا می‌کند: داور الان per-level انتخاب می‌کند، وزن هدف موقع سرو روی آن سوار می‌شود. پس شخصی‌سازی، فاز دو است نه فاز صفر.</p>
+<p>سوم، زبان‌های دیگر. صادقانه بگویم: آلمانی حدود ۸۰٪ مسیر آماده است. فرکانس کلمه، ویکی‌واژه آلمانی، و استخر مثال تاتوبا برای آلمانی بزرگ است. ترکی حدود ۶۰٪ است چون جدول سطح per-sense مثل EVP ندارد و باید با پراکسی بسامد + داور جبران شود. عبری حدود ۴۰ تا ۵۰٪ است چون هم استخر مثال کوچک است هم جدول سطح ندارد و بار اصلی روی مدل می‌افتد. الگوریتم عوض نمی‌شود، فقط پک عوض می‌شود. همان چیزی که R5 برایش ساخته شد.</p>
+</div>
+
+<div class="card" style="border-right:4px solid var(--yellow)">
+<h2>v16 و v16b — شانزده سر موضوعی و کم‌کردن Other از ۳۲.۹٪ به ۱۷.۷٪</h2>
+<div class="table-wrap"><table>
+<tr><th></th><th>v14c (۱۳ سر)</th><th>v15 (بردار وزن)</th><th>v16 (۱۶ سر)</th><th>v16b (تکمیلی Other)</th></tr>
+<tr><td>کارت</td><td>1676</td><td>1676</td><td>1676</td><td>1676</td></tr>
+<tr><td>Other</td><td>453 (۲۷.۰٪)</td><td>453 (۲۷.۰٪)</td><td class="bad">552 (۳۲.۹٪)</td><td class="mid">296 (۱۷.۷٪)</td></tr>
+<tr><td>چندموضوعی</td><td>— (تک‌برچسب)</td><td>101 (۶.۰٪)</td><td>116 (۶.۹٪)</td><td class="good"><b>314 (۱۸.۷٪)</b></td></tr>
+<tr><td>تماس مدل</td><td>126 (ادغام+داور)</td><td>64</td><td>64</td><td>39</td></tr>
+</table></div>
+<p>در v16 سه سر نصف شد: طبیعت به حیوانات و طبیعت، کار و آموزش به کار و آموزش جدا، جامعه و فرهنگ به جامعه و هنر جدا. انشعاب‌ها تمیز از آب درآمدند: ماهی رفت توی حیوانات، حامی رفت توی جامعه، موسیقی راک رفت توی هنر. ولی برچسب‌زنی تازه و بدون لنگر، Other را از ۲۷٪ به ۳۲.۹٪ بالا برد. این پسرفت واقعی بود، نه نویز اندازه‌گیری.</p>
+<p>در v16b فقط همان ۵۵۲ حس Other دوباره داوری شد (۳۹ تماس، صفر خرابی) با یک دستور صریح: Other آخرین راه است و تا سه برچسب وزنی آزاد. نتیجه: ۲۵۶ حس نجات پیدا کردند و ۲۹۶ حس که واقعاً انتزاعی‌اند ماندند. روی پنل هفت‌کلمه‌ای، هر چیزی که v16 خراب کرده بود برگشت و چند برد تازه هم آمد: light با کسب‌وکار و قانون، و communicate با جامعه.</p>
+<p>نمره صادقانه: هدف ۲۰٪ خورد، ولی ۱۵٪ با ۲۹ ردیف اختلاف از دست رفت. دو لکه هم هست: pass با برچسب سفر کمی زورچپان است، و خوراک و حیوانات تقریباً هیچ سهمی از نجات نگرفتند. سنگ هنوز top-4 نیست و «امتحان» در داده وجود ندارد. این دو با برچسب عوض نمی‌شوند و کار فاز بعد‌اند.</p>
+</div>
+
+<div class="card" style="font-size:11px;color:var(--muted)">فایل‌ها: ورک‌تری <code>research/lexicon-v14</code> در <code>factory/fixtures/*-v14b.json</code> و <code>*-v14c.json</code> + <code>gap_report_free_500_v14c.md</code>. کپی در <code>W:\hamzaban_data_factory\</code>. پلن: <code>.opencode/plans/lexicon/plan-v14.md</code>.</div>
+</div>
+</body>
+</html>

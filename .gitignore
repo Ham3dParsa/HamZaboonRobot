@@ -16,8 +16,20 @@ env/
 
 # SQLite database
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
 *.sqlite
 *.sqlite3
+
+# Lexicon factory: live state + big regenerable scratch (W: is canonical home)
+factory/*_progress.json
+factory/fixtures/ranked_senses-*.json
+factory/fixtures/uniq_senses-*.json
+factory/fixtures/topic_labels-v*.json
+factory/fixtures/topic_vectors-v*.json
+factory/fixtures/*.zip
+factory/packs/en/tatoeba_pool_v13c.json
 
 # Logs
 *.log

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>گزارش عینی ۶ نسخه — با ردیف واقعی</title>
+<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@33.003/Vazirmatn-font-face.css" rel="stylesheet">
+<style>
+:root{--bg:#0f1217;--panel:#191e27;--border:#242c3a;--text:#e7e9ee;--muted:#9aa3b6;--dim:#75809a;--green:#34d399;--red:#f87171;--blue:#7aa2ff;--yellow:#facc15;--r:12px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Vazirmatn,Tahoma,sans-serif;line-height:1.75}
+.wrap{max-width:1180px;margin:0 auto;padding:18px 14px 40px}
+h1{font-size:22px;margin:0}h2{font-size:16px;margin:18px 0 6px}h3{font-size:14px;margin:12px 0 6px;color:#cbd5e1}
+.sub{color:var(--muted);font-size:12px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-top:12px}
+.note{background:rgba(250,204,21,.08);border:1px solid rgba(250,204,21,.2);color:#fde68a;border-radius:10px;padding:10px;font-size:12px}
+.ok{background:rgba(52,211,153,.08);border-color:rgba(52,211,153,.2);color:#a7f3d0}
+.table-wrap{overflow:auto;border:1px solid var(--border);border-radius:var(--r);background:var(--panel);margin-top:8px}
+table{width:100%;border-collapse:collapse;font-size:11.5px;min-width:760px}
+th{background:#151a27;color:var(--dim);padding:7px 8px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:7px 8px;border-bottom:1px solid #222a3a;vertical-align:top}
+td.ltr{direction:ltr;text-align:left;font-family:monospace;font-size:11px}
+.good{color:var(--green)} .bad{color:var(--red)} .mid{color:var(--yellow)}
+code{font-family:monospace;background:#1e2433;border:1px solid var(--border);padding:1px 6px;border-radius:6px;direction:ltr}
+@media(max-width:640px){table{min-width:620px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>۶ نسخه، ۱۰ کلمه، ردیف واقعی — بدون عدد بازی</h1>
+<div class="sub">فایل‌ها: <code>ranked_senses-v7/v8/v9/v10/v11/v12C.json</code> — هر ردیف دقیقاً همون که تو فایل ranked هست. توضیح جدا از جدول، به زبان ساده.</div>
+
+<div class="card">
+<h2>چطور بخونی</h2>
+<p class="sub" style="color:var(--muted)">هر جدول = یک کلمه. ستون‌ها ۶ نسخه. هر خانه: <b>اولین معنیِ نگه‌داشته‌شده</b> + سطحش + موضوع + یه تیکه از مثال. اگه مثال خوب بود یعنی انتخاب مثال درسته، اگه موضوع Other بود یعنی برچسب موضوع خراب.</p>
+<div class="note">ساده: <span class="good">سبز = به درد فارسی‌زبان می‌خوره</span> — <span class="bad">قرمز = بی‌فایده یا اشتباه</span> — <span class="mid">زرد = متوسط</span></div>
+</div>
+
+<!-- ROCK -->
+<h2>🪨 rock — B2 — «سنگ» کجاست؟</h2>
+<div class="table-wrap"><table>
+<tr><th>نسخه</th><th>معنی اول (gloss)</th><th>سطح</th><th>موضوع</th><th>مثال</th></tr>
+<tr><td>v7</td><td class="ltr bad">A lump or cube of ice.</td><td class="bad">B2</td><td>Law</td><td class="ltr">whisky on the rocks</td></tr>
+<tr><td>v8</td><td class="ltr bad">A lump or cube of ice.</td><td class="bad">B2</td><td>Law</td><td class="ltr">whisky on the rocks</td></tr>
+<tr><td>v9</td><td class="ltr good">a lump or mass of hard consolidated mineral matter</td><td class="good">A1</td><td>Nature</td><td class="ltr">he threw a rock at me</td></tr>
+<tr><td>v10</td><td class="ltr bad">the Rock</td><td class="bad">A2</td><td>Nature</td><td class="ltr">—</td></tr>
+<tr><td>v11</td><td class="ltr bad">A lump or cube of ice.</td><td class="bad">B2</td><td>Other</td><td class="ltr">whisky on the rocks</td></tr>
+<tr><td>v12C</td><td class="ltr bad">A lump or cube of ice.</td><td class="bad">B2</td><td>Food</td><td class="ltr">whisky on the rocks</td></tr>
+</table></div>
+<p style="font-size:12px;color:var(--muted)">توضیح بیرون جدول: فقط v9 «سنگ» درست بود (با تقلب +0.4). بعد از حذف تقلب، هر سه نسخه آخر دوباره «یخ» یا «the Rock» اول شدن — چون WordNet به اسم خاص امتیاز بیشتر می‌ده. درستش: وزن سطح را 0.30 کن تا سنگ A1 بتواند یخ B2 را ببرد.</p>
+
+<h2>💡 light — A1 — «سبک» vs «نور»</h2>
+<div class="table-wrap"><table>
+<tr><th>نسخه</th><th>معنی اول</th><th>سطح</th><th>موضوع</th><th>مثال</th></tr>
+<tr><td>v7</td><td class="ltr bad">Electromagnetic radiation of any wavelength.</td><td>A1</td><td>Food</td><td class="ltr">It's everywhere...</td></tr>
+<tr><td>v8</td><td class="ltr bad">Electromagnetic radiation of any wavelength.</td><td>A1</td><td>Food</td><td class="ltr">It's everywhere...</td></tr>
+<tr><td>v9</td><td class="ltr good">Having little weight as compared with bulk...</td><td class="good">A1</td><td>Daily</td><td class="ltr">feathers and cork are light</td></tr>
+<tr><td>v10</td><td class="ltr mid">Electromagnetic radiation of any wavelength.</td><td>A1</td><td>Daily</td><td class="ltr">It's everywhere...</td></tr>
+<tr><td>v11</td><td class="ltr mid">Electromagnetic radiation of any wavelength.</td><td>B2</td><td>Other</td><td class="ltr">It's everywhere... Berman 2017</td></tr>
+<tr><td>v12C</td><td class="ltr bad">To lighten; to ease of a burden; to take off.</td><td>A1</td><td>Science</td><td class="ltr">Spenser 1590 — قدیمی</td></tr>
+</table></div>
+<p style="font-size:12px;color:var(--muted)">فقط v9 «سبکِ وزنی» درست بود (با تقلب). v12C حتی بدتر — شعر 1590 آورد چون Tatoeba نداشت. یعنی مثال Tatoeba برای این کلمه کمکی نکرد.</p>
+
+<h2>✅ pass — A2 — «قبول شدن» کجاست؟</h2>
+<div class="table-wrap"><table>
+<tr><th>نسخه</th><th>معنی اول</th><th>سطح</th><th>موضوع</th><th>مثال</th></tr>
+<tr><td>v7</td><td class="ltr bad">pass from physical life (=die)</td><td>A2</td><td>Sports</td><td class="ltr">She died from cancer</td></tr>
+<tr><td>v8</td><td class="ltr bad">pass from physical life (=die)</td><td>A2</td><td>Sports</td><td class="ltr">She died...</td></tr>
+<tr><td>v9</td><td class="ltr good">Success in an examination...</td><td class="good">B1</td><td>Work</td><td class="ltr">three passes at A-level</td></tr>
+<tr><td>v10</td><td class="ltr bad">pass from physical life (=die)</td><td>A2</td><td>Health</td><td class="ltr">She died...</td></tr>
+<tr><td>v11</td><td class="ltr mid">To change in state or status</td><td>A2</td><td>Other</td><td class="ltr">He attempted the examination...</td></tr>
+<tr><td>v12C</td><td class="ltr bad">make laws... (They passed the amendment)</td><td>A2</td><td>Health</td><td class="ltr">They passed the amendment</td></tr>
+</table></div>
+<p style="font-size:12px;color:var(--muted)">v9 تنها درست (تزریقی). v11 با متن کامل برگشت ولی رتبه 1 قانون شد. v12C دوباره قانون اول شد — یعنی وزن WordNet هنوز «قانون» را بر «امتحان» ترجیح می‌ده.</p>
+
+<h2>🏠 flat — B1 — «آپارتمان»</h2>
+<div class="table-wrap"><table>
+<tr><th>نسخه</th><th>معنی اول</th><th>سطح</th><th>موضوع</th><th>مثال</th></tr>
+<tr><td>v7</td><td class="ltr good">A complete domicile...</td><td>B1</td><td>Emotions</td><td class="ltr">French flats...</td></tr>
+<tr><td>v8</td><td class="ltr good">A complete domicile...</td><td>B1</td><td>Emotions</td><td class="ltr">French flats...</td></tr>
+<tr><td>v9</td><td class="ltr good">A complete domicile...</td><td>B1</td><td>Society</td><td class="ltr">French flats...</td></tr>
+<tr><td>v10</td><td class="ltr good">A complete domicile...</td><td>B1</td><td>Society</td><td class="ltr">French flats...</td></tr>
+<tr><td>v11</td><td class="ltr bad">The most prominent flat part...</td><td>A2</td><td>Other</td><td class="ltr">—</td></tr>
+<tr><td>v12C</td><td class="ltr good">a suite of rooms... (apartment, flat)</td><td>A2</td><td>Daily</td><td class="ltr">It was very hard to find your flat. [Tatoeba]</td></tr>
+</table></div>
+<p style="font-size:12px;color:var(--muted)">از ۵ نسخه اول همه «آپارتمان» درست. v11 خراب کرد (Other و معنی بی‌ربط). v12C با Tatoeba برگشت و مثال ساده داد — بهترین مثال این کلمه.</p>
+
+<h2>بقیه — سریع</h2>
+<div class="table-wrap"><table>
+<tr><th>کلمه</th><th>v7/v8 اول</th><th>v9</th><th>v11</th><th>v12C</th><th>وضعیت</th></tr>
+<tr><td>field A1</td><td class="ltr good">A land area free of woodland...</td><td class="ltr good">A land area...</td><td class="ltr good">A land area...</td><td class="ltr good">A land area... [Tatoeba]</td><td class="good">همه خوب — پایدارترین</td></tr>
+<tr><td>catch A1</td><td class="ltr mid">reach with a blow...</td><td class="ltr mid">reach with a blow...</td><td class="ltr bad">To receive (beating)</td><td class="ltr mid">perceive by hearing</td><td class="bad">هیچ‌کدوم «گرفتن توپ» درست نیست — POS اشتباه (noun)</td></tr>
+<tr><td>tactic C2</td><td class="ltr good">A maneuver...</td><td class="ltr bad">A maneuver... B1</td><td class="ltr good">A maneuver... C2</td><td class="ltr bad">missing</td><td class="mid">v10 درست C2، v9 B1 اشتباه، v12C کلاً حذف شد (باگ نمونه‌برداری)</td></tr>
+<tr><td>april A1</td><td class="ltr good">the month following March...</td><td class="ltr bad">B1 (اشتباه سطح)</td><td class="ltr good">not found</td><td class="ltr bad">not found</td><td class="mid">v7/v8 خوب، v9 سطح B1 غلط، v11/v12C با سهم جدید حذف شد</td></tr>
+<tr><td>industry B1</td><td class="ltr good">Businesses of the same type...</td><td class="ltr good">The sector...</td><td class="ltr good">The sector...</td><td class="ltr good">Businesses... [Tatoeba]</td><td class="good">همه خوب، v12C مثال Tatoeba بهتر</td></tr>
+</table></div>
+
+<div class="card ok">
+<h2>جمع‌بندی دوستانه — چی شد واقعاً؟</h2>
+<p>• <b>flat و field و industry</b> — از اول خوب بودن، v12C با Tatoeba مثال‌شون بهتر شد.<br>
+• <b>rock/light/pass</b> — فقط v9 با تقلب درست بودن. بدون تقلب، هر سه نسخه آخر دوباره غلطن — یعنی وزن WordNet هنوز قوی‌تر از سطحه.<br>
+• <b>موضوع:</b> v7 تا v10 خوب (Other زیر 1%)، v11 فاجعه 99% Other شد، v12C برگشت به 50% — ولی هنوز نصف بی‌موضوعه.<br>
+• <b>ایراد جدی:</b> tactic و april تو v12C حذف شدن — چون سهم 60/80/110 را درست اعمال کردیم ولی پایلوت فقط 83 از هر سطح داشت، Bها کم اومد.</p>
+<p><b>با چی جبران کنیم؟</b> ۱) وزن سطح 0.30 به جای 0.25 تا سنگ بتواند یخ را ببرد، ۲) موضوع را مثل v10 کلیدواژه نگه دار نه prototype، ۳) سهم 60/80/... را موقع ساخت 4000 اعمال کن نه پایلوت 500.</p>
+</div>
+
+<div class="card" style="font-size:11px;color:var(--muted)">فایل‌ها: <code>ranked_senses-v7.json (1676) / v8 (1676) / v9 (1688) / v10 (1846) / v11 (1763) / v12C (1509)</code> — هر ردیف از همین فایل‌ها کپی شده.</div>
+</div>
+</body>
+</html>

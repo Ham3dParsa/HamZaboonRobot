@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>هم‌زبان — مقایسه کارخانه واژگان v5 تا v11 — خلاصه یک‌صفحه‌ای</title>
+<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@33.003/Vazirmatn-font-face.css" rel="stylesheet">
+<style>
+:root{--bg:#0d0f13;--panel:#14171e;--panel2:#1b202e;--border:#232838;--text:#e8eaf0;--muted:#9aa0b2;--dim:#6b7288;--blue:#7aa2ff;--green:#34d399;--yellow:#facc15;--red:#f87171;--purple:#a78bfa;--radius:14px;--max:1320px}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Vazirmatn,Estedad,Tahoma,system-ui,sans-serif;line-height:1.75;-webkit-font-smoothing:antialiased}
+a{color:var(--blue);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:ui-monospace,Cascadia Code,Consolas,monospace;font-size:12px;background:#1e2433;border:1px solid var(--border);padding:2px 7px;border-radius:7px;direction:ltr;display:inline-block}
+.mono{font-family:ui-monospace,monospace;direction:ltr}
+.wrap{max-width:var(--max);margin:0 auto;padding:28px 20px 60px}
+header{margin-bottom:18px}
+header h1{font-size:clamp(22px,2.2vw,30px);margin:0 0 6px;letter-spacing:-.02em;line-height:1.35}
+header .sub{color:var(--muted);font-size:13px}
+.meta{color:var(--muted);font-size:12px;display:flex;gap:14px;flex-wrap:wrap;margin-top:8px}
+.meta span{border-left:1px solid var(--border);padding-left:14px}
+.meta span:last-child{border:0}
+.badge{font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--border);background:var(--panel2);color:var(--muted)}
+.badge.good{background:rgba(52,211,153,.12);color:var(--green);border-color:rgba(52,211,153,.25)}
+.badge.warn{background:rgba(250,204,21,.12);color:#fde68a;border-color:rgba(250,204,21,.22)}
+.badge.bad{background:rgba(248,113,113,.10);color:var(--red);border-color:rgba(248,113,113,.22)}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0 10px}
+.kpi{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px;text-align:center}
+.kpi b{font-size:22px;display:block;line-height:1}
+.kpi em{font-style:normal;font-size:11px;color:var(--muted)}
+.kpi small{font-size:11px;color:var(--dim)}
+.hero{display:grid;grid-template-columns:1.15fr .85fr;gap:14px;margin:14px 0 18px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:18px 18px}
+.card h2{margin:0 0 8px;font-size:16px}
+.card h3{margin:0 0 6px;font-size:14px}
+.card p{margin:0;color:var(--muted);font-size:13px}
+.alert{border-radius:10px;padding:10px 12px;font-size:12.5px;border:1px solid var(--border);margin:8px 0}
+.alert.ok{background:rgba(52,211,153,.08);border-color:rgba(52,211,153,.22);color:#a7f3d0}
+.alert.warn{background:rgba(250,204,21,.08);border-color:rgba(250,204,21,.22);color:#fde68a}
+.alert.err{background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.22);color:#fecaca}
+.alert.neutral{background:rgba(122,162,255,.06);border-color:rgba(122,162,255,.18);color:#c7d2fe}
+.section{margin-top:22px}
+.section-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+.section-head h2{margin:0;font-size:18px}
+.section-head p{margin:0;color:var(--muted);font-size:12px}
+.table-wrap{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:720px}
+th{font-size:11px;letter-spacing:.02em;color:var(--dim);background:#151a27;padding:10px 10px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:10px 10px;border-bottom:1px solid rgba(35,40,56,.5);vertical-align:top}
+tr:last-child td{border-bottom:0}
+tr:hover td{background:#171d2b}
+td.ltr{direction:ltr;text-align:left;font-family:ui-monospace,monospace;font-size:12px}
+td.num{direction:ltr;text-align:center;font-family:ui-monospace,monospace}
+.phases{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
+.phase{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px 12px;display:flex;flex-direction:column;gap:6px}
+.phase.v11{border-color:rgba(52,211,153,.35);box-shadow:0 0 0 1px rgba(52,211,153,.12)}
+.phase h4{margin:0;font-size:13px;display:flex;align-items:center;gap:6px}
+.phase p{margin:0;font-size:11.5px;color:var(--muted);line-height:1.6}
+.phase ul{margin:4px 0 0;padding-right:14px;font-size:11.5px;color:var(--muted)}
+.phase ul li{margin:2px 0}
+.edge-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.edge{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 14px}
+.edge h4{margin:0 0 6px;font-size:13px}
+.edge .gloss{font-size:12px;color:var(--muted);background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:6px 0;direction:ltr;text-align:left;line-height:1.5}
+.edge .why{font-size:12px;color:#fde68a;background:rgba(250,204,21,.06);border:1px solid rgba(250,204,21,.18);border-radius:8px;padding:8px 10px;margin-top:6px}
+.refs{font-size:11.5px;color:var(--muted)}
+.refs li{margin:4px 0}
+.foot{margin-top:28px;padding-top:14px;border-top:1px solid var(--border);color:var(--muted);font-size:11px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.flow{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.flow span{background:var(--panel2);border:1px solid var(--border);border-radius:999px;padding:4px 10px;font-size:11px;color:var(--muted)}
+.flow span.on{background:rgba(52,211,153,.12);color:var(--green);border-color:rgba(52,211,153,.25)}
+@media(max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)} .hero{grid-template-columns:1fr} .phases{grid-template-columns:repeat(2,1fr)} .edge-grid{grid-template-columns:1fr} .wrap{padding:20px 14px 50px}}
+@media(max-width:640px){.phases{grid-template-columns:1fr} table{min-width:620px}}
+@media(min-width:1600px){.wrap{max-width:1440px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>کارخانه واژگان هم‌زبان — از v5 تا v11 در یک نگاه</h1>
+  <div class="sub">هدف: برای هر واژه انگلیسی، ۱ تا ۶ معنیِ درست انتخاب کنیم — نه همهٔ معنی‌ها، فقط مفیدترین‌ها برای فارسی‌زبان. v11 فرضیه «متنِ کامل» را ثابت کرد.</div>
+  <div class="meta">
+    <span>۳ سپتامبر ۲۰۲۶ — پایلوت ۵۰۰ واژه — مدل <span class="mono">all-MiniLM-L6-v2</span></span>
+    <span>فرمول v11: <span class="mono">0.50 Zipf + 0.15 WordNet + 0.25 CEFR + 0.05 centroid + 0.05 topic</span></span>
+    <span>کُد: <span class="mono">docs/research/lexicon/v5-v11-comparison-2026-09-03.html</span></span>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><b>۳٬۶۴۳</b><em>معنی یکتا (uniq)</em><small>میانگین ۷٫۲۹ / واژه</small></div>
+    <div class="kpi"><b>۱٬۷۶۳</b><em>کارت نهایی (ranked)</em><small>میانگین ۳٫۵۲ / واژه</small></div>
+    <div class="kpi"><b>۹۹٫۶٪</b><em>Other / Abstract</em><small style="color:var(--red)">شکست topic در v11</small></div>
+    <div class="kpi"><b>full_text</b><em>نه فقط gloss</em><small>واژه + توضیح + مثال + هم‌معنی</small></div>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="card" style="border-right:4px solid var(--green)">
+    <h2>✅ فرضیه تأیید شد — مشکل «gloss-only» بود نه «lemma-only»</h2>
+    <p>تا v10 فقط <b>توضیح کوتاه</b> (gloss) را به مدل می‌دادیم. حدس زدیم شاید باید «خود واژه» را هم حذف کنیم. آزمایش نشان داد مشکل از نبودِ <b>مثال و هم‌معنی</b> بود. در v11 متن کامل را ساختیم:</p>
+    <code style="margin-top:8px">lemma [pos] gloss | Examples: ex1 ; ex2 | Synonyms: syn1, syn2 — تا ۶۰۰ حرف</code>
+    <p style="margin-top:8px">مثال: <span class="mono">pass [noun] To change in state or status | Examples: He attempted the examination, but did not expect to pass.</span> — حالا مدل می‌فهمد این «pass» همان «قبول شدن در امتحان» است.</p>
+    <div class="alert ok" style="margin-top:10px">نتیجه: «exam» که در v10 گم شده بود، در v11 برگشت — ولی هنوز رتبه اول نیست (چون WordNet آن را نادر می‌داند). فرضیه درست بود، ولی راه‌حل کامل نیست.</div>
+  </div>
+  <div class="card">
+    <h2>نقشه راه v5 تا v11 — هر نسخه چه هدفی داشت؟</h2>
+    <div class="flow"><span>v5 کوتا</span><span>v6 تاپیک</span><span>v7 دداپ</span><span>v8 گل</span><span>v9 هک</span><span>v10 تمیز</span><span class="on">v11 متن کامل ⭐</span></div>
+    <p><b>ساده بگویم:</b> اول زیادی کارت می‌دادیم (۱۴۰۰). بعد سهمیه گذاشتیم (۴۹۸). بعد فهمیدیم معنی‌های تکراری داریم، حذف کردیم. بعد هدف (exam/travel) اضافه کردیم. بعد با هک دستی نتیجه را درست کردیم. بعد هک‌ها را برداشتیم تا ببینیم مشکل واقعی کجاست. حالا متن کامل را تست کردیم.</p>
+    <p style="margin-top:8px"><b>C / Tau / Kmax یعنی چه؟</b> مثل بستن چمدان: <span class="mono">C</span> می‌گوید «چقدر از ارزش کل بردارم؟» (۰٫۸۵ مبتدی، ۰٫۹۵ پیشرفته)، <span class="mono">Tau</span> می‌گوید «اگر معنی بعدی بی‌ارزش بود، ولش کن»، <span class="mono">Kmax</span> می‌گوید «حداکثر چند معنی؟» (۳ برای A1، ۶ برای C2).</p>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-head"><h2>کارت‌های v5 تا v11 — هدف / بهترین / بدترین هر نسخه</h2><p>هر کارت یک تغییر اصلی — ببینی از کجا آمدیم</p></div>
+  <div class="phases">
+    <div class="phase"><h4>v5 <span class="badge">سهمیه</span></h4><p><b>هدف:</b> ۱۴۰۰ کارت را به ۴۹۸ برسانیم (مثل کلاس ۴۰۰۰تایی).</p><ul><li>بهترین: سهم Bها ۴۶٪ — درست مثل هدف</li><li>بدترین: ۲۴۶ واژه هیچ کارتی نگرفت</li></ul><p style="color:var(--dim)">فرمول ساده: فقط Zipf + WordNet</p></div>
+    <div class="phase"><h4>v6 <span class="badge">تاپیک اولیه</span></h4><p><b>هدف:</b> هر کارت یک موضوع (غذا، سفر…)</p><ul><li>بهترین: موضوع‌ها متنوع شد</li><li>بدترین: خیلی «Health» اشتباه</li></ul><p style="color:var(--dim)">کلیدواژه دستی</p></div>
+    <div class="phase"><h4>v7 <span class="badge">دداپ</span></h4><p><b>هدف:</b> معنی‌های تکراری را یکی کنیم (thr ۰٫۷۸)</p><ul><li>بهترین: uniq ۵٫۹۸ — تمیز</li><li>بدترین: فعل‌های با &gt;۲۰ معنی فقط نصف شد</li></ul><p style="color:var(--dim)">۲۷۶ واژه با ۷ معنی (گیر کرده)</p></div>
+    <div class="phase"><h4>v8 <span class="badge">گل</span></h4><p><b>هدف:</b> برای «exam» و «travel» کارتِ مرتبط‌تر بدهیم</p><ul><li>بهترین: Work/Science برای exam بالا رفت</li><li>بدترین: هنوز gloss-only</li></ul><p style="color:var(--dim)">وزن هدف × موضوع</p></div>
+    <div class="phase"><h4>v9 <span class="badge warn">هک</span></h4><p><b>هدف:</b> با +۰٫۴ و +۰٫۵ دستی «stone» و «exam» را بالا بیاوریم</p><ul><li>بهترین: rock#19 سنگ، اول شد</li><li>بدترین: عددها غیرطبیعی شد</li></ul><p style="color:var(--dim)">1688 کارت — هک جواب داد ولی تقلب بود</p></div>
+    <div class="phase"><h4>v10 <span class="badge good">تمیز</span></h4><p><b>هدف:</b> هک‌ها را حذف کنیم، همه‌چیز طبیعی (thr ۰٫۸۲، any&gt;12)</p><ul><li>بهترین: April و tactic درست شد (۲۰۰۰ EVP)</li><li>بدترین: stone افتاد به رتبه ۵، exam ناپدید</li></ul><p style="color:var(--dim)">3862 uniq، 1846 کارت — گران ولی صادق</p></div>
+    <div class="phase v11"><h4>v11 <span class="badge good">متن کامل</span></h4><p><b>هدف:</b> به مدل «متن کامل» بدهیم نه فقط gloss</p><ul><li>بهترین: exam برگشت، CEFR دقیق‌تر</li><li>بدترین: موضوع ۹۹٫۶٪ Other شد!</li></ul><p style="color:var(--dim)">3643 uniq 7.29 · 1763 کارت 3.526</p></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-head"><h2>جدول ۵-سنجه — v5 تا v11 کنار هم</h2><p>عددها از کارخانه واقعی — v11 ستون آخر</p></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>سنجه (ساده)</th><th>v5</th><th>v7</th><th>v9</th><th>v10</th><th style="background:rgba(52,211,153,.12);color:var(--green)">v11 ⭐</th><th>یعنی چه؟</th></tr></thead>
+    <tbody>
+      <tr><td><b>معنی یکتا</b> (uniq) — چند معنیِ متفاوت داریم</td><td class="num">2,880<br><small>5.76 / واژه</small></td><td class="num">2,992<br><small>5.98</small></td><td class="num">2,993<br><small>5.99</small></td><td class="num">3,862<br><small>7.72</small></td><td class="num" style="background:rgba(52,211,153,.07)"><b>3,643</b><br><small>7.29</small></td><td>چقدر تنوع خام داریم</td></tr>
+      <tr><td><b>کارت نهایی</b> (ranked) — چند تا نگه داشتیم</td><td class="num">498<br><small>0.99</small></td><td class="num">1,676<br><small>3.35</small></td><td class="num">1,688<br><small>3.37</small></td><td class="num">1,846<br><small>3.69</small></td><td class="num" style="background:rgba(52,211,153,.07)"><b>1,763</b><br><small><b>3.526</b></small></td><td>هر واژه چند کارت می‌گیرد</td></tr>
+      <tr><td><b>شکل k</b> — چند واژه ۱،۲،۳… کارت دارد</td><td class="num"><small>—</small></td><td class="num"><small>7→276, 12→30</small></td><td class="num"><small>patched any&gt;12</small></td><td class="num"><small>3→191, 6→78</small></td><td class="num" style="background:rgba(52,211,153,.07)"><small>1:34 2:48 <b>3:186</b> 4:148 5:21 6:63</small></td><td>آیا Kmax رعایت شد؟</td></tr>
+      <tr>
+        <td><b>سهم هر سطح</b> — عدالت A1 تا C2</td>
+        <td class="num"><small>A1 62 A2 81<br>B1 112 B2 118<br>C1 75 C2 50</small></td>
+        <td class="num"><small>A1 165 A2 162<br>B1 311 B2 317<br>C1 374 C2 347</small></td>
+        <td class="num"><small>A1 165 A2 162<br>B1 311 B2 319<br>C1 383 C2 348</small></td>
+        <td class="num"><small>A1 243 A2 239<br>B1 313 B2 319<br>C1 381 C2 351</small></td>
+        <td class="num" style="background:rgba(52,211,153,.07)"><small><b>A1 240</b> <b>A2 234</b><br><b>B1 299</b> <b>B2 309</b><br><b>C1 359</b> <b>C2 322</b></small></td>
+        <td>هر سطح چند کارت؟</td>
+      </tr>
+      <tr><td><b>نرخ Other</b> — چند کارت بی‌موضوع ماند</td><td class="num">8.6%</td><td class="num">0.7%</td><td class="num"><span class="badge good">0.2%</span></td><td class="num"><span class="badge good">0.3%</span></td><td class="num" style="background:rgba(248,113,113,.08)"><span class="badge bad">99.6%</span><br><small>1756/1763</small></td><td>هرچه کمتر، بهتر</td></tr>
+    </tbody>
+  </table></div>
+  <div class="alert warn" style="margin-top:10px">نکتهٔ سهم v11: مبتدی ۴۷۴ کارت (۲٫۸۵/واژه)، متوسط ۶۰۸ (۳٫۶۷)، پیشرفته ۶۸۱ (۴٫۰۵) — چون Kmaxها ۳/۴/۶ هستند. این همان «بیشتر برای سخت‌تر» است.</div>
+</div>
+
+<div class="section">
+  <div class="section-head"><h2>لبه‌ها — با متنِ واقعیِ full_text (چرا v11 هنوز کامل نیست؟)</h2><p>هر مثال دقیقاً از <span class="mono">ranked_senses-v11.json</span> — راستِ متن انگلیسی است</p></div>
+  <div class="edge-grid">
+
+    <div class="edge">
+      <h4>🪨 rock — «سنگ» کجاست؟ <span class="badge warn">رتبه ۵، جا ماند</span></h4>
+      <div class="gloss">rock#26 — B2 — "A lump or cube of ice. | Examples: I'll have a whisky on the rocks, please." — score 0.1468 ★ رتبه ۱<br>rock#3 — A2 — "the Rock" — 0.1216<br>rock#51 — A1 — "A crystal used to control the radio frequency. | Examples: It was easily possible to double the cost of a CB rig just by adding all of the 'rocks'..." — 0.106<br>rock#5 — A1 — "A number of places in the United States:" — 0.1034</div>
+      <div class="gloss"><b>اما «سنگ» واقعی در uniq هست — فقط انتخاب نشد:</b> rock#9 — "a lump or mass of hard consolidated mineral matter | Examples: he threw a rock at me | Synonyms: rock, stone" — این همان معنیِ درست A1 Nature است!</div>
+      <div class="why"><b>چرا نشد؟</b> مدل WordNet می‌گوید «the Rock» (اسم خاص) شایع‌تر از «سنگ» است (count بالاتر → WN score بیشتر). بدون هکِ v9 (+۰٫۴) این معنی به رتبه ۵ می‌افتد و چون Kmax این واژه ۴ است، حذف می‌شود. یعنی <b>Zipf و WordNet هنوز بر CEFR می‌چربد</b>.</div>
+    </div>
+
+    <div class="edge">
+      <h4>✅ pass — «قبول شدن در امتحان» برگشت ولی اول نیست <span class="badge good">شامل است</span></h4>
+      <div class="gloss">pass#83 — A2 — "pass [noun] To change in state or status | Examples: He attempted the examination, but did not expect to pass. ; Of the Ancient Wonders, only the pyramids have passed the test..." — 0.1262 ★ رتبه ۱<br>pass#56 — A2 — "An attempt. | Examples: The man kicked his friend out of the house after he made a pass at his wife. | Synonyms: proposition, come-on" — 0.1204<br>pass#29 — A2 — "make laws, bills, etc. or bring into effect by legislation | Examples: They passed the amendment" — 0.1125</div>
+      <div class="why"><b>فرق با v10:</b> در v10 معنی «exam» اصلاً در ۱۲ تای برتر نبود (حذف شده بود). در v11 چون مثالِ «examination» در full_text هست، مدلِ CEFR آن را A2 تشخیص می‌دهد و برمی‌گردد — ولی هنوز قانون و تلاش از آن جلوترند چون WordNet آنها را پرتکرارتر می‌داند. <b>برگشت، ولی نه قهرمانی.</b></div>
+    </div>
+
+    <div class="edge">
+      <h4>💡 light — «سبک (نه سنگین)» کجاست؟ <span class="badge warn">رتبه ندارد</span></h4>
+      <div class="gloss">light#66 — B2 — "light [adjective] Electromagnetic radiation of any wavelength. | Examples: It's everywhere. At this moment, as you sit quietly reading this book, you are awash..." — 0.1186 ★ رتبه ۱<br>light#44 — A1 — "To lighten; to ease of a burden; to take off. | Examples: His mailèd habergeon she did undight, / And from his head his heavy burgonet did light." — 0.118<br>light#56 — A1 — "any device serving as a source of illumination | Examples: he stopped the car and turned off the lights" — 0.1151</div>
+      <div class="why"><b>چرا؟</b> هر سه معنی A1 هستند (CEFR یکسان)، پس Zipf تصمیم می‌گیرد. «تابش» در wordfreq شایع‌تر از «سبکِ وزنی» است. در v9 با هکِ «not heavy = +۰٫۴» اول بود، حالا طبیعی رتبه‌اش افتاده. <b>راه حل آینده:</b> وزن CEFR را برای A1 بیشتر کنیم یا Zipf را روی full_text نه gloss حساب کنیم (که شد، ولی کافی نبود).</div>
+    </div>
+
+    <div class="edge">
+      <h4>🏠 flat — «آپارتمان» ناپدید شد <span class="badge bad">گم شد</span></h4>
+      <div class="gloss">flat#20 — A2 — "The most prominent flat part of something." — 0.1112 ★<br>flat#5 — A2 — "in a forthright manner; candidly or frankly | Examples: he didn't answer directly ; told me straight out ; came out flat for less work and more pay" — 0.107<br>flat#13 — A2 — "stretched out and lying at full length along the ground | Examples: found himself lying flat on the floor" — 0.1024<br>flat#23 — A2 — "a suite of rooms usually on one floor of an apartment house | Synonyms: apartment, flat" — 0.1007 (رتبه ۴، لبِ مرز)</div>
+      <div class="why"><b>نکته:</b> در v10 «آپارتمان» رتبه ۱ بود (B1 Society). در v11 چون full_textِ «apartment» کوتاه است و Zipfِ «flat»ِ صفت بیشتر است، افت کرده. <b>یعنی full_text به ضرر معنی‌های کوتاهِ مهم تمام شد.</b></div>
+    </div>
+
+    <div class="edge">
+      <h4>🎣 catch — سه معنیِ نزدیک به هم <span class="badge">A1 — k=3</span></h4>
+      <div class="gloss">catch#10 — A2 — "To receive (by being in the way). | Examples: You're going to catch a beating..." — 0.1366<br>catch#17 — A2 — "suffer from the receipt of | Examples: She will catch hell for this behavior! | Synonyms: catch, get" — 0.1183<br>catch#37 — A2 — "To notice. | Examples: -You made a typo. -Ah, thanks for catching that." — 0.1076</div>
+      <div class="why">هر سه A2 و Other شدند (موضوع نامعلوم). معنیِ «گرفتن توپ» که برای مبتدی مهم است، نیست — چون WordNet آن را جدا نکرده و centroid آن را حذف کرده (dedup ۰٫۸۲).</div>
+    </div>
+
+    <div class="edge">
+      <h4>🎯 tactic / April — دو قطب <span class="badge good">درست</span></h4>
+      <div class="gloss">tactic#3 — C2 — "A maneuver, or action calculated to achieve some end. | Examples: Omar has challenged Elliott Abrams's record..." — 0.3691 ★<br>tactic#0 — C2 — "A sequence of moves that limits the opponent's options..." — 0.3258<br>April#0 — A2 — "April [noun] A female given name transferred from the month name... | Examples: I'm April Hooper..." — 0.5365 ★<br>April#2 — A2 — "The fourth month of the Gregorian calendar, following March and preceding May." — 0.2615</div>
+      <div class="why"><b>خوب:</b> tactic واقعاً C2 ماند (سه‌تایش C2). April هم A2 شد (Zipf بالا → A2 نه A1، ولی ماهِ تقویم برگشت). <b>مشکل April:</b> معنیِ «اسم دختر» اول شد چون مثالش طولانی و Zipfش بالاست — نه ماهِ تقویم.</div>
+    </div>
+
+  </div>
+
+  <div class="alert err" style="margin-top:14px">
+    <b>چرا topic در v11 ترکید؟ ۹۹٫۶٪ Other — علتش ساده است:</b><br>
+    برای موضوع از <b>شباهت کسینوسی</b> (cosine) بین full_text و ۱۳ نمونهٔ کوتاه (prototype) استفاده کردیم و گفتیم «اگر شباهت &lt; ۰٫۵۰ شد → Other». نمونه‌ها خیلی کوتاه بودند: مثلا برای Nature نوشتیم <span class="mono">"nature environment animal plant weather stone rock mineral..."</span> ولی full_textِ ما بلند است (<span class="mono">rock [verb] A lump or cube of ice. | Examples: whisky on the rocks</span>). شباهت همه‌شان زیر ۰٫۵۰ شد، پس همه Other شدند. <b>در v10 با کلیدواژهٔ دستی و آستانه ۰٫۵۰ کیوردی، فقط ۰٫۳٪ Other بود.</b> راه حل: نمونه‌های بلندتر یا آستانه پایین‌تر (۰٫۳۵) یا روش قدیمیِ کلیدواژه را برگردانیم.
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-head"><h2>چی شد که فکر کردیم «lemma-only»؟ — و چرا «gloss-only» درست بود</h2><p>توضیحِ خطای ذهنی — ساده</p></div>
+  <div class="card">
+    <p>اول فکر کردیم مدل «خودِ واژه» (lemma) را زیادی جدی می‌گیرد و gloss را کم‌اهمیت می‌کند — یعنی lemma-only. آزمایش v11 عکسش را نشان داد: وقتی فقط <span class="mono">gloss</span> را می‌دادیم، مدل نمی‌فهمید «passِ امتحان» با «passِ قانون» فرق دارد، چون هر دو کلمهٔ pass را دارند. وقتی <span class="mono">full_text = lemma + gloss + examples + synonyms</span> دادیم، مثالِ «He attempted the examination» کمک کرد تا CEFR درست (A2) و حتی topicِ Work & Education حدس زده شود. <b>پس مشکل gloss-only بود، نه lemma-only.</b> حالا باید topic را هم با همین ایده درست کنیم — نه با prototypeِ کوتاهِ ۸ کلمه‌ای، بلکه با مثال‌های واقعیِ هر موضوع.</p>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-head"><h2>منابع — کوتاه و قابل کلیک</h2><p>هر ادعا یک لینک</p></div>
+  <div class="card">
+    <ul class="refs" style="margin:0;padding-right:18px">
+      <li><b>مدل:</b> <span class="mono">sentence-transformers/all-MiniLM-L6-v2</span> — 384 بُعد، نرمال‌شده، cosine — <span class="mono">huggingface.co/sentence-transformers/all-MiniLM-L6-v2</span></li>
+      <li><b>بسامد:</b> <span class="mono">wordfreq</span> Zipf (۵٫۲→A1، ۴٫۶→A2…) — <span class="mono">pypi.org/project/wordfreq</span> — هرچه Zipf بالاتر، کلمه روزمره‌تر</li>
+      <li><b>WordNet:</b> NLTK WordNet — <span class="mono">wordnet.princeton.edu</span> — شمارشِ <span class="mono">lemma.count()</span> با <span class="mono">log(cnt+0.5)</span> و آستانه شباهت ۰٫۳۵</li>
+      <li><b>CEFR:</b> EVP ۲۰۰۰ + CEFR-J ۵۰۴ — آستانه cosine ۰٫۷۲ سپس ۰٫۶۰ وگرنه Zipf — <span class="mono">englishprofile.org/wordlists/evp</span> + <span class="mono">cefr-j.org</span></li>
+      <li><b>دداپ:</b> Agglomerative Clustering با <span class="mono">cosine distance = 1 - cosine</span> و <span class="mono">distance_threshold=0.18</span> (= thr ۰٫۸۲)، سقف ۱۲ اگر خام &gt;۱۲ وگرنه ۷</li>
+      <li><b>موضوع (شکست):</b> ۱۳ نمونهٔ دستی + cosine thr ۰٫۵۰ روی full_text — همه زیر آستانه → Other ۹۹٫۶٪ (v10 با کلیدواژه فقط ۰٫۳٪ Other بود)</li>
+      <li><b>داده‌ها:</b> <span class="mono">W:\hamzaban_data_factory\uniq_senses-v11.json (2.32MB, 3643)</span> · <span class="mono">ranked_senses-v11.json (1.56MB, 1763)</span> · <span class="mono">topic_labels-v11.json (99.6% Other)</span> · <span class="mono">fixtures-v11.zip</span></li>
+    </ul>
+  </div>
+</div>
+
+<div class="section">
+  <div class="card" style="border-right:4px solid var(--yellow);background:rgba(250,204,21,.04)">
+    <h3>جمع‌بندی یک‌خطی برای تصمیم</h3>
+    <p><b>v11 ثابت کرد «متن کامل» بهتر از «فقط توضیح» است</b> — exam برگشت، CEFR دقیق‌تر شد، ولی <b>موضوع را خراب کرد</b> (۹۹٫۶٪ Other) و هنوز «سنگِ» rock رتبه ۵ است. قدم بعدی: آستانه topic را پایین بیاوریم (۰٫۳۵) یا نمونه‌های بلندتر بسازیم، و وزنِ CEFR را کمی بیشتر کنیم (۰٫۳۰ به‌جای ۰٫۲۵) تا «سنگِ» A1 بتواند «the Rock»ِ A2 را ببرد. این یک صفحه، همهٔ v5 تا v11 را خلاصه می‌کند.</p>
+  </div>
+</div>
+
+<div class="foot">
+  <span>فایل: <span class="mono">docs/research/lexicon/v5-v11-comparison-2026-09-03.html</span> — کپی: <span class="mono">W:\hamzaban_data_factory\v5-v11-comparison-2026-09-03.html</span></span>
+  <span>فونت Vazirmatn — ریسپانسیو: موبایل تا 1440p — تم تیره — تولید با Muse Spark</span>
+</div>
+
+</div>
+</body>
+</html>
