@@ -5,9 +5,9 @@ import pathlib
 import sys
 
 # Use persistent clean list if available, fallback to outs
-src = "/app/hamzaban/.xray/clean.json"
+src = "/app/.xray/clean.json"
 if not pathlib.Path(src).exists():
-    src = "/app/hamzaban/.xray/outs.json"
+    src = "/app/.xray/outs.json"
 if not pathlib.Path(src).exists():
     src = "/tmp/clean.json"
 if not pathlib.Path(src).exists():
@@ -33,7 +33,7 @@ cfg = {
     "log": {"loglevel": "warning", "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log"},
 }
 # Use persistent path if available, fallback to legacy
-out_path = "/app/hamzaban/.xray/config.json" if pathlib.Path("/app/hamzaban/.xray").exists() else "/usr/local/etc/xray/config.json"
+out_path = "/app/.xray/config.json" if pathlib.Path("/app/.xray").exists() else "/usr/local/etc/xray/config.json"
 tmp_path = out_path + ".tmp"
 pathlib.Path(tmp_path).write_text(json.dumps(cfg, indent=2))
 os.replace(tmp_path, out_path)
