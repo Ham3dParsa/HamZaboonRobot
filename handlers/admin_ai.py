@@ -1407,7 +1407,7 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
         msg.add_line(plain("تأخیر: "), plain(str(result['latency_ms'])), plain(" ms"))
     else:
         msg.add_line(plain("❌ "), bold("خطا در اتصال"))
-        msg.add_line(plain("خطا: "), plain(str(result.get('error_message', ''))))
+        msg.add_line(plain("خطا: "), plain(str(result.get('error_class', ''))), plain(": "), plain(str(result.get('error_message', ''))))
     buttons = [
         [
             InlineKeyboardButton("🔄 تغییر وضعیت", callback_data="admin:ai_preset:create:toggle_enable"),
@@ -1479,7 +1479,7 @@ async def _test_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
         msg.add_line(plain("تأخیر: "), plain(str(result["latency_ms"])), plain(" ms"))
     else:
         msg.add_line(plain("❌ "), bold("خطا در اتصال"))
-        msg.add_line(plain("خطا: "), plain(str(result.get("error_message", ""))))
+        msg.add_line(plain("خطا: "), plain(str(result.get("error_class", ''))), plain(": "), plain(str(result.get("error_message", ""))))
     keyboard = InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("🔁 تست مجدد", callback_data=f"admin:ai_preset:test:{preset_ref}")],
