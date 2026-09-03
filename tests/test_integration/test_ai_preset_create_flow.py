@@ -294,6 +294,9 @@ class AiPresetDetailAndActivateTest(unittest.TestCase):
             mock_test.assert_not_called()
             text = up.callback_query.edit_message_text.call_args.args[0]
             self.assertIn("کامل نیست", text)
+            markup = up.callback_query.edit_message_text.call_args.kwargs["reply_markup"].to_json()
+            self.assertIn("ai_preset:full_edit:", markup)
+            self.assertIn("ai_preset:view:", markup)
 
     def test_detail_test_success_branch(self):
         db.set_preset("complete_detail", base_url="https://x", model="m", api_key="sk-test")
@@ -304,6 +307,18 @@ class AiPresetDetailAndActivateTest(unittest.TestCase):
             mock_test.assert_called_once()
             text = up.callback_query.edit_message_text.call_args.args[0]
             self.assertIn("اتصال موفق", text)
+            markup = up.callback_query.edit_message_text.call_args.kwargs["reply_markup"].to_json()
+            self.assertIn("ai_preset:test:", markup)
+            self.assertIn("ai_preset:view:", markup)
+
+    def test_reasoning_minimal_and_xhigh_accepted(self):
+        from handlers.admin_ai import _validate_wizard_value
+
+        self.assertIsNotNone(_validate_wizard_value("reasoning_effort", "minimal", "p"))
+        self.assertIsNotNone(_validate_wizard_value("reasoning_effort", "xhigh", "p"))
+        self.assertIsNotNone(_validate_wizard_value("reasoning_effort", "MINIMAL", "p"))
+        self.assertIsNotNone(_validate_wizard_value("reasoning_effort", "XHIGH", "p"))
+        self.assertIsNone(_validate_wizard_value("reasoning_effort", "ultra", "p"))
 
     def test_activate_disabled_auto_enables(self):
         # New presets are created disabled; activate should auto-enable and set primary
