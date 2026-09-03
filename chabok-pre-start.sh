@@ -6,8 +6,8 @@ set -eu
 # HamZaban - persistent Xray bootstrap for Chabokan Python hosting
 # Runs on every deploy, before app start. Idempotent.
 export DEBIAN_FRONTEND=noninteractive
-BASE_ROOT="${BASE_ROOT:-/app/hamzaban}"
-XRAY_DIR="/app/hamzaban/.xray"
+BASE_ROOT="${BASE_ROOT:-/app}"
+XRAY_DIR="${XRAY_DIR:-$BASE_ROOT/.xray}"
 mkdir -p "$XRAY_DIR" /var/log/xray /var/log/supervisor
 # Ensure log file exists for supervisor/cron (canonical path /var/log/xray/xray.log)
 touch /var/log/xray/xray.log 2>&1 | head || true
@@ -60,12 +60,12 @@ if [ -z "${AI_PROXY_URL:-}" ]; then echo "[chabok-pre-start] WARN: AI_PROXY_URL 
 if command -v supervisord >/dev/null 2>&1 && [ -f "$BASE_ROOT/supervisor.conf" ]; then
   mkdir -p /var/run /var/log/supervisor
   # install supervisor.conf to standard location if needed
-  if [ "$BASE_ROOT/supervisor.conf" != "/app/hamzaban/supervisor.conf" ]; then cp -f "$BASE_ROOT/supervisor.conf" /app/hamzaban/supervisor.conf 2>&1 | head || true; fi
+  if [ "$BASE_ROOT/supervisor.conf" != "/app/supervisor.conf" ]; then cp -f "$BASE_ROOT/supervisor.conf" /app/supervisor.conf 2>&1 | head || true; fi
   if ! pgrep -f supervisord >/dev/null 2>&1; then
-    supervisord -c /app/hamzaban/supervisor.conf 2>&1 | head -5 || true
+    supervisord -c "$BASE_ROOT/supervisor.conf" 2>&1 | head -5 || true
   else
-    supervisorctl -c /app/hamzaban/supervisor.conf reread 2>&1 | head -5 || true
-    supervisorctl -c /app/hamzaban/supervisor.conf update 2>&1 | head -5 || true
+    supervisorctl -c "$BASE_ROOT/supervisor.conf" reread 2>&1 | head -5 || true
+    supervisorctl -c "$BASE_ROOT/supervisor.conf" update 2>&1 | head -5 || true
   fi
 fi
 
