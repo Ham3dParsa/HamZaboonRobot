@@ -327,6 +327,30 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         _, answer_kw = update.callback_query.answer.call_args
         self.assertTrue(answer_kw.get("show_alert"))
 
+    def test_custom_test_ab_missing_candidate_fails_fast_zero_provider_calls(self):
+        """W1: target=ab with a missing candidate must fail fast with ZERO
+        provider calls — the current-config call must not run first and have
+        its result discarded."""
+        from handlers import admin_ai
+        from handlers.admin_ai import _run_custom_test
+
+        ctx = self._make_context()
+        ctx.user_data["custom_test_state"] = {
+            "prompt": "p", "lang": "en", "goal": "general", "level": "beginner",
+        }
+        with patch.object(admin_ai.ai, "custom_test_card", return_value={
+            "word": "w", "fa_meaning": "م", "examples": "[]"
+        }) as mock_card, patch("handlers.admin_ai.prompts.daily_batch_system_prompt", return_value="SYS"):
+            update = self._make_callback_update("admin:ai_custom_test:target:ab")
+            asyncio.run(_run_custom_test(update, ctx, "ab"))
+
+        self.assertFalse(mock_card.called)
+        text = self._rendered_text(update)
+        self.assertIn("کاندیدا", text)
+        update.callback_query.answer.assert_awaited()
+        _, answer_kw = update.callback_query.answer.call_args
+        self.assertTrue(answer_kw.get("show_alert"))
+
     def test_ai_connection_result_escapes_model_and_error(self):
         """T8g: the AI connection result renders bold title + escaped model/error
         fields (no manual html_escape left in the handler path)."""
