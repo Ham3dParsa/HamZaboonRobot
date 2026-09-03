@@ -47,7 +47,7 @@ def create_client(preset: dict | None = None, *, api_key_override: str | None = 
     """
     if preset is None:
         preset = db.get_active_preset()
-    base_url = preset_fields.resolve(preset, "base_url")
+    base_url = _normalize_base_url(preset_fields.resolve(preset, "base_url"))
     # A falsy override (empty string) is treated as "not provided" so the caller
     # falls through to the fail-closed key resolution instead of sending an
     # explicit empty key (SUGGESTION from review: never bypass resolution with
@@ -120,7 +120,40 @@ def _model(preset: dict | None = None) -> str:
     # activate_preset and must not be read as a fallback. Fall back only to the
     # deployment default when the preset has no model.
     model = preset_fields.resolve(preset, "model") if preset else ""
+    # Strip opencode/ prefix if present (Zen API expects raw id)
+    if model.startswith("opencode/"):
+        model = model[len("opencode/") :]
     return model or DEFAULT_AI_MODEL
+
+
+def _is_responses_preset(preset: dict | None, model: str | None = None) -> bool:
+    """True if this preset must use OpenAI Responses API (Muse/GPT on Zen)."""
+    if preset is None and model is None:
+        return False
+    base = ""
+    m = model or ""
+    if preset is not None:
+        base = preset_fields.resolve(preset, "base_url") or ""
+        if not m:
+            m = preset_fields.resolve(preset, "model") or ""
+    base_l = base.lower().strip()
+    m_l = m.lower().strip()
+    # Explicit /responses base always means responses (path segment)
+    if base_l.rstrip("/").lower().endswith("/responses"):
+        return True
+    # Muse Spark and GPT on Zen are always responses (chat/completions 404s); require Zen base
+    if "opencode.ai/zen" in base_l and ("muse-spark" in m_l or "gpt-" in m_l):
+        # Exclude Groq gpt-oss which is not Zen (base would be groq, not zen)
+        return True
+    return False
+
+
+def _normalize_base_url(base_url: str) -> str:
+    """Strip trailing /responses so OpenAI SDK doesn't double-append."""
+    b = (base_url or "").strip().rstrip("/")
+    if b.lower().endswith("/responses"):
+        b = b[: -len("/responses")].rstrip("/")
+    return b
 
 
 def test_connection(
@@ -128,19 +161,52 @@ def test_connection(
     api_key: str,
     model: str,
     timeout: float = AI_TIMEOUT_SECONDS,
+    reasoning_effort: str | None = None,
 ) -> dict:
     """Lightweight connection test (not tracked in llm_requests).
 
     Routes client construction through ``create_client`` so the connection
     probe shares the same fail-closed/key-resolution seam (BUG-3). The
     ``api_key`` here is the explicit override the caller intends to test.
+    Auto-routes Muse/GPT on Zen to Responses API (same base_url).
+    Mirrors preset reasoning (none -> minimal for Muse) so probe doesn't
+    hide a real xhigh 400.
     """
+    # Strip opencode/ prefix for API
+    if model.startswith("opencode/"):
+        model = model[len("opencode/") :]
+    tmp_preset = {"base_url": base_url, "model": model}
+    use_responses = _is_responses_preset(tmp_preset, model)
+    # Mirror preset reasoning for Muse; default none->minimal for probe
+    probe_reasoning = reasoning_effort
+    if use_responses and "muse-spark" in model.lower() and probe_reasoning in (None, "", "none"):
+        probe_reasoning = "minimal"
+    if probe_reasoning is None:
+        probe_reasoning = "minimal" if use_responses and "muse-spark" in model.lower() else None
     client = create_client(
         {"base_url": base_url, "model": model, "timeout_seconds": timeout},
         api_key_override=api_key,
     )
     started = time.monotonic()
     try:
+        if use_responses:
+            resp_kwargs: dict = dict(model=model, input="ping", max_output_tokens=5)
+            if probe_reasoning not in (None, "", "none"):
+                resp_kwargs["reasoning"] = {"effort": probe_reasoning}
+            resp = client.responses.create(**resp_kwargs)
+            latency_ms = (time.monotonic() - started) * 1000
+            # Responses usage shape differs; try to extract
+            usage = getattr(resp, "usage", None)
+            return {
+                "success": True,
+                "latency_ms": round(latency_ms),
+                "model": getattr(resp, "model", model),
+                "usage": {
+                    "prompt_tokens": getattr(usage, "input_tokens", 0) if usage else 0,
+                    "completion_tokens": getattr(usage, "output_tokens", 0) if usage else 0,
+                    "total_tokens": getattr(usage, "total_tokens", 0) if usage else 0,
+                },
+            }
         resp = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": "ping"}],
@@ -197,20 +263,68 @@ def custom_test_card(
         client = _client(preset)
         model = _model(preset)
         started = time.monotonic()
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=preset_fields.resolve(preset or {}, "temperature"),
-            max_tokens=preset_fields.resolve(preset or {}, "max_output_tokens"),
-        )
-        telemetry["usage"] = resp.usage
-        telemetry["latency_ms"] = (time.monotonic() - started) * 1000
-        telemetry["model"] = model
-        telemetry["request_kind"] = request_kind
-        content = resp.choices[0].message.content or ""
+        use_responses = _is_responses_preset(preset, model)
+        if use_responses:
+            reasoning = preset_fields.resolve(preset or {}, "reasoning_effort")
+            if "muse-spark" in model.lower() and reasoning in (None, "", "none"):
+                reasoning = "minimal"
+            kwargs: dict = dict(
+                model=model,
+                input=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_output_tokens=preset_fields.resolve(preset or {}, "max_output_tokens"),
+            )
+            if reasoning not in (None, "", "none"):
+                kwargs["reasoning"] = {"effort": reasoning}
+            resp = client.responses.create(**kwargs)
+            raw_usage = getattr(resp, "usage", None)
+            if raw_usage is not None:
+                try:
+                    pt = getattr(raw_usage, "input_tokens", None)
+                    ct = getattr(raw_usage, "output_tokens", None)
+                    tt = getattr(raw_usage, "total_tokens", None)
+                    if isinstance(raw_usage, dict):
+                        pt = raw_usage.get("input_tokens", pt)
+                        ct = raw_usage.get("output_tokens", ct)
+                        tt = raw_usage.get("total_tokens", tt)
+                    class _U2:
+                        pass
+                    norm2 = _U2()
+                    norm2.prompt_tokens = pt or 0
+                    norm2.completion_tokens = ct or 0
+                    norm2.total_tokens = tt or 0
+                    telemetry["usage"] = norm2
+                except Exception:
+                    telemetry["usage"] = raw_usage
+            else:
+                telemetry["usage"] = None
+            telemetry["latency_ms"] = (time.monotonic() - started) * 1000
+            telemetry["model"] = model
+            telemetry["request_kind"] = request_kind
+            content = getattr(resp, "output_text", None)
+            if not content:
+                try:
+                    content = resp.output[0].content[0].text  # type: ignore
+                except Exception:
+                    content = ""
+            content = content or ""
+        else:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=preset_fields.resolve(preset or {}, "temperature"),
+                max_tokens=preset_fields.resolve(preset or {}, "max_output_tokens"),
+            )
+            telemetry["usage"] = resp.usage
+            telemetry["latency_ms"] = (time.monotonic() - started) * 1000
+            telemetry["model"] = model
+            telemetry["request_kind"] = request_kind
+            content = resp.choices[0].message.content or ""
         value = _extract_json(content)
         return validate_card(value)
     except Exception as exc:
@@ -697,28 +811,78 @@ def _request_json(
     telemetry = telemetry if telemetry is not None else {}
     telemetry["model"] = model
     telemetry["request_kind"] = request_kind
+    use_responses = _is_responses_preset(preset, model)
+    # Muse Spark is always-thinking; none would 400, so default to minimal
+    if use_responses and "muse-spark" in model.lower() and reasoning in (None, "", "none"):
+        reasoning = "minimal"
     extra_body = {"reasoning_effort": reasoning} if reasoning not in (None, "", "none") else None
     try:
         try:
-            kwargs: dict = dict(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=temp,
-                max_tokens=mtokens,
-            )
-            if extra_body is not None:
-                kwargs["extra_body"] = extra_body
-            resp = client.chat.completions.create(**kwargs)
+            if use_responses:
+                # OpenAI Responses API (Zen Muse/GPT) - temperature is not supported for always-thinking models
+                kwargs: dict = dict(
+                    model=model,
+                    input=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    max_output_tokens=mtokens,
+                )
+                if reasoning not in (None, "", "none"):
+                    kwargs["reasoning"] = {"effort": reasoning}
+                resp = client.responses.create(**kwargs)
+            else:
+                kwargs: dict = dict(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=temp,
+                    max_tokens=mtokens,
+                )
+                if extra_body is not None:
+                    kwargs["extra_body"] = extra_body
+                resp = client.chat.completions.create(**kwargs)
         except Exception as exc:
             if getattr(exc, "status_code", None) == 429 or "RateLimitError" in type(exc).__name__:
                 raise RateLimitError(str(exc)) from exc
             raise
-        telemetry["usage"] = resp.usage
+        raw_usage = getattr(resp, "usage", None)
+        if use_responses and raw_usage is not None:
+            # Normalize Responses usage (input/output) to chat shape for cost/limiter
+            try:
+                pt = getattr(raw_usage, "input_tokens", None)
+                ct = getattr(raw_usage, "output_tokens", None)
+                tt = getattr(raw_usage, "total_tokens", None)
+                if isinstance(raw_usage, dict):
+                    pt = raw_usage.get("input_tokens", pt)
+                    ct = raw_usage.get("output_tokens", ct)
+                    tt = raw_usage.get("total_tokens", tt)
+                # Build normalized object with expected attrs
+                class _U:
+                    pass
+                norm = _U()
+                norm.prompt_tokens = pt or 0
+                norm.completion_tokens = ct or 0
+                norm.total_tokens = tt or 0
+                telemetry["usage"] = norm
+            except Exception:
+                telemetry["usage"] = raw_usage
+        else:
+            telemetry["usage"] = raw_usage
         telemetry["latency_ms"] = (time.monotonic() - started) * 1000
-        content = resp.choices[0].message.content or ""
+        if use_responses:
+            # Responses: output_text or output[0].content[0].text
+            content = getattr(resp, "output_text", None)
+            if not content:
+                try:
+                    content = resp.output[0].content[0].text  # type: ignore
+                except Exception:
+                    content = ""
+            content = content or ""
+        else:
+            content = resp.choices[0].message.content or ""
         try:
             return _extract_json(content)
         except Exception as exc:
