@@ -35,11 +35,15 @@ STALE_LEASE_SECONDS = 30 * 60  # 30-min stale re-queue (locked)
 
 
 def normalize_lemma(s):
-    """Lowercased lemma with stripped/collapsed whitespace."""
+    """Lowercased lemma with stripped/collapsed whitespace. Fail-closed."""
+    if s is None or (isinstance(s, str) and not s.strip()):
+        raise ValueError("normalize_lemma: empty lemma")
     return " ".join(str(s).strip().split()).lower()
 
 
 def normalize_pos(s):
+    if s is None or (isinstance(s, str) and not s.strip()):
+        raise ValueError("normalize_pos: empty pos")
     return str(s).strip().lower()
 
 
@@ -47,8 +51,10 @@ def normalize_gloss(s):
     """Lowercase, collapse whitespace, strip trailing period.
 
     Synonyms/examples are EXCLUDED from identity by construction: callers
-    pass only the gloss string here.
+    pass only the gloss string here. Fail-closed on empty gloss.
     """
+    if s is None or (isinstance(s, str) and not s.strip()):
+        raise ValueError("normalize_gloss: empty gloss")
     return " ".join(str(s).lower().split()).rstrip(".")
 
 
@@ -308,19 +314,31 @@ def _batch_prefix(lang, datestr):
 
 def claim_batch(db, lang, quota, datestr=None):
     """Claim up to `quota` pending pre-cards into a new ticket
-    FINAL-{lang}-YYYYMMDD-NN. Short txn: ticket + items only; the expensive
-    final-card work happens OUTSIDE any transaction."""
+    FINAL-{lang}-YYYYMMDD-NN. Pending selection + ticket-seq + inserts all
+    happen inside ONE immediate transaction, so concurrent claims can neither
+    double-claim the same pids nor collide on the ticket sequence (second
+    writer blocks, then sees the first writer's rows). Short txn: ticket +
+    items only; the expensive final-card work happens OUTSIDE any transaction."""
     datestr = datestr or _dt.datetime.now(
         _dt.timezone.utc).strftime("%Y-%m-%d")
     day = datestr.replace("-", "")
     prefix = _batch_prefix(lang, day)
-    pending = get_pending(db, lang)[:max(0, int(quota))]
     with _write(db) as con:
         rows = con.execute(
-            "SELECT ticket FROM batches WHERE ticket LIKE ?",
-            (prefix + "%",)).fetchall()
+            "SELECT p.pre_card_id FROM precards p"
+            " WHERE p.lang=? AND p.status='active'"
+            " AND p.converted_final_id IS NULL"
+            " AND NOT EXISTS (SELECT 1 FROM batch_items bi"
+            "  JOIN batches b ON b.ticket=bi.ticket"
+            "  WHERE bi.pre_card_id=p.pre_card_id AND b.lang=?"
+            "  AND bi.status IN ('claimed','done'))"
+            " ORDER BY p.lemma_key, p.pre_card_id"
+            " LIMIT ?", (lang, lang, max(0, int(quota)))).fetchall()
+        pending = [r["pre_card_id"] for r in rows]
         taken = set()
-        for r in rows:
+        for r in con.execute(
+                "SELECT ticket FROM batches WHERE ticket LIKE ?",
+                (prefix + "%",)).fetchall():
             try:
                 taken.add(int(r["ticket"].rsplit("-", 1)[-1]))
             except ValueError:
