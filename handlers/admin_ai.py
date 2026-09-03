@@ -1701,6 +1701,31 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
 
     results = []
 
+    # Fail fast on a missing candidate BEFORE any provider call: for
+    # target="ab" the current-config call below is paid, so validating the
+    # candidate first avoids burning one AI call whose result is discarded
+    # by the early return.
+    candidate_name = None
+    candidate = None
+    if target in ("candidate", "ab"):
+        candidate_name = state.get("candidate_preset")
+        candidate = db.get_preset(candidate_name) if candidate_name else None
+        if not candidate:
+            await notify_callback(
+                update.callback_query,
+                "پیش‌تنظیم کاندیدا انتخاب نشده است.",
+                intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+            )
+            msg = Message()
+            msg.add_line(plain("⚠️ "), plain("پیش‌تنظیم کاندیدا انتخاب نشده است."))
+            if candidate_name:
+                msg.add_line(plain("نام درخواستی: "), code(str(candidate_name)))
+            msg.add_line(plain("یک پیش‌تنظیم کاندیدا را انتخاب کنید."))
+            await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
+                [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
+            ]))
+            return
+
     if target in ("current", "ab"):
         try:
             active_preset = db.get_active_preset()
@@ -1724,23 +1749,7 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         results.append(("Current Config", result))
 
     if target in ("candidate", "ab"):
-        candidate_name = state.get("candidate_preset")
-        candidate = db.get_preset(candidate_name) if candidate_name else None
-        if not candidate:
-            await notify_callback(
-                update.callback_query,
-                "پیش‌تنظیم کاندیدا انتخاب نشده است.",
-                intent=CallbackNoticeIntent.IMPORTANT_ERROR,
-            )
-            msg = Message()
-            msg.add_line(plain("⚠️ "), plain("پیش‌تنظیم کاندیدا انتخاب نشده است."))
-            if candidate_name:
-                msg.add_line(plain("نام درخواستی: "), code(str(candidate_name)))
-            msg.add_line(plain("یک پیش‌تنظیم کاندیدا را انتخاب کنید."))
-            await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
-                [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
-            ]))
-            return
+        # Candidate already validated above (fail-fast, zero provider calls).
         result = await asyncio.to_thread(
             ai.custom_test_card,
             system_prompt=system_prompt,
