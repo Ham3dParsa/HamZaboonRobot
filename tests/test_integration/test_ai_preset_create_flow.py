@@ -320,19 +320,21 @@ class AiPresetDetailAndActivateTest(unittest.TestCase):
         db.set_preset("fail_preset", base_url="https://x", model="m", api_key="sk-test", enabled=1)
         from services.utils.callback_codec import preset_token
 
-        with patch("services.db.preset_registry.activate_preset", return_value=False):
+        with patch("services.db.activate_preset", return_value=False):
             up = self._callback(f"ai_preset:activate:{preset_token('fail_preset')}")
-            # Should have answered with error and re-rendered view
-            self.assertTrue(up.callback_query.answer.called)
+            # Must show error toast, not success
+            answered_text = str(up.callback_query.answer.call_args)
+            self.assertIn("خطا در فعال", answered_text)
             self.assertTrue(up.callback_query.edit_message_text.called)
 
     def test_activate_failure_raises_shows_error(self):
         db.set_preset("raise_preset", base_url="https://x", model="m", api_key="sk-test", enabled=1)
         from services.utils.callback_codec import preset_token
 
-        with patch("services.db.preset_registry.activate_preset", side_effect=RuntimeError("boom")):
+        with patch("services.db.activate_preset", side_effect=RuntimeError("boom")):
             up = self._callback(f"ai_preset:activate:{preset_token('raise_preset')}")
-            self.assertTrue(up.callback_query.answer.called)
+            answered_text = str(up.callback_query.answer.call_args)
+            self.assertIn("خطا در فعال", answered_text)
             self.assertTrue(up.callback_query.edit_message_text.called)
 
 
