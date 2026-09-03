@@ -125,7 +125,10 @@ class AiPresetCreateFlowTest(unittest.TestCase):
         self.assertIn("ai_preset:create:priority", data)
 
         up = self._callback("ai_preset:create:priority:bottom")
-        self.assertIn("ai_preset:create:status", up.callback_query.edit_message_text.call_args.kwargs["reply_markup"].to_json())
+        status_json = up.callback_query.edit_message_text.call_args.kwargs["reply_markup"].to_json()
+        self.assertIn("ai_preset:create:status", status_json)
+        # Status screen must not offer test before fields are filled (bug fix)
+        self.assertNotIn("ai_preset:create:test", status_json)
 
         up = self._callback("ai_preset:create:status:off")
         created = db.get_preset("my_new_preset")
@@ -135,8 +138,10 @@ class AiPresetCreateFlowTest(unittest.TestCase):
         expected = max(int(p.get("priority", 0)) for p in chain if p["name"] != "my_new_preset") + 1
         self.assertEqual(created["priority"], expected, "bottom => lowest priority (max existing + 1)")
         summary_json = up.callback_query.edit_message_text.call_args.kwargs["reply_markup"].to_json()
-        self.assertIn("ai_preset:create:test", summary_json)
+        # Incomplete preset must not expose test, only full edit + toggle
+        self.assertNotIn("ai_preset:create:test", summary_json)
         self.assertIn("ai_preset:create:toggle_enable", summary_json)
+        self.assertIn("full_edit", summary_json)
 
     def test_create_flow_priority_top_sets_zero(self):
         """Choosing top sets the highest priority (0)."""
@@ -183,6 +188,19 @@ class AiPresetCreateFlowTest(unittest.TestCase):
             if not p.get("is_emergency") and p["name"] != "clamped_preset"
         )
         self.assertEqual(created["priority"], max_rank, "out-of-range manual rank clamps to last slot")
+
+    def test_create_test_incomplete_shows_full_edit_hint(self):
+        """Incomplete preset (no base_url/model/key) must not run real test, shows full-edit hint."""
+        self._new_flow()
+        self._enter_name("incomplete_preset")
+        self._callback("ai_preset:create:priority:bottom")
+        self._callback("ai_preset:create:status:off")
+        # Drive the create:test callback while still incomplete
+        up = self._callback("ai_preset:create:test")
+        kwargs = up.callback_query.edit_message_text.call_args.kwargs
+        # The warning is rendered and offers full edit
+        self.assertIn("full_edit", str(kwargs.get("reply_markup").to_json()))
+        # No real connection attempt should have been made (empty fields)
 
     def test_finish_create_guards_empty_state_no_row_created(self):
         """Kilo R7: a lost/stale create state must not persist an empty-PK preset."""

@@ -1231,16 +1231,13 @@ async def _show_create_priority(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def _show_create_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Prompt for enabled status + a lightweight ping test (R14)."""
+    """Prompt for enabled status (R14). Test is offered only after fields are complete."""
     state = context.user_data.setdefault("preset_create", {})
     name = state.get("name", "")
     buttons = [
         [
             InlineKeyboardButton("🟢 فعال", callback_data="admin:ai_preset:create:status:on"),
             InlineKeyboardButton("⚫ غیرفعال", callback_data="admin:ai_preset:create:status:off"),
-        ],
-        [
-            InlineKeyboardButton("🔁 تست اتصال سبک", callback_data="admin:ai_preset:create:test"),
         ],
         [InlineKeyboardButton("❌ لغو", callback_data="admin:ai_settings")],
     ]
@@ -1250,8 +1247,7 @@ async def _show_create_status(update: Update, context: ContextTypes.DEFAULT_TYPE
     msg.add_line(
         plain("پیش‌تنظیم جدید به‌صورت "), bold("غیرفعال"),
         plain(" ساخته می‌شود و تا وقتی آگاهانه فعالش نکنید، "
-              "هیچ درخواستی را سرو نمی‌کند. وضعیت را انتخاب کنید "
-              "(می‌توانید پیش از آن اتصال را تست کنید):"),
+              "هیچ درخواستی را سرو نمی‌کند. وضعیت را انتخاب کنید:"),
     )
     await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
@@ -1285,16 +1281,27 @@ async def _finish_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("awaiting", None)
     preset = db.get_preset(name)
     status = "🟢 فعال" if preset.get("enabled", 0) else "⚫ غیرفعال"
-    buttons = [
+    has_connection = bool(
+        preset.get("base_url") and preset.get("model") and db.resolve_preset_key(preset)
+    )
+    buttons: list[list[InlineKeyboardButton]] = []
+    if has_connection:
+        buttons.append(
+            [
+                InlineKeyboardButton("🔁 تست اتصال", callback_data="admin:ai_preset:create:test"),
+                InlineKeyboardButton("🔄 تغییر وضعیت", callback_data="admin:ai_preset:create:toggle_enable"),
+            ]
+        )
+    else:
+        buttons.append(
+            [InlineKeyboardButton("🔄 تغییر وضعیت", callback_data="admin:ai_preset:create:toggle_enable")]
+        )
+    buttons.extend(
         [
-            InlineKeyboardButton("🔁 تست اتصال", callback_data="admin:ai_preset:create:test"),
-            InlineKeyboardButton("🔄 تغییر وضعیت", callback_data="admin:ai_preset:create:toggle_enable"),
-        ],
-        [
-            InlineKeyboardButton("✏️ ادامه ویرایش کامل", callback_data=f"admin:ai_preset:full_edit:{_preset_ref(name)}"),
-        ],
-        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_presets")],
-    ]
+            [InlineKeyboardButton("✏️ ادامه ویرایش کامل", callback_data=f"admin:ai_preset:full_edit:{_preset_ref(name)}")],
+            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_presets")],
+        ]
+    )
     msg = Message()
     msg.add_line(plain("✅ "), bold("پیش‌تنظیم ساخته شد"), plain(" — "), code(str(name)))
     msg.add_line()
@@ -1316,23 +1323,9 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
     state = context.user_data.get("preset_create", {})
     name = state.get("name", "")
     preset = db.get_preset(name)
-    await notify_callback(update.callback_query, "در حال تست اتصال...", intent=CallbackNoticeIntent.INFO)
-    msg = Message()
-    if preset and (preset.get("base_url") or preset.get("model") or preset.get("api_key")):
-        result = await asyncio.to_thread(
-            ai.test_connection,
-            base_url=preset.get("base_url", ""),
-            api_key=db.resolve_preset_key(preset),
-            model=preset.get("model", ""),
-            timeout=preset_fields.resolve(preset, "timeout_seconds"),
-        )
-        if result["success"]:
-            msg.add_line(plain("✅ "), bold("اتصال موفق"))
-            msg.add_line(plain("تأخیر: "), plain(str(result['latency_ms'])), plain(" ms"))
-        else:
-            msg.add_line(plain("❌ "), bold("خطا در اتصال"))
-            msg.add_line(plain("خطا: "), plain(str(result.get('error_message', ''))))
-    else:
+    # Fail-closed guard: all three connection fields must be present and resolvable.
+    if not (preset and preset.get("base_url") and preset.get("model") and db.resolve_preset_key(preset)):
+        msg = Message()
         msg.add_line(plain("⚠️ "), bold("تست اتصال برای پیش‌تنظیم تازه"))
         msg.add_line()
         msg.add_line(
@@ -1340,6 +1333,28 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
                   "امکان‌پذیر نیست. ابتدا فیلدها را در ویرایش کامل پر کنید، سپس تست بگیرید.")
         )
         msg.add_line(plain("این صرفاً یک یادآوری است و مشکلی در ساخت پیش‌تنظیم نیست."))
+        buttons = [
+            [InlineKeyboardButton("🔄 تغییر وضعیت", callback_data="admin:ai_preset:create:toggle_enable")],
+            [InlineKeyboardButton("✏️ ادامه ویرایش کامل", callback_data=f"admin:ai_preset:full_edit:{_preset_ref(name)}")],
+            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_presets")],
+        ]
+        await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
+        return
+    await notify_callback(update.callback_query, "در حال تست اتصال...", intent=CallbackNoticeIntent.INFO)
+    msg = Message()
+    result = await asyncio.to_thread(
+        ai.test_connection,
+        base_url=preset.get("base_url", ""),
+        api_key=db.resolve_preset_key(preset),
+        model=preset.get("model", ""),
+        timeout=preset_fields.resolve(preset, "timeout_seconds"),
+    )
+    if result["success"]:
+        msg.add_line(plain("✅ "), bold("اتصال موفق"))
+        msg.add_line(plain("تأخیر: "), plain(str(result['latency_ms'])), plain(" ms"))
+    else:
+        msg.add_line(plain("❌ "), bold("خطا در اتصال"))
+        msg.add_line(plain("خطا: "), plain(str(result.get('error_message', ''))))
     buttons = [
         [
             InlineKeyboardButton("🔄 تغییر وضعیت", callback_data="admin:ai_preset:create:toggle_enable"),
