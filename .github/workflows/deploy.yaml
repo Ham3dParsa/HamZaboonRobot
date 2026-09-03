@@ -1,0 +1,19 @@
+name: deploy-cloudiva
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v1
+        with:
+          node-version: "24"
+      - name: update-cloudiva
+        env:
+          CLOUDIOA_TOKEN: ${{ secrets.CLOUDIOA_TOKEN }}
+        run: |
+          npm install -g @cloudiva.net/cli
+          diva login -t $CLOUDIOA_TOKEN
+          diva deploy -s hamzaban-eco

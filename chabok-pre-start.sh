@@ -1,5 +1,8 @@
-#!/bin/bash
-set -euo pipefail
+#!/bin/sh
+# NOTE: the platform executes this file with sh (dash), NOT bash, so only
+# POSIX syntax is allowed here. In particular NO pipefail, NO [[ ]], NO
+# arrays. (A bash shebang above is documentation only.)
+set -eu
 # HamZaban - persistent Xray bootstrap for Chabokan Python hosting
 # Runs on every deploy, before app start. Idempotent.
 export DEBIAN_FRONTEND=noninteractive
