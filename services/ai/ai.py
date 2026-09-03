@@ -190,7 +190,8 @@ def test_connection(
     started = time.monotonic()
     try:
         if use_responses:
-            resp_kwargs: dict = dict(model=model, input="ping", max_output_tokens=5)
+            # Reasoning models need headroom: 5 tokens always 500s (reasoning alone exceeds it)
+            resp_kwargs: dict = dict(model=model, input="ping", max_output_tokens=64)
             if probe_reasoning not in (None, "", "none"):
                 resp_kwargs["reasoning"] = {"effort": probe_reasoning}
             resp = client.responses.create(**resp_kwargs)
@@ -225,6 +226,19 @@ def test_connection(
         }
     except Exception as exc:
         latency_ms = (time.monotonic() - started) * 1000
+        # Log full cause at ERROR so `diva service logs` shows it even without DEBUG
+        try:
+            base_host = _urlparse(base_url).hostname or base_url
+        except Exception:
+            base_host = base_url
+        log.error(
+            "test_connection failed model=%s base=%s responses=%s err=%s: %s",
+            model,
+            base_host,
+            use_responses,
+            type(exc).__name__,
+            str(exc)[:500],
+        )
         return {
             "success": False,
             "latency_ms": round(latency_ms),
