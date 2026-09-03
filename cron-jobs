@@ -3,6 +3,6 @@
 # If supervisord answers, it owns xray (kick start, trust autorestart) and no
 # raw launch happens — this avoids a duplicate fighting for the port. Raw
 # launch only when the daemon itself is unreachable, gated by binary +
-# non-empty config + config test. Paths fixed to /app/hamzaban (same as
+# non-empty config + config test. Paths fixed to /app (same as
 # supervisor.conf and scripts/xray/*); non-default BASE_ROOT unsupported.
-* * * * * root pgrep -x xray > /dev/null || { if supervisorctl -c /app/hamzaban/supervisor.conf status >/dev/null 2>&1; then supervisorctl -c /app/hamzaban/supervisor.conf start xray >/dev/null 2>&1 || true; else test -x /usr/local/bin/xray && test -s /app/.xray/config.json && /usr/local/bin/xray test -c /app/.xray/config.json >/dev/null 2>&1 && /usr/local/bin/xray run -c /app/.xray/config.json >> /var/log/xray/xray.log 2>&1 & fi; }
+* * * * * root pgrep -x xray > /dev/null || { if supervisorctl -c /app/supervisor.conf status >/dev/null 2>&1; then supervisorctl -c /app/supervisor.conf start xray >/dev/null 2>&1 || true; else test -x /usr/local/bin/xray && test -s /app/.xray/config.json && /usr/local/bin/xray test -c /app/.xray/config.json >/dev/null 2>&1 && /usr/local/bin/xray run -c /app/.xray/config.json >> /var/log/xray/xray.log 2>&1 & fi; }
