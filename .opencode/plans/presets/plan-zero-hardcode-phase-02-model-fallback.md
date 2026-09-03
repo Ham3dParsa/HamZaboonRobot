@@ -22,7 +22,7 @@ STATE: phase 2/4 — status: complete — evidence: commit fix(ai) T2; tests/tes
 - Run: `pytest tests/test_preset_fields.py tests/test_ai_preset_manager.py`.
 
 ## Gates
-- Satisfies R2. `hamzaban-reviewer` after implement.
+- R2 partial (`_model` layer only — `resolve` still yields `config_default` until phase 3 drops it). R2 closes in phase 3 with an UNMOCKED `_model({"model": ""}) == ""` assertion (no patch on `resolve`). `hamzaban-reviewer` after implement — done, 1 Medium (gate wording, fixed here), 1 Low (unused `DEFAULT_AI_BASE_URL` import → remove in phase 3), 1 Trivial.
 
 ## Acceptance
 - `grep -rn "DEFAULT_AI_MODEL" services/ai/ai.py` → zero hits.
