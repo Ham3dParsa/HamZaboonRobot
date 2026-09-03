@@ -63,6 +63,12 @@ def lemma_key_for(lemma, pos):
 
 
 def precard_id_for(lemma_key, gloss):
+    # Same fallback the pipeline uses for full_text (build_full_sense_text):
+    # an empty gloss means "the lemma itself", so identity falls back to it
+    # instead of minting a corrupt hash-of-nothing. normalize_gloss still
+    # raises on genuinely empty input passed directly.
+    if gloss is None or (isinstance(gloss, str) and not gloss.strip()):
+        gloss = lemma_key.partition("|")[0]
     return lemma_key + "::" + hashlib.sha1(
         normalize_gloss(gloss).encode("utf-8")).hexdigest()[:10]
 
