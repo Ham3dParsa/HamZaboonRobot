@@ -121,7 +121,9 @@ class TestTTSDelegation(unittest.TestCase):
     def test_service_uses_unified_media_retry(self):
         text = pathlib.Path("services/tts_service.py").read_text(encoding="utf-8")
         self.assertIn("_send_media_with_retry", text)
-        self.assertNotIn("idempotent", text)
+        # No idempotent= bypass param (R1: sends never retry TimedOut).
+        # Substring check is on the param assignment, not prose comments.
+        self.assertNotIn("idempotent=", text)
 
     def test_resolve_word_branches(self):
         from services import tts_service as svc
@@ -137,6 +139,46 @@ class TestTTSDelegation(unittest.TestCase):
         self.assertEqual(err, "cross_user")
         w, lang, err = svc.resolve_word("x", ["x"], 5)
         self.assertEqual(err, "invalid")
+
+
+class TestVoicesWarmup(unittest.IsolatedAsyncioTestCase):
+    async def test_ensure_voices_sets_loaded_and_dedups(self):
+        import services.tts as tts
+
+        async def fake_list_voices():
+            await asyncio.sleep(0.05)
+            return [{"Locale": "en-US", "ShortName": "en-V1", "Gender": "Female"}]
+
+        with (
+            patch("services.tts._VOICES_LOADED", False),
+            patch("services.tts._VOICES", {}),
+            patch.object(tts._VOICES_EVENT, "is_set", wraps=tts._VOICES_EVENT.is_set),
+            patch("edge_tts.list_voices", side_effect=fake_list_voices) as lv,
+        ):
+            tts._VOICES_EVENT.clear()
+            try:
+                await asyncio.gather(tts._ensure_voices(), tts._ensure_voices())
+                self.assertTrue(tts._VOICES_LOADED)
+                self.assertTrue(tts._VOICES_EVENT.is_set())
+                lv.assert_called_once()
+            finally:
+                tts._VOICES_EVENT.clear()
+
+    async def test_ensure_voices_failure_does_not_set_loaded(self):
+        import services.tts as tts
+
+        with (
+            patch("services.tts._VOICES_LOADED", False),
+            patch("edge_tts.list_voices", side_effect=RuntimeError("net down")),
+        ):
+            tts._VOICES_EVENT.clear()
+            try:
+                with self.assertRaises(RuntimeError):
+                    await tts._ensure_voices()
+                self.assertFalse(tts._VOICES_LOADED)
+                self.assertFalse(tts._VOICES_EVENT.is_set())
+            finally:
+                tts._VOICES_EVENT.clear()
 
 
 if __name__ == "__main__":

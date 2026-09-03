@@ -53,6 +53,7 @@ def voice_for(lang: str) -> str:
 
 
 async def _ensure_voices():
+    global _VOICES_LOADED
     if _VOICES_LOADED:
         logger.info("tts _ensure_voices cache hit")
         return

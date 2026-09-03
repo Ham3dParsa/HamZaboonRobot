@@ -41,8 +41,7 @@ if AI_PROXY_URL:
 
 DB_PATH = os.getenv("DB_PATH", "hamzaban.db")
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Tehran")
-import re as _re
-_TTS_CACHE_CHAT_ID_RE = _re.compile(r"^(?:-100\d{5,}|-\d{5,})$")
+# NOTE: _TTS_CACHE_CHAT_ID_RE lives in services.tts_service (single owner, R2).
 TTS_CACHE_CHAT_ID = os.getenv("TTS_CACHE_CHAT_ID", "").strip()
 TTS_CACHE_DB_PATH = os.getenv("TTS_CACHE_DB_PATH", "tts_cache.db").strip() or "tts_cache.db"
 

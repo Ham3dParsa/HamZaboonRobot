@@ -4,7 +4,7 @@ import asyncio
 import logging
 import re
 
-from telegram.error import BadRequest, Forbidden
+from telegram.error import BadRequest, Forbidden, NetworkError, TimedOut
 
 from services import tts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
@@ -19,12 +19,21 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _SPEAK_LOCKS: dict[str, asyncio.Lock] = {}
 _SPEAK_LOCKS_GUARD = asyncio.Lock()
+_MAX_SPEAK_LOCKS = 2000
 
 
 async def _get_speak_lock(cache_key: str) -> asyncio.Lock:
     async with _SPEAK_LOCKS_GUARD:
         lock = _SPEAK_LOCKS.get(cache_key)
         if lock is None:
+            # Bounded eviction (mirror services/tts.py _get_tts_lock): only
+            # idle locks are evicted; per-key serialization wins over cap.
+            if len(_SPEAK_LOCKS) >= _MAX_SPEAK_LOCKS:
+                for k, lk in list(_SPEAK_LOCKS.items()):
+                    if not lk.locked():
+                        del _SPEAK_LOCKS[k]
+                        if len(_SPEAK_LOCKS) < _MAX_SPEAK_LOCKS:
+                            break
             lock = asyncio.Lock()
             _SPEAK_LOCKS[cache_key] = lock
         return lock
@@ -173,7 +182,7 @@ def resolve_word(source: str, parts: list[str], user_id: int) -> tuple[str | Non
 async def speak(word: str, lang: str, *, bot, chat_id: int, reply_to: int | None = None) -> str:
     """Generate/send voice for word+lang. Returns kind for logging.
 
-    kind: file_id_hit | file_id_hit_after | channel_upload | direct_fallback | channel_fallback_direct
+    kind: file_id_hit | file_id_hit_after | channel_upload | direct_fallback
     """
     caption = tts.tts_caption(word)
     cache_key = tts.tts_cache_key(word, lang)
@@ -193,7 +202,10 @@ async def _speak_locked(word: str, lang: str, *, caption: str, cache_key: str, c
             try:
                 await _send_voice(bot, chat_id, cached["file_id"], caption=caption, reply_to_message_id=reply_to)
                 return "file_id_hit"
-            except Exception:
+            except (TimedOut, NetworkError):
+                # Non-idempotent send: may already be delivered — never re-send.
+                raise
+            except (Forbidden, BadRequest):
                 logger.warning("cached file_id send failed, falling back to generate lang=%s word=%r key=%r", lang, word, cache_key, exc_info=True)
 
     # miss -> generate (pronounce owns per-key file serialization + voices warmup)
@@ -208,7 +220,10 @@ async def _speak_locked(word: str, lang: str, *, caption: str, cache_key: str, c
             try:
                 await _send_voice(bot, chat_id, cached_after["file_id"], caption=caption, reply_to_message_id=reply_to)
                 return "file_id_hit_after"
-            except Exception:
+            except (TimedOut, NetworkError):
+                # Non-idempotent send: may already be delivered — never re-send.
+                raise
+            except (Forbidden, BadRequest):
                 logger.warning("cached file_id send failed (after pronounce), falling back to channel upload lang=%s word=%r key=%r", lang, word, cache_key, exc_info=True)
 
     # channel upload
@@ -232,6 +247,10 @@ async def _speak_locked(word: str, lang: str, *, caption: str, cache_key: str, c
                 return "channel_upload"
         except (Forbidden, BadRequest) as exc:
             logger.warning("TTS channel cache upload blocked/bad request channel_id=%s word=%r lang=%s key=%r exc=%s", channel_id, word, lang, cache_key, exc, exc_info=True)
+        except (TimedOut, NetworkError):
+            # Non-idempotent send: may already be delivered — never fall
+            # through to a second direct send.
+            raise
         except Exception:
             logger.exception("TTS channel cache upload failed channel_id=%s word=%r lang=%s key=%r", channel_id, word, lang, cache_key)
 
