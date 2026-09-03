@@ -1,9 +1,13 @@
-"""Tests for the ai_presets api_key R3 fix and Phase 5 encryption.
+"""Tests for the ai_presets api_key R3A fix, zero-preset boot, and Phase 5 encryption.
 
 Covers:
 - R3A: the idempotent schema migration that prefixes "$" to the historical
   bare "HpOF_API_KEY" stored on the 4 HP presets (on an upgrade from the
-  prior schema AND on a fresh DB), without touching other keys.
+  prior schema AND on a fresh DB), without touching other keys. Kept as the
+  repair path for never-migrated DBs and admin restores of pre-R3A backups.
+- T4: a fresh DB boots with zero presets; a saved active preset survives
+  restart even when stale legacy ``settings.ai_base_url``/``ai_model`` values
+  are present (the retired reconcile block must never overwrite it).
 - Phase 5 (R4): resolve_api_key now decrypts the stored Fernet ciphertext.
    A bare ``$ENV`` reference left in DB (migration skipped when no master key,
    BUG-B1) is resolved via ``key_crypto._resolve_env`` to the same value as
@@ -50,7 +54,45 @@ class _ScratchDbTestCase(unittest.TestCase):
 
 
 class PresetApiKeyMigrationTest(_ScratchDbTestCase):
-    """R3A — the idempotent "$" prefix migration."""
+    """T4 — zero presets on fresh boot; saved presets survive restart."""
+
+    def test_fresh_db_has_no_autoseeded_presets(self):
+        """Phase 4: a fresh DB must NOT auto-seed any preset rows; the admin
+        panel is the sole source of preset configuration."""
+        db_module.init_db()
+        with db_module.get_conn() as conn:
+            rows = conn.execute("SELECT COUNT(*) as c FROM ai_presets").fetchone()
+        self.assertEqual(rows["c"], 0, "fresh DB must not auto-seed presets")
+
+    def test_stale_legacy_settings_do_not_overwrite_active_preset(self):
+        """T4 regression: a saved muse preset kept as active must survive a
+        restart even when stale legacy settings.ai_base_url/ai_model values
+        are present (the retired reconcile block must never copy them)."""
+        db_module.init_db()
+        db_module.set_preset(
+            "muse",
+            base_url="https://opencode.ai/zen/v1",
+            model="muse-spark-1.3-contributor-free",
+            enabled=1,
+        )
+        db_module.set_setting("ai_primary_preset", "muse")
+        db_module.set_setting(
+            "ai_base_url",
+            "https://generativelanguage.googleapis.com/v1beta/openai/",
+        )
+        db_module.set_setting("ai_model", "gemini-2.0-flash")
+        db_module.init_db()
+        preset = db_module.get_preset("muse")
+        self.assertIsNotNone(preset, "saved muse preset must survive restart")
+        self.assertEqual(preset["base_url"], "https://opencode.ai/zen/v1")
+        self.assertEqual(
+            preset["model"], "muse-spark-1.3-contributor-free"
+        )
+
+
+class PresetApiKeyR3AMigrationTest(_ScratchDbTestCase):
+    """R3A — the idempotent "$" prefix migration (repair path for
+    never-migrated DBs and admin restores of pre-R3A backups)."""
 
     def setUp(self):
         super().setUp()
@@ -108,14 +150,6 @@ class PresetApiKeyMigrationTest(_ScratchDbTestCase):
             ).fetchall()
         for row in rows:
             self.assertEqual(row["api_key"], "$HpOF_API_KEY")
-
-    def test_fresh_db_has_no_autoseeded_presets(self):
-        """Phase 4: a fresh DB must NOT auto-seed any preset rows; the admin
-        panel is the sole source of preset configuration."""
-        db_module.init_db()
-        with db_module.get_conn() as conn:
-            rows = conn.execute("SELECT COUNT(*) as c FROM ai_presets").fetchone()
-        self.assertEqual(rows["c"], 0, "fresh DB must not auto-seed presets")
 
     def test_migration_does_not_touch_other_keys(self):
         """Other presets (custom literal keys, ELI/GAPGPT '$' refs) must be

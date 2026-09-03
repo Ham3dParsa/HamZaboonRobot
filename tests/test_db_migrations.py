@@ -333,10 +333,10 @@ class Phase5KeyEncryptionMigrationTests(unittest.TestCase):
     """R3: init_db encrypts legacy plaintext/$ENV API keys at rest.
 
     The Phase 5 migration must convert any still-plaintext or "$ENV" reference
-    stored in ai_presets.api_key, preset_groups.api_key, or settings.ai_api_key
-    into Fernet ciphertext on startup, resolve $ENV refs to real env values,
-    stay idempotent on already-encrypted tokens, and never destroy values when
-    no master key is configured (fail-closed).
+    stored in ai_presets.api_key or preset_groups.api_key into Fernet
+    ciphertext on startup, resolve $ENV refs to real env values, stay
+    idempotent on already-encrypted tokens, and never destroy values when no
+    master key is configured (fail-closed).
     """
 
     def setUp(self):
@@ -364,23 +364,11 @@ class Phase5KeyEncryptionMigrationTests(unittest.TestCase):
             ).fetchone()
         return row["api_key"] if row else None
 
-    def _stored_setting(self) -> str:
-        with db_module.get_conn() as conn:
-            row = conn.execute(
-                "SELECT value FROM settings WHERE key='ai_api_key'"
-            ).fetchone()
-        return row["value"] if row else None
-
-    def _set_plaintext_keys(self, preset_name: str, preset_key: str, setting_key: str):
+    def _set_plaintext_keys(self, preset_name: str, preset_key: str):
         with db_module.get_conn() as conn:
             conn.execute(
                 "UPDATE ai_presets SET api_key=? WHERE name=?",
                 (preset_key, preset_name),
-            )
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES ('ai_api_key', ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (setting_key,),
             )
             conn.commit()
 
@@ -388,12 +376,12 @@ class Phase5KeyEncryptionMigrationTests(unittest.TestCase):
         db_module.set_preset(name, base_url="http://example.test", model="m", enabled=1)
         return name
 
-    def test_literal_preset_and_setting_are_encrypted(self):
+    def test_literal_preset_is_encrypted(self):
         self._with_master_key()
         db_module.init_db()
         name = self._create_preset()
         self._set_plaintext_keys(
-            name, "sk-literal-secret-9876543210", "sk-settings-secret-123456789"
+            name, "sk-literal-secret-9876543210"
         )
         db_module.init_db()
 
@@ -402,17 +390,13 @@ class Phase5KeyEncryptionMigrationTests(unittest.TestCase):
         self.assertTrue(stored.startswith("v1:"))
         self.assertEqual(key_crypto.decrypt_secret(stored), "sk-literal-secret-9876543210")
 
-        setting = self._stored_setting()
-        self.assertTrue(setting.startswith("v1:"))
-        self.assertEqual(key_crypto.decrypt_secret(setting), "sk-settings-secret-123456789")
-
     def test_env_reference_is_resolved_then_encrypted(self):
         self._with_master_key()
         os.environ["PHASE5_TEST_ENV_KEY"] = "env-secret-xyz-987654"
         self.addCleanup(os.environ.pop, "PHASE5_TEST_ENV_KEY", None)
         db_module.init_db()
         name = self._create_preset()
-        self._set_plaintext_keys(name, "$PHASE5_TEST_ENV_KEY", "$PHASE5_TEST_ENV_KEY")
+        self._set_plaintext_keys(name, "$PHASE5_TEST_ENV_KEY")
         db_module.init_db()
 
         stored = self._stored_preset_key(name)
@@ -423,7 +407,7 @@ class Phase5KeyEncryptionMigrationTests(unittest.TestCase):
         self._with_master_key()
         db_module.init_db()
         name = self._create_preset()
-        self._set_plaintext_keys(name, "sk-literal-secret-9876543210", "sk-sec")
+        self._set_plaintext_keys(name, "sk-literal-secret-9876543210")
         db_module.init_db()
         first = self._stored_preset_key(name)
         self.assertTrue(first.startswith("v1:"))
@@ -435,7 +419,7 @@ class Phase5KeyEncryptionMigrationTests(unittest.TestCase):
         self._with_master_key("")
         db_module.init_db()
         name = self._create_preset()
-        self._set_plaintext_keys(name, "sk-literal-secret-9876543210", "sk-sec")
+        self._set_plaintext_keys(name, "sk-literal-secret-9876543210")
         db_module.init_db()
         stored = self._stored_preset_key(name)
         self.assertEqual(stored, "sk-literal-secret-9876543210")

@@ -15,3 +15,8 @@ Scope: Admin AI Preset panel audit fixes (R1–R15, F1/F2) + R16 (reasoning-effo
 | `plan-ai-preset-audit-fixes-phase-06-activation-preferred.md` | 6 | Phase 2,4,5 | pending |
 | `plan-ai-preset-audit-fixes-phase-07-reasoning-effort.md` | 7 | Phase 5, Phase 2 | pending |
 | `plan-admin-ai-labels-and-back.md` | — | — | complete (PR #352 merged; archived to docs/archive/) |
+| `plan-zero-hardcode.md` | 1..4 | `presets/plan-zero-hardcode-phase-NN` | in-progress |
+| `plan-zero-hardcode-phase-01-display-fallbacks.md` | 1 | — | in-progress |
+| `plan-zero-hardcode-phase-02-model-fallback.md` | 2 | Phase 1 | pending |
+| `plan-zero-hardcode-phase-03-defaults.md` | 3 | Phase 1, 2 | pending |
+| `plan-zero-hardcode-phase-04-migrations.md` | 4 | Phase 3 | complete (T4 committed, unpushed) |

@@ -23,8 +23,6 @@ from config import (
     AI_PROXY_URL,
     AI_TEMPERATURE,
     AI_TIMEOUT_SECONDS,
-    DEFAULT_AI_BASE_URL,
-    DEFAULT_AI_MODEL,
     COST,
 )
 from services import db
@@ -117,13 +115,14 @@ def _model(preset: dict | None = None) -> str:
         preset = db.get_active_preset()
     # R17: the preset row is the single source of truth; the legacy flat
     # settings copy (ai_model/ai_base_url/ai_api_key) is no longer written by
-    # activate_preset and must not be read as a fallback. Fall back only to the
-    # deployment default when the preset has no model.
+    # activate_preset and must not be read as a fallback. R2: no env-model
+    # fallback - an empty model is returned as-is so the absence surfaces as
+    # an explicit provider/validation error (never a silent invented call).
     model = preset_fields.resolve(preset, "model") if preset else ""
     # Strip opencode/ prefix if present (Zen API expects raw id)
     if model.startswith("opencode/"):
         model = model[len("opencode/") :]
-    return model or DEFAULT_AI_MODEL
+    return model
 
 
 def _is_responses_preset(preset: dict | None, model: str | None = None) -> bool:

@@ -13,9 +13,6 @@ from config.catalog import DEFAULT_LEVEL, DISPLAY_TOGGLE_DEFAULTS
 
 from config import (
     DB_PATH,
-    DEFAULT_AI_API_KEY,
-    DEFAULT_AI_BASE_URL,
-    DEFAULT_AI_MODEL,
     LLM_INPUT_COST_USD_PER_MILLION,
     LLM_OUTPUT_COST_USD_PER_MILLION,
     APP_TZ,
@@ -102,7 +99,7 @@ def _backfill_saved_word_normalization(conn):
     On a collision within ``(user_id, lang)``, the most-recently-active row
     (COALESCE(last_review_at, added_at), ordered by parsed timestamp desc) is kept
     and the older duplicate is deleted. Idempotent, and gated by a ``_migration_word_normalization_done``
-    marker (mirrors ``_migration_preset_synced``) so the full table scan happens
+    marker (``_migration_word_normalization_done``) so the full table scan happens
     only once: after it, every row already equals ``normalize_word(word)`` and
     the unique index (created after this backfill) prevents new NFC collisions.
     """
@@ -745,9 +742,6 @@ def init_db(path: str | None = None):
             "ON saved_words(user_id, lang, next_review_at)"
         )
         defaults = {
-            "ai_base_url": DEFAULT_AI_BASE_URL,
-            "ai_api_key": DEFAULT_AI_API_KEY,
-            "ai_model": DEFAULT_AI_MODEL,
             "llm_input_cost_usd_per_million": str(LLM_INPUT_COST_USD_PER_MILLION),
             "llm_output_cost_usd_per_million": str(LLM_OUTPUT_COST_USD_PER_MILLION),
             "usd_to_toman_rate": str(USD_TO_TOMAN_RATE),
@@ -836,53 +830,9 @@ def init_db(path: str | None = None):
             (_utc_now().isoformat(),),
         )
 
-        # Reconcile preset system with legacy settings
-        legacy_url = conn.execute(
-            "SELECT value FROM settings WHERE key='ai_base_url'"
-        ).fetchone()
-        active_name = conn.execute(
-            "SELECT value FROM settings WHERE key='ai_primary_preset'"
-        ).fetchone()
-        if legacy_url and active_name:
-            legacy_url_val = legacy_url["value"]
-            active_name_val = active_name["value"]
-            if legacy_url_val:
-                preset_row = conn.execute(
-                    "SELECT base_url, model FROM ai_presets WHERE name=?",
-                    (active_name_val,),
-                ).fetchone()
-                if preset_row and preset_row["base_url"] != legacy_url_val:
-                    model_val = conn.execute(
-                        "SELECT value FROM settings WHERE key='ai_model'"
-                    ).fetchone()
-                    conn.execute(
-                        "UPDATE ai_presets SET base_url=?, model=? WHERE name=?",
-                        (legacy_url_val, (model_val["value"] if model_val else ""), active_name_val),
-                    )
-                    conn.execute(
-                        "INSERT INTO settings(key, value) VALUES (?, ?) "
-                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                        ("_migration_preset_synced", legacy_url_val),
-                    )
-            # Migrate legacy api_key to active preset's api_key if preset has none
-            preset_api = conn.execute(
-                "SELECT api_key FROM ai_presets WHERE name=?",
-                (active_name_val,),
-            ).fetchone()
-            if preset_api and not preset_api["api_key"]:
-                legacy_api_key = conn.execute(
-                    "SELECT value FROM settings WHERE key='ai_api_key'"
-                ).fetchone()
-                if legacy_api_key and legacy_api_key["value"]:
-                    conn.execute(
-                        "UPDATE ai_presets SET api_key=? WHERE name=?",
-                        (legacy_api_key["value"], active_name_val),
-                    )
-
         # Phase 5 (R3): encrypt any API keys still at rest as plaintext or
-        # "$ENV" references (see _encrypt_key_columns). Runs after the legacy
-        # settings->preset sync so a copied legacy key is also encrypted, and
-        # before the destructive cleanup commit below.
+        # "$ENV" references (see _encrypt_key_columns). Runs before the
+        # destructive cleanup commit below.
         _encrypt_key_columns(conn)
 
         # Commit all additive migrations before the destructive cleanup so a
@@ -980,7 +930,8 @@ def _init_ai_presets_table(conn):
         """
     )
     # Phase 4 migration: drop the now-obsolete is_custom column. Existing DBs
-    # (created before Phase 4) may still have it; a fresh DB never does. Because
+    # (created before Phase 4, or reintroduced via an admin restore of a
+    # pre-Phase-4 backup) may still have it; a fresh DB never does. Because
     # SQLite cannot always DROP COLUMN portably, rebuild the table without the
     # column when it is present. All rows are preserved (they become ordinary
     # presets). We rebuild with the full new column set and copy every remaining
@@ -1006,7 +957,8 @@ def _init_ai_presets_table(conn):
     # prefix), so resolve_api_key treated it as a literal key and the provider
     # rejected it. Prefix "$" idempotently — only for these known HP presets
     # and only when the stored value is exactly the bare env name (never
-    # touching custom/ELI/GAPGPT keys or real literal key values).
+    # touching custom/ELI/GAPGPT keys or real literal key values). Kept as the
+    # repair path for never-migrated DBs and admin restores of pre-R3A backups.
     conn.execute(
         "UPDATE ai_presets SET api_key = '$' || api_key "
         "WHERE name IN ('g3_6_f_HP', 'g3_5_f_HP', 'g3_5_FL_HP', 'g3_1_FL_HP') "
@@ -1019,7 +971,7 @@ def _encrypt_key_columns(conn):
     """Phase 5 (R3): encrypt API keys at rest across all storage sites.
 
     Converts any still-plaintext or ``$ENV`` reference stored in
-    ``ai_presets.api_key``, ``preset_groups.api_key``, and ``settings.ai_api_key``
+    ``ai_presets.api_key`` and ``preset_groups.api_key``
     into Fernet ciphertext. Idempotent: a value that already decrypts under the
     current master key is left untouched (so an unchanged re-run, a plaintext
     value, or a token from a *previous* key after rotation are all handled by
@@ -1056,13 +1008,6 @@ def _encrypt_key_columns(conn):
             conn.execute(
                 "UPDATE preset_groups SET api_key=? WHERE group_label=?",
                 (enc, row["group_label"]),
-            )
-    row = conn.execute("SELECT value FROM settings WHERE key='ai_api_key'").fetchone()
-    if row:
-        enc = _encrypt(row["value"] or "")
-        if enc != (row["value"] or ""):
-            conn.execute(
-                "UPDATE settings SET value=? WHERE key='ai_api_key'", (enc,)
             )
 
 

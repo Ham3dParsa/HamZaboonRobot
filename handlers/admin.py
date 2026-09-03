@@ -453,7 +453,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         await _edit_or_send(
             update,
             context,
-            f"🤖 پیش‌تنظیم فعال: <b>{html_escape(str(preset.get('name', 'gapgpt'))) }</b>\n"
+            f"🤖 پیش‌تنظیم فعال: <b>{html_escape(str(preset.get('name', '—'))) }</b>\n"
             f"📋 مدل: <b>{html_escape(str(preset.get('model', '—'))) }</b>\n"
             f"🌐 Base URL: <b>{html_escape(str(preset.get('base_url', '—'))) }</b>\n"
             f"🔑 API Key: <code>{html_escape(masked)}</code>",

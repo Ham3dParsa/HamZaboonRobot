@@ -22,8 +22,6 @@ from config import (
     AI_MAX_OUTPUT_TOKENS,
     AI_TEMPERATURE,
     AI_TIMEOUT_SECONDS,
-    DEFAULT_AI_BASE_URL,
-    DEFAULT_AI_MODEL,
 )
 
 #: field name -> metadata.
@@ -38,13 +36,11 @@ PRESET_FIELDS: dict[str, dict] = {
     "base_url": {
         "type": "str",
         "write_default": "",
-        "config_default": DEFAULT_AI_BASE_URL,
         "alias": "u",
     },
     "model": {
         "type": "str",
         "write_default": "",
-        "config_default": DEFAULT_AI_MODEL,
         "alias": "m",
     },
     "api_key": {"type": "str", "write_default": "", "secret": True, "alias": "k"},

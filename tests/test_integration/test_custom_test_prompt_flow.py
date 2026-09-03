@@ -32,7 +32,7 @@ class CustomTestPromptFlowTest(unittest.TestCase):
         db.init_db()
         db.create_user_if_needed(1, "learner")
         db.set_preset(
-            "gapgpt",
+            "test_preset",
             base_url="https://api.example.com",
             model="gpt-test",
             api_key="test",

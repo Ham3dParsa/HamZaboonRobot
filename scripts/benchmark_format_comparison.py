@@ -25,7 +25,7 @@ except ModuleNotFoundError:
     tiktoken = None
 
 CLIENT = OpenAI(
-    base_url="https://api.gapgpt.app/v1",
+    base_url=os.getenv("AI_BASE_URL", "https://api.example.com/v1"),
     api_key=os.getenv("AI_API_KEY", ""),
 )
 MODEL = "gemini-flash-lite-latest"
