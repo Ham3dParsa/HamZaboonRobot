@@ -6,7 +6,15 @@ base_commit: 6ad2fb6ca704bd8c624339c62130c7e59522a87c
 branch: fix/preset-draft-indicator
 status: pending
 ---
-STATE: phase 0/1 — status: pending — focus: contract lock, then implement after PR 549 merges
+STATE: phase 1/1 — status: in-progress — focus: implement (PR 549 merged as fad40e7)
+
+## Contract Lock (GATE STATUS = LOCKED, 2026-09-04, owner chose per rule)
+- R1 confirm text: پیشنویس + نیازمند ذخیره (locked).
+- R2 draft marker: علامت + شمارنده (locked).
+- R3 key masking: همان ماسک (locked).
+- R4 callbacks: بدون تغییر callback (locked).
+
+<SYSTEM_GATE> Contract lock required before proceeding </SYSTEM_GATE> — satisfied: owner answered each rule independently above.
 
 ## Why separate PR (not in 549)
 - PR 549 is MERGEABLE/CLEAN + APPROVED. Adding behavior churn would invalidate both bot reviews and re-trigger the full cycle.
