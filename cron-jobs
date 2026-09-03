@@ -3,4 +3,4 @@
 # Prefers supervisord; raw launch gated by binary + non-empty config + config
 # test. Paths are fixed to /app/hamzaban (same as supervisor.conf and
 # scripts/xray/*) — non-default BASE_ROOT roots are not supported here.
-* * * * * root pgrep -x xray > /dev/null || { supervisorctl -c /app/hamzaban/supervisor.conf start xray 2>/dev/null || { test -x /usr/local/bin/xray && test -s /app/hamzaban/.xray/config.json && xray test -c /app/hamzaban/.xray/config.json >/dev/null 2>&1 && /usr/local/bin/xray run -c /app/hamzaban/.xray/config.json >> /var/log/xray/xray.log 2>&1 & }; }
+* * * * * root pgrep -x xray > /dev/null || { supervisorctl -c /app/hamzaban/supervisor.conf start xray 2>/dev/null || { test -x /usr/local/bin/xray && test -s /app/hamzaban/.xray/config.json && /usr/local/bin/xray test -c /app/hamzaban/.xray/config.json >/dev/null 2>&1 && /usr/local/bin/xray run -c /app/hamzaban/.xray/config.json >> /var/log/xray/xray.log 2>&1 & }; }
