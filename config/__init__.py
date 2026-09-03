@@ -48,31 +48,16 @@ TTS_CACHE_DB_PATH = os.getenv("TTS_CACHE_DB_PATH", "tts_cache.db").strip() or "t
 
 
 def validate_tts_cache_chat_id(raw: str) -> int | None:
-    """Validate channel chat_id string. Returns int|None — None when empty/disabled; raises ValueError on invalid format."""
-    s = (raw or "").strip()
-    if not s:
-        return None
-    if not _TTS_CACHE_CHAT_ID_RE.match(s):
-        raise ValueError("آیدی کانال نامعتبر است. مثال: -1001234567890 یا -12345")
-    return int(s)
+    """Thin delegate to services.tts_service (single owner, R2)."""
+    from services.tts_service import validate_tts_cache_chat_id as _v
+
+    return _v(raw)
 
 
 def _coerce_tts_cache_chat_id(raw: str) -> int | None:
-    s = (raw or "").strip()
-    if not s:
-        return None
-    if not _TTS_CACHE_CHAT_ID_RE.match(s):
-        import logging as _clog
+    from services.tts_service import _coerce_tts_cache_chat_id as _c
 
-        _clog.getLogger(__name__).warning("TTS_CACHE_CHAT_ID invalid %r — disabling TTS cache channel", raw)
-        return None
-    try:
-        return int(s)
-    except ValueError:
-        import logging as _clog2
-
-        _clog2.getLogger(__name__).warning("TTS_CACHE_CHAT_ID invalid %r — disabling TTS cache channel", raw, exc_info=True)
-        return None
+    return _c(raw)
 
 ARCHIVE_CHAT_ID = os.getenv("ARCHIVE_CHAT_ID", "").strip()
 
@@ -217,44 +202,12 @@ def effective_daily_allowance(
 
 
 def get_tts_cache_chat_id_raw() -> tuple[bool, str]:
-    """Return (exists, raw_value) for the tts_cache_chat_id setting via canonical accessor.
+    from services.tts_service import get_tts_cache_chat_id_raw as _g
 
-    Uses services.db.settings.get_setting (single source; no inline SQL) with a
-    sentinel default to distinguish missing row (fallback to env) from an
-    explicit empty value (intentionally disabled).
-    """
-    from services.db.settings import get_setting as _get_setting
-    _sentinel = object()
-    val = _get_setting("tts_cache_chat_id", _sentinel)  # type: ignore[arg-type]
-    if val is _sentinel:
-        return False, ""
-    return True, str(val or "")
+    return _g()
 
 
 def resolve_tts_cache_chat_id() -> int | None:
-    """Resolve TTS cache channel id: settings wins else env.
+    from services.tts_service import resolve_tts_cache_chat_id as _r
 
-    Returns int|None — None when disabled (empty or invalid). If settings key
-    exists with empty value (cleared via admin or explicit ""), it means
-    intentionally disabled with no fallback to env. Invalid stored/env values
-    are treated as disabled (None).
-    """
-    try:
-        exists, raw = get_tts_cache_chat_id_raw()
-        if exists:
-            # Explicit setting present — empty means disabled, no env fallback
-            v = (raw or "").strip()
-            if not v:
-                return None
-            coerced = _coerce_tts_cache_chat_id(v)
-            if coerced is None and v:
-                import logging as _rlog
-
-                _rlog.getLogger(__name__).warning("tts_cache_chat_id setting invalid %r — disabling", v)
-            return coerced  # None if invalid stored value
-    except Exception:
-        import logging as _rlog2
-
-        _rlog2.getLogger(__name__).warning("resolve_tts_cache_chat_id failed to read setting", exc_info=True)
-    # No explicit setting row — fallback to env
-    return _coerce_tts_cache_chat_id(TTS_CACHE_CHAT_ID or "")
+    return _r()

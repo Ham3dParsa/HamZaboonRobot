@@ -2,15 +2,17 @@
 import pathlib
 
 def test_channel_upload_no_filename_kwarg():
-    text = pathlib.Path("bot.py").read_text(encoding="utf-8")
-    # The channel upload call is _send_voice_with_retry(context.bot, chat_id, voice_bytes, caption=caption)
+    # Phase-01 TTS deep: channel upload lives in services/tts_service.py
+    # (bot.py only delegates). Target the service seam.
+    text = pathlib.Path("services/tts_service.py").read_text(encoding="utf-8")
+    # The channel upload call is _send_voice(bot, channel_id, voice_bytes, caption=caption)
     # Indent-agnostic: voice upload must not regress to passing filename=
     assert "voice_bytes," in text and "caption=caption" in text
     # Ensure filename= not in that specific call (no regression)
-    # Find the block after 'if chat_id:' channel upload — tolerate indent changes (deadlock fix dedented one level)
+    # Find the block after channel upload — tolerate indent changes
     import re
 
-    m = re.search(r"msg = await _send_voice_with_retry\(\s+context\.bot,\s+chat_id,", text)
+    m = re.search(r"msg = await _send_voice\(\s*bot,\s*channel_id,", text)
     assert m is not None, "channel upload call not found"
     snippet = text[m.start() : m.start() + 300]
     assert "filename" not in snippet
