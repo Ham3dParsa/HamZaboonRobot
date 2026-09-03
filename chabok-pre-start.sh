@@ -13,9 +13,9 @@ mkdir -p "$XRAY_DIR" /var/log/xray /var/log/supervisor
 touch /var/log/xray/xray.log 2>&1 | head || true
 
 # 1) Ensure supervisor/cron present even if xray cached
-if ! command -v supervisord >/dev/null 2>&1 || ! command -v cron >/dev/null 2>&1; then
+if ! command -v supervisord >/dev/null 2>&1 || ! command -v cron >/dev/null 2>&1 || ! command -v pgrep >/dev/null 2>&1; then
   apt-get update -qq
-  apt-get install -y --no-install-recommends cron supervisor || true
+  apt-get install -y --no-install-recommends cron supervisor procps || true
 fi
 # Install Xray if missing (console installs are ephemeral) - pin version + verify checksum
 if ! command -v xray >/dev/null 2>&1; then
@@ -31,11 +31,12 @@ if ! command -v xray >/dev/null 2>&1; then
   rm -f /tmp/xray.zip
 fi
 
-# 2) Ensure cron is running (container has no systemd) and install cron-jobs
+# 2) Ensure cron is running (container has no systemd) and install cron-jobs.
+# The repo cron-jobs file IS the /etc/cron.d content (single source, already
+# carries the USER field) — copy it verbatim instead of echoing hardcoded lines.
 service cron start 2>&1 | head -5 || cron 2>&1 | head -5 || true
 if [ -f "$BASE_ROOT/cron-jobs" ]; then
-  # /etc/cron.d requires user field (minute hour dom month dow USER command)
-  echo "0 */6 * * * root /usr/local/bin/update_xray_subscription.sh >> /var/log/xray_update.log 2>&1" > /etc/cron.d/xray-update && chmod 0644 /etc/cron.d/xray-update || true
+  cp -f "$BASE_ROOT/cron-jobs" /etc/cron.d/xray-update && chmod 0644 /etc/cron.d/xray-update || true
 fi
 
 # 3) Restore persistent subscription state and install helper scripts from repo

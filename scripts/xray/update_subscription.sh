@@ -1,6 +1,10 @@
 #!/bin/bash
-set -euo pipefail
+# NOTE: cron executes this via sh (dash), so only POSIX syntax: NO pipefail.
+set -eu
 SUB="${XRAY_SUB_URL:-}"
+# Cron does not inherit panel env, so fall back to the file in the permanent
+# path (0600, written once by the owner). Env wins when both exist.
+if [ -z "$SUB" ] && [ -f /app/hamzaban/.xray/sub_url ]; then SUB=$(cat /app/hamzaban/.xray/sub_url); fi
 LOCK=/tmp/xray_update.lock
 LOG=/var/log/xray_update.log
 exec 9>"$LOCK"; flock -n 9 || { echo "$(date) busy" >> "$LOG"; exit 0; }
