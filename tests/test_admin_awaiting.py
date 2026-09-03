@@ -275,7 +275,7 @@ class TestAiCallWrappedInToThread(unittest.IsolatedAsyncioTestCase):
         from handlers.admin_ai import _run_custom_test
         update = _make_update()
         context = _make_context()
-        context.user_data["custom_test_state"] = {"prompt": "test", "lang": "en", "goal": "general", "level": "beginner"}
+        context.user_data["custom_test_state"] = {"prompt": "test", "lang": "en", "goal": "general", "level": "beginner", "candidate_preset": "candidate"}
         with patch("handlers.admin_ai.prompts.daily_batch_system_prompt", return_value="system prompt"):
             with patch("handlers.admin_ai.db.get_active_preset") as mock_active:
                 mock_active.return_value = {"name": "current"}

@@ -172,7 +172,6 @@ class AiPresetsMigrationsTests(unittest.TestCase):
                     timeout_seconds REAL DEFAULT 30.0,
                     temperature REAL DEFAULT 0.6,
                     max_output_tokens INTEGER DEFAULT 4096,
-                    is_custom INTEGER DEFAULT 0,
                     priority INTEGER DEFAULT 0,
                     enabled INTEGER DEFAULT 1,
                     is_emergency INTEGER DEFAULT 0
@@ -210,8 +209,8 @@ class AiPresetsMigrationsTests(unittest.TestCase):
             """)
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('ai_primary_preset', 'gapgpt_gemini_lite')")
             conn.execute(
-                "INSERT INTO ai_presets(name, base_url, model, api_key, is_custom, priority) "
-                "VALUES ('legacy_hp', 'https://x', 'gpt-test', '$HpOF_API_KEY', 1, 3)"
+                "INSERT INTO ai_presets(name, base_url, model, api_key, priority) "
+                "VALUES ('legacy_hp', 'https://x', 'gpt-test', '', 3)"
             )
             conn.commit()
         finally:
@@ -223,9 +222,6 @@ class AiPresetsMigrationsTests(unittest.TestCase):
         cols = self._get_columns("ai_presets")
         for col_name in ("input_cost_per_million", "output_cost_per_million", "group_label", "in_fallback_chain"):
             self.assertIn(col_name, cols, f"Column {col_name} not added by migration")
-        # Phase 4: the obsolete is_custom column must be dropped on upgrade,
-        # and every prior row must survive (becoming an ordinary preset).
-        self.assertNotIn("is_custom", cols, "is_custom column must be dropped by migration")
         with db_module.get_conn() as conn:
             row = conn.execute(
                 "SELECT name, base_url, model, api_key, priority FROM ai_presets WHERE name='legacy_hp'"
@@ -235,49 +231,6 @@ class AiPresetsMigrationsTests(unittest.TestCase):
         self.assertEqual(row["priority"], 3)
         llm_cols = self._get_columns("llm_requests")
         self.assertIn("preset_name", llm_cols, "preset_name not added to llm_requests")
-
-    def test_rebuild_coalesces_legacy_null_api_key(self):
-        # A prior schema could store a NULL api_key (nullable column). The Phase 4
-        # rebuild rewrites ai_presets with api_key TEXT NOT NULL, so the migration
-        # must COALESCE any legacy NULL to '' rather than raise IntegrityError.
-        conn = sqlite3.connect(db_module.DB_PATH)
-        try:
-            conn.execute("""
-                CREATE TABLE ai_presets (
-                    name TEXT PRIMARY KEY,
-                    base_url TEXT,
-                    model TEXT,
-                    api_key TEXT,
-                    priority INTEGER DEFAULT 0,
-                    enabled INTEGER DEFAULT 1,
-                    is_custom INTEGER DEFAULT 0
-                )
-            """)
-            conn.execute(
-                "INSERT INTO ai_presets(name, base_url, model, api_key, priority) "
-                "VALUES ('null_key', 'https://x', 'gpt-test', NULL, 2)"
-            )
-            conn.execute("""
-                CREATE TABLE llm_requests (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT
-                )
-            """)
-            conn.commit()
-        finally:
-            conn.close()
-
-        with db_module.get_conn() as conn:
-            db_module._init_ai_presets_table(conn)
-
-        with db_module.get_conn() as conn:
-            row = conn.execute(
-                "SELECT name, api_key, priority FROM ai_presets WHERE name='null_key'"
-            ).fetchone()
-        self.assertIsNotNone(row, "legacy NULL-api_key row must survive the rebuild")
-        self.assertEqual(row["api_key"], "", "legacy NULL api_key must be coerced to ''")
-        self.assertEqual(row["priority"], 2, "other columns must be preserved")
-        cols = self._get_columns("ai_presets")
-        self.assertNotIn("is_custom", cols, "is_custom must be dropped by the rebuild")
 
     def test_fresh_db_saved_words_entry_source_default(self):
         db_module.init_db()
@@ -333,10 +286,10 @@ class Phase5KeyEncryptionMigrationTests(unittest.TestCase):
     """R3: init_db encrypts legacy plaintext/$ENV API keys at rest.
 
     The Phase 5 migration must convert any still-plaintext or "$ENV" reference
-    stored in ai_presets.api_key, preset_groups.api_key, or settings.ai_api_key
-    into Fernet ciphertext on startup, resolve $ENV refs to real env values,
-    stay idempotent on already-encrypted tokens, and never destroy values when
-    no master key is configured (fail-closed).
+    stored in ai_presets.api_key or preset_groups.api_key into Fernet
+    ciphertext on startup, resolve $ENV refs to real env values, stay
+    idempotent on already-encrypted tokens, and never destroy values when no
+    master key is configured (fail-closed).
     """
 
     def setUp(self):
@@ -364,23 +317,11 @@ class Phase5KeyEncryptionMigrationTests(unittest.TestCase):
             ).fetchone()
         return row["api_key"] if row else None
 
-    def _stored_setting(self) -> str:
-        with db_module.get_conn() as conn:
-            row = conn.execute(
-                "SELECT value FROM settings WHERE key='ai_api_key'"
-            ).fetchone()
-        return row["value"] if row else None
-
-    def _set_plaintext_keys(self, preset_name: str, preset_key: str, setting_key: str):
+    def _set_plaintext_keys(self, preset_name: str, preset_key: str):
         with db_module.get_conn() as conn:
             conn.execute(
                 "UPDATE ai_presets SET api_key=? WHERE name=?",
                 (preset_key, preset_name),
-            )
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES ('ai_api_key', ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (setting_key,),
             )
             conn.commit()
 
@@ -388,12 +329,12 @@ class Phase5KeyEncryptionMigrationTests(unittest.TestCase):
         db_module.set_preset(name, base_url="http://example.test", model="m", enabled=1)
         return name
 
-    def test_literal_preset_and_setting_are_encrypted(self):
+    def test_literal_preset_is_encrypted(self):
         self._with_master_key()
         db_module.init_db()
         name = self._create_preset()
         self._set_plaintext_keys(
-            name, "sk-literal-secret-9876543210", "sk-settings-secret-123456789"
+            name, "sk-literal-secret-9876543210"
         )
         db_module.init_db()
 
@@ -402,17 +343,13 @@ class Phase5KeyEncryptionMigrationTests(unittest.TestCase):
         self.assertTrue(stored.startswith("v1:"))
         self.assertEqual(key_crypto.decrypt_secret(stored), "sk-literal-secret-9876543210")
 
-        setting = self._stored_setting()
-        self.assertTrue(setting.startswith("v1:"))
-        self.assertEqual(key_crypto.decrypt_secret(setting), "sk-settings-secret-123456789")
-
     def test_env_reference_is_resolved_then_encrypted(self):
         self._with_master_key()
         os.environ["PHASE5_TEST_ENV_KEY"] = "env-secret-xyz-987654"
         self.addCleanup(os.environ.pop, "PHASE5_TEST_ENV_KEY", None)
         db_module.init_db()
         name = self._create_preset()
-        self._set_plaintext_keys(name, "$PHASE5_TEST_ENV_KEY", "$PHASE5_TEST_ENV_KEY")
+        self._set_plaintext_keys(name, "$PHASE5_TEST_ENV_KEY")
         db_module.init_db()
 
         stored = self._stored_preset_key(name)
@@ -423,7 +360,7 @@ class Phase5KeyEncryptionMigrationTests(unittest.TestCase):
         self._with_master_key()
         db_module.init_db()
         name = self._create_preset()
-        self._set_plaintext_keys(name, "sk-literal-secret-9876543210", "sk-sec")
+        self._set_plaintext_keys(name, "sk-literal-secret-9876543210")
         db_module.init_db()
         first = self._stored_preset_key(name)
         self.assertTrue(first.startswith("v1:"))
@@ -435,7 +372,7 @@ class Phase5KeyEncryptionMigrationTests(unittest.TestCase):
         self._with_master_key("")
         db_module.init_db()
         name = self._create_preset()
-        self._set_plaintext_keys(name, "sk-literal-secret-9876543210", "sk-sec")
+        self._set_plaintext_keys(name, "sk-literal-secret-9876543210")
         db_module.init_db()
         stored = self._stored_preset_key(name)
         self.assertEqual(stored, "sk-literal-secret-9876543210")

@@ -1,9 +1,9 @@
-"""Tests for the ai_presets api_key R3 fix and Phase 5 encryption.
+"""Tests for zero-preset boot and Phase 5 encryption.
 
 Covers:
-- R3A: the idempotent schema migration that prefixes "$" to the historical
-  bare "HpOF_API_KEY" stored on the 4 HP presets (on an upgrade from the
-  prior schema AND on a fresh DB), without touching other keys.
+- T4: a fresh DB boots with zero presets; a saved active preset survives
+  restart even when stale legacy ``settings.ai_base_url``/``ai_model`` values
+  are present (the retired reconcile block must never overwrite it).
 - Phase 5 (R4): resolve_api_key now decrypts the stored Fernet ciphertext.
    A bare ``$ENV`` reference left in DB (migration skipped when no master key,
    BUG-B1) is resolved via ``key_crypto._resolve_env`` to the same value as
@@ -27,8 +27,6 @@ from services.db import key_crypto
 from services.ai import ai_presets
 
 
-_HP_NAMES = ("g3_6_f_HP", "g3_5_f_HP", "g3_5_FL_HP", "g3_1_FL_HP")
-
 TEST_MASTER_KEY = "sd4H8UUr5ONYISGXcx468OQwFaUxaktNGGTPs9TBESg="
 
 
@@ -50,64 +48,7 @@ class _ScratchDbTestCase(unittest.TestCase):
 
 
 class PresetApiKeyMigrationTest(_ScratchDbTestCase):
-    """R3A — the idempotent "$" prefix migration."""
-
-    def setUp(self):
-        super().setUp()
-        # These legacy tests assert the raw "$ENV" prefix migration result.
-        # Run them without a master key so the Phase 5 encryption migration is
-        # skipped and the "$" value is left intact (the conftest provides a
-        # default master key otherwise).
-        self._patcher = mock.patch.object(config, "AI_MASTER_KEY", "")
-        self._patcher.start()
-        self.addCleanup(self._patcher.stop)
-
-    def _seed_bare_hp_keys(self):
-        """Create the ai_presets table and insert the HP presets with the
-        historical bare env-name value (as found in production before R3A)."""
-        conn = sqlite3.connect(self.new_path)
-        try:
-            conn.execute(
-                "CREATE TABLE ai_presets ("
-                "name TEXT PRIMARY KEY, base_url TEXT, model TEXT, "
-                "api_key TEXT NOT NULL DEFAULT '', is_custom INTEGER DEFAULT 0)"
-            )
-            for name in _HP_NAMES:
-                conn.execute(
-                    "INSERT INTO ai_presets(name, base_url, model, api_key, is_custom) "
-                    "VALUES (?, '', '', 'HpOF_API_KEY', 1)",
-                    (name,),
-                )
-            conn.commit()
-        finally:
-            conn.close()
-
-    def test_upgrade_prefixes_bare_hp_keys(self):
-        """Migrating a DB that has the bare 'HpOF_API_KEY' must prefix '$'."""
-        self._seed_bare_hp_keys()
-        db_module.init_db()
-        with db_module.get_conn() as conn:
-            rows = conn.execute(
-                f"SELECT api_key FROM ai_presets WHERE name IN "
-                f"({','.join('?' for _ in _HP_NAMES)})",
-                _HP_NAMES,
-            ).fetchall()
-        for row in rows:
-            self.assertEqual(row["api_key"], "$HpOF_API_KEY")
-
-    def test_migration_is_idempotent(self):
-        """Running init_db twice must not double-prefix ('$' + '$')."""
-        self._seed_bare_hp_keys()
-        db_module.init_db()
-        db_module.init_db()
-        with db_module.get_conn() as conn:
-            rows = conn.execute(
-                f"SELECT api_key FROM ai_presets WHERE name IN "
-                f"({','.join('?' for _ in _HP_NAMES)})",
-                _HP_NAMES,
-            ).fetchall()
-        for row in rows:
-            self.assertEqual(row["api_key"], "$HpOF_API_KEY")
+    """T4 — zero presets on fresh boot; saved presets survive restart."""
 
     def test_fresh_db_has_no_autoseeded_presets(self):
         """Phase 4: a fresh DB must NOT auto-seed any preset rows; the admin
@@ -117,46 +58,30 @@ class PresetApiKeyMigrationTest(_ScratchDbTestCase):
             rows = conn.execute("SELECT COUNT(*) as c FROM ai_presets").fetchone()
         self.assertEqual(rows["c"], 0, "fresh DB must not auto-seed presets")
 
-    def test_migration_does_not_touch_other_keys(self):
-        """Other presets (custom literal keys, ELI/GAPGPT '$' refs) must be
-        left untouched by the migration."""
-        conn = sqlite3.connect(self.new_path)
-        try:
-            conn.execute(
-                "CREATE TABLE ai_presets ("
-                "name TEXT PRIMARY KEY, base_url TEXT, model TEXT, "
-                "api_key TEXT NOT NULL DEFAULT '', is_custom INTEGER DEFAULT 0)"
-            )
-            conn.execute(
-                "INSERT INTO ai_presets(name, api_key, is_custom) "
-                "VALUES ('custom_lit', 'sk-abcdefghijklmnopqrstuvwxyz0123456789', 1)"
-            )
-            conn.execute(
-                "INSERT INTO ai_presets(name, api_key, is_custom) "
-                "VALUES ('g3_6_f_ELI', '$ELI_API_KEY', 1)"
-            )
-            conn.execute(
-                "INSERT INTO ai_presets(name, api_key, is_custom) "
-                "VALUES ('gapgpt_G3_1F_L', '$GAPGPT_API_KEY', 0)"
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
+    def test_stale_legacy_settings_do_not_overwrite_active_preset(self):
+        """T4 regression: a saved muse preset kept as active must survive a
+        restart even when stale legacy settings.ai_base_url/ai_model values
+        are present (the retired reconcile block must never copy them)."""
         db_module.init_db()
-        with db_module.get_conn() as conn:
-            custom_lit = conn.execute(
-                "SELECT api_key FROM ai_presets WHERE name='custom_lit'"
-            ).fetchone()["api_key"]
-            eli = conn.execute(
-                "SELECT api_key FROM ai_presets WHERE name='g3_6_f_ELI'"
-            ).fetchone()["api_key"]
-            gap = conn.execute(
-                "SELECT api_key FROM ai_presets WHERE name='gapgpt_G3_1F_L'"
-            ).fetchone()["api_key"]
-        self.assertTrue(custom_lit.startswith("sk-"))
-        self.assertEqual(eli, "$ELI_API_KEY")
-        self.assertEqual(gap, "$GAPGPT_API_KEY")
+        db_module.set_preset(
+            "muse",
+            base_url="https://opencode.ai/zen/v1",
+            model="muse-spark-1.3-contributor-free",
+            enabled=1,
+        )
+        db_module.set_setting("ai_primary_preset", "muse")
+        db_module.set_setting(
+            "ai_base_url",
+            "https://generativelanguage.googleapis.com/v1beta/openai/",
+        )
+        db_module.set_setting("ai_model", "gemini-2.0-flash")
+        db_module.init_db()
+        preset = db_module.get_preset("muse")
+        self.assertIsNotNone(preset, "saved muse preset must survive restart")
+        self.assertEqual(preset["base_url"], "https://opencode.ai/zen/v1")
+        self.assertEqual(
+            preset["model"], "muse-spark-1.3-contributor-free"
+        )
 
 
 class ResolveApiKeyPhase5Test(_ScratchDbTestCase):

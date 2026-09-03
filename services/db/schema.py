@@ -62,8 +62,7 @@ def ai_presets_column_names() -> list[str]:
 
 def _ai_presets_create_sql(if_not_exists: bool = False) -> str:
     """Return a CREATE TABLE statement for ai_presets from the canonical column
-    set (single source of truth), so the fresh schema and the rebuild migration
-    can never drift. The rebuild uses a plain CREATE (no IF NOT EXISTS)."""
+    set (single source of truth)."""
     cols = ",\n                ".join(_AI_PRESETS_COLUMNS)
     prefix = "CREATE TABLE IF NOT EXISTS " if if_not_exists else "CREATE TABLE "
     return f"{prefix}ai_presets (\n                {cols}\n            );"
@@ -99,7 +98,7 @@ def _backfill_saved_word_normalization(conn):
     On a collision within ``(user_id, lang)``, the most-recently-active row
     (COALESCE(last_review_at, added_at), ordered by parsed timestamp desc) is kept
     and the older duplicate is deleted. Idempotent, and gated by a ``_migration_word_normalization_done``
-    marker (mirrors ``_migration_preset_synced``) so the full table scan happens
+    marker (``_migration_word_normalization_done``) so the full table scan happens
     only once: after it, every row already equals ``normalize_word(word)`` and
     the unique index (created after this backfill) prevents new NFC collisions.
     """
@@ -830,53 +829,9 @@ def init_db(path: str | None = None):
             (_utc_now().isoformat(),),
         )
 
-        # Reconcile preset system with legacy settings
-        legacy_url = conn.execute(
-            "SELECT value FROM settings WHERE key='ai_base_url'"
-        ).fetchone()
-        active_name = conn.execute(
-            "SELECT value FROM settings WHERE key='ai_primary_preset'"
-        ).fetchone()
-        if legacy_url and active_name:
-            legacy_url_val = legacy_url["value"]
-            active_name_val = active_name["value"]
-            if legacy_url_val:
-                preset_row = conn.execute(
-                    "SELECT base_url, model FROM ai_presets WHERE name=?",
-                    (active_name_val,),
-                ).fetchone()
-                if preset_row and preset_row["base_url"] != legacy_url_val:
-                    model_val = conn.execute(
-                        "SELECT value FROM settings WHERE key='ai_model'"
-                    ).fetchone()
-                    conn.execute(
-                        "UPDATE ai_presets SET base_url=?, model=? WHERE name=?",
-                        (legacy_url_val, (model_val["value"] if model_val else ""), active_name_val),
-                    )
-                    conn.execute(
-                        "INSERT INTO settings(key, value) VALUES (?, ?) "
-                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                        ("_migration_preset_synced", legacy_url_val),
-                    )
-            # Migrate legacy api_key to active preset's api_key if preset has none
-            preset_api = conn.execute(
-                "SELECT api_key FROM ai_presets WHERE name=?",
-                (active_name_val,),
-            ).fetchone()
-            if preset_api and not preset_api["api_key"]:
-                legacy_api_key = conn.execute(
-                    "SELECT value FROM settings WHERE key='ai_api_key'"
-                ).fetchone()
-                if legacy_api_key and legacy_api_key["value"]:
-                    conn.execute(
-                        "UPDATE ai_presets SET api_key=? WHERE name=?",
-                        (legacy_api_key["value"], active_name_val),
-                    )
-
         # Phase 5 (R3): encrypt any API keys still at rest as plaintext or
-        # "$ENV" references (see _encrypt_key_columns). Runs after the legacy
-        # settings->preset sync so a copied legacy key is also encrypted, and
-        # before the destructive cleanup commit below.
+        # "$ENV" references (see _encrypt_key_columns). Runs before the
+        # destructive cleanup commit below.
         _encrypt_key_columns(conn)
 
         # Commit all additive migrations before the destructive cleanup so a
@@ -972,39 +927,6 @@ def _init_ai_presets_table(conn):
             api_key TEXT NOT NULL DEFAULT ''
         );
         """
-    )
-    # Phase 4 migration: drop the now-obsolete is_custom column. Existing DBs
-    # (created before Phase 4) may still have it; a fresh DB never does. Because
-    # SQLite cannot always DROP COLUMN portably, rebuild the table without the
-    # column when it is present. All rows are preserved (they become ordinary
-    # presets). We rebuild with the full new column set and copy every remaining
-    # column by name so migrated columns (costs, group_label, in_fallback_chain,
-    # etc.) are never lost.
-    _cols = {row["name"] for row in conn.execute("PRAGMA table_info(ai_presets)").fetchall()}
-    if "is_custom" in _cols:
-        _keep = [c for c in _cols if c != "is_custom"]
-        _cols_sql = ", ".join(_keep)
-        # api_key is NOT NULL in the canonical schema; coerce any legacy NULL to
-        # '' so the INSERT can never raise IntegrityError and block startup.
-        _sel_sql = ", ".join(
-            "COALESCE(api_key, '')" if c == "api_key" else c for c in _keep
-        )
-        conn.execute("ALTER TABLE ai_presets RENAME TO ai_presets_old")
-        conn.execute(_ai_presets_create_sql())
-        conn.execute(
-            f"INSERT INTO ai_presets({_cols_sql}) SELECT {_sel_sql} FROM ai_presets_old"
-        )
-        conn.execute("DROP TABLE ai_presets_old")
-    # Data fix (R3A): historical databases seeded before the "$ENV" convention
-    # stored the HpOF env-var name bare (e.g. "HpOF_API_KEY" without the "$"
-    # prefix), so resolve_api_key treated it as a literal key and the provider
-    # rejected it. Prefix "$" idempotently — only for these known HP presets
-    # and only when the stored value is exactly the bare env name (never
-    # touching custom/ELI/GAPGPT keys or real literal key values).
-    conn.execute(
-        "UPDATE ai_presets SET api_key = '$' || api_key "
-        "WHERE name IN ('g3_6_f_HP', 'g3_5_f_HP', 'g3_5_FL_HP', 'g3_1_FL_HP') "
-        "AND api_key = 'HpOF_API_KEY'"
     )
     conn.commit()
 
