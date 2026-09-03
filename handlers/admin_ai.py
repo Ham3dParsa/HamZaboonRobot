@@ -121,7 +121,7 @@ async def _show_ai_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = Message()
     msg.add_line(plain("🤖 "), bold("تنظیمات هوش مصنوعی"))
     msg.add_line()
-    msg.add_line(bold("پیش‌تنظیم فعال:"), plain(" " + str(active_preset.get("name", "gapgpt"))))
+    msg.add_line(bold("پیش‌تنظیم فعال:"), plain(" " + str(active_preset.get("name", "—"))))
     msg.add_line(bold("مدل:"), plain(" " + str(active_preset.get("model", "—"))))
     msg.add_line(bold("Base URL:"), plain(" " + str(active_preset.get("base_url", "—"))))
     msg.add_line(bold("Batch Size:"), plain(" " + str(preset_fields.resolve(active_preset, "daily_batch_size"))))
@@ -1680,7 +1680,7 @@ async def _custom_test_step_target(update: Update, context: ContextTypes.DEFAULT
     msg.add_line(plain("🧪 "), bold("تست سفارشی - مرحله ۵/۵"))
     msg.add_line()
     msg.add_line(plain("هدف تست را انتخاب کنید:"))
-    msg.add_line(plain("- فعلی: "), plain(str(active_preset.get('name', 'gapgpt'))))
+    msg.add_line(plain("- فعلی: "), plain(str(active_preset.get('name', '—'))))
     msg.add_line(plain("- کاندیدا: پیش‌تنظیم دیگری را انتخاب کنید"))
     await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
@@ -1724,8 +1724,23 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         results.append(("Current Config", result))
 
     if target in ("candidate", "ab"):
-        candidate_name = state.get("candidate_preset", "gapgpt")
-        candidate = db.get_preset(candidate_name) or db.get_preset("gapgpt") or {}
+        candidate_name = state.get("candidate_preset")
+        candidate = db.get_preset(candidate_name) if candidate_name else None
+        if not candidate:
+            await notify_callback(
+                update.callback_query,
+                "پیش‌تنظیم کاندیدا انتخاب نشده است.",
+                intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+            )
+            msg = Message()
+            msg.add_line(plain("⚠️ "), plain("پیش‌تنظیم کاندیدا انتخاب نشده است."))
+            if candidate_name:
+                msg.add_line(plain("نام درخواستی: "), code(str(candidate_name)))
+            msg.add_line(plain("یک پیش‌تنظیم کاندیدا را انتخاب کنید."))
+            await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup([
+                [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
+            ]))
+            return
         result = await asyncio.to_thread(
             ai.custom_test_card,
             system_prompt=system_prompt,

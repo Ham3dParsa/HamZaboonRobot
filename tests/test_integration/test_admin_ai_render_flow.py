@@ -279,9 +279,17 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         from handlers import admin_ai
         from handlers.admin_ai import _run_custom_test
 
+        db.set_preset(
+            "cand_real",
+            base_url="https://api.example.com",
+            model="gpt-test",
+            api_key="test",
+            enabled=1,
+        )
         ctx = self._make_context()
         ctx.user_data["custom_test_state"] = {
             "prompt": "p", "lang": "en", "goal": "general", "level": "beginner",
+            "candidate_preset": "cand_real",
         }
         with patch.object(admin_ai.ai, "custom_test_card", return_value={
             "word": "w<m", "fa_meaning": "م&ا", "examples": "['a','b']"
@@ -290,10 +298,34 @@ class AdminAiRenderFlowTest(unittest.TestCase):
             asyncio.run(_run_custom_test(update, ctx, "candidate"))
 
         text = self._rendered_text(update)
-        self.assertIn("<b>Candidate (gapgpt)</b>", text)
+        self.assertIn("<b>Candidate (cand_real)</b>", text)
         self.assertIn("Word: w&lt;m", text)
         self.assertIn("Meaning: م&amp;ا", text)
         self.assertNotIn("Word: w<m", text)
+
+    def test_custom_test_missing_candidate_shows_explicit_error(self):
+        """T1: missing candidate preset shows an explicit error, never an
+        invented 'gapgpt' fallback preset."""
+        from handlers import admin_ai
+        from handlers.admin_ai import _run_custom_test
+
+        ctx = self._make_context()
+        ctx.user_data["custom_test_state"] = {
+            "prompt": "p", "lang": "en", "goal": "general", "level": "beginner",
+        }
+        with patch.object(admin_ai.ai, "custom_test_card", return_value={
+            "word": "w", "fa_meaning": "م", "examples": "[]"
+        }) as mock_card, patch("handlers.admin_ai.prompts.daily_batch_system_prompt", return_value="SYS"):
+            update = self._make_callback_update("admin:ai_custom_test:target:candidate")
+            asyncio.run(_run_custom_test(update, ctx, "candidate"))
+
+        self.assertFalse(mock_card.called)
+        text = self._rendered_text(update)
+        self.assertNotIn("gapgpt", text)
+        self.assertIn("کاندیدا", text)
+        update.callback_query.answer.assert_awaited()
+        _, answer_kw = update.callback_query.answer.call_args
+        self.assertTrue(answer_kw.get("show_alert"))
 
     def test_ai_connection_result_escapes_model_and_error(self):
         """T8g: the AI connection result renders bold title + escaped model/error
