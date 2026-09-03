@@ -23,7 +23,6 @@ from config import (
     AI_PROXY_URL,
     AI_TEMPERATURE,
     AI_TIMEOUT_SECONDS,
-    DEFAULT_AI_BASE_URL,
     COST,
 )
 from services import db
@@ -118,8 +117,7 @@ def _model(preset: dict | None = None) -> str:
     # settings copy (ai_model/ai_base_url/ai_api_key) is no longer written by
     # activate_preset and must not be read as a fallback. R2: no env-model
     # fallback - an empty model is returned as-is so the absence surfaces as
-    # the absence surfaces as an explicit provider/validation error (never a
-    # silent gapgpt call).
+    # an explicit provider/validation error (never a silent invented call).
     model = preset_fields.resolve(preset, "model") if preset else ""
     # Strip opencode/ prefix if present (Zen API expects raw id)
     if model.startswith("opencode/"):

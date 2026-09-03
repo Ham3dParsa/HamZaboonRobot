@@ -22,6 +22,11 @@ class ModelFallbackTest(unittest.TestCase):
             self.assertEqual(ai._model(preset), "")
         r.assert_called_once_with(preset, "model")
 
+    def test_empty_model_unmocked_returns_empty(self):
+        # T3 (R2 end-to-end): no patch on resolve — a real empty-model preset
+        # yields "" so the absence surfaces as an explicit provider error.
+        self.assertEqual(ai._model({"model": ""}), "")
+
     def test_stored_model_returned_as_is(self):
         self.assertEqual(ai._model({"model": "real-model"}), "real-model")
 

@@ -13,9 +13,6 @@ from config.catalog import DEFAULT_LEVEL, DISPLAY_TOGGLE_DEFAULTS
 
 from config import (
     DB_PATH,
-    DEFAULT_AI_API_KEY,
-    DEFAULT_AI_BASE_URL,
-    DEFAULT_AI_MODEL,
     LLM_INPUT_COST_USD_PER_MILLION,
     LLM_OUTPUT_COST_USD_PER_MILLION,
     APP_TZ,
@@ -745,9 +742,6 @@ def init_db(path: str | None = None):
             "ON saved_words(user_id, lang, next_review_at)"
         )
         defaults = {
-            "ai_base_url": DEFAULT_AI_BASE_URL,
-            "ai_api_key": DEFAULT_AI_API_KEY,
-            "ai_model": DEFAULT_AI_MODEL,
             "llm_input_cost_usd_per_million": str(LLM_INPUT_COST_USD_PER_MILLION),
             "llm_output_cost_usd_per_million": str(LLM_OUTPUT_COST_USD_PER_MILLION),
             "usd_to_toman_rate": str(USD_TO_TOMAN_RATE),

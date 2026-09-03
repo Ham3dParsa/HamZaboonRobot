@@ -6,9 +6,9 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 
-DEFAULT_AI_BASE_URL = os.getenv("AI_BASE_URL", "https://api.gapgpt.app/v1")
+DEFAULT_AI_BASE_URL = os.getenv("AI_BASE_URL", "")
 DEFAULT_AI_API_KEY = os.getenv("AI_API_KEY", "")
-DEFAULT_AI_MODEL = os.getenv("AI_MODEL", "gapgpt-qwen-3.6")
+DEFAULT_AI_MODEL = os.getenv("AI_MODEL", "")
 
 # Fernet master key for encrypting API keys at rest (Phase 5, R11/F2). Must be
 # a valid 32-byte url-safe base64 Fernet key (see `.env.example`). When unset,

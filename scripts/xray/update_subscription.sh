@@ -17,7 +17,6 @@ mv /tmp/outs.new /tmp/outs.json
 cp -f /tmp/outs.json /app/.xray/outs.json 2>&1 | head || true
 K=$(PYTHONPATH=/app python3 -c "from services.db import get_active_preset, resolve_preset_key; print(resolve_preset_key(get_active_preset()) or '')" 2>/dev/null || echo "")
 MODEL=$(PYTHONPATH=/app python3 -c "from services.db import get_active_preset; import services.ai.preset_fields as pf; v=pf.resolve(get_active_preset(),'model'); print(v if v else '')" 2>/dev/null || echo "")
-if [ -z "$MODEL" ]; then MODEL=$(PYTHONPATH=/app python3 -c "from config import DEFAULT_AI_MODEL; print(DEFAULT_AI_MODEL)" 2>/dev/null || echo ""); fi
 if [ -z "$K" ]; then echo "no K" >> "$LOG"; exit 0; fi
 if [ -z "$MODEL" ]; then echo "no MODEL" >> "$LOG"; exit 0; fi
 export K; export MODEL

@@ -12,8 +12,6 @@ from config import (
     AI_MAX_OUTPUT_TOKENS,
     AI_TEMPERATURE,
     AI_TIMEOUT_SECONDS,
-    DEFAULT_AI_BASE_URL,
-    DEFAULT_AI_MODEL,
 )
 from services.ai import preset_fields as pf
 from services.db.schema import _AI_PRESETS_COLUMNS
@@ -69,11 +67,15 @@ class PresetFieldRegistryTest(unittest.TestCase):
         self.assertEqual(pf.resolve({}, "timeout_seconds"), AI_TIMEOUT_SECONDS)
         self.assertEqual(pf.resolve({}, "temperature"), AI_TEMPERATURE)
         self.assertEqual(pf.resolve({}, "max_output_tokens"), AI_MAX_OUTPUT_TOKENS)
-        self.assertEqual(pf.resolve({}, "base_url"), DEFAULT_AI_BASE_URL)
-        self.assertEqual(pf.resolve({}, "model"), DEFAULT_AI_MODEL)
+
+    def test_resolve_empty_for_base_url_and_model(self):
+        # T3 (R3): no config_default for base_url/model — empty preset yields "".
+        self.assertEqual(pf.resolve({}, "base_url"), "")
+        self.assertEqual(pf.resolve({}, "model"), "")
 
     def test_resolve_ignores_empty_preset_value(self):
-        self.assertEqual(pf.resolve({"base_url": ""}, "base_url"), DEFAULT_AI_BASE_URL)
+        self.assertEqual(pf.resolve({"base_url": ""}, "base_url"), "")
+        self.assertEqual(pf.resolve({"model": ""}, "model"), "")
         self.assertEqual(pf.resolve({"timeout_seconds": None}, "timeout_seconds"), AI_TIMEOUT_SECONDS)
 
     def test_write_value_preserves_stored_and_defaults_on_empty(self):

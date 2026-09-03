@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 
 from config import (
-    DEFAULT_AI_MODEL,
     USD_TO_TOMAN_RATE,
     LLM_INPUT_COST_USD_PER_MILLION,
     LLM_OUTPUT_COST_USD_PER_MILLION,
@@ -210,7 +209,7 @@ SETTINGS_KEYS = {
     "ai_fallback_since":               {"key": "ai_fallback_since", "type": "str", "default": "", "scope": "global"},
     "llm_input_cost_usd_per_million":  {"key": "llm_input_cost_usd_per_million", "type": "float", "default": LLM_INPUT_COST_USD_PER_MILLION, "scope": "global"},
     "llm_output_cost_usd_per_million": {"key": "llm_output_cost_usd_per_million", "type": "float", "default": LLM_OUTPUT_COST_USD_PER_MILLION, "scope": "global"},
-    "ai_model":                        {"key": "ai_model", "type": "str", "default": DEFAULT_AI_MODEL, "scope": "global"},
+    "ai_model":                        {"key": "ai_model", "type": "str", "default": "", "scope": "global"},
     "display_toggle_defaults":         {"key": "display_toggle_defaults", "type": "json", "default": DISPLAY_TOGGLE_DEFAULTS, "scope": "global"},
     "maintenance_mode":                {"key": "maintenance_mode", "type": "bool", "default": False, "scope": "global"},
     "maintenance_message":             {"key": "maintenance_message", "type": "str", "default": DEFAULT_MAINTENANCE_MESSAGE, "scope": "global"},
