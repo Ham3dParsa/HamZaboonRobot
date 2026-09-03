@@ -77,13 +77,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
-def read_progress(path: Path) -> dict:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-
-
 def write_progress(path: Path, payload: dict) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload), encoding="utf-8")
@@ -232,6 +225,10 @@ def main(argv: list[str] | None = None) -> int:
     if out.exists() and not part.exists():
         print(f"found existing {out}; verifying without re-downloading...")
         verify(out)
+        try:
+            progress.unlink()
+        except OSError:
+            pass
         return 0
     done, total = fetch_complete(url, part, args.resume, progress)
     print(f"downloaded: done={done} bytes"
