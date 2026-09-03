@@ -125,7 +125,10 @@ class AiPresetCreateFlowTest(unittest.TestCase):
         self.assertIn("ai_preset:create:priority", data)
 
         up = self._callback("ai_preset:create:priority:bottom")
-        self.assertIn("ai_preset:create:status", up.callback_query.edit_message_text.call_args.kwargs["reply_markup"].to_json())
+        status_json = up.callback_query.edit_message_text.call_args.kwargs["reply_markup"].to_json()
+        self.assertIn("ai_preset:create:status", status_json)
+        # Status screen must not offer test before fields are filled (bug fix)
+        self.assertNotIn("ai_preset:create:test", status_json)
 
         up = self._callback("ai_preset:create:status:off")
         created = db.get_preset("my_new_preset")
@@ -135,8 +138,10 @@ class AiPresetCreateFlowTest(unittest.TestCase):
         expected = max(int(p.get("priority", 0)) for p in chain if p["name"] != "my_new_preset") + 1
         self.assertEqual(created["priority"], expected, "bottom => lowest priority (max existing + 1)")
         summary_json = up.callback_query.edit_message_text.call_args.kwargs["reply_markup"].to_json()
-        self.assertIn("ai_preset:create:test", summary_json)
+        # Incomplete preset must not expose test, only full edit + toggle
+        self.assertNotIn("ai_preset:create:test", summary_json)
         self.assertIn("ai_preset:create:toggle_enable", summary_json)
+        self.assertIn("full_edit", summary_json)
 
     def test_create_flow_priority_top_sets_zero(self):
         """Choosing top sets the highest priority (0)."""
@@ -184,6 +189,20 @@ class AiPresetCreateFlowTest(unittest.TestCase):
         )
         self.assertEqual(created["priority"], max_rank, "out-of-range manual rank clamps to last slot")
 
+    def test_create_test_incomplete_shows_full_edit_hint(self):
+        """Incomplete preset (no base_url/model/key) must not run real test, shows full-edit hint."""
+        self._new_flow()
+        self._enter_name("incomplete_preset")
+        self._callback("ai_preset:create:priority:bottom")
+        self._callback("ai_preset:create:status:off")
+        # Drive the create:test callback while still incomplete - must not call live network
+        with patch("services.ai.ai.test_connection") as mock_test:
+            up = self._callback("ai_preset:create:test")
+            mock_test.assert_not_called()
+            kwargs = up.callback_query.edit_message_text.call_args.kwargs
+            # The warning is rendered and offers full edit
+            self.assertIn("full_edit", str(kwargs.get("reply_markup").to_json()))
+
     def test_finish_create_guards_empty_state_no_row_created(self):
         """Kilo R7: a lost/stale create state must not persist an empty-PK preset."""
         from services import db as sdb
@@ -208,6 +227,115 @@ class AiPresetCreateFlowTest(unittest.TestCase):
         # A stale toggle button still in the chat re-enters the summary step.
         self._callback("ai_preset:create:toggle_enable")
         self.assertEqual(len(sdb.get_presets()), before, "must not recreate a deleted preset")
+
+
+class AiPresetDetailAndActivateTest(unittest.TestCase):
+    """Detail view test button and auto-enable-on-activate (reviewer must-fix)."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.previous_db_path = db.DB_PATH
+        self.previous_db_schema_path = db_schema.DB_PATH
+        new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db.DB_PATH = new_path
+        db_schema.DB_PATH = new_path
+        db.init_db()
+        db.create_user_if_needed(1, "learner")
+        self.owner_patcher = patch("handlers.admin.is_owner", return_value=True)
+        self.owner_patcher.start()
+        self.addCleanup(self.owner_patcher.stop)
+        self.flow_ctx = self._make_context()
+
+    def tearDown(self):
+        db.DB_PATH = self.previous_db_path
+        db_schema.DB_PATH = self.previous_db_schema_path
+        self.tempdir.cleanup()
+
+    def _make_context(self):
+        ctx = MagicMock()
+        ctx.user_data = {}
+        ctx.bot = AsyncMock()
+        return ctx
+
+    def _make_callback_update(self, data: str, user_id: int = 1):
+        query = MagicMock()
+        query.data = data
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update = MagicMock()
+        update.effective_user.id = user_id
+        update.effective_chat.id = user_id
+        update.callback_query = query
+        return update
+
+    def _callback(self, action: str):
+        from handlers.admin import _handle_admin_callback
+
+        data = f"admin:{action}"
+        update = self._make_callback_update(data)
+        asyncio.run(_handle_admin_callback(update, self.flow_ctx, action))
+        return update
+
+    def test_detail_view_has_test_button(self):
+        db.set_preset("view_test", base_url="https://x", model="m", api_key="sk-test")
+        # Drive to detail view via view callback
+        from services.utils.callback_codec import preset_token
+
+        up = self._callback(f"ai_preset:view:{preset_token('view_test')}")
+        markup = up.callback_query.edit_message_text.call_args.kwargs["reply_markup"].to_json()
+        self.assertIn("ai_preset:test:", markup)
+
+    def test_detail_test_incomplete_shows_hint(self):
+        db.set_preset("incomplete_detail", base_url="", model="", api_key="")
+        from services.utils.callback_codec import preset_token
+
+        with patch("services.ai.ai.test_connection") as mock_test:
+            up = self._callback(f"ai_preset:test:{preset_token('incomplete_detail')}")
+            mock_test.assert_not_called()
+            text = up.callback_query.edit_message_text.call_args.args[0]
+            self.assertIn("کامل نیست", text)
+
+    def test_detail_test_success_branch(self):
+        db.set_preset("complete_detail", base_url="https://x", model="m", api_key="sk-test")
+        from services.utils.callback_codec import preset_token
+
+        with patch("services.ai.ai.test_connection", return_value={"success": True, "latency_ms": 42}) as mock_test:
+            up = self._callback(f"ai_preset:test:{preset_token('complete_detail')}")
+            mock_test.assert_called_once()
+            text = up.callback_query.edit_message_text.call_args.args[0]
+            self.assertIn("اتصال موفق", text)
+
+    def test_activate_disabled_auto_enables(self):
+        # New presets are created disabled; activate should auto-enable and set primary
+        db.set_preset("to_activate", base_url="https://x", model="m", api_key="sk-test", enabled=0)
+        self.assertEqual(db.get_preset("to_activate")["enabled"], 0)
+        from services.utils.callback_codec import preset_token
+
+        self._callback(f"ai_preset:activate:{preset_token('to_activate')}")
+        preset = db.get_preset("to_activate")
+        self.assertEqual(preset["enabled"], 1, "activate must auto-enable disabled preset")
+        self.assertEqual(db.get_active_preset_name(), "to_activate")
+
+    def test_activate_failure_return_false_shows_error(self):
+        db.set_preset("fail_preset", base_url="https://x", model="m", api_key="sk-test", enabled=1)
+        from services.utils.callback_codec import preset_token
+
+        with patch("services.db.activate_preset", return_value=False):
+            up = self._callback(f"ai_preset:activate:{preset_token('fail_preset')}")
+            # Must show error toast, not success
+            answered_text = str(up.callback_query.answer.call_args)
+            self.assertIn("خطا در فعال", answered_text)
+            self.assertTrue(up.callback_query.edit_message_text.called)
+
+    def test_activate_failure_raises_shows_error(self):
+        db.set_preset("raise_preset", base_url="https://x", model="m", api_key="sk-test", enabled=1)
+        from services.utils.callback_codec import preset_token
+
+        with patch("services.db.activate_preset", side_effect=RuntimeError("boom")):
+            up = self._callback(f"ai_preset:activate:{preset_token('raise_preset')}")
+            answered_text = str(up.callback_query.answer.call_args)
+            self.assertIn("خطا در فعال", answered_text)
+            self.assertTrue(up.callback_query.edit_message_text.called)
 
 
 if __name__ == "__main__":

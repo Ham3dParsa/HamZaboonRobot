@@ -10,6 +10,7 @@ from ``bot.py``; dispatch flows through ``handlers.admin``.
 
 import asyncio
 import hashlib
+import logging
 import re
 from urllib.parse import quote, unquote
 
@@ -378,11 +379,36 @@ async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def _activate_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
     """Activate a preset as primary."""
-    success = db.activate_preset(preset_name)
+    log = logging.getLogger(__name__)
+    preset = db.get_preset(preset_name)
+    if not preset:
+        log.warning("activate failed: preset not found %s", preset_name)
+        await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        await _show_ai_preset_view(update, context, preset_name)
+        return
+    # If disabled, enable first so activation can succeed (new presets are created disabled)
+    if not preset_fields.resolve(preset, "enabled"):
+        try:
+            db.set_preset_enabled(preset_name, True)
+            log.info("auto-enabled preset %s for activation", preset_name)
+        except Exception as exc:
+            log.exception("auto-enable failed for %s: %s", preset_name, exc)
+            await notify_callback(update.callback_query, "فعال‌سازی ممکن نیست: فعال کردن پیش‌تنظیم ناموفق بود", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            await _show_ai_preset_view(update, context, preset_name)
+            return
+    try:
+        success = db.activate_preset(preset_name)
+    except Exception as exc:
+        log.exception("activate_preset raised for %s", preset_name)
+        await notify_callback(update.callback_query, f"خطا در فعال‌سازی: {type(exc).__name__}", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        await _show_ai_preset_view(update, context, preset_name)
+        return
     if success:
         await notify_callback(update.callback_query, f"پیش‌تنظیم {preset_name} فعال شد", intent=CallbackNoticeIntent.SUCCESS)
     else:
-        await notify_callback(update.callback_query, "خطا در فعال‌سازی", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        fresh = db.get_preset(preset_name)
+        log.warning("activate_preset returned False for %s (enabled=%s)", preset_name, fresh.get("enabled") if fresh else None)
+        await notify_callback(update.callback_query, "خطا در فعال‌سازی: پیش‌تنظیم فعال نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
     await _show_ai_preset_view(update, context, preset_name)
 
 
@@ -502,8 +528,8 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
     if field_name == "api_key":
         try:
             await update.message.delete()
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("delete api_key message failed: %s", exc)
 
     context.user_data.pop("awaiting", None)
 
@@ -562,6 +588,16 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
     wizard = context.user_data.get("full_edit", {})
     draft = wizard.get("values", {}).get(field_name)
     draft_str = str(draft).strip() if draft is not None else None
+
+    # Mask API key for display (never echo plaintext)
+    if field_name == "api_key":
+        if current_str:
+            try:
+                current_str = db.mask_key(db.resolve_preset_key(preset)) or "—"
+            except Exception:
+                current_str = "***"
+        if draft_str:
+            draft_str = db.mask_key(draft_str) if len(draft_str) > 4 else "***"
 
     group_header = WIZARD_GROUP_HEADERS.get(field_idx, "")
     label = FIELD_LABELS.get(field_name, field_name)
@@ -690,6 +726,13 @@ async def _handle_full_edit_input(update: Update, context: ContextTypes.DEFAULT_
     field_name = WIZARD_FIELDS[field_idx]
     raw = text.strip()
 
+    # Delete user message containing plaintext API key immediately
+    if field_name == "api_key" and raw:
+        try:
+            await update.message.delete()
+        except Exception as exc:
+            logging.getLogger(__name__).debug("delete wizard api_key msg failed: %s", exc)
+
     wizard = context.user_data.get("full_edit", {})
     if wizard.get("preset") != preset_name:
         await say(update, context, "ویزارد منقضی شده. دوباره شروع کنید.", raw=RawFormat.PLAIN, mode="send")
@@ -808,6 +851,14 @@ async def _show_wizard_summary(update: Update, context: ContextTypes.DEFAULT_TYP
         if field_name in values:
             new_val = values[field_name]
             old_val = preset.get(field_name, "—")
+            # Mask API keys in summary
+            if field_name == "api_key":
+                try:
+                    old_val = db.mask_key(db.resolve_preset_key(preset)) if preset.get("api_key") else "—"
+                    new_val = db.mask_key(str(new_val)) if new_val else "—"
+                except Exception:
+                    old_val = "***"
+                    new_val = "***"
             label = FIELD_LABELS.get(field_name, field_name)
             msg.add_line(
                 plain("• "), bold(label),
@@ -1231,16 +1282,13 @@ async def _show_create_priority(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def _show_create_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Prompt for enabled status + a lightweight ping test (R14)."""
+    """Prompt for enabled status (R14). Test is offered only after fields are complete."""
     state = context.user_data.setdefault("preset_create", {})
     name = state.get("name", "")
     buttons = [
         [
             InlineKeyboardButton("🟢 فعال", callback_data="admin:ai_preset:create:status:on"),
             InlineKeyboardButton("⚫ غیرفعال", callback_data="admin:ai_preset:create:status:off"),
-        ],
-        [
-            InlineKeyboardButton("🔁 تست اتصال سبک", callback_data="admin:ai_preset:create:test"),
         ],
         [InlineKeyboardButton("❌ لغو", callback_data="admin:ai_settings")],
     ]
@@ -1250,8 +1298,7 @@ async def _show_create_status(update: Update, context: ContextTypes.DEFAULT_TYPE
     msg.add_line(
         plain("پیش‌تنظیم جدید به‌صورت "), bold("غیرفعال"),
         plain(" ساخته می‌شود و تا وقتی آگاهانه فعالش نکنید، "
-              "هیچ درخواستی را سرو نمی‌کند. وضعیت را انتخاب کنید "
-              "(می‌توانید پیش از آن اتصال را تست کنید):"),
+              "هیچ درخواستی را سرو نمی‌کند. وضعیت را انتخاب کنید:"),
     )
     await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
 
@@ -1285,16 +1332,27 @@ async def _finish_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("awaiting", None)
     preset = db.get_preset(name)
     status = "🟢 فعال" if preset.get("enabled", 0) else "⚫ غیرفعال"
-    buttons = [
+    has_connection = bool(
+        preset.get("base_url") and preset.get("model") and db.resolve_preset_key(preset)
+    )
+    buttons: list[list[InlineKeyboardButton]] = []
+    if has_connection:
+        buttons.append(
+            [
+                InlineKeyboardButton("🔁 تست اتصال", callback_data="admin:ai_preset:create:test"),
+                InlineKeyboardButton("🔄 تغییر وضعیت", callback_data="admin:ai_preset:create:toggle_enable"),
+            ]
+        )
+    else:
+        buttons.append(
+            [InlineKeyboardButton("🔄 تغییر وضعیت", callback_data="admin:ai_preset:create:toggle_enable")]
+        )
+    buttons.extend(
         [
-            InlineKeyboardButton("🔁 تست اتصال", callback_data="admin:ai_preset:create:test"),
-            InlineKeyboardButton("🔄 تغییر وضعیت", callback_data="admin:ai_preset:create:toggle_enable"),
-        ],
-        [
-            InlineKeyboardButton("✏️ ادامه ویرایش کامل", callback_data=f"admin:ai_preset:full_edit:{_preset_ref(name)}"),
-        ],
-        [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_presets")],
-    ]
+            [InlineKeyboardButton("✏️ ادامه ویرایش کامل", callback_data=f"admin:ai_preset:full_edit:{_preset_ref(name)}")],
+            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_presets")],
+        ]
+    )
     msg = Message()
     msg.add_line(plain("✅ "), bold("پیش‌تنظیم ساخته شد"), plain(" — "), code(str(name)))
     msg.add_line()
@@ -1316,23 +1374,10 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
     state = context.user_data.get("preset_create", {})
     name = state.get("name", "")
     preset = db.get_preset(name)
-    await notify_callback(update.callback_query, "در حال تست اتصال...", intent=CallbackNoticeIntent.INFO)
-    msg = Message()
-    if preset and (preset.get("base_url") or preset.get("model") or preset.get("api_key")):
-        result = await asyncio.to_thread(
-            ai.test_connection,
-            base_url=preset.get("base_url", ""),
-            api_key=db.resolve_preset_key(preset),
-            model=preset.get("model", ""),
-            timeout=preset_fields.resolve(preset, "timeout_seconds"),
-        )
-        if result["success"]:
-            msg.add_line(plain("✅ "), bold("اتصال موفق"))
-            msg.add_line(plain("تأخیر: "), plain(str(result['latency_ms'])), plain(" ms"))
-        else:
-            msg.add_line(plain("❌ "), bold("خطا در اتصال"))
-            msg.add_line(plain("خطا: "), plain(str(result.get('error_message', ''))))
-    else:
+    # Fail-closed guard: all three connection fields must be present and resolvable.
+    resolved_key = db.resolve_preset_key(preset) if preset else ""
+    if not (preset and preset.get("base_url") and preset.get("model") and resolved_key):
+        msg = Message()
         msg.add_line(plain("⚠️ "), bold("تست اتصال برای پیش‌تنظیم تازه"))
         msg.add_line()
         msg.add_line(
@@ -1340,6 +1385,28 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
                   "امکان‌پذیر نیست. ابتدا فیلدها را در ویرایش کامل پر کنید، سپس تست بگیرید.")
         )
         msg.add_line(plain("این صرفاً یک یادآوری است و مشکلی در ساخت پیش‌تنظیم نیست."))
+        buttons = [
+            [InlineKeyboardButton("🔄 تغییر وضعیت", callback_data="admin:ai_preset:create:toggle_enable")],
+            [InlineKeyboardButton("✏️ ادامه ویرایش کامل", callback_data=f"admin:ai_preset:full_edit:{_preset_ref(name)}")],
+            [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_presets")],
+        ]
+        await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(buttons))
+        return
+    await notify_callback(update.callback_query, "در حال تست اتصال...", intent=CallbackNoticeIntent.INFO)
+    msg = Message()
+    result = await asyncio.to_thread(
+        ai.test_connection,
+        base_url=preset.get("base_url", ""),
+        api_key=resolved_key,
+        model=preset.get("model", ""),
+        timeout=preset_fields.resolve(preset, "timeout_seconds"),
+    )
+    if result["success"]:
+        msg.add_line(plain("✅ "), bold("اتصال موفق"))
+        msg.add_line(plain("تأخیر: "), plain(str(result['latency_ms'])), plain(" ms"))
+    else:
+        msg.add_line(plain("❌ "), bold("خطا در اتصال"))
+        msg.add_line(plain("خطا: "), plain(str(result.get('error_message', ''))))
     buttons = [
         [
             InlineKeyboardButton("🔄 تغییر وضعیت", callback_data="admin:ai_preset:create:toggle_enable"),
@@ -1372,6 +1439,37 @@ async def _handle_create_toggle_enable(update: Update, context: ContextTypes.DEF
         return
     state["enabled"] = int(new_enabled)
     await _finish_create(update, context)
+
+
+async def _test_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+    """Test connection for any existing preset (detail view)."""
+    preset = db.get_preset(preset_name)
+    if not preset:
+        await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    resolved_key = db.resolve_preset_key(preset)
+    if not (preset.get("base_url") and preset.get("model") and resolved_key):
+        msg = Message()
+        msg.add_line(plain("⚠️ "), bold("اتصال ممکن نیست"))
+        msg.add_line(plain("base_url / model / api_key کامل نیست. اول در ویرایش کامل پر کنید."))
+        await say(update, context, msg, backend=Backend.HTML)
+        return
+    await notify_callback(update.callback_query, "در حال تست اتصال...", intent=CallbackNoticeIntent.INFO)
+    result = await asyncio.to_thread(
+        ai.test_connection,
+        base_url=preset.get("base_url", ""),
+        api_key=resolved_key,
+        model=preset.get("model", ""),
+        timeout=preset_fields.resolve(preset, "timeout_seconds"),
+    )
+    msg = Message()
+    if result["success"]:
+        msg.add_line(plain("✅ "), bold("اتصال موفق"))
+        msg.add_line(plain("تأخیر: "), plain(str(result["latency_ms"])), plain(" ms"))
+    else:
+        msg.add_line(plain("❌ "), bold("خطا در اتصال"))
+        msg.add_line(plain("خطا: "), plain(str(result.get("error_message", ""))))
+    await say(update, context, msg, backend=Backend.HTML)
 
 
 async def _handle_create_priority_choice(
@@ -1924,6 +2022,9 @@ async def handle_ai_callback(
     elif action.startswith("ai_preset:activate:"):
         preset_name = _resolve_preset_ref(action.split(":", 2)[2])
         await _activate_ai_preset(update, context, preset_name)
+    elif action.startswith("ai_preset:test:"):
+        preset_name = _resolve_preset_ref(action.split(":", 2)[2])
+        await _test_ai_preset(update, context, preset_name)
     elif action.startswith("ai_preset:edit:"):
         preset_name = _resolve_preset_ref(action.split(":", 2)[2])
         await _edit_ai_preset(update, context, preset_name)
@@ -2116,6 +2217,11 @@ async def _handle_ai_text_input(
     """
     if awaiting.startswith("admin_group_batch_key:"):
         key_hash = awaiting.split(":", 1)[1]
+        # Delete user message containing plaintext key
+        try:
+            await update.message.delete()
+        except Exception as exc:
+            logging.getLogger(__name__).debug("delete batch key msg failed: %s", exc)
         groups = _detect_key_groups()
         target = next((g for g in groups if g["key_hash"] == key_hash), None)
         if target:
