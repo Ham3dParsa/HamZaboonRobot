@@ -49,6 +49,8 @@ def main(argv=None):
     CEFR_NUM = {k: i + 1 for i, k in enumerate(["A1", "A2", "B1", "B2", "C1", "C2"])}
     lemmas = list(csv.DictReader(open(PACK / "lemmas.csv", encoding="utf-8")))
     evp = json.loads((PACK / manifest["cefr"]["sense_table"]).read_text(encoding="utf-8"))
+    _need(PACK / manifest["enrich"]["example_pool"],
+          "Tatoeba example pool (W:-only, see packs/en/README)")
     tatoeba = json.loads((PACK / manifest["enrich"]["example_pool"]).read_text(encoding="utf-8"))
     tproto = json.loads((PACK / manifest["topic"]["file"]).read_text(encoding="utf-8"))
     LABELS = tproto["labels"]
