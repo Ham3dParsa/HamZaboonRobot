@@ -66,6 +66,40 @@ class AdminBackupFlowTest(unittest.TestCase):
         asyncio.run(_handle_admin_callback(update, ctx, "backup_restore"))
         update.callback_query.edit_message_text.assert_called_once()
 
+    def test_trailing_colon_renders_menu(self):
+        from handlers.admin import _handle_admin_callback
+
+        update = self._make_callback_update("admin:backup_restore:")
+        ctx = self._make_context()
+        asyncio.run(_handle_admin_callback(update, ctx, "backup_restore:"))
+        update.callback_query.edit_message_text.assert_called_once()
+
+    def test_clear_archive_clears_stale_error(self):
+        from handlers.admin import _handle_admin_callback
+
+        db.set_setting("archive_chat_id", "-1001234567890")
+        db.set_setting("archive_last_error", "stale boom")
+        update = self._make_callback_update("admin:backup_restore:clear_archive")
+        ctx = self._make_context()
+        asyncio.run(_handle_admin_callback(update, ctx, "backup_restore:clear_archive"))
+        self.assertEqual(db.get_setting("archive_chat_id", ""), "")
+        self.assertEqual(db.get_setting("archive_last_error", ""), "")
+
+    def test_valid_archive_set_clears_stale_error(self):
+        from handlers.admin_backup import _handle_admin_archive_chat_id
+
+        db.set_setting("archive_last_error", "stale boom")
+        update = MagicMock()
+        update.message = MagicMock()
+        update.message.reply_text = AsyncMock()
+        update.effective_message = update.message
+        ctx = MagicMock()
+        ctx.user_data = {"awaiting": "admin_archive_chat_id"}
+        ctx.bot = AsyncMock()
+        asyncio.run(_handle_admin_archive_chat_id(update, ctx, "admin_archive_chat_id", "-1001234567890"))
+        self.assertEqual(db.get_setting("archive_chat_id", ""), "-1001234567890")
+        self.assertEqual(db.get_setting("archive_last_error", ""), "")
+
     def test_archive_set_invalid_persists_error_and_warns(self):
         from handlers.admin_backup import _handle_admin_archive_chat_id
 

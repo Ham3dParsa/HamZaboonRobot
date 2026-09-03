@@ -62,7 +62,33 @@ ARCHIVE_CHAT_ID = os.getenv("ARCHIVE_CHAT_ID", "").strip()
 
 # Archive auto-backup retention + local backup dir (single owner, phase 02 R3).
 ARCHIVE_BACKUP_DIR = os.getenv("ARCHIVE_BACKUP_DIR", "backups").strip() or "backups"
-ARCHIVE_AUTO_BACKUP_RETENTION_DAYS = int(os.getenv("ARCHIVE_AUTO_BACKUP_RETENTION_DAYS", "3"))
+
+
+def _coerce_retention_days(raw: str) -> int:
+    """Parse ARCHIVE_AUTO_BACKUP_RETENTION_DAYS defensively.
+
+    Non-numeric values fall back to 3; values < 1 clamp to 1 (0/negative
+    would make the retention cutoff >= now and purge all auto-backups).
+    """
+    import logging as _rlog
+
+    try:
+        days = int(raw)
+    except ValueError:
+        _rlog.getLogger(__name__).warning(
+            "ARCHIVE_AUTO_BACKUP_RETENTION_DAYS=%r is not numeric; falling back to 3", raw,
+        )
+        return 3
+    if days < 1:
+        _rlog.getLogger(__name__).warning(
+            "ARCHIVE_AUTO_BACKUP_RETENTION_DAYS=%r < 1; clamping to 1 (0/negative would purge all auto-backups)",
+            days,
+        )
+        return 1
+    return days
+
+
+ARCHIVE_AUTO_BACKUP_RETENTION_DAYS = _coerce_retention_days(os.getenv("ARCHIVE_AUTO_BACKUP_RETENTION_DAYS", "3"))
 
 
 

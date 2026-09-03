@@ -27,7 +27,7 @@ from config import (
     is_owner,
 )
 from services import db
-from services.archive import report_archive_error
+from services.archive import clear_archive_error, report_archive_error
 from services.send_pretty import RawFormat, say
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send, _store_awaiting_msg
@@ -51,27 +51,36 @@ __all__ = [
 ]
 
 
+async def _show_backup_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    raw_arch = db.get_setting("archive_chat_id", "") or ""
+    arch = raw_arch or "-"
+    warning = ""
+    if raw_arch:
+        from services.archive import validate_archive_chat_id
+
+        if not validate_archive_chat_id(raw_arch):
+            warning = f"\n⚠️ مقدار ذخیره‌شده نامعتبر است: {raw_arch}"
+            last_err = db.get_setting("archive_last_error", "")
+            if last_err:
+                warning += f"\n({last_err})"
+    await _edit_or_send(update, context, f"💾 پشتیبان & بازیابی\nآرشیو فعلی: {arch}{warning}", reply_markup=backup_restore_keyboard())
+    await notify_callback(update.callback_query)
+
+
 async def handle_admin_backup_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
     """Handle the ``backup_restore`` menu and its sub-actions."""
     if action == "backup_restore":
-        raw_arch = db.get_setting("archive_chat_id", "") or ""
-        arch = raw_arch or "-"
-        warning = ""
-        if raw_arch:
-            from services.archive import validate_archive_chat_id
-
-            if not validate_archive_chat_id(raw_arch):
-                warning = f"\n⚠️ مقدار ذخیره‌شده نامعتبر است: {raw_arch}"
-                last_err = db.get_setting("archive_last_error", "")
-                if last_err:
-                    warning += f"\n({last_err})"
-        await _edit_or_send(update, context, f"💾 پشتیبان & بازیابی\nآرشیو فعلی: {arch}{warning}", reply_markup=backup_restore_keyboard())
-        await notify_callback(update.callback_query)
+        await _show_backup_menu(update, context)
         return
     if not action.startswith("backup_restore:"):
         await notify_callback(update.callback_query, "عملیات نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
     sub = action[len("backup_restore:"):]
+    if not sub:
+        # Parity with the pre-extract monolith (lstrip(":") treated
+        # "backup_restore:" as the menu): empty sub renders the menu.
+        await _show_backup_menu(update, context)
+        return
     if sub == "backup_now":
         await notify_callback(update.callback_query, "در حال تهیه پشتیبان…", intent=CallbackNoticeIntent.INFO)
         try:
@@ -94,6 +103,7 @@ async def handle_admin_backup_callback(update: Update, context: ContextTypes.DEF
         return
     elif sub == "clear_archive":
         db.set_setting("archive_chat_id", "")
+        clear_archive_error()
         await _edit_or_send(update, context, "آرشیو پاک شد.", reply_markup=backup_restore_keyboard())
         await notify_callback(update.callback_query, "پاک شد", intent=CallbackNoticeIntent.SUCCESS)
         return
@@ -261,6 +271,7 @@ async def _handle_admin_archive_chat_id(update, context, awaiting, text):
     raw = text.strip()
     if raw in ("", "clear", "0", "-"):
         db.set_setting("archive_chat_id", "")
+        clear_archive_error()
         mark_awaiting_consumed(context)
         await say(update, context, "✅ آرشیو پاک شد.", raw=RawFormat.PLAIN, mode="send")
         return
@@ -270,21 +281,30 @@ async def _handle_admin_archive_chat_id(update, context, awaiting, text):
         await say(update, context, "آیدی نامعتبر است. باید ^-100\\d{5,}$ یا ^-\\d{5,}$ باشد. دوباره بفرست یا لغو کن.", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
         return
     db.set_setting("archive_chat_id", raw)
+    clear_archive_error()
     mark_awaiting_consumed(context)
     await say(update, context, f"✅ آرشیو روی {raw} تنظیم شد.", raw=RawFormat.PLAIN, mode="send")
+
+
+#: Guard so register_backup_flows() (import-time + test-triggered) never
+#: duplicates flow entries in the central registry.
+_BACKUP_FLOWS_REGISTERED = False
 
 
 def register_backup_flows() -> None:
     """Register the backup awaiting flows in the central registry.
 
     Called at import time so the registry is populated before any text is
-    routed. Registration appends, so call exactly once (import-time call
-    below).
+    routed. Idempotent: re-registration is a no-op.
     """
+    global _BACKUP_FLOWS_REGISTERED
+    if _BACKUP_FLOWS_REGISTERED:
+        return
     from handlers.flows import register_flow
 
     register_flow("admin_restore", _handle_admin_restore)
     register_flow("admin_archive_chat_id", _handle_admin_archive_chat_id)
+    _BACKUP_FLOWS_REGISTERED = True
 
 
 register_backup_flows()
