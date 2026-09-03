@@ -29,6 +29,7 @@ from services.ai import ai
 from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _store_awaiting_msg
+from services.utils.formatting import to_persian_digits
 from services.send_pretty import Backend, Message, RawFormat, bold, code, italic, plain, say
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
@@ -424,7 +425,7 @@ async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
     msg.add_line(plain("انتخاب فیلد برای تغییر:"))
     edits = context.user_data.get("preset_edits", {}).get(preset_name, {})
     if edits:
-        msg.add_line(plain(f"{len(edits)} پیشنویس در انتظار ذخیره"))
+        msg.add_line(plain(f"{to_persian_digits(len(edits))} پیشنویس در انتظار ذخیره"))
 
     await say(update, context, msg, backend=Backend.HTML, keyboard=ai_preset_edit_keyboard(preset_name, preset, edits))
 

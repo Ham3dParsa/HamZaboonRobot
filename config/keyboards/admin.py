@@ -571,11 +571,11 @@ def ai_preset_view_keyboard(preset: dict, active_name: str) -> InlineKeyboardMar
 def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None, edits: dict | None = None) -> InlineKeyboardMarkup:
     """Keyboard for editing a preset field-by-field."""
     from services.utils.callback_codec import alias_field, preset_token
+    from services.db.key_crypto import mask_key
     preset_ref = preset_token(preset_name)
+    if edits is not None and not isinstance(edits, dict):
+        raise TypeError(f"edits must be a dict or None, got {type(edits).__name__}")
     pending = edits or {}
-
-    def _mask_api_key(value: str) -> str:
-        return (value[:6] + "…" + value[-4:]) if len(value) > 12 else "***"
     # Single source: order derived from PRESET_FIELDS (R3); labels map here.
     # Adding a field to PRESET_FIELDS automatically shows it here without a
     # second manual list.
@@ -608,19 +608,21 @@ def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None, edits:
         current = preset.get(key, "") if preset else ""
         display = current
         if key == "api_key" and current:
-            display = _mask_api_key(str(current))
+            display = mask_key(str(current))
         suffix = f": {display}" if display else ""
         if key in pending:
             draft = pending[key]
             draft_str = "" if draft is None else str(draft)
             if key == "api_key" and draft_str:
-                draft_display = _mask_api_key(draft_str)
+                draft_display = mask_key(draft_str)
             else:
-                draft_display = draft_str
+                draft_display = draft_str.replace("\r", " ").replace("\n", " ")
+                if len(draft_display) > 32:
+                    draft_display = draft_display[:32] + "…"
             if draft_display:
                 suffix = f": ✏️ {draft_display}"
             else:
-                suffix = " ✏️"
+                suffix = ": ✏️ (خالی)"
         rows.append([
             InlineKeyboardButton(f"{label}{suffix}", callback_data=f"admin:ai_preset:edit_field:{preset_ref}:{alias_field(key)}"),
         ])

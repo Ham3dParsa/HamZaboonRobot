@@ -616,13 +616,44 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         asyncio.run(_edit_ai_preset(update, ctx, "draft_h"))
 
         text = self._rendered_text(update)
-        self.assertIn("1 پیشنویس در انتظار ذخیره", text)
+        self.assertIn("۱ پیشنویس در انتظار ذخیره", text)
         kwargs = update.callback_query.edit_message_text.call_args.kwargs
         kb = kwargs.get("reply_markup")
         self.assertIsNotNone(kb)
         texts = [b.text for row in kb.inline_keyboard for b in row]
         model_row = next(t for t in texts if "new-model" in t)
         self.assertIn("✏️", model_row)
+
+    def test_edit_keyboard_empty_draft_shows_khali_suffix(self):
+        """Kilo WARNING: empty draft keeps the ': ' separator + (خالی) marker."""
+        from config.keyboards.admin import ai_preset_edit_keyboard
+
+        preset = {"name": "draft_e", "model": "old-model", "group_label": "g"}
+        kb = ai_preset_edit_keyboard("draft_e", preset, {"group_label": ""})
+        texts = [b.text for row in kb.inline_keyboard for b in row]
+        cleared_row = next(t for t in texts if "(خالی)" in t)
+        self.assertIn(": ✏️ (خالی)", cleared_row)
+
+    def test_edit_keyboard_truncates_long_draft_display(self):
+        """Kilo SUGGESTION: long/multiline drafts are sanitized for display only."""
+        from config.keyboards.admin import ai_preset_edit_keyboard
+
+        preset = {"name": "draft_t", "model": "old"}
+        long_draft = "x" * 40 + "\nmultiline-tail"
+        kb = ai_preset_edit_keyboard("draft_t", preset, {"model": long_draft})
+        texts = [b.text for row in kb.inline_keyboard for b in row]
+        model_row = next(t for t in texts if "✏️" in t)
+        self.assertNotIn("\n", model_row)
+        self.assertIn("…", model_row)
+        self.assertNotIn(long_draft, model_row)
+
+    def test_edit_keyboard_rejects_non_dict_edits(self):
+        """Kilo SUGGESTION: non-dict edits fail fast at the keyboard boundary."""
+        from config.keyboards.admin import ai_preset_edit_keyboard
+
+        preset = {"name": "draft_b", "model": "old"}
+        with self.assertRaises(TypeError):
+            ai_preset_edit_keyboard("draft_b", preset, ["model"])  # type: ignore[arg-type]
 
     def test_single_field_confirm_mentions_draft_and_needs_save(self):
         """R1: single-field confirm says «به‌صورت پیشنویس ثبت شد، نیازمند ذخیره»."""
