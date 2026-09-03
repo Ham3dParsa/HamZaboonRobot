@@ -569,6 +569,82 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         self.assertIn("gpt-test &lt;x&gt;", text)
         self.assertNotIn("gpt-test <x>", text)
 
+    # --- Draft-indicator ticket (R1-R4) ---
+
+    def test_edit_keyboard_shows_staged_draft_marker_and_value(self):
+        """R2: staged model shows ✏️ marker + draft value; callback_data unchanged."""
+        from config.keyboards.admin import ai_preset_edit_keyboard
+
+        preset = {"name": "draft_p", "model": "old-model", "base_url": "https://api.example.com", "api_key": ""}
+        kb_plain = ai_preset_edit_keyboard("draft_p", preset)
+        kb_draft = ai_preset_edit_keyboard("draft_p", preset, {"model": "new-model"})
+        plain_callbacks = [b.callback_data for row in kb_plain.inline_keyboard for b in row]
+        draft_callbacks = [b.callback_data for row in kb_draft.inline_keyboard for b in row]
+        self.assertEqual(plain_callbacks, draft_callbacks)
+
+        def _texts(kb):
+            return [b.text for row in kb.inline_keyboard for b in row]
+
+        draft_texts = _texts(kb_draft)
+        model_row = next(t for t in draft_texts if "new-model" in t)
+        self.assertIn("✏️", model_row)
+        # Unstaged base_url row keeps the stored value with no marker.
+        base_row = next(t for t in draft_texts if "https://api.example.com" in t)
+        self.assertNotIn("✏️", base_row)
+
+    def test_edit_keyboard_masks_api_key_draft(self):
+        """R3: staged api_key draft is masked with the stored-value mask."""
+        from config.keyboards.admin import ai_preset_edit_keyboard
+
+        preset = {"name": "draft_k", "model": "m", "api_key": "old-key-value-1234567890"}
+        draft_key = "sk-1234567890abcdef"
+        kb = ai_preset_edit_keyboard("draft_k", preset, {"api_key": draft_key})
+        texts = [b.text for row in kb.inline_keyboard for b in row]
+        key_row = next(t for t in texts if "کلید" in t or "API" in t or "api" in t.lower() or "✏️" in t)
+        self.assertIn("✏️", key_row)
+        self.assertNotIn(draft_key, key_row)
+        self.assertIn("sk-123…cdef", key_row)
+
+    def test_edit_menu_shows_pending_count_header(self):
+        """R2: edit menu header shows «N پیشنویس در انتظار ذخیره» when staged."""
+        from handlers.admin_ai import _edit_ai_preset
+
+        db.set_preset("draft_h", base_url="https://api.example.com", model="old", api_key="test")
+        ctx = self._make_context()
+        ctx.user_data["preset_edits"] = {"draft_h": {"model": "new-model"}}
+        update = self._make_callback_update("admin:ai_preset:edit:draft_h")
+        asyncio.run(_edit_ai_preset(update, ctx, "draft_h"))
+
+        text = self._rendered_text(update)
+        self.assertIn("1 پیشنویس در انتظار ذخیره", text)
+        kwargs = update.callback_query.edit_message_text.call_args.kwargs
+        kb = kwargs.get("reply_markup")
+        self.assertIsNotNone(kb)
+        texts = [b.text for row in kb.inline_keyboard for b in row]
+        model_row = next(t for t in texts if "new-model" in t)
+        self.assertIn("✏️", model_row)
+
+    def test_single_field_confirm_mentions_draft_and_needs_save(self):
+        """R1: single-field confirm says «به‌صورت پیشنویس ثبت شد، نیازمند ذخیره»."""
+        from handlers import admin_ai
+
+        db.set_preset("draft_c", base_url="https://api.example.com", model="old", api_key="test")
+        ctx = self._make_context()
+        update = MagicMock()
+        update.effective_user.id = 1
+        update.effective_chat.id = 1
+        update.callback_query = None
+        msg = MagicMock()
+        msg.reply_text = AsyncMock()
+        update.message = msg
+        update.message.text = "new-model"
+        with patch.object(admin_ai, "_edit_ai_preset", new=AsyncMock()):
+            asyncio.run(admin_ai._handle_ai_preset_field_input(update, ctx, "draft_c", "model", "new-model"))
+        self.assertEqual(ctx.user_data["preset_edits"]["draft_c"]["model"], "new-model")
+        sent_text = msg.reply_text.call_args[0][0]
+        self.assertIn("به‌صورت پیشنویس ثبت شد", sent_text)
+        self.assertIn("نیازمند ذخیره", sent_text)
+
 
 if __name__ == "__main__":
     unittest.main()

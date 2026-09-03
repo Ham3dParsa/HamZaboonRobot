@@ -6,7 +6,7 @@ base_commit: 6ad2fb6ca704bd8c624339c62130c7e59522a87c
 branch: fix/preset-draft-indicator
 status: pending
 ---
-STATE: phase 1/1 — status: in-progress — focus: implement (PR 549 merged as fad40e7)
+STATE: phase 1/1 — status: complete — evidence: 29 passed (test_admin_ai_render_flow) + 25 passed test_wiring; compile_all clean; ruff F821/F811 clean; git diff --check clean; callback_data byte-identical (test asserts); reviewer subagent unavailable in this env — manual self-review only (no callback changes, no secrets, single caller updated).
 
 ## Contract Lock (GATE STATUS = LOCKED, 2026-09-04, owner chose per rule)
 - R1 confirm text: پیشنویس + نیازمند ذخیره (locked).
