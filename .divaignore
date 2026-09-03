@@ -1,0 +1,6 @@
+.env
+*.db
+*.log
+backups/
+tts_cache/
+.worktrees/
