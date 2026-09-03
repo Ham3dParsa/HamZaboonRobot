@@ -199,6 +199,15 @@ def classify(word: str, pos: object, pack_data: dict, lang: str) -> str | None:
     return zipf_to_cefr(z, pack_data["zipf_cutoffs"])
 
 
+def _index_key(entry: dict) -> str | None:
+    """lemma_key for an index line, or None when the line is unusable."""
+    try:
+        word, pos = entry["word"], entry.get("pos")
+        return lemma_key_for(word, pos) if pos else normalize_lemma(word) + "|"
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None
+
+
 def load_pilot(pack: str) -> tuple[list[tuple[str, str, str]], int]:
     """Pilot rows as (lemma_raw, pos_raw, cefr); returns rows + bad-row count."""
     rows: list[tuple[str, str, str]] = []
@@ -252,11 +261,9 @@ def sample(
         level: [] for level in LEVEL_ORDER}
     seen: dict[str, int] = {level: 0 for level in LEVEL_ORDER}
     seen_keys: set[str] = set()
-    pilot_keys: set[str] = set()
     for lemma_raw, pos_raw, cefr in pilot:
         key = lemma_key_for(lemma_raw, pos_raw)
         seen_keys.add(key)
-        pilot_keys.add(key)
 
     lines_done = 0
     processed = 0
@@ -280,15 +287,43 @@ def sample(
             for entry in level_entries:
                 seen_keys.add(lemma_key_for(entry[0], entry[1]))
         rng.setstate((saved["rng"][0], tuple(saved["rng"][1]), saved["rng"][2]))
+        # Rebuild dedup state: replay lines [0, lines_done) classification-only
+        # (no RNG consumption, no counter changes) so skipped/duplicate/
+        # reservoir-rejected keys are relearned. Cost: one partial scan.
+        with open(index, encoding="utf-8") as replay_handle:
+            for replay_lineno, replay_line in enumerate(replay_handle):
+                if replay_lineno >= lines_done:
+                    break
+                if not replay_line.strip():
+                    continue
+                try:
+                    replay_entry = json.loads(replay_line)
+                except ValueError:
+                    continue
+                replay_key = _index_key(replay_entry)
+                if replay_key is not None:
+                    seen_keys.add(replay_key)
 
-    caps = {level: max(0, quota - sum(1 for row in pilot if row[2] == level))
+    pilot_counts = {level: sum(1 for row in pilot if row[2] == level)
+                    for level in LEVEL_ORDER}
+    over = {level: (pilot_counts[level], quota)
+            for level, quota in zip(LEVEL_ORDER, quotas)
+            if pilot_counts[level] > quota}
+    if over:
+        detail = ", ".join(f"{level} pilot={n} quota={q}"
+                           for level, (n, q) in over.items())
+        raise SystemExit(f"error: pilot exceeds mix quota ({detail}); "
+                         "adjust --mix or pilot, never silently over-fill.")
+    caps = {level: quota - pilot_counts[level]
             for level, quota in zip(LEVEL_ORDER, quotas)}
 
     with open(index, encoding="utf-8") as handle:
+        truncated = False
         for lineno, line in enumerate(handle):
             if lineno < lines_done:
                 continue
             if limit is not None and processed >= limit:
+                truncated = True
                 break
             processed += 1
             lines_done = lineno + 1
@@ -296,15 +331,17 @@ def sample(
                 continue
             try:
                 entry = json.loads(line)
-                word, pos = entry["word"], entry.get("pos")
-                offset, length = int(entry["offset"]), int(entry["length"])
-            except (ValueError, KeyError, TypeError):
+            except ValueError:
+                counters["bad_index_lines"] += 1
+                continue
+            key = _index_key(entry)
+            if key is None:
                 counters["bad_index_lines"] += 1
                 continue
             try:
-                key = lemma_key_for(word, pos) if pos else \
-                    normalize_lemma(word) + "|"
-            except (ValueError, TypeError):
+                word, pos = entry["word"], entry.get("pos")
+                offset, length = int(entry["offset"]), int(entry["length"])
+            except (ValueError, KeyError, TypeError):
                 counters["bad_index_lines"] += 1
                 continue
             if key in seen_keys:
@@ -350,7 +387,7 @@ def sample(
               for lemma, pos, level, offset, length in reservoirs[level]]
     return {"rows": rows, "seen": seen, "reservoirs": picked,
             "lines_done": lines_done, "counters": counters,
-            "rng": rng, "header": header}
+            "rng": rng, "header": header, "truncated": truncated}
 
 
 def write_csv(out: str, rows: list[tuple[str, str, str]]) -> None:
@@ -423,10 +460,11 @@ def main(argv: list[str] | None = None) -> int:
     result["counters"]["pilot_bad_rows"] = pilot_bad
     write_csv(args.out, result["rows"])
     spot_check(args.dump, result["reservoirs"])
-    try:
-        os.unlink(args.progress)
-    except OSError:
-        pass
+    if not result["truncated"]:
+        try:
+            os.unlink(args.progress)
+        except OSError:
+            pass
     counts = {level: sum(1 for row in result["rows"] if row[2] == level)
               for level in LEVEL_ORDER}
     print(f"sampled: rows={len(result['rows'])} counts={counts} out={args.out}")

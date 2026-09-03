@@ -177,3 +177,36 @@ def test_stale_progress_aborts(env):
     with pytest.raises(SystemExit):
         main(base_argv(env))
     assert not os.path.exists(env["out"])
+
+
+def test_resume_equals_fresh_run(env, tmp_path):
+    assert main(base_argv(env)) == 0
+    with open(env["out"], "rb") as handle:
+        fresh = handle.read()
+    assert os.path.exists(env["progress"]) is False  # completed run cleans up
+    # Simulate an interrupted run: partial pass writes a checkpoint...
+    out_part = str(tmp_path / "part.csv")
+    argv = base_argv(env, **{"--limit": 10})
+    argv[argv.index("--out") + 1] = out_part
+    assert main(argv) == 0
+    assert os.path.exists(env["progress"])
+    os.unlink(out_part)
+    # ...then resume to completion with identical output.
+    out_resumed = str(tmp_path / "resumed.csv")
+    argv = base_argv(env)
+    argv[argv.index("--out") + 1] = out_resumed
+    assert main(argv) == 0
+    with open(out_resumed, "rb") as handle:
+        assert handle.read() == fresh
+
+
+def test_pilot_over_quota_aborts(env, tmp_path):
+    pack = str(tmp_path / "pack_over")
+    pilot_rows = [(f"Extra{i}", "noun", "A1") for i in range(QUOTA + 1)]
+    fallback = {f"zzq_a1_{num}|noun": "A1" for num in range(3)}
+    build_pack(pack, pilot_rows, fallback)
+    argv = base_argv(env)
+    argv[argv.index("--pack") + 1] = pack
+    with pytest.raises(SystemExit):
+        main(argv)
+    assert not os.path.exists(env["out"])
