@@ -1,5 +1,8 @@
-#!/bin/bash
-set -euo pipefail
+#!/bin/sh
+# NOTE: the platform executes this file with sh (dash), NOT bash, so only
+# POSIX syntax is allowed here. In particular NO pipefail, NO [[ ]], NO
+# arrays, and NO bare $VAR under `set -eu` (use ${VAR:-}).
+set -eu
 # HamZaban - persistent Xray bootstrap for Chabokan Python hosting
 # Runs on every deploy, before app start. Idempotent.
 export DEBIAN_FRONTEND=noninteractive
@@ -48,8 +51,9 @@ if [ -f /tmp/clean.json ] || [ -f "$XRAY_DIR/clean.json" ]; then
   if [ -x /usr/local/bin/rebuild-xray.py ]; then python3 /usr/local/bin/rebuild-xray.py 2>&1 | head -5 || echo "[chabok-pre-start] WARN: rebuild-xray.py failed - keep previous config"; else echo "[chabok-pre-start] WARN: rebuild-xray.py missing"; fi
 fi
 
-# 5) Verify proxy env (set in Chabokan dashboard, not console) - redact credentials
-if [ -z "$AI_PROXY_URL" ]; then echo "[chabok-pre-start] WARN: AI_PROXY_URL empty - geoblock bypass OFF"; else _host=$(echo "$AI_PROXY_URL" | sed -E 's|.*://||; s|.*@||; s|:.*||'); echo "[chabok-pre-start] AI_PROXY_URL set (host=$_host)"; fi
+# 5) Verify proxy env (set in dashboard, not console) - redact credentials.
+# ${...:-} guard: under `set -eu` a bare $AI_PROXY_URL aborts when unset.
+if [ -z "${AI_PROXY_URL:-}" ]; then echo "[chabok-pre-start] WARN: AI_PROXY_URL empty - geoblock bypass OFF"; else _host=$(echo "$AI_PROXY_URL" | sed -E 's|.*://||; s|.*@||; s|:.*||'); echo "[chabok-pre-start] AI_PROXY_URL set (host=$_host)"; fi
 
 # 6) Launch supervisord if available (supervisor installed above)
 if command -v supervisord >/dev/null 2>&1 && [ -f "$BASE_ROOT/supervisor.conf" ]; then
