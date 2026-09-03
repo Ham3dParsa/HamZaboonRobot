@@ -25,6 +25,8 @@ assert _UI_VOICE_FA, "Persian (fa) TTS voice must be non-empty"
 
 _VOICES: dict[str, dict[str, str]] = {}
 _VOICES_LOADED = False
+_VOICES_EVENT = asyncio.Event()
+_VOICES_LOCK = asyncio.Lock()
 
 # Per-key async locks for pronounce() to prevent concurrent writes to the same
 # cache file (ticket #4 tts-race). Key is "lang:normalized_word".
@@ -51,22 +53,31 @@ def voice_for(lang: str) -> str:
 
 
 async def _ensure_voices():
-    global _VOICES, _VOICES_LOADED
+    global _VOICES_LOADED
     if _VOICES_LOADED:
         logger.info("tts _ensure_voices cache hit")
         return
-    logger.info("tts _ensure_voices cache miss — fetching voices")
-    codes = set(LANGUAGES) | {"fa"}
-    try:
-        raw = await edge_tts.list_voices()
-    except Exception:
-        logger.exception("tts _ensure_voices failed to list voices")
-        raise
-    for v in raw:
-        c = v["Locale"][:2]
-        if c in codes:
-            _VOICES.setdefault(c, {})[v["ShortName"]] = v.get("Gender", "Unknown")
-    _VOICES_LOADED = True
+    # Deduplicate concurrent warmups outside per-key lock via Event+Lock
+    if _VOICES_EVENT.is_set():
+        return
+    async with _VOICES_LOCK:
+        if _VOICES_LOADED:
+            return
+        if _VOICES_EVENT.is_set():
+            return
+        logger.info("tts _ensure_voices cache miss — fetching voices")
+        codes = set(LANGUAGES) | {"fa"}
+        try:
+            raw = await edge_tts.list_voices()
+        except Exception:
+            logger.exception("tts _ensure_voices failed to list voices")
+            raise
+        for v in raw:
+            c = v["Locale"][:2]
+            if c in codes:
+                _VOICES.setdefault(c, {})[v["ShortName"]] = v.get("Gender", "Unknown")
+        _VOICES_LOADED = True
+        _VOICES_EVENT.set()
 
 
 def _default_voice(lang: str) -> str:
@@ -159,20 +170,21 @@ async def pronounce(word: str, lang: str) -> Path:
         logger.info("tts pronounce cache hit lang=%s word=%r path=%s", lang, word, path)
         return path
     logger.info("tts pronounce cache miss lang=%s word=%r", lang, word)
+    # Warm voices outside per-key lock (Event dedup prevents thundering herd)
+    try:
+        await asyncio.wait_for(_ensure_voices(), timeout=_TTS_TIMEOUT_S)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        logger.warning("tts _ensure_voices timeout/cancel lang=%s word=%r", lang, word, exc_info=True)
+        raise
+    except Exception:
+        logger.exception("tts _ensure_voices failed lang=%s word=%r", lang, word)
+        raise
     key = _tts_lock_key(word, lang)
     lock = await _get_tts_lock(key)
     async with lock:
         if path.exists():
             logger.info("tts pronounce cache hit (inside lock) lang=%s word=%r", lang, word)
             return path
-        try:
-            await asyncio.wait_for(_ensure_voices(), timeout=_TTS_TIMEOUT_S)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
-            logger.warning("tts _ensure_voices timeout/cancel lang=%s word=%r", lang, word, exc_info=True)
-            raise
-        except Exception:
-            logger.exception("tts _ensure_voices failed lang=%s word=%r", lang, word)
-            raise
         voice = _default_voice(lang)
         logger.info("tts pronounce generating lang=%s voice=%s word=%r", lang, voice, word)
         communicate = edge_tts.Communicate(word, voice)

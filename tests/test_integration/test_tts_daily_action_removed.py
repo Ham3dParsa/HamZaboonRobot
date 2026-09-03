@@ -105,7 +105,7 @@ class TtsDailyActionRemovalTest(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(bot.tts, "pronounce", AsyncMock(return_value=voice_path)) as pronounce,
-            patch.object(bot, "_send_voice_with_retry", AsyncMock()) as send_voice,
+            patch("services.tts_service._send_voice", AsyncMock()) as send_voice,
         ):
             await callback_router(update, context)
 
@@ -124,7 +124,7 @@ class TtsDailyActionRemovalTest(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(bot.tts, "pronounce", AsyncMock(return_value=voice_path)) as pronounce,
-            patch.object(bot, "_send_voice_with_retry", AsyncMock()) as send_voice,
+            patch("services.tts_service._send_voice", AsyncMock()) as send_voice,
         ):
             await callback_router(update, context)
 
@@ -150,7 +150,7 @@ class TtsDailyActionRemovalTest(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(bot.tts, "pronounce", AsyncMock(return_value=voice_path)) as pronounce,
-            patch.object(bot, "_send_voice_with_retry", AsyncMock()) as send_voice,
+            patch("services.tts_service._send_voice", AsyncMock()) as send_voice,
         ):
             await callback_router(update, context)
 
