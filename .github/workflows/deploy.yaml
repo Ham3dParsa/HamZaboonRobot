@@ -2,18 +2,23 @@ name: deploy-cloudiva
 on:
   push:
     branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: deploy-cloudiva
+  cancel-in-progress: false
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-node@v1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "24"
       - name: update-cloudiva
         env:
-          CLOUDIOA_TOKEN: ${{ secrets.CLOUDIOA_TOKEN }}
+          CLOUDIVA_TOKEN: ${{ secrets.CLOUDIVA_TOKEN }}
         run: |
-          npm install -g @cloudiva.net/cli
-          diva login -t $CLOUDIOA_TOKEN
+          npm install -g @cloudiva.net/cli@0.9.0
+          diva login -t "$CLOUDIVA_TOKEN"
           diva deploy -s hamzaban-eco
