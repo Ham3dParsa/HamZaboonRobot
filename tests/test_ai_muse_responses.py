@@ -48,60 +48,66 @@ class MuseResponsesRoutingTest(unittest.TestCase):
     def test_request_json_muse_none_defaults_to_minimal_and_normalizes_usage(self):
         import services.db as db
         import tempfile, os
-        tmp = tempfile.mktemp(suffix=".db")
-        db.DB_PATH = tmp
         from services.db import schema as s
-        s.DB_PATH = tmp
-        db.init_db()
-        db.set_preset(name="muse_min", base_url="https://opencode.ai/zen/v1", model="muse-spark-1.3-contributor-free", api_key="sk-test", reasoning_effort="none")
-        preset = db.get_preset("muse_min")
-        with patch("services.ai.ai.create_client") as mock_create:
-            mock_client = MagicMock()
-            mock_resp = MagicMock()
-            mock_usage = MagicMock()
-            mock_usage.input_tokens = 11
-            mock_usage.output_tokens = 22
-            mock_usage.total_tokens = 33
-            mock_resp.usage = mock_usage
-            mock_resp.output_text = '{"word": "t", "fa_meaning": "m", "fa_explanation": "e", "examples": ["a","b"], "example_translations": ["c","d"]}'
-            mock_resp.output = []
-            mock_client.responses.create.return_value = mock_resp
-            mock_create.return_value = mock_client
-            # need to patch _model to return our preset's model without DB active preset interference
-            val = ai._request_json("sys", "user", preset=preset)
-            # should have called responses with minimal reasoning
-            args, kwargs = mock_client.responses.create.call_args
-            self.assertEqual(kwargs["reasoning"]["effort"], "minimal")
-            self.assertNotIn("temperature", kwargs)
-            # usage normalized
-            # telemetry is internal, but we can check that mock was called
-            self.assertTrue(mock_client.responses.create.called)
+
+        tmpdir = tempfile.TemporaryDirectory()
+        tmp = os.path.join(tmpdir.name, "test.db")
+        orig_db = db.DB_PATH
+        orig_schema = s.DB_PATH
         try:
-            os.remove(tmp)
-        except OSError:
-            pass
+            db.DB_PATH = tmp
+            s.DB_PATH = tmp
+            db.init_db()
+            db.set_preset(name="muse_min", base_url="https://opencode.ai/zen/v1", model="muse-spark-1.3-contributor-free", api_key="sk-test", reasoning_effort="none")
+            preset = db.get_preset("muse_min")
+            with patch("services.ai.ai.create_client") as mock_create:
+                mock_client = MagicMock()
+                mock_resp = MagicMock()
+                mock_usage = MagicMock()
+                mock_usage.input_tokens = 11
+                mock_usage.output_tokens = 22
+                mock_usage.total_tokens = 33
+                mock_resp.usage = mock_usage
+                mock_resp.output_text = '{"word": "t", "fa_meaning": "m", "fa_explanation": "e", "examples": ["a","b"], "example_translations": ["c","d"]}'
+                mock_resp.output = []
+                mock_client.responses.create.return_value = mock_resp
+                mock_create.return_value = mock_client
+                val = ai._request_json("sys", "user", preset=preset)
+                args, kwargs = mock_client.responses.create.call_args
+                self.assertEqual(kwargs["reasoning"]["effort"], "minimal")
+                self.assertNotIn("temperature", kwargs)
+                self.assertTrue(mock_client.responses.create.called)
+        finally:
+            db.DB_PATH = orig_db
+            s.DB_PATH = orig_schema
+            tmpdir.cleanup()
 
     def test_request_json_chat_still_uses_chat(self):
         import services.db as db
         import tempfile, os
-        tmp = tempfile.mktemp(suffix=".db")
-        db.DB_PATH = tmp
         from services.db import schema as s
-        s.DB_PATH = tmp
-        db.init_db()
-        db.set_preset(name="groq_test", base_url="https://api.groq.com/openai/v1", model="qwen/qwen3.8-27b", api_key="sk-test", reasoning_effort="low")
-        preset = db.get_preset("groq_test")
-        with patch("services.ai.ai.create_client") as mock_create:
-            mock_client = MagicMock()
-            mock_resp = MagicMock()
-            mock_resp.usage = MagicMock(prompt_tokens=1, completion_tokens=2, total_tokens=3)
-            mock_resp.choices = [MagicMock(message=MagicMock(content='{"word": "t", "fa_meaning": "m", "fa_explanation": "e", "examples": ["a","b"], "example_translations": ["c","d"]}'))]
-            mock_client.chat.completions.create.return_value = mock_resp
-            mock_create.return_value = mock_client
-            val = ai._request_json("sys", "user", preset=preset)
-            mock_client.chat.completions.create.assert_called_once()
-            mock_client.responses.create.assert_not_called()
+
+        tmpdir = tempfile.TemporaryDirectory()
+        tmp = os.path.join(tmpdir.name, "test.db")
+        orig_db = db.DB_PATH
+        orig_schema = s.DB_PATH
         try:
-            os.remove(tmp)
-        except OSError:
-            pass
+            db.DB_PATH = tmp
+            s.DB_PATH = tmp
+            db.init_db()
+            db.set_preset(name="groq_test", base_url="https://api.groq.com/openai/v1", model="qwen/qwen3.8-27b", api_key="sk-test", reasoning_effort="low")
+            preset = db.get_preset("groq_test")
+            with patch("services.ai.ai.create_client") as mock_create:
+                mock_client = MagicMock()
+                mock_resp = MagicMock()
+                mock_resp.usage = MagicMock(prompt_tokens=1, completion_tokens=2, total_tokens=3)
+                mock_resp.choices = [MagicMock(message=MagicMock(content='{"word": "t", "fa_meaning": "m", "fa_explanation": "e", "examples": ["a","b"], "example_translations": ["c","d"]}'))]
+                mock_client.chat.completions.create.return_value = mock_resp
+                mock_create.return_value = mock_client
+                val = ai._request_json("sys", "user", preset=preset)
+                mock_client.chat.completions.create.assert_called_once()
+                mock_client.responses.create.assert_not_called()
+        finally:
+            db.DB_PATH = orig_db
+            s.DB_PATH = orig_schema
+            tmpdir.cleanup()

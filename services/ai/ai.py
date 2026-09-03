@@ -127,7 +127,7 @@ def _model(preset: dict | None = None) -> str:
 
 
 def _is_responses_preset(preset: dict | None, model: str | None = None) -> bool:
-    """True if this preset must use OpenAI Responses API (muse-spark on Zen)."""
+    """True if this preset must use OpenAI Responses API (Muse/GPT on Zen)."""
     if preset is None and model is None:
         return False
     base = ""
@@ -141,8 +141,9 @@ def _is_responses_preset(preset: dict | None, model: str | None = None) -> bool:
     # Explicit /responses base always means responses (path segment)
     if base_l.rstrip("/").lower().endswith("/responses"):
         return True
-    # muse-spark on Zen is always responses (chat/completions 404s); require Zen base
-    if "muse-spark" in m_l and "opencode.ai/zen" in base_l:
+    # Muse Spark and GPT on Zen are always responses (chat/completions 404s); require Zen base
+    if "opencode.ai/zen" in base_l and ("muse-spark" in m_l or "gpt-" in m_l):
+        # Exclude Groq gpt-oss which is not Zen (base would be groq, not zen)
         return True
     return False
 
@@ -160,19 +161,28 @@ def test_connection(
     api_key: str,
     model: str,
     timeout: float = AI_TIMEOUT_SECONDS,
+    reasoning_effort: str | None = None,
 ) -> dict:
     """Lightweight connection test (not tracked in llm_requests).
 
     Routes client construction through ``create_client`` so the connection
     probe shares the same fail-closed/key-resolution seam (BUG-3). The
     ``api_key`` here is the explicit override the caller intends to test.
-    Auto-routes muse-spark/gpt on Zen to Responses API (same base_url).
+    Auto-routes Muse/GPT on Zen to Responses API (same base_url).
+    Mirrors preset reasoning (none -> minimal for Muse) so probe doesn't
+    hide a real xhigh 400.
     """
     # Strip opencode/ prefix for API
     if model.startswith("opencode/"):
         model = model[len("opencode/") :]
     tmp_preset = {"base_url": base_url, "model": model}
     use_responses = _is_responses_preset(tmp_preset, model)
+    # Mirror preset reasoning for Muse; default none->minimal for probe
+    probe_reasoning = reasoning_effort
+    if use_responses and "muse-spark" in model.lower() and probe_reasoning in (None, "", "none"):
+        probe_reasoning = "minimal"
+    if probe_reasoning is None:
+        probe_reasoning = "minimal" if use_responses and "muse-spark" in model.lower() else None
     client = create_client(
         {"base_url": base_url, "model": model, "timeout_seconds": timeout},
         api_key_override=api_key,
@@ -180,13 +190,10 @@ def test_connection(
     started = time.monotonic()
     try:
         if use_responses:
-            # Muse Spark is always-thinking; minimal avoids 400 on none
-            resp = client.responses.create(
-                model=model,
-                input="ping",
-                max_output_tokens=5,
-                reasoning={"effort": "minimal"},
-            )
+            resp_kwargs: dict = dict(model=model, input="ping", max_output_tokens=5)
+            if probe_reasoning not in (None, "", "none"):
+                resp_kwargs["reasoning"] = {"effort": probe_reasoning}
+            resp = client.responses.create(**resp_kwargs)
             latency_ms = (time.monotonic() - started) * 1000
             # Responses usage shape differs; try to extract
             usage = getattr(resp, "usage", None)

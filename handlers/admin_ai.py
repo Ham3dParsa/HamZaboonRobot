@@ -1396,10 +1396,11 @@ async def _handle_create_test(update: Update, context: ContextTypes.DEFAULT_TYPE
     msg = Message()
     result = await asyncio.to_thread(
         ai.test_connection,
-        base_url=preset.get("base_url", ""),
-        api_key=resolved_key,
-        model=preset.get("model", ""),
-        timeout=preset_fields.resolve(preset, "timeout_seconds"),
+        preset.get("base_url", ""),
+        resolved_key,
+        preset.get("model", ""),
+        preset_fields.resolve(preset, "timeout_seconds"),
+        preset_fields.resolve(preset, "reasoning_effort"),
     )
     if result["success"]:
         msg.add_line(plain("✅ "), bold("اتصال موفق"))
@@ -1466,10 +1467,11 @@ async def _test_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
     await notify_callback(update.callback_query, "در حال تست اتصال...", intent=CallbackNoticeIntent.INFO)
     result = await asyncio.to_thread(
         ai.test_connection,
-        base_url=preset.get("base_url", ""),
-        api_key=resolved_key,
-        model=preset.get("model", ""),
-        timeout=preset_fields.resolve(preset, "timeout_seconds"),
+        preset.get("base_url", ""),
+        resolved_key,
+        preset.get("model", ""),
+        preset_fields.resolve(preset, "timeout_seconds"),
+        preset_fields.resolve(preset, "reasoning_effort"),
     )
     msg = Message()
     if result["success"]:
