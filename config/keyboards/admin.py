@@ -179,22 +179,40 @@ def user_profile_keyboard(user_id: int, blocked: bool) -> InlineKeyboardMarkup:
     ])
 
 
-def user_plan_picker_keyboard(user_id: int, plans: list[dict]) -> InlineKeyboardMarkup:
+def user_plan_picker_keyboard(
+    user_id: int, plans: list[dict], current_plan: str | None = None
+) -> InlineKeyboardMarkup:
     """Picker built from supplied *plans* — one button per plan.
 
     Caller (handlers/admin_users) supplies ``db.list_plans()`` so ``config/``
     stays static metadata (AGENTS.md §3 — no DB access in config).
     Each button shows the plan display_name and routes to
     admin:user:plan_select:{user_id}:{plan_name} for confirmation.
+
+    The *current_plan* (plan code, or None) button is marked text/emoji-only
+    (``✅ … (فعلی)``). PTB 22.7+ exposes ``InlineKeyboardButton.style``, but
+    styled buttons need Feb-2026+ Telegram clients (older clients render them
+    unstyled), so the text/emoji marker stays the cross-client choice and
+    this builder takes no ``style`` param. No new callback
+    prefix — callback_data is unchanged.
     """
+    current = str(current_plan or "").strip().lower() or None
     rows: list[list[InlineKeyboardButton]] = []
     for p in plans:
         name = str(p.get("name") or "").strip()
         if not name or ":" in name:
             continue
         label = str(p.get("display_name") or name).strip() or name
-        # Truncate long display_names — Telegram buttons degrade past ~30 chars
-        if len(label) > 30:
+        if current is not None and name.lower() == current:
+            # Mark first, truncating the BASE to leave room, so the full
+            # ✅…(فعلی) marker always survives (kilo/opencode WARNING, PR 568:
+            # truncating after marking chopped the suffix off).
+            marker_head, marker_tail = "✅ ", " (فعلی)"
+            budget = 30 - len(marker_head) - len(marker_tail)
+            base = label if len(label) <= budget else label[:budget] + "…"
+            label = f"{marker_head}{base}{marker_tail}"
+        elif len(label) > 30:
+            # Truncate long display_names — Telegram buttons degrade past ~30 chars
             label = label[:30] + "…"
         cb = f"admin:user:plan_select:{user_id}:{name}"
         # Telegram callback_data limit is 64 bytes

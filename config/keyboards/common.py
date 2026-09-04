@@ -83,6 +83,21 @@ def admin_awaiting_inline_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def preset_edit_awaiting_inline_keyboard() -> InlineKeyboardMarkup:
+    """Preset-edit awaiting prompts: flow back/cancel (preserve staged drafts)
+    plus an admin Close row so no admin prompt is left without a close path.
+
+    Keeps ``flow:back``/``flow:cancel`` (not ``admin:back``/``admin:cancel``)
+    because the admin variants wipe ALL ``preset_edits`` while the flow
+    variants resume/discard only the current preset's draft.
+    """
+    return InlineKeyboardMarkup(
+        _awaiting_row(
+            back_cb="flow:back", back_label=BTN_BACK,
+            cancel_cb="flow:cancel", cancel_label=BTN_CANCEL,
+        ) + [[InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")]]
+    )
+
 
 DISPLAY_TOGGLE_FA_LABELS: dict[str, str] = {
     "explanation": "توضیح",

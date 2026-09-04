@@ -30,14 +30,14 @@ from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.formatting import to_persian_digits
 from services.utils.confirm_summary import FieldDiff, build_confirm_message, pending_header, render_diffs
-from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _store_awaiting_msg
+from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _rotate_awaiting_msg
 from services.send_pretty import Backend, Message, RawFormat, bold, code, italic, plain, say
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
     BTN_BACK,
     IBTN_BACK,
-    awaiting_inline_keyboard,
     admin_awaiting_inline_keyboard,
+    preset_edit_awaiting_inline_keyboard,
     ai_settings_keyboard,
     ai_presets_list_keyboard,
     ai_preset_view_keyboard,
@@ -55,11 +55,10 @@ from config.keyboards import (
     IBTN_GROUP_SET_LABEL,
 )
 
-MAX_PRESET_NAME_LEN = 60
 MAX_GROUP_LABEL_LEN = 40
 
 _FIELD_HELP = {
-    "name": "نام یکتای پریست. فقط حروف انگلیسی (a-z)، اعداد (0-9) و زیرخط (_) مجاز است. بعد از ذخیره قابل تغییر نیست.",
+    "name": preset_fields.PRESET_NAME_HINT_FA,
     "api_key": "کلید API سرویس‌دهنده (مثلاً sk-...). این کلید به‌صورت رمزنگاری‌شده در پایگاه داده ذخیره می‌شود.",
     "base_url": "آدرس سرور سازگار با OpenAI. نمونه: https://api.example.com/v1",
     "model": "نام دقیق مدل. نمونه: gpt-4o-mini یا gemini-2.0-flash-lite",
@@ -513,15 +512,18 @@ async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TY
         msg.add_line()
         msg.add_line(plain("💡 "), plain(help_text))
 
-    await say(
+    sent = await say(
         update, context, msg, backend=Backend.HTML,
-        # awaiting_inline_keyboard() -> flow:back resumes the preset-edit menu
-        # (preserves preset_edits); flow:cancel discards only this preset's
-        # edits. This aligns with the field-edit error-retry prompts. Note: this
-        # intentionally differs from admin_awaiting_inline_keyboard(), whose
-        # admin:cancel wiped ALL preset_edits (contract R3, owner-approved).
-        keyboard=awaiting_inline_keyboard()
+        # preset_edit_awaiting_inline_keyboard() -> flow:back resumes the
+        # preset-edit menu (preserves preset_edits); flow:cancel discards only
+        # this preset's edits; admin:close is the close path (clears all
+        # pending state). This aligns with the field-edit error-retry prompts.
+        # Note: this intentionally differs from admin_awaiting_inline_keyboard(),
+        # whose admin:cancel wiped ALL preset_edits (contract R3, owner-approved).
+        keyboard=preset_edit_awaiting_inline_keyboard()
     )
+    # R2: rotate — strip the previous prompt's keyboard before tracking this one.
+    await _rotate_awaiting_msg(context, update, sent)
 
 
 async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, field_name: str, text: str):
@@ -551,13 +553,14 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
             if value not in (0, 1):
                 raise ValueError
         elif field_name == "name":
-            value = raw.lower().replace(" ", "_")
-            if not value or not all(c.isalnum() or c == "_" for c in value) or len(value) > MAX_PRESET_NAME_LEN:
+            value = preset_fields.validate_preset_name(raw)
+            if value is None:
                 raise ValueError
             # Check uniqueness (skip if same as current)
             if value != preset_name and db.get_preset(value):
                 context.user_data["awaiting"] = f"ai_preset_edit:{preset_name}:{field_name}"
-                await say(update, context, "این نام از قبل وجود دارد. نام دیگری انتخاب کنید.", raw=RawFormat.PLAIN, keyboard=awaiting_inline_keyboard(), mode="send")
+                sent = await say(update, context, "این نام از قبل وجود دارد. نام دیگری انتخاب کنید.", raw=RawFormat.PLAIN, keyboard=preset_edit_awaiting_inline_keyboard(), mode="send")
+                await _rotate_awaiting_msg(context, update, sent)
                 return
         elif field_name in ("input_cost_per_million", "output_cost_per_million"):
             if raw == "":
@@ -586,7 +589,12 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
             value = raw
     except ValueError:
         context.user_data["awaiting"] = f"ai_preset_edit:{preset_name}:{field_name}"
-        await say(update, context, "فرمت نامعتبر. لطفاً مقدار معتبر بفرستید.", raw=RawFormat.PLAIN, keyboard=awaiting_inline_keyboard(), mode="send")
+        if field_name == "name":
+            error_text = preset_fields.PRESET_NAME_ERROR_FA
+        else:
+            error_text = "فرمت نامعتبر. لطفاً مقدار معتبر بفرستید."
+        sent = await say(update, context, error_text, raw=RawFormat.PLAIN, keyboard=preset_edit_awaiting_inline_keyboard(), mode="send")
+        await _rotate_awaiting_msg(context, update, sent)
         return
 
     # Store in-memory (per preset)
@@ -725,7 +733,7 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
     context.user_data["awaiting"] = f"ai_preset_full_edit:{preset_name}:{field_idx}"
 
     sent = await say(update, context, msg, backend=Backend.HTML, keyboard=keyboard)
-    _store_awaiting_msg(context, update, sent)
+    await _rotate_awaiting_msg(context, update, sent)
 
 
 def _validate_wizard_value(field_name: str, raw: str, preset_name: str) -> tuple | None:
@@ -744,8 +752,8 @@ def _validate_wizard_value(field_name: str, raw: str, preset_name: str) -> tuple
                 return None
             return (v,)
         elif field_name == "name":
-            v = raw.lower().replace(" ", "_")
-            if not v or not all(c.isalnum() or c == "_" for c in v) or len(v) > MAX_PRESET_NAME_LEN:
+            v = preset_fields.validate_preset_name(raw)
+            if v is None:
                 return None
             if v != preset_name and db.get_preset(v):
                 return None
@@ -1314,21 +1322,26 @@ async def _add_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg.add_line(plain("➕ "), bold("ایجاد پیش‌تنظیم جدید"))
     msg.add_line()
     msg.add_line(plain("نام پیش‌تنظیم را وارد کنید (مثال: my_openai):"))
-    await say(update, context, msg, backend=Backend.HTML, keyboard=admin_awaiting_inline_keyboard())
+    msg.add_line()
+    msg.add_line(plain("💡 "), plain(preset_fields.PRESET_NAME_HINT_FA))
+    sent = await say(update, context, msg, backend=Backend.HTML, keyboard=admin_awaiting_inline_keyboard())
+    await _rotate_awaiting_msg(context, update, sent)
 
 
 async def _handle_ai_preset_new_name(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
     """Handle new preset name input."""
-    name = text.strip().lower().replace(" ", "_")
-    if not name or not all(c.isalnum() or c == "_" for c in name) or len(name) > MAX_PRESET_NAME_LEN:
+    name = preset_fields.validate_preset_name(text)
+    if name is None:
         context.user_data["awaiting"] = "ai_preset_new_name"
-        await say(update, context, "نام نامعتبر. فقط حروف، اعداد و زیرخط مجاز است و حداکثر ۶۰ کاراکتر.", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
+        sent = await say(update, context, preset_fields.PRESET_NAME_ERROR_FA, raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
+        await _rotate_awaiting_msg(context, update, sent)
         return
 
     existing = db.get_preset(name)
     if existing:
         context.user_data["awaiting"] = "ai_preset_new_name"
-        await say(update, context, "این نام از قبل وجود دارد.", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
+        sent = await say(update, context, "این نام از قبل وجود دارد.", raw=RawFormat.PLAIN, keyboard=admin_awaiting_inline_keyboard(), mode="send")
+        await _rotate_awaiting_msg(context, update, sent)
         return
 
     # Begin the create flow: remember the pending name, then ask for priority.
@@ -1983,7 +1996,7 @@ async def _show_help_presets(update: Update, context: ContextTypes.DEFAULT_TYPE)
     msg.add_line(plain("هر پریست یک تنظیمات کامل برای اتصال به یک سرویس‌دهنده AI است."))
     msg.add_line()
     msg.add_line(bold("فیلدهای اصلی:"))
-    msg.add_line(plain("• name: نام یکتای پریست (فقط حروف انگلیسی، اعداد، زیرخط)"))
+    msg.add_line(plain("• name: نام یکتای پریست (حروف انگلیسی، اعداد، زیرخط، نقطه، خط‌تیره؛ حداکثر ۶۰ کاراکتر)"))
     msg.add_line(plain("• api_key: کلید API (مقدار ثابت؛ به‌صورت رمزنگاری‌شده ذخیره می‌شود)"))
     msg.add_line(plain("• base_url: آدرس سرور (سازگار با OpenAI)"))
     msg.add_line(plain("• model: نام دقیق مدل"))
