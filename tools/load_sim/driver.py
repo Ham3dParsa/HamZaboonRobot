@@ -260,6 +260,7 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
             user_id = _BASE_USER_ID + i
             journey = spec["journey"]
             t0 = time.perf_counter()
+            graded = False
             try:
                 db.create_user_if_needed(user_id, f"loadsim{i}")
                 db.set_user_lang_goal(user_id, "en", "general")
@@ -352,6 +353,7 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
                     grade_latencies.append(
                         (time.perf_counter() - t0) * 1000.0
                     )
+                    graded = True
                     if journey == "full_session":
                         from handlers.study_handler import (
                             SessionState,
@@ -391,11 +393,12 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
                 if journey not in ("full_session", "partial"):
                     latencies.setdefault(journey, []).append(dt_ms)
                 else:
-                    # grade latency already recorded above; keep the
-                    # per-journey bucket aligned for reporting.
+                    # grade latency already recorded above; on paths that
+                    # never graded (lookup miss), use this run's own time
+                    # instead of a stale previous grade.
                     latencies.setdefault(journey, []).append(
                         grade_latencies[-1]
-                        if grade_latencies
+                        if graded and grade_latencies
                         else dt_ms
                     )
 
@@ -418,6 +421,7 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
         "plan_fallbacks": counters["plan_fallbacks"],
         "real_grades": counters["real_grades"],
         "card_lookup_miss": counters["card_lookup_miss"],
+        "grade_check_failed": counters["grade_check_failed"],
         "journey_counts": {
             j: len(v) for j, v in latencies.items()
         },
