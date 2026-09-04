@@ -688,3 +688,18 @@ def test_dry_run_shape_counters_untouched(tmp_path):
     assert main(argv) == 0
     assert not os.path.exists(out)
     assert not os.path.exists(progress)
+
+
+def test_classify_empty_pack_no_keyerror(monkeypatch):
+    # classify() must not KeyError on hand-built dicts (load_pack stays
+    # the validating contract): {} pack returns None (no fallback hit,
+    # wordfreq stubbed to 0 so the zipf branch misses too).
+    import sys as _sys
+
+    class _FakeWordfreq:
+        @staticmethod
+        def zipf_frequency(lemma, lang):
+            return 0.0
+
+    monkeypatch.setitem(_sys.modules, "wordfreq", _FakeWordfreq)
+    assert classify("wobbleaaa", "noun", {}, "en") is None

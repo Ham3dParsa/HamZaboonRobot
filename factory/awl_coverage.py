@@ -89,7 +89,12 @@ def load_awl(path: str) -> tuple[dict[str, list[str]], dict]:
     """AWL families as {norm_family: [norm_members]} + metadata (pure logic)."""
     with open(path, encoding="utf-8") as handle:
         payload = json.load(handle)
-    families = payload.get("families", payload)
+    if (not isinstance(payload, dict) or "families" not in payload
+            or not isinstance(payload["families"], dict)):
+        raise SystemExit(
+            f"error: corrupt AWL file {path}: "
+            "'families' must be an object mapping heads to members")
+    families = payload["families"]
     normed: dict[str, list[str]] = {}
     for head, members in families.items():
         try:
@@ -174,11 +179,20 @@ def vowelless_audit(index_path: str, pack_data: dict, lang: str) -> dict:
     count + samples (real-word signal), classify()-keep per-level
     distribution (pack or zipf — the sampler's real keep rule), and the
     frequent subset (zipf >= 4.0) with top samples. Pure sampler logic is
-    reused (classify/zipf), never redefined.
+    reused (classify/zipf), never redefined. ``wordfreq_available`` reports
+    whether the wordfreq import succeeded (single import at entry, never
+    per-row); when unavailable the frequent list is N/A (not measured zero).
     """
+    try:
+        from wordfreq import zipf_frequency
+        wordfreq_available = True
+    except ImportError:
+        zipf_frequency = None  # type: ignore[assignment]
+        wordfreq_available = False
     out = {"scanned": 0, "vowelless_rows": 0, "pack_real": 0,
            "pack_samples": [], "kept_levels": {lv: 0 for lv in LEVEL_ORDER},
-           "kept_unique": 0, "frequent": []}
+           "kept_unique": 0, "frequent": [],
+           "wordfreq_available": wordfreq_available}
     seen_kept: set[str] = set()
     pack_hit_lemmas: set[str] = set()
     frequent_all: list[tuple[str, str, float]] = []
@@ -219,13 +233,12 @@ def vowelless_audit(index_path: str, pack_data: dict, lang: str) -> dict:
             if level is None:
                 continue
             out["kept_levels"][level] += 1
-            # Lazy wordfreq (same convention as sampler): CI/bot envs may not
-            # have it installed; missing library means no frequent-list.
-            try:
-                from wordfreq import zipf_frequency
-            except ImportError:
+            if not wordfreq_available:
                 continue
-            z = zipf_frequency(norm, lang)
+            try:
+                z = zipf_frequency(norm, lang)
+            except (ValueError, TypeError):
+                continue
             if z >= AUDIT_FREQUENT_ZIPF:
                 frequent_all.append((norm, level, round(z, 2)))
     out["kept_unique"] = sum(out["kept_levels"].values())
@@ -260,6 +273,10 @@ def main(argv: list[str] | None = None) -> int:
     audit = vowelless_audit(args.index, pack_data, args.lang)
     verdict = decide_verdict(fam_summary["pct"], audit["pack_real"],
                              audit["frequent_n"])
+    if audit.get("wordfreq_available", True):
+        frequent_line = (f"**{audit['frequent_n']}**")
+    else:
+        frequent_line = "N/A (wordfreq unavailable)"
 
     lines = [
         "# AWL coverage vs 10k pool (TICKET F3)",
@@ -294,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         f"- …that classify() would keep (pack or zipf, unique lemmas): "
         f"**{audit['kept_unique']}** {audit['kept_levels']}",
         f"- …thereof frequent (zipf >= {AUDIT_FREQUENT_ZIPF}, genuine recall cost): "
-        f"**{audit['frequent_n']}**",
+        f"{frequent_line}",
         f"- Pack-hit sample ({len(audit['pack_samples'])} shown): "
         + (", ".join(f"`{s}`" for s in audit["pack_samples"])
            if audit["pack_samples"] else "—"),
@@ -322,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  pack-hit real words: {audit['pack_real']} "
           f"({', '.join(audit['pack_samples'][:5]) if audit['pack_samples'] else '—'})")
     print(f"  classify-keep (unique): {audit['kept_unique']} {audit['kept_levels']}")
-    print(f"  frequent (zipf>={AUDIT_FREQUENT_ZIPF}): {audit['frequent_n']} "
+    print(f"  frequent (zipf>={AUDIT_FREQUENT_ZIPF}): {frequent_line} "
           f"({', '.join(w for w, _, _ in audit['frequent'][:8])})")
     print(f"Verdict: {verdict}")
     print(f"Report: {args.report}")

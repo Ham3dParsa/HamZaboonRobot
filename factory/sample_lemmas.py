@@ -339,7 +339,7 @@ def classify(word: str, pos: object, pack_data: dict, lang: str) -> str | None:
     except (ValueError, TypeError):
         pos_norm = ""
     key = f"{lemma_norm}|{pos_norm}"
-    hit = pack_data["cefrj_fallback"].get(key)
+    hit = pack_data.get("cefrj_fallback", {}).get(key)
     if hit in LEVEL_RANK:
         return hit
     if pos_norm:
@@ -359,7 +359,7 @@ def classify(word: str, pos: object, pack_data: dict, lang: str) -> str | None:
     z = zipf_frequency(lemma_norm, lang)
     if z <= 0:
         return None
-    return zipf_to_cefr(z, pack_data["zipf_cutoffs"])
+    return zipf_to_cefr(z, pack_data.get("zipf_cutoffs", ZIPF_CUTOFFS_FALLBACK))
 
 
 def _index_key(entry: dict) -> str | None:

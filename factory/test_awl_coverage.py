@@ -153,3 +153,127 @@ def test_loaders_roundtrip(tmp_path):
     rows, easiest = load_pool(pool_path)
     assert rows == [("Analysis", "noun", "B2")]
     assert easiest == {"analysis": "B2"}
+
+
+def test_load_awl_fail_closed(tmp_path):
+    import pytest
+
+    from awl_coverage import load_awl
+    missing_key = str(tmp_path / "no_families.json")
+    with open(missing_key, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps({"metadata": {}}))
+    with pytest.raises(SystemExit) as excinfo:
+        load_awl(missing_key)
+    assert "families" in str(excinfo.value)
+    assert missing_key in str(excinfo.value)
+    not_dict = str(tmp_path / "families_list.json")
+    with open(not_dict, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps({"families": ["analyse"]}))
+    with pytest.raises(SystemExit) as excinfo:
+        load_awl(not_dict)
+    assert "families" in str(excinfo.value)
+    assert not_dict in str(excinfo.value)
+
+
+def _write_vowelless_index(tmp_path, words):
+    index = str(tmp_path / "index.jsonl")
+    with open(index, "w", encoding="utf-8") as handle:
+        for word, pos in words:
+            handle.write(json.dumps({"word": word, "pos": pos}) + "\n")
+    return index
+
+
+def test_vowelless_audit_wordfreq_missing(tmp_path, monkeypatch, capsys):
+    import sys as _sys
+
+    import awl_coverage
+
+    monkeypatch.setitem(_sys.modules, "wordfreq", None)
+    index = _write_vowelless_index(tmp_path, [("rhythm", "noun")])
+    pack = {"cefrj_fallback": {"rhythm|noun": "B2"},
+            "evp_index": {}, "evp_lemma_index": {},
+            "zipf_cutoffs": [5.2, 4.6, 4.0, 3.5, 3.0]}
+    audit = awl_coverage.vowelless_audit(index, pack, "en")
+    assert audit["wordfreq_available"] is False
+    assert audit["kept_unique"] == 1  # pack hit keeps without wordfreq
+    assert audit["frequent_n"] == 0
+    assert audit["frequent"] == []
+
+
+def test_vowelless_audit_wordfreq_present(tmp_path, monkeypatch):
+    import sys as _sys
+
+    import awl_coverage
+
+    class _FakeWordfreq:
+        @staticmethod
+        def zipf_frequency(lemma, lang):
+            return 6.0
+
+    monkeypatch.setitem(_sys.modules, "wordfreq", _FakeWordfreq)
+    index = _write_vowelless_index(tmp_path, [("rhythm", "noun")])
+    pack = {"cefrj_fallback": {"rhythm|noun": "B2"},
+            "evp_index": {}, "evp_lemma_index": {},
+            "zipf_cutoffs": [5.2, 4.6, 4.0, 3.5, 3.0]}
+    audit = awl_coverage.vowelless_audit(index, pack, "en")
+    assert audit["wordfreq_available"] is True
+    assert audit["frequent_n"] == 1
+
+
+def test_vowelless_audit_zipf_errors_non_frequent(tmp_path, monkeypatch):
+    import sys as _sys
+
+    import awl_coverage
+
+    class _RaisingWordfreq:
+        @staticmethod
+        def zipf_frequency(lemma, lang):
+            raise ValueError("no frequency")
+
+    monkeypatch.setitem(_sys.modules, "wordfreq", _RaisingWordfreq)
+    index = _write_vowelless_index(tmp_path, [("rhythm", "noun")])
+    pack = {"cefrj_fallback": {"rhythm|noun": "B2"},
+            "evp_index": {}, "evp_lemma_index": {},
+            "zipf_cutoffs": [5.2, 4.6, 4.0, 3.5, 3.0]}
+    audit = awl_coverage.vowelless_audit(index, pack, "en")
+    assert audit["wordfreq_available"] is True
+    assert audit["kept_unique"] == 1
+    assert audit["frequent_n"] == 0
+    assert audit["frequent"] == []
+
+
+def test_main_report_na_when_wordfreq_missing(tmp_path, monkeypatch):
+    import sys as _sys
+
+    from awl_coverage import main
+
+    monkeypatch.setitem(_sys.modules, "wordfreq", None)
+    awl_path = str(tmp_path / "awl.json")
+    with open(awl_path, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps({"families": {"data": ["data"]}}))
+    pool_path = str(tmp_path / "pool.csv")
+    with open(pool_path, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerow(["lemma", "pos", "cefr"])
+        writer.writerow(["data", "noun", "A1"])
+    index_path = str(tmp_path / "index.jsonl")
+    with open(index_path, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps({"word": "rhythm", "pos": "noun"}) + "\n")
+    pack_dir = str(tmp_path / "pack")
+    os.makedirs(pack_dir, exist_ok=True)
+    with open(os.path.join(pack_dir, "evp_sense.json"), "w",
+              encoding="utf-8") as handle:
+        handle.write(json.dumps({"entries": {}}))
+    with open(os.path.join(pack_dir, "cefrj_pos.json"), "w",
+              encoding="utf-8") as handle:
+        handle.write(json.dumps({"fallback": {"rhythm|noun": "B2"}}))
+    with open(os.path.join(pack_dir, "pack.json"), "w",
+              encoding="utf-8") as handle:
+        handle.write(json.dumps({"cefr": {"zipf_cutoffs":
+                                          [5.2, 4.6, 4.0, 3.5, 3.0]}}))
+    report_path = str(tmp_path / "report.md")
+    assert main(["--awl", awl_path, "--pool", pool_path,
+                 "--index", index_path, "--pack", pack_dir,
+                 "--report", report_path]) == 0
+    with open(report_path, encoding="utf-8") as handle:
+        assert "N/A (wordfreq unavailable)" in handle.read()
