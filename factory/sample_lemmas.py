@@ -20,14 +20,33 @@ index file order; pilot pinning is sorted by (level, lemma_key); the output
 CSV is sorted by (level_order, lemma_key).
 
 Checkpoints: progress lives at ``factory/sample_<lang>_progress.json`` as
-``{lang, seed, mix, dump_size, dump_mtime, lines_done, seen, reservoirs,
-rng_state}`` and is rewritten every ``--batch`` index lines. A changed dump
+``{lang, seed, mix, dump_size, dump_mtime, lines_done, seen, counters,
+reservoirs, rng}`` and is rewritten every ``--batch`` index lines. A changed dump
 (size/mtime), seed, mix, or lang aborts fail-closed (SystemExit) — never a
 silent resume of stale reservoirs. On success the CSV is written atomically
 (temp + os.replace) and the progress file is unlinked.
 
 ``--dry-run`` prints the plan + in-memory per-level counts and writes
 NOTHING (no CSV, no checkpoint, no progress).
+
+Lemma shape filter (locked R5, TICKET F2 — deterministic, zero LLM):
+pilot ``pack/lemmas.csv`` rows are EXEMPT (curated continuity); every
+index-stream row passes ``shape_verdict()`` BEFORE the reservoir. DROP
+markers win over phrase-routing (so ``A. M. A.`` drops as a period
+abbreviation instead of entering phrase candidates):
+  - ``phrase``: contains internal whitespace (multiword ``all in all``) —
+    EXCLUDED from the word pool but NOT dropped from the universe: counted
+    as ``phrase_candidates`` for future F4, never written to the word CSV.
+  - ``drop:affix``: starts/ends with hyphen (``-by``, ``-got-``, ``-our``).
+  - ``drop:digit``: any digit (``2``, ``3-1-3``).
+  - ``drop:apostrophe``: ``'`` or U+2019 (``'d``).
+  - ``drop:period``: contains ``.`` (``A. M. A.``, ``e.g.``).
+  - ``drop:single_char``: stripped length < 2.
+  - keep-gate: alphabetic, len >= 2, containing a vowel (aeiouAEIOU).
+    A-list lemmas (``April``, ``about``) stay via the vowel rule — no
+    special-casing. Anything else (``co-op``, ``rhythm``) drops.
+Filtered rows count as ``skipped_shape`` and join ``seen_keys`` dedup
+exactly like other skips (never reach ``classify`` or the reservoir).
 
 Lemma normalization and random-access ``fetch`` are REUSED from
 ``factory/registry.py`` (``normalize_lemma``) and
@@ -60,6 +79,7 @@ DEFAULT_SEED = 7
 DEFAULT_BATCH = 50000
 ZIPF_CUTOFFS_FALLBACK = [5.2, 4.6, 4.0, 3.5, 3.0]
 SPOT_CHECK_N = 5
+VOWELS = frozenset("aeiouAEIOU")
 
 DEFAULT_DUMP_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-words.jsonl"
 DEFAULT_INDEX_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-index.jsonl"
@@ -185,7 +205,42 @@ def load_pack(pack: str) -> dict:
         "evp_lemma_index": evp_lemma_index,
         "cefrj_fallback": cefrj.get("fallback", {}),
         "zipf_cutoffs": cutoffs,
+        "manifest_sample": manifest.get("lemmas_10k") if isinstance(manifest, dict) else None,
     }
+
+
+def shape_verdict(word: object) -> str:
+    """Single-source lemma shape gate (locked R5, TICKET F2).
+
+    Returns ``"keep"``, ``"phrase"``, or ``"drop:<reason>"`` where reason
+    is one of affix/digit/apostrophe/period/single_char/non_alpha/no_vowel/
+    non_string.
+    Pure string logic — deterministic, zero LLM. Shape DROP markers for
+    affix/digit/apostrophe/period/single_char win over phrase-routing;
+    ``non_alpha``/``no_vowel`` are checked after the phrase branch, so a
+    spaced row with symbols counts as phrase (both excluded from the word
+    CSV either way). Pilot rows never reach this function.
+    """
+    if not isinstance(word, str):
+        return "drop:non_string"
+    text = word.strip()
+    if text.startswith("-") or text.endswith("-"):
+        return "drop:affix"
+    if any(ch.isdigit() for ch in text):
+        return "drop:digit"
+    if "'" in text or "\u2019" in text:
+        return "drop:apostrophe"
+    if "." in text:
+        return "drop:period"
+    if len(text) < 2:
+        return "drop:single_char"
+    if any(ch.isspace() for ch in text):
+        return "phrase"
+    if not text.isalpha():
+        return "drop:non_alpha"
+    if not any(ch in VOWELS for ch in text):
+        return "drop:no_vowel"
+    return "keep"
 
 
 def zipf_to_cefr(z: float, cutoffs: list[float]) -> str:
@@ -311,7 +366,8 @@ def sample(
     lines_done = 0
     processed = 0
     counters = {"bad_index_lines": 0, "duplicates": 0,
-                "skipped_no_freq": 0, "pilot_rows": len(pilot),
+                "skipped_no_freq": 0, "skipped_shape": 0,
+                "phrase_candidates": 0, "pilot_rows": len(pilot),
                 "pilot_bad_rows": 0, "pilot_dupes": 0}
     if not dry_run and os.path.exists(progress):
         with open(progress, encoding="utf-8") as handle:
@@ -324,6 +380,15 @@ def sample(
                     "delete it to resample from scratch.")
         lines_done = int(saved.get("lines_done", 0))
         seen = {level: int(saved["seen"][level]) for level in LEVEL_ORDER}
+        if "counters" not in saved:
+            raise SystemExit(
+                f"error: pre-R5 checkpoint {progress} has no counters; "
+                "delete it to resample from scratch.")
+        saved_counters = saved.get("counters") or {}
+        for key in counters:
+            if key in ("pilot_rows", "pilot_bad_rows", "pilot_dupes"):
+                continue  # recomputed from pilot, not accumulated
+            counters[key] = int(saved_counters.get(key, 0))
         reservoirs = {level: [tuple(entry) for entry in saved["reservoirs"][level]]
                       for level in LEVEL_ORDER}
         for level_entries in reservoirs.values():
@@ -399,6 +464,13 @@ def sample(
                 counters["duplicates"] += 1
                 continue
             seen_keys.add(key)
+            verdict = shape_verdict(word)
+            if verdict == "phrase":
+                counters["phrase_candidates"] += 1
+                continue
+            if verdict != "keep":
+                counters["skipped_shape"] += 1
+                continue
             level = classify(word, pos, pack_data, lang)
             if level is None:
                 counters["skipped_no_freq"] += 1
@@ -418,6 +490,7 @@ def sample(
             if not dry_run and (processed % batch == 0):
                 write_progress(progress, {
                     **header, "lines_done": lines_done, "seen": seen,
+                    "counters": counters,
                     "reservoirs": {level: [list(e) for e in reservoirs[level]]
                                    for level in LEVEL_ORDER},
                     "rng": [rng.getstate()[0],
@@ -480,6 +553,23 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     pack_data = load_pack(args.pack)
     pilot, pilot_bad, pilot_dupes = load_pilot(args.pack)
+    # Manifest seed/mix are evidence metadata; CLI stays authoritative.
+    # Warn (don't abort) so a re-run with different params is still possible.
+    pinned = pack_data.get("manifest_sample") or {}
+    if isinstance(pinned, dict):
+        # Manifest stores mix as a comma string; normalize defensively so a
+        # future list-typed mix does not warn spuriously.
+        manifest_mix = pinned.get("mix")
+        if isinstance(manifest_mix, list):
+            manifest_mix = ",".join(str(part) for part in manifest_mix)
+        if "seed" in pinned and pinned["seed"] != args.seed:
+            print(f"WARNING: manifest lemmas_10k.seed={pinned['seed']} "
+                  f"differs from --seed={args.seed} (CLI wins)",
+                  file=sys.stderr)
+        if "mix" in pinned and manifest_mix != args.mix:
+            print(f"WARNING: manifest lemmas_10k.mix={pinned['mix']} "
+                  f"differs from --mix={args.mix} (CLI wins)",
+                  file=sys.stderr)
 
     if args.dry_run:
         print("dry-run plan (nothing written, no CSV/checkpoint/progress):")

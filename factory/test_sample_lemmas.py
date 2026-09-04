@@ -13,7 +13,7 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
-from sample_lemmas import LEVEL_ORDER, classify, load_pack, load_pilot, main
+from sample_lemmas import LEVEL_ORDER, classify, load_pack, load_pilot, main, shape_verdict
 
 LEVELS = LEVEL_ORDER
 QUOTA = 3
@@ -61,10 +61,12 @@ def env(tmp_path):
     words = []
     for level in LEVELS:
         for num in range(CANDIDATES_PER_LEVEL):
-            word = f"zzq_{level.lower()}_{num}"
+            # Shape-clean on purpose (alpha, vowel, no digits/underscores):
+            # the R5 shape filter intentionally drops digit/underscore rows.
+            word = f"wobble{chr(97 + LEVELS.index(level))}{chr(97 + num)}"
             fallback[f"{word}|noun"] = level
             words.append((word, "noun"))
-    words.append(("zzq_nonsense_nowhere", "noun"))  # no pack hit, zipf 0 -> skip
+    words.append(("qxwzea", "noun"))  # no pack hit, zipf 0 -> skip
     build_pack(pack, pilot_rows, fallback)
     dump, index, lookup = build_dump_index(str(tmp_path), words)
     return {
@@ -108,7 +110,7 @@ def test_pilot_pinning_respected(env):
     for lemma, pos, cefr in env["pilot_rows"]:
         assert by_lemma[lemma]["cefr"] == cefr
         assert by_lemma[lemma]["pos"] == pos
-    assert "zzq_nonsense_nowhere" not in by_lemma
+    assert "qxwzea" not in by_lemma
 
 
 def test_output_sorted_and_header(env):
@@ -179,10 +181,11 @@ def test_stale_progress_aborts(env):
     assert not os.path.exists(env["out"])
 
 
-def test_resume_equals_fresh_run(env, tmp_path):
+def test_resume_equals_fresh_run(env, tmp_path, capsys):
     assert main(base_argv(env)) == 0
     with open(env["out"], "rb") as handle:
         fresh = handle.read()
+    fresh_counters = _counters_line(capsys.readouterr().out)
     assert os.path.exists(env["progress"]) is False  # completed run cleans up
     # Simulate an interrupted run: partial pass writes a checkpoint...
     out_part = str(tmp_path / "part.csv")
@@ -191,13 +194,24 @@ def test_resume_equals_fresh_run(env, tmp_path):
     assert main(argv) == 0
     assert os.path.exists(env["progress"])
     os.unlink(out_part)
-    # ...then resume to completion with identical output.
+    capsys.readouterr()  # discard partial-run output; compare resume vs fresh only
+    # ...then resume to completion with identical output AND counters.
+    # Contract: a resumed run must report the same diagnostic counters as an
+    # uninterrupted run (counters are checkpointed, not restarted at zero).
     out_resumed = str(tmp_path / "resumed.csv")
     argv = base_argv(env)
     argv[argv.index("--out") + 1] = out_resumed
     assert main(argv) == 0
     with open(out_resumed, "rb") as handle:
         assert handle.read() == fresh
+    assert _counters_line(capsys.readouterr().out) == fresh_counters
+
+
+def _counters_line(output: str) -> str:
+    for line in output.splitlines():
+        if line.startswith("counters: "):
+            return line
+    raise AssertionError("counters line missing from sampler output")
 
 
 def test_pilot_over_quota_aborts(env, tmp_path):
@@ -224,11 +238,31 @@ def test_resume_corrupt_reservoir_aborts_loud(env):
         handle.write(json.dumps({
             "lang": "en", "seed": 7, "mix": MIX,
             "dump_size": stat.st_size, "dump_mtime": stat.st_mtime,
-            "lines_done": 0, "seen": seen, "reservoirs": reservoirs,
+            "lines_done": 0, "seen": seen, "counters": {},
+            "reservoirs": reservoirs,
             "rng": [3, [0] * 625, None]}))
     with pytest.raises(SystemExit) as excinfo:
         main(base_argv(env))
     assert "progress" in str(excinfo.value).lower()
+    assert "corrupt reservoir" in str(excinfo.value).lower()
+    assert not os.path.exists(env["out"])
+
+
+def test_resume_pre_r5_checkpoint_aborts_loud(env):
+    # A checkpoint without a counters key (pre-R5 format) must fail closed
+    # instead of silently resuming with zeroed diagnostic counters.
+    seen = {level: 0 for level in LEVELS}
+    reservoirs = {level: [] for level in LEVELS}
+    stat = os.stat(env["dump"])
+    with open(env["progress"], "w", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "lang": "en", "seed": 7, "mix": MIX,
+            "dump_size": stat.st_size, "dump_mtime": stat.st_mtime,
+            "lines_done": 0, "seen": seen, "reservoirs": reservoirs,
+            "rng": [3, [0] * 625, None]}))
+    with pytest.raises(SystemExit) as excinfo:
+        main(base_argv(env))
+    assert "counters" in str(excinfo.value).lower()
     assert not os.path.exists(env["out"])
 
 
@@ -243,7 +277,7 @@ def test_duplicate_pilot_row_skipped_keep_first(env, tmp_path, capsys):
     words = []
     for level in LEVELS:
         for num in range(CANDIDATES_PER_LEVEL):
-            word = f"zzq_{level.lower()}_{num}"
+            word = f"wobble{chr(97 + LEVELS.index(level))}{chr(97 + num)}"
             fallback[f"{word}|noun"] = level
             words.append((word, "noun"))
     build_pack(pack, pilot_rows, fallback)
@@ -359,3 +393,107 @@ def test_missing_cutoffs_warns_and_uses_default(env, capsys):
     assert "pack.json" in err and "zipf_cutoffs" in err
     rows = read_rows(env["out"])
     assert len(rows) == QUOTA * 6
+
+
+def test_shape_verdict_matrix():
+    # Every DROP class + keeps. A-list (April/about) keeps via the vowel
+    # rule — no special-casing. "A. M. A." drops as period (DROP markers
+    # win over phrase-routing); "all in all" routes to phrase.
+    cases = {
+        "-by": "drop:affix",
+        "-got-": "drop:affix",
+        "-our": "drop:affix",
+        "2": "drop:digit",
+        "3-1-3": "drop:digit",
+        "catch22": "drop:digit",
+        "'d": "drop:apostrophe",
+        "don't": "drop:apostrophe",
+        "x": "drop:single_char",
+        "A. M. A.": "drop:period",
+        "e.g.": "drop:period",
+        "co-op": "drop:non_alpha",
+        "rhythm": "drop:no_vowel",
+        "all in all": "phrase",
+        "hello": "keep",
+        "April": "keep",
+        "about": "keep",
+        "wobbleaa": "keep",
+    }
+    for word, expected in cases.items():
+        assert shape_verdict(word) == expected, word
+
+
+def test_shape_filter_end_to_end(tmp_path, capsys):
+    # Junk never reaches the CSV; phrases count separately and are also
+    # excluded; quotas stay exact on the surviving clean candidates.
+    pack = str(tmp_path / "pack")
+    pilot_rows = [("PilotA1", "noun", "A1")]
+    clean = [f"wobbleaa{chr(97 + num)}" for num in range(6)]
+    junk = ["-by", "-got-", "2", "3-1-3", "'d", "x", "A. M. A.",
+            "co-op", "rhythm"]
+    phrases = ["all in all", "by and by"]
+    fallback = {f"{word}|noun": "A1" for word in clean + junk + phrases}
+    build_pack(pack, pilot_rows, fallback)
+    dump_dir = str(tmp_path / "d")
+    os.makedirs(dump_dir, exist_ok=True)
+    words = [(word, "noun") for word in clean + junk + phrases]
+    dump, index, lookup = build_dump_index(dump_dir, words)
+    out = str(tmp_path / "out.csv")
+    progress = str(tmp_path / "progress.json")
+    argv = ["--lang", "en", "--dump", dump, "--index", index,
+            "--lookup", lookup, "--pack", pack,
+            "--out", out, "--progress", progress,
+            "--mix", "4,0,0,0,0,0", "--seed", "7", "--batch", "4"]
+    assert main(argv) == 0
+    got = read_rows(out)
+    by_lemma = {row["lemma"]: row for row in got}
+    assert len(got) == 4  # 1 pilot + 3 clean top-up
+    assert "PilotA1" in by_lemma
+    for word in junk + phrases:
+        assert word not in by_lemma
+    text = capsys.readouterr().out
+    assert "'skipped_shape': 9" in text
+    assert "'phrase_candidates': 2" in text
+
+
+def test_pilot_exempt_from_shape_filter(tmp_path):
+    # A pilot row that would DROP as an index row is still pinned.
+    pack = str(tmp_path / "pack")
+    pilot_rows = [("-by", "noun", "A1")]
+    fallback = {"wobbleaaa|noun": "A1"}
+    build_pack(pack, pilot_rows, fallback)
+    dump_dir = str(tmp_path / "d")
+    os.makedirs(dump_dir, exist_ok=True)
+    dump, index, lookup = build_dump_index(dump_dir, [("wobbleaaa", "noun")])
+    out = str(tmp_path / "out.csv")
+    progress = str(tmp_path / "progress.json")
+    argv = ["--lang", "en", "--dump", dump, "--index", index,
+            "--lookup", lookup, "--pack", pack,
+            "--out", out, "--progress", progress,
+            "--mix", "2,0,0,0,0,0", "--seed", "7", "--batch", "4"]
+    assert main(argv) == 0
+    by_lemma = {row["lemma"]: row for row in read_rows(out)}
+    assert by_lemma["-by"]["cefr"] == "A1"
+
+
+def test_dry_run_shape_counters_untouched(tmp_path):
+    # --dry-run reports shape/phrase counters and writes nothing.
+    pack = str(tmp_path / "pack")
+    pilot_rows = [("PilotA1", "noun", "A1")]
+    fallback = {"wobbleaaa|noun": "A1", "-by|noun": "A1",
+                "all in all|noun": "A1"}
+    build_pack(pack, pilot_rows, fallback)
+    dump_dir = str(tmp_path / "d")
+    os.makedirs(dump_dir, exist_ok=True)
+    words = [("wobbleaaa", "noun"), ("-by", "noun"), ("all in all", "noun")]
+    dump, index, lookup = build_dump_index(dump_dir, words)
+    out = str(tmp_path / "out.csv")
+    progress = str(tmp_path / "progress.json")
+    argv = ["--lang", "en", "--dump", dump, "--index", index,
+            "--lookup", lookup, "--pack", pack,
+            "--out", out, "--progress", progress,
+            "--mix", "2,0,0,0,0,0", "--seed", "7", "--batch", "4",
+            "--dry-run"]
+    assert main(argv) == 0
+    assert not os.path.exists(out)
+    assert not os.path.exists(progress)

@@ -12,7 +12,11 @@
   "lemmas": {
     "file": "lemmas.csv"
   },
-  "lemmas_10k_note": "REMOVED pending regeneration with shape filter (ex-owner 3000-row artifact had 2999 unique lemma|pos due to pilot cast|verb dupe, plus 14 affix + 15 digit-led + ~1665 multiword rows) — no lemmas_10k.csv committed; regenerate via factory/sample_lemmas.py after filter lands",
+  "lemmas_10k": {
+    "file": "lemmas_10k.csv",
+    "seed": 7,
+    "mix": "364,485,667,727,454,303"
+  },
   "dict": {
     "raw": "W:/hamzaban_data_factory/raw/filtered_500_kaikki.jsonl"
   },
