@@ -16,11 +16,17 @@ Scope: factory research only. No bot/DB/handler changes.
   with its error (no silent skip). Progress JSON supports resume.
 - Cost: free chain, $0 expected; per-model call counts are recorded.
 - Render: Persian RTL gallery HTML with per-card sections.
-- Lexicon grounding (locked R1-R5): per-item kaikki EN gloss
-  (``item["en_def"]`` via offset index + raw), meta-leak ban + scan,
-  phrase ``literal_fa``, proper-noun POS filter (words) / null-not-judged
-  (phrases), v16-prototype topic tag. Stage timings persisted to
-  ``timings.json`` and rendered in the gallery.
+- Lexicon grounding (locked R6-R8 v3, v16b gold standard): per-item kaikki
+  sense anchor (``item["sense_id"]`` + ``item["en_def"]`` = top scorer of the
+  deterministic v14 per-sense scoring reused from run_v14_phase1, R4
+  name-only pre-filter kept), topic via the exact v16b path (deterministic
+  v16 leg + v16b LLM top-up for Others, method tag "v16b-exact", resume
+  pilot_topic_progress.json), fa-dominant + headword-leak bans (1 regen,
+  then valid=False), phrase ``literal_fa``, proper-noun POS filter (words) /
+  null-not-judged (phrases). Gap-fill + sense-review prompt; completion
+  flags + informational similarity note recorded per card (no similarity
+  regen). Stage timings persisted to ``timings.json`` and rendered in the
+  gallery.
 
 Usage (owner run, real generation — takes time, ~20 model calls):
     python factory/card_pilot.py --n-words 14 --n-phrases 6
@@ -30,6 +36,7 @@ Dry run (no network, no files written):
 
 import argparse
 import csv
+import difflib
 import html
 import json
 import pathlib
@@ -79,8 +86,11 @@ REPAIR_PREFIX = ("Your last reply was not valid JSON. "
 # R4 — proper-noun POS set (general rule, no hardcoded name list).
 PROPER_NOUN_POS = {"name", "propn"}
 
-# R5 — topic method tag (owner module: factory/run_v16_topics.py).
-TOPIC_METHOD_TAG = "v16-prototype"
+# R6 — topic method tag: exact v16b path (deterministic v16 leg + v16b LLM
+# top-up for Others, same free model chain). Pilot resume is separate from
+# the v16b originals so the gold-standard files are never touched.
+TOPIC_METHOD_TAG = "v16b-exact"
+PILOT_TOPIC_PROGRESS = "pilot_topic_progress.json"
 
 # R1 — compact key carrying the EN definition through the model reply.
 # The bot validator (validate_card -> _expand_card_aliases) ignores unknown
@@ -101,6 +111,26 @@ LITERAL_FA_INSTRUCTION = (
     'For this phrase also return optional key "%s": word-by-word Persian '
     "rendering of its components. Ground the usage explanation in the given "
     "English definition." % LITERAL_FA_KEY)
+
+# R7 — fa-dominant + headword-leak prompt rules (appended pilot-side,
+# shared builder untouched).
+FA_DOMINANT_RULE = ("Write fa_meaning and fa_explanation in Persian: "
+                    "Persian-script characters must outnumber Latin-script "
+                    "characters in those two fields combined.")
+HEADWORD_LEAK_RULE = ("Do NOT write the Latin headword (for phrases: any "
+                      "component token of 3+ letters) inside fa_meaning or "
+                      "fa_explanation.")
+# R7 — script counters.
+_FA_RX = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF"
+                    r"\uFB50-\uFDFF\uFE70-\uFEFF]")
+_LATIN_RX = re.compile(r"[A-Za-z]")
+
+# R8 — gap-fill + sense-review prompt (replaces echo-regen; similarity stays
+# informational only, never triggers a regen).
+GAPFILL_INSTRUCTION = (
+    "Fill ONLY empty/missing fields; do NOT restate the given en_def; "
+    "REVIEW synonyms/antonyms/examples against the anchored sense and fix "
+    "any belonging to another sense.")
 
 # R2 — machine check patterns (EN level words + CEFR codes + FA level words).
 _META_LEAK_PATTERNS = (
@@ -181,17 +211,83 @@ def read_kaikki_entry(raw_path, offset, length):
     return json.loads(blob.decode("utf-8"))
 
 
-def first_gloss(entry):
-    """First non-empty gloss across an entry's senses ("" if none)."""
-    if not isinstance(entry, dict):
-        return ""
-    for sense in entry.get("senses") or []:
-        if not isinstance(sense, dict):
+def _v14_register_penalty(tags, gloss):
+    """R6 sense score, owner: factory/run_v14_phase1.py::main.<locals>.register_penalty.
+
+    Vendored (minimal faithful copy) because the owner is nested inside
+    main() and importing run_v14_phase1 pulls torch/sentence-transformers/
+    sklearn + embedding models (side effects, non-hermetic). Logic is
+    byte-faithful to the v14 ranking used for the v14c judge picks.
+    """
+    import re as _re
+    t = set((tags or []))
+    if t & {"slang", "vulgar", "derogatory", "offensive"}:
+        return 0.60
+    g = (gloss or "").strip()
+    if _re.search(r"alternative [\w\-]+ form of|alternative spelling of|alternative name for",
+                  g.lower()):
+        return 0.50
+    if len(g.split()) == 1 and g[:1].isupper() and g[1:2].islower():
+        return 0.50
+    if g in ("A surname.", "A place name.", "A surname.", "A given name."):
+        return 0.50
+    if t & {"obsolete", "archaic", "dated", "historical"}:
+        return 0.80
+    return 1.0
+
+
+def _v14_ppos(entry_pos, pool_pos):
+    """R6 POS factor, owner: factory/run_v14_phase1.py ranking (ppos line).
+
+    Exact v14 rule: verb-source senses shown to non-verb lemmas are
+    down-weighted 0.70; everything else 1.0. Score still decides (no hard
+    POS filter here — R4 name-only drops happen at sampling).
+    """
+    if normalize_pos(entry_pos) == "verb" and normalize_pos(pool_pos) != "verb":
+        return 0.70
+    return 1.0
+
+
+def _collect_kaikki_senses(entries, read_entry):
+    """Flatten index rows -> [(entry_pos, sense_dict, gloss)] in file order."""
+    out = []
+    for row in entries or []:
+        entry = _safe_read(read_entry, row)
+        if not isinstance(entry, dict):
             continue
-        for gloss in sense.get("glosses") or []:
-            if isinstance(gloss, str) and gloss.strip():
-                return gloss.strip()
-    return ""
+        entry_pos = str(entry.get("pos") or row.get("pos") or "")
+        for sense in entry.get("senses") or []:
+            if not isinstance(sense, dict):
+                continue
+            gloss = ""
+            for cand in sense.get("glosses") or []:
+                if isinstance(cand, str) and cand.strip():
+                    gloss = cand.strip()
+                    break
+            if gloss:
+                out.append((entry_pos, sense, gloss))
+    return out
+
+
+def pick_anchor_sense(text, entries, pool_pos, read_entry):
+    """R6: score every kaikki sense, anchor = top scorer (stable file order).
+
+    Score = vendored v14 register_penalty * v14 ppos factor. Returns
+    (sense_id, gloss); sense_id is "<text.lower()>#<file-order-sense-idx>".
+    Empty entries -> ("", "").
+    """
+    senses = _collect_kaikki_senses(entries, read_entry)
+    if not senses:
+        return "", ""
+    scored = []
+    for idx, (entry_pos, sense, gloss) in enumerate(senses):
+        score = (_v14_register_penalty(sense.get("tags"), gloss)
+                 * _v14_ppos(entry_pos, pool_pos))
+        scored.append((score, idx, sense, gloss))
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    _, best_idx, _, best_gloss = scored[0]
+    key = (text or "").strip().lower()
+    return "%s#%d" % (key, best_idx), best_gloss
 
 
 def _safe_read(read_entry, row):
@@ -202,39 +298,67 @@ def _safe_read(read_entry, row):
 
 
 def resolve_word_en_def(entries, pool_pos, read_entry):
-    """R1: first gloss of the entry matching pool POS, else first gloss.
+    """R6: anchor gloss = top v14-scored sense of the POS-preferred entries.
 
-    entries: this lemma's index rows in file order.
-    read_entry: callable(row) -> kaikki entry dict (injectable for tests).
+    R4 POS pre-filter (name-only drops) stays at sampling; here every sense
+    is scored and the top scorer wins even when it is not the first gloss.
+    Returns the gloss string ("" if none) for backward compatibility; the
+    sense id comes from pick_anchor_sense().
     """
     if not entries:
         return ""
     want = normalize_pos(pool_pos)
     ordered = ([e for e in entries if normalize_pos(e.get("pos")) == want]
                + [e for e in entries if normalize_pos(e.get("pos")) != want])
-    for row in ordered:
-        gloss = first_gloss(_safe_read(read_entry, row))
+    # Score senses entry-group by group so a POS-matching top scorer beats a
+    # non-matching first gloss, but a higher-scored non-matching sense can
+    # still win inside its own group only if no matching gloss exists.
+    # To let score decide globally, collect across the ordered rows and pick
+    # the global top scorer instead of the first non-empty gloss.
+    _, gloss = pick_anchor_sense("", ordered, pool_pos, read_entry)
+    return gloss
+
+
+def resolve_phrase_en_def(index, phrase, read_entry):
+    """R6: phrase anchor = top v14-scored sense (exact phrase, else tokens)."""
+    key = (phrase or "").strip().lower()
+    if not key:
+        return ""
+    if key in index:
+        _, gloss = pick_anchor_sense(key, index[key], "", read_entry)
+        if gloss:
+            return gloss
+    for token in sorted(set(key.split()), key=lambda t: (-len(t), t)):
+        _, gloss = pick_anchor_sense(
+            key, index.get(token, []), "", read_entry)
         if gloss:
             return gloss
     return ""
 
 
-def resolve_phrase_en_def(index, phrase, read_entry):
-    """R1: first gloss of the best-matching entry: exact phrase, else tokens longest-first."""
-    key = (phrase or "").strip().lower()
-    if not key:
-        return ""
-    if key in index:
-        for row in index[key]:
-            gloss = first_gloss(_safe_read(read_entry, row))
-            if gloss:
-                return gloss
-    for token in sorted(set(key.split()), key=lambda t: (-len(t), t)):
-        for row in index.get(token, []):
-            gloss = first_gloss(_safe_read(read_entry, row))
-            if gloss:
-                return gloss
-    return ""
+def anchor_item_en(item, index, read_entry):
+    """R6: fill item["sense_id"] + item["en_def"] from the scored anchor."""
+    text = (item.get("text") or "").strip()
+    if item.get("kind") == "word":
+        entries = index.get(text.lower(), [])
+        sid, gloss = pick_anchor_sense(
+            text, entries, item.get("pos", ""), read_entry)
+    else:
+        key = text.lower()
+        if key in index:
+            sid, gloss = pick_anchor_sense(text, index[key], "", read_entry)
+        else:
+            sid, gloss = "", ""
+            for token in sorted(set(key.split()),
+                                key=lambda t: (-len(t), t)):
+                cand_sid, cand = pick_anchor_sense(
+                    text, index.get(token, []), "", read_entry)
+                if cand:
+                    sid, gloss = cand_sid, cand
+                    break
+    item["sense_id"] = sid
+    item["en_def"] = gloss
+    return item
 
 
 def meta_leak_scan(card):
@@ -256,50 +380,62 @@ def meta_leak_scan(card):
     return list(dict.fromkeys(hits))
 
 
-def _evp_minimal_fallback(text, gloss):
-    """Minimal faithful re-implementation of the owner module's deterministic
-    leg (factory/run_v16_topics.py::evp_fallback_label + MIGRATE_DEFAULT):
-    lemma entry whose guideword occurs in the gloss maps to a 16-label;
-    else Other / Abstract. Used only if the owner module is not importable."""
-    try:
-        pack = json.loads((FACTORY_DIR / "packs" / "en" / "evp_sense.json")
-                           .read_text(encoding="utf-8"))["entries"]
-    except Exception:
-        return "Other / Abstract"
-    migrate = {
-        "Daily Life & Home": "Daily Life & Home",
-        "Food & Drink": "Food & Drink",
-        "Health & Body": "Health & Body",
-        "Travel & Transportation": "Travel & Transportation",
-        "Science & Technology": "Science & Technology",
-        "Business & Economy": "Business & Economy",
-        "Law & Politics": "Law & Politics",
-        "Sports & Leisure": "Sports & Leisure",
-        "Emotions & Relationships": "Emotions & Relationships",
-        "Other / Abstract": "Other / Abstract",
-    }
-    cands = [v for k, v in pack.items()
-             if k.split("|")[0].lower() == (text or "").lower()]
-    gl = (gloss or "").lower()
-    for entry in cands:
-        guideword = (entry.get("guideword") or "").lower().replace("_", " ")
-        domain = entry.get("domain", "Other / Abstract")
-        if domain == "Other / Abstract":
-            continue
-        if guideword and re.search(r"\b" + re.escape(guideword) + r"\b", gl):
-            if migrate.get(domain):
-                return migrate[domain]
-    return "Other / Abstract"
+def is_fa_dominant(fa_meaning, fa_explanation):
+    """R7: pass iff Persian-script chars outnumber Latin-script chars."""
+    combined = "%s\n%s" % (fa_meaning or "", fa_explanation or "")
+    return len(_FA_RX.findall(combined)) > len(_LATIN_RX.findall(combined))
 
 
-def assign_topic(text, gloss, lookup=None):
-    """R5: topic label via the v16 deterministic leg, reused by import.
+def headword_leak_tokens(text, kind):
+    """R7: Latin tokens that must not leak into the FA fields."""
+    lowered = (text or "").strip().lower()
+    if (kind or "word") == "phrase":
+        return [t for t in re.findall(r"[a-z']+", lowered) if len(t) >= 3]
+    return [lowered] if lowered else []
 
-    Owner module run_v16_topics.evp_fallback_label is importable and hermetic;
-    the v16/v16b LLM batch legs need keys and are not used here. Returns
-    {"label", "method"} with method tag "v16-prototype".
-    (topic_prototypes-v16b.json does not exist on disk — W: fixtures listing
-    checked 2026-09-04; only topic_labels/vectors-v16b.json exist there.)
+
+def headword_leak_scan(text, kind, card):
+    """R7: case-insensitive headword leak check over fa_meaning+fa_explanation.
+
+    Rationale: front-of-card study prompting must not leak the answer —
+    the Persian side must cue recall, not restate the Latin headword.
+    """
+    fa = "%s\n%s" % (card.get("fa_meaning") or "",
+                     card.get("fa_explanation") or "")
+    fa_low = fa.lower()
+    return [t for t in headword_leak_tokens(text, kind) if t and t in fa_low]
+
+
+COMPLETION_FIELDS = ("fa_meaning", "fa_explanation", "synonyms", "antonyms",
+                     "examples", "example_translations", "grammar_tip",
+                     "phonetic")
+
+
+def build_completion_flags(card):
+    """R8: gap-fill record {fields_filled[], sense_review, nothing_to_complete}."""
+    filled = [k for k in COMPLETION_FIELDS if card.get(k)]
+    return {"fields_filled": filled, "sense_review": True,
+            "nothing_to_complete": len(filled) == len(COMPLETION_FIELDS)}
+
+
+def similarity_note(en_def, model_d):
+    """R8: informational difflib ratio between dataset en_def and model "d"."""
+    a, b = (en_def or "").strip().lower(), (model_d or "").strip().lower()
+    if not a or not b:
+        return 0.0
+    return round(difflib.SequenceMatcher(None, a, b).ratio(), 3)
+
+
+def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
+                 progress_path=None, api_key=None, model_calls=None):
+    """R6: topic via the exact v16b path, reused by import. Method "v16b-exact".
+
+    Leg 1 (deterministic v16): run_v16_topics.evp_fallback_label by import.
+    Leg 2 (v16b LLM top-up for Others): run_v16b_topup prompt + validation +
+    same free model chain, resume file pilot_topic_progress.json (separate
+    from the v16b originals). Hermetic when lookup/llm_transport injected;
+    without an LLM transport an Other stays Other (no network in tests).
+    Returns {"label", "method"} with method tag "v16b-exact".
     """
     if lookup is None:
         try:
@@ -312,9 +448,55 @@ def assign_topic(text, gloss, lookup=None):
             label = lookup(text, gloss or "")
         except Exception:
             label = None
-    if not label:
-        label = _evp_minimal_fallback(text, gloss)
-    return {"label": label or "Other / Abstract", "method": TOPIC_METHOD_TAG}
+    if label:
+        return {"label": label, "method": TOPIC_METHOD_TAG}
+    # Leg 2 — v16b top-up for Others, by import (no substitute heuristics).
+    try:
+        from run_v16b_topup import (MODELS as _TOPUP_MODELS,
+                                    USER_TMPL as _TOPUP_TMPL,
+                                    validate_senses as _topup_validate)
+        from run_v16b_topup import lemma_block as _topup_block
+    except Exception:
+        return {"label": "Other / Abstract", "method": TOPIC_METHOD_TAG}
+    sid = sense_id or ("%s#0" % ((text or "").strip().lower()))
+    prog_path = pathlib.Path(progress_path) if progress_path else None
+    cache = {}
+    if prog_path is not None and prog_path.exists():
+        try:
+            cache = json.loads(prog_path.read_text(encoding="utf-8"))
+        except Exception:
+            cache = {}
+    cache_key = "%s\t%s" % (text, gloss or "")
+    if isinstance(cache, dict) and cache_key in cache:
+        return {"label": cache[cache_key], "method": TOPIC_METHOD_TAG}
+    if llm_transport is None:
+        return {"label": "Other / Abstract", "method": TOPIC_METHOD_TAG}
+    user_text = _TOPUP_TMPL + _topup_block(
+        text, [{"sense_id": sid, "gloss": gloss or ""}])
+    from llm_json import extract_json as _extract
+    for model in _TOPUP_MODELS:
+        if model_calls is not None:
+            model_calls[model] = model_calls.get(model, 0) + 1
+        try:
+            raw = llm_transport(api_key, model, user_text)
+            data = _extract(raw)
+        except Exception:
+            continue
+        by_lemma = {x.get("lemma"): x for x in (data.get("results") or [])
+                    if isinstance(x, dict)}
+        items = (by_lemma.get(text) or {}).get("senses")
+        ok, normed = _topup_validate(items, [sid])
+        if ok and normed:
+            found = normed[0].get("topic_label") or "Other / Abstract"
+            if isinstance(cache, dict) and prog_path is not None:
+                try:
+                    cache[cache_key] = found
+                    prog_path.write_text(json.dumps(cache, ensure_ascii=False),
+                                         encoding="utf-8")
+                except Exception:
+                    pass
+            return {"label": found, "method": TOPIC_METHOD_TAG}
+    return {"label": "Other / Abstract", "method": TOPIC_METHOD_TAG}
 
 
 def compute_quotas(n, levels=LEVEL_ORDER, extras=QUOTA_EXTRAS_ORDER):
@@ -409,13 +591,16 @@ def build_prompts(item):
 
     The shared builder output is used verbatim (never forked); the pilot only
     appends user-side context: meta-leak ban (R2), dataset en_def + preserve
-    instruction with the compact "d" key (R1), phrase literal_fa grounding (R3).
+    instruction with the compact "d" key (R1/R6 anchor), phrase literal_fa
+    grounding (R3), fa-dominant + headword-leak bans (R7), gap-fill +
+    sense-review (R8).
     """
     bot_level = CEFR_TO_BOT_LEVEL[item["pool_level"]]
     system = card_prompts.custom_word_system_prompt(
         "en", bot_level, compact=card_prompts.card_output_is_compact())
     user = item["text"]
-    extras = [META_LEAK_BAN]
+    extras = [META_LEAK_BAN, FA_DOMINANT_RULE, HEADWORD_LEAK_RULE,
+              GAPFILL_INSTRUCTION]
     en_def = (item.get("en_def") or "").strip()
     if en_def:
         extras.append("Dictionary definition (preserve, do not contradict): "
@@ -475,9 +660,11 @@ def generate_card(item, api_key, transport=None, model_calls=None,
     """Generate + validate one card. Failures recorded, never raised.
 
     Only auth failures (401/403 via AuthError) propagate to abort loudly.
-    R2: a validated card that leaks level/audience wording is regenerated
-    once (the next attempt); a second leak is recorded valid=False
-    reason=meta-leak. Pilot passthroughs ("d", "literal_fa") are read from
+    R2/R7: a validated card that leaks level wording, fails fa-dominant, or
+    leaks the Latin headword into the FA fields is regenerated once (the
+    next attempt); a second violation is recorded valid=False. R8: gap-fill
+    completion flags + informational similarity note recorded per card (no
+    similarity regen). Pilot passthroughs ("d", "literal_fa") are read from
     the raw model JSON before validation (the validator ignores them).
     """
     transport = transport or call_responses
@@ -486,6 +673,7 @@ def generate_card(item, api_key, transport=None, model_calls=None,
     system, user, bot_level = build_prompts(item)
     record = {"key": item_key(item), "kind": item["kind"], "text": item["text"],
               "pool_level": item["pool_level"], "bot_level": bot_level,
+              "sense_id": item.get("sense_id", ""),
               "en_def": item.get("en_def", ""),
               "en_source": "dataset" if item.get("en_def") else "none",
               "topic": item.get("topic", ""),
@@ -493,7 +681,9 @@ def generate_card(item, api_key, transport=None, model_calls=None,
               "proper_noun": item.get("proper_noun"),
               "model_used": "", "card": None, "valid": False,
               "reason": "", "error": "", "model_d": "", "literal_fa": "",
-              "leaks": [], "regen": False}
+              "leaks": [], "regen": False, "completion_flags": {},
+              "similarity_note": 0.0, "fa_dominant": None,
+              "headword_leaks": []}
     last_error = ""
     regen_used = False
     for model in MODELS:
@@ -520,23 +710,44 @@ def generate_card(item, api_key, transport=None, model_calls=None,
                     if isinstance(obj, dict) else ""
                 literal_fa = obj.get(LITERAL_FA_KEY) \
                     if isinstance(obj, dict) else ""
-                if leaks and not regen_used:
+                fa_ok = is_fa_dominant(card.get("fa_meaning", ""),
+                                       card.get("fa_explanation", ""))
+                hw_leaks = headword_leak_scan(item["text"], item["kind"],
+                                              card)
+                flags = build_completion_flags(card)
+                sim = similarity_note(item.get("en_def", ""),
+                                      model_d if isinstance(model_d, str)
+                                      else "")
+                violation = ""
+                if leaks:
+                    violation = "meta-leak: %s" % (
+                        ", ".join(sorted(set(leaks)))[:200])
+                elif not fa_ok:
+                    violation = "fa-dominant"
+                elif hw_leaks:
+                    violation = "headword-leak: %s" % (
+                        ", ".join(hw_leaks)[:200])
+                if violation and not regen_used:
                     regen_used = True
                     record["regen"] = True
-                    last_error = "meta-leak: %s" % (
-                        ", ".join(sorted(set(leaks)))[:200])
-                    continue  # the single regeneration
-                if leaks:
-                    record["error"] = last_error = "meta-leak: %s" % (
-                        ", ".join(sorted(set(leaks)))[:200])
+                    last_error = violation
+                    continue  # the single R2/R7 regeneration
+                if violation:
+                    record["error"] = last_error = violation
                     record["reason"] = last_error
                     record["leaks"] = sorted(set(leaks))
+                    record["fa_dominant"] = bool(fa_ok)
+                    record["headword_leaks"] = hw_leaks
+                    record["completion_flags"] = flags
+                    record["similarity_note"] = sim
                     return record
                 record.update(model_used=model, card=card, valid=True,
                               model_d=model_d if isinstance(model_d, str)
                               else "",
                               literal_fa=literal_fa
-                              if isinstance(literal_fa, str) else "")
+                              if isinstance(literal_fa, str) else "",
+                              completion_flags=flags, similarity_note=sim,
+                              fa_dominant=True, headword_leaks=[])
                 return record
             last_error = "validation: %s" % reason
         # next model after exhausting attempts
@@ -645,18 +856,35 @@ def render_gallery(cards, meta):
         ipa = esc(phon.get("ipa", "") if isinstance(phon, dict) else phon)
         raw_json = esc(json.dumps(card, ensure_ascii=False) if card else "")
         topic = rec.get("topic") or ""
-        topic_html = ("<p>موضوع: <span class=\"chip\">%s</span></p>"
-                      % esc(topic)) if topic else ""
+        method = rec.get("topic_method") or TOPIC_METHOD_TAG
+        topic_html = ("<p>موضوع: <span class=\"chip\">%s</span> "
+                      "<span class=\"en\">(%s)</span></p>"
+                      % (esc(topic), esc(method))) if topic else ""
+        sense_id = (rec.get("sense_id") or "").strip()
         en_def = (rec.get("en_def") or "").strip()
         model_d = (rec.get("model_d") or "").strip()
-        if en_def or model_d:
-            en_html = "<p><b>تعریف انگلیسی (واژه‌نامه، dataset):</b> %s</p>" \
-                % (esc(en_def) if en_def else "—")
+        if sense_id or en_def or model_d:
+            en_html = "<p><b>لنگر معنایی (sense anchor):</b> " \
+                "<span class=\"en\">%s</span> ـ %s</p>" \
+                % (esc(sense_id) if sense_id else "—",
+                   esc(en_def) if en_def else "—")
             if model_d:
                 en_html += "<p><b>تکمیل مدل (model-completed):</b> " \
                     "<span class=\"en\">%s</span></p>" % esc(model_d)
+            sim = rec.get("similarity_note")
+            if isinstance(sim, float):
+                en_html += "<p>شباهت تعریف (informational): " \
+                    "<span class=\"en\">%.3f</span></p>" % sim
         else:
             en_html = ""
+        flags = rec.get("completion_flags") or {}
+        if flags:
+            filled = ", ".join("<span class=\"en\">%s</span>" % esc(f)
+                               for f in flags.get("fields_filled", [])) or "—"
+            en_html += "<p><b>تکمیل شکاف + بازبینی معنایی:</b> پرشده: %s ـ " \
+                "بازبینی: %s ـ بدون‌کار: %s</p>" \
+                % (filled, esc(flags.get("sense_review")),
+                   esc(flags.get("nothing_to_complete")))
         literal_fa = (rec.get("literal_fa") or "").strip()
         literal_html = ("<p><b>معنی تحت‌اللفظی:</b> %s</p>" % esc(literal_fa)) \
             if rec.get("kind") == "phrase" and literal_fa else ""
@@ -707,8 +935,8 @@ def render_gallery(cards, meta):
         "<p>تاریخ تهران: %s ـ commit: <span class=\"en\">%s</span></p>\n"
         "<p>کارت‌ها: %d ـ تأییدشده: %d ـ نرخ قبولی: %.1f%%</p>\n"
         "<p>فراخوانی مدل‌ها: %s ـ هزینه مورد انتظار: $0 (زنجیره رایگان)</p>\n"
-        "<p>روش موضوع: v16-prototype ـ برچسب قطعی evp از run_v16_topics "
-        "(بدون فراخوانی مدل).</p>\n"
+        "<p>روش موضوع: v16b-exact ـ مسیر دقیق v16b (قطعی v16 از "
+        "run_v16_topics + تکمیل Others از run_v16b_topup).</p>\n"
         "%s\n"
         "%s\n</body>\n</html>"
         % (esc(meta.get("date_tehran", "")), esc(meta.get("commit", "")),
@@ -771,26 +999,29 @@ def main(argv=None):
                                  row["length"])
 
     gloss_start = time.perf_counter()
-    for item in sample:  # R1 en_def + R5 topic enrichment (deterministic)
-        if not item.get("en_def"):
-            if item["kind"] == "word":
-                item["en_def"] = resolve_word_en_def(
-                    index.get(item["text"].strip().lower(), []),
-                    item.get("pos", ""), read_entry)
-            else:
-                item["en_def"] = resolve_phrase_en_def(
-                    index, item["text"], read_entry)
+    sys.path.insert(0, str(FACTORY_DIR))
+    from env_loader import load_factory_env
+    _env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
+    _topic_key = _env.get("OPENCODE_ZEN_API_KEY", "")
+    from run_v16b_topup import call_responses as _topup_transport
+    topic_calls = {}
+    topic_prog = out_dir / PILOT_TOPIC_PROGRESS
+    for item in sample:  # R6 anchor + v16b-exact topic enrichment
+        if not item.get("en_def") or not item.get("sense_id"):
+            anchor_item_en(item, index, read_entry)
         if not item.get("topic"):
-            assigned = assign_topic(item["text"], item.get("en_def", ""))
+            assigned = assign_topic(
+                item["text"], item.get("en_def", ""),
+                sense_id=item.get("sense_id") or None,
+                llm_transport=_topup_transport, progress_path=topic_prog,
+                api_key=_topic_key, model_calls=topic_calls)
             item["topic"] = assigned["label"]
             item["topic_method"] = assigned["method"]
     sample_path.write_text(json.dumps(sample, ensure_ascii=False),
                            encoding="utf-8")
     gloss_s = time.perf_counter() - gloss_start
 
-    sys.path.insert(0, str(FACTORY_DIR))
-    from env_loader import load_factory_env
-    env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
+    env = _env
     api_key = env["OPENCODE_ZEN_API_KEY"]
     if not api_key:
         sys.exit("no OPENCODE_ZEN_API_KEY in factory/.env")

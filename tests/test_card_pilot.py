@@ -14,20 +14,26 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "factory"))
 import card_pilot
 from card_pilot import (
+    anchor_item_en,
     assign_topic,
+    build_completion_flags,
     build_prompts,
     build_timings,
     compute_quotas,
     generate_card,
+    headword_leak_scan,
+    is_fa_dominant,
     is_proper_noun_lemma,
     load_cards_jsonl,
     main,
     meta_leak_scan,
+    pick_anchor_sense,
     render_gallery,
     resolve_phrase_en_def,
     resolve_word_en_def,
     sample_phrases,
     sample_words,
+    similarity_note,
     validate_card_obj,
 )
 from llm_json import AuthError
@@ -275,18 +281,178 @@ def test_timings_payload_keys():
     html_out = render_gallery(
         [{"key": "w:a", "kind": "word", "text": "apple", "pool_level": "A1",
           "bot_level": "beginner", "model_used": "m1", "en_def": "a fruit",
+          "sense_id": "apple#1",
           "en_source": "dataset", "topic": "Food & Drink",
-          "topic_method": "v16-prototype", "model_d": "", "literal_fa": None,
+          "topic_method": "v16b-exact", "model_d": "", "literal_fa": None,
           "proper_noun": None,
+          "completion_flags": {"fields_filled": ["fa_meaning"],
+                               "sense_review": True,
+                               "nothing_to_complete": False},
+          "similarity_note": 0.0,
           "card": dict(VALID_CARD, word="apple"), "valid": True,
           "reason": "", "error": ""}],
         {"date_tehran": "d", "commit": "c", "model_calls": {"m1": 1},
          "timings": timings})
     assert "a fruit" in html_out  # en_def with source tag
     assert "Food &amp; Drink" in html_out  # topic chip
-    assert "v16-prototype" in html_out  # one-line method note
+    assert "v16b-exact" in html_out  # one-line method note
     assert "gloss_resolve" in html_out  # timings table
+    assert "apple#1" in html_out  # R6 sense anchor block
+    assert "fields_filled" in html_out or "تکمیل شکاف" in html_out
 
     topic = assign_topic("apple", "a fruit",
                          lookup=lambda text, gloss: "Food & Drink")
-    assert topic == {"label": "Food & Drink", "method": "v16-prototype"}
+    assert topic == {"label": "Food & Drink", "method": "v16b-exact"}
+
+
+def test_anchor_prefers_higher_scored_sense_over_first_gloss():
+    # First gloss is an alt-form stub (v14 penalty 0.50); the clean second
+    # sense must win even though it is not first.
+    def read_entry(row):
+        return row["entry"]
+
+    entries = [
+        {"pos": "noun", "entry": {"pos": "noun", "senses": [
+            {"glosses": ["Alternative spelling of xyz"], "tags": []}]}},
+        {"pos": "noun", "entry": {"pos": "noun", "senses": [
+            {"glosses": ["able to recover quickly"], "tags": []}]}},
+    ]
+    assert resolve_word_en_def(entries, "noun", read_entry) == \
+        "able to recover quickly"
+    sid, gloss = pick_anchor_sense("resilient", entries, "noun", read_entry)
+    assert gloss == "able to recover quickly"
+    assert sid == "resilient#1"
+    # Slang tag (0.60) also loses to a clean sense.
+    slang = [{"pos": "noun", "entry": {"pos": "noun", "senses": [
+        {"glosses": ["first slang gloss"], "tags": ["slang"]},
+        {"glosses": ["clean second gloss"], "tags": []}]}}]
+    assert resolve_word_en_def(slang, "noun", read_entry) == \
+        "clean second gloss"
+
+
+def test_fa_dominant_pass_fail():
+    assert is_fa_dominant("تاب‌آور",
+                          "کسی که پس از سختی برمی‌گردد.") is True
+    assert is_fa_dominant("resilient meaning", "explanation here") is False
+    assert is_fa_dominant("", "") is False
+
+
+def test_headword_leak_detect():
+    leaking = dict(VALID_CARD, fa_explanation="resilient بودن یعنی تاب‌آوری")
+    assert headword_leak_scan("resilient", "word", leaking) == ["resilient"]
+    clean = dict(VALID_CARD)
+    assert headword_leak_scan("resilient", "word", clean) == []
+    # Phrases: any component token len>=3 leaks; short tokens ignored.
+    phrase_leak = dict(VALID_CARD, fa_meaning="give یعنی دادن")
+    assert "give" in headword_leak_scan("give up", "phrase", phrase_leak)
+    assert headword_leak_scan("give up", "phrase", clean) == []
+    assert "on" not in headword_leak_scan("go on", "phrase",
+                                          dict(VALID_CARD,
+                                               fa_meaning="on یعنی روشن"))
+
+    # R7 prompt rules present + violation -> 1 regen then valid=False.
+    item = {"kind": "word", "text": "resilient", "pool_level": "B2"}
+    _, user, _ = build_prompts(item)
+    assert "Persian-script" in user
+    assert "headword" in user.lower()
+
+    def fa_fail(api_key, model, system, user):
+        return json.dumps(dict(VALID_CARD, fa_meaning="resilient",
+                               fa_explanation="plain english explanation"))
+
+    rec = generate_card(item, "key", transport=fa_fail, model_calls={})
+    assert rec["valid"] is False
+    assert rec["reason"] == "fa-dominant" or "headword-leak" in rec["reason"] \
+        or rec["reason"] == "fa-dominant"
+
+    states = [dict(VALID_CARD, fa_meaning="resilient",
+                   fa_explanation="english"),
+              dict(VALID_CARD)]
+    states_rev = list(reversed(states))
+
+    def once_bad(api_key, model, system, user):
+        return json.dumps(states_rev.pop())
+
+    rec = generate_card(
+        {"kind": "word", "text": "qqq", "pool_level": "A1"}, "key",
+        transport=once_bad, model_calls={})
+    assert rec["valid"] is True
+    assert rec["regen"] is True
+
+
+def test_gapfill_flags_and_similarity_note():
+    _, user, _ = build_prompts({"kind": "word", "text": "x",
+                                "pool_level": "A1",
+                                "en_def": "able to recover quickly"})
+    assert "Fill ONLY empty/missing fields" in user
+    assert "do NOT restate the given en_def" in user
+    assert "REVIEW synonyms/antonyms/examples" in user
+    flags = build_completion_flags(VALID_CARD)
+    assert flags["sense_review"] is True
+    assert "fa_meaning" in flags["fields_filled"]
+    assert isinstance(flags["nothing_to_complete"], bool)
+    assert similarity_note("able to recover quickly",
+                           "able to recover quickly") == 1.0
+    assert 0.0 <= similarity_note("able to recover quickly",
+                                  "something else") <= 1.0
+
+    item = {"kind": "word", "text": "resilient", "pool_level": "B2",
+            "en_def": "able to recover quickly", "sense_id": "resilient#1"}
+
+    def transport(api_key, model, system, user):
+        return json.dumps(dict(COMPACT_CARD))
+
+    rec = generate_card(item, "key", transport=transport, model_calls={})
+    assert rec["valid"] is True
+    assert rec["completion_flags"]["sense_review"] is True
+    assert rec["completion_flags"]["fields_filled"]
+    assert isinstance(rec["similarity_note"], float)
+    assert rec["sense_id"] == "resilient#1"
+
+
+def test_topic_v16b_exact_topup_leg_mocked(tmp_path):
+    # Deterministic leg hit -> v16b-exact tag, no LLM.
+    hit = assign_topic("apple", "a fruit",
+                       lookup=lambda t, g: "Food & Drink")
+    assert hit == {"label": "Food & Drink", "method": "v16b-exact"}
+    # Other -> LLM top-up leg by import (mocked transport), resume separate.
+    prog = tmp_path / "pilot_topic_progress.json"
+
+    def llm_transport(api_key, model, user_text):
+        return json.dumps({"results": [
+            {"lemma": "zebra",
+             "senses": [{"sense_id": "zebra#0", "topic_id": 9,
+                         "topic_label": "Animals & Living Beings",
+                         "confidence": 0.9,
+                         "vector": [{"topic_id": 9,
+                                     "topic_label": "Animals & Living Beings",
+                                     "weight": 1.0}]}]}]})
+
+    relabeled = assign_topic("zebra", "an animal", sense_id="zebra#0",
+                             lookup=lambda t, g: None,
+                             llm_transport=llm_transport,
+                             progress_path=prog, api_key="k",
+                             model_calls={})
+    assert relabeled == {"label": "Animals & Living Beings",
+                         "method": "v16b-exact"}
+    assert prog.exists()  # pilot resume separate from v16b originals
+    # No transport -> Other stays Other, still tagged v16b-exact.
+    other = assign_topic("zebra", "an animal",
+                         lookup=lambda t, g: None)
+    assert other == {"label": "Other / Abstract", "method": "v16b-exact"}
+
+
+def test_anchor_item_sets_sense_id_and_en_def():
+    def read_entry(row):
+        return row["entry"]
+
+    item = {"kind": "word", "text": "Bank", "pos": "noun"}
+    index = {"bank": [
+        {"pos": "noun", "entry": {"pos": "noun", "senses": [
+            {"glosses": ["Alternative spelling of xyz"], "tags": []}]}},
+        {"pos": "noun", "entry": {"pos": "noun", "senses": [
+            {"glosses": ["a financial institution"], "tags": []}]}},
+    ]}
+    anchor_item_en(item, index, read_entry)
+    assert item["en_def"] == "a financial institution"
+    assert item["sense_id"] == "bank#1"
