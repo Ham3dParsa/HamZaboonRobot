@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+import sys
 
 try:  # Optional dependency — import-cleanly without psutil (fallback below).
     import psutil  # type: ignore
@@ -36,8 +37,8 @@ def rss_bytes() -> int:
 
     Fallback chain (documented): ``psutil.Process().memory_info().rss`` →
     ``resource.getrusage(RUSAGE_SELF).ru_maxrss`` scaled to bytes (Linux
-    reports KiB, macOS reports bytes — handled by magnitude sniffing) →
-    ``0`` when neither source is available.
+    reports KiB, macOS reports bytes — handled by an explicit
+    ``sys.platform`` branch) → ``0`` when neither source is available.
     """
     if psutil is not None:
         try:
@@ -50,11 +51,11 @@ def rss_bytes() -> int:
         maxrss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         if maxrss <= 0:
             return 0
-        # Linux reports KiB; macOS reports bytes. Values under 1 GiB in raw
-        # units are almost certainly KiB (a sub-MiB RSS is implausible here).
-        if maxrss < 1024 * 1024:
-            return int(maxrss * 1024)
-        return int(maxrss)
+        # Explicit platform branch: Linux ru_maxrss is KiB, macOS is
+        # bytes. (Magnitude sniffing mis-scaled Linux RSS above 1 GiB.)
+        if sys.platform == "darwin":
+            return int(maxrss)
+        return int(maxrss * 1024)
     except Exception:
         return 0
 
@@ -63,8 +64,12 @@ def db_file_sizes(path: str) -> tuple[int, int]:
     """Return ``(db_bytes, wal_bytes)`` for the SQLite file at ``path``.
 
     Only ``os.stat`` I/O. A missing/unreadable file (or its ``-wal``
-    sidecar) reports ``0`` for that slot.
+    sidecar) reports ``0`` for that slot. ``None``/non-str/empty paths
+    (e.g. an unset ``db_path``) report ``(0, 0)`` instead of raising
+    ``TypeError``.
     """
+    if not isinstance(path, str) or not path:
+        return (0, 0)
     try:
         db_bytes = int(os.stat(path).st_size)
     except OSError:

@@ -258,6 +258,32 @@ async def _with_db_retry(fn, counters: dict, attempts: int = 3):
     raise RuntimeError("load_sim db retry called with attempts=0")
 
 
+async def _with_db_retry_sync(op, counters: dict, attempts: int = 3):
+    """Retry a SYNC db op across SQLite locked/busy, counting busy retries.
+
+    Each attempt runs via ``asyncio.to_thread`` so concurrent journeys never
+    block the event loop on a contended SQLite file; counter bumps stay on
+    the loop thread (same ``db_busy_retries`` semantics as
+    :func:`_with_db_retry`). Non-locked ``OperationalError`` re-raises
+    immediately for the caller's own handling.
+    """
+    last = None
+    for attempt in range(attempts):
+        try:
+            return await asyncio.to_thread(op)
+        except sqlite3.OperationalError as exc:
+            text = str(exc).lower()
+            if "locked" in text or "busy" in text:
+                counters["db_busy_retries"] += 1
+                await asyncio.sleep(0.05 * (attempt + 1))
+                last = exc
+                continue
+            raise
+    if last is not None:
+        raise last
+    raise RuntimeError("load_sim db retry called with attempts=0")
+
+
 async def run_load(n, seed, db_path, bot_mock=None, ai_mock=None) -> dict:
     """Replay ``n`` synthetic users (seed ``seed``) against ``db_path``.
 
@@ -516,7 +542,8 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
 async def run_load_5k(
     n=2800,
     seed=0,
-    db_path=None,
+    *,
+    db_path,
     concurrency=_5K_MAX_CONCURRENCY,
     bot_mock=None,
     ai_mock=None,
@@ -552,6 +579,11 @@ async def run_load_5k(
     from services import db
     from services.db import schema as db_schema
 
+    if not isinstance(db_path, str) or not db_path:
+        raise ValueError(
+            "run_load_5k requires a db_path SQLite file string "
+            f"(got {db_path!r}); refusing to poison DB_PATH with None."
+        )
     prev_db = db.DB_PATH
     prev_schema = db_schema.DB_PATH
     prev_offline = bot._telegram_offline
@@ -654,7 +686,11 @@ async def _run_5k(n, seed, bot, db, bot_mock, ai_mock, db_path, concurrency) -> 
                 await _with_db_retry(_do_settings, counters)
             elif journey == "word_query":
                 word = f"loadword{_alpha_suffix(i)}"
-                before = _words_asked(db, user_id)
+
+                def _read_words_asked():
+                    return _words_asked(db, user_id)
+
+                before = await _with_db_retry_sync(_read_words_asked, counters)
                 update = _text_update(user_id, word)
                 ctx = _ctx_for(rng)
                 ctx.user_data["awaiting"] = "ask_word"
@@ -663,7 +699,7 @@ async def _run_5k(n, seed, bot, db, bot_mock, ai_mock, db_path, concurrency) -> 
                     await bot.text_router(update, ctx)
 
                 await _with_db_retry(_do_query, counters)
-                after = _words_asked(db, user_id)
+                after = await _with_db_retry_sync(_read_words_asked, counters)
                 if after - before > 1:
                     counters["quota_double_spend"] += 1
             elif journey in ("full_session", "partial"):
@@ -671,15 +707,24 @@ async def _run_5k(n, seed, bot, db, bot_mock, ai_mock, db_path, concurrency) -> 
                 word = f"gradeword{_alpha_suffix(i)}"
                 card = dict(CANNED_CARD)
                 card["word"] = word
-                db.add_saved_word(user_id, word, "en", card)
+                # Concurrent journeys contend on one SQLite file: every
+                # per-journey DB op below retries locked/busy via
+                # _with_db_retry(_sync) instead of failing the journey.
+                await _with_db_retry_sync(
+                    lambda: db.add_saved_word(user_id, word, "en", card),
+                    counters,
+                )
                 from services.db.schema import normalize_word
 
-                with db.get_conn() as conn:
-                    row = conn.execute(
-                        "SELECT id FROM saved_words "
-                        "WHERE user_id=? AND lang=? AND normalized_word=?",
-                        (user_id, "en", normalize_word(word)),
-                    ).fetchone()
+                def _lookup_card_id():
+                    with db.get_conn() as conn:
+                        return conn.execute(
+                            "SELECT id FROM saved_words "
+                            "WHERE user_id=? AND lang=? AND normalized_word=?",
+                            (user_id, "en", normalize_word(word)),
+                        ).fetchone()
+
+                row = await _with_db_retry_sync(_lookup_card_id, counters)
                 if row is None or row["id"] is None:
                     counters["card_lookup_miss"] += 1
                     logger.warning(
@@ -699,7 +744,12 @@ async def _run_5k(n, seed, bot, db, bot_mock, ai_mock, db_path, concurrency) -> 
 
                     await _with_db_retry(_do_grade, counters)
                     try:
-                        if db.is_word_graded(user_id, word_id, "first_exposure"):
+                        if await _with_db_retry_sync(
+                            lambda: db.is_word_graded(
+                                user_id, word_id, "first_exposure"
+                            ),
+                            counters,
+                        ):
                             counters["real_grades"] += 1
                     except sqlite3.Error:
                         counters["grade_check_failed"] += 1
@@ -728,8 +778,14 @@ async def _run_5k(n, seed, bot, db, bot_mock, ai_mock, db_path, concurrency) -> 
                             before_stability={},
                         )
                         ctx.user_data["current_session"] = state
-                        await advance_session(update, ctx)
-                        entries = list_recent_reports(user_id)
+
+                        async def _do_advance():
+                            await advance_session(update, ctx)
+
+                        await _with_db_retry(_do_advance, counters)
+                        entries = await _with_db_retry_sync(
+                            lambda: list_recent_reports(user_id), counters
+                        )
                         if not entries or all(
                             e.total != 1 for e in entries
                         ):
