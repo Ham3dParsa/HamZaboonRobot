@@ -3,31 +3,33 @@
 Migrate step: ``handle_admin_backup_callback`` owns the ``backup_restore``
 handling that used to be inline in the admin monolith's
 ``_handle_admin_callback``. ``cmd_backup`` / ``cmd_restore`` /
-``handle_restore_doc`` / ``_create_auto_backup`` / ``auto_backup_job`` and the
-``admin_restore`` / ``admin_archive_chat_id`` awaiting flows move here
-unchanged (route-delete rule: deleted from ``handlers/admin.py`` in the same
-change). Behavior is unchanged; the admin monolith delegates to this module.
+``handle_restore_doc`` / ``auto_backup_job`` and the ``admin_restore`` /
+``admin_archive_chat_id`` awaiting flows move here unchanged (route-delete
+rule: deleted from ``handlers/admin.py`` in the same change). Filesystem
+backup policy lives in ``services/archive.py::create_auto_backup``; this
+module keeps Telegram orchestration only. Behavior is unchanged except
+``test_archive`` success now clears a stale ``archive_last_error``; the admin
+monolith delegates to this module.
 """
 
 import asyncio
-import datetime
 import logging
-import os
-from pathlib import Path
 
 from telegram import Update
 from telegram.error import BadRequest, Forbidden
 from telegram.ext import ContextTypes
 
 from config import (
-    APP_TZ,
-    ARCHIVE_AUTO_BACKUP_RETENTION_DAYS,
-    ARCHIVE_BACKUP_DIR,
     DB_PATH,
     is_owner,
 )
 from services import db
-from services.archive import clear_archive_error, report_archive_error
+from services.archive import (
+    clear_archive_error,
+    create_auto_backup,
+    get_archive_error,
+    report_archive_error,
+)
 from services.send_pretty import RawFormat, say
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _edit_or_send, _store_awaiting_msg
@@ -36,7 +38,6 @@ from config.keyboards.admin import backup_restore_keyboard
 from config.keyboards import admin_awaiting_inline_keyboard
 
 logger = logging.getLogger(__name__)
-_app_timezone = APP_TZ
 
 __all__ = [
     "handle_admin_backup_callback",
@@ -44,7 +45,6 @@ __all__ = [
     "cmd_restore",
     "handle_restore_doc",
     "auto_backup_job",
-    "_create_auto_backup",
     "_handle_admin_restore",
     "_handle_admin_archive_chat_id",
     "register_backup_flows",
@@ -60,7 +60,7 @@ async def _show_backup_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if not validate_archive_chat_id(raw_arch):
             warning = f"\n⚠️ مقدار ذخیره‌شده نامعتبر است: {raw_arch}"
-            last_err = db.get_setting("archive_last_error", "")
+            last_err = get_archive_error()
             if last_err:
                 warning += f"\n({last_err})"
     await _edit_or_send(update, context, f"💾 پشتیبان & بازیابی\nآرشیو فعلی: {arch}{warning}", reply_markup=backup_restore_keyboard())
@@ -135,6 +135,7 @@ async def handle_admin_backup_callback(update: Update, context: ContextTypes.DEF
             report_archive_error(str(exc))
             await notify_callback(update.callback_query, f"خطا در بررسی: {exc}", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
+        clear_archive_error()
         await notify_callback(update.callback_query, "ربات ادمین است ✅" if ok else "ربات ادمین نیست ❌ — دسترسی ارسال ندارد", intent=CallbackNoticeIntent.INFO)
         return
     else:
@@ -214,31 +215,6 @@ async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 _AUTO_BACKUP_LOCK = asyncio.Lock()
 
-def _create_auto_backup() -> str | None:
-    if not db.get_bool_setting("auto_backup_enabled", True):
-        return None
-    base_dir = os.path.realpath(os.path.dirname(DB_PATH) or ".")
-    candidate = os.path.realpath(os.path.join(base_dir, ARCHIVE_BACKUP_DIR))
-    if candidate != base_dir and not candidate.startswith(base_dir + os.sep):
-        logger.warning("ARCHIVE_BACKUP_DIR=%r escapes DB dir; falling back to default", ARCHIVE_BACKUP_DIR)
-        candidate = os.path.join(base_dir, "backups")
-    backup_dir = candidate
-    os.makedirs(backup_dir, exist_ok=True)
-    timestamp = datetime.datetime.now(_app_timezone).strftime("%Y%m%d_%H%M%S")
-    backup_path = os.path.join(backup_dir, f"hamzaban_auto_{timestamp}.db")
-    Path(backup_path).write_bytes(db.export_db_bytes())
-    cutoff = datetime.datetime.now(_app_timezone).timestamp() - ARCHIVE_AUTO_BACKUP_RETENTION_DAYS * 86400
-    for fname in os.listdir(backup_dir):
-        fpath = os.path.join(backup_dir, fname)
-        if fname.startswith("hamzaban_auto_") and fname.endswith(".db"):
-            try:
-                if os.path.getmtime(fpath) < cutoff:
-                    os.remove(fpath)
-            except OSError:
-                pass
-    return backup_path
-
-
 async def auto_backup_job(context: ContextTypes.DEFAULT_TYPE):
     """Periodic auto-backup: save locally and push to archive group if configured."""
     # decoupled from OWNER_ID gate: run if resolved archive or OWNER_ID
@@ -250,7 +226,7 @@ async def auto_backup_job(context: ContextTypes.DEFAULT_TYPE):
         return
     async with _AUTO_BACKUP_LOCK:
         try:
-            backup_path = await asyncio.to_thread(_create_auto_backup)
+            backup_path = await asyncio.to_thread(create_auto_backup)
             if backup_path:
                 logger.info("Auto-backup saved: %s", backup_path)
             # push to archive/PV without quote

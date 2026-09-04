@@ -1,14 +1,22 @@
 """Archive backup service — deep module owner of backup caption/send/validation."""
 import datetime
 import io
-import re
 import logging
+import os
+import re
 import asyncio
 import subprocess
+from pathlib import Path
 
 from telegram import InputFile
 
-from config import ARCHIVE_CHAT_ID, APP_TZ
+from config import (
+    APP_TZ,
+    ARCHIVE_AUTO_BACKUP_RETENTION_DAYS,
+    ARCHIVE_BACKUP_DIR,
+    ARCHIVE_CHAT_ID,
+    DB_PATH,
+)
 from services import db
 from services.utils.helpers import _send_media_with_retry
 
@@ -38,6 +46,46 @@ def clear_archive_error() -> None:
         db.set_setting("archive_last_error", "")
     except Exception:
         logger.debug("failed to clear archive_last_error", exc_info=True)
+
+
+def get_archive_error() -> str:
+    """Read the persisted ``archive_last_error`` (single owner of the read)."""
+    try:
+        return db.get_setting("archive_last_error", "") or ""
+    except Exception:
+        logger.debug("failed to read archive_last_error", exc_info=True)
+        return ""
+
+
+def create_auto_backup() -> str | None:
+    """Write a timestamped local auto-backup and purge expired ones.
+
+    Filesystem backup policy (dir resolution + retention purge) owned here;
+    callers (``handlers.admin_backup.auto_backup_job``) keep orchestration
+    only. Returns the new backup path, or None when auto-backup is disabled.
+    """
+    if not db.get_bool_setting("auto_backup_enabled", True):
+        return None
+    base_dir = os.path.realpath(os.path.dirname(DB_PATH) or ".")
+    candidate = os.path.realpath(os.path.join(base_dir, ARCHIVE_BACKUP_DIR))
+    if candidate != base_dir and not candidate.startswith(base_dir + os.sep):
+        logger.warning("ARCHIVE_BACKUP_DIR=%r escapes DB dir; falling back to default", ARCHIVE_BACKUP_DIR)
+        candidate = os.path.join(base_dir, "backups")
+    backup_dir = candidate
+    os.makedirs(backup_dir, exist_ok=True)
+    timestamp = datetime.datetime.now(APP_TZ).strftime("%Y%m%d_%H%M%S")
+    backup_path = os.path.join(backup_dir, f"hamzaban_auto_{timestamp}.db")
+    Path(backup_path).write_bytes(db.export_db_bytes())
+    cutoff = datetime.datetime.now(APP_TZ).timestamp() - ARCHIVE_AUTO_BACKUP_RETENTION_DAYS * 86400
+    for fname in os.listdir(backup_dir):
+        fpath = os.path.join(backup_dir, fname)
+        if fname.startswith("hamzaban_auto_") and fname.endswith(".db"):
+            try:
+                if os.path.getmtime(fpath) < cutoff:
+                    os.remove(fpath)
+            except OSError:
+                pass
+    return backup_path
 
 
 def resolved_archive_chat_id() -> int | None:
