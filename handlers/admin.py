@@ -509,7 +509,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         await handle_admin_backup_callback(update, context, action)
         return
     elif action == "tts_cache":
-        from config import resolve_tts_cache_chat_id
+        from services.tts_service import resolve_tts_cache_chat_id
         cid = resolve_tts_cache_chat_id()
         cur = str(cid) if cid is not None else ""
         from config.keyboards.admin import tts_cache_keyboard
@@ -526,7 +526,7 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
         await _edit_or_send(update, context, "🗑 کش TTS غیرفعال شد.", reply_markup=tts_cache_keyboard(""))
         await notify_callback(update.callback_query, "پاک شد", intent=CallbackNoticeIntent.SUCCESS)
     elif action == "tts_cache:test":
-        from config import resolve_tts_cache_chat_id
+        from services.tts_service import resolve_tts_cache_chat_id
         cid = resolve_tts_cache_chat_id()
         if not cid:
             await notify_callback(update.callback_query, "کانال تنظیم نشده.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
@@ -723,7 +723,7 @@ def _register_admin_flows() -> None:
         await say(update, context, "✅ پیام حالت تعمیر ذخیره شد.", raw=RawFormat.PLAIN, keyboard=main_menu(is_owner(update.effective_user.id)), mode="send")
 
     async def _handle_admin_tts_cache(update, context, awaiting, text):
-        from config import validate_tts_cache_chat_id
+        from services.tts_service import validate_tts_cache_chat_id
         raw = (text or "").strip()
         if raw == "":
             # Explicit "" intentionally disables TTS cache channel and suppresses
