@@ -29,6 +29,7 @@ from services.ai import ai
 from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _store_awaiting_msg
+from services.utils.formatting import to_persian_digits
 from services.send_pretty import Backend, Message, RawFormat, bold, code, italic, plain, say
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
@@ -422,8 +423,11 @@ async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
     msg = Message()
     msg.add_line(plain("✏️ "), bold("ویرایش پیش‌تنظیم: " + str(preset_name)))
     msg.add_line(plain("انتخاب فیلد برای تغییر:"))
+    edits = context.user_data.get("preset_edits", {}).get(preset_name, {})
+    if edits:
+        msg.add_line(plain(f"{to_persian_digits(len(edits))} پیشنویس در انتظار ذخیره"))
 
-    await say(update, context, msg, backend=Backend.HTML, keyboard=ai_preset_edit_keyboard(preset_name, preset))
+    await say(update, context, msg, backend=Backend.HTML, keyboard=ai_preset_edit_keyboard(preset_name, preset, edits))
 
 
 async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, field_name: str):
@@ -536,7 +540,8 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
     msg = Message()
     msg.add_line(
         plain("✅ "), bold(FIELD_LABELS.get(field_name, field_name)),
-        plain(" برای پیش‌تنظیم "), bold(str(preset_name)), plain(" ثبت شد."),
+        plain(" برای پیش‌تنظیم "), bold(str(preset_name)),
+        plain(" به‌صورت پیشنویس ثبت شد، نیازمند ذخیره."),
     )
     await say(update, context, msg, backend=Backend.HTML)
     await _edit_ai_preset(update, context, preset_name)
