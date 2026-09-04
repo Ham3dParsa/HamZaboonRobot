@@ -1083,11 +1083,14 @@ class NetworkResilienceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result)
         reset_mock.assert_called_once()
 
-    async def test_send_voice_with_retry_calls_reset_on_success(self):
+    async def test_send_media_with_retry_calls_reset_on_success(self):
+        """Voice send via the unified core resets the connection-health latch (R3)."""
         bot_mock = MagicMock()
         bot_mock.send_voice = AsyncMock(return_value="ok")
         with patch.object(helpers, "_reset_telegram_cb") as reset_mock:
-            result = await helpers._send_voice_with_retry(bot_mock, 123, b"audio")
+            result = await helpers._send_media_with_retry(
+                bot_mock, 123, method="send_voice", media_kw="voice", media=b"audio"
+            )
         self.assertEqual(result, "ok")
         reset_mock.assert_called_once()
 
@@ -1123,18 +1126,24 @@ class NetworkResilienceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "ok")
         self.assertEqual(bot_mock.send_message.call_count, 2)
 
-    async def test_send_voice_with_retry_does_not_retry_on_timeout(self):
+    async def test_send_media_with_retry_does_not_retry_voice_on_timeout(self):
+        """Voice sends are non-idempotent: TimedOut raises after 1 attempt (R1)."""
         bot_mock = MagicMock()
         bot_mock.send_voice = AsyncMock(side_effect=TimedOut("timeout"))
         with self.assertRaises(TimedOut):
-            await helpers._send_voice_with_retry(bot_mock, 123, b"audio")
+            await helpers._send_media_with_retry(
+                bot_mock, 123, method="send_voice", media_kw="voice", media=b"audio"
+            )
         self.assertEqual(bot_mock.send_voice.call_count, 1)
 
-    async def test_send_voice_with_retry_retries_on_retry_after(self):
+    async def test_send_media_with_retry_retries_voice_on_retry_after(self):
+        """RetryAfter means Telegram explicitly rejected it: retrying is safe."""
         bot_mock = MagicMock()
         bot_mock.send_voice = AsyncMock(side_effect=[RetryAfter(1), "ok"])
         with patch.object(asyncio, "sleep", new=AsyncMock()):
-            result = await helpers._send_voice_with_retry(bot_mock, 123, b"audio")
+            result = await helpers._send_media_with_retry(
+                bot_mock, 123, method="send_voice", media_kw="voice", media=b"audio"
+            )
         self.assertEqual(result, "ok")
         self.assertEqual(bot_mock.send_voice.call_count, 2)
 
@@ -1185,6 +1194,17 @@ class NetworkResilienceTests(unittest.IsolatedAsyncioTestCase):
             await helpers._send_media_with_retry(
                 bot_mock, 123, method="ban_chat_member", media_kw=None, media="x"
             )
+
+    async def test_send_seam_owned_by_send_pretty(self):
+        """Phase-03 R2: the send retry/slot seam lives in services/send_pretty.py;
+        helpers.py only re-exports it for one PR (no parallel fallback)."""
+        from services import send_pretty
+
+        self.assertIs(helpers._send_media_with_retry, send_pretty._send_media_with_retry)
+        self.assertIs(helpers._telegram_slots, send_pretty._telegram_slots)
+        self.assertIs(helpers._capture_media_bytes, send_pretty._capture_media_bytes)
+        self.assertIs(helpers._SEND_METHOD_ALLOWLIST, send_pretty._SEND_METHOD_ALLOWLIST)
+        self.assertIs(helpers._rich_api_request, send_pretty._rich_api_request)
 
     async def test_edit_message_with_retry_calls_reset_on_success(self):
         bot_mock = MagicMock()

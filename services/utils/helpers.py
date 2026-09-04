@@ -1,16 +1,15 @@
 import asyncio
-import io
 import logging
 import math
 import os
 import re
 
-from telegram import InputFile, Update
+from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
 
-from config import OWNER_ID, TELEGRAM_MAX_CONCURRENCY, USER_ACTIVITY
+from config import OWNER_ID, USER_ACTIVITY
 from config.keyboards import main_menu, awaiting_inline_keyboard, BTN_CANCEL, BTN_BACK
 from services import db
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
@@ -94,17 +93,13 @@ def _user_activity_line(
         f"{outcome:<22s} │ {full_name or '—'}"
     )
 
-_telegram_slots = asyncio.Semaphore(TELEGRAM_MAX_CONCURRENCY)
-
-
-async def _rich_api_request(bot, method: str, payload: dict[str, object]):
-    """Slot-protected raw Bot API call for Rich Messages (keeps slot ownership in helpers).
-
-    Centralizes ``_telegram_slots`` so ``services/telegram_rich.py`` does not
-    directly reference the slot (wiring guard allows only helpers + send_pretty).
-    """
-    async with _telegram_slots:
-        return await bot.do_api_request(method, api_kwargs=payload, return_type=None)
+# NOTE (phase-03 retry seam move, R2): the Telegram send retry/slot seam
+# (_telegram_slots, _send_media_with_retry, _capture_media_bytes,
+# _SEND_METHOD_ALLOWLIST, _SEND_MEDIA_EXPECTED, _rich_api_request) is owned by
+# services/send_pretty.py and re-exported at the bottom of this module.
+# The edit/delete retry loops below still use the slot via a lazy import
+# (send_pretty imports them from here at top level, so a top-level import
+# back would cycle).
 _CANCEL_INPUTS = {
     "cancel",
     "back",
@@ -216,129 +211,6 @@ def _reset_telegram_cb():
     bot._consecutive_health_failures = 0
 
 
-def _capture_media_bytes(media, filename_hint: str | None = None) -> tuple[bytes | None, str | None, bool]:
-    """Extract re-creatable bytes + filename from InputFile/BytesIO for RetryAfter retries.
-
-    Returns (raw_bytes, filename, is_inputfile). raw_bytes is None when the
-    media cannot be captured (file-id/path callers — not retried via bytes).
-    Single source for both voice and document senders (R2).
-    """
-    filename: str | None = filename_hint
-    raw_bytes: bytes | None = None
-    is_inputfile = False
-    try:
-        if isinstance(media, InputFile):
-            is_inputfile = True
-            filename = getattr(media, "filename", None) or filename
-            content = getattr(media, "input_file_content", None)
-            if isinstance(content, (bytes, bytearray)):
-                raw_bytes = bytes(content)
-            elif hasattr(content, "getvalue"):
-                try:
-                    raw_bytes = content.getvalue()
-                except Exception:
-                    raw_bytes = None
-            elif hasattr(content, "read"):
-                try:
-                    try:
-                        content.seek(0)
-                    except Exception:
-                        pass
-                    raw_bytes = content.read()
-                    if isinstance(raw_bytes, bytearray):
-                        raw_bytes = bytes(raw_bytes)
-                except Exception:
-                    raw_bytes = None
-        elif hasattr(media, "getvalue"):
-            try:
-                raw_bytes = media.getvalue()
-            except Exception:
-                raw_bytes = None
-            if filename is None:
-                filename = getattr(media, "name", None)
-    except Exception:
-        pass
-    return raw_bytes, filename, is_inputfile
-
-
-# Allowlist for _send_media_with_retry dispatch — caller-controlled method
-# strings must never reach arbitrary Bot attributes (e.g. ban_chat_member).
-_SEND_METHOD_ALLOWLIST: tuple[str, ...] = ("send_message", "send_voice", "send_document")
-
-
-async def _send_media_with_retry(
-    bot,
-    chat_id: int,
-    *,
-    method: str,
-    media_kw: str | None = None,
-    media=None,
-    filename: str | None = None,
-    reset_telegram_cb: bool = True,
-    **kwargs,
-):
-    """Single retry core for all Telegram sends (R1).
-
-    Sends are non-idempotent: TimedOut/NetworkError are never retried — the
-    message may already be delivered and a retry would duplicate. Clamped
-    RetryAfter (30s) is the only retried error for sends. ``_telegram_slots``
-    is the shared concurrency limiter; long-term it should move to
-    services/telegram (documented here, move deferred to keep this phase
-    low-risk).
-    """
-    if method not in _SEND_METHOD_ALLOWLIST:
-        raise ValueError(f"unsupported send method: {method!r}")
-    if media_kw not in (None, "voice", "document"):
-        raise ValueError(f"unsupported media_kw: {media_kw!r}")
-    _EXPECTED = {"send_message": None, "send_voice": "voice", "send_document": "document"}
-    if _EXPECTED[method] != media_kw:
-        raise ValueError(f"media_kw/method mismatch: {media_kw!r} with {method!r}")
-    # Pre-capture bytes once so RetryAfter retries can rebuild InputFile
-    raw_bytes: bytes | None = None
-    fname: str | None = filename
-    is_inputfile = False
-    if media_kw is not None and media is not None:
-        raw_bytes, fname, is_inputfile = _capture_media_bytes(media, filename)
-    for attempt in range(3):
-        try:
-            async with _telegram_slots:
-                if media_kw is not None:
-                    to_send = media
-                    if raw_bytes is not None:
-                        if is_inputfile:
-                            to_send = InputFile(io.BytesIO(raw_bytes), filename=fname or ("voice.mp3" if media_kw == "voice" else "file.db"))
-                        else:
-                            if fname:
-                                to_send = InputFile(io.BytesIO(raw_bytes), filename=fname)
-                            else:
-                                to_send = io.BytesIO(raw_bytes)
-                    result = await getattr(bot, method)(chat_id=chat_id, **{media_kw: to_send}, **kwargs)
-                else:
-                    result = await getattr(bot, method)(chat_id=chat_id, text=media, **kwargs)
-                if reset_telegram_cb:
-                    _reset_telegram_cb()
-                return result
-        except Forbidden:
-            if chat_id > 0:
-                db.set_user_blocked(chat_id)
-            raise
-        except BadRequest:
-            raise
-        except RetryAfter as exc:
-            if attempt == 2:
-                raise
-            logger.warning(
-                "send RetryAfter %s attempt %s/3 chat_id=%s method=%s",
-                exc.retry_after, attempt + 1, chat_id, method,
-            )
-            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
-        except (TimedOut, NetworkError):
-            raise
-        except BaseException:
-            logger.exception("send failed chat_id=%s method=%s", chat_id, method)
-            raise
-
-
 async def _send_with_retry(
     bot,
     chat_id: int,
@@ -347,12 +219,21 @@ async def _send_with_retry(
     reset_telegram_cb: bool = True,
     **kwargs,
 ):
+    # Thin delegate to the send seam owner (services/send_pretty.py). Lazy:
+    # send_pretty imports the edit retry helpers from this module at top
+    # level, so a top-level import back would cycle.
+    from services.send_pretty import _send_media_with_retry
+
     return await _send_media_with_retry(
         bot, chat_id, method="send_message", media_kw=None, media=text, reset_telegram_cb=reset_telegram_cb, **kwargs
     )
 
 
 async def _edit_with_retry(query, text, **kwargs):
+    # Lazy: the slot lives in services/send_pretty.py (phase-03 R2); a
+    # top-level import back would cycle (send_pretty imports this module).
+    from services.send_pretty import _telegram_slots
+
     for attempt in range(3):
         try:
             async with _telegram_slots:
@@ -380,6 +261,10 @@ async def _edit_message_with_retry(
     (which target a stored ``message_id`` rather than the callback message)
     back onto the retry/slot seam.
     """
+    # Lazy: the slot lives in services/send_pretty.py (phase-03 R2); a
+    # top-level import back would cycle (send_pretty imports this module).
+    from services.send_pretty import _telegram_slots
+
     for attempt in range(3):
         try:
             async with _telegram_slots:
@@ -413,6 +298,10 @@ async def _edit_markup_with_retry(
     RT-B2: routes the handler ``context.bot.edit_message_reply_markup`` bypass
     sites back onto the retry/slot seam.
     """
+    # Lazy: the slot lives in services/send_pretty.py (phase-03 R2); a
+    # top-level import back would cycle (send_pretty imports this module).
+    from services.send_pretty import _telegram_slots
+
     for attempt in range(3):
         try:
             async with _telegram_slots:
@@ -441,6 +330,10 @@ async def _edit_markup_with_retry(
 
 
 async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
+    # Lazy: the slot lives in services/send_pretty.py (phase-03 R2); a
+    # top-level import back would cycle (send_pretty imports this module).
+    from services.send_pretty import _telegram_slots
+
     for attempt in range(3):
         try:
             async with _telegram_slots:
@@ -457,12 +350,6 @@ async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
             if attempt == 2:
                 raise
             await asyncio.sleep(_retry_sleep(attempt))
-
-
-async def _send_voice_with_retry(bot, chat_id: int, voice, **kwargs):
-    """Backward-compat wrapper — delegates to unified _send_media_with_retry (R1/R2)."""
-    filename = kwargs.pop("filename", None)
-    return await _send_media_with_retry(bot, chat_id, method="send_voice", media_kw="voice", media=voice, filename=filename, **kwargs)
 
 
 _ADMIN_PENDING_KEYS: tuple[str, ...] = (
@@ -560,7 +447,28 @@ async def _clear_awaiting_prompt(context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.exception("Failed to clear awaiting prompt")
 
 
-async def _send_document_with_retry(bot, chat_id: int, document, **kwargs):
-    """Backward-compat wrapper — delegates to unified _send_media_with_retry (R1/R2)."""
-    filename = kwargs.pop("filename", None)
-    return await _send_media_with_retry(bot, chat_id, method="send_document", media_kw="document", media=document, filename=filename, **kwargs)
+# ---------------------------------------------------------------------------
+# One-PR re-export shim (phase-03 retry seam move, R2).
+#
+# The Telegram send retry/slot seam is owned by services/send_pretty.py.
+# These names are re-exported here so existing importers (services/tts_service,
+# services/archive, bot.py health job, tests) keep working untouched; the next
+# cleanup PR retargets them to the owner and deletes this shim (route-delete).
+# New code MUST import from services.send_pretty directly.
+# ---------------------------------------------------------------------------
+_SEND_PRETTY_REEXPORTS = frozenset({
+    "_telegram_slots",
+    "_send_media_with_retry",
+    "_capture_media_bytes",
+    "_SEND_METHOD_ALLOWLIST",
+    "_SEND_MEDIA_EXPECTED",
+    "_rich_api_request",
+})
+
+
+def __getattr__(name: str):
+    if name in _SEND_PRETTY_REEXPORTS:
+        from services import send_pretty
+
+        return getattr(send_pretty, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

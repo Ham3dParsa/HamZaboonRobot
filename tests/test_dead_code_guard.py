@@ -277,6 +277,16 @@ BANNED_SYMBOLS: dict[str, str] = {
         "removed by #390 always-on pronunciation (owner, 2026-08-19): admin phonetics "
         "status text retired"
     ),
+    "_send_voice_with_retry": (
+        "removed by phase-03 retry seam move (R1): dead backward-compat wrapper "
+        "with zero production callers; voice sends go through the unified "
+        "_send_media_with_retry core owned by services/send_pretty.py"
+    ),
+    "_send_document_with_retry": (
+        "removed by phase-03 retry seam move (R1): dead backward-compat wrapper "
+        "with zero production callers; document sends go through the unified "
+        "_send_media_with_retry core owned by services/send_pretty.py"
+    ),
 }
 
 # Symbols that are intentionally retained even though they are no longer
