@@ -34,7 +34,6 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from registry import normalize_lemma, normalize_pos  # noqa: E402  (single source)
 from sample_lemmas import LEVEL_ORDER, LEVEL_RANK, classify, load_pack  # noqa: E402
-from wordfreq import zipf_frequency  # noqa: E402  (sampler's own fallback)
 
 VOWELS = frozenset("aeiouAEIOU")
 SAMPLE_N = 20
@@ -222,6 +221,12 @@ def vowelless_audit(index_path: str, pack_data: dict, lang: str) -> dict:
             if level is None:
                 continue
             out["kept_levels"][level] += 1
+            # Lazy wordfreq (same convention as sampler): CI/bot envs may not
+            # have it installed; missing library means no frequent-list.
+            try:
+                from wordfreq import zipf_frequency
+            except ImportError:
+                continue
             z = zipf_frequency(norm, lang)
             if z >= FREQUENT_ZIPF:
                 frequent_all.append((norm, level, round(z, 2)))
