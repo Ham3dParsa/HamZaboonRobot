@@ -89,7 +89,10 @@ def create_auto_backup() -> str | None:
                 if not os.path.isfile(real):
                     continue
                 if os.path.getmtime(real) < cutoff:
-                    os.remove(real)
+                    # Remove the directory entry, not the resolved target:
+                    # for an inside->inside symlink this drops the link
+                    # instead of unlinking the target file.
+                    os.remove(fpath)
             except OSError:
                 pass
     return backup_path
