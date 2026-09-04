@@ -1,9 +1,9 @@
-"""R1: plan picker shows current vs new (text/emoji marker, no PTB style).
+"""R1: plan picker shows current vs new (text/emoji marker, style unused).
 
 Covers: picker prompt contains the current plan name; the current-plan button
 is marked (✅ + «فعلی»); the confirm text contains old→new (از…به); and the
-no-``style`` fallback (InlineKeyboardButton has no style param on the pinned
-PTB line, so marking is text-only and never breaks).
+text-only marking guarantee (our builder never sets PTB ``style`` — styled
+buttons need Feb-2026+ clients, so text/emoji stays the cross-client choice).
 """
 
 from __future__ import annotations
@@ -141,23 +141,28 @@ class AdminPlanPickerCurrentTest(unittest.TestCase):
         for t in marked:
             self.assertLessEqual(len(t), 31)
 
-    def test_no_style_support_fallback(self):
-        """PTB InlineKeyboardButton has no ``style`` param — marking is text-only."""
-        from telegram import InlineKeyboardButton
+    def test_marking_is_text_only_no_style_used(self):
+        """Marking is text/emoji-only: the builder never sets PTB ``style``.
 
-        params = inspect.signature(InlineKeyboardButton.__init__).parameters
-        self.assertNotIn("style", params)
-        # keyboard builder exposes no style param either — marking is text-only…
+        PTB 22.7+ (pinned line) exposes ``InlineKeyboardButton.style``, so the
+        old "no style param" assertion is obsolete — the guarantee we actually
+        need is that our buttons carry no style and the marker is in the text.
+        """
+        from telegram import InlineKeyboardButton
         from config.keyboards.admin import user_plan_picker_keyboard
 
+        # our builder exposes no style param — marking is text-only…
         kb_params = inspect.signature(user_plan_picker_keyboard).parameters
         self.assertNotIn("style", kb_params)
-        # …and the marked picker still builds fine
-
+        # …and the marked picker still builds fine, unstyled, on any PTB…
         kb = user_plan_picker_keyboard(
             42, [{"name": "silver", "display_name": "نقره‌ای"}], current_plan="silver"
         )
-        texts = [b.text for row in kb.inline_keyboard for b in row]
+        buttons = [b for row in kb.inline_keyboard for b in row]
+        for b in buttons:
+            self.assertIsInstance(b, InlineKeyboardButton)
+            self.assertEqual(getattr(b, "style", None), None)
+        texts = [b.text for b in buttons]
         self.assertTrue(any("فعلی" in t for t in texts))
 
 

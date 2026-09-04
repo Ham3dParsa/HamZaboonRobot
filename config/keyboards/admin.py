@@ -190,10 +190,10 @@ def user_plan_picker_keyboard(
     admin:user:plan_select:{user_id}:{plan_name} for confirmation.
 
     The *current_plan* (plan code, or None) button is marked text/emoji-only
-    (``✅ … (فعلی)``). ``InlineKeyboardButton`` has no ``style`` param on the
-    pinned PTB line (verified: no ``style`` in 21.6 installed / 22.8 pinned —
-    the Bot API offers no inline-button styling), so colored buttons are
-    deferred and this marker never breaks on any PTB version. No new callback
+    (``✅ … (فعلی)``). PTB 22.7+ exposes ``InlineKeyboardButton.style``, but
+    styled buttons need Feb-2026+ Telegram clients (older clients render them
+    unstyled), so the text/emoji marker stays the cross-client choice and
+    this builder takes no ``style`` param. No new callback
     prefix — callback_data is unchanged.
     """
     current = str(current_plan or "").strip().lower() or None
