@@ -703,5 +703,50 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         self.assertIn("Model", toast_text)
 
 
+    def test_preset_view_shows_24h_usage_stats(self):
+        """T8 (U3): the preset view appends the 24h usage-stats block with the
+        seeded values in Persian digits (one cheap get_hourly_usage read)."""
+        import datetime
+
+        from handlers.admin import _handle_admin_callback
+
+        db.set_preset(
+            "stats_p",
+            base_url="https://api.example.com",
+            model="gpt",
+            api_key="test",
+            enabled=1,
+        )
+        bucket = datetime.datetime.now(datetime.timezone.utc).isoformat()[:13]
+        db.increment_hourly_usage("stats_p", bucket, req_count=3, token_count=1500)
+
+        update = self._make_callback_update("admin:ai_preset:view:stats_p")
+        ctx = self._make_context()
+        asyncio.run(_handle_admin_callback(update, ctx, "ai_preset:view:stats_p"))
+
+        text = self._rendered_text(update)
+        self.assertIn("مصرف ۲۴ ساعته", text)
+        self.assertIn("درخواست‌ها: ۳ | توکن‌ها: ۱۵۰۰", text)
+
+    def test_preset_view_zero_usage_renders_graceful_empty(self):
+        """T8 (U3): a preset with no usage rows still renders the stats block
+        with ۰ values — no crash on missing rows."""
+        from handlers.admin import _handle_admin_callback
+
+        db.set_preset(
+            "stats_empty",
+            base_url="https://api.example.com",
+            model="gpt",
+            enabled=1,
+        )
+        update = self._make_callback_update("admin:ai_preset:view:stats_empty")
+        ctx = self._make_context()
+        asyncio.run(_handle_admin_callback(update, ctx, "ai_preset:view:stats_empty"))
+
+        text = self._rendered_text(update)
+        self.assertIn("مصرف ۲۴ ساعته", text)
+        self.assertIn("درخواست‌ها: ۰ | توکن‌ها: ۰", text)
+
+
 if __name__ == "__main__":
     unittest.main()

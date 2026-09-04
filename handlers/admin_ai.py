@@ -28,6 +28,7 @@ from services.utils.callback_codec import (
 from services.ai import ai
 from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
+from services.utils.formatting import to_persian_digits
 from services.utils.confirm_summary import FieldDiff, build_confirm_message, pending_header, render_diffs
 from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _store_awaiting_msg
 from services.send_pretty import Backend, Message, RawFormat, bold, code, italic, plain, say
@@ -373,6 +374,19 @@ async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYP
     msg.add_line(plain("Max Output Tokens: "), plain(str(preset_fields.resolve(preset, "max_output_tokens"))))
     msg.add_line(plain("Input Cost: "), plain(input_cost_str), plain(" $/1M"))
     msg.add_line(plain("Output Cost: "), plain(output_cost_str), plain(" $/1M"))
+    msg.add_line()
+    # T8 (U3): one cheap read — 24h req/token counts from the existing
+    # preset_hourly_usage aggregate. No per-preset total / last-used getter
+    # exists (llm_requests helpers have no preset_name filter), so those are
+    # deliberately omitted rather than scanned. Missing rows → (0, 0).
+    req_24h, tok_24h = db.get_hourly_usage(preset_name, hours_back=24)
+    msg.add_line(plain("📊 "), bold("مصرف ۲۴ ساعته"))
+    msg.add_line(
+        plain("درخواست‌ها: "),
+        plain(to_persian_digits(req_24h)),
+        plain(" | توکن‌ها: "),
+        plain(to_persian_digits(tok_24h)),
+    )
 
     msg.set_keyboard(ai_preset_view_keyboard(preset, active_name))
     await say(update, context, msg, backend=Backend.HTML)

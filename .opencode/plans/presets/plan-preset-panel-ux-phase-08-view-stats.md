@@ -3,9 +3,9 @@ name: plan-preset-panel-ux-phase-08-view-stats
 phase: 8
 gates: [U3]
 blocking: [phase-07]
-status: pending
+status: complete
 ---
-STATE: phase 8 — status: pending — focus: view usage stats
+STATE: phase 8 — status: complete — evidence: handlers/admin_ai.py::_show_ai_preset_view appends 📊 «مصرف ۲۴ ساعته» block via single db.get_hourly_usage read (Persian digits, span-escaped); tests test_preset_view_shows_24h_usage_stats + test_preset_view_zero_usage_renders_graceful_empty in test_admin_ai_render_flow.py green; full suite 1778 passed + 324 subtests, compile_all clean, ruff F821/F811 clean, diff --check clean; NOT committed (per instruction). Deviation: no total/last-used — no cheap existing getter (see Uncertainties).
 
 ## Scope
 
