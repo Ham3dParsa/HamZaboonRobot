@@ -120,6 +120,11 @@ DOMAIN_KEYWORDS: dict[str, str] = {
     "get_global_defaults": "services/db/display_toggles.py",
     "set_global_defaults": "services/db/display_toggles.py",
     "set_forced": "services/db/display_toggles.py",
+    # services/send_pretty.py owns the Telegram send retry/slot seam (phase-03 R2).
+    "_telegram_slots": "services/send_pretty.py",
+    "_send_media_with_retry": "services/send_pretty.py",
+    "_capture_media_bytes": "services/send_pretty.py",
+    "_SEND_METHOD_ALLOWLIST": "services/send_pretty.py",
 }
 
 PRODUCTION_SCAN_TARGETS = [

@@ -18,13 +18,17 @@ def test_channel_upload_no_filename_kwarg():
     assert "filename" not in snippet
 
 def test_send_voice_retry_has_inputfile_parity():
-    text = pathlib.Path("services/utils/helpers.py").read_text(encoding="utf-8")
-    # Phase-03 unified seam: byte capture lives in _capture_media_bytes and
-    # RetryAfter rebuilds via InputFile(io.BytesIO(raw_bytes), ...) (R2).
+    text = pathlib.Path("services/send_pretty.py").read_text(encoding="utf-8")
+    # Phase-03 unified seam (R2: owned by services/send_pretty.py): byte
+    # capture lives in _capture_media_bytes and RetryAfter rebuilds via
+    # InputFile(io.BytesIO(raw_bytes), ...).
     # Behavior (identical-bytes resend) is covered by
     # test_send_media_with_retry_rebuilds_inputfile_bytes_on_retry_after.
     assert "_capture_media_bytes" in text
     assert "InputFile(io.BytesIO(raw_bytes)" in text
+    helpers_text = pathlib.Path("services/utils/helpers.py").read_text(encoding="utf-8")
+    assert "def _capture_media_bytes" not in helpers_text
+    assert "InputFile(io.BytesIO(raw_bytes)" not in helpers_text
 
 def test_tts_has_timeout():
     text = pathlib.Path("services/tts.py").read_text(encoding="utf-8")

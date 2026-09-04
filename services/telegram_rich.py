@@ -38,7 +38,6 @@ from telegram.error import BadRequest, EndPointNotFound, NetworkError, TimedOut
 
 from services.utils.helpers import (
     _edit_message_with_retry,
-    _rich_api_request,
     _send_with_retry,
 )
 
@@ -125,6 +124,11 @@ async def send_rich_message(
         payload["reply_parameters"] = reply_parameters
 
     try:
+        # Lazy: the slot seam is owned by services/send_pretty.py, which
+        # imports this module at top level — a top-level import back here
+        # would cycle.
+        from services.send_pretty import _rich_api_request
+
         result = await _rich_api_request(bot, "sendRichMessage", payload)
         if isinstance(result, dict):
             return result["message_id"]
@@ -177,6 +181,9 @@ async def edit_rich_message(
     if keyboard is not None:
         payload["reply_markup"] = keyboard.to_dict()
     try:
+        # Lazy: same cycle note as send_rich_message above.
+        from services.send_pretty import _rich_api_request
+
         await _rich_api_request(bot, "editMessageText", payload)
     except EndPointNotFound:
         _rich_disabled.add(id(bot))

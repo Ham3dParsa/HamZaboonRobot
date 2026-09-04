@@ -14,9 +14,11 @@ renderer around the structure — never by the caller. So ``*``-loss, sentinels,
 and unescaped dynamic values become structurally impossible. A malformed tree
 fails at construction, not runtime.
 
-``send_pretty`` composes the existing retry/slot helpers
-(``services/utils/helpers.py`` ``_send_with_retry`` / ``_edit_with_retry`` /
-``_telegram_slots``) and the escaping functions
+``send_pretty`` OWNS the Telegram send retry/slot seam (``_telegram_slots``,
+``_send_media_with_retry`` + byte capture + allowlist): the single retry core
+for all sends — RetryAfter-only retries, 30s clamp, Forbidden→set_user_blocked
+(R3 policy, unchanged). ``services/utils/helpers.py`` keeps a thin re-export
+shim for one PR plus the edit/delete retry loops; escaping comes from
 (``services/utils/formatting.py``). It is a peer of ``helpers.py`` — a
 domain-owning module, consistent with semantic centralization; it is NOT inside
 ``services/utils/``.
@@ -24,17 +26,21 @@ domain-owning module, consistent with semantic centralization; it is NOT inside
 
 from __future__ import annotations
 
+import asyncio
+import io
 import logging
 from dataclasses import dataclass
 from enum import Enum
 
-from telegram import InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardMarkup, InputFile, Update
 from telegram.constants import ParseMode
-from telegram.error import BadRequest
+from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
 from telegram.ext import ContextTypes
 
+from config import TELEGRAM_MAX_CONCURRENCY
 from config.custom_emoji import resolve_emoji
-from services import telegram_rich
+from services import db, telegram_rich
+from services.utils import helpers as _helpers
 from services.utils.callback_notifications import notify_callback
 from services.utils.formatting import escape_mdv2, escape_mdv2_code, html_escape
 
@@ -56,11 +62,11 @@ def _escape_rich_code(text: str) -> str:
         return ""
     return text.replace("\\", "\\\\").replace("`", "\\`")
 from services.utils.helpers import (
+    _RETRY_BACKOFF_SLEEP_MAX,
     _edit_markup_with_retry,
     _edit_message_with_retry,
     _edit_with_retry,
     _send_with_retry,
-    _telegram_slots,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,6 +122,162 @@ __all__ = [
     "edit",
     "edit_markup",
 ]
+
+# ---------------------------------------------------------------------------
+# Telegram send retry/slot seam (R2 owner — phase-03 retry seam move).
+#
+# Single retry core for ALL Telegram sends. Policy (R3, unchanged from the
+# helpers.py original): sends are non-idempotent — TimedOut/NetworkError are
+# never retried; clamped RetryAfter (30s) is the only retried error;
+# Forbidden marks the user blocked. ``services/utils/helpers.py`` re-exports
+# these names for one PR so existing callers (tts_service, archive) keep
+# working untouched; new code must import from here directly.
+# ---------------------------------------------------------------------------
+
+_telegram_slots = asyncio.Semaphore(TELEGRAM_MAX_CONCURRENCY)
+
+
+async def _rich_api_request(bot, method: str, payload: dict[str, object]):
+    """Slot-protected raw Bot API call for Rich Messages.
+
+    Lives here (not in helpers) so the slot never leaves its owner module.
+    ``services/telegram_rich.py`` imports it from here (lazily — this module
+    imports telegram_rich at top level, so a top-level import there would
+    cycle).
+    """
+    async with _telegram_slots:
+        return await bot.do_api_request(method, api_kwargs=payload, return_type=None)
+
+
+def _capture_media_bytes(media, filename_hint: str | None = None) -> tuple[bytes | None, str | None, bool]:
+    """Extract re-creatable bytes + filename from InputFile/BytesIO for RetryAfter retries.
+
+    Returns (raw_bytes, filename, is_inputfile). raw_bytes is None when the
+    media cannot be captured (file-id/path callers — not retried via bytes).
+    Single source for both voice and document senders (R2).
+    """
+    filename: str | None = filename_hint
+    raw_bytes: bytes | None = None
+    is_inputfile = False
+    try:
+        if isinstance(media, InputFile):
+            is_inputfile = True
+            filename = getattr(media, "filename", None) or filename
+            content = getattr(media, "input_file_content", None)
+            if isinstance(content, (bytes, bytearray)):
+                raw_bytes = bytes(content)
+            elif hasattr(content, "getvalue"):
+                try:
+                    raw_bytes = content.getvalue()
+                except Exception:
+                    raw_bytes = None
+            elif hasattr(content, "read"):
+                try:
+                    try:
+                        content.seek(0)
+                    except Exception:
+                        pass
+                    raw_bytes = content.read()
+                    if isinstance(raw_bytes, bytearray):
+                        raw_bytes = bytes(raw_bytes)
+                except Exception:
+                    raw_bytes = None
+        elif hasattr(media, "getvalue"):
+            try:
+                raw_bytes = media.getvalue()
+            except Exception:
+                raw_bytes = None
+            if filename is None:
+                filename = getattr(media, "name", None)
+    except Exception:
+        pass
+    return raw_bytes, filename, is_inputfile
+
+
+# Allowlist for _send_media_with_retry dispatch — caller-controlled method
+# strings must never reach arbitrary Bot attributes (e.g. ban_chat_member).
+_SEND_METHOD_ALLOWLIST: tuple[str, ...] = ("send_message", "send_voice", "send_document")
+
+# method -> required media_kw (None = plain-text send). Hoisted to module
+# const so the dispatch contract is inspectable without calling (phase-03 R2).
+_SEND_MEDIA_EXPECTED: dict[str, str | None] = {
+    "send_message": None,
+    "send_voice": "voice",
+    "send_document": "document",
+}
+
+
+async def _send_media_with_retry(
+    bot,
+    chat_id: int,
+    *,
+    method: str,
+    media_kw: str | None = None,
+    media=None,
+    filename: str | None = None,
+    reset_telegram_cb: bool = True,
+    **kwargs,
+):
+    """Single retry core for all Telegram sends (R1).
+
+    Sends are non-idempotent: TimedOut/NetworkError are never retried — the
+    message may already be delivered and a retry would duplicate. Clamped
+    RetryAfter (30s) is the only retried error for sends. ``_telegram_slots``
+    is the shared concurrency limiter owned by this module.
+    """
+    if method not in _SEND_METHOD_ALLOWLIST:
+        raise ValueError(f"unsupported send method: {method!r}")
+    if media_kw not in (None, "voice", "document"):
+        raise ValueError(f"unsupported media_kw: {media_kw!r}")
+    if _SEND_MEDIA_EXPECTED[method] != media_kw:
+        raise ValueError(f"media_kw/method mismatch: {media_kw!r} with {method!r}")
+    # Pre-capture bytes once so RetryAfter retries can rebuild InputFile
+    raw_bytes: bytes | None = None
+    fname: str | None = filename
+    is_inputfile = False
+    if media_kw is not None and media is not None:
+        raw_bytes, fname, is_inputfile = _capture_media_bytes(media, filename)
+    for attempt in range(3):
+        try:
+            async with _telegram_slots:
+                if media_kw is not None:
+                    to_send = media
+                    if raw_bytes is not None:
+                        if is_inputfile:
+                            to_send = InputFile(io.BytesIO(raw_bytes), filename=fname or ("voice.mp3" if media_kw == "voice" else "file.db"))
+                        else:
+                            if fname:
+                                to_send = InputFile(io.BytesIO(raw_bytes), filename=fname)
+                            else:
+                                to_send = io.BytesIO(raw_bytes)
+                    result = await getattr(bot, method)(chat_id=chat_id, **{media_kw: to_send}, **kwargs)
+                else:
+                    result = await getattr(bot, method)(chat_id=chat_id, text=media, **kwargs)
+                if reset_telegram_cb:
+                    # Dynamic lookup: tests patch helpers._reset_telegram_cb and
+                    # must observe the call through this owner module.
+                    _helpers._reset_telegram_cb()
+                return result
+        except Forbidden:
+            if chat_id > 0:
+                db.set_user_blocked(chat_id)
+            raise
+        except BadRequest:
+            raise
+        except RetryAfter as exc:
+            if attempt == 2:
+                raise
+            logger.warning(
+                "send RetryAfter %s attempt %s/3 chat_id=%s method=%s",
+                exc.retry_after, attempt + 1, chat_id, method,
+            )
+            await asyncio.sleep(min(float(exc.retry_after), _RETRY_BACKOFF_SLEEP_MAX))
+        except (TimedOut, NetworkError):
+            raise
+        except BaseException:
+            logger.exception("send failed chat_id=%s method=%s", chat_id, method)
+            raise
+
 
 # ---------------------------------------------------------------------------
 # Backend selection

@@ -90,13 +90,13 @@ from services.utils.helpers import (
     _is_cancel_input,
     _send_with_retry,
     _start_llm_wait_state,
-    _telegram_slots,
     _user_activity_line,
     _CANCEL_INPUTS,
     apply_log_level,
     clear_admin_pending_state,
     exit_admin_awaiting_cancel,
 )
+from services.send_pretty import _telegram_slots
 
 from services.utils.validation import (
     _CUSTOM_WORD_MAX_CHARS,
