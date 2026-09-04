@@ -29,7 +29,10 @@ forever. Runtime ignores them per R17 (549 retired the legacy
   that active presets survive the delete.
 
 ## Acceptance criteria for the future PR
-1. Idempotent version-gated migration deletes exactly the three legacy keys.
+1. Idempotent version-gated migration deletes exactly the three legacy keys;
+   the orphan `ai_model` catalog entry (`config/catalog.py` `SETTINGS_KEYS`,
+   no live `settings_key("ai_model")` reader) is removed in the same PR
+   (or its retention explicitly justified in the contract).
 2. `tests/test_db_migrations.py`: prior-schema DB with the three rows
    migrates to zero such rows; active presets unchanged.
 3. Restore-flow coverage: restoring a pre-R3A backup then migrating leaves
