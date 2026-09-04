@@ -360,6 +360,8 @@ class AiPresetEditMenuPreviewTest(_Phase3AiPresetFlowBase):
         self.assertIn("Model", rendered)
         self.assertIn("ثبت شد", rendered)
         self.assertIn("۱ تغییر در انتظار", rendered)
+        # No duplicate count: the ✅ line carries it, no standalone repeat.
+        self.assertEqual(rendered.count("۱ تغییر در انتظار"), 1)
         self.assertIn("`old-model`", rendered)
         self.assertIn("`new-model`", rendered)
         self.assertEqual(rendered.count("| --- | --- |"), 1)

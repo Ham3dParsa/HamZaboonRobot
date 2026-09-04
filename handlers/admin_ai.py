@@ -459,7 +459,8 @@ async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
     msg.add_line(plain("✏️ "), bold("ویرایش پیش‌تنظیم: " + str(preset_name)))
     msg.add_line(plain("انتخاب فیلد برای تغییر:"))
     if diffs:
-        msg.add_line(plain(pending_header(diffs)))
+        if just_staged is None:
+            msg.add_line(plain(pending_header(diffs)))
         for line in render_diffs(diffs):
             msg.add_line(*line)
 
