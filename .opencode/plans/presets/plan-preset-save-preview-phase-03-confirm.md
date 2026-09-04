@@ -3,9 +3,16 @@ name: plan-preset-save-preview-phase-03-confirm
 phase: 3
 gates: [R3, R5, R6]
 blocking: [phase-01, phase-02]
-status: pending
+status: complete
 ---
-STATE: phase 3 — status: pending — focus: confirm old+new gate
+STATE: phase 3 — status: complete (2026-09-04, uncommitted) — confirm old+new gate done:
+_confirm_save_preset rebuilt via build_confirm_message (numbered WIZARD_FIELDS tables,
+🎯/⛓️ conditional notes, 3-button keyboard on existing routes); IBTN_SAVE_PRESET/
+IBTN_DISCARD_ALL removed (+BANNED_SYMBOLS), IBTN_SAVE_CANCEL→❌, IBTN_BACK_TO_EDIT added.
+Evidence: pytest 1717 passed + 324 subtests, compile_all OK, ruff F821/F811 clean,
+git diff --check clean. Acceptance: numbered old→new vertical tables ✓, third button
+returns to edit with drafts intact ✓, integration tests ✓. Reviewer gate outstanding
+(hamzaban-reviewer not run — no subagent tool in this session).
 
 ## Scope
 

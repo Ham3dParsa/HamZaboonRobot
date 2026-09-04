@@ -28,7 +28,7 @@ from services.utils.callback_codec import (
 from services.ai import ai
 from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
-from services.utils.confirm_summary import FieldDiff
+from services.utils.confirm_summary import FieldDiff, build_confirm_message
 from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _store_awaiting_msg
 from services.utils.formatting import to_persian_digits
 from services.send_pretty import Backend, Message, RawFormat, bold, code, italic, plain, say, table
@@ -1099,24 +1099,57 @@ async def _handle_group_manager_clear(update: Update, context: ContextTypes.DEFA
 
 
 async def _confirm_save_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
-    """Show confirmation dialog before saving."""
+    """Show the save-preview confirmation (concept C, R3).
+
+    Builds the dialog via the shared ``build_confirm_message`` helper:
+    ``⚠️ تأیید ذخیره — «{name}»`` + numbered per-field vertical old/new
+    tables in ``WIZARD_FIELDS`` order (via ``_preset_edit_diffs``; api_key
+    values pre-masked, never plaintext) + Persian-digit dirty count +
+    conditional notes (🎯 active-preset warning; priority/fallback note only
+    when those fields are dirty). Keyboard reuses the existing
+    ``confirm_save_yes``/``confirm_save_no`` callbacks plus the existing
+    ``ai_preset:edit`` route — no new callback prefixes.
+    """
     edits = context.user_data.get("preset_edits", {}).get(preset_name, {})
     if not edits:
         await notify_callback(update.callback_query, "تغییری برای ذخیره وجود ندارد", intent=CallbackNoticeIntent.INFO)
         return
 
-    from config.keyboards import IBTN_SAVE_CONFIRM, IBTN_SAVE_CANCEL
+    preset = db.get_preset(preset_name)
+    if not preset:
+        await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+
+    diffs = _preset_edit_diffs(preset, edits)
+    numbered = [
+        FieldDiff(
+            label=f"{to_persian_digits(i + 1)}. {d.label}",
+            old=d.old,
+            new=d.new,
+            secret=d.secret,
+        )
+        for i, d in enumerate(diffs)
+    ]
+    notes: list[str] = []
+    if preset_name == db.get_active_preset_name():
+        notes.append("🎯 این پیش‌تنظیم فعال است — تغییرات پس از ذخیره بلافاصله اعمال می‌شوند.")
+    if any(field in edits for field in ("priority", "in_fallback_chain")):
+        notes.append("⛓️ تغییر اولویت یا زنجیره فال‌بک مسیر درخواست‌های بعدی را تغییر می‌دهد.")
+    msg = build_confirm_message("⚠️ تأیید ذخیره —", f"«{preset_name}»", numbered, notes=notes)
+
+    from config.keyboards import IBTN_BACK_TO_EDIT, IBTN_SAVE_CANCEL, IBTN_SAVE_CONFIRM
     from services.utils.callback_codec import preset_token
     preset_ref = preset_token(preset_name)
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(IBTN_SAVE_CONFIRM, callback_data=f"admin:ai_preset:confirm_save_yes:{preset_ref}"),
             InlineKeyboardButton(IBTN_SAVE_CANCEL, callback_data=f"admin:ai_preset:confirm_save_no:{preset_ref}"),
-        ]
+        ],
+        [
+            InlineKeyboardButton(IBTN_BACK_TO_EDIT, callback_data=f"admin:ai_preset:edit:{preset_ref}"),
+        ],
     ])
-    msg = Message()
-    msg.add_line(plain("⚠️ "), bold(f"آیا از ذخیره تغییرات برای «{preset_name}» مطمئنید؟"))
-    await say(update, context, msg, backend=Backend.HTML, keyboard=keyboard)
+    await say(update, context, msg, backend=Backend.RICH, keyboard=keyboard)
 
 
 async def _discard_all_preset_changes(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):

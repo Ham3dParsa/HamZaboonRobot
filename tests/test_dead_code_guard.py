@@ -79,6 +79,14 @@ BANNED_SYMBOLS: dict[str, str] = {
         "removed by FSRS migration Phase 2: old 2-button SRS labels replaced by "
         "4-grade review buttons"
     ),
+    "IBTN_SAVE_PRESET": (
+        "removed by preset-save-preview T3: orphaned export superseded by the "
+        "edit-menu counter labels in config/keyboards/admin.py"
+    ),
+    "IBTN_DISCARD_ALL": (
+        "removed by preset-save-preview T3: orphaned export superseded by the "
+        "edit-menu counter labels in config/keyboards/admin.py"
+    ),
     "srs_engine": (
         "removed by FSRS migration Phase 1c: services/srs_engine.py scaffold "
         "replaced by the services/session/ package"

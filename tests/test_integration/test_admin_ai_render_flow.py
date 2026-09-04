@@ -385,20 +385,29 @@ class AdminAiRenderFlowTest(unittest.TestCase):
             self.assertIn("❓ <b>راهنمای", text)
 
     def test_confirm_screens_escape_preset_name_in_bold(self):
-        """T8-last: the save-confirm and delete-confirm screens render the
-        preset name inside a bold span and escape dynamic values."""
-        from handlers.admin_ai import _confirm_save_preset, _delete_ai_preset
+        """T8-last: the save-confirm preview and delete-confirm screens escape
+        dynamic values (T3 rewrote save-confirm as a numbered old/new Rich
+        preview via the shared helper, so it asserts through patched say)."""
+        from handlers import admin_ai
+        from handlers.admin_ai import _delete_ai_preset
+        from services.send_pretty import Backend
 
         db.set_preset("confirm<g", base_url="https://api.example.com", model="gpt", api_key="test", enabled=0)
 
-        # save-confirm: needs pending edits
+        # save-confirm: needs pending edits; renders RICH via the helper.
         ctx = self._make_context()
         ctx.user_data["preset_edits"] = {"confirm<g": {"model": "x"}}
-        update = self._make_callback_update("admin:ai_preset:confirm_save:confirm<g")
-        asyncio.run(_confirm_save_preset(update, ctx, "confirm<g"))
-        save_text = self._rendered_text(update)
-        self.assertIn("آیا از ذخیره تغییرات برای «confirm&lt;g» مطمئنید؟", save_text)
-        self.assertNotIn("«confirm<g»", save_text)
+        update = self._make_callback_update("admin:ai_preset:save:confirm<g")
+        with patch("handlers.admin_ai.say", new=AsyncMock()) as mock_say:
+            asyncio.run(admin_ai._confirm_save_preset(update, ctx, "confirm<g"))
+        mock_say.assert_called_once()
+        self.assertEqual(mock_say.call_args[1].get("backend"), Backend.RICH)
+        save_text = mock_say.call_args[0][2].render(Backend.RICH)
+        self.assertIn("تأیید ذخیره", save_text)
+        self.assertIn("confirm\\<g", save_text)
+        self.assertNotIn("confirm<g", save_text)
+        self.assertIn("`gpt`", save_text)
+        self.assertIn("`x`", save_text)
 
         # delete-confirm: preset must not be active
         db.set_setting("ai_primary_preset", "confirm<g")
