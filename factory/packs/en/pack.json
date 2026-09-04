@@ -97,5 +97,11 @@
     "example_pool": "tatoeba_pool_v13c.json",
     "len_min_words": 8,
     "len_max_words": 20
+  },
+  "phrases": {
+    "file": "phrases.csv",
+    "top_n": 500,
+    "shape": "2-5",
+    "source": "kaikki-index"
   }
 }

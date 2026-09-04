@@ -1,0 +1,501 @@
+phrase,freq,rank,prefill
+central province,7,1,UNLEVELLED
+ancient greek,6,2,UNLEVELLED
+zip code,6,3,UNLEVELLED
+alley oop,5,4,UNLEVELLED
+amber alert,5,5,UNLEVELLED
+amber alerts,5,6,UNLEVELLED
+ball out,5,7,UNLEVELLED
+be on the lookout,5,8,UNLEVELLED
+eastern province,5,9,UNLEVELLED
+hot wheels,5,10,UNLEVELLED
+too much,5,11,UNLEVELLED
+white russian,5,12,UNLEVELLED
+ad lib,4,13,UNLEVELLED
+all that,4,14,A1
+alpha and omega,4,15,UNLEVELLED
+ancient roman,4,16,UNLEVELLED
+back and forth,4,17,UNLEVELLED
+base jump,4,18,UNLEVELLED
+base jumping,4,19,UNLEVELLED
+base jumps,4,20,UNLEVELLED
+black british,4,21,UNLEVELLED
+blue peter,4,22,UNLEVELLED
+borscht belt,4,23,UNLEVELLED
+brain blast,4,24,UNLEVELLED
+brass monkey,4,25,UNLEVELLED
+broken arrow,4,26,UNLEVELLED
+call to the bar,4,27,UNLEVELLED
+community note,4,28,UNLEVELLED
+community notes,4,29,UNLEVELLED
+cracker jack,4,30,UNLEVELLED
+dark ages,4,31,UNLEVELLED
+dawson county,4,32,UNLEVELLED
+de profundis,4,33,UNLEVELLED
+de vriesian,4,34,UNLEVELLED
+dead pan,4,35,UNLEVELLED
+dodgy brothers,4,36,UNLEVELLED
+eau de nil,4,37,UNLEVELLED
+flat out,4,38,C2
+for the plot,4,39,UNLEVELLED
+full speed ahead,4,40,UNLEVELLED
+galactic center,4,41,UNLEVELLED
+galactic centre,4,42,UNLEVELLED
+gen alpha,4,43,UNLEVELLED
+green island,4,44,UNLEVELLED
+headless horseman,4,45,UNLEVELLED
+headless horsewoman,4,46,UNLEVELLED
+heads up,4,47,UNLEVELLED
+high church,4,48,A1
+holy trinity,4,49,UNLEVELLED
+hunger games,4,50,UNLEVELLED
+jim crow,4,51,UNLEVELLED
+joe blakes,4,52,UNLEVELLED
+low church,4,53,UNLEVELLED
+middle age,4,54,UNLEVELLED
+middle ages,4,55,UNLEVELLED
+milkshake duck,4,56,UNLEVELLED
+milkshake ducks,4,57,UNLEVELLED
+mom and pop,4,58,UNLEVELLED
+national socialist,4,59,UNLEVELLED
+neutral paralympic athletes,4,60,UNLEVELLED
+new age,4,61,UNLEVELLED
+nickel and dime,4,62,UNLEVELLED
+nine to five,4,63,B1
+no more,4,64,UNLEVELLED
+roman candle,4,65,UNLEVELLED
+socialist revolutionary,4,66,UNLEVELLED
+solar system,4,67,UNLEVELLED
+to and fro,4,68,UNLEVELLED
+topsy turvy,4,69,UNLEVELLED
+trojan horse,4,70,UNLEVELLED
+twilight zone,4,71,UNLEVELLED
+ultima thule,4,72,UNLEVELLED
+upside down,4,73,UNLEVELLED
+valley girl,4,74,A2
+walla walla,4,75,UNLEVELLED
+wheel of fortune,4,76,UNLEVELLED
+white supremacist,4,77,UNLEVELLED
+woo woo,4,78,UNLEVELLED
+absolute state,3,79,UNLEVELLED
+ad feminam,3,80,UNLEVELLED
+ad hominem,3,81,UNLEVELLED
+ad orientem,3,82,UNLEVELLED
+ad verecundiam,3,83,UNLEVELLED
+adam and eve,3,84,UNLEVELLED
+age of reason,3,85,UNLEVELLED
+ali baba,3,86,UNLEVELLED
+all in,3,87,UNLEVELLED
+all over,3,88,UNLEVELLED
+all right,3,89,UNLEVELLED
+alla marcia,3,90,UNLEVELLED
+allegro ma non troppo,3,91,UNLEVELLED
+alpine chough,3,92,UNLEVELLED
+alpine choughs,3,93,UNLEVELLED
+ancient egyptian,3,94,UNLEVELLED
+anno domini,3,95,UNLEVELLED
+april fools,3,96,A2
+arcane magic,3,97,B1
+around the clock,3,98,UNLEVELLED
+as much,3,99,UNLEVELLED
+asteroid belt,3,100,UNLEVELLED
+aunt nell,3,101,UNLEVELLED
+average joe,3,102,UNLEVELLED
+baby blue,3,103,UNLEVELLED
+baby blues,3,104,UNLEVELLED
+back door,3,105,UNLEVELLED
+bang on,3,106,UNLEVELLED
+bang out,3,107,UNLEVELLED
+bank of mum and dad,3,108,UNLEVELLED
+beat up,3,109,UNLEVELLED
+better dead than red,3,110,UNLEVELLED
+big bang,3,111,UNLEVELLED
+big league,3,112,UNLEVELLED
+big one,3,113,A1
+big time,3,114,A1
+black belt,3,115,UNLEVELLED
+black bottom,3,116,UNLEVELLED
+black cat,3,117,UNLEVELLED
+black cats,3,118,UNLEVELLED
+black forest,3,119,UNLEVELLED
+black khitai,3,120,UNLEVELLED
+black khitan,3,121,UNLEVELLED
+black legend,3,122,UNLEVELLED
+black panthers,3,123,UNLEVELLED
+black pill,3,124,UNLEVELLED
+blitz baby,3,125,UNLEVELLED
+blood and thunder,3,126,UNLEVELLED
+bloody mary,3,127,C2
+blue jays,3,128,UNLEVELLED
+blue planet,3,129,UNLEVELLED
+border collie,3,130,UNLEVELLED
+border collies,3,131,UNLEVELLED
+brass monkeys,3,132,UNLEVELLED
+broad church,3,133,UNLEVELLED
+brown bomber,3,134,UNLEVELLED
+by god,3,135,UNLEVELLED
+cabo verdean,3,136,UNLEVELLED
+calls to the bar,3,137,UNLEVELLED
+canadian french,3,138,UNLEVELLED
+cape verdean,3,139,UNLEVELLED
+carpathian rusyn,3,140,UNLEVELLED
+carry on,3,141,UNLEVELLED
+cash app,3,142,UNLEVELLED
+cash apps,3,143,UNLEVELLED
+cash in hand,3,144,B2
+celestial sphere,3,145,UNLEVELLED
+central limit theorem,3,146,UNLEVELLED
+chain smoking,3,147,UNLEVELLED
+chandni chowk,3,148,UNLEVELLED
+chinese checkers,3,149,UNLEVELLED
+chop chop,3,150,UNLEVELLED
+chop logic,3,151,UNLEVELLED
+close by,3,152,B1
+cock on,3,153,UNLEVELLED
+cold turkey,3,154,C2
+come along,3,155,UNLEVELLED
+con moto,3,156,C2
+coney island,3,157,UNLEVELLED
+covid cut,3,158,UNLEVELLED
+covid cuts,3,159,UNLEVELLED
+cross wires,3,160,UNLEVELLED
+crown dependencies,3,161,UNLEVELLED
+crown dependency,3,162,UNLEVELLED
+crown jewels,3,163,UNLEVELLED
+currant bun,3,164,UNLEVELLED
+cyrillic numerals,3,165,UNLEVELLED
+damn tooting,3,166,UNLEVELLED
+dan river,3,167,UNLEVELLED
+dang tooting,3,168,UNLEVELLED
+dark light,3,169,C2
+darn tooting,3,170,UNLEVELLED
+day and night,3,171,UNLEVELLED
+de facto,3,172,UNLEVELLED
+de la grange,3,173,UNLEVELLED
+de rozier,3,174,UNLEVELLED
+dead cat,3,175,UNLEVELLED
+dead center,3,176,UNLEVELLED
+dead internet theory,3,177,UNLEVELLED
+dead stick,3,178,UNLEVELLED
+deep web,3,179,UNLEVELLED
+diva cup,3,180,UNLEVELLED
+divide and conquer,3,181,UNLEVELLED
+dixie cup,3,182,UNLEVELLED
+dixie cups,3,183,UNLEVELLED
+doggy style,3,184,C1
+double napoleon,3,185,UNLEVELLED
+double napoleons,3,186,UNLEVELLED
+down east,3,187,A2
+dragon man,3,188,UNLEVELLED
+drop dead,3,189,UNLEVELLED
+dum dum,3,190,UNLEVELLED
+durn tooting,3,191,UNLEVELLED
+early doors,3,192,UNLEVELLED
+earth bath,3,193,UNLEVELLED
+earth surface person,3,194,UNLEVELLED
+east frisian,3,195,A2
+east northeast,3,196,A2
+east southeast,3,197,A2
+eat shit,3,198,UNLEVELLED
+elemental magic,3,199,B1
+en passant,3,200,UNLEVELLED
+en suite,3,201,UNLEVELLED
+esafety commissioner,3,202,UNLEVELLED
+eternal september,3,203,UNLEVELLED
+even steven,3,204,UNLEVELLED
+evening star,3,205,UNLEVELLED
+ever since,3,206,UNLEVELLED
+every second,3,207,UNLEVELLED
+ex tempore,3,208,UNLEVELLED
+expletive deleted,3,209,UNLEVELLED
+face down,3,210,UNLEVELLED
+fairy nuff,3,211,UNLEVELLED
+fast track,3,212,UNLEVELLED
+fed up,3,213,UNLEVELLED
+feng shui,3,214,UNLEVELLED
+fill in the blanks,3,215,UNLEVELLED
+first and last,3,216,UNLEVELLED
+first day,3,217,UNLEVELLED
+flat stick,3,218,C2
+forest green,3,219,UNLEVELLED
+forty four,3,220,UNLEVELLED
+franklin county,3,221,UNLEVELLED
+free state,3,222,UNLEVELLED
+french canadian,3,223,UNLEVELLED
+fruit loops,3,224,UNLEVELLED
+fuck all,3,225,UNLEVELLED
+fuck up,3,226,UNLEVELLED
+fucked up,3,227,UNLEVELLED
+full stop,3,228,UNLEVELLED
+game on,3,229,UNLEVELLED
+game over,3,230,UNLEVELLED
+gay village,3,231,UNLEVELLED
+get it,3,232,UNLEVELLED
+ghost dance,3,233,UNLEVELLED
+girl friday,3,234,A2
+girl scouts,3,235,A2
+give face,3,236,UNLEVELLED
+gnab gib,3,237,UNLEVELLED
+go on,3,238,UNLEVELLED
+god willing,3,239,UNLEVELLED
+godi media,3,240,UNLEVELLED
+godi medias,3,241,UNLEVELLED
+good morning,3,242,UNLEVELLED
+good times,3,243,UNLEVELLED
+google translate,3,244,UNLEVELLED
+google translated,3,245,UNLEVELLED
+google translates,3,246,UNLEVELLED
+google translating,3,247,UNLEVELLED
+grade grubbing,3,248,B2
+grass tops,3,249,UNLEVELLED
+great russian,3,250,UNLEVELLED
+great wall,3,251,UNLEVELLED
+grecs du roi,3,252,UNLEVELLED
+green acres,3,253,UNLEVELLED
+green goddess,3,254,UNLEVELLED
+green rush,3,255,UNLEVELLED
+green rushes,3,256,UNLEVELLED
+gretna green,3,257,UNLEVELLED
+ground out,3,258,B2
+groundhog day,3,259,UNLEVELLED
+guest star,3,260,UNLEVELLED
+gut shot,3,261,UNLEVELLED
+hai lok hong,3,262,UNLEVELLED
+half and half,3,263,UNLEVELLED
+hamburger helper,3,264,UNLEVELLED
+han river,3,265,UNLEVELLED
+hands off,3,266,UNLEVELLED
+happy meal,3,267,B1
+happy meals,3,268,UNLEVELLED
+head cheese,3,269,UNLEVELLED
+hee haw,3,270,UNLEVELLED
+hell or high water,3,271,A1
+hell realm,3,272,UNLEVELLED
+hello world,3,273,UNLEVELLED
+het up,3,274,UNLEVELLED
+hey rube,3,275,UNLEVELLED
+hic et nunc,3,276,UNLEVELLED
+his nibs,3,277,UNLEVELLED
+holy ghost,3,278,UNLEVELLED
+holy grail,3,279,UNLEVELLED
+holy grails,3,280,UNLEVELLED
+holy of holies,3,281,UNLEVELLED
+holy roman emperor,3,282,UNLEVELLED
+holy roman emperors,3,283,UNLEVELLED
+holy roman empress,3,284,UNLEVELLED
+holy roman empresses,3,285,UNLEVELLED
+home rule,3,286,UNLEVELLED
+homo sapiens,3,287,UNLEVELLED
+homo sovieticus,3,288,UNLEVELLED
+hot carl,3,289,UNLEVELLED
+hot dog,3,290,UNLEVELLED
+hot wheel,3,291,UNLEVELLED
+house of commons,3,292,UNLEVELLED
+how much,3,293,UNLEVELLED
+in medias res,3,294,UNLEVELLED
+internet of things,3,295,UNLEVELLED
+iron triangle,3,296,UNLEVELLED
+it girl,3,297,A2
+it girls,3,298,UNLEVELLED
+italian wedding soup,3,299,UNLEVELLED
+italian wedding soups,3,300,UNLEVELLED
+jack of all trades,3,301,UNLEVELLED
+jacks of all trades,3,302,UNLEVELLED
+java man,3,303,UNLEVELLED
+jesus christ,3,304,UNLEVELLED
+jet set,3,305,UNLEVELLED
+killing fields,3,306,UNLEVELLED
+king of kings,3,307,UNLEVELLED
+kitchen cabinet,3,308,UNLEVELLED
+kitchen sink,3,309,UNLEVELLED
+knock knock,3,310,UNLEVELLED
+krav maga,3,311,UNLEVELLED
+kuiper belt,3,312,UNLEVELLED
+kung flu,3,313,UNLEVELLED
+kung pow penis,3,314,UNLEVELLED
+la belle époque,3,315,UNLEVELLED
+late antiquity,3,316,UNLEVELLED
+lay by,3,317,UNLEVELLED
+lay low,3,318,UNLEVELLED
+lazy susan,3,319,UNLEVELLED
+lazy susans,3,320,UNLEVELLED
+lead out,3,321,UNLEVELLED
+left turn,3,322,UNLEVELLED
+level set,3,323,UNLEVELLED
+lindy hop,3,324,UNLEVELLED
+lindy hops,3,325,UNLEVELLED
+little league,3,326,UNLEVELLED
+little russian,3,327,UNLEVELLED
+locker room,3,328,UNLEVELLED
+lone ranger,3,329,UNLEVELLED
+long covid,3,330,UNLEVELLED
+long island,3,331,UNLEVELLED
+long johns,3,332,UNLEVELLED
+long peace,3,333,UNLEVELLED
+long term,3,334,UNLEVELLED
+love jones,3,335,UNLEVELLED
+lovely jubbly,3,336,UNLEVELLED
+low churchman,3,337,UNLEVELLED
+magic cube,3,338,B1
+maha bharata,3,339,UNLEVELLED
+mahā bhārata,3,340,UNLEVELLED
+main belt,3,341,UNLEVELLED
+make believe,3,342,UNLEVELLED
+make shift,3,343,UNLEVELLED
+malibu bay breeze,3,344,UNLEVELLED
+malibu bay breezes,3,345,UNLEVELLED
+manifest destiny,3,346,UNLEVELLED
+marine corps,3,347,UNLEVELLED
+mary jane,3,348,UNLEVELLED
+maunder minimum,3,349,UNLEVELLED
+mea culpa,3,350,UNLEVELLED
+mestiza de sangley,3,351,UNLEVELLED
+mestizas de sangley,3,352,UNLEVELLED
+mestizo de español,3,353,UNLEVELLED
+mestizo de sangley,3,354,UNLEVELLED
+mestizos de sangley,3,355,UNLEVELLED
+mickey mouse,3,356,UNLEVELLED
+minnesota nice,3,357,UNLEVELLED
+mollie house,3,358,UNLEVELLED
+mollie houses,3,359,UNLEVELLED
+molly house,3,360,UNLEVELLED
+molly houses,3,361,UNLEVELLED
+mont blanc,3,362,UNLEVELLED
+morning star,3,363,UNLEVELLED
+morris dance,3,364,UNLEVELLED
+morris dances,3,365,UNLEVELLED
+mumbly joe,3,366,UNLEVELLED
+mumbly joes,3,367,UNLEVELLED
+mutt and jeff,3,368,UNLEVELLED
+napoleon bigarreau,3,369,UNLEVELLED
+napoleon bigarreaus,3,370,UNLEVELLED
+native american,3,371,UNLEVELLED
+negative nancies,3,372,UNLEVELLED
+negative nancy,3,373,UNLEVELLED
+negative nancys,3,374,UNLEVELLED
+nervous nellie,3,375,UNLEVELLED
+nervous nellies,3,376,UNLEVELLED
+nervous nelly,3,377,UNLEVELLED
+net art,3,378,UNLEVELLED
+new english,3,379,UNLEVELLED
+new prussian,3,380,UNLEVELLED
+new wave,3,381,UNLEVELLED
+next door,3,382,UNLEVELLED
+night and day,3,383,UNLEVELLED
+nip and tuck,3,384,UNLEVELLED
+no contest,3,385,UNLEVELLED
+no way,3,386,UNLEVELLED
+north frisian,3,387,A2
+north korean,3,388,A2
+north northeast,3,389,A2
+north northwest,3,390,A2
+north pole,3,391,A2
+north star,3,392,A2
+nose to tail,3,393,UNLEVELLED
+nought withstanding,3,394,UNLEVELLED
+number one,3,395,A1
+of course,3,396,UNLEVELLED
+off angle,3,397,UNLEVELLED
+off the hook,3,398,UNLEVELLED
+oh my god particle,3,399,UNLEVELLED
+oh my god particles,3,400,UNLEVELLED
+ok boomer,3,401,UNLEVELLED
+old earth creationism,3,402,UNLEVELLED
+old hat,3,403,UNLEVELLED
+old ned,3,404,UNLEVELLED
+old prussian,3,405,UNLEVELLED
+old school,3,406,UNLEVELLED
+old town,3,407,UNLEVELLED
+olive green,3,408,UNLEVELLED
+omega point,3,409,UNLEVELLED
+omicron variant,3,410,UNLEVELLED
+on board,3,411,UNLEVELLED
+one nation,3,412,A1
+one on one,3,413,A1
+oort cloud,3,414,UNLEVELLED
+open sesame,3,415,UNLEVELLED
+ore rotundo,3,416,UNLEVELLED
+out of pocket,3,417,UNLEVELLED
+out of the way,3,418,UNLEVELLED
+over the top,3,419,UNLEVELLED
+palawa kani,3,420,UNLEVELLED
+pall mall,3,421,UNLEVELLED
+pan and scan,3,422,UNLEVELLED
+paper mache,3,423,UNLEVELLED
+paper machee,3,424,UNLEVELLED
+paper maché,3,425,UNLEVELLED
+paper mâché,3,426,UNLEVELLED
+paper trade,3,427,UNLEVELLED
+papier mache,3,428,UNLEVELLED
+paw paw,3,429,UNLEVELLED
+pearl harbor,3,430,UNLEVELLED
+pell mell,3,431,UNLEVELLED
+pidyon haben,3,432,UNLEVELLED
+pig latin,3,433,UNLEVELLED
+pine nut,3,434,B1
+pinot noir,3,435,UNLEVELLED
+play house,3,436,UNLEVELLED
+pop tart,3,437,UNLEVELLED
+post hoc,3,438,UNLEVELLED
+post mortem,3,439,UNLEVELLED
+pow wow,3,440,UNLEVELLED
+pow wows,3,441,UNLEVELLED
+pro forma,3,442,UNLEVELLED
+procrustean bed,3,443,UNLEVELLED
+promised land,3,444,UNLEVELLED
+punic faith,3,445,UNLEVELLED
+pure land,3,446,UNLEVELLED
+put out,3,447,UNLEVELLED
+qara khitai,3,448,UNLEVELLED
+radio row,3,449,UNLEVELLED
+rare pepe,3,450,UNLEVELLED
+rare pepes,3,451,UNLEVELLED
+rat pack,3,452,UNLEVELLED
+red devil,3,453,UNLEVELLED
+red dog,3,454,UNLEVELLED
+red sea,3,455,UNLEVELLED
+red shirt,3,456,UNLEVELLED
+regius professor,3,457,UNLEVELLED
+regius professors,3,458,UNLEVELLED
+ride or die,3,459,UNLEVELLED
+right back,3,460,UNLEVELLED
+ring out,3,461,UNLEVELLED
+roll up,3,462,UNLEVELLED
+roman candled,3,463,UNLEVELLED
+roman candles,3,464,UNLEVELLED
+roman candling,3,465,UNLEVELLED
+rough and tumble,3,466,UNLEVELLED
+round the clock,3,467,UNLEVELLED
+rubber stamp,3,468,UNLEVELLED
+run in,3,469,UNLEVELLED
+sabbath gentile,3,470,UNLEVELLED
+sabbath gentiles,3,471,UNLEVELLED
+sabbath goy,3,472,UNLEVELLED
+sabbath goys,3,473,UNLEVELLED
+sandwich terns,3,474,UNLEVELLED
+sans souci,3,475,UNLEVELLED
+santa clara,3,476,UNLEVELLED
+saran wrap,3,477,UNLEVELLED
+sargent jump,3,478,UNLEVELLED
+screw you,3,479,UNLEVELLED
+second hand,3,480,B2
+sega blue sky,3,481,UNLEVELLED
+semantic web,3,482,UNLEVELLED
+september that never ended,3,483,A1
+shabbat goy,3,484,UNLEVELLED
+shabbat goys,3,485,UNLEVELLED
+shabbes goy,3,486,UNLEVELLED
+shabbes goys,3,487,UNLEVELLED
+shabbos goy,3,488,UNLEVELLED
+shabbos goys,3,489,UNLEVELLED
+shabes goy,3,490,UNLEVELLED
+shabes goys,3,491,UNLEVELLED
+shut up,3,492,UNLEVELLED
+side by side,3,493,UNLEVELLED
+sieg heil,3,494,UNLEVELLED
+silver plate,3,495,UNLEVELLED
+single file,3,496,UNLEVELLED
+sixty nine,3,497,B1
+skid row,3,498,UNLEVELLED
+sky blue,3,499,UNLEVELLED
+slash and burn,3,500,UNLEVELLED
