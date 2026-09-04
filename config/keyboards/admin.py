@@ -655,7 +655,10 @@ def ai_preset_edit_keyboard(
     ]
     rows = []
     for key, label in fields:
-        text = f"✏️ {label}" if key in dirty else label
+        if key in dirty and not label.startswith("✏️"):
+            text = f"✏️ {label}"
+        else:
+            text = label
         rows.append([
             InlineKeyboardButton(text, callback_data=f"admin:ai_preset:edit_field:{preset_ref}:{alias_field(key)}"),
         ])

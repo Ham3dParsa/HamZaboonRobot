@@ -94,6 +94,15 @@ class AiPresetEditKeyboardDiffsTests(unittest.TestCase):
         # Exact dotted-key set (plus the static ✏️ نام پریست label quirk).
         self.assertEqual(self._dotted_keys(kb), {"model", "api_key", "name"})
 
+    def test_dirty_name_renders_single_prefix(self):
+        """Dirty `name` must not double the static ✏️ in IBTN_FIELD_NAME."""
+        kb = ai_preset_edit_keyboard(
+            "p",
+            [FieldDiff(field="name", label="Preset Name", old="a", new="b")],
+        )
+        name_row = next(t for t in self._texts(kb) if "نام پریست" in t)
+        self.assertEqual(name_row.count("✏️"), 1)
+
     def test_save_discard_counts_use_persian_digits(self):
         kb = ai_preset_edit_keyboard(
             "p",

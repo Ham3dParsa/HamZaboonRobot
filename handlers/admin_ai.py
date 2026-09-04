@@ -511,6 +511,11 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
         await say(update, context, "پیش‌تنظیم یافت نشد", raw=RawFormat.PLAIN, mode="send")
         return
 
+    if field_name not in preset_fields.PRESET_FIELDS:
+        context.user_data.pop("awaiting", None)
+        await say(update, context, "فیلد نامعتبر است.", raw=RawFormat.PLAIN, mode="send")
+        return
+
     raw = text.strip()
 
     # Parse and validate based on field type

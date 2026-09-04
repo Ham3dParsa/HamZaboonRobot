@@ -375,6 +375,21 @@ class AiPresetEditMenuPreviewTest(_Phase3AiPresetFlowBase):
                         "forged field must surface a user-visible error")
         self.assertNotIn("awaiting", self.flow_ctx.user_data)
 
+    def test_field_input_unknown_field_rejected_without_store(self):
+        # Defense-in-depth: the input handler itself rejects unknown fields
+        # before parsing/storing, so nothing lands in preset_edits.
+        from handlers import admin_ai
+
+        self._make_preset("preview_g", base_url="https://x", model="m")
+        update = self._make_callback_update("x")
+        update.callback_query = None
+        update.message = MagicMock()
+        ctx = self._make_context()
+        with patch("handlers.admin_ai.say", new=AsyncMock()):
+            asyncio.run(admin_ai._handle_ai_preset_field_input(
+                update, ctx, "preview_g", "zzz", "evil"))
+        self.assertNotIn("zzz", ctx.user_data.get("preset_edits", {}).get("preview_g", {}))
+
     def test_poisoned_edits_unknown_key_skipped(self):
         # A poisoned preset_edits entry with an unknown key must not crash
         # the menu render — it is skipped, known diffs still render.
