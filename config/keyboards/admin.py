@@ -177,10 +177,37 @@ def user_profile_keyboard(user_id: int, blocked: bool) -> InlineKeyboardMarkup:
     ])
 
 
+def user_plan_picker_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    """Picker built from real plans via db.list_plans() — one button per plan.
+
+    Each button shows the plan display_name and routes to
+    admin:user:plan_select:{user_id}:{plan_name} for confirmation.
+    """
+    from services import db as _db
+
+    try:
+        plans = _db.list_plans()
+    except Exception:
+        plans = []
+    rows: list[list[InlineKeyboardButton]] = []
+    for p in plans:
+        name = str(p.get("name") or "").strip()
+        if not name:
+            continue
+        label = str(p.get("display_name") or name).strip() or name
+        rows.append([
+            InlineKeyboardButton(label, callback_data=f"admin:user:plan_select:{user_id}:{name}")
+        ])
+    rows.append([InlineKeyboardButton(IBTN_BACK, callback_data=f"admin:user:profile:{user_id}")])
+    rows.append([InlineKeyboardButton(IBTN_CANCEL, callback_data=f"admin:user:plan_cancel:{user_id}")])
+    rows.append([InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")])
+    return InlineKeyboardMarkup(rows)
+
+
 def user_reset_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ بله، ریست شود", callback_data=f"admin:user:reset_confirm:{user_id}")],
-        [InlineKeyboardButton("❌ انصراف", callback_data=f"admin:user:reset_cancel:{user_id}")],
+        [InlineKeyboardButton(IBTN_DELETE_CANCEL, callback_data=f"admin:user:reset_cancel:{user_id}")],
         [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
 
@@ -188,7 +215,7 @@ def user_reset_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
 def user_block_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ بله مسدود کن", callback_data=f"admin:user:block_confirm:{user_id}")],
-        [InlineKeyboardButton("❌ لغو", callback_data=f"admin:user:block_cancel:{user_id}")],
+        [InlineKeyboardButton(IBTN_CANCEL, callback_data=f"admin:user:block_cancel:{user_id}")],
         [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
 
@@ -196,7 +223,7 @@ def user_block_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
 def user_plan_confirm_keyboard(user_id: int, new_plan: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ بله، تغییر بده", callback_data=f"admin:user:plan_confirm:{user_id}:{new_plan}")],
-        [InlineKeyboardButton("❌ لغو", callback_data=f"admin:user:plan_cancel:{user_id}")],
+        [InlineKeyboardButton(IBTN_CANCEL, callback_data=f"admin:user:plan_cancel:{user_id}")],
         [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
 
@@ -205,7 +232,7 @@ def dm_preview_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ تایید ارسال", callback_data=f"admin:user:msg_confirm:{user_id}")],
         [InlineKeyboardButton("✏️ ویرایش", callback_data=f"admin:user:msg_edit:{user_id}"),
-         InlineKeyboardButton("❌ لغو", callback_data=f"admin:user:msg_cancel:{user_id}")],
+         InlineKeyboardButton(IBTN_CANCEL, callback_data=f"admin:user:msg_cancel:{user_id}")],
         [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
 
@@ -214,7 +241,7 @@ def broadcast_preview_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ تایید همگانی", callback_data="admin:broadcast_confirm")],
         [InlineKeyboardButton("✏️ ویرایش", callback_data="admin:broadcast_edit"),
-         InlineKeyboardButton("❌ لغو", callback_data="admin:broadcast_cancel")],
+         InlineKeyboardButton(IBTN_CANCEL, callback_data="admin:broadcast_cancel")],
         [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
 

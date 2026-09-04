@@ -77,8 +77,8 @@ def awaiting_inline_keyboard() -> InlineKeyboardMarkup:
 def admin_awaiting_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         _awaiting_row(
-            back_cb="admin:back", back_label="↩️ بازگشت",
-            cancel_cb="admin:cancel", cancel_label="❌ لغو",
+            back_cb="admin:back", back_label=IBTN_BACK,
+            cancel_cb="admin:cancel", cancel_label=IBTN_CANCEL,
         ) + [[InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")]]
     )
 
@@ -119,7 +119,7 @@ def display_toggle_confirm_keyboard(field: str, *, is_admin: bool = False) -> In
     rows: list[list[InlineKeyboardButton]] = [
         [
             InlineKeyboardButton("✅ بله، خاموش کن", callback_data=f"{prefix}:confirm:{field}"),
-            InlineKeyboardButton("❌ انصراف", callback_data=f"{prefix}:cancel"),
+            InlineKeyboardButton(IBTN_DELETE_CANCEL, callback_data=f"{prefix}:cancel"),
         ],
     ]
     if is_admin:

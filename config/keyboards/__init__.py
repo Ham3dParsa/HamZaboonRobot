@@ -211,6 +211,7 @@ from .admin import (
     user_block_confirm_keyboard,
     user_management_keyboard,
     user_plan_confirm_keyboard,
+    user_plan_picker_keyboard,
     user_profile_keyboard,
     user_reset_confirm_keyboard,
 )

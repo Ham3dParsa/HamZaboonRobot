@@ -298,7 +298,7 @@ class CustomWordQueryTests(unittest.TestCase):
         labels = [button.text for row in markup.inline_keyboard for button in row]
         callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
         self.assertIn("↩️ بازگشت", labels)
-        self.assertIn("❌ لغو", labels)
+        self.assertIn("🚫 لغو", labels)
         self.assertIn("flow:back", callbacks)
         self.assertIn("flow:cancel", callbacks)
         self.assertTrue(_is_cancel_input("لغو"))
