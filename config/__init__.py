@@ -37,22 +37,11 @@ if AI_PROXY_URL:
 
 DB_PATH = os.getenv("DB_PATH", "hamzaban.db")
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Tehran")
-# NOTE: _TTS_CACHE_CHAT_ID_RE lives in services.tts_service (single owner, R2).
+# NOTE: TTS cache-channel validation/coercion/resolution lives in
+# services.tts_service (single owner). Import from there, not config.
 TTS_CACHE_CHAT_ID = os.getenv("TTS_CACHE_CHAT_ID", "").strip()
 TTS_CACHE_DB_PATH = os.getenv("TTS_CACHE_DB_PATH", "tts_cache.db").strip() or "tts_cache.db"
 
-
-def validate_tts_cache_chat_id(raw: str) -> int | None:
-    """Thin delegate to services.tts_service (single owner, R2)."""
-    from services.tts_service import validate_tts_cache_chat_id as _v
-
-    return _v(raw)
-
-
-def _coerce_tts_cache_chat_id(raw: str) -> int | None:
-    from services.tts_service import _coerce_tts_cache_chat_id as _c
-
-    return _c(raw)
 
 ARCHIVE_CHAT_ID = os.getenv("ARCHIVE_CHAT_ID", "").strip()
 
@@ -224,15 +213,3 @@ def effective_daily_allowance(
     bypass_limits: bool = False,
 ) -> int:
     return daily_card_count_for_plan(effective_plan(plan, bypass_limits))
-
-
-def get_tts_cache_chat_id_raw() -> tuple[bool, str]:
-    from services.tts_service import get_tts_cache_chat_id_raw as _g
-
-    return _g()
-
-
-def resolve_tts_cache_chat_id() -> int | None:
-    from services.tts_service import resolve_tts_cache_chat_id as _r
-
-    return _r()

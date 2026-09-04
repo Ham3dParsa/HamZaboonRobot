@@ -13,9 +13,11 @@ from services.utils.helpers import _send_media_with_retry, _send_with_retry
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Per-key speak lock — the ONLY upload-dedup lock (R1).
-# bot.py must never touch tts._get_tts_lock; tts.pronounce() keeps its own
-# file-generation lock (different object, no nesting on the same lock).
+# Per-key speak lock — the ONLY upload-dedup lock (R1, phase 02 single lock).
+# tts.pronounce() is lock-free (atomic tmp-write + os.replace, no torn file
+# but no dedup of the Edge request itself); the service lock single-flights
+# speak() so concurrent same-key callers share one Edge call + one channel
+# upload. Direct tts.pronounce() calls outside speak() are NOT single-flighted.
 # ---------------------------------------------------------------------------
 _SPEAK_LOCKS: dict[str, asyncio.Lock] = {}
 _SPEAK_LOCKS_GUARD = asyncio.Lock()
@@ -26,8 +28,8 @@ async def _get_speak_lock(cache_key: str) -> asyncio.Lock:
     async with _SPEAK_LOCKS_GUARD:
         lock = _SPEAK_LOCKS.get(cache_key)
         if lock is None:
-            # Bounded eviction (mirror services/tts.py _get_tts_lock): only
-            # idle locks are evicted; per-key serialization wins over cap.
+            # Bounded eviction: only idle locks are evicted; per-key
+            # serialization wins over cap.
             if len(_SPEAK_LOCKS) >= _MAX_SPEAK_LOCKS:
                 for k, lk in list(_SPEAK_LOCKS.items()):
                     if not lk.locked():
@@ -182,7 +184,7 @@ def resolve_word(source: str, parts: list[str], user_id: int) -> tuple[str | Non
 async def speak(word: str, lang: str, *, bot, chat_id: int, reply_to: int | None = None) -> str:
     """Generate/send voice for word+lang. Returns kind for logging.
 
-    kind: file_id_hit | file_id_hit_after | channel_upload | direct_fallback
+    kind: file_id_hit | channel_upload | direct_fallback
     """
     caption = tts.tts_caption(word)
     cache_key = tts.tts_cache_key(word, lang)
@@ -208,23 +210,9 @@ async def _speak_locked(word: str, lang: str, *, caption: str, cache_key: str, c
             except (Forbidden, BadRequest):
                 logger.warning("cached file_id send failed, falling back to generate lang=%s word=%r key=%r", lang, word, cache_key, exc_info=True)
 
-    # miss -> generate (pronounce owns per-key file serialization + voices warmup)
+    # miss -> generate (the speak lock above single-flights concurrent
+    # same-key callers, so no post-pronounce cache re-check is needed)
     path = await tts.pronounce(word, lang)
-
-    # Re-check cache after pronounce to dedup concurrent uploads
-    # (belt-and-braces: the speak lock above already serializes uploads)
-    if channel_id:
-        cached_after = await _cache_get(cache_key)
-        if cached_after and cached_after.get("file_id"):
-            logger.info("tts file_id hit (after pronounce) lang=%s key=%r file_id_prefix=%r word=%r", lang, cache_key, str(cached_after["file_id"])[:12], word)
-            try:
-                await _send_voice(bot, chat_id, cached_after["file_id"], caption=caption, reply_to_message_id=reply_to)
-                return "file_id_hit_after"
-            except (TimedOut, NetworkError):
-                # Non-idempotent send: may already be delivered — never re-send.
-                raise
-            except (Forbidden, BadRequest):
-                logger.warning("cached file_id send failed (after pronounce), falling back to channel upload lang=%s word=%r key=%r", lang, word, cache_key, exc_info=True)
 
     # channel upload
     if channel_id:

@@ -27,7 +27,7 @@ author_url: https://github.com/Ham3dParsa
 | `review:prepare:`, `review:menu`, `review:page:`, `review:date:`, `review:next:`, `review:noop` | `bot.py` | `_handle_daily_prepare`, `_show_review_menu`, `_show_review_date`, `_send_card_from_store` |
 | `query:add:` | `bot.py` | `_handle_query_add` (from `handlers/srs_handler.py`) |
 | `query:dup:new:`, `query:dup:reuse:`, `query:dup:cancel` | `bot.py` | `_handle_query_dup_new`, `_handle_query_dup_reuse`, `_handle_query_dup_cancel` |
-| `tts:pronounce:` | `bot.py` | `_handle_tts_pronounce` |
+| `tts:pronounce:` | `services/tts_service.py` | `handle_callback` (via `bot.py` `_handle_tts_pronounce` thin adapter) |
 | `study:start`, `study:inactive` | `handlers/study_handler.py` | `handle_study_start`, `handle_study_inactive` (via `bot.py callback_router`) |
 | `help:section:`, `help:back` | `handlers/help_command.py` | `send_help_panel` (command/text entry), `handle_help_callback` |
 | `srs:prepare:`, `srs:reveal:`, `srs:` | `handlers/srs_handler.py` | `_handle_srs_prepare`, `_handle_srs_reveal`, `_handle_srs_review` |

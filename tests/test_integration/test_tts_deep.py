@@ -62,7 +62,7 @@ class TestTTSSpeakConcurrency(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(len(channel_messages), 1, f"expected 1 channel upload, got {channel_messages}")
         self.assertEqual(len(user_sends), 2)
-        self.assertTrue(all(k in ("channel_upload", "file_id_hit", "file_id_hit_after") for k in r))
+        self.assertTrue(all(k in ("channel_upload", "file_id_hit") for k in r))
 
     async def test_channel_forbidden_falls_back_direct(self):
         from services import tts_service as svc
@@ -179,6 +179,82 @@ class TestVoicesWarmup(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(tts._VOICES_EVENT.is_set())
             finally:
                 tts._VOICES_EVENT.clear()
+
+
+class TestTTSSingleLock(unittest.TestCase):
+    """Phase-02 R1/R2: exactly one per-key lock; no dead config delegates."""
+
+    def test_pronounce_has_no_file_lock(self):
+        import services.tts as tts
+
+        text = pathlib.Path("services/tts.py").read_text(encoding="utf-8")
+        for sym in ("_get_tts_lock", "_TTS_LOCKS", "_TTS_LOCKS_LOCK", "_MAX_TTS_LOCKS", "_tts_lock_key"):
+            self.assertNotIn(sym, text, f"services/tts.py still defines {sym}")
+            self.assertFalse(hasattr(tts, sym), f"services.tts still exposes {sym}")
+
+    def test_no_belt_and_braces_recheck_in_service(self):
+        text = pathlib.Path("services/tts_service.py").read_text(encoding="utf-8")
+        self.assertNotIn("cached_after", text)
+        self.assertNotIn("file_id_hit_after", text)
+
+    def test_config_has_no_dead_tts_delegates(self):
+        import config
+
+        for sym in ("validate_tts_cache_chat_id", "_coerce_tts_cache_chat_id", "get_tts_cache_chat_id_raw", "resolve_tts_cache_chat_id"):
+            self.assertFalse(hasattr(config, sym), f"config still exposes dead delegate {sym}")
+        admin_text = pathlib.Path("handlers/admin.py").read_text(encoding="utf-8")
+        self.assertNotIn("from config import resolve_tts_cache_chat_id", admin_text)
+        self.assertNotIn("from config import validate_tts_cache_chat_id", admin_text)
+        self.assertIn("from services.tts_service import", admin_text)
+
+    def test_config_has_no_tts_cache_chat_id_symbol(self):
+        text = pathlib.Path("config/__init__.py").read_text(encoding="utf-8")
+        self.assertNotIn("_TTS_CACHE_CHAT_ID", text)
+
+
+class TestTTSLockMapBounded(unittest.IsolatedAsyncioTestCase):
+    async def test_speak_lock_map_bounded(self):
+        from services import tts_service as svc
+
+        svc._SPEAK_LOCKS.clear()
+        try:
+            with patch.object(svc, "_MAX_SPEAK_LOCKS", 5):
+                for i in range(10):
+                    await svc._get_speak_lock(f"en:w{i}")
+                self.assertLessEqual(len(svc._SPEAK_LOCKS), 5)
+        finally:
+            svc._SPEAK_LOCKS.clear()
+
+    async def test_pronounce_concurrent_same_key_no_torn_file_duplicate_api_accepted(self):
+        # Accepted phase-02 R1 trade-off: lock-free pronounce() does NOT
+        # single-flight direct calls — both concurrent callers hit the Edge
+        # API; the atomic os.replace only guarantees the file is intact.
+        # Production path (speak() under _SPEAK_LOCKS) still dedups to 1.
+        import tempfile
+
+        import services.tts as tts
+
+        save_calls = []
+
+        class FakeComm:
+            def __init__(self, text, voice):
+                pass
+
+            async def save(self, dest):
+                await asyncio.sleep(0.02)
+                save_calls.append(dest)
+                pathlib.Path(dest).write_bytes(b"audio-bytes")
+
+        with tempfile.TemporaryDirectory() as td:
+            with (
+                patch.object(tts, "_TTS_CACHE_DIR", pathlib.Path(td)),
+                patch("services.tts._ensure_voices", return_value=None),
+                patch("edge_tts.Communicate", FakeComm),
+            ):
+                p1, p2 = await asyncio.gather(tts.pronounce("hello", "en"), tts.pronounce("hello", "en"))
+            self.assertEqual(p1, p2)
+            self.assertEqual(len(save_calls), 2)
+            self.assertEqual(pathlib.Path(p1).read_bytes(), b"audio-bytes")
 
 
 if __name__ == "__main__":

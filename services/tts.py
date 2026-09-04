@@ -28,13 +28,13 @@ _VOICES_LOADED = False
 _VOICES_EVENT = asyncio.Event()
 _VOICES_LOCK = asyncio.Lock()
 
-# Per-key async locks for pronounce() to prevent concurrent writes to the same
-# cache file (ticket #4 tts-race). Key is "lang:normalized_word".
-# Bounded to prevent unbounded growth on long uptime: old idle locks are
-# evicted when the map exceeds _MAX_TTS_LOCKS.
-_TTS_LOCKS: dict[str, asyncio.Lock] = {}
-_TTS_LOCKS_LOCK = asyncio.Lock()
-_MAX_TTS_LOCKS = 2000
+# NOTE (phase 02 R1): pronounce() is intentionally lock-free. Per-key
+# single-flight lives in services/tts_service._SPEAK_LOCKS (the only
+# production caller, speak(), holds it). Concurrent same-key DIRECT
+# pronounce() calls each issue their own Edge TTS request (accepted
+# trade-off); the atomic tmp-write + os.replace only guarantees no torn
+# file, not no duplicate upstream spend. Direct callers needing
+# single-flight must serialize themselves.
 
 
 def voice_for(lang: str) -> str:
@@ -57,7 +57,7 @@ async def _ensure_voices():
     if _VOICES_LOADED:
         logger.info("tts _ensure_voices cache hit")
         return
-    # Deduplicate concurrent warmups outside per-key lock via Event+Lock
+    # Deduplicate concurrent warmups via Event+Lock
     if _VOICES_EVENT.is_set():
         return
     async with _VOICES_LOCK:
@@ -140,29 +140,8 @@ def _cache_path(word: str, lang: str) -> Path:
     return _TTS_CACHE_DIR / f"{key}.mp3"
 
 
-def _tts_lock_key(word: str, lang: str) -> str:
-    return tts_cache_key(word, lang)
-
-
-async def _get_tts_lock(key: str) -> asyncio.Lock:
-    async with _TTS_LOCKS_LOCK:
-        lock = _TTS_LOCKS.get(key)
-        if lock is None:
-            # Bounded eviction: only idle locks are evicted. If all locks
-            # are held, skip eviction and let the map grow temporarily —
-            # per-key serialization matters more than a strict cap.
-            if len(_TTS_LOCKS) >= _MAX_TTS_LOCKS:
-                for k, lk in list(_TTS_LOCKS.items()):
-                    if not lk.locked():
-                        del _TTS_LOCKS[k]
-                        if len(_TTS_LOCKS) < _MAX_TTS_LOCKS:
-                            break
-            lock = asyncio.Lock()
-            _TTS_LOCKS[key] = lock
-        return lock
-
-
 _TTS_TIMEOUT_S = 12
+
 
 async def pronounce(word: str, lang: str) -> Path:
     path = _cache_path(word, lang)
@@ -170,7 +149,7 @@ async def pronounce(word: str, lang: str) -> Path:
         logger.info("tts pronounce cache hit lang=%s word=%r path=%s", lang, word, path)
         return path
     logger.info("tts pronounce cache miss lang=%s word=%r", lang, word)
-    # Warm voices outside per-key lock (Event dedup prevents thundering herd)
+    # Warm voices first (Event dedup prevents thundering herd)
     try:
         await asyncio.wait_for(_ensure_voices(), timeout=_TTS_TIMEOUT_S)
     except (asyncio.TimeoutError, asyncio.CancelledError):
@@ -179,45 +158,39 @@ async def pronounce(word: str, lang: str) -> Path:
     except Exception:
         logger.exception("tts _ensure_voices failed lang=%s word=%r", lang, word)
         raise
-    key = _tts_lock_key(word, lang)
-    lock = await _get_tts_lock(key)
-    async with lock:
-        if path.exists():
-            logger.info("tts pronounce cache hit (inside lock) lang=%s word=%r", lang, word)
-            return path
-        voice = _default_voice(lang)
-        logger.info("tts pronounce generating lang=%s voice=%s word=%r", lang, voice, word)
-        communicate = edge_tts.Communicate(word, voice)
-        # Atomic write: save to temp file in same dir then replace
-        tmp_fd, tmp_path = tempfile.mkstemp(
-            suffix=".tmp", dir=str(path.parent), prefix=path.stem + "_"
-        )
-        os.close(tmp_fd)
+    voice = _default_voice(lang)
+    logger.info("tts pronounce generating lang=%s voice=%s word=%r", lang, voice, word)
+    communicate = edge_tts.Communicate(word, voice)
+    # Atomic write: save to temp file in same dir then replace
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        suffix=".tmp", dir=str(path.parent), prefix=path.stem + "_"
+    )
+    os.close(tmp_fd)
+    try:
         try:
-            try:
-                await asyncio.wait_for(communicate.save(tmp_path), timeout=_TTS_TIMEOUT_S)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                logger.warning(
-                    "tts communicate.save timeout/cancel lang=%s voice=%s word=%r",
-                    lang,
-                    voice,
-                    word,
-                    exc_info=True,
-                )
-                raise
-            except Exception:
-                logger.exception(
-                    "tts communicate.save failed lang=%s voice=%s word=%r",
-                    lang,
-                    voice,
-                    word,
-                )
-                raise
-            os.replace(tmp_path, str(path))
-        finally:
-            try:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except OSError:
-                pass
-        return path
+            await asyncio.wait_for(communicate.save(tmp_path), timeout=_TTS_TIMEOUT_S)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            logger.warning(
+                "tts communicate.save timeout/cancel lang=%s voice=%s word=%r",
+                lang,
+                voice,
+                word,
+                exc_info=True,
+            )
+            raise
+        except Exception:
+            logger.exception(
+                "tts communicate.save failed lang=%s voice=%s word=%r",
+                lang,
+                voice,
+                word,
+            )
+            raise
+        os.replace(tmp_path, str(path))
+    finally:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+    return path
