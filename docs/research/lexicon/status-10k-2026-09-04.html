@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>کجای کاریم؟ گزارش وضعیت استخر ۱۰هزارتایی</title>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  body { font-family: "Vazirmatn", "Segoe UI", Tahoma, sans-serif; max-width: 900px; margin: 2em auto; padding: 0 1.2em; line-height: 2.1; color: #1c1c1c; }
+  h1 { font-size: 1.5em; }
+  h2 { font-size: 1.15em; margin-top: 2em; border-bottom: 2px solid #4a7c2e; padding-bottom: .3em; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .93em; }
+  th, td { border: 1px solid #ccc; padding: .5em .7em; text-align: right; vertical-align: top; }
+  th { background: #f2f2f2; }
+  .en { direction: ltr; unicode-bidi: isolate; font-family: Consolas, monospace; font-size: .88em; }
+  .box { background: #f7f7f0; border-right: 4px solid #6a9a3f; padding: .7em 1em; margin: 1em 0; }
+  .warn { background: #fdf6ec; border-right: 4px solid #c98a2e; padding: .7em 1em; margin: 1em 0; }
+  .note { color: #555; font-size: .88em; }
+  .big { font-size: 1.25em; }
+</style>
+</head>
+<body>
+
+<h1>کجای کاریم؟</h1>
+<p class="note">سند زنده — آخرین به‌روزرسانی ۱۴ شهریور (بعد از مرج PR ۵۶۰). همین فایل جلو می‌رود، فایل تازه ساخته نمی‌شود.</p>
+
+<div class="box">
+<p class="big">خط لوله استخر انگلیسی <b>ساخته، تست و مرج شده</b> (PR ۵۵۳ و ۵۶۰). استخر ۳۰۰۰تایی تمیز با AWL و قانون بی‌صدای اصلاح‌شده.</p>
+<p>از ۵۰۰ کلمه آزمایشی رسیدیم به استخر ۳۰۰۰تایی (حدود ۱۰ هزار کارت آینده) با همان استانداردهای نسخه ۱۶، به‌علاوه چند سخت‌گیری تازه.</p>
+</div>
+
+<h2>تا اینجا چه شد؟</h2>
+<table>
+<tr><th>قدم</th><th>نتیجه واقعی</th><th>وضعیت</th></tr>
+<tr><td>دانلود دامپ خام</td><td>۳٫۲ گیگ، ۱٬۴۸۷٬۶۳۹ خط، صفر خط خراب (مستقل هم راستی‌آزمایی شد)</td><td>تمام</td></tr>
+<tr><td>ایندکس آفست</td><td>۱٬۳۵۱٬۵۸۸ لم در ۳۱ ثانیه؛ resume و spill امن</td><td>تمام</td></tr>
+<tr><td>نمونه‌گیری seedدار</td><td>۳۰۰۰ سطر، ترکیب دقیق ۳۶۴/۴۸۵/۶۶۷/۷۲۷/۴۵۴/۳۰۳، هر ۵۰۰ تای قبلی داخلش</td><td>تمام</td></tr>
+<tr><td>فیلتر شکل (R5)</td><td>پسوند، رقم، انقباض، تک‌حرف، مخفف نقطه‌دار بیرون؛ ۳۰۲ هزار عبارت شمرده شد برای بعد</td><td>تمام</td></tr>
+<tr><td>بازتولید استخر تمیز</td><td>۳۰۰۰ سطر / ۳۰۰۰ کلید یکتا، صفر تخلف شکلی، pack دوباره وصل</td><td>تمام (مرج ۵۵۷)</td></tr>
+<tr><td>ریویوها</td><td>۲۰+ یافته در سه دور، همه واقعی، همه فیکس و تست‌دار؛ تست‌ها ۶۳ سبز، CI هم فکتوری را اجرا می‌کند</td><td>تمام</td></tr>
+<tr><td>اصلاح بی‌صداها (F2b)</td><td>packدار یا پرتکرار می‌ماند (۱۳۵۳ کلمه نجات یافت، از جمله <span class="en">by/my</span>)؛ <span class="en">try/fly/sky</span> هنوز در قرعه‌کشی نیامده‌اند — پارک شد (F5)</td><td>تمام (مرج ۵۶۰)</td></tr>
+<tr><td>AWL + فهرست آزمونی (F3)</td><td>۵۶۹ خانواده روی درایو؛ پوشش استخر ۱۷۸/۵۶۹ (۳۱٪)؛ فقط WordLevel TOEFL-1k سالم درآمد (۹۰۷ کلمه‌اش بیرون استخر = سیگنال top-up)</td><td>تمام (مرج ۵۶۰)</td></tr>
+</table>
+
+<h2>استانداردهای ۱۶ رعایت شد؟ بهتر شد؟</h2>
+<p>بله، و سه جا سخت‌گیرتر شد:</p>
+<table>
+<tr><th>استاندارد ۱۶</th><th>وضع</th></tr>
+<tr><td>تعیین‌پذیری با seed (ران دوباره = خروجی بایت‌به‌بایت یکسان)</td><td>حفظ شده، با تست</td></tr>
+<tr><td>dry-run هیچی ننویسد</td><td>حفظ شده، با تست (و یک بار ثابت شد با snapshot)</td></tr>
+<tr><td>fail-closed به‌جای traceback</td><td>حفظ و گسترش یافته (checkpoint خراب، manifest خراب، pilot پرتعداد)</td></tr>
+<tr><td>بدون whitelist و بدون عدد جادویی</td><td>حفظ شده؛ فیلتر شکل قانون متنی عمومی است نه لیست استثنا</td></tr>
+<tr><td>بهبود تازه: شمارنده‌ها در checkpoint می‌مانند</td><td>ران نصفه و کامل دقیقاً یک آمار می‌دهند</td></tr>
+<tr><td>بهبود تازه: تست‌های فکتوری در CI</td><td>قبلاً تست‌ها فقط لوکال بودند، حالا سرور هم اجراشان می‌کند</td></tr>
+<tr><td>بهبود تازه: pilot تکراری حذف می‌شود</td><td>باگ `cast` (۲۹۹۹ به‌جای ۳۰۰۰) دیگر نمی‌تواند برگردد</td></tr>
+</table>
+
+<h2>چه مانده؟</h2>
+<table>
+<tr><th>کار</th><th>با کیست</th></tr>
+<tr><td>F4: استخر جدا برای عبارت‌ها + قانون سطح‌شان (۳۰۲ هزار کاندید شمرده شده)</td><td>من، قدم بعدی</td></tr>
+<tr><td>F5: تضمین حضور کلمات ضروری در نمونه‌گیری نهایی (پارک‌شده تا اعتبارسنجی کیفیت برچسب‌ها)</td><td>بعداً، با دستور تو</td></tr>
+<tr><td>پایلوت کارت‌سازی روی استخر (دیدن کیفیت واقعی سطح و موضوع)</td><td>من، بعد از F4 یا موازی با دستور تو</td></tr>
+<tr><td>قرارداد Tier 3 (۵ محور) + RFC رجیستر آکادمیک</td><td>بحثش با تو، کدش بعد از استخر</td></tr>
+<tr><td>عدد سهمیه هر پلن (قیمت ساخت ۳ قفل است)</td><td>تو، وقتی داده مصرف آمد</td></tr>
+</table>
+
+<h2>گام بعد دقیقاً چیست؟</h2>
+<div class="box">
+<p>۱. من F4 را می‌زنم: استخر عبارت جدا با قانون سطح.<br>۲. بعد پایلوت کارت‌سازی برای دیدن کیفیت برچسب‌ها.<br>۳. F5 و Tier 3 و سهمیه‌ها سر جایشان پارک‌اند تا نوبتشان شود.</p>
+</div>
+
+<div class="warn">
+<p>دو چیزی که عمداً دست نزدم: فیلتر کیفیت را بدون قانون تو ننوشتم (همان شش بند را خودت دادی)، و Tier 3 را کد نکردم چون قراردادش فقط بحث است. هر دو منتظر تواند.</p>
+</div>
+
+<p class="note">مبنا: برنچ <span class="en">feat/lexicon-shape-filter</span>، قرارداد <span class="en">plan-10k-sampling.md</span> (R1 تا R5 قفل)، تیکت‌ها <span class="en">TICKETS-10k.md</span>، ایشو ۵۵۰.</p>
+
+</body>
+</html>
