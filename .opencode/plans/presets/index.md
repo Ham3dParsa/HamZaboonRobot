@@ -27,3 +27,8 @@ Scope: Admin AI Preset panel audit fixes (R1–R15, F1/F2) + R16 (reasoning-effo
 | `plan-preset-save-preview-phase-04-display-value.md` | 4 | Phase 3 | pending |
 | `plan-preset-save-preview-phase-05-render-seam.md` | 5 | Phase 4 | pending |
 | `plan-preset-save-preview-phase-06-keyboard-diffs.md` | 6 | Phase 4, 5 | pending |
+| `plan-preset-panel-ux.md` | 7..10 | `presets/plan-preset-panel-ux-phase-NN` | in-progress |
+| `plan-preset-panel-ux-phase-07-keyboard.md` | 7 | — | pending |
+| `plan-preset-panel-ux-phase-08-view-stats.md` | 8 | Phase 7 | pending |
+| `plan-preset-panel-ux-phase-09-feedback-notes.md` | 9 | Phase 7 | pending |
+| `plan-preset-panel-ux-phase-10-wizard.md` | 10 | Phase 7 | pending |
