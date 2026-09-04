@@ -12,7 +12,10 @@ from services.utils.confirm_summary import (
     EMPTY_CONFIRM_TEXT,
     FieldDiff,
     build_confirm_message,
+    discard_label,
+    pending_header,
     render_diffs,
+    save_label,
 )
 from services.utils.formatting import to_persian_digits
 
@@ -139,6 +142,38 @@ class TestRenderDiffs(unittest.TestCase):
         self.assertIn("مدل", rich)
         # No numbered-label prefix (dirty-count line still uses Persian digits).
         self.assertNotIn(f"{to_persian_digits(1)}\\.", rich)
+
+
+class TestDirtyStateLabels(unittest.TestCase):
+    """T6 (D3): save/discard/pending builders — static stems + Persian-digit
+    counts, byte-identical to the former keyboard-side compositions."""
+
+    def test_save_and_discard_labels_carry_persian_count(self):
+        diffs = [
+            FieldDiff(field="model", label="مدل", old="a", new="b"),
+            FieldDiff(field="temperature", label="دما", old="c", new="d"),
+        ]
+        self.assertEqual(save_label(diffs), "💾 ذخیره (۲)")
+        self.assertEqual(discard_label(diffs), "🗑️ دور ریختن همه (۲)")
+
+    def test_pending_header_carries_persian_count(self):
+        diffs = [FieldDiff(field="model", label="مدل", old="a", new="b")]
+        self.assertEqual(pending_header(diffs), "۱ تغییر در انتظار — هنوز ذخیره نشده")
+
+    def test_empty_diffs_render_zero_count(self):
+        self.assertEqual(save_label([]), "💾 ذخیره (۰)")
+        self.assertEqual(discard_label([]), "🗑️ دور ریختن همه (۰)")
+        self.assertEqual(pending_header([]), "۰ تغییر در انتظار — هنوز ذخیره نشده")
+
+    def test_field_identity_defaults_to_empty_and_carries_no_secret(self):
+        import dataclasses
+
+        diff = FieldDiff(label="مدل", old="a", new="b")
+        self.assertEqual(diff.field, "")
+        self.assertEqual(
+            [f.name for f in dataclasses.fields(FieldDiff)],
+            ["label", "old", "new", "field"],
+        )
 
 
 if __name__ == "__main__":

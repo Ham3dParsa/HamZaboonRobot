@@ -28,10 +28,9 @@ from services.utils.callback_codec import (
 from services.ai import ai
 from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
-from services.utils.confirm_summary import FieldDiff, build_confirm_message, render_diffs
+from services.utils.confirm_summary import FieldDiff, build_confirm_message, pending_header, render_diffs
 from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _store_awaiting_msg
-from services.utils.formatting import to_persian_digits
-from services.send_pretty import Backend, Message, RawFormat, bold, code, italic, plain, say, table
+from services.send_pretty import Backend, Message, RawFormat, bold, code, italic, plain, say
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
     BTN_BACK,
@@ -438,6 +437,7 @@ def _preset_edit_diffs(preset: dict, edits: dict) -> list[FieldDiff]:
                 label=FIELD_LABELS.get(field_name, field_name),
                 old=old_str,
                 new=new_str,
+                field=field_name,
             )
         )
     return diffs
@@ -457,11 +457,11 @@ async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
     msg.add_line(plain("✏️ "), bold("ویرایش پیش‌تنظیم: " + str(preset_name)))
     msg.add_line(plain("انتخاب فیلد برای تغییر:"))
     if diffs:
-        msg.add_line(plain(f"{to_persian_digits(len(diffs))} تغییر در انتظار — هنوز ذخیره نشده"))
+        msg.add_line(plain(pending_header(diffs)))
         for line in render_diffs(diffs):
             msg.add_line(*line)
 
-    await say(update, context, msg, backend=Backend.RICH, keyboard=ai_preset_edit_keyboard(preset_name, preset, edits))
+    await say(update, context, msg, backend=Backend.RICH, keyboard=ai_preset_edit_keyboard(preset_name, diffs, has_group=bool(preset.get("group_label"))))
 
 
 async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, field_name: str):

@@ -41,8 +41,7 @@ class AiPresetCallbackByteLimitTest(unittest.TestCase):
         return {"name": name, "model": "m", "base_url": "u"}
 
     def test_edit_field_callbacks_under_64(self):
-        preset = self._preset(self.LONG_NAME)
-        markup = ai_preset_edit_keyboard(self.LONG_NAME, preset)
+        markup = ai_preset_edit_keyboard(self.LONG_NAME)
         for cb in _collect_callback_data(markup):
             self.assertLessEqual(
                 len(cb.encode("utf-8")),

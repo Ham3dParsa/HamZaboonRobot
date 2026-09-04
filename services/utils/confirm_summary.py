@@ -11,6 +11,9 @@ Contract:
   ``to_persian_digits`` from ``services/utils/formatting.py`` (no duplicate).
 - Field order is the caller's job (``WIZARD_FIELDS`` order); input order is
   preserved as-is.
+- Dirty-state button/header text (``save_label`` / ``discard_label`` /
+  ``pending_header``) is composed here from the static stems in
+  ``config/keyboards/constants.py`` + canonical ``to_persian_digits`` counts.
 - No Telegram imports outside ``send_pretty`` spans; no DB access.
 """
 
@@ -22,6 +25,12 @@ from typing import Sequence
 from services.send_pretty import Message, bold, code, heading, plain, table
 from services.utils.formatting import to_persian_digits
 
+from config.keyboards.constants import (
+    IBTN_PRESET_DISCARD_STEM,
+    IBTN_PRESET_SAVE_STEM,
+    PRESET_PENDING_SUFFIX,
+)
+
 EMPTY_CONFIRM_TEXT = "تغییری برای ذخیره وجود ندارد"
 
 
@@ -32,6 +41,11 @@ class FieldDiff:
     label: str
     old: str
     new: str
+    # T6 (D3): canonical field key (e.g. "model") carried for dirty-state
+    # identity — the edit keyboard matches dots on this, not on labels
+    # (button labels use IBTN_* strings, diffs use FIELD_LABELS). A plain
+    # identifier, never a secret value. "" when the producer has no key.
+    field: str = ""
 
 
 def render_diffs(diffs: Sequence[FieldDiff], *, numbered: bool = False) -> list:
@@ -91,3 +105,22 @@ def build_confirm_message(
     for note in notes:
         msg.add_line(plain(note))
     return msg
+
+
+def save_label(diffs: Sequence[FieldDiff]) -> str:
+    """Dirty-state save button text (T6/D3): static stem + Persian-digit count.
+
+    Domain-agnostic strings+counts only — no preset logic. Byte-identical to
+    the former keyboard-side ``f"💾 ذخیره ({count})"`` composition.
+    """
+    return f"{IBTN_PRESET_SAVE_STEM} ({to_persian_digits(len(diffs))})"
+
+
+def discard_label(diffs: Sequence[FieldDiff]) -> str:
+    """Dirty-state discard button text (T6/D3): static stem + Persian-digit count."""
+    return f"{IBTN_PRESET_DISCARD_STEM} ({to_persian_digits(len(diffs))})"
+
+
+def pending_header(diffs: Sequence[FieldDiff]) -> str:
+    """Dirty-state pending header (T6/D3): Persian-digit count + static suffix."""
+    return f"{to_persian_digits(len(diffs))} {PRESET_PENDING_SUFFIX}"

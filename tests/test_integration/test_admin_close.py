@@ -182,7 +182,7 @@ class AdminKeyboardsCloseButtonTest(unittest.TestCase):
             ai_settings_keyboard(),
             ai_presets_list_keyboard([], "x"),
             ai_preset_view_keyboard({"name": "x"}, "y"),
-            ai_preset_edit_keyboard("x", {"name": "x"}),
+            ai_preset_edit_keyboard("x"),
             ai_fallback_keyboard("a", "b", "a"),
             fallback_chain_keyboard([]),
             admin_awaiting_inline_keyboard(),

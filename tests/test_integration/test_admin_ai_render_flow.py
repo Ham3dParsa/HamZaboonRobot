@@ -584,10 +584,10 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         """R2 (T2): staged model row carries a ✏️ prefix; values live in the
         menu tables now, not on buttons; callback_data unchanged."""
         from config.keyboards.admin import ai_preset_edit_keyboard
+        from services.utils.confirm_summary import FieldDiff
 
-        preset = {"name": "draft_p", "model": "old-model", "base_url": "https://api.example.com", "api_key": ""}
-        kb_plain = ai_preset_edit_keyboard("draft_p", preset)
-        kb_draft = ai_preset_edit_keyboard("draft_p", preset, {"model": "new-model"})
+        kb_plain = ai_preset_edit_keyboard("draft_p")
+        kb_draft = ai_preset_edit_keyboard("draft_p", [FieldDiff(field="model", label="Model", old="old-model", new="new-model")])
         plain_callbacks = [b.callback_data for row in kb_plain.inline_keyboard for b in row]
         draft_callbacks = [b.callback_data for row in kb_draft.inline_keyboard for b in row]
         self.assertEqual(plain_callbacks, draft_callbacks)
@@ -609,13 +609,12 @@ class AdminAiRenderFlowTest(unittest.TestCase):
     def test_edit_keyboard_masks_api_key_draft(self):
         """R3 (T2): staged api_key draft leaves no plaintext on any button."""
         from config.keyboards.admin import ai_preset_edit_keyboard
+        from services.utils.confirm_summary import FieldDiff
 
-        preset = {"name": "draft_k", "model": "m", "api_key": "old-key-value-1234567890"}
-        draft_key = "sk-1234567890abcdef"
-        kb = ai_preset_edit_keyboard("draft_k", preset, {"api_key": draft_key})
+        kb = ai_preset_edit_keyboard("draft_k", [FieldDiff(field="api_key", label="API Key", old="••••1111", new="••••2222")])
         texts = [b.text for row in kb.inline_keyboard for b in row]
         for t in texts:
-            self.assertNotIn(draft_key, t)
+            self.assertNotIn("sk-1234567890abcdef", t)
             self.assertNotIn("old-key-value-1234567890", t)
         key_row = next(t for t in texts if "API Key" in t)
         self.assertTrue(key_row.startswith("✏️"))
@@ -644,9 +643,9 @@ class AdminAiRenderFlowTest(unittest.TestCase):
     def test_edit_keyboard_empty_draft_still_marks_dirty(self):
         """Empty-string draft still marks the row dirty (✏️ prefix, no value)."""
         from config.keyboards.admin import ai_preset_edit_keyboard
+        from services.utils.confirm_summary import FieldDiff
 
-        preset = {"name": "draft_e", "model": "old-model", "group_label": "g"}
-        kb = ai_preset_edit_keyboard("draft_e", preset, {"group_label": ""})
+        kb = ai_preset_edit_keyboard("draft_e", [FieldDiff(field="group_label", label="Group Label", old="g", new="—")], has_group=True)
         texts = [b.text for row in kb.inline_keyboard for b in row]
         cleared_row = next(t for t in texts if "Group Label" in t or "برچسب" in t)
         self.assertTrue(cleared_row.startswith("✏️"))
@@ -669,13 +668,14 @@ class AdminAiRenderFlowTest(unittest.TestCase):
         text = mock_say.call_args[0][2].render(Backend.RICH)
         self.assertIn(f"`{long_draft}`", text)
 
-    def test_edit_keyboard_rejects_non_dict_edits(self):
-        """Kilo SUGGESTION: non-dict edits fail fast at the keyboard boundary."""
+    def test_edit_keyboard_rejects_non_field_diff_items(self):
+        """T6: non-FieldDiff dirty state fails fast at the keyboard boundary."""
         from config.keyboards.admin import ai_preset_edit_keyboard
 
-        preset = {"name": "draft_b", "model": "old"}
         with self.assertRaises(TypeError):
-            ai_preset_edit_keyboard("draft_b", preset, ["model"])  # type: ignore[arg-type]
+            ai_preset_edit_keyboard("draft_b", ["model"])  # type: ignore[list-item]
+        with self.assertRaises(TypeError):
+            ai_preset_edit_keyboard("draft_b", {"model": "x"})  # type: ignore[arg-type]
 
     def test_single_field_confirm_mentions_draft_and_needs_save(self):
         """R6 (T2): staging toasts the canonical label and re-renders the menu

@@ -113,6 +113,12 @@ IBTN_FIELD_REASONING = "🧠 reasoning"
 IBTN_FIELD_ENABLED = "✅ فعال"
 IBTN_SAVE_CONFIRM = "✅ بله، ذخیره کن"
 IBTN_SAVE_CANCEL = "❌ لغو ذخیره"
+# T6 (D3): static stems for the dirty-state button labels. The count
+# composition (Persian digits) lives in services/utils/confirm_summary.py
+# (save_label/discard_label/pending_header); this module keeps stems only.
+IBTN_PRESET_SAVE_STEM = "💾 ذخیره"
+IBTN_PRESET_DISCARD_STEM = "🗑️ دور ریختن همه"
+PRESET_PENDING_SUFFIX = "تغییر در انتظار — هنوز ذخیره نشده"
 IBTN_FULL_EDIT_WIZARD = "✏️ ویرایش کامل"
 IBTN_FULL_EDIT_NEXT = "▶️ بعدی"
 IBTN_FULL_EDIT_BACK = "↩️ قبلی"
