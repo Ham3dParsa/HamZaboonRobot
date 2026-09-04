@@ -99,6 +99,62 @@ class RotateAwaitingMsgTest(unittest.TestCase):
             ctx.user_data["_awaiting_msg"], {"chat_id": 1, "message_id": 22}
         )
 
+    def test_rotate_same_message_skips_strip_and_restores(self):
+        """Back-to-back prompts on one message (callback edits reuse it).
+
+        The stored old tuple aliases the just-rendered prompt — stripping it
+        would remove the keyboard ``say`` just set. Rotation must skip the
+        strip and just (re-)store (opencode WARNING, PR 568).
+        """
+        from services.utils.helpers import _rotate_awaiting_msg
+
+        ctx = _make_ctx()
+        ctx.user_data["_awaiting_msg"] = {"chat_id": 1, "message_id": 11}
+        update = MagicMock()
+        update.callback_query = MagicMock()
+        update.effective_message = MagicMock()
+        update.effective_message.message_id = 11
+        update.effective_chat = MagicMock()
+        update.effective_chat.id = 1
+        new_msg = MagicMock()
+        new_msg.message_id = 11
+        new_chat = MagicMock()
+        new_chat.id = 1
+        new_msg.chat = new_chat
+        with patch(
+            "services.utils.helpers._edit_markup_with_retry", new=AsyncMock()
+        ) as mock_edit:
+            asyncio.run(_rotate_awaiting_msg(ctx, update, new_msg))
+        mock_edit.assert_not_called()
+        self.assertEqual(
+            ctx.user_data["_awaiting_msg"], {"chat_id": 1, "message_id": 11}
+        )
+
+    def test_rotate_not_modified_keeps_old_tracking(self):
+        """``say`` returning None (edit-not-modified answers the callback).
+
+        Nothing new to track — the old entry must stay intact so a later
+        rotation can still strip it (opencode WARNING, PR 568).
+        """
+        from services.utils.helpers import _rotate_awaiting_msg
+
+        ctx = _make_ctx()
+        ctx.user_data["_awaiting_msg"] = {"chat_id": 1, "message_id": 11}
+        update = MagicMock()
+        update.callback_query = MagicMock()
+        update.effective_message = MagicMock()
+        update.effective_message.message_id = 11
+        update.effective_chat = MagicMock()
+        update.effective_chat.id = 1
+        with patch(
+            "services.utils.helpers._edit_markup_with_retry", new=AsyncMock()
+        ) as mock_edit:
+            asyncio.run(_rotate_awaiting_msg(ctx, update, None))
+        mock_edit.assert_not_called()
+        self.assertEqual(
+            ctx.user_data["_awaiting_msg"], {"chat_id": 1, "message_id": 11}
+        )
+
     def test_rotate_with_no_previous_prompt_just_stores(self):
         from services.utils.helpers import _rotate_awaiting_msg
 

@@ -203,15 +203,17 @@ def user_plan_picker_keyboard(
         if not name or ":" in name:
             continue
         label = str(p.get("display_name") or name).strip() or name
-        # Truncate long display_names — Telegram buttons degrade past ~30 chars
-        if len(label) > 30:
-            label = label[:30] + "…"
         if current is not None and name.lower() == current:
-            label = f"✅ {label} (فعلی)"
-            # The marker itself costs chars — re-truncate so the flagged
-            # current button stays within budget too (kilo WARNING, PR 568).
-            if len(label) > 30:
-                label = label[:30] + "…"
+            # Mark first, truncating the BASE to leave room, so the full
+            # ✅…(فعلی) marker always survives (kilo/opencode WARNING, PR 568:
+            # truncating after marking chopped the suffix off).
+            marker_head, marker_tail = "✅ ", " (فعلی)"
+            budget = 30 - len(marker_head) - len(marker_tail)
+            base = label if len(label) <= budget else label[:budget] + "…"
+            label = f"{marker_head}{base}{marker_tail}"
+        elif len(label) > 30:
+            # Truncate long display_names — Telegram buttons degrade past ~30 chars
+            label = label[:30] + "…"
         cb = f"admin:user:plan_select:{user_id}:{name}"
         # Telegram callback_data limit is 64 bytes
         if len(cb.encode("utf-8")) > 64:

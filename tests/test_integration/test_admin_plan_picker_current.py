@@ -127,7 +127,7 @@ class AdminPlanPickerCurrentTest(unittest.TestCase):
         self.assertEqual(db.get_user(42)["plan"], "silver")
 
     def test_long_current_label_stays_within_budget(self):
-        """Long display_name: marked current button stays within ~30 chars."""
+        """Long display_name: marked current button keeps the FULL marker."""
         from config.keyboards.admin import user_plan_picker_keyboard
 
         long_name = "طلایی ویژه با قابلیت‌های اضافی و نام خیلی طولانی"
@@ -136,10 +136,12 @@ class AdminPlanPickerCurrentTest(unittest.TestCase):
             42, [{"name": "gold", "display_name": long_name}], current_plan="gold"
         )
         texts = [b.text for row in kb.inline_keyboard for b in row]
-        marked = [t for t in texts if "فعلی" in t or t.startswith("✅")]
+        marked = [t for t in texts if t.startswith("✅")]
         self.assertTrue(marked)
         for t in marked:
             self.assertLessEqual(len(t), 31)
+            # the full marker must survive — not just the ✅ prefix
+            self.assertIn("فعلی", t)
 
     def test_marking_is_text_only_no_style_used(self):
         """Marking is text/emoji-only: the builder never sets PTB ``style``.
