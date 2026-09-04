@@ -91,11 +91,11 @@ class AiPresetEditKeyboardDiffsTests(unittest.TestCase):
         self.assertTrue(model_row.startswith("✏️"))
         self.assertTrue(key_row.startswith("✏️"))
         self.assertFalse(base_row.startswith("✏️"))
-        # Exact dotted-key set (plus the static ✏️ نام پریست label quirk).
-        self.assertEqual(self._dotted_keys(kb), {"model", "api_key", "name"})
+        # Exact dotted-key set — only staged fields carry dots now.
+        self.assertEqual(self._dotted_keys(kb), {"model", "api_key"})
 
     def test_dirty_name_renders_single_prefix(self):
-        """Dirty `name` must not double the static ✏️ in IBTN_FIELD_NAME."""
+        """Dirty `name` gets exactly one ✏️ from the dirty branch."""
         kb = ai_preset_edit_keyboard(
             "p",
             [FieldDiff(field="name", label="Preset Name", old="a", new="b")],
@@ -120,8 +120,8 @@ class AiPresetEditKeyboardDiffsTests(unittest.TestCase):
         texts = self._texts(kb)
         self.assertIn("💾 ذخیره (۰)", texts)
         self.assertIn("🗑️ دور ریختن همه (۰)", texts)
-        # No dirty dots; the `name` row keeps its static ✏️ نام پریست label.
-        self.assertEqual(self._dotted_keys(kb), {"name"})
+        # No dirty dots; the `name` row is now a plain label.
+        self.assertEqual(self._dotted_keys(kb), set())
 
     def test_detach_row_follows_has_group_flag(self):
         grouped = ai_preset_edit_keyboard("p", [], has_group=True)
@@ -146,7 +146,7 @@ class AiPresetEditKeyboardDiffsTests(unittest.TestCase):
 
     def test_unknown_field_identity_marks_nothing(self):
         kb = ai_preset_edit_keyboard("p", [FieldDiff(label="?", old="a", new="b")])
-        self.assertEqual(self._dotted_keys(kb), {"name"})
+        self.assertEqual(self._dotted_keys(kb), set())
         self.assertIn("💾 ذخیره (۱)", self._texts(kb))
 
     def test_non_field_diff_items_raise_type_error(self):
