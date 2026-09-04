@@ -226,11 +226,6 @@ def vowelless_audit(index_path: str, pack_data: dict, lang: str) -> dict:
             try:
                 from wordfreq import zipf_frequency
             except ImportError:
-                zipf_frequency = None  # type: ignore[assignment]
-            if zipf_frequency is None:
-                continue
-                from wordfreq import zipf_frequency
-            except ImportError:
                 continue
             z = zipf_frequency(norm, lang)
             if z >= FREQUENT_ZIPF:
