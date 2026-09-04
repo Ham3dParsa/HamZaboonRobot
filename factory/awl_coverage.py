@@ -97,6 +97,10 @@ def load_awl(path: str) -> tuple[dict[str, list[str]], dict]:
     families = payload["families"]
     normed: dict[str, list[str]] = {}
     for head, members in families.items():
+        if not isinstance(members, list):
+            raise SystemExit(
+                f"error: corrupt AWL file {path}: "
+                f"members of {head!r} must be a list")
         try:
             norm_head = normalize_lemma(head)
         except (ValueError, TypeError):
@@ -250,8 +254,14 @@ def vowelless_audit(index_path: str, pack_data: dict, lang: str) -> dict:
     return out
 
 
-def decide_verdict(family_pct: float, pack_real: int, frequent_n: int) -> str:
-    if frequent_n >= 20 or pack_real >= 100:
+def decide_verdict(family_pct: float, pack_real: int, frequent_n: int,
+                   wordfreq_available: bool = True) -> str:
+    if not wordfreq_available:
+        # frequent_n==0 here means UNKNOWN (library missing), never measured
+        # zero — the verdict must not claim "no recall cost".
+        vowel = ("UNKNOWN vowel-gate recall cost (wordfreq unavailable — "
+                 "re-run audit where wordfreq is installed)")
+    elif frequent_n >= 20 or pack_real >= 100:
         vowel = ("ADJUST vowel rule (allowlist pack-hit + frequent vowel-less "
                  "words; keep the gate — it blocks mostly initialism junk)")
     elif frequent_n > 0 or pack_real > 0:
@@ -272,7 +282,8 @@ def main(argv: list[str] | None = None) -> int:
     pack_data = load_pack(args.pack)
     audit = vowelless_audit(args.index, pack_data, args.lang)
     verdict = decide_verdict(fam_summary["pct"], audit["pack_real"],
-                             audit["frequent_n"])
+                             audit["frequent_n"],
+                             audit.get("wordfreq_available", True))
     if audit.get("wordfreq_available", True):
         frequent_line = (f"**{audit['frequent_n']}**")
     else:

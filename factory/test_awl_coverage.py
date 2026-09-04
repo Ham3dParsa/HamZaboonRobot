@@ -9,9 +9,11 @@ import json
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 from awl_coverage import (AUDIT_FREQUENT_ZIPF, decide_verdict,
-                           family_coverage, is_vowelless_word,
+                           family_coverage, is_vowelless_word, load_awl,
                            pool_awl_fraction, vowelless_audit)
 from sample_lemmas import pack_has_cefr_hit
 from fetch_awl import clean_headword, parse_sublist_html
@@ -131,6 +133,26 @@ def test_decide_verdict_thresholds():
     assert "allowlist follow-up" in decide_verdict(80.0, 3, 5)
     assert "ADJUST" in decide_verdict(80.0, 150, 5)
     assert "ADJUST" in decide_verdict(80.0, 7, 90)
+
+
+def test_decide_verdict_unknown_when_wordfreq_missing():
+    # frequent_n==0 with the library absent means UNKNOWN, never measured
+    # zero — the verdict must not claim "no recall cost".
+    verdict = decide_verdict(80.0, 0, 0, False)
+    assert verdict.startswith("UNKNOWN")
+    assert "no vowel-gate recall cost" not in verdict
+
+
+def test_load_awl_rejects_non_list_members(tmp_path):
+    bad = tmp_path / "awl.json"
+    bad.write_text(json.dumps({"families": {"analyse": 123}}),
+                   encoding="utf-8")
+    with pytest.raises(SystemExit):
+        load_awl(str(bad))
+    bad.write_text(json.dumps({"families": {"analyse": "analysed"}}),
+                   encoding="utf-8")
+    with pytest.raises(SystemExit):
+        load_awl(str(bad))
     assert "exam lists" in decide_verdict(30.0, 0, 0)
 
 
