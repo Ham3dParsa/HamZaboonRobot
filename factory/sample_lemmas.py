@@ -20,7 +20,7 @@ index file order; pilot pinning is sorted by (level, lemma_key); the output
 CSV is sorted by (level_order, lemma_key).
 
 Checkpoints: progress lives at ``factory/sample_<lang>_progress.json`` as
-``{lang, seed, mix, dump_size, dump_mtime, lines_done, seen, reservoirs,
+``{lang, seed, mix, dump_size, dump_mtime, lines_done, seen, counters,
 rng_state}`` and is rewritten every ``--batch`` index lines. A changed dump
 (size/mtime), seed, mix, or lang aborts fail-closed (SystemExit) — never a
 silent resume of stale reservoirs. On success the CSV is written atomically
@@ -375,6 +375,11 @@ def sample(
                     "delete it to resample from scratch.")
         lines_done = int(saved.get("lines_done", 0))
         seen = {level: int(saved["seen"][level]) for level in LEVEL_ORDER}
+        saved_counters = saved.get("counters") or {}
+        for key in counters:
+            if key in ("pilot_rows", "pilot_bad_rows", "pilot_dupes"):
+                continue  # recomputed from pilot, not accumulated
+            counters[key] = int(saved_counters.get(key, 0))
         reservoirs = {level: [tuple(entry) for entry in saved["reservoirs"][level]]
                       for level in LEVEL_ORDER}
         for level_entries in reservoirs.values():
@@ -476,6 +481,7 @@ def sample(
             if not dry_run and (processed % batch == 0):
                 write_progress(progress, {
                     **header, "lines_done": lines_done, "seen": seen,
+                    "counters": counters,
                     "reservoirs": {level: [list(e) for e in reservoirs[level]]
                                    for level in LEVEL_ORDER},
                     "rng": [rng.getstate()[0],
@@ -579,6 +585,7 @@ def main(argv: list[str] | None = None) -> int:
     counts = {level: sum(1 for row in result["rows"] if row[2] == level)
               for level in LEVEL_ORDER}
     print(f"sampled: rows={len(result['rows'])} counts={counts} out={args.out}")
+    print(f"counters: {result['counters']}")
     print(f"counters: {result['counters']}")
     return 0
 

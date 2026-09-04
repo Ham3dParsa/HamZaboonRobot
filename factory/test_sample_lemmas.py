@@ -181,10 +181,11 @@ def test_stale_progress_aborts(env):
     assert not os.path.exists(env["out"])
 
 
-def test_resume_equals_fresh_run(env, tmp_path):
+def test_resume_equals_fresh_run(env, tmp_path, capsys):
     assert main(base_argv(env)) == 0
     with open(env["out"], "rb") as handle:
         fresh = handle.read()
+    fresh_counters = _counters_line(capsys.readouterr().out)
     assert os.path.exists(env["progress"]) is False  # completed run cleans up
     # Simulate an interrupted run: partial pass writes a checkpoint...
     out_part = str(tmp_path / "part.csv")
@@ -193,13 +194,22 @@ def test_resume_equals_fresh_run(env, tmp_path):
     assert main(argv) == 0
     assert os.path.exists(env["progress"])
     os.unlink(out_part)
-    # ...then resume to completion with identical output.
+    capsys.readouterr()  # discard partial-run output; compare resume vs fresh only
+    # ...then resume to completion with identical output AND counters.
     out_resumed = str(tmp_path / "resumed.csv")
     argv = base_argv(env)
     argv[argv.index("--out") + 1] = out_resumed
     assert main(argv) == 0
     with open(out_resumed, "rb") as handle:
         assert handle.read() == fresh
+    assert _counters_line(capsys.readouterr().out) == fresh_counters
+
+
+def _counters_line(output: str) -> str:
+    for line in output.splitlines():
+        if line.startswith("counters: "):
+            return line
+    raise AssertionError("counters line missing from sampler output")
 
 
 def test_pilot_over_quota_aborts(env, tmp_path):
