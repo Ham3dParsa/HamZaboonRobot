@@ -337,9 +337,9 @@ class AiPresetEditMenuPreviewTest(_Phase3AiPresetFlowBase):
         self.assertTrue(any(c.startswith("admin:ai_preset:discard_all:") for c in callbacks))
 
     def test_field_input_text_path_renders_staged_line(self):
-        # Production text path: update.callback_query is None, so the toast
-        # is a silent no-op — the re-rendered menu itself must carry the
-        # ✅ staged confirmation line plus the pending table.
+        # Production text path: update.callback_query is None, so there is no
+        # toast — the re-rendered menu itself must carry the ✅ staged
+        # confirmation line plus the pending table.
         from handlers import admin_ai
         from services.send_pretty import Backend
 
@@ -357,10 +357,13 @@ class AiPresetEditMenuPreviewTest(_Phase3AiPresetFlowBase):
         mock_say.assert_called_once()
         rendered = mock_say.call_args[0][2].render(Backend.RICH)
         self.assertIn("✅", rendered)
-        self.assertIn("Model", rendered)
-        self.assertIn("ثبت شد", rendered)
+        self.assertIn("«Model»", rendered)
+        self.assertIn("پیش‌نویس", rendered)
+        self.assertIn("نگه داشته شد", rendered)
+        self.assertNotIn("ثبت شد", rendered)
         self.assertIn("۱ تغییر در انتظار", rendered)
-        # No duplicate count: the ✅ line carries it, no standalone repeat.
+        # No duplicate count: the ✅ staged line carries no count itself; the
+        # pending header line carries it exactly once.
         self.assertEqual(rendered.count("۱ تغییر در انتظار"), 1)
         self.assertIn("`old-model`", rendered)
         self.assertIn("`new-model`", rendered)
@@ -407,7 +410,7 @@ class AiPresetEditMenuPreviewTest(_Phase3AiPresetFlowBase):
         self.assertNotIn("zzz", rendered)
         self.assertEqual(rendered.count("| --- | --- |"), 1)
 
-    def test_field_input_toasts_and_rerenders_menu_once(self):
+    def test_field_input_no_toast_and_rerenders_menu_once(self):
         from handlers import admin_ai
 
         self._make_preset("preview_i", base_url="https://x", model="old-model")
@@ -422,12 +425,12 @@ class AiPresetEditMenuPreviewTest(_Phase3AiPresetFlowBase):
                 patch("handlers.admin_ai.notify_callback", new=AsyncMock()) as mock_notify:
             asyncio.run(admin_ai._handle_ai_preset_field_input(
                 update, ctx, "preview_i", "model", "new-model"))
-        # Staged, single menu re-render (no extra ✅ message), toast sent.
+        # Staged, single menu re-render (no extra ✅ message), no toast: the
+        # text path carries no callback_query, so the menu's just_staged
+        # line is the sole staged feedback.
         self.assertEqual(ctx.user_data["preset_edits"]["preview_i"]["model"], "new-model")
         mock_say.assert_called_once()
-        mock_notify.assert_called_once()
-        toast_text = mock_notify.call_args[0][1]
-        self.assertIn("Model", toast_text)
+        mock_notify.assert_not_called()
         message.reply_text.assert_not_called()
 
 
@@ -499,6 +502,37 @@ class AiPresetConfirmSavePreviewTest(_Phase3AiPresetFlowBase):
         rendered_clean, _, _ = self._render_confirm("conf_pr", {"model": "m2"})
         self.assertNotIn("⛓️", rendered_clean)
 
+    def test_emergency_note_only_when_is_emergency_dirty(self):
+        self._make_preset("conf_em", base_url="https://x", model="m", is_emergency=0)
+        rendered, _, _ = self._render_confirm("conf_em", {"is_emergency": 1})
+        self.assertIn("🚨", rendered)
+        self.assertIn("پرچم اضطراری", rendered)
+        rendered_clean, _, _ = self._render_confirm("conf_em", {"model": "m2"})
+        self.assertNotIn("🚨", rendered_clean)
+
+    def test_api_key_note_only_when_api_key_dirty(self):
+        self._make_preset("conf_ak", base_url="https://x", model="m")
+        rendered, _, _ = self._render_confirm("conf_ak", {"api_key": "new-key-value"})
+        self.assertIn("🔑", rendered)
+        self.assertIn("کلید عوض می‌شود", rendered)
+        rendered_clean, _, _ = self._render_confirm("conf_ak", {"model": "m2"})
+        self.assertNotIn("🔑", rendered_clean)
+
+    def test_notes_fixed_order_target_key_fallback_emergency(self):
+        # Active preset with every note trigger dirty: 🎯→🔑→⛓️→🚨.
+        self._make_preset("conf_ord", base_url="https://x", model="m",
+                           priority=0, is_emergency=0)
+        db.set_setting("ai_primary_preset", "conf_ord")
+        rendered, _, _ = self._render_confirm("conf_ord", {
+            "api_key": "new-key-value",
+            "priority": 5,
+            "is_emergency": 1,
+        })
+        for emoji in ("🎯", "🔑", "⛓️", "🚨"):
+            self.assertIn(emoji, rendered)
+        positions = [rendered.index(e) for e in ("🎯", "🔑", "⛓️", "🚨")]
+        self.assertEqual(positions, sorted(positions))
+
     def test_empty_edits_guard_text(self):
         from handlers import admin_ai
 
@@ -548,6 +582,106 @@ class AiPresetConfirmSavePreviewTest(_Phase3AiPresetFlowBase):
         self.assertEqual(ctx.user_data["preset_edits"]["conf_e"], {"model": "new-m"})
         menu_text = mock_menu.call_args[0][2].render(Backend.RICH)
         self.assertIn("۱ تغییر در انتظار", menu_text)
+
+
+class AiPresetWizardSummaryTest(_Phase3AiPresetFlowBase):
+    """T10 (U5): the full-edit wizard summary renders through the shared
+    confirm seam (unnumbered per-field قبلی/جدید tables in WIZARD_FIELDS
+    order, masked api_key, shared empty/count copy) on the RICH backend,
+    keeping the wizard's own save-all/cancel keyboard."""
+
+    def _render_summary(self, preset_name, values):
+        from handlers import admin_ai
+        from services.send_pretty import Backend
+
+        update = self._make_callback_update("x")
+        ctx = self._make_context()
+        ctx.user_data["full_edit"] = {
+            "preset": preset_name, "field_idx": 99, "values": dict(values),
+        }
+        with patch("handlers.admin_ai.say", new=AsyncMock()) as mock_say:
+            asyncio.run(admin_ai._show_wizard_summary(update, ctx, preset_name))
+        mock_say.assert_called_once()
+        self.assertEqual(mock_say.call_args[1].get("backend"), Backend.RICH)
+        content = mock_say.call_args[0][2]
+        return content.render(Backend.RICH), mock_say.call_args[1].get("keyboard")
+
+    def test_two_dirty_fields_render_unnumbered_tables_in_wizard_order(self):
+        self._make_preset("wiz_sum", base_url="https://old.example.com",
+                          model="old-model")
+        rendered, _ = self._render_summary("wiz_sum", {
+            "model": "new-model",
+            "base_url": "https://new.example.com/v1",
+        })
+        self.assertIn("خلاصه تغییرات", rendered)
+        self.assertIn("Model", rendered)
+        self.assertIn("Base URL", rendered)
+        self.assertIn("`old-model`", rendered)
+        self.assertIn("`new-model`", rendered)
+        self.assertIn("قبلی", rendered)
+        self.assertIn("جدید", rendered)
+        self.assertEqual(rendered.count("| --- | --- |"), 2)
+        # WIZARD_FIELDS order: base_url (idx 2) before model (idx 3).
+        self.assertLess(rendered.index("Base URL"), rendered.index("Model"))
+        # Shared Persian-digit count line.
+        self.assertIn("۲ مورد تغییر کرده است", rendered)
+        # Unnumbered wizard look: no Persian-digit label prefixes...
+        self.assertNotIn("۱\\.", rendered)
+        # ...and none of the old bullet-loop copy survives.
+        self.assertNotIn("•", rendered)
+        self.assertNotIn("→", rendered)
+        self.assertNotIn("تعداد تغییرات", rendered)
+
+    def test_api_key_values_masked(self):
+        self._make_preset("wiz_key", base_url="https://x", model="m",
+                          api_key="seed-key-will-not-resolve")
+        draft_key = "sk-1234567890abcdef"
+        rendered, keyboard = self._render_summary("wiz_key", {"api_key": draft_key})
+        from services.db.key_crypto import mask_key
+
+        self.assertNotIn(draft_key, rendered)
+        for row in keyboard.inline_keyboard:
+            for button in row:
+                self.assertNotIn(draft_key, button.text)
+        self.assertIn(f"`{mask_key(draft_key)}`", rendered)
+
+    def test_empty_wizard_uses_shared_empty_text(self):
+        self._make_preset("wiz_empty", base_url="https://x", model="m")
+        rendered, _ = self._render_summary("wiz_empty", {})
+        self.assertIn("تغییری برای ذخیره وجود ندارد", rendered)
+        self.assertNotIn("هیچ تغییری اعمال نشد", rendered)
+        self.assertNotIn("تعداد تغییرات", rendered)
+        self.assertNotIn("| --- | --- |", rendered)
+
+    def test_keyboard_stays_wizard_save_cancel_pair(self):
+        self._make_preset("wiz_kb", base_url="https://x", model="m")
+        _, keyboard = self._render_summary("wiz_kb", {"model": "m2"})
+        callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+        self.assertTrue(any(c.startswith("admin:ai_preset:full_edit_save:") for c in callbacks))
+        self.assertTrue(any(c.startswith("admin:ai_preset:full_edit_cancel:") for c in callbacks))
+        self.assertFalse(any("confirm_save" in c for c in callbacks))
+        self.assertFalse(any(c.startswith("admin:ai_preset:edit:") for c in callbacks))
+
+    def test_body_matches_shared_confirm_renderer_modulo_numbering(self):
+        from handlers import admin_ai
+        from services.send_pretty import Backend
+        from services.utils.confirm_summary import build_confirm_message
+
+        self._make_preset("wiz_eq", base_url="https://old.example.com",
+                          model="old-model")
+        preset = db.get_preset("wiz_eq")
+        values = {"model": "new-model", "base_url": "https://new.example.com/v1"}
+        diffs = admin_ai._preset_edit_diffs(preset, values)
+        rendered, _ = self._render_summary("wiz_eq", values)
+        expected = build_confirm_message(
+            "📋 خلاصه تغییرات برای", "«wiz_eq»", diffs, numbered=False
+        ).render(Backend.RICH)
+        self.assertEqual(rendered, expected)
+        numbered = build_confirm_message(
+            "📋 خلاصه تغییرات برای", "«wiz_eq»", diffs, numbered=True
+        ).render(Backend.RICH)
+        self.assertNotEqual(rendered, numbered)
+        self.assertIn("۱\\.", numbered)
 
 
 def db_resolve(name: str) -> str:

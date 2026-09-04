@@ -614,6 +614,11 @@ def ai_preset_edit_keyboard(
     IBTN_* button strings, so label identity cannot mark dots). Save/discard
     counts compose via the shared ``save_label``/``discard_label`` builders.
     Callback_data strings are unchanged.
+
+    T7 (U1/U2): related field buttons share 2-per-row pairs (API Key solo
+    full-width for security prominence; detach solo conditional; full-edit
+    solo; [save|discard], [cancel|close]). TEXT/layout only — every
+    ``callback_data`` byte-identical.
     """
     from services.utils.callback_codec import alias_field, preset_token
     from services.utils.confirm_summary import FieldDiff, discard_label, save_label
@@ -626,51 +631,68 @@ def ai_preset_edit_keyboard(
         if not isinstance(d, FieldDiff):
             raise TypeError(f"diffs items must be FieldDiff, got {type(d).__name__}")
     dirty = {d.field for d in diffs if d.field}
-    # Single source: order derived from PRESET_FIELDS (R3); labels map here.
-    # Adding a field to PRESET_FIELDS automatically shows it here without a
-    # second manual list.
-    fields = [
-        ("base_url", IBTN_FIELD_BASE_URL),
-        ("model", IBTN_FIELD_MODEL),
-        ("api_key", IBTN_FIELD_API_KEY),
-        ("daily_batch_size", IBTN_FIELD_BATCH_SIZE),
-        ("max_concurrency", IBTN_FIELD_CONCURRENCY),
-        ("max_rpm", IBTN_FIELD_RPM),
-        ("timeout_seconds", IBTN_FIELD_TIMEOUT),
-        ("temperature", IBTN_FIELD_TEMPERATURE),
-        ("max_output_tokens", IBTN_FIELD_MAX_TOKENS),
-        ("max_tpm", IBTN_FIELD_MAX_TPM),
-        ("max_daily_req", IBTN_FIELD_DAILY_REQ),
-        ("is_emergency", IBTN_FIELD_IS_EMERGENCY),
-        ("name", IBTN_FIELD_NAME),
-        ("priority", IBTN_FIELD_PRIORITY),
-        ("input_cost_per_million", IBTN_FIELD_INPUT_COST),
-        ("output_cost_per_million", IBTN_FIELD_OUTPUT_COST),
-        ("in_fallback_chain", IBTN_FIELD_IN_FALLBACK_CHAIN),
-        ("group_label", IBTN_FIELD_GROUP_LABEL),
-        ("reasoning_effort", IBTN_FIELD_REASONING),
+    # Single source: labels map here; adding a field to PRESET_FIELDS shows it
+    # here by extending PAIRS below (no second manual flat list).
+    labels = {
+        "base_url": IBTN_FIELD_BASE_URL,
+        "model": IBTN_FIELD_MODEL,
+        "api_key": IBTN_FIELD_API_KEY,
+        "daily_batch_size": IBTN_FIELD_BATCH_SIZE,
+        "max_concurrency": IBTN_FIELD_CONCURRENCY,
+        "max_rpm": IBTN_FIELD_RPM,
+        "timeout_seconds": IBTN_FIELD_TIMEOUT,
+        "temperature": IBTN_FIELD_TEMPERATURE,
+        "max_output_tokens": IBTN_FIELD_MAX_TOKENS,
+        "max_tpm": IBTN_FIELD_MAX_TPM,
+        "max_daily_req": IBTN_FIELD_DAILY_REQ,
+        "input_cost_per_million": IBTN_FIELD_INPUT_COST,
+        "output_cost_per_million": IBTN_FIELD_OUTPUT_COST,
+        "priority": IBTN_FIELD_PRIORITY,
+        "in_fallback_chain": IBTN_FIELD_IN_FALLBACK_CHAIN,
+        "is_emergency": IBTN_FIELD_IS_EMERGENCY,
+        "reasoning_effort": IBTN_FIELD_REASONING,
+        "name": IBTN_FIELD_NAME,
+        "group_label": IBTN_FIELD_GROUP_LABEL,
         # `enabled` intentionally omitted — toggled via dedicated enable/disable
         # action (services/db/preset_registry.set_preset_enabled), not free-text
         # edit_field (would be silently dropped on save).
-    ]
-    rows = []
-    for key, label in fields:
+    }
+
+    def _field_button(key: str) -> InlineKeyboardButton:
+        label = labels[key]
         if key in dirty and not label.startswith("✏️"):
             text = f"✏️ {label}"
         else:
             text = label
-        rows.append([
-            InlineKeyboardButton(text, callback_data=f"admin:ai_preset:edit_field:{preset_ref}:{alias_field(key)}"),
-        ])
+        return InlineKeyboardButton(text, callback_data=f"admin:ai_preset:edit_field:{preset_ref}:{alias_field(key)}")
+
+    # U1 pairs: related fields share a row; api_key solo full-width.
+    pairs: list[tuple[str, ...]] = [
+        ("base_url", "model"),
+        ("api_key",),
+        ("daily_batch_size", "max_concurrency"),
+        ("max_rpm", "timeout_seconds"),
+        ("temperature", "max_output_tokens"),
+        ("max_tpm", "max_daily_req"),
+        ("input_cost_per_million", "output_cost_per_million"),
+        ("priority", "in_fallback_chain"),
+        ("is_emergency", "reasoning_effort"),
+        ("name", "group_label"),
+    ]
+    rows = [[_field_button(key) for key in pair] for pair in pairs]
     if has_group:
         rows.append([
             InlineKeyboardButton(IBTN_DETACH_GROUP, callback_data=f"admin:ai_preset:detach_group:{preset_ref}"),
         ])
     rows.append([InlineKeyboardButton(IBTN_FULL_EDIT_WIZARD, callback_data=f"admin:ai_preset:full_edit:{preset_ref}")])
-    rows.append([InlineKeyboardButton(discard_label(diffs), callback_data=f"admin:ai_preset:discard_all:{preset_ref}")])
-    rows.append([InlineKeyboardButton(save_label(diffs), callback_data=f"admin:ai_preset:save:{preset_ref}")])
-    rows.append([InlineKeyboardButton(IBTN_CANCEL_EDIT, callback_data=f"admin:ai_preset:view:{preset_ref}")])
-    rows.append([InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")])
+    rows.append([
+        InlineKeyboardButton(save_label(diffs), callback_data=f"admin:ai_preset:save:{preset_ref}"),
+        InlineKeyboardButton(discard_label(diffs), callback_data=f"admin:ai_preset:discard_all:{preset_ref}"),
+    ])
+    rows.append([
+        InlineKeyboardButton(IBTN_CANCEL_EDIT, callback_data=f"admin:ai_preset:view:{preset_ref}"),
+        InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close"),
+    ])
     return InlineKeyboardMarkup(rows)
 
 
