@@ -96,8 +96,7 @@ class HandlerBuiltCallbackByteLimitTest(unittest.TestCase):
     def test_edit_field_under_64_with_long_name(self):
         """ai_preset_edit_keyboard callbacks must stay under 64 with a 60-char name."""
         from config.keyboards import ai_preset_edit_keyboard
-        preset = {"name": LONG_NAME, "model": "m", "base_url": "u"}
-        markup = ai_preset_edit_keyboard(LONG_NAME, preset)
+        markup = ai_preset_edit_keyboard(LONG_NAME)
         for cb in _collect(markup.inline_keyboard):
             self.assertLessEqual(len(cb.encode("utf-8")), 64, cb)
 
@@ -416,8 +415,8 @@ class PerPresetGroupDetachmentTest(unittest.TestCase):
         from config.keyboards import ai_preset_edit_keyboard
         from services.utils.callback_codec import preset_token
 
-        grouped = ai_preset_edit_keyboard("target_preset", db.get_preset("target_preset"))
-        ungrouped = ai_preset_edit_keyboard("ungrouped_preset", db.get_preset("ungrouped_preset"))
+        grouped = ai_preset_edit_keyboard("target_preset", [], has_group=True)
+        ungrouped = ai_preset_edit_keyboard("ungrouped_preset")
 
         grouped_callbacks = _collect(grouped.inline_keyboard)
         ungrouped_callbacks = _collect(ungrouped.inline_keyboard)

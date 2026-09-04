@@ -28,8 +28,8 @@ from services.utils.callback_codec import (
 from services.ai import ai
 from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
+from services.utils.confirm_summary import FieldDiff, build_confirm_message, pending_header, render_diffs
 from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _store_awaiting_msg
-from services.utils.formatting import to_persian_digits
 from services.send_pretty import Backend, Message, RawFormat, bold, code, italic, plain, say
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
@@ -352,7 +352,7 @@ async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYP
     active_name = db.get_active_preset_name()
     is_active = preset_name == active_name
 
-    masked_key = db.mask_key(db.resolve_preset_key(preset))
+    masked_key = preset_fields.display_value(preset, "api_key")
 
     from services.db import get_preset_cost as _get_preset_cost
     cost = _get_preset_cost(preset_name)
@@ -413,40 +413,81 @@ async def _activate_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE
     await _show_ai_preset_view(update, context, preset_name)
 
 
-async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+def _preset_edit_diffs(preset: dict, edits: dict) -> list[FieldDiff]:
+    """Build dirty-field diffs in WIZARD_FIELDS order (single-field preset_edits flow).
+
+    Old/new display strings come from the canonical
+    ``preset_fields.display_value`` owner (D1): stored ``api_key`` resolved +
+    masked (never plaintext), staged drafts override and are masked too.
+    Empty values render as "—". Labels use the canonical
+    FIELD_LABELS map. The per-field table block renders through the shared
+    ``render_diffs`` seam (same bold label + vertical قبلی/جدید table as
+    ``build_confirm_message``); the edit
+    menu keeps its own chrome (title + picker prompt + pending header), so it
+    consumes the shared FieldDiff list instead of the confirm-dialog message.
+    """
+    diffs: list[FieldDiff] = []
+    ordered = [f for f in WIZARD_FIELDS if f in edits]
+    ordered += [f for f in edits if f not in WIZARD_FIELDS and f in preset_fields.PRESET_FIELDS]
+    for field_name in ordered:
+        old_str = preset_fields.display_value(preset, field_name)
+        new_str = preset_fields.display_value(preset, field_name, edits[field_name])
+        diffs.append(
+            FieldDiff(
+                label=FIELD_LABELS.get(field_name, field_name),
+                old=old_str,
+                new=new_str,
+                field=field_name,
+            )
+        )
+    return diffs
+
+
+async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, just_staged: str | None = None):
     """Show field edit options for a preset."""
     preset = db.get_preset(preset_name)
     if not preset:
         await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
+    edits = context.user_data.get("preset_edits", {}).get(preset_name, {})
+    diffs = _preset_edit_diffs(preset, edits)
+
     msg = Message()
+    if just_staged:
+        msg.add_line(plain(f"✅ {just_staged} ثبت شد — {pending_header(diffs)}"))
     msg.add_line(plain("✏️ "), bold("ویرایش پیش‌تنظیم: " + str(preset_name)))
     msg.add_line(plain("انتخاب فیلد برای تغییر:"))
-    edits = context.user_data.get("preset_edits", {}).get(preset_name, {})
-    if edits:
-        msg.add_line(plain(f"{to_persian_digits(len(edits))} پیشنویس در انتظار ذخیره"))
+    if diffs:
+        if just_staged is None:
+            msg.add_line(plain(pending_header(diffs)))
+        for line in render_diffs(diffs):
+            msg.add_line(*line)
 
-    await say(update, context, msg, backend=Backend.HTML, keyboard=ai_preset_edit_keyboard(preset_name, preset, edits))
+    await say(update, context, msg, backend=Backend.RICH, keyboard=ai_preset_edit_keyboard(preset_name, diffs, has_group=bool(preset.get("group_label"))))
 
 
 async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, field_name: str):
     """Prompt for new value of a field."""
+    if field_name not in preset_fields.PRESET_FIELDS:
+        await notify_callback(update.callback_query, "فیلد نامعتبر است", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
     preset = db.get_preset(preset_name)
     if not preset:
         await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
-    current = preset.get(field_name, "")
-    if current is None:
-        current = ""
     context.user_data["awaiting"] = f"ai_preset_edit:{preset_name}:{field_name}"
 
     help_text = _FIELD_HELP.get(field_name, "")
 
+    # D1: current value through the display owner — api_key renders masked
+    # (never plaintext/ciphertext shape), empty renders "—".
+    current_str = preset_fields.display_value(preset, field_name)
+
     msg = Message()
     msg.add_line(plain("✏️ "), bold(FIELD_LABELS.get(field_name, field_name)))
-    msg.add_line(plain("مقدار فعلی: "), code(str(current)))
+    msg.add_line(plain("مقدار فعلی: "), code(current_str))
     msg.add_line()
     msg.add_line(plain("مقدار جدید را ارسال کنید:"))
     if help_text:
@@ -469,6 +510,11 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
     preset = db.get_preset(preset_name)
     if not preset:
         await say(update, context, "پیش‌تنظیم یافت نشد", raw=RawFormat.PLAIN, mode="send")
+        return
+
+    if field_name not in preset_fields.PRESET_FIELDS:
+        context.user_data.pop("awaiting", None)
+        await say(update, context, "فیلد نامعتبر است.", raw=RawFormat.PLAIN, mode="send")
         return
 
     raw = text.strip()
@@ -537,14 +583,13 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
 
     context.user_data.pop("awaiting", None)
 
-    msg = Message()
-    msg.add_line(
-        plain("✅ "), bold(FIELD_LABELS.get(field_name, field_name)),
-        plain(" برای پیش‌تنظیم "), bold(str(preset_name)),
-        plain(" به‌صورت پیشنویس ثبت شد، نیازمند ذخیره."),
+    label = FIELD_LABELS.get(field_name, field_name)
+    await notify_callback(
+        update.callback_query,
+        f"✅ {label} ثبت شد",
+        intent=CallbackNoticeIntent.SUCCESS,
     )
-    await say(update, context, msg, backend=Backend.HTML)
-    await _edit_ai_preset(update, context, preset_name)
+    await _edit_ai_preset(update, context, preset_name, just_staged=label)
 
 
 WIZARD_FIELDS = [
@@ -585,24 +630,23 @@ async def _start_full_edit_wizard(update: Update, context: ContextTypes.DEFAULT_
 async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, field_idx: int, preset: dict):
     """Display a wizard field with prompt, Current (stored) and Draft (in-progress) values, and navigation."""
     field_name = WIZARD_FIELDS[field_idx]
-    current = preset.get(field_name, "")
-    if current is None:
-        current = ""
-    current_str = str(current)
+    # D1: stored + draft values through the display owner (single mask rule —
+    # the old divergent `len > 4` wizard threshold is deleted). "—" marks empty.
+    current_str = preset_fields.display_value(preset, field_name)
 
     wizard = context.user_data.get("full_edit", {})
-    draft = wizard.get("values", {}).get(field_name)
-    draft_str = str(draft).strip() if draft is not None else None
-
-    # Mask API key for display (never echo plaintext)
-    if field_name == "api_key":
-        if current_str:
-            try:
-                current_str = db.mask_key(db.resolve_preset_key(preset)) or "—"
-            except Exception:
-                current_str = "***"
-        if draft_str:
-            draft_str = db.mask_key(draft_str) if len(draft_str) > 4 else "***"
+    values = wizard.get("values", {})
+    # Empty/whitespace-only drafts render no "پیشنویس" line (pinned by
+    # test_wizard_empty_draft_not_rendered / whitespace variant); a real
+    # draft renders through the display owner.
+    if field_name in values:
+        raw_draft = values[field_name]
+        if raw_draft is None or str(raw_draft).strip() == "":
+            draft_str = None
+        else:
+            draft_str = preset_fields.display_value(preset, field_name, raw_draft)
+    else:
+        draft_str = None
 
     group_header = WIZARD_GROUP_HEADERS.get(field_idx, "")
     label = FIELD_LABELS.get(field_name, field_name)
@@ -617,7 +661,7 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
     msg.add_line(bold(label))
     if draft_str:
         msg.add_line(plain("پیشنویس (در انتظار ذخیره): "), code(draft_str))
-    if current_str:
+    if current_str != "—":
         msg.add_line(plain("مقدار فعلی: "), code(current_str))
     else:
         msg.add_line(plain("مقدار فعلی: "), italic("خالی"))
@@ -854,16 +898,9 @@ async def _show_wizard_summary(update: Update, context: ContextTypes.DEFAULT_TYP
     changed = 0
     for field_name in WIZARD_FIELDS:
         if field_name in values:
-            new_val = values[field_name]
-            old_val = preset.get(field_name, "—")
-            # Mask API keys in summary
-            if field_name == "api_key":
-                try:
-                    old_val = db.mask_key(db.resolve_preset_key(preset)) if preset.get("api_key") else "—"
-                    new_val = db.mask_key(str(new_val)) if new_val else "—"
-                except Exception:
-                    old_val = "***"
-                    new_val = "***"
+            # D1: old/new through the display owner (api_key masked, empty "—").
+            old_val = preset_fields.display_value(preset, field_name)
+            new_val = preset_fields.display_value(preset, field_name, values[field_name])
             label = FIELD_LABELS.get(field_name, field_name)
             msg.add_line(
                 plain("• "), bold(label),
@@ -1052,24 +1089,52 @@ async def _handle_group_manager_clear(update: Update, context: ContextTypes.DEFA
 
 
 async def _confirm_save_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
-    """Show confirmation dialog before saving."""
+    """Show the save-preview confirmation (concept C, R3).
+
+    Builds the dialog via the shared ``build_confirm_message`` helper:
+    ``⚠️ تأیید ذخیره — «{name}»`` + numbered per-field vertical old/new
+    tables in ``WIZARD_FIELDS`` order (via ``_preset_edit_diffs``; api_key
+    values pre-masked, never plaintext) + Persian-digit dirty count +
+    conditional notes (🎯 active-preset warning; priority/fallback note only
+    when those fields are dirty). Keyboard reuses the existing
+    ``confirm_save_yes``/``confirm_save_no`` callbacks plus the existing
+    ``ai_preset:edit`` route — no new callback prefixes.
+    """
     edits = context.user_data.get("preset_edits", {}).get(preset_name, {})
     if not edits:
         await notify_callback(update.callback_query, "تغییری برای ذخیره وجود ندارد", intent=CallbackNoticeIntent.INFO)
         return
 
-    from config.keyboards import IBTN_SAVE_CONFIRM, IBTN_SAVE_CANCEL
+    preset = db.get_preset(preset_name)
+    if not preset:
+        await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+
+    diffs = _preset_edit_diffs(preset, edits)
+    if not diffs:
+        await notify_callback(update.callback_query, "تغییری برای ذخیره وجود ندارد", intent=CallbackNoticeIntent.INFO)
+        return
+
+    notes: list[str] = []
+    if preset_name == db.get_active_preset_name():
+        notes.append("🎯 این پیش‌تنظیم فعال است — تغییرات پس از ذخیره بلافاصله اعمال می‌شوند.")
+    if any(field in edits for field in ("priority", "in_fallback_chain")):
+        notes.append("⛓️ تغییر اولویت یا زنجیره فال‌بک مسیر درخواست‌های بعدی را تغییر می‌دهد.")
+    msg = build_confirm_message("⚠️ تأیید ذخیره —", f"«{preset_name}»", diffs, notes=notes, numbered=True)
+
+    from config.keyboards import IBTN_BACK_TO_EDIT, IBTN_SAVE_CANCEL, IBTN_SAVE_CONFIRM
     from services.utils.callback_codec import preset_token
     preset_ref = preset_token(preset_name)
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(IBTN_SAVE_CONFIRM, callback_data=f"admin:ai_preset:confirm_save_yes:{preset_ref}"),
             InlineKeyboardButton(IBTN_SAVE_CANCEL, callback_data=f"admin:ai_preset:confirm_save_no:{preset_ref}"),
-        ]
+        ],
+        [
+            InlineKeyboardButton(IBTN_BACK_TO_EDIT, callback_data=f"admin:ai_preset:edit:{preset_ref}"),
+        ],
     ])
-    msg = Message()
-    msg.add_line(plain("⚠️ "), bold(f"آیا از ذخیره تغییرات برای «{preset_name}» مطمئنید؟"))
-    await say(update, context, msg, backend=Backend.HTML, keyboard=keyboard)
+    await say(update, context, msg, backend=Backend.RICH, keyboard=keyboard)
 
 
 async def _discard_all_preset_changes(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):

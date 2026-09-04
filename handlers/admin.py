@@ -448,7 +448,8 @@ async def _handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_T
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data="admin:back")], [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")]]),
             )
             return
-        masked = db.mask_key(db.resolve_preset_key(preset))
+        from services.ai import preset_fields
+        masked = preset_fields.display_value(preset, "api_key")
         from services.utils.formatting import html_escape
         await _edit_or_send(
             update,

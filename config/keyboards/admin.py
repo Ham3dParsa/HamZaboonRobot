@@ -1,5 +1,7 @@
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
+from collections.abc import Sequence
+
 from .constants import *  # noqa: F401,F403
 
 
@@ -598,14 +600,32 @@ def ai_preset_view_keyboard(preset: dict, active_name: str) -> InlineKeyboardMar
 
 
 
-def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None, edits: dict | None = None) -> InlineKeyboardMarkup:
-    """Keyboard for editing a preset field-by-field."""
+def ai_preset_edit_keyboard(
+    preset_name: str,
+    diffs: Sequence["FieldDiff"] | None = None,
+    has_group: bool = False,
+) -> InlineKeyboardMarkup:
+    """Keyboard for editing a preset field-by-field.
+
+    T6 (D3) thin adapter: consumes the shared ``FieldDiff`` list (WIZARD_FIELDS
+    order comes free from the handler's ``_preset_edit_diffs`` output) plus a
+    ``has_group`` flag — no preset/DB dict logic. Dirty rows carry a ✏️ prefix
+    matched on ``FieldDiff.field`` (labels differ between FIELD_LABELS and the
+    IBTN_* button strings, so label identity cannot mark dots). Save/discard
+    counts compose via the shared ``save_label``/``discard_label`` builders.
+    Callback_data strings are unchanged.
+    """
     from services.utils.callback_codec import alias_field, preset_token
-    from services.db.key_crypto import mask_key
+    from services.utils.confirm_summary import FieldDiff, discard_label, save_label
     preset_ref = preset_token(preset_name)
-    if edits is not None and not isinstance(edits, dict):
-        raise TypeError(f"edits must be a dict or None, got {type(edits).__name__}")
-    pending = edits or {}
+    if diffs is None:
+        diffs = ()
+    if isinstance(diffs, (str, bytes, bytearray, dict)) or not isinstance(diffs, Sequence):
+        raise TypeError(f"diffs must be a Sequence[FieldDiff] or None, got {type(diffs).__name__}")
+    for d in diffs:
+        if not isinstance(d, FieldDiff):
+            raise TypeError(f"diffs items must be FieldDiff, got {type(d).__name__}")
+    dirty = {d.field for d in diffs if d.field}
     # Single source: order derived from PRESET_FIELDS (R3); labels map here.
     # Adding a field to PRESET_FIELDS automatically shows it here without a
     # second manual list.
@@ -635,34 +655,20 @@ def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None, edits:
     ]
     rows = []
     for key, label in fields:
-        current = preset.get(key, "") if preset else ""
-        display = current
-        if key == "api_key" and current:
-            display = mask_key(str(current))
-        suffix = f": {display}" if display else ""
-        if key in pending:
-            draft = pending[key]
-            draft_str = "" if draft is None else str(draft)
-            if key == "api_key" and draft_str:
-                draft_display = mask_key(draft_str)
-            else:
-                draft_display = draft_str.replace("\r", " ").replace("\n", " ")
-                if len(draft_display) > 32:
-                    draft_display = draft_display[:32] + "…"
-            if draft_display:
-                suffix = f": ✏️ {draft_display}"
-            else:
-                suffix = ": ✏️ (خالی)"
+        if key in dirty and not label.startswith("✏️"):
+            text = f"✏️ {label}"
+        else:
+            text = label
         rows.append([
-            InlineKeyboardButton(f"{label}{suffix}", callback_data=f"admin:ai_preset:edit_field:{preset_ref}:{alias_field(key)}"),
+            InlineKeyboardButton(text, callback_data=f"admin:ai_preset:edit_field:{preset_ref}:{alias_field(key)}"),
         ])
-    if preset and preset.get("group_label"):
+    if has_group:
         rows.append([
             InlineKeyboardButton(IBTN_DETACH_GROUP, callback_data=f"admin:ai_preset:detach_group:{preset_ref}"),
         ])
     rows.append([InlineKeyboardButton(IBTN_FULL_EDIT_WIZARD, callback_data=f"admin:ai_preset:full_edit:{preset_ref}")])
-    rows.append([InlineKeyboardButton(IBTN_DISCARD_ALL, callback_data=f"admin:ai_preset:discard_all:{preset_ref}")])
-    rows.append([InlineKeyboardButton(IBTN_SAVE_PRESET, callback_data=f"admin:ai_preset:save:{preset_ref}")])
+    rows.append([InlineKeyboardButton(discard_label(diffs), callback_data=f"admin:ai_preset:discard_all:{preset_ref}")])
+    rows.append([InlineKeyboardButton(save_label(diffs), callback_data=f"admin:ai_preset:save:{preset_ref}")])
     rows.append([InlineKeyboardButton(IBTN_CANCEL_EDIT, callback_data=f"admin:ai_preset:view:{preset_ref}")])
     rows.append([InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")])
     return InlineKeyboardMarkup(rows)

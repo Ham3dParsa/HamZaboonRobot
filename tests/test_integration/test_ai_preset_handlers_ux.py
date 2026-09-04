@@ -240,6 +240,316 @@ class AiPresetUsagePaginationTest(_Phase3AiPresetFlowBase):
         )
 
 
+class AiPresetEditMenuPreviewTest(_Phase3AiPresetFlowBase):
+    """T2 (R2/R5/R6): single-field edit menu renders one vertical قبلی/جدید
+    table per dirty field (WIZARD_FIELDS order), a Persian-digit pending
+    header, and masked api_key values; staging toasts + re-renders in place."""
+
+    def _render_menu(self, preset_name, edits):
+        from handlers import admin_ai
+        from services.send_pretty import Backend
+
+        update = self._make_callback_update("x")
+        ctx = self._make_context()
+        ctx.user_data["preset_edits"] = {preset_name: dict(edits)}
+        with patch("handlers.admin_ai.say", new=AsyncMock()) as mock_say:
+            asyncio.run(admin_ai._edit_ai_preset(update, ctx, preset_name))
+        mock_say.assert_called_once()
+        self.assertEqual(mock_say.call_args[1].get("backend"), Backend.RICH)
+        content = mock_say.call_args[0][2]
+        return content.render(Backend.RICH), mock_say.call_args[1].get("keyboard")
+
+    def test_two_dirty_fields_render_two_tables_with_old_and_new(self):
+        self._make_preset("preview_p", base_url="https://old.example.com",
+                          model="old-model")
+        rendered, _ = self._render_menu("preview_p", {
+            "model": "new-model",
+            "base_url": "https://new.example.com/v1",
+        })
+        # Both dirty labels with old+new values as code cells.
+        self.assertIn("Model", rendered)
+        self.assertIn("Base URL", rendered)
+        self.assertIn("`old-model`", rendered)
+        self.assertIn("`new-model`", rendered)
+        self.assertIn("`https://old.example.com`", rendered)
+        self.assertIn("`https://new.example.com/v1`", rendered)
+        self.assertIn("قبلی", rendered)
+        self.assertIn("جدید", rendered)
+        # One vertical table per dirty field (pipe header per table).
+        self.assertIn("| وضعیت | مقدار |", rendered)
+        self.assertEqual(rendered.count("| --- | --- |"), 2)
+        # WIZARD_FIELDS order: base_url (idx 2) before model (idx 3).
+        self.assertLess(rendered.index("Base URL"), rendered.index("Model"))
+        # Header counter uses Persian digits.
+        self.assertIn("۲ تغییر در انتظار — هنوز ذخیره نشده", rendered)
+
+    def test_clean_field_has_no_table(self):
+        self._make_preset("preview_c", base_url="https://old.example.com",
+                          model="old-model")
+        rendered, _ = self._render_menu("preview_c", {"model": "new-model"})
+        self.assertIn("۱ تغییر در انتظار — هنوز ذخیره نشده", rendered)
+        self.assertIn("Model", rendered)
+        # Clean fields render no table and no heading at all.
+        self.assertNotIn("Temperature", rendered)
+        self.assertNotIn("Base URL", rendered)
+        self.assertEqual(rendered.count("| --- | --- |"), 1)
+
+    def test_api_key_values_masked(self):
+        self._make_preset("preview_k", base_url="https://x", model="m",
+                          api_key="seed-key-will-not-resolve")
+        draft_key = "sk-1234567890abcdef"
+        rendered, keyboard = self._render_menu("preview_k", {"api_key": draft_key})
+        from services.db.key_crypto import mask_key
+
+        self.assertIn("API Key", rendered)
+        # Staged plaintext key never leaks into the menu or the keyboard.
+        self.assertNotIn(draft_key, rendered)
+        for row in keyboard.inline_keyboard:
+            for button in row:
+                self.assertNotIn(draft_key, button.text)
+        # Masked draft visible; old cell masked or "—" (fail-closed, never plaintext).
+        self.assertIn(f"`{mask_key(draft_key)}`", rendered)
+
+    def test_edit_keyboard_dirty_prefix_counters_and_no_values(self):
+        self._make_preset("preview_b", base_url="https://old.example.com",
+                          model="old-model")
+        _, keyboard = self._render_menu("preview_b", {
+            "model": "new-model",
+            "base_url": "https://new.example.com/v1",
+        })
+        texts = [b.text for row in keyboard.inline_keyboard for b in row]
+        # Dirty rows carry ✏️ prefix; clean rows do not.
+        model_row = next(t for t in texts if "Model" in t)
+        base_row = next(t for t in texts if "Base URL" in t)
+        temp_row = next(t for t in texts if "Temperature" in t)
+        self.assertTrue(model_row.startswith("✏️"))
+        self.assertTrue(base_row.startswith("✏️"))
+        self.assertFalse(temp_row.startswith("✏️"))
+        # Values live in menu tables now, not on buttons.
+        for t in texts:
+            self.assertNotIn("new-model", t)
+            self.assertNotIn("https://", t)
+        # Save/discard counters use Persian digits; callback_data unchanged.
+        self.assertIn("💾 ذخیره (۲)", texts)
+        self.assertIn("🗑️ دور ریختن همه (۲)", texts)
+        callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+        self.assertTrue(any(c.startswith("admin:ai_preset:save:") for c in callbacks))
+        self.assertTrue(any(c.startswith("admin:ai_preset:discard_all:") for c in callbacks))
+
+    def test_field_input_text_path_renders_staged_line(self):
+        # Production text path: update.callback_query is None, so the toast
+        # is a silent no-op — the re-rendered menu itself must carry the
+        # ✅ staged confirmation line plus the pending table.
+        from handlers import admin_ai
+        from services.send_pretty import Backend
+
+        self._make_preset("preview_t", base_url="https://x", model="old-model")
+        update = self._make_callback_update("x")
+        update.callback_query = None
+        message = MagicMock()
+        message.delete = AsyncMock()
+        update.message = message
+        ctx = self._make_context()
+        with patch("handlers.admin_ai.say", new=AsyncMock()) as mock_say:
+            asyncio.run(admin_ai._handle_ai_preset_field_input(
+                update, ctx, "preview_t", "model", "new-model"))
+        self.assertEqual(ctx.user_data["preset_edits"]["preview_t"]["model"], "new-model")
+        mock_say.assert_called_once()
+        rendered = mock_say.call_args[0][2].render(Backend.RICH)
+        self.assertIn("✅", rendered)
+        self.assertIn("Model", rendered)
+        self.assertIn("ثبت شد", rendered)
+        self.assertIn("۱ تغییر در انتظار", rendered)
+        # No duplicate count: the ✅ line carries it, no standalone repeat.
+        self.assertEqual(rendered.count("۱ تغییر در انتظار"), 1)
+        self.assertIn("`old-model`", rendered)
+        self.assertIn("`new-model`", rendered)
+        self.assertEqual(rendered.count("| --- | --- |"), 1)
+
+    def test_forged_unknown_field_rejected_without_exception(self):
+        # Forged edit_field:...:zzz passes resolve_field_alias through
+        # verbatim — the field prompt must reject it with a user-visible
+        # error instead of raising KeyError in display_value.
+        self._make_preset("preview_f", base_url="https://x", model="m")
+        up = self._callback(f"ai_preset:edit_field:{db_resolve('preview_f')}:zzz")
+        answered = [c.args[0] for c in up.callback_query.answer.call_args_list if c.args]
+        self.assertTrue(any("فیلد نامعتبر" in str(t) for t in answered),
+                        "forged field must surface a user-visible error")
+        self.assertNotIn("awaiting", self.flow_ctx.user_data)
+
+    def test_field_input_unknown_field_rejected_without_store(self):
+        # Defense-in-depth: the input handler itself rejects unknown fields
+        # before parsing/storing, so nothing lands in preset_edits.
+        from handlers import admin_ai
+
+        self._make_preset("preview_g", base_url="https://x", model="m")
+        update = self._make_callback_update("x")
+        update.callback_query = None
+        update.message = MagicMock()
+        ctx = self._make_context()
+        with patch("handlers.admin_ai.say", new=AsyncMock()):
+            asyncio.run(admin_ai._handle_ai_preset_field_input(
+                update, ctx, "preview_g", "zzz", "evil"))
+        self.assertNotIn("zzz", ctx.user_data.get("preset_edits", {}).get("preview_g", {}))
+
+    def test_poisoned_edits_unknown_key_skipped(self):
+        # A poisoned preset_edits entry with an unknown key must not crash
+        # the menu render — it is skipped, known diffs still render.
+        self._make_preset("preview_p2", base_url="https://x", model="old-model")
+        rendered, _ = self._render_menu("preview_p2", {
+            "model": "new-model",
+            "zzz": "evil",
+        })
+        self.assertIn("Model", rendered)
+        self.assertIn("`new-model`", rendered)
+        self.assertIn("۱ تغییر در انتظار", rendered)
+        self.assertNotIn("evil", rendered)
+        self.assertNotIn("zzz", rendered)
+        self.assertEqual(rendered.count("| --- | --- |"), 1)
+
+    def test_field_input_toasts_and_rerenders_menu_once(self):
+        from handlers import admin_ai
+
+        self._make_preset("preview_i", base_url="https://x", model="old-model")
+        message = MagicMock()
+        message.text = "new-model"
+        message.reply_text = AsyncMock()
+        message.delete = AsyncMock()
+        update = self._make_callback_update("x")
+        update.message = message
+        ctx = self._make_context()
+        with patch("handlers.admin_ai.say", new=AsyncMock()) as mock_say, \
+                patch("handlers.admin_ai.notify_callback", new=AsyncMock()) as mock_notify:
+            asyncio.run(admin_ai._handle_ai_preset_field_input(
+                update, ctx, "preview_i", "model", "new-model"))
+        # Staged, single menu re-render (no extra ✅ message), toast sent.
+        self.assertEqual(ctx.user_data["preset_edits"]["preview_i"]["model"], "new-model")
+        mock_say.assert_called_once()
+        mock_notify.assert_called_once()
+        toast_text = mock_notify.call_args[0][1]
+        self.assertIn("Model", toast_text)
+        message.reply_text.assert_not_called()
+
+
+class AiPresetConfirmSavePreviewTest(_Phase3AiPresetFlowBase):
+    """T3 (R3/R5/R6): save-confirm renders numbered old+new tables via the
+    shared helper, conditional notes, and a 3-button keyboard reusing the
+    existing confirm_save_yes/no + ai_preset:edit routes."""
+
+    def _render_confirm(self, preset_name, edits):
+        from handlers import admin_ai
+        from services.send_pretty import Backend
+
+        update = self._make_callback_update("x")
+        ctx = self._make_context()
+        ctx.user_data["preset_edits"] = {preset_name: dict(edits)}
+        with patch("handlers.admin_ai.say", new=AsyncMock()) as mock_say:
+            asyncio.run(admin_ai._confirm_save_preset(update, ctx, preset_name))
+        mock_say.assert_called_once()
+        self.assertEqual(mock_say.call_args[1].get("backend"), Backend.RICH)
+        content = mock_say.call_args[0][2]
+        return content.render(Backend.RICH), mock_say.call_args[1].get("keyboard"), ctx
+
+    def test_confirm_renders_numbered_old_new_tables(self):
+        self._make_preset("conf_p", base_url="https://old.example.com",
+                          model="old-model")
+        rendered, _, _ = self._render_confirm("conf_p", {
+            "model": "new-model",
+            "base_url": "https://new.example.com/v1",
+        })
+        self.assertIn("تأیید ذخیره", rendered)
+        self.assertIn("conf\\_p", rendered)
+        # Numbered per-field blocks (Persian digits; "." is Rich-escaped).
+        self.assertIn("۱\\.", rendered)
+        self.assertIn("۲\\.", rendered)
+        # Both dirty labels with old+new values as code cells.
+        self.assertIn("Model", rendered)
+        self.assertIn("Base URL", rendered)
+        self.assertIn("`old-model`", rendered)
+        self.assertIn("`new-model`", rendered)
+        self.assertIn("`https://old.example.com`", rendered)
+        self.assertIn("`https://new.example.com/v1`", rendered)
+        self.assertIn("قبلی", rendered)
+        self.assertIn("جدید", rendered)
+        self.assertEqual(rendered.count("| --- | --- |"), 2)
+        # WIZARD_FIELDS order: base_url (idx 2) before model (idx 3).
+        self.assertLess(rendered.index("Base URL"), rendered.index("Model"))
+        # Dirty-count line uses Persian digits.
+        self.assertIn("۲ مورد تغییر کرده است", rendered)
+
+    def test_active_preset_note_present(self):
+        self._make_preset("conf_act", base_url="https://x", model="m", enabled=1)
+        db.set_setting("ai_primary_preset", "conf_act")
+        rendered, _, _ = self._render_confirm("conf_act", {"model": "m2"})
+        self.assertIn("🎯", rendered)
+
+    def test_inactive_preset_note_absent(self):
+        self._make_preset("conf_other", base_url="https://x", model="m", enabled=1)
+        self._make_preset("conf_inact", base_url="https://x", model="m", enabled=1)
+        db.set_setting("ai_primary_preset", "conf_other")
+        rendered, _, _ = self._render_confirm("conf_inact", {"model": "m2"})
+        self.assertNotIn("🎯", rendered)
+
+    def test_priority_note_only_when_priority_or_fallback_dirty(self):
+        self._make_preset("conf_pr", base_url="https://x", model="m", priority=0)
+        rendered, _, _ = self._render_confirm("conf_pr", {"priority": 5})
+        self.assertIn("⛓️", rendered)
+        rendered_fb, _, _ = self._render_confirm("conf_pr", {"in_fallback_chain": 0})
+        self.assertIn("⛓️", rendered_fb)
+        rendered_clean, _, _ = self._render_confirm("conf_pr", {"model": "m2"})
+        self.assertNotIn("⛓️", rendered_clean)
+
+    def test_empty_edits_guard_text(self):
+        from handlers import admin_ai
+
+        self._make_preset("conf_empty", base_url="https://x", model="m")
+        update = self._make_callback_update("x")
+        ctx = self._make_context()
+        with patch("handlers.admin_ai.say", new=AsyncMock()) as mock_say, \
+                patch("handlers.admin_ai.notify_callback", new=AsyncMock()) as mock_notify:
+            asyncio.run(admin_ai._confirm_save_preset(update, ctx, "conf_empty"))
+        mock_say.assert_not_called()
+        mock_notify.assert_called_once()
+        self.assertIn("تغییری برای ذخیره وجود ندارد", mock_notify.call_args[0][1])
+
+    def test_keyboard_three_buttons_reuse_existing_routes(self):
+        self._make_preset("conf_k", base_url="https://x", model="old-m")
+        _, keyboard, _ = self._render_confirm("conf_k", {"model": "new-m"})
+        rows = keyboard.inline_keyboard
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(len(rows[0]), 2)
+        self.assertEqual(len(rows[1]), 1)
+        texts = [b.text for row in rows for b in row]
+        self.assertIn("✅ بله، ذخیره کن", texts)
+        self.assertIn("❌ لغو ذخیره", texts)
+        self.assertIn("↩️ بازگشت به ویرایش", texts)
+        callbacks = [b.callback_data for row in rows for b in row]
+        self.assertTrue(any(c.startswith("admin:ai_preset:confirm_save_yes:") for c in callbacks))
+        self.assertTrue(any(c.startswith("admin:ai_preset:confirm_save_no:") for c in callbacks))
+        edit_cbs = [c for c in callbacks if c.startswith("admin:ai_preset:edit:")]
+        self.assertEqual(len(edit_cbs), 1)
+
+    def test_third_button_routes_to_edit_with_drafts_intact(self):
+        from handlers import admin_ai
+        from services.send_pretty import Backend
+
+        self._make_preset("conf_e", base_url="https://x", model="old-m")
+        update = self._make_callback_update("x")
+        ctx = self._make_context()
+        ctx.user_data["preset_edits"] = {"conf_e": {"model": "new-m"}}
+        with patch("handlers.admin_ai.say", new=AsyncMock()) as mock_say:
+            asyncio.run(admin_ai._confirm_save_preset(update, ctx, "conf_e"))
+        keyboard = mock_say.call_args[1].get("keyboard")
+        callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+        edit_cb = next(c for c in callbacks if c.startswith("admin:ai_preset:edit:"))
+        # Tapping it re-renders the edit menu with drafts intact.
+        with patch("handlers.admin_ai.say", new=AsyncMock()) as mock_menu:
+            asyncio.run(admin_ai._edit_ai_preset(update, ctx, "conf_e"))
+        self.assertEqual(ctx.user_data["preset_edits"]["conf_e"], {"model": "new-m"})
+        menu_text = mock_menu.call_args[0][2].render(Backend.RICH)
+        self.assertIn("۱ تغییر در انتظار", menu_text)
+
+
 def db_resolve(name: str) -> str:
     from services.utils.callback_codec import preset_token
     return preset_token(name)

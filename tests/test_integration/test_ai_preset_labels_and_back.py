@@ -111,6 +111,7 @@ class AiPresetFieldEditBackTest(_AiPresetLabelsAndBackBase):
     def test_field_edit_flow_back_resumes_edit_and_keeps_edits(self):
         from handlers.admin import handle_flow_back
         from handlers.admin_ai import _edit_ai_preset_field
+        from services.send_pretty import Backend
 
         # Begin a field edit, then commit an unsaved value into preset_edits.
         self.flow_ctx.user_data["preset_edits"] = {"custom_gpt": {"model": "gpt-4o"}}
@@ -119,12 +120,15 @@ class AiPresetFieldEditBackTest(_AiPresetLabelsAndBackBase):
 
         # Dispatch flow:back -> handle_flow_back.
         back_update = self._make_callback_update("flow:back")
-        asyncio.run(handle_flow_back(back_update, self.flow_ctx))
+        with patch("handlers.admin_ai.say", new=AsyncMock()) as mock_say:
+            asyncio.run(handle_flow_back(back_update, self.flow_ctx))
 
         # Back must return to the preset-edit menu, not the main admin panel.
         self.assertNotIn("awaiting", self.flow_ctx.user_data)
-        text = back_update.callback_query.edit_message_text.call_args.args[0]
-        self.assertIn("custom_gpt", text)
+        mock_say.assert_called_once()
+        text = mock_say.call_args[0][2].render(Backend.RICH)
+        # RICH escapes the underscore in the preset name.
+        self.assertIn("custom\\_gpt", text)
         self.assertIn("انتخاب فیلد برای تغییر", text)
         # Unsaved edits must be preserved.
         self.assertEqual(self.flow_ctx.user_data["preset_edits"], {"custom_gpt": {"model": "gpt-4o"}})
@@ -170,13 +174,18 @@ class AiPresetLabelCanonicalizationTest(_AiPresetLabelsAndBackBase):
 
     def test_confirmation_uses_canonical_label_not_raw_field_name(self):
         from handlers.admin_ai import _handle_ai_preset_field_input
+        from services.send_pretty import Backend
 
         self.flow_ctx.user_data["awaiting"] = "ai_preset_edit:custom_gpt:max_tpm"
         up = self._make_message_update("500")
-        asyncio.run(_handle_ai_preset_field_input(up, self.flow_ctx, "custom_gpt", "max_tpm", "500"))
-        confirmation = up.message.reply_text.call_args_list[0].args[0]
-        self.assertIn("Max TPM", confirmation)
-        self.assertNotIn("max_tpm", confirmation)
+        with patch("handlers.admin_ai.say", new=AsyncMock()) as mock_say:
+            asyncio.run(_handle_ai_preset_field_input(up, self.flow_ctx, "custom_gpt", "max_tpm", "500"))
+        # T2: the staged value re-renders the menu (single message); the
+        # canonical label appears in the diff table, never the raw field name.
+        mock_say.assert_called_once()
+        menu_text = mock_say.call_args[0][2].render(Backend.RICH)
+        self.assertIn("Max TPM", menu_text)
+        self.assertNotIn("max_tpm", menu_text)
 
     def test_priority_quick_edit_parses_int(self):
         from handlers.admin_ai import _handle_ai_preset_field_input
@@ -203,6 +212,24 @@ class AiPresetLabelCanonicalizationTest(_AiPresetLabelsAndBackBase):
         text = update.callback_query.edit_message_text.call_args.args[0]
         self.assertIn("API Key", text)
         self.assertNotIn("literal; stored encrypted", text)
+
+    def test_field_edit_prompt_masks_api_key_current(self):
+        """T4/D1: the single-field prompt renders the stored api_key masked —
+        neither the stored ciphertext nor any plaintext leaks (old :497 showed
+        the raw stored value)."""
+        from handlers.admin_ai import _edit_ai_preset_field
+        from services.db.key_crypto import mask_key
+
+        long_key = "sk-1234567890abcdefghij"
+        db.set_preset("masked_prompt", base_url="https://x", model="m", api_key=long_key)
+        stored = db.get_preset("masked_prompt")["api_key"]
+        self.assertNotEqual(stored, long_key)  # stored encrypted, guard premise
+        update = self._make_callback_update("x")
+        asyncio.run(_edit_ai_preset_field(update, self.flow_ctx, "masked_prompt", "api_key"))
+        text = update.callback_query.edit_message_text.call_args.args[0]
+        self.assertIn(mask_key(long_key), text)
+        self.assertNotIn(long_key, text)
+        self.assertNotIn(stored, text)
 
     def test_full_edit_wizard_uses_canonical_english_label(self):
         from handlers.admin_ai import _show_wizard_field, WIZARD_FIELDS
