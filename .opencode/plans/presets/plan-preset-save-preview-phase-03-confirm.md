@@ -34,3 +34,8 @@ returns to edit with drafts intact ✓, integration tests ✓. Reviewer gate out
 - [ ] third button returns to edit without losing drafts
 - [ ] integration tests pass; full validation passes
 - [ ] `hamzaban-reviewer`: 0 confirmed findings
+
+## Contract note (T9/U4)
+
+- `IBTN_SAVE_CANCEL` stem is ❌ (changed 🚫→❌ in T3); 🚫 remains canonical
+  for standalone cancel buttons elsewhere.

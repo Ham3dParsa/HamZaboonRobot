@@ -5,7 +5,11 @@ gates: [U4]
 blocking: [phase-07]
 status: pending
 ---
-STATE: phase 9 — status: pending — focus: feedback wording + impact notes
+STATE: phase 9 — status: complete (2026-09-04, uncommitted) — dead text-path toast
+deleted, just_staged reworded to «پیش‌نویس … نگه داشته شد» (count exactly once),
+🚨/🔑 confirm notes added (order 🎯→🔑→⛓️→🚨), emoji-stem docs note appended.
+Evidence: pytest 1781 passed + 324 subtests, compile_all OK, ruff F821/F811
+clean, git diff --check clean. Keyboard files + view-stats block untouched.
 
 ## Scope
 

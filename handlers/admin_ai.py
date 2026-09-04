@@ -469,7 +469,12 @@ async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
 
     msg = Message()
     if just_staged:
-        msg.add_line(plain(f"✅ {just_staged} ثبت شد — {pending_header(diffs)}"))
+        # T9 (U4): staged line is the sole feedback (the text-path toast was
+        # a proven no-op). It carries no count itself — the pending_header
+        # line below carries it exactly once.
+        msg.add_line(plain(f"✅ پیش‌نویس «{just_staged}» نگه داشته شد"))
+        if diffs:
+            msg.add_line(plain(pending_header(diffs)))
     msg.add_line(plain("✏️ "), bold("ویرایش پیش‌تنظیم: " + str(preset_name)))
     msg.add_line(plain("انتخاب فیلد برای تغییر:"))
     if diffs:
@@ -598,11 +603,9 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
     context.user_data.pop("awaiting", None)
 
     label = FIELD_LABELS.get(field_name, field_name)
-    await notify_callback(
-        update.callback_query,
-        f"✅ {label} ثبت شد",
-        intent=CallbackNoticeIntent.SUCCESS,
-    )
+    # T9 (U4): dead toast removed — update.callback_query is always None on
+    # the text-input path, so notify_callback was a proven no-op. The
+    # re-rendered menu's just_staged line is the sole staged feedback.
     await _edit_ai_preset(update, context, preset_name, just_staged=label)
 
 
@@ -1109,8 +1112,9 @@ async def _confirm_save_preset(update: Update, context: ContextTypes.DEFAULT_TYP
     ``⚠️ تأیید ذخیره — «{name}»`` + numbered per-field vertical old/new
     tables in ``WIZARD_FIELDS`` order (via ``_preset_edit_diffs``; api_key
     values pre-masked, never plaintext) + Persian-digit dirty count +
-    conditional notes (🎯 active-preset warning; priority/fallback note only
-    when those fields are dirty). Keyboard reuses the existing
+    conditional notes (🎯 active-preset warning; 🔑 api_key warning; ⛓️
+    priority/fallback note only when those fields are dirty; 🚨
+    is_emergency warning — fixed order 🎯→🔑→⛓️→🚨). Keyboard reuses the existing
     ``confirm_save_yes``/``confirm_save_no`` callbacks plus the existing
     ``ai_preset:edit`` route — no new callback prefixes.
     """
@@ -1130,10 +1134,15 @@ async def _confirm_save_preset(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     notes: list[str] = []
+    # T9 (U4): fixed order 🎯→🔑→⛓️→🚨, confirm dialog only.
     if preset_name == db.get_active_preset_name():
         notes.append("🎯 این پیش‌تنظیم فعال است — تغییرات پس از ذخیره بلافاصله اعمال می‌شوند.")
+    if "api_key" in edits:
+        notes.append("🔑 کلید عوض می‌شود — درخواست‌های بعدی با کلید جدید ارسال می‌شوند.")
     if any(field in edits for field in ("priority", "in_fallback_chain")):
         notes.append("⛓️ تغییر اولویت یا زنجیره فال‌بک مسیر درخواست‌های بعدی را تغییر می‌دهد.")
+    if "is_emergency" in edits:
+        notes.append("🚨 پرچم اضطراری عوض می‌شود — مقصد مسیر اضطراری جابه‌جا می‌شود.")
     msg = build_confirm_message("⚠️ تأیید ذخیره —", f"«{preset_name}»", diffs, notes=notes, numbered=True)
 
     from config.keyboards import IBTN_BACK_TO_EDIT, IBTN_SAVE_CANCEL, IBTN_SAVE_CONFIRM
@@ -1174,7 +1183,7 @@ async def _detach_ai_preset_group(update: Update, context: ContextTypes.DEFAULT_
 
     edits = context.user_data.setdefault("preset_edits", {})
     edits.setdefault(preset_name, {})["group_label"] = ""
-    await notify_callback(update.callback_query, "✅ حذف از گروه ثبت شد. برای اعمال، ذخیره را بزنید.", intent=CallbackNoticeIntent.SUCCESS)
+    await notify_callback(update.callback_query, "✅ حذف از گروه نگه داشته شد (پیش‌نویس). برای اعمال، ذخیره را بزنید.", intent=CallbackNoticeIntent.SUCCESS)
     await _edit_ai_preset(update, context, preset_name)
 
 

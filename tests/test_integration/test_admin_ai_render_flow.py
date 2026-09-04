@@ -678,9 +678,10 @@ class AdminAiRenderFlowTest(unittest.TestCase):
             ai_preset_edit_keyboard("draft_b", {"model": "x"})  # type: ignore[arg-type]
 
     def test_single_field_confirm_mentions_draft_and_needs_save(self):
-        """R6 (T2): staging toasts the canonical label and re-renders the menu
-        once — no separate ✅ message per field."""
+        """R6 (T2) + T9: staging sends no toast and re-renders the menu
+        once — the menu's just_staged line is the sole staged feedback."""
         from handlers import admin_ai
+        from services.send_pretty import Backend
 
         db.set_preset("draft_c", base_url="https://api.example.com", model="old", api_key="test")
         ctx = self._make_context()
@@ -696,11 +697,13 @@ class AdminAiRenderFlowTest(unittest.TestCase):
                 patch("handlers.admin_ai.notify_callback", new=AsyncMock()) as mock_notify:
             asyncio.run(admin_ai._handle_ai_preset_field_input(update, ctx, "draft_c", "model", "new-model"))
         self.assertEqual(ctx.user_data["preset_edits"]["draft_c"]["model"], "new-model")
-        # Single menu re-render, no extra ✅ message.
+        # Single menu re-render, no extra ✅ message, no toast.
         mock_say.assert_called_once()
         msg.reply_text.assert_not_called()
-        toast_text = mock_notify.call_args[0][1]
-        self.assertIn("Model", toast_text)
+        mock_notify.assert_not_called()
+        menu_text = mock_say.call_args[0][2].render(Backend.RICH)
+        self.assertIn("«Model»", menu_text)
+        self.assertIn("نگه داشته شد", menu_text)
 
 
     def test_preset_view_shows_24h_usage_stats(self):

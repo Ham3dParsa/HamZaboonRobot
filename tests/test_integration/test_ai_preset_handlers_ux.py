@@ -337,9 +337,9 @@ class AiPresetEditMenuPreviewTest(_Phase3AiPresetFlowBase):
         self.assertTrue(any(c.startswith("admin:ai_preset:discard_all:") for c in callbacks))
 
     def test_field_input_text_path_renders_staged_line(self):
-        # Production text path: update.callback_query is None, so the toast
-        # is a silent no-op — the re-rendered menu itself must carry the
-        # ✅ staged confirmation line plus the pending table.
+        # Production text path: update.callback_query is None, so there is no
+        # toast — the re-rendered menu itself must carry the ✅ staged
+        # confirmation line plus the pending table.
         from handlers import admin_ai
         from services.send_pretty import Backend
 
@@ -357,10 +357,13 @@ class AiPresetEditMenuPreviewTest(_Phase3AiPresetFlowBase):
         mock_say.assert_called_once()
         rendered = mock_say.call_args[0][2].render(Backend.RICH)
         self.assertIn("✅", rendered)
-        self.assertIn("Model", rendered)
-        self.assertIn("ثبت شد", rendered)
+        self.assertIn("«Model»", rendered)
+        self.assertIn("پیش‌نویس", rendered)
+        self.assertIn("نگه داشته شد", rendered)
+        self.assertNotIn("ثبت شد", rendered)
         self.assertIn("۱ تغییر در انتظار", rendered)
-        # No duplicate count: the ✅ line carries it, no standalone repeat.
+        # No duplicate count: the ✅ staged line carries no count itself; the
+        # pending header line carries it exactly once.
         self.assertEqual(rendered.count("۱ تغییر در انتظار"), 1)
         self.assertIn("`old-model`", rendered)
         self.assertIn("`new-model`", rendered)
@@ -407,7 +410,7 @@ class AiPresetEditMenuPreviewTest(_Phase3AiPresetFlowBase):
         self.assertNotIn("zzz", rendered)
         self.assertEqual(rendered.count("| --- | --- |"), 1)
 
-    def test_field_input_toasts_and_rerenders_menu_once(self):
+    def test_field_input_no_toast_and_rerenders_menu_once(self):
         from handlers import admin_ai
 
         self._make_preset("preview_i", base_url="https://x", model="old-model")
@@ -422,12 +425,12 @@ class AiPresetEditMenuPreviewTest(_Phase3AiPresetFlowBase):
                 patch("handlers.admin_ai.notify_callback", new=AsyncMock()) as mock_notify:
             asyncio.run(admin_ai._handle_ai_preset_field_input(
                 update, ctx, "preview_i", "model", "new-model"))
-        # Staged, single menu re-render (no extra ✅ message), toast sent.
+        # Staged, single menu re-render (no extra ✅ message), no toast: the
+        # text path carries no callback_query, so the menu's just_staged
+        # line is the sole staged feedback.
         self.assertEqual(ctx.user_data["preset_edits"]["preview_i"]["model"], "new-model")
         mock_say.assert_called_once()
-        mock_notify.assert_called_once()
-        toast_text = mock_notify.call_args[0][1]
-        self.assertIn("Model", toast_text)
+        mock_notify.assert_not_called()
         message.reply_text.assert_not_called()
 
 
@@ -498,6 +501,37 @@ class AiPresetConfirmSavePreviewTest(_Phase3AiPresetFlowBase):
         self.assertIn("⛓️", rendered_fb)
         rendered_clean, _, _ = self._render_confirm("conf_pr", {"model": "m2"})
         self.assertNotIn("⛓️", rendered_clean)
+
+    def test_emergency_note_only_when_is_emergency_dirty(self):
+        self._make_preset("conf_em", base_url="https://x", model="m", is_emergency=0)
+        rendered, _, _ = self._render_confirm("conf_em", {"is_emergency": 1})
+        self.assertIn("🚨", rendered)
+        self.assertIn("پرچم اضطراری", rendered)
+        rendered_clean, _, _ = self._render_confirm("conf_em", {"model": "m2"})
+        self.assertNotIn("🚨", rendered_clean)
+
+    def test_api_key_note_only_when_api_key_dirty(self):
+        self._make_preset("conf_ak", base_url="https://x", model="m")
+        rendered, _, _ = self._render_confirm("conf_ak", {"api_key": "new-key-value"})
+        self.assertIn("🔑", rendered)
+        self.assertIn("کلید عوض می‌شود", rendered)
+        rendered_clean, _, _ = self._render_confirm("conf_ak", {"model": "m2"})
+        self.assertNotIn("🔑", rendered_clean)
+
+    def test_notes_fixed_order_target_key_fallback_emergency(self):
+        # Active preset with every note trigger dirty: 🎯→🔑→⛓️→🚨.
+        self._make_preset("conf_ord", base_url="https://x", model="m",
+                           priority=0, is_emergency=0)
+        db.set_setting("ai_primary_preset", "conf_ord")
+        rendered, _, _ = self._render_confirm("conf_ord", {
+            "api_key": "new-key-value",
+            "priority": 5,
+            "is_emergency": 1,
+        })
+        for emoji in ("🎯", "🔑", "⛓️", "🚨"):
+            self.assertIn(emoji, rendered)
+        positions = [rendered.index(e) for e in ("🎯", "🔑", "⛓️", "🚨")]
+        self.assertEqual(positions, sorted(positions))
 
     def test_empty_edits_guard_text(self):
         from handlers import admin_ai

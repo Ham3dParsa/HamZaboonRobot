@@ -445,7 +445,7 @@ class PerPresetGroupDetachmentTest(unittest.TestCase):
         self.assertEqual(db.get_preset("target_preset")["group_label"], "shared group")
         self.assertEqual(db.get_preset("peer_preset")["group_label"], "shared group")
         update.callback_query.answer.assert_awaited_once_with(
-            "✅ حذف از گروه ثبت شد. برای اعمال، ذخیره را بزنید.",
+            "✅ حذف از گروه نگه داشته شد (پیش‌نویس). برای اعمال، ذخیره را بزنید.",
             show_alert=False,
         )
 
