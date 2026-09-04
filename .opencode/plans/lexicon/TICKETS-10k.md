@@ -26,3 +26,14 @@ Cross-language rule: every ticket must keep `lang` a parameter, never hardcoded 
 ## T0 designs
 - (pending subagent results)
 
+
+| F3 | AWL fetch + coverage vs pool (vowel-less recall answer) | general | in_progress | AWL on W: + coverage number |
+| F4 | Phrase pool track (separate CSV, level rule proposal) | general | pending | design only until F3 lands |
+
+
+| F2b | Vowel-gate allowlist (pack-hit + frequent keep) + regen + PR | tdd-enforcement | in_progress | R5 amendment, owner-ordered: real words never dropped |
+| F3b | Exam-list validation research (TOEFL/IELTS, no blind import) | general | in_progress | validated list or rejection report |
+
+
+| F5 | Essential-word guarantee in final sampling (PARKED per owner) | - | parked | revisit after pre-card label quality validated at pilot scale; do NOT rig seed/mix now |
+

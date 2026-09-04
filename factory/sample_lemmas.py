@@ -20,10 +20,11 @@ index file order; pilot pinning is sorted by (level, lemma_key); the output
 CSV is sorted by (level_order, lemma_key).
 
 Checkpoints: progress lives at ``factory/sample_<lang>_progress.json`` as
-``{lang, seed, mix, dump_size, dump_mtime, lines_done, seen, counters,
-reservoirs, rng}`` and is rewritten every ``--batch`` index lines. A changed dump
-(size/mtime), seed, mix, or lang aborts fail-closed (SystemExit) — never a
-silent resume of stale reservoirs. On success the CSV is written atomically
+``{lang, seed, mix, dump_size, dump_mtime, shape_v, lines_done, seen,
+counters, reservoirs, rng}`` and is rewritten every ``--batch`` index lines.
+A changed dump (size/mtime), seed, mix, lang, or shape rule version
+(``shape_v``) aborts fail-closed (SystemExit) — never a silent resume of
+stale reservoirs. On success the CSV is written atomically
 (temp + os.replace) and the progress file is unlinked.
 
 ``--dry-run`` prints the plan + in-memory per-level counts and writes
@@ -45,6 +46,13 @@ abbreviation instead of entering phrase candidates):
   - keep-gate: alphabetic, len >= 2, containing a vowel (aeiouAEIOU).
     A-list lemmas (``April``, ``about``) stay via the vowel rule — no
     special-casing. Anything else (``co-op``, ``rhythm``) drops.
+R5 amendment (TICKET F2b, owner-ordered — real words never dropped):
+a ``drop:no_vowel`` alphabetic word is KEPT via the allowlist when EITHER
+(a) the pack gives it a CEFR hit (same ``pack_data`` lookups as
+``classify``: ``cefrj_fallback`` or the ``evp`` index — reused, never
+redefined), OR (b) ``wordfreq`` zipf_frequency > ``FREQUENT_ZIPF_MIN``
+(frequent everyday word like ``by``/``my``/``try``). All other drop
+classes are unchanged. Allowlisted rows count as ``allowed_vowelless``.
 Filtered rows count as ``skipped_shape`` and join ``seen_keys`` dedup
 exactly like other skips (never reach ``classify`` or the reservoir).
 
@@ -80,6 +88,16 @@ DEFAULT_BATCH = 50000
 ZIPF_CUTOFFS_FALLBACK = [5.2, 4.6, 4.0, 3.5, 3.0]
 SPOT_CHECK_N = 5
 VOWELS = frozenset("aeiouAEIOU")
+# Frequent everyday word floor (F2b): a vowel-less alphabetic word with
+# wordfreq zipf above this is kept (e.g. by/my/try/fly/sky). Rare junk
+# (e.g. qxwzea, zipf 0) stays dropped.
+FREQUENT_ZIPF_MIN = 3.0
+# Lemma-shape rule version (TICKET F2b follow-up): bump whenever the
+# shape/allowlist rules change. v1 = pre-F2b R5 (all drop:no_vowel rows
+# dropped); v2 = F2b allowlist (pack-hit or frequent vowel-less kept).
+# Stored in the checkpoint header; a mismatch aborts fail-closed so a
+# resume never mixes counters/reservoirs across rule regimes.
+SHAPE_VERSION = 2
 
 DEFAULT_DUMP_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-words.jsonl"
 DEFAULT_INDEX_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-index.jsonl"
@@ -162,10 +180,22 @@ def load_pack(pack: str) -> dict:
     The evp entries are pre-indexed ONCE here by ``lemma|pos`` prefix
     (``evp_index``) so classify() is pure dict lookups, never a scan.
     """
-    with open(os.path.join(pack, "evp_sense.json"), encoding="utf-8") as handle:
-        evp = json.load(handle)
-    with open(os.path.join(pack, "cefrj_pos.json"), encoding="utf-8") as handle:
-        cefrj = json.load(handle)
+    evp_path = os.path.join(pack, "evp_sense.json")
+    try:
+        with open(evp_path, encoding="utf-8") as handle:
+            evp = json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"error: cannot read pack file {evp_path}: {exc}")
+    cefrj_path = os.path.join(pack, "cefrj_pos.json")
+    try:
+        with open(cefrj_path, encoding="utf-8") as handle:
+            cefrj = json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"error: cannot read pack file {cefrj_path}: {exc}")
+    if not isinstance(cefrj, dict) or not isinstance(cefrj.get("fallback"), dict):
+        raise SystemExit(
+            f"error: corrupt pack file {cefrj_path}: "
+            "'fallback' must be an object mapping 'lemma|pos' to CEFR")
     manifest_path = os.path.join(pack, "pack.json")
     try:
         with open(manifest_path, encoding="utf-8") as handle:
@@ -180,7 +210,11 @@ def load_pack(pack: str) -> dict:
         print(f"WARNING: pack manifest {manifest_path} missing "
               f"cefr.zipf_cutoffs ({exc}); using default {cutoffs}",
               file=sys.stderr)
-    entries = evp.get("entries", {})
+    entries = evp.get("entries", {}) if isinstance(evp, dict) else None
+    if not isinstance(entries, dict):
+        raise SystemExit(
+            f"error: corrupt pack file {evp_path}: "
+            "'entries' must be an object mapping sense keys to records")
     # Pre-index by pipe prefix so classify() is dict lookups, never a scan.
     # Semantics mirror the old startswith scan exactly:
     # - qualified query (lemma|pos): an entry matched iff its key started
@@ -243,6 +277,50 @@ def shape_verdict(word: object) -> str:
     return "keep"
 
 
+def pack_has_cefr_hit(word: object, pos: object, pack_data: dict) -> bool:
+    """Pack-hit branch of classify() reused for the F2b allowlist.
+
+    Returns True iff ``classify`` would hit via ``cefrj_fallback`` or the
+    ``evp`` index (zipf bucket excluded). Same ``pack_data`` structures,
+    same normalization — never redefined.
+    """
+    try:
+        lemma_norm = normalize_lemma(word)  # type: ignore[arg-type]
+    except (ValueError, TypeError):
+        return False
+    try:
+        pos_norm = normalize_pos(pos)
+    except (ValueError, TypeError):
+        pos_norm = ""
+    key = f"{lemma_norm}|{pos_norm}"
+    if pack_data.get("cefrj_fallback", {}).get(key) in LEVEL_RANK:
+        return True
+    if pos_norm:
+        levels = pack_data.get("evp_index", {}).get(key, [])
+    else:
+        levels = pack_data.get("evp_lemma_index", {}).get(lemma_norm, [])
+    return any(level in LEVEL_RANK for level in levels)
+
+
+def is_vowelless_allowlisted(word: object, pos: object,
+                             pack_data: dict, lang: str) -> bool:
+    """F2b allowlist: pack CEFR hit OR frequent (zipf > FREQUENT_ZIPF_MIN)."""
+    if pack_has_cefr_hit(word, pos, pack_data):
+        return True
+    try:
+        lemma_norm = normalize_lemma(word)  # type: ignore[arg-type]
+    except (ValueError, TypeError):
+        return False
+    try:
+        from wordfreq import zipf_frequency
+    except ImportError:
+        return False
+    try:
+        return bool(zipf_frequency(lemma_norm, lang) > FREQUENT_ZIPF_MIN)
+    except (ValueError, TypeError):
+        return False
+
+
 def zipf_to_cefr(z: float, cutoffs: list[float]) -> str:
     for cut, level in zip(cutoffs, ["A1", "A2", "B1", "B2", "C1"]):
         if z >= cut:
@@ -261,7 +339,7 @@ def classify(word: str, pos: object, pack_data: dict, lang: str) -> str | None:
     except (ValueError, TypeError):
         pos_norm = ""
     key = f"{lemma_norm}|{pos_norm}"
-    hit = pack_data["cefrj_fallback"].get(key)
+    hit = pack_data.get("cefrj_fallback", {}).get(key)
     if hit in LEVEL_RANK:
         return hit
     if pos_norm:
@@ -281,7 +359,7 @@ def classify(word: str, pos: object, pack_data: dict, lang: str) -> str | None:
     z = zipf_frequency(lemma_norm, lang)
     if z <= 0:
         return None
-    return zipf_to_cefr(z, pack_data["zipf_cutoffs"])
+    return zipf_to_cefr(z, pack_data.get("zipf_cutoffs", ZIPF_CUTOFFS_FALLBACK))
 
 
 def _index_key(entry: dict) -> str | None:
@@ -352,7 +430,8 @@ def sample(
     dump_size, dump_mtime = dump_stat(dump)
     mix = ",".join(str(quota) for quota in quotas)
     header = {"lang": lang, "seed": seed, "mix": mix,
-              "dump_size": dump_size, "dump_mtime": dump_mtime}
+              "dump_size": dump_size, "dump_mtime": dump_mtime,
+              "shape_v": SHAPE_VERSION}
 
     rng = random.Random(seed)
     reservoirs: dict[str, list[tuple[str, str, str, int, int]]] = {
@@ -367,6 +446,7 @@ def sample(
     processed = 0
     counters = {"bad_index_lines": 0, "duplicates": 0,
                 "skipped_no_freq": 0, "skipped_shape": 0,
+                "allowed_vowelless": 0,
                 "phrase_candidates": 0, "pilot_rows": len(pilot),
                 "pilot_bad_rows": 0, "pilot_dupes": 0}
     if not dry_run and os.path.exists(progress):
@@ -378,6 +458,12 @@ def sample(
                     f"error: stale progress {progress} "
                     f"({field} {saved.get(field)!r} != {header[field]!r}); "
                     "delete it to resample from scratch.")
+        if saved.get("shape_v") != SHAPE_VERSION:
+            raise SystemExit(
+                f"error: stale progress {progress} "
+                f"(shape_v {saved.get('shape_v')!r} != {SHAPE_VERSION!r}: "
+                "shape/allowlist rules changed since checkpoint); "
+                "delete it to resample from scratch.")
         lines_done = int(saved.get("lines_done", 0))
         seen = {level: int(saved["seen"][level]) for level in LEVEL_ORDER}
         if "counters" not in saved:
@@ -468,7 +554,10 @@ def sample(
             if verdict == "phrase":
                 counters["phrase_candidates"] += 1
                 continue
-            if verdict != "keep":
+            if verdict == "drop:no_vowel" and is_vowelless_allowlisted(
+                    word, pos, pack_data, lang):
+                counters["allowed_vowelless"] += 1
+            elif verdict != "keep":
                 counters["skipped_shape"] += 1
                 continue
             level = classify(word, pos, pack_data, lang)

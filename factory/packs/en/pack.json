@@ -15,7 +15,8 @@
   "lemmas_10k": {
     "file": "lemmas_10k.csv",
     "seed": 7,
-    "mix": "364,485,667,727,454,303"
+    "mix": "364,485,667,727,454,303",
+    "mixnote": "F2b regen: vowel-gate allowlist (pack-hit or zipf>3.0 kept); 3000 rows/3000 unique keys, mix exact, allowed_vowelless=1353"
   },
   "dict": {
     "raw": "W:/hamzaban_data_factory/raw/filtered_500_kaikki.jsonl"
