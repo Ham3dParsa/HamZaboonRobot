@@ -24,6 +24,43 @@ logger = logging.getLogger(__name__)
 REVIEW_OUTCOMES = ("recalled", "recalled_after_peek", "again")
 
 
+def insert_review_event(
+    conn,
+    word_id: int,
+    user_id: int,
+    grade: int,
+    activity_type: str,
+    *,
+    grade_source: str = "direct_button",
+    raw_signal: str | None = None,
+    response_time_ms: int | None = None,
+    created_at_iso: str | None = None,
+) -> None:
+    """Insert a review event on the caller's open connection (no transaction).
+
+    Synchronous, zero await: pure SQL + outcome mapping. Used by the batched
+    grade tap (F1) so grade + event + streak share one atomic transaction.
+    """
+    outcome = "recalled" if grade >= 2 else "again"
+    conn.execute(
+        "INSERT INTO review_events "
+        "(word_id, user_id, grade, activity_type, grade_source, "
+        " raw_signal, response_time_ms, outcome, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            word_id,
+            user_id,
+            grade,
+            activity_type,
+            grade_source,
+            raw_signal,
+            response_time_ms,
+            outcome,
+            created_at_iso or _utc_now().isoformat(),
+        ),
+    )
+
+
 def record_review_event(
     word_id: int,
     user_id: int,
@@ -53,22 +90,15 @@ def record_review_event(
         raise ValueError(f"invalid grade {grade!r}")
     outcome = "recalled" if grade >= 2 else "again"
     with transaction() as conn:
-        conn.execute(
-            "INSERT INTO review_events "
-            "(word_id, user_id, grade, activity_type, grade_source, "
-            " raw_signal, response_time_ms, outcome, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                word_id,
-                user_id,
-                grade,
-                activity_type,
-                grade_source,
-                raw_signal,
-                response_time_ms,
-                outcome,
-                _utc_now().isoformat(),
-            ),
+        insert_review_event(
+            conn,
+            word_id,
+            user_id,
+            grade,
+            activity_type,
+            grade_source=grade_source,
+            raw_signal=raw_signal,
+            response_time_ms=response_time_ms,
         )
         # Per-card lifetime counters (retention rollup): incremented atomically
         # with the event insert so counters == events ever recorded. The grade

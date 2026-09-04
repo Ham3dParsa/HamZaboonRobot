@@ -232,8 +232,10 @@ class PerUserLockSrsTest(unittest.TestCase):
 
         orig_grade = db.grade_word_review
 
-        def counting_grade(word_id, grade, user_id):
-            res = orig_grade(word_id, grade, user_id)
+        def counting_grade(word_id, grade, user_id, *args, **kwargs):
+            # F1 batch: the handler forwards event/streak kwargs; forward them
+            # so the mock stays compatible with the batched signature.
+            res = orig_grade(word_id, grade, user_id, *args, **kwargs)
             grade_calls.append(word_id)
             return res
 

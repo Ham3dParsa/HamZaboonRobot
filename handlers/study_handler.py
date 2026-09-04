@@ -6,6 +6,7 @@ Phase 1e implementation — FSRS-6 4-grade session flow.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -299,7 +300,9 @@ async def handle_study_start(
             intent=CallbackNoticeIntent.THROTTLE,
         )
         return
-    row = db.get_user(user_id)
+    # F2 off-loop: sync DB reads run in a worker thread (srs_handler pattern).
+    # Each to_thread boundary sits outside any SQLite transaction scope.
+    row = await asyncio.to_thread(db.get_user, user_id)
 
     if not row or not row["onboarded"]:
         await _reply_or_answer(
@@ -319,7 +322,7 @@ async def handle_study_start(
         return
 
     # --- restart recovery: a same-day session persisted to the DB (Bug 1) ---
-    restored = _restore_persisted_session(user_id)
+    restored = await asyncio.to_thread(_restore_persisted_session, user_id)
     if restored is not None:
         context.user_data["current_session"] = restored
         await _resume_existing_session(update, context, restored, user_id)
@@ -329,7 +332,7 @@ async def handle_study_start(
     bypass = is_owner(user_id) and OWNER_BYPASS_LIMITS
     consumed = False
     if not bypass:
-        if not consume_session_slot(user_id, plan):
+        if not await asyncio.to_thread(consume_session_slot, user_id, plan):
             await _reply_or_answer(
                 update,
                 context,
@@ -345,8 +348,9 @@ async def handle_study_start(
         lang = row["target_lang"]
         goal = row["goal"]
         level = row["level"]
-        max_nodes = cards_per_session_for_plan(plan)
-        nodes, tier3_context = build_session_list(
+        max_nodes = await asyncio.to_thread(cards_per_session_for_plan, plan)
+        nodes, tier3_context = await asyncio.to_thread(
+            build_session_list,
             user_id, lang, goal, level, plan,
             max_nodes=max_nodes,
         )
@@ -365,7 +369,7 @@ async def handle_study_start(
         # Reset the durable grade ledger: this is a brand-new session, so any word
         # can legitimately be graded again (e.g. an "Again" card that comes due the
         # same day). Resume paths above leave the ledger intact (Bug report 2026-08-19).
-        db.clear_session_grades(user_id)
+        await asyncio.to_thread(db.clear_session_grades, user_id)
         state = SessionState(
             nodes=nodes,
             total_cards=len(nodes),
@@ -381,7 +385,7 @@ async def handle_study_start(
         # reaches the screen (owner decision 2026-08-15). The first card has no
         # study_msg_id yet; the next advance persists the updated id. On failure
         # the row is cleared and the slot released via finally.
-        _persist_session(user_id, state)
+        await asyncio.to_thread(_persist_session, user_id, state)
         await _render_and_send_first_card(state, update, context)
         delivered = True
     except Exception:
@@ -390,7 +394,7 @@ async def handle_study_start(
         )
         context.user_data.pop("current_session", None)
         try:
-            _clear_persisted_session(user_id)
+            await asyncio.to_thread(_clear_persisted_session, user_id)
         except Exception:
             logger.exception(
                 "handle_study_start cleanup failed user_id=%s", user_id
@@ -409,7 +413,7 @@ async def handle_study_start(
         # (delivered remains False).
         context.user_data.pop("current_session", None)
         try:
-            _clear_persisted_session(user_id)
+            await asyncio.to_thread(_clear_persisted_session, user_id)
         except Exception:
             logger.exception(
                 "handle_study_start BaseException cleanup failed user_id=%s", user_id
@@ -418,7 +422,7 @@ async def handle_study_start(
     finally:
         if consumed and not delivered:
             try:
-                release_session_slot(user_id)
+                await asyncio.to_thread(release_session_slot, user_id)
             except Exception:
                 logger.warning(
                     "release_session_slot failed user_id=%s", user_id, exc_info=True
@@ -444,8 +448,11 @@ async def _resume_existing_session(
     )
     try:
         node = state.nodes[0]
-        text, keyboard = _build_card_text_and_keyboard(
-            node, state, user_id, user_data=context.user_data,
+        # F2 off-loop: the card build does sync DB reads (saved word, card
+        # mode, display toggles) — run the whole sync build in a worker.
+        text, keyboard = await asyncio.to_thread(
+            _build_card_text_and_keyboard,
+            node, state, user_id, context.user_data,
         )
 
         # Deactivate the previous card message (if it still exists) so its
@@ -481,7 +488,7 @@ async def _resume_existing_session(
             keyboard=keyboard,
         )
         state.study_msg_id = msg.message_id
-        _persist_session(user_id, state)
+        await asyncio.to_thread(_persist_session, user_id, state)
     except Exception:
         logger.exception(
             "handle_study_start resume render failed user_id=%s", user_id
@@ -501,8 +508,10 @@ async def _render_and_send_first_card(
     node = state.nodes[0]
     chat_id = update.effective_chat.id
     user_id = node.activity_meta.get("user_id", 0)
-    text, keyboard = _build_card_text_and_keyboard(
-        node, state, user_id, user_data=context.user_data,
+    # F2 off-loop: first-card build does sync DB reads — worker thread.
+    text, keyboard = await asyncio.to_thread(
+        _build_card_text_and_keyboard,
+        node, state, user_id, context.user_data,
     )
     msg = await send_pretty.send(
         chat_id,
@@ -514,7 +523,11 @@ async def _render_and_send_first_card(
     state.study_msg_id = msg.message_id
     # Persist frozen prompt + revealed + new msg_id so a restart resumes identically (R1/R2).
     try:
-        _persist_session(node.activity_meta.get("user_id", 0) or update.effective_user.id, state)
+        await asyncio.to_thread(
+            _persist_session,
+            node.activity_meta.get("user_id", 0) or update.effective_user.id,
+            state,
+        )
     except Exception:
         logger.exception("first-card post-send persist failed")
 
@@ -785,7 +798,8 @@ async def advance_session(
     if state is None:
         # Restart recovery: a same-day session may still be persisted in the DB
         # even though the in-memory session was lost (Bug #401 / R1).
-        state = _restore_persisted_session(user_id)
+        # F2 off-loop: sync DB read in a worker thread.
+        state = await asyncio.to_thread(_restore_persisted_session, user_id)
         if state is not None:
             context.user_data["current_session"] = state
         else:
@@ -811,8 +825,10 @@ async def advance_session(
         # try next node
         if state.nodes:
             node = state.nodes[0]
-            text, keyboard = _build_card_text_and_keyboard(
-                node, state, user_id, user_data=context.user_data,
+            # F2 off-loop: card build does sync DB reads — worker thread.
+            text, keyboard = await asyncio.to_thread(
+                _build_card_text_and_keyboard,
+                node, state, user_id, context.user_data,
             )
             try:
                 await send_pretty.edit(
@@ -838,7 +854,7 @@ async def advance_session(
                 state.active_prompt_type = old_prompt_type
                 state.active_prompt_word_id = old_prompt_wid
                 raise
-            _persist_session(user_id, state)
+            await asyncio.to_thread(_persist_session, user_id, state)
             return
 
         # Tiers 1+2 exhausted — attempt Tier 3 (Decision 26: stub returns None).
@@ -849,8 +865,10 @@ async def advance_session(
             if tier3_node is not None:
                 state.nodes.append(tier3_node)
                 state.total_cards += 1
-                text, keyboard = _build_card_text_and_keyboard(
-                    tier3_node, state, user_id, user_data=context.user_data,
+                # F2 off-loop: card build does sync DB reads — worker thread.
+                text, keyboard = await asyncio.to_thread(
+                    _build_card_text_and_keyboard,
+                    tier3_node, state, user_id, context.user_data,
                 )
                 try:
                     await send_pretty.edit(
@@ -880,7 +898,7 @@ async def advance_session(
                     state.active_prompt_type = old_prompt_type
                     state.active_prompt_word_id = old_prompt_wid
                     raise
-                _persist_session(user_id, state)
+                await asyncio.to_thread(_persist_session, user_id, state)
                 return
 
         completion = escape_mdv2("جلسه مطالعه تموم شد! 🎉")
@@ -895,7 +913,8 @@ async def advance_session(
         is_admin = is_owner(user_id)
         can_detail = has_feature(state.plan, "session_summary") or is_admin
         try:
-            records = _gather_word_records(state, user_id)
+            # F2 off-loop: report gathering does sync DB reads — worker thread.
+            records = await asyncio.to_thread(_gather_word_records, state, user_id)
             report = build_report(records)
             # Nonce embeds the report identity in the callback data so a
             # stale button from an OLDER message can't render the current
@@ -917,8 +936,9 @@ async def advance_session(
                 session_summary_keyboard(nonce) if (report.total and can_detail) else None
             )
             try:
-                db.save_session_report(
-                    user_id, _app_today(), report, is_admin=is_admin
+                await asyncio.to_thread(
+                    db.save_session_report,
+                    user_id, _app_today(), report, is_admin=is_admin,
                 )
             except Exception:
                 logger.exception("session report persist failed user_id=%s", user_id)
@@ -981,7 +1001,7 @@ async def advance_session(
             raise
 
         context.user_data.pop("current_session", None)
-        _clear_persisted_session(user_id)
+        await asyncio.to_thread(_clear_persisted_session, user_id)
 
     except Exception:
         logger.exception("advance_session failed user_id=%s chat_id=%s", user_id, chat_id)
@@ -1250,7 +1270,10 @@ def _reports_list_payload(user_id: int):
 
 async def send_reports_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """``/reports`` command — show the user's recent session reports (R10-C)."""
-    text, keyboard = _reports_list_payload(update.effective_user.id)
+    # F2 off-loop: list payload does a sync DB read — worker thread.
+    text, keyboard = await asyncio.to_thread(
+        _reports_list_payload, update.effective_user.id
+    )
     await send_pretty.send(
         update.effective_chat.id,
         text,
@@ -1280,7 +1303,8 @@ async def _handle_reports_callback(
     user_id = update.effective_user.id
 
     if action in ("back", "list"):
-        text, keyboard = _reports_list_payload(user_id)
+        # F2 off-loop: list payload does a sync DB read — worker thread.
+        text, keyboard = await asyncio.to_thread(_reports_list_payload, user_id)
         await send_pretty.say(
             update, context, text,
             raw=send_pretty.RawFormat.MDV2, keyboard=keyboard,
@@ -1301,7 +1325,8 @@ async def _handle_reports_callback(
         # Re-group entries and filter to that day — single source
         from services.utils.formatting import reports_jalali_group_key as _rgk
 
-        entries = db.list_recent_reports(user_id)
+        # F2 off-loop: sync DB read — worker thread (grouping stays on loop).
+        entries = await asyncio.to_thread(db.list_recent_reports, user_id)
         grouped: dict[str, list] = {}
         for e in entries:
             iso = getattr(e, "created_at", "") or e.session_date or ""
@@ -1337,7 +1362,8 @@ async def _handle_reports_callback(
         except (ValueError, IndexError):
             await notify_callback(update.callback_query)
             return
-        loaded = db.load_report(report_id, user_id)
+        # F2 off-loop: sync DB reads — worker threads.
+        loaded = await asyncio.to_thread(db.load_report, report_id, user_id)
         if loaded is None:
             await notify_callback(
                 update.callback_query,
@@ -1347,7 +1373,7 @@ async def _handle_reports_callback(
             return
         report = loaded.report
         is_admin = loaded.is_admin
-        user_row = db.get_user(user_id)
+        user_row = await asyncio.to_thread(db.get_user, user_id)
         plan = user_row["plan"] if user_row else None
         can_detail = _can_view_detail(plan, is_admin)
         total_pages = len(report.pages)

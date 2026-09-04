@@ -852,6 +852,16 @@ def init_db(path: str | None = None):
             "CREATE INDEX IF NOT EXISTS saved_words_due_idx "
             "ON saved_words(user_id, lang, next_review_at)"
         )
+        # F3: filter/order index for recent_events_for_words(user_id, word_id)
+        # ORDER BY word_id, created_at DESC, id DESC. Matches its WHERE
+        # (user_id=? AND word_id IN (...)) plus created_at ordering, so the
+        # per-word newest-first scan is index-backed on fresh and upgraded DBs.
+        # Not a covering index: the query also SELECTs grade/activity_type and
+        # uses the id DESC tiebreaker, which are resolved from the row/sort step.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS review_events_user_word_created_idx "
+            "ON review_events(user_id, word_id, created_at)"
+        )
         defaults = {
             "llm_input_cost_usd_per_million": str(LLM_INPUT_COST_USD_PER_MILLION),
             "llm_output_cost_usd_per_million": str(LLM_OUTPUT_COST_USD_PER_MILLION),

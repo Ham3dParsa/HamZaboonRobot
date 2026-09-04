@@ -266,7 +266,7 @@ class SrsHandlerFlowTests(unittest.TestCase):
     # no event, no streak, and no advance.
     def test_review_wrong_state_records_nothing(self):
         fresh_id = self._expose_id("unexposed")
-        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+        with patch("services.db.words.touch_streak_in_txn", wraps=db.touch_streak_in_txn) as touch:
             with patch.object(srs_handler, "advance_session", new=AsyncMock()) as advance:
                 query = self._query()
                 update = self._update(query)

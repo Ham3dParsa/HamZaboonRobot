@@ -45,20 +45,6 @@ def _grade_error_text(reason: str) -> str:
     return "ثبت نشد؛ دوباره تلاش کنید."
 
 
-def _record_event_guarded(*args, **kwargs):
-    """Persist a review event without blocking learning progress (Rule 10).
-
-    Scheduling has already committed before this call. A telemetry failure
-    (e.g. a DB lock burst) is logged and swallowed so the streak, success toast,
-    and session advance still run — the card is not re-shown merely because
-    analytics persistence failed.
-    """
-    try:
-        db.record_review_event(*args, **kwargs)
-    except Exception:
-        logger.exception("record_review_event failed word_id=%s user_id=%s", kwargs.get("word_id"), kwargs.get("user_id"))
-
-
 async def _handle_query_add(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str):
     user_id = update.effective_user.id
     log_user_activity(update, action="query_add", outcome="started")
@@ -304,7 +290,36 @@ async def _handle_srs_review(
             )
             return
     resolved = resolve_grade("srs_review", grade)
-    result = await asyncio.to_thread(db.grade_word_review, word_id, resolved, user_id)
+    # F1 batch inputs are computed BEFORE the single DB transaction (no await
+    # may run inside the open transaction; the transaction itself lives in
+    # grade_word_review via asyncio.to_thread).
+    shown_at = context.user_data.pop(f"card_shown_at_{word_id}", None)
+    response_time_ms = None
+    if shown_at is not None:
+        elapsed = time.time() - shown_at
+        response_time_ms = max(0, int(elapsed * 1000))
+    raw_signal = json.dumps({"button_value": grade})
+    try:
+        result = await asyncio.to_thread(
+            db.grade_word_review,
+            word_id,
+            resolved,
+            user_id,
+            grade_source="direct_button",
+            raw_signal=raw_signal,
+            response_time_ms=response_time_ms,
+            with_streak=True,
+        )
+    except Exception:
+        # All-or-nothing (F1): grade + event + streak share one transaction,
+        # so any failure leaves the card ungraded — safe to retry, never advance.
+        logger.exception("batched srs_review grade failed user_id=%s word_id=%s", user_id, word_id)
+        await notify_callback(
+            update.callback_query,
+            "ثبت نشد؛ دوباره تلاش کنید.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
     if result.ok:
         if session is not None:
             session.graded_word_ids.append(word_id)
@@ -312,22 +327,6 @@ async def _handle_srs_review(
             # or lost advance still records this card as graded for the
             # idempotent re-grade guard (R3, Bug #401).
             await asyncio.to_thread(_persist_session, user_id, session)
-        shown_at = context.user_data.pop(f"card_shown_at_{word_id}", None)
-        response_time_ms = None
-        if shown_at is not None:
-            elapsed = time.time() - shown_at
-            response_time_ms = max(0, int(elapsed * 1000))
-        await asyncio.to_thread(
-            _record_event_guarded,
-            word_id=word_id,
-            user_id=user_id,
-            grade=resolved,
-            activity_type="srs_review",
-            grade_source="direct_button",
-            raw_signal=json.dumps({"button_value": grade}),
-            response_time_ms=response_time_ms,
-        )
-        await asyncio.to_thread(db.touch_streak, user_id)
         await notify_callback(
             update.callback_query,
             format_next_review_text(result.interval_seconds),
@@ -432,7 +431,31 @@ async def _handle_first_exposure_grade(
             )
             return
     resolved = resolve_grade("first_exposure", grade)
-    result = await asyncio.to_thread(db.grade_first_exposure, word_id, resolved, user_id)
+    # F1 batch: single transaction for grade + event + streak (see review path).
+    # response_time_ms intentionally None for first-exposure: there is no
+    # recall attempt, just a familiarity rating, so the signal is not
+    # comparable to regular-review response time.
+    context.user_data.pop(f"card_shown_at_{word_id}", None)
+    raw_signal = json.dumps({"button_value": grade})
+    try:
+        result = await asyncio.to_thread(
+            db.grade_first_exposure,
+            word_id,
+            resolved,
+            user_id,
+            grade_source="direct_button",
+            raw_signal=raw_signal,
+            response_time_ms=None,
+            with_streak=True,
+        )
+    except Exception:
+        logger.exception("batched first_exposure grade failed user_id=%s word_id=%s", user_id, word_id)
+        await notify_callback(
+            update.callback_query,
+            "ثبت نشد؛ دوباره تلاش کنید.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return
     if result.ok:
         if session is not None:
             session.graded_word_ids.append(word_id)
@@ -440,20 +463,6 @@ async def _handle_first_exposure_grade(
             # or lost advance still records this card as graded for the
             # idempotent re-grade guard (R3, Bug #401).
             await asyncio.to_thread(_persist_session, user_id, session)
-        # response_time_ms intentionally omitted for first-exposure:
-        # there is no recall attempt, just a familiarity rating, so
-        # the signal is not comparable to regular-review response time.
-        await asyncio.to_thread(
-            _record_event_guarded,
-            word_id=word_id,
-            user_id=user_id,
-            grade=resolved,
-            activity_type="first_exposure",
-            grade_source="direct_button",
-            raw_signal=json.dumps({"button_value": grade}),
-            response_time_ms=None,
-        )
-        await asyncio.to_thread(db.touch_streak, user_id)
         await notify_callback(
             update.callback_query,
             format_next_review_text(result.interval_seconds),
