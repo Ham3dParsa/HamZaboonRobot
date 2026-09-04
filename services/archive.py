@@ -81,8 +81,15 @@ def create_auto_backup() -> str | None:
         fpath = os.path.join(backup_dir, fname)
         if fname.startswith("hamzaban_auto_") and fname.endswith(".db"):
             try:
-                if os.path.getmtime(fpath) < cutoff:
-                    os.remove(fpath)
+                # Containment: never delete a symlink/odd entry resolving
+                # outside the backup dir.
+                real = os.path.realpath(fpath)
+                if real != backup_dir and not real.startswith(backup_dir + os.sep):
+                    continue
+                if not os.path.isfile(real):
+                    continue
+                if os.path.getmtime(real) < cutoff:
+                    os.remove(real)
             except OSError:
                 pass
     return backup_path

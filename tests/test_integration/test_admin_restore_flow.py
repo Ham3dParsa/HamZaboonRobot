@@ -110,7 +110,7 @@ class AdminRestoreFlowTests(unittest.IsolatedAsyncioTestCase):
         ):
             await auto_backup_job(context)
 
-        # _create_auto_backup + export + build_backup_caption all run via to_thread (no blocking on event loop)
+        # create_auto_backup + export + build_backup_caption all run via to_thread (no blocking on event loop)
         self.assertGreaterEqual(worker.await_count, 2)
         called_funcs = [c.args[0].__name__ if hasattr(c.args[0], "__name__") else str(c.args[0]) for c in worker.await_args_list]
         self.assertTrue(any("build_backup_caption" in n for n in called_funcs), f"build_backup_caption not run in worker: {called_funcs}")

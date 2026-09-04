@@ -212,6 +212,19 @@ class AdminBackupFlowTest(unittest.TestCase):
         texts = " ".join(str(c.args[0]) for c in update.callback_query.answer.await_args_list if c.args)
         self.assertIn("ادمین است", texts)
 
+    def test_test_archive_not_admin_preserves_stale_error(self):
+        from handlers.admin import _handle_admin_callback
+
+        db.set_setting("archive_chat_id", "-1001234567890")
+        report_archive_error("stale boom")
+        update = self._make_callback_update("admin:backup_restore:test_archive")
+        ctx = self._make_context()
+        with patch("services.archive.is_bot_admin", AsyncMock(return_value=False)):
+            asyncio.run(_handle_admin_callback(update, ctx, "backup_restore:test_archive"))
+        self.assertEqual(get_archive_error(), "stale boom")
+        texts = " ".join(str(c.args[0]) for c in update.callback_query.answer.await_args_list if c.args)
+        self.assertIn("ادمین نیست", texts)
+
     def test_auto_backup_falls_back_to_owner_without_archive(self):
         import handlers.admin_backup as backup_mod
 
@@ -226,7 +239,7 @@ class AdminBackupFlowTest(unittest.TestCase):
 
         with (
             patch("services.archive.do_backup", side_effect=fake_do_backup),
-            patch("services.archive.create_auto_backup", return_value=None),
+            patch.object(backup_mod, "create_auto_backup", return_value=None),
             patch("config.OWNER_ID", 12345),
         ):
             asyncio.run(backup_mod.auto_backup_job(ctx))

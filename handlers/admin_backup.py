@@ -135,7 +135,8 @@ async def handle_admin_backup_callback(update: Update, context: ContextTypes.DEF
             report_archive_error(str(exc))
             await notify_callback(update.callback_query, f"خطا در بررسی: {exc}", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
-        clear_archive_error()
+        if ok:
+            clear_archive_error()
         await notify_callback(update.callback_query, "ربات ادمین است ✅" if ok else "ربات ادمین نیست ❌ — دسترسی ارسال ندارد", intent=CallbackNoticeIntent.INFO)
         return
     else:
