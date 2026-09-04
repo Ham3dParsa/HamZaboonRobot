@@ -20,3 +20,7 @@ Scope: Admin AI Preset panel audit fixes (R1–R15, F1/F2) + R16 (reasoning-effo
 | `plan-zero-hardcode-phase-02-model-fallback.md` | 2 | Phase 1 | pending |
 | `plan-zero-hardcode-phase-03-defaults.md` | 3 | Phase 1, 2 | pending |
 | `plan-zero-hardcode-phase-04-migrations.md` | 4 | Phase 3 | complete (T4 committed, unpushed) |
+| `plan-preset-save-preview.md` | 1..3 | `presets/plan-preset-save-preview-phase-NN` | in-progress |
+| `plan-preset-save-preview-phase-01-helper.md` | 1 | — | pending |
+| `plan-preset-save-preview-phase-02-edit-menu.md` | 2 | Phase 1 | pending |
+| `plan-preset-save-preview-phase-03-confirm.md` | 3 | Phase 1, 2 | pending |
