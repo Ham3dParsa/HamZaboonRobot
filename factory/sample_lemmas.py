@@ -21,7 +21,7 @@ CSV is sorted by (level_order, lemma_key).
 
 Checkpoints: progress lives at ``factory/sample_<lang>_progress.json`` as
 ``{lang, seed, mix, dump_size, dump_mtime, lines_done, seen, counters,
-rng_state}`` and is rewritten every ``--batch`` index lines. A changed dump
+reservoirs, rng}`` and is rewritten every ``--batch`` index lines. A changed dump
 (size/mtime), seed, mix, or lang aborts fail-closed (SystemExit) — never a
 silent resume of stale reservoirs. On success the CSV is written atomically
 (temp + os.replace) and the progress file is unlinked.
@@ -205,6 +205,7 @@ def load_pack(pack: str) -> dict:
         "evp_lemma_index": evp_lemma_index,
         "cefrj_fallback": cefrj.get("fallback", {}),
         "zipf_cutoffs": cutoffs,
+        "manifest_sample": manifest.get("lemmas_10k") if isinstance(manifest, dict) else None,
     }
 
 
@@ -213,8 +214,11 @@ def shape_verdict(word: object) -> str:
 
     Returns ``"keep"``, ``"phrase"``, or ``"drop:<reason>"`` where reason
     is one of affix/digit/apostrophe/period/single_char/non_alpha/no_vowel.
-    Pure string logic — deterministic, zero LLM. DROP markers take
-    precedence over phrase-routing; pilot rows never reach this function.
+    Pure string logic — deterministic, zero LLM. Shape DROP markers for
+    affix/digit/apostrophe/period/single_char win over phrase-routing;
+    ``non_alpha``/``no_vowel`` are checked after the phrase branch, so a
+    spaced row with symbols counts as phrase (both excluded from the word
+    CSV either way). Pilot rows never reach this function.
     """
     if not isinstance(word, str):
         return "drop:non_string"
@@ -375,6 +379,10 @@ def sample(
                     "delete it to resample from scratch.")
         lines_done = int(saved.get("lines_done", 0))
         seen = {level: int(saved["seen"][level]) for level in LEVEL_ORDER}
+        if "counters" not in saved:
+            raise SystemExit(
+                f"error: pre-R5 checkpoint {progress} has no counters; "
+                "delete it to resample from scratch.")
         saved_counters = saved.get("counters") or {}
         for key in counters:
             if key in ("pilot_rows", "pilot_bad_rows", "pilot_dupes"):
@@ -544,6 +552,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     pack_data = load_pack(args.pack)
     pilot, pilot_bad, pilot_dupes = load_pilot(args.pack)
+    # Manifest seed/mix are evidence metadata; CLI stays authoritative.
+    # Warn (don't abort) so a re-run with different params is still possible.
+    pinned = pack_data.get("manifest_sample") or {}
+    if isinstance(pinned, dict):
+        if "seed" in pinned and pinned["seed"] != args.seed:
+            print(f"WARNING: manifest lemmas_10k.seed={pinned['seed']} "
+                  f"differs from --seed={args.seed} (CLI wins)",
+                  file=sys.stderr)
+        if "mix" in pinned and pinned["mix"] != args.mix:
+            print(f"WARNING: manifest lemmas_10k.mix={pinned['mix']} "
+                  f"differs from --mix={args.mix} (CLI wins)",
+                  file=sys.stderr)
 
     if args.dry_run:
         print("dry-run plan (nothing written, no CSV/checkpoint/progress):")
@@ -585,7 +605,6 @@ def main(argv: list[str] | None = None) -> int:
     counts = {level: sum(1 for row in result["rows"] if row[2] == level)
               for level in LEVEL_ORDER}
     print(f"sampled: rows={len(result['rows'])} counts={counts} out={args.out}")
-    print(f"counters: {result['counters']}")
     print(f"counters: {result['counters']}")
     return 0
 

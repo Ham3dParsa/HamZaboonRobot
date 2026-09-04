@@ -196,6 +196,8 @@ def test_resume_equals_fresh_run(env, tmp_path, capsys):
     os.unlink(out_part)
     capsys.readouterr()  # discard partial-run output; compare resume vs fresh only
     # ...then resume to completion with identical output AND counters.
+    # Contract: a resumed run must report the same diagnostic counters as an
+    # uninterrupted run (counters are checkpointed, not restarted at zero).
     out_resumed = str(tmp_path / "resumed.csv")
     argv = base_argv(env)
     argv[argv.index("--out") + 1] = out_resumed
@@ -236,11 +238,31 @@ def test_resume_corrupt_reservoir_aborts_loud(env):
         handle.write(json.dumps({
             "lang": "en", "seed": 7, "mix": MIX,
             "dump_size": stat.st_size, "dump_mtime": stat.st_mtime,
-            "lines_done": 0, "seen": seen, "reservoirs": reservoirs,
+            "lines_done": 0, "seen": seen, "counters": {},
+            "reservoirs": reservoirs,
             "rng": [3, [0] * 625, None]}))
     with pytest.raises(SystemExit) as excinfo:
         main(base_argv(env))
     assert "progress" in str(excinfo.value).lower()
+    assert "corrupt reservoir" in str(excinfo.value).lower()
+    assert not os.path.exists(env["out"])
+
+
+def test_resume_pre_r5_checkpoint_aborts_loud(env):
+    # A checkpoint without a counters key (pre-R5 format) must fail closed
+    # instead of silently resuming with zeroed diagnostic counters.
+    seen = {level: 0 for level in LEVELS}
+    reservoirs = {level: [] for level in LEVELS}
+    stat = os.stat(env["dump"])
+    with open(env["progress"], "w", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "lang": "en", "seed": 7, "mix": MIX,
+            "dump_size": stat.st_size, "dump_mtime": stat.st_mtime,
+            "lines_done": 0, "seen": seen, "reservoirs": reservoirs,
+            "rng": [3, [0] * 625, None]}))
+    with pytest.raises(SystemExit) as excinfo:
+        main(base_argv(env))
+    assert "counters" in str(excinfo.value).lower()
     assert not os.path.exists(env["out"])
 
 
