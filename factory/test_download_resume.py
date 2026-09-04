@@ -163,7 +163,8 @@ def test_main_existing_out_verifies_without_redownload():
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "kaikki-en-words.jsonl"
         out.write_bytes(BODY)
-        orig_fetch, orig_verify = D.fetch_complete, D.verify
+        progress = Path(tmp) / "download_en_progress.json"
+        orig_fetch, orig_verify, orig_progress = D.fetch_complete, D.verify, D.progress_path
         calls = {}
 
         def no_fetch(*a, **k):
@@ -174,12 +175,72 @@ def test_main_existing_out_verifies_without_redownload():
             return len(LINES)
 
         D.fetch_complete, D.verify = no_fetch, fake_verify
+        D.progress_path = lambda lang: progress
         try:
             assert D.main(["--lang", "en", "--out", str(out)]) == 0
         finally:
-            D.fetch_complete, D.verify = orig_fetch, orig_verify
+            D.fetch_complete, D.verify, D.progress_path = orig_fetch, orig_verify, orig_progress
         assert calls["verified"] == out
     print("ok: main() re-verifies an existing file instead of re-downloading")
+
+
+def test_fetch_complete_404_fails_fast_without_retry():
+    import urllib.error
+
+    calls = {"n": 0, "sleeps": 0}
+
+    def opener_404(request, timeout=None):
+        calls["n"] += 1
+        raise urllib.error.HTTPError(
+            request.full_url if hasattr(request, "full_url") else "http://local/x",
+            404, "Not Found", {}, None)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        part = Path(tmp) / "k.jsonl.part"
+        progress = Path(tmp) / "download_en_progress.json"
+        orig_sleep = D.time.sleep
+        D.time.sleep = lambda s: calls.__setitem__("sleeps", calls["sleeps"] + 1)
+        try:
+            try:
+                D.fetch_complete("http://local/x", part, True, progress,
+                                 opener=opener_404, max_rounds=5)
+            except urllib.error.HTTPError as exc:
+                assert exc.code == 404, exc
+            else:
+                raise AssertionError("a 404 must fail fast, not return")
+        finally:
+            D.time.sleep = orig_sleep
+        assert calls == {"n": 1, "sleeps": 0}, calls
+    print("ok: fetch_complete() fails fast on 404 with a single attempt")
+
+
+def test_fetch_complete_500_is_retried():
+    import urllib.error
+
+    state = {"calls": 0}
+    ranged = make_opener()
+
+    def opener_flaky(request, timeout=None):
+        state["calls"] += 1
+        if state["calls"] == 1:
+            raise urllib.error.HTTPError("http://local/x", 500,
+                                         "Internal Error", {}, None)
+        return ranged(request, timeout=timeout)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        part = Path(tmp) / "k.jsonl.part"
+        progress = Path(tmp) / "download_en_progress.json"
+        orig_sleep = D.time.sleep
+        D.time.sleep = lambda s: None
+        try:
+            done, total = D.fetch_complete("http://local/x", part, True, progress,
+                                           opener=opener_flaky, max_rounds=5)
+        finally:
+            D.time.sleep = orig_sleep
+        assert done == len(BODY) and total == len(BODY), (done, total)
+        assert part.read_bytes() == BODY
+        assert state["calls"] == 2
+    print("ok: fetch_complete() retries a transient 500")
 
 
 def test_dry_run_writes_nothing():
@@ -245,6 +306,8 @@ if __name__ == "__main__":
     test_fetch_complete_resumes_short_read()
     test_main_atomic_rename_and_verify()
     test_main_existing_out_verifies_without_redownload()
+    test_fetch_complete_404_fails_fast_without_retry()
+    test_fetch_complete_500_is_retried()
     test_dry_run_writes_nothing()
     test_verify_accepts_and_rejects()
     test_lang_is_required()

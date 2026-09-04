@@ -12,13 +12,7 @@
   "lemmas": {
     "file": "lemmas.csv"
   },
-  "lemmas_10k": {
-    "file": "lemmas_10k.csv",
-    "seed": 7,
-    "mix": "364,485,667,727,454,303",
-    "pilot_overlap": 500,
-    "note": "quality review pending: affix/digit rows present, see TICKETS-10k"
-  },
+  "lemmas_10k_note": "pointer REMOVED pending owner quality review (14 affix fragments, 15 digit-led rows, ~1665 multiword phrases); candidate data kept in lemmas_10k.csv as evidence only, NOT wired into any load path",
   "dict": {
     "raw": "W:/hamzaban_data_factory/raw/filtered_500_kaikki.jsonl"
   },

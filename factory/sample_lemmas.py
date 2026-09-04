@@ -137,20 +137,52 @@ def write_progress(path: str, payload: dict) -> None:
 
 
 def load_pack(pack: str) -> dict:
-    """Read evp/CEFR-J/zipf-cutoff data. Pack owns CEFR authority."""
+    """Read evp/CEFR-J/zipf-cutoff data. Pack owns CEFR authority.
+
+    The evp entries are pre-indexed ONCE here by ``lemma|pos`` prefix
+    (``evp_index``) so classify() is pure dict lookups, never a scan.
+    """
     with open(os.path.join(pack, "evp_sense.json"), encoding="utf-8") as handle:
         evp = json.load(handle)
     with open(os.path.join(pack, "cefrj_pos.json"), encoding="utf-8") as handle:
         cefrj = json.load(handle)
+    manifest_path = os.path.join(pack, "pack.json")
+    try:
+        with open(manifest_path, encoding="utf-8") as handle:
+            manifest = json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(
+            f"error: cannot read pack manifest {manifest_path}: {exc}")
     cutoffs = ZIPF_CUTOFFS_FALLBACK
     try:
-        with open(os.path.join(pack, "pack.json"), encoding="utf-8") as handle:
-            manifest = json.load(handle)
         cutoffs = list(manifest["cefr"]["zipf_cutoffs"])
-    except (OSError, ValueError, KeyError, TypeError):
-        pass
+    except (KeyError, TypeError, ValueError) as exc:
+        print(f"WARNING: pack manifest {manifest_path} missing "
+              f"cefr.zipf_cutoffs ({exc}); using default {cutoffs}",
+              file=sys.stderr)
+    entries = evp.get("entries", {})
+    # Pre-index by pipe prefix so classify() is dict lookups, never a scan.
+    # Semantics mirror the old startswith scan exactly:
+    # - qualified query (lemma|pos): an entry matched iff its key started
+    #   with "L|P|" (3+ segments); entries with fewer segments never matched.
+    # - bare query (pos empty): an entry matched iff its key started with
+    #   "L|" (the bare lemma alone never matched).
+    evp_index: dict[str, list[str]] = {}
+    evp_lemma_index: dict[str, list[str]] = {}
+    for entry_key, entry in entries.items():
+        level = entry.get("cefr") if isinstance(entry, dict) else None
+        if level not in LEVEL_RANK:
+            continue
+        parts = entry_key.split("|")
+        if len(parts) >= 3:
+            evp_index.setdefault("|".join(parts[:2]), []).append(level)
+        head, sep, _ = entry_key.partition("|")
+        if sep:
+            evp_lemma_index.setdefault(head, []).append(level)
     return {
-        "evp_entries": evp.get("entries", {}),
+        "evp_entries": entries,
+        "evp_index": evp_index,
+        "evp_lemma_index": evp_lemma_index,
         "cefrj_fallback": cefrj.get("fallback", {}),
         "zipf_cutoffs": cutoffs,
     }
@@ -177,14 +209,12 @@ def classify(word: str, pos: object, pack_data: dict, lang: str) -> str | None:
     hit = pack_data["cefrj_fallback"].get(key)
     if hit in LEVEL_RANK:
         return hit
-    prefix = f"{lemma_norm}|{pos_norm}|" if pos_norm else f"{lemma_norm}|"
+    if pos_norm:
+        levels = pack_data.get("evp_index", {}).get(key, [])
+    else:
+        levels = pack_data.get("evp_lemma_index", {}).get(lemma_norm, [])
     best: str | None = None
-    for entry_key, entry in pack_data["evp_entries"].items():
-        if not entry_key.startswith(prefix):
-            continue
-        level = entry.get("cefr") if isinstance(entry, dict) else None
-        if level not in LEVEL_RANK:
-            continue
+    for level in levels:
         if best is None or LEVEL_RANK[level] < LEVEL_RANK[best]:
             best = level
     if best is not None:
@@ -208,26 +238,39 @@ def _index_key(entry: dict) -> str | None:
         return None
 
 
-def load_pilot(pack: str) -> tuple[list[tuple[str, str, str]], int]:
-    """Pilot rows as (lemma_raw, pos_raw, cefr); returns rows + bad-row count."""
+def load_pilot(pack: str) -> tuple[list[tuple[str, str, str]], int, int]:
+    """Pilot rows as (lemma_raw, pos_raw, cefr).
+
+    Returns (rows, bad_count, dupe_count). Duplicate lemma_keys are
+    deduped KEEP-FIRST (conservative: first row wins, later rows skipped
+    with a warning) — never merged, never invented.
+    """
     rows: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
     bad = 0
+    dupes = 0
     with open(os.path.join(pack, "lemmas.csv"), encoding="utf-8", newline="") as handle:
         for record in csv.DictReader(handle):
             try:
-                lemma_key_for(record["lemma"], record["pos"])
+                key = lemma_key_for(record["lemma"], record["pos"])
             except (ValueError, TypeError, KeyError):
                 bad += 1
                 continue
             if record.get("cefr") not in LEVEL_RANK:
                 bad += 1
                 continue
+            if key in seen:
+                dupes += 1
+                print(f"warning: duplicate pilot row for {key!r} "
+                      f"(cefr={record.get('cefr')!r}); keeping first, skipping.")
+                continue
+            seen.add(key)
             rows.append((record["lemma"], record["pos"], record["cefr"]))
     rows.sort(key=lambda row: (
         LEVEL_RANK[row[2]],
         lemma_key_for(row[0], row[1]),
     ))
-    return rows, bad
+    return rows, bad, dupes
 
 
 def dump_stat(dump: str) -> tuple[int | None, float | None]:
@@ -269,7 +312,7 @@ def sample(
     processed = 0
     counters = {"bad_index_lines": 0, "duplicates": 0,
                 "skipped_no_freq": 0, "pilot_rows": len(pilot),
-                "pilot_bad_rows": 0}
+                "pilot_bad_rows": 0, "pilot_dupes": 0}
     if not dry_run and os.path.exists(progress):
         with open(progress, encoding="utf-8") as handle:
             saved = json.load(handle)
@@ -285,7 +328,15 @@ def sample(
                       for level in LEVEL_ORDER}
         for level_entries in reservoirs.values():
             for entry in level_entries:
-                seen_keys.add(lemma_key_for(entry[0], entry[1]))
+                # Fail-closed: a corrupt checkpoint record (e.g. empty pos)
+                # aborts loudly instead of raising a bare traceback.
+                try:
+                    seen_keys.add(lemma_key_for(entry[0], entry[1]))
+                except (ValueError, TypeError, KeyError, IndexError) as exc:
+                    raise SystemExit(
+                        f"error: corrupt reservoir record {entry!r} in "
+                        f"progress {progress} ({exc}); delete it to "
+                        "resample from scratch.")
         rng.setstate((saved["rng"][0], tuple(saved["rng"][1]), saved["rng"][2]))
         # Rebuild dedup state: replay lines [0, lines_done) classification-only
         # (no RNG consumption, no counter changes) so skipped/duplicate/
@@ -428,7 +479,7 @@ def spot_check(dump: str, picked: list[tuple], count: int = SPOT_CHECK_N) -> int
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     pack_data = load_pack(args.pack)
-    pilot, pilot_bad = load_pilot(args.pack)
+    pilot, pilot_bad, pilot_dupes = load_pilot(args.pack)
 
     if args.dry_run:
         print("dry-run plan (nothing written, no CSV/checkpoint/progress):")
@@ -451,13 +502,15 @@ def main(argv: list[str] | None = None) -> int:
             picked = sum(1 for row in result["reservoirs"] if row[2] == level)
             print(f"  {level}: quota={quota} pinned={pinned} "
                   f"candidates_seen={result['seen'][level]} picked={picked}")
-        print(f"  counters: {result['counters']} pilot_bad={pilot_bad}")
+        print(f"  counters: {result['counters']} pilot_bad={pilot_bad} "
+              f"pilot_dupes={pilot_dupes}")
         return 0
 
     result = sample(args.lang, args.index, args.dump, pack_data,
                     args.mix_list, args.seed, pilot, args.limit,
                     args.batch, args.progress, dry_run=False)
     result["counters"]["pilot_bad_rows"] = pilot_bad
+    result["counters"]["pilot_dupes"] = pilot_dupes
     write_csv(args.out, result["rows"])
     spot_check(args.dump, result["reservoirs"])
     if not result["truncated"]:

@@ -13,7 +13,7 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
-from sample_lemmas import LEVEL_ORDER, main
+from sample_lemmas import LEVEL_ORDER, classify, load_pack, load_pilot, main
 
 LEVELS = LEVEL_ORDER
 QUOTA = 3
@@ -210,3 +210,152 @@ def test_pilot_over_quota_aborts(env, tmp_path):
     with pytest.raises(SystemExit):
         main(argv)
     assert not os.path.exists(env["out"])
+
+
+def test_resume_corrupt_reservoir_aborts_loud(env):
+    # A checkpoint reservoir record with an empty pos is unusable:
+    # resume must fail closed with SystemExit naming the file, never a
+    # bare ValueError traceback from lemma_key_for.
+    seen = {level: 0 for level in LEVELS}
+    reservoirs = {level: [] for level in LEVELS}
+    reservoirs["A1"] = [["zzq_broken", "", "A1", 0, 10]]
+    stat = os.stat(env["dump"])
+    with open(env["progress"], "w", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "lang": "en", "seed": 7, "mix": MIX,
+            "dump_size": stat.st_size, "dump_mtime": stat.st_mtime,
+            "lines_done": 0, "seen": seen, "reservoirs": reservoirs,
+            "rng": [3, [0] * 625, None]}))
+    with pytest.raises(SystemExit) as excinfo:
+        main(base_argv(env))
+    assert "progress" in str(excinfo.value).lower()
+    assert not os.path.exists(env["out"])
+
+
+def test_duplicate_pilot_row_skipped_keep_first(env, tmp_path, capsys):
+    # Same lemma_key twice (differing only by case/whitespace/level):
+    # keep-first wins, the dupe warns + counts as pilot_dupes, and the
+    # per-level quotas stay exact.
+    pack = str(tmp_path / "pack_dupe")
+    pilot_rows = [(f"Pilot{level}", "noun", level) for level in LEVELS]
+    pilot_rows.append(("  PILOTa1 ", "Noun", "C2"))  # dupe of PilotA1
+    fallback = {}
+    words = []
+    for level in LEVELS:
+        for num in range(CANDIDATES_PER_LEVEL):
+            word = f"zzq_{level.lower()}_{num}"
+            fallback[f"{word}|noun"] = level
+            words.append((word, "noun"))
+    build_pack(pack, pilot_rows, fallback)
+    dump_dir = str(tmp_path / "d")
+    os.makedirs(dump_dir, exist_ok=True)
+    dump, index, lookup = build_dump_index(dump_dir, words)
+    out = str(tmp_path / "out.csv")
+    progress = str(tmp_path / "progress.json")
+    argv = ["--lang", "en", "--dump", dump, "--index", index,
+            "--lookup", lookup, "--pack", pack,
+            "--out", out, "--progress", progress,
+            "--mix", MIX, "--seed", "7", "--batch", "4"]
+    rows, bad, dupes = load_pilot(pack)
+    assert dupes == 1 and bad == 0
+    assert sum(1 for row in rows if row[2] == "A1") == 1
+    assert main(argv) == 0
+    out_text = capsys.readouterr().out
+    assert "duplicate pilot row" in out_text
+    assert "'pilot_dupes': 1" in out_text
+    with open(out, encoding="utf-8", newline="") as handle:
+        got = list(csv.DictReader(handle))
+    assert len(got) == QUOTA * 6
+    for level in LEVELS:
+        assert sum(1 for row in got if row["cefr"] == level) == QUOTA
+    by_lemma = {row["lemma"]: row for row in got}
+    assert by_lemma["PilotA1"]["cefr"] == "A1"  # first row kept, not C2
+
+
+def test_classify_matches_legacy_scan(tmp_path, monkeypatch):
+    # Differential test for the evp pre-index refactor: classify() must
+    # return exactly what the old per-line startswith scan returned, over
+    # a matrix of tricky keys (multi-sense, 2-segment, bare, bad level).
+    import sys as _sys
+
+    from registry import normalize_lemma, normalize_pos
+
+    class _FakeWordfreq:
+        @staticmethod
+        def zipf_frequency(lemma, lang):
+            return 0.0
+
+    monkeypatch.setitem(_sys.modules, "wordfreq", _FakeWordfreq)
+    pack = str(tmp_path / "pack")
+    pilot_rows = [("PilotA1", "noun", "A1")]
+    fallback = {"qx_zeta|noun": "B1"}
+    build_pack(pack, pilot_rows, fallback)
+    entries = {
+        "qx_alpha|noun|s1": {"cefr": "B2"},
+        "qx_alpha|noun|s2": {"cefr": "A2"},  # easiest wins
+        "qx_alpha|verb|s1": {"cefr": "C1"},
+        "qx_alpha|noun|s3": {"cefr": "Z9"},  # invalid level ignored
+        "qx_beta|noun": {"cefr": "A1"},  # 2 segments: never a qualified hit
+        "qx_gamma": {"cefr": "A1"},  # bare: never a hit
+        "qx_delta|x|a|b": {"cefr": "B1"},  # 4 segments group fine
+    }
+    with open(os.path.join(pack, "evp_sense.json"), "w", encoding="utf-8") as handle:
+        handle.write(json.dumps({"_meta": {}, "entries": entries}))
+    pack_data = load_pack(pack)
+
+    def legacy(word, pos):
+        try:
+            lemma_norm = normalize_lemma(word)
+        except (ValueError, TypeError):
+            return None
+        try:
+            pos_norm = normalize_pos(pos)
+        except (ValueError, TypeError):
+            pos_norm = ""
+        key = f"{lemma_norm}|{pos_norm}"
+        hit = pack_data["cefrj_fallback"].get(key)
+        if hit in LEVELS:
+            return hit
+        prefix = f"{lemma_norm}|{pos_norm}|" if pos_norm else f"{lemma_norm}|"
+        best = None
+        for entry_key, entry in pack_data["evp_entries"].items():
+            if not entry_key.startswith(prefix):
+                continue
+            level = entry.get("cefr") if isinstance(entry, dict) else None
+            if level not in LEVELS:
+                continue
+            if best is None or LEVELS.index(level) < LEVELS.index(best):
+                best = level
+        return best  # zipf stubbed to 0 above, so a miss is None either way
+
+    words = ["qx_alpha", "qx_beta", "qx_gamma", "qx_delta", "qx_zeta",
+             "qx_missing", "QX_ALPHA", "  qx_beta  "]
+    poses = ["noun", "verb", "x", None, "", "NOUN", "  verb "]
+    for word in words:
+        for pos in poses:
+            assert classify(word, pos, pack_data, "en") == legacy(word, pos), \
+                (word, pos)
+    assert classify("qx_alpha", "noun", pack_data, "en") == "A2"
+    assert classify("qx_alpha", None, pack_data, "en") == "A2"
+    assert classify("qx_beta", "noun", pack_data, "en") is None
+    assert classify("qx_gamma", None, pack_data, "en") is None
+
+
+def test_corrupt_pack_json_aborts_loud(env):
+    with open(os.path.join(env["pack"], "pack.json"), "w", encoding="utf-8") as handle:
+        handle.write("{not valid json")
+    with pytest.raises(SystemExit) as excinfo:
+        main(base_argv(env))
+    assert "pack.json" in str(excinfo.value)
+    assert not os.path.exists(env["out"])
+
+
+def test_missing_cutoffs_warns_and_uses_default(env, capsys):
+    with open(os.path.join(env["pack"], "pack.json"), "w", encoding="utf-8") as handle:
+        handle.write(json.dumps({"cefr": {}}))
+    assert main(base_argv(env)) == 0
+    err = capsys.readouterr().err
+    assert "WARNING" in err
+    assert "pack.json" in err and "zipf_cutoffs" in err
+    rows = read_rows(env["out"])
+    assert len(rows) == QUOTA * 6

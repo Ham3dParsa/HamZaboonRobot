@@ -144,20 +144,40 @@ def download_stream(url: str, part: Path, resume: bool, progress_file: Path,
     return done, total_bytes
 
 
+def _transient_http_status(code: int | None) -> bool:
+    """True iff an HTTP failure status is worth retrying.
+
+    Transient: 408, 429, and 5xx. Every other 4xx (e.g. 404) fails fast —
+    retrying a permanent client error only burns time and bandwidth.
+    """
+    if code is None:
+        return True
+    return code == 408 or code == 429 or 500 <= code <= 599
+
+
 def fetch_complete(url: str, part: Path, resume: bool, progress_file: Path,
                    opener=None, max_rounds: int = MAX_ROUNDS) -> tuple[int, int | None]:
     """Drive download_stream until done >= declared total (or rounds run out).
 
     Servers/middleboxes may truncate a response (empty read long before the
     declared Content-Length). A single pass would then leave a corrupt short
-    file, so re-enter with resume=True until the gap closes. Network errors
-    are retried too; everything is bounded by *max_rounds*.
+    file, so re-enter with resume=True until the gap closes. Transient
+    failures (5xx/429/408, network URLErrors, timeouts) are retried;
+    permanent 4xx failures raise immediately. Everything is bounded by
+    *max_rounds*.
     """
     done, total = 0, None
     for round_no in range(1, max_rounds + 1):
         try:
             done, total = download_stream(url, part, resume if round_no == 1 else True,
                                           progress_file, opener=opener)
+        except urllib.error.HTTPError as exc:
+            if not _transient_http_status(exc.code):
+                raise
+            print(f"round {round_no}/{max_rounds}: transient HTTP {exc.code} "
+                  f"({exc}); retrying...")
+            time.sleep(RETRY_BACKOFF * round_no)
+            continue
         except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
             print(f"round {round_no}/{max_rounds}: network error ({exc}); retrying...")
             time.sleep(RETRY_BACKOFF * round_no)

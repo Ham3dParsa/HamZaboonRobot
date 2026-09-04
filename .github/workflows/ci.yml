@@ -68,6 +68,13 @@ jobs:
           HAMZABAN_TEST_MODE: "1"
         run: python -m pytest tests/ -n 4 --junitxml=junit/test-results.xml -v
 
+      - name: Test factory scripts
+        id: factory
+        continue-on-error: true
+        env:
+          HAMZABAN_TEST_MODE: "1"
+        run: python -m pytest factory/ -n 4 --junitxml=junit/factory-results.xml -v
+
       - name: Check whitespace errors
         run: git diff --check
 
@@ -77,11 +84,11 @@ jobs:
         continue-on-error: true
         with:
           name: Test Results (${{ matrix.python-version }})
-          path: junit/test-results.xml
+          path: junit/test-results.xml,junit/factory-results.xml
           reporter: java-junit
 
       - name: Fail on test failure
-        if: steps.test.outcome == 'failure'
+        if: steps.test.outcome == 'failure' || steps.factory.outcome == 'failure'
         run: exit 1
 
   ram-gate:
