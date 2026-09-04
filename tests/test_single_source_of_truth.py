@@ -125,6 +125,8 @@ DOMAIN_KEYWORDS: dict[str, str] = {
     "_send_media_with_retry": "services/send_pretty.py",
     "_capture_media_bytes": "services/send_pretty.py",
     "_SEND_METHOD_ALLOWLIST": "services/send_pretty.py",
+    "_SEND_MEDIA_EXPECTED": "services/send_pretty.py",
+    "_rich_api_request": "services/send_pretty.py",
 }
 
 PRODUCTION_SCAN_TARGETS = [

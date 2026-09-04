@@ -95,7 +95,7 @@ def _user_activity_line(
 
 # NOTE (phase-03 retry seam move, R2): the Telegram send retry/slot seam
 # (_telegram_slots, _send_media_with_retry, _capture_media_bytes,
-# _SEND_METHOD_ALLOWLIST, _rich_api_request) is owned by
+# _SEND_METHOD_ALLOWLIST, _SEND_MEDIA_EXPECTED, _rich_api_request) is owned by
 # services/send_pretty.py and re-exported at the bottom of this module.
 # The edit/delete retry loops below still use the slot via a lazy import
 # (send_pretty imports them from here at top level, so a top-level import
