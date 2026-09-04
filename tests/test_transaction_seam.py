@@ -4,10 +4,14 @@ These lock the atomicity contract of ``services.db.schema.transaction``:
 
 1. A clean block exit commits the immediate transaction (writes persist).
 2. An exception inside the block rolls the transaction back (no partial write).
-3. The ten write modules use the single ``transaction()`` seam for every write
+3. The write modules use the single ``transaction()`` seam for every write
     instead of scattering raw ``BEGIN IMMEDIATE ... commit()`` — the "replace,
     don't layer" spec from the R1 deep-module design. (The schema migration's own
     additive-then-destructive commit boundary is deliberately excluded.)
+4. Modules in ``CALLER_TXN_MODULES`` never open their own transaction: their
+    writes ride the caller's open connection so grade + event + streak share
+    one atomic transaction (F1 batched grade). A ``with transaction()`` block
+    in one of these modules would silently split the batch and must fail here.
 """
 
 import os
@@ -32,6 +36,11 @@ WRITE_MODULES = [
     "services.db.reviews",
     "services.db.display_toggles",
 ]
+
+
+# Modules whose writes intentionally ride the caller's open transaction
+# (F1 batched grade). They must not open a transaction of their own.
+CALLER_TXN_MODULES = frozenset({"services.db.reviews"})
 
 
 class TransactionSeamTests(unittest.TestCase):
@@ -85,11 +94,19 @@ class TransactionSeamTests(unittest.TestCase):
                 content,
                 f"{module_name} must not scatter raw BEGIN IMMEDIATE; use transaction()",
             )
-            self.assertIn(
-                "transaction()",
-                content,
-                f"{module_name} must use the transaction() seam",
-            )
+            if module_name in CALLER_TXN_MODULES:
+                self.assertNotIn(
+                    "with transaction()",
+                    content,
+                    f"{module_name} rides the caller's transaction; "
+                    "opening its own would split the atomic batch",
+                )
+            else:
+                self.assertIn(
+                    "transaction()",
+                    content,
+                    f"{module_name} must use the transaction() seam",
+                )
 
     def test_schema_helper_still_backed_by_immediate(self):
         """The helper itself must issue BEGIN IMMEDIATE so the seam stays atomic."""

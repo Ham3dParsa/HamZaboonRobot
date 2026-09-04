@@ -1,7 +1,7 @@
 """T1 (F1+F3): grade tap writes grade + review_event + streak atomically.
 
 RED phase: grade_word_review/grade_first_exposure do not yet accept the
-batched event/streak kwargs, and the review_events covering index does not
+batched event/streak kwargs, and the review_events filter/order index does not
 exist — these tests must fail before the fix and pass after.
 """
 
@@ -227,8 +227,8 @@ class GradeWriteBatchTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
 
-class ReviewEventsCoveringIndexTests(unittest.TestCase):
-    """F3: covering index on review_events(user_id, word_id, created_at)."""
+class ReviewEventsFilterOrderIndexTests(unittest.TestCase):
+    """F3: filter/order index on review_events(user_id, word_id, created_at)."""
 
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
