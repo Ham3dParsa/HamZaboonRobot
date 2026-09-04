@@ -454,8 +454,8 @@ async def _clear_awaiting_prompt(context: ContextTypes.DEFAULT_TYPE) -> None:
 async def _rotate_awaiting_msg(context: ContextTypes.DEFAULT_TYPE, update: Update, msg) -> None:
     """Start a new awaiting prompt: strip the previous prompt's keyboard, then store the new one.
 
-    Single source of truth for prompt rotation (R2 stale-orphan fix): every
-    admin awaiting prompt start must go through here instead of calling
+    Single source of truth for prompt rotation (R2 stale-orphan fix): preset
+    awaiting prompt starts should go through here instead of calling
     ``_store_awaiting_msg`` directly, so a second prompt can never orphan the
     first one's keyboard. Restart-safe and idempotent (inherits both from
     ``_clear_awaiting_prompt``/``_store_awaiting_msg``); performs no DB I/O,

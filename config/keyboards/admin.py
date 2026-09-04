@@ -208,6 +208,10 @@ def user_plan_picker_keyboard(
             label = label[:30] + "…"
         if current is not None and name.lower() == current:
             label = f"✅ {label} (فعلی)"
+            # The marker itself costs chars — re-truncate so the flagged
+            # current button stays within budget too (kilo WARNING, PR 568).
+            if len(label) > 30:
+                label = label[:30] + "…"
         cb = f"admin:user:plan_select:{user_id}:{name}"
         # Telegram callback_data limit is 64 bytes
         if len(cb.encode("utf-8")) > 64:
