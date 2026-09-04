@@ -29,6 +29,25 @@ silent resume of stale reservoirs. On success the CSV is written atomically
 ``--dry-run`` prints the plan + in-memory per-level counts and writes
 NOTHING (no CSV, no checkpoint, no progress).
 
+Lemma shape filter (locked R5, TICKET F2 — deterministic, zero LLM):
+pilot ``pack/lemmas.csv`` rows are EXEMPT (curated continuity); every
+index-stream row passes ``shape_verdict()`` BEFORE the reservoir. DROP
+markers win over phrase-routing (so ``A. M. A.`` drops as a period
+abbreviation instead of entering phrase candidates):
+  - ``phrase``: contains internal whitespace (multiword ``all in all``) —
+    EXCLUDED from the word pool but NOT dropped from the universe: counted
+    as ``phrase_candidates`` for future F4, never written to the word CSV.
+  - ``drop:affix``: starts/ends with hyphen (``-by``, ``-got-``, ``-our``).
+  - ``drop:digit``: any digit (``2``, ``3-1-3``).
+  - ``drop:apostrophe``: ``'`` or U+2019 (``'d``).
+  - ``drop:period``: contains ``.`` (``A. M. A.``, ``e.g.``).
+  - ``drop:single_char``: stripped length < 2.
+  - keep-gate: alphabetic, len >= 2, containing a vowel (aeiouAEIOU).
+    A-list lemmas (``April``, ``about``) stay via the vowel rule — no
+    special-casing. Anything else (``co-op``, ``rhythm``) drops.
+Filtered rows count as ``skipped_shape`` and join ``seen_keys`` dedup
+exactly like other skips (never reach ``classify`` or the reservoir).
+
 Lemma normalization and random-access ``fetch`` are REUSED from
 ``factory/registry.py`` (``normalize_lemma``) and
 ``factory/build_kaikki_index.py`` (``fetch``) — this file defines neither.
@@ -60,6 +79,7 @@ DEFAULT_SEED = 7
 DEFAULT_BATCH = 50000
 ZIPF_CUTOFFS_FALLBACK = [5.2, 4.6, 4.0, 3.5, 3.0]
 SPOT_CHECK_N = 5
+VOWELS = frozenset("aeiouAEIOU")
 
 DEFAULT_DUMP_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-words.jsonl"
 DEFAULT_INDEX_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-index.jsonl"
@@ -188,6 +208,36 @@ def load_pack(pack: str) -> dict:
     }
 
 
+def shape_verdict(word: object) -> str:
+    """Single-source lemma shape gate (locked R5, TICKET F2).
+
+    Returns ``"keep"``, ``"phrase"``, or ``"drop:<reason>"`` where reason
+    is one of affix/digit/apostrophe/period/single_char/non_alpha/no_vowel.
+    Pure string logic — deterministic, zero LLM. DROP markers take
+    precedence over phrase-routing; pilot rows never reach this function.
+    """
+    if not isinstance(word, str):
+        return "drop:non_string"
+    text = word.strip()
+    if text.startswith("-") or text.endswith("-"):
+        return "drop:affix"
+    if any(ch.isdigit() for ch in text):
+        return "drop:digit"
+    if "'" in text or "\u2019" in text:
+        return "drop:apostrophe"
+    if "." in text:
+        return "drop:period"
+    if len(text) < 2:
+        return "drop:single_char"
+    if any(ch.isspace() for ch in text):
+        return "phrase"
+    if not text.isalpha():
+        return "drop:non_alpha"
+    if not any(ch in VOWELS for ch in text):
+        return "drop:no_vowel"
+    return "keep"
+
+
 def zipf_to_cefr(z: float, cutoffs: list[float]) -> str:
     for cut, level in zip(cutoffs, ["A1", "A2", "B1", "B2", "C1"]):
         if z >= cut:
@@ -311,7 +361,8 @@ def sample(
     lines_done = 0
     processed = 0
     counters = {"bad_index_lines": 0, "duplicates": 0,
-                "skipped_no_freq": 0, "pilot_rows": len(pilot),
+                "skipped_no_freq": 0, "skipped_shape": 0,
+                "phrase_candidates": 0, "pilot_rows": len(pilot),
                 "pilot_bad_rows": 0, "pilot_dupes": 0}
     if not dry_run and os.path.exists(progress):
         with open(progress, encoding="utf-8") as handle:
@@ -399,6 +450,13 @@ def sample(
                 counters["duplicates"] += 1
                 continue
             seen_keys.add(key)
+            verdict = shape_verdict(word)
+            if verdict == "phrase":
+                counters["phrase_candidates"] += 1
+                continue
+            if verdict != "keep":
+                counters["skipped_shape"] += 1
+                continue
             level = classify(word, pos, pack_data, lang)
             if level is None:
                 counters["skipped_no_freq"] += 1
