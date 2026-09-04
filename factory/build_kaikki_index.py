@@ -288,9 +288,9 @@ def build_index(dump: str, out: str, lang: str, batch: int,
                 if mem_estimate > MEMORY_BUDGET_BYTES and spill_handle is None:
                     # Over budget: spill grouped-so-far lines to JSONL and
                     # keep only the tail in memory. Readers merge per key.
-                    # Resume-aware: append when a spill file already exists,
-                    # never truncate it.
-                    spill_mode = ("ab" if os.path.exists(spill_path)
+                    # Append ONLY on the spilled-resume path; a fresh build
+                    # truncates so an orphan spill can't corrupt the lookup.
+                    spill_mode = ("ab" if saved_spilled and start_offset > 0
                                   else "wb")
                     spill_handle = open(spill_path, spill_mode)
                     spilled = True

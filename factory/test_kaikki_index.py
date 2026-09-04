@@ -303,6 +303,24 @@ def test_spilled_resume_appends_without_truncation(tmp_path, monkeypatch):
     print("ok: spilled resume appends and rebuilds tail-only")
 
 
+def test_fresh_build_truncates_orphan_spill(tmp_path, monkeypatch):
+    # Fresh build (no progress) with a leftover spill file must TRUNCATE it,
+    # never append: otherwise stale offsets corrupt the merged lookup.
+    tmp = Path(tmp_path)
+    dump = tmp / "kaikki-en-words.jsonl"
+    make_dump(dump, n=N)
+    out = tmp / "kaikki-en-index.jsonl"
+    spill = Path(B.lookup_path_for(str(out), "en", as_jsonl=True))
+    spill.write_bytes(b'{"lemma_key": "zzq_orphan_stale", "offsets": [1, 2, 3]}\n')
+    monkeypatch.setattr(B, "MEMORY_BUDGET_BYTES", 0)
+    B.build_index(str(dump), str(out), "en", 50,
+                  progress=str(tmp / "fresh.json"))
+    merged = _merge_lookup_jsonl(spill)
+    assert "zzq_orphan_stale" not in merged, \
+        "fresh build must truncate orphan spill, not append to it"
+    print("ok: fresh build truncates orphan spill")
+
+
 if __name__ == "__main__":
     test_offsets_round_trip_via_fetch()
     test_resume_gives_identical_index()
@@ -312,7 +330,8 @@ if __name__ == "__main__":
     test_fetch_rejects_wordless_object()
     from _pytest.monkeypatch import MonkeyPatch
     for _fn in (test_spill_handle_closed_on_exception,
-                test_spilled_resume_appends_without_truncation):
+                test_spilled_resume_appends_without_truncation,
+                test_fresh_build_truncates_orphan_spill):
         _mp = MonkeyPatch()
         try:
             _fn(Path(tempfile.mkdtemp()), _mp)
