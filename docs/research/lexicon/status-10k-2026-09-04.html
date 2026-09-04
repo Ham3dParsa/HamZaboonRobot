@@ -22,7 +22,15 @@
 <body>
 
 <h1>کجای کاریم؟</h1>
-<p class="note">سند زنده — آخرین به‌روزرسانی ۱۴ شهریور (بعد از مرج PR ۵۶۰). همین فایل جلو می‌رود، فایل تازه ساخته نمی‌شود.</p>
+<p class="note">سند زنده — هر سطر تاریخ و مرجع (PR/کامیت/ایشو) دارد. جدیدترین بالا.</p>
+
+<h2>تغییرات</h2>
+<table>
+<tr><th>تاریخ</th><th>چه عوض شد</th><th>مرجع</th></tr>
+<tr><td>۱۴ شهریور</td><td>مرج PR ۵۶۰؛ پوشش تازه AWL (۱۷۸/۵۶۹)؛ اصلاح بی‌صداها؛ F5 پارک شد</td><td><a href="https://github.com/Ham3dParsa/HamZaboonRobot/pull/560">PR 560</a></td></tr>
+<tr><td>۱۴ شهریور</td><td>مرج PR ۵۵۷؛ استخر ۳۰۰۰تایی تمیز با فیلتر شکل</td><td><a href="https://github.com/Ham3dParsa/HamZaboonRobot/pull/557">PR 557</a></td></tr>
+<tr><td>۱۳ شهریور</td><td>مرج PR ۵۵۳؛ خط لوله نمونه‌گیری (دانلود، ایندکس، سمپلر)</td><td><a href="https://github.com/Ham3dParsa/HamZaboonRobot/pull/553">PR 553</a></td></tr>
+</table>
 
 <div class="box">
 <p class="big">خط لوله استخر انگلیسی <b>ساخته، تست و مرج شده</b> (PR ۵۵۳ و ۵۶۰). استخر ۳۰۰۰تایی تمیز با AWL و قانون بی‌صدای اصلاح‌شده.</p>
@@ -31,15 +39,15 @@
 
 <h2>تا اینجا چه شد؟</h2>
 <table>
-<tr><th>قدم</th><th>نتیجه واقعی</th><th>وضعیت</th></tr>
-<tr><td>دانلود دامپ خام</td><td>۳٫۲ گیگ، ۱٬۴۸۷٬۶۳۹ خط، صفر خط خراب (مستقل هم راستی‌آزمایی شد)</td><td>تمام</td></tr>
-<tr><td>ایندکس آفست</td><td>۱٬۳۵۱٬۵۸۸ لم در ۳۱ ثانیه؛ resume و spill امن</td><td>تمام</td></tr>
-<tr><td>نمونه‌گیری seedدار</td><td>۳۰۰۰ سطر، ترکیب دقیق ۳۶۴/۴۸۵/۶۶۷/۷۲۷/۴۵۴/۳۰۳، هر ۵۰۰ تای قبلی داخلش</td><td>تمام</td></tr>
-<tr><td>فیلتر شکل (R5)</td><td>پسوند، رقم، انقباض، تک‌حرف، مخفف نقطه‌دار بیرون؛ ۳۰۲ هزار عبارت شمرده شد برای بعد</td><td>تمام</td></tr>
-<tr><td>بازتولید استخر تمیز</td><td>۳۰۰۰ سطر / ۳۰۰۰ کلید یکتا، صفر تخلف شکلی، pack دوباره وصل</td><td>تمام (مرج ۵۵۷)</td></tr>
-<tr><td>ریویوها</td><td>۲۰+ یافته در سه دور، همه واقعی، همه فیکس و تست‌دار؛ تست‌ها ۶۳ سبز، CI هم فکتوری را اجرا می‌کند</td><td>تمام</td></tr>
-<tr><td>اصلاح بی‌صداها (F2b)</td><td>packدار یا پرتکرار می‌ماند (۱۳۵۳ کلمه نجات یافت، از جمله <span class="en">by/my</span>)؛ <span class="en">try/fly/sky</span> هنوز در قرعه‌کشی نیامده‌اند — پارک شد (F5)</td><td>تمام (مرج ۵۶۰)</td></tr>
-<tr><td>AWL + فهرست آزمونی (F3)</td><td>۵۶۹ خانواده روی درایو؛ پوشش استخر ۱۷۸/۵۶۹ (۳۱٪)؛ فقط WordLevel TOEFL-1k سالم درآمد (۹۰۷ کلمه‌اش بیرون استخر = سیگنال top-up)</td><td>تمام (مرج ۵۶۰)</td></tr>
+<tr><th>قدم</th><th>نتیجه واقعی</th><th>وضعیت</th><th>مرجع</th></tr>
+<tr><td>دانلود دامپ خام</td><td>۳٫۲ گیگ، ۱٬۴۸۷٬۶۳۹ خط، صفر خط خراب (مستقل هم راستی‌آزمایی شد)</td><td>تمام</td><td><a href="https://github.com/Ham3dParsa/HamZaboonRobot/pull/553">PR 553</a></td></tr>
+<tr><td>ایندکس آفست</td><td>۱٬۳۵۱٬۵۸۸ لم در ۳۱ ثانیه؛ resume و spill امن</td><td>تمام</td><td><a href="https://github.com/Ham3dParsa/HamZaboonRobot/pull/553">PR 553</a></td></tr>
+<tr><td>نمونه‌گیری seedدار</td><td>۳۰۰۰ سطر، ترکیب دقیق ۳۶۴/۴۸۵/۶۶۷/۷۲۷/۴۵۴/۳۰۳، هر ۵۰۰ تای قبلی داخلش</td><td>تمام</td><td><a href="https://github.com/Ham3dParsa/HamZaboonRobot/pull/553">PR 553</a></td></tr>
+<tr><td>فیلتر شکل (R5)</td><td>پسوند، رقم، انقباض، تک‌حرف، مخفف نقطه‌دار بیرون؛ ۳۰۲ هزار عبارت شمرده شد برای بعد</td><td>تمام</td><td><a href="https://github.com/Ham3dParsa/HamZaboonRobot/pull/557">PR 557</a></td></tr>
+<tr><td>بازتولید استخر تمیز</td><td>۳۰۰۰ سطر / ۳۰۰۰ کلید یکتا، صفر تخلف شکلی، pack دوباره وصل</td><td>تمام (مرج ۵۵۷)</td><td><a href="https://github.com/Ham3dParsa/HamZaboonRobot/pull/557">PR 557</a></td></tr>
+<tr><td>ریویوها</td><td>۲۰+ یافته در سه دور، همه واقعی، همه فیکس و تست‌دار؛ تست‌ها ۶۳ سبز، CI هم فکتوری را اجرا می‌کند</td><td>تمام</td><td><a href="https://github.com/Ham3dParsa/HamZaboonRobot/pull/553">PR 553</a>، <a href="https://github.com/Ham3dParsa/HamZaboonRobot/pull/557">557</a>، <a href="https://github.com/Ham3dParsa/HamZaboonRobot/pull/560">560</a></td></tr>
+<tr><td>اصلاح بی‌صداها (F2b)</td><td>packدار یا پرتکرار می‌ماند (۱۳۵۳ کلمه نجات یافت، از جمله <span class="en">by/my</span>)؛ <span class="en">try/fly/sky</span> هنوز در قرعه‌کشی نیامده‌اند — پارک شد (F5)</td><td>تمام (مرج ۵۶۰)</td><td><a href="https://github.com/Ham3dParsa/HamZaboonRobot/pull/560">PR 560</a></td></tr>
+<tr><td>AWL + فهرست آزمونی (F3)</td><td>۵۶۹ خانواده روی درایو؛ پوشش استخر ۱۷۸/۵۶۹ (۳۱٪)؛ فقط WordLevel TOEFL-1k سالم درآمد (۹۰۷ کلمه‌اش بیرون استخر = سیگنال top-up)</td><td>تمام (مرج ۵۶۰)</td><td><a href="https://github.com/Ham3dParsa/HamZaboonRobot/pull/560">PR 560</a></td></tr>
 </table>
 
 <h2>استانداردهای ۱۶ رعایت شد؟ بهتر شد؟</h2>
@@ -74,7 +82,7 @@
 <p>دو چیزی که عمداً دست نزدم: فیلتر کیفیت را بدون قانون تو ننوشتم (همان شش بند را خودت دادی)، و Tier 3 را کد نکردم چون قراردادش فقط بحث است. هر دو منتظر تواند.</p>
 </div>
 
-<p class="note">مبنا: برنچ <span class="en">feat/lexicon-shape-filter</span>، قرارداد <span class="en">plan-10k-sampling.md</span> (R1 تا R5 قفل)، تیکت‌ها <span class="en">TICKETS-10k.md</span>، ایشو ۵۵۰.</p>
+<p class="note">مبنا: قرارداد <span class="en">plan-10k-sampling.md</span> (R1 تا R5 قفل)، تیکت‌ها <span class="en">TICKETS-10k.md</span>، <a href="https://github.com/Ham3dParsa/HamZaboonRobot/issues/550">ایشو ۵۵۰</a> (خط کش پرسش، منتظر استخر).</p>
 
 </body>
 </html>
