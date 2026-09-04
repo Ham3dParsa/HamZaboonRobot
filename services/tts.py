@@ -29,9 +29,12 @@ _VOICES_EVENT = asyncio.Event()
 _VOICES_LOCK = asyncio.Lock()
 
 # NOTE (phase 02 R1): pronounce() is intentionally lock-free. Per-key
-# single-flight lives in services/tts_service._SPEAK_LOCKS; concurrent
-# same-key pronounce() calls are safe because generation writes to a temp
-# file and publishes atomically via os.replace (no torn reads).
+# single-flight lives in services/tts_service._SPEAK_LOCKS (the only
+# production caller, speak(), holds it). Concurrent same-key DIRECT
+# pronounce() calls each issue their own Edge TTS request (accepted
+# trade-off); the atomic tmp-write + os.replace only guarantees no torn
+# file, not no duplicate upstream spend. Direct callers needing
+# single-flight must serialize themselves.
 
 
 def voice_for(lang: str) -> str:

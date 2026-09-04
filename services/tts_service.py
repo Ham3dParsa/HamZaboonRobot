@@ -14,9 +14,10 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Per-key speak lock — the ONLY upload-dedup lock (R1, phase 02 single lock).
-# tts.pronounce() is lock-free (atomic tmp-write + os.replace); the service
-# lock single-flights speak() so concurrent same-key callers share one
-# channel upload.
+# tts.pronounce() is lock-free (atomic tmp-write + os.replace, no torn file
+# but no dedup of the Edge request itself); the service lock single-flights
+# speak() so concurrent same-key callers share one Edge call + one channel
+# upload. Direct tts.pronounce() calls outside speak() are NOT single-flighted.
 # ---------------------------------------------------------------------------
 _SPEAK_LOCKS: dict[str, asyncio.Lock] = {}
 _SPEAK_LOCKS_GUARD = asyncio.Lock()

@@ -225,10 +225,16 @@ class TestTTSLockMapBounded(unittest.IsolatedAsyncioTestCase):
         finally:
             svc._SPEAK_LOCKS.clear()
 
-    async def test_pronounce_concurrent_same_key_no_corruption(self):
+    async def test_pronounce_concurrent_same_key_no_torn_file_duplicate_api_accepted(self):
+        # Accepted phase-02 R1 trade-off: lock-free pronounce() does NOT
+        # single-flight direct calls — both concurrent callers hit the Edge
+        # API; the atomic os.replace only guarantees the file is intact.
+        # Production path (speak() under _SPEAK_LOCKS) still dedups to 1.
         import tempfile
 
         import services.tts as tts
+
+        save_calls = []
 
         class FakeComm:
             def __init__(self, text, voice):
@@ -236,6 +242,7 @@ class TestTTSLockMapBounded(unittest.IsolatedAsyncioTestCase):
 
             async def save(self, dest):
                 await asyncio.sleep(0.02)
+                save_calls.append(dest)
                 pathlib.Path(dest).write_bytes(b"audio-bytes")
 
         with tempfile.TemporaryDirectory() as td:
@@ -246,6 +253,7 @@ class TestTTSLockMapBounded(unittest.IsolatedAsyncioTestCase):
             ):
                 p1, p2 = await asyncio.gather(tts.pronounce("hello", "en"), tts.pronounce("hello", "en"))
             self.assertEqual(p1, p2)
+            self.assertEqual(len(save_calls), 2)
             self.assertEqual(pathlib.Path(p1).read_bytes(), b"audio-bytes")
 
 
