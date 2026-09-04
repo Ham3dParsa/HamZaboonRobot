@@ -282,7 +282,6 @@ class TestFirstExposureKeyboard(unittest.TestCase):
 
 class TestUserPlanPickerKeyboard(unittest.TestCase):
     def test_picker_contains_real_plans_and_distinct_emojis(self):
-        from unittest.mock import patch
         from config.keyboards.admin import user_plan_picker_keyboard
         from config.keyboards.constants import IBTN_CANCEL, IBTN_CLOSE
 
@@ -298,26 +297,46 @@ class TestUserPlanPickerKeyboard(unittest.TestCase):
             {"name": "gold", "display_name": "Gold"},
             {"name": "emerald", "display_name": "Emerald"},
         ]
-        with patch("services.db.list_plans", return_value=fake_plans):
-            markup = user_plan_picker_keyboard(12345)
-            cbs = [b.callback_data for row in markup.inline_keyboard for b in row]
-            texts = [b.text for row in markup.inline_keyboard for b in row]
-            for p in fake_plans:
-                self.assertIn(f"admin:user:plan_select:12345:{p['name']}", cbs)
-                self.assertIn(p["display_name"], texts)
-            # picker footer row must show distinct cancel vs close
-            self.assertIn("🚫 لغو", texts)
-            self.assertIn("❌ بستن", texts)
+        markup = user_plan_picker_keyboard(12345, fake_plans)
+        cbs = [b.callback_data for row in markup.inline_keyboard for b in row]
+        texts = [b.text for row in markup.inline_keyboard for b in row]
+        for p in fake_plans:
+            self.assertIn(f"admin:user:plan_select:12345:{p['name']}", cbs)
+            self.assertIn(p["display_name"], texts)
+        # picker footer row must show distinct cancel vs close
+        self.assertIn("🚫 لغو", texts)
+        self.assertIn("❌ بستن", texts)
 
     def test_picker_uses_display_name(self):
-        from unittest.mock import patch
         from config.keyboards.admin import user_plan_picker_keyboard
 
         fake_plans = [{"name": "silver", "display_name": "نقره‌ای"}]
-        with patch("services.db.list_plans", return_value=fake_plans):
-            markup = user_plan_picker_keyboard(1)
-            texts = [b.text for row in markup.inline_keyboard for b in row]
-            self.assertIn("نقره‌ای", texts)
+        markup = user_plan_picker_keyboard(1, fake_plans)
+        texts = [b.text for row in markup.inline_keyboard for b in row]
+        self.assertIn("نقره‌ای", texts)
+
+    def test_picker_empty_plans(self):
+        from config.keyboards.admin import user_plan_picker_keyboard
+
+        markup = user_plan_picker_keyboard(1, [])
+        cbs = [b.callback_data for row in markup.inline_keyboard for b in row]
+        # only back/cancel/close remain
+        self.assertNotIn("admin:user:plan_select:", "".join(cbs))
+        # footers present
+        texts = [b.text for row in markup.inline_keyboard for b in row]
+        self.assertIn("🚫 لغو", texts)
+        self.assertIn("❌ بستن", texts)
+
+    def test_picker_truncates_long_display_name(self):
+        from config.keyboards.admin import user_plan_picker_keyboard
+
+        long_label = "A" * 50
+        fake_plans = [{"name": "silver", "display_name": long_label}]
+        markup = user_plan_picker_keyboard(1, fake_plans)
+        texts = [b.text for row in markup.inline_keyboard for b in row]
+        # truncated to 30 + …
+        self.assertTrue(any(len(t) <= 31 for t in texts if t.startswith("A")))
+        self.assertTrue(any("…" in t for t in texts if t.startswith("A")))
 
 
 if __name__ == "__main__":

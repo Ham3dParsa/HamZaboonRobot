@@ -216,11 +216,17 @@ async def handle_admin_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         except (IndexError, ValueError):
             await notify_callback(update.callback_query, "شناسه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
+        if user_id <= 0:
+            await notify_callback(update.callback_query, "شناسه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
         if not db.valid_plan_name(new_plan):
             await notify_callback(update.callback_query, "نام پلن نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
         row = db.get_user(user_id)
-        old_plan = (row["plan"] or "free") if row else "free"
+        if row is None:
+            await notify_callback(update.callback_query, "کاربر پیدا نشد.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        old_plan = row["plan"] or "free"
         context.user_data["pending_plan"] = {"user_id": user_id, "new_plan": new_plan, "old_plan": old_plan}
         # Clear any pending text-input awaiting; picker flow is callback-driven
         context.user_data.pop("awaiting", None)
@@ -239,12 +245,22 @@ async def handle_admin_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         except (IndexError, ValueError):
             await notify_callback(update.callback_query, "شناسه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
             return
-        # Primary UX: real plan picker built from db.list_plans(); awaiting text is kept as fallback via _handle_user_set_plan
+        if user_id <= 0:
+            await notify_callback(update.callback_query, "شناسه نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            return
+        # Primary UX: real plan picker — handler owns DB access (config/ is static)
+        try:
+            plans = db.list_plans()
+        except Exception:
+            logger.exception("user:plan list_plans failed for user %s", user_id)
+            await notify_callback(update.callback_query, "خطا در دریافت پلن‌ها", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+            await _edit_or_send(update, context, "خطا در دریافت پلن‌ها")
+            return
         await notify_callback(update.callback_query)
         await _edit_or_send(
             update, context,
             f"پلن جدید را برای کاربر {user_id} انتخاب کنید:",
-            reply_markup=user_plan_picker_keyboard(user_id),
+            reply_markup=user_plan_picker_keyboard(user_id, plans),
         )
         return
     if action.startswith("user:msg_confirm:"):

@@ -221,6 +221,61 @@ class AdminUserFlowTest(unittest.TestCase):
             asyncio.run(text_router(update2, ctx2, "admin_user_set_plan:42", "invalid_plan"))
             self.assertEqual(ctx2.user_data.get("awaiting"), "admin_user_set_plan:42")
 
+    def test_plan_picker_flow(self):
+        """New picker flow: admin:user:plan: → plan_select → plan_confirm (real picker)."""
+        from handlers.admin import _handle_admin_callback
+        from handlers.admin_users import handle_admin_user
+
+        # Step 1: open picker via admin:user:plan:42 — handler builds keyboard from DB plans
+        update = self._cb("admin:user:plan:42")
+        ctx = self._ctx()
+        with patch("handlers.admin_users._edit_or_send", new=AsyncMock()) as mock_edit:
+            asyncio.run(_handle_admin_callback(update, ctx, "user:plan:42"))
+            mock_edit.assert_called_once()
+            _, kwargs = mock_edit.call_args
+            kb = kwargs.get("reply_markup")
+            self.assertIsNotNone(kb)
+            cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
+            # picker must contain at least one plan_select callback for this user
+            self.assertTrue(any(c.startswith("admin:user:plan_select:42:") for c in cbs))
+            update.callback_query.answer.assert_called()
+
+        # Step 2: select a plan — creates pending_plan preview, does NOT write yet
+        self.assertEqual(db.get_user(42)["plan"], "silver")
+        cb_select = self._cb("admin:user:plan_select:42:gold")
+        ctx2 = self._ctx()
+        with patch("handlers.admin_users._edit_or_send", new=AsyncMock()) as mock_edit2:
+            asyncio.run(handle_admin_user(cb_select, ctx2, "user:plan_select:42:gold"))
+            self.assertIn("pending_plan", ctx2.user_data)
+            self.assertEqual(ctx2.user_data["pending_plan"]["user_id"], 42)
+            self.assertEqual(ctx2.user_data["pending_plan"]["new_plan"], "gold")
+            self.assertEqual(db.get_user(42)["plan"], "silver")
+            mock_edit2.assert_called_once()
+            cb_select.callback_query.answer.assert_called()
+
+        # Step 3: confirm — writes plan
+        cb_confirm = self._cb("admin:user:plan_confirm:42:gold")
+        with patch("handlers.admin_users.say", new=AsyncMock()):
+            asyncio.run(handle_admin_user(cb_confirm, ctx2, "user:plan_confirm:42:gold"))
+        self.assertEqual(db.get_user(42)["plan"], "gold")
+        self.assertNotIn("pending_plan", ctx2.user_data)
+        cb_confirm.callback_query.answer.assert_called()
+
+        # Missing user on plan_select must be rejected
+        cb_missing = self._cb("admin:user:plan_select:9999:gold")
+        ctx3 = self._ctx()
+        asyncio.run(handle_admin_user(cb_missing, ctx3, "user:plan_select:9999:gold"))
+        self.assertNotIn("pending_plan", ctx3.user_data)
+        cb_missing.callback_query.answer.assert_called()
+
+        # DB failure on picker open must notify error (no unhandled exception)
+        with patch("services.db.list_plans", side_effect=Exception("db down")):
+            update_err = self._cb("admin:user:plan:42")
+            ctx_err = self._ctx()
+            with patch("handlers.admin_users._edit_or_send", new=AsyncMock()):
+                asyncio.run(_handle_admin_callback(update_err, ctx_err, "user:plan:42"))
+            update_err.callback_query.answer.assert_called()
+
     def test_reset_progress_deletes(self):
         db.add_saved_word(7, "hello", "en", {"word": "hello"})
         try:

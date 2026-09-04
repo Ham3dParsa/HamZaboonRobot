@@ -177,26 +177,29 @@ def user_profile_keyboard(user_id: int, blocked: bool) -> InlineKeyboardMarkup:
     ])
 
 
-def user_plan_picker_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    """Picker built from real plans via db.list_plans() — one button per plan.
+def user_plan_picker_keyboard(user_id: int, plans: list[dict]) -> InlineKeyboardMarkup:
+    """Picker built from supplied *plans* — one button per plan.
 
+    Caller (handlers/admin_users) supplies ``db.list_plans()`` so ``config/``
+    stays static metadata (AGENTS.md §3 — no DB access in config).
     Each button shows the plan display_name and routes to
     admin:user:plan_select:{user_id}:{plan_name} for confirmation.
     """
-    from services import db as _db
-
-    try:
-        plans = _db.list_plans()
-    except Exception:
-        plans = []
     rows: list[list[InlineKeyboardButton]] = []
     for p in plans:
         name = str(p.get("name") or "").strip()
-        if not name:
+        if not name or ":" in name:
             continue
         label = str(p.get("display_name") or name).strip() or name
+        # Truncate long display_names — Telegram buttons degrade past ~30 chars
+        if len(label) > 30:
+            label = label[:30] + "…"
+        cb = f"admin:user:plan_select:{user_id}:{name}"
+        # Telegram callback_data limit is 64 bytes
+        if len(cb.encode("utf-8")) > 64:
+            continue
         rows.append([
-            InlineKeyboardButton(label, callback_data=f"admin:user:plan_select:{user_id}:{name}")
+            InlineKeyboardButton(label, callback_data=cb)
         ])
     rows.append([InlineKeyboardButton(IBTN_BACK, callback_data=f"admin:user:profile:{user_id}")])
     rows.append([InlineKeyboardButton(IBTN_CANCEL, callback_data=f"admin:user:plan_cancel:{user_id}")])
