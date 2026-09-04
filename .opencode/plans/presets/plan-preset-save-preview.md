@@ -67,3 +67,6 @@ Callback impact: no new prefixes → no new wiring test required; existing wirin
 - T1: `plan-preset-save-preview-phase-01-helper.md` — shared helper + unit tests.
 - T2: `plan-preset-save-preview-phase-02-edit-menu.md` — edit-menu vertical tables (B).
 - T3: `plan-preset-save-preview-phase-03-confirm.md` — confirm old+new + message collapse (C).
+- T4 (D1): `plan-preset-save-preview-phase-04-display-value.md` — display-value owner.
+- T5 (D2+D4): `plan-preset-save-preview-phase-05-render-seam.md` — shared render seam + secret deletion.
+- T6 (D3): `plan-preset-save-preview-phase-06-keyboard-diffs.md` — keyboard as thin adapter.
