@@ -65,6 +65,7 @@ class LoadSim100FlowTests(unittest.IsolatedAsyncioTestCase):
             "ai_timeouts",
             "quota_double_spend",
             "report_loss",
+            "card_lookup_miss",
         ):
             self.assertIn(key, metrics)
 
@@ -76,6 +77,9 @@ class LoadSim100FlowTests(unittest.IsolatedAsyncioTestCase):
             metrics["quota_double_spend"], 0, "zero quota double-spend"
         )
         self.assertEqual(metrics["report_loss"], 0, "zero report loss")
+        self.assertEqual(
+            metrics["card_lookup_miss"], 0, "zero card lookup miss"
+        )
         self.assertGreater(
             metrics["real_grades"], 0, "at least one real grade reached production"
         )

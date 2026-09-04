@@ -3,8 +3,15 @@
 Replays ``n`` synthetic users from :func:`tools.load_sim.plan_mix.sample_workload`
 through the REAL routers (``bot.callback_router`` / ``bot.text_router``) against
 a real SQLite file at ``db_path``, with a mocked Telegram ``Context.bot``
-(``AsyncMock`` send 40-120ms, 1-2% HTTP 429 with ``retry_after`` 2-5s) and a
+(``AsyncMock`` send 2-8ms, 1-2% HTTP 429 with ``retry_after`` 0.01-0.05s) and a
 mocked AI step (canned card JSON after a short sleep, 2% ``TimeoutError``).
+
+NOTE: grade-path p95 here measures harness overhead plus mock sleeps, not
+production Telegram/AI latency — the sleeps are ms-scale harness stand-ins so
+the 100-user suite stays fast with no timeout. Telegram 429s still route
+through the real production retry path (real ``RetryAfter`` raised, real
+retry with its ``retry_after`` sleep) and are counted as ``telegram_429`` /
+``telegram_retries``; the locked R4 gates (p95 < 800ms etc.) are unchanged.
 
 Tool-only: imports production modules but changes none. Zero real AI tokens —
 the AI steps (``bot._call_ai_limited`` / ``bot._prepare_cached_card``) are
@@ -33,11 +40,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import random
 import sqlite3
 import time
-import traceback
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from telegram.error import RetryAfter
@@ -59,8 +64,10 @@ CANNED_CARD = {
 }
 
 _BASE_USER_ID = 900000
-_SEND_LO_S = 0.040
-_SEND_HI_S = 0.120
+_SEND_LO_S = 0.002
+_SEND_HI_S = 0.008
+_RETRY_AFTER_LO_S = 0.01
+_RETRY_AFTER_HI_S = 0.05
 _P429 = 0.015  # 1.5% — inside the locked 1-2% band
 _AI_TIMEOUT_P = 0.02
 
@@ -122,7 +129,7 @@ def _make_send(rng: random.Random, counters: dict):
         if rng.random() < _P429:
             counters["telegram_429"] += 1
             counters["telegram_retries"] += 1
-            raise RetryAfter(rng.uniform(2, 5))
+            raise RetryAfter(rng.uniform(_RETRY_AFTER_LO_S, _RETRY_AFTER_HI_S))
         msg = MagicMock()
         msg.message_id = rng.randint(1, 10**9)
         return msg
@@ -164,7 +171,7 @@ async def run_load(n, seed, db_path, bot_mock=None, ai_mock=None) -> dict:
     Returns a metrics dict with per-journey latencies (ms) plus counters:
     ``telegram_429``, ``telegram_retries``, ``db_busy_retries``,
     ``ai_timeouts``, ``quota_double_spend``, ``report_loss``,
-    ``plan_fallbacks``, ``real_grades``.
+    ``plan_fallbacks``, ``real_grades``, ``card_lookup_miss``.
     """
     import bot
     from services import db
@@ -199,14 +206,12 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
         "report_loss": 0,
         "plan_fallbacks": 0,
         "real_grades": 0,
+        "card_lookup_miss": 0,
     }
     latencies: dict[str, list[float]] = {}
     grade_latencies: list[float] = []
     errors = 0
 
-    shared_send = None
-    if bot_mock is not None and not callable(bot_mock):
-        shared_send = None  # a prebuilt mock is attached per-context below
     ai_override = ai_mock
 
     def _ctx():
@@ -217,7 +222,7 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
             return ctx
         if callable(bot_mock) and not isinstance(bot_mock, MagicMock):
             return _make_context(rng, counters, send=bot_mock)
-        return _make_context(rng, counters, send=shared_send)
+        return _make_context(rng, counters)
 
     def _ai_pair(word: str):
         if callable(ai_override):
@@ -253,18 +258,17 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
                 db.set_user_level(user_id, "beginner")
                 try:
                     db.set_plan(user_id, spec["plan"])
-                except Exception:
+                except ValueError:
                     counters["plan_fallbacks"] += 1
                     logger.warning(
                         "load_sim set_plan fallback user_id=%s plan=%s",
                         user_id,
                         spec.get("plan"),
                     )
-                with db.get_conn() as conn:
+                with db.transaction() as conn:
                     conn.execute(
                         "UPDATE users SET onboarded=1 WHERE user_id=?", (user_id,)
                     )
-                    conn.commit()
 
                 if journey == "idle":
                     pass
@@ -301,11 +305,22 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
                     card = dict(CANNED_CARD)
                     card["word"] = word
                     db.add_saved_word(user_id, word, "en", card)
+                    from services.db.schema import normalize_word
+
                     with db.get_conn() as conn:
                         row = conn.execute(
-                            "SELECT id FROM saved_words WHERE user_id=? AND word=?",
-                            (user_id, word),
+                            "SELECT id FROM saved_words "
+                            "WHERE user_id=? AND lang=? AND normalized_word=?",
+                            (user_id, "en", normalize_word(word)),
                         ).fetchone()
+                    if row is None or row["id"] is None:
+                        counters["card_lookup_miss"] += 1
+                        logger.warning(
+                            "load_sim card lookup miss user_id=%s word=%s",
+                            user_id,
+                            word,
+                        )
+                        continue
                     word_id = row["id"]
                     update = _callback_update(
                         user_id, f"srs:fe:{grade}:{user_id}:{word_id}"
@@ -357,8 +372,11 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
                     pass
             except Exception:
                 errors += 1
-                if os.environ.get("LOAD_SIM_DEBUG"):
-                    traceback.print_exc()
+                logger.exception(
+                    "load_sim journey failed user_id=%s journey=%s",
+                    user_id,
+                    journey,
+                )
             finally:
                 dt_ms = (time.perf_counter() - t0) * 1000.0
                 if journey not in ("full_session", "partial"):
@@ -390,6 +408,7 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
         "report_loss": counters["report_loss"],
         "plan_fallbacks": counters["plan_fallbacks"],
         "real_grades": counters["real_grades"],
+        "card_lookup_miss": counters["card_lookup_miss"],
         "journey_counts": {
             j: len(v) for j, v in latencies.items()
         },
