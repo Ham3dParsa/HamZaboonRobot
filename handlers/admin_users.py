@@ -105,6 +105,14 @@ def _build_profile_message(row, stats, blocked: bool) -> Message:
     return msg
 
 
+def _plan_display_name(plan_code: str) -> str:
+    """Persian display name for a plan code (DB row, falls back to the code)."""
+    try:
+        return (db.get_plan(plan_code) or {}).get("display_name", plan_code)
+    except Exception:
+        return plan_code
+
+
 def _profile_text_and_keyboard(user_id: int) -> tuple[Message, InlineKeyboardMarkup] | None:
     """Build the profile RichMessage + action keyboard, or None when no such user."""
     row = db.get_user(user_id)
@@ -233,10 +241,15 @@ async def handle_admin_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         mark_awaiting_consumed(context)
         await _clear_awaiting_prompt(context)
         await notify_callback(update.callback_query)
+        old_display = _plan_display_name(old_plan)
+        new_display = _plan_display_name(new_plan)
         await _edit_or_send(
             update, context,
-            f"پلن کاربر {user_id} از {old_plan} به {new_plan} تغییر کند؟",
+            f"پلن کاربر {html_escape(str(user_id))} از {html_escape(old_display)} "
+            f"({html_escape(old_plan)}) به {html_escape(new_display)} "
+            f"({html_escape(new_plan)}) تغییر کند؟",
             reply_markup=user_plan_confirm_keyboard(user_id, new_plan),
+            parse_mode=ParseMode.HTML,
         )
         return
     if action.startswith("user:plan:"):
@@ -257,10 +270,15 @@ async def handle_admin_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             await _edit_or_send(update, context, "خطا در دریافت پلن‌ها")
             return
         await notify_callback(update.callback_query)
+        row = db.get_user(user_id)
+        current_code = (row["plan"] or "free") if row else "free"
+        current_display = _plan_display_name(current_code)
         await _edit_or_send(
             update, context,
-            f"پلن جدید را برای کاربر {user_id} انتخاب کنید:",
-            reply_markup=user_plan_picker_keyboard(user_id, plans),
+            f"پلن کنونی: {html_escape(current_display)} ({html_escape(current_code)}) — "
+            f"پلن جدید را برای کاربر {html_escape(str(user_id))} انتخاب کن:",
+            reply_markup=user_plan_picker_keyboard(user_id, plans, current_plan=current_code),
+            parse_mode=ParseMode.HTML,
         )
         return
     if action.startswith("user:msg_confirm:"):
@@ -480,10 +498,14 @@ async def _handle_user_set_plan(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data["pending_plan"] = {"user_id": user_id, "new_plan": plan, "old_plan": old_plan}
     mark_awaiting_consumed(context)
     await _clear_awaiting_prompt(context)
+    old_display = _plan_display_name(old_plan)
+    new_display = _plan_display_name(plan)
     await say(
         update, context,
-        f"پلن کاربر {user_id} از {old_plan} به {plan} تغییر کند؟",
-        raw=RawFormat.PLAIN,
+        f"پلن کاربر {html_escape(str(user_id))} از {html_escape(old_display)} "
+        f"({html_escape(old_plan)}) به {html_escape(new_display)} "
+        f"({html_escape(plan)}) تغییر کند؟",
+        raw=RawFormat.HTML,
         keyboard=user_plan_confirm_keyboard(user_id, plan),
         mode="send",
     )

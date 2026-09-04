@@ -21,6 +21,7 @@ production callers rely on its lazy-default seams (``mask`` /
 
 from collections.abc import Mapping
 import logging
+import re
 
 from config import (
     AI_MAX_OUTPUT_TOKENS,
@@ -222,6 +223,55 @@ def validate(preset: Mapping) -> None:
     from services.field_registry import validate_instance
 
     validate_instance(PRESET_FIELDS, preset)
+
+
+#: Canonical preset-name rule (single source of truth, R3).
+#: Allowed charset ``[a-z0-9_.-]``; ``:`` stays banned (callback_data
+#: separator). Names must not start/end with ``.``/``-`` and must not
+#: contain ``..``/``--`` runs; max 60 chars. Normalization (strip, lower,
+#: spaces to ``_``) lives in :func:`normalize_preset_name` so every caller
+#: (single-field edit, wizard, create flow) shares one path.
+PRESET_NAME_MAX_LEN = 60
+_PRESET_NAME_RE = re.compile(r"[a-z0-9_.\-]+")
+
+#: Persian hint/error copy for the preset-name rule (single source; callers
+#: interpolate these instead of hardcoding their own wording).
+PRESET_NAME_HINT_FA = (
+    "نام یکتای پریست (انگلیسی، حداکثر ۶۰ کاراکتر): حروف a-z، اعداد، "
+    "زیرخط (_)، نقطه (.) و خط‌تیره (-) مجاز است؛ نقطه/خط‌تیره در ابتدا/انتها "
+    "و .. یا -- پشت سر هم مجاز نیست."
+)
+PRESET_NAME_ERROR_FA = (
+    "نام نامعتبر. فقط حروف انگلیسی، اعداد، زیرخط (_)، نقطه (.) و خط‌تیره (-) "
+    "مجاز است (حداکثر ۶۰ کاراکتر)؛ نقطه/خط‌تیره در ابتدا/انتها و .. یا -- "
+    "پشت سر هم مجاز نیست."
+)
+
+
+def normalize_preset_name(raw: str) -> str:
+    """Normalize raw preset-name input (strip, lowercase, spaces to ``_``)."""
+    return (raw or "").strip().lower().replace(" ", "_")
+
+
+def is_valid_preset_name(name: str) -> bool:
+    """True if *name* (already normalized) satisfies the canonical rule."""
+    if not name or len(name) > PRESET_NAME_MAX_LEN:
+        return False
+    if ":" in name:
+        return False
+    if _PRESET_NAME_RE.fullmatch(name) is None:
+        return False
+    if name[0] in ".-" or name[-1] in ".-":
+        return False
+    if ".." in name or "--" in name:
+        return False
+    return True
+
+
+def validate_preset_name(raw: str) -> str | None:
+    """Normalize *raw* and return it if valid, else None (single entry point)."""
+    name = normalize_preset_name(raw)
+    return name if is_valid_preset_name(name) else None
 
 
 def validate_preset_fields() -> None:

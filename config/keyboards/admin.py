@@ -179,14 +179,24 @@ def user_profile_keyboard(user_id: int, blocked: bool) -> InlineKeyboardMarkup:
     ])
 
 
-def user_plan_picker_keyboard(user_id: int, plans: list[dict]) -> InlineKeyboardMarkup:
+def user_plan_picker_keyboard(
+    user_id: int, plans: list[dict], current_plan: str | None = None
+) -> InlineKeyboardMarkup:
     """Picker built from supplied *plans* — one button per plan.
 
     Caller (handlers/admin_users) supplies ``db.list_plans()`` so ``config/``
     stays static metadata (AGENTS.md §3 — no DB access in config).
     Each button shows the plan display_name and routes to
     admin:user:plan_select:{user_id}:{plan_name} for confirmation.
+
+    The *current_plan* (plan code, or None) button is marked text/emoji-only
+    (``✅ … (فعلی)``). ``InlineKeyboardButton`` has no ``style`` param on the
+    pinned PTB line (verified: no ``style`` in 21.6 installed / 22.8 pinned —
+    the Bot API offers no inline-button styling), so colored buttons are
+    deferred and this marker never breaks on any PTB version. No new callback
+    prefix — callback_data is unchanged.
     """
+    current = str(current_plan or "").strip().lower() or None
     rows: list[list[InlineKeyboardButton]] = []
     for p in plans:
         name = str(p.get("name") or "").strip()
@@ -196,6 +206,8 @@ def user_plan_picker_keyboard(user_id: int, plans: list[dict]) -> InlineKeyboard
         # Truncate long display_names — Telegram buttons degrade past ~30 chars
         if len(label) > 30:
             label = label[:30] + "…"
+        if current is not None and name.lower() == current:
+            label = f"✅ {label} (فعلی)"
         cb = f"admin:user:plan_select:{user_id}:{name}"
         # Telegram callback_data limit is 64 bytes
         if len(cb.encode("utf-8")) > 64:

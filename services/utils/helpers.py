@@ -435,6 +435,10 @@ async def _clear_awaiting_prompt(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Clear the stored awaiting prompt's keyboard, swallowing BadRequest.
 
     Single source of truth — imported by handlers/admin.py and handlers/admin_users.py.
+    Restart-safe and idempotent: after a restart ``_awaiting_msg`` is absent
+    (in-memory ``user_data``) so this is a no-op; a missing entry or an
+    already-stripped/deleted message simply does nothing. Performs no DB I/O,
+    so it never holds a DB transaction across an await.
     """
     data = context.user_data.pop("_awaiting_msg", None)
     if not data:
@@ -445,6 +449,20 @@ async def _clear_awaiting_prompt(context: ContextTypes.DEFAULT_TYPE) -> None:
         pass
     except Exception:
         logger.exception("Failed to clear awaiting prompt")
+
+
+async def _rotate_awaiting_msg(context: ContextTypes.DEFAULT_TYPE, update: Update, msg) -> None:
+    """Start a new awaiting prompt: strip the previous prompt's keyboard, then store the new one.
+
+    Single source of truth for prompt rotation (R2 stale-orphan fix): every
+    admin awaiting prompt start must go through here instead of calling
+    ``_store_awaiting_msg`` directly, so a second prompt can never orphan the
+    first one's keyboard. Restart-safe and idempotent (inherits both from
+    ``_clear_awaiting_prompt``/``_store_awaiting_msg``); performs no DB I/O,
+    so no DB transaction is ever held across the await.
+    """
+    await _clear_awaiting_prompt(context)
+    _store_awaiting_msg(context, update, msg)
 
 
 # ---------------------------------------------------------------------------
