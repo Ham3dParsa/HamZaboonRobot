@@ -428,7 +428,7 @@ def _preset_edit_diffs(preset: dict, edits: dict) -> list[FieldDiff]:
     """
     diffs: list[FieldDiff] = []
     ordered = [f for f in WIZARD_FIELDS if f in edits]
-    ordered += [f for f in edits if f not in WIZARD_FIELDS]
+    ordered += [f for f in edits if f not in WIZARD_FIELDS and f in preset_fields.PRESET_FIELDS]
     for field_name in ordered:
         old_str = preset_fields.display_value(preset, field_name)
         new_str = preset_fields.display_value(preset, field_name, edits[field_name])
@@ -443,7 +443,7 @@ def _preset_edit_diffs(preset: dict, edits: dict) -> list[FieldDiff]:
     return diffs
 
 
-async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
+async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, just_staged: str | None = None):
     """Show field edit options for a preset."""
     preset = db.get_preset(preset_name)
     if not preset:
@@ -454,6 +454,8 @@ async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
     diffs = _preset_edit_diffs(preset, edits)
 
     msg = Message()
+    if just_staged:
+        msg.add_line(plain(f"✅ {just_staged} ثبت شد — {pending_header(diffs)}"))
     msg.add_line(plain("✏️ "), bold("ویرایش پیش‌تنظیم: " + str(preset_name)))
     msg.add_line(plain("انتخاب فیلد برای تغییر:"))
     if diffs:
@@ -466,6 +468,9 @@ async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
 
 async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, field_name: str):
     """Prompt for new value of a field."""
+    if field_name not in preset_fields.PRESET_FIELDS:
+        await notify_callback(update.callback_query, "فیلد نامعتبر است", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
     preset = db.get_preset(preset_name)
     if not preset:
         await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
@@ -578,7 +583,7 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
         f"✅ {label} ثبت شد",
         intent=CallbackNoticeIntent.SUCCESS,
     )
-    await _edit_ai_preset(update, context, preset_name)
+    await _edit_ai_preset(update, context, preset_name, just_staged=label)
 
 
 WIZARD_FIELDS = [

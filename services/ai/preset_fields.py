@@ -20,12 +20,15 @@ production callers rely on its lazy-default seams (``mask`` /
 """
 
 from collections.abc import Mapping
+import logging
 
 from config import (
     AI_MAX_OUTPUT_TOKENS,
     AI_TEMPERATURE,
     AI_TIMEOUT_SECONDS,
 )
+
+logger = logging.getLogger(__name__)
 
 #: field name -> metadata.
 #: ``write_default`` mirrors the ai_presets column DEFAULT (the value written to
@@ -195,7 +198,8 @@ def display_value(preset: Mapping, name: str, staged=_UNSET, *, mask=None, resol
             rk = resolve_key or _default_resolve_key
             try:
                 raw = rk(preset)
-            except Exception:
+            except Exception as exc:
+                logger.debug("display_value resolve_key failed for %s: %s", name, exc)
                 return "—"
         else:
             raw = staged
@@ -204,7 +208,8 @@ def display_value(preset: Mapping, name: str, staged=_UNSET, *, mask=None, resol
         m = mask or _default_mask
         try:
             return m(str(raw)) or "—"
-        except Exception:
+        except Exception as exc:
+            logger.debug("display_value mask failed for %s: %s", name, exc)
             return "—"
     raw = staged if staged is not _UNSET else resolve(preset, name)
     if raw in (None, ""):

@@ -336,6 +336,60 @@ class AiPresetEditMenuPreviewTest(_Phase3AiPresetFlowBase):
         self.assertTrue(any(c.startswith("admin:ai_preset:save:") for c in callbacks))
         self.assertTrue(any(c.startswith("admin:ai_preset:discard_all:") for c in callbacks))
 
+    def test_field_input_text_path_renders_staged_line(self):
+        # Production text path: update.callback_query is None, so the toast
+        # is a silent no-op — the re-rendered menu itself must carry the
+        # ✅ staged confirmation line plus the pending table.
+        from handlers import admin_ai
+        from services.send_pretty import Backend
+
+        self._make_preset("preview_t", base_url="https://x", model="old-model")
+        update = self._make_callback_update("x")
+        update.callback_query = None
+        message = MagicMock()
+        message.delete = AsyncMock()
+        update.message = message
+        ctx = self._make_context()
+        with patch("handlers.admin_ai.say", new=AsyncMock()) as mock_say:
+            asyncio.run(admin_ai._handle_ai_preset_field_input(
+                update, ctx, "preview_t", "model", "new-model"))
+        self.assertEqual(ctx.user_data["preset_edits"]["preview_t"]["model"], "new-model")
+        mock_say.assert_called_once()
+        rendered = mock_say.call_args[0][2].render(Backend.RICH)
+        self.assertIn("✅", rendered)
+        self.assertIn("Model", rendered)
+        self.assertIn("ثبت شد", rendered)
+        self.assertIn("۱ تغییر در انتظار", rendered)
+        self.assertIn("`old-model`", rendered)
+        self.assertIn("`new-model`", rendered)
+        self.assertEqual(rendered.count("| --- | --- |"), 1)
+
+    def test_forged_unknown_field_rejected_without_exception(self):
+        # Forged edit_field:...:zzz passes resolve_field_alias through
+        # verbatim — the field prompt must reject it with a user-visible
+        # error instead of raising KeyError in display_value.
+        self._make_preset("preview_f", base_url="https://x", model="m")
+        up = self._callback(f"ai_preset:edit_field:{db_resolve('preview_f')}:zzz")
+        answered = [c.args[0] for c in up.callback_query.answer.call_args_list if c.args]
+        self.assertTrue(any("فیلد نامعتبر" in str(t) for t in answered),
+                        "forged field must surface a user-visible error")
+        self.assertNotIn("awaiting", self.flow_ctx.user_data)
+
+    def test_poisoned_edits_unknown_key_skipped(self):
+        # A poisoned preset_edits entry with an unknown key must not crash
+        # the menu render — it is skipped, known diffs still render.
+        self._make_preset("preview_p2", base_url="https://x", model="old-model")
+        rendered, _ = self._render_menu("preview_p2", {
+            "model": "new-model",
+            "zzz": "evil",
+        })
+        self.assertIn("Model", rendered)
+        self.assertIn("`new-model`", rendered)
+        self.assertIn("۱ تغییر در انتظار", rendered)
+        self.assertNotIn("evil", rendered)
+        self.assertNotIn("zzz", rendered)
+        self.assertEqual(rendered.count("| --- | --- |"), 1)
+
     def test_field_input_toasts_and_rerenders_menu_once(self):
         from handlers import admin_ai
 
