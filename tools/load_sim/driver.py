@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import random
 import sqlite3
 import time
@@ -76,8 +77,6 @@ def _p95_ms(values: list[float]) -> float:
     if not values:
         return 0.0
     ordered = sorted(values)
-    import math
-
     idx = max(0, min(len(ordered) - 1, math.ceil(0.95 * len(ordered)) - 1))
     return ordered[idx]
 
@@ -162,7 +161,9 @@ async def _with_db_retry(fn, counters: dict, attempts: int = 3):
                 last = exc
                 continue
             raise
-    raise last
+    if last is not None:
+        raise last
+    raise RuntimeError("load_sim db retry called with attempts=0")
 
 
 async def run_load(n, seed, db_path, bot_mock=None, ai_mock=None) -> dict:
@@ -171,7 +172,8 @@ async def run_load(n, seed, db_path, bot_mock=None, ai_mock=None) -> dict:
     Returns a metrics dict with per-journey latencies (ms) plus counters:
     ``telegram_429``, ``telegram_retries``, ``db_busy_retries``,
     ``ai_timeouts``, ``quota_double_spend``, ``report_loss``,
-    ``plan_fallbacks``, ``real_grades``, ``card_lookup_miss``.
+    ``plan_fallbacks``, ``real_grades``, ``card_lookup_miss``,
+    ``grade_check_failed``.
     """
     import bot
     from services import db
@@ -207,6 +209,7 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
         "plan_fallbacks": 0,
         "real_grades": 0,
         "card_lookup_miss": 0,
+        "grade_check_failed": 0,
     }
     latencies: dict[str, list[float]] = {}
     grade_latencies: list[float] = []
@@ -215,12 +218,17 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
     ai_override = ai_mock
 
     def _ctx():
+        if isinstance(bot_mock, MagicMock):
+            ctx = MagicMock()
+            ctx.user_data = {}
+            ctx.bot = bot_mock
+            return ctx
         if bot_mock is not None and not callable(bot_mock):
             ctx = MagicMock()
             ctx.user_data = {}
             ctx.bot = bot_mock
             return ctx
-        if callable(bot_mock) and not isinstance(bot_mock, MagicMock):
+        if callable(bot_mock):
             return _make_context(rng, counters, send=bot_mock)
         return _make_context(rng, counters)
 
@@ -334,7 +342,8 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
                     try:
                         if db.is_word_graded(user_id, word_id, "first_exposure"):
                             counters["real_grades"] += 1
-                    except Exception:
+                    except sqlite3.Error:
+                        counters["grade_check_failed"] += 1
                         logger.warning(
                             "load_sim grade check failed user_id=%s word_id=%s",
                             user_id,
