@@ -213,7 +213,8 @@ def shape_verdict(word: object) -> str:
     """Single-source lemma shape gate (locked R5, TICKET F2).
 
     Returns ``"keep"``, ``"phrase"``, or ``"drop:<reason>"`` where reason
-    is one of affix/digit/apostrophe/period/single_char/non_alpha/no_vowel.
+    is one of affix/digit/apostrophe/period/single_char/non_alpha/no_vowel/
+    non_string.
     Pure string logic — deterministic, zero LLM. Shape DROP markers for
     affix/digit/apostrophe/period/single_char win over phrase-routing;
     ``non_alpha``/``no_vowel`` are checked after the phrase branch, so a
@@ -556,11 +557,16 @@ def main(argv: list[str] | None = None) -> int:
     # Warn (don't abort) so a re-run with different params is still possible.
     pinned = pack_data.get("manifest_sample") or {}
     if isinstance(pinned, dict):
+        # Manifest stores mix as a comma string; normalize defensively so a
+        # future list-typed mix does not warn spuriously.
+        manifest_mix = pinned.get("mix")
+        if isinstance(manifest_mix, list):
+            manifest_mix = ",".join(str(part) for part in manifest_mix)
         if "seed" in pinned and pinned["seed"] != args.seed:
             print(f"WARNING: manifest lemmas_10k.seed={pinned['seed']} "
                   f"differs from --seed={args.seed} (CLI wins)",
                   file=sys.stderr)
-        if "mix" in pinned and pinned["mix"] != args.mix:
+        if "mix" in pinned and manifest_mix != args.mix:
             print(f"WARNING: manifest lemmas_10k.mix={pinned['mix']} "
                   f"differs from --mix={args.mix} (CLI wins)",
                   file=sys.stderr)
