@@ -45,6 +45,13 @@ abbreviation instead of entering phrase candidates):
   - keep-gate: alphabetic, len >= 2, containing a vowel (aeiouAEIOU).
     A-list lemmas (``April``, ``about``) stay via the vowel rule — no
     special-casing. Anything else (``co-op``, ``rhythm``) drops.
+R5 amendment (TICKET F2b, owner-ordered — real words never dropped):
+a ``drop:no_vowel`` alphabetic word is KEPT via the allowlist when EITHER
+(a) the pack gives it a CEFR hit (same ``pack_data`` lookups as
+``classify``: ``cefrj_fallback`` or the ``evp`` index — reused, never
+redefined), OR (b) ``wordfreq`` zipf_frequency > ``FREQUENT_ZIPF_MIN``
+(frequent everyday word like ``by``/``my``/``try``). All other drop
+classes are unchanged. Allowlisted rows count as ``allowed_vowelless``.
 Filtered rows count as ``skipped_shape`` and join ``seen_keys`` dedup
 exactly like other skips (never reach ``classify`` or the reservoir).
 
@@ -80,6 +87,10 @@ DEFAULT_BATCH = 50000
 ZIPF_CUTOFFS_FALLBACK = [5.2, 4.6, 4.0, 3.5, 3.0]
 SPOT_CHECK_N = 5
 VOWELS = frozenset("aeiouAEIOU")
+# Frequent everyday word floor (F2b): a vowel-less alphabetic word with
+# wordfreq zipf above this is kept (e.g. by/my/try/fly/sky). Rare junk
+# (e.g. qxwzea, zipf 0) stays dropped.
+FREQUENT_ZIPF_MIN = 3.0
 
 DEFAULT_DUMP_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-words.jsonl"
 DEFAULT_INDEX_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-index.jsonl"
@@ -243,6 +254,50 @@ def shape_verdict(word: object) -> str:
     return "keep"
 
 
+def pack_has_cefr_hit(word: object, pos: object, pack_data: dict) -> bool:
+    """Pack-hit branch of classify() reused for the F2b allowlist.
+
+    Returns True iff ``classify`` would hit via ``cefrj_fallback`` or the
+    ``evp`` index (zipf bucket excluded). Same ``pack_data`` structures,
+    same normalization — never redefined.
+    """
+    try:
+        lemma_norm = normalize_lemma(word)  # type: ignore[arg-type]
+    except (ValueError, TypeError):
+        return False
+    try:
+        pos_norm = normalize_pos(pos)
+    except (ValueError, TypeError):
+        pos_norm = ""
+    key = f"{lemma_norm}|{pos_norm}"
+    if pack_data.get("cefrj_fallback", {}).get(key) in LEVEL_RANK:
+        return True
+    if pos_norm:
+        levels = pack_data.get("evp_index", {}).get(key, [])
+    else:
+        levels = pack_data.get("evp_lemma_index", {}).get(lemma_norm, [])
+    return any(level in LEVEL_RANK for level in levels)
+
+
+def is_vowelless_allowlisted(word: object, pos: object,
+                             pack_data: dict, lang: str) -> bool:
+    """F2b allowlist: pack CEFR hit OR frequent (zipf > FREQUENT_ZIPF_MIN)."""
+    if pack_has_cefr_hit(word, pos, pack_data):
+        return True
+    try:
+        lemma_norm = normalize_lemma(word)  # type: ignore[arg-type]
+    except (ValueError, TypeError):
+        return False
+    try:
+        from wordfreq import zipf_frequency
+    except ImportError:
+        return False
+    try:
+        return bool(zipf_frequency(lemma_norm, lang) > FREQUENT_ZIPF_MIN)
+    except (ValueError, TypeError):
+        return False
+
+
 def zipf_to_cefr(z: float, cutoffs: list[float]) -> str:
     for cut, level in zip(cutoffs, ["A1", "A2", "B1", "B2", "C1"]):
         if z >= cut:
@@ -367,6 +422,7 @@ def sample(
     processed = 0
     counters = {"bad_index_lines": 0, "duplicates": 0,
                 "skipped_no_freq": 0, "skipped_shape": 0,
+                "allowed_vowelless": 0,
                 "phrase_candidates": 0, "pilot_rows": len(pilot),
                 "pilot_bad_rows": 0, "pilot_dupes": 0}
     if not dry_run and os.path.exists(progress):
@@ -468,7 +524,10 @@ def sample(
             if verdict == "phrase":
                 counters["phrase_candidates"] += 1
                 continue
-            if verdict != "keep":
+            if verdict == "drop:no_vowel" and is_vowelless_allowlisted(
+                    word, pos, pack_data, lang):
+                counters["allowed_vowelless"] += 1
+            elif verdict != "keep":
                 counters["skipped_shape"] += 1
                 continue
             level = classify(word, pos, pack_data, lang)
