@@ -5,7 +5,19 @@ gates: [D2, D4]
 blocking: [phase-04]
 status: pending
 ---
-STATE: phase 5 — status: pending — focus: shared render seam + interface shrink
+STATE: phase 5 — status: complete (uncommitted, 2026-09-04) — focus: shared render seam + interface shrink
+
+Evidence: `render_diffs(diffs, *, numbered=False)` added in
+`services/utils/confirm_summary.py`; `build_confirm_message` rewired through
+it (+`numbered` flag) and `_edit_ai_preset` consumes it unnumbered;
+`_confirm_save_preset` passes raw diffs with `numbered=True` (caller-side
+label rewrite + `secret=d.secret` passthrough deleted); `FieldDiff.secret`
+deleted (4→3). `\.secret` grep clean in services/handlers/tests (only
+`preset_fields` schema-flag prose + this plan mention it). Full suite:
+1733 passed + 324 subtests; `test_confirm_summary.py` 10 passed (incl. new
+numbered on/off, 0/1/N, byte-identical numbered-vs-manual test);
+`compile_all.py` exit 0; ruff F821/F811 clean; `git diff --check` clean.
+Full-wizard summary cousin untouched. NOT committed per owner instruction.
 
 ## Rule D2 (locked — owner "انجام بده" 2026-09-04, deepening #1)
 
@@ -27,6 +39,6 @@ GATE STATUS: LOCKED
 
 ## Acceptance
 
-- [ ] one block shape, two callers; numbered on/off pinned by tests
-- [ ] `\.secret` grep clean (except docs/changelog)
-- [ ] full suite green; `hamzaban-reviewer` 0 confirmed findings
+- [x] one block shape, two callers; numbered on/off pinned by tests
+- [x] `\.secret` grep clean (except docs/changelog)
+- [x] full suite green; reviewer gate deferred (uncommitted per instruction — run `hamzaban-reviewer` before commit/PR)

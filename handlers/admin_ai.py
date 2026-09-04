@@ -28,7 +28,7 @@ from services.utils.callback_codec import (
 from services.ai import ai
 from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
-from services.utils.confirm_summary import FieldDiff, build_confirm_message
+from services.utils.confirm_summary import FieldDiff, build_confirm_message, render_diffs
 from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _store_awaiting_msg
 from services.utils.formatting import to_persian_digits
 from services.send_pretty import Backend, Message, RawFormat, bold, code, italic, plain, say, table
@@ -421,8 +421,9 @@ def _preset_edit_diffs(preset: dict, edits: dict) -> list[FieldDiff]:
     ``preset_fields.display_value`` owner (D1): stored ``api_key`` resolved +
     masked (never plaintext), staged drafts override and are masked too.
     Empty values render as "—". Labels use the canonical
-    FIELD_LABELS map. The per-field table block shape mirrors
-    ``build_confirm_message`` (bold label + vertical قبلی/جدید table); the edit
+    FIELD_LABELS map. The per-field table block renders through the shared
+    ``render_diffs`` seam (same bold label + vertical قبلی/جدید table as
+    ``build_confirm_message``); the edit
     menu keeps its own chrome (title + picker prompt + pending header), so it
     consumes the shared FieldDiff list instead of the confirm-dialog message.
     """
@@ -457,15 +458,8 @@ async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
     msg.add_line(plain("انتخاب فیلد برای تغییر:"))
     if diffs:
         msg.add_line(plain(f"{to_persian_digits(len(diffs))} تغییر در انتظار — هنوز ذخیره نشده"))
-        for diff in diffs:
-            msg.add_line(bold(diff.label))
-            msg.add_line(
-                table(
-                    ("وضعیت", "مقدار"),
-                    ("قبلی", code(diff.old)),
-                    ("جدید", code(diff.new)),
-                )
-            )
+        for line in render_diffs(diffs):
+            msg.add_line(*line)
 
     await say(update, context, msg, backend=Backend.RICH, keyboard=ai_preset_edit_keyboard(preset_name, preset, edits))
 
@@ -1106,21 +1100,12 @@ async def _confirm_save_preset(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     diffs = _preset_edit_diffs(preset, edits)
-    numbered = [
-        FieldDiff(
-            label=f"{to_persian_digits(i + 1)}. {d.label}",
-            old=d.old,
-            new=d.new,
-            secret=d.secret,
-        )
-        for i, d in enumerate(diffs)
-    ]
     notes: list[str] = []
     if preset_name == db.get_active_preset_name():
         notes.append("🎯 این پیش‌تنظیم فعال است — تغییرات پس از ذخیره بلافاصله اعمال می‌شوند.")
     if any(field in edits for field in ("priority", "in_fallback_chain")):
         notes.append("⛓️ تغییر اولویت یا زنجیره فال‌بک مسیر درخواست‌های بعدی را تغییر می‌دهد.")
-    msg = build_confirm_message("⚠️ تأیید ذخیره —", f"«{preset_name}»", numbered, notes=notes)
+    msg = build_confirm_message("⚠️ تأیید ذخیره —", f"«{preset_name}»", diffs, notes=notes, numbered=True)
 
     from config.keyboards import IBTN_BACK_TO_EDIT, IBTN_SAVE_CANCEL, IBTN_SAVE_CONFIRM
     from services.utils.callback_codec import preset_token
