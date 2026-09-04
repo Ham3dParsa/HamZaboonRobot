@@ -12,7 +12,7 @@
   "lemmas": {
     "file": "lemmas.csv"
   },
-  "lemmas_10k_note": "pointer REMOVED pending owner quality review (14 affix fragments, 15 digit-led rows, ~1665 multiword phrases); candidate data kept in lemmas_10k.csv as evidence only, NOT wired into any load path",
+  "lemmas_10k_note": "REMOVED pending regeneration with shape filter (ex-owner 3000-row artifact had 2999 unique lemma|pos due to pilot cast|verb dupe, plus 14 affix + 15 digit-led + ~1665 multiword rows) — no lemmas_10k.csv committed; regenerate via factory/sample_lemmas.py after filter lands",
   "dict": {
     "raw": "W:/hamzaban_data_factory/raw/filtered_500_kaikki.jsonl"
   },
