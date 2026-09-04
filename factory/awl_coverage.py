@@ -32,13 +32,19 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from registry import normalize_lemma, normalize_pos  # noqa: E402  (single source)
-from sample_lemmas import LEVEL_ORDER, LEVEL_RANK, classify, load_pack  # noqa: E402
+from registry import normalize_lemma  # noqa: E402  (single source)
+from sample_lemmas import (LEVEL_ORDER, LEVEL_RANK, classify, load_pack,  # noqa: E402
+                           pack_has_cefr_hit)
 
 VOWELS = frozenset("aeiouAEIOU")
 SAMPLE_N = 20
 SAMPLE_CAP = 2000  # stored-sample cap; counters keep running past it
-FREQUENT_ZIPF = 4.0  # >=B1 frequency => genuinely common word, not tail junk
+# Audit-only frequent floor (NOT the sampler keep rule): zipf >= 4.0 means
+# genuinely common (B1+ frequency), not tail junk. Deliberately stricter
+# than the sampler's keep-rule floor FREQUENT_ZIPF_MIN = 3.0 (strict >) in
+# factory/sample_lemmas.py: the keep rule is lenient (never drop a real
+# word) while this audit is stringent (only flag clear recall cost).
+AUDIT_FREQUENT_ZIPF = 4.0
 
 DEFAULT_AWL_TEMPLATE = "W:/hamzaban_data_factory/raw/awl_families.json"
 DEFAULT_INDEX_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-index.jsonl"
@@ -154,23 +160,6 @@ def pool_awl_fraction(rows: list[tuple[str, str, str]],
             "pct": 100.0 * hits / len(rows) if rows else 0.0}
 
 
-def pack_hit(word: str, pos: object, pack_data: dict) -> bool:
-    """Pack CEFR hit = CEFR-J fallback or EVP entry (pure, no wordfreq)."""
-    try:
-        lemma_norm = normalize_lemma(word)
-    except (ValueError, TypeError):
-        return False
-    try:
-        pos_norm = normalize_pos(pos)
-    except (ValueError, TypeError):
-        pos_norm = ""
-    if pack_data["cefrj_fallback"].get(f"{lemma_norm}|{pos_norm}") in LEVEL_RANK:
-        return True
-    if pos_norm:
-        return bool(pack_data.get("evp_index", {}).get(f"{lemma_norm}|{pos_norm}"))
-    return bool(pack_data.get("evp_lemma_index", {}).get(lemma_norm))
-
-
 def is_vowelless_word(word: object) -> bool:
     """Single-token alphabetic word with no vowel (mirrors R5 no_vowel gate)."""
     return (isinstance(word, str) and len(word.strip()) >= 2
@@ -191,6 +180,7 @@ def vowelless_audit(index_path: str, pack_data: dict, lang: str) -> dict:
            "pack_samples": [], "kept_levels": {lv: 0 for lv in LEVEL_ORDER},
            "kept_unique": 0, "frequent": []}
     seen_kept: set[str] = set()
+    pack_hit_lemmas: set[str] = set()
     frequent_all: list[tuple[str, str, float]] = []
     with open(index_path, encoding="utf-8") as handle:
         for line in handle:
@@ -206,10 +196,18 @@ def vowelless_audit(index_path: str, pack_data: dict, lang: str) -> dict:
                 continue
             out["vowelless_rows"] += 1
             pos = entry.get("pos")
-            if pack_hit(word, pos, pack_data):
-                out["pack_real"] += 1
-                if len(out["pack_samples"]) < SAMPLE_CAP:
-                    out["pack_samples"].append(word.strip())
+            # Single source: pack-hit test lives in sample_lemmas
+            # (pack_has_cefr_hit); counted per unique lemma (not per index
+            # row) so one word with N POS rows cannot inflate pack_real.
+            if pack_has_cefr_hit(word, pos, pack_data):
+                try:
+                    pack_norm = normalize_lemma(word)
+                except (ValueError, TypeError):
+                    pack_norm = None
+                if pack_norm is not None and pack_norm not in pack_hit_lemmas:
+                    pack_hit_lemmas.add(pack_norm)
+                    if len(out["pack_samples"]) < SAMPLE_CAP:
+                        out["pack_samples"].append(word.strip())
             try:
                 norm = normalize_lemma(word)
             except (ValueError, TypeError):
@@ -228,9 +226,10 @@ def vowelless_audit(index_path: str, pack_data: dict, lang: str) -> dict:
             except ImportError:
                 continue
             z = zipf_frequency(norm, lang)
-            if z >= FREQUENT_ZIPF:
+            if z >= AUDIT_FREQUENT_ZIPF:
                 frequent_all.append((norm, level, round(z, 2)))
     out["kept_unique"] = sum(out["kept_levels"].values())
+    out["pack_real"] = len(pack_hit_lemmas)
     out["pack_samples"] = sorted(set(out["pack_samples"]))[:SAMPLE_N]
     frequent_all.sort(key=lambda item: -item[2])
     out["frequent"] = frequent_all[:SAMPLE_N]
@@ -294,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
         f"**{audit['pack_real']}**",
         f"- …that classify() would keep (pack or zipf, unique lemmas): "
         f"**{audit['kept_unique']}** {audit['kept_levels']}",
-        f"- …thereof frequent (zipf >= {FREQUENT_ZIPF}, genuine recall cost): "
+        f"- …thereof frequent (zipf >= {AUDIT_FREQUENT_ZIPF}, genuine recall cost): "
         f"**{audit['frequent_n']}**",
         f"- Pack-hit sample ({len(audit['pack_samples'])} shown): "
         + (", ".join(f"`{s}`" for s in audit["pack_samples"])
@@ -323,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  pack-hit real words: {audit['pack_real']} "
           f"({', '.join(audit['pack_samples'][:5]) if audit['pack_samples'] else '—'})")
     print(f"  classify-keep (unique): {audit['kept_unique']} {audit['kept_levels']}")
-    print(f"  frequent (zipf>={FREQUENT_ZIPF}): {audit['frequent_n']} "
+    print(f"  frequent (zipf>={AUDIT_FREQUENT_ZIPF}): {audit['frequent_n']} "
           f"({', '.join(w for w, _, _ in audit['frequent'][:8])})")
     print(f"Verdict: {verdict}")
     print(f"Report: {args.report}")

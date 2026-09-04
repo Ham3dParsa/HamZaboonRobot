@@ -20,10 +20,11 @@ index file order; pilot pinning is sorted by (level, lemma_key); the output
 CSV is sorted by (level_order, lemma_key).
 
 Checkpoints: progress lives at ``factory/sample_<lang>_progress.json`` as
-``{lang, seed, mix, dump_size, dump_mtime, lines_done, seen, counters,
-reservoirs, rng}`` and is rewritten every ``--batch`` index lines. A changed dump
-(size/mtime), seed, mix, or lang aborts fail-closed (SystemExit) — never a
-silent resume of stale reservoirs. On success the CSV is written atomically
+``{lang, seed, mix, dump_size, dump_mtime, shape_v, lines_done, seen,
+counters, reservoirs, rng}`` and is rewritten every ``--batch`` index lines.
+A changed dump (size/mtime), seed, mix, lang, or shape rule version
+(``shape_v``) aborts fail-closed (SystemExit) — never a silent resume of
+stale reservoirs. On success the CSV is written atomically
 (temp + os.replace) and the progress file is unlinked.
 
 ``--dry-run`` prints the plan + in-memory per-level counts and writes
@@ -91,6 +92,12 @@ VOWELS = frozenset("aeiouAEIOU")
 # wordfreq zipf above this is kept (e.g. by/my/try/fly/sky). Rare junk
 # (e.g. qxwzea, zipf 0) stays dropped.
 FREQUENT_ZIPF_MIN = 3.0
+# Lemma-shape rule version (TICKET F2b follow-up): bump whenever the
+# shape/allowlist rules change. v1 = pre-F2b R5 (all drop:no_vowel rows
+# dropped); v2 = F2b allowlist (pack-hit or frequent vowel-less kept).
+# Stored in the checkpoint header; a mismatch aborts fail-closed so a
+# resume never mixes counters/reservoirs across rule regimes.
+SHAPE_VERSION = 2
 
 DEFAULT_DUMP_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-words.jsonl"
 DEFAULT_INDEX_TEMPLATE = "W:/hamzaban_data_factory/raw/kaikki-{lang}-index.jsonl"
@@ -173,10 +180,22 @@ def load_pack(pack: str) -> dict:
     The evp entries are pre-indexed ONCE here by ``lemma|pos`` prefix
     (``evp_index``) so classify() is pure dict lookups, never a scan.
     """
-    with open(os.path.join(pack, "evp_sense.json"), encoding="utf-8") as handle:
-        evp = json.load(handle)
-    with open(os.path.join(pack, "cefrj_pos.json"), encoding="utf-8") as handle:
-        cefrj = json.load(handle)
+    evp_path = os.path.join(pack, "evp_sense.json")
+    try:
+        with open(evp_path, encoding="utf-8") as handle:
+            evp = json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"error: cannot read pack file {evp_path}: {exc}")
+    cefrj_path = os.path.join(pack, "cefrj_pos.json")
+    try:
+        with open(cefrj_path, encoding="utf-8") as handle:
+            cefrj = json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"error: cannot read pack file {cefrj_path}: {exc}")
+    if not isinstance(cefrj, dict) or not isinstance(cefrj.get("fallback"), dict):
+        raise SystemExit(
+            f"error: corrupt pack file {cefrj_path}: "
+            "'fallback' must be an object mapping 'lemma|pos' to CEFR")
     manifest_path = os.path.join(pack, "pack.json")
     try:
         with open(manifest_path, encoding="utf-8") as handle:
@@ -191,7 +210,11 @@ def load_pack(pack: str) -> dict:
         print(f"WARNING: pack manifest {manifest_path} missing "
               f"cefr.zipf_cutoffs ({exc}); using default {cutoffs}",
               file=sys.stderr)
-    entries = evp.get("entries", {})
+    entries = evp.get("entries", {}) if isinstance(evp, dict) else None
+    if not isinstance(entries, dict):
+        raise SystemExit(
+            f"error: corrupt pack file {evp_path}: "
+            "'entries' must be an object mapping sense keys to records")
     # Pre-index by pipe prefix so classify() is dict lookups, never a scan.
     # Semantics mirror the old startswith scan exactly:
     # - qualified query (lemma|pos): an entry matched iff its key started
@@ -407,7 +430,8 @@ def sample(
     dump_size, dump_mtime = dump_stat(dump)
     mix = ",".join(str(quota) for quota in quotas)
     header = {"lang": lang, "seed": seed, "mix": mix,
-              "dump_size": dump_size, "dump_mtime": dump_mtime}
+              "dump_size": dump_size, "dump_mtime": dump_mtime,
+              "shape_v": SHAPE_VERSION}
 
     rng = random.Random(seed)
     reservoirs: dict[str, list[tuple[str, str, str, int, int]]] = {
@@ -434,6 +458,12 @@ def sample(
                     f"error: stale progress {progress} "
                     f"({field} {saved.get(field)!r} != {header[field]!r}); "
                     "delete it to resample from scratch.")
+        if saved.get("shape_v") != SHAPE_VERSION:
+            raise SystemExit(
+                f"error: stale progress {progress} "
+                f"(shape_v {saved.get('shape_v')!r} != {SHAPE_VERSION!r}: "
+                "shape/allowlist rules changed since checkpoint); "
+                "delete it to resample from scratch.")
         lines_done = int(saved.get("lines_done", 0))
         seen = {level: int(saved["seen"][level]) for level in LEVEL_ORDER}
         if "counters" not in saved:

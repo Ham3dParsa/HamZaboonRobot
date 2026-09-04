@@ -238,7 +238,7 @@ def test_resume_corrupt_reservoir_aborts_loud(env):
         handle.write(json.dumps({
             "lang": "en", "seed": 7, "mix": MIX,
             "dump_size": stat.st_size, "dump_mtime": stat.st_mtime,
-            "lines_done": 0, "seen": seen, "counters": {},
+            "shape_v": 2, "lines_done": 0, "seen": seen, "counters": {},
             "reservoirs": reservoirs,
             "rng": [3, [0] * 625, None]}))
     with pytest.raises(SystemExit) as excinfo:
@@ -258,12 +258,98 @@ def test_resume_pre_r5_checkpoint_aborts_loud(env):
         handle.write(json.dumps({
             "lang": "en", "seed": 7, "mix": MIX,
             "dump_size": stat.st_size, "dump_mtime": stat.st_mtime,
-            "lines_done": 0, "seen": seen, "reservoirs": reservoirs,
+            "shape_v": 2, "lines_done": 0, "seen": seen,
+            "reservoirs": reservoirs,
             "rng": [3, [0] * 625, None]}))
     with pytest.raises(SystemExit) as excinfo:
         main(base_argv(env))
     assert "counters" in str(excinfo.value).lower()
     assert not os.path.exists(env["out"])
+
+
+def test_resume_missing_shape_version_aborts_loud(env):
+    # A pre-F2b checkpoint (no shape_v: allowed_vowelless backfilled 0,
+    # dropped vowel-less keys pre-seeded as duplicates) must fail closed
+    # instead of silently mixing shape rule regimes.
+    from sample_lemmas import SHAPE_VERSION
+
+    assert SHAPE_VERSION == 2
+    seen = {level: 0 for level in LEVELS}
+    reservoirs = {level: [] for level in LEVELS}
+    stat = os.stat(env["dump"])
+    with open(env["progress"], "w", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "lang": "en", "seed": 7, "mix": MIX,
+            "dump_size": stat.st_size, "dump_mtime": stat.st_mtime,
+            "lines_done": 0, "seen": seen,
+            "counters": {"bad_index_lines": 0, "duplicates": 0,
+                         "skipped_no_freq": 0, "skipped_shape": 0,
+                         "allowed_vowelless": 0, "phrase_candidates": 0},
+            "reservoirs": reservoirs,
+            "rng": [3, [0] * 625, None]}))
+    with pytest.raises(SystemExit) as excinfo:
+        main(base_argv(env))
+    assert "shape_v" in str(excinfo.value).lower()
+    assert not os.path.exists(env["out"])
+
+
+def test_resume_shape_version_mismatch_aborts_loud(env):
+    # shape_v=1 (pre-F2b rules) against current v2: same fail-closed abort.
+    seen = {level: 0 for level in LEVELS}
+    reservoirs = {level: [] for level in LEVELS}
+    stat = os.stat(env["dump"])
+    with open(env["progress"], "w", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "lang": "en", "seed": 7, "mix": MIX,
+            "dump_size": stat.st_size, "dump_mtime": stat.st_mtime,
+            "shape_v": 1, "lines_done": 0, "seen": seen,
+            "counters": {"bad_index_lines": 0, "duplicates": 0,
+                         "skipped_no_freq": 0, "skipped_shape": 0,
+                         "allowed_vowelless": 0, "phrase_candidates": 0},
+            "reservoirs": reservoirs,
+            "rng": [3, [0] * 625, None]}))
+    with pytest.raises(SystemExit) as excinfo:
+        main(base_argv(env))
+    assert "shape_v" in str(excinfo.value).lower()
+    assert not os.path.exists(env["out"])
+
+
+def test_resume_new_checkpoint_counter_parity_with_allowlist(tmp_path, capsys):
+    # A v2 checkpoint resumes with counter parity INCLUDING allowed_vowelless:
+    # partial run, then resume, reports the same counters as a fresh run.
+    pack = str(tmp_path / "pack")
+    pilot_rows = [("PilotA1", "noun", "A1")]
+    fallback = {"rhythm|noun": "A1", "wobbleaaa|noun": "A1"}
+    build_pack(pack, pilot_rows, fallback)
+    dump_dir = str(tmp_path / "d")
+    os.makedirs(dump_dir, exist_ok=True)
+    dump, index, lookup = build_dump_index(
+        dump_dir, [("rhythm", "noun"), ("wobbleaaa", "noun")])
+    out = str(tmp_path / "out.csv")
+    progress = str(tmp_path / "progress.json")
+
+    def argv_for(out_path, extra=()):
+        return (["--lang", "en", "--dump", dump, "--index", index,
+                 "--lookup", lookup, "--pack", pack,
+                 "--out", out_path, "--progress", progress,
+                 "--mix", "3,0,0,0,0,0", "--seed", "7", "--batch", "1"]
+                + list(extra))
+
+    assert main(argv_for(out)) == 0
+    with open(out, "rb") as handle:
+        fresh = handle.read()
+    fresh_counters = _counters_line(capsys.readouterr().out)
+    assert "'allowed_vowelless': 1" in fresh_counters
+    out_part = str(tmp_path / "part.csv")
+    assert main(argv_for(out_part, ["--limit", "1"])) == 0
+    assert os.path.exists(progress)
+    os.unlink(out_part)
+    capsys.readouterr()
+    out_resumed = str(tmp_path / "resumed.csv")
+    assert main(argv_for(out_resumed)) == 0
+    with open(out_resumed, "rb") as handle:
+        assert handle.read() == fresh
+    assert _counters_line(capsys.readouterr().out) == fresh_counters
 
 
 def test_duplicate_pilot_row_skipped_keep_first(env, tmp_path, capsys):
@@ -381,6 +467,29 @@ def test_corrupt_pack_json_aborts_loud(env):
     with pytest.raises(SystemExit) as excinfo:
         main(base_argv(env))
     assert "pack.json" in str(excinfo.value)
+    assert not os.path.exists(env["out"])
+
+
+def test_corrupt_cefrj_fallback_aborts_loud(env):
+    # classify() indexes pack_data["cefrj_fallback"] directly, so load_pack()
+    # must validate ONCE: a non-object fallback aborts naming the file
+    # instead of a later KeyError/AttributeError traceback.
+    with open(os.path.join(env["pack"], "cefrj_pos.json"), "w",
+              encoding="utf-8") as handle:
+        handle.write(json.dumps({"_meta": {}, "fallback": ["not", "an", "object"]}))
+    with pytest.raises(SystemExit) as excinfo:
+        main(base_argv(env))
+    assert "cefrj_pos.json" in str(excinfo.value)
+    assert not os.path.exists(env["out"])
+
+
+def test_corrupt_evp_entries_aborts_loud(env):
+    with open(os.path.join(env["pack"], "evp_sense.json"), "w",
+              encoding="utf-8") as handle:
+        handle.write(json.dumps({"_meta": {}, "entries": ["not", "an", "object"]}))
+    with pytest.raises(SystemExit) as excinfo:
+        main(base_argv(env))
+    assert "evp_sense.json" in str(excinfo.value)
     assert not os.path.exists(env["out"])
 
 
