@@ -599,9 +599,14 @@ def ai_preset_view_keyboard(preset: dict, active_name: str) -> InlineKeyboardMar
 
 
 def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None, edits: dict | None = None) -> InlineKeyboardMarkup:
-    """Keyboard for editing a preset field-by-field."""
+    """Keyboard for editing a preset field-by-field.
+
+    Field buttons show labels only (values live in the menu's per-field
+    قبلی/جدید tables); dirty rows carry a ✏️ prefix. Save/discard rows carry
+    the pending count. Callback_data strings are unchanged.
+    """
     from services.utils.callback_codec import alias_field, preset_token
-    from services.db.key_crypto import mask_key
+    from services.utils.formatting import to_persian_digits as _fa
     preset_ref = preset_token(preset_name)
     if edits is not None and not isinstance(edits, dict):
         raise TypeError(f"edits must be a dict or None, got {type(edits).__name__}")
@@ -635,34 +640,18 @@ def ai_preset_edit_keyboard(preset_name: str, preset: dict | None = None, edits:
     ]
     rows = []
     for key, label in fields:
-        current = preset.get(key, "") if preset else ""
-        display = current
-        if key == "api_key" and current:
-            display = mask_key(str(current))
-        suffix = f": {display}" if display else ""
-        if key in pending:
-            draft = pending[key]
-            draft_str = "" if draft is None else str(draft)
-            if key == "api_key" and draft_str:
-                draft_display = mask_key(draft_str)
-            else:
-                draft_display = draft_str.replace("\r", " ").replace("\n", " ")
-                if len(draft_display) > 32:
-                    draft_display = draft_display[:32] + "…"
-            if draft_display:
-                suffix = f": ✏️ {draft_display}"
-            else:
-                suffix = ": ✏️ (خالی)"
+        text = f"✏️ {label}" if key in pending else label
         rows.append([
-            InlineKeyboardButton(f"{label}{suffix}", callback_data=f"admin:ai_preset:edit_field:{preset_ref}:{alias_field(key)}"),
+            InlineKeyboardButton(text, callback_data=f"admin:ai_preset:edit_field:{preset_ref}:{alias_field(key)}"),
         ])
     if preset and preset.get("group_label"):
         rows.append([
             InlineKeyboardButton(IBTN_DETACH_GROUP, callback_data=f"admin:ai_preset:detach_group:{preset_ref}"),
         ])
+    count = _fa(len(pending))
     rows.append([InlineKeyboardButton(IBTN_FULL_EDIT_WIZARD, callback_data=f"admin:ai_preset:full_edit:{preset_ref}")])
-    rows.append([InlineKeyboardButton(IBTN_DISCARD_ALL, callback_data=f"admin:ai_preset:discard_all:{preset_ref}")])
-    rows.append([InlineKeyboardButton(IBTN_SAVE_PRESET, callback_data=f"admin:ai_preset:save:{preset_ref}")])
+    rows.append([InlineKeyboardButton(f"🗑️ دور ریختن همه ({count})", callback_data=f"admin:ai_preset:discard_all:{preset_ref}")])
+    rows.append([InlineKeyboardButton(f"💾 ذخیره ({count})", callback_data=f"admin:ai_preset:save:{preset_ref}")])
     rows.append([InlineKeyboardButton(IBTN_CANCEL_EDIT, callback_data=f"admin:ai_preset:view:{preset_ref}")])
     rows.append([InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")])
     return InlineKeyboardMarkup(rows)

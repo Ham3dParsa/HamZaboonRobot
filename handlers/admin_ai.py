@@ -28,9 +28,10 @@ from services.utils.callback_codec import (
 from services.ai import ai
 from services.ai import preset_fields, prompts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
+from services.utils.confirm_summary import FieldDiff
 from services.utils.helpers import _clear_awaiting_prompt, _edit_or_send, _store_awaiting_msg
 from services.utils.formatting import to_persian_digits
-from services.send_pretty import Backend, Message, RawFormat, bold, code, italic, plain, say
+from services.send_pretty import Backend, Message, RawFormat, bold, code, italic, plain, say, table
 from config.catalog import GOALS, LANGUAGES, LEVELS
 from config.keyboards import (
     BTN_BACK,
@@ -413,6 +414,42 @@ async def _activate_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE
     await _show_ai_preset_view(update, context, preset_name)
 
 
+def _preset_edit_diffs(preset: dict, edits: dict) -> list[FieldDiff]:
+    """Build dirty-field diffs in WIZARD_FIELDS order (single-field preset_edits flow).
+
+    Old values come from the stored preset (``api_key`` masked via ``mask_key``,
+    never plaintext); new values come from staged ``preset_edits`` (``api_key``
+    masked too). Empty values render as "—". Labels use the canonical
+    FIELD_LABELS map. The per-field table block shape mirrors
+    ``build_confirm_message`` (bold label + vertical قبلی/جدید table); the edit
+    menu keeps its own chrome (title + picker prompt + pending header), so it
+    consumes the shared FieldDiff list instead of the confirm-dialog message.
+    """
+    diffs: list[FieldDiff] = []
+    ordered = [f for f in WIZARD_FIELDS if f in edits]
+    ordered += [f for f in edits if f not in WIZARD_FIELDS]
+    for field_name in ordered:
+        new_raw = edits[field_name]
+        if field_name == "api_key":
+            try:
+                old_str = db.mask_key(db.resolve_preset_key(preset)) or "—"
+            except Exception:
+                old_str = "***"
+            new_str = db.mask_key(str(new_raw)) if new_raw else "—"
+        else:
+            old_val = preset.get(field_name, "")
+            old_str = str(old_val) if old_val not in (None, "") else "—"
+            new_str = str(new_raw) if new_raw not in (None, "") else "—"
+        diffs.append(
+            FieldDiff(
+                label=FIELD_LABELS.get(field_name, field_name),
+                old=old_str,
+                new=new_str,
+            )
+        )
+    return diffs
+
+
 async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
     """Show field edit options for a preset."""
     preset = db.get_preset(preset_name)
@@ -420,14 +457,25 @@ async def _edit_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
         await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
+    edits = context.user_data.get("preset_edits", {}).get(preset_name, {})
+    diffs = _preset_edit_diffs(preset, edits)
+
     msg = Message()
     msg.add_line(plain("✏️ "), bold("ویرایش پیش‌تنظیم: " + str(preset_name)))
     msg.add_line(plain("انتخاب فیلد برای تغییر:"))
-    edits = context.user_data.get("preset_edits", {}).get(preset_name, {})
-    if edits:
-        msg.add_line(plain(f"{to_persian_digits(len(edits))} پیشنویس در انتظار ذخیره"))
+    if diffs:
+        msg.add_line(plain(f"{to_persian_digits(len(diffs))} تغییر در انتظار — هنوز ذخیره نشده"))
+        for diff in diffs:
+            msg.add_line(bold(diff.label))
+            msg.add_line(
+                table(
+                    ("وضعیت", "مقدار"),
+                    ("قبلی", code(diff.old)),
+                    ("جدید", code(diff.new)),
+                )
+            )
 
-    await say(update, context, msg, backend=Backend.HTML, keyboard=ai_preset_edit_keyboard(preset_name, preset, edits))
+    await say(update, context, msg, backend=Backend.RICH, keyboard=ai_preset_edit_keyboard(preset_name, preset, edits))
 
 
 async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, field_name: str):
@@ -537,13 +585,12 @@ async def _handle_ai_preset_field_input(update: Update, context: ContextTypes.DE
 
     context.user_data.pop("awaiting", None)
 
-    msg = Message()
-    msg.add_line(
-        plain("✅ "), bold(FIELD_LABELS.get(field_name, field_name)),
-        plain(" برای پیش‌تنظیم "), bold(str(preset_name)),
-        plain(" به‌صورت پیشنویس ثبت شد، نیازمند ذخیره."),
+    label = FIELD_LABELS.get(field_name, field_name)
+    await notify_callback(
+        update.callback_query,
+        f"✅ {label} ثبت شد",
+        intent=CallbackNoticeIntent.SUCCESS,
     )
-    await say(update, context, msg, backend=Backend.HTML)
     await _edit_ai_preset(update, context, preset_name)
 
 

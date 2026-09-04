@@ -5,7 +5,7 @@ gates: [R2, R5, R6]
 blocking: [phase-01]
 status: pending
 ---
-STATE: phase 2 — status: pending — focus: edit-menu vertical tables
+STATE: phase 2 — status: complete — edit-menu vertical tables done, validated 2026-09-04 in worktree .worktrees/feat-preset-save-preview (branch feat/preset-save-preview). Evidence: full suite 1710 passed + 324 subtests (incl. 5 new AiPresetEditMenuPreviewTest: two-field tables+order+counter, clean-field-no-table, api_key masked, keyboard prefix/counters/no-values, toast+single-rerender); tests/test_confirm_summary.py 4 passed; python scripts/compile_all.py clean; ruff --select F821,F811 clean on all 5 touched files; git diff --check clean. Test-sync: 8 obsolete assertions updated (render_flow keyboard/menu/confirm, labels_and_back back/capture). NOT committed (per instruction).
 
 ## Scope
 
