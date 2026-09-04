@@ -353,7 +353,7 @@ async def _show_ai_preset_view(update: Update, context: ContextTypes.DEFAULT_TYP
     active_name = db.get_active_preset_name()
     is_active = preset_name == active_name
 
-    masked_key = db.mask_key(db.resolve_preset_key(preset))
+    masked_key = preset_fields.display_value(preset, "api_key")
 
     from services.db import get_preset_cost as _get_preset_cost
     cost = _get_preset_cost(preset_name)
@@ -417,9 +417,10 @@ async def _activate_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE
 def _preset_edit_diffs(preset: dict, edits: dict) -> list[FieldDiff]:
     """Build dirty-field diffs in WIZARD_FIELDS order (single-field preset_edits flow).
 
-    Old values come from the stored preset (``api_key`` masked via ``mask_key``,
-    never plaintext); new values come from staged ``preset_edits`` (``api_key``
-    masked too). Empty values render as "—". Labels use the canonical
+    Old/new display strings come from the canonical
+    ``preset_fields.display_value`` owner (D1): stored ``api_key`` resolved +
+    masked (never plaintext), staged drafts override and are masked too.
+    Empty values render as "—". Labels use the canonical
     FIELD_LABELS map. The per-field table block shape mirrors
     ``build_confirm_message`` (bold label + vertical قبلی/جدید table); the edit
     menu keeps its own chrome (title + picker prompt + pending header), so it
@@ -429,17 +430,8 @@ def _preset_edit_diffs(preset: dict, edits: dict) -> list[FieldDiff]:
     ordered = [f for f in WIZARD_FIELDS if f in edits]
     ordered += [f for f in edits if f not in WIZARD_FIELDS]
     for field_name in ordered:
-        new_raw = edits[field_name]
-        if field_name == "api_key":
-            try:
-                old_str = db.mask_key(db.resolve_preset_key(preset)) or "—"
-            except Exception:
-                old_str = "***"
-            new_str = db.mask_key(str(new_raw)) if new_raw else "—"
-        else:
-            old_val = preset.get(field_name, "")
-            old_str = str(old_val) if old_val not in (None, "") else "—"
-            new_str = str(new_raw) if new_raw not in (None, "") else "—"
+        old_str = preset_fields.display_value(preset, field_name)
+        new_str = preset_fields.display_value(preset, field_name, edits[field_name])
         diffs.append(
             FieldDiff(
                 label=FIELD_LABELS.get(field_name, field_name),
@@ -485,16 +477,17 @@ async def _edit_ai_preset_field(update: Update, context: ContextTypes.DEFAULT_TY
         await notify_callback(update.callback_query, "پیش‌تنظیم یافت نشد", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
 
-    current = preset.get(field_name, "")
-    if current is None:
-        current = ""
     context.user_data["awaiting"] = f"ai_preset_edit:{preset_name}:{field_name}"
 
     help_text = _FIELD_HELP.get(field_name, "")
 
+    # D1: current value through the display owner — api_key renders masked
+    # (never plaintext/ciphertext shape), empty renders "—".
+    current_str = preset_fields.display_value(preset, field_name)
+
     msg = Message()
     msg.add_line(plain("✏️ "), bold(FIELD_LABELS.get(field_name, field_name)))
-    msg.add_line(plain("مقدار فعلی: "), code(str(current)))
+    msg.add_line(plain("مقدار فعلی: "), code(current_str))
     msg.add_line()
     msg.add_line(plain("مقدار جدید را ارسال کنید:"))
     if help_text:
@@ -632,24 +625,23 @@ async def _start_full_edit_wizard(update: Update, context: ContextTypes.DEFAULT_
 async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str, field_idx: int, preset: dict):
     """Display a wizard field with prompt, Current (stored) and Draft (in-progress) values, and navigation."""
     field_name = WIZARD_FIELDS[field_idx]
-    current = preset.get(field_name, "")
-    if current is None:
-        current = ""
-    current_str = str(current)
+    # D1: stored + draft values through the display owner (single mask rule —
+    # the old divergent `len > 4` wizard threshold is deleted). "—" marks empty.
+    current_str = preset_fields.display_value(preset, field_name)
 
     wizard = context.user_data.get("full_edit", {})
-    draft = wizard.get("values", {}).get(field_name)
-    draft_str = str(draft).strip() if draft is not None else None
-
-    # Mask API key for display (never echo plaintext)
-    if field_name == "api_key":
-        if current_str:
-            try:
-                current_str = db.mask_key(db.resolve_preset_key(preset)) or "—"
-            except Exception:
-                current_str = "***"
-        if draft_str:
-            draft_str = db.mask_key(draft_str) if len(draft_str) > 4 else "***"
+    values = wizard.get("values", {})
+    # Empty/whitespace-only drafts render no "پیشنویس" line (pinned by
+    # test_wizard_empty_draft_not_rendered / whitespace variant); a real
+    # draft renders through the display owner.
+    if field_name in values:
+        raw_draft = values[field_name]
+        if raw_draft is None or str(raw_draft).strip() == "":
+            draft_str = None
+        else:
+            draft_str = preset_fields.display_value(preset, field_name, raw_draft)
+    else:
+        draft_str = None
 
     group_header = WIZARD_GROUP_HEADERS.get(field_idx, "")
     label = FIELD_LABELS.get(field_name, field_name)
@@ -664,7 +656,7 @@ async def _show_wizard_field(update: Update, context: ContextTypes.DEFAULT_TYPE,
     msg.add_line(bold(label))
     if draft_str:
         msg.add_line(plain("پیشنویس (در انتظار ذخیره): "), code(draft_str))
-    if current_str:
+    if current_str != "—":
         msg.add_line(plain("مقدار فعلی: "), code(current_str))
     else:
         msg.add_line(plain("مقدار فعلی: "), italic("خالی"))
@@ -901,16 +893,9 @@ async def _show_wizard_summary(update: Update, context: ContextTypes.DEFAULT_TYP
     changed = 0
     for field_name in WIZARD_FIELDS:
         if field_name in values:
-            new_val = values[field_name]
-            old_val = preset.get(field_name, "—")
-            # Mask API keys in summary
-            if field_name == "api_key":
-                try:
-                    old_val = db.mask_key(db.resolve_preset_key(preset)) if preset.get("api_key") else "—"
-                    new_val = db.mask_key(str(new_val)) if new_val else "—"
-                except Exception:
-                    old_val = "***"
-                    new_val = "***"
+            # D1: old/new through the display owner (api_key masked, empty "—").
+            old_val = preset_fields.display_value(preset, field_name)
+            new_val = preset_fields.display_value(preset, field_name, values[field_name])
             label = FIELD_LABELS.get(field_name, field_name)
             msg.add_line(
                 plain("• "), bold(label),

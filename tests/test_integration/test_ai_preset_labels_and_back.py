@@ -213,6 +213,24 @@ class AiPresetLabelCanonicalizationTest(_AiPresetLabelsAndBackBase):
         self.assertIn("API Key", text)
         self.assertNotIn("literal; stored encrypted", text)
 
+    def test_field_edit_prompt_masks_api_key_current(self):
+        """T4/D1: the single-field prompt renders the stored api_key masked —
+        neither the stored ciphertext nor any plaintext leaks (old :497 showed
+        the raw stored value)."""
+        from handlers.admin_ai import _edit_ai_preset_field
+        from services.db.key_crypto import mask_key
+
+        long_key = "sk-1234567890abcdefghij"
+        db.set_preset("masked_prompt", base_url="https://x", model="m", api_key=long_key)
+        stored = db.get_preset("masked_prompt")["api_key"]
+        self.assertNotEqual(stored, long_key)  # stored encrypted, guard premise
+        update = self._make_callback_update("x")
+        asyncio.run(_edit_ai_preset_field(update, self.flow_ctx, "masked_prompt", "api_key"))
+        text = update.callback_query.edit_message_text.call_args.args[0]
+        self.assertIn(mask_key(long_key), text)
+        self.assertNotIn(long_key, text)
+        self.assertNotIn(stored, text)
+
     def test_full_edit_wizard_uses_canonical_english_label(self):
         from handlers.admin_ai import _show_wizard_field, WIZARD_FIELDS
 

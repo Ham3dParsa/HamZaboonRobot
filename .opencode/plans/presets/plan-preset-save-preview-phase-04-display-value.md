@@ -3,9 +3,9 @@ name: plan-preset-save-preview-phase-04-display-value
 phase: 4
 gates: [D1]
 blocking: [phase-03]
-status: pending
+status: complete
 ---
-STATE: phase 4 — status: pending — focus: single display-value owner
+STATE: phase 4 — status: complete — focus: single display-value owner — evidence: display_value in services/ai/preset_fields.py (+_UNSET/staged + injected mask/resolve_key seams, lazy db defaults); 6 sites migrated (diffs, wizard field — divergent len>4 rule deleted, wizard summary, preset view, :497 masked fix, admin.py:451 quick view; group panels already canonical mask_key, unchanged); tests: 10 new DisplayValue unit (fakes, no DB/Telegram) + :497 integration test; full suite 1727 passed +324 subtests (-n 14), compile_all + ruff F821/F811 + diff-check clean; NOT committed.
 
 ## Rule D1 (locked — owner "انجام بده" 2026-09-04, deepening #2)
 

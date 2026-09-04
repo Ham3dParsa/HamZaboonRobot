@@ -159,5 +159,93 @@ class PresetFieldRegistryTest(unittest.TestCase):
         self.assertIsNone(sig.parameters["enabled"].default)
 
 
+class DisplayValueTest(unittest.TestCase):
+    """Unit tests for the D1 display-value owner (no Telegram, no DB).
+
+    The mask/resolve seams are injected fakes; the DB-backed defaults are
+    exercised only where they touch no database (masking a staged draft).
+    """
+
+    def _fakes(self, resolved="sk-FAKE-RESOLVED-KEY-1234567890"):
+        calls = {}
+
+        def fake_resolve(preset):
+            calls["resolve"] = preset
+            return resolved
+
+        def fake_mask(value):
+            calls["mask"] = value
+            return f"<{value[:2]}>"
+        return calls, fake_resolve, fake_mask
+
+    def test_secret_old_value_resolved_and_masked(self):
+        calls, rk, mk = self._fakes()
+        preset = {"name": "p", "api_key": "v1:ciphertext"}
+        self.assertEqual(pf.display_value(preset, "api_key", mask=mk, resolve_key=rk), "<sk>")
+        self.assertIs(calls["resolve"], preset)
+        self.assertEqual(calls["mask"], "sk-FAKE-RESOLVED-KEY-1234567890")
+
+    def test_secret_staged_overrides_and_is_masked(self):
+        calls, rk, mk = self._fakes()
+        preset = {"name": "p", "api_key": "v1:ciphertext"}
+        draft = "sk-DRAFT-PLAINTEXT-9999"
+        self.assertEqual(
+            pf.display_value(preset, "api_key", draft, mask=mk, resolve_key=rk), "<sk>"
+        )
+        # Stored value never consulted for a staged draft.
+        self.assertNotIn("resolve", calls)
+        self.assertEqual(calls["mask"], draft)
+
+    def test_secret_empty_renders_dash(self):
+        _, rk, mk = self._fakes(resolved="")
+        self.assertEqual(pf.display_value({"api_key": ""}, "api_key", mask=mk, resolve_key=rk), "—")
+        # Explicitly cleared drafts ("" and None) render "—", not the stored key.
+        self.assertEqual(pf.display_value({"api_key": "x"}, "api_key", "", mask=mk, resolve_key=rk), "—")
+        self.assertEqual(pf.display_value({"api_key": "x"}, "api_key", None, mask=mk, resolve_key=rk), "—")
+
+    def test_secret_resolver_error_is_fail_closed(self):
+        def boom(_preset):
+            raise RuntimeError("db down")
+
+        self.assertEqual(pf.display_value({"api_key": "x"}, "api_key", resolve_key=boom), "—")
+
+    def test_secret_uses_flag_not_name(self):
+        # Only api_key carries secret=True today; a non-secret field with a
+        # key-like value must NOT be masked.
+        _, rk, mk = self._fakes()
+        self.assertEqual(
+            pf.display_value({"model": "sk-looks-like-a-key"}, "model", mask=mk, resolve_key=rk),
+            "sk-looks-like-a-key",
+        )
+
+    def test_plain_field_uses_resolve_and_staged(self):
+        self.assertEqual(pf.display_value({"model": "m1"}, "model"), "m1")
+        self.assertEqual(pf.display_value({"model": "m1"}, "model", "m2"), "m2")
+        self.assertEqual(pf.display_value({}, "model"), "—")
+        self.assertEqual(pf.display_value({"model": None}, "model"), "—")
+        self.assertEqual(pf.display_value({"model": "m1"}, "model", ""), "—")
+        self.assertEqual(pf.display_value({"daily_batch_size": 6}, "daily_batch_size"), "6")
+
+    def test_cost_none_renders_dash(self):
+        self.assertEqual(pf.display_value({"input_cost_per_million": None}, "input_cost_per_million"), "—")
+        self.assertEqual(
+            pf.display_value({}, "input_cost_per_million", 1.5), "1.5"
+        )
+
+    def test_unknown_field_raises_keyerror(self):
+        with self.assertRaises(KeyError):
+            pf.display_value({}, "this_is_not_a_preset_field")
+
+    def test_default_mask_seam_masks_staged_without_db(self):
+        # The lazy-default mask path is pure (no DB touch): a long staged
+        # draft renders first6…last4, a short one fully masked.
+        from services.db.key_crypto import mask_key
+
+        long_draft = "sk-1234567890abcdef"
+        self.assertEqual(pf.display_value({}, "api_key", long_draft), mask_key(long_draft))
+        self.assertEqual(pf.display_value({}, "api_key", "ab"), "***")
+        self.assertNotIn(long_draft, pf.display_value({}, "api_key", long_draft))
+
+
 if __name__ == "__main__":
     unittest.main()

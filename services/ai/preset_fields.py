@@ -11,9 +11,12 @@ test (``tests/test_preset_fields.py``) asserts that alignment so a schema change
 without a registry change fails loudly instead of silently drifting.
 
 This module is deliberately narrow and deep: a small interface
-(``preset_field`` / ``write_default`` / ``resolve`` / ``validate``) hiding the
-full schema table and resolution/validation logic. It performs no I/O — no DB,
-no AI calls — so it cannot become a god module.
+(``preset_field`` / ``write_default`` / ``resolve`` / ``validate`` /
+``display_value``) hiding the full schema table and resolution/validation
+logic. It performs no I/O — no DB, no AI calls — so it cannot become a god
+module. ``display_value`` therefore never imports the DB layer itself:
+production callers rely on its lazy-default seams (``mask`` /
+``resolve_key``, imported on first use), and tests inject fakes.
 """
 
 from collections.abc import Mapping
@@ -133,6 +136,80 @@ def write_value(preset: Mapping, name: str):
     back to the plain ``write_default`` — never the env ``config_default``.
     """
     return _stored_or_default(preset, name, write_default(name))
+
+
+#: Sentinel for ``display_value``'s ``staged`` parameter: ``None`` is a real
+#: staged value (a cleared field renders as "—"), so "not given" needs its
+#: own marker.
+_UNSET: object = object()
+
+
+def _default_mask(value: str) -> str:
+    """Canonical mask seam: ``services/db/key_crypto.mask_key`` (lazy import).
+
+    Imported lazily so this module keeps its no-DB-import invariant at load
+    time (``services/db/preset_registry`` imports this module — a top-level
+    ``services.db`` import here would cycle through the ``services.db``
+    package ``__init__``).
+    """
+    from services.db.key_crypto import mask_key
+
+    return mask_key(value)
+
+
+def _default_resolve_key(preset: Mapping) -> str:
+    """Canonical key-resolve seam: ``resolve_preset_key`` (lazy import).
+
+    Group-aware and fail-closed (``""`` when missing/undecryptable); may hit
+    the DB for the shared group key — same cost the handlers already pay.
+    """
+    from services.db.preset_registry import resolve_preset_key
+
+    return resolve_preset_key(preset)
+
+
+def display_value(preset: Mapping, name: str, staged=_UNSET, *, mask=None, resolve_key=None) -> str:
+    """Return the display string for one preset field (D1 single owner).
+
+    - Secret fields (``secret`` flag, today only ``api_key``): the stored
+      value is resolved via ``resolve_key`` (default: group-aware
+      ``resolve_preset_key``) and rendered via ``mask`` (default: canonical
+      ``mask_key`` — ``—`` empty, ``***`` short, first6…last4 when long).
+      A given ``staged`` draft overrides the stored value and is masked too —
+      plaintext never reaches a caller. Fail-closed: any resolver/mask error
+      renders ``"—"``, never plaintext or ciphertext shape.
+    - Other fields: the staged value when given, else the canonical
+      read-side :func:`resolve` (env ``config_default`` applies, matching the
+      detail view). ``None``/``""`` render as ``"—"`` (cost fields cleared to
+      ``None`` show ``"—"``; view-specific ``"(global)"`` chrome stays at the
+      call site).
+    - Unknown field names raise ``KeyError`` (same fail-fast as
+      :func:`preset_field`).
+
+    Labels stay with the callers' canonical ``FIELD_LABELS`` map — this
+    returns the value string only.
+    """
+    meta = preset_field(name)
+    if meta.get("secret"):
+        if staged is _UNSET:
+            rk = resolve_key or _default_resolve_key
+            try:
+                raw = rk(preset)
+            except Exception:
+                return "—"
+        else:
+            raw = staged
+        if raw in (None, ""):
+            return "—"
+        m = mask or _default_mask
+        try:
+            return m(str(raw)) or "—"
+        except Exception:
+            return "—"
+    raw = staged if staged is not _UNSET else resolve(preset, name)
+    if raw in (None, ""):
+        return "—"
+    return str(raw)
 
 
 def validate(preset: Mapping) -> None:
