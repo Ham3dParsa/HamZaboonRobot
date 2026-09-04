@@ -1110,6 +1110,10 @@ async def _confirm_save_preset(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     diffs = _preset_edit_diffs(preset, edits)
+    if not diffs:
+        await notify_callback(update.callback_query, "تغییری برای ذخیره وجود ندارد", intent=CallbackNoticeIntent.INFO)
+        return
+
     notes: list[str] = []
     if preset_name == db.get_active_preset_name():
         notes.append("🎯 این پیش‌تنظیم فعال است — تغییرات پس از ذخیره بلافاصله اعمال می‌شوند.")
