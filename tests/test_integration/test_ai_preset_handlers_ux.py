@@ -584,6 +584,106 @@ class AiPresetConfirmSavePreviewTest(_Phase3AiPresetFlowBase):
         self.assertIn("۱ تغییر در انتظار", menu_text)
 
 
+class AiPresetWizardSummaryTest(_Phase3AiPresetFlowBase):
+    """T10 (U5): the full-edit wizard summary renders through the shared
+    confirm seam (unnumbered per-field قبلی/جدید tables in WIZARD_FIELDS
+    order, masked api_key, shared empty/count copy) on the RICH backend,
+    keeping the wizard's own save-all/cancel keyboard."""
+
+    def _render_summary(self, preset_name, values):
+        from handlers import admin_ai
+        from services.send_pretty import Backend
+
+        update = self._make_callback_update("x")
+        ctx = self._make_context()
+        ctx.user_data["full_edit"] = {
+            "preset": preset_name, "field_idx": 99, "values": dict(values),
+        }
+        with patch("handlers.admin_ai.say", new=AsyncMock()) as mock_say:
+            asyncio.run(admin_ai._show_wizard_summary(update, ctx, preset_name))
+        mock_say.assert_called_once()
+        self.assertEqual(mock_say.call_args[1].get("backend"), Backend.RICH)
+        content = mock_say.call_args[0][2]
+        return content.render(Backend.RICH), mock_say.call_args[1].get("keyboard")
+
+    def test_two_dirty_fields_render_unnumbered_tables_in_wizard_order(self):
+        self._make_preset("wiz_sum", base_url="https://old.example.com",
+                          model="old-model")
+        rendered, _ = self._render_summary("wiz_sum", {
+            "model": "new-model",
+            "base_url": "https://new.example.com/v1",
+        })
+        self.assertIn("خلاصه تغییرات", rendered)
+        self.assertIn("Model", rendered)
+        self.assertIn("Base URL", rendered)
+        self.assertIn("`old-model`", rendered)
+        self.assertIn("`new-model`", rendered)
+        self.assertIn("قبلی", rendered)
+        self.assertIn("جدید", rendered)
+        self.assertEqual(rendered.count("| --- | --- |"), 2)
+        # WIZARD_FIELDS order: base_url (idx 2) before model (idx 3).
+        self.assertLess(rendered.index("Base URL"), rendered.index("Model"))
+        # Shared Persian-digit count line.
+        self.assertIn("۲ مورد تغییر کرده است", rendered)
+        # Unnumbered wizard look: no Persian-digit label prefixes...
+        self.assertNotIn("۱\\.", rendered)
+        # ...and none of the old bullet-loop copy survives.
+        self.assertNotIn("•", rendered)
+        self.assertNotIn("→", rendered)
+        self.assertNotIn("تعداد تغییرات", rendered)
+
+    def test_api_key_values_masked(self):
+        self._make_preset("wiz_key", base_url="https://x", model="m",
+                          api_key="seed-key-will-not-resolve")
+        draft_key = "sk-1234567890abcdef"
+        rendered, keyboard = self._render_summary("wiz_key", {"api_key": draft_key})
+        from services.db.key_crypto import mask_key
+
+        self.assertNotIn(draft_key, rendered)
+        for row in keyboard.inline_keyboard:
+            for button in row:
+                self.assertNotIn(draft_key, button.text)
+        self.assertIn(f"`{mask_key(draft_key)}`", rendered)
+
+    def test_empty_wizard_uses_shared_empty_text(self):
+        self._make_preset("wiz_empty", base_url="https://x", model="m")
+        rendered, _ = self._render_summary("wiz_empty", {})
+        self.assertIn("تغییری برای ذخیره وجود ندارد", rendered)
+        self.assertNotIn("هیچ تغییری اعمال نشد", rendered)
+        self.assertNotIn("تعداد تغییرات", rendered)
+        self.assertNotIn("| --- | --- |", rendered)
+
+    def test_keyboard_stays_wizard_save_cancel_pair(self):
+        self._make_preset("wiz_kb", base_url="https://x", model="m")
+        _, keyboard = self._render_summary("wiz_kb", {"model": "m2"})
+        callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+        self.assertTrue(any(c.startswith("admin:ai_preset:full_edit_save:") for c in callbacks))
+        self.assertTrue(any(c.startswith("admin:ai_preset:full_edit_cancel:") for c in callbacks))
+        self.assertFalse(any("confirm_save" in c for c in callbacks))
+        self.assertFalse(any(c.startswith("admin:ai_preset:edit:") for c in callbacks))
+
+    def test_body_matches_shared_confirm_renderer_modulo_numbering(self):
+        from handlers import admin_ai
+        from services.send_pretty import Backend
+        from services.utils.confirm_summary import build_confirm_message
+
+        self._make_preset("wiz_eq", base_url="https://old.example.com",
+                          model="old-model")
+        preset = db.get_preset("wiz_eq")
+        values = {"model": "new-model", "base_url": "https://new.example.com/v1"}
+        diffs = admin_ai._preset_edit_diffs(preset, values)
+        rendered, _ = self._render_summary("wiz_eq", values)
+        expected = build_confirm_message(
+            "📋 خلاصه تغییرات برای", "«wiz_eq»", diffs, numbered=False
+        ).render(Backend.RICH)
+        self.assertEqual(rendered, expected)
+        numbered = build_confirm_message(
+            "📋 خلاصه تغییرات برای", "«wiz_eq»", diffs, numbered=True
+        ).render(Backend.RICH)
+        self.assertNotEqual(rendered, numbered)
+        self.assertIn("۱\\.", numbered)
+
+
 def db_resolve(name: str) -> str:
     from services.utils.callback_codec import preset_token
     return preset_token(name)

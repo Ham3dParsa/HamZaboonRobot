@@ -904,32 +904,24 @@ async def _handle_full_edit_cancel(update: Update, context: ContextTypes.DEFAULT
 
 
 async def _show_wizard_summary(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
-    """Show summary of wizard changes and ask for confirmation."""
+    """Show summary of wizard changes and ask for confirmation (U5).
+
+    Renders through the shared ``build_confirm_message`` seam with
+    ``numbered=False`` (preserves the unnumbered wizard look) in
+    ``WIZARD_FIELDS`` order via ``_preset_edit_diffs`` (api_key masked via
+    the display owner, never plaintext). The keyboard stays the wizard's
+    own save-all/cancel pair — the confirm dialog's routes are untouched.
+    Backend is RICH: the shared per-field tables are ``Table`` spans,
+    which have no HTML rendering (same switch as the T2 edit menu).
+    """
     wizard = context.user_data.get("full_edit", {})
     values = wizard.get("values", {})
     preset = db.get_preset(preset_name) or {}
 
-    msg = Message()
-    msg.add_line(plain("📋 "), bold("خلاصه تغییرات برای " + str(preset_name)))
-    msg.add_line()
-    changed = 0
-    for field_name in WIZARD_FIELDS:
-        if field_name in values:
-            # D1: old/new through the display owner (api_key masked, empty "—").
-            old_val = preset_fields.display_value(preset, field_name)
-            new_val = preset_fields.display_value(preset, field_name, values[field_name])
-            label = FIELD_LABELS.get(field_name, field_name)
-            msg.add_line(
-                plain("• "), bold(label),
-                plain(f": {old_val} → {new_val}"),
-            )
-            changed += 1
-
-    if not changed:
-        msg.add_line(plain("هیچ تغییری اعمال نشد."))
-
-    msg.add_line()
-    msg.add_line(plain("تعداد تغییرات: "), plain(str(changed)))
+    diffs = _preset_edit_diffs(preset, values)
+    msg = build_confirm_message(
+        "📋 خلاصه تغییرات برای", f"«{preset_name}»", diffs, numbered=False
+    )
 
     from services.utils.callback_codec import preset_token
     preset_ref = preset_token(preset_name)
@@ -941,7 +933,7 @@ async def _show_wizard_summary(update: Update, context: ContextTypes.DEFAULT_TYP
 
     context.user_data.pop("awaiting", None)
 
-    await say(update, context, msg, backend=Backend.HTML, keyboard=keyboard)
+    await say(update, context, msg, backend=Backend.RICH, keyboard=keyboard)
 
 
 async def _handle_full_edit_save(update: Update, context: ContextTypes.DEFAULT_TYPE, preset_name: str):
