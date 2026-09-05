@@ -57,6 +57,8 @@ def increment_setting_via_conn(conn: sqlite3.Connection, key: str) -> int:
         (key,),
     )
     row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    # UPSERT above always writes a parseable integer, so the fallbacks below
+    # are future-proofing against schema breakage, not reachable today.
     try:
         return int(row["value"]) if row and row["value"] not in (None, "") else 1
     except (ValueError, TypeError):
