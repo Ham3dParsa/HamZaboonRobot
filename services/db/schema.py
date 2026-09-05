@@ -391,11 +391,13 @@ def _guard_destructive_op(path: str) -> None:
 
 # How long a writer waits for a busy database before raising "database is
 # locked" (milliseconds). Matches the PRAGMA and the sqlite3.connect timeout.
-# Trade-off (Kilo #477): 10s + asyncio.to_thread on the bounded default executor
+# Trade-off (Kilo #477): 25s + asyncio.to_thread on the bounded default executor
 # (min(32, cpu+4) workers) means a burst of contended writes can hold pool
-# slots up to 10s; keep DB ops short (no long transaction across await) and
+# slots up to 25s; keep DB ops short (no long transaction across await) and
 # consider a dedicated DB executor if contention grows (deferred to A-track).
-_DB_BUSY_TIMEOUT = 10000
+# Contract lock 2026-09-05 (consultant): 10s→25s with BEGIN IMMEDIATE to bring
+# "database is locked" risk near-zero under concurrent load.
+_DB_BUSY_TIMEOUT = 25000
 
 
 class _MaintenanceGate:
@@ -500,7 +502,7 @@ def get_conn(path: str | None = None):
     _check_test_mode_guard(_active_db_path)
     with _DB_GATE.shared():
         # sqlite3.connect(timeout=...) is in SECONDS; busy_timeout PRAGMA is in
-        # MILLISECONDS. Keep both at _DB_BUSY_TIMEOUT (10000 ms == 10 s) so they
+        # MILLISECONDS. Keep both at _DB_BUSY_TIMEOUT (25000 ms == 25 s) so they
         # agree and a busy write never hangs far beyond the intended wait.
         conn = sqlite3.connect(_active_db_path, timeout=_DB_BUSY_TIMEOUT / 1000)
         # WAL lets readers and writers proceed concurrently; busy_timeout makes
