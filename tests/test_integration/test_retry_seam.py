@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 from telegram.error import RetryAfter, TimedOut, BadRequest
 from services.utils import helpers
 from services.utils.helpers import _execute_telegram_action_with_retry
@@ -65,9 +65,9 @@ class TestRetrySeam(unittest.IsolatedAsyncioTestCase):
 
     async def test_sibling_slot_missing_fail_closed(self):
         for fn, args in (
-            (helpers._edit_with_retry, (MagicMock(), "hi")),
-            (helpers._edit_markup_with_retry, (MagicMock(), 1, 2, None)),
-            (helpers._delete_with_retry, (MagicMock(), 1, 2)),
+            (helpers._edit_with_retry, (AsyncMock(), "hi")),
+            (helpers._edit_markup_with_retry, (AsyncMock(), 1, 2, None)),
+            (helpers._delete_with_retry, (AsyncMock(), 1, 2)),
         ):
             with self.subTest(fn=fn.__name__):
                 with patch("services.send_pretty._telegram_slots", None):
