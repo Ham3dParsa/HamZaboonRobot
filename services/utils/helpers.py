@@ -114,11 +114,17 @@ async def _execute_telegram_action_with_retry(action_fn, *args, is_idempotent: b
 
         except RetryAfter as e:
             delay = float(e.retry_after)
-            # Owner-approved drop semantics (Kilo round-1/2): a RetryAfter
-            # above the cap honors Telegram's flood directive by dropping
-            # instead of blocking the handler past the cap. Flood-safe
-            # (never hammer a rate-limited endpoint) and handler-bound
-            # (a single delivery never stalls a worker beyond the budget).
+            # Owner-approved drop semantics (Kilo round-1/2, owner 2026-09-05):
+            # a RetryAfter above the cap honors Telegram's flood directive
+            # by dropping instead of blocking the handler past the cap.
+            # Flood-safe (never hammer a rate-limited endpoint) and
+            # handler-bound (a single delivery never stalls a worker
+            # beyond the budget). DIVERGENCE (owner-approved): the four
+            # legacy paths (send owner + 3 sibling edit/delete loops) keep
+            # their pre-existing min(delay,30s)-clamp-then-retry because
+            # delivery matters more than flood-purity there; only this
+            # central seam drops over-cap. Unified only if load evidence
+            # demands it (see #585).
             if delay > _TELEGRAM_RETRY_MAX_DELAY:
                 logger.error(
                     "Telegram RetryAfter %.2fs exceeds cap %.2fs on attempt %d/%d — dropping (no sleep, no retry)",
@@ -345,6 +351,9 @@ async def _edit_with_retry(query, text, *, reset_telegram_cb: bool = True, **kwa
     # top-level import back would cycle (send_pretty imports this module).
     from services.send_pretty import _telegram_slots
 
+    if _telegram_slots is None:
+        raise RuntimeError("telegram slot unavailable")
+
     for attempt in range(3):
         try:
             async with _telegram_slots:
@@ -398,6 +407,9 @@ async def _edit_markup_with_retry(
     # top-level import back would cycle (send_pretty imports this module).
     from services.send_pretty import _telegram_slots
 
+    if _telegram_slots is None:
+        raise RuntimeError("telegram slot unavailable")
+
     for attempt in range(3):
         try:
             async with _telegram_slots:
@@ -433,6 +445,9 @@ async def _delete_with_retry(bot, chat_id: int, message_id: int, *, reset_telegr
     # Lazy: the slot lives in services/send_pretty.py (phase-03 R2); a
     # top-level import back would cycle (send_pretty imports this module).
     from services.send_pretty import _telegram_slots
+
+    if _telegram_slots is None:
+        raise RuntimeError("telegram slot unavailable")
 
     for attempt in range(3):
         try:
