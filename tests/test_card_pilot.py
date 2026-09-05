@@ -2002,3 +2002,13 @@ def test_r45_debug_details_and_no_internal_keys_in_flow():
     assert "@media (max-width:640px)" in html_out
     assert ".op.aborted" in html_out and ".op.rejected" in html_out
     assert "<link" not in html_out and 'href="http' not in html_out
+
+def test_fa_script_rejects_cjk():
+    from card_pilot import fa_alpha_check, fa_field_ok, fa_script_ok
+    assert fa_script_ok("ناچیز از نظر 규모 مالی") is False
+    assert fa_field_ok("ناچیز از نظر 규모 مالی") is False
+    assert fa_alpha_check({"fa_meaning": "ناچیز از نظر 규모 مالی",
+                           "fa_explanation": "فارسی",
+                           "example_translations": []}) is False
+    assert fa_script_ok("معنی فارسی تمیز") is True
+    assert fa_field_ok("معنی فارسی تمیز") is True

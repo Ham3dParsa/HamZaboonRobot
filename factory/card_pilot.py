@@ -1253,16 +1253,48 @@ def meta_leak_scan(card):
 # regardless (loanwords such as "TV" inside Persian prose).
 FA_MEANING_MAX_LATIN = 3
 
+# Language-centric script allowlist (Gemini 규모 case): FA prose fields
+# may contain ONLY Arabic-script letters (Persian+Arabic blocks, incl.
+# presentation forms), Latin letters (quantity is the caller's job:
+# fa_field_ok / fa_alpha_check), ASCII/Persian digits, whitespace/
+# punctuation, and explicitly-allowed inline Latin terms. Anything else
+# (CJK, Cyrillic, etc.) fails. Generalizes to future factory languages
+# by swapping the script block, not the logic.
+_FA_SCRIPT_RX = re.compile(
+    r"[^A-Za-z\u00C0-\u024F\u1E00-\u1EFF"
+    r"\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF"
+    r"0-9\u06F0-\u06F9\s\u2000-\u206F\u2E00-\u2E7F!\"#\$%&'\(\)\*\+,"
+    r"\-\./:;<>=\?@\[\]\\\^\_`\{\|\}\~،؛؟×÷…]")
 
-def fa_field_ok(text, *, max_latin=0):
+
+def fa_script_ok(text, allowed_terms=None):
+    """True iff text holds no disallowed script (CJK/Cyrillic/etc.).
+
+    Allowed Latin runs (loanwords/terms) pass here; QUANTITY is the
+    caller's job (fa_field_ok / fa_alpha_check). allowed_terms are
+    removed before the scan so listed terms never trip the gate.
+    """
+    work = str(text or "")
+    for term in (allowed_terms or []):
+        term = str(term or "").strip()
+        if term:
+            work = re.sub(re.escape(term), "", work,
+                          flags=re.IGNORECASE)
+    return not _FA_SCRIPT_RX.search(work)
+
+
+def fa_field_ok(text, *, max_latin=0, allowed_terms=None):
     """One Persian-prose field: nonempty, some Persian script, fa>latin.
 
     The max_latin leniency passes short Latin runs (loanwords) without
     dropping the fa>latin requirement otherwise. Digits-only strings
-    fail (no Persian script).
+    fail (no Persian script). Non-allowlisted scripts (CJK et al.) fail
+    regardless of ratios.
     """
     stripped = (text or "").strip()
     if not stripped:
+        return False
+    if not fa_script_ok(stripped, allowed_terms):
         return False
     fa_n = len(_FA_RX.findall(stripped))
     latin_n = len(_LATIN_RX.findall(stripped))
@@ -1318,6 +1350,8 @@ def fa_alpha_check(card, allowed_terms=None):
     for field in fields:
         if not isinstance(field, str):
             continue
+        if not fa_script_ok(field, allowed_terms):
+            return False
         for run in _LATIN_RUN_RX.findall(field):
             if run.lower() not in allowed:
                 return False
@@ -3565,10 +3599,20 @@ def render_debug_details(rec):
 
     Holds stage_calls, similarity floats, model_calls and F4-style tags
     — these keys never appear in the main flow (steps/diff/final).
+    Stage codes map to functional Persian names (Gemini readability ask).
     """
+    STAGE_NAMES = {"s0": "پیش‌پردازش (دروازه‌ها)", "s0b": "فیلتر تصریف",
+                   "s1": "رتبه حس", "s2": "داوری حس",
+                   "s3": "بردار موضوع", "s4": "برچسب موضوع",
+                   "s5": "غنی‌سازی دیتاستی", "sgen": "تولید مدل",
+                   "card": "تولید مدل"}
     rec = rec or {}
     try:
-        stage_calls = json.dumps(rec.get("stage_calls", {}),
+        raw_calls = rec.get("stage_calls", {})
+        named_calls = {STAGE_NAMES.get(str(k), str(k)): v
+                       for k, v in (raw_calls.items()
+                                    if isinstance(raw_calls, dict) else [])}
+        stage_calls = json.dumps(named_calls,
                                  ensure_ascii=False, sort_keys=True)
     except (TypeError, ValueError):
         stage_calls = "—"
