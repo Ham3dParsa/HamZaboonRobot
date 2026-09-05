@@ -236,10 +236,13 @@ def test_gallery_renders_sections_from_stub_jsonl(tmp_path):
     assert "dir=\"rtl\"" in html_out
     for text in ("apple", "brave", "give up"):
         assert text in html_out
-    # Stage strip rows present (pipeline order).
-    for row in ("استخر", "لنگر حس", "موضوع", "پیش‌کارت",
-                "تکمیل مدل", "کنترل‌ها"):
-        assert row in html_out
+    # Stage stepper: exactly 4 steps in pipeline order (R45 v12).
+    for step in ("دیتاست خام", "گیت‌ها", "مدل", "نهایی"):
+        assert step in html_out
+    assert html_out.count('class="step"') == 3 * 4
+    # Old 6-row strip labels retired (diff-header/bidi labels untouched).
+    for row in ("استخر", "کنترل‌ها"):
+        assert row not in html_out
     # Final-card learner block present + separated from the audit strip.
     assert "کارت نهایی" in html_out
     assert 'class="final' in html_out
@@ -1853,9 +1856,150 @@ def test_delta_kept_alias_canonicalized():
     assert report.get("kept_tamper") is True
     assert full.get("phonetic") != "/WRONG/"
 
-def test_coherence_includes_headword():
+def test_coherence_headword_alone_does_not_pass():
+    # Reverted fallback: same headword across senses must NOT cohere on
+    # the headword alone (X-mark anchor + kissing examples must reject).
     from card_pilot import sense_coherence_check
     assert sense_coherence_check(
-        "To touch with the lips", {"examples": ["They kissed goodbye."],
+        "A written X mark used instead of a signature",
+        {"examples": ["They kissed goodbye."],
          "fa_meaning": "", "fa_explanation": "", "example_translations": [],
-         "synonyms": []}, headword="kiss") is True
+         "synonyms": []}, headword="kiss") is False
+
+
+# ---------------- v12 R43: context-aware متوسط ----------------
+
+def test_r43_frequency_adjective_passes():
+    # متوسط as a frequency/size adjective with no metadata marker nearby.
+    card = dict(VALID_CARD,
+                fa_explanation="میزان متوسط بارش در این منطقه زیاد است.")
+    assert meta_leak_scan(card) == []
+
+
+def test_r43_level_marker_window_fails():
+    # درجه (a pure marker, no unconditional pattern) inside the 2-word
+    # window -> leak; the required سطح متوسط case fires as well.
+    card = dict(VALID_CARD, fa_explanation="این درجه متوسط بالا است.")
+    assert meta_leak_scan(card)
+    card = dict(VALID_CARD, fa_explanation="این کتاب سطح متوسط زبان است.")
+    assert meta_leak_scan(card)
+
+
+def test_r43_marker_outside_window_passes():
+    # درجه three words away -> no leak (window is ±2). درجه has no
+    # unconditional pattern, isolating the contextual rule.
+    card = dict(VALID_CARD,
+                fa_explanation="متوسط در این کلاس درجه بالا است.")
+    assert meta_leak_scan(card) == []
+
+
+def test_r43_mf_style_tip_passes():
+    # Grammar tip using متوسط descriptively (no marker) stays clean.
+    card = dict(VALID_CARD,
+                grammar_tip="این واژه در متن‌های متوسط کاربرد دارد.")
+    assert meta_leak_scan(card) == []
+
+
+def test_r43_other_level_words_still_unconditional():
+    assert meta_leak_scan(dict(VALID_CARD, fa_meaning="برای مبتدی‌ها")) \
+        != []
+    assert meta_leak_scan(dict(VALID_CARD,
+                               fa_explanation="good for beginners")) != []
+    assert meta_leak_scan(dict(VALID_CARD, fa_explanation="level A1")) \
+        != []
+    assert meta_leak_scan(dict(VALID_CARD, fa_explanation="سطح دشوار")) \
+        != []
+
+
+# ---------------- v12 R44: superlative redirect helpers ----------------
+
+def test_r44_parse_superlative_base():
+    from card_pilot import is_superlative_gloss, parse_superlative_base
+    assert parse_superlative_base("superlative of good.") == "good"
+    assert parse_superlative_base("comparative of big") == "big"
+    assert parse_superlative_base("a round fruit") == ""
+    assert parse_superlative_base("plural of cat") == ""
+    assert is_superlative_gloss("superlative of good") is True
+    assert is_superlative_gloss("plural of cat") is False
+
+
+def test_r44_review_prompt_has_idiom_line():
+    assert "do one's best" in card_pilot.INFLECTION_REVIEW_SYS
+
+
+# ---------------- v12 R45: gallery invalid chips/stepper/debug ----------------
+
+def _r45_base_rec(**over):
+    rec = {"key": "w:apple", "kind": "word", "text": "apple",
+           "pool_level": "A1", "bot_level": "beginner",
+           "model_used": "m1", "sense_id": "apple#1", "en_def": "a fruit",
+           "en_source": "dataset", "topic": "Food", "topic_method": "t",
+           "ipa": "/ipa/", "ipa_src": "dataset",
+           "dataset_examples": [], "examples_src": [],
+           "model_d": "", "literal_fa": "", "proper_noun": None,
+           "leaks": [], "fa_dominant": True, "headword_leaks": [],
+           "long_example": [],
+           "completion_flags": {"fields_filled": ["fa_meaning"],
+                                 "sense_review": True,
+                                 "nothing_to_complete": False},
+           "similarity_note": 0.123, "stage_calls": {"s0b": "kept"},
+           "model_calls": {"m1": 1}}
+    rec.update(over)
+    return rec
+
+
+def test_r45_invalid_aborted_chip_not_model():
+    from card_pilot import render_diff_table
+    rec = _r45_base_rec(card=None, valid=False, reason="boom",
+                        error="boom")
+    html_out = render_diff_table(rec, {})
+    assert "لغوشده" in html_out
+    assert "پرشده" not in html_out
+
+
+def test_r45_invalid_rejected_chip_not_model():
+    from card_pilot import render_diff_table
+    card = dict(VALID_CARD, word="apple")
+    rec = _r45_base_rec(card=card, valid=False, reason="meta-leak: x")
+    html_out = render_diff_table(rec, card)
+    assert "رد در گیت" in html_out
+    assert "پرشده" not in html_out
+
+
+def test_r45_final_empty_block_stays():
+    rec = _r45_base_rec(card=None, valid=False, reason="boom",
+                        error="boom")
+    html_out = render_gallery(
+        [rec], {"date_tehran": "d", "commit": "c",
+                "model_calls": {"m1": 1}})
+    assert "لغوشده" in html_out
+    assert "کارتی برای نمایش نیست" in html_out
+
+
+def test_r45_stepper_has_four_steps():
+    from card_pilot import render_stage_strip
+    html_out = render_stage_strip(_r45_base_rec(card={}, valid=True))
+    assert html_out.count('class="step"') == 4
+    for step in ("دیتاست خام", "گیت‌ها", "مدل", "نهایی"):
+        assert step in html_out
+
+
+def test_r45_debug_details_and_no_internal_keys_in_flow():
+    rec = _r45_base_rec(card=dict(VALID_CARD, word="apple"), valid=True,
+                        reason="", error="",
+                        content_flags={"ex": "cloze-density"})
+    html_out = render_gallery(
+        [rec], {"date_tehran": "d", "commit": "c",
+                "model_calls": {"m1": 1}})
+    assert "دیباگ فنی" in html_out
+    assert '<details class="debug">' in html_out
+    assert "cloze-density" in html_out  # gate verdict in step 2
+    main_flow = html_out.split('<details class="debug">')[0]
+    for key in ("stage_calls", "similarity_note", "model_calls"):
+        assert key not in main_flow
+    assert ">F4<" not in main_flow
+    assert "stage_calls" in html_out  # only inside debug
+    # Stepper stacks under 640px; invalid chips styled; no externals.
+    assert "@media (max-width:640px)" in html_out
+    assert ".op.aborted" in html_out and ".op.rejected" in html_out
+    assert "<link" not in html_out and 'href="http' not in html_out

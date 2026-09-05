@@ -198,13 +198,60 @@ DEFAULT_TOPIC_VECTORS = ("W:/hamzaban_data_factory/fixtures/"
                          "topic_vectors-v16b.json")
 
 # R2 — machine check patterns (EN level words + CEFR codes + FA level words).
+# R43 v12: متوسط/متوسطه/میانی are CONTEXTUAL (see _META_CONTEXTUAL_FA +
+# _META_MARKERS) and no longer fire unconditionally here.
 _META_LEAK_PATTERNS = (
     r"\bbeginners?\b|\bintermediates?\b|\badvanced\b|\belementary\b"
     r"|\bpre[-\s]?intermediates?\b",
     r"\b[ABC][12]\b|\bfor\s+[ABC][12]\b|\blevel\s+[ABC][12]\b",
-    r"مبتدی|پیشرفته|مقدماتی|سطح|متوسط",
+    r"مبتدی|پیشرفته|مقدماتی|سطح",
 )
 _META_LEAK_RES = [re.compile(p, re.IGNORECASE) for p in _META_LEAK_PATTERNS]
+
+# R43 v12 — context-aware متوسط family: متوسط/متوسطه/میانی fire ONLY when
+# a metadata marker appears within a 2-word window on either side.
+# Tokenization: split on whitespace, strip punctuation per token. Other
+# level words (مبتدی/پیشرفته themselves, beginner/intermediate/A1-C2)
+# keep firing unconditionally via _META_LEAK_RES above.
+_META_CONTEXTUAL_FA = frozenset({"متوسط", "متوسطه", "میانی"})
+_META_MARKERS = frozenset({
+    "سطح", "درجه", "رده", "آموزش", "مبتدی", "پیشرفته", "مقدماتی",
+    "level", "intermediate", "beginner", "advanced",
+})
+_TOKEN_STRIP_CHARS = (" \t\n\r.,;:!?()[]{}<>\"'«»“”‘’'\u2026"
+                      "-\u2013\u2014/\\|_+=*~`@#$%^&\u061f\u060c\u061b:.")
+
+
+def _strip_meta_token(token):
+    """R43: strip surrounding punctuation; Latin folded for marker match."""
+    return (token or "").strip(_TOKEN_STRIP_CHARS)
+
+
+def _meta_contextual_hits(text):
+    """R43: contextual متوسط-family hits in one string value.
+
+    Returns the raw matched substrings (punctuation-stripped form) for
+    متوسط/متوسطه/میانی tokens with a marker inside the 2-word window.
+    """
+    hits = []
+    if not isinstance(text, str) or not text:
+        return hits
+    raw_tokens = text.split()
+    normed = []
+    for tok in raw_tokens:
+        stripped = _strip_meta_token(tok)
+        lowered = stripped.casefold()
+        # Persian tokens have no case; Latin markers compare casefolded.
+        normed.append(lowered if lowered else stripped)
+    for idx, norm in enumerate(normed):
+        if norm not in _META_CONTEXTUAL_FA:
+            continue
+        lo = max(0, idx - 2)
+        hi = min(len(normed), idx + 3)
+        window = [normed[j] for j in range(lo, hi) if j != idx]
+        if any(w in _META_MARKERS for w in window):
+            hits.append(_strip_meta_token(raw_tokens[idx]))
+    return [h for h in hits if h]
 
 # R1 — minimal pool-POS -> kaikki-POS normalization for gloss matching.
 _POS_ALIASES = {
@@ -426,6 +473,33 @@ _INFLECTION_RX = re.compile(
 def is_inflection_gloss(gloss):
     """R36: True when the gloss is an inflection stub ("plural of X")."""
     return bool(_INFLECTION_RX.search(gloss or ""))
+
+
+# R44 v12 — superlative/comparative redirect: pattern glosses
+# ("superlative of X", "comparative of X") redirect to the BASE lemma
+# unless the inflection_review micro-pass flags an established
+# nominal/idiomatic sense. S0b verdict variant (no new stage).
+_SUPERLATIVE_RX = re.compile(
+    r"(?i)\b(?:superlative|comparative)\s+of\s+(.+?)\s*\.?\s*$")
+
+
+def parse_superlative_base(gloss):
+    """R44: base lemma of a superlative/comparative gloss ("" if none).
+
+    Whole-gloss anchored: prose merely mentioning "superlative of"
+    mid-sentence never parses. Target is stripped of quotes/dots.
+    """
+    hit = _SUPERLATIVE_RX.search(gloss or "")
+    if not hit:
+        return ""
+    target = (hit.group(1) or "").strip().strip(
+        "'\"\u201c\u201d\u2018\u2019").strip().rstrip(".").strip()
+    return target
+
+
+def is_superlative_gloss(gloss):
+    """R44: True when the gloss is a superlative/comparative-pattern stub."""
+    return bool(parse_superlative_base(gloss))
 
 
 # R34 v9 — xref method tag (anchor resolved through the target entry).
@@ -1147,13 +1221,21 @@ def sense_report(items, index, read_entry, k=3, zipf_fn=None):
 
 
 def meta_leak_scan(card):
-    """R2: regex EN+FA level words across all string fields -> hit list."""
+    """R2: regex EN+FA level words across all string fields -> hit list.
+
+    R43 v12: متوسط/متوسطه/میانی are contextual — they fire ONLY when a
+    metadata marker (سطح، درجه، رده، آموزش، مبتدی، پیشرفته، مقدماتی،
+    level, intermediate, beginner, advanced) appears within a 2-word
+    window on either side (whitespace tokens, punctuation stripped).
+    All other level words fire unconditionally as before.
+    """
     hits = []
 
     def walk(value):
         if isinstance(value, str):
             for rx in _META_LEAK_RES:
                 hits.extend(m.group(0) for m in rx.finditer(value))
+            hits.extend(_meta_contextual_hits(value))
         elif isinstance(value, dict):
             for item in value.values():
                 walk(item)
@@ -1270,10 +1352,6 @@ def sense_coherence_check(anchor_gloss, card, headword=""):
     synonyms. Empty anchor keyword sets pass (fail-open).
     """
     anchor_keys = _coherence_tokens(anchor_gloss or "")
-    head_tokens = {t for t in re.findall(r"[A-Za-z']+",
-                                         (headword or "").lower())
-                   if len(t) >= 3}
-    anchor_keys |= head_tokens
     if not anchor_keys:
         return True
     parts = []
@@ -1300,14 +1378,11 @@ def sense_coherence_check(anchor_gloss, card, headword=""):
         return _stem_match_5(a, b)
     if any(_stem_hit(a, b) for a in anchor_keys for b in card_keys):
         return True
-    # Headword-family fallback (len>=3 either direction): the card is
-    # about the headword, so kiss/kissed, note/notes always cohere even
-    # when the gloss paraphrases without the stem (shared helper needs
-    # 5+ chars and would miss short headwords).
-    for ht in head_tokens:
-        for ck in card_keys:
-            if ht in ck or ck in ht:
-                return True
+    # NO headword-family fallback (reverted): it wrongly passes
+    # same-headword cross-sense cards (X-mark anchor + kissing examples —
+    # exactly what R41 must reject). Morphology is covered by _stem_match_5
+    # (thing/nothing, torrent/torrential); shorter stems are the caller's
+    # problem, not a license to pass on the headword alone.
     return False
 
 
@@ -2269,7 +2344,10 @@ def generate_card(item, api_key, transport=None, model_calls=None,
               "reason": "", "error": "", "model_d": "", "literal_fa": "",
               "leaks": [], "regen": False, "completion_flags": {},
               "similarity_note": 0.0, "fa_dominant": None,
-              "headword_leaks": []}
+              "headword_leaks": [],
+              "redirect_to": item.get("redirect_to", ""),
+              "stage_calls": dict(item.get("stage_calls") or {}),
+              "model_calls": dict(model_calls or {})}
     last_error = ""
     regen_used = False
     for model in MODELS:
@@ -2407,6 +2485,7 @@ def generate_card(item, api_key, transport=None, model_calls=None,
                     record["long_example"] = longs
                     record["abbrev_expansion"] = abbrev \
                         if isinstance(abbrev, str) else ""
+                    record["model_calls"] = dict(model_calls or {})
                     return record
                 # R41 v10 hard gates: REJECT (never regen), after all
                 # existing gates. fa-alpha first, then sense coherence.
@@ -2431,6 +2510,7 @@ def generate_card(item, api_key, transport=None, model_calls=None,
                     record["long_example"] = longs
                     record["abbrev_expansion"] = abbrev \
                         if isinstance(abbrev, str) else ""
+                    record["model_calls"] = dict(model_calls or {})
                     return record
                 record.update(model_used=model, card=card, valid=True,
                               model_d=model_d if isinstance(model_d, str)
@@ -2453,12 +2533,14 @@ def generate_card(item, api_key, transport=None, model_calls=None,
                     sense_id=item.get("sense_id", ""),
                     topic_vector=list(item.get("topic_vector") or []),
                     pool_level=item.get("pool_level", ""),
-                    pos=pos_list, pos_src=item.get("pos_src", "none"))
+                    pos=pos_list, pos_src=item.get("pos_src", "none"),
+                    model_calls=dict(model_calls or {}))
                 return record
             last_error = "validation: %s" % reason
         # next model after exhausting attempts
     record["error"] = last_error
     record["reason"] = last_error
+    record["model_calls"] = dict(model_calls or {})
     return record
 
 
@@ -2884,6 +2966,9 @@ INFLECTION_REVIEW_SYS = (
     "learner value as a headword: irregular forms, or forms commonly "
     "looked up/used as headwords. Otherwise drop it in favor of the base "
     "lemma (regular plurals, regular past tenses, plain comparatives). "
+    "Keep IFF the form carries a phrase-like established nominal or "
+    "idiomatic usage of its own (such as do one's best); plain "
+    "superlative/comparative stubs redirect to the base lemma. "
     "Persian may be used in reason. Return ONLY raw JSON, no markdown "
     "fences, no commentary.")
 INFLECTION_UNCERTAIN_TAG = "review-uncertain"
@@ -3190,97 +3275,20 @@ def _strip_row(label, blocks):
             % (esc(label), "".join(blocks)))
 
 
-def render_stage_strip(rec):
-    """STAGE STRIP: audit rows, pipeline order, R14 bidi-safe blocks.
+def _step(label, blocks):
+    """R45: one stepper step — fa label line, then value blocks."""
+    return ('<div class="step"><div class="step-label" dir="rtl" lang="fa">%s</div>'
+            '<div class="step-body">%s</div></div>'
+            % (esc(label), "".join(blocks)))
 
-    Six rows, newest-last: (1) استخر (2) لنگر حس (3) موضوع
-    (4) پیش‌کارت (5) تکمیل مدل (6) کنترل‌ها. Presentation only —
-    every value is read from the record, nothing recomputed. Persian
-    labels and English values never share a line run: each value sits
-    in its own dir=rtl / dir=ltr block.
-    """
-    kind_fa = "واژه" if rec.get("kind") == "word" else "عبارت"
 
-    # (1) استخر: lemma + kind + pool CEFR.
-    row_pool = _strip_row("استخر", [
-        _blk_fa(kind_fa),
-        _blk_en(rec.get("text") or "—"),
-        _blk_fa("سطح استخر"),
-        _blk_en(rec.get("pool_level") or "—"),
-    ])
-
-    # (2) لنگر حس: sense_id + en gloss (dataset tag).
-    sense_id = (rec.get("sense_id") or "").strip()
-    en_def = (rec.get("en_def") or "").strip()
-    en_source = (rec.get("en_source") or "").strip()
-    sense_blocks = [_blk_en(sense_id if sense_id else "—"),
-                    _blk_en(en_def if en_def else "—")]
-    if en_source:
-        sense_blocks.append(_blk_en("[%s]" % en_source))
-    row_sense = _strip_row("لنگر حس", sense_blocks)
-
-    # (3) موضوع: label chip + full vector chips + method tag.
-    row_topic = _strip_row("موضوع", [_topic_chips_html(rec),
-                                    _blk_en("(%s)" % (
-                                        (rec.get("topic_method")
-                                         or TOPIC_METHOD_TAG).strip()))])
-
-    # (4) پیش‌کارت: en_def given to the model + fields EMPTY before
-    # completion (= COMPLETION_FIELDS minus final fields_filled).
-    flags = rec.get("completion_flags") or {}
-    filled = list(flags.get("fields_filled", []) or [])
-    empty_before = [k for k in COMPLETION_FIELDS if k not in filled]
-    pre_blocks = [_blk_fa("تعریف دیتاستی"),
-                  _blk_en(en_def if en_def else "—"),
-                  _blk_fa("خالی پیش از تکمیل")]
-    if flags.get("nothing_to_complete"):
-        pre_blocks.append(_blk_fa("— (بدون‌کار)"))
-    elif empty_before:
-        pre_blocks.append(_blk_en(", ".join(empty_before)))
-    else:
-        pre_blocks.append(_blk_fa("—"))
-    literal_fa = (rec.get("literal_fa") or "").strip()
-    if rec.get("kind") == "phrase" and literal_fa:
-        pre_blocks.append(_blk_fa("معنی تحت‌اللفظی"))
-        pre_blocks.append(_blk_fa(literal_fa))
-    if rec.get("kind") == "phrase" and rec.get("proper_noun") is None:
-        pre_blocks.append(_blk_fa(
-            "نام خاص: قضاوت نشده ـ سؤال باز برای داوری مجدد"))
-        pre_blocks.append(_blk_en("F4"))
-    if rec.get("regen"):
-        pre_blocks.append(_blk_fa("بازتولید کنترلی: یک بار"))
-    row_pre = _strip_row("پیش‌کارت", pre_blocks)
-
-    # (5) تکمیل مدل: model name, fields_filled, sense_review,
-    # nothing_to_complete, similarity note.
-    model_used = (rec.get("model_used") or "").strip() or "—"
-    sim = rec.get("similarity_note")
-    fill_blocks = [_blk_fa("مدل"), _blk_en(model_used),
-                   _blk_fa("تکمیل شکاف + بازبینی معنایی"),
-                   _blk_en("fields_filled"),
-                   _blk_en(", ".join(filled) if filled else "—"),
-                   _blk_fa("بازبینی"),
-                   _blk_en(str(flags.get("sense_review"))),
-                   _blk_fa("بدون‌کار"),
-                   _blk_en(str(flags.get("nothing_to_complete"))),
-                   _blk_fa("شباهت تعریف"),
-                   _blk_en(("%.3f" % sim) if isinstance(sim, float)
-                           else "—", nums=True)]
-    model_d = (rec.get("model_d") or "").strip()
-    if model_d:
-        fill_blocks.append(_blk_fa("تکمیل مدل"))
-        fill_blocks.append(_blk_en("model-completed"))
-        fill_blocks.append(_blk_en(model_d))
-    row_fill = _strip_row("تکمیل مدل", fill_blocks)
-
-    # (6) کنترل‌ها: validation badge + meta-leak/fa-dominant/headword chips
-    # + R13 informational long-example flag (never a regen).
+def _gate_verdict_blocks(rec):
+    """R45 step 2 blocks: gate verdict chips + cloze-* reasons."""
     leaks = rec.get("leaks") or []
     fa_ok = rec.get("fa_dominant")
     hw_leaks = rec.get("headword_leaks") or []
     longs = rec.get("long_example") or []
-    checks = [_badge_html(rec),
-              _check_chip("meta-leak", not leaks,
+    checks = [_check_chip("meta-leak", not leaks,
                           ", ".join(sorted(set(leaks)))[:200]
                           if leaks else "")]
     if fa_ok is not None:
@@ -3294,13 +3302,110 @@ def render_stage_strip(rec):
         checks.append(
             '<span class="chip open"><span>مثال طولانی</span> '
             '<span class="en nums">%d</span></span>' % len(longs))
-    row_checks = _strip_row(
-        "کنترل‌ها",
-        ['<div class="blk chips" dir="rtl" lang="fa">%s</div>'
-         % " ".join(checks)])
-    return ('<div class="strip">\n%s\n%s\n%s\n%s\n%s\n%s\n</div>'
-            % (row_pool, row_sense, row_topic, row_pre, row_fill,
-               row_checks))
+    blocks = ['<div class="blk chips" dir="rtl" lang="fa">%s</div>'
+              % " ".join(checks)]
+    # cloze-* gate reasons ride on content_flags (same release machinery).
+    flags = rec.get("content_flags") or {}
+    cloze_reasons = sorted({
+        str(reason) for reason in (flags.values() if isinstance(flags, dict)
+                                   else []) if isinstance(reason, str)
+        and str(reason).startswith("cloze-")})
+    for reason in cloze_reasons:
+        blocks.append(_blk_en(reason))
+    released = ((rec.get("completion_flags") or {})
+                .get("released_containment") or [])
+    if released:
+        blocks.append(_blk_en("released: %d" % len(released)))
+    return blocks
+
+
+def render_stage_strip(rec):
+    """R45 STAGE STEPPER: 4 steps, pipeline order, bidi-safe blocks.
+
+    [دیتاست خام: kept dataset fields] → [گیت‌ها: gate verdicts incl.
+    cloze-*] → [مدل: filled/improved + model name] → [نهایی:
+    valid/invalid + reason]. Presentation only — every value is read
+    from the record, nothing recomputed. Internal metadata
+    (stage_calls, similarity floats, model_calls, F4-style tags) lives
+    ONLY in render_debug_details, never here.
+    """
+    rec = rec or {}
+    # (1) دیتاست خام: kept dataset fields.
+    sense_id = (rec.get("sense_id") or "").strip()
+    en_def = (rec.get("en_def") or "").strip()
+    dataset_examples = [e for e in (rec.get("dataset_examples") or [])
+                        if isinstance(e, str) and e.strip()]
+    raw_blocks = [_blk_en((rec.get("text") or "").strip() or "—"),
+                  _blk_en((rec.get("pool_level") or "").strip() or "—"),
+                  _blk_en(sense_id or "—"),
+                  _blk_en(en_def or "—")]
+    if (rec.get("ipa_src") or "") == IPA_SRC_DATASET \
+            and (rec.get("ipa") or "").strip():
+        raw_blocks.append(_blk_en((rec.get("ipa") or "").strip()))
+    raw_blocks.append(_blk_en("examples: %d" % len(dataset_examples)))
+    step_raw = _step("دیتاست خام", raw_blocks)
+
+    # (2) گیت‌ها: gate verdicts incl. cloze-*.
+    step_gates = _step("گیت‌ها", _gate_verdict_blocks(rec))
+
+    # (3) مدل: filled/improved + model name.
+    flags = rec.get("completion_flags") or {}
+    filled = list(flags.get("fields_filled") or [])
+    delta_filled = list(flags.get("delta_filled") or [])
+    delta_improved = list(flags.get("delta_improved") or [])
+    model_used = (rec.get("model_used") or "").strip() or "—"
+    model_blocks = [_blk_en(model_used),
+                    _blk_en("fields_filled: %s" % (", ".join(delta_filled)
+                                                   or ", ".join(filled)
+                                                   or "—"))]
+    model_blocks.append(_blk_en("improved: %s" % (", ".join(delta_improved)
+                                                  or "—")))
+    step_model = _step("مدل", model_blocks)
+
+    # (4) نهایی: valid/invalid + reason.
+    reason = ((rec.get("reason") or rec.get("error") or "").strip() or "—")
+    step_final = _step("نهایی", [_badge_html(rec), _blk_en(reason)])
+    return ('<div class="steps">\n%s\n%s\n%s\n%s\n</div>'
+            % (step_raw, step_gates, step_model, step_final))
+
+
+def render_debug_details(rec):
+    """R45: collapsed per-card technical debug (internal metadata only).
+
+    Holds stage_calls, similarity floats, model_calls and F4-style tags
+    — these keys never appear in the main flow (steps/diff/final).
+    """
+    rec = rec or {}
+    try:
+        stage_calls = json.dumps(rec.get("stage_calls", {}),
+                                 ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        stage_calls = "—"
+    sim = rec.get("similarity_note")
+    sim_text = ("%.3f" % sim) if isinstance(sim, float) else "—"
+    try:
+        model_calls = json.dumps(rec.get("model_calls", {}),
+                                 ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        model_calls = "—"
+    if not (rec.get("model_calls") or {}):
+        model_calls = (rec.get("model_used") or "").strip() or model_calls
+    pending = rec.get("proper_noun")
+    if (rec.get("kind") or "word") == "phrase" and pending is None:
+        f4_text = "unjudged phrase-type (open re-judge question)"
+    else:
+        f4_text = "—"
+    return (
+        '<details class="debug"><summary>دیباگ فنی</summary>'
+        '<div class="blk en" dir="ltr" lang="en">%s</div>'
+        '<div class="blk en" dir="ltr" lang="en">%s</div>'
+        '<div class="blk en" dir="ltr" lang="en">%s</div>'
+        '<div class="blk en" dir="ltr" lang="en">%s</div>'
+        "</details>"
+        % (esc("stage_calls: %s" % stage_calls),
+           esc("similarity_note: %s" % sim_text),
+           esc("model_calls: %s" % model_calls),
+           esc("F4: %s" % f4_text)))
 
 
 def _card_ipa(card):
@@ -3405,6 +3510,11 @@ OP_KEEP = "نگه‌داشت dataset"
 OP_MODEL = "پرشده model"
 OP_REVIEW = "بازبینی‌شده"
 OP_NONE = "بدون‌کار"
+# R45 v12 — invalid-card op labels: aborted (no final card, gray) vs
+# rejected at a gate (card present but invalid, red). Replaces the
+# پرشده-model chip on invalid records; the final-empty block stays.
+OP_ABORTED = "لغوشده"
+OP_REJECTED = "رد در گیت"
 # V7 containment-release op label (locked A): dataset examples failing
 # containment are released for model replacement (need grows).
 OP_RELEASED = "آزادشده (containment)"
@@ -3442,6 +3552,31 @@ def _op_chip_named(op, cls):
     else:
         inner = esc(op)
     return '<span class="op %s">%s</span>' % (cls, inner)
+
+
+def _op_chip_aborted():
+    """R45: invalid without a final card — gray لغوشده chip."""
+    return '<span class="op aborted">%s</span>' % esc(OP_ABORTED)
+
+
+def _op_chip_rejected():
+    """R45: invalid with a final card — red رد در گیت chip."""
+    return '<span class="op rejected">%s</span>' % esc(OP_REJECTED)
+
+
+def _invalid_op_chip(rec, card):
+    """R45: op chip override for invalid records, else None.
+
+    Aborted (no final card) -> لغوشده gray; rejected (card present but
+    invalid) -> رد در گیت red. Valid records -> None (normal chips).
+    Only an explicit valid=False triggers the override — legacy dicts
+    without a valid flag keep the normal chips.
+    """
+    if (rec or {}).get("valid") is not False:
+        return None
+    if card:
+        return _op_chip_rejected()
+    return _op_chip_aborted()
 
 
 def _delta_op_state(rec, field_key):
@@ -3551,8 +3686,14 @@ def _diff_row(label, pre_text, pre_dir, final_text, final_dir,
 
 
 def render_diff_table(rec, card):
-    """R14: per-field diff (pre-card | operation | final) for 9 fields."""
+    """R14: per-field diff (pre-card | operation | final) for 9 fields.
+
+    R45 v12: invalid records override every op chip — aborted (no final
+    card, لغوشده gray) or rejected at a gate (card present, رد در گیت
+    red) — instead of the پرشده-model chip.
+    """
     card = card or {}
+    invalid_op = _invalid_op_chip(rec, card)
     frozen = [(e.strip() if isinstance(e, str) else "")
               for e in (rec.get("dataset_examples") or [])]
     # V7 containment-release: released pre-card examples render the
@@ -3578,22 +3719,29 @@ def render_diff_table(rec, card):
     rows = [
         _diff_row("معنی فارسی", "", "rtl",
                   card.get("fa_meaning") or "", "rtl",
-                  op_state=_delta_op_state(rec, "fa_meaning")),
+                  op_html=invalid_op,
+                  op_state="" if invalid_op is not None
+                  else _delta_op_state(rec, "fa_meaning")),
         _diff_row("توضیح فارسی", "", "rtl",
                   card.get("fa_explanation") or "", "rtl",
-                  op_state=_delta_op_state(rec, "fa_explanation")),
+                  op_html=invalid_op,
+                  op_state="" if invalid_op is not None
+                  else _delta_op_state(rec, "fa_explanation")),
         _diff_row("تعریف انگلیسی", en_def, "ltr", fin_en, "ltr",
                   match=bool(en_def) and fin_en.strip() == en_def,
                   pre_src=rec.get("en_source") or "",
                   final_src="model" if model_d else (
-                      rec.get("en_source") or "")),
+                      rec.get("en_source") or ""),
+                  op_html=invalid_op),
         _diff_row("تلفظ", pre_ipa, "ltr", fin_ipa, "ltr",
                   match=bool(pre_ipa) and fin_ipa == pre_ipa,
                   pre_src=ipa_src if pre_ipa else "",
                   final_src=(ipa_src
                              if fin_ipa and fin_ipa == pre_ipa else "model")
                   if fin_ipa else "",
-                  op_state=_delta_op_state(rec, "phonetic")),
+                  op_html=invalid_op,
+                  op_state="" if invalid_op is not None
+                  else _delta_op_state(rec, "phonetic")),
     ]
     examples_state = _delta_op_state(rec, "examples")
     trans_state = _delta_op_state(rec, "example_translations")
@@ -3608,7 +3756,9 @@ def render_diff_table(rec, card):
         match = (fin_src == IPA_SRC_DATASET)
         translation = trans[pos] if pos < len(trans) else ""
         fin_cell = fin
-        if pre.strip() and pre.strip() in released_set:
+        if invalid_op is not None:
+            released_chip = invalid_op
+        elif pre.strip() and pre.strip() in released_set:
             cloze_reason = _cloze_release_reason(cloze_flags, pre.strip())
             released_chip = (_op_chip_cloze(cloze_reason)
                              if cloze_reason else _op_chip_released())
@@ -3623,16 +3773,24 @@ def render_diff_table(rec, card):
         if fin and translation:
             rows.append(_diff_row("ترجمه مثال %d" % (pos + 1), "", "rtl",
                                   translation, "rtl",
-                                  op_state=trans_state))
+                                  op_html=invalid_op,
+                                  op_state="" if invalid_op is not None
+                                  else trans_state))
     rows.append(_diff_row("مترادف‌ها", "", "ltr",
                           ", ".join(card.get("synonyms") or []), "ltr",
-                          op_state=_delta_op_state(rec, "synonyms")))
+                          op_html=invalid_op,
+                          op_state="" if invalid_op is not None
+                          else _delta_op_state(rec, "synonyms")))
     rows.append(_diff_row("متضادها", "", "ltr",
                           ", ".join(card.get("antonyms") or []), "ltr",
-                          op_state=_delta_op_state(rec, "antonyms")))
+                          op_html=invalid_op,
+                          op_state="" if invalid_op is not None
+                          else _delta_op_state(rec, "antonyms")))
     rows.append(_diff_row("نکته گرامری", "", "rtl",
                           card.get("grammar_tip") or "", "rtl",
-                          op_state=_delta_op_state(rec, "grammar_tip")))
+                          op_html=invalid_op,
+                          op_state="" if invalid_op is not None
+                          else _delta_op_state(rec, "grammar_tip")))
     return (
         '<div class="diff">'
         '<div class="diff-row diff-head">'
@@ -3920,13 +4078,15 @@ def render_gallery(cards, meta, phrase_types=None):
             "%s\n"
             "<details><summary>نوار مراحل (pipeline)</summary>\n"
             "%s\n</details>\n"
+            "%s\n"
             "<h3>کارت نهایی (نمای زبان‌آموز)</h3>\n"
             "%s\n"
             "</section>"
             % (idx, esc(rec.get("text")), kind_fa, _badge_html(rec),
                esc(rec.get("pool_level")), esc(rec.get("bot_level")),
                render_diff_header(rec, phrase_types), diff_html,
-               render_stage_strip(rec), final_html))
+               render_stage_strip(rec), render_debug_details(rec),
+               final_html))
     head = (
         "<!DOCTYPE html>\n<html lang=\"fa\" dir=\"rtl\">\n<head>\n"
         "<meta charset=\"utf-8\">\n"
@@ -3993,6 +4153,13 @@ def render_gallery(cards, meta, phrase_types=None):
         ".srow{margin:.7em 0;}\n"
         ".slabel{font-weight:700;margin-bottom:.3em;}\n"
         ".sblocks{display:flex;flex-wrap:wrap;gap:.4em 1.2em;}\n"
+        ".steps{display:flex;gap:.8em;margin:1.2em 0;overflow-x:auto;}\n"
+        ".step{flex:1 1 0;min-width:0;border:1px solid var(--line);"
+        "border-radius:var(--radius);padding:.8em 1em;background:var(--card);"
+        "overflow-wrap:anywhere;}\n"
+        ".step-label{font-weight:700;margin-bottom:.3em;}\n"
+        ".step-body{display:flex;flex-direction:column;gap:.3em;}\n"
+        "@media (max-width:640px){.steps{flex-direction:column;}}\n"
         ".dhead{border:1px solid var(--line);border-radius:var(--radius);"
         "padding:1em 1.2em;margin:1.2em 0;background:var(--soft);}\n"
         ".dh-row{display:flex;flex-wrap:wrap;gap:.4em 1.2em;"
@@ -4019,6 +4186,12 @@ def render_gallery(cards, meta, phrase_types=None):
         ".op.error{background:var(--error-soft);color:var(--error);"
         "border-color:var(--error);}\n"
         ".op.none{color:var(--muted);}\n"
+        ".op.aborted{background:var(--taggray-soft);color:var(--taggray);"
+        "border-color:var(--taggray);}\n"
+        ".op.rejected{background:var(--error-soft);color:var(--error);"
+        "border-color:var(--error);}\n"
+        ".debug{border:1px dashed var(--line);border-radius:var(--radius);"
+        "padding:.6em 1em;margin:1em 0;}\n"
         "@media (max-width: 600px){"
         ".diff-row{grid-template-columns:1fr;gap:.3em;}"
         ".diff-head{display:none;}"
@@ -4120,6 +4293,8 @@ def load_precard_items(path):
             "ipa": rec.get("ipa", ""),
             "ipa_src": rec.get("ipa_src", IPA_SRC_MODEL),
             "dataset_examples": list(rec.get("dataset_examples") or []),
+            "redirect_to": rec.get("redirect_to", ""),
+            "stage_calls": dict(rec.get("stage_calls") or {}),
         })
     return items
 
