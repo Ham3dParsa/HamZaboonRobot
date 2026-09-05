@@ -17,13 +17,16 @@ from card_pilot import (
     LEVEL_GUIDANCE,
     anchor_entry_pos_for_entries,
     anchor_item_en,
+    anchor_pos_tags,
     assign_topic,
     batch_log_line,
     build_also_sense,
     build_completion_flags,
+    build_precard_values,
     build_prompts,
     build_timings,
     compute_quotas,
+    detect_xref,
     en_word_count,
     example_contains_head,
     example_containment_ok,
@@ -32,28 +35,42 @@ from card_pilot import (
     first_entry_ipa,
     generate_card,
     headword_leak_scan,
+    inflection_review,
+    is_delta_response,
     is_fa_dominant,
+    is_inflection_gloss,
     is_proper_noun_lemma,
     load_cards_jsonl,
     load_phrase_types,
     load_topic_vectors,
     main,
+    merge_precard_delta,
     meta_leak_scan,
+    parse_abbrev_expansion,
     pick_anchor_sense,
+    regen_grammar_tip,
     render_diff_header,
+    render_diff_table,
     render_final_card,
     render_gallery,
     resolve_dataset_examples,
     resolve_phrase_en_def,
     resolve_word_en_def,
+    review_dataset_examples,
+    review_grammar_tips,
+    review_records_grammar,
     richness_counters,
+    run_content_gate,
     sample_phrases,
     sample_words,
+    score_senses,
     similarity_note,
     single_topic_vector,
+    split_frozen_by_containment,
     top_sense_candidates,
     translation_fidelity_ok,
     validate_card_obj,
+    validate_delta_response,
     RunLogger,
 )
 from llm_json import AuthError
@@ -763,7 +780,7 @@ def test_gallery_diff_operation_chips():
     assert "پیش‌کارت" in html_out and "عملیات" in html_out
     assert "نهایی" in html_out
     assert "[dataset]" in html_out  # per-value source tags
-    assert "#faf7f0" in html_out and "#b3552e" in html_out  # warm palette
+    assert "#efe7d8" in html_out and "#241f18" in html_out  # v8 palette
     assert "600px" in html_out  # narrow-screen stacking
     assert "tchip primary" in html_out
     assert "0.40" in html_out  # secondary weight, tabular-nums
@@ -816,31 +833,35 @@ def four_sense_entries():
 
 def test_top_sense_candidates_ranked():
     # R17: ranked top-3 [{sense_id, gloss, score}] from the same scorer.
+    # R37 v9: the freq leg orders the clean pair (wordfreq live data) —
+    # the penalized slang sense still ranks last. (Exact scores depend
+    # on the installed wordfreq data, so only order is asserted; the
+    # deterministic freq-order proof lives in test_freq_leg_*.)
     def read_entry(row):
         return row["entry"]
 
     cands = top_sense_candidates("Bank", four_sense_entries(), "noun",
                                  read_entry)
-    assert [(c["sense_id"], c["score"]) for c in cands] == [
-        ("bank#1", 1.0), ("bank#3", 1.0), ("bank#2", 0.6)]
-    assert cands[0]["gloss"] == "clean second gloss"
+    assert [c["sense_id"] for c in cands] == [
+        "bank#3", "bank#1", "bank#2"]
+    assert cands[-1]["gloss"] == "third gloss here"  # slang last
     assert top_sense_candidates("Bank", [], "noun", read_entry) == []
 
     item = {"kind": "word", "text": "Bank", "pos": "noun"}
     anchor_item_en(item, {"bank": four_sense_entries()}, read_entry)
-    assert item["sense_id"] == "bank#1"  # anchor unchanged
+    assert item["sense_id"] == "bank#3"  # anchor unchanged (top scorer)
     assert item["sense_candidates"] == cands  # audit trail rides along
     assert item["also_sense"] == {
-        "sense_id": "bank#3", "gloss": "fourth gloss here",
+        "sense_id": "bank#1", "gloss": "clean second gloss",
         "topic": None, "topic_method": card_pilot.ALSO_TOPIC_UNASSIGNED}
 
     # Cheap vector leg fills the also-sense topic; no LLM involved.
     item2 = {"kind": "word", "text": "Bank", "pos": "noun"}
     anchor_item_en(item2, {"bank": four_sense_entries()}, read_entry,
-                   vector_lookup={"bank#3": [{"label": "Finance",
+                   vector_lookup={"bank#1": [{"label": "Finance",
                                               "weight": 1.0}]})
     assert item2["also_sense"] == {
-        "sense_id": "bank#3", "gloss": "fourth gloss here",
+        "sense_id": "bank#1", "gloss": "clean second gloss",
         "topic": "Finance", "topic_method": "v16b-exact"}
 
     # R18: single sense -> None, card unchanged.
@@ -1137,3 +1158,674 @@ def test_anchor_entry_pos_reports_anchored_pos():
         "Apple", noun_only, "noun", read_entry) == "noun"
     assert anchor_entry_pos_for_entries(
         "Apple", [], "noun", read_entry) == ""
+
+
+# ---------------- v8 R28: token-optimized delta I/O ----------------
+
+FROZEN_EX = ("She showed remarkable resilience after the long difficult "
+             "winter season here today")
+FROZEN_EX2 = ("Tatoeba fallback example shows resilient habits for the "
+              "pilot test case today")
+FROZEN_FA = "او پس از زمستان سخت تاب‌آوری چشمگیری نشان داد امروز."
+NEW_EX = "Trees here show great resilience every single day"
+NEW_FA = "درختان اینجا هر روز تاب‌آوری چشمگیری از خود نشان می‌دهند."
+
+
+def _delta_item(n_frozen=1):
+    frozen = [FROZEN_EX, FROZEN_EX2][:n_frozen]
+    return {"kind": "word", "text": "resilient", "pool_level": "B2",
+            "en_def": "able to recover quickly", "sense_id": "resilient#1",
+            "ipa": "/rɪˈzɪl.jənt/", "ipa_src": card_pilot.IPA_SRC_DATASET,
+            "dataset_examples": list(frozen)}
+
+
+def _delta_filled(new_example=True, translations=None):
+    filled = {"fa_meaning": "تاب‌آور",
+              "fa_explanation": "کسی که پس از سختی به حالت عادی برمی‌گردد.",
+              "synonyms": ["tough"], "antonyms": ["fragile"],
+              "example_translations": translations or [FROZEN_FA, NEW_FA],
+              "grammar_tip": "صفت است و معمولا با be می‌آید."}
+    if new_example:
+        filled["examples"] = [NEW_EX]
+    return filled
+
+
+def test_delta_prompt_contract_forbids_echo():
+    _, user, _ = build_prompts(_delta_item())
+    assert "NEVER echo" in user
+    assert "Return ONLY" in user
+    assert '"kept"' in user and '"filled"' in user
+    assert '"improved"' in user and '"improved_flag"' in user
+    assert "/rɪˈzɪl.jənt/" in user  # pre-card values quoted, never echoed
+    assert FROZEN_EX in user
+
+
+def test_validate_delta_response_shape():
+    ok, kept, filled, improved, flag, reason = validate_delta_response(
+        {"kept": ["phonetic"], "filled": {"m": "تاب‌آور"},
+         "improved": {}, "improved_flag": False})
+    assert ok is True and reason == ""
+    assert kept == ["phonetic"] and filled == {"fa_meaning": "تاب‌آور"}
+    assert improved == {} and flag is False
+    assert is_delta_response(
+        {"kept": [], "filled": {}}) is True
+    assert is_delta_response(dict(VALID_CARD)) is False
+    for bad in ({"kept": "phonetic", "filled": {}},
+                {"kept": [], "filled": []},
+                {"kept": [], "filled": {},
+                 "improved": {}, "improved_flag": "yes"},
+                {"kept": [], "filled": {}, "improved": []},
+                "not-an-object"):
+        ok, *_ = validate_delta_response(bad)
+        assert ok is False
+
+
+def test_merge_precard_delta_correctness():
+    precard = build_precard_values(_delta_item())
+    assert precard == {"phonetic": "/rɪˈzɪl.jənt/",
+                       "examples": [FROZEN_EX]}
+    obj, report = merge_precard_delta(
+        _delta_item(), precard, ["phonetic"], _delta_filled(), {}, False)
+    assert report["kept_tamper"] is False
+    assert report["filled_keys"] == sorted(_delta_filled())
+    assert obj["phonetic"] == "/rɪˈzɪl.jənt/"  # stored value wins
+    assert obj["examples"] == [FROZEN_EX, NEW_EX]  # frozen + missing slot
+    assert obj["fa_meaning"] == "تاب‌آور"
+    # Improved overrides a wrong pre-card value.
+    obj2, report2 = merge_precard_delta(
+        _delta_item(), precard, [], {},
+        {"phonetic": "/better/"}, True)
+    assert obj2["phonetic"] == "/better/"
+    assert report2["improved_keys"] == ["phonetic"]
+    assert report2["improved_flag"] is True
+
+
+def test_merge_precard_delta_kept_tamper_discarded():
+    precard = build_precard_values(_delta_item(n_frozen=2))
+    tampered = _delta_filled()
+    tampered["phonetic"] = "/WRONG/"
+    obj, report = merge_precard_delta(
+        _delta_item(n_frozen=2), precard, ["phonetic", "examples"],
+        tampered, {}, False)
+    assert report["kept_tamper"] is True
+    assert report["tampered"] == ["phonetic", "examples"]
+    assert obj["phonetic"] == "/rɪˈzɪl.jənt/"  # tamper discarded
+    assert "phonetic" not in report["filled_keys"]
+
+
+def test_generate_card_delta_end_to_end():
+    item = _delta_item()
+
+    def transport(api_key, model, system, user):
+        return json.dumps({"kept": ["phonetic"],
+                           "filled": _delta_filled(),
+                           "improved": {}, "improved_flag": False})
+
+    rec = generate_card(item, "key", transport=transport, model_calls={})
+    assert rec["valid"] is True
+    assert rec["card"]["examples"] == [FROZEN_EX, NEW_EX]
+    assert rec["examples_src"] == ["dataset", "model"]
+    flags = rec["completion_flags"]
+    assert flags["delta_kept"] == ["phonetic"]
+    assert "fa_meaning" in flags["delta_filled"]
+    assert flags["delta_improved"] == []
+    assert flags["kept_tamper"] is False
+    # Diff still computed by us: kept + filled chips render.
+    html_out = render_diff_table(rec, rec["card"])
+    assert 'class="op kept"' in html_out
+    assert 'class="op filled"' in html_out
+
+
+def test_generate_card_delta_kept_tamper_flagged_but_valid():
+    item = _delta_item(n_frozen=2)
+
+    def transport(api_key, model, system, user):
+        filled = {"fa_meaning": "تاب‌آور",
+                  "fa_explanation": "کسی که پس از سختی برمی‌گردد.",
+                  "synonyms": ["tough"], "antonyms": ["fragile"],
+                  "example_translations": [FROZEN_FA, FROZEN_FA],
+                  "grammar_tip": "صفت است.",
+                  "phonetic": "/WRONG/"}  # kept-field alteration
+        return json.dumps({"kept": ["phonetic", "examples"],
+                           "filled": filled,
+                           "improved": {}, "improved_flag": False})
+
+    rec = generate_card(item, "key", transport=transport, model_calls={})
+    assert rec["valid"] is True  # tamper discarded, dataset value kept
+    assert rec["completion_flags"]["kept_tamper"] is True
+    assert rec["examples_src"] == ["dataset", "dataset"]
+
+
+def test_generate_card_delta_compact_aliases():
+    item = {"kind": "word", "text": "resilient", "pool_level": "A1",
+            "ipa_src": "model", "dataset_examples": []}
+
+    def transport(api_key, model, system, user):
+        return json.dumps({
+            "kept": [], "improved": {}, "improved_flag": False,
+            "filled": {
+                "m": "تاب‌آور", "x": "کسی که برمی‌گردد.",
+                "s": ["tough"], "a": ["fragile"],
+                "e": ["She is a resilient learner here today.",
+                      "Trees here are resilient every day now"],
+                "t": ["او یادگیرنده‌ای تاب‌آور است امروز.",
+                      "درختان اینجا هر روز تاب‌آور هستند اکنون."],
+                "g": "صفت است."}})
+
+    rec = generate_card(item, "key", transport=transport, model_calls={})
+    assert rec["valid"] is True
+    assert rec["card"]["fa_meaning"] == "تاب‌آور"
+    assert rec["examples_src"] == ["model", "model"]
+
+
+# ---------------- v8 R29: abbreviations ----------------
+
+def test_parse_abbrev_expansion_variants():
+    assert parse_abbrev_expansion("Initialism of television") == "television"
+    assert parse_abbrev_expansion("Abbreviation of National Health Service",
+                                  ) == "National Health Service"
+    assert parse_abbrev_expansion("Short for mathematics.") == "mathematics"
+    assert parse_abbrev_expansion("Contraction of do not") == "do not"
+    assert parse_abbrev_expansion("initialism of as soon as possible",
+                                  ) == "as soon as possible"  # case-insensitive
+    assert parse_abbrev_expansion("able to recover quickly") == ""
+    assert parse_abbrev_expansion("A word that is short for nothing here "
+                                  "in prose") == ""  # anchored: no mid match
+    assert parse_abbrev_expansion("") == ""
+
+
+def test_abbrev_dataset_first_and_model_fill_gap():
+    def read_entry(row):
+        return row["entry"]
+
+    index = {"tv": [{"pos": "noun",
+                     "entry": {"pos": "noun", "sounds": [],
+                               "senses": [{"glosses": [
+                                   "Initialism of television"],
+                                   "tags": []}]}}]}
+    item = {"kind": "word", "text": "TV", "pos": "noun"}
+    anchor_item_en(item, index, read_entry)
+    assert item["abbrev_expansion"] == "television"
+    _, user, _ = build_prompts(dict(item, pool_level="A1"))
+    assert '"abbrev_expansion"' in user and "television" in user
+
+    gap = {"kind": "word", "text": "TV", "pool_level": "A1",
+           "ipa_src": "model", "dataset_examples": []}
+    _, gap_user, _ = build_prompts(gap)
+    assert "abbrev_expansion" in gap_user  # model fills only if missing
+
+    def transport(api_key, model, system, user):
+        filled = _delta_filled(new_example=False)
+        filled["examples"] = [
+            "She is a resilient learner here today.",
+            "Trees here are resilient every day now"]
+        filled["example_translations"] = [
+            "او یادگیرنده‌ای تاب‌آور است امروز.",
+            "درختان اینجا هر روز تاب‌آور هستند اکنون."]
+        filled["abbrev_expansion"] = "television"
+        return json.dumps({"kept": [], "filled": filled,
+                           "improved": {}, "improved_flag": False})
+
+    rec = generate_card(dict(gap, text="resilient"), "key",
+                        transport=transport, model_calls={})
+    assert rec["valid"] is True
+    assert rec["abbrev_expansion"] == "television"
+
+
+# ---------------- v8 R30: grammar fact-review ----------------
+
+def _review_reply(rows):
+    return json.dumps({"results": rows})
+
+
+def test_review_grammar_tips_mocked():
+    items = [{"key": "w:a", "text": "a", "en_def": "g",
+              "grammar_tip": "tip-a"},
+             {"key": "w:b", "text": "b", "en_def": "g",
+              "grammar_tip": "tip-b"}]
+
+    def transport(api_key, model, system, user):
+        assert "fact-checker" in system
+        return _review_reply([
+            {"key": "w:a", "ok": True, "problem": ""},
+            {"key": "w:b", "ok": False,
+             "problem": "نام اشتباه برای ed-",
+             "extra": "ignored"}])
+
+    verdicts = review_grammar_tips(items, transport, "k", model_calls={})
+    assert verdicts["w:a"] == {"ok": True, "problem": "",
+                               "model": card_pilot.MODELS[0]}
+    assert verdicts["w:b"]["ok"] is False
+    assert "ed" in verdicts["w:b"]["problem"]
+
+    def garbage(api_key, model, system, user):
+        return "not json {{{"
+
+    fallen = review_grammar_tips(items[:1], garbage, "k", model_calls={})
+    assert fallen == {"w:a": {"ok": True, "problem": "",
+                              "model": "review-fallback"}}
+
+
+def test_review_records_grammar_regen_once_with_resume(tmp_path):
+    rec = {"key": "w:r", "kind": "word", "text": "resilient",
+           "pool_level": "A1", "en_def": "able to recover quickly",
+           "card": dict(VALID_CARD), "valid": True}
+    calls = []
+
+    def transport(api_key, model, system, user):
+        calls.append(system)
+        if system == card_pilot.GRAMMAR_REGEN_SYS:
+            return json.dumps({"grammar_tip": "نکته اصلاح‌شده درباره صفت."})
+        return _review_reply([{"key": "w:r", "ok": False,
+                               "problem": "قاعده نادرست"}])
+
+    prog = str(tmp_path / "grammar_prog.json")
+    checked, regens = review_records_grammar(
+        [rec], "k", transport=transport, model_calls={}, progress_path=prog)
+    assert (checked, regens) == (1, 1)
+    assert rec["card"]["grammar_tip"] == "نکته اصلاح‌شده درباره صفت."
+    assert rec["grammar_review"]["verdict"] == "rejected"
+    assert rec["grammar_review"]["regen"] is True
+
+    def boom(api_key, model, system, user):
+        raise AssertionError("resume must not re-call")
+
+    rec2 = {"key": "w:r", "kind": "word", "text": "resilient",
+            "pool_level": "A1", "en_def": "able to recover quickly",
+            "card": dict(VALID_CARD), "valid": True}
+    checked, regens = review_records_grammar(
+        [rec2], "k", transport=boom, model_calls={}, progress_path=prog)
+    assert (checked, regens) == (0, 0)  # resumed, tip re-applied
+    assert rec2["card"]["grammar_tip"] == "نکته اصلاح‌شده درباره صفت."
+
+
+def test_grammar_review_fail_closed_keeps_tip():
+    rec = {"key": "w:r", "kind": "word", "text": "resilient",
+           "pool_level": "A1", "en_def": "g",
+           "card": dict(VALID_CARD), "valid": True}
+
+    def down(api_key, model, system, user):
+        raise RuntimeError("provider down")
+
+    checked, regens = review_records_grammar(
+        [rec], "k", transport=down, model_calls={})
+    assert (checked, regens) == (1, 0)
+    assert rec["card"]["grammar_tip"] == VALID_CARD["grammar_tip"]
+    assert rec["grammar_review"]["verdict"] == "ok"  # fail-closed
+
+
+def test_regen_grammar_tip_returns_empty_on_failure():
+    def down(api_key, model, system, user):
+        raise RuntimeError("down")
+
+    assert regen_grammar_tip("w", "g", "bad", "p", "k", down) == ""
+
+
+# ---------------- v8 R31: dataset-example content gate ----------------
+
+def test_review_dataset_examples_mocked():
+    items = [{"key": "w:a", "examples": ["A clean example here today.",
+                                         "Another calm sentence for all."]}]
+
+    def transport(api_key, model, system, user):
+        assert "appropriateness" in system
+        return _review_reply([{"key": "w:a",
+                               "flagged": ["A clean example here today.",
+                                           "not-a-member example"],
+                               "reason": "creepy"}])
+
+    verdicts = review_dataset_examples(items, transport, "k",
+                                       model_calls={})
+    assert verdicts["w:a"]["flagged"] == ["A clean example here today."]
+    assert verdicts["w:a"]["reason"] == "creepy"
+
+    def garbage(api_key, model, system, user):
+        return "garbage {{{"
+
+    fallen = review_dataset_examples(items, garbage, "k", model_calls={})
+    assert fallen == {"w:a": {"flagged": [], "reason": "",
+                              "model": "review-fallback"}}
+
+
+def test_content_flag_releases_example_and_grows_need():
+    frozen = [FROZEN_EX, FROZEN_EX2]
+    item = {"kind": "word", "text": "resilient", "pool_level": "B2",
+            "en_def": "able to recover quickly", "sense_id": "resilient#1",
+            "ipa_src": "model",
+            "dataset_examples": list(frozen),
+            "content_flags": {FROZEN_EX2: "content-flag: creepy"}}
+    kept, released = split_frozen_by_containment(item)
+    assert kept == [FROZEN_EX]  # flagged joins released_containment
+    assert FROZEN_EX2 in released
+    _, user, _ = build_prompts(item)
+    assert "never reuse" in user  # flagged never-reuse line
+
+    def transport(api_key, model, system, user_text):
+        return json.dumps(dict(
+            VALID_CARD,
+            examples=[FROZEN_EX, NEW_EX],
+            example_translations=[FROZEN_FA, NEW_FA]))
+
+    rec = generate_card(item, "key", transport=transport, model_calls={})
+    assert rec["valid"] is True
+    assert FROZEN_EX2 in rec["completion_flags"]["released_containment"]
+    assert rec["examples_src"] == ["dataset", "model"]
+    assert rec["content_flags"] == {FROZEN_EX2: "content-flag: creepy"}
+
+
+def test_run_content_gate_resume(tmp_path):
+    items = [{"kind": "word", "text": "apple", "pool_level": "A1",
+              "dataset_examples": ["A calm apple example here today."]}]
+    calls = []
+
+    def transport(api_key, model, system, user):
+        calls.append(user)
+        return _review_reply([{"key": "w:apple", "flagged": [],
+                               "reason": ""}])
+
+    prog = str(tmp_path / "content_prog.json")
+    assert run_content_gate(items, "k", transport=transport,
+                            model_calls={}, progress_path=prog) == (0,)
+    assert items[0]["content_flags"] == {}
+    n_calls = len(calls)
+    assert n_calls > 0
+    assert run_content_gate(items, "k", transport=transport,
+                            model_calls={}, progress_path=prog) == (0,)
+    assert len(calls) == n_calls  # resume: no new calls
+
+
+# ---------------- v8 R32: POS ----------------
+
+def _pos_index():
+    def rows(pos, glosses):
+        return {"pos": pos,
+                "entry": {"pos": pos, "sounds": [],
+                          "senses": [{"glosses": [g], "tags": []}
+                                     for g in glosses]}}
+    return {"bank": [
+        rows("noun", ["Alternative spelling of xyz"]),
+        rows("noun", ["a financial institution"]),
+        rows("verb", ["to tilt an aircraft"]),
+        rows("adj", ["financial in nature"])]}
+
+
+def test_anchor_pos_tags_anchored_first_capped():
+    def read_entry(row):
+        return row["entry"]
+
+    tags = anchor_pos_tags("Bank", _pos_index()["bank"], "noun",
+                           read_entry)
+    assert tags[0] == "noun"  # anchored entry POS first
+    assert tags == ["noun", "verb", "adj"]  # distinct, capped at 3
+    assert anchor_pos_tags("Bank", _pos_index()["bank"], "noun",
+                           read_entry, limit=2) == ["noun", "verb"]
+    assert anchor_pos_tags("Bank", [], "noun", read_entry) == []
+
+
+def test_anchor_item_sets_pos_and_src():
+    def read_entry(row):
+        return row["entry"]
+
+    item = {"kind": "word", "text": "Bank", "pos": "noun"}
+    anchor_item_en(item, _pos_index(), read_entry)
+    assert item["sense_id"] == "bank#1"  # anchor unchanged
+    assert item["pos"] == ["noun", "verb", "adj"]
+    assert item["pos_src"] == "dataset"
+    bare = {"kind": "word", "text": "zzz", "pos": "noun"}
+    anchor_item_en(bare, {}, read_entry)
+    assert bare["pos"] == [] and bare["pos_src"] == "none"
+
+
+def test_pos_gallery_chip_row_and_record():
+    rec = {"key": "w:b", "kind": "word", "text": "bank",
+           "pool_level": "A1", "bot_level": "beginner", "model_used": "m1",
+           "sense_id": "bank#1", "en_def": "a financial institution",
+           "en_source": "dataset", "topic": "Finance",
+           "topic_method": "v16b-exact",
+           "pos": ["noun", "verb"], "pos_src": "dataset",
+           "card": dict(VALID_CARD, word="bank"), "valid": True,
+           "reason": "", "error": ""}
+    html_out = render_diff_header(rec)
+    assert "نقش دستوری" in html_out
+    assert "noun" in html_out and "verb" in html_out
+    assert "[dataset]" in html_out
+    # Legacy pool-string pos still renders, no crash.
+    legacy = render_diff_header(dict(rec, pos="noun", pos_src="none"))
+    assert "نقش دستوری" in legacy
+
+    item = {"kind": "word", "text": "resilient", "pool_level": "A1",
+            "pos": ["adj"], "pos_src": "dataset",
+            "ipa_src": "model", "dataset_examples": []}
+
+    def transport(api_key, model, system, user):
+        return json.dumps(dict(VALID_CARD))
+
+    got = generate_card(item, "key", transport=transport, model_calls={})
+    assert got["valid"] is True
+    assert got["pos"] == ["adj"] and got["pos_src"] == "dataset"
+
+
+# ---------------- v8 R33: gallery theme ----------------
+
+def test_gallery_v8_theme_and_op_colors():
+    html_out = render_gallery(
+        [{"key": "w:a", "kind": "word", "text": "apple", "pool_level": "A1",
+          "bot_level": "beginner", "model_used": "m1",
+          "card": dict(VALID_CARD, word="apple"), "valid": True,
+          "reason": "", "error": ""}],
+        {"date_tehran": "d", "commit": "c", "model_calls": {"m1": 1}})
+    assert "#efe7d8" in html_out and "#241f18" in html_out  # darker pastel
+    for token in ("--kept-soft", "--filled-soft", "--improved-soft",
+                  "--error-soft", ".op.kept", ".op.filled", ".op.improved",
+                  ".op.error"):
+        assert token in html_out  # op color system
+    assert "nth-child(even)" in html_out  # diff rows zebra
+    assert "min-width:0" in html_out  # no overflow at 1440/390
+    assert "@media (max-width: 600px)" in html_out  # 390px stacking
+    assert 'name="viewport"' in html_out
+    # Kept affordances: RTL/Vazirmatn/.en/sticky nav/details/no externals.
+    assert 'dir="rtl"' in html_out and "Vazirmatn" in html_out
+    assert 'class="en"' in html_out and "position:sticky" in html_out
+    assert "<details>" in html_out
+    assert "<link" not in html_out and 'href="http' not in html_out
+
+
+def test_gallery_delta_improved_chip_and_error_badge():
+    card = dict(VALID_CARD, word="apple")
+    rec = {"key": "w:apple", "kind": "word", "text": "apple",
+           "pool_level": "A1", "bot_level": "beginner", "model_used": "m1",
+           "sense_id": "apple#1", "en_def": "a fruit",
+           "en_source": "dataset", "topic": "Food", "topic_method": "t",
+           "ipa": "/æpəl/", "ipa_src": "dataset",
+           "dataset_examples": list(card["examples"]),
+           "examples_src": ["dataset", "model"],
+           "completion_flags": {"fields_filled": ["fa_meaning"],
+                                 "sense_review": True,
+                                 "nothing_to_complete": False,
+                                 "released_containment": [],
+                                 "delta_filled": ["fa_meaning"],
+                                 "delta_improved": ["phonetic"],
+                                 "delta_kept": ["examples"],
+                                 "kept_tamper": False},
+           "card": card, "valid": True, "reason": "", "error": ""}
+    html_out = render_diff_table(rec, card)
+    assert 'class="op improved"' in html_out
+    assert 'class="op filled"' in html_out
+    assert 'class="op kept"' in html_out
+
+
+# ---------------- v9 R34: cross-reference senses ----------------
+
+def test_detect_xref_patterns():
+    # General patterns, case-insensitive, whole-gloss anchored.
+    assert detect_xref("Alternative form of colour.") == "colour"
+    assert detect_xref('Alternative spelling of "colour".') == "colour"
+    assert detect_xref("SYNONYM OF happiness") == "happiness"
+    assert detect_xref("Variant of flavor.") == "flavor"
+    assert detect_xref("See bag.") == "bag"
+    assert detect_xref("see also bag") == "bag"
+    # R36 inflection stubs are NOT xref.
+    assert detect_xref("plural of cat") is None
+    assert detect_xref("past of go") is None
+    assert detect_xref("comparative of big") is None
+    # Prose glosses never match (anchored ^...$).
+    assert detect_xref("a fruit") is None
+    assert detect_xref("to see someone off at the station") is None
+    assert detect_xref("") is None
+
+
+def test_register_penalty_bare_alternative_form():
+    # R34 v9: v14-pattern gap fixed — the bare stub scores 0.50 like its
+    # qualified siblings. Owner run_v14_phase1.register_penalty untouched.
+    assert card_pilot._v14_register_penalty(
+        [], "Alternative form of xyz") == 0.50
+    assert card_pilot._v14_register_penalty(
+        [], "Alternative spelling of xyz") == 0.50
+    assert card_pilot._v14_register_penalty(
+        [], "a financial institution") == 1.0
+
+
+def _xref_index():
+    def rows(glosses, ipa="/x/"):
+        return [{"pos": "noun",
+                 "entry": {"pos": "noun", "sounds": [{"ipa": ipa}],
+                           "senses": [{"glosses": [g], "tags": [],
+                                       "examples": []}
+                                      for g in glosses]}}]
+    return {
+        "color": rows(["Alternative spelling of colour."]),
+        "colour": rows(["a hue such as red or blue", "a dye"]),
+        "ghost": rows(["See specter."]),
+    }
+
+
+def test_xref_resolve_hit():
+    # Bare-xref top sense resolves to the TARGET top gloss/sense_id,
+    # tagged xref-resolved with the origin recorded.
+    def read_entry(row):
+        return row["entry"]
+
+    item = {"kind": "word", "text": "color", "pos": "noun"}
+    anchor_item_en(item, _xref_index(), read_entry)
+    assert item["en_def"] == "a hue such as red or blue"
+    assert item["sense_id"] == "colour#0"
+    assert item["xref_method"] == "xref-resolved"
+    assert item["xref_resolved_from"] == "color#0"
+    assert item["xref_unresolvable"] is False
+    assert item["ipa"] == "/x/"  # target entry sounds
+
+
+def test_xref_unresolvable_drop_flag():
+    # No target entry ("specter" absent) -> flagged, gloss kept as-is
+    # (S1 drops it as no-real-def; the helper itself never drops).
+    def read_entry(row):
+        return row["entry"]
+
+    item = {"kind": "word", "text": "ghost", "pos": "noun"}
+    anchor_item_en(item, _xref_index(), read_entry)
+    assert item["xref_unresolvable"] is True
+    assert item["xref_method"] == ""
+    assert item["en_def"] == "See specter."
+
+
+def test_xref_one_hop_max():
+    # Target whose own top is a bare xref -> unresolvable (no chains).
+    def read_entry(row):
+        return row["entry"]
+
+    index = {"aaa": [{"pos": "noun",
+                      "entry": {"pos": "noun", "sounds": [],
+                                "senses": [{"glosses": ["See bbb."],
+                                            "tags": [],
+                                            "examples": []}]}}],
+             "bbb": [{"pos": "noun",
+                      "entry": {"pos": "noun", "sounds": [],
+                                "senses": [{"glosses": ["See ccc."],
+                                            "tags": [],
+                                            "examples": []}]}}],
+             "ccc": [{"pos": "noun",
+                      "entry": {"pos": "noun", "sounds": [],
+                                "senses": [{"glosses": ["a real thing"],
+                                            "tags": [],
+                                            "examples": []}]}}]}
+    item = {"kind": "word", "text": "aaa", "pos": "noun"}
+    anchor_item_en(item, index, read_entry)
+    assert item["xref_unresolvable"] is True
+    assert item["sense_id"] == "aaa#0"
+
+
+# ---------------- v9 R36: inflection judge ----------------
+
+def test_is_inflection_gloss():
+    assert is_inflection_gloss("plural of cat") is True
+    assert is_inflection_gloss("past of go") is True
+    assert is_inflection_gloss("comparative of big") is True
+    assert is_inflection_gloss("Alternative spelling of colour.") is False
+    assert is_inflection_gloss("a hue such as red") is False
+
+
+def _inflect_items():
+    return [{"key": "w:cats", "text": "cats", "gloss": "plural of cat"},
+            {"key": "w:went", "text": "went", "gloss": "past of go"}]
+
+
+def test_inflection_review_keep_and_drop():
+    def transport(api_key, model, sys_text, user_text):
+        assert "keep" in user_text
+        return json.dumps({"results": [
+            {"key": "w:cats", "keep": False,
+             "reason": "regular plural, use cat"},
+            {"key": "w:went", "keep": True,
+             "reason": "irregular, own learner value"}]})
+
+    out = inflection_review(_inflect_items(), transport, "k", {})
+    assert out["w:cats"] == {"keep": False,
+                             "reason": "regular plural, use cat",
+                             "model": card_pilot.MODELS[0],
+                             "uncertain": False}
+    assert out["w:went"]["keep"] is True
+    assert out["w:went"]["uncertain"] is False
+
+
+def test_inflection_review_uncertain_keep():
+    # Transport garbage -> fail-closed keep flagged review-uncertain
+    # (never drop on uncertainty).
+    def garbage(api_key, model, sys_text, user_text):
+        return "not json at all {{{"
+
+    out = inflection_review(_inflect_items()[:1], garbage, "k", {})
+    assert out["w:cats"]["keep"] is True
+    assert out["w:cats"]["uncertain"] is True
+    assert out["w:cats"]["model"] == "review-fallback"
+
+
+# ---------------- v9 R37: frequency leg ----------------
+
+def _freq_entries():
+    def rows(glosses):
+        return [{"pos": "noun",
+                 "entry": {"pos": "noun", "sounds": [],
+                           "senses": [{"glosses": [g], "tags": [],
+                                       "examples": []}
+                                      for g in glosses]}}]
+    # Two clean senses, all else equal (same tags/POS/length class).
+    return rows(["aaa bbb ccc common thing here",
+                 "zzz qqq xxx obscure thing here"])
+
+
+def test_freq_leg_common_outranks_rare():
+    # Injected zipf: common words score high, rare words low.
+    def read_entry(row):
+        return row["entry"]
+
+    def zipf_fn(word):
+        return 6.0 if word in ("aaa", "bbb", "ccc", "common") else 1.0
+
+    scored = score_senses("w", _freq_entries(), "noun", read_entry,
+                          zipf_fn=zipf_fn)
+    assert scored[0][4] == "aaa bbb ccc common thing here"
+    assert scored[0][0] > scored[1][0]
+    # Ties (no zipf signal) preserve file order — old behavior kept.
+    tied = score_senses("w", _freq_entries(), "noun", read_entry,
+                        zipf_fn=lambda w: None)
+    assert [idx for _, idx, _, _, _ in tied] == [0, 1]

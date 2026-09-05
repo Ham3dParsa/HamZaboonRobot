@@ -214,9 +214,11 @@ def test_r26_rekey_forces_redo_and_resume_skips():
         code, _, _, seen3 = _run_only_s1(
             tmp_path, extra=("--rekey", str(rekey)))
         assert code == 0
-        # One item re-ranked = its 3 anchor reads (anchor + candidates +
-        # anchor-pos); a full re-rank would be 6. Pear stayed resumed.
-        assert len(seen3) == 3
+        # One item re-ranked = its 4 anchor reads (anchor + candidates +
+        # R32 pos-tags x2; R34 v9: S1 reuses the probe anchor_pos instead
+        # of a separate anchor-pos re-read); a full re-rank would be 8.
+        # Pear stayed resumed.
+        assert len(seen3) == 4
         s1 = json.loads(
             (tmp_path / "prog" / "s1.json").read_text(encoding="utf-8"))
         assert set(s1["done"]) == {"w:apple", "w:pear"}

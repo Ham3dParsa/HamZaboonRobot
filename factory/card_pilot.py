@@ -213,8 +213,16 @@ TARGET_EXTRAPOLATION_ITEMS = 3500
 
 
 def normalize_pos(pos):
-    """Casefold a POS tag through the minimal alias map (R1 gloss match)."""
-    key = (pos or "").strip().casefold()
+    """Casefold a POS tag through the minimal alias map (R1 gloss match).
+
+    R32 v8: tolerates the dataset tag list in item["pos"] (uses the
+    first tag) so re-ranking an already-anchored item never crashes.
+    """
+    if isinstance(pos, (list, tuple)):
+        pos = pos[0] if pos else ""
+    if not isinstance(pos, str):
+        pos = str(pos or "")
+    key = pos.strip().casefold()
     return _POS_ALIASES.get(key, key)
 
 
@@ -278,13 +286,17 @@ def _v14_register_penalty(tags, gloss):
     main() and importing run_v14_phase1 pulls torch/sentence-transformers/
     sklearn + embedding models (side effects, non-hermetic). Logic is
     byte-faithful to the v14 ranking used for the v14c judge picks.
+    R34 v9: v14-pattern gap fixed — the owner regex requires a qualifier
+    word ("alternative <X> form of") so the bare "alternative form of X"
+    stub scored 1.0 here; it now scores 0.50 like its siblings. The
+    owner function (run_v14_phase1.py) is untouched.
     """
     import re as _re
     t = set((tags or []))
     if t & {"slang", "vulgar", "derogatory", "offensive"}:
         return 0.60
     g = (gloss or "").strip()
-    if _re.search(r"alternative [\w\-]+ form of|alternative spelling of|alternative name for",
+    if _re.search(r"alternative (?:[\w\-]+ )?form of|alternative spelling of|alternative name for",
                   g.lower()):
         return 0.50
     if len(g.split()) == 1 and g[:1].isupper() and g[1:2].islower():
@@ -306,6 +318,117 @@ def _v14_ppos(entry_pos, pool_pos):
     if normalize_pos(entry_pos) == "verb" and normalize_pos(pool_pos) != "verb":
         return 0.70
     return 1.0
+
+
+# R37 v9 — frequency leg, owners: factory/run_v14_phase1.py::main.<locals>.
+# sense_words / freq_per_sense (owner lines ~90-95). Vendored (minimal
+# faithful copy) because importing run_v14_phase1 pulls numpy/torch/
+# sentence-transformers/sklearn + embedding models (side effects,
+# non-hermetic). Combination semantics mirror the owner ranking: freq is
+# an ADDITIVE leg inside the weighted sum (owner W["w_freq"]=0.30, other
+# legs 0.70 — see factory/packs/en/pack.json), and the register/POS
+# penalties stay MULTIPLICATIVE outside (owner: p_raw.sum * preg * ppos).
+# The pilot has no cefr/wn/cent/topic/tatoeba legs, so the missing-leg
+# mass rides at the owner norm neutral (0.5): base 0.70*0.5=0.35, plus
+# 0.30*freq_norm, times preg*ppos. Freq ties (incl. wordfreq missing)
+# yield freq_norm 0.5 for all senses, preserving the old order exactly
+# up to a constant factor.
+_FREQ_W = 0.30
+_FREQ_OTHER_NEUTRAL = 0.35
+
+
+def _v14_sense_words(gloss, synonyms, lemma):
+    """R37 owner: run_v14_phase1 sense_words (words len>=3, minus lemma)."""
+    words = [w for w in re.findall(
+        r"[a-zA-Z']+", (gloss or "").lower())
+        if len(w) >= 3 and w != (lemma or "").lower()]
+    for s in synonyms or []:
+        w = (s.get("word") if isinstance(s, dict) else str(s)) or ""
+        words += [p for p in re.findall(
+            r"[a-zA-Z']+", w.lower().replace("_", " ")) if len(p) >= 3]
+    return words
+
+
+def _freq_zipf_single(word):
+    """Single-word zipf via wordfreq; None when unknown/uninstalled."""
+    try:
+        from wordfreq import zipf_frequency
+        return float(zipf_frequency(word, "en"))
+    except Exception:
+        return None
+
+
+def _v14_freq_per_sense(gloss, synonyms, lemma, zipf_fn=None):
+    """R37 owner: run_v14_phase1 freq_per_sense (mean zipf, None if <3w)."""
+    words = _v14_sense_words(gloss, synonyms, lemma)
+    if len(words) < 3:
+        return None  # shrink to median later (owner R1 note)
+    get = zipf_fn or _freq_zipf_single
+    try:
+        sc = [get(w) for w in words]
+    except Exception:
+        return None
+    sc = [s for s in sc if isinstance(s, (int, float)) and s > 0]
+    return float(sum(sc) / len(sc)) if sc else None
+
+
+def _freq_norm(values):
+    """R37 owner: run_v14_phase1 ranking norm() (min-max, 0.5 on tie)."""
+    import numpy as _np
+    a = _np.array(list(values), dtype=float)
+    if len(a) == 0:
+        return []
+    if a.max() - a.min() < 1e-9:
+        return [0.5] * len(a)
+    return [float((v - a.min()) / (a.max() - a.min())) for v in a]
+
+
+# R34 v9 — cross-reference detection. General case-insensitive gloss
+# patterns (no word lists): "Alternative form/spelling of X",
+# "Synonym/Variant of X", bare "See X". Inflection stubs ("plural of",
+# "past of", ...) are R36, NOT xref — deliberately unmatched here.
+_XREF_RES = (
+    re.compile(r"(?i)^\s*alternative\s+(?:[\w\-]+\s+)?"
+               r"(?:form|spelling)\s+of\s+(.+?)\s*\.?\s*$"),
+    re.compile(r"(?i)^\s*(?:synonym|variant)\s+of\s+(.+?)\s*\.?\s*$"),
+    re.compile(r"(?i)^\s*see\s+(?:also\s+)?(.+?)\s*\.?\s*$"),
+)
+
+
+def detect_xref(gloss):
+    """R34: cross-reference target of a bare-xref gloss, else None.
+
+    Returns the stripped target string ("colour" for 'Alternative
+    spelling of "colour".'). Non-bare glosses (prose merely mentioning
+    "see" mid-sentence) never match: patterns are whole-gloss anchored.
+    """
+    g = (gloss or "").strip()
+    if not g:
+        return None
+    for rx in _XREF_RES:
+        hit = rx.match(g)
+        if hit:
+            target = (hit.group(1) or "").strip().strip(
+                "'\"“”‘’").strip().rstrip(".").strip()
+            return target or None
+    return None
+
+
+# R36 v9 — inflection-stub detection. General pattern over the
+# inflectional categories (no word lists): plural / past / participles /
+# comparative / superlative / 3rd-person-singular "of X".
+_INFLECTION_RX = re.compile(
+    r"(?i)\b(?:plural|past(?:\s+participle)?|present\s+participle|"
+    r"comparative|superlative|third(?:-|\s+)person\s+singular)\s+of\b")
+
+
+def is_inflection_gloss(gloss):
+    """R36: True when the gloss is an inflection stub ("plural of X")."""
+    return bool(_INFLECTION_RX.search(gloss or ""))
+
+
+# R34 v9 — xref method tag (anchor resolved through the target entry).
+XREF_METHOD_TAG = "xref-resolved"
 
 
 def _collect_kaikki_senses(entries, read_entry):
@@ -335,24 +458,41 @@ def _collect_kaikki_senses(entries, read_entry):
     return out
 
 
-def score_senses(text, entries, pool_pos, read_entry):
+def score_senses(text, entries, pool_pos, read_entry, zipf_fn=None):
     """Score every kaikki sense: [(score, file-idx, entry, sense, gloss)].
 
     Vendored v14 register_penalty * ppos, stable file order, best first.
+    R37 v9 adds the vendored v14 frequency leg (additive, owner
+    semantics — see _FREQ_W/_FREQ_OTHER_NEUTRAL). zipf_fn injects the
+    per-word zipf lookup (hermetic tests); None uses wordfreq live.
     Shared by the anchor pick and the R17/R18 audit helpers so the anchor,
     the top-3 candidates, and the second sense never diverge.
     """
     senses = _collect_kaikki_senses(entries, read_entry)
+    lemma = (text or "").strip()
+    fraw = [_v14_freq_per_sense(
+        gloss, (sense or {}).get("synonyms", []), lemma, zipf_fn)
+        for _, _, sense, gloss in senses]
+    present = [x for x in fraw if x is not None]
+    if present:
+        import numpy as _np
+        med = float(_np.median(present))
+    else:
+        med = 3.0  # owner fallback when every sense is short/unknown
+    fnorm = _freq_norm([x if x is not None else med for x in fraw])
     scored = []
-    for idx, (entry_pos, entry, sense, gloss) in enumerate(senses):
-        score = (_v14_register_penalty(sense.get("tags"), gloss)
+    for idx, ((entry_pos, entry, sense, gloss), fn) in enumerate(
+            zip(senses, fnorm)):
+        score = ((_FREQ_OTHER_NEUTRAL + _FREQ_W * fn)
+                 * _v14_register_penalty(sense.get("tags"), gloss)
                  * _v14_ppos(entry_pos, pool_pos))
         scored.append((score, idx, entry, sense, gloss))
     scored.sort(key=lambda t: (-t[0], t[1]))
     return scored
 
 
-def top_sense_candidates(text, entries, pool_pos, read_entry, k=3):
+def top_sense_candidates(text, entries, pool_pos, read_entry, k=3,
+                         zipf_fn=None):
     """R17: top-k anchor candidates [{sense_id, gloss, score}] (ranked).
 
     sense_id is "<text.lower()>#<file-order-sense-idx>"; score rounded
@@ -362,7 +502,8 @@ def top_sense_candidates(text, entries, pool_pos, read_entry, k=3):
     return [{"sense_id": "%s#%d" % (key, idx), "gloss": gloss,
              "score": round(score, 3)}
             for score, idx, _, _, gloss
-            in score_senses(text, entries, pool_pos, read_entry)[:k]]
+            in score_senses(text, entries, pool_pos, read_entry,
+                            zipf_fn=zipf_fn)[:k]]
 
 
 # R18: second-sense topic choice — audit-only field, so NO extra LLM calls.
@@ -390,19 +531,71 @@ def build_also_sense(candidates, vector_lookup=None):
             "topic": None, "topic_method": ALSO_TOPIC_UNASSIGNED}
 
 
-def pick_anchor_sense_full(text, entries, pool_pos, read_entry):
+def _target_rows(index, target):
+    """R34: index rows for an xref target (full-phrase key, else 1st token).
+
+    Returns [] when the target has no entry (unresolvable).
+    """
+    if not target or not isinstance(index, dict):
+        return []
+    key = target.strip().lower()
+    if key in index:
+        return list(index[key])
+    first = (key.split() or [""])[0]
+    return list(index.get(first, []))
+
+
+def resolve_xref_anchor(target, pool_pos, read_entry, index, zipf_fn=None):
+    """R34: top sense of the xref target entry (max 1 hop, no chains).
+
+    Returns (sense_id, gloss, sense, entry) of the target's top scorer,
+    or (None, None, None, None) when unresolvable: no target entry, or
+    the target top is itself a bare xref (chains stop after 1 hop).
+    sense_id is "<target.lower()>#<file-order-sense-idx>".
+    """
+    rows = _target_rows(index, target)
+    if not rows:
+        return None, None, None, None
+    tkey = (target or "").strip().lower()
+    if tkey not in (index or {}):
+        tkey = (tkey.split() or [""])[0]
+    scored = score_senses(tkey, rows, pool_pos, read_entry,
+                          zipf_fn=zipf_fn)
+    if not scored:
+        return None, None, None, None
+    _, best_idx, best_entry, best_sense, best_gloss = scored[0]
+    if detect_xref(best_gloss) is not None:
+        return None, None, None, None  # 1-hop max: target also bare-xref
+    return "%s#%d" % (tkey, best_idx), best_gloss, best_sense, best_entry
+
+
+def pick_anchor_sense_full(text, entries, pool_pos, read_entry,
+                           index=None, zipf_fn=None):
     """R6 anchor + R10/R11 carriers: (sense_id, gloss, sense, entry).
 
     Scoring is identical to pick_anchor_sense (vendored v14
-    register_penalty * ppos, stable file order); sense_id is
-    "<text.lower()>#<file-order-sense-idx>". Empty entries ->
-    ("", "", None, None).
+    register_penalty * ppos + R37 freq leg, stable file order); sense_id
+    is "<text.lower()>#<file-order-sense-idx>". Empty entries ->
+    ("", "", None, None). R34 v9: when the top scorer is a bare xref
+    and the same kaikki index is passed, the anchor resolves to the
+    target entry's top sense (4-tuple of the TARGET: its sense_id/gloss/
+    sense/entry); unresolvable xref (no target entry, target also
+    bare-xref) returns the ORIGINAL top tuple unchanged — the caller
+    (anchor_item_en / S1) flags it via detect_xref for the no-real-def
+    drop. index=None preserves the legacy unresolved behavior.
     """
-    scored = score_senses(text, entries, pool_pos, read_entry)
+    scored = score_senses(text, entries, pool_pos, read_entry,
+                          zipf_fn=zipf_fn)
     if not scored:
         return "", "", None, None
     _, best_idx, best_entry, best_sense, best_gloss = scored[0]
     key = (text or "").strip().lower()
+    if index is not None and detect_xref(best_gloss) is not None:
+        target = detect_xref(best_gloss)
+        resolved = resolve_xref_anchor(
+            target, pool_pos, read_entry, index, zipf_fn=zipf_fn)
+        if resolved[0]:
+            return resolved
     return "%s#%d" % (key, best_idx), best_gloss, best_sense, best_entry
 
 
@@ -411,7 +604,7 @@ def pick_anchor_sense(text, entries, pool_pos, read_entry):
 
     Score = vendored v14 register_penalty * v14 ppos factor. Returns
     (sense_id, gloss); sense_id is "<text.lower()>#<file-order-sense-idx>".
-    Empty entries -> ("", "").
+    Empty entries -> ("", ""). Legacy unresolved path (no xref index).
     """
     sid, gloss, _, _ = pick_anchor_sense_full(
         text, entries, pool_pos, read_entry)
@@ -443,6 +636,69 @@ def first_entry_ipa(entry):
         if isinstance(ipa, str) and ipa.strip():
             return ipa.strip()
     return ""
+
+
+# R29 v8 — abbreviation expansion, dataset-first. General case-insensitive
+# regex over gloss patterns (no word lists): "Initialism of X",
+# "Abbreviation of X", "Short for X", "Contraction of X".
+_ABBREV_RX = re.compile(
+    r"(?i)^\s*(?:initialism\s+of|abbreviation\s+of|short\s+for|"
+    r"contraction\s+of)\s+(.+?)\s*\.?\s*$")
+
+
+def parse_abbrev_expansion(gloss):
+    """R29: expansion of an abbreviation gloss ("" when not matching).
+
+    Matches the whole gloss only (anchored ^...$) so prose glosses that
+    merely mention "short for" mid-sentence never parse.
+    """
+    hit = _ABBREV_RX.match(gloss or "")
+    if not hit:
+        return ""
+    return (hit.group(1) or "").strip().rstrip(".")
+
+
+ABBREV_FILL_INSTRUCTION = (
+    'If this word is an abbreviation, initialism or short form, also '
+    'return key "abbrev_expansion": the full expanded form in English, '
+    "grounded in the given English definition; omit when the word is not "
+    "an abbreviation.")
+ABBREV_PRESERVE_INSTRUCTION = (
+    'Dataset abbreviation expansion (preserve exactly under '
+    '"abbrev_expansion"): ')
+
+
+def anchor_pos_tags(text, entries, pool_pos, read_entry, limit=3):
+    """R32 v8: dataset POS tags from the anchored entry (1-3 tags).
+
+    The anchored sense's entry POS comes first, then the remaining
+    distinct entry POS values in file order (casefolded, deduped,
+    capped at ``limit``). [] when nothing anchors.
+    """
+    sid, _, _, _ = pick_anchor_sense_full(
+        text, entries, pool_pos, read_entry)
+    if not sid:
+        return []
+    try:
+        want = int(sid.split("#")[-1])
+    except (TypeError, ValueError):
+        return []
+    try:
+        flat = _collect_kaikki_senses(entries, read_entry)
+    except Exception:
+        return []
+    if want < 0 or want >= len(flat):
+        return []
+    first = ((flat[want][0] or "").strip().casefold())
+    tags = []
+    for entry_pos, _, _, _ in flat:
+        tag = (entry_pos or "").strip().casefold()
+        if tag and tag not in tags:
+            tags.append(tag)
+    if first and first in tags:
+        tags.remove(first)
+        tags.insert(0, first)
+    return tags[:max(1, limit)]
 
 
 def en_word_count(text):
@@ -641,7 +897,8 @@ def resolve_phrase_en_def(index, phrase, read_entry):
     return ""
 
 
-def anchor_item_en(item, index, read_entry, vector_lookup=None):
+def anchor_item_en(item, index, read_entry, vector_lookup=None,
+                   zipf_fn=None):
     """R6 anchor + R10 IPA + R17 candidates + R18 second sense.
 
     Fills sense_id/en_def + ipa/ipa_src (R6/R10, unchanged) and the audit
@@ -650,6 +907,19 @@ def anchor_item_en(item, index, read_entry, vector_lookup=None):
     {sense_id, gloss, topic, topic_method}, None when single-sense).
     The also-sense topic uses the cheap vector_lookup leg only (R18
     choice: no LLM for an audit-only field).
+    R29 v8: abbrev_expansion parsed dataset-first from the anchored gloss
+    ("" when the gloss is not an abbreviation pattern). R32 v8:
+    item["pos"] becomes the dataset tag list (anchored entry POS first,
+    1-3 tags) with pos_src "dataset" ("none" when nothing anchors); the
+    pool POS string it replaces was already consumed by the scorer above.
+    R34 v9: bare-xref top senses resolve through the same kaikki index
+    (pick_anchor_sense_full with index=): a hit re-bases sense_id/en_def/
+    ipa/candidates/POS onto the TARGET entry (sense_id is the target's,
+    xref_method "xref-resolved", xref_resolved_from the original sense
+    id); unresolvable xref (no target entry / target also bare-xref,
+    1 hop max) keeps the original gloss and sets xref_unresolvable=True
+    (S1 drops it as no-real-def — this helper itself never drops).
+    anchor_pos carries the anchored entry POS ("" when no anchor).
     """
     text = (item.get("text") or "").strip()
     sense, entry = None, None
@@ -658,32 +928,62 @@ def anchor_item_en(item, index, read_entry, vector_lookup=None):
         entries = index.get(text.lower(), [])
         cand_entries, cand_pos = entries, item.get("pos", "")
         sid, gloss, sense, entry = pick_anchor_sense_full(
-            text, entries, item.get("pos", ""), read_entry)
+            text, entries, item.get("pos", ""), read_entry,
+            index=index, zipf_fn=zipf_fn)
     else:
         key = text.lower()
         if key in index:
             cand_entries = index[key]
             sid, gloss, sense, entry = pick_anchor_sense_full(
-                text, index[key], "", read_entry)
+                text, index[key], "", read_entry,
+                index=index, zipf_fn=zipf_fn)
         else:
             sid, gloss = "", ""
             for token in sorted(set(key.split()),
                                 key=lambda t: (-len(t), t)):
                 cand_sid, cand, sense, entry = pick_anchor_sense_full(
-                    text, index.get(token, []), "", read_entry)
+                    text, index.get(token, []), "", read_entry,
+                    index=index, zipf_fn=zipf_fn)
                 if cand:
                     sid, gloss = cand_sid, cand
                     cand_entries = index.get(token, [])
                     break
             else:
                 sense, entry = None, None
+    key = text.lower()
+    sid_lemma = sid.rpartition("#")[0] if "#" in (sid or "") else ""
+    item["xref_method"] = ""
+    item["xref_resolved_from"] = ""
+    item["xref_unresolvable"] = False
+    cand_text = text
+    if sid and sid_lemma and sid_lemma != key:
+        # R34 resolved: re-base candidates/POS onto the target rows.
+        try:
+            raw = score_senses(text, cand_entries, cand_pos, read_entry,
+                               zipf_fn=zipf_fn)
+            orig_sid = "%s#%d" % (key, raw[0][1]) if raw else ""
+        except Exception:
+            orig_sid = ""
+        item["xref_method"] = XREF_METHOD_TAG
+        item["xref_resolved_from"] = orig_sid
+        cand_entries = _target_rows(index, sid_lemma)
+        cand_text = sid_lemma
+    elif gloss and detect_xref(gloss) is not None:
+        item["xref_unresolvable"] = True
     item["sense_id"] = sid
     item["en_def"] = gloss
     ipa = first_entry_ipa(entry)
     item["ipa"] = ipa
     item["ipa_src"] = IPA_SRC_DATASET if ipa else IPA_SRC_MODEL
-    candidates = top_sense_candidates(text, cand_entries, cand_pos,
-                                      read_entry)
+    item["anchor_pos"] = (str((entry or {}).get("pos") or "").strip()
+                          .casefold() if isinstance(entry, dict) else "")
+    item["abbrev_expansion"] = parse_abbrev_expansion(gloss)
+    pos_tags = anchor_pos_tags(cand_text, cand_entries, cand_pos,
+                               read_entry)
+    item["pos"] = pos_tags
+    item["pos_src"] = "dataset" if pos_tags else "none"
+    candidates = top_sense_candidates(cand_text, cand_entries, cand_pos,
+                                      read_entry, zipf_fn=zipf_fn)
     item["sense_candidates"] = candidates
     item["also_sense"] = build_also_sense(candidates, vector_lookup)
     return item
@@ -839,20 +1139,26 @@ def translation_fidelity_ok(card):
 
 
 def split_frozen_by_containment(item):
-    """V7 containment-release (locked A): split dataset examples.
+    """V7 containment-release (locked A) + R31 v8 content-flag release.
 
-    Returns (kept, released): dataset examples PASSING phrase/word
-    containment stay FROZEN (kept); examples FAILING containment are
-    released for model replacement. The caller grows the fill need as
-    N_EXAMPLES - len(kept) and records ``released`` in
-    completion_flags["released_containment"].
+    Splits dataset examples: PASSING phrase/word containment stay FROZEN
+    (kept); FAILING containment are released for model replacement. R31:
+    examples flagged by the appropriateness review (item["content_flags"]
+    {example: reason}) join ``released`` with the content-flag reason —
+    same release machinery, same growing fill need. Returns (kept,
+    released). The caller grows the fill need as N_EXAMPLES - len(kept)
+    and records ``released`` in completion_flags["released_containment"];
+    reasons ride on item["content_flags"] into the record.
     """
     texts = [e for e in (item.get("dataset_examples") or [])
              if isinstance(e, str) and e.strip()][:N_EXAMPLES]
+    flagged = set((item.get("content_flags") or {}))
     kept, released = [], []
     for text in texts:
-        if example_contains_head(text, item.get("text", ""),
-                                 item.get("kind") or "word"):
+        if text in flagged or text.strip() in flagged:
+            released.append(text)
+        elif example_contains_head(text, item.get("text", ""),
+                                   item.get("kind") or "word"):
             kept.append(text)
         else:
             released.append(text)
@@ -864,17 +1170,27 @@ COMPLETION_FIELDS = ("fa_meaning", "fa_explanation", "synonyms", "antonyms",
                      "phonetic")
 
 
-def build_completion_flags(card, released_containment=None):
+def build_completion_flags(card, released_containment=None, delta=None):
     """R8: gap-fill record {fields_filled[], sense_review, nothing_to_complete}.
 
     V7 containment-release: ``released_containment`` lists the dataset
     example strings released for model replacement (containment-fail);
     always recorded (empty list when nothing was released).
+    R28 v8: ``delta`` (the merge report from merge_precard_delta, or None
+    for legacy full-card replies) contributes the response-shape lists
+    delta_filled/delta_improved/delta_kept + the kept_tamper flag. The
+    pre-vs-final diff itself is still computed by us in render_diff_table.
     """
     filled = [k for k in COMPLETION_FIELDS if card.get(k)]
-    return {"fields_filled": filled, "sense_review": True,
-            "nothing_to_complete": len(filled) == len(COMPLETION_FIELDS),
-            "released_containment": list(released_containment or [])}
+    flags = {"fields_filled": filled, "sense_review": True,
+             "nothing_to_complete": len(filled) == len(COMPLETION_FIELDS),
+             "released_containment": list(released_containment or [])}
+    delta = delta or {}
+    flags["delta_filled"] = list(delta.get("filled_keys") or [])
+    flags["delta_improved"] = list(delta.get("improved_keys") or [])
+    flags["delta_kept"] = list(delta.get("kept") or [])
+    flags["kept_tamper"] = bool(delta.get("kept_tamper", False))
+    return flags
 
 
 def similarity_note(en_def, model_d):
@@ -883,6 +1199,193 @@ def similarity_note(en_def, model_d):
     if not a or not b:
         return 0.0
     return round(difflib.SequenceMatcher(None, a, b).ratio(), 3)
+
+
+# R28 v8 — token-optimized delta I/O. The model no longer echoes preserved
+# pre-card values: it returns ONLY
+#   {"kept": [...], "filled": {...}, "improved": {...}, "improved_flag": bool}
+# and the pilot merges that delta onto the stored pre-card values in code.
+# Delta field namespace (canonical card names; compact aliases accepted and
+# normalized — the mirror of services.ai.ai._COMPACT_CARD_FIELDS, reused by
+# import nowhere so vendored here as a pure rename table, no logic copy):
+#   "phonetic" (dataset IPA string) and "examples" (dataset example strings)
+# are the only pre-knowable fields. "filled" carries every other card field
+# at full value, plus ONLY the missing example slots when pre-card examples
+# are partial (never the frozen ones). "improved" carries corrected values
+# for pre-card fields the model judges wrong (with improved_flag true).
+DELTA_ALIASES = {"w": "word", "ph": "phonetic", "m": "fa_meaning",
+                 "x": "fa_explanation", "s": "synonyms", "a": "antonyms",
+                 "e": "examples", "t": "example_translations",
+                 "g": "grammar_tip"}
+# Passthrough extras the validator tolerates (read pre-validation like "d").
+DELTA_EXTRAS = ("d", LITERAL_FA_KEY, "abbrev_expansion")
+DELTA_CARD_FIELDS = ("word", "phonetic", "fa_meaning", "fa_explanation",
+                     "synonyms", "antonyms", "examples",
+                     "example_translations", "grammar_tip")
+
+DELTA_IO_INSTRUCTION = (
+    "TOKEN-SAVING DELTA OUTPUT (mandatory): the pre-card values quoted "
+    "above are already stored — NEVER echo them back. Return ONLY this "
+    'JSON object: {"kept": [...], "filled": {...}, "improved": {...}, '
+    '"improved_flag": bool}. "kept" lists the pre-card field names you '
+    'preserve exactly as given ("phonetic" and/or "examples"). "filled" '
+    "carries ONLY new values for empty/missing fields (fa_meaning, "
+    "fa_explanation, synonyms, antonyms, example_translations for ALL "
+    "examples, grammar_tip — and, only when a pre-card example slot is "
+    'still empty, the missing example strings). "improved" carries '
+    "corrected values ONLY when a pre-card value is wrong (then set "
+    '"improved_flag" true); otherwise {} and false. A kept field repeated '
+    "inside filled/improved is discarded. Echoing a preserved pre-card "
+    "value is forbidden.")
+
+# R28 fix: the shared bot system prompt shows the FULL-card schema, so the
+# model obeys it and ignores the user-side delta line (0% delta adoption in
+# v8 trial). The override below is appended to the END of the system message
+# (factory pilot only — the bot path is untouched): it restates that the
+# full-card schema above describes CONTENT rules, but the OUTPUT envelope
+# must be the delta object. System text is cacheable; output tokens are not.
+DELTA_SYSTEM_OVERRIDE = (
+    "OUTPUT CONTRACT OVERRIDE (factory pipeline — higher priority than the "
+    "card schema above): the schema above defines CONTENT and LANGUAGE "
+    "rules only. Your reply envelope MUST be exactly this JSON object and "
+    'nothing else: {"kept": [...], "filled": {...}, "improved": {...}, '
+    '"improved_flag": bool}. NEVER output a full card object. NEVER repeat '
+    "a pre-card value you preserve — list its field name under kept. "
+    "Fill ONLY empty/missing fields under filled. Correct a wrong pre-card "
+    "value ONLY under improved with improved_flag true.")
+
+
+def build_precard_values(item, frozen=None):
+    """R28: stored pre-card values the model must NOT echo.
+
+    {"phonetic": dataset IPA} only when ipa_src is dataset, {"examples":
+    frozen kept list} only when non-empty. Missing slots stay absent —
+    the model fills exactly those.
+    """
+    if frozen is None:
+        frozen = [e for e in (item.get("dataset_examples") or [])
+                  if isinstance(e, str) and e.strip()][:N_EXAMPLES]
+    precard = {}
+    ipa = (item.get("ipa") or "").strip()
+    if item.get("ipa_src") == IPA_SRC_DATASET and ipa:
+        precard["phonetic"] = ipa
+    if frozen:
+        precard["examples"] = list(frozen)
+    return precard
+
+
+def _normalize_delta_keys(mapping):
+    """Canonicalize delta filled/improved keys via DELTA_ALIASES."""
+    out = {}
+    if not isinstance(mapping, dict):
+        return out
+    for key, value in mapping.items():
+        if not isinstance(key, str):
+            continue
+        canon = DELTA_ALIASES.get(key.strip(), key.strip())
+        if canon in DELTA_CARD_FIELDS or canon in DELTA_EXTRAS:
+            out[canon] = value
+    return out
+
+
+def validate_delta_response(obj):
+    """R28: validate the delta envelope.
+
+    Returns (ok, kept, filled, improved, improved_flag, reason). kept is a
+    list of pre-card field names, filled/improved are canonicalized dicts.
+    Non-dict values inside filled/improved fail the envelope (fail-closed
+    at the caller: next attempt/model).
+    """
+    if not isinstance(obj, dict):
+        return False, [], {}, {}, False, "delta must be a JSON object"
+    kept = obj.get("kept")
+    filled = obj.get("filled")
+    improved = obj.get("improved", {})
+    improved_flag = obj.get("improved_flag", False)
+    if not isinstance(kept, list) \
+            or not all(isinstance(k, str) for k in kept):
+        return False, [], {}, {}, False, "delta.kept must be a string list"
+    if not isinstance(filled, dict):
+        return False, [], {}, {}, False, "delta.filled must be an object"
+    if not isinstance(improved, dict):
+        return False, [], {}, {}, False, "delta.improved must be an object"
+    if not isinstance(improved_flag, bool):
+        return False, [], {}, {}, False, "delta.improved_flag must be bool"
+    filled = _normalize_delta_keys(filled)
+    improved = _normalize_delta_keys(improved)
+    return True, [k.strip() for k in kept if k.strip()], filled, improved, \
+        improved_flag, ""
+
+
+def is_delta_response(obj):
+    """R28: detect the delta shape (vs a legacy full-card reply)."""
+    return isinstance(obj, dict) and "kept" in obj and "filled" in obj \
+        and "word" not in obj and "w" not in obj \
+        and "fa_meaning" not in obj and "m" not in obj
+
+
+def merge_precard_delta(item, precard, kept, filled, improved,
+                        improved_flag):
+    """R28: merge a validated delta onto the stored pre-card values.
+
+    Starts from pre-card values, applies filled then improved. A kept
+    field repeated inside filled/improved is DISCARDED and reported in
+    tampered (kept_tamper). Echoed frozen examples inside filled examples
+    are deduped out (echoing is forbidden); the missing slots are filled
+    in order. Returns (full_obj, report) where full_obj uses canonical
+    card keys ready for validate_card_obj, and report carries
+    kept/filled_keys/improved_keys/kept_tamper/tampered for
+    build_completion_flags.
+    """
+    filled = dict(filled or {})
+    improved = dict(improved or {})
+    tampered = []
+    for key in list(kept or []):
+        if key in filled or key in improved:
+            filled.pop(key, None)
+            improved.pop(key, None)
+            tampered.append(key)
+    filled_keys = sorted(filled)
+    improved_keys = sorted(improved)
+    frozen = list((precard or {}).get("examples") or [])
+    if "examples" in improved and isinstance(improved["examples"], list):
+        base_examples = [e for e in improved["examples"]
+                         if isinstance(e, str) and e.strip()]
+    else:
+        base_examples = list(frozen)
+    new_examples = filled.get("examples")
+    if not isinstance(new_examples, list):
+        new_examples = []
+    frozen_set = {e.strip() for e in base_examples}
+    for cand in new_examples:
+        if not isinstance(cand, str) or not cand.strip():
+            continue
+        if cand.strip() in frozen_set:
+            continue  # echoed frozen value: forbidden, dropped
+        if len(base_examples) < N_EXAMPLES:
+            base_examples.append(cand.strip())
+            frozen_set.add(cand.strip())
+    obj = {"word": (item.get("text") or "").strip()}
+    phonetic = improved.get("phonetic", filled.get(
+        "phonetic", (precard or {}).get("phonetic", "")))
+    obj["phonetic"] = phonetic if isinstance(phonetic, str) else ""
+    obj["examples"] = base_examples
+    for key in ("fa_meaning", "fa_explanation", "synonyms", "antonyms",
+                "example_translations", "grammar_tip"):
+        if key in improved:
+            obj[key] = improved[key]
+        elif key in filled:
+            obj[key] = filled[key]
+    for extra in DELTA_EXTRAS:
+        if extra in improved:
+            obj[extra] = improved[extra]
+        elif extra in filled:
+            obj[extra] = filled[extra]
+    report = {"kept": list(kept or []), "filled_keys": filled_keys,
+              "improved_keys": improved_keys,
+              "kept_tamper": bool(tampered), "tampered": tampered,
+              "improved_flag": bool(improved_flag)}
+    return obj, report
 
 
 def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
@@ -1089,15 +1592,21 @@ def build_prompts(item):
     release: only containment-passing dataset examples stay FROZEN (locked
     A — failing ones are released for model replacement, need grows),
     production grammar_tip line + shared level_prompt_guidance keyed ONLY
-    by the anchored pre-card pool_level (R25).
+    by the anchored pre-card pool_level (R25). R28 v8: the token-saving
+    delta contract (model returns ONLY kept/filled/improved/improved_flag
+    — echoing preserved pre-card values is forbidden) + abbrev fill line
+    when the dataset expansion is missing (R29) + a never-reuse line for
+    content-flagged examples (R31).
     """
     bot_level = CEFR_TO_BOT_LEVEL[item["pool_level"]]
     system = card_prompts.custom_word_system_prompt(
         "en", bot_level, compact=card_prompts.card_output_is_compact())
+    system = system + "\n\n" + DELTA_SYSTEM_OVERRIDE
     user = item["text"]
     extras = [META_LEAK_BAN, FA_DOMINANT_RULE, HEADWORD_LEAK_RULE,
               GAPFILL_INSTRUCTION, EXAMPLE_LENGTH_RULE,
               FIDELITY_INSTRUCTION, GRAMMAR_TIP_FA_RULE,
+              DELTA_IO_INSTRUCTION,
               card_prompts.level_prompt_guidance(bot_level)]
     en_def = (item.get("en_def") or "").strip()
     if en_def:
@@ -1108,12 +1617,17 @@ def build_prompts(item):
         extras.append("Dataset pronunciation IPA (preserve exactly): "
                       + item["ipa"].strip())
         extras.append(IPA_PRESERVE_INSTRUCTION)
+    abbrev = (item.get("abbrev_expansion") or "").strip()
+    if abbrev:
+        extras.append(ABBREV_PRESERVE_INSTRUCTION + abbrev)
+    elif (item.get("kind") or "word") == "word":
+        extras.append(ABBREV_FILL_INSTRUCTION)
     frozen, released = split_frozen_by_containment(item)
     if frozen:
         need = N_EXAMPLES - len(frozen)
         extras.append(
-            "Dataset examples (FROZEN — do NOT rewrite, keep each exactly): "
-            + " | ".join(frozen))
+            "Dataset examples (FROZEN — do NOT rewrite or echo, list the "
+            "field under kept): " + " | ".join(frozen))
         if need > 0:
             extras.append(
                 "Fill ONLY the %d missing example slot(s) with new "
@@ -1129,6 +1643,13 @@ def build_prompts(item):
             "Released examples (containment-fail — do NOT reuse verbatim, "
             "replace with sense-matching examples containing the headword): "
             + " | ".join(released))
+    content_flags = item.get("content_flags") or {}
+    flagged_here = [e for e in released if e in content_flags]
+    if flagged_here:
+        extras.append(
+            "Flagged examples (inappropriate for learners — never reuse "
+            "or echo, replace with safe sense-matching examples): "
+            + " | ".join(flagged_here))
     if item.get("kind") == "phrase":
         extras.append(LITERAL_FA_INSTRUCTION)
     if extras:
@@ -1205,7 +1726,14 @@ def generate_card(item, api_key, transport=None, model_calls=None,
     topic_vector / pool_level are re-affirmed from the item AFTER
     validation as sibling keys on the RECORD — services.ai.ai.validate_card
     tolerates unknown keys but returns a fresh dict, so they can never
-    ride inside the validated card.
+    ride inside the validated card. R32 v8 extends the merge with
+    pos/pos_src; R29 with abbrev_expansion; R31 with content_flags.
+    R28 v8: the model returns ONLY the delta envelope
+    {kept, filled, improved, improved_flag} (echoing preserved pre-card
+    values is forbidden by instruction); the pilot merges it onto the
+    stored pre-card values in code, discards kept-tamper alterations +
+    flags them. Legacy full-card replies are still accepted (robustness:
+    older transports / retry echoes fall through the unchanged path).
     """
     transport = transport or call_responses
     if model_calls is None:
@@ -1213,10 +1741,17 @@ def generate_card(item, api_key, transport=None, model_calls=None,
     system, user, bot_level = build_prompts(item)
     # V7 containment-release (locked A): only containment-passing dataset
     # examples stay frozen; failing ones are released for model replacement
-    # (the fill need in build_prompts already grows accordingly).
+    # (the fill need in build_prompts already grows accordingly). R31 v8:
+    # content-flagged examples join the same released list (see
+    # split_frozen_by_containment).
     frozen, released = split_frozen_by_containment(item)
+    precard = build_precard_values(item, frozen)  # R28: never echoed back
     full_examples = [e for e in (item.get("dataset_examples") or [])
                      if isinstance(e, str) and e.strip()][:N_EXAMPLES]
+    pos_tags = item.get("pos")
+    pos_list = [t for t in (pos_tags if isinstance(pos_tags, list)
+                            else ([pos_tags] if pos_tags else []))
+                if isinstance(t, str) and t.strip()]
     record = {"key": item_key(item), "kind": item["kind"], "text": item["text"],
               "pool_level": item["pool_level"], "bot_level": bot_level,
               "sense_id": item.get("sense_id", ""),
@@ -1227,6 +1762,10 @@ def generate_card(item, api_key, transport=None, model_calls=None,
               "topic": item.get("topic", ""),
               "topic_method": item.get("topic_method", ""),
               "topic_vector": list(item.get("topic_vector") or []),
+              "pos": pos_list, "pos_src": item.get("pos_src", "none"),
+              "abbrev_expansion": (item.get("abbrev_expansion") or ""),
+              "content_flags": dict(item.get("content_flags") or {}),
+              "grammar_review": None,
               "ipa": item.get("ipa", ""),
               "ipa_src": item.get("ipa_src", IPA_SRC_MODEL),
               "dataset_examples": list(full_examples),
@@ -1291,18 +1830,36 @@ def generate_card(item, api_key, transport=None, model_calls=None,
                 last_error = "%s: %s" % (type(exc).__name__, str(exc)[:200])
                 continue
             ok, card, reason = validate_card_obj(obj, timings)
+            delta_report = None
+            if not ok and is_delta_response(obj):
+                # R28 delta path: validate the envelope, merge onto the
+                # stored pre-card values in code, then validate the merged
+                # full object through the REAL validator.
+                dok, kept, filled, improved, improved_flag, dreason = \
+                    validate_delta_response(obj)
+                if not dok:
+                    last_error = "validation: bad delta: %s" % dreason
+                    continue
+                merged_obj, delta_report = merge_precard_delta(
+                    item, precard, kept, filled, improved, improved_flag)
+                ok, card, reason = validate_card_obj(merged_obj, timings)
+                obj = merged_obj  # passthroughs below read the merged view
             if ok:
                 leaks = meta_leak_scan(card)
                 model_d = obj.get(EN_DEF_COMPACT_KEY) \
                     if isinstance(obj, dict) else ""
                 literal_fa = obj.get(LITERAL_FA_KEY) \
                     if isinstance(obj, dict) else ""
+                abbrev = (obj.get("abbrev_expansion")
+                          if isinstance(obj, dict) else "")
+                if not (isinstance(abbrev, str) and abbrev.strip()):
+                    abbrev = item.get("abbrev_expansion") or ""
                 fa_ok = is_fa_dominant(card.get("fa_meaning", ""),
                                         card.get("fa_explanation", ""),
                                         card.get("grammar_tip", ""))
                 hw_leaks = headword_leak_scan(item["text"], item["kind"],
                                               card)
-                flags = build_completion_flags(card, released)
+                flags = build_completion_flags(card, released, delta_report)
                 sim = similarity_note(item.get("en_def", ""),
                                       model_d if isinstance(model_d, str)
                                       else "")
@@ -1341,12 +1898,16 @@ def generate_card(item, api_key, transport=None, model_calls=None,
                     record["similarity_note"] = sim
                     record["examples_src"] = src
                     record["long_example"] = longs
+                    record["abbrev_expansion"] = abbrev \
+                        if isinstance(abbrev, str) else ""
                     return record
                 record.update(model_used=model, card=card, valid=True,
                               model_d=model_d if isinstance(model_d, str)
                               else "",
                               literal_fa=literal_fa
                               if isinstance(literal_fa, str) else "",
+                              abbrev_expansion=abbrev
+                              if isinstance(abbrev, str) else "",
                               completion_flags=flags, similarity_note=sim,
                               fa_dominant=True, headword_leaks=[],
                               examples_src=src, long_example=longs)
@@ -1355,17 +1916,527 @@ def generate_card(item, api_key, transport=None, model_calls=None,
                 # item AFTER validation as sibling keys on the RECORD.
                 # services.ai.ai.validate_card tolerates unknown keys but
                 # returns a fresh dict (extras stripped), so metadata can
-                # never ride inside the validated card itself.
+                # never ride inside the validated card itself. R32 v8 adds
+                # pos/pos_src to the same merge.
                 record.update(
                     sense_id=item.get("sense_id", ""),
                     topic_vector=list(item.get("topic_vector") or []),
-                    pool_level=item.get("pool_level", ""))
+                    pool_level=item.get("pool_level", ""),
+                    pos=pos_list, pos_src=item.get("pos_src", "none"))
                 return record
             last_error = "validation: %s" % reason
         # next model after exhausting attempts
     record["error"] = last_error
     record["reason"] = last_error
     return record
+
+
+# R30 v8 — grammar fact-review (Muse chain, batch 16, tips are short).
+# Wired as a card_pilot POST-STEP (tips exist only after generation, so a
+# precard S5b stage could never see them — stated choice). Batched pass
+# review_grammar_tips + resume in review_records_grammar + fail-closed
+# (review infra failure keeps the original tip; a rejected tip gets 1
+# focused regen of the tip field only, then the outcome is recorded).
+GRAMMAR_REVIEW_BATCH = 16
+GRAMMAR_REVIEW_MODELS = MODELS[:2]
+GRAMMAR_REVIEW_SYS = (
+    "You are an English grammar fact-checker for Persian learners. "
+    "Given word/sense-gloss/tip, reply {ok:bool, problem:string}. Reject "
+    "factually wrong tips (wrong affix names, wrong rules). Persian may "
+    "be used in problem. Return ONLY raw JSON, no markdown fences, no "
+    "commentary.")
+GRAMMAR_REGEN_SYS = (
+    "You rewrite a single English-grammar tip for Persian learners in "
+    "Persian. Return ONLY raw JSON, no markdown fences, no commentary.")
+
+
+def _grammar_review_prompt(batch):
+    """Batch prompt: one KEY/word/gloss/tip block per item."""
+    lines = ["Check EACH grammar tip against the word and its sense gloss.",
+             'Output: {"results": [{"key": "<item key>", "ok": true/false, '
+             '"problem": "<why it is wrong, or empty>"}]}.',
+             "Input follows:"]
+    for entry in batch:
+        lines.append("KEY %s" % entry["key"])
+        lines.append("word: %s" % (entry.get("text") or ""))
+        lines.append("sense: %s" % ((entry.get("en_def") or "")[:200]))
+        lines.append("tip: %s" % ((entry.get("grammar_tip") or "")[:500]))
+    return "\n".join(lines)
+
+
+def _validate_review_results(data, want_keys, key_field="key"):
+    """Shared envelope check for the R30/R31 review passes.
+
+    Returns the {key: row} mapping when every wanted key is present,
+    else None (caller fails closed / retries).
+    """
+    if not isinstance(data, dict) or not isinstance(
+            data.get("results"), list):
+        return None
+    by_key = {}
+    for row in data["results"]:
+        if isinstance(row, dict) and isinstance(row.get(key_field), str):
+            by_key[row[key_field]] = row
+    if set(by_key) != set(want_keys):
+        return None
+    return by_key
+
+
+def review_grammar_tips(items, transport, api_key="", model_calls=None):
+    """R30: batched grammar fact-check. Returns {key: {ok, problem, model}}.
+
+    Muse-only chain (MODELS[:2]), batch 16, 2 attempts per model. Auth
+    (401/403) aborts loudly; any other failure fails closed per item to
+    {ok: True, problem: "", model: "review-fallback"} (a broken reviewer
+    must never sink cards). Hermetic with an injected transport.
+    """
+    if model_calls is None:
+        model_calls = {}
+    out = {}
+    for base in range(0, len(items), GRAMMAR_REVIEW_BATCH):
+        batch = items[base:base + GRAMMAR_REVIEW_BATCH]
+        want = [e["key"] for e in batch]
+        prompt = _grammar_review_prompt(batch)
+        settled = False
+        for model in GRAMMAR_REVIEW_MODELS:
+            for attempt in range(MAX_ATTEMPTS):
+                text = prompt if attempt == 0 else REPAIR_PREFIX + prompt
+                try:
+                    model_calls[model] = model_calls.get(model, 0) + 1
+                    raw = transport(api_key, model, GRAMMAR_REVIEW_SYS,
+                                    text)
+                    data = extract_json(raw)
+                except AuthError:
+                    raise
+                except urllib.error.HTTPError as exc:
+                    if exc.code in (401, 403):
+                        raise_for_auth(exc)
+                    data = None
+                except Exception:
+                    data = None
+                if data is None:
+                    continue
+                by_key = _validate_review_results(data, want)
+                if by_key is None:
+                    continue
+                for key in want:
+                    row = by_key[key]
+                    ok = row.get("ok")
+                    problem = row.get("problem", "")
+                    out[key] = {
+                        "ok": bool(ok) if isinstance(ok, bool) else True,
+                        "problem": problem if isinstance(problem, str)
+                        else "",
+                        "model": model}
+                settled = True
+                break
+            if settled:
+                break
+        if not settled:
+            for key in want:
+                out[key] = {"ok": True, "problem": "",
+                            "model": "review-fallback"}
+    return out
+
+
+def regen_grammar_tip(item_text, en_def, bad_tip, problem, api_key,
+                      transport, model_calls=None):
+    """R30: 1 focused regen of the tip field only. Returns the new tip.
+
+    Returns "" when the regen fails (caller keeps the original tip and
+    records the outcome — fail-closed).
+    """
+    if model_calls is None:
+        model_calls = {}
+    user_text = (
+        "Word: %s\nSense gloss: %s\nRejected tip: %s\nProblem: %s\n"
+        "Write ONE correct short grammar tip in Persian about this word "
+        "(bring English term equivalents like the production rule). "
+        'Output: {"grammar_tip": "..."}.'
+        % (item_text or "", (en_def or "")[:200], (bad_tip or "")[:500],
+           (problem or "")[:500]))
+    for model in GRAMMAR_REVIEW_MODELS:
+        try:
+            model_calls[model] = model_calls.get(model, 0) + 1
+            raw = transport(api_key, model, GRAMMAR_REGEN_SYS, user_text)
+            data = extract_json(raw)
+        except AuthError:
+            raise
+        except Exception:
+            continue
+        if isinstance(data, dict) and isinstance(
+                data.get("grammar_tip"), str) \
+                and data["grammar_tip"].strip():
+            return data["grammar_tip"].strip()
+    return ""
+
+
+def _load_review_progress(path):
+    """Review resume state {done:{}, failed:[]}; missing/corrupt -> empty."""
+    try:
+        saved = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"done": {}, "failed": []}
+    if not isinstance(saved, dict):
+        return {"done": {}, "failed": []}
+    done = saved.get("done")
+    failed = saved.get("failed")
+    return {"done": done if isinstance(done, dict) else {},
+            "failed": failed if isinstance(failed, list) else []}
+
+
+def _save_review_progress(path, state):
+    try:
+        path = pathlib.Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state, ensure_ascii=False),
+                        encoding="utf-8")
+    except OSError:
+        pass
+
+
+def review_records_grammar(records, api_key, transport=None, model_calls=None,
+                           progress_path=None):
+    """R30 post-step: fact-check valid records' tips, 1 focused regen each.
+
+    Mutates records in place: rec["grammar_review"] = {verdict
+    ok/rejected/review-error, problem, regen, model}. Resume via
+    progress_path (done keys are re-applied, never re-called). Returns
+    (checked, regens). Fail-closed: review errors keep the original tip.
+    transport=None skips the pass entirely (hermetic tests): records are
+    untouched, (0, 0) returned.
+    """
+    if transport is None:
+        return 0, 0
+    if model_calls is None:
+        model_calls = {}
+    state = _load_review_progress(progress_path) \
+        if progress_path else {"done": {}, "failed": []}
+    done = state["done"]
+    todo = []
+    for rec in records or []:
+        card = rec.get("card") or {}
+        if not rec.get("valid") or not (card.get("grammar_tip") or ""):
+            continue
+        key = rec.get("key") or ""
+        saved = done.get(key)
+        if isinstance(saved, dict) and "verdict" in saved:
+            if saved.get("final_tip"):
+                card["grammar_tip"] = saved["final_tip"]
+            rec["grammar_review"] = saved
+        else:
+            todo.append(rec)
+    checked = regens = 0
+    for base in range(0, len(todo), GRAMMAR_REVIEW_BATCH):
+        batch = todo[base:base + GRAMMAR_REVIEW_BATCH]
+        try:
+            verdicts = review_grammar_tips(
+                [{"key": r.get("key") or "", "text": r.get("text") or "",
+                  "en_def": r.get("en_def") or "",
+                  "grammar_tip": (r.get("card") or {}).get(
+                      "grammar_tip") or ""}
+                 for r in batch],
+                transport, api_key, model_calls)
+        except AuthError:
+            raise
+        except Exception:
+            verdicts = {}
+        for rec in batch:
+            key = rec.get("key") or ""
+            card = rec.get("card") or {}
+            verdict = verdicts.get(key)
+            if verdict is None:
+                review = {"verdict": "review-error", "problem": "",
+                          "regen": False,
+                          "model": "review-fallback", "final_tip": ""}
+            elif verdict.get("ok"):
+                review = {"verdict": "ok", "problem": "",
+                          "regen": False, "model": verdict.get("model", ""),
+                          "final_tip": ""}
+            else:
+                new_tip = ""
+                try:
+                    new_tip = regen_grammar_tip(
+                        rec.get("text") or "", rec.get("en_def") or "",
+                        card.get("grammar_tip") or "",
+                        verdict.get("problem") or "", api_key, transport,
+                        model_calls)
+                except AuthError:
+                    raise
+                except Exception:
+                    new_tip = ""
+                if new_tip:
+                    card["grammar_tip"] = new_tip
+                    regens += 1
+                review = {"verdict": "rejected",
+                          "problem": verdict.get("problem") or "",
+                          "regen": bool(new_tip),
+                          "model": verdict.get("model", ""),
+                          "final_tip": new_tip}
+            rec["grammar_review"] = review
+            done[key] = review
+            checked += 1
+        if progress_path:
+            _save_review_progress(progress_path, state)
+    return checked, regens
+
+
+# R31 v8 — dataset-example content gate (same batched style as R30).
+# Flagged dataset examples join released_containment with the content-flag
+# reason (same release machinery: split_frozen_by_containment reads
+# item["content_flags"]). Wired as a card_pilot PRE-STEP (examples are
+# known before generation in both sampling and precard modes).
+CONTENT_REVIEW_BATCH = 16
+CONTENT_REVIEW_MODELS = MODELS[:2]
+CONTENT_REVIEW_SYS = (
+    "You are a content appropriateness reviewer for English learners. "
+    "Given dataset example sentences, reply {flagged:bool, reason:string}. "
+    "Flag sexual/creepy/offensive/age-inappropriate examples for "
+    "learners. Persian may be used in reason. Return ONLY raw JSON, no "
+    "markdown fences, no commentary.")
+
+
+def _content_review_prompt(batch):
+    """Batch prompt: one KEY block with numbered examples per item."""
+    lines = ["Flag EACH dataset example that is sexual, creepy, "
+             "offensive, or otherwise age-inappropriate for learners.",
+             'Output: {"results": [{"key": "<item key>", '
+             '"flagged": ["<exact example text>", ...], '
+             '"reason": "<why, or empty>"}]}. '
+             "flagged MUST quote examples exactly as given (empty when "
+             "all are appropriate).",
+             "Input follows:"]
+    for entry in batch:
+        lines.append("KEY %s" % entry["key"])
+        for pos, example in enumerate(entry.get("examples") or []):
+            lines.append("%d. %s" % (pos + 1, example))
+    return "\n".join(lines)
+
+
+def review_dataset_examples(items, transport, api_key="", model_calls=None):
+    """R31: batched appropriateness review.
+
+    items: [{key, examples[]}]. Returns {key: {flagged:[exact examples],
+    reason, model}}. Flagged entries not quoting a given example exactly
+    are dropped. Auth aborts loudly; anything else fails closed to
+    {flagged: [], ...} (fail-open keep — a broken reviewer never drops
+    dataset content).
+    """
+    if model_calls is None:
+        model_calls = {}
+    out = {}
+    for base in range(0, len(items), CONTENT_REVIEW_BATCH):
+        batch = items[base:base + CONTENT_REVIEW_BATCH]
+        want = [e["key"] for e in batch]
+        members = {e["key"]: set(e.get("examples") or []) for e in batch}
+        prompt = _content_review_prompt(batch)
+        settled = False
+        for model in CONTENT_REVIEW_MODELS:
+            for attempt in range(MAX_ATTEMPTS):
+                text = prompt if attempt == 0 else REPAIR_PREFIX + prompt
+                try:
+                    model_calls[model] = model_calls.get(model, 0) + 1
+                    raw = transport(api_key, model, CONTENT_REVIEW_SYS,
+                                    text)
+                    data = extract_json(raw)
+                except AuthError:
+                    raise
+                except urllib.error.HTTPError as exc:
+                    if exc.code in (401, 403):
+                        raise_for_auth(exc)
+                    data = None
+                except Exception:
+                    data = None
+                if data is None:
+                    continue
+                by_key = _validate_review_results(data, want)
+                if by_key is None:
+                    continue
+                for key in want:
+                    row = by_key[key]
+                    flagged = row.get("flagged", [])
+                    reason = row.get("reason", "")
+                    if not isinstance(flagged, list):
+                        flagged = []
+                    flagged = [e for e in flagged
+                               if isinstance(e, str) and e in members[key]]
+                    out[key] = {
+                        "flagged": flagged,
+                        "reason": reason if isinstance(reason, str)
+                        else "",
+                        "model": model}
+                settled = True
+                break
+            if settled:
+                break
+        if not settled:
+            for key in want:
+                out[key] = {"flagged": [], "reason": "",
+                            "model": "review-fallback"}
+    return out
+
+
+def run_content_gate(items, api_key, transport=None, model_calls=None,
+                     progress_path=None, sleep_fn=None):
+    """R31 pre-step: review dataset examples, set item["content_flags"].
+
+    {example: reason} per item; flagged examples are released by
+    split_frozen_by_containment when generate_card runs. Resume via
+    progress_path. Returns (flagged_total,). Fail-open: review errors
+    keep every example (never silent — failed keys recorded).
+    transport=None skips the gate entirely (hermetic tests / dry runs):
+    items only get the default empty content_flags.
+    """
+    if transport is None:
+        for item in items or []:
+            item.setdefault("content_flags", {})
+        return (0,)
+    if model_calls is None:
+        model_calls = {}
+    sleep_fn = sleep_fn or time.sleep
+    state = _load_review_progress(progress_path) \
+        if progress_path else {"done": {}, "failed": []}
+    done = state["done"]
+    todo = [i for i in items or []
+            if [e for e in (i.get("dataset_examples") or [])
+                if isinstance(e, str) and e.strip()]
+            and item_key(i) not in done]
+    flagged_total = 0
+    for base in range(0, len(todo), CONTENT_REVIEW_BATCH):
+        batch = todo[base:base + CONTENT_REVIEW_BATCH]
+        try:
+            verdicts = review_dataset_examples(
+                [{"key": item_key(i),
+                  "examples": [e for e in (i.get("dataset_examples") or [])
+                               if isinstance(e, str) and e.strip()]}
+                 for i in batch],
+                transport, api_key, model_calls)
+        except AuthError:
+            raise
+        except Exception:
+            verdicts = {}
+        for item in batch:
+            key = item_key(item)
+            verdict = verdicts.get(key) or {}
+            flags = {e: (verdict.get("reason") or "content-flag")
+                     for e in (verdict.get("flagged") or [])}
+            item["content_flags"] = flags
+            done[key] = {"flagged": sorted(flags),
+                         "reason": verdict.get("reason") or "",
+                         "model": verdict.get("model") or "review-fallback"}
+            if not verdict:
+                state["failed"].append(key)
+            flagged_total += len(flags)
+        if progress_path:
+            _save_review_progress(progress_path, state)
+        if base + CONTENT_REVIEW_BATCH < len(todo):
+            sleep_fn(CALL_SLEEP)
+    for item in items or []:
+        item.setdefault("content_flags", {})
+    return (flagged_total,)
+
+
+# R36 v9 — inflection judge (batched LLM micro-pass, Muse chain).
+# Items whose anchor gloss is an inflection stub ("plural of X", "past
+# of X", ...) are reviewed: keep IFF the inflected form has its own
+# learner value (irregulars, common usage as a headword), else drop in
+# favor of the base lemma. Same conventions as the R30/R31 review
+# passes (MODELS[:2], 2 attempts, repair prefix, hermetic with an
+# injected transport). Fail-closed: any error keeps the item (never
+# drop on uncertainty) with the review-uncertain flag.
+INFLECTION_REVIEW_BATCH = 16
+INFLECTION_REVIEW_MODELS = MODELS[:2]
+INFLECTION_REVIEW_SYS = (
+    "You are an English learner-dictionary editor for Persian learners. "
+    "Given an inflected word form and its dictionary gloss, reply "
+    "{keep:bool, reason:string}. Keep IFF the inflected form has its own "
+    "learner value as a headword: irregular forms, or forms commonly "
+    "looked up/used as headwords. Otherwise drop it in favor of the base "
+    "lemma (regular plurals, regular past tenses, plain comparatives). "
+    "Persian may be used in reason. Return ONLY raw JSON, no markdown "
+    "fences, no commentary.")
+INFLECTION_UNCERTAIN_TAG = "review-uncertain"
+
+
+def _inflection_review_prompt(batch):
+    """Batch prompt: one KEY/word/gloss block per item."""
+    lines = ["Judge EACH inflected form against its dictionary gloss.",
+             'Output: {"results": [{"key": "<item key>", '
+             '"keep": true/false, "reason": "<why>"}]}.',
+             "Input follows:"]
+    for entry in batch:
+        lines.append("KEY %s" % entry["key"])
+        lines.append("word: %s" % (entry.get("text") or ""))
+        lines.append("gloss: %s" % ((entry.get("gloss") or "")[:200]))
+    return "\n".join(lines)
+
+
+def inflection_review(items, transport, api_key="", model_calls=None):
+    """R36: batched inflection-form review.
+
+    items: [{key, text, gloss}]. Returns {key: {keep:bool, reason:str,
+    model:str, uncertain:bool}}. keep=False only on an explicit LLM
+    drop verdict; every failure (transport error, bad JSON, envelope
+    mismatch) fails closed to {keep: True, uncertain: True} flagged
+    review-uncertain (never drop on uncertainty). Auth aborts loudly.
+    Hermetic with an injected transport.
+    """
+    if model_calls is None:
+        model_calls = {}
+    out = {}
+    for base in range(0, len(items or []), INFLECTION_REVIEW_BATCH):
+        batch = items[base:base + INFLECTION_REVIEW_BATCH]
+        want = [e["key"] for e in batch]
+        prompt = _inflection_review_prompt(batch)
+        settled = False
+        for model in INFLECTION_REVIEW_MODELS:
+            for attempt in range(MAX_ATTEMPTS):
+                text = prompt if attempt == 0 else REPAIR_PREFIX + prompt
+                try:
+                    model_calls[model] = model_calls.get(model, 0) + 1
+                    raw = transport(api_key, model,
+                                    INFLECTION_REVIEW_SYS, text)
+                    data = extract_json(raw)
+                except AuthError:
+                    raise
+                except urllib.error.HTTPError as exc:
+                    if exc.code in (401, 403):
+                        raise_for_auth(exc)
+                    data = None
+                except Exception:
+                    data = None
+                if data is None:
+                    continue
+                by_key = _validate_review_results(data, want)
+                if by_key is None:
+                    continue
+                rows_ok = True
+                for key in want:
+                    row = by_key[key]
+                    keep = row.get("keep")
+                    reason = row.get("reason", "")
+                    if not isinstance(keep, bool):
+                        rows_ok = False
+                        break
+                    out[key] = {
+                        "keep": keep,
+                        "reason": reason if isinstance(reason, str)
+                        else "",
+                        "model": model, "uncertain": False}
+                if not rows_ok:
+                    out = {k: v for k, v in out.items() if k not in want}
+                    continue
+                settled = True
+                break
+            if settled:
+                break
+        if not settled:
+            for key in want:
+                if key not in out:
+                    out[key] = {"keep": True, "reason": "review-error",
+                                "model": "review-fallback",
+                                "uncertain": True}
+    return out
 
 
 def build_timings(sample_s, gloss_s, gen_total, per_card, validate_s,
@@ -1806,6 +2877,11 @@ OP_NONE = "بدون‌کار"
 # V7 containment-release op label (locked A): dataset examples failing
 # containment are released for model replacement (need grows).
 OP_RELEASED = "آزادشده (containment)"
+# R28 v8: delta-state chip (kept/filled/improved) keyed by the
+# completion_flags delta lists; colors come from the R33 op color system
+# (.op.kept green / .op.filled blue / .op.improved amber).
+_OP_STATE_CHIP = {"kept": (OP_KEEP, "kept"), "filled": (OP_MODEL, "filled"),
+                  "improved": (OP_REVIEW, "improved")}
 DIFF_TRUNCATE_AT = 140
 
 
@@ -1825,6 +2901,30 @@ def _op_chip(pre, final, match=False):
     else:
         inner = esc(op)
     return '<span class="op %s">%s</span>' % (cls, inner)
+
+
+def _op_chip_named(op, cls):
+    """Bidi-safe op chip for an explicit (label, class) pair."""
+    if " " in op:
+        fa, en = op.split(" ", 1)
+        inner = '%s <span class="en">%s</span>' % (esc(fa), esc(en))
+    else:
+        inner = esc(op)
+    return '<span class="op %s">%s</span>' % (cls, inner)
+
+
+def _delta_op_state(rec, field_key):
+    """R28: delta op state for one card field (kept/filled/improved/"")."""
+    if not field_key:
+        return ""
+    flags = rec.get("completion_flags") or {}
+    if field_key in (flags.get("delta_improved") or []):
+        return "improved"
+    if field_key in (flags.get("delta_filled") or []):
+        return "filled"
+    if field_key in (flags.get("delta_kept") or []):
+        return "kept"
+    return ""
 
 
 def _op_chip_released():
@@ -1866,12 +2966,18 @@ def _src_tag(source):
 
 
 def _diff_row(label, pre_text, pre_dir, final_text, final_dir,
-              match=False, pre_src="", final_src="", op_html=None):
+              match=False, pre_src="", final_src="", op_html=None,
+              op_state=""):
     """R14: one field row — label line, pre-card, operation, final.
 
     ``op_html`` overrides the computed chip (V7 containment-release rows
-    pass the آزادشده chip for released pre-card examples).
+    pass the آزادشده chip for released pre-card examples). R28 v8:
+    ``op_state`` (kept/filled/improved from the delta lists) overrides
+    the heuristic chip with the v8 delta chip.
     """
+    if op_html is None and op_state in _OP_STATE_CHIP:
+        op_label, op_cls = _OP_STATE_CHIP[op_state]
+        op_html = _op_chip_named(op_label, op_cls)
     op = op_html if op_html is not None else _op_chip(
         (pre_text or "").strip(), (final_text or "").strip(), match)
     return (
@@ -1909,9 +3015,11 @@ def render_diff_table(rec, card):
                          if rec.get("en_source") == "dataset" else "")
     rows = [
         _diff_row("معنی فارسی", "", "rtl",
-                  card.get("fa_meaning") or "", "rtl"),
+                  card.get("fa_meaning") or "", "rtl",
+                  op_state=_delta_op_state(rec, "fa_meaning")),
         _diff_row("توضیح فارسی", "", "rtl",
-                  card.get("fa_explanation") or "", "rtl"),
+                  card.get("fa_explanation") or "", "rtl",
+                  op_state=_delta_op_state(rec, "fa_explanation")),
         _diff_row("تعریف انگلیسی", en_def, "ltr", fin_en, "ltr",
                   match=bool(en_def) and fin_en.strip() == en_def,
                   pre_src=rec.get("en_source") or "",
@@ -1922,8 +3030,11 @@ def render_diff_table(rec, card):
                   pre_src=ipa_src if pre_ipa else "",
                   final_src=(ipa_src
                              if fin_ipa and fin_ipa == pre_ipa else "model")
-                  if fin_ipa else ""),
+                  if fin_ipa else "",
+                  op_state=_delta_op_state(rec, "phonetic")),
     ]
+    examples_state = _delta_op_state(rec, "examples")
+    trans_state = _delta_op_state(rec, "example_translations")
     for pos in range(N_EXAMPLES):
         pre = frozen[pos] if pos < len(frozen) else ""
         fin = examples[pos] if pos < len(examples) else ""
@@ -1941,16 +3052,22 @@ def render_diff_table(rec, card):
         rows.append(_diff_row("مثال %d" % (pos + 1), pre, "ltr",
                               fin_cell, "ltr", match=match,
                               pre_src=IPA_SRC_DATASET if pre else "",
-                              final_src=fin_src, op_html=released_chip))
+                              final_src=fin_src, op_html=released_chip,
+                              op_state="" if released_chip is not None
+                              else examples_state))
         if fin and translation:
             rows.append(_diff_row("ترجمه مثال %d" % (pos + 1), "", "rtl",
-                                  translation, "rtl"))
+                                  translation, "rtl",
+                                  op_state=trans_state))
     rows.append(_diff_row("مترادف‌ها", "", "ltr",
-                          ", ".join(card.get("synonyms") or []), "ltr"))
+                          ", ".join(card.get("synonyms") or []), "ltr",
+                          op_state=_delta_op_state(rec, "synonyms")))
     rows.append(_diff_row("متضادها", "", "ltr",
-                          ", ".join(card.get("antonyms") or []), "ltr"))
+                          ", ".join(card.get("antonyms") or []), "ltr",
+                          op_state=_delta_op_state(rec, "antonyms")))
     rows.append(_diff_row("نکته گرامری", "", "rtl",
-                          card.get("grammar_tip") or "", "rtl"))
+                          card.get("grammar_tip") or "", "rtl",
+                          op_state=_delta_op_state(rec, "grammar_tip")))
     return (
         '<div class="diff">'
         '<div class="diff-row diff-head">'
@@ -2024,6 +3141,24 @@ def render_diff_header(rec, phrase_types=None):
         also_row = ('<div class="dh-row also"><div class="dh-label" '
                     'dir="rtl" lang="fa">حس دوم</div>%s</div>'
                     % "".join(also_blocks))
+    # R32 v8: dataset POS chip row (anchored entry POS first, 1-3 tags;
+    # rec["pos"] may be a list (v8) or a legacy pool string).
+    pos_row = ""
+    pos_raw = rec.get("pos")
+    pos_tags = [t.strip() for t in (
+        pos_raw if isinstance(pos_raw, list)
+        else ([pos_raw] if pos_raw else []))
+        if isinstance(t, str) and t.strip()][:3]
+    if pos_tags:
+        pos_chips = " ".join(
+            '<span class="tchip">%s</span>' % esc(t) for t in pos_tags)
+        pos_src = (rec.get("pos_src") or "").strip()
+        if pos_src:
+            pos_chips += ' <span class="srctag"><span class="en">[%s]</span></span>' % esc(pos_src)
+        pos_row = ('<div class="dh-row"><div class="dh-label" dir="rtl" '
+                   'lang="fa">نقش دستوری</div>'
+                   '<div class="blk" dir="ltr" lang="en">%s</div></div>'
+                   % pos_chips)
     # Pilot phrase display: opportunistic type chip + applied_keep flag.
     type_row = ""
     if (rec.get("kind") or "word") == "phrase":
@@ -2049,7 +3184,7 @@ def render_diff_header(rec, phrase_types=None):
         "%s%s"
         '<div class="dh-row"><div class="dh-label" dir="rtl" lang="fa">'
         "موضوع</div>%s</div>"
-        "%s"
+        "%s%s"
         '<div class="dh-row"><div class="dh-label" dir="rtl" lang="fa">'
         "مدل</div>%s</div>"
         '<div class="dh-row chips-row">%s</div>'
@@ -2059,7 +3194,7 @@ def render_diff_header(rec, phrase_types=None):
            _blk_en("[%s]" % en_source) if en_source else "",
            cand_row, also_row,
            _topic_chips_html(rec),
-           type_row,
+           pos_row, type_row,
            _blk_en(model_used),
            " ".join(checks)))
 
@@ -2233,80 +3368,93 @@ def render_gallery(cards, meta, phrase_types=None):
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         "<title>گذرنامه کارت‌ها</title>\n"
         "<style>\n"
-        ":root{--ink:#2a241d;--muted:#7a6f60;--line:#e3d9c8;"
-        "--paper:#faf7f0;--soft:#f3ecdd;--accent:#b3552e;"
-        "--green:#3f7a2e;--green-soft:#e9f1e2;"
-        "--amber:#9a6a1c;--amber-soft:#faf0da;--radius:10px;}\n"
+        ":root{--ink:#241f18;--muted:#6f6455;--line:#d8cbb4;"
+        "--paper:#efe7d8;--card:#f6f0e3;--soft:#e7dcc6;--accent:#8a5a2b;"
+        "--kept:#33602a;--kept-soft:#dcebd3;"
+        "--filled:#2f5b88;--filled-soft:#dbe7f4;"
+        "--improved:#7c5515;--improved-soft:#f5e8cb;"
+        "--error:#8f2f2f;--error-soft:#f4dbdb;"
+        "--taggray:#6b6b6b;--taggray-soft:#e3e0d8;--radius:12px;}\n"
         "*{box-sizing:border-box;}\n"
         "body{font-family:Vazirmatn,\"Segoe UI\",Tahoma,sans-serif;margin:0;"
-        "color:var(--ink);line-height:2;background:var(--paper);}\n"
-        ".wrap{max-width:920px;margin:0 auto;padding:0 1.2em 3em;}\n"
+        "color:var(--ink);line-height:2.1;background:var(--paper);}\n"
+        ".wrap{max-width:920px;margin:0 auto;padding:0 1.4em 4em;}\n"
         "nav.top{position:sticky;top:0;background:var(--paper);"
-        "border-bottom:1px solid var(--line);padding:.6em 1.2em;z-index:10;"
+        "border-bottom:1px solid var(--line);padding:.7em 1.4em;z-index:10;"
         "display:flex;gap:1em;flex-wrap:wrap;}\n"
         "nav.top a{color:var(--accent);text-decoration:none;font-size:.85em;}\n"
         "nav.top a:hover{text-decoration:underline;}\n"
         "nav.top a:focus-visible{outline:2px solid var(--accent);"
         "outline-offset:2px;}\n"
-        "h1{font-size:1.5em;margin:1.2em 0 .2em;}\n"
-        "h2{font-size:1.15em;margin-top:1.5em;}\n"
-        "h3{font-size:1em;margin-top:1.5em;border-bottom:2px solid "
-        "var(--accent);padding-bottom:.3em;}\n"
+        "h1{font-size:1.6em;margin:1.4em 0 .4em;}\n"
+        "h2{font-size:1.2em;margin-top:1.8em;margin-bottom:.6em;}\n"
+        "h3{font-size:1.05em;margin-top:2em;margin-bottom:.8em;"
+        "border-bottom:2px solid var(--accent);padding-bottom:.4em;}\n"
+        "section.card h3{font-size:1em;margin-top:1.8em;}\n"
         ".en{direction:ltr;unicode-bidi:isolate;"
         "font-family:Consolas,monospace;font-size:.88em;}\n"
         ".nums{font-variant-numeric:tabular-nums;direction:ltr;"
         "unicode-bidi:isolate;}\n"
         ".card{border:1px solid var(--line);border-radius:var(--radius);"
-        "padding:1em 1.2em;margin:1.2em 0;background:var(--paper);}\n"
-        ".badge{border-radius:4px;padding:0.1em 0.5em;font-size:0.85em;}\n"
-        ".ok{background:var(--green-soft);color:var(--green);} "
-        ".bad{background:var(--amber-soft);color:var(--amber);}\n"
+        "padding:1.4em 1.6em;margin:1.8em 0;background:var(--card);}\n"
+        ".badge{border-radius:4px;padding:0.15em 0.6em;font-size:0.85em;}\n"
+        ".ok{background:var(--kept-soft);color:var(--kept);} "
+        ".bad{background:var(--error-soft);color:var(--error);}\n"
         ".chip{display:inline-block;font-size:.8em;border-radius:20px;"
-        "padding:.1em .8em;white-space:nowrap;}\n"
-        ".chip.done{background:var(--green-soft);color:var(--green);"
-        "border:1px solid var(--green);}\n"
-        ".chip.pass{background:var(--paper);color:var(--accent);"
+        "padding:.15em .9em;white-space:nowrap;}\n"
+        ".chip.done{background:var(--kept-soft);color:var(--kept);"
+        "border:1px solid var(--kept);}\n"
+        ".chip.pass{background:var(--card);color:var(--accent);"
         "border:1px solid var(--accent);}\n"
-        ".chip.open{background:var(--amber-soft);color:var(--amber);"
-        "border:1px solid var(--amber);}\n"
+        ".chip.open{background:var(--improved-soft);color:var(--improved);"
+        "border:1px solid var(--improved);}\n"
         ".tchip{display:inline-block;font-size:.82em;border-radius:20px;"
-        "padding:.1em .8em;border:1px solid var(--line);"
+        "padding:.15em .9em;border:1px solid var(--line);"
         "background:var(--soft);}\n"
         ".tchip.primary{border-color:var(--accent);color:var(--accent);"
         "font-weight:700;}\n"
-        ".blk{margin:.15em 0;}\n"
+        ".blk{margin:.3em 0;overflow-wrap:anywhere;}\n"
         ".blk.empty{color:var(--muted);}\n"
         ".blk.lead{font-size:1.2em;}\n"
-        ".fld-label{font-weight:700;margin-top:.7em;}\n"
-        ".srctag{font-size:.78em;color:var(--muted);}\n"
+        ".fld-label{font-weight:700;margin-top:1em;}\n"
+        ".srctag{font-size:.78em;color:var(--taggray);}\n"
+        ".srctag .en{background:var(--taggray-soft);border-radius:4px;"
+        "padding:0 .4em;}\n"
         ".strip{border:1px solid var(--line);border-radius:var(--radius);"
-        "padding:.6em .9em;margin:.8em 0;background:var(--paper);}\n"
-        ".srow{margin:.4em 0;}\n"
-        ".slabel{font-weight:700;}\n"
-        ".sblocks{display:flex;flex-wrap:wrap;gap:.2em 1em;}\n"
+        "padding:1em 1.2em;margin:1.2em 0;background:var(--card);}\n"
+        ".srow{margin:.7em 0;}\n"
+        ".slabel{font-weight:700;margin-bottom:.3em;}\n"
+        ".sblocks{display:flex;flex-wrap:wrap;gap:.4em 1.2em;}\n"
         ".dhead{border:1px solid var(--line);border-radius:var(--radius);"
-        "padding:.6em .9em;margin:.8em 0;background:var(--soft);}\n"
-        ".dh-row{display:flex;flex-wrap:wrap;gap:.2em 1em;align-items:baseline;"
-        "margin:.25em 0;}\n"
+        "padding:1em 1.2em;margin:1.2em 0;background:var(--soft);}\n"
+        ".dh-row{display:flex;flex-wrap:wrap;gap:.4em 1.2em;"
+        "align-items:baseline;margin:.5em 0;}\n"
         ".dh-label{font-weight:700;min-width:5em;}\n"
-        ".chips-row{display:flex;flex-wrap:wrap;gap:.4em;}\n"
+        ".chips-row{display:flex;flex-wrap:wrap;gap:.5em;}\n"
         ".dh-row.also{font-size:.9em;color:var(--muted);}\n"
-        ".diff{display:grid;gap:.35em;margin:.8em 0;}\n"
+        ".diff{display:grid;gap:.5em;margin:1.2em 0;}\n"
         ".diff-row{display:grid;grid-template-columns:7em 1fr auto 1fr;"
-        "gap:.6em;align-items:start;border-bottom:1px dashed var(--line);"
-        "padding:.35em 0;}\n"
+        "gap:.8em;align-items:start;border-bottom:1px dashed var(--line);"
+        "padding:.6em 0;}\n"
+        ".diff-row:nth-child(even){background:rgba(255,255,255,.28);}\n"
         ".diff-head{font-weight:700;border-bottom:2px solid var(--line);}\n"
         ".diff-label{font-weight:700;}\n"
+        ".diff-pre,.diff-fin{min-width:0;}\n"
         ".op{display:inline-block;font-size:.78em;border-radius:20px;"
-        "padding:.1em .7em;white-space:nowrap;border:1px solid var(--line);}\n"
-        ".op.keep{border-color:var(--accent);color:var(--accent);}\n"
-        ".op.model{color:var(--ink);background:var(--soft);}\n"
-        ".op.review{background:var(--amber-soft);color:var(--amber);"
-        "border-color:var(--amber);}\n"
+        "padding:.15em .8em;white-space:nowrap;border:1px solid var(--line);}\n"
+        ".op.keep,.op.kept{background:var(--kept-soft);color:var(--kept);"
+        "border-color:var(--kept);}\n"
+        ".op.model,.op.filled{background:var(--filled-soft);"
+        "color:var(--filled);border-color:var(--filled);}\n"
+        ".op.review,.op.improved{background:var(--improved-soft);"
+        "color:var(--improved);border-color:var(--improved);}\n"
+        ".op.error{background:var(--error-soft);color:var(--error);"
+        "border-color:var(--error);}\n"
         ".op.none{color:var(--muted);}\n"
         "@media (max-width: 600px){"
-        ".diff-row{grid-template-columns:1fr;gap:.2em;}"
-        ".diff-head{display:none;}}\n"
+        ".diff-row{grid-template-columns:1fr;gap:.3em;}"
+        ".diff-head{display:none;}"
+        ".card{padding:1em;}}\n"
         ".tbl-scroll{overflow-x:auto;}\n"
         "table{border-collapse:collapse;width:100%;margin:1em 0;"
         "font-size:.9em;}\n"
@@ -2380,10 +3528,16 @@ def load_precard_items(path):
                if isinstance(e, dict) and e.get("label")]
         vec.sort(key=lambda d: -float(d.get("weight", 0.0) or 0.0))
         text = rec["text"].strip()
+        pos_raw = rec.get("pos", "")
+        pos_list = [t for t in (pos_raw if isinstance(pos_raw, list)
+                                else ([pos_raw] if pos_raw else []))
+                    if isinstance(t, str) and t.strip()]
         items.append({
             "kind": rec.get("kind") or "word",
             "text": text,
-            "pos": rec.get("pos", ""),
+            "pos": pos_list,
+            "pos_src": rec.get("pos_src", "none"),
+            "abbrev_expansion": rec.get("abbrev_expansion") or "",
             "pool_level": rec.get("pool_level", ""),
             "freq": rec.get("freq"),
             "proper_noun": None,
@@ -2402,7 +3556,13 @@ def load_precard_items(path):
     return items
 
 
-def main(argv=None):
+# Sentinel for main() review transports: _DEFAULT means the real
+# call_responses leg; None means skip the gate (hermetic tests).
+_DEFAULT_REVIEW_TRANSPORT = object()
+
+
+def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
+         _grammar_transport=_DEFAULT_REVIEW_TRANSPORT):
     ap = argparse.ArgumentParser(description="Card-gen pilot (factory research)")
     ap.add_argument("--n-words", type=int, default=14)
     ap.add_argument("--n-phrases", type=int, default=6)
@@ -2558,6 +3718,24 @@ def main(argv=None):
     gen_timings = {"validate": 0.0}
     tele_store = []  # R27: per-attempt records (key_idx only, never values)
     per_card = []
+    # R31 v8 content gate (pre-step): batched appropriateness review of
+    # dataset examples; flagged examples land in item["content_flags"] and
+    # are released by split_frozen_by_containment at generate time. Resume
+    # via content_review_progress.json; fail-open keep on review errors.
+    run_logger.stage_start("content-gate")
+    try:
+        flagged_n, = run_content_gate(
+            sample, api_key,
+            transport=(call_responses
+                       if _content_transport is _DEFAULT_REVIEW_TRANSPORT
+                       else _content_transport),
+            progress_path=out_dir / "content_review_progress.json",
+            model_calls=model_calls)
+    except AuthError:
+        raise
+    except Exception:
+        flagged_n = 0
+    run_logger.stage_end("content-gate", ok=len(sample), fail=flagged_n)
     gen_start = time.perf_counter()
     run_logger.stage_start("generate")
     # V7: ONE stdout line per batch of 8 (no per-item spam); ok = valid
@@ -2599,6 +3777,33 @@ def main(argv=None):
         fail=sum(1 for v in done.values() if not v.get("valid")))
 
     records = [done[item_key(item)] for item in sample]
+    # R30 v8 grammar fact-review (post-step): batched check of valid
+    # records' tips; rejected tips get 1 focused regen of the tip field
+    # only, then the outcome is recorded on rec["grammar_review"].
+    # Resume via review_grammar_progress.json; fail-closed (original tip
+    # kept on review errors).
+    run_logger.stage_start("grammar-review")
+    try:
+        checked_n, regens_n = review_records_grammar(
+            records, api_key,
+            transport=(call_responses
+                       if _grammar_transport is _DEFAULT_REVIEW_TRANSPORT
+                       else _grammar_transport),
+            progress_path=out_dir / "review_grammar_progress.json",
+            model_calls=model_calls)
+    except AuthError:
+        raise
+    except Exception:
+        checked_n, regens_n = 0, 0
+    run_logger.stage_end("grammar-review", ok=checked_n, fail=regens_n)
+    for item in sample:
+        key = item_key(item)
+        if key in done:
+            done[key] = next(
+                (r for r in records if r.get("key") == key), done[key])
+    prog_path.write_text(json.dumps(
+        {"done": done, "failed": [k for k, v in done.items() if not v.get("valid")],
+         "model_calls": model_calls}, ensure_ascii=False), encoding="utf-8")
     (out_dir / "cards.jsonl").write_text(
         "\n".join(json.dumps(r, ensure_ascii=False) for r in records),
         encoding="utf-8")

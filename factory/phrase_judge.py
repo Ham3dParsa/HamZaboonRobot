@@ -142,11 +142,14 @@ RETRY_PREFIX = ("Your last reply was not valid JSON. "
 
 # --type-pass: phrase-type re-judge (applied-pool triage, recorded only).
 PHRASE_TYPES = ["idiom", "phrasal-verb", "collocation", "proverb", "slang",
-                "applied", "proper-noun", "term", "other"]
+                "applied", "proper-noun", "term", "abbreviation", "other"]
 # Applied pool rule (NOT executed now, just recorded): applied_keep=true
 # iff the type is an everyday-useful unit. proper-noun/term/other drop.
+# R29 v8: the "abbreviation" label keeps only for EN (lang="en", the
+# default); every other language uses the unchanged pre-v8 set.
 APPLIED_KEEP_TYPES = frozenset(
     ["idiom", "phrasal-verb", "collocation", "proverb", "slang", "applied"])
+APPLIED_KEEP_TYPES_EN_EXTRA = frozenset(["abbreviation"])
 
 TYPE_SYS = ("You are a lexicographer typing English multiword phrases for "
             "Persian learners. Judge each phrase as one whole unit. "
@@ -158,10 +161,11 @@ TYPE_USER_TMPL = (
     "phrasal-verb (verb+particle); collocation (compositional habitual "
     "pairing); proverb (full-sentence wisdom); slang (informal in-group "
     "usage); applied (everyday useful unit); proper-noun (a name); "
-    "term (domain-specialized); other. "
+    "term (domain-specialized); abbreviation (shortened form); other. "
     "proper_noun is true when the phrase is a name. "
     "applied_keep is true when the phrase is an everyday useful unit "
-    "(idiom, phrasal-verb, collocation, proverb, slang, applied). "
+    "(idiom, phrasal-verb, collocation, proverb, slang, applied, "
+    "abbreviation). "
     "Output: {\"results\": [{\"phrase\": \"...\", "
     "\"phrase_type\": \"...\", \"proper_noun\": true/false, "
     "\"applied_keep\": true/false}]}. "
@@ -274,10 +278,17 @@ def validate_results(data: object, want: list[str]) -> tuple[bool, list[dict] | 
     return True, normed
 
 
-def applied_keep_for(phrase_type: str) -> bool:
+def applied_keep_for(phrase_type: str, lang: str = "en") -> bool:
     """Applied pool rule (recorded only, not executed): keep everyday-useful
-    units (idiom/phrasal-verb/collocation/proverb/slang/applied)."""
-    return phrase_type in APPLIED_KEEP_TYPES
+    units (idiom/phrasal-verb/collocation/proverb/slang/applied).
+
+    R29 v8: the "abbreviation" label keeps only for EN (default lang);
+    other languages use the unchanged pre-v8 set (abbreviation drops).
+    """
+    if phrase_type in APPLIED_KEEP_TYPES:
+        return True
+    return (lang or "").strip().lower() == "en" \
+        and phrase_type in APPLIED_KEEP_TYPES_EN_EXTRA
 
 
 def validate_type_results(data: object,

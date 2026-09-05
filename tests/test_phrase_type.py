@@ -36,7 +36,7 @@ def type_reply(phrases, types):
 def test_applied_keep_mapping_covers_all_types():
     assert set(PHRASE_TYPES) == {
         "idiom", "phrasal-verb", "collocation", "proverb", "slang",
-        "applied", "proper-noun", "term", "other"}
+        "applied", "proper-noun", "term", "abbreviation", "other"}
     for phrase_type in ("idiom", "phrasal-verb", "collocation", "proverb",
                         "slang", "applied"):
         assert applied_keep_for(phrase_type) is True
@@ -45,6 +45,22 @@ def test_applied_keep_mapping_covers_all_types():
     assert APPLIED_KEEP_TYPES == {
         "idiom", "phrasal-verb", "collocation", "proverb", "slang",
         "applied"}
+
+
+def test_applied_keep_abbreviation_en_only():
+    # R29 v8: "abbreviation" keeps for EN (default) but drops for
+    # other languages; every other label is lang-independent.
+    assert applied_keep_for("abbreviation") is True
+    assert applied_keep_for("abbreviation", "en") is True
+    assert applied_keep_for("abbreviation", "fa") is False
+    assert applied_keep_for("abbreviation", "de") is False
+    assert applied_keep_for("idiom", "fa") is True
+    assert applied_keep_for("other", "en") is False
+    ok, normed = validate_type_results(
+        json.loads(type_reply(["TV"], ["abbreviation"])), ["TV"])
+    assert ok is True
+    assert normed == [{"phrase": "TV", "phrase_type": "abbreviation",
+                       "proper_noun": False, "applied_keep": True}]
 
 
 def test_type_parse_recomputes_applied_keep():

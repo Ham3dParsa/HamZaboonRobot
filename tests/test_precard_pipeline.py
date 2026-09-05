@@ -136,11 +136,41 @@ def test_full_run_writes_precard_shape(tmp_path, monkeypatch):
         assert rec["stage_calls"]["s2"]
         assert rec["stage_calls"]["s0"] in ("kept", "kept:type-pending")
         assert rec["drop_reason"] is None  # survivors carry no drop reason
+        assert rec["abbrev_expansion"] == ""  # R29: plain glosses, no match
+        assert isinstance(rec["pos"], list)  # R32: anchored tag list
+        assert rec["pos_src"] in ("dataset", "none")
+    apple = next(r for r in rows if r["key"] == "w:apple")
+    assert apple["pos"] and apple["pos"][0] == "noun"  # anchored first
+    assert apple["pos_src"] == "dataset"
     for stage in ("s0", "s1", "s2", "s3", "s4", "s5"):
         state = json.loads(
             (pathlib.Path(prog) / (stage + ".json")).read_text(
                 encoding="utf-8"))
         assert len(state["done"]) == 2
+
+
+def test_s5_enrich_pos_and_abbrev(tmp_path, monkeypatch):
+    """R29/R32: S5 returns abbrev_expansion + pos/pos_src from the pick."""
+    from precard_pipeline import s5_enrich_item
+    index = {"dvd": [{"pos": "noun",
+                      "entry": {"pos": "noun", "sounds": [{"ipa": "/x/"}],
+                                "senses": [{"glosses": [
+                                    "Initialism of digital video disc"],
+                                    "tags": [],
+                                    "examples": [{"text": LONG_EXAMPLE}]}]}}]}
+    item = {"kind": "word", "text": "dvd", "pos": "noun",
+            "pool_level": "B1"}
+    enriched = s5_enrich_item(
+        item, {"sense_id": "dvd#0",
+               "gloss": "Initialism of digital video disc"},
+        index, read_entry, {})
+    assert enriched["abbrev_expansion"] == "digital video disc"
+    assert enriched["pos"] == ["noun"]
+    assert enriched["pos_src"] == "dataset"
+    empty = s5_enrich_item(item, {"sense_id": "", "gloss": ""},
+                           index, read_entry, {})
+    assert empty["abbrev_expansion"] == ""
+    assert empty["pos"] == [] and empty["pos_src"] == "none"
 
 
 def _word_rows(word, glosses=("a thing",), ipa="/x/"):
@@ -431,9 +461,168 @@ def test_from_precard_bypasses_anchor(tmp_path, monkeypatch):
     rc = card_pilot.main(["--from-precard", str(precard),
                           "--out-dir", out_dir, "--report", report,
                           "--word-pool", str(pool),
-                          "--phrase-log", str(plog)])
+                          "--phrase-log", str(plog)],
+                         _content_transport=None, _grammar_transport=None)
     assert rc == 0
     cards = card_pilot.load_cards_jsonl(out_dir + "/cards.jsonl")
     assert len(cards) == 2
     assert {c["text"] for c in cards} == {"apple", "give up"}
     assert {c["topic_method"] for c in cards} == {"pipeline-v6"}
+
+
+# ---------------- v9 R35: level-aware R20 floors ----------------
+
+def test_s0_level_floors(tmp_path, monkeypatch):
+    """R35: C2 2.0 kept (floor 1.5), C2 1.2 dropped, B1 2.9 dropped
+    (floor 3.0); academic bypass kept at any level."""
+    items = [
+        {"kind": "word", "text": "c2keep", "pos": "noun",
+         "pool_level": "C2"},
+        {"kind": "word", "text": "c2drop", "pos": "noun",
+         "pool_level": "C2"},
+        {"kind": "word", "text": "b1drop", "pos": "noun",
+         "pool_level": "B1"},
+        {"kind": "word", "text": "b1acad", "pos": "noun",
+         "pool_level": "B1"},
+    ]
+    index = {t: _word_rows(t, ("a thing here",)) for t in
+             ("c2keep", "c2drop", "b1drop", "b1acad")}
+    by_text = {"c2keep": 2.0, "c2drop": 1.2, "b1drop": 2.9, "b1acad": 1.0}
+    rows, s0 = _run_s0_only(
+        tmp_path, monkeypatch, items, index,
+        _zipf_fn=lambda t: by_text[t], _awl_set={"b1acad"})
+    assert [r["key"] for r in rows] == ["w:c2keep", "w:b1acad"]
+    assert s0["done"]["w:c2keep"]["kept"] is True
+    assert s0["done"]["w:c2drop"]["reason"].startswith("r20-zipf-low")
+    assert s0["done"]["w:b1drop"]["reason"].startswith("r20-zipf-low")
+    assert s0["done"]["w:b1acad"]["kept"] is True  # academic bypass
+
+
+def test_s0_phrase_has_no_zipf_gate(tmp_path, monkeypatch):
+    """R35: phrases stay on the phrase-type path even with a low zipf."""
+    items = [{"kind": "phrase", "text": "give up", "pool_level": "C2"}]
+    rows, s0 = _run_s0_only(
+        tmp_path, monkeypatch, items, make_index(),
+        _zipf_fn=lambda t: 1.0, _type_map={}, _type_log_available=False)
+    assert len(rows) == 1  # kept with type-pending, never zipf-dropped
+    assert s0["done"]["p:give up"]["type_pending"] is True
+
+
+# ---------------- v9 R34: xref S1 drop ----------------
+
+def test_s1_xref_unresolvable_drop(tmp_path, monkeypatch):
+    """R34: bare-xref anchor with no target entry drops as no-real-def;
+    a resolved xref survives with the target sense."""
+    items = [{"kind": "word", "text": "Ghost", "pos": "noun",
+              "pool_level": "A1"},
+             {"kind": "word", "text": "Color", "pos": "noun",
+              "pool_level": "A1"}]
+    index = {
+        "ghost": [{"pos": "noun",
+                   "entry": {"pos": "noun", "sounds": [],
+                             "senses": [{"glosses": ["See specter."],
+                                         "tags": [], "examples": []}]}}],
+        "color": [{"pos": "noun",
+                   "entry": {"pos": "noun", "sounds": [],
+                             "senses": [{"glosses": [
+                                 "Alternative spelling of colour."],
+                                 "tags": [], "examples": []}]}}],
+        "colour": [{"pos": "noun",
+                    "entry": {"pos": "noun", "sounds": [],
+                              "senses": [{"glosses": [
+                                  "a hue such as red or blue"],
+                                  "tags": [], "examples": []}]}}],
+    }
+    rows, _s0 = _run_s0_only(tmp_path, monkeypatch, items, index,
+                             _zipf_fn=lambda t: 5.0)
+    assert [r["key"] for r in rows] == ["w:Color"]  # Ghost: no-real-def
+    s1 = json.loads(
+        (pathlib.Path(str(tmp_path / "prog")) / "s1.json").read_text(
+            encoding="utf-8"))
+    assert s1["done"]["w:Ghost"]["dropped"] == "no-real-def"
+    assert s1["done"]["w:Ghost"]["xref_unresolvable"] is True
+    assert "w:Ghost" in s1["failed"]
+    assert s1["done"]["w:Color"]["xref_method"] == "xref-resolved"
+    assert s1["done"]["w:Color"]["resolved_from"] == "color#0"
+    color = rows[0]
+    assert color["sense_id"] == "colour#0"
+    assert color["en_def"] == "a hue such as red or blue"
+
+
+# ---------------- v9 R36: S0b inflection stage ----------------
+
+def _inflect_index():
+    def rows(gloss):
+        return [{"pos": "noun",
+                 "entry": {"pos": "noun", "sounds": [],
+                           "senses": [{"glosses": [gloss], "tags": [],
+                                       "examples": []}]}}]
+    return {"cats": rows("plural of cat"),
+            "went": rows("past of go"),
+            "apple": rows("a round fruit")}
+
+
+def test_s0b_inflection_keep_and_drop(tmp_path, monkeypatch):
+    """R36: explicit keep-false drops (inflection-drop), keep passes;
+    non-inflection items skip review; own progress key s0b.json."""
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    items = [{"kind": "word", "text": "cats", "pos": "noun",
+              "pool_level": "A1"},
+             {"kind": "word", "text": "went", "pos": "noun",
+              "pool_level": "A1"},
+             {"kind": "word", "text": "apple", "pos": "noun",
+              "pool_level": "A1"}]
+    sample = write_sample(tmp_path, items)
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+
+    def inflect(api_key, model, sys_text, user_text):
+        return json.dumps({"results": [
+            {"key": "w:cats", "keep": False,
+             "reason": "regular plural, use cat"},
+            {"key": "w:went", "keep": True,
+             "reason": "irregular, own value"}]})
+
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog],
+        _judge_transport=fake_judge, _topic_transport=fake_topics,
+        _assign_transport=None, _inflect_transport=inflect,
+        _sleep_fn=lambda s: None, _index=_inflect_index(),
+        _read_entry=read_entry, _tatoeba={},
+        _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    rows = load_out(out)
+    assert {r["key"] for r in rows} == {"w:went", "w:apple"}
+    s0b = json.loads(
+        (pathlib.Path(prog) / "s0b.json").read_text(encoding="utf-8"))
+    assert s0b["done"]["w:cats"]["kept"] is False
+    assert s0b["done"]["w:cats"]["reason"].startswith("inflection-drop")
+    assert "w:cats" in s0b["failed"]
+    assert s0b["done"]["w:went"]["reason"] == "inflection-keep"
+    assert s0b["done"]["w:apple"]["reason"] == "not-inflection"
+
+
+def test_s0b_uncertain_keeps(tmp_path, monkeypatch):
+    """R36 fail-closed: review errors keep the item flagged
+    review-uncertain (never drop on uncertainty)."""
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    items = [{"kind": "word", "text": "cats", "pos": "noun",
+              "pool_level": "A1"}]
+    sample = write_sample(tmp_path, items)
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+
+    def broken(api_key, model, sys_text, user_text):
+        raise urllib.error.HTTPError("http://x", 500, "boom", {}, None)
+
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog],
+        _judge_transport=fake_judge, _topic_transport=fake_topics,
+        _assign_transport=None, _inflect_transport=broken,
+        _sleep_fn=lambda s: None, _index=_inflect_index(),
+        _read_entry=read_entry, _tatoeba={},
+        _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    assert [r["key"] for r in load_out(out)] == ["w:cats"]  # kept
+    s0b = json.loads(
+        (pathlib.Path(prog) / "s0b.json").read_text(encoding="utf-8"))
+    assert s0b["done"]["w:cats"] == {
+        "kept": True, "reason": "review-uncertain", "uncertain": True}

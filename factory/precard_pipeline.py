@@ -1,4 +1,4 @@
-"""Pre-card pipeline: sample.json -> precard.jsonl (locked R22-R25).
+"""Pre-card pipeline: sample.json -> precard.jsonl (locked R22-R25, v8 R29/R32).
 
 Factory-only research script. No bot/DB/handler changes. Reuses the
 existing pipeline scripts BY IMPORT (never a third copy of their logic):
@@ -29,7 +29,8 @@ stage at startup.
 
 Output: precard.jsonl, one line per SURVIVING item:
 {key, kind, text, pool_level, sense_id, en_def, ipa, ipa_src,
- dataset_examples[], topic_vector[{label, weight}], topic_method,
+ dataset_examples[], abbrev_expansion (R29), pos[]/pos_src (R32),
+ topic_vector[{label, weight}], topic_method,
  drop_reason (None when kept), type_pending (only when true),
  stage_calls{..., s0}}.
 Dropped items are NEVER written to precard.jsonl; their reasons live in
@@ -88,7 +89,16 @@ SLEEP = 2.5
 BACKOFF_WAITS = [60.0, 300.0]
 MAX_ATTEMPTS = 2
 ZIPF_MIN = 3.0
-STAGES = ("s0", "s1", "s2", "s3", "s4", "s5")
+# R35 v9 — level-aware R20 floors by item pool_level. Lower levels need
+# common words (3.0); C1/C2 items may be rarer (2.5/1.5). Unknown or
+# missing pool_level falls back to ZIPF_MIN (3.0, fail-closed to keep
+# the old gate). Phrases keep current behavior — NO zipf gate here:
+# phrase frequency lives on a different scale (multiword strings have
+# no wordfreq zipf reading), so phrases stay on the phrase-type log
+# path only.
+ZIPF_FLOORS = {"A1": 3.0, "A2": 3.0, "B1": 3.0, "B2": 3.0,
+               "C1": 2.5, "C2": 1.5}
+STAGES = ("s0", "s0b", "s1", "s2", "s3", "s4", "s5")
 RETRY_PREFIX = ("Your last reply was not valid JSON. "
                 "Re-send ONLY the JSON object.\n")
 
@@ -104,7 +114,8 @@ def parse_args(argv=None):
     ap.add_argument("--no-resume", action="store_true",
                     help="ignore existing stage progress (default: resume on)")
     ap.add_argument("--only", default="",
-                    help="run a single stage only (S0..S5, case-insensitive; "
+                    help="run a single stage only (S0..S5 incl. S0b, "
+                    "case-insensitive; "
                     "other stages are skipped, resume still honored)")
     ap.add_argument("--stages", default="",
                     help="comma-separated stage subset (e.g. --stages s1,s2; "
@@ -297,7 +308,8 @@ def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
     kept=False carries a drop reason (r4-name-only / r20-zipf-low:<z> /
     applied-keep-false:<type>); kept=True has reason None except the
     zipf-unknown-kept note. Phrase items kept without a type judgement
-    carry type_pending=True ("type-pending" flag).
+    carry type_pending=True ("type-pending" flag). R35 v9: the word zipf
+    gate is level-aware (ZIPF_FLOORS by pool_level); academic bypass kept.
     """
     kind = item.get("kind") or "word"
     text = (item.get("text") or "").strip()
@@ -313,7 +325,9 @@ def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
         if zipf is None:
             return {"kept": True, "reason": "zipf-unknown-kept",
                     "type_pending": False}
-        if float(zipf) < ZIPF_MIN and not _is_academic(item, awl_set):
+        floor = ZIPF_FLOORS.get(
+            (item.get("pool_level") or "").strip().upper(), ZIPF_MIN)
+        if float(zipf) < floor and not _is_academic(item, awl_set):
             return {"kept": False,
                     "reason": "r20-zipf-low:%.2f" % float(zipf),
                     "type_pending": False}
@@ -366,6 +380,30 @@ def _call_with_429(call, sleep_fn, state, label):
         raise
 
 
+# -------------------------------------------------------------- S0b ---
+
+def s0b_needs_review(item, index, read_entry):
+    """R36: (needs, gloss) — True when the raw anchor top is inflection.
+
+    The check runs on the unresolved top scorer (no xref index): xref
+    stubs never match the inflection pattern, so ordering is moot.
+    Read failures fail open to (False, "") — S0b only ever adds drops
+    on an explicit LLM verdict, never on lookup errors.
+    """
+    text = (item.get("text") or "").strip()
+    if not text:
+        return False, ""
+    entries, pos = _entries_for(item, index)
+    try:
+        _, gloss, _, _ = card_pilot.pick_anchor_sense_full(
+            text, entries, pos, read_entry)
+    except Exception:
+        return False, ""
+    if gloss and card_pilot.is_inflection_gloss(gloss):
+        return True, gloss
+    return False, ""
+
+
 # ---------------------------------------------------------------- S1 ---
 
 def s1_rank_item(item, index, read_entry):
@@ -385,11 +423,15 @@ def s1_rank_item(item, index, read_entry):
     top = {"sense_id": cands[0]["sense_id"], "gloss": cands[0].get("gloss", "")} \
         if cands else None
     entries, pos = _entries_for(item, index)
-    anchor_pos = card_pilot.anchor_entry_pos_for_entries(
-        item.get("text", ""), entries, pos, read_entry)
+    anchor_pos = probe.get("anchor_pos") or \
+        card_pilot.anchor_entry_pos_for_entries(
+            item.get("text", ""), entries, pos, read_entry)
     return {"candidates": cands, "top": top,
             "en_def": probe.get("en_def", "") or "",
-            "anchor_pos": anchor_pos}
+            "anchor_pos": anchor_pos,
+            "xref_method": probe.get("xref_method", "") or "",
+            "resolved_from": probe.get("xref_resolved_from", "") or "",
+            "xref_unresolvable": bool(probe.get("xref_unresolvable"))}
 
 
 # ---------------------------------------------------------------- S2 ---
@@ -737,23 +779,38 @@ def _entries_for(item, index):
 
 
 def s5_enrich_item(item, s2pick, index, read_entry, tatoeba_pool):
-    """S5 enrichment from the S2-chosen sense (card_pilot helpers only)."""
+    """S5 enrichment from the S2-chosen sense (card_pilot helpers only).
+
+    R29/R32 v8: also returns abbrev_expansion (dataset-first parse of the
+    chosen gloss) and pos/pos_src (anchored entry POS first, 1-3 tags).
+    """
     sid = (s2pick or {}).get("sense_id", "")
     gloss = (s2pick or {}).get("gloss", "")
     if not sid:
         return {"sense_id": "", "en_def": gloss or "",
                 "ipa": "", "ipa_src": card_pilot.IPA_SRC_MODEL,
-                "dataset_examples": []}
+                "dataset_examples": [], "abbrev_expansion": "",
+                "pos": [], "pos_src": "none"}
     try:
         want_idx = int(sid.split("#")[-1])
     except (TypeError, ValueError):
         want_idx = None
     entries, pos = _entries_for(item, index)
+    # R34 v9: an xref-resolved pick carries the TARGET lemma in its
+    # sense_id ("colour#2" for item "color") — enrich from the target
+    # rows, not the item rows.
+    sid_lemma = sid.rpartition("#")[0].strip().lower() if "#" in sid \
+        else ""
+    if sid_lemma and sid_lemma != (item.get("text") or "").strip().lower():
+        target_rows = (index or {}).get(sid_lemma)
+        if target_rows:
+            entries, pos = list(target_rows), ""
     entry = sense = None
     if want_idx is not None:
         try:
             scored = card_pilot.score_senses(
-                item.get("text", ""), entries, pos, read_entry)
+                sid_lemma or item.get("text", ""), entries, pos,
+                read_entry)
         except Exception:
             scored = []
         for _score, idx, cand_entry, cand_sense, _gloss in scored:
@@ -776,11 +833,17 @@ def s5_enrich_item(item, s2pick, index, read_entry, tatoeba_pool):
                 seen.add(cand)
             if len(picked) >= card_pilot.N_EXAMPLES:
                 break
+    pos_tags = card_pilot.anchor_pos_tags(
+        item.get("text", ""), entries, pos, read_entry)
     return {"sense_id": sid, "en_def": gloss or "",
             "ipa": ipa,
             "ipa_src": card_pilot.IPA_SRC_DATASET if ipa
             else card_pilot.IPA_SRC_MODEL,
-            "dataset_examples": picked[:card_pilot.N_EXAMPLES]}
+            "dataset_examples": picked[:card_pilot.N_EXAMPLES],
+            "abbrev_expansion": card_pilot.parse_abbrev_expansion(
+                gloss or ""),
+            "pos": pos_tags,
+            "pos_src": "dataset" if pos_tags else "none"}
 
 
 # ------------------------------------------------------------- main ---
@@ -800,6 +863,10 @@ def _default_assign_transport(api_key, model, user_text):
     return call_responses(api_key, model, user_text)
 
 
+def _default_inflect_transport(api_key, model, sys_text, user_text):
+    return card_pilot.call_responses(api_key, model, sys_text, user_text)
+
+
 def _flush(progress_dir, states):
     for stage in STAGES:
         write_progress(str(pathlib.Path(progress_dir) / ("%s.json" % stage)),
@@ -814,6 +881,7 @@ _USE_DEFAULT = object()
 
 def main(argv=None, _judge_transport=_USE_DEFAULT,
          _topic_transport=_USE_DEFAULT, _assign_transport=_USE_DEFAULT,
+         _inflect_transport=_USE_DEFAULT,
          _sleep_fn=None, _index=None, _read_entry=None, _tatoeba=None,
          _zipf_fn=None, _awl_set=None, _type_map=None,
          _type_log_available=None):
@@ -833,12 +901,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         print("  sample:   %s (%d items)" % (args.sample, len(items)))
         print("  out:      %s (not written)" % args.out)
         print("  progress: %s (not written)" % args.progress_dir)
-        print("  batches:  %d x %d (S0..S5, resume %s)" % (
+        print("  batches:  %d x %d (S0..S5 incl. S0b, resume %s)" % (
             (len(items) + BATCH - 1) // BATCH if items else 0, BATCH,
             "off" if args.no_resume else "on"))
-        print("  stages:   S0 preprocess[R4-name/R20-zipf>=%.1f/phrase-type] / "
-              "S1 rank / S2 judge[1.3->1.2] / S3 vectors / "
-              "S4 label / S5 enrich" % ZIPF_MIN)
+        print("  stages:   S0 preprocess[R4-name/R20-zipf-level/phrase-type] / "
+              "S0b inflection-review / S1 rank / S2 judge[1.3->1.2] / "
+              "S3 vectors / S4 label / S5 enrich")
         print("  selected: %s" % ", ".join(s for s in STAGES
                                            if s in selected))
         if rekeyed:
@@ -972,7 +1040,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
 
     need_llm = (_judge_transport is _USE_DEFAULT
                 or _topic_transport is _USE_DEFAULT
-                or _assign_transport is _USE_DEFAULT)
+                or _assign_transport is _USE_DEFAULT
+                or _inflect_transport is _USE_DEFAULT)
     api_key = "injected"
     if need_llm:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -990,15 +1059,112 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     assign_transport = (_default_assign_transport
                         if _assign_transport is _USE_DEFAULT
                         else _assign_transport)
+    inflect_transport = (_default_inflect_transport
+                         if _inflect_transport is _USE_DEFAULT
+                         else _inflect_transport)
 
     s4_cache = progress_dir / "s4_topup_cache.json"
     s4_calls: dict = {}
     precards: dict = {}
+    s0b_dropped: set = set()
     try:
+        # S0b R36: inflection micro-stage (own progress key s0b.json).
+        # Items whose raw anchor top is an inflection stub go to the
+        # batched inflection_review (card_pilot, Muse chain, imported);
+        # explicit keep-false drops with reason inflection-drop:<reason>;
+        # review errors keep the item flagged review-uncertain (fail
+        # closed, never drop on uncertainty). transport=None skips the
+        # LLM leg (all kept, stated). Drops never reach precard.jsonl.
+        run_logger.stage_start("s0b")
+        n_s0b_batches = (len(items) + BATCH - 1) // BATCH or 1
+        for batch_no, base in enumerate(
+                _stage_range(selected, "s0b", items), start=1):
+            batch = items[base:base + BATCH]
+            todo = [i for i in batch
+                    if item_key(i) not in states["s0b"]["done"]]
+            review = []
+            for item in todo:
+                key = item_key(item)
+                try:
+                    needs, gloss = s0b_needs_review(
+                        item, index, read_entry)
+                except Exception:
+                    needs, gloss = False, ""
+                if not needs:
+                    states["s0b"]["done"][key] = {
+                        "kept": True, "reason": "not-inflection",
+                        "uncertain": False}
+                else:
+                    review.append({"key": key,
+                                   "text": item.get("text", ""),
+                                   "gloss": gloss})
+            if review and inflect_transport is not None:
+                try:
+                    verdicts = card_pilot.inflection_review(
+                        review, inflect_transport, api_key)
+                except AuthError:
+                    raise
+                except Exception:
+                    verdicts = {}
+                for entry in review:
+                    key = entry["key"]
+                    verdict = verdicts.get(key)
+                    if verdict is None:
+                        states["s0b"]["done"][key] = {
+                            "kept": True, "reason": "review-uncertain",
+                            "uncertain": True}
+                    elif not verdict.get("keep"):
+                        states["s0b"]["done"][key] = {
+                            "kept": False,
+                            "reason": "inflection-drop:%s" % (
+                                verdict.get("reason") or "base-lemma"),
+                            "uncertain": False}
+                        if key not in states["s0b"]["failed"]:
+                            states["s0b"]["failed"].append(key)
+                    else:
+                        states["s0b"]["done"][key] = {
+                            "kept": True,
+                            "reason": ("review-uncertain"
+                                       if verdict.get("uncertain")
+                                       else "inflection-keep"),
+                            "uncertain": bool(
+                                verdict.get("uncertain"))}
+                sleep_fn(SLEEP)
+            elif review:
+                for entry in review:
+                    states["s0b"]["done"][entry["key"]] = {
+                        "kept": True, "reason": "s0b-no-transport",
+                        "uncertain": False}
+            _flush(progress_dir, states)
+            failed_here = sum(
+                1 for i in batch
+                if not (states["s0b"]["done"].get(item_key(i)) or {}).get(
+                    "kept", True))
+            print(batch_log_line("s0b", batch_no, n_s0b_batches,
+                                 len(batch) - failed_here, failed_here,
+                                 {}))
+        run_logger.stage_end(
+            "s0b",
+            ok=sum(1 for v in states["s0b"]["done"].values()
+                   if v.get("kept")),
+            fail=len(states["s0b"].get("failed", [])))
+        s0b_dropped = {k for k, v in states["s0b"]["done"].items()
+                       if isinstance(v, dict) and not v.get("kept")}
+        items = [i for i in items if item_key(i) not in s0b_dropped]
+        if s0b_dropped:
+            print("s0b inflection: kept=%d dropped=%d (%s)" % (
+                len(items), len(s0b_dropped),
+                ", ".join(sorted(
+                    "%s:%s" % (k, states["s0b"]["done"][k].get("reason"))
+                    for k in s0b_dropped
+                    if k in states["s0b"]["done"]))))
         # S1 (deterministic, batch-flushed). V7 anchor-POS drop lives ONLY
         # here: when the anchored sense's entry POS is in {name, propn}
         # (card_pilot.PROPER_NOUN_POS, reused by import — deterministic,
         # no name lists) the item drops with reason anchor-proper-noun.
+        # R34 v9: unresolvable bare-xref anchors drop here too (reason
+        # no-real-def: no target entry, or the target is also a bare
+        # xref — 1 hop max, no chains).
         # The reason rides on the s1 done entry + failed list (drops never
         # reach precard.jsonl); s1_dropped is rebuilt from state, so the
         # drop is resume-safe with no re-run needed.
@@ -1011,10 +1177,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 key = item_key(item)
                 # V7 resume-compat: v6-era s1 entries lack anchor_pos, so
                 # they are re-ranked deterministically (same scores plus
-                # anchor_pos/drop verdict) instead of skipped.
+                # anchor_pos/drop verdict) instead of skipped. R34 v9
+                # extends the compat to the xref fields.
                 done_entry = states["s1"]["done"].get(key)
                 if not isinstance(done_entry, dict) \
-                        or "anchor_pos" not in done_entry:
+                        or "anchor_pos" not in done_entry \
+                        or "xref_unresolvable" not in done_entry:
                     try:
                         ranked = s1_rank_item(item, index, read_entry)
                         if (ranked.get("anchor_pos") or "") in \
@@ -1022,11 +1190,17 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                             ranked["dropped"] = "anchor-proper-noun"
                             if key not in states["s1"]["failed"]:
                                 states["s1"]["failed"].append(key)
+                        elif ranked.get("xref_unresolvable"):
+                            ranked["dropped"] = "no-real-def"
+                            if key not in states["s1"]["failed"]:
+                                states["s1"]["failed"].append(key)
                         states["s1"]["done"][key] = ranked
                     except Exception as exc:
                         states["s1"]["done"][key] = {
                             "candidates": [], "top": None, "en_def": "",
-                            "anchor_pos": ""}
+                            "anchor_pos": "", "xref_method": "",
+                            "resolved_from": "",
+                            "xref_unresolvable": False}
                         if key not in states["s1"]["failed"]:
                             states["s1"]["failed"].append(key)
                         _note_backoff(states["s1"], key, [],
@@ -1219,6 +1393,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 "ipa_src": enrich.get("ipa_src",
                                       card_pilot.IPA_SRC_MODEL),
                 "dataset_examples": enrich.get("dataset_examples", []),
+                "abbrev_expansion": enrich.get("abbrev_expansion", ""),
+                "pos": enrich.get("pos", []),
+                "pos_src": enrich.get("pos_src", "none"),
                 "topic_vector": topic_vector,
                 "topic_method": label.get("method")
                 or card_pilot.TOPIC_METHOD_TAG,
@@ -1252,14 +1429,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 precards[item_key(item)], ensure_ascii=False) + "\n")
     _tele_write(str(out_path.parent / "telemetry_summary.json"), tele_store)
     n_failed = sum(len(states[s].get("failed", [])) for s in STAGES)
-    print("precard done: %d items -> %s (s0 dropped=%d, s1 dropped=%d, "
-          "failed flags=%d)"
+    print("precard done: %d items -> %s (s0 dropped=%d, s0b dropped=%d, "
+          "s1 dropped=%d, failed flags=%d)"
           % (len(items), out_path, len(states["s0"].get("failed", [])),
-             len(s1_dropped), n_failed))
-    run_logger.log("precard done: %d items s0_dropped=%d s1_dropped=%d "
-                   "failed=%d" % (len(items),
-                                   len(states["s0"].get("failed", [])),
-                                   len(s1_dropped), n_failed))
+             len(s0b_dropped), len(s1_dropped), n_failed))
+    run_logger.log("precard done: %d items s0_dropped=%d s0b_dropped=%d "
+                   "s1_dropped=%d failed=%d" % (
+                       len(items), len(states["s0"].get("failed", [])),
+                       len(s0b_dropped), len(s1_dropped), n_failed))
     run_logger.close()
     return 0
 
