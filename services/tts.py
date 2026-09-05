@@ -15,6 +15,23 @@ logger = logging.getLogger(__name__)
 
 _TTS_CACHE_DIR = Path("tts_cache")
 
+#: Hash prefix length for on-disk mp3 names (single source — shared with
+#: services/tts_cache.py via _mp3_path_for_cache_key so the derivation can
+#: never drift from the writer).
+_CACHE_KEY_HASH_LEN = 16
+
+
+def _mp3_path_for_cache_key(cache_key: str, *, base_dir: Path | None = None) -> Path:
+    """On-disk mp3 path for a ``tts_cache_key`` output (single source).
+
+    ``services/tts_cache.py`` delegates here instead of re-deriving the hash,
+    so writer and purger can never disagree (drift would orphan files or
+    delete the wrong path).
+    """
+    base = base_dir if base_dir is not None else _TTS_CACHE_DIR
+    key = hashlib.sha256(cache_key.encode()).hexdigest()[:_CACHE_KEY_HASH_LEN]
+    return base / f"{key}.mp3"
+
 #: Default Edge TTS voice per language lives on each catalog LanguageOption
 #: (config/catalog.py). This is the sole voice source; adding a language needs a
 #: single catalog edit. ``fa`` (Persian) is the *interface* language, not a
@@ -136,8 +153,7 @@ def tts_filename(text: str, lang: str, now: object | None = None) -> str:
 
 def _cache_path(word: str, lang: str) -> Path:
     _TTS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    key = hashlib.sha256(tts_cache_key(word, lang).encode()).hexdigest()[:16]
-    return _TTS_CACHE_DIR / f"{key}.mp3"
+    return _mp3_path_for_cache_key(tts_cache_key(word, lang))
 
 
 _TTS_TIMEOUT_S = 12

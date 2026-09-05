@@ -1,9 +1,10 @@
 import csv
 import datetime
 import io
+import logging
 
 from services.db.plans import get_plan, valid_plan_name
-from services.db.schema import get_conn, transaction, _today, _utc_now, _current_daily_count, _can_consume_daily_count
+from services.db.schema import get_conn, is_missing_table_error, transaction, _today, _utc_now, _current_daily_count, _can_consume_daily_count
 from services.db.settings import get_setting, set_setting
 from services.db.display_toggles import (
     get_effective as _get_display_toggles,
@@ -21,6 +22,8 @@ from config.catalog import (
     DEFAULT_CARD_MODE,
     DEFAULT_CARD_MODE_GATE,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _validate_card_type(card_type: str) -> None:
@@ -424,7 +427,15 @@ def count_llm_requests_since(date: str) -> int:
         row = conn.execute(
             "SELECT COUNT(*) AS cnt FROM llm_requests WHERE request_date >= ?", (date,)
         ).fetchone()
-        return row["cnt"] if row else 0
+        raw = int(row["cnt"] or 0) if row else 0
+    try:
+        from services.db import cost_tracking as _ct
+        rolled = _ct.rollup_request_count_since(date)
+    except Exception as exc:
+        if not is_missing_table_error(exc):
+            logger.exception("count_llm_requests_since rollup read failed")
+        rolled = 0
+    return raw + rolled
 
 
 def set_plan(user_id: int, plan: str):
@@ -495,10 +506,28 @@ def count_retained_users(created_before: str, active_since: str) -> int:
 
 
 def count_review_events_total() -> int:
-    """Total number of review_events rows."""
+    """Lifetime review-event total from per-card counters.
+
+    Reads SUM(saved_words.total_reviews) so the count stays exact after the
+    retention prune deletes old raw review_events rows. Counters are seeded by
+    migration backfill and incremented atomically by record_review_event.
+    """
     with get_conn() as conn:
-        row = conn.execute("SELECT COUNT(*) AS cnt FROM review_events").fetchone()
-        return int(row["cnt"]) if row else 0
+        try:
+            row = conn.execute(
+                "SELECT SUM(COALESCE(total_reviews, 0)) AS cnt FROM saved_words"
+            ).fetchone()
+        except Exception as exc:
+            # Pre-migration DB without counters: silent fallback (as before).
+            # Any other error is logged so a broken counter never hides
+            # behind a plausible raw count.
+            if not is_missing_table_error(exc):
+                logger.exception("count_review_events_total counters read failed")
+            row = None
+        if row is not None and row["cnt"] is not None:
+            return int(row["cnt"])
+        fallback = conn.execute("SELECT COUNT(*) AS cnt FROM review_events").fetchone()
+        return int(fallback["cnt"]) if fallback else 0
 
 
 def count_study_sessions_total() -> int:
@@ -546,9 +575,22 @@ def get_user_learning_stats(user_id: int) -> dict:
         sw = conn.execute(
             "SELECT COUNT(*) AS cnt FROM saved_words WHERE user_id=?", (user_id,)
         ).fetchone()
-        re = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM review_events WHERE user_id=?", (user_id,)
-        ).fetchone()
+        # Lifetime per-user review total from counters (exact across prunes);
+        # falls back to the raw table only when counters are unavailable.
+        try:
+            re = conn.execute(
+                "SELECT SUM(COALESCE(total_reviews, 0)) AS cnt FROM saved_words "
+                "WHERE user_id=?",
+                (user_id,),
+            ).fetchone()
+            review_events = int(re["cnt"] or 0) if re else 0
+        except Exception as exc:
+            if not is_missing_table_error(exc):
+                logger.exception("get_user_learning_stats counters read failed")
+            re = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM review_events WHERE user_id=?", (user_id,)
+            ).fetchone()
+            review_events = int(re["cnt"]) if re else 0
         # Q7 fix: session_reports is the real per-session history (study_sessions
         # can only ever be 0/1 because user_id is its PK).
         sr = conn.execute(
@@ -563,7 +605,6 @@ def get_user_learning_stats(user_id: int) -> dict:
             (today_iso, user_id),
         ).fetchone()
         saved_words = int(sw["cnt"]) if sw else 0
-        review_events = int(re["cnt"]) if re else 0
         session_reports = int(sr["cnt"]) if sr else 0
         total = int(br["total"]) if br and br["total"] is not None else saved_words
         learned = int(br["learned"]) if br and br["learned"] is not None else 0

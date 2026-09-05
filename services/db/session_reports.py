@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import time
 from dataclasses import dataclass
 
 from services.db.schema import _utc_now, transaction
@@ -129,6 +130,36 @@ def list_recent_reports(
             )
         )
     return entries
+
+
+def purge_expired_session_reports(*, batch: int = 500, deadline: float | None = None) -> int:
+    """Delete session_reports rows older than the retention window (T3 nightly).
+
+    Same ``created_at < cutoff`` predicate as the lazy save/list/load purges —
+    this is the explicit entry point for the nightly job in
+    ``services/retention.py`` (the lazy paths stay the live enforcers).
+    DELETE-only, batched via rowid, each batch in its own short
+    ``transaction()``. Stops batching at ``deadline`` (monotonic) when set so
+    a backlog defers the remainder instead of starving the 05:30 backup.
+    Returns rows deleted.
+    """
+    batch = max(1, int(batch))
+    cutoff = _cutoff()
+    deleted = 0
+    while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
+        with transaction() as conn:
+            cur = conn.execute(
+                "DELETE FROM session_reports WHERE rowid IN ("
+                "SELECT rowid FROM session_reports WHERE created_at < ? LIMIT ?)",
+                (cutoff, batch),
+            )
+            n = cur.rowcount or 0
+        deleted += n
+        if n < batch:
+            break
+    return deleted
 
 
 def load_report(report_id: int, user_id: int) -> LoadedReport | None:

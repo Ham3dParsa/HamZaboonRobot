@@ -9,10 +9,12 @@ circular dependency (seam 1).
 
 from __future__ import annotations
 
+import datetime
 import logging
 import sqlite3
+import time
 
-from services.db.schema import get_conn, transaction, _utc_now
+from services.db.schema import get_conn, transaction, _today, _utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -119,3 +121,54 @@ def clear_session_grades(user_id: int) -> None:
         conn.execute(
             "DELETE FROM session_grade_ledger WHERE user_id=?", (user_id,)
         )
+
+
+def purge_stale_study_sessions(*, batch: int = 500, deadline: float | None = None) -> dict[str, int]:
+    """Midnight sweep: delete sessions/ledger rows older than yesterday.
+
+    A session lives until 00:00 the next night; the next day starts from zero.
+    ``study_sessions.session_date`` is an app-tz day, so rows with
+    ``session_date`` older than yesterday (app-tz) go. The ledger has no
+    session-date column — ``graded_at`` (UTC processing metadata) older than
+    ~2 days is the proxy, which always keeps today plus yesterday in any tz.
+    Same-day resume (``load_study_session``) and today's grading guards
+    (``is_word_graded``) are untouched. DELETE-only, batched via rowid, each
+    batch in its own short ``transaction()``. Stops batching at ``deadline``
+    (monotonic) when set. Function only — no scheduler wiring (per T1
+    contract). Returns per-table deleted counts.
+    """
+    day_cutoff = (_today() - datetime.timedelta(days=1)).isoformat()
+    ledger_cutoff = (_utc_now() - datetime.timedelta(days=2)).isoformat()
+    counts = {"study_sessions": 0, "session_grade_ledger": 0}
+    while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
+        with transaction() as conn:
+            cur = conn.execute(
+                "DELETE FROM study_sessions WHERE rowid IN ("
+                "SELECT rowid FROM study_sessions WHERE session_date < ? LIMIT ?)",
+                (day_cutoff, batch),
+            )
+            n = cur.rowcount or 0
+        counts["study_sessions"] += n
+        if n < batch:
+            break
+    while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
+        with transaction() as conn:
+            cur = conn.execute(
+                "DELETE FROM session_grade_ledger WHERE rowid IN ("
+                "SELECT rowid FROM session_grade_ledger WHERE graded_at < ? LIMIT ?)",
+                (ledger_cutoff, batch),
+            )
+            n = cur.rowcount or 0
+        counts["session_grade_ledger"] += n
+        if n < batch:
+            break
+    if counts["study_sessions"] or counts["session_grade_ledger"]:
+        logger.debug(
+            "purge_stale_study_sessions deleted=%s day_cutoff=%s",
+            counts, day_cutoff,
+        )
+    return counts

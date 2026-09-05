@@ -464,11 +464,13 @@ def get_hourly_usage_many(names: list[str], hours_back: int = 24) -> dict[str, t
     return result
 
 
-def prune_preset_hourly_usage(hours_back: int = 24):
+def prune_preset_hourly_usage(hours_back: int = 24, *, deadline: float | None = None):
     """Delete preset_hourly_usage rows older than a rolling window (R13).
 
     Keeping only the last `hours_back` hours bounds the RPD accounting so stale
     rows never hold the per-preset daily cap open or closed wrongly.
+    Single short DELETE — ``deadline`` is accepted for the uniform nightly
+    call-site and ignored (nothing to interrupt).
     """
     cutoff = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=hours_back)).isoformat()
     with transaction() as conn:

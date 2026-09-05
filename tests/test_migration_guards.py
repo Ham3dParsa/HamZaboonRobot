@@ -68,6 +68,8 @@ EXPECTED_COLUMNS = {
         "entry_source",        # NOTE: added in entry_source column change
         "last_review_at",      # NOTE: added in Phase 02 (FSRS timestamp schema)
         "next_review_at",      # NOTE: added in Phase 02 (FSRS timestamp schema)
+        "total_reviews",       # NOTE: added in retention-purge migration (per-card rollup)
+        "lapses",              # NOTE: added in retention-purge migration (per-card rollup)
     },
     "review_events": {"id", "word_id", "user_id", "outcome", "created_at"},
     "llm_requests": {"id", "request_id", "cost_usd", "preset_name"},
@@ -88,6 +90,7 @@ EXPECTED_TABLES = {
     "query_results",
     "grammar_tips",
     "llm_requests",
+    "llm_daily_rollup",
     "review_events",
     "ai_presets",
     "preset_hourly_usage",
