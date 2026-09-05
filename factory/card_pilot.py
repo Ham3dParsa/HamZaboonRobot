@@ -107,6 +107,11 @@ REPAIR_PREFIX = ("Your last reply was not valid JSON. "
 # R4 — proper-noun POS set (general rule, no hardcoded name list).
 PROPER_NOUN_POS = {"name", "propn"}
 
+# Dataset vulgarity signal: anchored senses carrying any of these kaikki
+# tags never become learner cards (S1 vulgar-anchor drop, no word lists).
+VULGAR_TAGS = {"vulgar", "offensive", "derogatory", "obscene", "profane",
+               "ethnic-slur", "slur"}
+
 # R6 — topic method tag: exact v16b path (deterministic v16 leg + v16b LLM
 # top-up for Others, same free model chain). Pilot resume is separate from
 # the v16b originals so the gold-standard files are never touched.
@@ -328,11 +333,7 @@ def _v14_ppos(entry_pos, pool_pos):
 # R38 v10: freq is NO LONGER an additive pre-score leg. The pre-score is
 # the file-index decay Score_pre = (1/sqrt(file_index+1)) * preg * ppos;
 # freq_per_sense survives ONLY as the final tie-breaker when two
-# pre-scores differ by less than FREQ_TIE_EPS (0.05). _FREQ_W /
-# _FREQ_OTHER_NEUTRAL are retired constants kept for import
-# compatibility (unused by the scorer).
-_FREQ_W = 0.30
-_FREQ_OTHER_NEUTRAL = 0.35
+# pre-scores differ by less than FREQ_TIE_EPS (0.05).
 # R38 v10 — tie-breaker epsilon: pre-score diffs below this defer to freq.
 FREQ_TIE_EPS = 0.05
 
@@ -683,8 +684,8 @@ def pick_anchor_sense_full(text, entries, pool_pos, read_entry,
                            index=None, zipf_fn=None):
     """R6 anchor + R10/R11 carriers: (sense_id, gloss, sense, entry).
 
-    Scoring is identical to pick_anchor_sense (vendored v14
-    register_penalty * ppos + R37 freq leg, stable file order); sense_id
+    Scoring is Score_pre = file-index decay * register_penalty * ppos
+    (R38 v10; freq_per_sense survives only as <0.05 tie-breaker); sense_id
     is "<text.lower()>#<file-order-sense-idx>". Empty entries ->
     ("", "", None, None). R34 v9: when the top scorer is a bare xref
     and the same kaikki index is passed, the anchor resolves to the
@@ -1089,6 +1090,14 @@ def anchor_item_en(item, index, read_entry, vector_lookup=None,
     item["ipa_src"] = IPA_SRC_DATASET if ipa else IPA_SRC_MODEL
     item["anchor_pos"] = (str((entry or {}).get("pos") or "").strip()
                           .casefold() if isinstance(entry, dict) else "")
+    # Anchor sense tags ride along for the S1 vulgar-anchor drop (dataset
+    # signal: vulgar/offensive/derogatory senses never become learner cards).
+    try:
+        _tags = ((sense or {}).get("tags") or [])
+        item["anchor_tags"] = sorted(
+            {str(t).strip().casefold() for t in _tags if str(t or "").strip()})
+    except Exception:
+        item["anchor_tags"] = []
     item["abbrev_expansion"] = parse_abbrev_expansion(gloss)
     pos_tags = anchor_pos_tags(cand_text, cand_entries, cand_pos,
                                read_entry)
@@ -1278,7 +1287,28 @@ def sense_coherence_check(anchor_gloss, card):
     card_keys = set()
     for part in parts:
         card_keys |= _coherence_tokens(part)
-    return bool(anchor_keys & card_keys)
+
+    def _stem_hit(a, b):
+        # Morphology-tolerant overlap: shared substring of 5+ chars
+        # (torrent/torrential, thing/nothing), with trailing-s tolerance
+        # (torrents/torrential). Exact-match first (cheap).
+        if a == b:
+            return True
+
+        def _vars(t):
+            out = {t}
+            if len(t) > 5 and t.endswith("s") and not t.endswith("ss"):
+                out.add(t[:-1])
+            return out
+        for va in _vars(a):
+            for vb in _vars(b):
+                if len(va) < 5 or len(vb) < 5:
+                    continue
+                short, long = (va, vb) if len(va) <= len(vb) else (vb, va)
+                if short in long:
+                    return True
+        return False
+    return any(_stem_hit(a, b) for a in anchor_keys for b in card_keys)
 
 
 def headword_leak_tokens(text, kind):
@@ -3644,6 +3674,9 @@ def render_gallery(cards, meta, phrase_types=None):
         "nav.top a:hover{text-decoration:underline;}\n"
         "nav.top a:focus-visible{outline:2px solid var(--accent);"
         "outline-offset:2px;}\n"
+        "@media (max-width:640px){nav.top{position:static;display:flex;"
+        "flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;"
+        "padding:.5em;}nav.top a{flex-shrink:0;white-space:nowrap;}}\n"
         "h1{font-size:1.6em;margin:1.4em 0 .4em;}\n"
         "h2{font-size:1.2em;margin-top:1.8em;margin-bottom:.6em;}\n"
         "h3{font-size:1.05em;margin-top:2em;margin-bottom:.8em;"
