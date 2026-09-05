@@ -1829,3 +1829,14 @@ def test_freq_leg_common_outranks_rare():
     tied = score_senses("w", _freq_entries(), "noun", read_entry,
                         zipf_fn=lambda w: None)
     assert [idx for _, idx, _, _, _ in tied] == [0, 1]
+
+def test_delta_kept_alias_canonicalized():
+    from card_pilot import merge_precard_delta, validate_delta_response
+    ok, kept, filled, improved, flag, reason = validate_delta_response(
+        {"kept": ["ph"], "filled": {"phonetic": "/WRONG/"},
+         "improved": {}, "improved_flag": False})
+    assert ok, reason
+    assert kept == ["phonetic"]
+    full, report = merge_precard_delta({}, {}, kept, filled, improved, flag)
+    assert report.get("kept_tamper") is True
+    assert full.get("phonetic") != "/WRONG/"

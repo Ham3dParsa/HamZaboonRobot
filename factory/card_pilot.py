@@ -1313,7 +1313,11 @@ def validate_delta_response(obj):
         return False, [], {}, {}, False, "delta.improved_flag must be bool"
     filled = _normalize_delta_keys(filled)
     improved = _normalize_delta_keys(improved)
-    return True, [k.strip() for k in kept if k.strip()], filled, improved, \
+    # C1: canonicalize kept too, else kept:["ph"] + filled:{"phonetic":…}
+    # evades the tamper discard (alias asymmetry).
+    kept = [DELTA_ALIASES.get(k.strip(), k.strip())
+            for k in kept if k.strip()]
+    return True, kept, filled, improved, \
         improved_flag, ""
 
 
