@@ -1107,6 +1107,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # review errors keep the item flagged review-uncertain (fail
         # closed, never drop on uncertainty). transport=None skips the
         # LLM leg (all kept, stated). Drops never reach precard.jsonl.
+        # R44 v12: superlative/comparative-pattern glosses redirect to
+        # the BASE lemma (kept, reason superlative-redirect, redirect_to
+        # the base) on an explicit keep-false verdict; an explicit keep
+        # (established nominal/idiomatic sense) stays inflection-keep.
+        # Verdict variant inside S0b — no new stage.
         run_logger.stage_start("s0b")
         n_s0b_batches = (len(items) + BATCH - 1) // BATCH or 1
         for batch_no, base in enumerate(
@@ -1141,10 +1146,18 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 for entry in review:
                     key = entry["key"]
                     verdict = verdicts.get(key)
+                    base = card_pilot.parse_superlative_base(
+                        entry.get("gloss") or "")
                     if verdict is None:
                         states["s0b"]["done"][key] = {
                             "kept": True, "reason": "review-uncertain",
                             "uncertain": True}
+                    elif not verdict.get("keep") and base:
+                        states["s0b"]["done"][key] = {
+                            "kept": True,
+                            "reason": "superlative-redirect",
+                            "redirect_to": base,
+                            "uncertain": False}
                     elif not verdict.get("keep"):
                         states["s0b"]["done"][key] = {
                             "kept": False,
@@ -1183,6 +1196,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         s0b_dropped = {k for k, v in states["s0b"]["done"].items()
                        if isinstance(v, dict) and not v.get("kept")}
         items = [i for i in items if item_key(i) not in s0b_dropped]
+        # R44 v12: propagate superlative redirects onto the in-memory
+        # items (keys unchanged — the redirect is recorded, downstream
+        # stages still key on the original item key).
+        for item in items:
+            s0b = states["s0b"]["done"].get(item_key(item)) or {}
+            if s0b.get("redirect_to"):
+                item["redirect_to"] = s0b["redirect_to"]
+                item["s0b_reason"] = s0b.get("reason", "")
         if s0b_dropped:
             print("s0b inflection: kept=%d dropped=%d (%s)" % (
                 len(items), len(s0b_dropped),
@@ -1417,6 +1438,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             vec3 = states["s3"]["done"].get(key) or {}
             pick = states["s2"]["done"].get(key) or {}
             s0v = s0_info.get(key) or {}
+            s0b = states["s0b"]["done"].get(key) or {}
             topic_vector = (label.get("vector")
                             or vec3.get("vector")
                             or [{"label": "Other / Abstract",
@@ -1438,9 +1460,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 "topic_method": label.get("method")
                 or card_pilot.TOPIC_METHOD_TAG,
                 "drop_reason": None,
+                "redirect_to": s0b.get("redirect_to", ""),
                 "stage_calls": {
                     "s0": ("kept:type-pending" if s0v.get("type_pending")
                            else "kept"),
+                    "s0b": (s0b.get("reason", "") or "kept"),
                     "s2": pick.get("model", ""),
                     "s3": vec3.get("model", ""),
                     "s4": label.get("method", ""),

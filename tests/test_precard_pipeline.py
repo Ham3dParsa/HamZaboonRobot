@@ -648,3 +648,82 @@ def test_coherence_stem_overlap():
         "An X mark placed at the end of a letter",
         {"examples": ["I want to kiss her."], "fa_meaning": "",
          "fa_explanation": "", "example_translations": [], "synonyms": []}) is False
+
+
+# ---------------- v12 R44: superlative redirect (S0b verdict variant) ---
+
+def _superlative_index():
+    def rows(gloss):
+        return [{"pos": "adj",
+                 "entry": {"pos": "adj", "sounds": [],
+                           "senses": [{"glosses": [gloss], "tags": [],
+                                       "examples": []}]}}]
+    return {"best": rows("superlative of good"),
+            "better": rows("comparative of good"),
+            "good": rows("having good qualities")}
+
+
+def _super_items():
+    return [{"kind": "word", "text": "best", "pos": "adjective",
+             "pool_level": "A1"},
+            {"kind": "word", "text": "better", "pos": "adjective",
+             "pool_level": "A1"}]
+
+
+def test_s0b_superlative_redirects_on_plain_drop(tmp_path, monkeypatch):
+    """R44 mocked: plain superlative/comparative keep-false verdicts
+    redirect (kept, reason superlative-redirect, redirect_to base)."""
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    sample = write_sample(tmp_path, _super_items())
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+
+    def inflect(api_key, model, sys_text, user_text):
+        return json.dumps({"results": [
+            {"key": "w:best", "keep": False, "reason": "plain superlative"},
+            {"key": "w:better", "keep": False,
+             "reason": "plain comparative"}]})
+
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog],
+        _judge_transport=fake_judge, _topic_transport=fake_topics,
+        _assign_transport=None, _inflect_transport=inflect,
+        _sleep_fn=lambda s: None, _index=_superlative_index(),
+        _read_entry=read_entry, _tatoeba={},
+        _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    s0b = json.loads(
+        (pathlib.Path(prog) / "s0b.json").read_text(encoding="utf-8"))
+    assert s0b["done"]["w:best"] == {
+        "kept": True, "reason": "superlative-redirect",
+        "redirect_to": "good", "uncertain": False}
+    assert s0b["done"]["w:better"]["redirect_to"] == "good"
+    assert "w:best" not in s0b["failed"]  # redirect keeps, never drops
+    rows = {r["key"]: r for r in load_out(out)}
+    assert rows["w:best"]["redirect_to"] == "good"
+
+
+def test_s0b_superlative_idiomatic_kept(tmp_path, monkeypatch):
+    """R44 mocked: an established idiomatic keep verdict stays kept
+    (inflection-keep, no redirect)."""
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    sample = write_sample(tmp_path, _super_items()[:1])
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+
+    def inflect(api_key, model, sys_text, user_text):
+        return json.dumps({"results": [
+            {"key": "w:best", "keep": True,
+             "reason": "idiom: do one's best"}]})
+
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog],
+        _judge_transport=fake_judge, _topic_transport=fake_topics,
+        _assign_transport=None, _inflect_transport=inflect,
+        _sleep_fn=lambda s: None, _index=_superlative_index(),
+        _read_entry=read_entry, _tatoeba={},
+        _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    s0b = json.loads(
+        (pathlib.Path(prog) / "s0b.json").read_text(encoding="utf-8"))
+    assert s0b["done"]["w:best"]["reason"] == "inflection-keep"
+    assert s0b["done"]["w:best"].get("redirect_to", "") == ""
+    assert [r["key"] for r in load_out(out)] == ["w:best"]
