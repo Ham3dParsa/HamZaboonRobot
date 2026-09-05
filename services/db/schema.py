@@ -175,8 +175,9 @@ def _backfill_query_results_normalization(conn):
     Recomputes ``query_text`` and ``word`` via ``normalize_word`` (NFC +
     casefold + whitespace-collapse) and resolves collisions where normalization
     folds two previously-distinct keys into one within ``(user_id, lang,
-    query_text)``. On collision the most-recent row (``created_at`` desc) is
-    kept and older duplicates are deleted. Idempotent, gated by
+    query_text)``. On collision the keeper wins by (a) saved (non-null
+    ``saved_at`` or ``saved_word_id``), then (b) unexpired (``expires_at`` >
+    now), then (c) most-recent ``created_at``; older duplicates are deleted. Idempotent, gated by
     ``_migration_query_results_normalization_done`` so the full table scan
     happens only once.
     """
@@ -186,7 +187,7 @@ def _backfill_query_results_normalization(conn):
     if done:
         return
     rows = conn.execute(
-        "SELECT token, user_id, lang, query_text, word, created_at FROM query_results"
+        "SELECT token, user_id, lang, query_text, word, created_at, expires_at, saved_at, saved_word_id FROM query_results"
     ).fetchall()
 
     def _parse_created(value):
@@ -200,6 +201,19 @@ def _backfill_query_results_normalization(conn):
             dt = dt.replace(tzinfo=datetime.timezone.utc)
         return dt.timestamp()
 
+    _now_ts = datetime.datetime.now(datetime.timezone.utc).timestamp()
+
+    def _keeper_key(x):
+        try:
+            saved = 1 if (x["saved_at"] is not None or x["saved_word_id"] is not None) else 0
+        except (KeyError, IndexError, TypeError):
+            saved = 0
+        try:
+            unexpired = 1 if _parse_created(x["expires_at"]) > _now_ts else 0
+        except (KeyError, IndexError, TypeError):
+            unexpired = 0
+        return (saved, unexpired, _parse_created(x["created_at"]))
+
     groups: dict[tuple, list] = {}
     for r in rows:
         norm_q = normalize_word(r["query_text"] or "")
@@ -209,7 +223,7 @@ def _backfill_query_results_normalization(conn):
     deletes: list[str] = []
     updates: list[tuple[str, str, str]] = []
     for items in groups.values():
-        items.sort(key=lambda x: _parse_created(x["created_at"]), reverse=True)
+        items.sort(key=_keeper_key, reverse=True)
         keeper = items[0]
         new_q = normalize_word(keeper["query_text"] or "")
         new_w = normalize_word(keeper["word"] or "")
@@ -224,9 +238,7 @@ def _backfill_query_results_normalization(conn):
             "UPDATE query_results SET query_text=?, word=? WHERE token=?",
             (new_q, new_w, token),
         )
-    # Update non-duplicate rows that still need normalization (outside collision groups)
-    # Already handled keeper updates; remaining singletons with no collision but
-    # stale normalization were covered as keepers. No extra pass needed.
+    # Singletons are normalized via the keeper UPDATE above; no second pass needed.
     conn.execute(
         "INSERT INTO settings(key, value) VALUES (?, '1') "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",

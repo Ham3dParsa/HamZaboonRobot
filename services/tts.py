@@ -123,6 +123,7 @@ def tts_caption(text: str) -> str:
 
 def tts_cache_key(text: str, lang: str) -> str:
     """Stable dedup key: lang + normalized+casefolded text."""
+    # Cache-bust note: old-hash files orphaned by a key change are accepted one-time (no migration).
     norm = " ".join(unicodedata.normalize("NFC", text or "").split()).casefold()
     return f"{lang}:{norm}"
 

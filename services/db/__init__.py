@@ -328,12 +328,7 @@ def find_unexpired_query(user_id: int, query_text: str, lang: str):
             (user_id, lang, normalized, now),
         ).fetchone()
         if row is not None:
-            try:
-                json.loads(row["result_json"])
-            except (TypeError, json.JSONDecodeError):
-                row = None
-            else:
-                return row
+            return row
         # Fallback for legacy rows stored before normalization (pre-#501).
         rows = conn.execute(
             "SELECT * FROM query_results "
@@ -371,12 +366,7 @@ def find_unexpired_query_by_word(user_id: int, word: str, lang: str):
             (user_id, lang, normalized, now),
         ).fetchone()
         if row is not None:
-            try:
-                json.loads(row["result_json"])
-            except (TypeError, json.JSONDecodeError):
-                row = None
-            else:
-                return row
+            return row
         # Fallback for legacy rows stored before normalization (pre-#501).
         rows = conn.execute(
             "SELECT * FROM query_results "
