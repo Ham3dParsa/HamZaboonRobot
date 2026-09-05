@@ -372,18 +372,21 @@ class LaterSessionAndTelemetryTest(unittest.TestCase):
             due_later = [r["word"] for r in db.due_words_for_user(1)]
             self.assertIn("later", due_later, "must appear in a later session after due")
 
-    def test_telemetry_failure_keeps_schedule_committed(self):
-        """Rule 10: scheduling commits before review_events; a telemetry failure
-        is logged and swallowed so learning progress (streak/toast/advance) is
-        not blocked and the advanced schedule is never rolled back."""
+    def test_telemetry_failure_rolls_back_atomically(self):
+        """F1 (supersedes old Rule 10): grade + event + streak share one atomic
+        transaction per tap, so a telemetry failure rolls the schedule back
+        (all-or-nothing, safe to retry) instead of committing a partial grade.
+        Replaces test_telemetry_failure_keeps_schedule_committed, whose
+        swallow-and-commit expectation the F1 owner lock retired."""
         from handlers.srs_handler import _handle_srs_review
 
         word_id = self._make_due_card("tel", "2026-01-01T00:00:00+00:00")
         with db.get_conn() as conn:
-            row = conn.execute(
-                "SELECT next_review_at FROM saved_words WHERE id=?", (word_id,)
+            before = conn.execute(
+                "SELECT last_review_at, next_review_at, stability "
+                "FROM saved_words WHERE id=?", (word_id,)
             ).fetchone()
-            self.assertIsNotNone(row["next_review_at"])
+            self.assertIsNotNone(before["next_review_at"])
 
         query = MagicMock()
         query.answer = AsyncMock()
@@ -399,25 +402,29 @@ class LaterSessionAndTelemetryTest(unittest.TestCase):
             "services.db.words._utc_now",
             return_value=__import__("datetime").datetime(2026, 1, 1, 12, 0, 0, tzinfo=__import__("datetime").timezone.utc),
         ):
-            with patch.object(db, "record_review_event", side_effect=RuntimeError("analytics down")):
-                # Must NOT raise: the failure is logged and swallowed.
+            with patch(
+                "services.db.words.insert_review_event",
+                side_effect=RuntimeError("analytics down"),
+            ):
+                # Must NOT raise: the handler catches the atomic failure and
+                # shows the retry toast instead of advancing.
                 asyncio.run(_handle_srs_review(update, 3, "1", str(word_id), ctx))
 
         with db.get_conn() as conn:
             row = conn.execute(
-                "SELECT last_review_at, next_review_at, review_status "
+                "SELECT last_review_at, next_review_at, stability, review_status "
                 "FROM saved_words WHERE id=?", (word_id,)
             ).fetchone()
-        self.assertIsNotNone(row["last_review_at"], "schedule was advanced")
-        self.assertIsNotNone(row["next_review_at"], "next review persisted")
-        self.assertEqual(row["review_status"], "idle")
+        self.assertEqual(row["last_review_at"], before["last_review_at"])
+        self.assertEqual(row["next_review_at"], before["next_review_at"])
+        self.assertEqual(row["stability"], before["stability"])
         with db.get_conn() as conn:
             count = conn.execute(
                 "SELECT COUNT(*) c FROM review_events WHERE word_id=?", (word_id,)
             ).fetchone()["c"]
-        self.assertEqual(count, 0, "failed telemetry wrote no event, but schedule held")
-        # Learning progress is not blocked: the success toast and session advance
-        # still run despite the swallowed telemetry failure.
+        self.assertEqual(count, 0, "failed tap wrote no event and rolled back")
+        self.assertFalse(db.is_word_graded(1, word_id, "srs_review"))
+        # The tap was answered (error toast), never silently dropped.
         self.assertTrue(query.answer.await_count >= 1)
 
 

@@ -4,12 +4,20 @@ These lock the atomicity contract of ``services.db.schema.transaction``:
 
 1. A clean block exit commits the immediate transaction (writes persist).
 2. An exception inside the block rolls the transaction back (no partial write).
-3. The ten write modules use the single ``transaction()`` seam for every write
+3. The write modules use the single ``transaction()`` seam for every write
     instead of scattering raw ``BEGIN IMMEDIATE ... commit()`` — the "replace,
     don't layer" spec from the R1 deep-module design. (The schema migration's own
     additive-then-destructive commit boundary is deliberately excluded.)
+4. F1 batch participants in ``CALLER_TXN_MODULES`` never open their own
+    transaction: their writes ride the caller's open connection so grade +
+    event + streak share one atomic transaction (F1 batched grade). A
+    ``with transaction()`` block in a participant would silently split the
+    batch and must fail here. Standalone jobs in the same module that own
+    short bounded transactions (never called inside a grade batch —
+    ``CALLER_TXN_EXEMPT``) are allowed.
 """
 
+import ast
 import os
 import sqlite3
 import tempfile
@@ -32,6 +40,53 @@ WRITE_MODULES = [
     "services.db.reviews",
     "services.db.display_toggles",
 ]
+
+
+# Modules whose writes intentionally ride the caller's open transaction
+# (F1 batched grade). They must not open a transaction of their own.
+CALLER_TXN_MODULES = frozenset({"services.db.reviews"})
+
+# Standalone jobs inside a caller-txn module that legitimately own short,
+# bounded transactions: prune_old_review_events runs as a nightly-retention
+# step (services/retention.py) via to_thread in its own short transactions,
+# never inside an F1 grade batch — so it cannot split the batch.
+CALLER_TXN_EXEMPT = {"services.db.reviews": frozenset({"prune_old_review_events"})}
+
+
+def _own_transaction_funcs(source: str, exempt: frozenset) -> list:
+    """Names of functions in ``source`` opening their own ``with transaction()``.
+
+    Function-level precision (AST): the F1 invariant only forbids batch
+    participants from splitting the caller's transaction, while standalone
+    jobs (``exempt``) keep their own short transactions.
+    """
+    found: list = []
+
+    class _Visitor(ast.NodeVisitor):
+        def __init__(self):
+            self._func: list = []
+
+        def visit_FunctionDef(self, node):  # noqa: N802 - ast hook name
+            self._func.append(node.name)
+            self.generic_visit(node)
+            self._func.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_With(self, node):
+            for item in node.items:
+                expr = item.context_expr
+                if (
+                    isinstance(expr, ast.Call)
+                    and isinstance(expr.func, ast.Name)
+                    and expr.func.id == "transaction"
+                ):
+                    if self._func and self._func[-1] not in exempt:
+                        found.append(self._func[-1])
+            self.generic_visit(node)
+
+    _Visitor().visit(ast.parse(source))
+    return found
 
 
 class TransactionSeamTests(unittest.TestCase):
@@ -85,11 +140,23 @@ class TransactionSeamTests(unittest.TestCase):
                 content,
                 f"{module_name} must not scatter raw BEGIN IMMEDIATE; use transaction()",
             )
-            self.assertIn(
-                "transaction()",
-                content,
-                f"{module_name} must use the transaction() seam",
-            )
+            if module_name in CALLER_TXN_MODULES:
+                violations = _own_transaction_funcs(
+                    content, CALLER_TXN_EXEMPT.get(module_name, frozenset())
+                )
+                self.assertEqual(
+                    violations,
+                    [],
+                    f"{module_name} rides the caller's transaction; "
+                    f"these functions opening their own would split the "
+                    f"atomic batch: {violations}",
+                )
+            else:
+                self.assertIn(
+                    "transaction()",
+                    content,
+                    f"{module_name} must use the transaction() seam",
+                )
 
     def test_schema_helper_still_backed_by_immediate(self):
         """The helper itself must issue BEGIN IMMEDIATE so the seam stays atomic."""

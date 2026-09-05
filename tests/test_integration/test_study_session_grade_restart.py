@@ -236,7 +236,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
         # Restart: fresh ctx (no in-memory session) -> restored from DB with
         # graded_word_ids=[w2] -> idempotent skip, NOT a second grade.
         ctx2 = self._ctx()
-        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+        with patch("services.db.words.touch_streak_in_txn", wraps=db.touch_streak_in_txn) as touch:
             with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
                 asyncio.run(
                     srs_handler._handle_first_exposure_grade(
@@ -271,7 +271,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
             )
         events_before = self._review_events(self.w2)
         ctx2 = self._ctx()
-        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+        with patch("services.db.words.touch_streak_in_txn", wraps=db.touch_streak_in_txn) as touch:
             with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
                 asyncio.run(
                     srs_handler._handle_srs_review(
@@ -288,7 +288,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
         # Active review node whose word was never exposed -> genuine wrong_state.
         self._persist(self._session([self.w2], activity_type="srs_review"))
         ctx = self._ctx()
-        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+        with patch("services.db.words.touch_streak_in_txn", wraps=db.touch_streak_in_txn) as touch:
             with patch.object(srs_handler, "advance_session", new_callable=AsyncMock) as advance:
                 with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
                     asyncio.run(
@@ -378,7 +378,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
         # Re-tap: must NOT re-grade; must drive the session to completion and
         # render the report.
         ctx.bot.edit_message_text.side_effect = None
-        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+        with patch("services.db.words.touch_streak_in_txn", wraps=db.touch_streak_in_txn) as touch:
             with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
                 asyncio.run(
                     srs_handler._handle_first_exposure_grade(
@@ -422,7 +422,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
         )
         events_before = self._review_events(self.w2)
         ctx.bot.edit_message_text.side_effect = None
-        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+        with patch("services.db.words.touch_streak_in_txn", wraps=db.touch_streak_in_txn) as touch:
             with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
                 asyncio.run(
                     srs_handler._handle_srs_review(
@@ -488,7 +488,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
         )
         events_before = self._review_events(self.w1)
         ctx = self._ctx()
-        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+        with patch("services.db.words.touch_streak_in_txn", wraps=db.touch_streak_in_txn) as touch:
             with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
                 asyncio.run(
                     srs_handler._handle_first_exposure_grade(
@@ -511,7 +511,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
         self.assertTrue(db.is_word_graded(1, self.w1, "srs_review"))
         events_before = self._review_events(self.w1)
         ctx = self._ctx()
-        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+        with patch("services.db.words.touch_streak_in_txn", wraps=db.touch_streak_in_txn) as touch:
             with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
                 asyncio.run(
                     srs_handler._handle_srs_review(
@@ -557,7 +557,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
             )
         # Second re-tap: skip + advance retry now succeeds and completes.
         ctx.bot.edit_message_text.side_effect = None
-        with patch.object(srs_handler.db, "touch_streak", wraps=db.touch_streak) as touch:
+        with patch("services.db.words.touch_streak_in_txn", wraps=db.touch_streak_in_txn) as touch:
             with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock):
                 asyncio.run(
                     srs_handler._handle_srs_review(

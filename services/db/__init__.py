@@ -62,6 +62,7 @@ from services.db.users import (
     set_display_toggle,
     set_display_toggle_forced,
     touch_streak,
+    touch_streak_in_txn,
     can_ask_word,
     reserve_word_query,
     release_word_query,
@@ -167,8 +168,8 @@ def _is_storage_error(exc: BaseException) -> bool:
 
 from services.db.reviews import (
     REVIEW_OUTCOMES,
+    insert_review_event,
     prune_old_review_events,
-    record_review_event,
     recent_events_for_words,
 )
 

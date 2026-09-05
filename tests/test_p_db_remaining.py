@@ -37,13 +37,15 @@ class TestBusyTimeout(unittest.TestCase):
         self.assertIn("import asyncio", src)
         self.assertIn("asyncio.to_thread", src)
         # Spot-check the specific hot-path DB calls are wrapped (allow multiline)
+        # F1: the per-tap streak touch moved inside the batched grade
+        # transaction (words.grade_* via touch_streak_in_txn), so the handler
+        # no longer calls db.touch_streak directly; word_query.ask still does.
         for needle in [
             "db.get_saved_word",
             "db.get_display_toggles",
             "db.is_word_graded",
             "db.grade_word_review",
             "db.grade_first_exposure",
-            "db.touch_streak",
             "db.delete_saved_word",
         ]:
             self.assertIn(needle, src)

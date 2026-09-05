@@ -10,7 +10,9 @@ from services.db.schema import (
     _app_timezone,
     normalize_word,
 )
+from services.db.reviews import insert_review_event
 from services.db.sessions import mark_word_graded
+from services.db.users import touch_streak_in_txn
 from services.fsrs_core import (
     DEFAULT_FSRS_CONFIG,
     compute_interval,
@@ -413,13 +415,28 @@ def _apply_scheduling_fields(
     return cursor.rowcount
 
 
-def grade_word_review(word_id, grade, user_id):
+def grade_word_review(
+    word_id,
+    grade,
+    user_id,
+    *,
+    grade_source: str | None = None,
+    raw_signal: str | None = None,
+    response_time_ms: int | None = None,
+    with_streak: bool = False,
+):
     """Deep, atomic regular-review transition.
 
     Enforces ``(word_id, user_id)`` ownership inside the same immediate
     transaction that reads and updates scheduling state. Never partially
-    mutates the row on expected failure. Does not write ``review_events``
-    (telemetry wiring lives in Phase 05 handler integration).
+    mutates the row on expected failure.
+
+    F1 batch: when ``grade_source`` is not None the review event is inserted
+    on the SAME open transaction, and when ``with_streak`` is true the streak
+    is touched on the same transaction — one atomic transaction per tap,
+    all-or-nothing. All participant code is synchronous with zero await
+    inside the open transaction. Defaults preserve the legacy behavior
+    (grade only, no event, no streak) for existing callers.
     """
     _validate_grade(grade)
     with transaction() as conn:
@@ -456,6 +473,20 @@ def grade_word_review(word_id, grade, user_id):
             conn.rollback()
             return GradeResult(ok=False, reason="not_found")
         mark_word_graded(user_id, word_id, "srs_review", conn=conn, graded_at_iso=now.isoformat())
+        if grade_source is not None:
+            insert_review_event(
+                conn,
+                word_id,
+                user_id,
+                grade,
+                "srs_review",
+                grade_source=grade_source,
+                raw_signal=raw_signal,
+                response_time_ms=response_time_ms,
+                created_at_iso=now.isoformat(),
+            )
+        if with_streak:
+            touch_streak_in_txn(conn, user_id)
         return GradeResult(
             ok=True,
             next_review_at=next_review_at,
@@ -463,12 +494,25 @@ def grade_word_review(word_id, grade, user_id):
         )
 
 
-def grade_first_exposure(word_id, grade, user_id):
+def grade_first_exposure(
+    word_id,
+    grade,
+    user_id,
+    *,
+    grade_source: str | None = None,
+    raw_signal: str | None = None,
+    response_time_ms: int | None = None,
+    with_streak: bool = False,
+):
     """Deep, atomic first-exposure transition.
 
     Precondition: ``first_exposure_done = 0``. Familiarity-based stability
     seeds the schedule. Ownership + state guards run inside the same immediate
     transaction as the update, so expected failures never partially mutate.
+
+    F1 batch: same single-transaction event + streak folding as
+    :func:`grade_word_review` (activity_type="first_exposure"). Defaults
+    preserve legacy behavior for existing callers.
     """
     _validate_grade(grade)
     with transaction() as conn:
@@ -496,6 +540,20 @@ def grade_first_exposure(word_id, grade, user_id):
             conn.rollback()
             return GradeResult(ok=False, reason="not_found")
         mark_word_graded(user_id, word_id, "first_exposure", conn=conn, graded_at_iso=now.isoformat())
+        if grade_source is not None:
+            insert_review_event(
+                conn,
+                word_id,
+                user_id,
+                grade,
+                "first_exposure",
+                grade_source=grade_source,
+                raw_signal=raw_signal,
+                response_time_ms=response_time_ms,
+                created_at_iso=now.isoformat(),
+            )
+        if with_streak:
+            touch_streak_in_txn(conn, user_id)
         return GradeResult(
             ok=True,
             next_review_at=next_review_at,

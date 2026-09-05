@@ -262,25 +262,36 @@ def set_user_goal(user_id: int, goal: str):
         )
 
 
+def touch_streak_in_txn(conn, user_id: int, *, today_iso: str | None = None) -> int:
+    """Update the streak on the caller's open connection (no transaction).
+
+    Synchronous, zero await: pure date math + SQL. Used by the batched grade
+    tap (F1) so grade + event + streak share one atomic transaction.
+    """
+    today = today_iso or _today().isoformat()
+    row = conn.execute(
+        "SELECT streak, last_active_date FROM users WHERE user_id=?", (user_id,)
+    ).fetchone()
+    if not row:
+        return 0
+    streak, last_date = row["streak"] or 0, row["last_active_date"]
+    if last_date == today:
+        new_streak = streak
+    else:
+        yesterday = (
+            datetime.date.fromisoformat(today) - datetime.timedelta(days=1)
+        ).isoformat()
+        new_streak = streak + 1 if last_date == yesterday else 1
+    conn.execute(
+        "UPDATE users SET streak=?, last_active_date=? WHERE user_id=?",
+        (new_streak, today, user_id),
+    )
+    return new_streak
+
+
 def touch_streak(user_id: int) -> int:
-    today = _today().isoformat()
     with transaction() as conn:
-        row = conn.execute(
-            "SELECT streak, last_active_date FROM users WHERE user_id=?", (user_id,)
-        ).fetchone()
-        if not row:
-            return 0
-        streak, last_date = row["streak"] or 0, row["last_active_date"]
-        if last_date == today:
-            new_streak = streak
-        else:
-            yesterday = (_today() - datetime.timedelta(days=1)).isoformat()
-            new_streak = streak + 1 if last_date == yesterday else 1
-        conn.execute(
-            "UPDATE users SET streak=?, last_active_date=? WHERE user_id=?",
-            (new_streak, today, user_id),
-        )
-        return new_streak
+        return touch_streak_in_txn(conn, user_id)
 
 
 def can_ask_word(user_id: int, daily_limit: int, bypass_limits: bool = False) -> bool:
@@ -510,7 +521,8 @@ def count_review_events_total() -> int:
 
     Reads SUM(saved_words.total_reviews) so the count stays exact after the
     retention prune deletes old raw review_events rows. Counters are seeded by
-    migration backfill and incremented atomically by record_review_event.
+    migration backfill, bumped atomically alongside the event insert, and
+    healed monotonically by the retention prune reconcile.
     """
     with get_conn() as conn:
         try:

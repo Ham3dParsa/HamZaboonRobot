@@ -1,4 +1,4 @@
-"""Tests for review_events schema migration and record_review_event."""
+"""Tests for review_events schema migration and insert_review_event."""
 
 from __future__ import annotations
 
@@ -29,6 +29,11 @@ class ReviewEventsSchemaMigrationTests(unittest.TestCase):
         with db.get_conn() as conn:
             return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
+    def _record(self, word_id, user_id, grade, activity_type, **kwargs):
+        """Caller-owned transaction around insert_review_event (grade-path pattern)."""
+        with db.transaction() as conn:
+            db.insert_review_event(conn, word_id, user_id, grade, activity_type, **kwargs)
+
     # R5 — schema migration adds all 5 new columns
     def test_schema_migration_adds_new_columns(self):
         db.init_db()
@@ -37,13 +42,13 @@ class ReviewEventsSchemaMigrationTests(unittest.TestCase):
             self.assertIn(col, columns)
 
     # R1 — new function persists all 5 new columns
-    def test_record_review_event_persists_all_columns(self):
+    def test_insert_review_event_persists_all_columns(self):
         db.init_db()
         db.create_user_if_needed(1, "learner")
         db.add_saved_word(1, "hello", "en", {"word": "hello"})
         with db.get_conn() as conn:
             word_id = conn.execute("SELECT id FROM saved_words WHERE user_id=1").fetchone()["id"]
-        db.record_review_event(
+        self._record(
             word_id, 1, 3, "srs_review",
             grade_source="direct_button",
             raw_signal=json.dumps({"button_value": 3}),
@@ -66,7 +71,7 @@ class ReviewEventsSchemaMigrationTests(unittest.TestCase):
         db.add_saved_word(1, "hello", "en", {"word": "hello"})
         with db.get_conn() as conn:
             word_id = conn.execute("SELECT id FROM saved_words WHERE user_id=1").fetchone()["id"]
-        db.record_review_event(
+        self._record(
             word_id, 1, 2, "first_exposure",
             raw_signal=json.dumps({"button_value": 2}),
             response_time_ms=None,
@@ -83,7 +88,7 @@ class ReviewEventsSchemaMigrationTests(unittest.TestCase):
         db.add_saved_word(1, "hello", "en", {"word": "hello"})
         with db.get_conn() as conn:
             word_id = conn.execute("SELECT id FROM saved_words WHERE user_id=1").fetchone()["id"]
-        db.record_review_event(word_id, 1, 2, "srs_review")
+        self._record(word_id, 1, 2, "srs_review")
         with db.get_conn() as conn:
             row = conn.execute("SELECT outcome FROM review_events WHERE id=1").fetchone()
         self.assertEqual(row["outcome"], "recalled")
@@ -95,7 +100,7 @@ class ReviewEventsSchemaMigrationTests(unittest.TestCase):
         db.add_saved_word(1, "hello", "en", {"word": "hello"})
         with db.get_conn() as conn:
             word_id = conn.execute("SELECT id FROM saved_words WHERE user_id=1").fetchone()["id"]
-        db.record_review_event(word_id, 1, 1, "srs_review")
+        self._record(word_id, 1, 1, "srs_review")
         with db.get_conn() as conn:
             row = conn.execute("SELECT outcome FROM review_events WHERE id=1").fetchone()
         self.assertEqual(row["outcome"], "again")

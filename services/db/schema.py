@@ -179,7 +179,7 @@ def _backfill_review_counters(conn) -> None:
 
     Sets each card's counters to its lifetime review_events totals so the
     retention prune (which deletes old raw events) stays exact: counters are
-    incremented at insert by ``record_review_event`` going forward, and this
+    bumped atomically alongside the event insert going forward, and this
     backfill covers everything inserted before the counters existed. Lapse =
     grade 1, with a legacy fallback (grade NULL + outcome 'again') for rows
     written before the grade column existed. Idempotent via the
@@ -851,6 +851,16 @@ def init_db(path: str | None = None):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS saved_words_due_idx "
             "ON saved_words(user_id, lang, next_review_at)"
+        )
+        # F3: filter/order index for recent_events_for_words(user_id, word_id)
+        # ORDER BY word_id, created_at DESC, id DESC. Matches its WHERE
+        # (user_id=? AND word_id IN (...)) plus created_at ordering, so the
+        # per-word newest-first scan is index-backed on fresh and upgraded DBs.
+        # Not a covering index: the query also SELECTs grade/activity_type and
+        # uses the id DESC tiebreaker, which are resolved from the row/sort step.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS review_events_user_word_created_idx "
+            "ON review_events(user_id, word_id, created_at)"
         )
         defaults = {
             "llm_input_cost_usd_per_million": str(LLM_INPUT_COST_USD_PER_MILLION),
