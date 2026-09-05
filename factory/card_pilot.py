@@ -4208,9 +4208,9 @@ def render_final_card(rec, card):
         '<span class="en">%s</span> '
         '<span class="en">%s</span></div>'
         % (esc(headword), esc(ipa_disp)))
-    # V7 guidance: ONLY from the anchored pool_level; unknown -> no line.
-    guidance = LEVEL_GUIDANCE.get((rec.get("pool_level") or "").strip())
-    guidance_html = (_blk_fa(guidance) if guidance else "")
+    # Guidance line REMOVED from gallery cards (owner: noise in review).
+    # LEVEL_GUIDANCE dict stays for the bot runtime if ever needed.
+    guidance_html = ""
     # V7 metadata line: record siblings sense_id / pool_level / topic.
     sense_id = (rec.get("sense_id") or "").strip() or "—"
     pool_level = (rec.get("pool_level") or "").strip() or "—"
@@ -4309,8 +4309,9 @@ def render_gallery(cards, meta, phrase_types=None):
             '<div class="blk" dir="rtl" lang="fa">سطح کارت</div>\n'
             '<div class="blk en" dir="ltr" lang="en">%s</div>\n'
             "<h3>سربرگ + مقایسه پیش‌کارت و نهایی (diff)</h3>\n"
+            "<details open><summary>جدول diff (باز/بسته)</summary>\n"
             "%s\n"
-            "%s\n"
+            "%s\n</details>\n"
             "<details><summary>نوار مراحل (pipeline)</summary>\n"
             "%s\n</details>\n"
             "%s\n"
@@ -4813,8 +4814,26 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                             0.0, len(sample))
     timings["richness"] = richness_counters(records)  # R17 -> timings.json
     phrase_types = load_phrase_types(args.phrase_type_log)  # opportunistic
+    # Telemetry history: append this run's records to the cumulative
+    # jsonl so resume runs never erase history (summary covers ALL runs).
+    try:
+        _tele_hist = out_dir / "telemetry_records.jsonl"
+        with open(_tele_hist, "a", encoding="utf-8") as _th:
+            for _rec in tele_store:
+                _th.write(json.dumps(_rec, ensure_ascii=False) + "\n")
+        _all_tele = []
+        with open(_tele_hist, encoding="utf-8") as _th:
+            for _line in _th:
+                _line = _line.strip()
+                if _line:
+                    try:
+                        _all_tele.append(json.loads(_line))
+                    except ValueError:
+                        pass
+    except OSError:
+        _all_tele = list(tele_store)
     tele_summary = tele_write_summary(
-        out_dir / "telemetry_summary.json", tele_store)
+        out_dir / "telemetry_summary.json", _all_tele)
     meta = {"date_tehran": tehran_now_str(), "commit": git_commit(),
             "model_calls": model_calls, "timings": timings,
             "telemetry": tele_summary}

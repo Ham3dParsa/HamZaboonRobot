@@ -1136,8 +1136,9 @@ def test_final_card_header_headword_ipa_guidance_meta():
     assert html_out.index("final-head") < html_out.index("fld-label")
     assert "resilient" in html_out
     assert "rɪˈzɪl" in html_out
-    # Level-conditioned guidance from the anchored pool level only.
-    assert LEVEL_GUIDANCE["B2"] in html_out
+    # Guidance line REMOVED from gallery cards (owner: review noise).
+    # No pool level => no guidance anywhere.
+    assert "راهنما:" not in html_out
     # Record-sibling metadata shown.
     assert "resilient#1" in html_out
     assert "Traits" in html_out
