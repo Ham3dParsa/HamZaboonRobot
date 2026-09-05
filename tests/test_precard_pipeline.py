@@ -626,3 +626,25 @@ def test_s0b_uncertain_keeps(tmp_path, monkeypatch):
         (pathlib.Path(prog) / "s0b.json").read_text(encoding="utf-8"))
     assert s0b["done"]["w:cats"] == {
         "kept": True, "reason": "review-uncertain", "uncertain": True}
+
+def test_s1_drops_vulgar_anchor():
+    from precard_pipeline import s1_rank_item
+    import card_pilot
+    probe = {"kind": "word", "text": "mf", "pool_level": "B2"}
+    out = s1_rank_item(probe, {"mf": [{"pos": "noun", "offset": 0, "length": 10}]},
+                       lambda row: {"pos": "noun", "sounds": [],
+                                    "senses": [{"glosses": ["Initialism of motherfucker."],
+                                                "tags": ["vulgar"], "examples": []}]})
+    assert "vulgar" in (out.get("anchor_tags") or [])
+
+
+def test_coherence_stem_overlap():
+    from card_pilot import sense_coherence_check
+    assert sense_coherence_check(
+        "Coming or characterized by torrents",
+        {"examples": ["Torrential rain fell all night."], "fa_meaning": "",
+         "fa_explanation": "", "example_translations": [], "synonyms": []}) is True
+    assert sense_coherence_check(
+        "An X mark placed at the end of a letter",
+        {"examples": ["I want to kiss her."], "fa_meaning": "",
+         "fa_explanation": "", "example_translations": [], "synonyms": []}) is False

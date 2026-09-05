@@ -438,6 +438,7 @@ def s1_rank_item(item, index, read_entry):
     return {"candidates": cands, "top": top,
             "en_def": probe.get("en_def", "") or "",
             "anchor_pos": anchor_pos,
+            "anchor_tags": list(probe.get("anchor_tags") or []),
             "xref_method": probe.get("xref_method", "") or "",
             "resolved_from": probe.get("xref_resolved_from", "") or "",
             "xref_unresolvable": bool(probe.get("xref_unresolvable"))}
@@ -787,11 +788,20 @@ def _entries_for(item, index):
     return [], ""
 
 
-def s5_enrich_item(item, s2pick, index, read_entry, tatoeba_pool):
+def s5_enrich_item(item, s2pick, index, read_entry, tatoeba_pool,
+                   zipf_fn=None):
     """S5 enrichment from the S2-chosen sense (card_pilot helpers only).
 
     R29/R32 v8: also returns abbrev_expansion (dataset-first parse of the
     chosen gloss) and pos/pos_src (anchored entry POS first, 1-3 tags).
+    R42 v11: the example pool (anchored-sense kaikki examples, then the
+    tatoeba pool — both through the existing length filter, reused)
+    additionally passes the four cloze gates via
+    card_pilot.prefer_cloze_passing (reused by import): cloze-passing
+    examples fill the N_EXAMPLES slots first; cloze failures backfill
+    only when no passing alternative exists, so the downstream release
+    machinery (split_frozen_by_containment) still records them with
+    their cloze-<gate> reason instead of silently keeping weak slots.
     """
     sid = (s2pick or {}).get("sense_id", "")
     gloss = (s2pick or {}).get("gloss", "")
@@ -827,21 +837,21 @@ def s5_enrich_item(item, s2pick, index, read_entry, tatoeba_pool):
                 entry, sense = cand_entry, cand_sense
                 break
     ipa = card_pilot.first_entry_ipa(entry) if entry else ""
-    picked = card_pilot.filter_examples_by_length(
+    pool = card_pilot.filter_examples_by_length(
         card_pilot.sense_example_texts(sense)) if sense else []
-    if len(picked) < card_pilot.N_EXAMPLES:
-        extra = card_pilot.filter_examples_by_length(
-            card_pilot.tatoeba_candidates(
-                tatoeba_pool, item.get("text", ""),
-                item.get("kind") or "word"),
-            loose_cap=True)
-        seen = set(picked)
-        for cand in extra:
-            if cand not in seen:
-                picked.append(cand)
-                seen.add(cand)
-            if len(picked) >= card_pilot.N_EXAMPLES:
-                break
+    extra = card_pilot.filter_examples_by_length(
+        card_pilot.tatoeba_candidates(
+            tatoeba_pool, item.get("text", ""),
+            item.get("kind") or "word"),
+        loose_cap=True)
+    seen = set(pool)
+    for cand in extra:
+        if cand not in seen:
+            pool.append(cand)
+            seen.add(cand)
+    picked = card_pilot.prefer_cloze_passing(
+        pool, item.get("text", ""), item.get("kind") or "word",
+        item.get("pool_level", ""), card_pilot.N_EXAMPLES, zipf_fn)
     pos_tags = card_pilot.anchor_pos_tags(
         item.get("text", ""), entries, pos, read_entry)
     return {"sense_id": sid, "en_def": gloss or "",
@@ -952,6 +962,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             stage, done_n, max(0, total - done_n)))
     print("resume: %s" % " | ".join(banner))
     # R26: stage selection + rekey eviction (resume still skips the rest).
+    # Stage dependency: S1/S2 feed S3/S4/S5 (anchor -> judge -> vector ->
+    # label -> enrich), so rekeying an upstream stage auto-invalidates the
+    # same keys downstream — otherwise assembly mixes new anchors with
+    # stale enrichment (kiss#5-style staleness).
+    _DOWNSTREAM = {"s1": ("s2", "s3", "s4", "s5"), "s2": ("s3", "s4", "s5"),
+                   "s3": ("s4", "s5"), "s4": ("s5",)}
     selected = _selected_stages(args)
     rekeyed = _load_rekey_keys(args.rekey)
     if rekeyed:
@@ -962,6 +978,13 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             states[stage]["failed"] = [
                 k for k in states[stage]["failed"]
                 if k not in rekeyed_set]
+        for stage in selected:
+            for down in _DOWNSTREAM.get(stage, ()):
+                for key in rekeyed:
+                    states[down]["done"].pop(key, None)
+                states[down]["failed"] = [
+                    k for k in states[down]["failed"]
+                    if k not in rekeyed_set]
         print("rekey: %d key(s) forced to redo in %s" % (
             len(rekeyed),
             ", ".join(s for s in STAGES if s in selected)))
@@ -1191,12 +1214,18 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 done_entry = states["s1"]["done"].get(key)
                 if not isinstance(done_entry, dict) \
                         or "anchor_pos" not in done_entry \
+                        or "anchor_tags" not in done_entry \
                         or "xref_unresolvable" not in done_entry:
                     try:
                         ranked = s1_rank_item(item, index, read_entry)
                         if (ranked.get("anchor_pos") or "") in \
                                 card_pilot.PROPER_NOUN_POS:
                             ranked["dropped"] = "anchor-proper-noun"
+                            if key not in states["s1"]["failed"]:
+                                states["s1"]["failed"].append(key)
+                        elif set(ranked.get("anchor_tags") or {}) & \
+                                card_pilot.VULGAR_TAGS:
+                            ranked["dropped"] = "vulgar-anchor"
                             if key not in states["s1"]["failed"]:
                                 states["s1"]["failed"].append(key)
                         elif ranked.get("xref_unresolvable"):

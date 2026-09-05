@@ -53,13 +53,13 @@ VALID_RESILIENT = {
 
 def test_containment_split_releases_failing_freezes_passing():
     item = {"kind": "word", "text": "resilient",
-            "dataset_examples": ["She is a resilient learner.",
+            "dataset_examples": ["She is a resilient learner studying daily here.",
                                  "The sky is blue today."]}
     kept, released = split_frozen_by_containment(item)
-    assert kept == ["She is a resilient learner."]
+    assert kept == ["She is a resilient learner studying daily here."]
     assert released == ["The sky is blue today."]
     item2 = {"kind": "word", "text": "resilient",
-             "dataset_examples": ["She is a resilient learner.",
+             "dataset_examples": ["She is a resilient learner studying daily here.",
                                   "Trees here are resilient."]}
     kept2, released2 = split_frozen_by_containment(item2)
     assert released2 == []
@@ -68,10 +68,10 @@ def test_containment_split_releases_failing_freezes_passing():
 
 def test_containment_release_prompt_grows_need_and_flags():
     item = {"kind": "word", "text": "resilient", "pool_level": "B2",
-            "dataset_examples": ["She is a resilient learner.",
+            "dataset_examples": ["She is a resilient learner studying daily here.",
                                  "The sky is blue today."]}
     _, user, _ = build_prompts(item)
-    assert "She is a resilient learner." in user  # frozen kept
+    assert "She is a resilient learner studying daily here." in user  # frozen kept
     assert "Released examples" in user
     assert "The sky is blue today." in user  # released, not frozen
     assert "Fill ONLY the 1 missing example slot(s)" in user  # need grew
@@ -87,7 +87,7 @@ def test_containment_release_prompt_grows_need_and_flags():
 
 def test_containment_passing_stays_frozen_no_release():
     item = {"kind": "word", "text": "resilient", "pool_level": "B2",
-            "dataset_examples": ["She is a resilient learner.",
+            "dataset_examples": ["She is a resilient learner studying daily here.",
                                  "Trees here are resilient."]}
     _, user, _ = build_prompts(item)
     assert "Released examples" not in user
@@ -110,7 +110,7 @@ def test_completion_flags_always_carries_released_key():
 
 def test_gallery_released_op_chip_and_frozen_keep_chip():
     rec = {"kind": "word", "text": "resilient",
-           "dataset_examples": ["She is a resilient learner.",
+           "dataset_examples": ["She is a resilient learner studying daily here.",
                                 "The sky is blue today."],
            "examples_src": ["dataset", "model"],
            "completion_flags": {"released_containment":

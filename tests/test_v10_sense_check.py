@@ -260,10 +260,10 @@ CLEAN_CARD = {
     "fa_explanation": "کسی که پس از سختی به حالت عادی برمی‌گردد.",
     "synonyms": ["tough", "hardy"],
     "antonyms": ["fragile"],
-    "examples": ["She is a resilient learner.",
-                 "Trees here are resilient."],
-    "example_translations": ["او یادگیرنده‌ای تاب‌آور است.",
-                             "درختان اینجا تاب‌آورند."],
+    "examples": ["She is a resilient student studying daily here.",
+                 "Resilient trees grow strong after every storm."],
+    "example_translations": ["او دانش‌آموز تاب‌آوری است که هر روز در اینجا درس می‌خواند.",
+                             "درختان تاب‌آور پس از هر طوفان قوی رشد می‌کنند."],
     "grammar_tip": "صفت است.",
 }
 
@@ -325,10 +325,10 @@ def test_r41_generate_card_rejects_without_regen():
 
     incoherent = dict(
         CLEAN_CARD, word="kiss",
-        examples=["They were kissing under the mistletoe today.",
-                  "She gave him a kissing greeting yesterday."],
-        example_translations=["آن‌ها امروز زیر دارواش همدیگر را بوسیدند.",
-                              "او دیروز با بوسه به او سلام کرد."],
+        examples=["They kiss to show their love every day.",
+                  "She gave him a sweet kiss yesterday."],
+        example_translations=["آن‌ها برای نشان دادن عشقشان هر روز همدیگر را می‌بوسند.",
+                              "او دیروز با یک بوسه شیرین به او سلام کرد."],
         synonyms=["hug"], fa_meaning="علامت ضربدر",
         fa_explanation="نشانه‌ای نوشتاری به‌جای امضا.")
 
@@ -342,3 +342,7 @@ def test_r41_generate_card_rejects_without_regen():
     assert rec2["valid"] is False
     assert rec2["reason"] == "sense-incoherence"
     assert rec2.get("regen") is False
+
+def test_judge_window_cap_matches_owner_module():
+    from run_v14_phase3_judge import JUDGE_WINDOW_CAP as OWNER_CAP
+    assert card_pilot.JUDGE_WINDOW_CAP == OWNER_CAP == 10

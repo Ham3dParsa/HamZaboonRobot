@@ -1289,26 +1289,36 @@ def sense_coherence_check(anchor_gloss, card):
         card_keys |= _coherence_tokens(part)
 
     def _stem_hit(a, b):
-        # Morphology-tolerant overlap: shared substring of 5+ chars
-        # (torrent/torrential, thing/nothing), with trailing-s tolerance
-        # (torrents/torrential). Exact-match first (cheap).
-        if a == b:
-            return True
-
-        def _vars(t):
-            out = {t}
-            if len(t) > 5 and t.endswith("s") and not t.endswith("ss"):
-                out.add(t[:-1])
-            return out
-        for va in _vars(a):
-            for vb in _vars(b):
-                if len(va) < 5 or len(vb) < 5:
-                    continue
-                short, long = (va, vb) if len(va) <= len(vb) else (vb, va)
-                if short in long:
-                    return True
-        return False
+        # R42 v11: delegates to the shared _stem_match_5 helper (same
+        # 5-char stem-containment semantics, factored out for reuse).
+        return _stem_match_5(a, b)
     return any(_stem_hit(a, b) for a in anchor_keys for b in card_keys)
+
+
+def _stem_match_5(a, b):
+    """Shared 5-char stem-containment match (R41 owner, R42 v11 reuse).
+
+    Morphology-tolerant overlap: exact match first (cheap), else a
+    shared substring of 5+ chars in either direction
+    (torrent/torrential, thing/nothing), with trailing-s tolerance
+    (torrents/torrential). Case-sensitive — callers lowercase first.
+    """
+    if a == b:
+        return True
+
+    def _vars(t):
+        out = {t}
+        if len(t) > 5 and t.endswith("s") and not t.endswith("ss"):
+            out.add(t[:-1])
+        return out
+    for va in _vars(a):
+        for vb in _vars(b):
+            if len(va) < 5 or len(vb) < 5:
+                continue
+            short, long = (va, vb) if len(va) <= len(vb) else (vb, va)
+            if short in long:
+                return True
+    return False
 
 
 def headword_leak_tokens(text, kind):
@@ -1399,28 +1409,221 @@ def translation_fidelity_ok(card):
     return True
 
 
-def split_frozen_by_containment(item):
+# R42 v11 — cloze-suitability gates for examples (dataset + model).
+# Factory-only, deterministic, stdlib + wordfreq only. Four gates, first
+# failure wins with reason "cloze-<gate>":
+#   archaic  — Early-Modern English words (Gemini list) fail whole-word,
+#              case-insensitive. "smack" is deliberately NOT in the set:
+#              it is a modern word (to hit / a loud kiss sound), not an
+#              archaism, so dataset examples containing it must stay.
+#   dialogue — comic/dialogue register: any of " “ ” «, or "!" more than
+#              once, or "!!" / "!?" / "..." present, or more than one
+#              mid-sentence Capitalized word (sentence-first tokens and
+#              the pronoun "I" excluded).
+#   zipf     — every alpha token len>=3 must clear a level-relative
+#              wordfreq floor (A1/A2 3.5, B1 3.0, B2+ 2.5, unknown 3.0),
+#              except the headword itself in any inflection (5-char stem
+#              containment either direction via _stem_match_5 over
+#              headword_leak_tokens — reuse, no second tokenizer).
+#   density  — clue density: content tokens (alpha len>=4 outside the
+#              shared _COHERENCE_STOPWORDS set — reuse, no second list)
+#              over total alpha tokens >= 0.40 AND content count >= 3.
+# Length 8-20 stays owned by filter_examples_by_length (reused, never
+# duplicated here).
+ARCHAIC_WORDS = frozenset({
+    "thou", "thee", "thy", "thine", "ye", "doth", "dost", "hath",
+    "hast", "wilt", "art", "canst", "shallt", "whither", "thither",
+    "hither", "whence", "thence", "nay", "ere", "oft", "unto",
+    "wherefore",
+})
+_ARCHAIC_RX = re.compile(
+    r"\b(?:thou|thee|thy|thine|ye|doth|dost|hath|hast|wilt|art|"
+    r"canst|shallt|whither|thither|hither|whence|thence|nay|ere|"
+    r"oft|unto|wherefore)\b", re.IGNORECASE)
+
+# R42 v11 — dialogue/comic signals (exact set, no extensions).
+_DIALOGUE_CHARS = frozenset({'"', "\u201c", "\u201d", "\u00ab"})
+_DIALOGUE_SUBSTRINGS = ("!!", "!?", "...")
+_CAP_WORD_RX = re.compile(r"^[A-Z][a-z]+$")
+_SENT_SPLIT_RX = re.compile(r"[.!?\u2026]+\s+")
+_ALPHA_TOKEN_RX = re.compile(r"[A-Za-z]+")
+
+# R42 v11 — level-relative zipf floors (unknown level fails to 3.0,
+# the middle floor, stated not silent).
+CLOZE_ZIPF_FLOORS = {"A1": 3.5, "A2": 3.5, "B1": 3.0, "B2": 2.5,
+                     "C1": 2.5, "C2": 2.5}
+CLOZE_ZIPF_DEFAULT_FLOOR = 3.0
+CLOZE_DENSITY_MIN_RATIO = 0.40
+CLOZE_DENSITY_MIN_COUNT = 3
+CLOZE_GATES = ("archaic", "dialogue", "zipf", "density")
+
+
+def cloze_archaic_ok(example):
+    """R42a: True iff no ARCHAIC_WORDS whole-word hit (case-insensitive)."""
+    return _ARCHAIC_RX.search(example or "") is None
+
+
+def cloze_dialogue_ok(example):
+    """R42b: True iff no comic/dialogue register signal.
+
+    Fails on any of " " " «, on "!" more than once, on "!!" / "!?" /
+    "..." substrings, or on more than one mid-sentence Capitalized
+    word (sentence-first tokens and the pronoun "I" excluded).
+    """
+    text = example or ""
+    if any(ch in text for ch in _DIALOGUE_CHARS):
+        return False
+    if text.count("!") > 1:
+        return False
+    if any(sub in text for sub in _DIALOGUE_SUBSTRINGS):
+        return False
+    mids = 0
+    for sent in _SENT_SPLIT_RX.split(text.strip()):
+        tokens = _ALPHA_TOKEN_RX.findall(sent)
+        for pos, token in enumerate(tokens):
+            if pos == 0 or token == "I":
+                continue
+            if _CAP_WORD_RX.match(token):
+                mids += 1
+                if mids > 1:
+                    return False
+    return True
+
+
+def cloze_zipf_floor(pool_level):
+    """R42c: zipf floor for a pool level (unknown -> default, stated)."""
+    return CLOZE_ZIPF_FLOORS.get(
+        (pool_level or "").strip().upper(), CLOZE_ZIPF_DEFAULT_FLOOR)
+
+
+def cloze_zipf_ok(example, headword, kind="word", pool_level="",
+                  zipf_fn=None):
+    """R42c: True iff every alpha token len>=3 clears the level floor.
+
+    The headword itself (any inflection: 5-char stem containment either
+    direction over headword_leak_tokens) is excluded. zipf_fn injects
+    the lookup (hermetic tests); None uses the shared _freq_zipf_single
+    (wordfreq, local data — reuse, no second lookup). Unknown (None)
+    readings fail OPEN to pass (missing data must never drop content).
+    """
+    floor = cloze_zipf_floor(pool_level)
+    get = zipf_fn or _freq_zipf_single
+    heads = [h for h in headword_leak_tokens(headword, kind) if h]
+    for match in _ALPHA_TOKEN_RX.finditer(example or ""):
+        token = match.group(0)
+        if len(token) < 3:
+            continue
+        lowered = token.lower()
+        if any(_stem_match_5(lowered, h) for h in heads):
+            continue
+        try:
+            value = get(lowered)
+        except Exception:
+            value = None
+        if value is None:
+            continue
+        if float(value) < floor:
+            return False
+    return True
+
+
+def cloze_density_ok(example):
+    """R42d: True iff content-token ratio >= 0.40 AND count >= 3.
+
+    Content proxy for nouns/verbs/adjectives: alpha tokens len>=4
+    outside the shared _COHERENCE_STOPWORDS set (reuse, no second
+    list). Total = all alpha tokens.
+    """
+    tokens = [t.lower() for t in _ALPHA_TOKEN_RX.findall(example or "")]
+    if not tokens:
+        return False
+    content = [t for t in tokens
+               if len(t) >= 4 and t not in _COHERENCE_STOPWORDS]
+    if len(content) < CLOZE_DENSITY_MIN_COUNT:
+        return False
+    return len(content) / len(tokens) >= CLOZE_DENSITY_MIN_RATIO
+
+
+def cloze_check_example(example, headword, kind="word", pool_level="",
+                        zipf_fn=None):
+    """R42: (ok, reason) for one example across all four gates.
+
+    First failure wins (archaic -> dialogue -> zipf -> density);
+    reason is "" on pass else "cloze-<gate>".
+    """
+    if not cloze_archaic_ok(example):
+        return False, "cloze-archaic"
+    if not cloze_dialogue_ok(example):
+        return False, "cloze-dialogue"
+    if not cloze_zipf_ok(example, headword, kind, pool_level, zipf_fn):
+        return False, "cloze-zipf"
+    if not cloze_density_ok(example):
+        return False, "cloze-density"
+    return True, ""
+
+
+def prefer_cloze_passing(candidates, headword, kind="word", pool_level="",
+                         limit=2, zipf_fn=None):
+    """R42 S5: first ``limit`` cloze-passing candidates, order kept.
+
+    Backfills with failing candidates (original order) when fewer than
+    ``limit`` pass, so the downstream release machinery (split_frozen)
+    still sees and records them with their cloze-<gate> reason instead
+    of silently dropping slots.
+    """
+    try:
+        limit = max(0, int(limit))
+    except (TypeError, ValueError):
+        limit = 2
+    pool = [c for c in (candidates or [])
+            if isinstance(c, str) and c.strip()]
+    passing, failing = [], []
+    for cand in pool:
+        ok, _ = cloze_check_example(
+            cand, headword, kind, pool_level, zipf_fn)
+        (passing if ok else failing).append(cand)
+    return (passing + failing)[:limit]
+
+
+def split_frozen_by_containment(item, zipf_fn=None):
     """V7 containment-release (locked A) + R31 v8 content-flag release.
 
     Splits dataset examples: PASSING phrase/word containment stay FROZEN
     (kept); FAILING containment are released for model replacement. R31:
     examples flagged by the appropriateness review (item["content_flags"]
     {example: reason}) join ``released`` with the content-flag reason —
-    same release machinery, same growing fill need. Returns (kept,
-    released). The caller grows the fill need as N_EXAMPLES - len(kept)
-    and records ``released`` in completion_flags["released_containment"];
-    reasons ride on item["content_flags"] into the record.
+    same release machinery, same growing fill need. R42 v11: containment
+    survivors additionally pass the four cloze gates
+    (cloze_check_example, pool_level from the item, zipf_fn injected or
+    live wordfreq); cloze failures join ``released`` and record their
+    "cloze-<gate>" reason on item["content_flags"] (an existing R31 flag
+    always wins — never overwritten). Returns (kept, released). The
+    caller grows the fill need as N_EXAMPLES - len(kept) and records
+    ``released`` in completion_flags["released_containment"]; reasons
+    ride on item["content_flags"] into the record.
     """
     texts = [e for e in (item.get("dataset_examples") or [])
              if isinstance(e, str) and e.strip()][:N_EXAMPLES]
-    flagged = set((item.get("content_flags") or {}))
+    flags = item.get("content_flags")
+    if not isinstance(flags, dict):
+        flags = {}
+        item["content_flags"] = flags
+    flagged = set(flags)
     kept, released = [], []
     for text in texts:
         if text in flagged or text.strip() in flagged:
             released.append(text)
         elif example_contains_head(text, item.get("text", ""),
                                    item.get("kind") or "word"):
-            kept.append(text)
+            ok, reason = cloze_check_example(
+                text, item.get("text", ""), item.get("kind") or "word",
+                item.get("pool_level", ""), zipf_fn)
+            if ok:
+                kept.append(text)
+            else:
+                released.append(text)
+                if text not in flags and text.strip() not in flags:
+                    flags[text] = reason
         else:
             released.append(text)
     return kept, released
@@ -1844,7 +2047,7 @@ def item_key(item):
     return ("w:" if item["kind"] == "word" else "p:") + item["text"]
 
 
-def build_prompts(item):
+def build_prompts(item, zipf_fn=None):
     """System/user prompts via the REAL learner-card prompt builder.
 
     The shared builder output is used verbatim (never forked); the pilot only
@@ -1887,7 +2090,7 @@ def build_prompts(item):
         extras.append(ABBREV_PRESERVE_INSTRUCTION + abbrev)
     elif (item.get("kind") or "word") == "word":
         extras.append(ABBREV_FILL_INSTRUCTION)
-    frozen, released = split_frozen_by_containment(item)
+    frozen, released = split_frozen_by_containment(item, zipf_fn)
     if frozen:
         need = N_EXAMPLES - len(frozen)
         extras.append(
@@ -1905,11 +2108,18 @@ def build_prompts(item):
                 "or rewrite examples.")
     if released:
         extras.append(
-            "Released examples (containment-fail — do NOT reuse verbatim, "
+            "Released examples (quality-gate fail: containment or "
+            "cloze-<gate> — do NOT reuse verbatim, "
             "replace with sense-matching examples containing the headword): "
             + " | ".join(released))
     content_flags = item.get("content_flags") or {}
-    flagged_here = [e for e in released if e in content_flags]
+    # R42 v11: cloze-<gate> reasons are quality gates, not content
+    # flags — the never-reuse line is for R31 appropriateness flags
+    # only (a cloze release may be replaced by a similar safe example).
+    flagged_here = [e for e in released
+                    if e in content_flags
+                    and not str(content_flags[e] or "").startswith(
+                        "cloze-")]
     if flagged_here:
         extras.append(
             "Flagged examples (inappropriate for learners — never reuse "
@@ -1966,7 +2176,7 @@ def call_responses(api_key, model, system, user, timeout=CALL_TIMEOUT):
 
 def generate_card(item, api_key, transport=None, model_calls=None,
                    timings=None, telemetry=None, tele_stage="card",
-                   tele_batch=0, tele_key_idx=0):
+                   tele_batch=0, tele_key_idx=0, cloze_zipf_fn=None):
     """Generate + validate one card. Failures recorded, never raised.
 
     Only auth failures (401/403 via AuthError) propagate to abort loudly.
@@ -1983,9 +2193,9 @@ def generate_card(item, api_key, transport=None, model_calls=None,
     never a regen trigger.     R15: fa-dominant covers fa_meaning +
     fa_explanation + grammar_tip per field (V7: combined-count loophole
     closed; fa_meaning lenient to 3 Latin chars). V7: phrase/word
-    example-containment + translation-fidelity join the same SINGLE
-    shared regen budget (first violation of any kind regenerates once;
-    any second violation is recorded valid=False). R17/R18: sense_candidates +
+    example-containment + translation-fidelity + R42 cloze-<gate> join
+    the same SINGLE shared regen budget (first violation of any kind
+    regenerates once; any second violation is recorded valid=False). R17/R18: sense_candidates +
     also_sense ride from the item into the record (audit, no regen).
     V7 metadata merge (code-only, no prompt change): sense_id /
     topic_vector / pool_level are re-affirmed from the item AFTER
@@ -2003,13 +2213,15 @@ def generate_card(item, api_key, transport=None, model_calls=None,
     transport = transport or call_responses
     if model_calls is None:
         model_calls = {}
-    system, user, bot_level = build_prompts(item)
+    system, user, bot_level = build_prompts(item, cloze_zipf_fn)
     # V7 containment-release (locked A): only containment-passing dataset
     # examples stay frozen; failing ones are released for model replacement
     # (the fill need in build_prompts already grows accordingly). R31 v8:
-    # content-flagged examples join the same released list (see
-    # split_frozen_by_containment).
-    frozen, released = split_frozen_by_containment(item)
+    # content-flagged examples join the same released list. R42 v11:
+    # containment survivors additionally pass the cloze gates (see
+    # split_frozen_by_containment) — cloze failures join released with
+    # their "cloze-<gate>" reason on item["content_flags"].
+    frozen, released = split_frozen_by_containment(item, cloze_zipf_fn)
     precard = build_precard_values(item, frozen)  # R28: never echoed back
     full_examples = [e for e in (item.get("dataset_examples") or [])
                      if isinstance(e, str) and e.strip()][:N_EXAMPLES]
@@ -2148,6 +2360,20 @@ def generate_card(item, api_key, transport=None, model_calls=None,
                     violation = "example-containment"
                 elif not translation_fidelity_ok(card):
                     violation = "translation-fidelity"
+                else:
+                    # R42 v11: model-filled examples pass the same four
+                    # cloze gates (first failing example's gate wins);
+                    # joins the SAME single shared regen budget above.
+                    for model_ex in (card.get("examples") or []):
+                        if not isinstance(model_ex, str):
+                            violation = "cloze-density"
+                            break
+                        ok, reason = cloze_check_example(
+                            model_ex, item["text"], item["kind"],
+                            item.get("pool_level", ""), cloze_zipf_fn)
+                        if not ok:
+                            violation = reason
+                            break
                 if violation and not regen_used:
                     regen_used = True
                     record["regen"] = True
@@ -3227,6 +3453,34 @@ def _op_chip_released():
             % (esc(OP_RELEASED), esc("آزادشده"), esc("(containment)")))
 
 
+def _op_chip_cloze(reason):
+    """R42 v11 cloze-release op chip (bidi-safe: Latin part isolated).
+
+    ``reason`` is the "cloze-<gate>" string: it rides verbatim in the
+    title attribute (gallery scans) and as the visible Latin run, next
+    to the Persian "آزادشده" label.
+    """
+    label = "(%s)" % (reason or "cloze-?")
+    return ('<span class="op review" title="%s">%s '
+            '<span class="en">%s</span></span>'
+            % (esc(reason or "cloze-?"), esc("آزادشده"), esc(label)))
+
+
+def _cloze_release_reason(content_flags, pre_text):
+    """R42 v11: "cloze-<gate>" reason for a released pre-card example.
+
+    Reads item["content_flags"] (the shared release-machinery reason
+    map); "" when the example was released for another reason.
+    """
+    flags = content_flags if isinstance(content_flags, dict) else {}
+    reason = flags.get(pre_text, "")
+    if not reason and isinstance(pre_text, str):
+        reason = flags.get(pre_text.strip(), "")
+    if isinstance(reason, str) and reason.startswith("cloze-"):
+        return reason
+    return ""
+
+
 def _diff_val(text, direction):
     """R14: diff value cell — long values truncated + <details> expander."""
     text = "" if text is None else str(text)
@@ -3285,11 +3539,14 @@ def render_diff_table(rec, card):
     frozen = [(e.strip() if isinstance(e, str) else "")
               for e in (rec.get("dataset_examples") or [])]
     # V7 containment-release: released pre-card examples render the
-    # آزادشده (containment) op chip instead of the keep/review chip.
+    # release op chip instead of the keep/review chip. R42 v11:
+    # cloze-gate releases render the cloze-<gate> chip (reason from
+    # rec["content_flags"], same release machinery).
     released_set = {
         (e.strip() if isinstance(e, str) else "")
         for e in ((rec.get("completion_flags") or {})
                   .get("released_containment") or [])}
+    cloze_flags = rec.get("content_flags") or {}
     src = list(rec.get("examples_src") or [])
     examples = list(card.get("examples") or [])
     trans = list(card.get("example_translations") or [])
@@ -3334,9 +3591,12 @@ def render_diff_table(rec, card):
         match = (fin_src == IPA_SRC_DATASET)
         translation = trans[pos] if pos < len(trans) else ""
         fin_cell = fin
-        released_chip = (_op_chip_released()
-                         if pre.strip() and pre.strip() in released_set
-                         else None)
+        if pre.strip() and pre.strip() in released_set:
+            cloze_reason = _cloze_release_reason(cloze_flags, pre.strip())
+            released_chip = (_op_chip_cloze(cloze_reason)
+                             if cloze_reason else _op_chip_released())
+        else:
+            released_chip = None
         rows.append(_diff_row("مثال %d" % (pos + 1), pre, "ltr",
                               fin_cell, "ltr", match=match,
                               pre_src=IPA_SRC_DATASET if pre else "",

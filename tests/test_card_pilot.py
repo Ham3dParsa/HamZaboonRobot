@@ -84,8 +84,10 @@ VALID_CARD = {
     "fa_explanation": "کسی که پس از سختی به حالت عادی برمی‌گردد.",
     "synonyms": ["tough", "hardy"],
     "antonyms": ["fragile"],
-    "examples": ["She is a resilient learner.", "Trees here are resilient."],
-    "example_translations": ["او یادگیرنده‌ای تاب‌آور است.", "درختان اینجا تاب‌آورند."],
+    "examples": ["She is a resilient student studying daily here.",
+                 "Resilient trees grow strong after every storm."],
+    "example_translations": ["او دانش‌آموز تاب‌آوری است که هر روز در اینجا درس می‌خواند.",
+                             "درختان تاب‌آور پس از هر طوفان قوی رشد می‌کنند."],
     "grammar_tip": "صفت است و معمولا با be می‌آید.",
 }
 
@@ -275,8 +277,10 @@ COMPACT_CARD = {
     "w": "resilient", "ph": "IPA: /riˈzɪl.jənt/",
     "m": "تاب‌آور", "x": "کسی که پس از سختی برمی‌گردد.",
     "s": ["tough"], "a": ["fragile"],
-    "e": ["She is resilient.", "Trees are resilient."],
-    "t": ["او تاب‌آور است.", "درختان تاب‌آورند."],
+    "e": ["She is a resilient student today.",
+          "Trees here are resilient every day."],
+    "t": ["او دانش‌آموز تاب‌آوری است امروز.",
+          "درختان اینجا هر روز تاب‌آور هستند."],
     "g": "صفت است.",
     "d": "able to recover quickly (preserved from dictionary)",
     "literal_fa": "تسلیم شدن کلمه‌به‌کلمه",
@@ -660,7 +664,7 @@ def test_frozen_dataset_examples_preserved_end_to_end():
     # transport); per-example sources recorded; prompt fills only gaps.
     frozen = ["She showed remarkable resilience after the long difficult "
               "winter season here today",
-              "Tatoeba fallback example shows resilient habits for the "
+              "Classroom example shows resilient habits for the "
               "pilot test case today"]
     frozen_fa = ["او پس از زمستان سخت تاب‌آوری چشمگیری نشان داد امروز.",
                  "این مثال تاب‌آوری عادت‌های روزمره او را نشان می‌دهد امروز."]
@@ -1170,7 +1174,7 @@ def test_anchor_entry_pos_reports_anchored_pos():
 
 FROZEN_EX = ("She showed remarkable resilience after the long difficult "
              "winter season here today")
-FROZEN_EX2 = ("Tatoeba fallback example shows resilient habits for the "
+FROZEN_EX2 = ("Classroom example shows resilient habits for the "
               "pilot test case today")
 FROZEN_FA = "او پس از زمستان سخت تاب‌آوری چشمگیری نشان داد امروز."
 NEW_EX = "Trees here show great resilience every single day"
@@ -1313,7 +1317,7 @@ def test_generate_card_delta_compact_aliases():
             "filled": {
                 "m": "تاب‌آور", "x": "کسی که برمی‌گردد.",
                 "s": ["tough"], "a": ["fragile"],
-                "e": ["She is a resilient learner here today.",
+                "e": ["She is a resilient student here today.",
                       "Trees here are resilient every day now"],
                 "t": ["او یادگیرنده‌ای تاب‌آور است امروز.",
                       "درختان اینجا هر روز تاب‌آور هستند اکنون."],
@@ -1364,7 +1368,7 @@ def test_abbrev_dataset_first_and_model_fill_gap():
     def transport(api_key, model, system, user):
         filled = _delta_filled(new_example=False)
         filled["examples"] = [
-            "She is a resilient learner here today.",
+            "She is a resilient student here today.",
             "Trees here are resilient every day now"]
         filled["example_translations"] = [
             "او یادگیرنده‌ای تاب‌آور است امروز.",
