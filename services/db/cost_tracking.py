@@ -1,10 +1,23 @@
 """LLM request cost tracking and analytics."""
 
 import datetime
+import logging
 import secrets
+import sqlite3
 import time
 
 from services.db.schema import get_conn, transaction, _today, _utc_now
+
+logger = logging.getLogger(__name__)
+
+
+def _is_missing_table(exc: Exception) -> bool:
+    """True for a missing-table OperationalError (pre-migration DB).
+
+    Only this case returns a silent fallback; every other error is logged
+    before falling back so dashboards never silently show wrong totals.
+    """
+    return isinstance(exc, sqlite3.OperationalError) and "no such table" in str(exc)
 
 
 def add_llm_request(
@@ -161,7 +174,9 @@ def _rollup_sums(start_date: object | None, end_date: object | None) -> dict[str
                 f"FROM llm_daily_rollup{where}",
                 params,
             ).fetchone()
-        except Exception:
+        except Exception as exc:
+            if not _is_missing_table(exc):
+                logger.exception("llm_daily_rollup sums read failed")
             return {}
     if not row:
         return {}
@@ -177,7 +192,9 @@ def rollup_request_count_since(date: str) -> int:
                 "WHERE request_date >= ?",
                 (date,),
             ).fetchone()
-        except Exception:
+        except Exception as exc:
+            if not _is_missing_table(exc):
+                logger.exception("llm_daily_rollup count read failed")
             return 0
     return int(row["cnt"] or 0) if row else 0
 
@@ -216,6 +233,12 @@ def summarize_llm_requests(filters: dict[str, object] | None = None) -> dict[str
         if roll:
             for key in _ROLLUP_SUM_KEYS:
                 result[key] = (result.get(key) or 0) + (roll.get(key) or 0)
+            # NOTE: avg_latency_ms is the ONLY derived average in the base
+            # query above (every other merged key is an additive SUM), and it
+            # is recomputed here from merged (raw + rollup) totals — never by
+            # averaging averages. Pinned by
+            # test_purge_aggregates_exactly_then_deletes (pre/post-purge
+            # summary equality over every key including avg_latency_ms).
             raw_lat_sum = 0.0
             raw_lat_cnt = 0
             with get_conn() as conn:
@@ -400,7 +423,9 @@ def daily_costs_grouped(
                     f"FROM llm_daily_rollup{rwhere} GROUP BY request_date",
                     rparams,
                 ).fetchall()
-            except Exception:
+            except Exception as exc:
+                if not _is_missing_table(exc):
+                    logger.exception("llm_daily_rollup read failed")
                 rrows = []
         for r in rrows:
             day = str(r["d"])
@@ -524,11 +549,14 @@ def purge_old_llm_requests(retention_days: int = 90, batch: int = 500,
                     f"DELETE FROM llm_requests WHERE id IN ({placeholders})",
                     ids,
                 )
-        except Exception:
+        except Exception as exc:
             # Best-effort maintenance: a failed batch rolls back (no partial
             # rollup), committed batches keep their progress, and a re-run
-            # resumes idempotently. Also covers pre-migration DBs without the
-            # llm tables (returns 0, as before).
+            # resumes idempotently. Pre-migration DBs without the llm tables
+            # return 0 silently (as before); any other failure is logged so a
+            # stalled purge never goes unnoticed.
+            if not _is_missing_table(exc):
+                logger.exception("purge_old_llm_requests batch failed")
             return deleted
         deleted += len(ids)
         if len(ids) < batch:
