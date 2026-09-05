@@ -268,6 +268,23 @@ class ReviewRetentionPruneTests(_DbCase):
         self.assertEqual(db.prune_old_review_events(), 0)
         self.assertEqual(db.count_review_events_total(), 6)
 
+    def test_prune_chunked_batches_match_single_pass(self):
+        wid = self._word()
+        for idx, grade in enumerate([1, 2, 3, 4, 2]):
+            self._insert_event(wid, 1, grade, f"2020-01-0{idx + 1}T00:00:00+00:00")
+        db.record_review_event(wid, 1, 3, "srs_review")
+        pruned = db.prune_old_review_events(batch=2)
+        self.assertEqual(pruned, 4)
+        with db.get_conn() as conn:
+            remaining = conn.execute(
+                "SELECT COUNT(*) AS c FROM review_events WHERE word_id=?",
+                (wid,)).fetchone()["c"]
+        self.assertEqual(remaining, 2)
+        after = self._counters(wid)
+        self.assertEqual((after["total_reviews"], after["lapses"]), (6, 1))
+        # Idempotent.
+        self.assertEqual(db.prune_old_review_events(), 0)
+
     def test_grade_after_prune_stays_exact(self):
         wid = self._word()
         self._insert_event(wid, 1, 2, OLD_TS)
@@ -288,6 +305,54 @@ class ReviewRetentionPruneTests(_DbCase):
         self.assertEqual((after["total_reviews"], after["lapses"]), (4, 1))
         self.assertNotEqual(after["next_review_at"], before["next_review_at"])
         self.assertEqual(db.count_review_events_total(), 4)
+
+    def test_migration_backfill_batches_by_id_range(self):
+        import sqlite3 as _sqlite
+        from unittest.mock import patch as _patch
+
+        path = os.path.join(self.tempdir.name, "batched.sqlite")
+        # NOTE: sqlite3.Connection is not closed by the context manager
+        # (it only commits); close explicitly so Windows can clean up.
+        conn = _sqlite.connect(path)
+        try:
+            conn.executescript(
+                "CREATE TABLE saved_words (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "user_id INTEGER, word TEXT, lang TEXT, normalized_word TEXT, "
+                "card_data TEXT, next_review TEXT, added_at TEXT); "
+                "CREATE TABLE review_events (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "word_id INTEGER NOT NULL, user_id INTEGER NOT NULL, "
+                "outcome TEXT NOT NULL, grade INTEGER, activity_type TEXT, "
+                "created_at TEXT NOT NULL); "
+                "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT); "
+                "INSERT INTO settings(key, value) VALUES ('fsrs_migration_done', '1'); "
+            )
+            for idx in range(5):
+                conn.execute(
+                    "INSERT INTO saved_words(user_id, word, lang, normalized_word) "
+                    "VALUES (1, ?, 'en', ?)", (f"w{idx}", f"w{idx}"))
+                wid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                conn.execute(
+                    "INSERT INTO review_events(word_id, user_id, outcome, grade, "
+                    "created_at) VALUES (?, 1, 'recalled', 3, "
+                    "'2020-01-01T00:00:00+00:00'), (?, 1, 'again', 1, "
+                    "'2020-01-02T00:00:00+00:00')", (wid, wid))
+            conn.commit()
+        finally:
+            conn.close()
+        db.DB_PATH = path
+        db_schema.DB_PATH = path
+        with _patch.object(db_schema, "_BACKFILL_BATCH", 2):
+            db.init_db()
+        with db.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT total_reviews, lapses FROM saved_words ORDER BY id").fetchall()
+            marker = conn.execute(
+                "SELECT value FROM settings WHERE key='_migration_review_counters_done'"
+            ).fetchone()
+        self.assertEqual(len(rows), 5)
+        for row in rows:
+            self.assertEqual((row["total_reviews"], row["lapses"]), (2, 1))
+        self.assertEqual(marker["value"], "1")
 
     def test_migration_backfill_on_upgrade(self):
         import sqlite3 as _sqlite

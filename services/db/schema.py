@@ -169,6 +169,11 @@ def _backfill_saved_word_normalization(conn):
     )
 
 
+# Rows per commit for the one-time review-counter backfill below: small
+# enough that startup never holds a long write transaction on large DBs.
+_BACKFILL_BATCH = 2000
+
+
 def _backfill_review_counters(conn) -> None:
     """One-time migration: seed saved_words.total_reviews/lapses from history.
 
@@ -180,7 +185,10 @@ def _backfill_review_counters(conn) -> None:
     written before the grade column existed. Idempotent via the
     ``_migration_review_counters_done`` settings marker; monotonic by
     construction (runs once, before any prune can delete rows). Row-preserving:
-    only UPDATEs the two counter columns.
+    only UPDATEs the two counter columns. Batched by saved_words id ranges
+    (``_BACKFILL_BATCH`` rows per commit) so startup never holds one long
+    write transaction on large DBs; the absolute SET (not increment) form
+    makes a crashed re-run recompute identical values.
     """
     done = conn.execute(
         "SELECT 1 FROM settings WHERE key='_migration_review_counters_done'"
@@ -199,17 +207,31 @@ def _backfill_review_counters(conn) -> None:
     else:
         # Very old DBs predate the grade column: outcome-only fallback.
         lapse_pred = "(review_events.outcome = 'again')"
-    conn.execute(
-        "UPDATE saved_words SET total_reviews = COALESCE("
-        "(SELECT COUNT(*) FROM review_events "
-        "WHERE review_events.word_id = saved_words.id "
-        "AND review_events.user_id = saved_words.user_id), 0), "
-        "lapses = COALESCE("
-        "(SELECT COUNT(*) FROM review_events "
-        "WHERE review_events.word_id = saved_words.id "
-        "AND review_events.user_id = saved_words.user_id "
-        f"AND {lapse_pred}), 0)"
-    )
+    bounds = conn.execute(
+        "SELECT MIN(id) AS lo, MAX(id) AS hi FROM saved_words"
+    ).fetchone()
+    if bounds["lo"] is None:
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES (?, '1') "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            ("_migration_review_counters_done",),
+        )
+        return
+    for start in range(int(bounds["lo"]), int(bounds["hi"]) + 1, _BACKFILL_BATCH):
+        conn.execute(
+            "UPDATE saved_words SET total_reviews = COALESCE("
+            "(SELECT COUNT(*) FROM review_events "
+            "WHERE review_events.word_id = saved_words.id "
+            "AND review_events.user_id = saved_words.user_id), 0), "
+            "lapses = COALESCE("
+            "(SELECT COUNT(*) FROM review_events "
+            "WHERE review_events.word_id = saved_words.id "
+            "AND review_events.user_id = saved_words.user_id "
+            f"AND {lapse_pred}), 0) "
+            "WHERE saved_words.id >= ? AND saved_words.id < ?",
+            (start, start + _BACKFILL_BATCH),
+        )
+        conn.commit()
     conn.execute(
         "INSERT INTO settings(key, value) VALUES (?, '1') "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",

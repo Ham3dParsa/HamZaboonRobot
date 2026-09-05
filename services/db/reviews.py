@@ -193,36 +193,42 @@ def prune_old_review_events(
                     "WHERE id=? AND user_id=?",
                     (total, total, lapses, lapses, word_id, user_id),
                 )
-    # Pass 3: victims stream from one ranked query — per-card rank
-    # (created_at DESC, id DESC) computed by the DB, identical keep rule:
-    # beyond keep_per_card AND older than cutoff. COALESCE mirrors the old
-    # Python `(created_at or "") < cutoff` comparison for NULL timestamps.
+    # Pass 3: victims in per-chunk SELECT … LIMIT inside the write txn — the
+    # same per-card keep rule (beyond keep_per_card AND older than cutoff),
+    # keyset-paginated by id (``WHERE id > ?``) so no read cursor is ever
+    # held open across a separate write connection. Ranks only shrink for
+    # survivors as older rows vanish, so ascending-id batches never skip a
+    # victim. COALESCE mirrors the old Python `(created_at or "") < cutoff`
+    # comparison for NULL timestamps.
     deleted = 0
     try:
-        with get_conn() as conn:
-            cursor = conn.execute(
-                "SELECT id FROM ("
-                "SELECT id, created_at, ROW_NUMBER() OVER ("
-                "PARTITION BY user_id, word_id "
-                "ORDER BY created_at DESC, id DESC"
-                ") AS rn FROM review_events"
-                ") WHERE rn > ? AND COALESCE(created_at, '') < ? ORDER BY id ASC",
-                (keep_per_card, cutoff),
-            )
-            while True:
-                if deadline is not None and time.monotonic() >= deadline:
+        last_id = 0
+        while True:
+            if deadline is not None and time.monotonic() >= deadline:
+                break
+            with transaction() as conn:
+                rows = conn.execute(
+                    "SELECT id FROM ("
+                    "SELECT id, created_at, ROW_NUMBER() OVER ("
+                    "PARTITION BY user_id, word_id "
+                    "ORDER BY created_at DESC, id DESC"
+                    ") AS rn FROM review_events WHERE id > ?"
+                    ") WHERE rn > ? AND COALESCE(created_at, '') < ? "
+                    "ORDER BY id ASC LIMIT ?",
+                    (last_id, keep_per_card, cutoff, scan),
+                ).fetchall()
+                if not rows:
                     break
-                page = cursor.fetchmany(scan)
-                if not page:
-                    break
-                chunk_ids = [int(r["id"]) for r in page]
+                chunk_ids = [int(r["id"]) for r in rows]
                 placeholders = ",".join("?" * len(chunk_ids))
-                with transaction() as wconn:
-                    wconn.execute(
-                        f"DELETE FROM review_events WHERE id IN ({placeholders})",
-                        chunk_ids,
-                    )
+                conn.execute(
+                    f"DELETE FROM review_events WHERE id IN ({placeholders})",
+                    chunk_ids,
+                )
                 deleted += len(chunk_ids)
+                last_id = chunk_ids[-1]
+                if len(chunk_ids) < scan:
+                    break
     except Exception:
         # Pre-migration DB without review_events, or a mid-run failure: report
         # progress so far; committed batches stay, a re-run resumes cleanly.
