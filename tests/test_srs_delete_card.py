@@ -64,8 +64,9 @@ class SrsDeleteDbTests(unittest.TestCase):
         self.assertFalse(db.delete_saved_word(999999, 1))
 
     def test_delete_cascades_review_events(self):
-        from services.db.reviews import record_review_event
-        record_review_event(self.word_id, 1, grade=2, activity_type="srs_review")
+        from services.db import insert_review_event
+        with db.transaction() as conn:
+            insert_review_event(conn, self.word_id, 1, 2, "srs_review")
         with db.get_conn() as conn:
             before = conn.execute(
                 "SELECT COUNT(*) c FROM review_events WHERE word_id=?", (self.word_id,)

@@ -170,7 +170,6 @@ from services.db.reviews import (
     REVIEW_OUTCOMES,
     insert_review_event,
     prune_old_review_events,
-    record_review_event,
     recent_events_for_words,
 )
 

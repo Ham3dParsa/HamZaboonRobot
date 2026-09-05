@@ -226,6 +226,66 @@ class GradeWriteBatchTests(unittest.TestCase):
         self.assertTrue(res.ok)
         self.assertEqual(len(calls), 1)
 
+    def test_grade_paths_bump_lifetime_counters(self):
+        """Regression: production grade calls must bump total_reviews/lapses.
+
+        Calls the production grade_word_review / grade_first_exposure entry
+        points (never a test helper) and asserts the per-card lifetime
+        counters in saved_words actually incremented — grade 3 bumps only
+        total_reviews, grade 1 bumps total_reviews + lapses. The legacy
+        no-event path must leave counters untouched.
+        """
+
+        def _counters(wid: int):
+            with db.get_conn() as conn:
+                row = conn.execute(
+                    "SELECT total_reviews, lapses FROM saved_words WHERE id=?",
+                    (wid,),
+                ).fetchone()
+            return (row["total_reviews"] or 0, row["lapses"] or 0)
+
+        # Regular review, recalled (grade 3): total+1, lapses unchanged.
+        wid = _add_word(1, "theta")
+        _mark_review_state(wid, 1)
+        self.assertEqual(_counters(wid), (0, 0))
+        res = db.grade_word_review(
+            wid, 3, 1,
+            grade_source="direct_button",
+            raw_signal="{}",
+            response_time_ms=10,
+            with_streak=False,
+        )
+        self.assertTrue(res.ok)
+        self.assertEqual(_counters(wid), (1, 0))
+        # Same card, lapse (grade 1): total+1 AND lapses+1.
+        res = db.grade_word_review(
+            wid, 1, 1,
+            grade_source="direct_button",
+            raw_signal="{}",
+            response_time_ms=10,
+            with_streak=False,
+        )
+        self.assertTrue(res.ok)
+        self.assertEqual(_counters(wid), (2, 1))
+        # First exposure, lapse (grade 1): total+1 AND lapses+1.
+        wid2 = _add_word(1, "iota")
+        self.assertEqual(_counters(wid2), (0, 0))
+        res = db.grade_first_exposure(
+            wid2, 1, 1,
+            grade_source="direct_button",
+            raw_signal="{}",
+            response_time_ms=None,
+            with_streak=False,
+        )
+        self.assertTrue(res.ok)
+        self.assertEqual(_counters(wid2), (1, 1))
+        # Legacy grade-only path (no event): counters untouched.
+        wid3 = _add_word(1, "kappa")
+        _mark_review_state(wid3, 1)
+        res = db.grade_word_review(wid3, 3, 1)
+        self.assertTrue(res.ok)
+        self.assertEqual(_counters(wid3), (0, 0))
+
 
 class ReviewEventsFilterOrderIndexTests(unittest.TestCase):
     """F3: filter/order index on review_events(user_id, word_id, created_at)."""

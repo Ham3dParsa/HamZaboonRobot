@@ -40,6 +40,15 @@ def insert_review_event(
 
     Synchronous, zero await: pure SQL + outcome mapping. Used by the batched
     grade tap (F1) so grade + event + streak share one atomic transaction.
+
+    Also bumps the per-card lifetime counters (total_reviews, lapses) on the
+    SAME open connection, atomically with the INSERT — moved here from the
+    deleted record_review_event wrapper so every caller (grade batch, tests,
+    future callers) gets insert-plus-counters with zero extra transactions.
+    Scheduling fields are untouched. The lapse rule is the shared _is_lapse
+    (grade 1, or legacy NULL grade with outcome again), identical to main's
+    deleted code. Deliberately NOT swallowed: a counter failure rolls back
+    the insert too, so counters can never drift below the event stream.
     """
     outcome = "recalled" if grade >= 2 else "again"
     conn.execute(
@@ -59,67 +68,18 @@ def insert_review_event(
             created_at_iso or _utc_now().isoformat(),
         ),
     )
-
-
-def record_review_event(
-    word_id: int,
-    user_id: int,
-    grade: int,
-    activity_type: str,
-    *,
-    grade_source: str = "direct_button",
-    raw_signal: str | None = None,
-    response_time_ms: int | None = None,
-) -> None:
-    """Persist a review event with grade, source, and raw signal.
-
-    Writes all review_events columns including the new grade/signal fields.
-    The outcome column is derived from grade for backward-compatible reads
-    of historical data. It is NOT load-bearing for scheduling logic —
-    new features should read 'grade' directly.
-
-    grade=1 (Again) → outcome="again"      (failure)
-    grade>=2       → outcome="recalled"    (success, including Hard)
-
-    ``grade`` is validated/coerced upfront so only a real DB error can roll
-    back the insert — never a bad caller value.
-    """
-    try:
-        grade = int(grade)
-    except (TypeError, ValueError):
-        raise ValueError(f"invalid grade {grade!r}")
-    outcome = "recalled" if grade >= 2 else "again"
-    with transaction() as conn:
-        insert_review_event(
-            conn,
-            word_id,
-            user_id,
-            grade,
-            activity_type,
-            grade_source=grade_source,
-            raw_signal=raw_signal,
-            response_time_ms=response_time_ms,
+    if _is_lapse(grade, outcome):
+        conn.execute(
+            "UPDATE saved_words SET total_reviews=COALESCE(total_reviews, 0)+1, "
+            "lapses=COALESCE(lapses, 0)+1 WHERE id=? AND user_id=?",
+            (word_id, user_id),
         )
-        # Per-card lifetime counters (retention rollup): incremented atomically
-        # with the event insert so counters == events ever recorded. The grade
-        # path (grade_word_review/grade_first_exposure + this call) therefore
-        # keeps counts exact after old raw rows are pruned. Scheduling fields
-        # are untouched — this only bumps total_reviews/lapses. Deliberately
-        # NOT swallowed: a counter failure rolls back the insert too, so the
-        # counters can never drift below the event stream. The lapse rule is
-        # the shared _is_lapse (grade already coerced to int above).
-        if _is_lapse(grade, outcome):
-            conn.execute(
-                "UPDATE saved_words SET total_reviews=COALESCE(total_reviews, 0)+1, "
-                "lapses=COALESCE(lapses, 0)+1 WHERE id=? AND user_id=?",
-                (word_id, user_id),
-            )
-        else:
-            conn.execute(
-                "UPDATE saved_words SET total_reviews=COALESCE(total_reviews, 0)+1 "
-                "WHERE id=? AND user_id=?",
-                (word_id, user_id),
-            )
+    else:
+        conn.execute(
+            "UPDATE saved_words SET total_reviews=COALESCE(total_reviews, 0)+1 "
+            "WHERE id=? AND user_id=?",
+            (word_id, user_id),
+        )
 
 
 def recent_events_for_words(
@@ -174,9 +134,9 @@ def prune_old_review_events(
     (created_at DESC, id DESC) plus every event younger than retention_days.
     Before deleting, pruned rows are rolled into the per-card counters on
     saved_words (total_reviews, lapses) via a monotonic reconcile-up
-    (MAX(stored, actual lifetime)) for each affected card — a no-op when all
-    inserts funneled through ``record_review_event`` (counters already exact),
-    and a heal when legacy rows bypassed it. Counters are lifetime totals, so
+    (MAX(stored, actual lifetime)) for each affected card — a no-op when
+    counters were already bumped alongside the insert (counters exact), and a
+    heal when rows bypassed the counter bump. Counters are lifetime totals, so
     admin per-user/global totals read them instead of the raw table.
 
     The table is never loaded whole: lifetime totals accumulate via keyset

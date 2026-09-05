@@ -179,7 +179,7 @@ def _backfill_review_counters(conn) -> None:
 
     Sets each card's counters to its lifetime review_events totals so the
     retention prune (which deletes old raw events) stays exact: counters are
-    incremented at insert by ``record_review_event`` going forward, and this
+    bumped atomically alongside the event insert going forward, and this
     backfill covers everything inserted before the counters existed. Lapse =
     grade 1, with a legacy fallback (grade NULL + outcome 'again') for rows
     written before the grade column existed. Idempotent via the

@@ -521,7 +521,8 @@ def count_review_events_total() -> int:
 
     Reads SUM(saved_words.total_reviews) so the count stays exact after the
     retention prune deletes old raw review_events rows. Counters are seeded by
-    migration backfill and incremented atomically by record_review_event.
+    migration backfill, bumped atomically alongside the event insert, and
+    healed monotonically by the retention prune reconcile.
     """
     with get_conn() as conn:
         try:

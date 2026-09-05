@@ -217,12 +217,22 @@ class ReviewRetentionPruneTests(_DbCase):
                 "FROM saved_words WHERE id=?", (word_id,)).fetchone()
         return dict(row)
 
-    def test_grade_path_increments_counters(self):
+    def _record(self, word_id, user_id, grade, activity_type="srs_review"):
+        """Production event insert (counter bump rides along atomically).
+
+        Calls db.insert_review_event on the caller's transaction — the bump
+        lives inside the helper itself (same lapse rule: grade 1 is a lapse),
+        so no manual UPDATE here. Keeps counter-dependent prune fixtures exact.
+        """
+        with db.transaction() as conn:
+            db.insert_review_event(conn, word_id, user_id, grade, activity_type)
+
+    def test_event_insert_with_counter_bump_keeps_counters_exact(self):
         wid = self._word()
-        db.record_review_event(wid, 1, 3, "srs_review")
+        self._record(wid, 1, 3, "srs_review")
         self.assertEqual((self._counters(wid)["total_reviews"],
                           self._counters(wid)["lapses"]), (1, 0))
-        db.record_review_event(wid, 1, 1, "srs_review")
+        self._record(wid, 1, 1, "srs_review")
         self.assertEqual((self._counters(wid)["total_reviews"],
                           self._counters(wid)["lapses"]), (2, 1))
 
@@ -231,7 +241,7 @@ class ReviewRetentionPruneTests(_DbCase):
         # 5 old legacy rows (bypass the counter path on purpose) + 1 recent.
         for idx, grade in enumerate([1, 2, 3, 4, 2]):
             self._insert_event(wid, 1, grade, f"2020-01-0{idx + 1}T00:00:00+00:00")
-        db.record_review_event(wid, 1, 3, "srs_review")
+        self._record(wid, 1, 3, "srs_review")
         with db.get_conn() as conn:
             before_ids = [r["id"] for r in conn.execute(
                 "SELECT id FROM review_events WHERE word_id=? "
@@ -272,7 +282,7 @@ class ReviewRetentionPruneTests(_DbCase):
         wid = self._word()
         for idx, grade in enumerate([1, 2, 3, 4, 2]):
             self._insert_event(wid, 1, grade, f"2020-01-0{idx + 1}T00:00:00+00:00")
-        db.record_review_event(wid, 1, 3, "srs_review")
+        self._record(wid, 1, 3, "srs_review")
         pruned = db.prune_old_review_events(batch=2)
         self.assertEqual(pruned, 4)
         with db.get_conn() as conn:
@@ -285,15 +295,21 @@ class ReviewRetentionPruneTests(_DbCase):
         # Idempotent.
         self.assertEqual(db.prune_old_review_events(), 0)
 
-    def test_record_review_event_rejects_bad_grade_without_insert(self):
+    def test_grade_path_rejects_bad_grade_without_insert(self):
+        """Grade validation lives in the grade path (_validate_grade): a bad
+        grade raises before any transaction opens, so no event is recorded."""
         wid = self._word()
         with db.get_conn() as conn:
             before = conn.execute(
                 "SELECT COUNT(*) AS c FROM review_events").fetchone()["c"]
         with self.assertRaises(ValueError):
-            db.record_review_event(wid, 1, None, "srs_review")
+            db.grade_first_exposure(wid, None, 1)
         with self.assertRaises(ValueError):
-            db.record_review_event(wid, 1, "bad", "srs_review")
+            db.grade_first_exposure(wid, "bad", 1)
+        with self.assertRaises(ValueError):
+            db.grade_word_review(wid, None, 1)
+        with self.assertRaises(ValueError):
+            db.grade_word_review(wid, "bad", 1)
         with db.get_conn() as conn:
             after = conn.execute(
                 "SELECT COUNT(*) AS c FROM review_events").fetchone()["c"]
@@ -314,7 +330,7 @@ class ReviewRetentionPruneTests(_DbCase):
         self.assertEqual((before["total_reviews"], before["lapses"]), (3, 1))
         result = db.grade_word_review(wid, 3, 1)
         self.assertTrue(result.ok)
-        db.record_review_event(wid, 1, 3, "srs_review")
+        self._record(wid, 1, 3, "srs_review")
         after = self._counters(wid)
         self.assertEqual((after["total_reviews"], after["lapses"]), (4, 1))
         self.assertNotEqual(after["next_review_at"], before["next_review_at"])

@@ -279,11 +279,11 @@ class AdminUserFlowTest(unittest.TestCase):
     def test_reset_progress_deletes(self):
         db.add_saved_word(7, "hello", "en", {"word": "hello"})
         try:
-            from services.db import record_review_event
+            from services.db import insert_review_event
             with db.transaction() as conn:
                 wid = conn.execute("SELECT id FROM saved_words WHERE user_id=7").fetchone()
                 if wid:
-                    record_review_event(7, wid["id"], "again")
+                    insert_review_event(conn, wid["id"], 7, 1, "srs_review")
         except Exception:
             pass
         with db.transaction() as conn:
