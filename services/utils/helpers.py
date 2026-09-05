@@ -23,10 +23,12 @@ _RETRY_BACKOFF_BASE_MAX = 60.0
 _RETRY_BACKOFF_SLEEP_MAX = 30.0
 
 # Retry seam (Issue #579) — Telegram Jittered Exponential Backoff, single seam.
-# Contract lock 2026-09-05: 3 attempts, base 0.5s, max 10s, RetryAfter respected.
+# Contract lock 2026-09-05: 3 attempts, base 0.5s, cap 30s, RetryAfter honored
+# (raise-over-cap drop). Sibling edit/delete loops keep their pre-existing
+# 30s-clamp; only this central seam drops over-cap (scoped divergence).
 _TELEGRAM_RETRY_MAX_ATTEMPTS = 3
 _TELEGRAM_RETRY_BASE_DELAY = 0.5
-_TELEGRAM_RETRY_MAX_DELAY = 10.0
+_TELEGRAM_RETRY_MAX_DELAY = 30.0
 
 
 def _retry_backoff_base() -> float:
@@ -112,17 +114,29 @@ async def _execute_telegram_action_with_retry(action_fn, *args, is_idempotent: b
 
         except RetryAfter as e:
             delay = float(e.retry_after)
-            clamped = min(delay, _RETRY_BACKOFF_SLEEP_MAX)
+            # Owner-approved drop semantics (Kilo round-1/2): a RetryAfter
+            # above the cap honors Telegram's flood directive by dropping
+            # instead of blocking the handler past the cap. Flood-safe
+            # (never hammer a rate-limited endpoint) and handler-bound
+            # (a single delivery never stalls a worker beyond the budget).
+            if delay > _TELEGRAM_RETRY_MAX_DELAY:
+                logger.error(
+                    "Telegram RetryAfter %.2fs exceeds cap %.2fs on attempt %d/%d — dropping (no sleep, no retry)",
+                    delay,
+                    _TELEGRAM_RETRY_MAX_DELAY,
+                    attempt,
+                    _TELEGRAM_RETRY_MAX_ATTEMPTS,
+                )
+                raise
             logger.warning(
-                "Telegram RetryAfter caught on attempt %d/%d. Clamped wait %.2fs (asked %.2fs)...",
+                "Telegram RetryAfter caught on attempt %d/%d. Wait %.2fs...",
                 attempt,
                 _TELEGRAM_RETRY_MAX_ATTEMPTS,
-                clamped,
                 delay,
             )
             if attempt >= _TELEGRAM_RETRY_MAX_ATTEMPTS:
                 raise
-            await asyncio.sleep(clamped)
+            await asyncio.sleep(delay)
 
         except (TimedOut, NetworkError) as e:
             if not is_idempotent:
@@ -351,7 +365,7 @@ async def _edit_with_retry(query, text, *, reset_telegram_cb: bool = True, **kwa
 
 
 async def _edit_message_with_retry(
-    bot, chat_id: int, message_id: int, text: str, reset_telegram_cb: bool = True, **kwargs
+    bot, chat_id: int, message_id: int, text: str, *, reset_telegram_cb: bool = True, **kwargs
 ):
     """جایگزین درگاه خط ۳۷۴: فراخوانی با ریتری هوشمند برای ویرایش پیام — Issue #579."""
 
@@ -362,7 +376,10 @@ async def _edit_message_with_retry(
             )
         except Forbidden:
             if chat_id > 0:
-                db.set_user_blocked(chat_id)
+                try:
+                    db.set_user_blocked(chat_id)
+                except Exception:
+                    pass
             raise
 
     return await _execute_telegram_action_with_retry(_act, is_idempotent=True, reset_telegram_cb=reset_telegram_cb)
@@ -395,7 +412,10 @@ async def _edit_markup_with_retry(
                 return result
         except Forbidden:
             if chat_id > 0:
-                db.set_user_blocked(chat_id)
+                try:
+                    db.set_user_blocked(chat_id)
+                except Exception:
+                    pass
             raise
         except BadRequest:
             raise
