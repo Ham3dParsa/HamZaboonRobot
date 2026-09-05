@@ -220,15 +220,15 @@ class TestReviewKeyboard(unittest.TestCase):
         self.assertEqual(last[1].callback_data, "tts:pronounce:s:123:456")
 
     def test_review_grade_styles_l1(self):
-        # L1 (Q1 LOCKED): Again=DANGER, Hard=PRIMARY, Good=SUCCESS, Easy=neutral.
+        # U1: all 4 review grades neutral (no color bias).
         markup = get_review_keyboard(1, 10)
         rows = markup.inline_keyboard
         self.assertEqual(rows[0][1].callback_data, "srs:1:1:10")
-        self.assertEqual(rows[0][1].style, KeyboardButtonStyle.DANGER)
+        self.assertIsNone(rows[0][1].style)
         self.assertEqual(rows[0][0].callback_data, "srs:2:1:10")
-        self.assertEqual(rows[0][0].style, KeyboardButtonStyle.PRIMARY)
+        self.assertIsNone(rows[0][0].style)
         self.assertEqual(rows[1][1].callback_data, "srs:3:1:10")
-        self.assertEqual(rows[1][1].style, KeyboardButtonStyle.SUCCESS)
+        self.assertIsNone(rows[1][1].style)
         self.assertEqual(rows[1][0].callback_data, "srs:4:1:10")
         self.assertIsNone(rows[1][0].style)
 
@@ -307,15 +307,15 @@ class TestFirstExposureKeyboard(unittest.TestCase):
         self.assertEqual(last[1].callback_data, "tts:pronounce:s:123:456")
 
     def test_first_exposure_grade_styles_l2(self):
-        # L2 (Q2 LOCKED): AgainFE=DANGER, HardFE=PRIMARY, GoodFE=SUCCESS, EasyFE=neutral.
+        # U1: all 4 first-exposure grades neutral (no color bias).
         markup = get_first_exposure_keyboard(1, 10)
         rows = markup.inline_keyboard
         self.assertEqual(rows[0][1].callback_data, "srs:fe:1:1:10")
-        self.assertEqual(rows[0][1].style, KeyboardButtonStyle.DANGER)
+        self.assertIsNone(rows[0][1].style)
         self.assertEqual(rows[0][0].callback_data, "srs:fe:2:1:10")
-        self.assertEqual(rows[0][0].style, KeyboardButtonStyle.PRIMARY)
+        self.assertIsNone(rows[0][0].style)
         self.assertEqual(rows[1][1].callback_data, "srs:fe:3:1:10")
-        self.assertEqual(rows[1][1].style, KeyboardButtonStyle.SUCCESS)
+        self.assertIsNone(rows[1][1].style)
         self.assertEqual(rows[1][0].callback_data, "srs:fe:4:1:10")
         self.assertIsNone(rows[1][0].style)
 
