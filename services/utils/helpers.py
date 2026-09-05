@@ -67,7 +67,7 @@ def _retry_sleep(attempt: int) -> float:
     return min(_retry_backoff_base() * (2**attempt), _RETRY_BACKOFF_SLEEP_MAX)
 
 
-async def _execute_telegram_action_with_retry(action_fn, *args, is_idempotent: bool = False, **kwargs):
+async def _execute_telegram_action_with_retry(action_fn, *args, is_idempotent: bool = False, reset_telegram_cb: bool = True, **kwargs):
     """
     اجرای یک متد تلگرام ایدم‌پوتنت (ویرایش/حذف پیام) با Jittered Exponential Backoff
     و رعایت سربرگ RetryAfter. — Issue #579, R2 split policy.
@@ -78,6 +78,12 @@ async def _execute_telegram_action_with_retry(action_fn, *args, is_idempotent: b
     is_idempotent=False (پیش‌فرض): خطای TimedOut/NetworkError بلافاصله
     بازپرتاب می‌شود (بدون ریتری/خواب) — نگهبان مسیرهای غیرایدم‌پوتنت آینده.
     is_idempotent=True: ریتری بک‌آف موجود حفظ می‌شود.
+    reset_telegram_cb=True (پیش‌فرض): پس از موفقیت، پرچم آفلاین/شمارنده
+    سلامت ریست می‌شود. مسیرهای health/offline-notice با False صدا می‌زنند
+    تا وضعیت circuit-breaker را بازنویسی نکنند.
+    Slot-missing fail-closed (R3 #583): اگر ایمپورت _telegram_slots شکست
+    بخورد، RuntimeError("telegram slot unavailable") پرتاب می‌شود — هرگز
+    بدون اسلات و بدون محدودیت اجرا نمی‌شود (سطح‌بندی miswire).
     """
     # Lazy slot — owned by services/send_pretty.py (phase-03 R2), avoid cycle.
     try:
@@ -85,17 +91,18 @@ async def _execute_telegram_action_with_retry(action_fn, *args, is_idempotent: b
     except ImportError:
         _telegram_slots = None  # type: ignore
 
+    if _telegram_slots is None:
+        raise RuntimeError("telegram slot unavailable")
+
     attempt = 0
     while True:
         attempt += 1
         try:
-            if _telegram_slots is not None:
-                async with _telegram_slots:
-                    result = await action_fn(*args, **kwargs)
+            async with _telegram_slots:
+                result = await action_fn(*args, **kwargs)
+                if reset_telegram_cb:
                     _reset_telegram_cb()
-                    return result
-            else:
-                return await action_fn(*args, **kwargs)
+                return result
         except Forbidden:
             raise
 
@@ -105,22 +112,17 @@ async def _execute_telegram_action_with_retry(action_fn, *args, is_idempotent: b
 
         except RetryAfter as e:
             delay = float(e.retry_after)
+            clamped = min(delay, _RETRY_BACKOFF_SLEEP_MAX)
             logger.warning(
-                "Telegram RetryAfter caught on attempt %d/%d. Waiting %.2fs...",
+                "Telegram RetryAfter caught on attempt %d/%d. Clamped wait %.2fs (asked %.2fs)...",
                 attempt,
                 _TELEGRAM_RETRY_MAX_ATTEMPTS,
+                clamped,
                 delay,
             )
             if attempt >= _TELEGRAM_RETRY_MAX_ATTEMPTS:
                 raise
-            if delay > _TELEGRAM_RETRY_MAX_DELAY:
-                logger.error(
-                    "RetryAfter delay (%.2fs) exceeds max limit (%.2fs)",
-                    delay,
-                    _TELEGRAM_RETRY_MAX_DELAY,
-                )
-                raise
-            await asyncio.sleep(delay)
+            await asyncio.sleep(clamped)
 
         except (TimedOut, NetworkError) as e:
             if not is_idempotent:
@@ -348,7 +350,7 @@ async def _edit_with_retry(query, text, **kwargs):
 
 
 async def _edit_message_with_retry(
-    bot, chat_id: int, message_id: int, text: str, **kwargs
+    bot, chat_id: int, message_id: int, text: str, reset_telegram_cb: bool = True, **kwargs
 ):
     """جایگزین درگاه خط ۳۷۴: فراخوانی با ریتری هوشمند برای ویرایش پیام — Issue #579."""
 
@@ -365,7 +367,7 @@ async def _edit_message_with_retry(
                     pass
             raise
 
-    return await _execute_telegram_action_with_retry(_act, is_idempotent=True)
+    return await _execute_telegram_action_with_retry(_act, is_idempotent=True, reset_telegram_cb=reset_telegram_cb)
 
 
 async def _edit_markup_with_retry(
