@@ -1,4 +1,5 @@
 import unittest
+from telegram.constants import KeyboardButtonStyle
 from config.keyboards import (
     main_menu,
     settings_inline_keyboard,
@@ -7,6 +8,10 @@ from config.keyboards import (
     get_review_keyboard,
     get_first_exposure_keyboard,
     get_srs_front_keyboard,
+    get_srs_delete_confirm_keyboard,
+    display_toggles_keyboard,
+    user_display_toggles_keyboard,
+    display_toggle_confirm_keyboard,
     IBTN_SRS_REVEAL,
     lang_inline_keyboard,
     goal_inline_keyboard,
@@ -214,6 +219,28 @@ class TestReviewKeyboard(unittest.TestCase):
         self.assertEqual(last[0].callback_data, "srs:delete:123:456")
         self.assertEqual(last[1].callback_data, "tts:pronounce:s:123:456")
 
+    def test_review_grade_styles_l1(self):
+        # L1 (Q1 LOCKED): Again=DANGER, Hard=PRIMARY, Good=SUCCESS, Easy=neutral.
+        markup = get_review_keyboard(1, 10)
+        rows = markup.inline_keyboard
+        self.assertEqual(rows[0][1].callback_data, "srs:1:1:10")
+        self.assertEqual(rows[0][1].style, KeyboardButtonStyle.DANGER)
+        self.assertEqual(rows[0][0].callback_data, "srs:2:1:10")
+        self.assertEqual(rows[0][0].style, KeyboardButtonStyle.PRIMARY)
+        self.assertEqual(rows[1][1].callback_data, "srs:3:1:10")
+        self.assertEqual(rows[1][1].style, KeyboardButtonStyle.SUCCESS)
+        self.assertEqual(rows[1][0].callback_data, "srs:4:1:10")
+        self.assertIsNone(rows[1][0].style)
+
+    def test_review_row3_stays_neutral_l1(self):
+        # L1: pronounce + Delete ENTRY neutral (confirm from Q3/L3 carries red).
+        markup = get_review_keyboard(1, 10)
+        rows = markup.inline_keyboard
+        self.assertEqual(rows[2][0].callback_data, "srs:delete:1:10")
+        self.assertIsNone(rows[2][0].style)
+        self.assertEqual(rows[2][1].callback_data, "tts:pronounce:s:1:10")
+        self.assertIsNone(rows[2][1].style)
+
 
 class TestSrsFrontKeyboard(unittest.TestCase):
     def test_front_review_keyboard_has_reveal_button(self):
@@ -278,6 +305,111 @@ class TestFirstExposureKeyboard(unittest.TestCase):
         self.assertEqual(len(last), 2)
         self.assertEqual(last[0].callback_data, "srs:delete:123:456")
         self.assertEqual(last[1].callback_data, "tts:pronounce:s:123:456")
+
+    def test_first_exposure_grade_styles_l2(self):
+        # L2 (Q2 LOCKED): AgainFE=DANGER, HardFE=PRIMARY, GoodFE=SUCCESS, EasyFE=neutral.
+        markup = get_first_exposure_keyboard(1, 10)
+        rows = markup.inline_keyboard
+        self.assertEqual(rows[0][1].callback_data, "srs:fe:1:1:10")
+        self.assertEqual(rows[0][1].style, KeyboardButtonStyle.DANGER)
+        self.assertEqual(rows[0][0].callback_data, "srs:fe:2:1:10")
+        self.assertEqual(rows[0][0].style, KeyboardButtonStyle.PRIMARY)
+        self.assertEqual(rows[1][1].callback_data, "srs:fe:3:1:10")
+        self.assertEqual(rows[1][1].style, KeyboardButtonStyle.SUCCESS)
+        self.assertEqual(rows[1][0].callback_data, "srs:fe:4:1:10")
+        self.assertIsNone(rows[1][0].style)
+
+    def test_first_exposure_row3_stays_neutral_l2(self):
+        # L2: pronounce + Delete ENTRY neutral (confirm from Q3/L3 carries red).
+        markup = get_first_exposure_keyboard(1, 10)
+        rows = markup.inline_keyboard
+        self.assertEqual(rows[2][0].callback_data, "srs:delete:1:10")
+        self.assertIsNone(rows[2][0].style)
+        self.assertEqual(rows[2][1].callback_data, "tts:pronounce:s:1:10")
+        self.assertIsNone(rows[2][1].style)
+
+
+class TestSrsDeleteConfirmStyle(unittest.TestCase):
+    def test_delete_confirm_yes_is_danger_l3(self):
+        # L3 (Q3 LOCKED): study delete-confirm YES=DANGER (irreversible delete).
+        markup = get_srs_delete_confirm_keyboard(1, 10)
+        rows = markup.inline_keyboard
+        self.assertEqual(rows[0][0].callback_data, "srs:delete:yes:1:10")
+        self.assertEqual(rows[0][0].style, KeyboardButtonStyle.DANGER)
+
+    def test_delete_confirm_no_stays_neutral_l3(self):
+        # L3: cancel stays neutral (retreat).
+        markup = get_srs_delete_confirm_keyboard(1, 10)
+        rows = markup.inline_keyboard
+        self.assertEqual(rows[0][1].callback_data, "srs:delete:no:1:10")
+        self.assertIsNone(rows[0][1].style)
+
+
+class TestDisplayToggleStylesL4(unittest.TestCase):
+    def test_admin_on_rows_primary_off_neutral_l4(self):
+        # L4 (applied precedent): ON (✅) = PRIMARY, OFF (⭕) = neutral.
+        from config.catalog import DISPLAY_TOGGLE_FIELDS
+
+        current = {f: True for f in DISPLAY_TOGGLE_FIELDS}
+        current[DISPLAY_TOGGLE_FIELDS[0]] = False
+        markup = display_toggles_keyboard(current)
+        rows = markup.inline_keyboard
+        self.assertEqual(len(rows), len(DISPLAY_TOGGLE_FIELDS) + 2)
+        for row, field in zip(rows, DISPLAY_TOGGLE_FIELDS):
+            btn = row[0]
+            self.assertEqual(btn.callback_data, f"admin:display_toggle:{field}")
+            if current[field]:
+                self.assertTrue(btn.text.startswith("✅"))
+                self.assertEqual(btn.style, KeyboardButtonStyle.PRIMARY)
+            else:
+                self.assertTrue(btn.text.startswith("⭕"))
+                self.assertIsNone(btn.style)
+        self.assertEqual(rows[-2][0].callback_data, "admin:back")
+        self.assertIsNone(rows[-2][0].style)
+        self.assertEqual(rows[-1][0].callback_data, "admin:close")
+        self.assertIsNone(rows[-1][0].style)
+
+    def test_user_on_rows_primary_forced_lock_kept_l4(self):
+        # L4: ON incl. 🔒 forced = PRIMARY; OFF = neutral; lock label kept.
+        from config.catalog import DISPLAY_TOGGLE_FIELDS
+
+        on_field = DISPLAY_TOGGLE_FIELDS[1]
+        off_field = DISPLAY_TOGGLE_FIELDS[0]
+        current = {f: True for f in DISPLAY_TOGGLE_FIELDS}
+        current[off_field] = False
+        forced = {on_field: True, off_field: False}
+        markup = user_display_toggles_keyboard(current, forced)
+        rows = markup.inline_keyboard
+        self.assertEqual(len(rows), len(DISPLAY_TOGGLE_FIELDS) + 1)
+        by_cb = {row[0].callback_data: row[0] for row in rows[:-1]}
+        on_btn = by_cb[f"settings:display_toggle:{on_field}"]
+        self.assertIn("🔒", on_btn.text)
+        self.assertTrue(on_btn.text.startswith("✅"))
+        self.assertEqual(on_btn.style, KeyboardButtonStyle.PRIMARY)
+        off_btn = by_cb[f"settings:display_toggle:{off_field}"]
+        self.assertIn("🔒", off_btn.text)
+        self.assertTrue(off_btn.text.startswith("⭕"))
+        self.assertIsNone(off_btn.style)
+        self.assertEqual(rows[-1][0].callback_data, "settings:back")
+        self.assertIsNone(rows[-1][0].style)
+
+    def test_confirm_yes_success_cancel_neutral_l4(self):
+        # L4: `بله، خاموش کن` (reversible disable) = SUCCESS; cancel neutral.
+        for is_admin in (False, True):
+            markup = display_toggle_confirm_keyboard("synonyms", is_admin=is_admin)
+            rows = markup.inline_keyboard
+            prefix = "admin:display_toggle" if is_admin else "settings:display_toggle"
+            self.assertEqual(rows[0][0].text, "✅ بله، خاموش کن")
+            self.assertEqual(rows[0][0].callback_data, f"{prefix}:confirm:synonyms")
+            self.assertEqual(rows[0][0].style, KeyboardButtonStyle.SUCCESS)
+            self.assertEqual(rows[0][1].callback_data, f"{prefix}:cancel")
+            self.assertIsNone(rows[0][1].style)
+            if is_admin:
+                self.assertEqual(len(rows), 2)
+                self.assertEqual(rows[1][0].callback_data, "admin:close")
+                self.assertIsNone(rows[1][0].style)
+            else:
+                self.assertEqual(len(rows), 1)
 
 
 class TestUserPlanPickerKeyboard(unittest.TestCase):

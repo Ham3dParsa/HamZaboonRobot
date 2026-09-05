@@ -1,4 +1,5 @@
 from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.constants import KeyboardButtonStyle
 
 from .constants import *  # noqa: F401,F403
 
@@ -122,7 +123,8 @@ def display_toggles_keyboard(current: dict) -> InlineKeyboardMarkup:
         enabled = bool(current.get(field, True))
         marker = "✅" if enabled else "⭕"
         label = DISPLAY_TOGGLE_FA_LABELS.get(field, field)
-        rows.append([InlineKeyboardButton(f"{marker} {label}", callback_data=f"admin:display_toggle:{field}")])
+        kwargs = {"style": KeyboardButtonStyle.PRIMARY} if enabled else {}
+        rows.append([InlineKeyboardButton(f"{marker} {label}", callback_data=f"admin:display_toggle:{field}", **kwargs)])
     rows.append([InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")])
     rows.append([InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")])
     return InlineKeyboardMarkup(rows)
@@ -133,7 +135,7 @@ def display_toggle_confirm_keyboard(field: str, *, is_admin: bool = False) -> In
     prefix = "admin:display_toggle" if is_admin else "settings:display_toggle"
     rows: list[list[InlineKeyboardButton]] = [
         [
-            InlineKeyboardButton("✅ بله، خاموش کن", callback_data=f"{prefix}:confirm:{field}"),
+            InlineKeyboardButton("✅ بله، خاموش کن", callback_data=f"{prefix}:confirm:{field}", style=KeyboardButtonStyle.SUCCESS),
             InlineKeyboardButton(IBTN_DELETE_CANCEL, callback_data=f"{prefix}:cancel"),
         ],
     ]
@@ -154,7 +156,8 @@ def user_display_toggles_keyboard(current: dict, forced: dict | None = None) -> 
         label = DISPLAY_TOGGLE_FA_LABELS.get(field, field)
         if field in forced:
             label = f"🔒 {label}"
-        rows.append([InlineKeyboardButton(f"{marker} {label}", callback_data=f"settings:display_toggle:{field}")])
+        kwargs = {"style": KeyboardButtonStyle.PRIMARY} if enabled else {}
+        rows.append([InlineKeyboardButton(f"{marker} {label}", callback_data=f"settings:display_toggle:{field}", **kwargs)])
     rows.append([InlineKeyboardButton(IBTN_BACK_TO_SETTINGS, callback_data="settings:back")])
     return InlineKeyboardMarkup(rows)
 
