@@ -533,6 +533,16 @@ def transaction(path: str | None = None):
             raise
 
 
+def is_missing_table_error(exc: BaseException) -> bool:
+    """True for a missing-table OperationalError (pre-migration DB).
+
+    Single source for the fail-soft read policy: only this case returns a
+    silent fallback; every other error must be logged before falling back so
+    dashboards never silently show wrong totals.
+    """
+    return isinstance(exc, sqlite3.OperationalError) and "no such table" in str(exc)
+
+
 def init_db(path: str | None = None):
     if path is None:
         from services.db import DB_PATH as _active_path

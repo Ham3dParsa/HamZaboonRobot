@@ -1,9 +1,10 @@
 import csv
 import datetime
 import io
+import logging
 
 from services.db.plans import get_plan, valid_plan_name
-from services.db.schema import get_conn, transaction, _today, _utc_now, _current_daily_count, _can_consume_daily_count
+from services.db.schema import get_conn, is_missing_table_error, transaction, _today, _utc_now, _current_daily_count, _can_consume_daily_count
 from services.db.settings import get_setting, set_setting
 from services.db.display_toggles import (
     get_effective as _get_display_toggles,
@@ -21,6 +22,8 @@ from config.catalog import (
     DEFAULT_CARD_MODE,
     DEFAULT_CARD_MODE_GATE,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _validate_card_type(card_type: str) -> None:
@@ -428,7 +431,9 @@ def count_llm_requests_since(date: str) -> int:
     try:
         from services.db import cost_tracking as _ct
         rolled = _ct.rollup_request_count_since(date)
-    except Exception:
+    except Exception as exc:
+        if not is_missing_table_error(exc):
+            logger.exception("count_llm_requests_since rollup read failed")
         rolled = 0
     return raw + rolled
 
@@ -512,7 +517,12 @@ def count_review_events_total() -> int:
             row = conn.execute(
                 "SELECT SUM(COALESCE(total_reviews, 0)) AS cnt FROM saved_words"
             ).fetchone()
-        except Exception:
+        except Exception as exc:
+            # Pre-migration DB without counters: silent fallback (as before).
+            # Any other error is logged so a broken counter never hides
+            # behind a plausible raw count.
+            if not is_missing_table_error(exc):
+                logger.exception("count_review_events_total counters read failed")
             row = None
         if row is not None and row["cnt"] is not None:
             return int(row["cnt"])
@@ -574,7 +584,9 @@ def get_user_learning_stats(user_id: int) -> dict:
                 (user_id,),
             ).fetchone()
             review_events = int(re["cnt"] or 0) if re else 0
-        except Exception:
+        except Exception as exc:
+            if not is_missing_table_error(exc):
+                logger.exception("get_user_learning_stats counters read failed")
             re = conn.execute(
                 "SELECT COUNT(*) AS cnt FROM review_events WHERE user_id=?", (user_id,)
             ).fetchone()

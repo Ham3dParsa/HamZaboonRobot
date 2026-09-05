@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 import datetime
+import logging
 import time
 
-from services.db.schema import get_conn, transaction, _utc_now
+from services.db.schema import (
+    get_conn,
+    is_missing_table_error,
+    transaction,
+    _utc_now,
+)
+
+logger = logging.getLogger(__name__)
 
 
 # review_events columns: id, word_id, user_id, revealed_before_answer,
@@ -35,7 +43,14 @@ def record_review_event(
 
     grade=1 (Again) → outcome="again"      (failure)
     grade>=2       → outcome="recalled"    (success, including Hard)
+
+    ``grade`` is validated/coerced upfront so only a real DB error can roll
+    back the insert — never a bad caller value.
     """
+    try:
+        grade = int(grade)
+    except (TypeError, ValueError):
+        raise ValueError(f"invalid grade {grade!r}")
     outcome = "recalled" if grade >= 2 else "again"
     with transaction() as conn:
         conn.execute(
@@ -61,8 +76,9 @@ def record_review_event(
         # keeps counts exact after old raw rows are pruned. Scheduling fields
         # are untouched — this only bumps total_reviews/lapses. Deliberately
         # NOT swallowed: a counter failure rolls back the insert too, so the
-        # counters can never drift below the event stream.
-        if int(grade) == 1:
+        # counters can never drift below the event stream. The lapse rule is
+        # the shared _is_lapse (grade already coerced to int above).
+        if _is_lapse(grade, outcome):
             conn.execute(
                 "UPDATE saved_words SET total_reviews=COALESCE(total_reviews, 0)+1, "
                 "lapses=COALESCE(lapses, 0)+1 WHERE id=? AND user_id=?",
@@ -173,7 +189,12 @@ def prune_old_review_events(
             last_seen = int(rows[-1]["id"])
             if len(rows) < scan:
                 break
-    except Exception:
+    except Exception as exc:
+        # Pre-migration DB without review_events: silent 0 (as before). Any
+        # other failure is logged — a stalled prune must never look like
+        # success. Committed batches stay; a re-run resumes idempotently.
+        if not is_missing_table_error(exc):
+            logger.exception("prune_old_review_events totals scan failed")
         return 0
     # Pass 2: monotonic reconcile-up per card, batched into few transactions
     # instead of one per card. Same MAX(stored, lifetime) SQL as before.
@@ -229,8 +250,14 @@ def prune_old_review_events(
                 last_id = chunk_ids[-1]
                 if len(chunk_ids) < scan:
                     break
-    except Exception:
+    except Exception as exc:
         # Pre-migration DB without review_events, or a mid-run failure: report
-        # progress so far; committed batches stay, a re-run resumes cleanly.
+        # progress so far (silent only for missing-table); any other failure
+        # is logged so a partial run is distinguishable from a clean one.
+        # Committed batches stay, a re-run resumes cleanly.
+        if not is_missing_table_error(exc):
+            logger.exception(
+                "prune_old_review_events victims delete failed deleted=%s", deleted
+            )
         return deleted
     return deleted

@@ -3,21 +3,17 @@
 import datetime
 import logging
 import secrets
-import sqlite3
 import time
 
-from services.db.schema import get_conn, transaction, _today, _utc_now
+from services.db.schema import (
+    get_conn,
+    is_missing_table_error,
+    transaction,
+    _today,
+    _utc_now,
+)
 
 logger = logging.getLogger(__name__)
-
-
-def _is_missing_table(exc: Exception) -> bool:
-    """True for a missing-table OperationalError (pre-migration DB).
-
-    Only this case returns a silent fallback; every other error is logged
-    before falling back so dashboards never silently show wrong totals.
-    """
-    return isinstance(exc, sqlite3.OperationalError) and "no such table" in str(exc)
 
 
 def add_llm_request(
@@ -175,7 +171,7 @@ def _rollup_sums(start_date: object | None, end_date: object | None) -> dict[str
                 params,
             ).fetchone()
         except Exception as exc:
-            if not _is_missing_table(exc):
+            if not is_missing_table_error(exc):
                 logger.exception("llm_daily_rollup sums read failed")
             return {}
     if not row:
@@ -193,7 +189,7 @@ def rollup_request_count_since(date: str) -> int:
                 (date,),
             ).fetchone()
         except Exception as exc:
-            if not _is_missing_table(exc):
+            if not is_missing_table_error(exc):
                 logger.exception("llm_daily_rollup count read failed")
             return 0
     return int(row["cnt"] or 0) if row else 0
@@ -424,7 +420,7 @@ def daily_costs_grouped(
                     rparams,
                 ).fetchall()
             except Exception as exc:
-                if not _is_missing_table(exc):
+                if not is_missing_table_error(exc):
                     logger.exception("llm_daily_rollup read failed")
                 rrows = []
         for r in rrows:
@@ -555,7 +551,7 @@ def purge_old_llm_requests(retention_days: int = 90, batch: int = 500,
             # resumes idempotently. Pre-migration DBs without the llm tables
             # return 0 silently (as before); any other failure is logged so a
             # stalled purge never goes unnoticed.
-            if not _is_missing_table(exc):
+            if not is_missing_table_error(exc):
                 logger.exception("purge_old_llm_requests batch failed")
             return deleted
         deleted += len(ids)

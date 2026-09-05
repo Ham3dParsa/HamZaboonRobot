@@ -285,6 +285,20 @@ class ReviewRetentionPruneTests(_DbCase):
         # Idempotent.
         self.assertEqual(db.prune_old_review_events(), 0)
 
+    def test_record_review_event_rejects_bad_grade_without_insert(self):
+        wid = self._word()
+        with db.get_conn() as conn:
+            before = conn.execute(
+                "SELECT COUNT(*) AS c FROM review_events").fetchone()["c"]
+        with self.assertRaises(ValueError):
+            db.record_review_event(wid, 1, None, "srs_review")
+        with self.assertRaises(ValueError):
+            db.record_review_event(wid, 1, "bad", "srs_review")
+        with db.get_conn() as conn:
+            after = conn.execute(
+                "SELECT COUNT(*) AS c FROM review_events").fetchone()["c"]
+        self.assertEqual(after, before)
+
     def test_grade_after_prune_stays_exact(self):
         wid = self._word()
         self._insert_event(wid, 1, 2, OLD_TS)
