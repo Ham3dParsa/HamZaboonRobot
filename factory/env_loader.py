@@ -3,7 +3,8 @@
 import os
 import pathlib
 
-KEYS = ("OPENCODE_ZEN_API_KEY", "OPENROUTER_API_KEY", "GOOGLE_AI_API_KEY")
+KEYS = ("OPENCODE_ZEN_API_KEY", "OPENCODE_ZEN_API_KEY_2",
+        "OPENROUTER_API_KEY", "GOOGLE_AI_API_KEY")
 
 def load_factory_env(required=()):
     env_path = pathlib.Path(__file__).resolve().parent / ".env"
