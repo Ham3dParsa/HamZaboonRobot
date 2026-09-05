@@ -44,6 +44,27 @@ def set_setting_via_conn(conn: sqlite3.Connection, key: str, value: str) -> None
     )
 
 
+def increment_setting_via_conn(conn: sqlite3.Connection, key: str) -> int:
+    """Atomically increment an integer setting via caller's conn (R8).
+
+    Single-statement UPSERT so concurrent transactions cannot lose updates
+    (unlike SELECT-then-UPDATE). Non-integer/missing values count as 0.
+    Returns the new value.
+    """
+    conn.execute(
+        "INSERT INTO settings(key, value) VALUES (?, '1') "
+        "ON CONFLICT(key) DO UPDATE SET value=CAST(COALESCE(CAST(value AS INTEGER), 0) + 1 AS TEXT)",
+        (key,),
+    )
+    row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    # UPSERT above always writes a parseable integer, so the fallbacks below
+    # are future-proofing against schema breakage, not reachable today.
+    try:
+        return int(row["value"]) if row and row["value"] not in (None, "") else 1
+    except (ValueError, TypeError):
+        return 1
+
+
 def get_bool_setting(key: str, default: bool = False) -> bool:
     return get_setting(key, "true" if default else "false").strip().lower() in {
         "1",

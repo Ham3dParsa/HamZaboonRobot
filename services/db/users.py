@@ -330,11 +330,11 @@ def reserve_word_query(user_id: int, daily_limit: int, bypass_limits: bool = Fal
 
 
 def release_word_query(user_id: int):
-    today = _today().isoformat()
     with transaction() as conn:
+        today = _today().isoformat()
         conn.execute(
             "UPDATE users SET words_asked_today=MAX(words_asked_today - 1, 0) "
-            "WHERE user_id=? AND words_asked_date=?",
+            "WHERE user_id=? AND words_asked_date=? AND words_asked_today>0",
             (user_id, today),
         )
 
@@ -375,12 +375,12 @@ def reserve_grammar_tip(user_id: int, daily_limit: int, bypass_limits: bool = Fa
 
 
 def release_grammar_tip(user_id: int):
-    today = _today().isoformat()
     with transaction() as conn:
+        today = _today().isoformat()
         conn.execute(
             "UPDATE users SET grammar_tips_asked_today="
             "MAX(grammar_tips_asked_today - 1, 0) "
-            "WHERE user_id=? AND grammar_tips_asked_date=?",
+            "WHERE user_id=? AND grammar_tips_asked_date=? AND grammar_tips_asked_today>0",
             (user_id, today),
         )
 

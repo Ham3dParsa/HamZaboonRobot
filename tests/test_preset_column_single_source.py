@@ -97,4 +97,6 @@ def test_preset_registry_settings_via_conn():
             "reset_consecutive_failures",
         ):
             func_src = ast.get_source_segment(src, node)
-            assert "set_setting_via_conn" in func_src, f"{node.name} must use set_setting_via_conn"
+            assert ("set_setting_via_conn" in func_src) or (
+                "increment_setting_via_conn" in func_src
+            ), f"{node.name} must use set_setting_via_conn"

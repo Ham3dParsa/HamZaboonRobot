@@ -361,10 +361,16 @@ class PerUserLockQueryTest(unittest.TestCase):
 
         def fake_call_ai(*args, **kwargs):
             ai_calls.append(1)
-            return self.card
+            # Return distinct word per query so word-dedup does not collapse 6 distinct queries into 1
+            # bot passes user_prompt as the query text; make word unique per query
+            user_prompt = kwargs.get("user_prompt", "")
+            card = dict(self.card)
+            if isinstance(user_prompt, str) and user_prompt:
+                card["word"] = user_prompt
+            return card
 
         def fake_prepare(data, **kw):
-            return self.card
+            return data
 
         words = ["hello", "world", "apple", "banana", "cherry", "grape"]
         for i, w in enumerate(words):

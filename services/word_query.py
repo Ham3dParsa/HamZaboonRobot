@@ -251,7 +251,7 @@ async def ask(
 
     # Word-based cache (post-AI): if same normalized English word already cached
     # for this user+lang, treat as duplicate, create alias for future exact-text
-    # hits, and return duplicate. Quota is NOT refunded — AI was spent.
+    # hits, and return duplicate. Quota IS refunded — AI was wasted but duplicate is free.
     if not skip_duplicate:
         dup_word_row = await asyncio.to_thread(
             db.find_unexpired_query_by_word, user_id, str(data.get("word", "")), lang
@@ -266,6 +266,7 @@ async def ask(
                 if not isinstance(alias_data, dict) or not alias_data.get("word"):
                     dup_word_row = None
         if dup_word_row is not None:
+            await asyncio.to_thread(db.release_word_query, user_id)
             # Alias: store new query_text -> same card so next exact hit is pre-AI.
             # exclude_token keeps source alive if cap would evict it.
             try:

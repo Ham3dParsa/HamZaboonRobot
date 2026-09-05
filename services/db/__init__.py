@@ -315,16 +315,35 @@ def find_unexpired_query(user_id: int, query_text: str, lang: str):
     lookup normalizes the incoming text the same way and matches exactly. Runs
     before quota/AI, so the caller can offer retrieve-vs-new for a word the user
     already asked.
+    Indexed lookup first; fallback scan handles legacy rows stored before
+    normalization (pre-#501).
     """
     normalized = _normalize_query_text(query_text)
     now = _utc_now().isoformat()
     with get_conn() as conn:
-        return conn.execute(
+        row = conn.execute(
             "SELECT * FROM query_results "
             "WHERE user_id=? AND lang=? AND query_text=? AND expires_at>? "
             "ORDER BY created_at DESC LIMIT 1",
             (user_id, lang, normalized, now),
         ).fetchone()
+        if row is not None:
+            return row
+        # Fallback for legacy rows stored before normalization (pre-#501).
+        rows = conn.execute(
+            "SELECT * FROM query_results "
+            "WHERE user_id=? AND lang=? AND expires_at>? "
+            "ORDER BY created_at DESC",
+            (user_id, lang, now),
+        ).fetchall()
+    for r in rows:
+        if _normalize_query_text(r["query_text"] or "") == normalized:
+            try:
+                json.loads(r["result_json"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            return r
+    return None
 
 
 def find_unexpired_query_by_word(user_id: int, word: str, lang: str):
@@ -347,12 +366,7 @@ def find_unexpired_query_by_word(user_id: int, word: str, lang: str):
             (user_id, lang, normalized, now),
         ).fetchone()
         if row is not None:
-            try:
-                json.loads(row["result_json"])
-            except (TypeError, json.JSONDecodeError):
-                row = None
-            else:
-                return row
+            return row
         # Fallback for legacy rows stored before normalization (pre-#501).
         rows = conn.execute(
             "SELECT * FROM query_results "
@@ -418,7 +432,7 @@ def cleanup_expired_query_results(*, deadline: float | None = None):
     call-site and ignored (nothing to interrupt)."""
     with transaction() as conn:
         conn.execute(
-            "DELETE FROM query_results WHERE expires_at<?",
+            "DELETE FROM query_results WHERE expires_at<=?",
             (_utc_now().isoformat(),),
         )
 

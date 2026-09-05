@@ -83,6 +83,8 @@ class WordQueryAskTest(unittest.TestCase):
     def test_quota_exhausted_when_reserve_returns_false(self):
         with patch("services.word_query.db") as db:
             db.get_user.return_value = self._complete_user()
+            db.find_unexpired_query.return_value = None
+            db.find_unexpired_query_by_word.return_value = None
             db.reserve_word_query.return_value = None
             db.release_word_query = MagicMock()
             generate = AsyncMock(return_value={})
@@ -99,9 +101,11 @@ class WordQueryAskTest(unittest.TestCase):
         with patch("services.word_query.db") as db, patch(
             "services.word_query.validate_word_query", return_value=None
         ):
+            db.get_user.return_value = self._complete_user()
+            db.find_unexpired_query.return_value = None
+            db.find_unexpired_query_by_word.return_value = None
             db.reserve_word_query.return_value = True
             db.create_query_result.return_value = "tok123"
-            db.get_user.return_value = self._complete_user()
             import asyncio
 
             result = asyncio.run(
@@ -122,14 +126,16 @@ class WordQueryAskTest(unittest.TestCase):
         with patch("services.word_query.db") as db, patch(
             "services.word_query.validate_word_query", return_value=None
         ):
-            db.reserve_word_query.return_value = True
-            db.create_query_result.return_value = "tok123"
             from config import _app_today
             before = self._complete_user()  # words_asked_today = 3
             after = self._complete_user()
             after["words_asked_today"] = 4  # reserve incremented it
             after["words_asked_date"] = _app_today()  # today, so the count is used
             db.get_user.side_effect = [before, after]
+            db.find_unexpired_query.return_value = None
+            db.find_unexpired_query_by_word.return_value = None
+            db.reserve_word_query.return_value = True
+            db.create_query_result.return_value = "tok123"
             import asyncio
 
             result = asyncio.run(
@@ -143,6 +149,8 @@ class WordQueryAskTest(unittest.TestCase):
             "services.word_query.validate_word_query", return_value=None
         ):
             db.get_user.return_value = self._complete_user()
+            db.find_unexpired_query.return_value = None
+            db.find_unexpired_query_by_word.return_value = None
             db.reserve_word_query.return_value = True
 
             async def empty(**kwargs):
@@ -163,6 +171,8 @@ class WordQueryAskTest(unittest.TestCase):
             "services.word_query.validate_word_query", return_value=None
         ):
             db.get_user.return_value = self._complete_user()
+            db.find_unexpired_query.return_value = None
+            db.find_unexpired_query_by_word.return_value = None
             db.reserve_word_query.return_value = True
             db.create_query_result.side_effect = RuntimeError("database is locked")
             import asyncio
@@ -183,6 +193,8 @@ class WordQueryAskTest(unittest.TestCase):
             "services.word_query.validate_word_query", return_value=None
         ):
             db.get_user.return_value = self._complete_user()
+            db.find_unexpired_query.return_value = None
+            db.find_unexpired_query_by_word.return_value = None
             db.reserve_word_query.return_value = True
 
             result = asyncio.run(
@@ -202,6 +214,8 @@ class WordQueryAskTest(unittest.TestCase):
             "services.word_query.validate_word_query", return_value=None
         ):
             db.get_user.return_value = self._complete_user()
+            db.find_unexpired_query.return_value = None
+            db.find_unexpired_query_by_word.return_value = None
             db.reserve_word_query.return_value = True
             import asyncio
 
@@ -220,6 +234,8 @@ class WordQueryAskTest(unittest.TestCase):
             "services.word_query.validate_word_query", return_value=None
         ):
             db.get_user.return_value = self._complete_user()
+            db.find_unexpired_query.return_value = None
+            db.find_unexpired_query_by_word.return_value = None
             db.reserve_word_query.return_value = True
             import asyncio
 
