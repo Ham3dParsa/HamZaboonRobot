@@ -28,7 +28,48 @@ NEW_CARD_BADGE = "کارت جدید ✨"
 SRS_INSTRUCT_STANDARD = (
     "🧠 از حافظه‌ات استفاده کن تا معنا، مترادف‌ها و متضادهای این واژه را یادآوری کنی."
 )
+SRS_INSTRUCT_STANDARD_PHRASE = (
+    "🧠 از حافظه‌ات استفاده کن تا معنا، مترادف‌ها و متضادهای این واژه/عبارت را یادآوری کنی."
+)
 SRS_INSTRUCT_FILL_BLANK = "🧠 واژه جا افتاده در این جمله را به یاد بیاور:"
+SRS_INSTRUCT_FILL_BLANK_PHRASE = "🧠 واژه/عبارت جا افتاده در این جمله را به یاد بیاور:"
+
+# Phrase-aware lexical types (factory-driven, #550). Word count is derived
+# in-engine via len(word.split()), never stored (F1).
+LEXICAL_TYPE_WORD = "word"
+LEXICAL_TYPES = ("word", "idiom", "phrasal_verb", "slang", "compound")
+PHRASE_LEXICAL_TYPES = frozenset({"idiom", "phrasal_verb", "slang", "compound"})
+
+
+def _lexical_type(card_data: dict) -> str | None:
+    """Factory-driven lexical type, or None for legacy cards (F1)."""
+    val = card_data.get("lexical_type") if isinstance(card_data, dict) else None
+    if isinstance(val, str):
+        v = val.strip().lower()
+        if v in LEXICAL_TYPES:
+            return v
+    return None
+
+
+def _is_phrase_card(card_data: dict) -> bool:
+    """True when factory marks the card as a phrase (engine never infers from spaces)."""
+    return _lexical_type(card_data) in PHRASE_LEXICAL_TYPES
+
+
+def _word_count(card_data: dict) -> int:
+    """Derived word count (F1) — len(word.split()), never stored."""
+    w = card_data.get("word") if isinstance(card_data, dict) else None
+    if not isinstance(w, str) or not w.strip():
+        return 1
+    return len(w.strip().split())
+
+
+def _srs_hidden_header(card_data: dict) -> str:
+    """Phrase-aware hidden header (F1): '? ? ?' + word-count cue for phrases."""
+    if _is_phrase_card(card_data):
+        cnt = _word_count(card_data)
+        return f"{SRS_HIDDEN_HEADER} ({to_persian_digits(cnt)} واژه‌ای)"
+    return SRS_HIDDEN_HEADER
 SRS_HINT_SYNONYM = "💡 راهنما: مترادف {item}"
 SRS_HINT_ANTONYM = "💡 راهنما: متضاد {item}"
 SRS_HINT_MEANING = "💡 راهنما: به معنای «{meaning}»"
@@ -307,17 +348,20 @@ def _join_guillemets(items: list[str]) -> str:
     return "«" + "» و «".join(str(item) for item in items) + "»"
 
 
-def _synonym_instruct(syn_items: list[str], ant_items: list[str]) -> str:
+def _synonym_instruct(
+    syn_items: list[str], ant_items: list[str], *, is_phrase: bool = False
+) -> str:
     """Prompt sentence built from the drawn set (R2: only-synonyms /
-    only-antonyms / both sentence styles)."""
+    only-antonyms / both sentence styles). Phrase-aware (F2) uses واژه/عبارت."""
+    subject = "چه واژه/عبارتی" if is_phrase else "چه واژه‌ای"
     if syn_items and ant_items:
         return (
-            f"🧠 چه واژه‌ای مترادف‌های {_join_guillemets(syn_items)} "
+            f"🧠 {subject} مترادف‌های {_join_guillemets(syn_items)} "
             f"و متضادهای {_join_guillemets(ant_items)} دارد؟"
         )
     if syn_items:
-        return f"🧠 چه واژه‌ای مترادف‌های {_join_guillemets(syn_items)} دارد؟"
-    return f"🧠 چه واژه‌ای متضادهای {_join_guillemets(ant_items)} دارد؟"
+        return f"🧠 {subject} مترادف‌های {_join_guillemets(syn_items)} دارد؟"
+    return f"🧠 {subject} متضادهای {_join_guillemets(ant_items)} دارد؟"
 
 
 def _draw_synonym_items(
@@ -392,13 +436,14 @@ def format_srs_front_stage(
     footer on every stage; badges per R5)."""
     rng = rng or random
     lines: list[str] = []
+    is_phrase = _is_phrase_card(card_data)
     if prompt_type == "standard":
         word = escape_mdv2(card_data.get("word", ""))
         lines.append(f"*{word}*")
         if phonetic_lines:
             lines.extend(phonetic_lines)
     elif prompt_type in ("fill_blank", "meaning", "synonym", "direct_translate"):
-        lines.append(SRS_HIDDEN_HEADER)
+        lines.append(escape_mdv2(_srs_hidden_header(card_data)))
     else:
         raise ValueError(f"Unknown SRS prompt type: {prompt_type}")
 
@@ -406,9 +451,11 @@ def format_srs_front_stage(
         lines.append(f"\n{escape_mdv2(badge)}")
 
     if prompt_type == "standard":
-        lines.append(f"\n{escape_mdv2(SRS_INSTRUCT_STANDARD)}")
+        instruct = SRS_INSTRUCT_STANDARD_PHRASE if is_phrase else SRS_INSTRUCT_STANDARD
+        lines.append(f"\n{escape_mdv2(instruct)}")
     elif prompt_type == "fill_blank":
-        lines.append(f"\n{escape_mdv2(SRS_INSTRUCT_FILL_BLANK)}")
+        instruct = SRS_INSTRUCT_FILL_BLANK_PHRASE if is_phrase else SRS_INSTRUCT_FILL_BLANK
+        lines.append(f"\n{escape_mdv2(instruct)}")
         matching = [
             example
             for example in (card_data.get("examples") or [])
@@ -425,7 +472,8 @@ def format_srs_front_stage(
                 lines.append(f"\n{escape_mdv2(blanked)}")
     elif prompt_type == "meaning":
         meaning = card_data.get("fa_meaning", "")
-        lines.append(f"\n{escape_mdv2(f'🧠 چه واژه‌ای به معنای «{meaning}» است؟')}")
+        subject = "چه واژه/عبارتی" if is_phrase else "چه واژه‌ای"
+        lines.append(f"\n{escape_mdv2(f'🧠 {subject} به معنای «{meaning}» است؟')}")
         if toggles.get("explanation") and card_data.get("fa_explanation"):
             hint = _blank_word(
                 str(card_data.get("fa_explanation")), card_data.get("word", "")
@@ -434,7 +482,9 @@ def format_srs_front_stage(
                 lines.append(f"\n{escape_mdv2('راهنما: ' + hint)}")
     elif prompt_type == "synonym":
         syn_items, ant_items = _draw_synonym_items(card_data, toggles, rng)
-        lines.append(f"\n{escape_mdv2(_synonym_instruct(syn_items, ant_items))}")
+        lines.append(
+            f"\n{escape_mdv2(_synonym_instruct(syn_items, ant_items, is_phrase=is_phrase))}"
+        )
     elif prompt_type == "direct_translate":
         lang_label = language_label(lang)
         meaning = card_data.get("fa_meaning", "")
