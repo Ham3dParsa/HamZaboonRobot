@@ -67,10 +67,17 @@ def _retry_sleep(attempt: int) -> float:
     return min(_retry_backoff_base() * (2**attempt), _RETRY_BACKOFF_SLEEP_MAX)
 
 
-async def _execute_telegram_action_with_retry(action_fn, *args, **kwargs):
+async def _execute_telegram_action_with_retry(action_fn, *args, is_idempotent: bool = False, **kwargs):
     """
-    اجرای یک متد تلگرام (ارسال یا ویرایش پیام) با استفاده از Jittered Exponential Backoff
-    و رعایت سربرگ RetryAfter. — Issue #579.
+    اجرای یک متد تلگرام ایدم‌پوتنت (ویرایش/حذف پیام) با Jittered Exponential Backoff
+    و رعایت سربرگ RetryAfter. — Issue #579, R2 split policy.
+
+    فقط مسیرهای ایدم‌پوتنت (edit/delete) مجاز به ریتری TimedOut/NetworkError
+    هستند. ارسال‌ها غیرایدم‌پوتنت‌اند و هرگز نباید از این تابع عبور کنند —
+    درگاه ارسال مالکانه services/send_pretty._send_media_with_retry است.
+    is_idempotent=False (پیش‌فرض): خطای TimedOut/NetworkError بلافاصله
+    بازپرتاب می‌شود (بدون ریتری/خواب) — نگهبان مسیرهای غیرایدم‌پوتنت آینده.
+    is_idempotent=True: ریتری بک‌آف موجود حفظ می‌شود.
     """
     # Lazy slot — owned by services/send_pretty.py (phase-03 R2), avoid cycle.
     try:
@@ -116,6 +123,8 @@ async def _execute_telegram_action_with_retry(action_fn, *args, **kwargs):
             await asyncio.sleep(delay)
 
         except (TimedOut, NetworkError) as e:
+            if not is_idempotent:
+                raise
             logger.warning(
                 "Telegram network error (%s) on attempt %d/%d.",
                 e.__class__.__name__,
@@ -294,22 +303,25 @@ async def _send_with_retry(
     reset_telegram_cb: bool = True,
     **kwargs,
 ):
-    """جایگزین درگاه خط ۳۴۲: فراخوانی با ریتری هوشمند برای ارسال پیام — Issue #579."""
+    """جایگزین درگاه خط ۳۴۲: ارسال پیام — Issue #579, R2 delegation.
 
-    async def _act():
-        # Forbidden is handled inside _execute... as non-retryable, but we also
-        # need to mark the user as blocked on Forbidden (existing behavior).
-        try:
-            return await bot.send_message(chat_id=chat_id, text=text, **kwargs)
-        except Forbidden:
-            if chat_id > 0:
-                try:
-                    db.set_user_blocked(chat_id)
-                except Exception:
-                    pass
-            raise
+    Thin wrapper روی درگاه مالکانه services/send_pretty._send_media_with_retry
+    (تک‌درگاه ارسال: allowlist، byte-recapture، reset_telegram_cb gating).
+    ارسال‌ها غیرایدم‌پوتنت‌اند: ریتری فقط RetryAfter (مالکانه) — هرگز
+    TimedOut/NetworkError. Forbidden→blocked در درگاه مالک انجام می‌شود.
+    """
+    # Lazy: send_pretty از این ماژول ایمپورت سطح بالا دارد — ایمپورت سطح بالا چرخه می‌سازد.
+    from services.send_pretty import _send_media_with_retry
 
-    return await _execute_telegram_action_with_retry(_act)
+    return await _send_media_with_retry(
+        bot,
+        chat_id,
+        method="send_message",
+        media_kw=None,
+        media=text,
+        reset_telegram_cb=reset_telegram_cb,
+        **kwargs,
+    )
 
 
 async def _edit_with_retry(query, text, **kwargs):
@@ -353,7 +365,7 @@ async def _edit_message_with_retry(
                     pass
             raise
 
-    return await _execute_telegram_action_with_retry(_act)
+    return await _execute_telegram_action_with_retry(_act, is_idempotent=True)
 
 
 async def _edit_markup_with_retry(
