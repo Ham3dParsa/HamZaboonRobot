@@ -510,7 +510,8 @@ def test_gapfill_flags_and_similarity_note():
                                   "something else") <= 1.0
 
     item = {"kind": "word", "text": "resilient", "pool_level": "B2",
-            "en_def": "able to recover quickly", "sense_id": "resilient#1"}
+            "en_def": "tough resilience after hard times",
+            "sense_id": "resilient#1"}
 
     def transport(api_key, model, system, user):
         return json.dumps(dict(COMPACT_CARD))
@@ -664,7 +665,8 @@ def test_frozen_dataset_examples_preserved_end_to_end():
     frozen_fa = ["او پس از زمستان سخت تاب‌آوری چشمگیری نشان داد امروز.",
                  "این مثال تاب‌آوری عادت‌های روزمره او را نشان می‌دهد امروز."]
     item = {"kind": "word", "text": "resilient", "pool_level": "B2",
-            "en_def": "able to recover quickly", "sense_id": "resilient#1",
+            "en_def": "remarkable resilience after hard times",
+            "sense_id": "resilient#1",
             "ipa_src": "model", "dataset_examples": list(frozen)}
     _, user, _ = build_prompts(item)
     assert "FROZEN" in user
@@ -833,35 +835,39 @@ def four_sense_entries():
 
 def test_top_sense_candidates_ranked():
     # R17: ranked top-3 [{sense_id, gloss, score}] from the same scorer.
-    # R37 v9: the freq leg orders the clean pair (wordfreq live data) —
-    # the penalized slang sense still ranks last. (Exact scores depend
-    # on the installed wordfreq data, so only order is asserted; the
-    # deterministic freq-order proof lives in test_freq_leg_*.)
+    # R38 v10: file-index decay pre-score orders the window — the clean
+    # idx1 sense (0.707) beats the penalized idx0 alt stub (0.50) and the
+    # idx3 clean tie (0.50); the penalized slang sense ranks last.
+    # Hermetic: zipf_fn=None-signal forces the freq tie-breaker neutral
+    # so the idx0/idx3 tie falls back to file order (deterministic).
     def read_entry(row):
         return row["entry"]
 
+    nofreq = lambda w: None
     cands = top_sense_candidates("Bank", four_sense_entries(), "noun",
-                                 read_entry)
+                                 read_entry, zipf_fn=nofreq)
     assert [c["sense_id"] for c in cands] == [
-        "bank#3", "bank#1", "bank#2"]
-    assert cands[-1]["gloss"] == "third gloss here"  # slang last
+        "bank#1", "bank#0", "bank#3"]
+    assert cands[-1]["gloss"] == "fourth gloss here"
     assert top_sense_candidates("Bank", [], "noun", read_entry) == []
 
     item = {"kind": "word", "text": "Bank", "pos": "noun"}
-    anchor_item_en(item, {"bank": four_sense_entries()}, read_entry)
-    assert item["sense_id"] == "bank#3"  # anchor unchanged (top scorer)
+    anchor_item_en(item, {"bank": four_sense_entries()}, read_entry,
+                   zipf_fn=nofreq)
+    assert item["sense_id"] == "bank#1"  # anchor unchanged (top scorer)
     assert item["sense_candidates"] == cands  # audit trail rides along
     assert item["also_sense"] == {
-        "sense_id": "bank#1", "gloss": "clean second gloss",
+        "sense_id": "bank#0", "gloss": "Alternative spelling of xyz",
         "topic": None, "topic_method": card_pilot.ALSO_TOPIC_UNASSIGNED}
 
     # Cheap vector leg fills the also-sense topic; no LLM involved.
     item2 = {"kind": "word", "text": "Bank", "pos": "noun"}
     anchor_item_en(item2, {"bank": four_sense_entries()}, read_entry,
-                   vector_lookup={"bank#1": [{"label": "Finance",
+                   zipf_fn=nofreq,
+                   vector_lookup={"bank#0": [{"label": "Finance",
                                               "weight": 1.0}]})
     assert item2["also_sense"] == {
-        "sense_id": "bank#1", "gloss": "clean second gloss",
+        "sense_id": "bank#0", "gloss": "Alternative spelling of xyz",
         "topic": "Finance", "topic_method": "v16b-exact"}
 
     # R18: single sense -> None, card unchanged.
@@ -1174,7 +1180,8 @@ NEW_FA = "درختان اینجا هر روز تاب‌آوری چشمگیری �
 def _delta_item(n_frozen=1):
     frozen = [FROZEN_EX, FROZEN_EX2][:n_frozen]
     return {"kind": "word", "text": "resilient", "pool_level": "B2",
-            "en_def": "able to recover quickly", "sense_id": "resilient#1",
+            "en_def": "tough resilience after hard times",
+            "sense_id": "resilient#1",
             "ipa": "/rɪˈzɪl.jənt/", "ipa_src": card_pilot.IPA_SRC_DATASET,
             "dataset_examples": list(frozen)}
 
@@ -1490,7 +1497,8 @@ def test_review_dataset_examples_mocked():
 def test_content_flag_releases_example_and_grows_need():
     frozen = [FROZEN_EX, FROZEN_EX2]
     item = {"kind": "word", "text": "resilient", "pool_level": "B2",
-            "en_def": "able to recover quickly", "sense_id": "resilient#1",
+            "en_def": "remarkable resilience after hard times",
+            "sense_id": "resilient#1",
             "ipa_src": "model",
             "dataset_examples": list(frozen),
             "content_flags": {FROZEN_EX2: "content-flag: creepy"}}

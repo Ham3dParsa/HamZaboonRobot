@@ -415,9 +415,18 @@ def s1_rank_item(item, index, read_entry):
              "anchor_pos": entry POS of the anchored sense ("" if none)}.
     V7: anchor_pos feeds the S1 anchor-proper-noun drop in main (the ONE
     place anchors are dropped — card_pilot anchor helpers never drop).
+    R39 v10: candidates are the tiered judge window (up to
+    JUDGE_WINDOW_CAP, bucketed by pool_level with POS coverage) so S2
+    sees the same window the pilot shortlist displays; top/en_def stay
+    the S1 anchor top (window rank 1).
     """
     probe = dict(item)
-    card_pilot.anchor_item_en(probe, index, read_entry)
+    # R39 v10: judge-width window (up to JUDGE_WINDOW_CAP) built in the
+    # single anchor_item_en scorer pass via candidate_k — same read
+    # count as the legacy top-3 path, same xref resolution.
+    card_pilot.anchor_item_en(
+        probe, index, read_entry,
+        candidate_k=card_pilot.JUDGE_WINDOW_CAP)
     cands = [c for c in (probe.get("sense_candidates") or [])
              if isinstance(c, dict) and c.get("sense_id")]
     top = {"sense_id": cands[0]["sense_id"], "gloss": cands[0].get("gloss", "")} \

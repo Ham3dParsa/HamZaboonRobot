@@ -324,17 +324,17 @@ def _v14_ppos(entry_pos, pool_pos):
 # sense_words / freq_per_sense (owner lines ~90-95). Vendored (minimal
 # faithful copy) because importing run_v14_phase1 pulls numpy/torch/
 # sentence-transformers/sklearn + embedding models (side effects,
-# non-hermetic). Combination semantics mirror the owner ranking: freq is
-# an ADDITIVE leg inside the weighted sum (owner W["w_freq"]=0.30, other
-# legs 0.70 — see factory/packs/en/pack.json), and the register/POS
-# penalties stay MULTIPLICATIVE outside (owner: p_raw.sum * preg * ppos).
-# The pilot has no cefr/wn/cent/topic/tatoeba legs, so the missing-leg
-# mass rides at the owner norm neutral (0.5): base 0.70*0.5=0.35, plus
-# 0.30*freq_norm, times preg*ppos. Freq ties (incl. wordfreq missing)
-# yield freq_norm 0.5 for all senses, preserving the old order exactly
-# up to a constant factor.
+# non-hermetic).
+# R38 v10: freq is NO LONGER an additive pre-score leg. The pre-score is
+# the file-index decay Score_pre = (1/sqrt(file_index+1)) * preg * ppos;
+# freq_per_sense survives ONLY as the final tie-breaker when two
+# pre-scores differ by less than FREQ_TIE_EPS (0.05). _FREQ_W /
+# _FREQ_OTHER_NEUTRAL are retired constants kept for import
+# compatibility (unused by the scorer).
 _FREQ_W = 0.30
 _FREQ_OTHER_NEUTRAL = 0.35
+# R38 v10 — tie-breaker epsilon: pre-score diffs below this defer to freq.
+FREQ_TIE_EPS = 0.05
 
 
 def _v14_sense_words(gloss, synonyms, lemma):
@@ -458,16 +458,27 @@ def _collect_kaikki_senses(entries, read_entry):
     return out
 
 
+def _decay_prescore(file_index, preg, ppos):
+    """R38 v10 pre-score: (1/sqrt(file_index+1)) * preg * ppos."""
+    import math as _math
+    return (1.0 / _math.sqrt(float(file_index) + 1.0)) * preg * ppos
+
+
 def score_senses(text, entries, pool_pos, read_entry, zipf_fn=None):
     """Score every kaikki sense: [(score, file-idx, entry, sense, gloss)].
 
-    Vendored v14 register_penalty * ppos, stable file order, best first.
-    R37 v9 adds the vendored v14 frequency leg (additive, owner
-    semantics — see _FREQ_W/_FREQ_OTHER_NEUTRAL). zipf_fn injects the
-    per-word zipf lookup (hermetic tests); None uses wordfreq live.
+    R38 v10: Score_pre = (1/sqrt(file_index+1)) * preg * ppos where
+    file_index is the stable file-order sense idx, preg is the vendored
+    v14 register_penalty (incl. the R34 bare-alt-form extension) and
+    ppos the vendored v14 POS factor (both kept as-is). The vendored
+    v14 freq_per_sense leg survives ONLY as the final tie-breaker: when
+    two pre-scores differ by less than FREQ_TIE_EPS (0.05) the higher
+    freq_norm wins; otherwise file-decay order wins. zipf_fn injects
+    the per-word zipf lookup (hermetic tests); None uses wordfreq live.
     Shared by the anchor pick and the R17/R18 audit helpers so the anchor,
     the top-3 candidates, and the second sense never diverge.
     """
+    import functools as _ft
     senses = _collect_kaikki_senses(entries, read_entry)
     lemma = (text or "").strip()
     fraw = [_v14_freq_per_sense(
@@ -483,27 +494,126 @@ def score_senses(text, entries, pool_pos, read_entry, zipf_fn=None):
     scored = []
     for idx, ((entry_pos, entry, sense, gloss), fn) in enumerate(
             zip(senses, fnorm)):
-        score = ((_FREQ_OTHER_NEUTRAL + _FREQ_W * fn)
-                 * _v14_register_penalty(sense.get("tags"), gloss)
-                 * _v14_ppos(entry_pos, pool_pos))
-        scored.append((score, idx, entry, sense, gloss))
-    scored.sort(key=lambda t: (-t[0], t[1]))
-    return scored
+        preg = _v14_register_penalty(
+            (sense or {}).get("tags"), gloss)
+        ppos = _v14_ppos(entry_pos, pool_pos)
+        score = _decay_prescore(idx, preg, ppos)
+        scored.append([score, idx, entry, sense, gloss, float(fn)])
+
+    def _cmp(a, b):
+        if abs(a[0] - b[0]) >= FREQ_TIE_EPS:
+            return -1 if a[0] > b[0] else 1
+        if abs(a[5] - b[5]) >= 1e-12:
+            return -1 if a[5] > b[5] else 1
+        if a[1] != b[1]:
+            return -1 if a[1] < b[1] else 1
+        return 0
+
+    scored.sort(key=_ft.cmp_to_key(_cmp))
+    return [(s, i, e, se, g) for s, i, e, se, g, _fn in scored]
+
+
+# R39 v10 — tiered bucketing for the candidate window feeding S2 (and the
+# pilot anchor shortlist display). Replaces any hard index cap: A1-A2 look
+# at file-index 0-5 first and go higher ONLY when no POS-matching sense
+# is found there; upper levels (B1-C2) look at 0-9 first. Per level, at
+# least one candidate per POS present in the window is enforced by
+# pulling the top-scored missing-POS sense from above the bucket.
+CANDIDATE_BUCKET_A1A2 = 6
+CANDIDATE_BUCKET_UPPER = 10
+JUDGE_WINDOW_CAP = 10
+
+
+def candidate_bucket_cap(pool_level):
+    """R39: file-index bucket size by pool level (6 for A1/A2, else 10)."""
+    return CANDIDATE_BUCKET_A1A2 \
+        if (pool_level or "").strip().upper() in ("A1", "A2") else \
+        CANDIDATE_BUCKET_UPPER
+
+
+def select_candidate_window(scored, pool_pos="", pool_level="A1", cap=10):
+    """R39: tiered candidate window over score_senses output (score order).
+
+    scored is the score_senses list [(score, file-idx, entry, sense,
+    gloss)] already in rank order. The window starts as the senses whose
+    file-idx falls inside the level bucket (0-5 for A1/A2, 0-9 above);
+    when pool_pos is given and NO window sense has an entry POS matching
+    it, the window expands to the full list (fallback-to-higher). Then
+    POS coverage is enforced: for every distinct entry POS in scored
+    missing from the window, the top-scored sense of that POS is pulled
+    in. The result preserves score order and is capped at cap entries.
+    """
+    scored = list(scored or [])
+    if not scored:
+        return []
+    try:
+        cap = max(1, int(cap))
+    except (TypeError, ValueError):
+        cap = 10
+    bucket = candidate_bucket_cap(pool_level)
+    by_idx = sorted(scored, key=lambda t: t[1])
+    window_ids = {t[1] for t in by_idx[:bucket]}
+    window = [t for t in scored if t[1] in window_ids]
+    if not window:
+        window = list(scored)
+    want = normalize_pos(pool_pos) if (pool_pos or "") else ""
+    if want:
+        def _pos_of(t):
+            try:
+                return normalize_pos((t[2] or {}).get("pos") or "")
+            except Exception:
+                return ""
+        if not any(_pos_of(t) == want for t in window):
+            window = list(scored)
+    # POS coverage: at least one candidate per POS present.
+    def _pos_of(t):
+        try:
+            return normalize_pos((t[2] or {}).get("pos") or "")
+        except Exception:
+            return ""
+    have = {_pos_of(t) for t in window if _pos_of(t)}
+    all_pos = [_pos_of(t) for t in scored if _pos_of(t)]
+    for pos in dict.fromkeys(all_pos):
+        if pos and pos not in have:
+            for cand in scored:
+                if _pos_of(cand) == pos:
+                    window.append(cand)
+                    have.add(pos)
+                    break
+    seen = set()
+    ordered = []
+    for t in window:
+        if t[1] not in seen:
+            seen.add(t[1])
+            ordered.append(t)
+    ordered.sort(key=lambda t: ([i for i, s in enumerate(scored)
+                                 if s[1] == t[1]] or [0])[0])
+    return ordered[:cap]
 
 
 def top_sense_candidates(text, entries, pool_pos, read_entry, k=3,
-                         zipf_fn=None):
-    """R17: top-k anchor candidates [{sense_id, gloss, score}] (ranked).
+                         zipf_fn=None, pool_level="A1", window_cap=None):
+    """R17 top-k anchor candidates [{sense_id, gloss, score}] (ranked).
 
+    R39 v10: candidates are drawn from the tiered bucket window
+    (select_candidate_window) before slicing the top-k, so the anchor,
+    the shortlist display, and the S2 judge window never diverge.
     sense_id is "<text.lower()>#<file-order-sense-idx>"; score rounded
     to 3 decimals. Empty entries -> [].
     """
     key = (text or "").strip().lower()
+    scored = score_senses(text, entries, pool_pos, read_entry,
+                          zipf_fn=zipf_fn)
+    cap = window_cap if window_cap is not None else max(
+        k, candidate_bucket_cap(pool_level))
+    try:
+        cap = max(int(k), int(cap))
+    except (TypeError, ValueError):
+        cap = max(3, int(k))
+    window = select_candidate_window(scored, pool_pos, pool_level, cap=cap)
     return [{"sense_id": "%s#%d" % (key, idx), "gloss": gloss,
              "score": round(score, 3)}
-            for score, idx, _, _, gloss
-            in score_senses(text, entries, pool_pos, read_entry,
-                            zipf_fn=zipf_fn)[:k]]
+            for score, idx, _, _, gloss in window[:k]]
 
 
 # R18: second-sense topic choice — audit-only field, so NO extra LLM calls.
@@ -898,12 +1008,14 @@ def resolve_phrase_en_def(index, phrase, read_entry):
 
 
 def anchor_item_en(item, index, read_entry, vector_lookup=None,
-                   zipf_fn=None):
+                   zipf_fn=None, candidate_k=3):
     """R6 anchor + R10 IPA + R17 candidates + R18 second sense.
 
     Fills sense_id/en_def + ipa/ipa_src (R6/R10, unchanged) and the audit
-    trail: sense_candidates (top-3 [{sense_id, gloss, score}]) from the
-    SAME entries the anchor was picked from, plus also_sense (second-best
+    trail: sense_candidates (top-candidate_k [{sense_id, gloss, score}],
+    3 by default for the pilot shortlist display, JUDGE_WINDOW_CAP for
+    the S2 judge window via candidate_k) from the SAME entries the
+    anchor was picked from, plus also_sense (second-best
     {sense_id, gloss, topic, topic_method}, None when single-sense).
     The also-sense topic uses the cheap vector_lookup leg only (R18
     choice: no LLM for an audit-only field).
@@ -982,11 +1094,47 @@ def anchor_item_en(item, index, read_entry, vector_lookup=None,
                                read_entry)
     item["pos"] = pos_tags
     item["pos_src"] = "dataset" if pos_tags else "none"
-    candidates = top_sense_candidates(cand_text, cand_entries, cand_pos,
-                                      read_entry, zipf_fn=zipf_fn)
+    # R39 v10: the shortlist display rides the same tiered bucket window
+    # as the S2 judge window (pool_level carried for the bucket size;
+    # candidate_k selects display width 3 vs judge width JUDGE_WINDOW_CAP
+    # in a SINGLE scorer pass — no extra read_entry sweep).
+    _lvl = item.get("pool_level") or "A1"
+    if isinstance(_lvl, list):
+        _lvl = _lvl[0] if _lvl else "A1"
+    try:
+        _k = max(1, int(candidate_k or 3))
+    except (TypeError, ValueError):
+        _k = 3
+    candidates = top_sense_candidates(
+        cand_text, cand_entries, cand_pos, read_entry, k=_k,
+        zipf_fn=zipf_fn, pool_level=str(_lvl or "A1"),
+        window_cap=max(_k, JUDGE_WINDOW_CAP if _k > 3 else
+                       candidate_bucket_cap(str(_lvl or "A1"))))
     item["sense_candidates"] = candidates
     item["also_sense"] = build_also_sense(candidates, vector_lookup)
     return item
+
+
+def sense_report(items, index, read_entry, k=3, zipf_fn=None):
+    """R38-R39 v10 human-run report helper (no network, no files).
+
+    items: [{text, pos, pool_level}...]. Returns [{text, top:
+    [{sense_id, gloss, score}]...}] using the live scorer + tiered
+    window. The owner runs this against the real kaikki index to write
+    W:/hamzaban_data_factory/reports/v10-sense-check.md; unit tests
+    assert the synthetic kiss/bank/note orderings through this helper.
+    """
+    out = []
+    for item in items or []:
+        text = (item.get("text") or "").strip()
+        entries = (index or {}).get(text.lower(), [])
+        cands = top_sense_candidates(
+            text, entries, item.get("pos", ""), read_entry, k=k,
+            zipf_fn=zipf_fn,
+            pool_level=str(item.get("pool_level") or "A1"),
+            window_cap=max(k, JUDGE_WINDOW_CAP))
+        out.append({"text": text, "top": cands})
+    return out
 
 
 def meta_leak_scan(card):
@@ -1048,6 +1196,89 @@ def is_fa_dominant(fa_meaning, fa_explanation, grammar_tip=""):
     if (grammar_tip or "").strip() and not fa_field_ok(grammar_tip):
         return False
     return True
+
+
+# R41 v10 — hard validation gate: fa-alpha. fa_meaning /
+# fa_explanation / example_translations may contain ONLY Persian/Arabic
+# script letters, digits, punctuation, and explicitly-allowed inline
+# Latin TERMS (empty by default). Any other Latin run fails — including
+# Latin words with diacritics (fuerte/nino with n~/e'/u" always fail
+# because the base letters are Latin). Grammar_tip is NOT covered
+# (R7 fa-dominant owns it). REJECT (not regen) after existing gates.
+_LATIN_RUN_RX = re.compile(
+    r"[A-Za-z\u00C0-\u024F\u1E00-\u1EFF]+")
+
+
+def fa_alpha_check(card, allowed_terms=None):
+    """R41: True iff the FA fields carry no unlisted Latin runs.
+
+    Checks fa_meaning, fa_explanation, and every example_translation.
+    allowed_terms is an optional iterable of explicitly-allowed inline
+    Latin terms (matched case-insensitively, whole-run); empty/None
+    means any Latin run fails.
+    """
+    allowed = {str(t or "").strip().lower()
+               for t in (allowed_terms or []) if str(t or "").strip()}
+    fields = [(card or {}).get("fa_meaning") or "",
+              (card or {}).get("fa_explanation") or ""]
+    fields += list((card or {}).get("example_translations") or [])
+    for field in fields:
+        if not isinstance(field, str):
+            continue
+        for run in _LATIN_RUN_RX.findall(field):
+            if run.lower() not in allowed:
+                return False
+    return True
+
+
+# R41 v10 — hard validation gate: sense coherence. Content-word overlap
+# (len>=4 alpha tokens, stopword-free with the minimal inline EN list
+# below) between the anchor gloss keywords and the card's (examples +
+# FA-field latin tokens + synonyms); zero overlap REJECTs the card
+# (valid=False, reason sense-incoherence, not a flag). REJECT (not
+# regen) after existing gates.
+_COHERENCE_STOPWORDS = frozenset({
+    "the", "a", "an", "of", "to", "in", "on", "for", "with", "and",
+    "or", "is", "are", "was", "were", "be", "been", "by", "from",
+    "as", "at", "that", "this", "it", "its",
+})
+_COHERENCE_TOKEN_RX = re.compile(r"[A-Za-z]+")
+
+
+def _coherence_tokens(text):
+    return {t for t in (
+        m.lower() for m in _COHERENCE_TOKEN_RX.findall(text or ""))
+        if len(t) >= 4 and t not in _COHERENCE_STOPWORDS}
+
+
+def sense_coherence_check(anchor_gloss, card):
+    """R41: True iff anchor keywords overlap the card's EN-bearing fields.
+
+    Anchor side: content tokens of anchor_gloss. Card side: content
+    tokens of examples + FA-field latin runs + synonyms. Empty anchor
+    keyword sets pass (nothing to be incoherent with — fail-open).
+    """
+    anchor_keys = _coherence_tokens(anchor_gloss or "")
+    if not anchor_keys:
+        return True
+    parts = []
+    for ex in (card or {}).get("examples") or []:
+        if isinstance(ex, str):
+            parts.append(ex)
+    for key in ("fa_meaning", "fa_explanation"):
+        val = (card or {}).get(key) or ""
+        if isinstance(val, str):
+            parts.append(" ".join(_LATIN_RUN_RX.findall(val)))
+    for tr in (card or {}).get("example_translations") or []:
+        if isinstance(tr, str):
+            parts.append(" ".join(_LATIN_RUN_RX.findall(tr)))
+    syns = (card or {}).get("synonyms") or []
+    for syn in syns:
+        parts.append(syn if isinstance(syn, str) else str(syn or ""))
+    card_keys = set()
+    for part in parts:
+        card_keys |= _coherence_tokens(part)
+    return bool(anchor_keys & card_keys)
 
 
 def headword_leak_tokens(text, kind):
@@ -1894,6 +2125,29 @@ def generate_card(item, api_key, transport=None, model_calls=None,
                     continue  # the single R2/R7 regeneration
                 if violation:
                     record["error"] = last_error = violation
+                    record["reason"] = last_error
+                    record["leaks"] = sorted(set(leaks))
+                    record["fa_dominant"] = bool(fa_ok)
+                    record["headword_leaks"] = hw_leaks
+                    record["completion_flags"] = flags
+                    record["similarity_note"] = sim
+                    record["examples_src"] = src
+                    record["long_example"] = longs
+                    record["abbrev_expansion"] = abbrev \
+                        if isinstance(abbrev, str) else ""
+                    return record
+                # R41 v10 hard gates: REJECT (never regen), after all
+                # existing gates. fa-alpha first, then sense coherence.
+                allowed_terms = item.get("allowed_terms") or []
+                hard_violation = ""
+                if not fa_alpha_check(card,
+                                      allowed_terms=allowed_terms):
+                    hard_violation = "fa-alpha"
+                elif not sense_coherence_check(
+                        item.get("en_def", ""), card):
+                    hard_violation = "sense-incoherence"
+                if hard_violation:
+                    record["error"] = last_error = hard_violation
                     record["reason"] = last_error
                     record["leaks"] = sorted(set(leaks))
                     record["fa_dominant"] = bool(fa_ok)
