@@ -71,8 +71,9 @@ def _retry_sleep(attempt: int) -> float:
 
 async def _execute_telegram_action_with_retry(action_fn, *args, is_idempotent: bool = False, reset_telegram_cb: bool = True, **kwargs):
     """
-    اجرای یک متد تلگرام ایدم‌پوتنت (ویرایش/حذف پیام) با Jittered Exponential Backoff
-    و رعایت سربرگ RetryAfter. — Issue #579, R2 split policy.
+    درزگاه سراسری اجرای متد تلگرام با Jittered Exponential Backoff و رعایت
+    سربرگ RetryAfter. — Issue #579, R2 split policy. ریتری با is_idempotent
+    گیت می‌شود (پیش‌فرض False: امن برای مسیر غیرایدم‌پوتنت).
 
     فقط مسیرهای ایدم‌پوتنت (edit/delete) مجاز به ریتری TimedOut/NetworkError
     هستند. ارسال‌ها غیرایدم‌پوتنت‌اند و هرگز نباید از این تابع عبور کنند —
