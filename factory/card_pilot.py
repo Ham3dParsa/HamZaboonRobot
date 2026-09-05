@@ -1260,14 +1260,20 @@ def _coherence_tokens(text):
         if len(t) >= 4 and t not in _COHERENCE_STOPWORDS}
 
 
-def sense_coherence_check(anchor_gloss, card):
+def sense_coherence_check(anchor_gloss, card, headword=""):
     """R41: True iff anchor keywords overlap the card's EN-bearing fields.
 
-    Anchor side: content tokens of anchor_gloss. Card side: content
-    tokens of examples + FA-field latin runs + synonyms. Empty anchor
-    keyword sets pass (nothing to be incoherent with — fail-open).
+    Anchor side: content tokens of anchor_gloss PLUS the headword itself
+    (a card about X must contain X-family words — without this, cards
+    whose gloss paraphrases the headword always fail).
+    Card side: content tokens of examples + FA-field latin runs +
+    synonyms. Empty anchor keyword sets pass (fail-open).
     """
     anchor_keys = _coherence_tokens(anchor_gloss or "")
+    head_tokens = {t for t in re.findall(r"[A-Za-z']+",
+                                         (headword or "").lower())
+                   if len(t) >= 3}
+    anchor_keys |= head_tokens
     if not anchor_keys:
         return True
     parts = []
@@ -1292,7 +1298,17 @@ def sense_coherence_check(anchor_gloss, card):
         # R42 v11: delegates to the shared _stem_match_5 helper (same
         # 5-char stem-containment semantics, factored out for reuse).
         return _stem_match_5(a, b)
-    return any(_stem_hit(a, b) for a in anchor_keys for b in card_keys)
+    if any(_stem_hit(a, b) for a in anchor_keys for b in card_keys):
+        return True
+    # Headword-family fallback (len>=3 either direction): the card is
+    # about the headword, so kiss/kissed, note/notes always cohere even
+    # when the gloss paraphrases without the stem (shared helper needs
+    # 5+ chars and would miss short headwords).
+    for ht in head_tokens:
+        for ck in card_keys:
+            if ht in ck or ck in ht:
+                return True
+    return False
 
 
 def _stem_match_5(a, b):
@@ -2400,7 +2416,8 @@ def generate_card(item, api_key, transport=None, model_calls=None,
                                       allowed_terms=allowed_terms):
                     hard_violation = "fa-alpha"
                 elif not sense_coherence_check(
-                        item.get("en_def", ""), card):
+                        item.get("en_def", ""), card,
+                        headword=item.get("text", "")):
                     hard_violation = "sense-incoherence"
                 if hard_violation:
                     record["error"] = last_error = hard_violation

@@ -1852,3 +1852,10 @@ def test_delta_kept_alias_canonicalized():
     full, report = merge_precard_delta({}, {}, kept, filled, improved, flag)
     assert report.get("kept_tamper") is True
     assert full.get("phonetic") != "/WRONG/"
+
+def test_coherence_includes_headword():
+    from card_pilot import sense_coherence_check
+    assert sense_coherence_check(
+        "To touch with the lips", {"examples": ["They kissed goodbye."],
+         "fa_meaning": "", "fa_explanation": "", "example_translations": [],
+         "synonyms": []}, headword="kiss") is True
