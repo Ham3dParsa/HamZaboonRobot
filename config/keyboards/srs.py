@@ -99,40 +99,40 @@ def get_review_keyboard(
 ) -> InlineKeyboardMarkup:
     """Returns 4-grade review keyboard (recall-based labels).
 
-    Layout (2×2 grid + pronounce row):
-    [ یادم نیامد ⭕ ] [ به سختی یادم اومد 🟡 ]
-    [ خوب بود 🟢 ] [ خیلی راحت بود 🟣 ]
-    [ 🔊 تلفظ ]
+    Layout (2×2 grid + delete/pronounce row):
+    [ به سختی یادم اومد 🟡 ] [ یادم نیامد ⭕ ]
+    [ خیلی راحت بود 🟣 ] [ خوب بود 🟢 ]
+    [ 🗑 حذف از مطالعه ] [ 🔊 تلفظ ]
     """
     rows = [
         [
             InlineKeyboardButton(
-                IBTN_SRS_AGAIN_REVIEW,
-                callback_data=f"srs:1:{user_id}:{word_id}",
-            ),
-            InlineKeyboardButton(
                 IBTN_SRS_HARD_REVIEW,
                 callback_data=f"srs:2:{user_id}:{word_id}",
             ),
+            InlineKeyboardButton(
+                IBTN_SRS_AGAIN_REVIEW,
+                callback_data=f"srs:1:{user_id}:{word_id}",
+            ),
         ],
         [
-            InlineKeyboardButton(
-                IBTN_SRS_GOOD_REVIEW,
-                callback_data=f"srs:3:{user_id}:{word_id}",
-            ),
             InlineKeyboardButton(
                 IBTN_SRS_EASY_REVIEW,
                 callback_data=f"srs:4:{user_id}:{word_id}",
             ),
+            InlineKeyboardButton(
+                IBTN_SRS_GOOD_REVIEW,
+                callback_data=f"srs:3:{user_id}:{word_id}",
+            ),
         ],
         [
             InlineKeyboardButton(
-                IBTN_PRONOUNCE,
-                callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
-            ),
-            InlineKeyboardButton(
                 IBTN_SRS_DELETE,
                 callback_data=f"srs:delete:{user_id}:{word_id}",
+            ),
+            InlineKeyboardButton(
+                IBTN_PRONOUNCE,
+                callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
             ),
         ],
     ]
@@ -190,40 +190,40 @@ def get_first_exposure_keyboard(
 ) -> InlineKeyboardMarkup:
     """Returns 4-grade first-exposure keyboard (familiarity-based labels).
 
-    Layout (2×2 grid + pronounce row):
-    [ کاملاً ناآشناام 🟥 ] [ کمی آشناام 🟨 ]
-    [ آشنایی خوب 🟩 ] [ کاملاً بلدمش 🟪 ]
-    [ 🔊 تلفظ ]
+    Layout (2×2 grid + delete/pronounce row):
+    [ کمی آشناام 🟨 ] [ کاملاً ناآشناام 🟥 ]
+    [ کاملاً بلدمش 🟪 ] [ آشنایی خوب 🟩 ]
+    [ 🗑 حذف از مطالعه ] [ 🔊 تلفظ ]
     """
     rows = [
         [
             InlineKeyboardButton(
-                IBTN_SRS_AGAIN_FE,
-                callback_data=f"srs:fe:1:{user_id}:{word_id}",
-            ),
-            InlineKeyboardButton(
                 IBTN_SRS_HARD_FE,
                 callback_data=f"srs:fe:2:{user_id}:{word_id}",
             ),
+            InlineKeyboardButton(
+                IBTN_SRS_AGAIN_FE,
+                callback_data=f"srs:fe:1:{user_id}:{word_id}",
+            ),
         ],
         [
-            InlineKeyboardButton(
-                IBTN_SRS_GOOD_FE,
-                callback_data=f"srs:fe:3:{user_id}:{word_id}",
-            ),
             InlineKeyboardButton(
                 IBTN_SRS_EASY_FE,
                 callback_data=f"srs:fe:4:{user_id}:{word_id}",
             ),
+            InlineKeyboardButton(
+                IBTN_SRS_GOOD_FE,
+                callback_data=f"srs:fe:3:{user_id}:{word_id}",
+            ),
         ],
         [
             InlineKeyboardButton(
-                IBTN_PRONOUNCE,
-                callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
-            ),
-            InlineKeyboardButton(
                 IBTN_SRS_DELETE,
                 callback_data=f"srs:delete:{user_id}:{word_id}",
+            ),
+            InlineKeyboardButton(
+                IBTN_PRONOUNCE,
+                callback_data=f"tts:pronounce:s:{user_id}:{word_id}",
             ),
         ],
     ]

@@ -21,14 +21,14 @@ from .constants import *  # noqa: F401,F403
 def main_menu(is_owner: bool) -> ReplyKeyboardMarkup:
     if is_owner:
         rows = [
+            [BTN_ASK_WORD, BTN_STUDY_SESSION],
+            [BTN_HELP, BTN_SETTINGS],
             [BTN_ADMIN],
-            [BTN_STUDY_SESSION, BTN_ASK_WORD],
-            [BTN_SETTINGS, BTN_HELP],
         ]
     else:
         rows = [
-            [BTN_STUDY_SESSION, BTN_ASK_WORD],
-            [BTN_SETTINGS, BTN_HELP],
+            [BTN_ASK_WORD, BTN_STUDY_SESSION],
+            [BTN_HELP, BTN_SETTINGS],
         ]
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 

@@ -564,7 +564,8 @@ class TestStagedRevealRender(_BaseStudyHandlerTest):
         fe_grades = [c for c in callbacks if c.startswith("srs:fe:")]
         self.assertEqual(len(fe_grades), 4)
         self.assertTrue(all(cb.startswith("srs:fe:") for cb in fe_grades))
-        self.assertEqual(callbacks[-1], f"srs:delete:1:{word_id}")
+        self.assertEqual(callbacks[-2], f"srs:delete:1:{word_id}")
+        self.assertEqual(callbacks[-1], f"tts:pronounce:s:1:{word_id}")
         self.assertIn(f"tts:pronounce:s:1:{word_id}", callbacks)  # Rule 7
         self.assertNotIn("نمایش پاسخ", text)  # no reveal sub-instruction in immediate mode
 
@@ -585,10 +586,10 @@ class TestStagedRevealRender(_BaseStudyHandlerTest):
         # Pronounce is free to every plan (J-B6, 2026-08-17), so the review grid is
         # followed by the 🔊 button for the default free test user.
         self.assertEqual(callbacks, [
-            f"srs:1:1:{word_id}", f"srs:2:1:{word_id}",
-            f"srs:3:1:{word_id}", f"srs:4:1:{word_id}",
-            f"tts:pronounce:s:1:{word_id}",
+            f"srs:2:1:{word_id}", f"srs:1:1:{word_id}",
+            f"srs:4:1:{word_id}", f"srs:3:1:{word_id}",
             f"srs:delete:1:{word_id}",
+            f"tts:pronounce:s:1:{word_id}",
         ])
         self.assertNotIn(f"prompt_type_{word_id}", user_data)
         self.assertNotIn(f"card_shown_at_{word_id}", user_data)

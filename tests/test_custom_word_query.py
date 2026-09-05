@@ -155,7 +155,7 @@ class CustomWordQueryTests(unittest.TestCase):
         callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
         self.assertEqual(
             callbacks,
-            ["srs:1:123:456", "srs:2:123:456", "srs:3:123:456", "srs:4:123:456", "tts:pronounce:s:123:456", "srs:delete:123:456"],
+            ["srs:2:123:456", "srs:1:123:456", "srs:4:123:456", "srs:3:123:456", "srs:delete:123:456", "tts:pronounce:s:123:456"],
         )
         self.assertTrue(all(len(callback) < 64 for callback in callbacks))
 
@@ -170,7 +170,7 @@ class CustomWordQueryTests(unittest.TestCase):
         srs = get_review_keyboard(123, 456)
         self.assertEqual(
             srs.inline_keyboard[0][0].callback_data,
-            "srs:1:123:456",
+            "srs:2:123:456",
         )
 
     def test_main_menu_no_longer_shows_manual_save_action(self):
