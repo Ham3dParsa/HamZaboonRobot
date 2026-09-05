@@ -1856,15 +1856,14 @@ def test_delta_kept_alias_canonicalized():
     assert report.get("kept_tamper") is True
     assert full.get("phonetic") != "/WRONG/"
 
-def test_coherence_headword_alone_does_not_pass():
-    # Reverted fallback: same headword across senses must NOT cohere on
-    # the headword alone (X-mark anchor + kissing examples must reject).
+def test_coherence_headword_family_passes_with_correct_anchor():
+    # R41b tri-state: paraphrase gap (no token overlap) is UNDECIDED
+    # (None) — the micro-pass decides. Only overlap passes outright.
     from card_pilot import sense_coherence_check
     assert sense_coherence_check(
-        "A written X mark used instead of a signature",
-        {"examples": ["They kissed goodbye."],
+        "To touch with the lips", {"examples": ["They kissed goodbye."],
          "fa_meaning": "", "fa_explanation": "", "example_translations": [],
-         "synonyms": []}, headword="kiss") is False
+         "synonyms": []}, headword="kiss") is None
 
 
 # ---------------- v12 R43: context-aware متوسط ----------------

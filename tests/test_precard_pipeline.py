@@ -647,7 +647,8 @@ def test_coherence_stem_overlap():
     assert sense_coherence_check(
         "An X mark placed at the end of a letter",
         {"examples": ["I want to kiss her."], "fa_meaning": "",
-         "fa_explanation": "", "example_translations": [], "synonyms": []}) is False
+         "fa_explanation": "", "example_translations": [], "synonyms": []}) is None
+    # R41b tri-state: no token overlap -> undecided (micro-pass decides).
 
 
 # ---------------- v12 R44: superlative redirect (S0b verdict variant) ---

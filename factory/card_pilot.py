@@ -1380,12 +1380,13 @@ def sense_coherence_check(anchor_gloss, card, headword=""):
         return _stem_match_5(a, b)
     if any(_stem_hit(a, b) for a in anchor_keys for b in card_keys):
         return True
-    # NO headword-family fallback (reverted): it wrongly passes
-    # same-headword cross-sense cards (X-mark anchor + kissing examples —
-    # exactly what R41 must reject). Morphology is covered by _stem_match_5
-    # (thing/nothing, torrent/torrential); shorter stems are the caller's
-    # problem, not a license to pass on the headword alone.
-    return False
+    # No token overlap -> UNDECIDED (None), not False: paraphrasing glosses
+    # ("touch with lips") share no tokens with natural examples ("kissed
+    # goodbye"), so absence of overlap proves nothing. The caller sends
+    # undecided cards to the LLM sense-consistency micro-pass (R41b).
+    # Headword-only overlap is likewise undecided (it cannot separate
+    # same-headword senses — X-mark vs kissing).
+    return None
 
 
 def _stem_match_5(a, b):
@@ -2489,17 +2490,25 @@ def generate_card(item, api_key, transport=None, model_calls=None,
                         if isinstance(abbrev, str) else ""
                     record["model_calls"] = dict(model_calls or {})
                     return record
-                # R41 v10 hard gates: REJECT (never regen), after all
-                # existing gates. fa-alpha first, then sense coherence.
+                # R41 v10 hard gates: fa-alpha REJECTs (never regen).
+                # R41b: sense coherence is tri-state — True passes, False
+                # rejects, None marks LLM review pending (paraphrase gap
+                # proves nothing either way; the micro-pass decides).
                 allowed_terms = item.get("allowed_terms") or []
                 hard_violation = ""
                 if not fa_alpha_check(card,
                                       allowed_terms=allowed_terms):
                     hard_violation = "fa-alpha"
-                elif not sense_coherence_check(
+                else:
+                    _coh = sense_coherence_check(
                         item.get("en_def", ""), card,
-                        headword=item.get("text", "")):
-                    hard_violation = "sense-incoherence"
+                        headword=item.get("text", ""))
+                    if _coh is False:
+                        hard_violation = "sense-incoherence"
+                    elif _coh is None:
+                        record["sense_review_pending"] = True
+                    else:
+                        record["sense_review_pending"] = False
                 if hard_violation:
                     record["error"] = last_error = hard_violation
                     record["reason"] = last_error
@@ -2523,6 +2532,8 @@ def generate_card(item, api_key, transport=None, model_calls=None,
                               if isinstance(abbrev, str) else "",
                               completion_flags=flags, similarity_note=sim,
                               fa_dominant=True, headword_leaks=[],
+                              sense_review_pending=bool(
+                                  record.get("sense_review_pending")),
                               examples_src=src, long_example=longs)
                 # V7 metadata merge (code-only, no prompt change):
                 # re-affirm sense_id / topic_vector / pool_level from the
@@ -2794,6 +2805,173 @@ def review_records_grammar(records, api_key, transport=None, model_calls=None,
         if progress_path:
             _save_review_progress(progress_path, state)
     return checked, regens
+
+
+# R41b — LLM sense-consistency micro-pass for token-undecided cards.
+# The deterministic check returns True (overlap: pass) or None (paraphrase
+# gap: undecided). Undecided cards reach this batched pass: Muse-only
+# chain, batch 8, resume via sense_coherence_progress.json. False ->
+# valid=False reason sense-incoherence (REJECT per R41). Errors fail
+# closed KEEP (review-uncertain) — a broken reviewer must never sink cards.
+SENSE_REVIEW_BATCH = 8
+SENSE_REVIEW_MODELS = MODELS[:2]
+SENSE_REVIEW_SYS = (
+    "You are a lexicographer checking sense consistency for Persian "
+    "learners of English. Given an anchor sense gloss and a card built "
+    "for it (examples, synonyms, Persian fields), reply "
+    "{coherent:bool, reason:string}. A card about a DIFFERENT sense of "
+    "the same headword (e.g. X-mark gloss with kissing examples) is "
+    "INCOHERENT. Return ONLY raw JSON, no markdown fences, no commentary.")
+
+
+def _sense_review_prompt(batch):
+    """Batch prompt: one KEY/text/gloss/card block per record."""
+    lines = ["For EACH record decide whether the card describes the anchor "
+             "sense. Output: {\"results\": [{\"key\": \"<record key>\", "
+             "\"coherent\": true/false, \"reason\": \"<why>\"}]}.",
+             "Input follows:"]
+    for entry in batch:
+        card = entry.get("card") or {}
+        lines.append("KEY %s" % entry["key"])
+        lines.append("headword: %s" % (entry.get("text") or ""))
+        lines.append("anchor sense: %s" % ((entry.get("en_def") or "")[:300]))
+        lines.append("examples: %s" % (" | ".join(
+            str(e)[:160] for e in (card.get("examples") or [])[:3])))
+        lines.append("synonyms: %s" % (", ".join(
+            str(s)[:40] for s in (card.get("synonyms") or [])[:5])))
+    return "\n".join(lines)
+
+
+def review_sense_items(items, transport, api_key="", model_calls=None):
+    """R41b: batched sense-consistency check. Returns {key: {...}}.
+
+    Muse-only chain, 2 attempts per model. Auth aborts loudly; any other
+    failure fails closed per item to {coherent: True, ...review-uncertain}.
+    Hermetic with an injected transport.
+    """
+    if model_calls is None:
+        model_calls = {}
+    out = {}
+    for base in range(0, len(items), SENSE_REVIEW_BATCH):
+        batch = items[base:base + SENSE_REVIEW_BATCH]
+        want = [e["key"] for e in batch]
+        prompt = _sense_review_prompt(batch)
+        settled = False
+        for model in SENSE_REVIEW_MODELS:
+            for attempt in range(MAX_ATTEMPTS):
+                text = prompt if attempt == 0 else REPAIR_PREFIX + prompt
+                try:
+                    model_calls[model] = model_calls.get(model, 0) + 1
+                    raw = transport(api_key, model, SENSE_REVIEW_SYS, text)
+                    data = extract_json(raw)
+                except AuthError:
+                    raise
+                except urllib.error.HTTPError as exc:
+                    if exc.code in (401, 403):
+                        raise_for_auth(exc)
+                    data = None
+                except Exception:
+                    data = None
+                if data is None:
+                    continue
+                by_key = _validate_review_results(data, want)
+                if by_key is None:
+                    continue
+                for key in want:
+                    row = by_key[key]
+                    coh = row.get("coherent")
+                    out[key] = {
+                        "coherent": bool(coh) if isinstance(coh, bool)
+                        else True,
+                        "uncertain": not isinstance(coh, bool),
+                        "reason": row.get("reason", "")
+                        if isinstance(row.get("reason"), str) else "",
+                        "model": model}
+                settled = True
+                break
+            if settled:
+                break
+        if not settled:
+            for key in want:
+                out[key] = {"coherent": True, "uncertain": True,
+                            "reason": "", "model": "review-fallback"}
+    return out
+
+
+def review_records_sense(records, api_key, transport=None, model_calls=None,
+                         progress_path=None):
+    """R41b post-step: judge token-undecided valid records, reject mismatch.
+
+    Mutates records in place: rec["sense_coherence"] = {verdict
+    llm-pass/llm-reject/review-uncertain, reason, model}; rejected records
+    get valid=False reason sense-incoherence. Resume via progress_path.
+    transport=None skips entirely (hermetic tests): (0, 0).
+    """
+    if transport is None:
+        return 0, 0
+    if model_calls is None:
+        model_calls = {}
+    state = _load_review_progress(progress_path) \
+        if progress_path else {"done": {}, "failed": []}
+    done = state["done"]
+    todo = []
+    for rec in records or []:
+        if not rec.get("valid") or not rec.get("sense_review_pending"):
+            continue
+        key = rec.get("key") or ""
+        saved = done.get(key)
+        if isinstance(saved, dict) and "verdict" in saved:
+            _apply_sense_review(rec, saved)
+        else:
+            todo.append(rec)
+    checked = rejected = 0
+    for base in range(0, len(todo), SENSE_REVIEW_BATCH):
+        batch = todo[base:base + SENSE_REVIEW_BATCH]
+        try:
+            verdicts = review_sense_items(
+                [{"key": r.get("key") or "", "text": r.get("text") or "",
+                  "en_def": r.get("en_def") or "", "card": r.get("card") or {}}
+                 for r in batch],
+                transport, api_key, model_calls)
+        except AuthError:
+            raise
+        except Exception:
+            verdicts = {}
+        for rec in batch:
+            key = rec.get("key") or ""
+            verdict = verdicts.get(key)
+            if verdict is None:
+                review = {"verdict": "review-uncertain", "reason": "",
+                          "model": "review-fallback"}
+            elif verdict.get("uncertain"):
+                review = {"verdict": "review-uncertain", "reason": "",
+                          "model": verdict.get("model", "")}
+            elif verdict.get("coherent"):
+                review = {"verdict": "llm-pass", "reason": "",
+                          "model": verdict.get("model", "")}
+            else:
+                review = {"verdict": "llm-reject",
+                          "reason": verdict.get("reason") or "",
+                          "model": verdict.get("model", "")}
+            _apply_sense_review(rec, review)
+            done[key] = review
+            checked += 1
+            if review["verdict"] == "llm-reject":
+                rejected += 1
+        if progress_path:
+            _save_review_progress(progress_path, state)
+    return checked, rejected
+
+
+def _apply_sense_review(rec, review):
+    """Apply a stored/fresh sense verdict to a record (shared path)."""
+    rec["sense_coherence"] = review
+    rec["sense_review_pending"] = False
+    if review.get("verdict") == "llm-reject":
+        rec["valid"] = False
+        rec["reason"] = "sense-incoherence"
+        rec["error"] = "sense-incoherence: %s" % (
+            review.get("reason") or "")[:200]
 
 
 # R31 v8 — dataset-example content gate (same batched style as R30).
@@ -3318,6 +3496,17 @@ def _gate_verdict_blocks(rec):
                 .get("released_containment") or [])
     if released:
         blocks.append(_blk_en("released: %d" % len(released)))
+    # R41b sense-coherence verdict chip (pending when the micro-pass has
+    # not run, e.g. render-only galleries).
+    scoh = rec.get("sense_coherence") or {}
+    if rec.get("sense_review_pending"):
+        blocks.append('<span class="chip open"><span class="en">sense-coherence</span> '
+                      '<span>در انتظار بازبینی</span></span>')
+    elif isinstance(scoh, dict) and scoh.get("verdict"):
+        blocks.append('<span class="chip %s"><span class="en">sense-coherence</span> '
+                      '<span>%s</span></span>'
+                      % ("pass" if scoh.get("verdict") == "llm-pass" else "open",
+                         esc(str(scoh.get("verdict")))))
     return blocks
 
 
@@ -4307,7 +4496,8 @@ _DEFAULT_REVIEW_TRANSPORT = object()
 
 
 def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
-         _grammar_transport=_DEFAULT_REVIEW_TRANSPORT):
+         _grammar_transport=_DEFAULT_REVIEW_TRANSPORT,
+         _sense_transport=_DEFAULT_REVIEW_TRANSPORT):
     ap = argparse.ArgumentParser(description="Card-gen pilot (factory research)")
     ap.add_argument("--n-words", type=int, default=14)
     ap.add_argument("--n-phrases", type=int, default=6)
@@ -4541,6 +4731,23 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
     except Exception:
         checked_n, regens_n = 0, 0
     run_logger.stage_end("grammar-review", ok=checked_n, fail=regens_n)
+    # R41b sense-consistency micro-pass: only token-undecided valid
+    # records (sense_review_pending). REJECT on llm-reject, fail-closed
+    # keep on review errors. Resume via sense_coherence_progress.json.
+    run_logger.stage_start("sense-review")
+    try:
+        s_checked, s_rejected = review_records_sense(
+            records, api_key,
+            transport=(call_responses
+                       if _sense_transport is _DEFAULT_REVIEW_TRANSPORT
+                       else _sense_transport),
+            progress_path=out_dir / "sense_coherence_progress.json",
+            model_calls=model_calls)
+    except AuthError:
+        raise
+    except Exception:
+        s_checked, s_rejected = 0, 0
+    run_logger.stage_end("sense-review", ok=s_checked, fail=s_rejected)
     for item in sample:
         key = item_key(item)
         if key in done:

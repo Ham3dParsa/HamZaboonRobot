@@ -283,7 +283,10 @@ def test_r41_fa_alpha_fuerte_and_diacritics_fail_clean_passes():
                           ) is False  # allowlist empty by default
 
 
-def test_r41_coherence_xmark_rejected_coherent_passes():
+def test_r41_coherence_xmark_undecided_coherent_passes():
+    # R41b tri-state: no token overlap -> None (undecided, micro-pass
+    # decides), NOT False. Explicit cross-sense rejection moved to the
+    # LLM micro-pass (test_r41b_micropass_rejects_mismatch).
     xmark = "A written X mark used instead of a signature"
     kissing_card = dict(
         CLEAN_CARD, word="kiss",
@@ -293,7 +296,7 @@ def test_r41_coherence_xmark_rejected_coherent_passes():
                               "او دیروز با بوسه به او سلام کرد."],
         synonyms=["hug"], fa_meaning="علامت ضربدر",
         fa_explanation="نشانه‌ای نوشتاری به‌جای امضا.")
-    assert sense_coherence_check(xmark, kissing_card) is False
+    assert sense_coherence_check(xmark, kissing_card) is None
     love = "to touch with the lips as a sign of love"
     loving_card = dict(
         kissing_card,
@@ -323,26 +326,118 @@ def test_r41_generate_card_rejects_without_regen():
     assert rec["reason"] == "fa-alpha"
     assert rec.get("regen") is False
 
+    # Cross-sense without headword rescue: anchor X-mark, card about
+    # signing with no kiss-family words anywhere -> nothing coheres.
+    # (Same-headword cross-sense is the anchor layer's job: decay/xref/
+    # no-real-def/S2 guarantee a dominant anchor before any card exists.)
     incoherent = dict(
         CLEAN_CARD, word="kiss",
-        examples=["They kiss to show their love every day.",
-                  "She gave him a sweet kiss yesterday."],
-        example_translations=["آن‌ها برای نشان دادن عشقشان هر روز همدیگر را می‌بوسند.",
-                              "او دیروز با یک بوسه شیرین به او سلام کرد."],
-        synonyms=["hug"], fa_meaning="علامت ضربدر",
-        fa_explanation="نشانه‌ای نوشتاری به‌جای امضا.")
+        examples=["They kiss each other every morning at home.",
+                  "We always kiss before we leave the house."],
+        example_translations=["آن‌ها هر صبح در خانه همدیگر را می‌بوسند.",
+                              "ما همیشه قبل از ترک خانه همدیگر را می‌بوسیم."],
+        synonyms=["peck"], fa_meaning="علامت ضربدر",
+        fa_explanation="نشانه‌ای نوشتاری به‌جای امضا.",
+        grammar_tip="اسم است.")
 
     def transport_incoherent(api_key, model, system, user):
         return json.dumps(incoherent)
 
+    # R41b: no-overlap no longer rejects at generate time — the card is
+    # marked pending (valid) and the micro-pass decides. Rejection moved
+    # to test_r41b_micropass_rejects_mismatch.
     rec2 = generate_card(
         {"kind": "word", "text": "kiss", "pool_level": "A1",
          "en_def": "A written X mark used instead of a signature"},
         "key", transport=transport_incoherent, model_calls={})
-    assert rec2["valid"] is False
-    assert rec2["reason"] == "sense-incoherence"
-    assert rec2.get("regen") is False
+    assert rec2["valid"] is True
+    assert rec2.get("sense_review_pending") is True
 
 def test_judge_window_cap_matches_owner_module():
     from run_v14_phase3_judge import JUDGE_WINDOW_CAP as OWNER_CAP
     assert card_pilot.JUDGE_WINDOW_CAP == OWNER_CAP == 10
+
+def _sense_rec(key="w:kiss"):
+    return {"key": key, "kind": "word", "text": "kiss", "pool_level": "A1",
+            "en_def": "To touch with the lips", "valid": True,
+            "sense_review_pending": True,
+            "card": dict(CLEAN_CARD, word="kiss")}
+
+
+def _sense_transport(coherent=True):
+    def go(api_key, model, system, user):
+        return json.dumps({"results": [
+            {"key": "w:kiss", "coherent": coherent, "reason": ""}]})
+    return go
+
+
+def test_r41b_undecided_marks_pending_not_reject():
+    from card_pilot import generate_card
+    rec = generate_card(
+        {"kind": "word", "text": "kiss", "pool_level": "A1",
+         "en_def": "To touch with the lips"},
+        "key", transport=_coherent_transport(), model_calls={})
+    assert rec["valid"] is True
+    assert rec.get("sense_review_pending") is True
+
+
+def _coherent_transport():
+    def go(api_key, model, system, user):
+        return json.dumps(dict(
+            CLEAN_CARD, word="kiss",
+            examples=["They kiss to greet each other.",
+                      "She gave him a sweet kiss."],
+            example_translations=["آن‌ها برای سلام همدیگر را می‌بوسند.",
+                                  "او یک بوسه شیرین به او داد."],
+            synonyms=["peck"], antonyms=[],
+            fa_meaning="بوسه",
+            fa_explanation="تماس لب‌ها برای مهر.",
+            grammar_tip="اسم است."))
+    return go
+
+
+def test_r41b_micropass_rejects_mismatch():
+    from card_pilot import review_records_sense
+    recs = [_sense_rec()]
+    checked, rejected = review_records_sense(
+        recs, "k", transport=_sense_transport(False), model_calls={})
+    assert (checked, rejected) == (1, 1)
+    assert recs[0]["valid"] is False
+    assert recs[0]["reason"] == "sense-incoherence"
+    assert recs[0]["sense_coherence"]["verdict"] == "llm-reject"
+
+
+def test_r41b_micropass_passes_and_uncertain_keeps():
+    from card_pilot import review_records_sense
+    recs = [_sense_rec()]
+    checked, rejected = review_records_sense(
+        recs, "k", transport=_sense_transport(True), model_calls={})
+    assert (checked, rejected) == (1, 0)
+    assert recs[0]["valid"] is True
+    assert recs[0]["sense_coherence"]["verdict"] == "llm-pass"
+
+    def boom(api_key, model, system, user):
+        raise RuntimeError("down")
+    recs2 = [_sense_rec()]
+    checked2, rejected2 = review_records_sense(
+        recs2, "k", transport=boom, model_calls={})
+    assert (checked2, rejected2) == (1, 0)
+    assert recs2[0]["valid"] is True
+    assert recs2[0]["sense_coherence"]["verdict"] == "review-uncertain"
+
+
+def test_r41b_resume_skips_reviewed(tmp_path):
+    from card_pilot import review_records_sense
+    prog = tmp_path / "sense_prog.json"
+    recs = [_sense_rec()]
+    review_records_sense(recs, "k", transport=_sense_transport(True),
+                         model_calls={}, progress_path=prog)
+    calls = {"n": 0}
+    def counting(api_key, model, system, user):
+        calls["n"] += 1
+        return _sense_transport(True)(api_key, model, system, user)
+    recs2 = [_sense_rec()]
+    review_records_sense(recs2, "k", transport=counting,
+                         model_calls={}, progress_path=prog)
+    assert calls["n"] == 0
+    assert recs2[0]["sense_coherence"]["verdict"] == "llm-pass"
