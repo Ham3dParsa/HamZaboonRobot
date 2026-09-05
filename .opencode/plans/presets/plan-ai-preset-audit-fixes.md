@@ -4,9 +4,9 @@ description: Locked fix spec for the Admin AI Preset audit findings (R1–R15, F
 created: 2026-08-12
 base_commit: 8166c9c
 branch: fix/ai-preset-audit-findings
-status: in-progress
+status: complete
 ---
-STATE: phase 5/7 — status: complete (PR #339 merged 0d9a491; R11/F2 encrypted-at-rest keys, v1: marker + MasterKeyRequiredError added in Kilo loop) — next: Phase 6 (R17 activation/preferred)
+STATE: phase 7/7 — status: complete (PR #444 merged 51690d0 — R17 activation/preferred + R16 reasoning-effort; verified on main @ 4c65df1 via subagent audit 2026-09-04)
 
 # Contract Lock — Admin AI Preset Panel fixes
 

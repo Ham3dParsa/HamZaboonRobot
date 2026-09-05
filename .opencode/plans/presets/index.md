@@ -6,14 +6,14 @@ Scope: Admin AI Preset panel audit fixes (R1–R15, F1/F2) + R16 (reasoning-effo
 
 | Plan | Phase | Depends On | Status |
 |------|-------|------------|--------|
-| `plan-ai-preset-audit-fixes.md` | 1..7 | — | in-progress |
+| `plan-ai-preset-audit-fixes.md` | 1..7 | — | complete (all 7 phases shipped — 51690d0 + follow-ups) |
 | `plan-ai-preset-audit-fixes-phase-01-cosmetic.md` | 1 | — | complete (PR #333 merged) |
 | `plan-ai-preset-audit-fixes-phase-02-db-correctness.md` | 2 | R2 before R14 | complete (PR #333 merged) |
 | `plan-ai-preset-audit-fixes-phase-03-handlers-ux.md` | 3 | Phase 2, Phase 1 | complete (PR #334/#335 merged) |
 | `plan-ai-preset-audit-fixes-phase-04-builtin-removal.md` | 4 | Phase 2 | complete (PR #337 merged) |
 | `plan-ai-preset-audit-fixes-phase-05-secure-keys.md` | 5 | Phase 2, Phase 4 | complete (PR #339 merged; archived to docs/archive/) |
-| `plan-ai-preset-audit-fixes-phase-06-activation-preferred.md` | 6 | Phase 2,4,5 | pending |
-| `plan-ai-preset-audit-fixes-phase-07-reasoning-effort.md` | 7 | Phase 5, Phase 2 | pending |
+| `plan-ai-preset-audit-fixes-phase-06-activation-preferred.md` | 6 | Phase 2,4,5 | complete (PR #444 — 51690d0) |
+| `plan-ai-preset-audit-fixes-phase-07-reasoning-effort.md` | 7 | Phase 5, Phase 2 | complete (PR #444 — 51690d0) |
 | `plan-admin-ai-labels-and-back.md` | — | — | complete (PR #352 merged; archived to docs/archive/) |
 | `plan-zero-hardcode.md` | 1..4 | `presets/plan-zero-hardcode-phase-NN` | in-progress |
 | `plan-zero-hardcode-phase-01-display-fallbacks.md` | 1 | — | in-progress |
