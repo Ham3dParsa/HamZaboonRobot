@@ -1,4 +1,5 @@
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.constants import KeyboardButtonStyle
 
 from collections.abc import Sequence
 
@@ -68,7 +69,7 @@ def plan_wizard_keyboard(name: str) -> InlineKeyboardMarkup:
 
 def plan_wizard_summary_keyboard(name: str) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(IBTN_FULL_EDIT_SAVE_ALL, callback_data=f"admin:plans:full_edit_save:{name}"),
+        [InlineKeyboardButton(IBTN_FULL_EDIT_SAVE_ALL, callback_data=f"admin:plans:full_edit_save:{name}", style=KeyboardButtonStyle.SUCCESS),
          InlineKeyboardButton(IBTN_FULL_EDIT_CANCEL_WIZARD, callback_data=f"admin:plans:full_edit_cancel:{name}")],
         [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ]
@@ -81,7 +82,7 @@ def tts_cache_keyboard(current: str) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(f"📢 کانال کش: {current or '—'}", callback_data="admin:noop")],
         [InlineKeyboardButton("✏️ تنظیم کانال کش", callback_data="admin:tts_cache:set")],
         [InlineKeyboardButton("🗑 پاک کردن", callback_data="admin:tts_cache:clear")],
-        [InlineKeyboardButton("🧪 تست", callback_data="admin:tts_cache:test")],
+        [InlineKeyboardButton("🧪 تست", callback_data="admin:tts_cache:test", style=KeyboardButtonStyle.PRIMARY)],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
         [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ]
@@ -117,7 +118,7 @@ def backup_restore_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("♻️ بازیابی", callback_data="admin:backup_restore:restore")],
         [InlineKeyboardButton("⚙️ تنظیم گروه آرشیو", callback_data="admin:backup_restore:set_archive")],
         [InlineKeyboardButton("🗑 پاک کردن آرشیو", callback_data="admin:backup_restore:clear_archive")],
-        [InlineKeyboardButton("✅ تست آرشیو", callback_data="admin:backup_restore:test_archive")],
+        [InlineKeyboardButton("✅ تست آرشیو", callback_data="admin:backup_restore:test_archive", style=KeyboardButtonStyle.PRIMARY)],
         [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:back")],
         [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ]
@@ -189,11 +190,9 @@ def user_plan_picker_keyboard(
     Each button shows the plan display_name and routes to
     admin:user:plan_select:{user_id}:{plan_name} for confirmation.
 
-    The *current_plan* (plan code, or None) button is marked text/emoji-only
-    (``✅ … (فعلی)``). PTB 22.7+ exposes ``InlineKeyboardButton.style``, but
-    styled buttons need Feb-2026+ Telegram clients (older clients render them
-    unstyled), so the text/emoji marker stays the cross-client choice and
-    this builder takes no ``style`` param. No new callback
+    The *current_plan* (plan code, or None) button keeps the ``✅ … (فعلی)``
+    text/emoji marker and also carries PRIMARY style (marker stays readable
+    on older clients without style support). No new callback
     prefix — callback_data is unchanged.
     """
     current = str(current_plan or "").strip().lower() or None
@@ -203,7 +202,8 @@ def user_plan_picker_keyboard(
         if not name or ":" in name:
             continue
         label = str(p.get("display_name") or name).strip() or name
-        if current is not None and name.lower() == current:
+        is_current = current is not None and name.lower() == current
+        if is_current:
             # Mark first, truncating the BASE to leave room, so the full
             # ✅…(فعلی) marker always survives (kilo/opencode WARNING, PR 568:
             # truncating after marking chopped the suffix off).
@@ -218,8 +218,9 @@ def user_plan_picker_keyboard(
         # Telegram callback_data limit is 64 bytes
         if len(cb.encode("utf-8")) > 64:
             continue
+        kwargs = {"style": KeyboardButtonStyle.PRIMARY} if is_current else {}
         rows.append([
-            InlineKeyboardButton(label, callback_data=cb)
+            InlineKeyboardButton(label, callback_data=cb, **kwargs)
         ])
     rows.append([InlineKeyboardButton(IBTN_BACK, callback_data=f"admin:user:profile:{user_id}")])
     rows.append([InlineKeyboardButton(IBTN_CANCEL, callback_data=f"admin:user:plan_cancel:{user_id}")])
@@ -229,7 +230,7 @@ def user_plan_picker_keyboard(
 
 def user_reset_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ بله، ریست شود", callback_data=f"admin:user:reset_confirm:{user_id}")],
+        [InlineKeyboardButton("✅ بله، ریست شود", callback_data=f"admin:user:reset_confirm:{user_id}", style=KeyboardButtonStyle.DANGER)],
         [InlineKeyboardButton(IBTN_DELETE_CANCEL, callback_data=f"admin:user:reset_cancel:{user_id}")],
         [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
@@ -237,7 +238,7 @@ def user_reset_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
 
 def user_block_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ بله مسدود کن", callback_data=f"admin:user:block_confirm:{user_id}")],
+        [InlineKeyboardButton("✅ بله مسدود کن", callback_data=f"admin:user:block_confirm:{user_id}", style=KeyboardButtonStyle.DANGER)],
         [InlineKeyboardButton(IBTN_CANCEL, callback_data=f"admin:user:block_cancel:{user_id}")],
         [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
@@ -245,7 +246,7 @@ def user_block_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
 
 def user_plan_confirm_keyboard(user_id: int, new_plan: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ بله، تغییر بده", callback_data=f"admin:user:plan_confirm:{user_id}:{new_plan}")],
+        [InlineKeyboardButton("✅ بله، تغییر بده", callback_data=f"admin:user:plan_confirm:{user_id}:{new_plan}", style=KeyboardButtonStyle.SUCCESS)],
         [InlineKeyboardButton(IBTN_CANCEL, callback_data=f"admin:user:plan_cancel:{user_id}")],
         [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
     ])
@@ -253,7 +254,7 @@ def user_plan_confirm_keyboard(user_id: int, new_plan: str) -> InlineKeyboardMar
 
 def dm_preview_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ تایید ارسال", callback_data=f"admin:user:msg_confirm:{user_id}")],
+        [InlineKeyboardButton("✅ تایید ارسال", callback_data=f"admin:user:msg_confirm:{user_id}", style=KeyboardButtonStyle.SUCCESS)],
         [InlineKeyboardButton("✏️ ویرایش", callback_data=f"admin:user:msg_edit:{user_id}"),
          InlineKeyboardButton(IBTN_CANCEL, callback_data=f"admin:user:msg_cancel:{user_id}")],
         [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
@@ -262,7 +263,7 @@ def dm_preview_keyboard(user_id: int) -> InlineKeyboardMarkup:
 
 def broadcast_preview_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ تایید همگانی", callback_data="admin:broadcast_confirm")],
+        [InlineKeyboardButton("✅ تایید همگانی", callback_data="admin:broadcast_confirm", style=KeyboardButtonStyle.SUCCESS)],
         [InlineKeyboardButton("✏️ ویرایش", callback_data="admin:broadcast_edit"),
          InlineKeyboardButton(IBTN_CANCEL, callback_data="admin:broadcast_cancel")],
         [InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")],
@@ -524,8 +525,8 @@ def ai_settings_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton(IBTN_AI_PRESETS, callback_data="admin:ai_presets")],
-            [InlineKeyboardButton(IBTN_AI_TEST, callback_data="admin:ai_test_connection")],
-            [InlineKeyboardButton(IBTN_AI_CUSTOM_TEST, callback_data="admin:ai_custom_test")],
+            [InlineKeyboardButton(IBTN_AI_TEST, callback_data="admin:ai_test_connection", style=KeyboardButtonStyle.PRIMARY)],
+            [InlineKeyboardButton(IBTN_AI_CUSTOM_TEST, callback_data="admin:ai_custom_test", style=KeyboardButtonStyle.PRIMARY)],
             [InlineKeyboardButton(IBTN_AI_FALLBACK, callback_data="admin:ai_fallback")],
             [InlineKeyboardButton(IBTN_FALLBACK_CHAIN, callback_data="admin:fallback_chain")],
             [InlineKeyboardButton("🏷️ مدیریت گروه‌ها", callback_data="admin:ai_preset:group_manager")],
@@ -578,7 +579,7 @@ def ai_presets_list_keyboard(
             if name != active_name:
                 action_row.append(InlineKeyboardButton(IBTN_ACTIVATE, callback_data=f"admin:ai_preset:activate:{preset_token(name)}"))
             action_row.append(InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:ai_preset:edit:{preset_token(name)}"))
-            action_row.append(InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{preset_token(name)}"))
+            action_row.append(InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{preset_token(name)}", style=KeyboardButtonStyle.DANGER))
             if action_row:
                 rows.append(action_row)
         # Pagination
@@ -608,9 +609,9 @@ def ai_preset_view_keyboard(preset: dict, active_name: str) -> InlineKeyboardMar
     rows = []
     if name != active_name:
         rows.append([InlineKeyboardButton(IBTN_ACTIVATE_THIS, callback_data=f"admin:ai_preset:activate:{preset_token(name)}")])
-    rows.append([InlineKeyboardButton(IBTN_AI_TEST, callback_data=f"admin:ai_preset:test:{preset_token(name)}")])
+    rows.append([InlineKeyboardButton(IBTN_AI_TEST, callback_data=f"admin:ai_preset:test:{preset_token(name)}", style=KeyboardButtonStyle.PRIMARY)])
     rows.append([InlineKeyboardButton(IBTN_EDIT, callback_data=f"admin:ai_preset:edit:{preset_token(name)}")])
-    rows.append([InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{preset_token(name)}")])
+    rows.append([InlineKeyboardButton(IBTN_DELETE, callback_data=f"admin:ai_preset:delete:{preset_token(name)}", style=KeyboardButtonStyle.DANGER)])
     rows.append([InlineKeyboardButton(IBTN_DUPLICATE, callback_data=f"admin:ai_preset:duplicate:{preset_token(name)}")])
     rows.append([InlineKeyboardButton(BTN_BACK, callback_data="admin:ai_presets")])
     rows.append([InlineKeyboardButton(IBTN_CLOSE, callback_data="admin:close")])
@@ -704,7 +705,7 @@ def ai_preset_edit_keyboard(
         ])
     rows.append([InlineKeyboardButton(IBTN_FULL_EDIT_WIZARD, callback_data=f"admin:ai_preset:full_edit:{preset_ref}")])
     rows.append([
-        InlineKeyboardButton(save_label(diffs), callback_data=f"admin:ai_preset:save:{preset_ref}"),
+        InlineKeyboardButton(save_label(diffs), callback_data=f"admin:ai_preset:save:{preset_ref}", style=KeyboardButtonStyle.SUCCESS),
         InlineKeyboardButton(discard_label(diffs), callback_data=f"admin:ai_preset:discard_all:{preset_ref}"),
     ])
     rows.append([
