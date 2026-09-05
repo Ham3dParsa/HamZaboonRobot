@@ -158,7 +158,9 @@ def release_session_slot(user_id: int) -> None:
             used = int(row["value"]) if row else 0
         except (ValueError, TypeError):
             used = 0
-        new_val = str(max(0, used - 1))
+        if used <= 0:
+            return
+        new_val = str(used - 1)
         conn.execute(
             "INSERT INTO settings(key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -166,7 +168,7 @@ def release_session_slot(user_id: int) -> None:
         )
     logger.debug(
         "release_session_slot user_id=%s used=%s->%s",
-        user_id, used, max(0, used - 1),
+        user_id, used, used - 1,
     )
 
 

@@ -4,6 +4,7 @@ import math
 import os
 import random
 import re
+import unicodedata
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -185,7 +186,8 @@ _CANCEL_INPUTS = {
 
 
 def _normalize_custom_word_input(text: str) -> str:
-    text = re.sub(r'[\s\u200c\u200b]+', ' ', text.strip())
+    text = unicodedata.normalize("NFC", text)
+    text = re.sub(r'[\s\u200b]+', ' ', text.strip())
     text = re.sub(r' +', ' ', text)
     return text.strip()
 

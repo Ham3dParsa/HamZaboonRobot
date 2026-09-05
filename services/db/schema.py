@@ -169,6 +169,71 @@ def _backfill_saved_word_normalization(conn):
     )
 
 
+def _backfill_query_results_normalization(conn):
+    """One-time migration: re-normalize query_results query_text/word (R7a).
+
+    Recomputes ``query_text`` and ``word`` via ``normalize_word`` (NFC +
+    casefold + whitespace-collapse) and resolves collisions where normalization
+    folds two previously-distinct keys into one within ``(user_id, lang,
+    query_text)``. On collision the most-recent row (``created_at`` desc) is
+    kept and older duplicates are deleted. Idempotent, gated by
+    ``_migration_query_results_normalization_done`` so the full table scan
+    happens only once.
+    """
+    done = conn.execute(
+        "SELECT 1 FROM settings WHERE key='_migration_query_results_normalization_done'"
+    ).fetchone()
+    if done:
+        return
+    rows = conn.execute(
+        "SELECT token, user_id, lang, query_text, word, created_at FROM query_results"
+    ).fetchall()
+
+    def _parse_created(value):
+        if not value:
+            return float("-inf")
+        try:
+            dt = datetime.datetime.fromisoformat(value)
+        except ValueError:
+            return float("-inf")
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return dt.timestamp()
+
+    groups: dict[tuple, list] = {}
+    for r in rows:
+        norm_q = normalize_word(r["query_text"] or "")
+        key = (r["user_id"], r["lang"], norm_q)
+        groups.setdefault(key, []).append(r)
+
+    deletes: list[str] = []
+    updates: list[tuple[str, str, str]] = []
+    for items in groups.values():
+        items.sort(key=lambda x: _parse_created(x["created_at"]), reverse=True)
+        keeper = items[0]
+        new_q = normalize_word(keeper["query_text"] or "")
+        new_w = normalize_word(keeper["word"] or "")
+        if keeper["query_text"] != new_q or keeper["word"] != new_w:
+            updates.append((new_q, new_w, keeper["token"]))
+        for dup in items[1:]:
+            deletes.append(dup["token"])
+    for token in deletes:
+        conn.execute("DELETE FROM query_results WHERE token=?", (token,))
+    for new_q, new_w, token in updates:
+        conn.execute(
+            "UPDATE query_results SET query_text=?, word=? WHERE token=?",
+            (new_q, new_w, token),
+        )
+    # Update non-duplicate rows that still need normalization (outside collision groups)
+    # Already handled keeper updates; remaining singletons with no collision but
+    # stale normalization were covered as keepers. No extra pass needed.
+    conn.execute(
+        "INSERT INTO settings(key, value) VALUES (?, '1') "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        ("_migration_query_results_normalization_done",),
+    )
+
+
 # Rows per commit for the one-time review-counter backfill below: small
 # enough that startup never holds a long write transaction on large DBs.
 _BACKFILL_BATCH = 2000
@@ -842,6 +907,7 @@ def init_db(path: str | None = None):
             "GROUP BY user_id, lang, normalized_word)"
         )
         _backfill_saved_word_normalization(conn)
+        _backfill_query_results_normalization(conn)
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS saved_words_user_lang_word "
             "ON saved_words(user_id, lang, normalized_word)"
@@ -949,7 +1015,7 @@ def init_db(path: str | None = None):
             ):
                 conn.execute(index_sql)
         conn.execute(
-            "DELETE FROM query_results WHERE expires_at<?",
+            "DELETE FROM query_results WHERE expires_at<=?",
             (_utc_now().isoformat(),),
         )
 

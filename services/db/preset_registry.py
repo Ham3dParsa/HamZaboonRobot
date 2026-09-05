@@ -394,8 +394,14 @@ def set_fallback_active(active: bool, fallback_preset: str | None = None):
 
 def increment_consecutive_failures() -> int:
     with transaction() as conn:
-        current = int(get_setting("ai_consecutive_failures", "0")) + 1
-        # R8: via settings seam (connection-aware).
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key='ai_consecutive_failures'"
+        ).fetchone()
+        try:
+            current = int(row["value"]) if row and row["value"] not in (None, "") else 0
+        except (ValueError, TypeError):
+            current = 0
+        current += 1
         set_setting_via_conn(conn, "ai_consecutive_failures", str(current))
         return current
 
