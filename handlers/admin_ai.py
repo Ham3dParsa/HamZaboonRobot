@@ -15,6 +15,7 @@ import re
 from urllib.parse import quote, unquote
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.constants import KeyboardButtonStyle
 from telegram.ext import ContextTypes
 
 from handlers.flows import mark_awaiting_consumed
@@ -934,7 +935,7 @@ async def _show_wizard_summary(update: Update, context: ContextTypes.DEFAULT_TYP
     from services.utils.callback_codec import preset_token
     preset_ref = preset_token(preset_name)
     buttons = [
-        InlineKeyboardButton(IBTN_FULL_EDIT_SAVE_ALL, callback_data=f"admin:ai_preset:full_edit_save:{preset_ref}"),
+        InlineKeyboardButton(IBTN_FULL_EDIT_SAVE_ALL, callback_data=f"admin:ai_preset:full_edit_save:{preset_ref}", style=KeyboardButtonStyle.SUCCESS),
         InlineKeyboardButton(IBTN_FULL_EDIT_CANCEL_WIZARD, callback_data=f"admin:ai_preset:full_edit_cancel:{preset_ref}"),
     ]
     keyboard = InlineKeyboardMarkup([buttons])
@@ -1267,7 +1268,7 @@ async def _delete_ai_preset(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     preset_ref = preset_token(preset_name)
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton(IBTN_DELETE_CONFIRM, callback_data=f"admin:ai_preset:confirm_delete_yes:{preset_ref}"),
+            InlineKeyboardButton(IBTN_DELETE_CONFIRM, callback_data=f"admin:ai_preset:confirm_delete_yes:{preset_ref}", style=KeyboardButtonStyle.DANGER),
             InlineKeyboardButton(IBTN_DELETE_CANCEL, callback_data=f"admin:ai_preset:confirm_delete_no:{preset_ref}"),
         ],
         [InlineKeyboardButton(BTN_BACK, callback_data=f"admin:ai_preset:view:{preset_ref}")],

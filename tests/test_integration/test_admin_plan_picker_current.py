@@ -143,29 +143,30 @@ class AdminPlanPickerCurrentTest(unittest.TestCase):
             # the full marker must survive — not just the ✅ prefix
             self.assertIn("فعلی", t)
 
-    def test_marking_is_text_only_no_style_used(self):
-        """Marking is text/emoji-only: the builder never sets PTB ``style``.
+    def test_marking_uses_primary_style(self):
+        """Marking keeps the text/emoji label and carries PRIMARY style.
 
-        PTB 22.7+ (pinned line) exposes ``InlineKeyboardButton.style``, so the
-        old "no style param" assertion is obsolete — the guarantee we actually
-        need is that our buttons carry no style and the marker is in the text.
+        Locked C3: the current-plan button keeps the ``✅ … (فعلی)`` label
+        byte-identical (readable on clients without style support) and also
+        carries PRIMARY style; all other picker buttons stay neutral.
         """
         from telegram import InlineKeyboardButton
+        from telegram.constants import KeyboardButtonStyle
         from config.keyboards.admin import user_plan_picker_keyboard
 
-        # our builder exposes no style param — marking is text-only…
-        kb_params = inspect.signature(user_plan_picker_keyboard).parameters
-        self.assertNotIn("style", kb_params)
-        # …and the marked picker still builds fine, unstyled, on any PTB…
         kb = user_plan_picker_keyboard(
             42, [{"name": "silver", "display_name": "نقره‌ای"}], current_plan="silver"
         )
         buttons = [b for row in kb.inline_keyboard for b in row]
-        for b in buttons:
-            self.assertIsInstance(b, InlineKeyboardButton)
-            self.assertEqual(getattr(b, "style", None), None)
         texts = [b.text for b in buttons]
         self.assertTrue(any("فعلی" in t for t in texts))
+        self.assertTrue(any("✅" in t for t in texts))
+        for b in buttons:
+            self.assertIsInstance(b, InlineKeyboardButton)
+            if "فعلی" in b.text:
+                self.assertEqual(b.style, KeyboardButtonStyle.PRIMARY)
+            else:
+                self.assertEqual(getattr(b, "style", None), None)
 
 
 if __name__ == "__main__":
