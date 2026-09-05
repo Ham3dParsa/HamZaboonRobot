@@ -80,6 +80,7 @@ Option Chosen: [A/B/C...]
 Alternatives Rejected: [list with one-line reason each]
 Trade-offs: [cost/UX/compatibility/regression per alternative]
 Owner Confirmation: [quote owner's "proceed" or "locked"]
+Blast-radius (graphify, only if a §2 structural-risk trigger fired): [explain <Sym> → N neighbors; path A→B hops; query --budget 1000 result; graph fresh: built_at_commit == HEAD @ <hash>]
 GATE STATUS: [LOCKED / PENDING]
 ```
 

@@ -48,6 +48,7 @@ graphify affected "function"           # reverse traversal (needs clustered buil
 - Graph output: `graphify-out/graph.json` (gitignored)
 - `.graphify_analysis.json` written alongside
 - **After meaningful code changes**, run `graphify update .` before structural queries
+- Freshness check: `built_at_commit` is a top-level field of `graphify-out/graph.json` — compare it against `git rev-parse HEAD`. Mismatch ⇒ stale ⇒ read-first + `graphify update .`.
 - SQL grammar (`graphifyy[sql]`) optional — repo SQL is migration files only
 
 ## Token-savings guidance
