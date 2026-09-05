@@ -144,10 +144,10 @@ class StagedRevealFlowTest(unittest.TestCase):
         # Pronounce is free to every plan (J-B6, 2026-08-17), so the grade grid is
         # followed by the 🔊 button for the default free test user.
         self.assertEqual(back_cbs, [
-            f"srs:1:1:{word_id}", f"srs:2:1:{word_id}",
-            f"srs:3:1:{word_id}", f"srs:4:1:{word_id}",
-            f"tts:pronounce:s:1:{word_id}",
+            f"srs:2:1:{word_id}", f"srs:1:1:{word_id}",
+            f"srs:4:1:{word_id}", f"srs:3:1:{word_id}",
             f"srs:delete:1:{word_id}",
+            f"tts:pronounce:s:1:{word_id}",
         ])
         self.assertTrue(ctx.user_data.get(f"revealed_{word_id}"))
 
@@ -198,10 +198,10 @@ class StagedRevealFlowTest(unittest.TestCase):
         back_kb = back_kwargs["reply_markup"]
         back_cbs = [b.callback_data for row in back_kb.inline_keyboard for b in row]
         self.assertEqual(back_cbs, [
-            f"srs:fe:1:1:{word_id}", f"srs:fe:2:1:{word_id}",
-            f"srs:fe:3:1:{word_id}", f"srs:fe:4:1:{word_id}",
-            f"tts:pronounce:s:1:{word_id}",
+            f"srs:fe:2:1:{word_id}", f"srs:fe:1:1:{word_id}",
+            f"srs:fe:4:1:{word_id}", f"srs:fe:3:1:{word_id}",
             f"srs:delete:1:{word_id}",
+            f"tts:pronounce:s:1:{word_id}",
         ])
         self.assertTrue(ctx.user_data.get(f"revealed_{word_id}"))
 
@@ -235,10 +235,10 @@ class StagedRevealFlowTest(unittest.TestCase):
         front_kb = ctx.bot.send_message.call_args.kwargs["reply_markup"]
         front_cbs = [b.callback_data for row in front_kb.inline_keyboard for b in row]
         self.assertEqual(front_cbs, [
-            f"srs:fe:1:1:{word_id}", f"srs:fe:2:1:{word_id}",
-            f"srs:fe:3:1:{word_id}", f"srs:fe:4:1:{word_id}",
-            f"tts:pronounce:s:1:{word_id}",
+            f"srs:fe:2:1:{word_id}", f"srs:fe:1:1:{word_id}",
+            f"srs:fe:4:1:{word_id}", f"srs:fe:3:1:{word_id}",
             f"srs:delete:1:{word_id}",
+            f"tts:pronounce:s:1:{word_id}",
         ])
 
         # Grade the familiarity rating; session advances to completion.
@@ -273,10 +273,10 @@ class StagedRevealFlowTest(unittest.TestCase):
         # Pronounce is free to every plan (J-B6, 2026-08-17), so the grade grid is
         # followed by the 🔊 button for the default free test user.
         self.assertEqual(front_cbs, [
-            f"srs:1:1:{word_id}", f"srs:2:1:{word_id}",
-            f"srs:3:1:{word_id}", f"srs:4:1:{word_id}",
-            f"tts:pronounce:s:1:{word_id}",
+            f"srs:2:1:{word_id}", f"srs:1:1:{word_id}",
+            f"srs:4:1:{word_id}", f"srs:3:1:{word_id}",
             f"srs:delete:1:{word_id}",
+            f"tts:pronounce:s:1:{word_id}",
         ])
         self.assertNotIn(f"prompt_type_{word_id}", ctx.user_data)
         self.assertNotIn(f"card_shown_at_{word_id}", ctx.user_data)

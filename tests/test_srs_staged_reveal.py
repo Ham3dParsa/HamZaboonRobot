@@ -29,7 +29,7 @@ class SrsKeyboardTests(unittest.TestCase):
         callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
         self.assertEqual(
             callbacks,
-            ["srs:1:123:456", "srs:2:123:456", "srs:3:123:456", "srs:4:123:456", "tts:pronounce:s:123:456", "srs:delete:123:456"],
+            ["srs:2:123:456", "srs:1:123:456", "srs:4:123:456", "srs:3:123:456", "srs:delete:123:456", "tts:pronounce:s:123:456"],
         )
         self.assertTrue(all(len(c) < 64 for c in callbacks))
 
@@ -38,7 +38,7 @@ class SrsKeyboardTests(unittest.TestCase):
         callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
         self.assertEqual(
             callbacks,
-            ["srs:fe:1:123:456", "srs:fe:2:123:456", "srs:fe:3:123:456", "srs:fe:4:123:456", "tts:pronounce:s:123:456", "srs:delete:123:456"],
+            ["srs:fe:2:123:456", "srs:fe:1:123:456", "srs:fe:4:123:456", "srs:fe:3:123:456", "srs:delete:123:456", "tts:pronounce:s:123:456"],
         )
         self.assertTrue(all(len(c) < 64 for c in callbacks))
 
@@ -384,10 +384,10 @@ class TestRevealHandler(unittest.TestCase):
         # Pronounce is free to every plan (J-B6, 2026-08-17), so the grade grid is
         # followed by the 🔊 button for the default free test user.
         self.assertEqual(callbacks, [
-            f"srs:1:1:{self.word_id}", f"srs:2:1:{self.word_id}",
-            f"srs:3:1:{self.word_id}", f"srs:4:1:{self.word_id}",
-            f"tts:pronounce:s:1:{self.word_id}",
+            f"srs:2:1:{self.word_id}", f"srs:1:1:{self.word_id}",
+            f"srs:4:1:{self.word_id}", f"srs:3:1:{self.word_id}",
             f"srs:delete:1:{self.word_id}",
+            f"tts:pronounce:s:1:{self.word_id}",
         ])
         # Reveal marker stashed for Phase 3 telemetry.
         self.assertTrue(ctx.user_data[f"revealed_{self.word_id}"])
@@ -471,10 +471,10 @@ class TestRevealHandler(unittest.TestCase):
         markup = ctx.bot.edit_message_text.call_args.kwargs["reply_markup"]
         callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
         self.assertEqual(callbacks, [
-            f"srs:fe:1:1:{self.word_id}", f"srs:fe:2:1:{self.word_id}",
-            f"srs:fe:3:1:{self.word_id}", f"srs:fe:4:1:{self.word_id}",
-            f"tts:pronounce:s:1:{self.word_id}",
+            f"srs:fe:2:1:{self.word_id}", f"srs:fe:1:1:{self.word_id}",
+            f"srs:fe:4:1:{self.word_id}", f"srs:fe:3:1:{self.word_id}",
             f"srs:delete:1:{self.word_id}",
+            f"tts:pronounce:s:1:{self.word_id}",
         ])
         self.assertIn(f"revealed_{self.word_id}", ctx.user_data)
 

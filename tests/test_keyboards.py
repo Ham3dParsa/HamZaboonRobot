@@ -37,16 +37,16 @@ class TestMainMenuKeyboard(unittest.TestCase):
         markup = main_menu(False)
         rows = markup.keyboard
         self.assertEqual(len(rows), 2)
-        self.assertEqual([b.text for b in rows[0]], [BTN_STUDY_SESSION, BTN_ASK_WORD])
-        self.assertEqual([b.text for b in rows[1]], [BTN_SETTINGS, BTN_HELP])
+        self.assertEqual([b.text for b in rows[0]], [BTN_ASK_WORD, BTN_STUDY_SESSION])
+        self.assertEqual([b.text for b in rows[1]], [BTN_HELP, BTN_SETTINGS])
 
     def test_admin_appends_extra_row(self):
         markup = main_menu(True)
         rows = markup.keyboard
         self.assertEqual(len(rows), 3)
-        self.assertEqual([b.text for b in rows[0]], [BTN_ADMIN])
-        self.assertEqual([b.text for b in rows[1]], [BTN_STUDY_SESSION, BTN_ASK_WORD])
-        self.assertEqual([b.text for b in rows[2]], [BTN_SETTINGS, BTN_HELP])
+        self.assertEqual([b.text for b in rows[0]], [BTN_ASK_WORD, BTN_STUDY_SESSION])
+        self.assertEqual([b.text for b in rows[1]], [BTN_HELP, BTN_SETTINGS])
+        self.assertEqual([b.text for b in rows[2]], [BTN_ADMIN])
 
     def test_non_admin_has_no_admin_button(self):
         markup = main_menu(False)
@@ -172,31 +172,31 @@ class TestReviewKeyboard(unittest.TestCase):
         self.assertEqual(len(rows), 3)  # 2 grade rows + one 🔊/🗑 row
         self.assertEqual(len(rows[0]), 2)
         self.assertEqual(len(rows[1]), 2)
-        # Row 0: Again, Hard
-        self.assertEqual(rows[0][0].text, IBTN_SRS_AGAIN_REVIEW)
-        self.assertEqual(rows[0][0].callback_data, "srs:1:1:10")
-        self.assertEqual(rows[0][1].text, IBTN_SRS_HARD_REVIEW)
-        self.assertEqual(rows[0][1].callback_data, "srs:2:1:10")
-        # Row 1: Good, Easy
-        self.assertEqual(rows[1][0].text, IBTN_SRS_GOOD_REVIEW)
-        self.assertEqual(rows[1][0].callback_data, "srs:3:1:10")
-        self.assertEqual(rows[1][1].text, IBTN_SRS_EASY_REVIEW)
-        self.assertEqual(rows[1][1].callback_data, "srs:4:1:10")
-        # Row 2: 🔊 pronounce + 🗑 delete (same row)
+        # Row 0: Hard, Again
+        self.assertEqual(rows[0][0].text, IBTN_SRS_HARD_REVIEW)
+        self.assertEqual(rows[0][0].callback_data, "srs:2:1:10")
+        self.assertEqual(rows[0][1].text, IBTN_SRS_AGAIN_REVIEW)
+        self.assertEqual(rows[0][1].callback_data, "srs:1:1:10")
+        # Row 1: Easy, Good
+        self.assertEqual(rows[1][0].text, IBTN_SRS_EASY_REVIEW)
+        self.assertEqual(rows[1][0].callback_data, "srs:4:1:10")
+        self.assertEqual(rows[1][1].text, IBTN_SRS_GOOD_REVIEW)
+        self.assertEqual(rows[1][1].callback_data, "srs:3:1:10")
+        # Row 2: 🗑 delete + 🔊 pronounce (same row)
         self.assertEqual(len(rows[2]), 2)
-        self.assertEqual(rows[2][0].text, IBTN_PRONOUNCE)
-        self.assertEqual(rows[2][0].callback_data, "tts:pronounce:s:1:10")
-        self.assertEqual(rows[2][1].text, IBTN_SRS_DELETE)
-        self.assertEqual(rows[2][1].callback_data, "srs:delete:1:10")
+        self.assertEqual(rows[2][0].text, IBTN_SRS_DELETE)
+        self.assertEqual(rows[2][0].callback_data, "srs:delete:1:10")
+        self.assertEqual(rows[2][1].text, IBTN_PRONOUNCE)
+        self.assertEqual(rows[2][1].callback_data, "tts:pronounce:s:1:10")
 
     def test_review_keyboard_with_pronounce(self):
         markup = get_review_keyboard(1, 10)
         rows = markup.inline_keyboard
-        self.assertEqual(len(rows), 3)  # 2 grade + one 🔊/🗑 row
-        self.assertEqual(rows[2][0].text, IBTN_PRONOUNCE)
-        self.assertEqual(rows[2][0].callback_data, "tts:pronounce:s:1:10")
-        self.assertEqual(rows[2][1].text, IBTN_SRS_DELETE)
-        self.assertEqual(rows[2][1].callback_data, "srs:delete:1:10")
+        self.assertEqual(len(rows), 3)  # 2 grade + one 🗑/🔊 row
+        self.assertEqual(rows[2][0].text, IBTN_SRS_DELETE)
+        self.assertEqual(rows[2][0].callback_data, "srs:delete:1:10")
+        self.assertEqual(rows[2][1].text, IBTN_PRONOUNCE)
+        self.assertEqual(rows[2][1].callback_data, "tts:pronounce:s:1:10")
 
     def test_all_callbacks_match_pattern(self):
         markup = get_review_keyboard(123, 456)
@@ -211,8 +211,8 @@ class TestReviewKeyboard(unittest.TestCase):
                 self.assertEqual(parts[3], "456")
         last = rows[-1]
         self.assertEqual(len(last), 2)
-        self.assertEqual(last[0].callback_data, "tts:pronounce:s:123:456")
-        self.assertEqual(last[1].callback_data, "srs:delete:123:456")
+        self.assertEqual(last[0].callback_data, "srs:delete:123:456")
+        self.assertEqual(last[1].callback_data, "tts:pronounce:s:123:456")
 
 
 class TestSrsFrontKeyboard(unittest.TestCase):
@@ -237,31 +237,31 @@ class TestFirstExposureKeyboard(unittest.TestCase):
         self.assertEqual(len(rows), 3)  # 2 grade rows + one 🔊/🗑 row
         self.assertEqual(len(rows[0]), 2)
         self.assertEqual(len(rows[1]), 2)
-        # Row 0: Again, Hard
-        self.assertEqual(rows[0][0].text, IBTN_SRS_AGAIN_FE)
-        self.assertEqual(rows[0][0].callback_data, "srs:fe:1:1:10")
-        self.assertEqual(rows[0][1].text, IBTN_SRS_HARD_FE)
-        self.assertEqual(rows[0][1].callback_data, "srs:fe:2:1:10")
-        # Row 1: Good, Easy
-        self.assertEqual(rows[1][0].text, IBTN_SRS_GOOD_FE)
-        self.assertEqual(rows[1][0].callback_data, "srs:fe:3:1:10")
-        self.assertEqual(rows[1][1].text, IBTN_SRS_EASY_FE)
-        self.assertEqual(rows[1][1].callback_data, "srs:fe:4:1:10")
-        # Row 2: 🔊 pronounce + 🗑 delete (same row)
+        # Row 0: Hard, Again
+        self.assertEqual(rows[0][0].text, IBTN_SRS_HARD_FE)
+        self.assertEqual(rows[0][0].callback_data, "srs:fe:2:1:10")
+        self.assertEqual(rows[0][1].text, IBTN_SRS_AGAIN_FE)
+        self.assertEqual(rows[0][1].callback_data, "srs:fe:1:1:10")
+        # Row 1: Easy, Good
+        self.assertEqual(rows[1][0].text, IBTN_SRS_EASY_FE)
+        self.assertEqual(rows[1][0].callback_data, "srs:fe:4:1:10")
+        self.assertEqual(rows[1][1].text, IBTN_SRS_GOOD_FE)
+        self.assertEqual(rows[1][1].callback_data, "srs:fe:3:1:10")
+        # Row 2: 🗑 delete + 🔊 pronounce (same row)
         self.assertEqual(len(rows[2]), 2)
-        self.assertEqual(rows[2][0].text, IBTN_PRONOUNCE)
-        self.assertEqual(rows[2][0].callback_data, "tts:pronounce:s:1:10")
-        self.assertEqual(rows[2][1].text, IBTN_SRS_DELETE)
-        self.assertEqual(rows[2][1].callback_data, "srs:delete:1:10")
+        self.assertEqual(rows[2][0].text, IBTN_SRS_DELETE)
+        self.assertEqual(rows[2][0].callback_data, "srs:delete:1:10")
+        self.assertEqual(rows[2][1].text, IBTN_PRONOUNCE)
+        self.assertEqual(rows[2][1].callback_data, "tts:pronounce:s:1:10")
 
     def test_first_exposure_keyboard_with_pronounce(self):
         markup = get_first_exposure_keyboard(1, 10)
         rows = markup.inline_keyboard
-        self.assertEqual(len(rows), 3)  # 2 grade + one 🔊/🗑 row
-        self.assertEqual(rows[2][0].text, IBTN_PRONOUNCE)
-        self.assertEqual(rows[2][0].callback_data, "tts:pronounce:s:1:10")
-        self.assertEqual(rows[2][1].text, IBTN_SRS_DELETE)
-        self.assertEqual(rows[2][1].callback_data, "srs:delete:1:10")
+        self.assertEqual(len(rows), 3)  # 2 grade + one 🗑/🔊 row
+        self.assertEqual(rows[2][0].text, IBTN_SRS_DELETE)
+        self.assertEqual(rows[2][0].callback_data, "srs:delete:1:10")
+        self.assertEqual(rows[2][1].text, IBTN_PRONOUNCE)
+        self.assertEqual(rows[2][1].callback_data, "tts:pronounce:s:1:10")
 
     def test_all_callbacks_match_fe_pattern(self):
         markup = get_first_exposure_keyboard(123, 456)
@@ -276,8 +276,8 @@ class TestFirstExposureKeyboard(unittest.TestCase):
                 self.assertEqual(parts[4], "456")
         last = rows[-1]
         self.assertEqual(len(last), 2)
-        self.assertEqual(last[0].callback_data, "tts:pronounce:s:123:456")
-        self.assertEqual(last[1].callback_data, "srs:delete:123:456")
+        self.assertEqual(last[0].callback_data, "srs:delete:123:456")
+        self.assertEqual(last[1].callback_data, "tts:pronounce:s:123:456")
 
 
 if __name__ == "__main__":
