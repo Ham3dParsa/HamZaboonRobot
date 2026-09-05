@@ -7,7 +7,7 @@ the more specific and more recent instruction.
 GitHub Issues are the canonical issue registry; `ROADMAP.md` is product
 direction. Neither `project_status.json` nor any generated view is canonical.
 
-_Last updated: 2026-08-18._
+_Last updated: 2026-09-05._
 
 ## 1. Product
 
@@ -27,7 +27,11 @@ Every code change — exploratory, trivial, bug fix, or major — requires a
 locked contract BEFORE touching code:
 
 1. STOP. Identify every logical gap, algorithm decision, product rule.
-2. Assess callback-routing impact (see `callback-wiring` skill).
+2. Assess callback-routing impact (see `callback-wiring` skill). If a
+   structural-risk trigger fires — cross-module symbol edit, any
+   callback/router/keyboard change, any delete/move/schema/preset change, or
+   callers still unknown after one `grep` — run the graphify blast-radius check
+   (see `graphify-index`) and record a `Blast-radius:` block in the contract.
 3. Present each gap as a **numbered rule** with a recommended option, ≥1
    alternative, and trade-offs in plain language (owner is not a developer).
 4. Owner chooses each rule independently (no blanket approval).
@@ -60,6 +64,12 @@ Every domain concept MUST have exactly one owning module under `services/` or
 - **Pre-implementation scan** — before touching domain logic, run
   `grep -rn "<keyword>" services/ config/ handlers/` and locate every source.
   If duplicates exist, state the target single-source module and plan removal.
+  If a structural-risk trigger fired (§2 step 2), also run `graphify explain`
+  + `query --budget 1000` (+ `path` if two-ended) — but NEVER trust the graph
+  before the freshness gate passes: `built_at_commit == HEAD`, no §4-listed
+  module missing from the graph, no zero-hit on a file that exists. Gate fails
+  ⇒ read-first + run `graphify update .`. Only free commands
+  (`explain`/`path`/`query`); never mandate `cluster-only`/`affected`.
 
 **Enforcement:** `tests/test_single_source_of_truth.py` (CI) fails if a curated
 domain keyword appears in any file outside its owner module. Add keywords there,
@@ -211,6 +221,7 @@ branches).
 | `pre-commit-gate` | Immediately before a commit. |
 | `integration-test-proto` | Behavioral change: callbacks/handlers/DB/quota/AI. |
 | `callback-wiring` | Adding/changing a callback prefix or keyboard. |
+| `graphify-index` | Structural-risk trigger fired (§2 step 2), or reviewer asks. |
 | `persian-formatting` | Adding/changing learner-facing Persian text. |
 | `audit-workflow` | Asked to audit/review the project. |
 | `documentation-protocol` | A meaningful change touched docs/status/roadmap/module structure. |
@@ -247,7 +258,9 @@ status --porcelain` clean, work inside `.worktrees/<branch>`); all gaps as
 numbered rules with options + trade-offs; owner chose each; Contract Lock
 Template filled; `GATE STATUS = LOCKED`; `<SYSTEM_GATE> Contract lock required
 before proceeding </SYSTEM_GATE>` present; no code before lock; callback impact
-assessed; §2.2 §2.3 compliant; `grep` verified no duplicate domain logic (§3).
+assessed; §2.2 §2.3 compliant; `grep` verified no duplicate domain logic (§3);
+graphify triggers checked — if fired, freshness gate passed and `Blast-radius:`
+block recorded (§2 step 2).
 
 **Before commit:** work inside `.worktrees/<branch>` (§6.1 primary still on
 `main` clean); validation suite passed (§7); `git diff --check` + staged clean;
