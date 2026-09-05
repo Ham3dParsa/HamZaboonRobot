@@ -424,7 +424,13 @@ def count_llm_requests_since(date: str) -> int:
         row = conn.execute(
             "SELECT COUNT(*) AS cnt FROM llm_requests WHERE request_date >= ?", (date,)
         ).fetchone()
-        return row["cnt"] if row else 0
+        raw = int(row["cnt"] or 0) if row else 0
+    try:
+        from services.db import cost_tracking as _ct
+        rolled = _ct.rollup_request_count_since(date)
+    except Exception:
+        rolled = 0
+    return raw + rolled
 
 
 def set_plan(user_id: int, plan: str):
@@ -495,10 +501,23 @@ def count_retained_users(created_before: str, active_since: str) -> int:
 
 
 def count_review_events_total() -> int:
-    """Total number of review_events rows."""
+    """Lifetime review-event total from per-card counters.
+
+    Reads SUM(saved_words.total_reviews) so the count stays exact after the
+    retention prune deletes old raw review_events rows. Counters are seeded by
+    migration backfill and incremented atomically by record_review_event.
+    """
     with get_conn() as conn:
-        row = conn.execute("SELECT COUNT(*) AS cnt FROM review_events").fetchone()
-        return int(row["cnt"]) if row else 0
+        try:
+            row = conn.execute(
+                "SELECT SUM(COALESCE(total_reviews, 0)) AS cnt FROM saved_words"
+            ).fetchone()
+        except Exception:
+            row = None
+        if row is not None and row["cnt"] is not None:
+            return int(row["cnt"])
+        fallback = conn.execute("SELECT COUNT(*) AS cnt FROM review_events").fetchone()
+        return int(fallback["cnt"]) if fallback else 0
 
 
 def count_study_sessions_total() -> int:
@@ -546,9 +565,20 @@ def get_user_learning_stats(user_id: int) -> dict:
         sw = conn.execute(
             "SELECT COUNT(*) AS cnt FROM saved_words WHERE user_id=?", (user_id,)
         ).fetchone()
-        re = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM review_events WHERE user_id=?", (user_id,)
-        ).fetchone()
+        # Lifetime per-user review total from counters (exact across prunes);
+        # falls back to the raw table only when counters are unavailable.
+        try:
+            re = conn.execute(
+                "SELECT SUM(COALESCE(total_reviews, 0)) AS cnt FROM saved_words "
+                "WHERE user_id=?",
+                (user_id,),
+            ).fetchone()
+            review_events = int(re["cnt"] or 0) if re else 0
+        except Exception:
+            re = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM review_events WHERE user_id=?", (user_id,)
+            ).fetchone()
+            review_events = int(re["cnt"]) if re else 0
         # Q7 fix: session_reports is the real per-session history (study_sessions
         # can only ever be 0/1 because user_id is its PK).
         sr = conn.execute(
@@ -563,7 +593,6 @@ def get_user_learning_stats(user_id: int) -> dict:
             (today_iso, user_id),
         ).fetchone()
         saved_words = int(sw["cnt"]) if sw else 0
-        review_events = int(re["cnt"]) if re else 0
         session_reports = int(sr["cnt"]) if sr else 0
         total = int(br["total"]) if br and br["total"] is not None else saved_words
         learned = int(br["learned"]) if br and br["learned"] is not None else 0

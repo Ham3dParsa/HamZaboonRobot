@@ -1107,6 +1107,56 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+def setup_background_jobs(job_queue) -> None:
+    """Register all periodic background jobs (T3, plan-retention R7).
+
+    Scheduling-lines-only seam so tests can pin the nightly/backup hours
+    against a fake queue without building the application. Intervals of the
+    pre-existing jobs are untouched; only additions/pins below are new:
+    nightly retention sweep daily 03:30 APP_TZ, auto-backup daily 05:30
+    APP_TZ (out of the purge hour and the evening peak).
+    """
+    from services.retention import nightly_retention_job
+
+    job_queue.run_repeating(
+        connection_health_job,
+        interval=CONNECTION_HEALTH_INTERVAL_SECONDS,
+        first=CONNECTION_HEALTH_INTERVAL_SECONDS,
+    )
+    # R8b: retention enforcement must not depend on owner config, so the
+    # query_results purge is its own repeating job outside the owner gate.
+    job_queue.run_repeating(
+        cleanup_query_results_job,
+        interval=1800,
+        first=1800,
+    )
+    # A2-2: SRS grace-deadline maintenance also runs ungated (not owner-bound)
+    # and periodic, so the read path stays lock-free.
+    job_queue.run_repeating(
+        grace_reset_job,
+        interval=1800,
+        first=1800,
+    )
+    # T3 R7: nightly retention sweep — run-once daily 03:30 APP_TZ, small
+    # batches with yields; overruns defer to the next night.
+    job_queue.run_daily(
+        nightly_retention_job,
+        time=datetime.time(hour=3, minute=30, tzinfo=_app_timezone),
+    )
+    # T3 R7: auto-backup pinned daily 05:30 APP_TZ — never in the 03:30
+    # purge hour, never in the evening peak.
+    job_queue.run_daily(
+        auto_backup_job,
+        time=datetime.time(hour=5, minute=30, tzinfo=_app_timezone),
+    )
+    if OWNER_ID != 0:
+        job_queue.run_repeating(
+            primary_retry_job,
+            interval=1800,
+            first=1800,
+        )
+
+
 def main():
     db.init_db()
     try:
@@ -1134,37 +1184,7 @@ def main():
     app.add_error_handler(error_handler)
 
     if app.job_queue:
-        app.job_queue.run_repeating(
-            connection_health_job,
-            interval=CONNECTION_HEALTH_INTERVAL_SECONDS,
-            first=CONNECTION_HEALTH_INTERVAL_SECONDS,
-        )
-        # R8b: retention enforcement must not depend on owner config, so the
-        # query_results purge is its own repeating job outside the owner gate.
-        app.job_queue.run_repeating(
-            cleanup_query_results_job,
-            interval=1800,
-            first=1800,
-        )
-        # A2-2: SRS grace-deadline maintenance also runs ungated (not owner-bound)
-        # and periodic, so the read path stays lock-free.
-        app.job_queue.run_repeating(
-            grace_reset_job,
-            interval=1800,
-            first=1800,
-        )
-        # archive auto-backup decoupled: runs if resolved_archive_chat_id or OWNER_ID
-        app.job_queue.run_repeating(
-            auto_backup_job,
-            interval=10800,
-            first=60,
-        )
-        if OWNER_ID != 0:
-            app.job_queue.run_repeating(
-                primary_retry_job,
-                interval=1800,
-                first=1800,
-            )
+        setup_background_jobs(app.job_queue)
 
     log.info("The bot is starting...")
     app.run_polling()

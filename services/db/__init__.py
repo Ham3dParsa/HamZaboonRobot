@@ -124,6 +124,7 @@ from services.db.sessions import (
     mark_word_graded,
     is_word_graded,
     clear_session_grades,
+    purge_stale_study_sessions,
 )
 
 from services.db.session_reports import (
@@ -132,6 +133,7 @@ from services.db.session_reports import (
     ReportEntry,
     list_recent_reports,
     load_report,
+    purge_expired_session_reports,
     save_session_report,
 )
 
@@ -164,6 +166,7 @@ def _is_storage_error(exc: BaseException) -> bool:
 
 from services.db.reviews import (
     REVIEW_OUTCOMES,
+    prune_old_review_events,
     record_review_event,
     recent_events_for_words,
 )
@@ -479,7 +482,9 @@ from services.db.cost_tracking import (
     count_breakdown_preset_kind_groups,
     daily_costs_grouped,
     delete_llm_requests,
+    purge_old_llm_requests,
     recent_llm_requests,
+    rollup_request_count_since,
     summarize_llm_requests,
 )
 
@@ -546,29 +551,74 @@ def log_config_test(test_type: str, preset_name: str, prompt: str, result: dict)
                 _utc_now().isoformat(),
             ),
         )
+    # Lazy retention: the audit table is unbounded, so every insert also runs
+    # the prune (same precedent as session_reports' lazy purge, R10-E). Runs in
+    # its own short transaction(s) after the insert; log_config_test is
+    # admin-triggered (low frequency). No scheduler wiring (per T1 contract).
+    prune_config_tests()
 
 
-def prune_config_tests(max_rows: int = 1000, max_age_days: int = 30) -> int:
+def prune_config_tests(
+    max_rows: int = 1000, max_age_days: int = 30, *, batch: int = 500
+) -> int:
     """Prune unbounded config_tests audit table (O-config-tests).
 
-    Fast-track prune: deletes rows older than max_age_days and keeps only the
-    most recent max_rows rows. Returns total deleted count. No behavior change
-    for callers — log_config_test continues to insert.
+    Deletes rows older than max_age_days and keeps only the most recent
+    max_rows rows. Returns total deleted count. DELETE-only, batched via
+    rowid (each batch in its own short ``transaction()``) so a large backlog
+    never holds one long transaction. No behavior change for readers of recent
+    rows — log_config_test continues to insert.
     """
     cutoff = (_utc_now() - datetime.timedelta(days=max_age_days)).isoformat()
     deleted = 0
-    with transaction() as conn:
-        cur = conn.execute("DELETE FROM config_tests WHERE created_at < ?", (cutoff,))
-        deleted += cur.rowcount or 0
-        count = conn.execute("SELECT COUNT(*) AS c FROM config_tests").fetchone()["c"]
-        if count > max_rows:
-            to_delete = count - max_rows
-            conn.execute(
+    while True:
+        with transaction() as conn:
+            cur = conn.execute(
+                "DELETE FROM config_tests WHERE rowid IN ("
+                "SELECT rowid FROM config_tests WHERE created_at < ? LIMIT ?)",
+                (cutoff, batch),
+            )
+            n = cur.rowcount or 0
+        deleted += n
+        if n < batch:
+            break
+    while True:
+        with transaction() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) AS c FROM config_tests"
+            ).fetchone()["c"]
+            if count <= max_rows:
+                break
+            cur = conn.execute(
                 "DELETE FROM config_tests WHERE id IN "
                 "(SELECT id FROM config_tests ORDER BY created_at ASC, id ASC LIMIT ?)",
-                (to_delete,),
+                (min(count - max_rows, batch),),
             )
-            deleted += to_delete
+            deleted += cur.rowcount or 0
+    return deleted
+
+
+def purge_grammar_tips(*, batch: int = 500) -> int:
+    """Delete ALL grammar_tips rows in bounded batches (retired table).
+
+    The table is retired (no prod callers of ``add_grammar_tip`` /
+    ``recent_grammar_tip_titles`` — test-only). Safest path per T1 contract:
+    rows only; the table shell and all code stay untouched. Each batch runs in
+    its own short ``transaction()``. Function only — no scheduler wiring.
+    Returns the number of rows deleted.
+    """
+    deleted = 0
+    while True:
+        with transaction() as conn:
+            cur = conn.execute(
+                "DELETE FROM grammar_tips WHERE id IN ("
+                "SELECT id FROM grammar_tips ORDER BY id ASC LIMIT ?)",
+                (batch,),
+            )
+            n = cur.rowcount or 0
+        deleted += n
+        if n < batch:
+            break
     return deleted
 
 

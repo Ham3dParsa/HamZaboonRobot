@@ -10,13 +10,14 @@ once at the top of handle_study_start(), before build_session_list().
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from collections import deque
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from config import APP_TZ
-from services.db import get_setting
+from services.db import get_conn, get_setting
 from services.db.schema import transaction
 
 logger = logging.getLogger(__name__)
@@ -167,6 +168,47 @@ def release_session_slot(user_id: int) -> None:
         "release_session_slot user_id=%s used=%s->%s",
         user_id, used, max(0, used - 1),
     )
+
+
+# Strict shape of a per-day quota key: sessions_used_{user_id}_{YYYY-MM-DD}.
+# Anything else (other settings, malformed keys) is never touched by the purge.
+_SLOT_KEY_RE = re.compile(r"^sessions_used_(\d+)_(\d{4}-\d{2}-\d{2})$")
+
+
+def purge_old_session_slot_keys(*, batch: int = 500) -> int:
+    """Delete per-day session quota keys older than yesterday (nightly-safe).
+
+    Keeps today's and yesterday's keys (app-tz dates); only quota reads today's
+    key (``_session_key``/``_get_used``), so older keys have no live reader.
+    DELETE-only, in chunks of ``batch`` keys with each chunk in its own short
+    ``transaction()``. Function only — no scheduler wiring (per T1 contract).
+    Returns the number of keys deleted.
+    """
+    keep_from = (datetime.now(_app_tz).date() - timedelta(days=1)).isoformat()
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT key FROM settings WHERE key LIKE 'sessions_used\\_%' ESCAPE '\\'"
+        ).fetchall()
+    stale = [
+        r["key"]
+        for r in rows
+        if (m := _SLOT_KEY_RE.match(r["key"])) and m.group(2) < keep_from
+    ]
+    deleted = 0
+    for i in range(0, len(stale), batch):
+        chunk = stale[i:i + batch]
+        with transaction() as conn:
+            cur = conn.execute(
+                f"DELETE FROM settings WHERE key IN ({','.join('?' * len(chunk))})",
+                chunk,
+            )
+            deleted += cur.rowcount or 0
+    if stale:
+        logger.debug(
+            "purge_old_session_slot_keys deleted=%s keep_from=%s",
+            deleted, keep_from,
+        )
+    return deleted
 
 
 def word_query_usage_text(row: dict) -> str:

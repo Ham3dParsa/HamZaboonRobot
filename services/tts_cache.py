@@ -12,6 +12,13 @@ from config import TTS_CACHE_DB_PATH
 logger = logging.getLogger(__name__)
 
 _LRU_CAP = 3000
+# T3 (plan-retention R5): file-cache retention bounds. Rows whose last_used_at
+# is older than _UNUSED_DAYS are evicted (DB row + mp3 file together); above
+# _MAX_BYTES the oldest-used rows evict until under the cap. A miss simply
+# regenerates via Edge TTS, so eviction loses nothing.
+_MAX_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB — "low GBs" per locked ticket T3
+_UNUSED_DAYS = 90  # per locked plan-retention R5 (older-than-90d eviction)
+_MP3_DIR = Path("tts_cache")  # mirrors services/tts.py::_TTS_CACHE_DIR
 _lru: OrderedDict[str, dict] = OrderedDict()
 _lru_lock = threading.Lock()
 _DB_LOCK = threading.Lock()
@@ -122,3 +129,132 @@ def put_cached(cache_key: str, lang: str, text: str, file_id: str, file_unique_i
 def clear_lru():
     with _lru_lock:
         _lru.clear()
+
+
+def _mp3_path_for_key(cache_key: str) -> Path:
+    """Mp3 file for a cache key — same derivation as services/tts._cache_path.
+
+    Duplicated (not imported) so this module stays import-light for
+    ``to_thread`` use: ``sha256(cache_key)[:16].mp3`` under the cache dir.
+    """
+    import hashlib
+
+    key = hashlib.sha256(cache_key.encode()).hexdigest()[:16]
+    return _MP3_DIR / f"{key}.mp3"
+
+
+def _delete_row_and_file(cache_key: str) -> None:
+    """Delete one DB row + its mp3 file + LRU entry together (never one alone)."""
+    with _DB_LOCK:
+        conn = sqlite3.connect(_db_path(), timeout=10)
+        try:
+            conn.execute("DELETE FROM tts_cache WHERE cache_key=?", (cache_key,))
+            conn.commit()
+        finally:
+            conn.close()
+    with _lru_lock:
+        _lru.pop(cache_key, None)
+    try:
+        _mp3_path_for_key(cache_key).unlink(missing_ok=True)
+    except OSError:
+        logger.warning("tts_cache mp3 unlink failed key=%r", cache_key, exc_info=True)
+
+
+def purge_tts_cache(
+    *,
+    batch: int = 500,
+    max_bytes: int = _MAX_BYTES,
+    unused_days: int = _UNUSED_DAYS,
+) -> dict[str, int]:
+    """Evict stale/over-cap TTS file_id cache rows (T3, plan-retention R5).
+
+    Pass 1 deletes rows with ``last_used_at`` older than ``unused_days``
+    (default 90); pass 2 evicts oldest-used rows while mp3 files on disk
+    exceed ``max_bytes`` (default 2 GiB). Each eviction removes the DB row,
+    the mp3 file, and the LRU entry together. Pass 1 selects in ``batch``-sized
+    chunks and each eviction deletes its DB row in its own short autocommit
+    transaction; idempotent; a miss regenerates via Edge TTS.
+    Returns ``{"expired": n, "over_cap": m}``. Function only — the nightly
+    job in services/retention.py is the sole scheduler caller.
+    """
+    _ensure_db()
+    batch = max(1, int(batch))
+    cutoff = (
+        datetime.datetime.now(datetime.timezone.utc)
+        - datetime.timedelta(days=unused_days)
+    ).isoformat()
+    counts = {"expired": 0, "over_cap": 0}
+    while True:
+        with _DB_LOCK:
+            conn = sqlite3.connect(_db_path(), timeout=10)
+            try:
+                rows = conn.execute(
+                    "SELECT cache_key FROM tts_cache WHERE last_used_at < ? "
+                    "ORDER BY last_used_at ASC LIMIT ?",
+                    (cutoff, batch),
+                ).fetchall()
+                keys = [r[0] for r in rows]
+            finally:
+                conn.close()
+        if not keys:
+            break
+        for key in keys:
+            _delete_row_and_file(key)
+        counts["expired"] += len(keys)
+        if len(keys) < batch:
+            break
+    # Pass 2: over-cap eviction, oldest-used first. LIMIT-chunked (A1) so
+    # per-query rows and memory stay O(batch) regardless of table size:
+    # chunk-scan the total, then evict the oldest chunk until under cap.
+    while True:
+        total = 0
+        offset = 0
+        while True:
+            with _DB_LOCK:
+                conn = sqlite3.connect(_db_path(), timeout=10)
+                try:
+                    rows = conn.execute(
+                        "SELECT cache_key FROM tts_cache ORDER BY last_used_at ASC "
+                        "LIMIT ? OFFSET ?",
+                        (batch, offset),
+                    ).fetchall()
+                    keys = [r[0] for r in rows]
+                finally:
+                    conn.close()
+            if not keys:
+                break
+            for key in keys:
+                try:
+                    total += _mp3_path_for_key(key).stat().st_size
+                except OSError:
+                    continue
+            if len(keys) < batch:
+                break
+            offset += batch
+        if total <= max_bytes:
+            break
+        with _DB_LOCK:
+            conn = sqlite3.connect(_db_path(), timeout=10)
+            try:
+                rows = conn.execute(
+                    "SELECT cache_key FROM tts_cache ORDER BY last_used_at ASC LIMIT ?",
+                    (batch,),
+                ).fetchall()
+                victims = [r[0] for r in rows]
+            finally:
+                conn.close()
+        if not victims:
+            break
+        for victim in victims:
+            try:
+                size = _mp3_path_for_key(victim).stat().st_size
+            except OSError:
+                size = 0
+            _delete_row_and_file(victim)
+            counts["over_cap"] += 1
+            total -= size
+            if total <= max_bytes:
+                break
+    if counts["expired"] or counts["over_cap"]:
+        logger.info("purge_tts_cache evicted=%s", counts)
+    return counts

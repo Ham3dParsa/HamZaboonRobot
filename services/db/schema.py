@@ -169,6 +169,54 @@ def _backfill_saved_word_normalization(conn):
     )
 
 
+def _backfill_review_counters(conn) -> None:
+    """One-time migration: seed saved_words.total_reviews/lapses from history.
+
+    Sets each card's counters to its lifetime review_events totals so the
+    retention prune (which deletes old raw events) stays exact: counters are
+    incremented at insert by ``record_review_event`` going forward, and this
+    backfill covers everything inserted before the counters existed. Lapse =
+    grade 1, with a legacy fallback (grade NULL + outcome 'again') for rows
+    written before the grade column existed. Idempotent via the
+    ``_migration_review_counters_done`` settings marker; monotonic by
+    construction (runs once, before any prune can delete rows). Row-preserving:
+    only UPDATEs the two counter columns.
+    """
+    done = conn.execute(
+        "SELECT 1 FROM settings WHERE key='_migration_review_counters_done'"
+    ).fetchone()
+    if done:
+        return
+    review_cols = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(review_events)").fetchall()
+    }
+    if "grade" in review_cols:
+        lapse_pred = (
+            "(review_events.grade = 1 OR (review_events.grade IS NULL "
+            "AND review_events.outcome = 'again'))"
+        )
+    else:
+        # Very old DBs predate the grade column: outcome-only fallback.
+        lapse_pred = "(review_events.outcome = 'again')"
+    conn.execute(
+        "UPDATE saved_words SET total_reviews = COALESCE("
+        "(SELECT COUNT(*) FROM review_events "
+        "WHERE review_events.word_id = saved_words.id "
+        "AND review_events.user_id = saved_words.user_id), 0), "
+        "lapses = COALESCE("
+        "(SELECT COUNT(*) FROM review_events "
+        "WHERE review_events.word_id = saved_words.id "
+        "AND review_events.user_id = saved_words.user_id "
+        f"AND {lapse_pred}), 0)"
+    )
+    conn.execute(
+        "INSERT INTO settings(key, value) VALUES (?, '1') "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        ("_migration_review_counters_done",),
+    )
+
+
 def _table_names(conn: sqlite3.Connection) -> set[str]:
     return {
         row["name"]
@@ -512,7 +560,9 @@ def init_db(path: str | None = None):
                 difficulty REAL DEFAULT 5.0,
                 entry_source TEXT DEFAULT 'manual',
                 last_review_at TEXT,
-                next_review_at TEXT
+                next_review_at TEXT,
+                total_reviews INTEGER NOT NULL DEFAULT 0,
+                lapses INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -581,6 +631,26 @@ def init_db(path: str | None = None):
                 request_count INTEGER DEFAULT 0,
                 token_count INTEGER DEFAULT 0,
                 PRIMARY KEY (preset_name, hour_bucket)
+            );
+            CREATE TABLE IF NOT EXISTS llm_daily_rollup (
+                request_date TEXT PRIMARY KEY,
+                request_count INTEGER NOT NULL DEFAULT 0,
+                prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                completion_tokens INTEGER NOT NULL DEFAULT 0,
+                total_tokens INTEGER NOT NULL DEFAULT 0,
+                cost_usd REAL NOT NULL DEFAULT 0,
+                cost_toman REAL NOT NULL DEFAULT 0,
+                input_cost_usd REAL NOT NULL DEFAULT 0,
+                output_cost_usd REAL NOT NULL DEFAULT 0,
+                input_cost_toman REAL NOT NULL DEFAULT 0,
+                output_cost_toman REAL NOT NULL DEFAULT 0,
+                success_count INTEGER NOT NULL DEFAULT 0,
+                billed_failure_count INTEGER NOT NULL DEFAULT 0,
+                zero_cost_failure_count INTEGER NOT NULL DEFAULT 0,
+                billed_failure_cost_usd REAL NOT NULL DEFAULT 0,
+                billed_failure_cost_toman REAL NOT NULL DEFAULT 0,
+                latency_sum_ms INTEGER NOT NULL DEFAULT 0,
+                latency_count INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS config_tests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -702,6 +772,14 @@ def init_db(path: str | None = None):
                 """,
                 (_today().isoformat(),),
             )
+        if "total_reviews" not in saved_word_columns:
+            conn.execute(
+                "ALTER TABLE saved_words ADD COLUMN total_reviews INTEGER NOT NULL DEFAULT 0"
+            )
+        if "lapses" not in saved_word_columns:
+            conn.execute(
+                "ALTER TABLE saved_words ADD COLUMN lapses INTEGER NOT NULL DEFAULT 0"
+            )
         review_columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(review_events)").fetchall()
@@ -715,6 +793,7 @@ def init_db(path: str | None = None):
         ):
             if col not in review_columns:
                 conn.execute(f"ALTER TABLE review_events ADD COLUMN {col} {col_def}")
+        _backfill_review_counters(conn)
         conn.execute(
             "UPDATE saved_words SET normalized_word=lower(trim(word)) "
             "WHERE normalized_word IS NULL"
