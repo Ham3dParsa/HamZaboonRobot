@@ -104,7 +104,9 @@ not in prose.
 
 **Module change guard:** if module structure changes (add/rename/split/remove),
 update this table, `tests/test_wiring.py` scan targets, and
-`.opencode/skills/parallel-work-guard/SEAMS.md`.
+`.opencode/skills/parallel-work-guard/SEAMS.md`. After any module
+add/rename/split/remove or callback-prefix change, run `graphify update .`
+before finishing, so the next agent never inherits a stale graph.
 
 **Prefer extending an existing module and convention** over a new abstraction.
 
