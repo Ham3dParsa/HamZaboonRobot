@@ -45,16 +45,15 @@ class TestRetrySeam(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(action.call_count, 1)
         mock_sleep.assert_not_called()
 
-    async def test_retry_after_clamped(self):
+    async def test_retry_after_over_cap_raises(self):
         action = AsyncMock(side_effect=[RetryAfter(35), "recovered"])
         with patch(
             "services.utils.helpers.asyncio.sleep", new=AsyncMock()
         ) as mock_sleep:
-            res = await _execute_telegram_action_with_retry(action)
-        self.assertEqual(res, "recovered")
-        self.assertEqual(action.call_count, 2)
-        mock_sleep.assert_called_once()
-        self.assertEqual(mock_sleep.call_args[0][0], 30)
+            with self.assertRaises(RetryAfter):
+                await _execute_telegram_action_with_retry(action)
+        self.assertEqual(action.call_count, 1)
+        mock_sleep.assert_not_called()
 
     async def test_slot_missing_fail_closed(self):
         action = AsyncMock(return_value="ok")
