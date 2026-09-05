@@ -399,7 +399,8 @@ def s0b_needs_review(item, index, read_entry):
             text, entries, pos, read_entry)
     except Exception:
         return False, ""
-    if gloss and card_pilot.is_inflection_gloss(gloss):
+    if gloss and (card_pilot.is_inflection_gloss(gloss)
+                   or card_pilot.parse_superlative_base(gloss)):
         return True, gloss
     return False, ""
 
@@ -1197,13 +1198,19 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                        if isinstance(v, dict) and not v.get("kept")}
         items = [i for i in items if item_key(i) not in s0b_dropped]
         # R44 v12: propagate superlative redirects onto the in-memory
-        # items (keys unchanged — the redirect is recorded, downstream
-        # stages still key on the original item key).
+        # items AND merge into the base lemma (Gemini: avoid FSRS
+        # fragmentation across best/good). The item becomes the base form
+        # (redirected_from recorded); downstream stages key off the new
+        # text, so fresh keys are resume-safe by construction.
         for item in items:
             s0b = states["s0b"]["done"].get(item_key(item)) or {}
             if s0b.get("redirect_to"):
                 item["redirect_to"] = s0b["redirect_to"]
                 item["s0b_reason"] = s0b.get("reason", "")
+                base = str(s0b["redirect_to"]).strip().lower()
+                if base and base != (item.get("text") or "").strip().lower():
+                    item["redirected_from"] = item.get("text", "")
+                    item["text"] = base
         if s0b_dropped:
             print("s0b inflection: kept=%d dropped=%d (%s)" % (
                 len(items), len(s0b_dropped),
@@ -1447,6 +1454,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 "key": key, "kind": item.get("kind") or "word",
                 "text": item.get("text", ""),
                 "pool_level": item.get("pool_level", ""),
+                "redirect_to": item.get("redirect_to", "") or "",
+                "redirected_from": item.get("redirected_from", "") or "",
                 "sense_id": enrich.get("sense_id", ""),
                 "en_def": enrich.get("en_def", ""),
                 "ipa": enrich.get("ipa", ""),
@@ -1460,7 +1469,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 "topic_method": label.get("method")
                 or card_pilot.TOPIC_METHOD_TAG,
                 "drop_reason": None,
-                "redirect_to": s0b.get("redirect_to", ""),
+                "redirect_to": item.get("redirect_to", "") or "",
                 "stage_calls": {
                     "s0": ("kept:type-pending" if s0v.get("type_pending")
                            else "kept"),
@@ -1485,10 +1494,24 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             pass
     out_path = pathlib.Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    # Redirect merges can map two lemmas onto one base key (best+better
+    # -> good): emit the first, record later ones as duplicate-redirect
+    # drops so FSRS never fragments and no silent overwrites happen.
+    seen_keys: set = set()
+    dup_redirect: list = []
     with open(out_path, "w", encoding="utf-8") as handle:
         for item in items:
+            key = item_key(item)
+            if key in seen_keys:
+                dup_redirect.append("%s(redirected_from=%s)" % (
+                    key, item.get("redirected_from", "?")))
+                continue
+            seen_keys.add(key)
             handle.write(json.dumps(
-                precards[item_key(item)], ensure_ascii=False) + "\n")
+                precards[key], ensure_ascii=False) + "\n")
+    if dup_redirect:
+        print("duplicate-redirect drops (merged into base, FSRS-safe): %s"
+              % ", ".join(sorted(set(dup_redirect))))
     _tele_write(str(out_path.parent / "telemetry_summary.json"), tele_store)
     n_failed = sum(len(states[s].get("failed", [])) for s in STAGES)
     print("precard done: %d items -> %s (s0 dropped=%d, s0b dropped=%d, "

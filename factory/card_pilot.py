@@ -480,7 +480,7 @@ def is_inflection_gloss(gloss):
 # unless the inflection_review micro-pass flags an established
 # nominal/idiomatic sense. S0b verdict variant (no new stage).
 _SUPERLATIVE_RX = re.compile(
-    r"(?i)\b(?:superlative|comparative)\s+of\s+(.+?)\s*\.?\s*$")
+    r"(?i)\b(?:superlative|comparative)(?:\s+form)?\s+of\s+(.+?)\s*\.?\s*$")
 
 
 def parse_superlative_base(gloss):
@@ -494,6 +494,8 @@ def parse_superlative_base(gloss):
         return ""
     target = (hit.group(1) or "").strip().strip(
         "'\"\u201c\u201d\u2018\u2019").strip().rstrip(".").strip()
+    # Cut trailing qualifiers: "good: most good" -> "good".
+    target = re.split(r"[:;,(]", target, maxsplit=1)[0].strip()
     return target
 
 

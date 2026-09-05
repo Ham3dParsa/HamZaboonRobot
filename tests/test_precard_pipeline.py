@@ -699,7 +699,13 @@ def test_s0b_superlative_redirects_on_plain_drop(tmp_path, monkeypatch):
     assert s0b["done"]["w:better"]["redirect_to"] == "good"
     assert "w:best" not in s0b["failed"]  # redirect keeps, never drops
     rows = {r["key"]: r for r in load_out(out)}
-    assert rows["w:best"]["redirect_to"] == "good"
+    # R44 merge (Gemini): the item becomes the base lemma in the output.
+    # best+better both target good: first emitted wins, second is a
+    # duplicate-redirect drop (no FSRS fragmentation, no silent overwrite).
+    assert rows["w:good"]["redirect_to"] == "good"
+    # First item in sample order wins the merged key; the loser drops.
+    assert rows["w:good"]["redirected_from"] in ("best", "better")
+    assert len(rows) == 1
 
 
 def test_s0b_superlative_idiomatic_kept(tmp_path, monkeypatch):
