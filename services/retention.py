@@ -30,9 +30,10 @@ def _steps():
     """Build the ordered (name, sync_callable) purge steps (T3 ticket order).
 
     Built lazily so tests can patch purge functions before the job runs.
-    Every callable takes no arguments (purge defaults carry the bounded
-    batch); each runs via ``to_thread`` in its own short transactions —
-    never a transaction held across an await.
+    Every callable takes an optional monotonic ``deadline`` kwarg (looped
+    purges stop batching at it and defer the remainder; single-statement
+    purges accept-and-ignore it); each runs via ``to_thread`` in its own
+    short transactions — never a transaction held across an await.
     """
     from services import db
     from services import scheduling
@@ -72,29 +73,35 @@ async def nightly_retention_job(context) -> dict[str, object]:
 
     Run-once per night via ``run_daily`` (03:30 APP_TIMEZONE). Skips when a
     previous run is still holding the lock; checks the time budget before
-    each step and stops cleanly on overrun for the next night.
+    each step, passes the run ``deadline`` into every step so a backlogged
+    table stops batching instead of starving the 05:30 backup, and stops
+    cleanly on overrun for the next night. Failed steps are reported under
+    ``"failed"`` (never counted as ``"ran"``) so failures are
+    distinguishable from success.
     """
     if _NIGHTLY_LOCK.locked():
         logger.info("nightly retention skipped: previous run still active")
-        return {"ran": [], "skipped": list(NIGHTLY_STEP_NAMES)}
+        return {"ran": [], "failed": [], "skipped": list(NIGHTLY_STEP_NAMES)}
     async with _NIGHTLY_LOCK:
         deadline = time.monotonic() + NIGHTLY_BUDGET_SECONDS
         ran: list[str] = []
+        failed: list[str] = []
         skipped: list[str] = []
         for name, fn in _steps():
             if time.monotonic() >= deadline:
                 skipped.append(name)
                 continue
             try:
-                result = await asyncio.to_thread(fn)
+                result = await asyncio.to_thread(fn, deadline=deadline)
                 logger.info("nightly retention step %s done result=%r", name, result)
+                ran.append(name)
             except Exception:
                 logger.exception("nightly retention step %s failed", name)
-            ran.append(name)
+                failed.append(name)
             await asyncio.sleep(_STEP_YIELD_SECONDS)
         if skipped:
             logger.warning(
                 "nightly retention overran budget; deferred to next night: %s",
                 skipped,
             )
-        return {"ran": ran, "skipped": skipped}
+        return {"ran": ran, "failed": failed, "skipped": skipped}

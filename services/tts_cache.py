@@ -4,6 +4,7 @@ import logging
 import os
 import sqlite3
 import threading
+import time
 from collections import OrderedDict
 from pathlib import Path
 
@@ -165,6 +166,7 @@ def purge_tts_cache(
     batch: int = 500,
     max_bytes: int = _MAX_BYTES,
     unused_days: int = _UNUSED_DAYS,
+    deadline: float | None = None,
 ) -> dict[str, int]:
     """Evict stale/over-cap TTS file_id cache rows (T3, plan-retention R5).
 
@@ -173,7 +175,8 @@ def purge_tts_cache(
     exceed ``max_bytes`` (default 2 GiB). Each eviction removes the DB row,
     the mp3 file, and the LRU entry together. Pass 1 selects in ``batch``-sized
     chunks and each eviction deletes its DB row in its own short autocommit
-    transaction; idempotent; a miss regenerates via Edge TTS.
+    transaction; idempotent; a miss regenerates via Edge TTS. Stops batching
+    at ``deadline`` (monotonic) when set so a backlog defers the remainder.
     Returns ``{"expired": n, "over_cap": m}``. Function only — the nightly
     job in services/retention.py is the sole scheduler caller.
     """
@@ -185,6 +188,8 @@ def purge_tts_cache(
     ).isoformat()
     counts = {"expired": 0, "over_cap": 0}
     while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         with _DB_LOCK:
             conn = sqlite3.connect(_db_path(), timeout=10)
             try:
@@ -207,6 +212,8 @@ def purge_tts_cache(
     # per-query rows and memory stay O(batch) regardless of table size:
     # chunk-scan the total, then evict the oldest chunk until under cap.
     while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         total = 0
         offset = 0
         while True:

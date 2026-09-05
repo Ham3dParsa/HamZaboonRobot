@@ -175,13 +175,14 @@ def release_session_slot(user_id: int) -> None:
 _SLOT_KEY_RE = re.compile(r"^sessions_used_(\d+)_(\d{4}-\d{2}-\d{2})$")
 
 
-def purge_old_session_slot_keys(*, batch: int = 500) -> int:
+def purge_old_session_slot_keys(*, batch: int = 500, deadline: float | None = None) -> int:
     """Delete per-day session quota keys older than yesterday (nightly-safe).
 
     Keeps today's and yesterday's keys (app-tz dates); only quota reads today's
     key (``_session_key``/``_get_used``), so older keys have no live reader.
     DELETE-only, in chunks of ``batch`` keys with each chunk in its own short
-    ``transaction()``. Function only — no scheduler wiring (per T1 contract).
+    ``transaction()``. Stops chunking at ``deadline`` (monotonic) when set.
+    Function only — no scheduler wiring (per T1 contract).
     Returns the number of keys deleted.
     """
     keep_from = (datetime.now(_app_tz).date() - timedelta(days=1)).isoformat()
@@ -196,6 +197,8 @@ def purge_old_session_slot_keys(*, batch: int = 500) -> int:
     ]
     deleted = 0
     for i in range(0, len(stale), batch):
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         chunk = stale[i:i + batch]
         with transaction() as conn:
             cur = conn.execute(

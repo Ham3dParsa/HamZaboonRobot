@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime
 import logging
 import sqlite3
+import time
 
 from services.db.schema import get_conn, transaction, _today, _utc_now
 
@@ -122,7 +123,7 @@ def clear_session_grades(user_id: int) -> None:
         )
 
 
-def purge_stale_study_sessions(*, batch: int = 500) -> dict[str, int]:
+def purge_stale_study_sessions(*, batch: int = 500, deadline: float | None = None) -> dict[str, int]:
     """Midnight sweep: delete sessions/ledger rows older than yesterday.
 
     A session lives until 00:00 the next night; the next day starts from zero.
@@ -132,13 +133,16 @@ def purge_stale_study_sessions(*, batch: int = 500) -> dict[str, int]:
     ~2 days is the proxy, which always keeps today plus yesterday in any tz.
     Same-day resume (``load_study_session``) and today's grading guards
     (``is_word_graded``) are untouched. DELETE-only, batched via rowid, each
-    batch in its own short ``transaction()``. Function only — no scheduler
-    wiring (per T1 contract). Returns per-table deleted counts.
+    batch in its own short ``transaction()``. Stops batching at ``deadline``
+    (monotonic) when set. Function only — no scheduler wiring (per T1
+    contract). Returns per-table deleted counts.
     """
     day_cutoff = (_today() - datetime.timedelta(days=1)).isoformat()
     ledger_cutoff = (_utc_now() - datetime.timedelta(days=2)).isoformat()
     counts = {"study_sessions": 0, "session_grade_ledger": 0}
     while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         with transaction() as conn:
             cur = conn.execute(
                 "DELETE FROM study_sessions WHERE rowid IN ("
@@ -150,6 +154,8 @@ def purge_stale_study_sessions(*, batch: int = 500) -> dict[str, int]:
         if n < batch:
             break
     while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         with transaction() as conn:
             cur = conn.execute(
                 "DELETE FROM session_grade_ledger WHERE rowid IN ("

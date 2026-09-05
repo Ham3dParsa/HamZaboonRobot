@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import time
 
 from services.db.schema import get_conn, transaction, _utc_now
 
@@ -118,6 +119,8 @@ def prune_old_review_events(
     retention_days: int = 90,
     keep_per_card: int = 2,
     batch: int = 500,
+    *,
+    deadline: float | None = None,
 ) -> int:
     """Aggregate-then-drop prune of review_events (per-card rollup).
 
@@ -134,8 +137,10 @@ def prune_old_review_events(
     pagination (``WHERE id > ? ORDER BY id ASC LIMIT ?``, O(batch) rows in
     memory) and victims stream from a single per-card-rank query via
     ``fetchmany``. Deletes run batched by id, each batch in its own short
-    ``transaction()`` (no await across it). Scheduling columns on saved_words
-    are never touched. Idempotent. Function only — no scheduler wiring.
+    ``transaction()`` (no await across it). Stops batching at ``deadline``
+    (monotonic) when set so a backlog defers the remainder. Scheduling
+    columns on saved_words are never touched. Idempotent. Function only —
+    no scheduler wiring.
     """
     cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=retention_days)).isoformat()
     scan = max(1, int(batch))
@@ -146,6 +151,8 @@ def prune_old_review_events(
     try:
         last_seen = 0
         while True:
+            if deadline is not None and time.monotonic() >= deadline:
+                break
             with get_conn() as conn:
                 rows = conn.execute(
                     "SELECT id, user_id, word_id, grade, outcome "
@@ -172,6 +179,8 @@ def prune_old_review_events(
     # instead of one per card. Same MAX(stored, lifetime) SQL as before.
     items = list(totals.items())
     for start in range(0, len(items), scan):
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         chunk = items[start:start + scan]
         with transaction() as conn:
             for (user_id, word_id), (total, lapses) in chunk:
@@ -201,6 +210,8 @@ def prune_old_review_events(
                 (keep_per_card, cutoff),
             )
             while True:
+                if deadline is not None and time.monotonic() >= deadline:
+                    break
                 page = cursor.fetchmany(scan)
                 if not page:
                     break

@@ -2,6 +2,7 @@
 
 import datetime
 import secrets
+import time
 
 from services.db.schema import get_conn, transaction, _today, _utc_now
 
@@ -407,7 +408,8 @@ def daily_costs_grouped(
     return dict(sorted(merged.items()))
 
 
-def purge_old_llm_requests(retention_days: int = 90, batch: int = 500) -> int:
+def purge_old_llm_requests(retention_days: int = 90, batch: int = 500,
+                         *, deadline: float | None = None) -> int:
     """Aggregate-then-drop purge of llm_requests older than retention_days.
 
     Rows with ``request_date`` older than (app-day today - retention_days) are
@@ -425,12 +427,16 @@ def purge_old_llm_requests(retention_days: int = 90, batch: int = 500) -> int:
     after. Dimensional readers (``breakdown_*``, ``count_breakdown_*``,
     ``recent_llm_requests``) intentionally read the retained raw window only
     (~90d); the per-day rollup carries no user/plan/model/kind dimensions.
+    Stops batching at ``deadline`` (monotonic) when set so a backlog defers
+    the remainder instead of starving the 05:30 backup.
     Function only — no scheduler wiring.
     """
     cutoff = (_today() - datetime.timedelta(days=retention_days)).isoformat()
     deleted = 0
     batch = max(1, int(batch))
     while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         try:
             with transaction() as conn:
                 id_rows = conn.execute(

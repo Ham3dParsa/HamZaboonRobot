@@ -44,6 +44,13 @@ class NightlyOrderTests(unittest.TestCase):
     def test_step_names_match_locked_order(self):
         self.assertEqual(retention.NIGHTLY_STEP_NAMES, EXPECTED_ORDER)
 
+    def test_step_names_match_steps_callables(self):
+        # NIGHTLY_STEP_NAMES must stay in sync with _steps() order.
+        self.assertEqual(
+            [name for name, _ in retention._steps()],
+            list(retention.NIGHTLY_STEP_NAMES),
+        )
+
     def test_job_calls_each_purge_once_in_order(self):
         calls: list[str] = []
         patches = [
@@ -77,7 +84,44 @@ class NightlyOrderTests(unittest.TestCase):
                 p.stop()
         self.assertEqual(calls, list(EXPECTED_ORDER))
         self.assertEqual(result["ran"], list(EXPECTED_ORDER))
+        self.assertEqual(result["failed"], [])
         self.assertEqual(result["skipped"], [])
+
+    def test_failed_step_reported_separately_and_rest_run(self):
+        calls: list[str] = []
+
+        def _ok(name, **kwargs):
+            calls.append(name)
+            return 0
+
+        def _boom(**kwargs):
+            calls.append("b")
+            raise RuntimeError("boom")
+
+        steps = [
+            ("a", lambda deadline=None: _ok("a", deadline=deadline)),
+            ("b", _boom),
+            ("c", lambda deadline=None: _ok("c", deadline=deadline)),
+        ]
+        with patch.object(retention, "_steps", return_value=steps):
+            result = asyncio.run(retention.nightly_retention_job(MagicMock()))
+        self.assertEqual(calls, ["a", "b", "c"])
+        self.assertEqual(result["ran"], ["a", "c"])
+        self.assertEqual(result["failed"], ["b"])
+        self.assertEqual(result["skipped"], [])
+
+    def test_job_passes_deadline_into_each_step(self):
+        seen: dict = {}
+
+        def _fake(*, deadline=None):
+            seen["deadline"] = deadline
+            return 0
+
+        with patch.object(retention, "_steps", return_value=[("only", _fake)]):
+            result = asyncio.run(retention.nightly_retention_job(MagicMock()))
+        self.assertIsNotNone(seen.get("deadline"))
+        self.assertEqual(result["ran"], ["only"])
+        self.assertEqual(result["failed"], [])
 
     def test_exhausted_budget_stops_cleanly_for_next_night(self):
         with patch.object(retention, "NIGHTLY_BUDGET_SECONDS", 0):
@@ -266,6 +310,17 @@ class NightlyIntegrationTests(unittest.TestCase):
         finally:
             conn.close()
         self.assertEqual(keys, {self.live_tts_key})
+
+    def test_expired_deadline_defers_purge_batches(self):
+        import time as _time
+
+        past = _time.monotonic() - 1
+        # 1 stale + 1 live llm row seeded; expired deadline deletes nothing.
+        self.assertEqual(self._count("llm_requests"), 2)
+        self.assertEqual(db.purge_old_llm_requests(deadline=past), 0)
+        self.assertEqual(self._count("llm_requests"), 2)
+        self.assertEqual(db.prune_old_review_events(deadline=past), 0)
+        self.assertEqual(self._count("review_events"), 3)
 
     def _ids(self, table, col):
         with db.get_conn() as conn:

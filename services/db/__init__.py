@@ -13,6 +13,7 @@ import secrets
 import sqlite3
 import stat
 import tempfile
+import time
 import shutil
 from contextlib import closing
 
@@ -411,7 +412,9 @@ def update_query_result_fields(
         return True
 
 
-def cleanup_expired_query_results():
+def cleanup_expired_query_results(*, deadline: float | None = None):
+    """Single short DELETE — ``deadline`` accepted for the uniform nightly
+    call-site and ignored (nothing to interrupt)."""
     with transaction() as conn:
         conn.execute(
             "DELETE FROM query_results WHERE expires_at<?",
@@ -559,19 +562,23 @@ def log_config_test(test_type: str, preset_name: str, prompt: str, result: dict)
 
 
 def prune_config_tests(
-    max_rows: int = 1000, max_age_days: int = 30, *, batch: int = 500
+    max_rows: int = 1000, max_age_days: int = 30, *, batch: int = 500,
+    deadline: float | None = None,
 ) -> int:
     """Prune unbounded config_tests audit table (O-config-tests).
 
     Deletes rows older than max_age_days and keeps only the most recent
     max_rows rows. Returns total deleted count. DELETE-only, batched via
     rowid (each batch in its own short ``transaction()``) so a large backlog
-    never holds one long transaction. No behavior change for readers of recent
-    rows — log_config_test continues to insert.
+    never holds one long transaction. Stops batching at ``deadline``
+    (monotonic) when set so a backlog defers the remainder. No behavior
+    change for readers of recent rows — log_config_test continues to insert.
     """
     cutoff = (_utc_now() - datetime.timedelta(days=max_age_days)).isoformat()
     deleted = 0
     while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         with transaction() as conn:
             cur = conn.execute(
                 "DELETE FROM config_tests WHERE rowid IN ("
@@ -583,6 +590,8 @@ def prune_config_tests(
         if n < batch:
             break
     while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         with transaction() as conn:
             count = conn.execute(
                 "SELECT COUNT(*) AS c FROM config_tests"
@@ -598,17 +607,20 @@ def prune_config_tests(
     return deleted
 
 
-def purge_grammar_tips(*, batch: int = 500) -> int:
+def purge_grammar_tips(*, batch: int = 500, deadline: float | None = None) -> int:
     """Delete ALL grammar_tips rows in bounded batches (retired table).
 
     The table is retired (no prod callers of ``add_grammar_tip`` /
     ``recent_grammar_tip_titles`` — test-only). Safest path per T1 contract:
     rows only; the table shell and all code stay untouched. Each batch runs in
-    its own short ``transaction()``. Function only — no scheduler wiring.
+    its own short ``transaction()``. Stops batching at ``deadline``
+    (monotonic) when set. Function only — no scheduler wiring.
     Returns the number of rows deleted.
     """
     deleted = 0
     while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         with transaction() as conn:
             cur = conn.execute(
                 "DELETE FROM grammar_tips WHERE id IN ("
