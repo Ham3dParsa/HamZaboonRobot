@@ -2548,7 +2548,10 @@ def main(argv=None):
         sys.exit("no OPENCODE_ZEN_API_KEY in factory/.env")
     run_logger.stage_end("anchor", ok=len(sample), fail=0)
 
-    prog_path = out_dir / "progress.json"
+    # Reviewer F3: precard mode uses its own progress file so stale
+    # sampling-mode done[] records can never leak into precard runs.
+    prog_path = out_dir / ("precard_progress.json" if args.from_precard
+                           else "progress.json")
     prog = json.loads(prog_path.read_text(encoding="utf-8")) if prog_path.exists() else {}
     done = prog.get("done", {})
     model_calls = prog.get("model_calls", {})

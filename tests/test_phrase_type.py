@@ -222,3 +222,15 @@ def test_backoff_stops_when_all_keys_429(monkeypatch):
     with pytest.raises(RateLimited):
         call_with_backoff(transport, "k1", "m", "p",
                           ring=KeyRing(["k1", "k2"]))
+
+def test_cefr_grade_propagates_ratelimited():
+    import urllib.error
+    import pytest
+    from phrase_judge import KeyRing, RateLimited, grade_batch
+
+    def transport(api_key, model, prompt, sys_text=None):
+        raise urllib.error.HTTPError("http://x", 429, "throttled", {}, None)
+
+    batch = [{"phrase": "time flies", "freq": 5, "prefill": "B1"}]
+    with pytest.raises(RateLimited):
+        grade_batch(batch, "k1", 0, transport, ring=KeyRing(["k1", "k2"]))

@@ -1,8 +1,11 @@
-"""EN phrase-pool CEFR judge (TICKET F4).
+"""EN phrase-pool CEFR judge (TICKET F4) + phrase-type pass (R16).
 
 Grades each phrase in ``phrases.csv`` as ONE WHOLE UNIT via the Zen
-``/responses`` transport (same pattern as ``run_v16b_topup.py``: batch 8,
-sleep 2.5s, per-model 2 attempts, 401/403 loud abort, fail-closed to prefill).
+``/responses`` transport (same pattern as ``run_v16b_topup.py``: batch 32,
+sleep 3.0s, per-model 2 attempts, 401/403 loud abort, fail-closed to prefill).
+Zen key rotation (``OPENCODE_ZEN_API_KEY`` + ``_2``): on 429 rotate keys;
+when every key 429s, flush progress and STOP for a server switch (no long
+backoff — owner rule). Telemetry per attempt (key_idx only, never values).
 Progress lives at ``--progress`` and is rewritten every batch; resume skips
 phrases already in ``done_phrases``. Per-phrase audit lines append to
 ``--out`` (``judge_log.jsonl``).
@@ -701,6 +704,8 @@ def main(argv: list[str] | None = None,
     api_key = env["OPENCODE_ZEN_API_KEY"]
     if not api_key:
         raise SystemExit("no OPENCODE_ZEN_API_KEY in factory/.env")
+    ring = KeyRing([api_key, env.get("OPENCODE_ZEN_API_KEY_2", "")])
+    print(f"keys in ring: {len(ring.keys)}")
     tele_store = []  # R27: per-attempt records (key_idx only, never values)
 
     try:
@@ -716,9 +721,19 @@ def main(argv: list[str] | None = None,
             try:
                 verdicts, model_used, batch_calls = grade_batch(
                     pending, api_key, batch_id, transport,
-                    telemetry=tele_store)
+                    telemetry=tele_store, ring=ring)
             except AuthError:
                 raise
+            except RateLimited as exc:
+                write_progress(args.progress, {
+                    "done_batches": batch_id,
+                    "total_batches": total_batches,
+                    "done_phrases": done,
+                    "failed_phrases": failed,
+                    "model_calls": calls})
+                raise SystemExit(
+                    f"STOP at batch {batch_id}: {exc} — "
+                    f"progress flushed, switch VPN server then re-run")
             except LookupError:
                 verdicts, model_used = [], ""
                 for row in pending:
