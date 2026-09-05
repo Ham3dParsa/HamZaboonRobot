@@ -76,6 +76,27 @@ class TestRetrySeam(unittest.IsolatedAsyncioTestCase):
                     ):
                         await fn(*args)
 
+    async def test_sibling_reset_flag_gating(self):
+        cases = (
+            (helpers._edit_with_retry, (AsyncMock(), "hi")),
+            (helpers._edit_markup_with_retry, (AsyncMock(), 1, 2, None)),
+            (helpers._delete_with_retry, (AsyncMock(), 1, 2)),
+        )
+        for fn, args in cases:
+            with self.subTest(fn=fn.__name__, flag=False):
+                with patch(
+                    "services.utils.helpers._reset_telegram_cb"
+                ) as mock_reset:
+                    await fn(*args, reset_telegram_cb=False)
+                mock_reset.assert_not_called()
+        for fn, args in cases:
+            with self.subTest(fn=fn.__name__, flag=True):
+                with patch(
+                    "services.utils.helpers._reset_telegram_cb"
+                ) as mock_reset:
+                    await fn(*args)
+                mock_reset.assert_called_once()
+
     async def test_reset_flag_gating(self):
         action = AsyncMock(return_value="ok")
         with patch("services.utils.helpers._reset_telegram_cb") as mock_reset:
