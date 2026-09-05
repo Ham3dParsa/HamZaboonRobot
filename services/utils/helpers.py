@@ -326,7 +326,7 @@ async def _send_with_retry(
     )
 
 
-async def _edit_with_retry(query, text, **kwargs):
+async def _edit_with_retry(query, text, *, reset_telegram_cb: bool = True, **kwargs):
     # Lazy: the slot lives in services/send_pretty.py (phase-03 R2); a
     # top-level import back would cycle (send_pretty imports this module).
     from services.send_pretty import _telegram_slots
@@ -335,7 +335,8 @@ async def _edit_with_retry(query, text, **kwargs):
         try:
             async with _telegram_slots:
                 result = await query.edit_message_text(text, **kwargs)
-                _reset_telegram_cb()
+                if reset_telegram_cb:
+                    _reset_telegram_cb()
                 return result
         except BadRequest:
             raise
@@ -361,17 +362,14 @@ async def _edit_message_with_retry(
             )
         except Forbidden:
             if chat_id > 0:
-                try:
-                    db.set_user_blocked(chat_id)
-                except Exception:
-                    pass
+                db.set_user_blocked(chat_id)
             raise
 
     return await _execute_telegram_action_with_retry(_act, is_idempotent=True, reset_telegram_cb=reset_telegram_cb)
 
 
 async def _edit_markup_with_retry(
-    bot, chat_id: int, message_id: int, reply_markup, **kwargs
+    bot, chat_id: int, message_id: int, reply_markup, *, reset_telegram_cb: bool = True, **kwargs
 ):
     """Edit only the reply markup of an existing message (no text change),
     holding the shared concurrency slot.
@@ -392,7 +390,8 @@ async def _edit_markup_with_retry(
                     reply_markup=reply_markup,
                     **kwargs,
                 )
-                _reset_telegram_cb()
+                if reset_telegram_cb:
+                    _reset_telegram_cb()
                 return result
         except Forbidden:
             if chat_id > 0:
@@ -410,7 +409,7 @@ async def _edit_markup_with_retry(
             await asyncio.sleep(_retry_sleep(attempt))
 
 
-async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
+async def _delete_with_retry(bot, chat_id: int, message_id: int, *, reset_telegram_cb: bool = True, **kwargs):
     # Lazy: the slot lives in services/send_pretty.py (phase-03 R2); a
     # top-level import back would cycle (send_pretty imports this module).
     from services.send_pretty import _telegram_slots
@@ -419,7 +418,8 @@ async def _delete_with_retry(bot, chat_id: int, message_id: int, **kwargs):
         try:
             async with _telegram_slots:
                 result = await bot.delete_message(chat_id=chat_id, message_id=message_id, **kwargs)
-                _reset_telegram_cb()
+                if reset_telegram_cb:
+                    _reset_telegram_cb()
                 return result
         except BadRequest:
             raise

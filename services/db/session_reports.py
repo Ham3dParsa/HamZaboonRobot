@@ -91,7 +91,7 @@ def list_recent_reports(
     # save's purge could interleave (ghost read). The alternative (DELETE in a
     # transaction then SELECT outside) reintroduces the race, so we keep the
     # single transaction. Lock is short (only DELETE+SELECT, no await, no I/O)
-    # and bounded by _DB_BUSY_TIMEOUT (5 s); retention purge is rare (only
+    # and bounded by _DB_BUSY_TIMEOUT (25 s); retention purge is rare (only
     # rows older than the 3-day window, lazily on save/list/load) so contention
     # is minimal.
     cutoff = _cutoff(now)
