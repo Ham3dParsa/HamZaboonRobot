@@ -1113,15 +1113,17 @@ def setup_background_jobs(job_queue) -> None:
     Scheduling-lines-only seam so tests can pin the nightly/backup hours
     against a fake queue without building the application. Intervals of the
     pre-existing jobs are untouched; only additions/pins below are new:
-    nightly retention sweep daily 03:30 APP_TZ, auto-backup daily 05:30
-    APP_TZ (out of the purge hour and the evening peak).
+    nightly retention sweep daily 03:30 APP_TZ, auto-backup twice daily
+    05:30 and 13:30 APP_TZ (out of the purge hour and the evening peak).
 
-    RPO note: auto-backup runs once daily, so the worst-case data-loss
-    window is ~24h (was ~3h on the old repeating cadence). Accepted
-    trade-off per T3 R7: backups never land in the 03:30 purge hour or the
-    evening peak, and the archive channel is not spammed 8x/day. This
-    schedule is pinned by BackupScheduleTests; changing the cadence needs
-    owner sign-off at merge time.
+    RPO note: auto-backup runs twice daily, so the worst-case data-loss
+    window is ~12h (was ~3h on the old repeating cadence). Accepted
+    trade-off per T3 R7 as amended by owner: 12h over 6h because a 6h
+    cadence would force a slot inside the evening peak. Backups never
+    land in the 03:30 purge hour or the evening peak, and the archive
+    channel is not spammed 8x/day. This schedule is pinned by
+    BackupScheduleTests; changing the cadence needs owner sign-off
+    at merge time.
     """
     from services.retention import nightly_retention_job
 
@@ -1150,11 +1152,15 @@ def setup_background_jobs(job_queue) -> None:
         nightly_retention_job,
         time=datetime.time(hour=3, minute=30, tzinfo=_app_timezone),
     )
-    # T3 R7: auto-backup pinned daily 05:30 APP_TZ — never in the 03:30
-    # purge hour, never in the evening peak.
+    # T3 R7 as amended by owner: auto-backup twice daily 05:30 and 13:30
+    # APP_TZ — never in the 03:30 purge hour, never in the evening peak.
     job_queue.run_daily(
         auto_backup_job,
         time=datetime.time(hour=5, minute=30, tzinfo=_app_timezone),
+    )
+    job_queue.run_daily(
+        auto_backup_job,
+        time=datetime.time(hour=13, minute=30, tzinfo=_app_timezone),
     )
     if OWNER_ID != 0:
         job_queue.run_repeating(

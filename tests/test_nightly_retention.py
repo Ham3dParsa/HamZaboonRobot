@@ -348,12 +348,13 @@ class BackupScheduleTests(unittest.TestCase):
 
         daily = {cb.__name__: t for cb, t in queue.daily}
         self.assertIn("nightly_retention_job", daily)
-        self.assertIn("auto_backup_job", daily)
         nightly_t = daily["nightly_retention_job"]
-        backup_t = daily["auto_backup_job"]
         self.assertEqual((nightly_t.hour, nightly_t.minute), (3, 30))
-        self.assertEqual((backup_t.hour, backup_t.minute), (5, 30))
-        self.assertEqual(str(nightly_t.tzinfo), str(backup_t.tzinfo))
+        backup_ts = [t for cb, t in queue.daily if cb.__name__ == "auto_backup_job"]
+        self.assertEqual(
+            {(t.hour, t.minute) for t in backup_ts}, {(5, 30), (13, 30)}
+        )
+        self.assertEqual(str(nightly_t.tzinfo), str(backup_ts[0].tzinfo))
         # Backup no longer fires on a repeating interval into the purge hour.
         repeating_names = [cb.__name__ for cb, _, _ in queue.repeating]
         self.assertNotIn("auto_backup_job", repeating_names)
