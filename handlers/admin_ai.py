@@ -1794,10 +1794,6 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
 
     await notify_callback(update.callback_query, "در حال اجرای تست...", intent=CallbackNoticeIntent.INFO)
 
-    system_prompt = prompts.daily_batch_system_prompt(
-        lang, goal, level, compact=prompts.card_output_is_compact()
-    )
-
     results = []
 
     # Fail fast on a missing candidate BEFORE any provider call: for
@@ -1836,6 +1832,13 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
                 [InlineKeyboardButton("↩️ بازگشت", callback_data="admin:ai_settings")],
             ]))
             return
+        system_prompt = prompts.daily_batch_system_prompt(
+            lang,
+            goal,
+            level,
+            preset_fields.resolve(active_preset, "daily_batch_size"),
+            compact=prompts.card_output_is_compact(),
+        )
         result = await asyncio.to_thread(
             ai.custom_test_card,
             system_prompt=system_prompt,
@@ -1849,9 +1852,16 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
 
     if target in ("candidate", "ab"):
         # Candidate already validated above (fail-fast, zero provider calls).
+        candidate_prompt = prompts.daily_batch_system_prompt(
+            lang,
+            goal,
+            level,
+            preset_fields.resolve(candidate, "daily_batch_size"),
+            compact=prompts.card_output_is_compact(),
+        )
         result = await asyncio.to_thread(
             ai.custom_test_card,
-            system_prompt=system_prompt,
+            system_prompt=candidate_prompt,
             user_prompt=prompt,
             lang=lang,
             goal=goal,

@@ -297,6 +297,26 @@ class TestAiCallWrappedInToThread(unittest.IsolatedAsyncioTestCase):
         mock_to_thread = await self._run_custom_test_with_mocks("ab")
         self.assertEqual(mock_to_thread.call_count, 2)
 
+    async def test_custom_test_uses_real_prompt_signature_per_preset(self):
+        """Regression: _run_custom_test must pass card_count to the real
+        daily_batch_system_prompt (TypeError before the fix), resolving it
+        per-preset from daily_batch_size — no mock on the prompt builder."""
+        from handlers.admin_ai import _run_custom_test
+        update = _make_update()
+        context = _make_context()
+        context.user_data["custom_test_state"] = {"prompt": "test", "lang": "en", "goal": "general", "level": "beginner", "candidate_preset": "candidate"}
+        with patch("handlers.admin_ai.db.get_active_preset") as mock_active:
+            mock_active.return_value = {"name": "current", "daily_batch_size": 4}
+            with patch("handlers.admin_ai.db.get_preset") as mock_get_preset:
+                mock_get_preset.return_value = {"name": "candidate", "daily_batch_size": 7}
+                with patch("handlers.admin_ai.asyncio.to_thread", new=AsyncMock()) as mock_to_thread:
+                    mock_to_thread.return_value = {"word": "hello"}
+                    await _run_custom_test(update, context, "ab")
+        self.assertEqual(mock_to_thread.call_count, 2)
+        system_prompts = [call.kwargs["system_prompt"] for call in mock_to_thread.call_args_list]
+        self.assertIn("دقیقاً 4 کارت", system_prompts[0])
+        self.assertIn("دقیقاً 7 کارت", system_prompts[1])
+
 
 class TestIsAdminAwaiting(unittest.IsolatedAsyncioTestCase):
     """is_admin_awaiting() is the single source of truth for admin awaiting keys
