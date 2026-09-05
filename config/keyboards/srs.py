@@ -110,12 +110,10 @@ def get_review_keyboard(
             InlineKeyboardButton(
                 IBTN_SRS_HARD_REVIEW,
                 callback_data=f"srs:2:{user_id}:{word_id}",
-                style=KeyboardButtonStyle.PRIMARY,
             ),
             InlineKeyboardButton(
                 IBTN_SRS_AGAIN_REVIEW,
                 callback_data=f"srs:1:{user_id}:{word_id}",
-                style=KeyboardButtonStyle.DANGER,
             ),
         ],
         [
@@ -126,7 +124,6 @@ def get_review_keyboard(
             InlineKeyboardButton(
                 IBTN_SRS_GOOD_REVIEW,
                 callback_data=f"srs:3:{user_id}:{word_id}",
-                style=KeyboardButtonStyle.SUCCESS,
             ),
         ],
         [
@@ -205,12 +202,10 @@ def get_first_exposure_keyboard(
             InlineKeyboardButton(
                 IBTN_SRS_HARD_FE,
                 callback_data=f"srs:fe:2:{user_id}:{word_id}",
-                style=KeyboardButtonStyle.PRIMARY,
             ),
             InlineKeyboardButton(
                 IBTN_SRS_AGAIN_FE,
                 callback_data=f"srs:fe:1:{user_id}:{word_id}",
-                style=KeyboardButtonStyle.DANGER,
             ),
         ],
         [
@@ -221,7 +216,6 @@ def get_first_exposure_keyboard(
             InlineKeyboardButton(
                 IBTN_SRS_GOOD_FE,
                 callback_data=f"srs:fe:3:{user_id}:{word_id}",
-                style=KeyboardButtonStyle.SUCCESS,
             ),
         ],
         [
