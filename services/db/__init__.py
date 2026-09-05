@@ -554,11 +554,36 @@ def log_config_test(test_type: str, preset_name: str, prompt: str, result: dict)
                 _utc_now().isoformat(),
             ),
         )
-    # Lazy retention: the audit table is unbounded, so every insert also runs
-    # the prune (same precedent as session_reports' lazy purge, R10-E). Runs in
-    # its own short transaction(s) after the insert; log_config_test is
-    # admin-triggered (low frequency). No scheduler wiring (per T1 contract).
-    prune_config_tests()
+    # Lazy retention, gated: the audit table is unbounded, so an insert runs
+    # the prune only when it can do work (row count above max or oldest row
+    # past max age) — two cheap scalar reads instead of unbounded `while True`
+    # batch loops on every admin insert. Same precedent as session_reports'
+    # lazy purge (R10-E); the prune itself still runs in its own short
+    # transaction(s) after the insert. No scheduler wiring (per T1 contract).
+    if _config_tests_prune_due():
+        prune_config_tests()
+
+
+def _config_tests_prune_due(
+    max_rows: int = 1000, max_age_days: int = 30
+) -> bool:
+    """True when prune_config_tests() has work to do (cheap pre-check).
+
+    Same thresholds as the prune defaults so the gate can never suppress a
+    needed run; log_config_test is admin-triggered (low frequency), so two
+    scalar reads per insert are negligible.
+    """
+    cutoff = (_utc_now() - datetime.timedelta(days=max_age_days)).isoformat()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS c, MIN(created_at) AS oldest FROM config_tests"
+        ).fetchone()
+    if row is None:
+        return False
+    if (row["c"] or 0) > max_rows:
+        return True
+    oldest = row["oldest"]
+    return oldest is not None and oldest < cutoff
 
 
 def prune_config_tests(

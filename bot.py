@@ -1115,6 +1115,13 @@ def setup_background_jobs(job_queue) -> None:
     pre-existing jobs are untouched; only additions/pins below are new:
     nightly retention sweep daily 03:30 APP_TZ, auto-backup daily 05:30
     APP_TZ (out of the purge hour and the evening peak).
+
+    RPO note: auto-backup runs once daily, so the worst-case data-loss
+    window is ~24h (was ~3h on the old repeating cadence). Accepted
+    trade-off per T3 R7: backups never land in the 03:30 purge hour or the
+    evening peak, and the archive channel is not spammed 8x/day. This
+    schedule is pinned by BackupScheduleTests; changing the cadence needs
+    owner sign-off at merge time.
     """
     from services.retention import nightly_retention_job
 

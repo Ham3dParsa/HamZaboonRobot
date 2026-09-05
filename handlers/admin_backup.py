@@ -217,7 +217,11 @@ async def handle_restore_doc(update: Update, context: ContextTypes.DEFAULT_TYPE)
 _AUTO_BACKUP_LOCK = asyncio.Lock()
 
 async def auto_backup_job(context: ContextTypes.DEFAULT_TYPE):
-    """Periodic auto-backup: save locally and push to archive group if configured."""
+    """Periodic auto-backup: save locally and push to archive group if configured.
+
+    Pinned daily 05:30 APP_TZ (see bot.setup_background_jobs) — ~24h RPO by
+    design, never in the 03:30 purge hour or the evening peak.
+    """
     # decoupled from OWNER_ID gate: run if resolved archive or OWNER_ID
     from services.archive import resolved_archive_chat_id, do_backup
     from config import OWNER_ID as _OID
