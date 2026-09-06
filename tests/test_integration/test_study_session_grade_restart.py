@@ -122,7 +122,14 @@ class StudySessionGradeRestartTests(unittest.TestCase):
         c.bot = MagicMock()
         c.bot.edit_message_text = AsyncMock()
         c.bot.send_message = AsyncMock()
+        # T4: completion summary ships via Backend.RICH (do_api_request).
+        c.bot.do_api_request = AsyncMock(return_value={"message_id": 5})
         return c
+
+    def _rich_text(self, ctx):
+        """Last Rich markdown payload sent through the mocked Bot API."""
+        payload = ctx.bot.do_api_request.call_args.kwargs["api_kwargs"]
+        return payload["rich_message"]["markdown"]
 
     # --- R1: post-restart grade advances the persisted session (FE path) ---
     def test_post_restart_grade_advances_persisted_session(self):
@@ -354,7 +361,8 @@ class StudySessionGradeRestartTests(unittest.TestCase):
         ctx.user_data["current_session"] = self._session(
             [self.w2], activity_type="first_exposure", graded_word_ids=[], plan="gold"
         )
-        ctx.bot.edit_message_text.side_effect = [TimedOut, TimedOut, TimedOut]
+        # T4: the completion report edit ships via do_api_request (RICH).
+        ctx.bot.do_api_request.side_effect = [TimedOut("boom")] * 3
         with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock):
             asyncio.run(
                 srs_handler._handle_first_exposure_grade(
@@ -377,7 +385,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
 
         # Re-tap: must NOT re-grade; must drive the session to completion and
         # render the report.
-        ctx.bot.edit_message_text.side_effect = None
+        ctx.bot.do_api_request.side_effect = None
         with patch("services.db.words.touch_streak_in_txn", wraps=db.touch_streak_in_txn) as touch:
             with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
                 asyncio.run(
@@ -397,7 +405,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
         # Session finished; the report edit happened and the report is stored.
         self.assertIsNone(_restore_persisted_session(1))
         self.assertNotIn("current_session", ctx.user_data)
-        report_text = ctx.bot.edit_message_text.call_args.kwargs["text"]
+        report_text = self._rich_text(ctx)
         self.assertIn("گزارش", report_text)
         self.assertTrue(ctx.user_data.get("session_summary"))
 
@@ -408,7 +416,8 @@ class StudySessionGradeRestartTests(unittest.TestCase):
         ctx.user_data["current_session"] = self._session(
             [self.w2], activity_type="srs_review", graded_word_ids=[], plan="gold"
         )
-        ctx.bot.edit_message_text.side_effect = [TimedOut, TimedOut, TimedOut]
+        # T4: the completion report edit ships via do_api_request (RICH).
+        ctx.bot.do_api_request.side_effect = [TimedOut("boom")] * 3
         with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock):
             asyncio.run(
                 srs_handler._handle_srs_review(
@@ -421,7 +430,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
             before["stability"], before["difficulty"], before["next_review_at"],
         )
         events_before = self._review_events(self.w2)
-        ctx.bot.edit_message_text.side_effect = None
+        ctx.bot.do_api_request.side_effect = None
         with patch("services.db.words.touch_streak_in_txn", wraps=db.touch_streak_in_txn) as touch:
             with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock) as notify:
                 asyncio.run(
@@ -547,7 +556,8 @@ class StudySessionGradeRestartTests(unittest.TestCase):
         ctx.user_data["current_session"] = self._session(
             [self.w2], activity_type="srs_review", graded_word_ids=[self.w2], plan="gold"
         )
-        ctx.bot.edit_message_text.side_effect = [TimedOut, TimedOut, TimedOut]
+        # T4: the completion report edit ships via do_api_request (RICH).
+        ctx.bot.do_api_request.side_effect = [TimedOut("boom")] * 3
         with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock):
             # First re-tap: skip + advance retry (completion edit fails again).
             asyncio.run(
@@ -556,7 +566,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
                 )
             )
         # Second re-tap: skip + advance retry now succeeds and completes.
-        ctx.bot.edit_message_text.side_effect = None
+        ctx.bot.do_api_request.side_effect = None
         with patch("services.db.words.touch_streak_in_txn", wraps=db.touch_streak_in_txn) as touch:
             with patch("handlers.srs_handler.notify_callback", new_callable=AsyncMock):
                 asyncio.run(

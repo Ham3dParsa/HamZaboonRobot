@@ -320,7 +320,7 @@ class FrontStageRenderingTests(unittest.TestCase):
             toggles=ALL_TOGGLES_ON,
             rng=random.Random(3),
         )
-        self.assertIn("چه واژه‌ای مترادف‌های «hi» و متضادهای «bye» دارد؟", text)
+        self.assertIn("چه واژه‌ای مترادف «hi» و متضاد «bye» دارد؟", text)
 
     def test_synonym_prompt_only_antonyms_when_synonyms_off(self):
         synonyms_off = dict(ALL_TOGGLES_ON)
@@ -332,8 +332,35 @@ class FrontStageRenderingTests(unittest.TestCase):
             toggles=synonyms_off,
             rng=random.Random(3),
         )
-        self.assertIn("چه واژه‌ای متضادهای «bye» دارد؟", text)
+        self.assertIn("چه واژه‌ای متضاد «bye» دارد؟", text)
         self.assertNotIn("مترادف", text)
+
+    def test_synonym_instruct_singular_plural(self):
+        # r5: singular/plural aware per side.
+        self.assertEqual(
+            fmt._synonym_instruct(["hi"], []),
+            "🧠 چه واژه‌ای مترادف «hi» دارد؟",
+        )
+        self.assertEqual(
+            fmt._synonym_instruct(["a", "b"], []),
+            "🧠 چه واژه‌ای مترادف‌های «a» و «b» دارد؟",
+        )
+        self.assertEqual(
+            fmt._synonym_instruct([], ["bye"]),
+            "🧠 چه واژه‌ای متضاد «bye» دارد؟",
+        )
+        self.assertEqual(
+            fmt._synonym_instruct([], ["a", "b"]),
+            "🧠 چه واژه‌ای متضادهای «a» و «b» دارد؟",
+        )
+        self.assertEqual(
+            fmt._synonym_instruct(["hi"], ["a", "b"]),
+            "🧠 چه واژه‌ای مترادف «hi» و متضادهای «a» و «b» دارد؟",
+        )
+        self.assertEqual(
+            fmt._synonym_instruct(["a", "b"], ["bye"]),
+            "🧠 چه واژه‌ای مترادف‌های «a» و «b» و متضاد «bye» دارد؟",
+        )
 
     def test_synonym_prompt_draws_2_to_3_items(self):
         card = _card(

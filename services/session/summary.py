@@ -20,8 +20,8 @@ from statistics import fmean
 # circular import (formatting -> validation -> helpers -> db -> session_reports -> summary -> formatting)
 
 
-# Learner detail page size (number of words per page). R1: 6 words per page.
-PAGE_SIZE = 6
+# Learner detail page size (number of words per page). R1: 8 words per page.
+PAGE_SIZE = 8
 
 # Weighted recall score per FSRS grade (1=again, 2=hard, 3=good, 4=easy).
 # Named constants so the weights are tunable in one place (R4).
@@ -160,16 +160,18 @@ def paginate(
 
 
 def classify_tier(recall_rate: float | None) -> str | None:
-    """Classify a recall rate into a performance tier (R5).
+    """Classify a recall rate into a performance tier (R5, T3 quick-win).
 
-    Thresholds: ≥90% excellent, 75–89% acceptable, <75% needs improvement.
+    Thresholds: ≥75% excellent, 50–74% acceptable ("good"), <50%
+    needs improvement. Key names are kept (``acceptable`` /
+    ``needs_improvement``) because callers and ``_TIER_LABEL`` use them.
     Returns ``None`` when the rate is unknown (no graded records).
     """
     if recall_rate is None:
         return None
-    if recall_rate >= 0.90:
-        return "excellent"
     if recall_rate >= 0.75:
+        return "excellent"
+    if recall_rate >= 0.50:
         return "acceptable"
     return "needs_improvement"
 
@@ -200,21 +202,25 @@ def _grade_stats(report: SessionReport) -> dict[str, int]:
 
 # Motivational messages per tier. Each variant references a real session stat
 # (no generic filler) per R6. Keys are filled by :func:`pick_motivation`.
+# T3 quick-win: the <50% tier is a single deterministic 2-tip block
+# (pre-answer care + honest feedback, no blame); other tiers keep random
+# variants reworded toward rhythm / balance.
 _MOTIVATION: dict[str, tuple[str, ...]] = {
     "excellent": (
-        "{easy} کلمه رو با «آسان» جواب دادی — حافظه‌ت داره قوی‌تر می‌شه 💪",
-        "فوق‌العاده! از {total} کلمه، {ok} تا رو درست یادت اومد — حافظه‌ت داره قوی‌تر می‌شه 💪",
-        "روندت عالیه — {easy} تا «آسان» و {ok} یادآوری درست. همین مسیر رو ادامه بده 🚀",
+        "{easy} کلمه رو با «آسان» جواب دادی — ریتم حافظه‌ت عالیه، همین‌طور قوی ادامه بده 💪",
+        "فوق‌العاده! از {total} کلمه، {ok} تا رو درست یادت اومد — ریتم یادگیری‌ت داره قوی‌تر می‌شه 💪",
+        "روندت عالیه — {easy} تا «آسان» و {ok} یادآوری درست. با همین ریتم ادامه بده 🚀",
     ),
     "acceptable": (
-        "از {graded} کلمه، {ok} تا رو درست یادت اومد. برای بقیه یه کم دقت بیشتر موقع دیدن جواب کمک می‌کنه.",
-        "خوب بود — {ok} از {graded} کلمه رو درست زدی. روی بقیه با دقت‌تر دیدن جواب تمرکز کن.",
-        "نیمه راه خوبیه — {graded} تا کلمه، {ok} درست. یه قدم دیگه بردار 💪",
+        "از {graded} کلمه، {ok} تا رو درست یادت اومد. با کمی دقت بیشتر موقع دیدن جواب، تعادلت بهتر می‌شه.",
+        "خوب بود — {ok} از {graded} کلمه رو درست زدی. با همین ریتم متعادل روی بقیه تمرکز کن.",
+        "مسیر خوبیه — {graded} تا کلمه، {ok} درست. یه قدم دیگه با همین تعادل بردار 💪",
     ),
     "needs_improvement": (
-        "{again} کلمه رو با «یادم نیومد» ثبت کردی — این طبیعیه؛ همون کلمه‌ها زودتر برمی‌گردن سراغت و تو بهتر می‌شی 🌱",
-        "{hard} کلمه رو به‌سختی یادت اومد و {again} تا رو نیومد — صادقانه جواب بده، هر تکرار یه قدمه.",
-        "از {graded} کلمه، فقط {ok} تا رو درست یادت اومد. نگران نباش — کلماتی که جا گذاشتی، دقیقاً همون‌هایی‌ان که بیشتر تمرین نیاز دارن.",
+        "از {graded} کلمه، {ok} تا رو درست یادت اومد 🌱 "
+        "دو نکته برای نشست بعد: "
+        "۱) قبل از دیدن پاسخ چند ثانیه بیشتر به یادآوری فکر کن؛ همین مکث کوتاه حافظه رو قوی‌تر می‌کنه. "
+        "۲) موقع نمره‌دادن صادقانه بگو یادت اومده یا نه؛ صادقانه‌گفتن باعث می‌شه کلمات سخت زودتر برگردن سراغت.",
     ),
 }
 
@@ -224,15 +230,19 @@ def pick_motivation(report: SessionReport, rng: random.Random | None = None) -> 
 
     ``rng`` is injectable so callers can make tests deterministic; it defaults
     to a fresh :class:`random.Random`. Returns ``None`` when there is no tier
-    (no graded records).
+    (no graded records). The ``needs_improvement`` tier is deterministic
+    (single 2-tip block, ``rng`` ignored) per T3.
     """
     tier = classify_tier(report.recall_rate)
     if tier is None:
         return None
-    if rng is None:
-        rng = random.Random()
     stats = _grade_stats(report)
-    template = rng.choice(_MOTIVATION[tier])
+    if tier == "needs_improvement":
+        template = _MOTIVATION[tier][0]
+    else:
+        if rng is None:
+            rng = random.Random()
+        template = rng.choice(_MOTIVATION[tier])
     from services.utils.formatting import to_persian_digits as _to_persian_digits
 
     return _to_persian_digits(template.format(**stats))

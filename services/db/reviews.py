@@ -111,6 +111,38 @@ def recent_events_for_words(
     return {wid: evs[:per_word] for wid, evs in grouped.items()}
 
 
+def count_review_events_for_card(user_id: int, word_id: int) -> int:
+    """Prior review count for one card (T3 live-card ordinal, read-only).
+
+    Returns ``MAX(saved_words.total_reviews, COUNT(*))``: the lifetime
+    counter stays exact after ``prune_old_review_events`` deletes old rows
+    (rolled up monotonically beforehand), while the ``COUNT(*)`` side covers
+    pre-counter rows that bypassed the insert-time bump (e.g. direct
+    ``review_events`` inserts). Single short-lived connection, never opens a
+    transaction. Missing table → 0 (fail-open for badge display only).
+    """
+    try:
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM review_events "
+                "WHERE word_id=? AND user_id=?",
+                (word_id, user_id),
+            ).fetchone()
+            cnt = int(row["cnt"]) if row else 0
+            try:
+                srow = conn.execute(
+                    "SELECT COALESCE(total_reviews, 0) AS total "
+                    "FROM saved_words WHERE id=? AND user_id=?",
+                    (word_id, user_id),
+                ).fetchone()
+                stored = int(srow["total"]) if srow else 0
+            except Exception:
+                stored = 0
+        return max(cnt, stored)
+    except Exception:
+        return 0
+
+
 def _is_lapse(grade, outcome) -> bool:
     """Lapse rule shared by backfill, insert path, and prune reconcile."""
     if grade is not None:

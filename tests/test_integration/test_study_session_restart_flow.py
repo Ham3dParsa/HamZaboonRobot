@@ -87,6 +87,8 @@ class StudySessionRestartFlowTest(unittest.TestCase):
         ctx.bot.send_message = AsyncMock(return_value=MagicMock(message_id=999))
         ctx.bot.edit_message_text = AsyncMock()
         ctx.bot.edit_message_reply_markup = AsyncMock()
+        # T4: completion summary ships via Backend.RICH (do_api_request).
+        ctx.bot.do_api_request = AsyncMock(return_value={"message_id": 5})
         return ctx
 
     def _study_update(self):
@@ -252,7 +254,8 @@ class StudySessionRestartFlowTest(unittest.TestCase):
 
         # Completion message send fails: the session must be rolled back and
         # preserved (self-healing), NOT cleared, so the next tap can retry.
-        ctx.bot.edit_message_text = AsyncMock(side_effect=RuntimeError("boom"))
+        # T4: the completion report ships via do_api_request (RICH).
+        ctx.bot.do_api_request = AsyncMock(side_effect=RuntimeError("boom"))
         grade_update = self._callback_update(f"srs:3:1:{w1}")
         asyncio.run(callback_router(grade_update, ctx))
         self.assertIn("current_session", ctx.user_data)
@@ -261,7 +264,7 @@ class StudySessionRestartFlowTest(unittest.TestCase):
         # Re-tap of the already-graded last card: skips the re-grade (no double
         # grade), retries the completion edit which now succeeds, and only then
         # clears the row — the session completes and shows the report.
-        ctx.bot.edit_message_text = AsyncMock()
+        ctx.bot.do_api_request = AsyncMock(return_value={"message_id": 5})
         asyncio.run(callback_router(grade_update, ctx))
         self.assertNotIn("current_session", ctx.user_data)
         self.assertIsNone(self._persisted_row())
@@ -283,7 +286,12 @@ class StudySessionRestartFlowTest(unittest.TestCase):
             asyncio.run(handle_study_start(self._study_update(), ctx))
             self.assertIsNotNone(self._persisted_row())
 
-        # Completion edit fails permanently (e.g. "can't parse entities").
+        # Completion edit fails permanently (e.g. "can't parse entities") on
+        # both the Rich seam and its MDV2 fallback.
+        # T4: the completion report ships via do_api_request (RICH).
+        ctx.bot.do_api_request = AsyncMock(
+            side_effect=BadRequest("Bad Request: can't parse entities")
+        )
         ctx.bot.edit_message_text = AsyncMock(
             side_effect=BadRequest("Bad Request: can't parse entities")
         )
@@ -314,7 +322,10 @@ class StudySessionRestartFlowTest(unittest.TestCase):
             self.assertIsNotNone(self._persisted_row())
 
         ctx.bot.send_message.reset_mock()
-        ctx.bot.edit_message_text = AsyncMock(
+        # T4: the completion report ships via do_api_request (RICH); a
+        # "not modified" Rich failure falls back to the MDV2 edit, which the
+        # handler then treats as already-on-screen success.
+        ctx.bot.do_api_request = AsyncMock(
             side_effect=BadRequest("Bad Request: message is not modified")
         )
         grade_update = self._callback_update(f"srs:3:1:{w1}")

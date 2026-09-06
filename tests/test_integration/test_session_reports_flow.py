@@ -79,6 +79,8 @@ class SessionReportsFlowTests(unittest.TestCase):
         ctx.bot = MagicMock()
         ctx.bot.edit_message_text = AsyncMock()
         ctx.bot.send_message = AsyncMock()
+        # T4: completion summary ships via Backend.RICH (do_api_request).
+        ctx.bot.do_api_request = AsyncMock(return_value={"message_id": 5})
         state = study_handler.SessionState(
             nodes=[], total_cards=len(word_ids), tier3_context={},
             study_msg_id=99, plan=plan, graded_word_ids=list(word_ids),
@@ -111,7 +113,27 @@ class SessionReportsFlowTests(unittest.TestCase):
         c.bot = MagicMock()
         c.bot.edit_message_text = AsyncMock()
         c.bot.send_message = AsyncMock()
+        # T4: reopened summary/detail ship via Backend.RICH (do_api_request).
+        c.bot.do_api_request = AsyncMock(return_value={"message_id": 5})
         return c
+
+    def _rich_text(self, ctx):
+        """Last Rich markdown payload sent through the mocked Bot API."""
+        payload = ctx.bot.do_api_request.call_args.kwargs["api_kwargs"]
+        return payload["rich_message"]["markdown"]
+
+    def _rich_markup_data(self, ctx):
+        """Callback-data set of the last Rich payload keyboard (dict form)."""
+        payload = ctx.bot.do_api_request.call_args.kwargs["api_kwargs"]
+        markup = payload.get("reply_markup")
+        if not markup:
+            return set()
+        return {
+            btn["callback_data"]
+            for row in markup["inline_keyboard"]
+            for btn in row
+            if "callback_data" in btn
+        }
 
     # ------------------------------------------------------------------
     # Persistence (R10-B)
@@ -164,10 +186,9 @@ class SessionReportsFlowTests(unittest.TestCase):
         ctx = self._ctx()
         with patch.object(study_handler, "notify_callback", new_callable=AsyncMock):
             asyncio.run(_handle_reports_callback(u, ctx, f"detail:{report_id}:0"))
-        text = u.callback_query.edit_message_text.call_args.args[0]
+        text = self._rich_text(ctx)
         self.assertIn("گزارش نشست مطالعه", text)
-        markup = u.callback_query.edit_message_text.call_args.kwargs.get("reply_markup")
-        data = {btn.callback_data for row in markup.inline_keyboard for btn in row}
+        data = self._rich_markup_data(ctx)
         self.assertIn(f"reports:detail:{report_id}:1", data)  # جزئیات button
 
     def test_reopen_summary_for_free_has_no_detail_button(self):
@@ -179,10 +200,9 @@ class SessionReportsFlowTests(unittest.TestCase):
         ctx = self._ctx()
         with patch.object(study_handler, "notify_callback", new_callable=AsyncMock):
             asyncio.run(_handle_reports_callback(u, ctx, f"detail:{report_id}:1"))
-        text = u.callback_query.edit_message_text.call_args.args[0]
+        text = self._rich_text(ctx)
         self.assertIn("گزارش نشست مطالعه", text)
-        markup = u.callback_query.edit_message_text.call_args.kwargs.get("reply_markup")
-        data = {btn.callback_data for row in markup.inline_keyboard for btn in row}
+        data = self._rich_markup_data(ctx)
         # Free user forced to summary overview: no detail page, no جزئیات button.
         self.assertNotIn(f"reports:detail:{report_id}:1", data)
 
@@ -200,19 +220,19 @@ class SessionReportsFlowTests(unittest.TestCase):
         with patch.object(study_handler, "notify_callback", new_callable=AsyncMock):
             # detail page 1 (view 1 -> pages index 0)
             asyncio.run(_handle_reports_callback(u, ctx, f"detail:{report_id}:1"))
-            text = u.callback_query.edit_message_text.call_args.args[0]
+            text = self._rich_text(ctx)
             self.assertIn("صفحه ۱ از ۲", text)
             self.assertIn("w0", text)
             # detail page 2 (view 2 -> pages index 1)
             asyncio.run(_handle_reports_callback(u, ctx, f"detail:{report_id}:2"))
-            text = u.callback_query.edit_message_text.call_args.args[0]
+            text = self._rich_text(ctx)
             self.assertIn("صفحه ۲ از ۲", text)
             self.assertIn("w8", text)
             # back to summary (view 0)
             asyncio.run(_handle_reports_callback(u, ctx, f"detail:{report_id}:0"))
-            text = u.callback_query.edit_message_text.call_args.args[0]
+            text = self._rich_text(ctx)
             self.assertIn("گزارش نشست مطالعه", text)
-            # back to the list
+            # back to the list (raw MDV2 path — query edit, unchanged)
             asyncio.run(_handle_reports_callback(u, ctx, "back"))
             text = u.callback_query.edit_message_text.call_args.args[0]
             self.assertIn("گزارش‌های جلسات اخیر", text)
