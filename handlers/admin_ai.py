@@ -1696,9 +1696,15 @@ async def _start_custom_test_wizard(update: Update, context: ContextTypes.DEFAUL
     msg = Message()
     msg.add_line(plain("🧪 "), bold("تست سفارشی کارت"))
     msg.add_line()
-    msg.add_line(plain("مرحله ۱/۵: پرامپت سیستم (یا متن تست) را وارد کنید:"))
+    msg.add_line(plain("مرحله ۱/۵: متن تست را وارد کنید:"))
     msg.add_line(italic("مثال: یک کارت واژگان برای سطح مبتدی بساز"))
-    await say(update, context, msg, backend=Backend.HTML, keyboard=admin_awaiting_inline_keyboard())
+    msg.add_line(plain("پرامپت سیستمی به‌صورت خودکار همان پرامپت تولید است."))
+    base_keyboard = admin_awaiting_inline_keyboard()
+    rows = [list(row) for row in base_keyboard.inline_keyboard]
+    rows.append(
+        [InlineKeyboardButton("⏭ رد شدن (متن پیش‌فرض)", callback_data="admin:ai_custom_test:prompt:skip")]
+    )
+    await say(update, context, msg, backend=Backend.HTML, keyboard=InlineKeyboardMarkup(rows))
 
 
 async def _custom_test_step_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1839,16 +1845,22 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
             preset_fields.resolve(active_preset, "daily_batch_size"),
             compact=prompts.card_output_is_compact(),
         )
-        result = await asyncio.to_thread(
-            ai.custom_test_card,
-            system_prompt=system_prompt,
-            user_prompt=prompt,
-            lang=lang,
-            goal=goal,
-            level=level,
-            preset=active_preset,
-        )
-        results.append(("Current Config", result))
+        try:
+            result = await asyncio.to_thread(
+                ai.custom_test_card,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                lang=lang,
+                goal=goal,
+                level=level,
+                preset=active_preset,
+            )
+        except Exception as exc:
+            # A weird test text can make the model return non-JSON; report it
+            # instead of crashing the wizard with an unhandled exception.
+            results.append(("Current Config", None, type(exc).__name__))
+        else:
+            results.append(("Current Config", result, None))
 
     if target in ("candidate", "ab"):
         # Candidate already validated above (fail-fast, zero provider calls).
@@ -1859,26 +1871,34 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
             preset_fields.resolve(candidate, "daily_batch_size"),
             compact=prompts.card_output_is_compact(),
         )
-        result = await asyncio.to_thread(
-            ai.custom_test_card,
-            system_prompt=candidate_prompt,
-            user_prompt=prompt,
-            lang=lang,
-            goal=goal,
-            level=level,
-            preset=candidate,
-        )
-        results.append((f"Candidate ({candidate_name})", result))
+        try:
+            result = await asyncio.to_thread(
+                ai.custom_test_card,
+                system_prompt=candidate_prompt,
+                user_prompt=prompt,
+                lang=lang,
+                goal=goal,
+                level=level,
+                preset=candidate,
+            )
+        except Exception as exc:
+            results.append((f"Candidate ({candidate_name})", None, type(exc).__name__))
+        else:
+            results.append((f"Candidate ({candidate_name})", result, None))
 
     # Format results
     msg = Message()
     msg.add_line(plain("🧪 "), bold("نتیجه تست سفارشی"))
-    for label, card in results:
+    for label, card, error in results:
         msg.add_line()
         msg.add_line(bold(str(label)))
-        msg.add_line(plain("Word: "), plain(str(card.get('word', '?'))))
-        msg.add_line(plain("Meaning: "), plain(str(card.get('fa_meaning', '?'))))
-        msg.add_line(plain("Examples: "), plain(str(card.get('examples', []))))
+        if error is not None:
+            msg.add_line(plain("❌ خطا: "), code(str(error)))
+            msg.add_line(plain("اگر متن تست نامعمول بود، مدل خروجی معتبر برنگرداند؛ با «تست مجدد» و متن ساده‌تر تلاش کنید."))
+        else:
+            msg.add_line(plain("Word: "), plain(str(card.get('word', '?'))))
+            msg.add_line(plain("Meaning: "), plain(str(card.get('fa_meaning', '?'))))
+            msg.add_line(plain("Examples: "), plain(str(card.get('examples', []))))
 
     msg.add_line()
     msg.add_line(plain("🧪 این تست روی پیکربندی پیش‌تنظیم اجرا شد، نه مسیر تولید."))
@@ -1892,7 +1912,11 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
 
 async def _handle_custom_test_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
     """Route wizard callbacks."""
-    if action == "ai_custom_test:lang":
+    if action == "ai_custom_test:prompt:skip":
+        # Step 1/5 skipped: no prompt stored, _run_custom_test falls back to
+        # the default test text; the system prompt is always the production one.
+        await _custom_test_step_lang(update, context)
+    elif action == "ai_custom_test:lang":
         pass
     elif action.startswith("ai_custom_test:lang:"):
         await _custom_test_step_goal(update, context, action.split(":")[2])

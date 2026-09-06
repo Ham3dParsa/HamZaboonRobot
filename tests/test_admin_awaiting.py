@@ -317,6 +317,47 @@ class TestAiCallWrappedInToThread(unittest.IsolatedAsyncioTestCase):
         self.assertIn("دقیقاً 4 کارت", system_prompts[0])
         self.assertIn("دقیقاً 7 کارت", system_prompts[1])
 
+    async def test_custom_test_provider_error_renders_friendly_message(self):
+        """Regression: a non-JSON model reply (e.g. weird test text) must not
+        crash the wizard — the error is rendered with a retry hint."""
+        import json
+        from handlers.admin_ai import _run_custom_test
+        update = _make_update()
+        context = _make_context()
+        context.user_data["custom_test_state"] = {"prompt": "weird", "lang": "en", "goal": "general", "level": "beginner"}
+        with patch("handlers.admin_ai.db.get_active_preset") as mock_active:
+            mock_active.return_value = {"name": "current", "daily_batch_size": 4}
+            with patch("handlers.admin_ai.asyncio.to_thread", new=AsyncMock()) as mock_to_thread:
+                mock_to_thread.side_effect = json.JSONDecodeError("No JSON value found", "", 0)
+                await _run_custom_test(update, context, "current")  # must not raise
+        mock_to_thread.assert_called_once()
+        text = update.callback_query.edit_message_text.call_args.args[0]
+        self.assertIn("خطا", text)
+        self.assertIn("JSONDecodeError", text)
+        self.assertIn("تست مجدد", text)
+
+    async def test_custom_test_prompt_skip_jumps_to_lang_step(self):
+        """Step 1/5 skip: no prompt stored, awaiting cleared, lang step shown."""
+        from handlers.admin_ai import _handle_custom_test_wizard
+        update = _make_update()
+        context = _make_context()
+        context.user_data["custom_test_state"] = {"step": "prompt"}
+        context.user_data["awaiting"] = "ai_custom_test_prompt"
+        await _handle_custom_test_wizard(update, context, "ai_custom_test:prompt:skip")
+        self.assertEqual(context.user_data["custom_test_state"].get("step"), "lang")
+        self.assertNotIn("awaiting", context.user_data)
+        self.assertNotIn("prompt", context.user_data["custom_test_state"])
+
+    async def test_custom_test_step1_keyboard_has_skip_button(self):
+        """The step-1/5 keyboard must carry the skip callback."""
+        from handlers.admin_ai import _start_custom_test_wizard
+        update = _make_update()
+        context = _make_context()
+        await _start_custom_test_wizard(update, context)
+        markup = update.callback_query.edit_message_text.call_args.kwargs["reply_markup"]
+        callbacks = [btn.callback_data for row in markup.inline_keyboard for btn in row]
+        self.assertIn("admin:ai_custom_test:prompt:skip", callbacks)
+
 
 class TestIsAdminAwaiting(unittest.IsolatedAsyncioTestCase):
     """is_admin_awaiting() is the single source of truth for admin awaiting keys
