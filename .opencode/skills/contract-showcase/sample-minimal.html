@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PLACEHOLDER_TITLE</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
+<style>
+:root{--paper:#f5f1e8;--surface:#fff;--ink:#232a35;--ink-soft:#55606f;--navy:#1e3a5f;--navy-soft:#e8eef6;--amber-bg:#fdf3d7;--amber-line:#c99a1c;--teal-bg:#e9f7f1;--teal-line:#0f766e;--indigo-bg:#eef1fe;--indigo-line:#6366f1;--pick-line:#1e7e34;--pick-bg:#e6f4ea;--drop-line:#c0392b;--drop-bg:#fdecec;--line:#e2ddd0;--radius:12px;--nav-h:56px}
+html{scroll-behavior:smooth;scroll-padding-top:calc(var(--nav-h) + 16px)}
+body{font-family:Vazirmatn,Tahoma,sans-serif;max-width:960px;margin:0 auto;padding:20px;line-height:2;color:var(--ink);background:var(--paper)}
+h2{background:var(--surface);border:1px solid var(--line);border-right:5px solid var(--navy);border-radius:var(--radius);padding:10px 14px;color:var(--navy);scroll-margin-top:calc(var(--nav-h) + 16px)}
+.qa,.prob,.sc{border-radius:var(--radius);padding:12px 16px;margin:10px 0}
+.qa{background:var(--indigo-bg);border:1px dashed var(--indigo-line);border-right:5px solid var(--indigo-line);scroll-margin-top:calc(var(--nav-h) + 16px)}
+.prob{background:var(--amber-bg);border:1px solid #ead9a0;border-right:5px solid var(--amber-line)}
+.sc{background:var(--teal-bg);border:1px solid #bfe3d6;border-right:5px solid var(--teal-line)}
+table{width:100%;border-collapse:collapse;font-size:.88em;background:var(--surface)}
+td,th{border:1px solid var(--line);padding:8px 12px;text-align:right}
+th{background:var(--navy);color:#fff}
+.pick{background:var(--pick-bg)}.drop{background:var(--drop-bg)}
+.en{font-family:Consolas,monospace;direction:ltr;unicode-bidi:embed;background:#eef2f7;border:1px solid #cbd5e1;border-radius:999px;padding:0 9px}
+nav.toc{position:sticky;top:8px;background:rgba(255,255,255,.92);border:1px solid var(--navy);border-radius:var(--radius);padding:8px 12px;white-space:nowrap;overflow-x:auto;font-size:.85em;z-index:10}
+nav.toc a{margin-left:10px;color:var(--navy);text-decoration:none}
+.readctl button{font-family:inherit;font-size:.72em;border:1px solid var(--line);background:#fff;border-radius:999px;padding:1px 10px;cursor:pointer}
+.readctl button.on[data-s="read"]{background:var(--pick-line);color:#fff}
+.readctl button.on[data-s="half"]{background:var(--amber-line);color:#fff}
+.lockbtn{font-family:inherit;font-size:.72em;border:1px solid var(--line);background:#fff;border-radius:999px;padding:1px 12px;cursor:pointer}
+.lockbtn.locked{background:var(--pick-line);border-color:var(--pick-line);color:#fff}
+h2.rulelocked{border-right-color:var(--pick-line)}
+#gotop,#gobot{position:fixed;left:14px;width:44px;height:44px;border-radius:50%;border:1px solid var(--navy);background:#fff;color:var(--navy);cursor:pointer;display:none}
+#gotop{bottom:70px}#gobot{bottom:16px}
+.stamp{color:#777;font-size:.8em}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<h1>PLACEHOLDER_TITLE</h1>
+<p>PLACEHOLDER_READING_GUIDE — یک پاراگراف: هر بند چه سه قسمتی دارد.</p>
+<nav class="toc"><b>ناوبری:</b>
+<!-- یک لینک برای هر rule و هر پیوست: --><a href="#r1">PLACEHOLDER_R1_SHORT</a><a href="#q-1">PLACEHOLDER_Q1_SHORT</a></nav>
+<div class="qa" id="fresh" style="border:2px solid #2e7d32;background:#f1f8e9"><b>★ خوانده‌ها / نخوانده‌ها</b> — از دکمه‌های زیر هر بخش ساخته می‌شود:<br>
+<ul id="freshlist"><li>در حال ساخت…</li></ul>
+<div id="lockcount" style="font-size:.85em;color:#2e7d32"></div>
+<button id="copystatus" style="font-family:inherit;font-size:.8em;margin-top:8px">📋 کپی وضعیت برای ارسال</button></div>
+
+<h2 id="r1">PLACEHOLDER_R1_TITLE</h2>
+<div class="prob"><b>مسئله:</b> PLACEHOLDER — چرا باید تصمیم گرفت؟ اصطلاح فنی همان‌جا توضیح داده شود.</div>
+<div class="sc"><b>سناریو:</b> PLACEHOLDER — یک داستان واقعی با اسم و عدد. <b>با انتخاب ما:</b> PLACEHOLDER</div>
+<table><tr><th>گزینه</th><th>حکم</th><th>چرا (قیمت اشتباه بودن)</th></tr>
+<tr class="pick"><td>PLACEHOLDER</td><td>انتخاب</td><td>PLACEHOLDER</td></tr>
+<tr class="drop"><td>PLACEHOLDER</td><td>رد</td><td>PLACEHOLDER</td></tr></table>
+<div class="qa" id="q-1"><span class="stamp">[PLACEHOLDER_JALALI | PLACEHOLDER_GREGORIAN | commit:PLACEHOLDER_SHA | issue:PLACEHOLDER_N]</span><br>
+<b>PLACEHOLDER_Q_TITLE:</b> PLACEHOLDER_ANSWER <a href="#r1">↑ برگشت</a></div>
+
+<button id="gotop">▲</button><button id="gobot">▼</button>
+<script>
+(function(){
+var KEY='showcase-read-'+document.title;
+var state={};try{state=JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){}
+function titleOf(el){if(el.tagName==='H2'){var t='';for(var n=el.firstChild;n;n=n.nextSibling){if(n.nodeType===3)t+=n.textContent}return t.trim().split('—')[0].trim()||el.id}var b=el.querySelector('b');return b?b.textContent.trim().slice(0,60):el.id}
+var secs=Array.prototype.slice.call(document.querySelectorAll('h2[id],div.qa[id]')).filter(function(el){return el.id!=='fresh'});
+function save(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}}
+function renderFresh(){var ul=document.getElementById('freshlist');ul.innerHTML='';var left=secs.filter(function(el){return (state[el.id]||'unread')!=='read'});if(!left.length){ul.innerHTML='<li>همه خوانده شده. ✔</li>';return}left.forEach(function(el){var li=document.createElement('li');var a=document.createElement('a');a.href='#'+el.id;a.textContent=titleOf(el);li.appendChild(a);ul.appendChild(li)})}
+secs.forEach(function(el){var box=document.createElement('span');box.className='readctl';[['read','خواندم'],['half','نیمه'],['unread','نخواندم']].forEach(function(p){var b=document.createElement('button');b.textContent=p[1];b.setAttribute('data-s',p[0]);if((state[el.id]||'unread')===p[0])b.classList.add('on');b.onclick=function(){state[el.id]=p[0];save();Array.prototype.forEach.call(box.querySelectorAll('button'),function(x){x.classList.remove('on')});b.classList.add('on');renderFresh()};box.appendChild(b)});el.appendChild(box)});
+renderFresh();
+var LKEY=KEY+'-lock';var locks={};try{locks=JSON.parse(localStorage.getItem(LKEY)||'{}')}catch(e){locks={}}
+var rules=Array.prototype.slice.call(document.querySelectorAll('h2[id]'));
+function paintLocks(){var n=rules.filter(function(h){return locks[h.id]}).length;document.getElementById('lockcount').textContent='🔒 '+n+' از '+rules.length+' بند قفل شده'}
+rules.forEach(function(h){var b=document.createElement('button');b.className='lockbtn'+(locks[h.id]?' locked':'');b.textContent=locks[h.id]?'🔒 قفل شد':'🔓 قفل کن';if(locks[h.id])h.classList.add('rulelocked');b.onclick=function(){if(locks[h.id]){delete locks[h.id];b.textContent='🔓 قفل کن';h.classList.remove('rulelocked')}else{locks[h.id]=1;b.textContent='🔒 قفل شد';h.classList.add('rulelocked')}b.classList.toggle('locked',!!locks[h.id]);try{localStorage.setItem(LKEY,JSON.stringify(locks))}catch(e){}paintLocks()};h.appendChild(b)});
+paintLocks();
+document.getElementById('copystatus').onclick=function(){var out='READ: '+JSON.stringify(state)+'\nLOCK: '+JSON.stringify(locks);if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(out).then(function(){alert('✔ کپی شد — در چت بفرست')})}else{prompt('کپی کن و در چت بفرست:',out)}};
+var top=document.getElementById('gotop'),bot=document.getElementById('gobot');
+window.addEventListener('scroll',function(){var s=window.scrollY>400;top.style.display=s?'block':'none';bot.style.display=s?'block':'none'},{passive:true});
+top.onclick=function(){window.scrollTo({top:0,behavior:'smooth'})};
+bot.onclick=function(){window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'})};
+})();
+</script>
+</body>
+</html>
