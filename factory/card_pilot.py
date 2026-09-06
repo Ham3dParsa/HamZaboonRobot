@@ -56,6 +56,7 @@ import csv
 import difflib
 import html
 import json
+import os
 import pathlib
 import random
 import re
@@ -74,7 +75,7 @@ sys.path.insert(0, str(FACTORY_DIR))
 from llm_json import AuthError, extract_json, raise_for_auth  # noqa: E402
 from telemetry import extract_usage as tele_extract_usage  # noqa: E402
 from telemetry import record_call as tele_record_call  # noqa: E402
-from telemetry import render_telemetry_table as tele_table  # noqa: E402
+from telemetry import render_telemetry_table as tele_render_table  # noqa: E402
 from telemetry import write_summary as tele_write_summary  # noqa: E402
 from services.ai import prompts as card_prompts  # noqa: E402  (real prompt builder)
 from services.ai.ai import CardValidationError, validate_card  # noqa: E402  (real validator)
@@ -2040,7 +2041,7 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
             cache = json.loads(prog_path.read_text(encoding="utf-8"))
         except Exception:
             cache = {}
-    cache_key = "%s\t%s" % (text, gloss or "")
+    cache_key = "%s\t%s\t%s" % (text, gloss or "", sid)
     if isinstance(cache, dict) and cache_key in cache:
         cached = cache[cache_key]
         if isinstance(cached, dict) and cached.get("label"):
@@ -2200,7 +2201,12 @@ def build_prompts(item, zipf_fn=None):
     when the dataset expansion is missing (R29) + a never-reuse line for
     content-flagged examples (R31).
     """
-    bot_level = CEFR_TO_BOT_LEVEL[item["pool_level"]]
+    bot_level = CEFR_TO_BOT_LEVEL.get((item.get("pool_level") or "").strip())
+    if bot_level is None:
+        raise SystemExit(
+            "unknown pool_level %r for item %r (want one of %s)"
+            % (item.get("pool_level"), item.get("text"),
+               ",".join(LEVEL_ORDER)))
     system = card_prompts.custom_word_system_prompt(
         "en", bot_level, compact=card_prompts.card_output_is_compact())
     system = system + "\n\n" + DELTA_SYSTEM_OVERRIDE
@@ -2434,6 +2440,8 @@ def generate_card(item, api_key, transport=None, model_calls=None,
                 if exc.code in (401, 403):
                     raise_for_auth(exc)  # maps to AuthError, aborts loud
                 last_error = "HTTPError %s: %s" % (exc.code, str(exc)[:200])
+                if exc.code == 429 or 500 <= exc.code < 600:
+                    time.sleep(CALL_SLEEP)
                 continue
             except Exception as exc:
                 if telemetry is not None:
@@ -3321,10 +3329,15 @@ class RunLogger:
     """V7 compact run.log writer (stage start/end + counts + timings)."""
 
     def __init__(self, path):
+        import atexit as _atexit
         self.path = pathlib.Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._handle = open(self.path, "w", encoding="utf-8")
         self._starts = {}
+        # Exception-safe close: every exit path (raise/sys.exit) still
+        # releases the handle at interpreter shutdown; close() is
+        # idempotent so the explicit happy-path close stays as-is.
+        _atexit.register(self.close)
 
     def log(self, line):
         if self._handle.closed:
@@ -3349,6 +3362,79 @@ class RunLogger:
             self._handle.close()
         except Exception:
             pass
+
+
+# Max history lines re-read for the cumulative telemetry summary (bounds
+# memory/time on long pilot series; recent runs dominate the summary).
+TELEMETRY_HISTORY_TAIL = 20000
+
+
+def _atomic_write_text(path, text):
+    """Crash-safe file write (tmp + os.replace, never a truncated file)."""
+    dest = pathlib.Path(path)
+    if str(dest.parent) not in ("", "."):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(text)
+        handle.flush()
+        try:
+            os.fsync(handle.fileno())
+        except (OSError, ValueError):
+            pass
+    os.replace(tmp, dest)
+
+
+def append_telemetry_history(out_dir, tele_store):
+    """Append this run's telemetry records to the cumulative jsonl.
+
+    Returns (all_records, corrupt_lines). Corrupt prior-run lines are
+    counted (never silently skipped); an unreadable history file falls
+    back to this run's records with a warning (history is unrecoverable,
+    the current run is never discarded). The reread is capped at
+    TELEMETRY_HISTORY_TAIL lines so the file stays bounded.
+    """
+    out_dir = pathlib.Path(out_dir)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        print("warning: telemetry history append failed (%s); "
+              "summary covers this run only" % exc)
+        return list(tele_store), 0
+    hist = out_dir / "telemetry_records.jsonl"
+    try:
+        with open(hist, "a", encoding="utf-8") as handle:
+            for rec in tele_store:
+                handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            handle.flush()
+            try:
+                os.fsync(handle.fileno())
+            except (OSError, ValueError):
+                pass
+    except OSError as exc:
+        print("warning: telemetry history append failed (%s); "
+              "summary covers this run only" % exc)
+        return list(tele_store), 0
+    all_tele, corrupt = [], 0
+    try:
+        with open(hist, encoding="utf-8") as handle:
+            lines = handle.readlines()
+        for line in lines[-TELEMETRY_HISTORY_TAIL:]:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                all_tele.append(json.loads(line))
+            except ValueError:
+                corrupt += 1
+    except OSError as exc:
+        print("warning: telemetry history reread failed (%s); "
+              "summary covers this run only" % exc)
+        return list(tele_store), corrupt
+    if corrupt:
+        print("warning: telemetry history skipped %d corrupt line(s)"
+              % corrupt)
+    return all_tele, corrupt
 
 
 def git_commit():
@@ -3402,6 +3488,29 @@ def render_timings_table(timings):
         + "\n".join(rows) + "\n</table>\n</div>")
 
 
+def _read_model_calls(out_dir):
+    """Model-call counters for render_only.
+
+    Precard runs persist ``precard_progress.json`` (sampling runs use
+    ``progress.json``); prefer the precard file so precard galleries do
+    not report stale sampling-mode counters.
+    """
+    out = pathlib.Path(out_dir)
+    for name in ("precard_progress.json", "progress.json"):
+        prog_path = out / name
+        if not prog_path.exists():
+            continue
+        try:
+            calls = json.loads(
+                prog_path.read_text(encoding="utf-8")).get("model_calls",
+                                                           {}) or {}
+        except Exception:
+            continue
+        if calls:
+            return calls
+    return {}
+
+
 def render_only(out_dir, report_path):
     """Regenerate the gallery HTML from persisted pilot files only.
 
@@ -3423,15 +3532,7 @@ def render_only(out_dir, report_path):
                 tele_path.read_text(encoding="utf-8"))
         except Exception:
             telemetry_summary = None
-    model_calls = {}
-    prog_path = out / "progress.json"
-    if prog_path.exists():
-        try:
-            model_calls = json.loads(
-                prog_path.read_text(encoding="utf-8")).get("model_calls",
-                                                           {}) or {}
-        except Exception:
-            model_calls = {}
+    model_calls = _read_model_calls(out)
     if not model_calls:
         for rec in cards:
             model = rec.get("model_used") or ""
@@ -4284,9 +4385,9 @@ def render_gallery(cards, meta, phrase_types=None):
     calls = meta.get("model_calls", {})
     timings_table = render_timings_table(meta.get("timings"))
     try:
-        tele_table = tele_table(meta.get("telemetry"))
+        tele_html = tele_render_table(meta.get("telemetry"))
     except Exception:
-        tele_table = ""
+        tele_html = ""
     rich = ((meta.get("timings") or {}).get("richness")
             or meta.get("richness"))
     nav = render_nav(cards)
@@ -4486,7 +4587,7 @@ def render_gallery(cards, meta, phrase_types=None):
             % (float(rich.get("ipa_dataset_pct", 0.0)),
                float(rich.get("examples_dataset_pct", 0.0)),
                float(rich.get("topics_non_other_pct", 0.0))))
-    return (head + nav + "\n" + header + timings_table + "\n" + tele_table
+    return (head + nav + "\n" + header + timings_table + "\n" + tele_html
             + "\n"
             + "\n".join(sections) + "\n</div>\n</body>\n</html>")
 
@@ -4600,8 +4701,22 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                   % (len(precard_sample), args.from_precard))
             return 0
 
-    pool = load_word_pool(args.word_pool)
-    judged = load_phrase_judgements(args.phrase_log)
+    try:
+        pool = load_word_pool(args.word_pool)
+    except OSError as exc:
+        sys.exit("cannot load word pool %s: %s" % (args.word_pool, exc))
+    try:
+        judged = load_phrase_judgements(args.phrase_log)
+    except (OSError, ValueError) as exc:
+        if args.dry_run:
+            # Hermetic dry-run: a missing W:/ phrase log must not fail
+            # the plan print on machines without the factory drive.
+            print("warning: phrase log unreadable (%s); "
+                  "dry-run with words only" % exc)
+            judged = []
+        else:
+            sys.exit("cannot load phrase log %s: %s"
+                     % (args.phrase_log, exc))
     if args.dry_run:
         # Hermetic: no kaikki/W: touch, no files, no network.
         sample = sample_words(pool, args.n_words, args.seed)
@@ -4644,7 +4759,10 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
               "enrichment skipped" % (len(sample), args.from_precard))
         sys.path.insert(0, str(FACTORY_DIR))
         from env_loader import load_factory_env
-        _env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
+        try:
+            _env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
+        except KeyError as exc:
+            sys.exit("missing env: %s" % exc)
     else:
         sample_path = out_dir / "sample.json"
         if sample_path.exists():
@@ -4658,7 +4776,10 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
         gloss_start = time.perf_counter()
         sys.path.insert(0, str(FACTORY_DIR))
         from env_loader import load_factory_env
-        _env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
+        try:
+            _env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
+        except KeyError as exc:
+            sys.exit("missing env: %s" % exc)
         _topic_key = _env.get("OPENCODE_ZEN_API_KEY", "")
         from run_v16b_topup import call_responses as _topup_transport
         topic_calls = {}
@@ -4689,13 +4810,15 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                                encoding="utf-8")
         gloss_s = time.perf_counter() - gloss_start
     run_logger.stage_end("sample", ok=len(sample), fail=0)
-    run_logger.stage_start("anchor")
+    # Anchor/topic/enrichment run inside the "sample" stage above (the
+    # gloss loop) or are skipped for --from-precard: no separate anchor
+    # pass exists, so log it honestly instead of a fake ok=len(sample).
+    run_logger.log("stage anchor done inside sample stage (no separate pass)")
 
     env = _env
     api_key = env["OPENCODE_ZEN_API_KEY"]
     if not api_key:
         sys.exit("no OPENCODE_ZEN_API_KEY in factory/.env")
-    run_logger.stage_end("anchor", ok=len(sample), fail=0)
 
     # Reviewer F3: precard mode uses its own progress file so stale
     # sampling-mode done[] records can never leak into precard runs.
@@ -4749,9 +4872,9 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
             per_card.append({"key": key,
                              "seconds": time.perf_counter() - card_start})
             done[key] = rec
-            prog_path.write_text(json.dumps(
+            _atomic_write_text(prog_path, json.dumps(
                 {"done": done, "failed": [k for k, v in done.items() if not v.get("valid")],
-                 "model_calls": model_calls}, ensure_ascii=False), encoding="utf-8")
+                 "model_calls": model_calls}, ensure_ascii=False))
             if rec.get("valid"):
                 batch_ok += 1
             else:
@@ -4807,14 +4930,12 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
         if key in done:
             done[key] = next(
                 (r for r in records if r.get("key") == key), done[key])
-    prog_path.write_text(json.dumps(
+    _atomic_write_text(prog_path, json.dumps(
         {"done": done, "failed": [k for k, v in done.items() if not v.get("valid")],
-         "model_calls": model_calls}, ensure_ascii=False), encoding="utf-8")
-    (out_dir / "cards.jsonl").write_text(
-        "\n".join(json.dumps(r, ensure_ascii=False) for r in records),
-        encoding="utf-8")
+         "model_calls": model_calls}, ensure_ascii=False))
+    _atomic_write_text(out_dir / "cards.jsonl",
+                       "\n".join(json.dumps(r, ensure_ascii=False) for r in records))
     run_logger.stage_start("render")
-    render_start = time.perf_counter()
     timings = build_timings(sample_s, gloss_s, gen_total, per_card,
                             gen_timings["validate"],
                             0.0, len(sample))
@@ -4822,36 +4943,26 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
     phrase_types = load_phrase_types(args.phrase_type_log)  # opportunistic
     # Telemetry history: append this run's records to the cumulative
     # jsonl so resume runs never erase history (summary covers ALL runs).
-    try:
-        _tele_hist = out_dir / "telemetry_records.jsonl"
-        with open(_tele_hist, "a", encoding="utf-8") as _th:
-            for _rec in tele_store:
-                _th.write(json.dumps(_rec, ensure_ascii=False) + "\n")
-        _all_tele = []
-        with open(_tele_hist, encoding="utf-8") as _th:
-            for _line in _th:
-                _line = _line.strip()
-                if _line:
-                    try:
-                        _all_tele.append(json.loads(_line))
-                    except ValueError:
-                        pass
-    except OSError:
-        _all_tele = list(tele_store)
+    _all_tele, _tele_corrupt = append_telemetry_history(out_dir, tele_store)
     tele_summary = tele_write_summary(
         out_dir / "telemetry_summary.json", _all_tele)
+    if _tele_corrupt:
+        tele_summary["history_corrupt_lines"] = _tele_corrupt
     meta = {"date_tehran": tehran_now_str(), "commit": git_commit(),
             "model_calls": model_calls, "timings": timings,
             "telemetry": tele_summary}
+    render_start = time.perf_counter()
     gallery_html = render_gallery(records, meta, phrase_types=phrase_types)
     timings["render"] = time.perf_counter() - render_start
     meta["timings"] = timings  # refresh with measured render seconds
+    # Second pass embeds the measured render seconds in the gallery
+    # timings table (the first pass output is discarded by design).
     gallery_html = render_gallery(records, meta, phrase_types=phrase_types)
     report_path = pathlib.Path(args.report)
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(gallery_html, encoding="utf-8")
-    (out_dir / "timings.json").write_text(
-        json.dumps(timings, ensure_ascii=False), encoding="utf-8")
+    _atomic_write_text(report_path, gallery_html)
+    _atomic_write_text(out_dir / "timings.json",
+                       json.dumps(timings, ensure_ascii=False))
     passed = sum(1 for r in records if r.get("valid"))
     run_logger.stage_end("render", ok=passed,
                          fail=len(records) - passed)

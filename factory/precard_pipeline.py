@@ -1469,7 +1469,6 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 "topic_method": label.get("method")
                 or card_pilot.TOPIC_METHOD_TAG,
                 "drop_reason": None,
-                "redirect_to": item.get("redirect_to", "") or "",
                 "stage_calls": {
                     "s0": ("kept:type-pending" if s0v.get("type_pending")
                            else "kept"),

@@ -250,3 +250,17 @@ def test_cefr_grade_propagates_ratelimited():
     batch = [{"phrase": "time flies", "freq": 5, "prefill": "B1"}]
     with pytest.raises(RateLimited):
         grade_batch(batch, "k1", 0, transport, ring=KeyRing(["k1", "k2"]))
+
+
+def test_keyring_empty_keys_fail_loud_not_zero_division():
+    # OPENCODE critical (a): KeyRing([]) used to ZeroDivisionError in
+    # rotate() (and IndexError in current). Must fail with a clear error.
+    import pytest
+    from phrase_judge import KeyRing
+    with pytest.raises(ValueError):
+        KeyRing([])
+    with pytest.raises(ValueError):
+        KeyRing(["", ""])
+    ring = KeyRing(["k1"])
+    assert ring.current == "k1"
+    assert ring.rotate() is False  # single key: full circle -> exhausted

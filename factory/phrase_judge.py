@@ -71,6 +71,10 @@ class KeyRing:
 
     def __init__(self, keys):
         self.keys = [k for k in keys if k]
+        if not self.keys:
+            raise ValueError(
+                "KeyRing needs at least one non-empty key "
+                "(set OPENCODE_ZEN_API_KEY in factory/.env)")
         self.idx = 0
         self.used = 0
 
@@ -80,6 +84,8 @@ class KeyRing:
 
     def rotate(self):
         """Move to next key. Returns False when every key just 429'd."""
+        if not self.keys:
+            return False
         self.used += 1
         self.idx = (self.idx + 1) % len(self.keys)
         if self.used >= len(self.keys):
@@ -592,11 +598,17 @@ def main_type(args: argparse.Namespace, transport=call_responses) -> int:
         return 0
 
     from env_loader import load_factory_env
-    env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
+    try:
+        env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
+    except KeyError as exc:
+        raise SystemExit("missing env: %s" % exc)
     api_key = env["OPENCODE_ZEN_API_KEY"]
     if not api_key:
         raise SystemExit("no OPENCODE_ZEN_API_KEY in factory/.env")
-    ring = KeyRing([api_key, env.get("OPENCODE_ZEN_API_KEY_2", "")])
+    try:
+        ring = KeyRing([api_key, env.get("OPENCODE_ZEN_API_KEY_2", "")])
+    except ValueError as exc:
+        raise SystemExit("no Zen keys: %s" % exc)
     print(f"keys in ring: {len(ring.keys)}")
     tele_store = []  # R27: per-attempt records (key_idx only, never values)
 
@@ -711,11 +723,17 @@ def main(argv: list[str] | None = None,
         return 0
 
     from env_loader import load_factory_env
-    env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
+    try:
+        env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
+    except KeyError as exc:
+        raise SystemExit("missing env: %s" % exc)
     api_key = env["OPENCODE_ZEN_API_KEY"]
     if not api_key:
         raise SystemExit("no OPENCODE_ZEN_API_KEY in factory/.env")
-    ring = KeyRing([api_key, env.get("OPENCODE_ZEN_API_KEY_2", "")])
+    try:
+        ring = KeyRing([api_key, env.get("OPENCODE_ZEN_API_KEY_2", "")])
+    except ValueError as exc:
+        raise SystemExit("no Zen keys: %s" % exc)
     print(f"keys in ring: {len(ring.keys)}")
     tele_store = []  # R27: per-attempt records (key_idx only, never values)
 

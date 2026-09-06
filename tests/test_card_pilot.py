@@ -15,9 +15,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "factory"))
 import card_pilot
 from card_pilot import (
     LEVEL_GUIDANCE,
+    _atomic_write_text,
+    _read_model_calls,
     anchor_entry_pos_for_entries,
     anchor_item_en,
     anchor_pos_tags,
+    append_telemetry_history,
     assign_topic,
     batch_log_line,
     build_also_sense,
@@ -2013,3 +2016,146 @@ def test_fa_script_rejects_cjk():
                            "example_translations": []}) is False
     assert fa_script_ok("معنی فارسی تمیز") is True
     assert fa_field_ok("معنی فارسی تمیز") is True
+
+
+# T2 review-findings triage (KILO-1/2/3, OPENCODE criticals + warnings):
+# telemetry history, hermetic dry-run, CEFR guard, topic cache key,
+# render_only progress precedence, telemetry table render, atomic writes.
+
+
+def _tele_rec(stage, batch_id):
+    return {"ts": "t", "stage": stage, "batch_id": batch_id, "key_idx": 0,
+            "model": "m", "prompt_tokens": 1, "completion_tokens": 2,
+            "latency_s": 0.1, "outcome": "ok", "http_status": 200}
+
+
+def test_telemetry_history_multi_run_accumulates(tmp_path):
+    out = tmp_path / "out"
+    run1 = [_tele_rec("card", 0), _tele_rec("card", 1)]
+    all1, corrupt1 = append_telemetry_history(out, run1)
+    assert corrupt1 == 0
+    assert len(all1) == 2
+    run2 = [_tele_rec("card", 2)]
+    all2, corrupt2 = append_telemetry_history(out, run2)
+    assert corrupt2 == 0
+    # Summary covers ALL runs (KILO-2: no history loss on resume).
+    assert len(all2) == 3
+    assert [r["batch_id"] for r in all2] == [0, 1, 2]
+
+
+def test_telemetry_history_corrupt_lines_counted_not_silent(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    hist = out / "telemetry_records.jsonl"
+    hist.write_text(json.dumps(_tele_rec("card", 0)) + "\n"
+                    + "{corrupt prior-run line\n"
+                    + json.dumps(_tele_rec("card", 1)) + "\n",
+                    encoding="utf-8")
+    all_tele, corrupt = append_telemetry_history(out, [_tele_rec("card", 2)])
+    # KILO-1: corrupt lines are counted + warned, valid lines all kept.
+    assert corrupt == 1
+    assert [r["batch_id"] for r in all_tele] == [0, 1, 2]
+
+
+def test_telemetry_history_unreadable_falls_back_to_current_run(tmp_path):
+    # out_dir is an existing FILE: mkdir fails -> current run preserved.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x", encoding="utf-8")
+    run = [_tele_rec("card", 9)]
+    all_tele, _ = append_telemetry_history(blocker, run)
+    assert all_tele == run
+
+
+def test_dry_run_missing_phrase_log_stays_hermetic(tmp_path, capsys):
+    pool_path = tmp_path / "lemmas.csv"
+    with open(pool_path, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["lemma", "pos", "cefr"])
+        writer.writeheader()
+        writer.writerows(make_pool(per_level=4))
+    out_dir = tmp_path / "out"
+    rc = main(["--dry-run", "--n-words", "6", "--n-phrases", "6",
+               "--out-dir", str(out_dir),
+               "--word-pool", str(pool_path),
+               "--phrase-log", str(tmp_path / "no-such-log.jsonl")])
+    assert rc == 0
+    assert "dry-run" in capsys.readouterr().out
+    assert not out_dir.exists() or list(out_dir.iterdir()) == []
+
+
+def test_build_prompts_unknown_level_clean_exit():
+    item = {"kind": "word", "text": "wibble", "pool_level": "XX"}
+    with pytest.raises(SystemExit) as exc:
+        build_prompts(item)
+    assert "XX" in str(exc.value)
+
+
+def test_assign_topic_cache_key_includes_sense_id(tmp_path):
+    prog = tmp_path / "topic_prog.json"
+    sid_a = "rock#1"
+    key_a = "rock\tsolid stone\t%s" % sid_a
+    prog.write_text(json.dumps({
+        key_a: {"label": "Cached-A",
+                "vector": [{"label": "Cached-A", "weight": 1.0}]}}),
+        encoding="utf-8")
+    vec_b = [{"label": "Vec-B", "weight": 1.0}]
+    got_a = assign_topic("rock", "solid stone", lookup=lambda t, g: None,
+                         sense_id=sid_a, progress_path=prog,
+                         vector_lookup={sid_a: vec_b})
+    assert got_a["label"] == "Cached-A"
+    # Same text+gloss, different sense: must NOT hit sid A's entry.
+    sid_b = "rock#2"
+    got_b = assign_topic("rock", "solid stone", lookup=lambda t, g: None,
+                         sense_id=sid_b, progress_path=prog,
+                         vector_lookup={sid_b: vec_b})
+    assert got_b["vector"] == vec_b
+    assert got_b["label"] != "Cached-A"
+
+
+def test_read_model_calls_prefers_precard_progress(tmp_path):
+    (tmp_path / "progress.json").write_text(
+        json.dumps({"model_calls": {"sampling-model": 5}}),
+        encoding="utf-8")
+    (tmp_path / "precard_progress.json").write_text(
+        json.dumps({"model_calls": {"precard-model": 7}}),
+        encoding="utf-8")
+    assert _read_model_calls(tmp_path) == {"precard-model": 7}
+
+
+def test_read_model_calls_falls_back_to_progress(tmp_path):
+    (tmp_path / "progress.json").write_text(
+        json.dumps({"model_calls": {"m1": 3}}), encoding="utf-8")
+    assert _read_model_calls(tmp_path) == {"m1": 3}
+
+
+def test_gallery_telemetry_table_renders():
+    from telemetry import summarize
+    summary = summarize([_tele_rec("card", 0)])
+    html_out = render_gallery(
+        [{"key": "w:a", "kind": "word", "text": "apple",
+          "pool_level": "A1", "bot_level": "beginner",
+          "model_used": "m", "card": dict(VALID_CARD, word="apple"),
+          "valid": True, "reason": "", "error": ""}],
+        {"date_tehran": "d", "commit": "c", "model_calls": {"m": 1},
+         "telemetry": summary})
+    # OPENCODE W9: the shadowed tele_table name used to swallow
+    # UnboundLocalError so the table NEVER rendered.
+    assert "تله‌متری فراخوانی‌ها" in html_out
+
+
+def test_atomic_write_no_truncated_file(tmp_path):
+    dest = tmp_path / "sub" / "progress.json"
+    _atomic_write_text(dest, '{"done": {}}')
+    assert json.loads(dest.read_text(encoding="utf-8")) == {"done": {}}
+    assert not dest.with_name(dest.name + ".tmp").exists()
+
+
+def test_run_logger_close_idempotent_and_reopen(tmp_path):
+    log = tmp_path / "run.log"
+    logger = RunLogger(log)
+    logger.stage_start("sample")
+    logger.stage_end("sample", ok=1, fail=0)
+    logger.close()
+    logger.close()  # idempotent: no raise
+    logger.log("after close reopens")  # reopen path still works
+    logger.close()
+    assert "stage sample start" in log.read_text(encoding="utf-8")
