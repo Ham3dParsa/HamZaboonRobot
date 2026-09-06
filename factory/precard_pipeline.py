@@ -151,8 +151,18 @@ def parse_args(argv=None):
     ap.add_argument("--judge-provider", default="zen",
                     choices=("zen", "avalai"),
                     help="S2 judge transport: zen (default, free chain) or "
-                    "avalai (paid chain, glm-5.3-flash — locked 2026-09-06; "
-                    "requires AVALAI_API_KEY)")
+                    "avalai (paid chain — locked 2026-09-06; "
+                    "requires AVALAI_API_KEY). DEPRECATED alias: use "
+                    "--llm-provider avalai (covers all precard LLM legs).")
+    ap.add_argument("--llm-provider", default="zen",
+                    choices=("zen", "avalai"),
+                    help="ALL precard LLM legs (S0b/S2/S3/S4): zen (default) "
+                    "or avalai (paid chain, no Persian needed — locked "
+                    "2026-09-06; requires AVALAI_API_KEY)")
+    ap.add_argument("--precard-model", default="",
+                    help="AvalAI model for all precard legs (default "
+                    "glm-5.3-flash; e.g. deepseek-v4-flash for the "
+                    "comparison run). Ignored on the zen path.")
     ap.add_argument("--judge-model", default="",
                     help="S2 judge model id (default: provider default — "
                     "Zen chain models for zen, glm-5.3-flash for avalai)")
@@ -785,9 +795,9 @@ def _s3_pseudo_records(batch, s2map, s1map):
     return list(groups.values())
 
 
-def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn, state,
-                    telemetry=None, tele_stage="s3", tele_batch=0,
-                    ring=None):
+def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn,
+                    state, telemetry=None, tele_stage="s3", tele_batch=0,
+                    ring=None, models=None):
     """Topic vectors for one batch via the run_v15 path (imported).
 
     Returns {sense_id: {"vector": [{label, weight}...], "model": ...}}.
@@ -802,6 +812,7 @@ def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn, state,
     from run_v15_topics import USER_TMPL, fallback_vectors, lemma_block
     from run_v15_topics import validate_vectors
     from run_v15_topics import call_responses as _  # noqa: F401 (owner path ref)
+    v15_models = list(models) if models else list(V15_MODELS)
     pseudos = _s3_pseudo_records(batch, s2map, s1map)
     out = {}
     if not pseudos:
@@ -809,7 +820,7 @@ def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn, state,
     prompt = USER_TMPL + "\n\n".join(lemma_block(r) for r in pseudos)
     if ring is None:
         ring = KeyRing([api_key])
-    for model in V15_MODELS:
+    for model in v15_models:
         for attempt in range(MAX_ATTEMPTS):
             text = prompt if attempt == 0 else RETRY_PREFIX + prompt
             label = "%s/v15#%d" % (model, attempt)
@@ -916,8 +927,8 @@ def _rotating_llm_transport(transport, sleep_fn, state, ring):
                 _note_backoff(state, "%s/s4" % model, [],
                               "all-keys-429-stop")
                 raise RateLimited(
-                    "all Zen keys 429 — switch VPN server, "
-                    "then re-run (progress flushed, resume safe)")
+                    "all keys 429 (provider quotas exhausted) — re-run "
+                    "later (progress flushed, resume safe)")
     return wrap
 
 
@@ -1073,7 +1084,7 @@ def _default_judge_transport(api_key, model, user_text):
 # mandatory: without it thinking tokens eat the budget and the answer
 # comes back empty (verified 2026-09-06: 300 thinking tokens, "").
 AVALAI_CHAT_URL = "https://api.avalai.ir/v1/chat/completions"
-AVALAI_JUDGE_MODEL = "glm-5.3-flash"
+AVALAI_PRECARD_MODEL = "glm-5.3-flash"
 
 
 def _avalai_chat_transport(api_key, model, user_text):
@@ -1094,6 +1105,26 @@ def _avalai_chat_transport(api_key, model, user_text):
     usage = data.get("usage", {}) if isinstance(data, dict) else {}
     return (msg.get("content") or ""), (usage if isinstance(usage, dict)
                                         else None)
+
+
+def _avalai_remap_transport(default_model):
+    """Adapter letting Zen-model loops run unchanged on AvalAI.
+
+    S0b/S3/S4 loops live in card_pilot (shared with card-gen — untouched
+    by design) and request Zen model names. This wraps
+    _avalai_chat_transport, substituting the precard model for any
+    requested name; extra leading texts (the inflect sys prompt) are
+    prepended. Telemetry keeps the requested (Zen) name — runs are told
+    apart by their progress dirs, not by these labels.
+    Cost bound (#4 review): a fully-failing item repeats the SAME paid
+    model through the loop (S4 up to 5 models x 2 attempts, S0b 2 x 2);
+    worst case ~$0.001/item at GLM rates, only on total failure. PENDING
+    owner cost sign-off; single-model collapse is follow-up.
+    """
+    def wrap(api_key, model, *texts):
+        text = "\n\n".join(t for t in texts if t)
+        return _avalai_chat_transport(api_key, default_model, text)
+    return wrap
 
 
 def _default_topic_transport(api_key, model, user_text):
@@ -1316,40 +1347,70 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                        if _judge_transport is _USE_DEFAULT
                        else _judge_transport)
     judge_models = None
-    # S2-scoped AvalAI key/ring (F1: the shared Zen api_key/ring keep
-    # feeding S0b/S3/S4 untouched — only the S2 call site below receives
-    # the AvalAI pair).
+    # AvalAI wiring. Full-line mode (--llm-provider avalai): every precard
+    # LLM leg (S0b/S2/S3/S4) runs on the precard model, no Zen anywhere.
+    # S2-only back-compat (--judge-provider avalai): only the S2 call site
+    # receives the AvalAI pair (F1 scoping); S0b/S3/S4 stay Zen.
     judge_api_key, judge_ring = None, None
-    if _judge_transport is _USE_DEFAULT and args.judge_provider == "avalai":
+    full_avalai = (_judge_transport is _USE_DEFAULT
+                   and args.llm_provider == "avalai")
+    s2_avalai = (_judge_transport is _USE_DEFAULT
+                 and (args.judge_provider == "avalai"
+                      or args.llm_provider == "avalai"))
+    precard_model = args.precard_model or AVALAI_PRECARD_MODEL
+    if full_avalai or s2_avalai:
         try:
             env_av = load_factory_env(required=("AVALAI_API_KEY",))
             avalai_key = env_av["AVALAI_API_KEY"]
         except KeyError:
             raise SystemExit("no AVALAI_API_KEY in factory/.env "
-                             "(--judge-provider avalai needs it)")
+                             "(avalai provider needs it)")
         if not avalai_key:
             raise SystemExit("no AVALAI_API_KEY in factory/.env "
-                             "(--judge-provider avalai needs it)")
+                             "(avalai provider needs it)")
         try:
             judge_ring = KeyRing([avalai_key])
         except ValueError as exc:
             raise SystemExit("no AvalAI keys: %s" % exc)
         judge_api_key = avalai_key
         judge_transport = _avalai_chat_transport
-        judge_models = [args.judge_model or AVALAI_JUDGE_MODEL]
-    elif args.judge_model and _judge_transport is _USE_DEFAULT:
-        print("warning: --judge-model applies only with "
-              "--judge-provider avalai; ignored on the zen path",
+        judge_models = [args.judge_model or precard_model]
+    if full_avalai:
+        api_key, ring = avalai_key, KeyRing([avalai_key])
+        remap = _avalai_remap_transport(precard_model)
+        if _topic_transport is _USE_DEFAULT:
+            topic_transport = remap
+        if _assign_transport is _USE_DEFAULT:
+            assign_transport = remap
+        if _inflect_transport is _USE_DEFAULT:
+            inflect_transport = remap
+        s3_models_override = [precard_model]
+    else:
+        s3_models_override = None
+    if (args.judge_model or args.precard_model) \
+            and _judge_transport is _USE_DEFAULT \
+            and not (full_avalai or s2_avalai):
+        print("warning: --judge-model/--precard-model apply only with "
+              "an avalai provider; ignored on the zen path",
               file=sys.stderr)
     topic_transport = (_default_topic_transport
                        if _topic_transport is _USE_DEFAULT
-                       else _topic_transport)
+                       and not full_avalai
+                       else _topic_transport
+                       if _topic_transport is not _USE_DEFAULT
+                       else topic_transport)
     assign_transport = (_default_assign_transport
                         if _assign_transport is _USE_DEFAULT
-                        else _assign_transport)
+                        and not full_avalai
+                        else _assign_transport
+                        if _assign_transport is not _USE_DEFAULT
+                        else assign_transport)
     inflect_transport = (_default_inflect_transport
                          if _inflect_transport is _USE_DEFAULT
-                         else _inflect_transport)
+                         and not full_avalai
+                         else _inflect_transport
+                         if _inflect_transport is not _USE_DEFAULT
+                         else inflect_transport)
 
     s4_cache = progress_dir / "s4_topup_cache.json"
     s4_calls: dict = {}
@@ -1571,9 +1632,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     raise
                 except RateLimited as exc:
                     _flush(progress_dir, states)
-                    hint = ("switch VPN server then re-run"
-                            if args.judge_provider == "zen"
-                            else "wait for quota reset then re-run")
+                    hint = ("wait for quota reset then re-run"
+                            if (full_avalai or s2_avalai)
+                            else "switch VPN server then re-run")
                     raise SystemExit(
                         "STOP s2 at batch %d: %s — progress flushed, "
                         "%s" % (batch_no, exc, hint))
@@ -1653,14 +1714,17 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         states["s1"]["done"], api_key,
                         topic_transport, sleep_fn, states["s3"],
                         telemetry=tele_store, tele_batch=batch_no,
-                        ring=ring)
+                        ring=ring, models=s3_models_override)
                 except AuthError:
                     raise
                 except RateLimited as exc:
                     _flush(progress_dir, states)
                     raise SystemExit(
                         "STOP s3 at batch %d: %s — progress flushed, "
-                        "switch VPN server then re-run" % (batch_no, exc))
+                        "%s" % (batch_no, exc,
+                                "wait for quota reset then re-run"
+                                if full_avalai else
+                                "switch VPN server then re-run"))
                 for item in todo:
                     key = item_key(item)
                     sid = (states["s2"]["done"].get(key) or {}).get(
@@ -1727,8 +1791,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         _flush(progress_dir, states)
                         raise SystemExit(
                             "STOP s4 at batch %d: %s — progress flushed, "
-                            "switch VPN server then re-run"
-                            % (batch_no, exc))
+                            "%s"
+                            % (batch_no, exc,
+                               "wait for quota reset then re-run"
+                               if full_avalai else
+                               "switch VPN server then re-run"))
                     states["s4"]["done"][key] = assigned
             if did_work:
                 sleep_fn(SLEEP)

@@ -445,7 +445,8 @@ def test_s3_429_rotates_across_keys(tmp_path, monkeypatch):
 
 
 def test_s4_429_rotates_and_all_keys_stop(tmp_path, monkeypatch):
-    """S4 wrapper rotates on 429; all-keys-429 raises SystemExit (VPN)."""
+    """S4 wrapper rotates on 429; all-keys-429 raises RateLimited with a
+    provider-neutral message (per-stage STOP wrappers add VPN/quota hints)."""
     import pytest
     from phrase_judge import KeyRing
     from precard_pipeline import _rotating_llm_transport
@@ -475,7 +476,8 @@ def test_s4_429_rotates_and_all_keys_stop(tmp_path, monkeypatch):
                                     KeyRing(["k1", "k2"]))
     with pytest.raises(RateLimited) as excinfo:
         wrap2("ignored", "m", "prompt")
-    assert "VPN" in str(excinfo.value) or "server" in str(excinfo.value)
+    assert "quotas exhausted" in str(excinfo.value)
+    assert "VPN" not in str(excinfo.value)
 
 
 def test_resume_continues_after_429_stop(tmp_path, monkeypatch):
@@ -1165,9 +1167,16 @@ def test_judge_provider_defaults_zen():
     from precard_pipeline import parse_args
     args = parse_args(["--sample", "s"])
     assert args.judge_provider == "zen"
+    assert args.llm_provider == "zen"
     assert args.judge_model == ""
+    assert args.precard_model == ""
     assert parse_args(["--sample", "s", "--judge-provider",
                        "avalai"]).judge_provider == "avalai"
+    assert parse_args(["--sample", "s", "--llm-provider",
+                       "avalai",
+                       "--precard-model",
+                       "deepseek-v4-flash"]).precard_model == \
+        "deepseek-v4-flash"
 
 
 def test_avalai_key_scoped_to_s2(tmp_path, monkeypatch):
@@ -1198,3 +1207,83 @@ def test_avalai_key_scoped_to_s2(tmp_path, monkeypatch):
     s2 = json.loads(
         (pathlib.Path(prog) / "s2.json").read_text(encoding="utf-8"))
     assert s2["done"]["w:apple"]["model"] == "glm-5.3-flash"
+
+
+def test_full_llm_provider_wires_precard_model(tmp_path, monkeypatch):
+    """#5: --llm-provider avalai routes the S2 call to --precard-model
+    end to end (flag -> override connection, not just the unit)."""
+    import precard_pipeline
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "zen-key")
+    monkeypatch.setenv("AVALAI_API_KEY", "avalai-key")
+    sample = write_sample(tmp_path, ITEMS[:1])
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    seen = []
+
+    def rec_judge(api_key, model, user_text):
+        seen.append((api_key, model))
+        return fake_judge(api_key, model, user_text)
+
+    monkeypatch.setattr(precard_pipeline, "_avalai_chat_transport",
+                        rec_judge)
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog,
+         "--stages", "s0,s1,s2", "--llm-provider", "avalai",
+         "--precard-model", "deepseek-v4-flash"],
+        _topic_transport=None, _assign_transport=None,
+        _sleep_fn=lambda s: None, _index=make_index(),
+        _read_entry=read_entry, _tatoeba={}, _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    assert seen and seen[0] == ("avalai-key", "deepseek-v4-flash")
+    s2 = json.loads(
+        (pathlib.Path(prog) / "s2.json").read_text(encoding="utf-8"))
+    assert s2["done"]["w:apple"]["model"] == "deepseek-v4-flash"
+
+
+def test_avalai_remap_substitutes_model():
+    """Full-line mode: Zen loop names are replaced by the precard model;
+    extra sys text is prepended, never dropped."""
+    import precard_pipeline
+    seen = {}
+
+    def rec(api_key, model, user_text):
+        seen["key"] = api_key
+        seen["model"] = model
+        seen["text"] = user_text
+        return ("{}", {"prompt_tokens": 1, "completion_tokens": 1})
+
+    import unittest.mock as mock
+    with mock.patch.object(precard_pipeline, "_avalai_chat_transport",
+                           side_effect=rec):
+        wrap = precard_pipeline._avalai_remap_transport("glm-5.3-flash")
+        wrap("k-av", "some-zen-model", "SYS", "USER")
+    assert seen["key"] == "k-av"
+    assert seen["model"] == "glm-5.3-flash"
+    assert seen["text"] == "SYS\n\nUSER"
+
+
+def test_full_avalai_s3_uses_precard_model(tmp_path, monkeypatch):
+    """Full-line mode: S3 vector batch calls the precard model (override),
+    not the Zen V15 chain."""
+    import precard_pipeline
+    from phrase_judge import KeyRing
+    from precard_pipeline import s1_rank_item, s3_vector_batch
+    index = make_index()
+    item = {"kind": "word", "text": "apple", "pos": "noun",
+            "pool_level": "A1"}
+    s1map = {"w:apple": s1_rank_item(item, index, read_entry)}
+    s2map = {"w:apple": {"sense_id": "apple#0", "gloss": "a round fruit"}}
+    seen = []
+
+    def rec(api_key, model, user_text):
+        seen.append(model)
+        return (json.dumps({"results": [{"lemma": "apple", "vectors": [
+            {"sense_id": "apple#0",
+             "vector": [{"topic_id": 13, "topic_label": "Other / Abstract",
+                         "weight": 1.0}]}]}]}), None)
+
+    out = s3_vector_batch([item], s2map, s1map, "k", rec, lambda s: None,
+                          {"done": {}, "failed": [], "backoffs": []},
+                          ring=KeyRing(["k"]),
+                          models=["deepseek-v4-flash"])
+    assert out["apple#0"]["model"] == "deepseek-v4-flash"
+    assert seen == ["deepseek-v4-flash"]
