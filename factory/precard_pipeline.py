@@ -8,7 +8,9 @@ existing pipeline scripts BY IMPORT (never a third copy of their logic):
 - S2 sense judge pick: run_v14_phase3_judge.call_responses transport +
   MODELS chain (Muse-only 1.3 -> 1.2 override), validate_picks /
   deterministic_picks reuse, 2 attempts, 401/403 loud abort,
-  other-errors fail-closed to the S1 top pick.
+  other-errors fail-closed to the S1 top pick. S2 today = single-pick
+  per item; beginner-2/intermediate-3/advanced-4 picks + x1.5 EVP boost
+  belong to v14c (run_v14_phase3_judge), not this pipeline.
 - S3 topic vector: run_v15_topics USER_TMPL + lemma_block prompt,
   call_responses transport, validate_vectors / fallback_vectors.
 - S4 topic label: card_pilot.assign_topic two-leg (deterministic v16 leg
