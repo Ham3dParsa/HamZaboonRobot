@@ -1183,7 +1183,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         states["s0b"]["done"][key] = {
                             "kept": True, "reason": "review-uncertain",
                             "uncertain": True}
-                    elif not verdict.get("keep") and base:
+                    elif not verdict.get("keep") and base and not verdict.get(
+                            "uncertain"):
                         states["s0b"]["done"][key] = {
                             "kept": True,
                             "reason": "superlative-redirect",

@@ -1927,6 +1927,17 @@ def test_r43_other_level_words_still_unconditional():
         != []
 
 
+def test_r43_zwnj_joined_tokens():
+    # ZWNJ-joined متوسط with no marker nearby stays clean (pass).
+    card = dict(VALID_CARD,
+                fa_explanation="می\u200cمتوسط بارش در این منطقه زیاد است.")
+    assert meta_leak_scan(card) == []
+    # سطح + ZWNJ + متوسط is a level leak (fail).
+    card = dict(VALID_CARD,
+                fa_explanation="این کتاب سطح\u200cمتوسط زبان است.")
+    assert meta_leak_scan(card) != []
+
+
 # ---------------- v12 R44: superlative redirect helpers ----------------
 
 def test_r44_parse_superlative_base():
@@ -2105,10 +2116,25 @@ def test_dry_run_missing_phrase_log_stays_hermetic(tmp_path, capsys):
 
 
 def test_build_prompts_unknown_level_clean_exit():
+    # Unknown pool_level raises ValueError (an Exception, never
+    # SystemExit/BaseException) so generate_card records it per-card
+    # and the pilot loop continues instead of aborting the whole run.
     item = {"kind": "word", "text": "wibble", "pool_level": "XX"}
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(ValueError) as exc:
         build_prompts(item)
     assert "XX" in str(exc.value)
+
+
+def test_generate_card_unknown_level_records_invalid():
+    # Per-card recorded failure: no raise, valid=False with a
+    # bad-pool-level reason, pilot-safe to continue the loop.
+    from card_pilot import generate_card
+    item = {"kind": "word", "text": "wibble", "pool_level": "XX"}
+    rec = generate_card(item, "key", transport=lambda *a: "{}",
+                        model_calls={})
+    assert rec["valid"] is False
+    assert rec["reason"].startswith("bad-pool-level")
+    assert "XX" in rec["reason"]
 
 
 def test_assign_topic_cache_key_includes_sense_id(tmp_path):

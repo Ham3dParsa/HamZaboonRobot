@@ -220,7 +220,8 @@ _META_MARKERS = frozenset({
     "level", "intermediate", "beginner", "advanced",
 })
 _TOKEN_STRIP_CHARS = (" \t\n\r.,;:!?()[]{}<>\"'«»“”‘’'\u2026"
-                      "-\u2013\u2014/\\|_+=*~`@#$%^&\u061f\u060c\u061b:.")
+                      "-\u2013\u2014/\\|_+=*~`@#$%^&\u061f\u060c\u061b:."
+                      "\u200c\u200d")
 
 
 def _strip_meta_token(token):
@@ -237,7 +238,9 @@ def _meta_contextual_hits(text):
     hits = []
     if not isinstance(text, str) or not text:
         return hits
-    raw_tokens = text.split()
+    # R43 ZWNJ/ZWJ join words (می‌متوسط, سطح‌متوسط): split them so the
+    # contextual token is visible to the marker-window check.
+    raw_tokens = re.split(r"[\s\u200c\u200d]+", text)
     normed = []
     for tok in raw_tokens:
         stripped = _strip_meta_token(tok)
@@ -1443,12 +1446,14 @@ def sense_coherence_check(anchor_gloss, card, headword=""):
 
 
 def _stem_match_5(a, b):
-    """Shared 5-char stem-containment match (R41 owner, R42 v11 reuse).
+    """Shared 5-char stem-prefix match (R41 owner, R42 v11 reuse).
 
     Morphology-tolerant overlap: exact match first (cheap), else a
-    shared substring of 5+ chars in either direction
-    (torrent/torrential, thing/nothing), with trailing-s tolerance
-    (torrents/torrential). Case-sensitive — callers lowercase first.
+    length-proportional shared PREFIX (torrent/torrential,
+    torrents/torrential), with trailing-s tolerance. Substring
+    containment is rejected: taste/wastebasket and apple/pineapple
+    share only a suffix, not a prefix, so they must NOT match.
+    Case-sensitive — callers lowercase first.
     """
     if a == b:
         return True
@@ -1458,12 +1463,21 @@ def _stem_match_5(a, b):
         if len(t) > 5 and t.endswith("s") and not t.endswith("ss"):
             out.add(t[:-1])
         return out
+
+    def _prefix_len(x, y):
+        n = 0
+        for ca, cb in zip(x, y):
+            if ca != cb:
+                break
+            n += 1
+        return n
     for va in _vars(a):
         for vb in _vars(b):
             if len(va) < 5 or len(vb) < 5:
                 continue
-            short, long = (va, vb) if len(va) <= len(vb) else (vb, va)
-            if short in long:
+            short_len = min(len(va), len(vb))
+            need = max(5, (short_len + 1) // 2)
+            if _prefix_len(va, vb) >= need:
                 return True
     return False
 
@@ -1665,7 +1679,7 @@ def cloze_zipf_ok(example, headword, kind="word", pool_level="",
             continue
         try:
             value = get(lowered)
-        except Exception:
+        except (KeyError, ValueError, TypeError):
             value = None
         if value is None:
             continue
@@ -2215,7 +2229,7 @@ def build_prompts(item, zipf_fn=None):
     """
     bot_level = CEFR_TO_BOT_LEVEL.get((item.get("pool_level") or "").strip())
     if bot_level is None:
-        raise SystemExit(
+        raise ValueError(
             "unknown pool_level %r for item %r (want one of %s)"
             % (item.get("pool_level"), item.get("text"),
                ",".join(LEVEL_ORDER)))
@@ -2365,7 +2379,43 @@ def generate_card(item, api_key, transport=None, model_calls=None,
     transport = transport or call_responses
     if model_calls is None:
         model_calls = {}
-    system, user, bot_level = build_prompts(item, cloze_zipf_fn)
+    try:
+        system, user, bot_level = build_prompts(item, cloze_zipf_fn)
+    except ValueError as exc:
+        # Per-card recorded failure: an unknown pool_level records
+        # invalid on this card and the pilot loop continues with the
+        # next item (never aborts the whole run; SystemExit is a
+        # BaseException and would escape the loop's error handling).
+        reason = "bad-pool-level: %s" % str(exc)[:200]
+        return {"key": item_key(item), "kind": item.get("kind", "word"),
+                "text": item.get("text", ""),
+                "pool_level": item.get("pool_level", ""),
+                "bot_level": "", "sense_id": item.get("sense_id", ""),
+                "en_def": item.get("en_def", ""),
+                "en_source": "dataset" if item.get("en_def") else "none",
+                "sense_candidates": list(
+                    item.get("sense_candidates") or []),
+                "also_sense": item.get("also_sense"),
+                "topic": item.get("topic", ""),
+                "topic_method": item.get("topic_method", ""),
+                "topic_vector": list(item.get("topic_vector") or []),
+                "pos": [], "pos_src": item.get("pos_src", "none"),
+                "abbrev_expansion": (item.get("abbrev_expansion") or ""),
+                "content_flags": dict(item.get("content_flags") or {}),
+                "grammar_review": None,
+                "ipa": item.get("ipa", ""),
+                "ipa_src": item.get("ipa_src", IPA_SRC_MODEL),
+                "dataset_examples": [], "examples_src": [],
+                "long_example": [],
+                "proper_noun": item.get("proper_noun"),
+                "model_used": "", "card": None, "valid": False,
+                "reason": reason, "error": reason, "model_d": "",
+                "literal_fa": "", "leaks": [], "regen": False,
+                "completion_flags": {}, "similarity_note": 0.0,
+                "fa_dominant": None, "headword_leaks": [],
+                "redirect_to": item.get("redirect_to", ""),
+                "stage_calls": dict(item.get("stage_calls") or {}),
+                "model_calls": dict(model_calls or {})}
     # V7 containment-release (locked A): only containment-passing dataset
     # examples stay frozen; failing ones are released for model replacement
     # (the fill need in build_prompts already grows accordingly). R31 v8:

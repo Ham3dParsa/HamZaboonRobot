@@ -501,3 +501,13 @@ def test_r41b_resume_skips_reviewed(tmp_path):
                          model_calls={}, progress_path=prog)
     assert calls["n"] == 0
     assert recs2[0]["sense_coherence"]["verdict"] == "llm-pass"
+
+
+def test_stem_match_5_rejects_suffix_overlap():
+    # Suffix-only overlap must NOT match: "taste" is a trailing
+    # substring of "wastebasket" but shares no prefix.
+    from card_pilot import _stem_match_5
+    assert _stem_match_5("taste", "wastebasket") is False
+    assert _stem_match_5("apple", "pineapple") is False
+    # True prefix kin still match (no regression on the torrent gate).
+    assert _stem_match_5("torrent", "torrential") is True
