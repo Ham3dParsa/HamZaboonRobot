@@ -81,6 +81,7 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -147,6 +148,14 @@ def parse_args(argv=None):
     ap.add_argument("--awl-families", default=DEFAULT_AWL_FAMILIES,
                     help="AWL families JSON (missing file = no academic tags "
                     "from AWL, never fails)")
+    ap.add_argument("--judge-provider", default="zen",
+                    choices=("zen", "avalai"),
+                    help="S2 judge transport: zen (default, free chain) or "
+                    "avalai (paid chain, glm-5.3-flash — locked 2026-09-06; "
+                    "requires AVALAI_API_KEY)")
+    ap.add_argument("--judge-model", default="",
+                    help="S2 judge model id (default: provider default — "
+                    "Zen chain models for zen, glm-5.3-flash for avalai)")
     args = ap.parse_args(argv)
     if args.limit is not None and args.limit < 0:
         ap.error("--limit must be >= 0")
@@ -400,7 +409,7 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
                 continue
             _note_backoff(state, label, [], "all-keys-429-stop")
             raise RateLimited(
-                "all Zen keys 429 — switch VPN server, then re-run")
+                "all keys 429 (provider quotas exhausted) — re-run later")
 
 
 # -------------------------------------------------------------- S0b ---
@@ -562,10 +571,12 @@ def _s2_validate(data, batch, s1map):
 
 def s2_judge_batch(batch, s1map, api_key, transport, sleep_fn, state,
                    telemetry=None, tele_stage="s2", tele_batch=0,
-                   ring=None):
+                   ring=None, models=None):
     """    Judge-pick one batch. Returns {key: {sense_id, gloss, model}}.
 
-    Muse-only chain (judge MODELS[:2]), 2 attempts per model, 401/403
+    Default chain is Muse-only (judge MODELS[:2]); an explicit `models`
+    list (e.g. AvalAI glm-5.3-flash via --judge-provider avalai) replaces
+    it. 2 attempts per model, 401/403
     loud abort, 429 rotates the KeyRing (brief pause, same-call retry;
     all-keys-429 raises RateLimited so the runner flushes and STOPS),
     anything else fail-closed to the S1 top pick per item. R27: one
@@ -575,7 +586,7 @@ def s2_judge_batch(batch, s1map, api_key, transport, sleep_fn, state,
     """
     from run_v14_phase3_judge import MODELS as JUDGE_MODELS
     from run_v14_phase3_judge import call_responses as _  # noqa: F401 (owner path ref)
-    models = list(JUDGE_MODELS[:2])
+    models = list(models) if models else list(JUDGE_MODELS[:2])
     prompt = _s2_prompt(batch, s1map)
     transport = transport  # default wired by caller to judge call_responses
     if ring is None:
@@ -1054,6 +1065,37 @@ def _default_judge_transport(api_key, model, user_text):
     return call_responses(api_key, model, user_text)
 
 
+# AvalAI (OpenAI-compatible) chat transport for the paid model chain
+# (locked 2026-09-06: S2 glm-5.3-flash wired here; S3 gemini-3.5-flash-lite
+# and repair gemini-3.8-flash are a planned follow-up, not yet wired).
+# shape as the Zen transports, so KeyRing rotation (429) and the
+# 401/403 auth mapping apply unchanged. reasoning_effort low is
+# mandatory: without it thinking tokens eat the budget and the answer
+# comes back empty (verified 2026-09-06: 300 thinking tokens, "").
+AVALAI_CHAT_URL = "https://api.avalai.ir/v1/chat/completions"
+AVALAI_JUDGE_MODEL = "glm-5.3-flash"
+
+
+def _avalai_chat_transport(api_key, model, user_text):
+    payload = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": user_text}],
+        "temperature": 0,
+        "extra_body": {"reasoning_effort": "low"},
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        AVALAI_CHAT_URL, data=payload,
+        headers={"Content-Type": "application/json",
+                 "Authorization": "Bearer " + api_key})
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.load(resp)
+    msg = ((data.get("choices") or [{}])[0].get("message", {})
+           if isinstance(data, dict) else {})
+    usage = data.get("usage", {}) if isinstance(data, dict) else {}
+    return (msg.get("content") or ""), (usage if isinstance(usage, dict)
+                                        else None)
+
+
 def _default_topic_transport(api_key, model, user_text):
     from run_v15_topics import call_responses
     return call_responses(api_key, model, user_text)
@@ -1273,6 +1315,32 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     judge_transport = (_default_judge_transport
                        if _judge_transport is _USE_DEFAULT
                        else _judge_transport)
+    judge_models = None
+    # S2-scoped AvalAI key/ring (F1: the shared Zen api_key/ring keep
+    # feeding S0b/S3/S4 untouched — only the S2 call site below receives
+    # the AvalAI pair).
+    judge_api_key, judge_ring = None, None
+    if _judge_transport is _USE_DEFAULT and args.judge_provider == "avalai":
+        try:
+            env_av = load_factory_env(required=("AVALAI_API_KEY",))
+            avalai_key = env_av["AVALAI_API_KEY"]
+        except KeyError:
+            raise SystemExit("no AVALAI_API_KEY in factory/.env "
+                             "(--judge-provider avalai needs it)")
+        if not avalai_key:
+            raise SystemExit("no AVALAI_API_KEY in factory/.env "
+                             "(--judge-provider avalai needs it)")
+        try:
+            judge_ring = KeyRing([avalai_key])
+        except ValueError as exc:
+            raise SystemExit("no AvalAI keys: %s" % exc)
+        judge_api_key = avalai_key
+        judge_transport = _avalai_chat_transport
+        judge_models = [args.judge_model or AVALAI_JUDGE_MODEL]
+    elif args.judge_model and _judge_transport is _USE_DEFAULT:
+        print("warning: --judge-model applies only with "
+              "--judge-provider avalai; ignored on the zen path",
+              file=sys.stderr)
     topic_transport = (_default_topic_transport
                        if _topic_transport is _USE_DEFAULT
                        else _topic_transport)
@@ -1494,17 +1562,21 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             if todo:
                 try:
                     verdicts = s2_judge_batch(
-                        todo, states["s1"]["done"], api_key,
+                        todo, states["s1"]["done"],
+                        judge_api_key or api_key,
                         judge_transport, sleep_fn, states["s2"],
                         telemetry=tele_store, tele_batch=batch_no,
-                        ring=ring)
+                        ring=judge_ring or ring, models=judge_models)
                 except AuthError:
                     raise
                 except RateLimited as exc:
                     _flush(progress_dir, states)
+                    hint = ("switch VPN server then re-run"
+                            if args.judge_provider == "zen"
+                            else "wait for quota reset then re-run")
                     raise SystemExit(
                         "STOP s2 at batch %d: %s — progress flushed, "
-                        "switch VPN server then re-run" % (batch_no, exc))
+                        "%s" % (batch_no, exc, hint))
                 for item in todo:
                     key = item_key(item)
                     verdict = verdicts.get(key)

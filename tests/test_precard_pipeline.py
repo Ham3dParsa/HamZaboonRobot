@@ -1083,3 +1083,118 @@ def test_s4_label_item_reraises_ratelimited():
             "x#0", None, "k", transport_429, lambda s: None,
             {"done": {}, "failed": [], "backoffs": []}, None, {},
             ring=KeyRing(["k1", "k2"]))
+
+
+def test_avalai_transport_shape(monkeypatch):
+    """AvalAI chain: effort-low posted, model honored, usage surfaced."""
+    import io as _io
+    import precard_pipeline
+    seen = {}
+
+    class FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return json.dumps({
+                "choices": [{"message": {"content": '{"ok": true}'}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 4,
+                          "completion_tokens_details": {
+                              "reasoning_tokens": 0}}}).encode("utf-8")
+
+    def fake_urlopen(req, timeout=120):
+        seen["url"] = req.full_url
+        seen["auth"] = req.headers.get("Authorization")
+        seen["body"] = json.loads(req.data.decode("utf-8"))
+        return FakeResp()
+
+    monkeypatch.setattr(precard_pipeline.urllib.request, "urlopen",
+                        fake_urlopen)
+    text, usage = precard_pipeline._avalai_chat_transport(
+        "k-test", "glm-5.3-flash", "hello")
+    assert text == '{"ok": true}'
+    assert usage["prompt_tokens"] == 10
+    assert usage["completion_tokens"] == 4
+    assert seen["url"] == precard_pipeline.AVALAI_CHAT_URL
+    assert seen["auth"] == "Bearer k-test"
+    assert seen["body"]["model"] == "glm-5.3-flash"
+    assert seen["body"]["extra_body"] == {"reasoning_effort": "low"}
+
+
+def test_avalai_transport_http_error_propagates(monkeypatch):
+    """AvalAI chain: 429/401 reach the caller untouched (rotation/auth)."""
+    import urllib.error
+    import pytest
+    import precard_pipeline
+
+    def boom(req, timeout=120):
+        raise urllib.error.HTTPError("http://x", 429, "throttled", {},
+                                     None)
+
+    monkeypatch.setattr(precard_pipeline.urllib.request, "urlopen", boom)
+    with pytest.raises(urllib.error.HTTPError):
+        precard_pipeline._avalai_chat_transport("k", "m", "u")
+
+
+def test_s2_models_override_used():
+    """AvalAI chain: explicit models list replaces the Zen chain."""
+    from phrase_judge import KeyRing
+    from precard_pipeline import s1_rank_item, s2_judge_batch
+    index = make_index()
+    item = {"kind": "word", "text": "apple", "pos": "noun",
+            "pool_level": "A1"}
+    s1map = {"w:apple": s1_rank_item(item, index, read_entry)}
+    seen = []
+
+    def rec(api_key, model, user_text):
+        seen.append(model)
+        return fake_judge(api_key, model, user_text)
+
+    out = s2_judge_batch([item], s1map, "k", rec, lambda s: None,
+                         {"done": {}, "failed": [], "backoffs": []},
+                         ring=KeyRing(["k"]), models=["glm-5.3-flash"])
+    assert out["w:apple"]["model"] == "glm-5.3-flash"
+    assert seen == ["glm-5.3-flash"]
+
+
+def test_judge_provider_defaults_zen():
+    """Default provider stays zen (zero behavior change without the flag)."""
+    from precard_pipeline import parse_args
+    args = parse_args(["--sample", "s"])
+    assert args.judge_provider == "zen"
+    assert args.judge_model == ""
+    assert parse_args(["--sample", "s", "--judge-provider",
+                       "avalai"]).judge_provider == "avalai"
+
+
+def test_avalai_key_scoped_to_s2(tmp_path, monkeypatch):
+    """F1: --judge-provider avalai routes only the S2 call; Zen key/ring
+    keep feeding every other stage (here: s1 deterministic, s2 recorded)."""
+    import precard_pipeline
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "zen-key")
+    monkeypatch.setenv("AVALAI_API_KEY", "avalai-key")
+    sample = write_sample(tmp_path, ITEMS[:1])
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    seen = []
+
+    def rec_judge(api_key, model, user_text):
+        seen.append((api_key, model))
+        return fake_judge(api_key, model, user_text)
+
+    monkeypatch.setattr(precard_pipeline, "_avalai_chat_transport",
+                        rec_judge)
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog,
+         "--stages", "s0,s1,s2", "--judge-provider", "avalai"],
+        _topic_transport=None, _assign_transport=None,
+        _sleep_fn=lambda s: None, _index=make_index(),
+        _read_entry=read_entry, _tatoeba={}, _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    assert seen and seen[0][0] == "avalai-key"
+    assert seen[0][1] == "glm-5.3-flash"
+    s2 = json.loads(
+        (pathlib.Path(prog) / "s2.json").read_text(encoding="utf-8"))
+    assert s2["done"]["w:apple"]["model"] == "glm-5.3-flash"
