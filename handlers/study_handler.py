@@ -544,6 +544,26 @@ def session_progress_footer(state, user_id: int) -> str:
     )
 
 
+def _review_badge_for_card(user_id: int, word_id: int, word_row) -> str:
+    """Review badge with live ordinal (T3-B, single read-only query).
+
+    ``N = prior COUNT(*) + 1`` is the 1-based ordinal of the upcoming
+    grading (documented choice: the current view counts as the next
+    review); zero prior reviews → «اولین دیدار». Runs synchronously
+    (caller is inside ``to_thread``); the count uses a short-lived
+    connection, never holding a transaction across an await.
+    """
+    try:
+        prior = db.count_review_events_for_card(user_id, word_id) if word_id else 0
+    except Exception:
+        prior = 0
+    n = 0 if (prior or 0) <= 0 else int(prior) + 1
+    days = days_since_review(
+        word_row["last_review_at"] if word_row is not None else None
+    )
+    return format_review_badge(days, n)
+
+
 def _build_card_text_and_keyboard(
     node: SessionNode,
     state: SessionState,
@@ -615,10 +635,7 @@ def _build_card_text_and_keyboard(
                 footer=progress,
             )
             return text, keyboard
-        days = days_since_review(
-            word_row["last_review_at"] if word_row is not None else None
-        )
-        badge = format_review_badge(days) if days is not None else ""
+        badge = _review_badge_for_card(user_id, word_id, word_row)
         keyboard = get_srs_front_keyboard(user_id, word_id)
         text = format_srs_front_stage(
             card_data,
@@ -637,10 +654,7 @@ def _build_card_text_and_keyboard(
         state.active_prompt_word_id = word_id
         state.revealed = False
     _stash_frozen_user_data(user_data, word_id, prompt_type, False)
-    days = days_since_review(
-        word_row["last_review_at"] if word_row is not None else None
-    )
-    badge = format_review_badge(days) if days is not None else ""
+    badge = _review_badge_for_card(user_id, word_id, word_row)
     keyboard = get_srs_front_keyboard(user_id, word_id)
     text = format_srs_front_stage(
         card_data,
@@ -902,7 +916,8 @@ async def advance_session(
                 return
 
         completion = escape_mdv2("جلسه مطالعه تموم شد! 🎉")
-        text = f"*{completion}*"
+        minimal_text = f"*{completion}*"
+        summary_msg = None
         keyboard = None
 
         # R10-F: every user now receives the post-session summary — free users
@@ -921,20 +936,32 @@ async def advance_session(
             # report: it fails gracefully instead. Back-navigation within
             # the current message keeps working (payload is not popped).
             nonce = uuid4().hex
+            # T3 heat (no streak, no XP change, no migration): today's used/total
+            # sessions via the scheduling budget; read-only, best-effort.
+            try:
+                from services.scheduling import daily_session_budget as _budget
+                _b = _budget(user_id, state.plan)
+                heat_used, heat_total = _b.get("used"), _b.get("total")
+            except Exception:
+                heat_used, heat_total = None, None
             context.user_data["session_summary"] = {
                 "report": report,
                 "is_admin": is_admin,
                 "nonce": nonce,
+                "heat_used": heat_used,
+                "heat_total": heat_total,
             }
             text = format_session_summary(
-                report, is_admin=is_admin
-            ).render(send_pretty.Backend.MDV2)
+                report, is_admin=is_admin,
+                heat_used=heat_used, heat_total=heat_total,
+            )
             # A completed session always has >=1 graded word, but guard the
             # impossible zero-total case so a detail button can never lead
             # to an empty "صفحه ۱ از ۰" page.
             keyboard = (
                 session_summary_keyboard(nonce) if (report.total and can_detail) else None
             )
+            summary_msg = text
             try:
                 await asyncio.to_thread(
                     db.save_session_report,
@@ -946,7 +973,7 @@ async def advance_session(
             logger.exception(
                 "session summary build failed user_id=%s", user_id
             )
-            text = f"*{completion}*"
+            summary_msg = None
             keyboard = None
 
 # Render the completion/report FIRST; only after it succeeds is the
@@ -955,14 +982,26 @@ async def advance_session(
         # retries this edit and the session still completes + shows the report
         # (Bug report 2026-08-19). Replaces the old clear-before-edit ordering.
         try:
-            await send_pretty.edit(
-                chat_id,
-                state.study_msg_id,
-                text,
-                bot=context.bot,
-                raw=send_pretty.RawFormat.MDV2,
-                keyboard=keyboard,
-            )
+            if summary_msg is not None:
+                # Rich structured report (T4 tables) via Backend.RICH; the
+                # telegram_rich MDV2 fallback covers old clients (no new logic).
+                await send_pretty.edit(
+                    chat_id,
+                    state.study_msg_id,
+                    summary_msg,
+                    bot=context.bot,
+                    backend=send_pretty.Backend.RICH,
+                    keyboard=keyboard,
+                )
+            else:
+                await send_pretty.edit(
+                    chat_id,
+                    state.study_msg_id,
+                    minimal_text,
+                    bot=context.bot,
+                    raw=send_pretty.RawFormat.MDV2,
+                    keyboard=None,
+                )
         except BadRequest as exc:
             if _is_message_not_modified(exc):
                 # The completion/report is already on screen — treat as success
@@ -1177,7 +1216,10 @@ async def _handle_session_summary_callback(
     total_pages = len(report.pages)
 
     if base == "back":
-        message = format_session_summary(report, is_admin=is_admin)
+        message = format_session_summary(
+            report, is_admin=is_admin,
+            heat_used=payload.get("heat_used"), heat_total=payload.get("heat_total"),
+        )
         keyboard = session_summary_keyboard(nonce)
     elif base == "detail" or base.startswith("page:"):
         if base == "detail":
@@ -1213,12 +1255,16 @@ async def _handle_session_summary_callback(
 
     # Route through send_pretty: ``say`` edits the callback message and inherits
     # the shared retry/concurrency seam plus the "not modified" / "not found ->
-    # send replacement" fallbacks. Content is a structured Message, so each leaf
-    # is escaped exactly once (no manual MarkdownV2 escaping here). ``say`` owns
-    # the callback ack (it answers on "not modified"), matching the convention
-    # of other ``say`` callers, so there is no trailing ack here.
+    # send replacement" fallbacks. Content is a Rich structured Message (T4
+    # tables), so it ships via Backend.RICH with the telegram_rich MDV2
+    # fallback. ``say`` owns the callback ack (it answers on "not modified"),
+    # matching the convention of other ``say`` callers, so there is no
+    # trailing ack here.
     try:
-        await send_pretty.say(update, context, message, keyboard=keyboard)
+        await send_pretty.say(
+            update, context, message, keyboard=keyboard,
+            backend=send_pretty.Backend.RICH,
+        )
     except Exception:
         logger.exception(
             "session summary edit failed user_id=%s",
@@ -1391,7 +1437,11 @@ async def _handle_reports_callback(
             )
             keyboard = reports_detail_keyboard(report_id, page_index + 1, total_pages)
         try:
-            await send_pretty.say(update, context, message, keyboard=keyboard)
+            # Rich structured report (T4 tables) via Backend.RICH.
+            await send_pretty.say(
+                update, context, message, keyboard=keyboard,
+                backend=send_pretty.Backend.RICH,
+            )
         except Exception:
             logger.exception(
                 "reports edit failed user_id=%s", user_id

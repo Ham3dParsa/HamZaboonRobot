@@ -211,27 +211,43 @@ class TestSessionSummaryRendering(unittest.TestCase):
     def _render(self, records, **kw):
         return format_session_detail_page(records, 0, 1, **kw).render(Backend.PLAIN)
 
-    def _render_md(self, records, **kw):
-        return format_session_detail_page(records, 0, 1, **kw).render(Backend.MDV2)
+    def _render_rich(self, records, **kw):
+        return format_session_detail_page(records, 0, 1, **kw).render(Backend.RICH)
 
     def _lines(self, records, **kw):
         return [l for l in self._render(records, **kw).split("\n")]
 
-    def test_new_card_two_lines(self):
-        lines = self._lines([self._rec()], today=self.TODAY)
-        self.assertIn("📋 واژه‌ها — صفحه ۱ از ۱", lines)
-        self.assertIn("well-being  ✨ جدید", lines)
+    def test_new_card_row_in_table(self):
+        # T4: 3-col table (واژه|وضعیت|مرور); PLAIN degrades cells with ' | '.
+        # وضعیت is the S/D stage icon + display-only modifier (locked r7):
+        # default rec S=3.0 → 👀 familiar, D=2.1 → (آسان).
+        rendered = self._render([self._rec()], today=self.TODAY)
+        self.assertIn("### 📋 واژه‌ها — صفحه ۱ از ۱", rendered)
+        self.assertIn("well-being", rendered)
+        self.assertIn("👀 (آسان)", rendered)
         # next_review +3 days -> «۳ روز دیگه»
-        self.assertIn("🟢 راحت · 📅 ۳ روز دیگه · امتیاز ۳", lines)
+        self.assertIn("📅 ۳ روز دیگه", rendered)
 
-    def test_review_card_gets_third_line(self):
-        lines = self._lines(
+    def test_new_card_rich_table_markers(self):
+        rendered = self._render_rich([self._rec()], today=self.TODAY)
+        self.assertIn("### 📋 واژه‌ها", rendered)
+        self.assertIn("| واژه | وضعیت | مرور |", rendered)
+        self.assertIn("| --- | --- | --- |", rendered)
+
+    def test_review_card_prior_in_review_cell(self):
+        rendered = self._render(
             [self._rec(activity="srs_review", prior_review_date="2026-08-18")],
             today=self.TODAY,
         )
-        self.assertIn("well-being  🔁 مرور", lines)
-        # prior 2026-08-18 -> ۲۷ مرداد
-        self.assertIn("آخرین مرور: ۲۷ مرداد · امتیاز ۳", lines)
+        # Same S/D as the default rec → 👀 familiar + (آسان) modifier.
+        self.assertIn("👀 (آسان)", rendered)
+        # مرور cell carries both 📅 next and ⏰ prior (2026-08-18 -> ۲۷ مرداد)
+        self.assertIn("⏰ ۲۷ مرداد", rendered)
+        self.assertIn("📅", rendered)
+
+    def test_empty_page_renders_empty_group_row(self):
+        rendered = self._render([], today=self.TODAY)
+        self.assertIn("هنوز واژه‌ای نیست", rendered)
 
     def test_relative_date_table(self):
         cases = {
@@ -246,27 +262,34 @@ class TestSessionSummaryRendering(unittest.TestCase):
             rendered = self._render([self._rec(next_review_date=iso)], today=self.TODAY)
             self.assertIn("📅 " + expected, rendered)
 
-    def test_difficulty_labels(self):
-        for d, label in [
-            (6.0, "🔴 سخت"),
-            (5.9, "🟡 متوسط"),
-            (3.0, "🟡 متوسط"),
-            (2.9, "🟢 راحت"),
-        ]:
+    def test_stage_modifier_labels(self):
+        # Locked r7: display-only modifier — D<=2.5 → (آسان), D>=6 → (سخت).
+        from services.utils.formatting import _stage_modifier
+        self.assertEqual(_stage_modifier(2.5), "آسان")
+        self.assertEqual(_stage_modifier(2.0), "آسان")
+        self.assertEqual(_stage_modifier(6.0), "سخت")
+        self.assertIsNone(_stage_modifier(4.0))
+        self.assertIsNone(_stage_modifier(None))
+        for d, label in [(2.0, "(آسان)"), (6.0, "(سخت)")]:
             rendered = self._render([self._rec(difficulty=d)], today=self.TODAY)
             self.assertIn(label, rendered)
+        rendered = self._render([self._rec(difficulty=4.0)], today=self.TODAY)
+        self.assertNotIn("(آسان)", rendered)
+        self.assertNotIn("(سخت)", rendered)
 
     def test_no_raw_numbers_in_learner_view(self):
         rendered = self._render([self._rec()], today=self.TODAY)
         self.assertNotIn("پایداری ۳", rendered)
         self.assertNotIn("سختی ۲٫۱", rendered)
 
-    def test_admin_extra_grouped_and_marked(self):
-        rendered = self._render([self._rec()], is_admin=True, today=self.TODAY)
-        self.assertIn("(فقط ادمین:", rendered)
-        self.assertIn("سختی", rendered)
-        self.assertIn("فاصله", rendered)
-        self.assertIn("Δ", rendered)
+    def test_admin_same_as_user(self):
+        # T4: is_admin stays for signature compat but renders identically
+        # (diagnostic block retired; dedicated telemetry deferred).
+        admin = self._render([self._rec()], is_admin=True, today=self.TODAY)
+        user = self._render([self._rec()], is_admin=False, today=self.TODAY)
+        self.assertEqual(admin, user)
+        self.assertNotIn("فقط ادمین", admin)
+        self.assertNotIn("Δ", admin)
 
     def test_learner_has_no_admin_extra(self):
         rendered = self._render([self._rec()], today=self.TODAY)
@@ -274,18 +297,34 @@ class TestSessionSummaryRendering(unittest.TestCase):
 
     def test_single_escape_word_hyphen(self):
         # Regression (double-escape crash): hyphen escaped exactly once.
-        rendered = self._render_md([self._rec(word="well-being")], today=self.TODAY)
+        rendered = self._render_rich([self._rec(word="well-being")], today=self.TODAY)
         self.assertIn("well\\-being", rendered)
         self.assertNotIn("well\\\\-being", rendered)
 
     def test_legend_content(self):
+        # T4: (نماد|معنا) table, 8 showcase-gallery rows.
         rendered = format_summary_legend().render(Backend.PLAIN)
-        self.assertIn("📖 راهنمای نمادها", rendered)
-        self.assertIn("✨ جدید  ·  🔁 مرور", rendered)
-        self.assertIn("🔴 بالا", rendered)
-        self.assertIn("📅 مرور بعدی", rendered)
-        # stability-color rows retired with the raw-number removal (R2/R8)
-        self.assertNotIn("🔵", rendered)
+        self.assertIn("📖 گام‌های تثبیت در حافظه", rendered)
+        self.assertIn("نماد | معنا", rendered)
+        for token in ("🌱", "پیش‌آموزش", "👀", "آشنا", "📚", "آموخته شده",
+                      "🧠", "پایداری", "(آسان)", "(سخت)", "📅", "بعدی",
+                      "⏰", "قبلی"):
+            self.assertIn(token, rendered)
+
+    def test_legend_rich_table_markers(self):
+        rendered = format_summary_legend().render(Backend.RICH)
+        self.assertIn("### 📖 گام‌های تثبیت در حافظه", rendered)
+        self.assertIn("| نماد | معنا |", rendered)
+        self.assertIn("| --- | --- |", rendered)
+
+    def test_legend_no_math(self):
+        # r5: legend text without S/D numbers (no familiar-icon scope here).
+        rendered = format_summary_legend().render(Backend.PLAIN)
+        self.assertNotIn("🔍", rendered)
+        for digit in "۰۱۲۳۴۵۶۷۸۹":
+            self.assertNotIn(digit, rendered)
+        self.assertNotIn("۶ و بیشتر", rendered)
+        self.assertNotIn("کمتر از", rendered)
 
     def test_summary_ordering_and_stats(self):
         report = build_report(
@@ -293,25 +332,132 @@ class TestSessionSummaryRendering(unittest.TestCase):
         )
         rendered = format_session_summary(report, rng=random.Random(0)).render(Backend.PLAIN)
         self.assertIn("📊 گزارش نشست مطالعه", rendered)
-        # tier block sits above the counts
+        # tier block sits above the stats table (quote degrades to text)
         self.assertIn("⚡️ پیشرفت کلی این نشست:", rendered)
-        self.assertIn("✨ ۱ واژه تازه یاد گرفتی", rendered)
-        self.assertIn("🔁 ۱ واژه مرور کردی", rendered)
+        # 2-col stats table rows
+        self.assertIn("یادآوری", rendered)
         # rate = (1.0 + 1.0)/2 = 1.0 -> 100%; avg after = 3.0 -> ~۳ روز
-        self.assertIn("🎯 نرخ یادآوری: ۱۰۰٪", rendered)
-        self.assertIn("میانگین پایداری: ~۳ روز", rendered)
+        self.assertIn("🎯 ۱۰۰٪", rendered)
+        self.assertIn("~۳ روز", rendered)
+        self.assertIn("کارت", rendered)
+        self.assertIn("۱ تازه · ۱ مرور", rendered)
+        # 4-col 🌱👀📚🧠 counts mini-table
+        for token in ("🌱", "👀", "📚", "🧠"):
+            self.assertIn(token, rendered)
+
+    def test_summary_rich_table_markers(self):
+        report = build_report(
+            [self._rec(), self._rec(activity="srs_review", grade=4)]
+        )
+        rendered = format_session_summary(report, rng=random.Random(0)).render(Backend.RICH)
+        self.assertIn("### 📊 گزارش نشست مطالعه", rendered)
+        self.assertIn("> ", rendered)  # motivational quote block
+        self.assertIn("| --- | --- |", rendered)
+        self.assertIn("| 🌱 | 👀 | 📚 | 🧠 |", rendered)
 
     def test_summary_hides_zero_counts(self):
         report = build_report([self._rec(activity="srs_review")])
         rendered = format_session_summary(report, rng=random.Random(0)).render(Backend.PLAIN)
-        self.assertNotIn("واژه تازه یاد گرفتی", rendered)
-        self.assertIn("🔁 ۱ واژه مرور کردی", rendered)
+        # T4: کارت row always renders; the zero side shows ۰.
+        self.assertIn("۰ تازه · ۱ مرور", rendered)
 
     def test_summary_no_motivation_when_no_grades(self):
         report = build_report([self._rec(grade=None)])
         rendered = format_session_summary(report, rng=random.Random(0)).render(Backend.PLAIN)
         self.assertNotIn("پیشرفت کلی این نشست", rendered)
         self.assertNotIn("نرخ یادآوری", rendered)
+
+    def test_summary_without_heat_renders_as_before(self):
+        report = build_report(
+            [self._rec(), self._rec(activity="srs_review", grade=4)]
+        )
+        rendered = format_session_summary(report, rng=random.Random(0)).render(Backend.PLAIN)
+        self.assertNotIn("وضعیت امروز", rendered)
+
+    def test_summary_heat_line_labels(self):
+        from services.utils.formatting import _heat_label
+        self.assertEqual(_heat_label(1, 5), ("🔥", "یک‌آتیشه"))
+        self.assertEqual(_heat_label(2, 5), ("🔥🔥", "دوآتیشه"))
+        self.assertEqual(_heat_label(5, 5), ("🔥🔥🔥", "سه‌آتیشه"))
+        report = build_report([self._rec(activity="srs_review", grade=4)])
+        rendered = format_session_summary(
+            report, rng=random.Random(0), heat_used=2, heat_total=5
+        ).render(Backend.PLAIN)
+        # T4: heat lives in the امتیاز row of the stats table.
+        self.assertIn("امتیاز", rendered)
+        self.assertIn("🔥🔥 دوآتیشه", rendered)
+        self.assertIn("۲ از ۵ نشست", rendered)
+
+    def test_summary_admin_same_as_user(self):
+        # T4: is_admin stays for signature compat but renders identically.
+        report = build_report(
+            [self._rec(), self._rec(activity="srs_review", grade=4)]
+        )
+        admin = format_session_summary(
+            report, is_admin=True, rng=random.Random(0)).render(Backend.PLAIN)
+        user = format_session_summary(
+            report, is_admin=False, rng=random.Random(0)).render(Backend.PLAIN)
+        self.assertEqual(admin, user)
+
+    def test_review_badge_backward_compat_and_ordinal(self):
+        from services.utils.formatting import format_review_badge
+        self.assertEqual(
+            format_review_badge(3), "⏰ آخرین مرور: ۳ روز پیش"
+        )
+        self.assertIn("اولین دیدار", format_review_badge(3, 0))
+        self.assertIn("مرور ۳ام", format_review_badge(3, 3))
+        self.assertEqual(format_review_badge(None, 0), "اولین دیدار")
+
+    def test_stage_counts_use_sd_buckets(self):
+        # Locked r7: buckets from S/D, never grade/activity.
+        from services.utils.formatting import _stage_counts
+        recs = [
+            self._rec(activity="first_exposure", grade=4, stability_after=0.5,
+                      difficulty=2.0),  # regression: high grade + low S → 🌱
+            self._rec(activity="srs_review", grade=4, stability_after=25.0,
+                      difficulty=2.0),  # regression: grade 4 + S=25 D=2 → 🧠
+            self._rec(activity="srs_review", grade=1, stability_after=5.0,
+                      difficulty=3.0),  # 👀 familiar
+            self._rec(activity="srs_review", grade=2, stability_after=10.0,
+                      difficulty=3.0),  # 📚 learned
+            self._rec(activity="srs_review", grade=3, stability_after=None,
+                      difficulty=None),  # missing S → 🌱
+        ]
+        self.assertEqual(_stage_counts(recs), (2, 1, 1, 1))
+        report = build_report(recs)
+        rendered = format_session_summary(report, rng=random.Random(0)).render(Backend.PLAIN)
+        self.assertIn("۲", rendered)  # 🌱 learning count
+        self.assertIn("۱", rendered)
+
+    def test_stage_difficulty_gates(self):
+        from services.utils.formatting import _stage_counts
+        recs = [
+            self._rec(activity="srs_review", stability_after=30.0,
+                      difficulty=6.8),  # D>=6.5 forces 🌱
+            self._rec(activity="srs_review", stability_after=30.0,
+                      difficulty=6.2),  # 6.0<=D<6.5 caps stable → 👀
+            self._rec(activity="srs_review", stability_after=30.0,
+                      difficulty=5.0),  # stable needs D<4 → 📚
+            self._rec(activity="srs_review", stability_after=30.0,
+                      difficulty=2.0),  # D<4 keeps 🧠
+        ]
+        self.assertEqual(_stage_counts(recs), (1, 1, 1, 1))
+
+    def test_detail_status_icon_follows_sd(self):
+        # Per-word وضعیت uses the same S/D helper (single source).
+        rendered = self._render(
+            [self._rec(activity="first_exposure", grade=4, stability_after=0.5,
+                       difficulty=2.0)],
+            today=self.TODAY,
+        )
+        self.assertIn("🌱", rendered)
+        self.assertNotIn("🧠", rendered)
+        rendered = self._render(
+            [self._rec(activity="srs_review", grade=4, stability_after=25.0,
+                       difficulty=2.0)],
+            today=self.TODAY,
+        )
+        self.assertIn("🧠 (آسان)", rendered)
 
 
 class TestPhoneticLines(unittest.TestCase):

@@ -79,6 +79,8 @@ class StagedRevealFlowTest(unittest.TestCase):
         ctx.bot = MagicMock()
         ctx.bot.send_message = AsyncMock(return_value=MagicMock(message_id=999))
         ctx.bot.edit_message_text = AsyncMock()
+        # T4: completion summary ships via Backend.RICH (do_api_request).
+        ctx.bot.do_api_request = AsyncMock(return_value={"message_id": 5})
         return ctx
 
     def _study_update(self):

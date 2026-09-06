@@ -168,6 +168,7 @@ def _is_storage_error(exc: BaseException) -> bool:
 
 from services.db.reviews import (
     REVIEW_OUTCOMES,
+    count_review_events_for_card,
     insert_review_event,
     prune_old_review_events,
     recent_events_for_words,

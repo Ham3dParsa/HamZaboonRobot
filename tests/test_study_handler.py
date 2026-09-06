@@ -50,7 +50,14 @@ class _BaseStudyHandlerTest(unittest.TestCase):
         ctx.bot = MagicMock()
         ctx.bot.send_message = AsyncMock(return_value=MagicMock(message_id=999))
         ctx.bot.edit_message_text = AsyncMock()
+        # T4: completion summary ships via Backend.RICH (do_api_request).
+        ctx.bot.do_api_request = AsyncMock(return_value={"message_id": 5})
         return ctx
+
+    def _rich_text(self, ctx):
+        """Last Rich markdown payload sent through the mocked Bot API."""
+        payload = ctx.bot.do_api_request.call_args.kwargs["api_kwargs"]
+        return payload["rich_message"]["markdown"]
 
 
 class TestSessionStateDataclass(_BaseStudyHandlerTest):
@@ -657,7 +664,8 @@ class TestAdvanceSession(_BaseStudyHandlerTest):
         ctx.user_data["current_session"] = state
         update = self._update()
         asyncio.run(advance_session(update, ctx))
-        ctx.bot.edit_message_text.assert_awaited_once()
+        # T4: completion ships via Backend.RICH (do_api_request).
+        ctx.bot.do_api_request.assert_awaited_once()
         # Session should be cleaned up
         self.assertNotIn("current_session", ctx.user_data)
 
@@ -680,10 +688,10 @@ class TestAdvanceSession(_BaseStudyHandlerTest):
         update = self._update()
         asyncio.run(advance_session(update, ctx))
         # Should complete gracefully (generate_tier3_node called, returns None)
-        ctx.bot.edit_message_text.assert_awaited_once()
-        call_args = ctx.bot.edit_message_text.call_args
+        # T4: completion ships via Backend.RICH (do_api_request).
+        ctx.bot.do_api_request.assert_awaited_once()
         # R10-F: every user (including free) now gets the post-session summary.
-        self.assertIn("گزارش نشست مطالعه", call_args.kwargs.get("text", ""))
+        self.assertIn("گزارش نشست مطالعه", self._rich_text(ctx))
         self.assertNotIn("current_session", ctx.user_data)
         # generate_tier3_node should have been called with remaining_slots in kwargs
         mock_tier3.assert_called_once()

@@ -144,9 +144,9 @@ class TestReportShape:
         with pytest.raises(AttributeError):
             report.learned_count = 9
 
-    def test_page_size_is_six(self):
-        # R1 — 6 words per page (was 8).
-        assert PAGE_SIZE == 6
+    def test_page_size_is_eight(self):
+        # R1 — 8 words per page.
+        assert PAGE_SIZE == 8
 
 
 class TestRecallRate:
@@ -201,15 +201,16 @@ class TestAvgStabilityAfter:
 
 
 class TestTier:
-    def test_excellent_at_90(self):
-        assert classify_tier(0.90) == "excellent"
+    def test_excellent_at_75(self):
+        assert classify_tier(1.0) == "excellent"
+        assert classify_tier(0.75) == "excellent"
 
-    def test_acceptable_band_75_to_89(self):
-        assert classify_tier(0.89) == "acceptable"
-        assert classify_tier(0.75) == "acceptable"
+    def test_acceptable_band_50_to_74(self):
+        assert classify_tier(0.74) == "acceptable"
+        assert classify_tier(0.50) == "acceptable"
 
-    def test_needs_improvement_below_75(self):
-        assert classify_tier(0.74) == "needs_improvement"
+    def test_needs_improvement_below_50(self):
+        assert classify_tier(0.49) == "needs_improvement"
 
     def test_none_rate_is_none(self):
         assert classify_tier(None) is None
@@ -229,25 +230,27 @@ class TestMotivation:
         assert "آسان" in msg
 
     def test_acceptable_references_graded_ratio(self):
-        # grades 3,3,3,1 → (3×1.0)/4 = 0.75 → acceptable; graded=4, ok=3
+        # grades 3,3,1,1 → (1.0+1.0+0+0)/4 = 0.50 → acceptable; graded=4, ok=2
         report = build_report(
             [_rec("srs_review", grade=3), _rec("srs_review", grade=3),
-             _rec("srs_review", grade=3), _rec("srs_review", grade=1)]
+             _rec("srs_review", grade=1), _rec("srs_review", grade=1)]
         )
         msg = pick_motivation(report, rng=random.Random(2))
         assert msg is not None
-        assert "۴" in msg and "۳" in msg
+        assert "۴" in msg and "۲" in msg
 
-    def test_needs_improvement_reframes_again(self):
+    def test_needs_improvement_is_deterministic_two_tip_block(self):
         report = build_report(
             [_rec("srs_review", grade=1) for _ in range(3)] + [_rec("srs_review", grade=2)]
         )
-        # R6: EVERY motivation variant must reference a real stat (Persian digit),
-        # never generic filler. Sweep seeds so every variant is exercised.
-        for seed in range(20):
-            msg = pick_motivation(report, rng=random.Random(seed))
-            assert msg is not None
-            assert any(c in msg for c in "۰۱۲۳۴۵۶۷۸۹"), f"filler variant picked for seed {seed}: {msg}"
+        # T3: single deterministic block (rng ignored) with the 2 tips, no blame.
+        msgs = {pick_motivation(report, rng=random.Random(seed)) for seed in range(10)}
+        assert len(msgs) == 1
+        msg = msgs.pop()
+        assert msg is not None
+        assert "قبل از دیدن پاسخ" in msg  # pre-answer care tip
+        assert "صادقانه" in msg  # honest-feedback tip
+        assert any(c in msg for c in "۰۱۲۳۴۵۶۷۸۹")  # references a real stat
 
     def test_none_when_no_rate(self):
         report = build_report([_rec("srs_review", grade=None)])

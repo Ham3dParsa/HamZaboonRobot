@@ -34,9 +34,24 @@ SRS_HINT_ANTONYM = "💡 راهنما: متضاد {item}"
 SRS_HINT_MEANING = "💡 راهنما: به معنای «{meaning}»"
 
 
-def format_review_badge(days: int) -> str:
-    """Learner-facing review badge for the staged-reveal front/back stages (R5)."""
-    return f"⏰ آخرین مرور: {to_persian_digits(days)} روز پیش"
+def format_review_badge(days: int | None, review_number: int | None = None) -> str:
+    """Learner-facing review badge for the staged-reveal front/back stages (R5, T3).
+
+    ``review_number`` is optional so old callers render exactly as before.
+    When provided: 0 means no prior review → «اولین دیدار»; N≥1 appends
+    «مرور Nام» (Persian digits) after the days part.
+    """
+    base = "" if days is None else f"⏰ آخرین مرور: {to_persian_digits(days)} روز پیش"
+    if review_number is None:
+        return base
+    try:
+        n = int(review_number)
+    except (TypeError, ValueError):
+        return base
+    ordinal = "اولین دیدار" if n <= 0 else f"مرور {to_persian_digits(n)}ام"
+    if base:
+        return f"{base} · {ordinal}"
+    return ordinal
 
 
 def days_since_review(last_review_at: str | None, now=None) -> int | None:
@@ -309,15 +324,17 @@ def _join_guillemets(items: list[str]) -> str:
 
 def _synonym_instruct(syn_items: list[str], ant_items: list[str]) -> str:
     """Prompt sentence built from the drawn set (R2: only-synonyms /
-    only-antonyms / both sentence styles)."""
+    only-antonyms / both sentence styles; singular/plural aware per r5)."""
+    syn_word = "مترادف" if len(syn_items) == 1 else "مترادف‌های"
+    ant_word = "متضاد" if len(ant_items) == 1 else "متضادهای"
     if syn_items and ant_items:
         return (
-            f"🧠 چه واژه‌ای مترادف‌های {_join_guillemets(syn_items)} "
-            f"و متضادهای {_join_guillemets(ant_items)} دارد؟"
+            f"🧠 چه واژه‌ای {syn_word} {_join_guillemets(syn_items)} "
+            f"و {ant_word} {_join_guillemets(ant_items)} دارد؟"
         )
     if syn_items:
-        return f"🧠 چه واژه‌ای مترادف‌های {_join_guillemets(syn_items)} دارد؟"
-    return f"🧠 چه واژه‌ای متضادهای {_join_guillemets(ant_items)} دارد؟"
+        return f"🧠 چه واژه‌ای {syn_word} {_join_guillemets(syn_items)} دارد؟"
+    return f"🧠 چه واژه‌ای {ant_word} {_join_guillemets(ant_items)} دارد؟"
 
 
 def _draw_synonym_items(
@@ -600,9 +617,6 @@ ASK_WORD_PROMPT = (
 # Session Summary Report rendering (R2–R9)
 # ---------------------------------------------------------------------------
 
-_NEW_BADGE = "✨ جدید"
-_REVIEW_BADGE = "🔁 مرور"
-
 # Jalali month names (jdatetime month number 1..12 → Persian).
 _JALALI_MONTHS = (
     "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
@@ -759,95 +773,188 @@ def _relative_next_review(iso_date: str, today: datetime.date) -> str:
     return _jalali_day_month(iso_date)
 
 
-def _difficulty_label(difficulty: float | None) -> str | None:
-    """Plain learner-facing difficulty label (R2) — no raw number."""
-    if difficulty is None:
+# Single source for the session memory-stage buckets (locked r7, T3).
+# Buckets derive from FSRS stability_after (S) + difficulty (D) on each
+# WordReviewRecord — never from grade/activity (grade is only a proxy).
+_STAGE_ICON = {
+    "learning": "🌱",
+    "familiar": "👀",
+    "learned": "📚",
+    "stable": "🧠",
+}
+
+
+def _stage_for_record(stability_after, difficulty) -> str:
+    """Memory-stage key for one review record (locked r7, single source).
+
+    Base bucket from S: S<2.5 → learning; S<7 → familiar; S<21 →
+    learned; S>=21 → stable; missing/None S → learning. D gates then
+    apply: D>=6.5 forces learning; 6.0<=D<6.5 caps learned/stable at
+    familiar; a stable base requires D<4, else D<6 → learned, else
+    familiar. Returns one of ``learning``/``familiar``/``learned``/
+    ``stable``.
+    """
+    try:
+        d = None if difficulty is None else float(difficulty)
+    except (TypeError, ValueError):
+        d = None
+    if d is not None and d >= 6.5:
+        return "learning"
+    try:
+        s = None if stability_after is None else float(stability_after)
+    except (TypeError, ValueError):
+        s = None
+    if s is None or s < 2.5:
+        base = "learning"
+    elif s < 7:
+        base = "familiar"
+    elif s < 21:
+        base = "learned"
+    else:
+        base = "stable"
+    if d is None:
+        return base
+    if 6.0 <= d < 6.5 and base in ("learned", "stable"):
+        return "familiar"
+    if base == "stable":
+        if d < 4:
+            return "stable"
+        if d < 6:
+            return "learned"
+        return "familiar"
+    return base
+
+
+def _stage_modifier(difficulty) -> str | None:
+    """Display-only difficulty modifier — never changes the bucket.
+
+    D<=2.5 → ``آسان``; D>=6 → ``سخت``; otherwise (or missing) None.
+    """
+    try:
+        d = None if difficulty is None else float(difficulty)
+    except (TypeError, ValueError):
         return None
-    if difficulty >= 6:
-        return "🔴 سخت"
-    if difficulty >= 3:
-        return "🟡 متوسط"
-    return "🟢 راحت"
+    if d is None:
+        return None
+    if d <= 2.5:
+        return "آسان"
+    if d >= 6:
+        return "سخت"
+    return None
 
 
-def _session_badge(activity_type: str) -> str:
-    """Badge for a report row: ✨ new, 🔁 review (and any other activity)."""
-    return _NEW_BADGE if activity_type == "first_exposure" else _REVIEW_BADGE
+def _stage_counts(records) -> tuple[int, int, int, int]:
+    """Count records into the (🌱 👀 📚 🧠) buckets via _stage_for_record.
 
-
-def _admin_extra(r) -> str:
-    """Admin-only diagnostic block (R9), grouped and marked ``(فقط ادمین)``.
-
-    Raw numeric difficulty/stability plus Δ and interval — the only place raw
-    numbers appear. Returns "" (no block) when nothing is available.
+    Takes the per-word records (``report.rows``); every record lands in
+    exactly one bucket, so the four always sum to ``len(records)``.
     """
-    bits: list[str] = []
-    if r.difficulty is not None:
-        bits.append(f"سختی {_fmt_stability(r.difficulty)}")
-    if r.stability_after is not None:
-        bits.append(f"پایداری {_fmt_stability(r.stability_after)}")
-    if r.stability_before is not None and r.stability_after is not None:
-        bits.append(f"Δ{_fmt_stability(r.stability_after - r.stability_before)}")
-    if r.interval_days is not None:
-        bits.append(f"فاصله {_fmt_stability(r.interval_days)} روز")
-    if not bits:
-        return ""
-    return f"(فقط ادمین: {', '.join(bits)})"
+    learning = familiar = learned = stable = 0
+    for r in records or ():
+        stage = _stage_for_record(
+            getattr(r, "stability_after", None),
+            getattr(r, "difficulty", None),
+        )
+        if stage == "familiar":
+            familiar += 1
+        elif stage == "learned":
+            learned += 1
+        elif stage == "stable":
+            stable += 1
+        else:
+            learning += 1
+    return (learning, familiar, learned, stable)
 
 
-def _fmt_stability(value: float | None) -> str:
-    """Round a stability value to one decimal as Persian digits, or '—'."""
-    if value is None:
-        return "—"
-    return to_persian_digits(f"{value:.1f}")
+def _heat_label(used: int, total: int) -> tuple[str, str]:
+    """Fire icons + label for today's session heat (T3, no streak).
 
-
-def format_session_summary(report, *, is_admin: bool = False, rng=None):
-    """Build the learner (or admin) session summary as a ``Message`` (R7).
-
-    ``report`` is a :class:`services.session.summary.SessionReport`. The tier /
-    motivational block (R5/R6) sits above the stats; count lines are shown only
-    when nonzero; the rate + average-stability line is single. ``rng`` seeds the
-    motivational-variant selection so tests are deterministic. Dynamic values go
-    into ``Plain`` spans and are escaped exactly once by the renderer.
+    Percent = used/total*100 (total<=0 → 0): 1–39% → 🔥 یک‌آتیشه,
+    40–99% → 🔥🔥 دوآتیشه, 100% (used>=total, total>0) → 🔥🔥🔥 سه‌آتیشه,
+    0 → 🔥 یک‌آتیشه (started). Returns (fires, label).
     """
-    from services.send_pretty import Message, plain
+    try:
+        u, t = int(used), int(total)
+    except (TypeError, ValueError):
+        return "🔥", "یک‌آتیشه"
+    if t > 0 and u >= t:
+        return "🔥🔥🔥", "سه‌آتیشه"
+    pct = round(u / t * 100) if t > 0 else 0
+    if pct >= 40:
+        return "🔥🔥", "دوآتیشه"
+    return "🔥", "یک‌آتیشه"
+
+
+def format_session_summary(report, *, is_admin: bool = False, rng=None, heat_used=None, heat_total=None):
+    """Build the session summary as a Rich structured ``Message`` (T4).
+
+    Layout mirrors the demo ``demo_report_summary_v2``: ``heading(3)`` title,
+    ``quote`` motivational block (tier label + data-driven line), a 2-col
+    stats table (یادآوری/امتیاز/کارت — heat lives in the امتیاز row), and a
+    4-col 🌱👀📚🧠 counts mini-table. ``is_admin`` is kept for signature
+    compat but renders identically for True/False (no admin diagnostics;
+    dedicated telemetry is deferred). Dynamic values ride ``Plain`` spans and
+    are escaped exactly once by the renderer.
+    """
+    from services.send_pretty import Message, heading, plain, quote, table
+
+    _ = is_admin  # signature compat only — output is identical for both.
     from services.session.summary import classify_tier, pick_motivation
 
     msg = Message()
-    msg.add_line(plain("📊 گزارش نشست مطالعه"))
-    msg.add_line(plain(""))
+    msg.add_line(heading(3, plain("📊 گزارش نشست مطالعه")))
 
     motivation = pick_motivation(report, rng=rng)
     if motivation is not None:
         tier = classify_tier(report.recall_rate)
-        msg.add_line(plain(_TIER_LABEL[tier]))
-        msg.add_line(plain(motivation))
-        msg.add_line(plain(""))
+        msg.add_line(quote(plain(f"{_TIER_LABEL[tier]}\n{motivation}")))
 
-    if report.learned_count:
-        msg.add_line(
-            plain(f"✨ {to_persian_digits(report.learned_count)} واژه تازه یاد گرفتی")
-        )
-    if report.reviewed_count:
-        msg.add_line(
-            plain(f"🔁 {to_persian_digits(report.reviewed_count)} واژه مرور کردی")
-        )
-
-    stats_parts: list[str] = []
     if report.recall_rate is not None:
         pct = to_persian_digits(round(report.recall_rate * 100))
-        stats_parts.append(f"🎯 نرخ یادآوری: {pct}٪")
-    if report.avg_stability_after is not None:
-        days = to_persian_digits(max(1, round(report.avg_stability_after)))
-        stats_parts.append(f"میانگین پایداری: ~{days} روز")
-    if stats_parts:
-        msg.add_line(plain(" · ".join(stats_parts)))
+        recall_val = f"🎯 {pct}٪"
+        if report.avg_stability_after is not None:
+            days = to_persian_digits(max(1, round(report.avg_stability_after)))
+            recall_val += f" · ~{days} روز"
+        stat_rows = [(plain("یادآوری"), plain(recall_val))]
+        if heat_used is not None and heat_total is not None:
+            fires, label = _heat_label(heat_used, heat_total)
+            stat_rows.append((
+                plain("امتیاز"),
+                plain(
+                    f"{fires} {label} · "
+                    f"{to_persian_digits(heat_used)} از "
+                    f"{to_persian_digits(heat_total)} نشست"
+                ),
+            ))
+        stat_rows.append((
+            plain("کارت"),
+            plain(
+                f"{to_persian_digits(report.learned_count)} تازه · "
+                f"{to_persian_digits(report.reviewed_count)} مرور"
+            ),
+        ))
+        msg.add_line(table(stat_rows[0], *stat_rows[1:]))
+    else:
+        msg.add_line(table(
+            (
+                plain("کارت"),
+                plain(
+                    f"{to_persian_digits(report.learned_count)} تازه · "
+                    f"{to_persian_digits(report.reviewed_count)} مرور"
+                ),
+            ),
+        ))
 
-    if is_admin and report.avg_stability_delta is not None:
-        msg.add_line(
-            plain(f"میانگین تغییر پایداری: {_fmt_stability(report.avg_stability_delta)}")
-        )
+    learning, familiar, learned, stable = _stage_counts(report.rows)
+    msg.add_line(table(
+        (plain("🌱"), plain("👀"), plain("📚"), plain("🧠")),
+        (
+            plain(to_persian_digits(learning)),
+            plain(to_persian_digits(familiar)),
+            plain(to_persian_digits(learned)),
+            plain(to_persian_digits(stable)),
+        ),
+    ))
     return msg
 
 
@@ -859,76 +966,69 @@ def format_session_detail_page(
     is_admin: bool = False,
     today: datetime.date | None = None,
 ):
-    """Build one page of the paged word list as a ``Message`` (R2/R9).
+    """Build one page of the paged word list as a Rich ``Message`` (T4).
 
-    Learner rows: line 1 ``{word} {badge}``; line 2 ``{difficulty label} ·
-    📅 {relative date} · امتیاز {n}``; review cards get a third line
-    ``آخرین مرور: {jalali} · امتیاز {n}``. Admins additionally see a trailing
-    ``(فقط ادمین: …)`` diagnostic block (raw numbers, Δ, فاصله). ``today`` is
+    3-col table (واژه|وضعیت|مرور) mirroring ``demo_report_detail_v2``:
+    وضعیت is the S/D stage icon (``_stage_for_record``) plus the
+    display-only modifier (``_stage_modifier``), e.g. ``🌱 (سخت)``;
+    مرور is ``📅 {relative next}`` plus ``⏰ {prior}`` for reviewed
+    cards. An empty page renders the ``هنوز واژه‌ای نیست``
+    row. Pagination (``PAGE_SIZE``) is unchanged. ``is_admin`` is kept for
+    signature compat but renders identically for True/False. ``today`` is
     injectable for deterministic relative-date tests.
     """
-    from services.send_pretty import Message, plain
+    from services.send_pretty import Message, heading, plain, table
 
+    _ = is_admin  # signature compat only — output is identical for both.
     today = today or _app_date()
     msg = Message()
-    msg.add_line(
+    msg.add_line(heading(
+        3,
         plain(
             f"📋 واژه‌ها — صفحه {to_persian_digits(page_index + 1)} از "
             f"{to_persian_digits(total_pages)}"
-        )
-    )
+        ),
+    ))
+    rows: list[tuple] = []
+    if not records:
+        rows.append((plain(""), plain(""), plain("هنوز واژه‌ای نیست")))
     for r in records:
-        badge = _session_badge(r.activity_type)
-        msg.add_line(plain(f"{r.word}  {badge}"))
-
-        parts: list[str] = []
-        diff_label = _difficulty_label(r.difficulty)
-        if diff_label:
-            parts.append(diff_label)
+        icon = _STAGE_ICON[_stage_for_record(r.stability_after, r.difficulty)]
+        mod = _stage_modifier(r.difficulty)
+        status = f"{icon} ({mod})" if mod else icon
+        review_bits: list[str] = []
         if r.next_review_date:
-            parts.append(f"📅 {_relative_next_review(r.next_review_date, today)}")
-        if r.grade is not None:
-            parts.append(f"امتیاز {to_persian_digits(r.grade)}")
-        if parts:
-            msg.add_line(plain(" · ".join(parts)))
-
-        admin_extra = _admin_extra(r) if is_admin else ""
-        if r.activity_type == "srs_review":
-            review_parts: list[str] = []
-            if r.prior_review_date:
-                review_parts.append(
-                    f"آخرین مرور: {_jalali_day_month(r.prior_review_date)}"
-                )
-            if r.grade is not None:
-                review_parts.append(f"امتیاز {to_persian_digits(r.grade)}")
-            line3 = " · ".join(review_parts)
-            if admin_extra:
-                line3 = f"{line3}  {admin_extra}" if line3 else admin_extra
-            if line3:
-                msg.add_line(plain(line3))
-        elif admin_extra:
-            msg.add_line(plain(admin_extra))
+            review_bits.append(f"📅 {_relative_next_review(r.next_review_date, today)}")
+        if r.activity_type == "srs_review" and r.prior_review_date:
+            review_bits.append(f"⏰ {_jalali_day_month(r.prior_review_date)}")
+        مرور = " ".join(review_bits) if review_bits else "—"
+        rows.append((plain(r.word), plain(status), plain(مرور)))
+    msg.add_line(table(
+        (plain("واژه"), plain("وضعیت"), plain("مرور")),
+        *rows,
+    ))
     return msg
 
 
 def format_summary_legend():
-    """Build the symbol-legend message opened by the legend button (R8).
+    """Build the symbol-legend message as a Rich ``Message`` (T4).
 
-    Covers ✨🔁 (activity), 🔴🟡🟢 (difficulty labels), and 📅 (next review).
-    Stability-color rows (⚪🔵🟣) were retired with the raw-number removal (R2),
-    so they are intentionally absent here. All text is static Persian.
+    ``(نماد|معنا)`` table with the 8 showcase-gallery rows verbatim:
+    🌱👀📚🧠 stages, (آسان)/(سخت) modifiers, 📅/⏰ reviews. All static.
     """
-    from services.send_pretty import Message, plain
+    from services.send_pretty import Message, bold, heading, plain, table
 
     msg = Message()
-    msg.add_line(plain("📖 راهنمای نمادها"))
-    msg.add_line(plain(""))
-    msg.add_line(plain("✨ جدید  ·  🔁 مرور"))
-    msg.add_line(plain(""))
-    msg.add_line(plain("سختی:"))
-    msg.add_line(plain("🔴 بالا (۶ و بیشتر)"))
-    msg.add_line(plain("🟡 متوسط (۳ تا کمتر از ۶)"))
-    msg.add_line(plain("🟢 راحت (کمتر از ۳)"))
-    msg.add_line(plain(""))
-    msg.add_line(plain("📅 مرور بعدی"))
+    msg.add_line(heading(3, plain("📖 گام‌های تثبیت در حافظه")))
+    msg.add_line(table(
+        (plain("نماد"), plain("معنا")),
+        (bold("🌱 پیش‌آموزش"), plain("کارت تازه، نیازمند مرورهای نزدیک")),
+        (bold("👀 آشنا"), plain("گام پیش از تثبیت، فقط چند روز در حافظه")),
+        (bold("📚 آموخته شده"), plain("فاصله مرورها بیشتر میشود، چندین روز در حافظه")),
+        (bold("🧠 پایداری"), plain("نشسته در حافظه بلندمدت، فاصله مرورها حداکثری میشود")),
+        (bold("(آسان)"), plain("زودتر می‌آموزید")),
+        (bold("(سخت)"), plain("کندتر در حافظه می‌نشیند")),
+        (bold("📅 بعدی"), plain("مرور آینده")),
+        (bold("⏰ قبلی"), plain("مرور پیشین")),
+    ))
     return msg

@@ -102,7 +102,28 @@ class SessionSummaryFlowTests(unittest.TestCase):
         c.bot = MagicMock()
         c.bot.edit_message_text = AsyncMock()
         c.bot.send_message = AsyncMock()
+        # T4: summary/detail/legend ship via Backend.RICH, i.e. through
+        # bot.do_api_request (telegram_rich) — mock the Raw API surface.
+        c.bot.do_api_request = AsyncMock(return_value={"message_id": 5})
         return c
+
+    def _rich_text(self, ctx):
+        """Last Rich markdown payload sent through the mocked Bot API."""
+        payload = ctx.bot.do_api_request.call_args.kwargs["api_kwargs"]
+        return payload["rich_message"]["markdown"]
+
+    def _rich_markup_data(self, ctx):
+        """Callback-data set of the last Rich payload keyboard (dict form)."""
+        payload = ctx.bot.do_api_request.call_args.kwargs["api_kwargs"]
+        markup = payload.get("reply_markup")
+        if not markup:
+            return set()
+        return {
+            btn["callback_data"]
+            for row in markup["inline_keyboard"]
+            for btn in row
+            if "callback_data" in btn
+        }
 
     # ------------------------------------------------------------------
     # _gather_word_records
@@ -188,11 +209,13 @@ class SessionSummaryFlowTests(unittest.TestCase):
             [w], "silver", before_stability={w: 0.0},
         )
         asyncio.run(advance_session(self._update(), ctx))
-        text = ctx.bot.edit_message_text.call_args.kwargs["text"]
+        text = self._rich_text(ctx)
         self.assertIn("گزارش نشست مطالعه", text)
-        self.assertIn("واژه تازه یاد گرفتی", text)
+        self.assertIn("تازه", text)
         # Detail button present on the summary.
-        self.assertIsNotNone(ctx.bot.edit_message_text.call_args.kwargs.get("reply_markup"))
+        self.assertTrue(
+            any(d.startswith("session:summary:detail:") for d in self._rich_markup_data(ctx))
+        )
         # Ephemeral report stashed for the detail callbacks (R7).
         self.assertIn("session_summary", ctx.user_data)
 
@@ -204,16 +227,18 @@ class SessionSummaryFlowTests(unittest.TestCase):
         ctx = self._ctx()
         ctx.user_data["current_session"] = self._completing_state([w], "free")
         asyncio.run(advance_session(self._update(), ctx))
-        text = ctx.bot.edit_message_text.call_args.kwargs["text"]
+        text = self._rich_text(ctx)
         self.assertIn("گزارش نشست مطالعه", text)
-        self.assertIn("واژه تازه یاد گرفتی", text)
+        self.assertIn("تازه", text)
         # Free user gets the summary but the detail button is withheld.
-        self.assertIsNone(ctx.bot.edit_message_text.call_args.kwargs.get("reply_markup"))
+        self.assertEqual(self._rich_markup_data(ctx), set())
         # The report is still stashed for callbacks and persisted (R10-B).
         self.assertIn("session_summary", ctx.user_data)
         self.assertEqual(len(db.list_recent_reports(1)), 1)
 
-    def test_completion_admin_variant_for_owner(self):
+    def test_completion_admin_same_as_user_for_owner(self):
+        # T4: owner sees the identical user report (admin diagnostics
+        # retired; dedicated telemetry deferred).
         w = self._add_word("alpha", stability=3.0)
         self._add_review_event(w, "2026-08-19T10:00:00Z", "srs_review", 4)
         ctx = self._ctx()
@@ -222,11 +247,13 @@ class SessionSummaryFlowTests(unittest.TestCase):
         )
         with patch.object(study_handler, "is_owner", return_value=True):
             asyncio.run(advance_session(self._update(), ctx))
-        text = ctx.bot.edit_message_text.call_args.kwargs["text"]
-        self.assertIn("میانگین تغییر پایداری", text)  # admin-only line
+        text = self._rich_text(ctx)
+        self.assertIn("گزارش نشست مطالعه", text)
+        self.assertNotIn("میانگین تغییر پایداری", text)
+        self.assertNotIn("فقط ادمین", text)
 
     def test_completion_owner_on_free_plan_still_gets_admin_report(self):
-        # Owner always gets the report (admin variant) regardless of plan.
+        # Owner always gets the report regardless of plan (same-as-user view).
         w = self._add_word("alpha", stability=3.0)
         self._add_review_event(w, "2026-08-19T10:00:00Z", "srs_review", 4)
         ctx = self._ctx()
@@ -235,9 +262,9 @@ class SessionSummaryFlowTests(unittest.TestCase):
         )
         with patch.object(study_handler, "is_owner", return_value=True):
             asyncio.run(advance_session(self._update(), ctx))
-        text = ctx.bot.edit_message_text.call_args.kwargs["text"]
+        text = self._rich_text(ctx)
         self.assertIn("گزارش نشست مطالعه", text)
-        self.assertIn("میانگین تغییر پایداری", text)
+        self.assertNotIn("میانگین تغییر پایداری", text)
         self.assertIn("session_summary", ctx.user_data)
 
     def test_completion_empty_report_no_detail_button(self):
@@ -246,9 +273,9 @@ class SessionSummaryFlowTests(unittest.TestCase):
         ctx = self._ctx()
         ctx.user_data["current_session"] = self._completing_state([], "silver")
         asyncio.run(advance_session(self._update(), ctx))
-        text = ctx.bot.edit_message_text.call_args.kwargs["text"]
+        text = self._rich_text(ctx)
         self.assertIn("گزارش نشست مطالعه", text)
-        self.assertIsNone(ctx.bot.edit_message_text.call_args.kwargs.get("reply_markup"))
+        self.assertEqual(self._rich_markup_data(ctx), set())
         self.assertIn("session_summary", ctx.user_data)
 
     def test_completion_summary_failure_falls_back_to_minimal(self):
@@ -296,25 +323,26 @@ class SessionSummaryFlowTests(unittest.TestCase):
         with patch.object(study_handler, "notify_callback", new_callable=AsyncMock):
             # page 1 (index 0)
             asyncio.run(_handle_session_summary_callback(u, ctx, f"detail:{nonce}"))
-            text = q.edit_message_text.call_args.args[0]
+            text = self._rich_text(ctx)
             self.assertIn("واژه‌ها — صفحه ۱ از ۲", text)
             self.assertIn("word0", text)
             # page 2 (index 1)
             asyncio.run(_handle_session_summary_callback(u, ctx, f"page:1:{nonce}"))
-            text = q.edit_message_text.call_args.args[0]
+            text = self._rich_text(ctx)
             self.assertIn("واژه‌ها — صفحه ۲ از ۲", text)
             self.assertIn("word8", text)
             self.assertNotIn("word0", text)
             # back to summary (payload NOT popped; detail stays live)
             asyncio.run(_handle_session_summary_callback(u, ctx, f"back:{nonce}"))
-            text = q.edit_message_text.call_args.args[0]
+            text = self._rich_text(ctx)
             self.assertIn("گزارش نشست مطالعه", text)
             # after back the payload remains, so detail still works
             asyncio.run(_handle_session_summary_callback(u, ctx, f"detail:{nonce}"))
-            text = q.edit_message_text.call_args.args[0]
+            text = self._rich_text(ctx)
             self.assertIn("واژه‌ها — صفحه ۱ از ۲", text)
 
-    def test_detail_callback_admin_variant(self):
+    def test_detail_callback_admin_same_as_user(self):
+        # T4: admin payload renders the identical user table (no diagnostics).
         report = self._stash([0])
         ctx = self._ctx()
         nonce = "n2"
@@ -329,11 +357,10 @@ class SessionSummaryFlowTests(unittest.TestCase):
         u.callback_query = q
         with patch.object(study_handler, "notify_callback", new_callable=AsyncMock):
             asyncio.run(_handle_session_summary_callback(u, ctx, f"detail:{nonce}"))
-        text = q.edit_message_text.call_args.args[0]
-        # Admin-only diagnostics grouped and marked — raw numbers appear only here
-        self.assertIn("سختی", text)
-        self.assertIn("Δ", text)  # before->after stability delta (admin-only)
-        self.assertIn("(فقط ادمین:", text)
+        text = self._rich_text(ctx)
+        self.assertIn("word0", text)
+        self.assertNotIn("فقط ادمین", text)
+        self.assertNotIn("Δ", text)
 
     def test_stale_nonce_rejected_gracefully(self):
         # A button from an OLDER report (mismatched nonce) is rejected with an
@@ -377,10 +404,8 @@ class SessionSummaryFlowTests(unittest.TestCase):
 
     def test_detail_page_renders_with_single_escape(self):
         # Regression (double-escape crash): the word hyphen is escaped exactly
-        # once. Dates no longer render as raw ISO in the learner view (Jalali
-        # relative dates), so the double-backslash signature can only surface on
-        # the word itself; the admin Δ uses Persian digits too. Assert single
-        # escaping and no double-backslash anywhere.
+        # once on the RICH backend. Dates render as Jalali relative dates, so
+        # the double-backslash signature can only surface on the word itself.
         rec = WordReviewRecord(
             word_id=1, word="well-being", activity_type="first_exposure",
             stability_before=5.0, stability_after=3.8,
@@ -389,29 +414,28 @@ class SessionSummaryFlowTests(unittest.TestCase):
         )
         rendered = format_session_detail_page(
             [rec], 0, 1, is_admin=True
-        ).render(Backend.MDV2)
+        ).render(Backend.RICH)
         # Single-escaped dash in the word 'well-being' -> 'well\-being'.
         self.assertIn("well\\-being", rendered)
         # No double-backslash escape anywhere (the crash signature).
         self.assertNotIn("\\\\-", rendered)
-        # The admin Δ delta is still present.
-        self.assertIn("Δ", rendered)
 
     def test_not_modified_callback_acks_exactly_once(self):
-        # Regression (reviewer finding): say() answers the callback on "message
-        # is not modified"; the handler must NOT answer again (which would be a
-        # double answer_callback_query).
+        # Regression (reviewer finding): on a "message is not modified"
+        # Rich failure the MDV2 fallback edit runs and the handler must NOT
+        # answer the callback again (no double answer_callback_query).
         report = self._stash([0])
         ctx = self._ctx()
+        ctx.bot.do_api_request = AsyncMock(
+            side_effect=BadRequest("Message is not modified")
+        )
         nonce = "n3"
         ctx.user_data["session_summary"] = {
             "report": report, "is_admin": False, "nonce": nonce,
         }
         q = MagicMock()
         q.answer = AsyncMock()
-        q.edit_message_text = AsyncMock(
-            side_effect=BadRequest("Message is not modified")
-        )
+        q.edit_message_text = AsyncMock()
         q.message.message_id = 5
         u = self._update()
         u.callback_query = q
@@ -421,7 +445,8 @@ class SessionSummaryFlowTests(unittest.TestCase):
             send_pretty, "notify_callback", new_callable=AsyncMock
         ) as say_notify:
             asyncio.run(_handle_session_summary_callback(u, ctx, f"detail:{nonce}"))
-        say_notify.assert_called_once()
+        ctx.bot.edit_message_text.assert_awaited_once()  # MDV2 fallback ran
+        say_notify.assert_not_awaited()
         handler_notify.assert_not_awaited()
 
     def test_legend_flow_opens_and_back_returns_to_page(self):
@@ -442,16 +467,16 @@ class SessionSummaryFlowTests(unittest.TestCase):
         with patch.object(study_handler, "notify_callback", new_callable=AsyncMock):
             # open page 2
             asyncio.run(_handle_session_summary_callback(u, ctx, f"page:1:{nonce}"))
-            text = q.edit_message_text.call_args.args[0]
+            text = self._rich_text(ctx)
             self.assertIn("صفحه ۲ از ۲", text)
             # open the legend from page 2 -> legend content replaces the message
             asyncio.run(_handle_session_summary_callback(u, ctx, f"legend:1:{nonce}"))
-            text = q.edit_message_text.call_args.args[0]
-            self.assertIn("راهنمای نمادها", text)
+            text = self._rich_text(ctx)
+            self.assertIn("گام‌های تثبیت در حافظه", text)
             self.assertNotIn("صفحه ۲ از ۲", text)
             # back (via the page route) returns to the exact page 2
             asyncio.run(_handle_session_summary_callback(u, ctx, f"page:1:{nonce}"))
-            text = q.edit_message_text.call_args.args[0]
+            text = self._rich_text(ctx)
             self.assertIn("صفحه ۲ از ۲", text)
 
     def test_legend_button_on_every_detail_page(self):
