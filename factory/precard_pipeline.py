@@ -21,9 +21,11 @@ Conventions (same as run_v14_phase3 / run_v15 / run_v16b / phrase_judge):
 batch 8, sleep 2.5s between batches, per-model 2 attempts, resume
 progress rewritten every batch. One progress JSON PER STAGE lives in
 --progress-dir (s1..s5, {done, failed, backoffs}); --resume is on by
-default (done items are skipped). On HTTP 429: backoff 60s, then 300s,
-then continue-next fail-closed (the backoff event is recorded, done work
-is never lost). Progress is flushed EVERY batch and in a finally block
+default (done items are skipped). On HTTP 429: rotate the phrase_judge
+KeyRing to the next key (brief 5s pause) and retry the SAME call; when
+EVERY key 429s consecutively, flush progress and STOP with a SystemExit
+telling the operator to switch VPN server (no long backoff — owner
+rule). Progress is flushed EVERY batch and in a finally block
 (KeyboardInterrupt-safe). A resume banner prints done/remaining per
 stage at startup.
 
@@ -76,7 +78,7 @@ import card_pilot  # noqa: E402  (S1/S4/S5 owner path, reused by import)
 from card_pilot import append_telemetry_history  # noqa: E402  (F7 history seam)
 from card_pilot import item_key  # noqa: E402
 from llm_json import AuthError, extract_json, raise_for_auth  # noqa: E402
-from phrase_judge import write_progress  # noqa: E402  (resume plumbing)
+from phrase_judge import KeyRing, RateLimited, write_progress  # noqa: E402  (resume + rotation seam)
 from telemetry import record_call as _tele_record  # noqa: E402
 from telemetry import write_summary as _tele_write  # noqa: E402
 
@@ -87,7 +89,7 @@ DEFAULT_AWL_FAMILIES = "W:/hamzaban_data_factory/raw/awl_families.json"
 
 BATCH = 8
 SLEEP = 2.5
-BACKOFF_WAITS = [60.0, 300.0]
+ROTATE_PAUSE = 5.0
 MAX_ATTEMPTS = 2
 ZIPF_MIN = 3.0
 # R35 v9 — level-aware R20 floors by item pool_level. Lower levels need
@@ -344,41 +346,37 @@ def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
     return {"kept": True, "reason": None, "type_pending": False}
 
 
-def _is_429(exc):
-    return (isinstance(exc, urllib.error.HTTPError)
-            and getattr(exc, "code", None) == 429)
-
-
 def _note_backoff(state, label, waits, outcome):
     state.setdefault("backoffs", []).append(
         {"label": label, "waits": list(waits), "outcome": outcome})
 
 
-def _call_with_429(call, sleep_fn, state, label):
-    """One call with 60s -> 300s backoff on HTTP 429, then fail-closed.
+def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
+                        label):
+    """One LLM call with phrase_judge KeyRing rotation on HTTP 429.
 
-    Returns (result-or-None, waits, exhausted). exhausted is True only on
-    a 429 pile-up (caller must fail closed immediately and continue-next).
-    Auth (401/403) and other errors propagate to the caller.
+    On 429: brief ROTATE_PAUSE pause, rotate to the next key, retry the
+    SAME call. Success resets the ring streak (same F1 rule as
+    phrase_judge.call_with_backoff). When EVERY key 429s consecutively,
+    records the stop event and raises RateLimited — the caller flushes
+    progress and STOPS for a VPN-server switch. Auth (401/403) and
+    other errors propagate to the caller.
     """
-    waits = []
-    for wait in BACKOFF_WAITS:
+    while True:
         try:
-            return call(), waits, False
+            out = transport(ring.current, model, text)
+            ring.used = 0
+            return out
         except urllib.error.HTTPError as exc:
-            if getattr(exc, "code", None) == 429:
-                waits.append(wait)
-                _note_backoff(state, label, waits, "backing-off")
-                sleep_fn(wait)
+            if getattr(exc, "code", None) != 429:
+                raise
+            _note_backoff(state, label, [ROTATE_PAUSE], "rotating")
+            sleep_fn(ROTATE_PAUSE)
+            if ring.rotate():
                 continue
-            raise
-    try:
-        return call(), waits, False
-    except urllib.error.HTTPError as exc:
-        if getattr(exc, "code", None) == 429:
-            _note_backoff(state, label, waits, "exhausted-continue-next")
-            return None, waits, True
-        raise
+            _note_backoff(state, label, [], "all-keys-429-stop")
+            raise RateLimited(
+                "all Zen keys 429 — switch VPN server, then re-run")
 
 
 # -------------------------------------------------------------- S0b ---
@@ -539,40 +537,47 @@ def _s2_validate(data, batch, s1map):
 
 
 def s2_judge_batch(batch, s1map, api_key, transport, sleep_fn, state,
-                   telemetry=None, tele_stage="s2", tele_batch=0):
+                   telemetry=None, tele_stage="s2", tele_batch=0,
+                   ring=None):
     """Judge-pick one batch. Returns {key: {sense_id, gloss, model}}.
 
     Muse-only chain (judge MODELS[:2]), 2 attempts per model, 401/403
-    loud abort, 429 backoff-then-continue-next, anything else fail-closed
-    to the S1 top pick per item. R27: one telemetry record per batch
-    (ok on a judge-model pick, fallback on s1-fallback).
+    loud abort, 429 rotates the KeyRing (brief pause, same-call retry;
+    all-keys-429 raises RateLimited so the runner flushes and STOPS),
+    anything else fail-closed to the S1 top pick per item. R27: one
+    telemetry record per batch (ok on a judge-model pick, fallback on
+    s1-fallback, error on all-keys-429).
     """
     from run_v14_phase3_judge import MODELS as JUDGE_MODELS
     from run_v14_phase3_judge import call_responses as _  # noqa: F401 (owner path ref)
     models = list(JUDGE_MODELS[:2])
     prompt = _s2_prompt(batch, s1map)
     transport = transport  # default wired by caller to judge call_responses
-    give_up = False  # 429 pile-up: stop the chain, fail closed now
+    if ring is None:
+        ring = KeyRing([api_key])
     for model in models:
         for attempt in range(MAX_ATTEMPTS):
             text = prompt if attempt == 0 else RETRY_PREFIX + prompt
             label = "%s/%s#%d" % (model, "+".join(
                 item_key(i) for i in batch), attempt)
             try:
-                raw, _waits, exhausted = _call_with_429(
-                    lambda: transport(api_key, model, text),
-                    sleep_fn, state, label)
+                raw = _call_with_rotation(
+                    transport, ring, model, text, sleep_fn, state, label)
             except AuthError:
+                raise
+            except RateLimited:
+                if telemetry is not None:
+                    _tele_record(telemetry, stage=tele_stage,
+                                 batch_id=tele_batch, key_idx=0,
+                                 model=model, latency_s=0.0,
+                                 outcome="error", http_status=429)
                 raise
             except urllib.error.HTTPError as exc:
                 if getattr(exc, "code", None) in (401, 403):
                     raise_for_auth(exc)
-                raw, exhausted = None, False
+                raw = None
             except Exception:
-                raw, exhausted = None, False
-            if exhausted:
-                give_up = True
-                break
+                raw = None
             if raw is None:
                 continue
             try:
@@ -592,8 +597,6 @@ def s2_judge_batch(batch, s1map, api_key, transport, sleep_fn, state,
                                  batch_id=tele_batch, key_idx=0,
                                  model=model, latency_s=0.0, outcome="ok")
                 return out
-        if give_up:
-            break
     out = {item_key(i): {**_s2_fallback(i, s1map.get(item_key(i))),
                          } for i in batch}
     if telemetry is not None:
@@ -627,13 +630,16 @@ def _s3_pseudo_records(batch, s2map, s1map):
 
 
 def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn, state,
-                    telemetry=None, tele_stage="s3", tele_batch=0):
+                    telemetry=None, tele_stage="s3", tele_batch=0,
+                    ring=None):
     """Topic vectors for one batch via the run_v15 path (imported).
 
     Returns {sense_id: {"vector": [{label, weight}...], "model": ...}}.
     Empty-pick items are absent (caller maps them to the single Other
     fallback). Total failure fails closed per lemma to fallback_vectors.
-    R27: one telemetry record per batch (ok / fallback).
+    429 rotates the KeyRing (brief pause, same-call retry; all-keys-429
+    raises RateLimited so the runner flushes and STOPS).
+    R27: one telemetry record per batch (ok / fallback / error).
     """
     from run_v15_topics import MODELS as V15_MODELS
     from run_v15_topics import USER_TMPL, fallback_vectors, lemma_block
@@ -644,26 +650,30 @@ def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn, state,
     if not pseudos:
         return out
     prompt = USER_TMPL + "\n\n".join(lemma_block(r) for r in pseudos)
-    give_up = False
+    if ring is None:
+        ring = KeyRing([api_key])
     for model in V15_MODELS:
         for attempt in range(MAX_ATTEMPTS):
             text = prompt if attempt == 0 else RETRY_PREFIX + prompt
             label = "%s/v15#%d" % (model, attempt)
             try:
-                raw, _waits, exhausted = _call_with_429(
-                    lambda: transport(api_key, model, text),
-                    sleep_fn, state, label)
+                raw = _call_with_rotation(
+                    transport, ring, model, text, sleep_fn, state, label)
             except AuthError:
+                raise
+            except RateLimited:
+                if telemetry is not None:
+                    _tele_record(telemetry, stage=tele_stage,
+                                 batch_id=tele_batch, key_idx=0,
+                                 model=model, latency_s=0.0,
+                                 outcome="error", http_status=429)
                 raise
             except urllib.error.HTTPError as exc:
                 if getattr(exc, "code", None) in (401, 403):
                     raise_for_auth(exc)
-                raw, exhausted = None, False
+                raw = None
             except Exception:
-                raw, exhausted = None, False
-            if exhausted:
-                give_up = True
-                break
+                raw = None
             if raw is None:
                 continue
             try:
@@ -698,8 +708,6 @@ def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn, state,
                                  batch_id=tele_batch, key_idx=0,
                                  model=model, latency_s=0.0, outcome="ok")
                 return merged
-        if give_up:
-            break
     for pseudo in pseudos:
         try:
             legs = fallback_vectors(pseudo)
@@ -720,37 +728,45 @@ def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn, state,
 
 # ---------------------------------------------------------------- S4 ---
 
-def _backoff_llm_transport(transport, sleep_fn, state):
-    """Wrap an (api_key, model, user_text) transport with 60s->300s 429
-    backoff (recorded); third 429 re-raises so assign_topic fails closed."""
-    def wrap(api_key, model, user_text):
-        waits = []
-        for wait in BACKOFF_WAITS:
+def _rotating_llm_transport(transport, sleep_fn, state, ring):
+    """Wrap an (api_key, model, user_text) transport with KeyRing rotation.
+
+    On 429: brief ROTATE_PAUSE pause, rotate to the next key, retry the
+    SAME call. When EVERY key 429s consecutively, raises SystemExit
+    telling the operator to switch VPN server — SystemExit (BaseException,
+    not Exception) so card_pilot.assign_topic's fail-closed
+    `except Exception: continue` cannot swallow the stop.
+    """
+    def wrap(_api_key, model, user_text):
+        while True:
             try:
-                return transport(api_key, model, user_text)
+                out = transport(ring.current, model, user_text)
+                ring.used = 0
+                return out
             except urllib.error.HTTPError as exc:
-                if getattr(exc, "code", None) == 429:
-                    waits.append(wait)
-                    _note_backoff(state, "%s/s4" % model, waits,
-                                  "backing-off")
-                    sleep_fn(wait)
+                if getattr(exc, "code", None) != 429:
+                    raise
+                _note_backoff(state, "%s/s4" % model, [ROTATE_PAUSE],
+                              "rotating")
+                sleep_fn(ROTATE_PAUSE)
+                if ring.rotate():
                     continue
-                raise
-        try:
-            return transport(api_key, model, user_text)
-        except urllib.error.HTTPError as exc:
-            if getattr(exc, "code", None) == 429:
-                _note_backoff(state, "%s/s4" % model, waits,
-                              "exhausted-continue-next")
-            raise
+                _note_backoff(state, "%s/s4" % model, [],
+                              "all-keys-429-stop")
+                raise SystemExit(
+                    "STOP s4: all Zen keys 429 — switch VPN server, "
+                    "then re-run (progress flushed, resume safe)")
     return wrap
 
 
 def s4_label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
                   sleep_fn, state, progress_path, model_calls,
-                  telemetry=None, tele_stage="s4", tele_batch=0):
+                  telemetry=None, tele_stage="s4", tele_batch=0,
+                  ring=None):
     """S4 topic label via card_pilot.assign_topic (imported two-leg)."""
-    llm_leg = (_backoff_llm_transport(transport, sleep_fn, state)
+    if ring is None:
+        ring = KeyRing([api_key])
+    llm_leg = (_rotating_llm_transport(transport, sleep_fn, state, ring)
                if transport is not None else None)
     try:
         assigned = card_pilot.assign_topic(
@@ -1084,13 +1100,19 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 or _assign_transport is _USE_DEFAULT
                 or _inflect_transport is _USE_DEFAULT)
     api_key = "injected"
+    api_key_2 = ""
     if need_llm:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from env_loader import load_factory_env
         env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
         api_key = env["OPENCODE_ZEN_API_KEY"]
+        api_key_2 = env.get("OPENCODE_ZEN_API_KEY_2", "")
         if not api_key:
             raise SystemExit("no OPENCODE_ZEN_API_KEY in factory/.env")
+    try:
+        ring = KeyRing([api_key, api_key_2])
+    except ValueError as exc:
+        raise SystemExit("no Zen keys: %s" % exc)
     judge_transport = (_default_judge_transport
                        if _judge_transport is _USE_DEFAULT
                        else _judge_transport)
@@ -1315,9 +1337,15 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     verdicts = s2_judge_batch(
                         todo, states["s1"]["done"], api_key,
                         judge_transport, sleep_fn, states["s2"],
-                        telemetry=tele_store, tele_batch=batch_no)
+                        telemetry=tele_store, tele_batch=batch_no,
+                        ring=ring)
                 except AuthError:
                     raise
+                except RateLimited as exc:
+                    _flush(progress_dir, states)
+                    raise SystemExit(
+                        "STOP s2 at batch %d: %s — progress flushed, "
+                        "switch VPN server then re-run" % (batch_no, exc))
                 for item in todo:
                     key = item_key(item)
                     verdict = verdicts.get(key)
@@ -1357,9 +1385,15 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         todo, states["s2"]["done"],
                         states["s1"]["done"], api_key,
                         topic_transport, sleep_fn, states["s3"],
-                        telemetry=tele_store, tele_batch=batch_no)
+                        telemetry=tele_store, tele_batch=batch_no,
+                        ring=ring)
                 except AuthError:
                     raise
+                except RateLimited as exc:
+                    _flush(progress_dir, states)
+                    raise SystemExit(
+                        "STOP s3 at batch %d: %s — progress flushed, "
+                        "switch VPN server then re-run" % (batch_no, exc))
                 for item in todo:
                     key = item_key(item)
                     sid = (states["s2"]["done"].get(key) or {}).get(
@@ -1418,9 +1452,16 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                             pick.get("sense_id", ""), lookup or None,
                             api_key, assign_transport, sleep_fn,
                             states["s4"], str(s4_cache), s4_calls,
-                            telemetry=tele_store, tele_batch=batch_no)
+                            telemetry=tele_store, tele_batch=batch_no,
+                            ring=ring)
                     except AuthError:
                         raise
+                    except RateLimited as exc:
+                        _flush(progress_dir, states)
+                        raise SystemExit(
+                            "STOP s4 at batch %d: %s — progress flushed, "
+                            "switch VPN server then re-run"
+                            % (batch_no, exc))
                     states["s4"]["done"][key] = assigned
             if did_work:
                 sleep_fn(SLEEP)

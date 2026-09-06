@@ -345,7 +345,49 @@ def _http_429():
                                   {}, None)
 
 
-def test_429_backoff_then_continue(tmp_path, monkeypatch):
+def test_429_rotates_across_keys_then_succeeds(tmp_path, monkeypatch):
+    """S2 429 on key1 rotates to key2 (5s pause) and retries the SAME call."""
+    import pytest
+    from phrase_judge import KeyRing
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    sample = write_sample(tmp_path, ITEMS[:1])
+    prog_state = {"done": {}, "failed": [], "backoffs": []}
+    sleeps = []
+    seen_keys = []
+
+    def flaky(api_key, model, user_text):
+        seen_keys.append(api_key)
+        if len(seen_keys) == 1:
+            raise _http_429()
+        return fake_judge(api_key, model, user_text)
+
+    from precard_pipeline import s1_rank_item
+    index = make_index()
+    ranked = s1_rank_item(
+        {"kind": "word", "text": "apple", "pos": "noun",
+         "pool_level": "A1"}, index, read_entry)
+    s1map = {"w:apple": ranked}
+    batch = [{"kind": "word", "text": "apple", "pos": "noun",
+              "pool_level": "A1"}]
+    ring = KeyRing(["k1", "k2"])
+    tele = []
+    from precard_pipeline import s2_judge_batch
+    out = s2_judge_batch(batch, s1map, "k1", flaky, sleeps.append,
+                         prog_state, telemetry=tele, tele_batch=1,
+                         ring=ring)
+    assert out["w:apple"]["sense_id"] == "apple#0"
+    assert out["w:apple"]["model"] not in ("s1-fallback",
+                                           "s1-fallback-empty")
+    assert seen_keys == ["k1", "k2"]  # same call retried on next key
+    assert sleeps == [5.0]  # brief pause, no 60s/300s waits
+    assert any(e["outcome"] == "rotating"
+               for e in prog_state["backoffs"])
+    assert any(r.get("outcome") == "ok" for r in tele)
+
+
+def test_all_keys_429_stops_fast_with_flush(tmp_path, monkeypatch):
+    """All-keys-429 STOPS (SystemExit, VPN message) — no 6-min wait."""
+    import pytest
     monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     sample = write_sample(tmp_path, ITEMS[:1])
     out, prog, sleeps = (str(tmp_path / "precard.jsonl"),
@@ -354,22 +396,113 @@ def test_429_backoff_then_continue(tmp_path, monkeypatch):
     def always_429(api_key, model, user_text):
         raise _http_429()
 
+    with pytest.raises(SystemExit) as excinfo:
+        precard_main(
+            ["--sample", sample, "--out", out, "--progress-dir", prog],
+            _judge_transport=always_429, _topic_transport=fake_topics,
+            _assign_transport=None, _sleep_fn=sleeps.append,
+            _index=make_index(), _read_entry=read_entry, _tatoeba={})
+    assert "VPN" in str(excinfo.value) or "server" in str(excinfo.value)
+    assert sum(sleeps) < 60.0  # 5s rotation pause, never 60+300
+    assert 60.0 not in sleeps and 300.0 not in sleeps
+    # Progress flushed before exit (per-batch + finally): s2.json on disk
+    # with the stop event recorded.
+    state = json.loads(open(prog + "/s2.json", encoding="utf-8").read())
+    assert any(e["outcome"] == "all-keys-429-stop"
+               for e in state["backoffs"])
+
+
+def test_s3_429_rotates_across_keys(tmp_path, monkeypatch):
+    """S3 429 rotates keys with a 5s pause and retries the same call."""
+    from phrase_judge import KeyRing
+    from precard_pipeline import s1_rank_item, s3_vector_batch
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    index = make_index()
+    item = {"kind": "word", "text": "apple", "pos": "noun",
+            "pool_level": "A1"}
+    ranked = s1_rank_item(item, index, read_entry)
+    s1map = {"w:apple": ranked}
+    s2map = {"w:apple": {"sense_id": "apple#0", "gloss": "a round fruit"}}
+    sleeps, seen = [], []
+    state = {"done": {}, "failed": [], "backoffs": []}
+
+    def flaky(api_key, model, user_text):
+        seen.append(api_key)
+        if len(seen) == 1:
+            raise _http_429()
+        return fake_topics(api_key, model, user_text)
+
+    out = s3_vector_batch([item], s2map, s1map, "k1", flaky,
+                          sleeps.append, state, tele_batch=1,
+                          ring=KeyRing(["k1", "k2"]))
+    assert out["apple#0"]["vector"]
+    # First call 429s on k1, same call retried on k2 (later calls stay on
+    # k2 while the chain exhausts the fake's invalid vectors to the
+    # deterministic fallback — rotation is proven by the first two keys).
+    assert seen[:2] == ["k1", "k2"]
+    assert sleeps[0] == 5.0
+    assert 60.0 not in sleeps and 300.0 not in sleeps
+
+
+def test_s4_429_rotates_and_all_keys_stop(tmp_path, monkeypatch):
+    """S4 wrapper rotates on 429; all-keys-429 raises SystemExit (VPN)."""
+    import pytest
+    from phrase_judge import KeyRing
+    from precard_pipeline import _rotating_llm_transport
+    # Rotate-then-succeed.
+    sleeps, seen = [], []
+    state = {"done": {}, "failed": [], "backoffs": []}
+
+    def flaky(api_key, model, user_text):
+        seen.append(api_key)
+        if len(seen) == 1:
+            raise _http_429()
+        return "ok"
+
+    wrap = _rotating_llm_transport(flaky, sleeps.append, state,
+                                   KeyRing(["k1", "k2"]))
+    assert wrap("ignored", "m", "prompt") == "ok"
+    assert seen == ["k1", "k2"] and sleeps == [5.0]
+    # All keys 429 -> SystemExit (propagates through assign_topic's
+    # `except Exception`, which cannot swallow BaseException).
+    def always_429(api_key, model, user_text):
+        raise _http_429()
+
+    wrap2 = _rotating_llm_transport(always_429, sleeps.append,
+                                    {"done": {}, "failed": [],
+                                     "backoffs": []},
+                                    KeyRing(["k1", "k2"]))
+    with pytest.raises(SystemExit) as excinfo:
+        wrap2("ignored", "m", "prompt")
+    assert "VPN" in str(excinfo.value) or "server" in str(excinfo.value)
+
+
+def test_resume_continues_after_429_stop(tmp_path, monkeypatch):
+    """After an all-keys-429 STOP, re-running with good transports resumes
+    to a full precard (progress format unchanged, done work kept)."""
+    import pytest
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    sample = write_sample(tmp_path, ITEMS[:1])
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+
+    def always_429(api_key, model, user_text):
+        raise _http_429()
+
+    with pytest.raises(SystemExit):
+        precard_main(
+            ["--sample", sample, "--out", out, "--progress-dir", prog],
+            _judge_transport=always_429, _topic_transport=fake_topics,
+            _assign_transport=None, _sleep_fn=lambda s: None,
+            _index=make_index(), _read_entry=read_entry, _tatoeba={})
+    # Resume with healthy transports completes the run.
     rc = precard_main(
         ["--sample", sample, "--out", out, "--progress-dir", prog],
-        _judge_transport=always_429, _topic_transport=fake_topics,
-        _assign_transport=None, _sleep_fn=sleeps.append,
+        _judge_transport=fake_judge, _topic_transport=fake_topics,
+        _assign_transport=None, _sleep_fn=lambda s: None,
         _index=make_index(), _read_entry=read_entry, _tatoeba={})
     assert rc == 0
-    # 60s then 300s backoff, then batch sleep 2.5s (S2), then S3/S4 sleeps.
-    assert sleeps[:2] == [60.0, 300.0]
-    state = json.loads(open(prog + "/s2.json", encoding="utf-8").read())
-    assert any(e["outcome"] == "exhausted-continue-next"
-               for e in state["backoffs"])
     rows = load_out(out)
-    assert len(rows) == 1
-    assert rows[0]["sense_id"] == "apple#0"  # fail-closed to S1 top pick
-    assert rows[0]["stage_calls"]["s2"] == "s1-fallback"
-    assert "w:apple" in state["failed"]
+    assert len(rows) == 1 and rows[0]["sense_id"] == "apple#0"
 
 
 def test_fail_closed_to_s1_pick(tmp_path, monkeypatch):
