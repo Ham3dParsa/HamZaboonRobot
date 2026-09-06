@@ -63,7 +63,7 @@ Every rule heading carries a lock toggle (🔓 قفل کن / 🔒 قفل شد), 
 rules get a green edge; a progress line (`🔒 n از m بند قفل شده`) lives in the
 fresh box. Lock is NEVER set by the agent — only by the owner's click (or an
 explicit "قفل شد" in chat, which the agent then mirrors). A rule whose annex
-is later superseded auto-unlocks with a باطل‌شده mark.
+is later superseded is manually unlocked by the agent with a باطل‌شده mark.
 
 ## Acceptance checklist (soft-hard: all boxes ticked before delivery)
 - [ ] Every rule has مسئله + سناریوی واقعی + جدول انتخاب/رد با قیمت اشتباه.
