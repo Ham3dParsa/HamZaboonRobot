@@ -421,14 +421,20 @@ def _v14_freq_per_sense(gloss, synonyms, lemma, zipf_fn=None):
 
 
 def _freq_norm(values):
-    """R37 owner: run_v14_phase1 ranking norm() (min-max, 0.5 on tie)."""
-    import numpy as _np
-    a = _np.array(list(values), dtype=float)
-    if len(a) == 0:
+    """R37 owner: run_v14_phase1 ranking norm() (min-max, 0.5 on tie).
+
+    Pure stdlib: the vendored copy must stay numpy-free (see the R37
+    note above — importing run_v14_phase1 would pull numpy/torch and
+    break hermetic CI installs where numpy is not a dependency).
+    """
+    vals = [float(v) for v in values]
+    if not vals:
         return []
-    if a.max() - a.min() < 1e-9:
-        return [0.5] * len(a)
-    return [float((v - a.min()) / (a.max() - a.min())) for v in a]
+    lo, hi = min(vals), max(vals)
+    if hi - lo < 1e-9:
+        return [0.5] * len(vals)
+    span = hi - lo
+    return [(v - lo) / span for v in vals]
 
 
 # R34 v9 — cross-reference detection. General case-insensitive gloss
@@ -563,8 +569,8 @@ def score_senses(text, entries, pool_pos, read_entry, zipf_fn=None):
         for _, _, sense, gloss in senses]
     present = [x for x in fraw if x is not None]
     if present:
-        import numpy as _np
-        med = float(_np.median(present))
+        import statistics as _st
+        med = float(_st.median(present))
     else:
         med = 3.0  # owner fallback when every sense is short/unknown
     fnorm = _freq_norm([x if x is not None else med for x in fraw])
