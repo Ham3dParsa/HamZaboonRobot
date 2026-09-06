@@ -81,6 +81,7 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -147,6 +148,24 @@ def parse_args(argv=None):
     ap.add_argument("--awl-families", default=DEFAULT_AWL_FAMILIES,
                     help="AWL families JSON (missing file = no academic tags "
                     "from AWL, never fails)")
+    ap.add_argument("--judge-provider", default="zen",
+                    choices=("zen", "avalai"),
+                    help="S2 judge transport: zen (default, free chain) or "
+                    "avalai (paid chain — locked 2026-09-06; "
+                    "requires AVALAI_API_KEY). DEPRECATED alias: use "
+                    "--llm-provider avalai (covers all precard LLM legs).")
+    ap.add_argument("--llm-provider", default="zen",
+                    choices=("zen", "avalai"),
+                    help="ALL precard LLM legs (S0b/S2/S3/S4): zen (default) "
+                    "or avalai (paid chain, no Persian needed — locked "
+                    "2026-09-06; requires AVALAI_API_KEY)")
+    ap.add_argument("--precard-model", default="",
+                    help="AvalAI model for all precard legs (default "
+                    "glm-5.3-flash; e.g. deepseek-v4-flash for the "
+                    "comparison run). Ignored on the zen path.")
+    ap.add_argument("--judge-model", default="",
+                    help="S2 judge model id (default: provider default — "
+                    "Zen chain models for zen, glm-5.3-flash for avalai)")
     args = ap.parse_args(argv)
     if args.limit is not None and args.limit < 0:
         ap.error("--limit must be >= 0")
@@ -400,7 +419,7 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
                 continue
             _note_backoff(state, label, [], "all-keys-429-stop")
             raise RateLimited(
-                "all Zen keys 429 — switch VPN server, then re-run")
+                "all keys 429 (provider quotas exhausted) — re-run later")
 
 
 # -------------------------------------------------------------- S0b ---
@@ -436,6 +455,37 @@ def s0b_needs_review(item, index, read_entry):
 
 
 # ---------------------------------------------------------------- S1 ---
+
+def _reroute_proper_anchor(item, ranked, index, read_entry):
+    """Best non-proper candidate when the anchor is proper (act-fix).
+
+    File-order decay can crown an initialism (act#0 ACT-territory) while
+    common senses (act#6 deed) sit lower in the same window. Dropping the
+    item loses a base word; re-anchoring to the first candidate whose
+    entry POS is not proper keeps it. Returns (top, en_def, anchor_pos)
+    or None when every candidate is proper (true propers still drop).
+    Lookup errors fail open to None (caller keeps the drop).
+    """
+    try:
+        for cand in ranked.get("candidates") or []:
+            sid = cand.get("sense_id", "")
+            if not sid:
+                continue
+            pos = _picked_entry_pos(item, sid, index, read_entry)
+            if pos and pos not in card_pilot.PROPER_NOUN_POS:
+                # Re-rank: the re-anchored sense becomes window rank 1 so
+                # the S2 judge sees the same best-first order as the
+                # anchor (otherwise S2 would still pick the proper top).
+                rest = [c for c in ranked["candidates"]
+                        if c.get("sense_id") != sid]
+                ranked["candidates"] = [cand] + rest
+                return ({"sense_id": sid,
+                         "gloss": cand.get("gloss", "")},
+                        cand.get("gloss", ""), pos)
+    except (KeyError, TypeError, AttributeError, ValueError):
+        return None
+    return None
+
 
 def s1_rank_item(item, index, read_entry):
     """S1 deterministic rank via the card_pilot anchor path (imported).
@@ -562,10 +612,12 @@ def _s2_validate(data, batch, s1map):
 
 def s2_judge_batch(batch, s1map, api_key, transport, sleep_fn, state,
                    telemetry=None, tele_stage="s2", tele_batch=0,
-                   ring=None):
+                   ring=None, models=None):
     """    Judge-pick one batch. Returns {key: {sense_id, gloss, model}}.
 
-    Muse-only chain (judge MODELS[:2]), 2 attempts per model, 401/403
+    Default chain is Muse-only (judge MODELS[:2]); an explicit `models`
+    list (e.g. AvalAI glm-5.3-flash via --judge-provider avalai) replaces
+    it. 2 attempts per model, 401/403
     loud abort, 429 rotates the KeyRing (brief pause, same-call retry;
     all-keys-429 raises RateLimited so the runner flushes and STOPS),
     anything else fail-closed to the S1 top pick per item. R27: one
@@ -575,7 +627,7 @@ def s2_judge_batch(batch, s1map, api_key, transport, sleep_fn, state,
     """
     from run_v14_phase3_judge import MODELS as JUDGE_MODELS
     from run_v14_phase3_judge import call_responses as _  # noqa: F401 (owner path ref)
-    models = list(JUDGE_MODELS[:2])
+    models = list(models) if models else list(JUDGE_MODELS[:2])
     prompt = _s2_prompt(batch, s1map)
     transport = transport  # default wired by caller to judge call_responses
     if ring is None:
@@ -774,9 +826,9 @@ def _s3_pseudo_records(batch, s2map, s1map):
     return list(groups.values())
 
 
-def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn, state,
-                    telemetry=None, tele_stage="s3", tele_batch=0,
-                    ring=None):
+def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn,
+                    state, telemetry=None, tele_stage="s3", tele_batch=0,
+                    ring=None, models=None):
     """Topic vectors for one batch via the run_v15 path (imported).
 
     Returns {sense_id: {"vector": [{label, weight}...], "model": ...}}.
@@ -791,6 +843,7 @@ def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn, state,
     from run_v15_topics import USER_TMPL, fallback_vectors, lemma_block
     from run_v15_topics import validate_vectors
     from run_v15_topics import call_responses as _  # noqa: F401 (owner path ref)
+    v15_models = list(models) if models else list(V15_MODELS)
     pseudos = _s3_pseudo_records(batch, s2map, s1map)
     out = {}
     if not pseudos:
@@ -798,7 +851,7 @@ def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn, state,
     prompt = USER_TMPL + "\n\n".join(lemma_block(r) for r in pseudos)
     if ring is None:
         ring = KeyRing([api_key])
-    for model in V15_MODELS:
+    for model in v15_models:
         for attempt in range(MAX_ATTEMPTS):
             text = prompt if attempt == 0 else RETRY_PREFIX + prompt
             label = "%s/v15#%d" % (model, attempt)
@@ -905,8 +958,8 @@ def _rotating_llm_transport(transport, sleep_fn, state, ring):
                 _note_backoff(state, "%s/s4" % model, [],
                               "all-keys-429-stop")
                 raise RateLimited(
-                    "all Zen keys 429 — switch VPN server, "
-                    "then re-run (progress flushed, resume safe)")
+                    "all keys 429 (provider quotas exhausted) — re-run "
+                    "later (progress flushed, resume safe)")
     return wrap
 
 
@@ -1054,6 +1107,61 @@ def _default_judge_transport(api_key, model, user_text):
     return call_responses(api_key, model, user_text)
 
 
+# AvalAI (OpenAI-compatible) chat transport for the paid model chain
+# (locked 2026-09-06: S2 glm-5.3-flash wired here; S3 gemini-3.5-flash-lite
+# and repair gemini-3.8-flash are a planned follow-up, not yet wired).
+# shape as the Zen transports, so KeyRing rotation (429) and the
+# 401/403 auth mapping apply unchanged. reasoning_effort low is
+# mandatory: without it thinking tokens eat the budget and the answer
+# comes back empty (verified 2026-09-06: 300 thinking tokens, "").
+AVALAI_CHAT_URL = "https://api.avalai.ir/v1/chat/completions"
+AVALAI_PRECARD_MODEL = "glm-5.3-flash"
+
+
+def _avalai_chat_transport(api_key, model, user_text):
+    payload = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": user_text}],
+        "temperature": 0,
+        # reasoning_effort low in BOTH places (verified 2026-09-06:
+        # nested-only, top-only, and both all return reasoning_tokens=0;
+        # either alone works, both together is belt-and-suspenders).
+        "reasoning_effort": "low",
+        "extra_body": {"reasoning_effort": "low"},
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        AVALAI_CHAT_URL, data=payload,
+        headers={"Content-Type": "application/json",
+                 "Authorization": "Bearer " + api_key})
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.load(resp)
+    msg = ((data.get("choices") or [{}])[0].get("message", {})
+           if isinstance(data, dict) else {})
+    usage = data.get("usage", {}) if isinstance(data, dict) else {}
+    return (msg.get("content") or ""), (usage if isinstance(usage, dict)
+                                        else None)
+
+
+def _avalai_remap_transport(default_model):
+    """Adapter letting Zen-model loops run unchanged on AvalAI.
+
+    S0b/S3/S4 loops live in card_pilot (shared with card-gen — untouched
+    by design) and request Zen model names. This wraps
+    _avalai_chat_transport, substituting the precard model for any
+    requested name; extra leading texts (the inflect sys prompt) are
+    prepended. Telemetry keeps the requested (Zen) name — runs are told
+    apart by their progress dirs, not by these labels.
+    Cost bound (#4 review): a fully-failing item repeats the SAME paid
+    model through the loop (S4 up to 5 models x 2 attempts, S0b 2 x 2);
+    worst case ~$0.001/item at GLM rates, only on total failure. PENDING
+    owner cost sign-off; single-model collapse is follow-up.
+    """
+    def wrap(api_key, model, *texts):
+        text = "\n\n".join(t for t in texts if t)
+        return _avalai_chat_transport(api_key, default_model, text)
+    return wrap
+
+
 def _default_topic_transport(api_key, model, user_text):
     from run_v15_topics import call_responses
     return call_responses(api_key, model, user_text)
@@ -1068,12 +1176,95 @@ def _default_inflect_transport(api_key, model, sys_text, user_text):
     return card_pilot.call_responses(api_key, model, sys_text, user_text)
 
 
+def _batch_progress(stage, batch_no, n_batches, ok, fail):
+    """Live one-line progress (carriage return, English-only console).
+
+    Replaces per-batch line spam: the line rewrites in place. run.log
+    keeps full history (unchanged); a stage summary box follows at each
+    stage end. Persian drop details go to dropped.log, never the console
+    (Windows terminal mojibake).
+    """
+    width = 20
+    total = n_batches or 1
+    done = min(batch_no, total)
+    filled = int(width * done / total)
+    print("\r[%s] [%s%s] %d/%d | ok=%d fail=%d" % (
+        stage, "=" * filled, " " * (width - filled),
+        done, total, ok, fail), end="", flush=True)
+
+
+def _reason_slug(reason):
+    """English slug of a drop reason (text before the first colon)."""
+    return str(reason or "").split(":")[0].strip() or "unknown"
+
+
+def _stage_summary(stage, states, out_path):
+    """English stage box on stdout + full multilingual details to file."""
+    from collections import Counter
+    done = states.get(stage, {}).get("done", {}) or {}
+    failed = states.get(stage, {}).get("failed", []) or []
+    # Same kept rule as run_logger.stage_end callers: an entry counts as
+    # kept unless explicitly not-kept or dropped (a verdict carrying both
+    # kept=True and dropped=<reason> is dropped — fail-closed).
+    kept = sum(1 for v in done.values()
+               if isinstance(v, dict) and v.get("kept", True) is not False
+               and not v.get("dropped"))
+    slugs = Counter()
+    details = []
+    for key, verdict in done.items():
+        if not isinstance(verdict, dict):
+            continue
+        reason = verdict.get("reason") or verdict.get("dropped") or ""
+        if verdict.get("kept", True) and not verdict.get("dropped"):
+            continue
+        slugs[_reason_slug(reason)] += 1
+        details.append("%s: %s" % (key, reason))
+    for key in failed:
+        if key not in done:
+            slugs["failed-no-entry"] += 1
+            details.append("%s: failed-no-entry" % key)
+    print("")
+    print("[STAGE %s] kept=%d dropped=%d%s" % (
+        stage, kept, len(failed),
+        " | " + ", ".join("%s=%d" % kv for kv in slugs.most_common(4))
+        if slugs else ""))
+    if details:
+        drop_log = pathlib.Path(str(out_path)).parent / "dropped.log"
+        try:
+            with open(drop_log, "a", encoding="utf-8") as handle:
+                handle.write("=== %s ===\n" % stage)
+                for line in details:
+                    handle.write(line + "\n")
+        except OSError as exc:
+            print("warning: dropped.log append failed (%s)" % exc)
+
+
 def _flush(progress_dir, states):
     for stage in STAGES:
         write_progress(str(pathlib.Path(progress_dir) / ("%s.json" % stage)),
                        states[stage])
 
 
+
+def _flush_telemetry(tele_dir, tele_store, flushed):
+    """Append unflushed telemetry records + rewrite the summary.
+
+    Kill-safe incremental persistence: a killed run keeps every record up
+    to the last completed stage (and every STOP path flushes before
+    exiting). Returns the new flushed count. Summary covers the current
+    run; the end-of-run history append stays cumulative.
+    """
+    pending = tele_store[flushed:]
+    if pending:
+        tele_dir = pathlib.Path(tele_dir)
+        tele_dir.mkdir(parents=True, exist_ok=True)
+        hist = tele_dir / "telemetry_records.jsonl"
+        with open(hist, "a", encoding="utf-8") as handle:
+            for rec in pending:
+                handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        _tele_write(str(tele_dir / "telemetry_summary.json"),
+                    list(tele_store))
+    return len(tele_store)
 # Sentinel: None means "no LLM leg" (deterministic only), _USE_DEFAULT
 # means the real pipeline-script transport. (Plain `or` would conflate
 # the two and leak network calls into hermetic tests.)
@@ -1184,6 +1375,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         if stage not in selected:
             run_logger.log("stage %s skipped (not selected)" % stage)
     tele_store = []  # R27: per-batch records (key_idx only, never values)
+    tele_dir = pathlib.Path(args.out).parent
+    tele_flushed = 0
 
     if _index is not None:
         index = _index
@@ -1236,12 +1429,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         _flush(progress_dir, states)
         ok = sum(1 for i in batch
                  if (states["s0"]["done"].get(item_key(i)) or {}).get("kept"))
-        print(batch_log_line("s0", batch_no, n_s0_batches, ok,
-                             len(batch) - ok, {}))
+        _batch_progress("s0", batch_no, n_s0_batches, ok,
+                          len(batch) - ok)
     run_logger.stage_end(
         "s0",
         ok=sum(1 for v in states["s0"]["done"].values() if v.get("kept")),
         fail=len(states["s0"].get("failed", [])))
+    tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+    _stage_summary("s0", states, args.out)
     for key, verdict in states["s0"]["done"].items():
         s0_info[key] = verdict
     dropped = {k for k, v in s0_info.items() if not v.get("kept")}
@@ -1256,9 +1451,20 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 or _topic_transport is _USE_DEFAULT
                 or _assign_transport is _USE_DEFAULT
                 or _inflect_transport is _USE_DEFAULT)
+    # Provider intent before any key loading (review: full-AvalAI runs
+    # must not demand an unused Zen key). None = caller-owned/skipped leg
+    # (no Zen), _USE_DEFAULT = pipeline default (Zen unless AvalAI mode).
+    full_avalai = (_judge_transport is _USE_DEFAULT
+                   and args.llm_provider == "avalai"
+                   and _topic_transport in (_USE_DEFAULT, None)
+                   and _assign_transport in (_USE_DEFAULT, None)
+                   and _inflect_transport in (_USE_DEFAULT, None))
+    s2_avalai = (_judge_transport is _USE_DEFAULT
+                 and (args.judge_provider == "avalai"
+                      or args.llm_provider == "avalai"))
     api_key = "injected"
     api_key_2 = ""
-    if need_llm:
+    if need_llm and not full_avalai:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from env_loader import load_factory_env
         env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
@@ -1266,22 +1472,81 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         api_key_2 = env.get("OPENCODE_ZEN_API_KEY_2", "")
         if not api_key:
             raise SystemExit("no OPENCODE_ZEN_API_KEY in factory/.env")
-    try:
-        ring = KeyRing([api_key, api_key_2])
-    except ValueError as exc:
-        raise SystemExit("no Zen keys: %s" % exc)
+    if full_avalai:
+        # No Zen anywhere: skip the Zen ring (replaced by the AvalAI ring
+        # in the wiring block below). Zen key is not required either.
+        ring = None
+    else:
+        try:
+            ring = KeyRing([api_key, api_key_2])
+        except ValueError as exc:
+            raise SystemExit("no Zen keys: %s" % exc)
     judge_transport = (_default_judge_transport
                        if _judge_transport is _USE_DEFAULT
                        else _judge_transport)
+    judge_models = None
+    # AvalAI wiring. Full-line mode (--llm-provider avalai): every precard
+    # LLM leg (S0b/S2/S3/S4) runs on the precard model, no Zen anywhere.
+    # S2-only back-compat (--judge-provider avalai): only the S2 call site
+    # receives the AvalAI pair (F1 scoping); S0b/S3/S4 stay Zen.
+    judge_api_key, judge_ring = None, None
+    # full_avalai/s2_avalai computed above (before key loading).
+    precard_model = args.precard_model or AVALAI_PRECARD_MODEL
+    if full_avalai or s2_avalai:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from env_loader import load_factory_env
+        try:
+            env_av = load_factory_env(required=("AVALAI_API_KEY",))
+            avalai_key = env_av["AVALAI_API_KEY"]
+        except KeyError:
+            raise SystemExit("no AVALAI_API_KEY in factory/.env "
+                             "(avalai provider needs it)")
+        if not avalai_key:
+            raise SystemExit("no AVALAI_API_KEY in factory/.env "
+                             "(avalai provider needs it)")
+        try:
+            judge_ring = KeyRing([avalai_key])
+        except ValueError as exc:
+            raise SystemExit("no AvalAI keys: %s" % exc)
+        judge_api_key = avalai_key
+        judge_transport = _avalai_chat_transport
+        judge_models = [args.judge_model or precard_model]
+    if full_avalai:
+        api_key, ring = avalai_key, KeyRing([avalai_key])
+        remap = _avalai_remap_transport(precard_model)
+        if _topic_transport is _USE_DEFAULT:
+            topic_transport = remap
+        if _assign_transport is _USE_DEFAULT:
+            assign_transport = remap
+        if _inflect_transport is _USE_DEFAULT:
+            inflect_transport = remap
+        s3_models_override = [precard_model]
+    else:
+        s3_models_override = None
+    if (args.judge_model or args.precard_model) \
+            and _judge_transport is _USE_DEFAULT \
+            and not (full_avalai or s2_avalai):
+        print("warning: --judge-model/--precard-model apply only with "
+              "an avalai provider; ignored on the zen path",
+              file=sys.stderr)
     topic_transport = (_default_topic_transport
                        if _topic_transport is _USE_DEFAULT
-                       else _topic_transport)
+                       and not full_avalai
+                       else _topic_transport
+                       if _topic_transport is not _USE_DEFAULT
+                       else topic_transport)
     assign_transport = (_default_assign_transport
                         if _assign_transport is _USE_DEFAULT
-                        else _assign_transport)
+                        and not full_avalai
+                        else _assign_transport
+                        if _assign_transport is not _USE_DEFAULT
+                        else assign_transport)
     inflect_transport = (_default_inflect_transport
                          if _inflect_transport is _USE_DEFAULT
-                         else _inflect_transport)
+                         and not full_avalai
+                         else _inflect_transport
+                         if _inflect_transport is not _USE_DEFAULT
+                         else inflect_transport)
 
     s4_cache = progress_dir / "s4_topup_cache.json"
     s4_calls: dict = {}
@@ -1375,14 +1640,15 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 1 for i in batch
                 if not (states["s0b"]["done"].get(item_key(i)) or {}).get(
                     "kept", True))
-            print(batch_log_line("s0b", batch_no, n_s0b_batches,
-                                 len(batch) - failed_here, failed_here,
-                                 {}))
+            _batch_progress("s0b", batch_no, n_s0b_batches,
+                              len(batch) - failed_here, failed_here)
         run_logger.stage_end(
             "s0b",
             ok=sum(1 for v in states["s0b"]["done"].values()
                    if v.get("kept")),
             fail=len(states["s0b"].get("failed", [])))
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("s0b", states, args.out)
         s0b_dropped = {k for k, v in states["s0b"]["done"].items()
                        if isinstance(v, dict) and not v.get("kept")}
         items = [i for i in items if item_key(i) not in s0b_dropped]
@@ -1437,9 +1703,16 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         ranked = s1_rank_item(item, index, read_entry)
                         if (ranked.get("anchor_pos") or "") in \
                                 card_pilot.PROPER_NOUN_POS:
-                            ranked["dropped"] = "anchor-proper-noun"
-                            if key not in states["s1"]["failed"]:
-                                states["s1"]["failed"].append(key)
+                            rerouted = _reroute_proper_anchor(
+                                item, ranked, index, read_entry)
+                            if rerouted is not None:
+                                ranked["top"], ranked["en_def"], \
+                                    ranked["anchor_pos"] = rerouted
+                                ranked["rerouted_from_proper"] = True
+                            else:
+                                ranked["dropped"] = "anchor-proper-noun"
+                                if key not in states["s1"]["failed"]:
+                                    states["s1"]["failed"].append(key)
                         elif set(ranked.get("anchor_tags") or {}) & \
                                 card_pilot.VULGAR_TAGS:
                             ranked["dropped"] = "vulgar-anchor"
@@ -1466,13 +1739,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 if (states["s1"]["done"].get(item_key(i)) or {}).get(
                     "dropped")
                 or item_key(i) in states["s1"]["failed"])
-            print(batch_log_line("s1", batch_no, n_s1_batches,
-                                 len(batch) - failed_here, failed_here,
-                                 {}))
+            _batch_progress("s1", batch_no, n_s1_batches,
+                              len(batch) - failed_here, failed_here)
         s1_dropped = {k for k, v in states["s1"]["done"].items()
                       if isinstance(v, dict) and v.get("dropped")}
         run_logger.stage_end("s1", ok=len(states["s1"]["done"]) - len(
             s1_dropped), fail=len(s1_dropped))
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("s1", states, args.out)
         if s1_dropped:
             print("s1 anchor-pos: kept=%d dropped=%d (%s)" % (
                 len(items) - len(s1_dropped & {item_key(i) for i in items}),
@@ -1494,17 +1768,23 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             if todo:
                 try:
                     verdicts = s2_judge_batch(
-                        todo, states["s1"]["done"], api_key,
+                        todo, states["s1"]["done"],
+                        judge_api_key or api_key,
                         judge_transport, sleep_fn, states["s2"],
                         telemetry=tele_store, tele_batch=batch_no,
-                        ring=ring)
+                        ring=judge_ring or ring, models=judge_models)
                 except AuthError:
                     raise
                 except RateLimited as exc:
                     _flush(progress_dir, states)
+                    tele_flushed = _flush_telemetry(tele_dir, tele_store,
+                                                    tele_flushed)
+                    hint = ("wait for quota reset then re-run"
+                            if (full_avalai or s2_avalai)
+                            else "switch VPN server then re-run")
                     raise SystemExit(
                         "STOP s2 at batch %d: %s — progress flushed, "
-                        "switch VPN server then re-run" % (batch_no, exc))
+                        "%s" % (batch_no, exc, hint))
                 for item in todo:
                     key = item_key(item)
                     verdict = verdicts.get(key)
@@ -1521,14 +1801,16 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 1 for i in batch
                 if ((states["s2"]["done"].get(item_key(i)) or {}).get(
                     "model", "") or "").startswith("s1-"))
-            print(batch_log_line("s2", batch_no, n_s2_batches,
-                                 len(batch) - fail, fail, {}))
+            _batch_progress("s2", batch_no, n_s2_batches,
+                              len(batch) - fail, fail)
         run_logger.stage_end(
             "s2",
             ok=sum(1 for v in states["s2"]["done"].values()
                    if not (v.get("model", "") or "").startswith("s1-")),
             fail=sum(1 for v in states["s2"]["done"].values()
                      if (v.get("model", "") or "").startswith("s1-")))
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("s2", states, args.out)
         # Post-S2 proper-noun routing (idempotent pass over the s2 done
         # state — evaluated here, right after S2, so S3+ only ever see
         # routed/kept items; resume-safe via the proper_route/proper_drop
@@ -1581,14 +1863,19 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         states["s1"]["done"], api_key,
                         topic_transport, sleep_fn, states["s3"],
                         telemetry=tele_store, tele_batch=batch_no,
-                        ring=ring)
+                        ring=ring, models=s3_models_override)
                 except AuthError:
                     raise
                 except RateLimited as exc:
                     _flush(progress_dir, states)
+                    tele_flushed = _flush_telemetry(tele_dir, tele_store,
+                                                    tele_flushed)
                     raise SystemExit(
                         "STOP s3 at batch %d: %s — progress flushed, "
-                        "switch VPN server then re-run" % (batch_no, exc))
+                        "%s" % (batch_no, exc,
+                                "wait for quota reset then re-run"
+                                if full_avalai else
+                                "switch VPN server then re-run"))
                 for item in todo:
                     key = item_key(item)
                     sid = (states["s2"]["done"].get(key) or {}).get(
@@ -1607,14 +1894,16 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 1 for i in batch
                 if (states["s3"]["done"].get(item_key(i)) or {}).get(
                     "model") == "deterministic")
-            print(batch_log_line("s3", batch_no, n_s3_batches,
-                                 len(batch) - fail, fail, {}))
+            _batch_progress("s3", batch_no, n_s3_batches,
+                              len(batch) - fail, fail)
         run_logger.stage_end(
             "s3",
             ok=sum(1 for v in states["s3"]["done"].values()
                    if v.get("model") != "deterministic"),
             fail=sum(1 for v in states["s3"]["done"].values()
                      if v.get("model") == "deterministic"))
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("s3", states, args.out)
         # S4 (label per item, batch-flushed). No fail-closed signal on
         # this stage (exceptions propagate, except auth which aborts),
         # so fail is always 0.
@@ -1653,17 +1942,24 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         raise
                     except RateLimited as exc:
                         _flush(progress_dir, states)
+                        tele_flushed = _flush_telemetry(
+                            tele_dir, tele_store, tele_flushed)
                         raise SystemExit(
                             "STOP s4 at batch %d: %s — progress flushed, "
-                            "switch VPN server then re-run"
-                            % (batch_no, exc))
+                            "%s"
+                            % (batch_no, exc,
+                               "wait for quota reset then re-run"
+                               if full_avalai else
+                               "switch VPN server then re-run"))
                     states["s4"]["done"][key] = assigned
             if did_work:
                 sleep_fn(SLEEP)
             _flush(progress_dir, states)
-            print(batch_log_line("s4", batch_no, n_s4_batches,
-                                 len(batch), 0, s4_calls))
+            _batch_progress("s4", batch_no, n_s4_batches,
+                              len(batch), 0)
         run_logger.stage_end("s4", ok=len(states["s4"]["done"]), fail=0)
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("s4", states, args.out)
         # S5 (deterministic enrichment, batch-flushed). Same as S4: no
         # fail-closed signal, fail is always 0.
         run_logger.stage_start("s5")
@@ -1678,9 +1974,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         item, states["s2"]["done"].get(key) or {},
                         index, read_entry, tatoeba_pool)
             _flush(progress_dir, states)
-            print(batch_log_line("s5", batch_no, n_s5_batches,
-                                 len(batch), 0, {}))
+            _batch_progress("s5", batch_no, n_s5_batches,
+                              len(batch), 0)
         run_logger.stage_end("s5", ok=len(states["s5"]["done"]), fail=0)
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("s5", states, args.out)
         # Assemble output (survivors only; drops live in s0/s1 progress).
         for item in items:
             key = item_key(item)
@@ -1772,7 +2070,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # never a second copy) so resume runs never erase history — the
     # summary covers ALL runs, not just this one.
     _all_tele, _tele_corrupt = append_telemetry_history(
-        out_path.parent, tele_store)
+        out_path.parent, tele_store[tele_flushed:])
     _tele_summary = _tele_write(
         str(out_path.parent / "telemetry_summary.json"), _all_tele)
     if _tele_corrupt:

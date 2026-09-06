@@ -262,46 +262,66 @@ def test_s0_phrase_type_pending_when_no_log(tmp_path, monkeypatch):
 
 
 def test_s1_anchor_proper_noun_drop(tmp_path, monkeypatch):
-    """V7: anchored entry POS in {name, propn} drops with reason
-    anchor-proper-noun (deterministic, no name lists); a normal anchor
-    passes through to precard.jsonl."""
+    """V7+act-fix: a proper-topped anchor with a common sense lower in the
+    window re-anchors (kept); all-proper anchors still drop with reason
+    anchor-proper-noun (deterministic, no name lists)."""
     items = [{"kind": "word", "text": "Apple", "pos": "noun",
               "pool_level": "A1"},
              {"kind": "word", "text": "Banana", "pos": "noun",
+              "pool_level": "A1"},
+             {"kind": "word", "text": "Zambia", "pos": "noun",
               "pool_level": "A1"}]
 
     def name_rows():
+        # name entry FIRST in file order (like real "act"): file-decay
+        # crowns the proper sense, so the test exercises the reroute.
         return [
+            {"pos": "name",
+             "entry": {"pos": "name", "sounds": [],
+                       "senses": [{"glosses": ["A tech company"], "tags": [],
+                                   "examples": [{"text": LONG_EXAMPLE}]}]}},
             {"pos": "noun",
              "entry": {"pos": "noun", "sounds": [],
                        "senses": [{"glosses": ["Alternative spelling of xyz"],
                                    "tags": [],
                                    "examples": [{"text": LONG_EXAMPLE}]}]}},
+        ]
+
+    def all_name_rows():
+        return [
             {"pos": "name",
              "entry": {"pos": "name", "sounds": [],
-                       "senses": [{"glosses": ["A tech company"], "tags": [],
+                       "senses": [{"glosses": ["A country in Africa"],
+                                   "tags": [],
                                    "examples": [{"text": LONG_EXAMPLE}]}]}},
         ]
 
     index = {"apple": name_rows(),
-             "banana": _word_rows("banana", ("a long fruit",))}
+             "banana": _word_rows("banana", ("a long fruit",)),
+             "zambia": all_name_rows()}
     rows, s0 = _run_s0_only(tmp_path, monkeypatch, items, index,
                             _zipf_fn=lambda t: 5.0)
-    # S0 keeps both (POS set {noun, name} is not name-only).
+    # S0 keeps all (POS sets are not name-only).
     assert s0["done"]["w:Apple"]["kept"] is True
-    assert [r["key"] for r in rows] == ["w:Banana"]  # Apple dropped in S1
+    # Apple re-anchored to the noun sense (kept, not dropped).
+    assert [r["key"] for r in rows] == ["w:Apple", "w:Banana"]
     s1 = json.loads(
         (pathlib.Path(str(tmp_path / "prog")) / "s1.json").read_text(
             encoding="utf-8"))
-    assert s1["done"]["w:Apple"]["dropped"] == "anchor-proper-noun"
-    assert s1["done"]["w:Apple"]["anchor_pos"] == "name"
-    assert "w:Apple" in s1["failed"]
+    assert "dropped" not in s1["done"]["w:Apple"]
+    assert s1["done"]["w:Apple"]["anchor_pos"] == "noun"
+    assert s1["done"]["w:Apple"].get("rerouted_from_proper") is True
+    assert "w:Apple" not in s1["failed"]
+    # Zambia (name-only POS set) still drops at S0/R4, never reaching S1.
+    assert s0["done"]["w:Zambia"]["kept"] is False
+    assert s0["done"]["w:Zambia"]["reason"] == "r4-name-only"
     assert "dropped" not in s1["done"]["w:Banana"]
     assert s1["done"]["w:Banana"]["anchor_pos"] == "noun"
 
 
 def test_run_log_and_batch_lines(tmp_path, monkeypatch, capsys):
-    """V7: every batch prints ONE SsN line; run.log has stage start/end."""
+    """V7: live one-line progress per batch; run.log has stage start/end;
+    each stage prints one English summary box."""
     rc, out, prog, _ = run_pipeline(tmp_path, monkeypatch)
     assert rc == 0
     logged = (tmp_path / "run.log").read_text(encoding="utf-8")
@@ -309,9 +329,9 @@ def test_run_log_and_batch_lines(tmp_path, monkeypatch, capsys):
         assert ("stage %s start" % stage) in logged
         assert ("stage %s end" % stage) in logged
     captured = capsys.readouterr()
-    assert "Ss0 batch 1/1 ok=2 fail=0 model=0" in captured.out
-    assert "Ss1 batch 1/1 ok=2 fail=0 model=0" in captured.out
-    assert "Ss5 batch 1/1 ok=" in captured.out
+    assert "[s0]" in captured.out and "ok=2 fail=0" in captured.out
+    assert "[STAGE s0]" in captured.out
+    assert "[STAGE s5]" in captured.out
 
 
 def test_stage_skip_on_resume(tmp_path, monkeypatch):
@@ -445,7 +465,8 @@ def test_s3_429_rotates_across_keys(tmp_path, monkeypatch):
 
 
 def test_s4_429_rotates_and_all_keys_stop(tmp_path, monkeypatch):
-    """S4 wrapper rotates on 429; all-keys-429 raises SystemExit (VPN)."""
+    """S4 wrapper rotates on 429; all-keys-429 raises RateLimited with a
+    provider-neutral message (per-stage STOP wrappers add VPN/quota hints)."""
     import pytest
     from phrase_judge import KeyRing
     from precard_pipeline import _rotating_llm_transport
@@ -475,7 +496,8 @@ def test_s4_429_rotates_and_all_keys_stop(tmp_path, monkeypatch):
                                     KeyRing(["k1", "k2"]))
     with pytest.raises(RateLimited) as excinfo:
         wrap2("ignored", "m", "prompt")
-    assert "VPN" in str(excinfo.value) or "server" in str(excinfo.value)
+    assert "quotas exhausted" in str(excinfo.value)
+    assert "VPN" not in str(excinfo.value)
 
 
 def test_resume_continues_after_429_stop(tmp_path, monkeypatch):
@@ -1083,3 +1105,323 @@ def test_s4_label_item_reraises_ratelimited():
             "x#0", None, "k", transport_429, lambda s: None,
             {"done": {}, "failed": [], "backoffs": []}, None, {},
             ring=KeyRing(["k1", "k2"]))
+
+
+def test_avalai_transport_shape(monkeypatch):
+    """AvalAI chain: effort-low posted, model honored, usage surfaced."""
+    import io as _io
+    import precard_pipeline
+    seen = {}
+
+    class FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return json.dumps({
+                "choices": [{"message": {"content": '{"ok": true}'}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 4,
+                          "completion_tokens_details": {
+                              "reasoning_tokens": 0}}}).encode("utf-8")
+
+    def fake_urlopen(req, timeout=120):
+        seen["url"] = req.full_url
+        seen["auth"] = req.headers.get("Authorization")
+        seen["body"] = json.loads(req.data.decode("utf-8"))
+        return FakeResp()
+
+    monkeypatch.setattr(precard_pipeline.urllib.request, "urlopen",
+                        fake_urlopen)
+    text, usage = precard_pipeline._avalai_chat_transport(
+        "k-test", "glm-5.3-flash", "hello")
+    assert text == '{"ok": true}'
+    assert usage["prompt_tokens"] == 10
+    assert usage["completion_tokens"] == 4
+    assert seen["url"] == precard_pipeline.AVALAI_CHAT_URL
+    assert seen["auth"] == "Bearer k-test"
+    assert seen["body"]["model"] == "glm-5.3-flash"
+    assert seen["body"]["extra_body"] == {"reasoning_effort": "low"}
+    assert seen["body"]["reasoning_effort"] == "low"
+
+
+def test_avalai_transport_http_error_propagates(monkeypatch):
+    """AvalAI chain: HTTP errors (429 rotation fuel, 401 auth) reach the
+    caller untouched (rotation/auth mapping owned by shared seams)."""
+    import urllib.error
+    import pytest
+    import precard_pipeline
+
+    def boom_429(req, timeout=120):
+        raise urllib.error.HTTPError("http://x", 429, "throttled", {},
+                                     None)
+
+    def boom_401(req, timeout=120):
+        raise urllib.error.HTTPError("http://x", 401, "denied", {}, None)
+
+    monkeypatch.setattr(precard_pipeline.urllib.request, "urlopen",
+                        boom_429)
+    with pytest.raises(urllib.error.HTTPError) as e429:
+        precard_pipeline._avalai_chat_transport("k", "m", "u")
+    assert e429.value.code == 429
+    monkeypatch.setattr(precard_pipeline.urllib.request, "urlopen",
+                        boom_401)
+    with pytest.raises(urllib.error.HTTPError) as e401:
+        precard_pipeline._avalai_chat_transport("k", "m", "u")
+    assert e401.value.code == 401
+
+
+def test_s2_models_override_used():
+    """AvalAI chain: explicit models list replaces the Zen chain."""
+    from phrase_judge import KeyRing
+    from precard_pipeline import s1_rank_item, s2_judge_batch
+    index = make_index()
+    item = {"kind": "word", "text": "apple", "pos": "noun",
+            "pool_level": "A1"}
+    s1map = {"w:apple": s1_rank_item(item, index, read_entry)}
+    seen = []
+
+    def rec(api_key, model, user_text):
+        seen.append(model)
+        return fake_judge(api_key, model, user_text)
+
+    out = s2_judge_batch([item], s1map, "k", rec, lambda s: None,
+                         {"done": {}, "failed": [], "backoffs": []},
+                         ring=KeyRing(["k"]), models=["glm-5.3-flash"])
+    assert out["w:apple"]["model"] == "glm-5.3-flash"
+    assert seen == ["glm-5.3-flash"]
+
+
+def test_judge_provider_defaults_zen():
+    """Default provider stays zen (zero behavior change without the flag)."""
+    from precard_pipeline import parse_args
+    args = parse_args(["--sample", "s"])
+    assert args.judge_provider == "zen"
+    assert args.llm_provider == "zen"
+    assert args.judge_model == ""
+    assert args.precard_model == ""
+    assert parse_args(["--sample", "s", "--judge-provider",
+                       "avalai"]).judge_provider == "avalai"
+    assert parse_args(["--sample", "s", "--llm-provider",
+                       "avalai",
+                       "--precard-model",
+                       "deepseek-v4-flash"]).precard_model == \
+        "deepseek-v4-flash"
+
+
+def test_avalai_key_scoped_to_s2(tmp_path, monkeypatch):
+    """F1: --judge-provider avalai routes only the S2 call; Zen key/ring
+    keep feeding every other stage (here: s1 deterministic, s2 recorded)."""
+    import precard_pipeline
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "zen-key")
+    monkeypatch.setenv("AVALAI_API_KEY", "avalai-key")
+    sample = write_sample(tmp_path, ITEMS[:1])
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    seen = []
+
+    def rec_judge(api_key, model, user_text):
+        seen.append((api_key, model))
+        return fake_judge(api_key, model, user_text)
+
+    monkeypatch.setattr(precard_pipeline, "_avalai_chat_transport",
+                        rec_judge)
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog,
+         "--stages", "s0,s1,s2", "--judge-provider", "avalai"],
+        _topic_transport=None, _assign_transport=None,
+        _sleep_fn=lambda s: None, _index=make_index(),
+        _read_entry=read_entry, _tatoeba={}, _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    assert seen and seen[0][0] == "avalai-key"
+    assert seen[0][1] == "glm-5.3-flash"
+    s2 = json.loads(
+        (pathlib.Path(prog) / "s2.json").read_text(encoding="utf-8"))
+    assert s2["done"]["w:apple"]["model"] == "glm-5.3-flash"
+
+
+def test_full_llm_provider_wires_precard_model(tmp_path, monkeypatch):
+    """#5: --llm-provider avalai routes the S2 call to --precard-model
+    end to end (flag -> override connection, not just the unit)."""
+    import precard_pipeline
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "zen-key")
+    monkeypatch.setenv("AVALAI_API_KEY", "avalai-key")
+    sample = write_sample(tmp_path, ITEMS[:1])
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    seen = []
+
+    def rec_judge(api_key, model, user_text):
+        seen.append((api_key, model))
+        return fake_judge(api_key, model, user_text)
+
+    monkeypatch.setattr(precard_pipeline, "_avalai_chat_transport",
+                        rec_judge)
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog,
+         "--stages", "s0,s1,s2", "--llm-provider", "avalai",
+         "--precard-model", "deepseek-v4-flash"],
+        _topic_transport=None, _assign_transport=None,
+        _sleep_fn=lambda s: None, _index=make_index(),
+        _read_entry=read_entry, _tatoeba={}, _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    assert seen and seen[0] == ("avalai-key", "deepseek-v4-flash")
+    s2 = json.loads(
+        (pathlib.Path(prog) / "s2.json").read_text(encoding="utf-8"))
+    assert s2["done"]["w:apple"]["model"] == "deepseek-v4-flash"
+
+
+def test_full_avalai_needs_no_zen_key(tmp_path, monkeypatch):
+    """Review: --llm-provider avalai must not demand the unused Zen key.
+
+    All transports at default (true full-line mode) + a strict loader
+    with no factory/.env file fallback, so the test proves the Zen path
+    is never touched — not that a local .env rescued it.
+    """
+    import os as _os
+    import precard_pipeline
+    import env_loader
+    monkeypatch.delenv("OPENCODE_ZEN_API_KEY", raising=False)
+    monkeypatch.delenv("OPENCODE_ZEN_API_KEY_2", raising=False)
+    monkeypatch.setenv("AVALAI_API_KEY", "avalai-key")
+
+    def strict_loader(required=()):
+        missing = [k for k in required if not _os.environ.get(k)]
+        if missing:
+            raise KeyError("missing: " + ", ".join(missing))
+        return {k: _os.environ.get(k, "") for k in env_loader.KEYS}
+
+    monkeypatch.setattr(env_loader, "load_factory_env", strict_loader)
+    sample = write_sample(tmp_path, ITEMS[:1])
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    seen = []
+
+    def rec_judge(api_key, model, user_text):
+        seen.append((api_key, model))
+        return fake_judge(api_key, model, user_text)
+
+    monkeypatch.setattr(precard_pipeline, "_avalai_chat_transport",
+                        rec_judge)
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog,
+         "--stages", "s0,s1,s2", "--llm-provider", "avalai"],
+        _sleep_fn=lambda s: None, _index=make_index(),
+        _read_entry=read_entry, _tatoeba={}, _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    assert seen and seen[0] == ("avalai-key", "glm-5.3-flash")
+    s2 = json.loads(
+        (pathlib.Path(prog) / "s2.json").read_text(encoding="utf-8"))
+    assert s2["done"]["w:apple"]["model"] == "glm-5.3-flash"
+
+
+def test_avalai_remap_substitutes_model():
+    """Full-line mode: Zen loop names are replaced by the precard model;
+    extra sys text is prepended, never dropped."""
+    import precard_pipeline
+    seen = {}
+
+    def rec(api_key, model, user_text):
+        seen["key"] = api_key
+        seen["model"] = model
+        seen["text"] = user_text
+        return ("{}", {"prompt_tokens": 1, "completion_tokens": 1})
+
+    import unittest.mock as mock
+    with mock.patch.object(precard_pipeline, "_avalai_chat_transport",
+                           side_effect=rec):
+        wrap = precard_pipeline._avalai_remap_transport("glm-5.3-flash")
+        wrap("k-av", "some-zen-model", "SYS", "USER")
+    assert seen["key"] == "k-av"
+    assert seen["model"] == "glm-5.3-flash"
+    assert seen["text"] == "SYS\n\nUSER"
+
+
+def test_full_avalai_s3_uses_precard_model(tmp_path, monkeypatch):
+    """Full-line mode: S3 vector batch calls the precard model (override),
+    not the Zen V15 chain."""
+    import precard_pipeline
+    from phrase_judge import KeyRing
+    from precard_pipeline import s1_rank_item, s3_vector_batch
+    index = make_index()
+    item = {"kind": "word", "text": "apple", "pos": "noun",
+            "pool_level": "A1"}
+    s1map = {"w:apple": s1_rank_item(item, index, read_entry)}
+    s2map = {"w:apple": {"sense_id": "apple#0", "gloss": "a round fruit"}}
+    seen = []
+
+    def rec(api_key, model, user_text):
+        seen.append(model)
+        return (json.dumps({"results": [{"lemma": "apple", "vectors": [
+            {"sense_id": "apple#0",
+             "vector": [{"topic_id": 13, "topic_label": "Other / Abstract",
+                         "weight": 1.0}]}]}]}), None)
+
+    out = s3_vector_batch([item], s2map, s1map, "k", rec, lambda s: None,
+                          {"done": {}, "failed": [], "backoffs": []},
+                          ring=KeyRing(["k"]),
+                          models=["deepseek-v4-flash"])
+    assert out["apple#0"]["model"] == "deepseek-v4-flash"
+    assert seen == ["deepseek-v4-flash"]
+
+
+def test_telemetry_flush_incremental_no_dup(tmp_path):
+    """Kill-safe telemetry: stage flushes append only new records; a
+    second flush is a no-op; the summary always covers the run so far."""
+    import json as _json
+    from telemetry import record_call
+    from precard_pipeline import _flush_telemetry
+    store, outdir = [], str(tmp_path / "run")
+    record_call(store, stage="s2", batch_id=1, key_idx=0, model="m",
+                prompt_tokens=10, completion_tokens=5)
+    n = _flush_telemetry(outdir, store, 0)
+    assert n == 1
+    record_call(store, stage="s2", batch_id=2, key_idx=0, model="m",
+                prompt_tokens=7, completion_tokens=3)
+    n = _flush_telemetry(outdir, store, n)
+    assert n == 2
+    n = _flush_telemetry(outdir, store, n)
+    assert n == 2  # nothing new: no rewrite storm
+    lines = (pathlib.Path(outdir) / "telemetry_records.jsonl"
+             ).read_text(encoding="utf-8").splitlines()
+    assert len([l for l in lines if l.strip()]) == 2
+    summary = _json.loads((pathlib.Path(outdir) / "telemetry_summary.json"
+                           ).read_text(encoding="utf-8"))
+    assert summary["by_stage"]["s2"]["prompt_tokens"] == 17
+    assert summary["records"] == 2
+
+
+def test_s1_proper_anchor_reroutes_to_common_sense():
+    """act-fix: a proper-topped anchor with common senses lower in the
+    window re-anchors instead of dropping; all-proper still drops."""
+    from precard_pipeline import _reroute_proper_anchor, s1_rank_item
+
+    def rows(pos, glosses):
+        return [{"pos": pos,
+                 "entry": {"pos": pos, "sounds": [],
+                           "senses": [{"glosses": [g], "tags": [],
+                                       "examples": []} for g in glosses]}}]
+
+    index = {"act": rows("name", ["Initialism of X", "Initialism of Y"])
+             + rows("noun", ["Something done, a deed"])
+             + rows("verb", ["To take action"])}
+
+    def read_entry(row):
+        return row["entry"]
+
+    item = {"kind": "word", "text": "act", "pos": "",
+            "pool_level": "A1"}
+    ranked = s1_rank_item(item, index, read_entry)
+    assert ranked["anchor_pos"] in card_pilot.PROPER_NOUN_POS
+    rerouted = _reroute_proper_anchor(item, ranked, index, read_entry)
+    assert rerouted is not None
+    top, en_def, pos = rerouted
+    assert pos not in card_pilot.PROPER_NOUN_POS
+    assert "deed" in en_def or "action" in en_def
+
+    # All-proper window: no reroute (true propers still drop).
+    index2 = {"zambia": rows("name", ["A country in Africa"])}
+    item2 = {"kind": "word", "text": "zambia", "pos": "",
+             "pool_level": "A1"}
+    ranked2 = s1_rank_item(item2, index2, read_entry)
+    assert _reroute_proper_anchor(item2, ranked2, index2,
+                                  read_entry) is None
