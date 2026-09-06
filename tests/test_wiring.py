@@ -716,6 +716,19 @@ class TestCallbackWiring(unittest.TestCase):
                 self.assertTrue(_prefix_matches_handler(sub + ":", actions) or _prefix_matches_handler(sub, actions), f"{prefix!r} has no action branch")
                 self.assertTrue(_prefix_matches_handler(prefix, handlers), f"{prefix!r} not routed in callback_router")
 
+    def test_custom_test_prompt_skip_is_routed(self):
+        """Regression: the step-1/5 skip button must resolve end-to-end
+        (keyboard literal -> callback_router -> admin sub-router)."""
+        prefixes = _collect_all_callback_prefixes()
+        actions = _collect_admin_sub_actions()
+        handlers = _collect_router_handlers()
+        prefix = "admin:ai_custom_test:prompt:skip"
+        with self.subTest(prefix=prefix):
+            self.assertIn(prefix, prefixes, f"keyboard prefix {prefix!r} missing")
+            self.assertTrue(_prefix_matches_handler(prefix, handlers), f"{prefix!r} not routed in callback_router")
+            sub = prefix[len("admin:"):]
+            self.assertTrue(_prefix_matches_handler(sub, actions), f"{prefix!r} has no action branch in admin sub-router")
+
     def test_allowlist_prefixes_exist_in_keyboards(self):
         kbd_path = Path("config/keyboards.py")
         if kbd_path.is_file():
