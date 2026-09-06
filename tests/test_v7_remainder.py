@@ -176,7 +176,8 @@ def _run_only_s1(tmp_path, extra=()):
     return code, out, prog, seen
 
 
-def test_r26_only_one_stage_runs():
+def test_r26_only_one_stage_runs(monkeypatch):
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         import pathlib
@@ -199,7 +200,8 @@ def test_r26_only_one_stage_runs():
         assert len(lines) == 2  # survivors assemble even with stages skipped
 
 
-def test_r26_rekey_forces_redo_and_resume_skips():
+def test_r26_rekey_forces_redo_and_resume_skips(monkeypatch):
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         import pathlib

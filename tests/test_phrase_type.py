@@ -117,7 +117,10 @@ def write_judge_log(path, phrases):
                                      "failed_flag": False}) + "\n")
 
 
-def test_type_pass_end_to_end_and_resume(tmp_path):
+def test_type_pass_end_to_end_and_resume(tmp_path, monkeypatch):
+    # Hermetic: transports are mocked, so a dummy key satisfies the
+    # fail-closed env loader (CI has no factory/.env).
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     judge_log = tmp_path / "judge_log.jsonl"
     write_judge_log(str(judge_log), PHRASES)
     out = tmp_path / "phrase_type_log.jsonl"
@@ -163,7 +166,8 @@ def test_type_pass_end_to_end_and_resume(tmp_path):
                 if line.strip()]) == len(PHRASES)  # no duplicates
 
 
-def test_type_pass_falls_back_to_phrases_csv(tmp_path):
+def test_type_pass_falls_back_to_phrases_csv(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     phrases_csv = tmp_path / "phrases.csv"
     with open(str(phrases_csv), "w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=["phrase", "freq",
