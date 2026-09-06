@@ -704,9 +704,37 @@ def test_s0b_superlative_redirects_on_plain_drop(tmp_path, monkeypatch):
     # best+better both target good: first emitted wins, second is a
     # duplicate-redirect drop (no FSRS fragmentation, no silent overwrite).
     assert rows["w:good"]["redirect_to"] == "good"
-    # First item in sample order wins the merged key; the loser drops.
-    assert rows["w:good"]["redirected_from"] in ("best", "better")
+    # F2 first-wins: the first item in sample order (best) owns the
+    # merged key — order-indifferent membership is NOT enough.
+    assert rows["w:good"]["redirected_from"] == "best"
+    s5 = json.loads(
+        (pathlib.Path(prog) / "s5.json").read_text(encoding="utf-8"))
+    assert rows["w:good"]["sense_id"] == s5["done"]["w:good"]["sense_id"]
+    assert rows["w:good"]["sense_id"] == "good#0"  # base-lemma S5 pick
     assert len(rows) == 1
+
+
+def test_s0b_superlative_base_missing_from_index_is_not_inflection():
+    # F4: a superlative-pattern gloss whose base is absent from the
+    # index is not-inflection (no review); base present -> review.
+    from precard_pipeline import s0b_needs_review
+
+    def rows(gloss):
+        return [{"pos": "adj",
+                 "entry": {"pos": "adj", "sounds": [],
+                           "senses": [{"glosses": [gloss], "tags": [],
+                                       "examples": []}]}}]
+    index = {"biggest": rows("superlative of big"),
+             "best": rows("superlative of good"),
+             "good": rows("having good qualities")}
+    needs, _gloss = s0b_needs_review(
+        {"kind": "word", "text": "biggest", "pos": "adj"}, index,
+        read_entry)
+    assert needs is False  # base "big" not in index
+    needs, gloss = s0b_needs_review(
+        {"kind": "word", "text": "best", "pos": "adj"}, index, read_entry)
+    assert needs is True
+    assert gloss == "superlative of good"
 
 
 def test_s0b_superlative_idiomatic_kept(tmp_path, monkeypatch):
@@ -734,3 +762,18 @@ def test_s0b_superlative_idiomatic_kept(tmp_path, monkeypatch):
     assert s0b["done"]["w:best"]["reason"] == "inflection-keep"
     assert s0b["done"]["w:best"].get("redirect_to", "") == ""
     assert [r["key"] for r in load_out(out)] == ["w:best"]
+
+
+def test_telemetry_history_uses_card_pilot_seam(tmp_path, monkeypatch):
+    # F7: precard reuses card_pilot.append_telemetry_history BY IMPORT
+    # (no second copy of the history logic) and each run appends to
+    # the cumulative telemetry_records.jsonl.
+    assert precard_pipeline.append_telemetry_history is \
+        card_pilot.append_telemetry_history
+    rc, out, _prog, _sleeps = run_pipeline(
+        tmp_path, monkeypatch, zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    hist = pathlib.Path(out).parent / "telemetry_records.jsonl"
+    assert hist.exists()
+    assert sum(1 for line in hist.read_text(encoding="utf-8").splitlines()
+               if line.strip()) > 0

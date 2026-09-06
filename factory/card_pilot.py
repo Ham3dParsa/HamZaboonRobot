@@ -487,14 +487,17 @@ def is_inflection_gloss(gloss):
 # unless the inflection_review micro-pass flags an established
 # nominal/idiomatic sense. S0b verdict variant (no new stage).
 _SUPERLATIVE_RX = re.compile(
-    r"(?i)\b(?:superlative|comparative)(?:\s+form)?\s+of\s+(.+?)\s*\.?\s*$")
+    r"(?i)^\s*(?:superlative|comparative)(?:\s+form)?\s+of\s+(.+?)\s*\.?\s*$")
 
 
 def parse_superlative_base(gloss):
     """R44: base lemma of a superlative/comparative gloss ("" if none).
 
-    Whole-gloss anchored: prose merely mentioning "superlative of"
-    mid-sentence never parses. Target is stripped of quotes/dots.
+    Whole-gloss anchored (^...$): prose merely mentioning
+    "superlative of" mid-sentence never parses. The base must be a
+    single alpha token (multi-word/qualified targets are not clean
+    redirects). Target is stripped of quotes/dots. Index membership
+    is checked by the CALLER (S0b), keeping this helper pure.
     """
     hit = _SUPERLATIVE_RX.search(gloss or "")
     if not hit:
@@ -503,6 +506,8 @@ def parse_superlative_base(gloss):
         "'\"\u201c\u201d\u2018\u2019").strip().rstrip(".").strip()
     # Cut trailing qualifiers: "good: most good" -> "good".
     target = re.split(r"[:;,(]", target, maxsplit=1)[0].strip()
+    if not re.fullmatch(r"[A-Za-z]+", target):  # F4: single alpha token
+        return ""
     return target
 
 
@@ -1388,13 +1393,20 @@ def _coherence_tokens(text):
 def sense_coherence_check(anchor_gloss, card, headword=""):
     """R41: True iff anchor keywords overlap the card's EN-bearing fields.
 
-    Anchor side: content tokens of anchor_gloss PLUS the headword itself
-    (a card about X must contain X-family words — without this, cards
-    whose gloss paraphrases the headword always fail).
+    Anchor side: content tokens of anchor_gloss PLUS the headword-family
+    tokens (a card about X must contain X-family words — without this,
+    cards whose gloss paraphrases the headword always fail).
     Card side: content tokens of examples + FA-field latin runs +
     synonyms. Empty anchor keyword sets pass (fail-open).
+    Layering (locked R41b): this deterministic gate passes
+    headword-family overlap outright; it CANNOT separate same-headword
+    senses (X-mark gloss vs kissing card both carry kiss-family words),
+    so cross-sense rejection lives in the LLM sense-consistency
+    micro-pass (review_records_sense), which judges anchor+card
+    semantically and rejects the mismatch there.
     """
     anchor_keys = _coherence_tokens(anchor_gloss or "")
+    anchor_keys |= _coherence_tokens(headword or "")  # F3: headword param
     if not anchor_keys:
         return True
     parts = []

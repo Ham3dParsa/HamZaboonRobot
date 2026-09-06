@@ -87,11 +87,16 @@ def evp_guide_tokens(lemma, evp_entries=None):
 
 
 def sense_gets_boost(gloss, guide_tokens):
-    """R40: True when a guideword token occurs in the gloss (ci)."""
+    """R40: True when a guideword token occurs in the gloss (ci).
+
+    F6: word-boundary match — a substring hit inside a longer word
+    ("exam" in "example") must NOT boost.
+    """
     if not guide_tokens:
         return False
     low = (gloss or "").lower()
-    return any(tok and tok in low for tok in guide_tokens)
+    return any(tok and re.search(r"\b%s\b" % re.escape(tok), low)
+               for tok in guide_tokens)
 
 
 def boosted_ranked(ranked_senses, lemma, evp_entries=None):
@@ -253,9 +258,15 @@ def main():
         elif a.dry_run:
             for r in todo:
                 ids = [s["sense_id"] for s in r["ranked_senses"]]
-                fake = {"picks": {lvl: ids[:min(n, len(ids))] for lvl, n in LEVEL_N},
+                # F5: the judge only ever sees the boosted window, so
+                # validation is against window ids (full list fallback
+                # keeps backward compat when the window is empty).
+                window_ids = [s["sense_id"] for s in select_judge_window(
+                    r.get("ranked_senses") or [], r.get("lemma", ""),
+                    evp_entries=evp_entries)] or ids
+                fake = {"picks": {lvl: window_ids[:min(n, len(window_ids))] for lvl, n in LEVEL_N},
                         "topics": [{"id": k, "label": OTHER, "confidence": 0.5} for k in needs_topic(r)]}
-                assert validate_picks(fake["picks"], ids), r["lemma"]
+                assert validate_picks(fake["picks"], window_ids), r["lemma"]
                 assert validate_topics(fake["topics"], needs_topic(r)), r["lemma"]
                 done[r["lemma"]] = fake
         else:
@@ -291,9 +302,14 @@ def main():
                 by_lemma = {x.get("lemma"): x for x in data.get("results", [])}
                 for r in todo:
                     ids = [s["sense_id"] for s in r["ranked_senses"]]
+                    # F5: validate picks against the window the judge saw
+                    # (full-list fallback preserves old callers/tests).
+                    window_ids = [s["sense_id"] for s in select_judge_window(
+                        r.get("ranked_senses") or [], r.get("lemma", ""),
+                        evp_entries=evp_entries)] or ids
                     need = needs_topic(r)
                     x = by_lemma.get(r["lemma"], {})
-                    if validate_picks(x.get("picks"), ids) and validate_topics(x.get("topics", []), need):
+                    if validate_picks(x.get("picks"), window_ids) and validate_topics(x.get("topics", []), need):
                         done[r["lemma"]] = {"picks": x["picks"], "topics": x["topics"]}
                     else:
                         done[r["lemma"]] = {"picks": deterministic_picks(

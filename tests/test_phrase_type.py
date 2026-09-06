@@ -230,6 +230,26 @@ def test_backoff_rotates_keys_then_succeeds(monkeypatch):
     assert sleeps == [5]
 
 
+def test_backoff_non_consecutive_429s_do_not_exhaust(monkeypatch):
+    # F1: a success between 429s resets the ring streak — two
+    # non-consecutive 429s on two keys must NOT raise RateLimited
+    # (without the reset the second 429 completes the circle and raises).
+    import urllib.error
+    from phrase_judge import KeyRing
+    monkeypatch.setattr(phrase_judge.time, "sleep", lambda s: None)
+    script = iter(["429", "ok-k2", "429", "ok-k1"])
+
+    def transport(api_key, model, prompt, sys_text=None):
+        if next(script) == "429":
+            raise urllib.error.HTTPError(
+                "http://x", 429, "throttled", {}, None)
+        return "ok-%s" % api_key
+
+    ring = KeyRing(["k1", "k2"])
+    assert call_with_backoff(transport, "k1", "m", "p", ring=ring) == "ok-k2"
+    assert call_with_backoff(transport, "k1", "m", "p", ring=ring) == "ok-k1"
+
+
 def test_backoff_stops_when_all_keys_429(monkeypatch):
     import urllib.error
     import pytest

@@ -73,6 +73,7 @@ import urllib.error
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import card_pilot  # noqa: E402  (S1/S4/S5 owner path, reused by import)
+from card_pilot import append_telemetry_history  # noqa: E402  (F7 history seam)
 from card_pilot import item_key  # noqa: E402
 from llm_json import AuthError, extract_json, raise_for_auth  # noqa: E402
 from phrase_judge import write_progress  # noqa: E402  (resume plumbing)
@@ -399,8 +400,15 @@ def s0b_needs_review(item, index, read_entry):
             text, entries, pos, read_entry)
     except Exception:
         return False, ""
-    if gloss and (card_pilot.is_inflection_gloss(gloss)
-                   or card_pilot.parse_superlative_base(gloss)):
+    if gloss and card_pilot.is_superlative_gloss(gloss):
+        # F4: superlative-pattern stubs redirect only onto a real base —
+        # single-alpha base AND present in the index, else not-inflection
+        # (parse stays pure; the index check lives here at the call site).
+        base = card_pilot.parse_superlative_base(gloss)
+        if not base or base.lower() not in (index or {}):
+            return False, ""
+        return True, gloss
+    if gloss and card_pilot.is_inflection_gloss(gloss):
         return True, gloss
     return False, ""
 
@@ -1480,7 +1488,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             }
             if s0v.get("type_pending"):
                 rec["type_pending"] = True
-            precards[key] = rec
+            if key not in precards:
+                precards[key] = rec
+            # else F2: duplicate-redirect loser — first item wins the
+            # merged key (last-writer content is silently wrong); the
+            # loser is recorded as a duplicate-redirect drop at
+            # emission (seen_keys below), never overwriting.
     except KeyboardInterrupt:
         print("interrupted — flushing stage progress")
         raise SystemExit(130)
@@ -1511,7 +1524,15 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     if dup_redirect:
         print("duplicate-redirect drops (merged into base, FSRS-safe): %s"
               % ", ".join(sorted(set(dup_redirect))))
-    _tele_write(str(out_path.parent / "telemetry_summary.json"), tele_store)
+    # F7 telemetry history: same cumulative seam as card_pilot (imported,
+    # never a second copy) so resume runs never erase history — the
+    # summary covers ALL runs, not just this one.
+    _all_tele, _tele_corrupt = append_telemetry_history(
+        out_path.parent, tele_store)
+    _tele_summary = _tele_write(
+        str(out_path.parent / "telemetry_summary.json"), _all_tele)
+    if _tele_corrupt:
+        _tele_summary["history_corrupt_lines"] = _tele_corrupt
     n_failed = sum(len(states[s].get("failed", [])) for s in STAGES)
     print("precard done: %d items -> %s (s0 dropped=%d, s0b dropped=%d, "
           "s1 dropped=%d, failed flags=%d)"

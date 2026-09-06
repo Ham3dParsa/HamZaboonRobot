@@ -1870,6 +1870,19 @@ def test_coherence_headword_family_passes_with_correct_anchor():
          "synonyms": []}, headword="kiss") is None
 
 
+def test_coherence_headword_family_fallback_passes():
+    # F3: the headword param joins the anchor side — a paraphrase
+    # anchor with zero gloss-token overlap still PASSES when the card
+    # carries headword-family words (exact headword token here).
+    from card_pilot import sense_coherence_check
+    card = {"examples": ["Resilient trees grow strong after every storm."],
+            "fa_meaning": "", "fa_explanation": "",
+            "example_translations": [], "synonyms": []}
+    anchor = "Having the ability to recover quickly"
+    assert sense_coherence_check(anchor, card) is None  # no headword
+    assert sense_coherence_check(anchor, card, headword="resilient") is True
+
+
 # ---------------- v12 R43: context-aware متوسط ----------------
 
 def test_r43_frequency_adjective_passes():
@@ -1924,6 +1937,15 @@ def test_r44_parse_superlative_base():
     assert parse_superlative_base("plural of cat") == ""
     assert is_superlative_gloss("superlative of good") is True
     assert is_superlative_gloss("plural of cat") is False
+    # F4: mid-sentence mentions never parse (^ anchor).
+    assert parse_superlative_base(
+        "This entry is the superlative of good") == ""
+    assert parse_superlative_base("not a superlative of good") == ""
+    # F4: base must be a single alpha token.
+    assert parse_superlative_base("superlative of well known") == ""
+    assert parse_superlative_base("superlative of good-form") == ""
+    assert parse_superlative_base("superlative of") == ""
+    assert parse_superlative_base("comparative form of big") == "big"
 
 
 def test_r44_review_prompt_has_idiom_line():

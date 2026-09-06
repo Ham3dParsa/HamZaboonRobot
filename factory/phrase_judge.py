@@ -59,7 +59,6 @@ MAX_ATTEMPTS = 2
 SLEEP = 3.0
 # R24 revised (owner): NO long backoff on quota errors — rotate keys, and
 # STOP + report when every key is 429. Wasting hours in backoff is banned.
-RATE_LIMIT_WAITS = ()
 
 
 class RateLimited(Exception):
@@ -108,8 +107,12 @@ def call_with_backoff(transport, api_key, model, prompt, sys_text=None,
     while True:
         try:
             if sys_text is None:
-                return transport(key, model, prompt)
-            return transport(key, model, prompt, sys_text=sys_text)
+                out = transport(key, model, prompt)
+            else:
+                out = transport(key, model, prompt, sys_text=sys_text)
+            if ring is not None:
+                ring.used = 0  # success breaks the 429 streak (F1)
+            return out
         except urllib.error.HTTPError as exc:
             if exc.code == 429 and ring is not None:
                 time.sleep(5)

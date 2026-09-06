@@ -234,6 +234,15 @@ def test_r40_evp_boost_reorders():
     assert judge.EVP_BOOST == 1.5
 
 
+def test_r40_evp_boost_needs_word_boundary():
+    # F6: "exam" boosts "an exam" but NOT "an example" (substring).
+    assert judge.sense_gets_boost("to succeed in an exam", {"exam"}) is True
+    assert judge.sense_gets_boost("an example of generosity",
+                                  {"exam"}) is False
+    assert judge.sense_gets_boost("", {"exam"}) is False
+    assert judge.sense_gets_boost("to succeed in an exam", set()) is False
+
+
 def test_r40_cap_raised_and_validation_passes():
     senses = [_judge_sense("w#%d" % i, "clean gloss number %d here" % i,
                            1.0 / (i + 1)) for i in range(12)]
@@ -249,6 +258,27 @@ def test_r40_cap_raised_and_validation_passes():
     topics = [{"id": k, "label": "Other / Abstract", "confidence": 0.5}
               for k in need]
     assert judge.validate_topics(topics, need) is True
+
+
+def test_r40_picks_validated_against_window_ids():
+    # F5: the judge only sees the boosted window — a pick from outside
+    # the window validates against the full list (backward compat) but
+    # NOT against the window ids (the judge-run validation target).
+    senses = [_judge_sense("w#%d" % i, "clean gloss number %d here" % i,
+                           1.0 / (i + 1)) for i in range(12)]
+    r = {"lemma": "w", "cefr": "A1", "ranked_senses": senses}
+    full_ids = [s["sense_id"] for s in senses]
+    window_ids = [s["sense_id"] for s in judge.select_judge_window(
+        senses, "w")]
+    assert len(window_ids) == 10 and len(full_ids) == 12
+    outside = (set(full_ids) - set(window_ids)).pop()
+    picks = {"beginner": window_ids[:2],
+             "intermediate": window_ids[:3],
+             "advanced": [outside] + window_ids[:3]}
+    assert judge.validate_picks(picks, full_ids) is True
+    assert judge.validate_picks(picks, window_ids) is False
+    assert judge.validate_picks(
+        judge.deterministic_picks(r), window_ids) is True
 
 
 # ---------------- R41: fa-alpha + sense coherence ----------------
@@ -346,12 +376,18 @@ def test_r41_generate_card_rejects_without_regen():
     # R41b: no-overlap no longer rejects at generate time — the card is
     # marked pending (valid) and the micro-pass decides. Rejection moved
     # to test_r41b_micropass_rejects_mismatch.
+    # F3: the card carries exact headword-family words ("kiss"), so the
+    # deterministic gate passes it outright (pending False) — same-headword
+    # cross-sense with only INFLECTED forms (kissing/kissed, no exact
+    # "kiss") still lands undecided-pending for the micro-pass
+    # (test_r41b_undecided_marks_pending_not_reject,
+    # test_r41b_micropass_rejects_xmark_anchor_kissing_card).
     rec2 = generate_card(
         {"kind": "word", "text": "kiss", "pool_level": "A1",
          "en_def": "A written X mark used instead of a signature"},
         "key", transport=transport_incoherent, model_calls={})
     assert rec2["valid"] is True
-    assert rec2.get("sense_review_pending") is True
+    assert rec2.get("sense_review_pending") is False
 
 def test_judge_window_cap_matches_owner_module():
     from run_v14_phase3_judge import JUDGE_WINDOW_CAP as OWNER_CAP
@@ -382,14 +418,18 @@ def test_r41b_undecided_marks_pending_not_reject():
 
 
 def _coherent_transport():
+    # F3: inflected-only headword forms (kissed/kissing — no exact
+    # "kiss" token, which the 5-char stem rule cannot match) so the
+    # paraphrase anchor stays token-undecided and pends for the
+    # micro-pass, even with the headword-family fallback active.
     def go(api_key, model, system, user):
         return json.dumps(dict(
             CLEAN_CARD, word="kiss",
-            examples=["They kiss to greet each other.",
-                      "She gave him a sweet kiss."],
-            example_translations=["آن‌ها برای سلام همدیگر را می‌بوسند.",
-                                  "او یک بوسه شیرین به او داد."],
-            synonyms=["peck"], antonyms=[],
+            examples=["They kissed goodbye at dawn today.",
+                      "She gave him a kissing greeting yesterday."],
+            example_translations=["آن‌ها امروز سحر با بوسه خداحافظی کردند.",
+                                  "او دیروز با بوسه به او سلام کرد."],
+            synonyms=["hug"], antonyms=[],
             fa_meaning="بوسه",
             fa_explanation="تماس لب‌ها برای مهر.",
             grammar_tip="اسم است."))
@@ -404,6 +444,26 @@ def test_r41b_micropass_rejects_mismatch():
     assert (checked, rejected) == (1, 1)
     assert recs[0]["valid"] is False
     assert recs[0]["reason"] == "sense-incoherence"
+    assert recs[0]["sense_coherence"]["verdict"] == "llm-reject"
+
+
+def test_r41b_micropass_rejects_xmark_anchor_kissing_card():
+    # F3 layering: the deterministic gate cannot separate same-headword
+    # senses, so the X-mark anchor + kissing card mismatch is rejected
+    # HERE (mocked incoherent) — the micro-pass judges anchor+card
+    # semantically, not by token overlap.
+    from card_pilot import review_records_sense
+    recs = [_sense_rec()]
+    recs[0]["en_def"] = "A written X mark used instead of a signature"
+    recs[0]["card"] = dict(
+        CLEAN_CARD, word="kiss",
+        examples=["They were kissing under the mistletoe today.",
+                  "She gave him a kissing greeting yesterday."],
+        synonyms=["hug"])
+    checked, rejected = review_records_sense(
+        recs, "k", transport=_sense_transport(False), model_calls={})
+    assert (checked, rejected) == (1, 1)
+    assert recs[0]["valid"] is False
     assert recs[0]["sense_coherence"]["verdict"] == "llm-reject"
 
 
