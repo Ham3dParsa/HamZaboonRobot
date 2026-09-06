@@ -5034,8 +5034,9 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                 item["topic"] = assigned["label"]
                 item["topic_method"] = assigned["method"]
                 item["topic_vector"] = assigned["vector"]
-        sample_path.write_text(json.dumps(sample, ensure_ascii=False),
-                               encoding="utf-8")
+        sample_path = out_dir / "sample.json"
+        _atomic_write_text(
+            sample_path, json.dumps(sample, ensure_ascii=False))
         gloss_s = time.perf_counter() - gloss_start
     run_logger.stage_end("sample", ok=len(sample), fail=0)
     # Anchor/topic/enrichment run inside the "sample" stage above (the

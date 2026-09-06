@@ -794,10 +794,9 @@ def s4_label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
 
     Telemetry (model + surfaced tokens, fallback on deterministic miss)
     is owned by assign_topic — this wrapper only maps auth/stop signals
-    and stays fail-closed to Other / Abstract (the except branch is
-    near-dead by design: assign_topic swallows Exception itself, and
-    the rotating transport's all-keys-429 SystemExit propagates
-    untouched through both layers).
+    and stays fail-closed to Other / Abstract. RateLimited from the
+    rotating transport propagates untouched (re-raised below) so the S4
+    caller flushes progress and stops for a server switch.
     """
     if ring is None:
         ring = KeyRing([api_key])
@@ -812,6 +811,8 @@ def s4_label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
             telemetry=telemetry, tele_stage=tele_stage,
             tele_batch=tele_batch)
     except AuthError:
+        raise
+    except RateLimited:
         raise
     except Exception:
         return {"label": "Other / Abstract",

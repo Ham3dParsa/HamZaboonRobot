@@ -1066,3 +1066,20 @@ def test_s4_ratelimited_flushes_not_swallowed(monkeypatch):
     wrap = _rotating_llm_transport(transport_429, lambda s: None, {}, ring)
     with pytest.raises(RateLimited):
         wrap("k1", "m", "u")
+
+def test_s4_label_item_reraises_ratelimited():
+    """OC must-fix: s4_label_item must not swallow RateLimited into fallback."""
+    import urllib.error
+    import pytest
+    from precard_pipeline import s4_label_item
+    from phrase_judge import KeyRing, RateLimited
+
+    def transport_429(api_key, model, user_text):
+        raise urllib.error.HTTPError("http://x", 429, "throttled", {}, None)
+
+    with pytest.raises(RateLimited):
+        s4_label_item(
+            {"kind": "word", "text": "x", "pool_level": "A1"}, "gloss",
+            "x#0", None, "k", transport_429, lambda s: None,
+            {"done": {}, "failed": [], "backoffs": []}, None, {},
+            ring=KeyRing(["k1", "k2"]))
