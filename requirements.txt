@@ -1,5 +1,5 @@
 python-telegram-bot[job-queue]==22.8
-openai==3.5.0
+openai==3.7.0
 python-dotenv==1.2.3
 httpx[socks]==0.28.1
 cryptography==50.0.1
