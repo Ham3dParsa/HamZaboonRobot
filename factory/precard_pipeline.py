@@ -36,6 +36,7 @@ Output: precard.jsonl, one line per SURVIVING item:
  dataset_examples[], abbrev_expansion (R29), pos[]/pos_src (R32),
  topic_vector[{label, weight}], topic_method,
  drop_reason (None when kept), type_pending (only when true),
+ proper_route (only when the S2 pick routed to the proper-pool track),
  stage_calls{..., s0}}.
 Dropped items are NEVER written to precard.jsonl; their reasons live in
 the s0 progress state ({done: {key: {kept, reason, type_pending}}},
@@ -43,6 +44,12 @@ failed=[dropped keys]) and on stdout. Never silent.
 V7: S1 drops proper-noun anchors (anchored entry POS in {name, propn},
 reason anchor-proper-noun, recorded on the s1 done entry + failed list —
 the ONE anchor-drop place; card_pilot anchor helpers never drop).
+Post-S2 proper-noun routing: a JUDGED pick whose entry POS is proper
+while the S1 anchor was not is either routed to the proper-pool track
+(proper_route=<class> on the s2 done entry + the precard row, item
+continues to S3+) or dropped with reason pick-proper-noun/<suffix>
+(org-guard / person-name / no-class / zipf-low — recorded on the s2
+done entry + failed list, never in precard.jsonl).
 V7: every batch prints ONE stdout line "S<stage> batch i/N ok=X fail=Y
 model=calls" (batch_log_line, owned by card_pilot) and each run writes
 a compact run.log beside --out (stage start/end + counts + timings).
@@ -70,6 +77,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import sys
 import time
 import urllib.error
@@ -625,6 +633,122 @@ def s2_judge_batch(batch, s1map, api_key, transport, sleep_fn, state,
                      key_idx=0, model="s1-fallback", latency_s=0.0,
                      outcome="fallback")
     return out
+
+
+# ---------------------------------- post-S2 proper-noun routing ---
+
+# Post-S2 proper-noun routing: a picked sense whose entry POS is proper
+# (card_pilot.PROPER_NOUN_POS, reused by import — deterministic, no name
+# lists) while the S1 anchor was NOT proper is either routed to the
+# proper-pool track (proper_route=<class>, item continues to S3+) or
+# dropped with reason pick-proper-noun/<suffix>. Classes come from
+# GENERAL gloss regexes only (no lists of specific names); the lemma
+# zipf floor (2.5, injectable via zipf_fn) keeps rare proper nouns out;
+# the org-guard (club|team|band|company|companies) and the person-guard
+# (given name|surname|family name) NEVER route — organisations and
+# person names are not learner cards. Seam: an idempotent pass over the
+# s2 done state immediately after the S2 stage (NOT a new stage —
+# STAGES and every stage signature are untouched). Verdicts ride as
+# additive proper_route/proper_drop markers on the s2 done entries, so
+# resume only evaluates keys missing both markers, and rekeying s1/s2
+# (which evicts s2 done downstream) re-runs the pass by construction.
+# Precard rows gain ONLY the optional proper_route field (additive —
+# the parallel fork session reads it).
+PROPER_ROUTE_ZIPF_MIN = 2.5
+
+_PROPER_ROUTE_CLASSES = (
+    ("geo", re.compile(
+        r"\bcountry\b|\bcapital of\b|\bocean\b|\briver\b|\bmountain\b",
+        re.IGNORECASE)),
+    ("language", re.compile(r"\blanguage\b", re.IGNORECASE)),
+    ("money", re.compile(r"\bcurrency\b", re.IGNORECASE)),
+    ("time", re.compile(r"\bday of the week\b|\bmonth of\b",
+                        re.IGNORECASE)),
+    ("holiday", re.compile(r"\bfestival\b|\bholiday\b", re.IGNORECASE)),
+)
+_PROPER_ROUTE_ORG_RX = re.compile(
+    r"\bclub\b|\bteam\b|\bband\b|\bcompan(?:y|ies)\b", re.IGNORECASE)
+_PROPER_ROUTE_PERSON_RX = re.compile(
+    r"\bgiven name\b|\bsurname\b|\bfamily name\b", re.IGNORECASE)
+
+
+def _picked_entry_pos(item, sense_id, index, read_entry):
+    """Entry POS of the S2-picked sense ("" when unresolvable).
+
+    Mirrors the S5 xref-target switch (imported helpers only): an
+    xref-resolved pick carries the TARGET lemma in its sense_id, so the
+    POS is read from the target rows, not the item rows. Lookup errors
+    fail open to "" (the caller keeps the item on the normal track).
+    """
+    try:
+        want_idx = int((sense_id or "").split("#")[-1])
+    except (TypeError, ValueError, AttributeError):
+        return ""
+    try:
+        entries, pos = _entries_for(item, index)
+        sid_lemma = (sense_id or "").rpartition("#")[0].strip().lower()
+        if sid_lemma and sid_lemma != (
+                item.get("text") or "").strip().lower():
+            target_rows = (index or {}).get(sid_lemma)
+            if target_rows:
+                entries, pos = list(target_rows), ""
+        scored = card_pilot.score_senses(
+            sid_lemma or item.get("text", ""), entries, pos, read_entry)
+    except Exception:
+        return ""
+    for _score, idx, entry, _sense, _gloss in scored:
+        if idx == want_idx:
+            try:
+                return str((entry or {}).get("pos") or "").strip().casefold()
+            except Exception:
+                return ""
+    return ""
+
+
+def s2_proper_route(item, pick, s1res, index, read_entry, zipf_fn=None):
+    """Post-S2 proper-noun verdict for one item.
+
+    Returns {"routed", "proper_route", "reason"}: routed=True carries
+    proper_route=<class> (item continues to S3+ on the proper-pool
+    track); routed=False with reason None means "not a proper pick —
+    continue normally"; routed=False with reason
+    "pick-proper-noun/<suffix>" means drop. The org/person guards run
+    before class/zipf so they always win. zipf_fn=None uses the live
+    default_zipf (tests inject a stub).
+    """
+    anchored = str((s1res or {}).get("anchor_pos") or "").strip().casefold()
+    picked_pos = _picked_entry_pos(
+        item, (pick or {}).get("sense_id", ""), index, read_entry)
+    if picked_pos not in card_pilot.PROPER_NOUN_POS \
+            or anchored in card_pilot.PROPER_NOUN_POS:
+        return {"routed": False, "proper_route": "", "reason": None}
+    gloss = (pick or {}).get("gloss", "") or ""
+    if _PROPER_ROUTE_ORG_RX.search(gloss):
+        return {"routed": False, "proper_route": "",
+                "reason": "pick-proper-noun/org-guard"}
+    if _PROPER_ROUTE_PERSON_RX.search(gloss):
+        return {"routed": False, "proper_route": "",
+                "reason": "pick-proper-noun/person-name"}
+    route = ""
+    for cls, rx in _PROPER_ROUTE_CLASSES:
+        if rx.search(gloss):
+            route = cls
+            break
+    if not route:
+        return {"routed": False, "proper_route": "",
+                "reason": "pick-proper-noun/no-class"}
+    fn = zipf_fn or default_zipf
+    try:
+        zipf = fn((item.get("text") or "").strip())
+    except Exception:
+        zipf = None
+    if zipf is None:
+        return {"routed": False, "proper_route": "",
+                "reason": "pick-proper-noun/zipf-unknown"}
+    if float(zipf) < PROPER_ROUTE_ZIPF_MIN:
+        return {"routed": False, "proper_route": "",
+                "reason": "pick-proper-noun/zipf-low:%.2f" % float(zipf)}
+    return {"routed": True, "proper_route": route, "reason": None}
 
 
 # ---------------------------------------------------------------- S3 ---
@@ -1405,6 +1529,42 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                    if not (v.get("model", "") or "").startswith("s1-")),
             fail=sum(1 for v in states["s2"]["done"].values()
                      if (v.get("model", "") or "").startswith("s1-")))
+        # Post-S2 proper-noun routing (idempotent pass over the s2 done
+        # state — evaluated here, right after S2, so S3+ only ever see
+        # routed/kept items; resume-safe via the proper_route/proper_drop
+        # markers, flushed when the pass evaluates anything).
+        evaluated = 0
+        for item in items:
+            key = item_key(item)
+            entry = states["s2"]["done"].get(key)
+            if not isinstance(entry, dict):
+                continue
+            if "proper_route" in entry and "proper_drop" in entry:
+                continue
+            verdict = s2_proper_route(
+                item, entry, states["s1"]["done"].get(key),
+                index, read_entry, zipf_fn)
+            entry["proper_route"] = verdict["proper_route"]
+            entry["proper_drop"] = verdict["reason"] or ""
+            if verdict["reason"] and key not in states["s2"]["failed"]:
+                states["s2"]["failed"].append(key)
+            evaluated += 1
+        if evaluated:
+            _flush(progress_dir, states)
+        s2_proper_dropped = {
+            k for k, v in states["s2"]["done"].items()
+            if isinstance(v, dict) and v.get("proper_drop")}
+        s2_proper_here = s2_proper_dropped & {item_key(i) for i in items}
+        if evaluated or s2_proper_here:
+            print("s2 proper-route: routed=%d dropped=%d%s" % (
+                sum(1 for i in items
+                    if (states["s2"]["done"].get(item_key(i)) or {}).get(
+                        "proper_route")),
+                len(s2_proper_here),
+                " (%s)" % ", ".join(sorted(
+                    "%s:%s" % (k, states["s2"]["done"][k].get("proper_drop"))
+                    for k in s2_proper_here)) if s2_proper_here else ""))
+        items = [i for i in items if item_key(i) not in s2_proper_dropped]
         # S3 (vector batches). ok = model vectors, fail = deterministic
         # (fail-closed) fallbacks.
         run_logger.stage_start("s3")
@@ -1566,6 +1726,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             }
             if s0v.get("type_pending"):
                 rec["type_pending"] = True
+            if (pick.get("proper_route") or ""):
+                rec["proper_route"] = pick["proper_route"]
             if key not in precards:
                 precards[key] = rec
             # else F2: duplicate-redirect loser — first item wins the
