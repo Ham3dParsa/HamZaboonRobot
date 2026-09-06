@@ -114,7 +114,11 @@ def recent_events_for_words(
 def count_review_events_for_card(user_id: int, word_id: int) -> int:
     """Prior review count for one card (T3 live-card ordinal, read-only).
 
-    Single ``COUNT(*)`` query via a short-lived connection; never opens a
+    Returns ``MAX(saved_words.total_reviews, COUNT(*))``: the lifetime
+    counter stays exact after ``prune_old_review_events`` deletes old rows
+    (rolled up monotonically beforehand), while the ``COUNT(*)`` side covers
+    pre-counter rows that bypassed the insert-time bump (e.g. direct
+    ``review_events`` inserts). Single short-lived connection, never opens a
     transaction. Missing table → 0 (fail-open for badge display only).
     """
     try:
@@ -124,7 +128,17 @@ def count_review_events_for_card(user_id: int, word_id: int) -> int:
                 "WHERE word_id=? AND user_id=?",
                 (word_id, user_id),
             ).fetchone()
-        return int(row["cnt"]) if row else 0
+            cnt = int(row["cnt"]) if row else 0
+            try:
+                srow = conn.execute(
+                    "SELECT COALESCE(total_reviews, 0) AS total "
+                    "FROM saved_words WHERE id=? AND user_id=?",
+                    (word_id, user_id),
+                ).fetchone()
+                stored = int(srow["total"]) if srow else 0
+            except Exception:
+                stored = 0
+        return max(cnt, stored)
     except Exception:
         return 0
 

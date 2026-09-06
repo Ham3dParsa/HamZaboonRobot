@@ -78,6 +78,23 @@ class ReviewCountBadgeTests(unittest.TestCase):
         badge = _review_badge_for_card(1, wid, row)
         self.assertIn("اولین دیدار", badge)
 
+    def test_stored_total_survives_prune(self):
+        # Post-prune shape: 6 lifetime reviews rolled into the counter, only
+        # 2 event rows survive. Ordinal must read the lifetime total (7th),
+        # not regress to the surviving COUNT(*) (3rd).
+        wid = _add_word(1, "prunedword")
+        _add_event(1, wid)
+        _add_event(1, wid)
+        with db.transaction() as conn:
+            conn.execute(
+                "UPDATE saved_words SET total_reviews=6 WHERE id=?",
+                (wid,),
+            )
+        self.assertEqual(db.count_review_events_for_card(1, wid), 6)
+        row = db.get_saved_word(wid, 1)
+        badge = _review_badge_for_card(1, wid, row)
+        self.assertIn("مرور ۷ام", badge)
+
     def test_two_priors_render_third_review_ordinal(self):
         wid = _add_word(1, "oldword")
         _add_event(1, wid)
