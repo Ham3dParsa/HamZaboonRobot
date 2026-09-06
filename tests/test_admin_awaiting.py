@@ -336,6 +336,24 @@ class TestAiCallWrappedInToThread(unittest.IsolatedAsyncioTestCase):
         self.assertIn("JSONDecodeError", text)
         self.assertIn("تست مجدد", text)
 
+    async def test_custom_test_operational_error_shows_real_cause(self):
+        """Non-JSON failures (auth/network/...) must show class + message,
+        not the misleading retry-with-simpler-text hint."""
+        from handlers.admin_ai import _run_custom_test
+        update = _make_update()
+        context = _make_context()
+        context.user_data["custom_test_state"] = {"prompt": "test", "lang": "en", "goal": "general", "level": "beginner"}
+        with patch("handlers.admin_ai.db.get_active_preset") as mock_active:
+            mock_active.return_value = {"name": "current", "daily_batch_size": 4}
+            with patch("handlers.admin_ai.asyncio.to_thread", new=AsyncMock()) as mock_to_thread:
+                mock_to_thread.side_effect = RuntimeError("boom-auth")
+                await _run_custom_test(update, context, "current")  # must not raise
+        text = update.callback_query.edit_message_text.call_args.args[0]
+        self.assertIn("خطا", text)
+        self.assertIn("RuntimeError", text)
+        self.assertIn("boom-auth", text)
+        self.assertNotIn("متن ساده‌تر", text)
+
     async def test_custom_test_prompt_skip_jumps_to_lang_step(self):
         """Step 1/5 skip: no prompt stored, awaiting cleared, lang step shown."""
         from handlers.admin_ai import _handle_custom_test_wizard

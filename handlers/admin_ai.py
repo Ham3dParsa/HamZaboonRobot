@@ -10,6 +10,7 @@ from ``bot.py``; dispatch flows through ``handlers.admin``.
 
 import asyncio
 import hashlib
+import json
 import logging
 import re
 from urllib.parse import quote, unquote
@@ -1855,10 +1856,19 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
                 level=level,
                 preset=active_preset,
             )
-        except Exception as exc:
+        except (json.JSONDecodeError, ai.CardValidationError) as exc:
             # A weird test text can make the model return non-JSON; report it
             # instead of crashing the wizard with an unhandled exception.
-            results.append(("Current Config", None, type(exc).__name__))
+            results.append((
+                "Current Config",
+                None,
+                f"{type(exc).__name__}: مدل خروجی معتبر برنگرداند؛ با «تست مجدد» و متن ساده‌تر تلاش کنید.",
+            ))
+        except Exception as exc:
+            # Operational failure (auth/network/rate-limit/config): show the
+            # real cause, same class+message pattern as _test_ai_connection.
+            detail = str(exc).strip().replace("\n", " ")[:160]
+            results.append(("Current Config", None, f"{type(exc).__name__}: {detail}"))
         else:
             results.append(("Current Config", result, None))
 
@@ -1881,8 +1891,15 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
                 level=level,
                 preset=candidate,
             )
+        except (json.JSONDecodeError, ai.CardValidationError) as exc:
+            results.append((
+                f"Candidate ({candidate_name})",
+                None,
+                f"{type(exc).__name__}: مدل خروجی معتبر برنگرداند؛ با «تست مجدد» و متن ساده‌تر تلاش کنید.",
+            ))
         except Exception as exc:
-            results.append((f"Candidate ({candidate_name})", None, type(exc).__name__))
+            detail = str(exc).strip().replace("\n", " ")[:160]
+            results.append((f"Candidate ({candidate_name})", None, f"{type(exc).__name__}: {detail}"))
         else:
             results.append((f"Candidate ({candidate_name})", result, None))
 
@@ -1892,9 +1909,11 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     for label, card, error in results:
         msg.add_line()
         msg.add_line(bold(str(label)))
+        if error is None and not isinstance(card, dict):
+            error = f"خروجی نامعتبر: {type(card).__name__}"
         if error is not None:
-            msg.add_line(plain("❌ خطا: "), code(str(error)))
-            msg.add_line(plain("اگر متن تست نامعمول بود، مدل خروجی معتبر برنگرداند؛ با «تست مجدد» و متن ساده‌تر تلاش کنید."))
+            msg.add_line(plain("❌ خطا در "), bold(str(label)), plain(":"))
+            msg.add_line(plain(str(error)))
         else:
             msg.add_line(plain("Word: "), plain(str(card.get('word', '?'))))
             msg.add_line(plain("Meaning: "), plain(str(card.get('fa_meaning', '?'))))
@@ -1913,8 +1932,11 @@ async def _run_custom_test(update: Update, context: ContextTypes.DEFAULT_TYPE, t
 async def _handle_custom_test_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
     """Route wizard callbacks."""
     if action == "ai_custom_test:prompt:skip":
-        # Step 1/5 skipped: no prompt stored, _run_custom_test falls back to
-        # the default test text; the system prompt is always the production one.
+        # Step 1/5 skipped: drop any stale prompt so _run_custom_test falls
+        # back to the default test text; the system prompt is always production.
+        state = context.user_data.get("custom_test_state", {})
+        state.pop("prompt", None)
+        context.user_data["custom_test_state"] = state
         await _custom_test_step_lang(update, context)
     elif action == "ai_custom_test:lang":
         pass
