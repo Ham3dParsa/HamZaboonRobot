@@ -467,7 +467,7 @@ def _reroute_proper_anchor(item, ranked, index, read_entry):
     Lookup errors fail open to None (caller keeps the drop).
     """
     try:
-        for pos_idx, cand in enumerate(ranked.get("candidates") or []):
+        for cand in ranked.get("candidates") or []:
             sid = cand.get("sense_id", "")
             if not sid:
                 continue
@@ -482,7 +482,7 @@ def _reroute_proper_anchor(item, ranked, index, read_entry):
                 return ({"sense_id": sid,
                          "gloss": cand.get("gloss", "")},
                         cand.get("gloss", ""), pos)
-    except Exception:
+    except (KeyError, TypeError, AttributeError, ValueError):
         return None
     return None
 
@@ -1203,8 +1203,11 @@ def _stage_summary(stage, states, out_path):
     from collections import Counter
     done = states.get(stage, {}).get("done", {}) or {}
     failed = states.get(stage, {}).get("failed", []) or []
+    # Same kept rule as run_logger.stage_end callers: an entry counts as
+    # kept unless explicitly not-kept or dropped (a verdict carrying both
+    # kept=True and dropped=<reason> is dropped — fail-closed).
     kept = sum(1 for v in done.values()
-               if isinstance(v, dict) and v.get("kept", True)
+               if isinstance(v, dict) and v.get("kept", True) is not False
                and not v.get("dropped"))
     slugs = Counter()
     details = []
@@ -1227,10 +1230,13 @@ def _stage_summary(stage, states, out_path):
         if slugs else ""))
     if details:
         drop_log = pathlib.Path(str(out_path)).parent / "dropped.log"
-        with open(drop_log, "a", encoding="utf-8") as handle:
-            handle.write("=== %s ===\n" % stage)
-            for line in details:
-                handle.write(line + "\n")
+        try:
+            with open(drop_log, "a", encoding="utf-8") as handle:
+                handle.write("=== %s ===\n" % stage)
+                for line in details:
+                    handle.write(line + "\n")
+        except OSError as exc:
+            print("warning: dropped.log append failed (%s)" % exc)
 
 
 def _flush(progress_dir, states):
