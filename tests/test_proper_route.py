@@ -249,15 +249,20 @@ def test_unit_empty_pick_passes_through():
     assert verdict == {"routed": False, "proper_route": "",
                        "reason": None}
 
-def test_money_and_holiday_classes_route():
-    from precard_pipeline import classify_proper_gloss
-    assert classify_proper_gloss(
-        "A unit of currency used in Japan.")[0] == "money"
-    assert classify_proper_gloss(
-        "A Christian festival celebrating birth.")[0] == "holiday"
-    # Substring traps must not fire (word boundaries).
-    assert classify_proper_gloss(
-        "Abandoned steamer near the driver.")[0] in (None, "no-class")
+def test_proper_gloss_unit_boundaries(tmp_path):
+    # Unit-level twin of the run_all money/holiday + substring tests
+    # below (no dead duplicate: classify_proper_gloss does not exist as
+    # a helper — classification lives in s2_proper_route; this pins the
+    # regexes directly).
+    import re
+    from precard_pipeline import (_PROPER_ROUTE_CLASSES,
+                                  _PROPER_ROUTE_ORG_RX)
+    hit = lambda rx, s: bool(rx.search(s))
+    money = dict(_PROPER_ROUTE_CLASSES)["money"]
+    holiday = dict(_PROPER_ROUTE_CLASSES)["holiday"]
+    assert hit(money, "A unit of currency used in Japan.")
+    assert hit(holiday, "A Christian festival celebrating birth.")
+    assert not hit(_PROPER_ROUTE_ORG_RX, "Abandoned steamer near driver")
 
 def test_money_and_holiday_classes_route(tmp_path):
     _, rows, _ = run_all(tmp_path, ["yen", "festivus"])
