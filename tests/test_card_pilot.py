@@ -2294,3 +2294,31 @@ def test_assign_topic_path_and_token_telemetry():
                        api_key="k", model_calls={}, telemetry=tele3)
     assert bad["topic_path"] == "fallback"
     assert tele3 and tele3[-1]["outcome"] == "fallback"
+
+def test_assign_topic_autherror_reraises_loud():
+    """OC critical: assign_topic must never swallow auth into fallback."""
+    import urllib.error
+    import pytest
+    from card_pilot import assign_topic
+    from llm_json import AuthError
+
+    def auth_transport(api_key, model, user_text):
+        raise AuthError("401")
+
+    with pytest.raises(AuthError):
+        assign_topic("x", "gloss", llm_transport=auth_transport,
+                     api_key="k")
+
+    def http401(api_key, model, user_text):
+        raise urllib.error.HTTPError("http://x", 401, "unauth", {}, None)
+
+    with pytest.raises(AuthError):
+        assign_topic("x", "gloss", llm_transport=http401, api_key="k")
+
+
+def test_review_auth_tele_forwards_code():
+    from card_pilot import _review_auth_tele
+    store = []
+    _review_auth_tele(store, "s", 0, 0, "m", http_status=403)
+    assert store[0]["http_status"] == 403
+    assert store[0]["outcome"] == "auth"

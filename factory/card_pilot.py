@@ -1,4 +1,4 @@
-"""Card-generation pilot: 20 learner cards through the REAL card flow.
+﻿"""Card-generation pilot: 20 learner cards through the REAL card flow.
 
 Scope: factory research only. No bot/DB/handler changes.
 
@@ -2147,6 +2147,13 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
             res = llm_transport(api_key, model, user_text)
             raw, usage = _unwrap_transport_result(res)
             data = _extract(raw)
+        except AuthError:
+            raise
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401, 403):
+                from llm_json import raise_for_auth as _rfa
+                _rfa(exc)
+            continue
         except Exception as exc:
             if _RateLimited is not None and isinstance(exc, _RateLimited):
                 raise
@@ -2788,14 +2795,15 @@ def _review_tele(telemetry, tele_stage, batch_id, tele_key_idx, model,
         latency_s=0.0, outcome=outcome)
 
 
-def _review_auth_tele(telemetry, tele_stage, batch_id, tele_key_idx, model):
+def _review_auth_tele(telemetry, tele_stage, batch_id, tele_key_idx, model,
+                      http_status=401):
     """Auth record before a loud 401/403 abort (never silent)."""
     if telemetry is None:
         return
     tele_record_call(
         telemetry, stage=tele_stage, batch_id=batch_id,
         key_idx=tele_key_idx, model=model,
-        latency_s=0.0, outcome="auth", http_status=401)
+        latency_s=0.0, outcome="auth", http_status=http_status)
 
 
 def review_grammar_tips(items, transport, api_key="", model_calls=None,
@@ -2836,7 +2844,8 @@ def review_grammar_tips(items, transport, api_key="", model_calls=None,
                 except urllib.error.HTTPError as exc:
                     if exc.code in (401, 403):
                         _review_auth_tele(telemetry, tele_stage, batch_no,
-                                          tele_key_idx, model)
+                                          tele_key_idx, model,
+                                          http_status=exc.code)
                         raise_for_auth(exc)
                     data = None
                 except Exception:
@@ -3100,7 +3109,8 @@ def review_sense_items(items, transport, api_key="", model_calls=None,
                 except urllib.error.HTTPError as exc:
                     if exc.code in (401, 403):
                         _review_auth_tele(telemetry, tele_stage, batch_no,
-                                          tele_key_idx, model)
+                                          tele_key_idx, model,
+                                          http_status=exc.code)
                         raise_for_auth(exc)
                     data = None
                 except Exception:
@@ -3286,7 +3296,8 @@ def review_dataset_examples(items, transport, api_key="", model_calls=None,
                 except urllib.error.HTTPError as exc:
                     if exc.code in (401, 403):
                         _review_auth_tele(telemetry, tele_stage, batch_no,
-                                          tele_key_idx, model)
+                                          tele_key_idx, model,
+                                          http_status=exc.code)
                         raise_for_auth(exc)
                     data = None
                 except Exception:
@@ -3466,7 +3477,8 @@ def inflection_review(items, transport, api_key="", model_calls=None,
                 except urllib.error.HTTPError as exc:
                     if exc.code in (401, 403):
                         _review_auth_tele(telemetry, tele_stage, batch_no,
-                                          tele_key_idx, model)
+                                          tele_key_idx, model,
+                                          http_status=exc.code)
                         raise_for_auth(exc)
                     data = None
                 except Exception:
