@@ -1013,3 +1013,39 @@ def test_s5_enrich_path_full_and_partial():
     partial = s5_enrich_item(item, {"sense_id": "", "gloss": ""},
                              index, read_entry, {})
     assert partial["enrich_path"] == "partial"
+
+def test_precard_output_atomic_no_partial(tmp_path, monkeypatch):
+    """OC must-fix: crash mid-write must not truncate precard.jsonl."""
+    from precard_pipeline import main as precard_main
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    sample = tmp_path / "sample.json"
+    sample.write_text(json.dumps(
+        [{"kind": "word", "text": "apple", "pool_level": "A1"},
+         {"kind": "word", "text": "pear", "pool_level": "A1"}]),
+        encoding="utf-8")
+    out = tmp_path / "precard.jsonl"
+    out.write_text("SENTINEL-OLD-CONTENT\n", encoding="utf-8")
+    real_dumps = json.dumps
+    calls = {"n": 0}
+
+    def flaky_dumps(obj, **kw):
+        # Crash on a record serialization (mid-write).
+        if isinstance(obj, dict) and str(obj.get("key", "")).startswith("w:"):
+            calls["n"] += 1
+            if calls["n"] >= 1:
+                raise RuntimeError("simulated crash mid-write")
+        return real_dumps(obj, **kw)
+
+    import precard_pipeline
+    monkeypatch.setattr(precard_pipeline.json, "dumps", flaky_dumps)
+    with __import__("pytest").raises(RuntimeError):
+        precard_main(
+            ["--sample", str(sample), "--out", str(out),
+             "--progress-dir", str(tmp_path / "prog")],
+            _judge_transport=None, _topic_transport=None,
+            _assign_transport=None, _sleep_fn=lambda s: None,
+            _index={}, _read_entry=lambda row: (_ for _ in ()).throw(
+                RuntimeError("unreachable")),
+            _tatoeba={}, _zipf_fn=lambda t: 5.0)
+    # Original file intact (tmp write never replaced it).
+    assert out.read_text(encoding="utf-8") == "SENTINEL-OLD-CONTENT\n"

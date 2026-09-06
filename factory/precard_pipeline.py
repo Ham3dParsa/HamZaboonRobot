@@ -1585,9 +1585,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # Redirect merges can map two lemmas onto one base key (best+better
     # -> good): emit the first, record later ones as duplicate-redirect
     # drops so FSRS never fragments and no silent overwrites happen.
+    # Atomic write (tmp+os.replace, OC must-fix): a crash mid-write must
+    # never truncate precard.jsonl and force a full re-run.
     seen_keys: set = set()
     dup_redirect: list = []
-    with open(out_path, "w", encoding="utf-8") as handle:
+    _tmp = str(out_path) + ".tmp"
+    with open(_tmp, "w", encoding="utf-8") as handle:
         for item in items:
             key = item_key(item)
             if key in seen_keys:
@@ -1597,6 +1600,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             seen_keys.add(key)
             handle.write(json.dumps(
                 precards[key], ensure_ascii=False) + "\n")
+    os.replace(_tmp, out_path)
     if dup_redirect:
         print("duplicate-redirect drops (merged into base, FSRS-safe): %s"
               % ", ".join(sorted(set(dup_redirect))))
