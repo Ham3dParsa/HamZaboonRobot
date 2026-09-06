@@ -63,6 +63,19 @@ if [ -f /tmp/clean.json ] || [ -f "$XRAY_DIR/clean.json" ]; then
   if [ -x /usr/local/bin/rebuild-xray.py ]; then python3 /usr/local/bin/rebuild-xray.py 2>&1 | head -5 || echo "[chabok-pre-start] WARN: rebuild-xray.py failed - keep previous config"; else echo "[chabok-pre-start] WARN: rebuild-xray.py missing"; fi
 fi
 
+# 4b) Start xray at boot when a usable config exists but nothing listens.
+# Fresh boots otherwise have a dead proxy until the next 6h refresh.
+# No `xray test` gate: the pinned xray build has no `test` subcommand.
+if ! pgrep -x xray >/dev/null 2>&1; then
+  if [ -x /usr/local/bin/xray ] && [ -s "$XRAY_DIR/config.json" ]; then
+    if supervisorctl -c "$BASE_ROOT/supervisor.conf" status >/dev/null 2>&1; then
+      supervisorctl -c "$BASE_ROOT/supervisor.conf" start xray >/dev/null 2>&1 || true
+    else
+      nohup /usr/local/bin/xray run -c "$XRAY_DIR/config.json" >> /var/log/xray/xray.log 2>&1 &
+    fi
+  fi
+fi
+
 # 5) Verify proxy env (set in dashboard, not console) - redact credentials.
 # ${...:-} guard: under `set -eu` a bare $AI_PROXY_URL aborts when unset.
 if [ -z "${AI_PROXY_URL:-}" ]; then echo "[chabok-pre-start] WARN: AI_PROXY_URL empty - geoblock bypass OFF"; else _host=$(echo "$AI_PROXY_URL" | sed -E 's|.*://||; s|.*@||; s|:.*||'); echo "[chabok-pre-start] AI_PROXY_URL set (host=$_host)"; fi

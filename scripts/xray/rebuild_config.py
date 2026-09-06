@@ -28,7 +28,7 @@ cfg = {
             {"type": "field", "domain": ["generativelanguage.googleapis.com", "generativelanguage.google.com"], "balancerTag": "auto"},
             {"type": "field", "network": "tcp,udp", "outboundTag": "direct"},
         ],
-        "balancers": [{"tag": "auto", "selector": [o["tag"] for o in outs], "strategy": {"type": "roundRobin"}}],
+        "balancers": [{"tag": "auto", "selector": [o["tag"] for o in outs], "strategy": {"type": "leastPing"}}],
     },
     "log": {"loglevel": "warning", "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log"},
 }
