@@ -1287,3 +1287,29 @@ def test_full_avalai_s3_uses_precard_model(tmp_path, monkeypatch):
                           models=["deepseek-v4-flash"])
     assert out["apple#0"]["model"] == "deepseek-v4-flash"
     assert seen == ["deepseek-v4-flash"]
+
+
+def test_telemetry_flush_incremental_no_dup(tmp_path):
+    """Kill-safe telemetry: stage flushes append only new records; a
+    second flush is a no-op; the summary always covers the run so far."""
+    import json as _json
+    from telemetry import record_call
+    from precard_pipeline import _flush_telemetry
+    store, outdir = [], str(tmp_path / "run")
+    record_call(store, stage="s2", batch_id=1, key_idx=0, model="m",
+                prompt_tokens=10, completion_tokens=5)
+    n = _flush_telemetry(outdir, store, 0)
+    assert n == 1
+    record_call(store, stage="s2", batch_id=2, key_idx=0, model="m",
+                prompt_tokens=7, completion_tokens=3)
+    n = _flush_telemetry(outdir, store, n)
+    assert n == 2
+    n = _flush_telemetry(outdir, store, n)
+    assert n == 2  # nothing new: no rewrite storm
+    lines = (pathlib.Path(outdir) / "telemetry_records.jsonl"
+             ).read_text(encoding="utf-8").splitlines()
+    assert len([l for l in lines if l.strip()]) == 2
+    summary = _json.loads((pathlib.Path(outdir) / "telemetry_summary.json"
+                           ).read_text(encoding="utf-8"))
+    assert summary["by_stage"]["s2"]["prompt_tokens"] == 17
+    assert summary["records"] == 2

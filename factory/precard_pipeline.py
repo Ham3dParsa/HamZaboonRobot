@@ -1147,6 +1147,26 @@ def _flush(progress_dir, states):
                        states[stage])
 
 
+
+def _flush_telemetry(tele_dir, tele_store, flushed):
+    """Append unflushed telemetry records + rewrite the summary.
+
+    Kill-safe incremental persistence: a killed run keeps every record up
+    to the last completed stage (and every STOP path flushes before
+    exiting). Returns the new flushed count. Summary covers the current
+    run; the end-of-run history append stays cumulative.
+    """
+    pending = tele_store[flushed:]
+    if pending:
+        tele_dir = pathlib.Path(tele_dir)
+        tele_dir.mkdir(parents=True, exist_ok=True)
+        hist = tele_dir / "telemetry_records.jsonl"
+        with open(hist, "a", encoding="utf-8") as handle:
+            for rec in pending:
+                handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        _tele_write(str(tele_dir / "telemetry_summary.json"),
+                    list(tele_store))
+    return len(tele_store)
 # Sentinel: None means "no LLM leg" (deterministic only), _USE_DEFAULT
 # means the real pipeline-script transport. (Plain `or` would conflate
 # the two and leak network calls into hermetic tests.)
@@ -1257,6 +1277,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         if stage not in selected:
             run_logger.log("stage %s skipped (not selected)" % stage)
     tele_store = []  # R27: per-batch records (key_idx only, never values)
+    tele_dir = pathlib.Path(args.out).parent
+    tele_flushed = 0
 
     if _index is not None:
         index = _index
@@ -1315,6 +1337,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         "s0",
         ok=sum(1 for v in states["s0"]["done"].values() if v.get("kept")),
         fail=len(states["s0"].get("failed", [])))
+    tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
     for key, verdict in states["s0"]["done"].items():
         s0_info[key] = verdict
     dropped = {k for k, v in s0_info.items() if not v.get("kept")}
@@ -1512,6 +1535,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             ok=sum(1 for v in states["s0b"]["done"].values()
                    if v.get("kept")),
             fail=len(states["s0b"].get("failed", [])))
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         s0b_dropped = {k for k, v in states["s0b"]["done"].items()
                        if isinstance(v, dict) and not v.get("kept")}
         items = [i for i in items if item_key(i) not in s0b_dropped]
@@ -1602,6 +1626,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                       if isinstance(v, dict) and v.get("dropped")}
         run_logger.stage_end("s1", ok=len(states["s1"]["done"]) - len(
             s1_dropped), fail=len(s1_dropped))
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         if s1_dropped:
             print("s1 anchor-pos: kept=%d dropped=%d (%s)" % (
                 len(items) - len(s1_dropped & {item_key(i) for i in items}),
@@ -1632,6 +1657,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     raise
                 except RateLimited as exc:
                     _flush(progress_dir, states)
+                    tele_flushed = _flush_telemetry(tele_dir, tele_store,
+                                                    tele_flushed)
                     hint = ("wait for quota reset then re-run"
                             if (full_avalai or s2_avalai)
                             else "switch VPN server then re-run")
@@ -1662,6 +1689,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                    if not (v.get("model", "") or "").startswith("s1-")),
             fail=sum(1 for v in states["s2"]["done"].values()
                      if (v.get("model", "") or "").startswith("s1-")))
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         # Post-S2 proper-noun routing (idempotent pass over the s2 done
         # state — evaluated here, right after S2, so S3+ only ever see
         # routed/kept items; resume-safe via the proper_route/proper_drop
@@ -1719,6 +1747,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     raise
                 except RateLimited as exc:
                     _flush(progress_dir, states)
+                    tele_flushed = _flush_telemetry(tele_dir, tele_store,
+                                                    tele_flushed)
                     raise SystemExit(
                         "STOP s3 at batch %d: %s — progress flushed, "
                         "%s" % (batch_no, exc,
@@ -1751,6 +1781,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                    if v.get("model") != "deterministic"),
             fail=sum(1 for v in states["s3"]["done"].values()
                      if v.get("model") == "deterministic"))
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         # S4 (label per item, batch-flushed). No fail-closed signal on
         # this stage (exceptions propagate, except auth which aborts),
         # so fail is always 0.
@@ -1789,6 +1820,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         raise
                     except RateLimited as exc:
                         _flush(progress_dir, states)
+                        tele_flushed = _flush_telemetry(
+                            tele_dir, tele_store, tele_flushed)
                         raise SystemExit(
                             "STOP s4 at batch %d: %s — progress flushed, "
                             "%s"
@@ -1803,6 +1836,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             print(batch_log_line("s4", batch_no, n_s4_batches,
                                  len(batch), 0, s4_calls))
         run_logger.stage_end("s4", ok=len(states["s4"]["done"]), fail=0)
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         # S5 (deterministic enrichment, batch-flushed). Same as S4: no
         # fail-closed signal, fail is always 0.
         run_logger.stage_start("s5")
@@ -1820,6 +1854,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             print(batch_log_line("s5", batch_no, n_s5_batches,
                                  len(batch), 0, {}))
         run_logger.stage_end("s5", ok=len(states["s5"]["done"]), fail=0)
+        tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         # Assemble output (survivors only; drops live in s0/s1 progress).
         for item in items:
             key = item_key(item)
@@ -1911,7 +1946,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # never a second copy) so resume runs never erase history — the
     # summary covers ALL runs, not just this one.
     _all_tele, _tele_corrupt = append_telemetry_history(
-        out_path.parent, tele_store)
+        out_path.parent, tele_store[tele_flushed:])
     _tele_summary = _tele_write(
         str(out_path.parent / "telemetry_summary.json"), _all_tele)
     if _tele_corrupt:
