@@ -68,7 +68,7 @@ var rules=Array.prototype.slice.call(document.querySelectorAll('h2[id]'));
 function paintLocks(){var n=rules.filter(function(h){return locks[h.id]}).length;document.getElementById('lockcount').textContent='🔒 '+n+' از '+rules.length+' بند قفل شده'}
 rules.forEach(function(h){var b=document.createElement('button');b.className='lockbtn'+(locks[h.id]?' locked':'');b.textContent=locks[h.id]?'🔒 قفل شد':'🔓 قفل کن';if(locks[h.id])h.classList.add('rulelocked');b.onclick=function(){if(locks[h.id]){delete locks[h.id];b.textContent='🔓 قفل کن';h.classList.remove('rulelocked')}else{locks[h.id]=1;b.textContent='🔒 قفل شد';h.classList.add('rulelocked')}b.classList.toggle('locked',!!locks[h.id]);try{localStorage.setItem(LKEY,JSON.stringify(locks))}catch(e){}paintLocks()};h.appendChild(b)});
 paintLocks();
-document.getElementById('copystatus').onclick=function(){var out='READ: '+JSON.stringify(state)+'\nLOCK: '+JSON.stringify(locks);if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(out).then(function(){alert('✔ کپی شد — در چت بفرست')})}else{prompt('کپی کن و در چت بفرست:',out)}};
+document.getElementById('copystatus').onclick=function(){var out='READ: '+JSON.stringify(state)+'\nLOCK: '+JSON.stringify(locks);function fb(){prompt('کپی کن و در چت بفرست:',out)}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(out).then(function(){alert('✔ کپی شد — در چت بفرست')},fb)}else{fb()}};
 var top=document.getElementById('gotop'),bot=document.getElementById('gobot');
 window.addEventListener('scroll',function(){var s=window.scrollY>400;top.style.display=s?'block':'none';bot.style.display=s?'block':'none'},{passive:true});
 top.onclick=function(){window.scrollTo({top:0,behavior:'smooth'})};
