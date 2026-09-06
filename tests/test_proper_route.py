@@ -55,6 +55,15 @@ def make_index():
         "plain": _rows([
             ("noun", "a round fruit"),
             ("noun", "a sweet dessert")]),
+        "yen": _rows([
+            ("noun", "a sharp bite"),
+            ("name", "a unit of currency used in Japan")]),
+        "festivus": _rows([
+            ("noun", "a pole dance"),
+            ("name", "a secular festival in December")]),
+        "steamer": _rows([
+            ("noun", "a cooking pot"),
+            ("name", "an abandoned steamer near the driver")]),
     }
 
 
@@ -239,3 +248,26 @@ def test_unit_empty_pick_passes_through():
         {"anchor_pos": "noun"}, index, read_entry, zipf_fn=zipf_fn)
     assert verdict == {"routed": False, "proper_route": "",
                        "reason": None}
+
+def test_money_and_holiday_classes_route():
+    from precard_pipeline import classify_proper_gloss
+    assert classify_proper_gloss(
+        "A unit of currency used in Japan.")[0] == "money"
+    assert classify_proper_gloss(
+        "A Christian festival celebrating birth.")[0] == "holiday"
+    # Substring traps must not fire (word boundaries).
+    assert classify_proper_gloss(
+        "Abandoned steamer near the driver.")[0] in (None, "no-class")
+
+def test_money_and_holiday_classes_route(tmp_path):
+    _, rows, _ = run_all(tmp_path, ["yen", "festivus"])
+    assert rows["w:yen"]["proper_route"] == "money"
+    assert rows["w:festivus"]["proper_route"] == "holiday"
+
+
+def test_substring_traps_do_not_route(tmp_path):
+    # Word boundaries: abandoned/steamer/driver must not fire band/team/river.
+    _, rows, prog = run_all(tmp_path, ["steamer"])
+    assert "w:steamer" not in rows
+    done = s2_state(prog)["done"]
+    assert done["w:steamer"]["proper_drop"] == "pick-proper-noun/no-class"

@@ -658,16 +658,18 @@ PROPER_ROUTE_ZIPF_MIN = 2.5
 
 _PROPER_ROUTE_CLASSES = (
     ("geo", re.compile(
-        r"country|capital of|ocean|river|mountain", re.IGNORECASE)),
-    ("language", re.compile(r"language", re.IGNORECASE)),
-    ("money", re.compile(r"currency", re.IGNORECASE)),
-    ("time", re.compile(r"day of the week|month of", re.IGNORECASE)),
-    ("holiday", re.compile(r"festival|holiday", re.IGNORECASE)),
+        r"\bcountry\b|\bcapital of\b|\bocean\b|\briver\b|\bmountain\b",
+        re.IGNORECASE)),
+    ("language", re.compile(r"\blanguage\b", re.IGNORECASE)),
+    ("money", re.compile(r"\bcurrency\b", re.IGNORECASE)),
+    ("time", re.compile(r"\bday of the week\b|\bmonth of\b",
+                        re.IGNORECASE)),
+    ("holiday", re.compile(r"\bfestival\b|\bholiday\b", re.IGNORECASE)),
 )
 _PROPER_ROUTE_ORG_RX = re.compile(
-    r"club|team|band|company|companies", re.IGNORECASE)
+    r"\bclub\b|\bteam\b|\bband\b|\bcompan(?:y|ies)\b", re.IGNORECASE)
 _PROPER_ROUTE_PERSON_RX = re.compile(
-    r"given name|surname|family name", re.IGNORECASE)
+    r"\bgiven name\b|\bsurname\b|\bfamily name\b", re.IGNORECASE)
 
 
 def _picked_entry_pos(item, sense_id, index, read_entry):
