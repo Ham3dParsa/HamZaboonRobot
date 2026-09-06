@@ -5,6 +5,7 @@ import hashlib
 import logging
 import os
 import tempfile
+import unicodedata
 from pathlib import Path
 
 import edge_tts
@@ -122,7 +123,8 @@ def tts_caption(text: str) -> str:
 
 def tts_cache_key(text: str, lang: str) -> str:
     """Stable dedup key: lang + normalized+casefolded text."""
-    norm = " ".join((text or "").split()).casefold()
+    # Cache-bust note: old-hash files orphaned by a key change are accepted one-time (no migration).
+    norm = " ".join(unicodedata.normalize("NFC", text or "").split()).casefold()
     return f"{lang}:{norm}"
 
 

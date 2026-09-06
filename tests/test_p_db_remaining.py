@@ -4,10 +4,11 @@ import unittest
 
 
 class TestBusyTimeout(unittest.TestCase):
-    def test_busy_timeout_is_10000(self):
+    # 25000 comes from main #577, not this PR.
+    def test_busy_timeout_value_matches_config(self):
         from services.db import schema as db_schema
 
-        self.assertEqual(db_schema._DB_BUSY_TIMEOUT, 10000)
+        self.assertEqual(db_schema._DB_BUSY_TIMEOUT, 25000)
 
     def test_get_conn_pragma_and_timeout_agree(self):
         import tempfile
@@ -25,8 +26,8 @@ class TestBusyTimeout(unittest.TestCase):
             db.init_db()
             with db.get_conn() as conn:
                 row = conn.execute("PRAGMA busy_timeout").fetchone()
-                self.assertEqual(int(row[0]), 10000)
-            self.assertEqual(db_schema._DB_BUSY_TIMEOUT, 10000)
+                self.assertEqual(int(row[0]), 25000)
+            self.assertEqual(db_schema._DB_BUSY_TIMEOUT, 25000)
         finally:
             db.DB_PATH = prev_db
             db_schema.DB_PATH = prev_schema

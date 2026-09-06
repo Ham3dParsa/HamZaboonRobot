@@ -393,11 +393,11 @@ def set_fallback_active(active: bool, fallback_preset: str | None = None):
 
 
 def increment_consecutive_failures() -> int:
+    from services.db.settings import increment_setting_via_conn
+
     with transaction() as conn:
-        current = int(get_setting("ai_consecutive_failures", "0")) + 1
-        # R8: via settings seam (connection-aware).
-        set_setting_via_conn(conn, "ai_consecutive_failures", str(current))
-        return current
+        # R8: via settings seam (atomic single-statement increment, no lost update).
+        return increment_setting_via_conn(conn, "ai_consecutive_failures")
 
 
 def reset_consecutive_failures():

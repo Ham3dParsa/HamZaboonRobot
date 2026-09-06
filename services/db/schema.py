@@ -169,6 +169,83 @@ def _backfill_saved_word_normalization(conn):
     )
 
 
+def _backfill_query_results_normalization(conn):
+    """One-time migration: re-normalize query_results query_text/word (R7a).
+
+    Recomputes ``query_text`` and ``word`` via ``normalize_word`` (NFC +
+    casefold + whitespace-collapse) and resolves collisions where normalization
+    folds two previously-distinct keys into one within ``(user_id, lang,
+    query_text)``. On collision the keeper wins by (a) saved (non-null
+    ``saved_at`` or ``saved_word_id``), then (b) unexpired (``expires_at`` >
+    now), then (c) most-recent ``created_at``; older duplicates are deleted. Idempotent, gated by
+    ``_migration_query_results_normalization_done`` so the full table scan
+    happens only once.
+    """
+    done = conn.execute(
+        "SELECT 1 FROM settings WHERE key='_migration_query_results_normalization_done'"
+    ).fetchone()
+    if done:
+        return
+    rows = conn.execute(
+        "SELECT token, user_id, lang, query_text, word, created_at, expires_at, saved_at, saved_word_id FROM query_results"
+    ).fetchall()
+
+    def _parse_created(value):
+        if not value:
+            return float("-inf")
+        try:
+            dt = datetime.datetime.fromisoformat(value)
+        except ValueError:
+            return float("-inf")
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return dt.timestamp()
+
+    _now_ts = datetime.datetime.now(datetime.timezone.utc).timestamp()
+
+    def _keeper_key(x):
+        try:
+            saved = 1 if (x["saved_at"] is not None or x["saved_word_id"] is not None) else 0
+        except (KeyError, IndexError, TypeError):
+            saved = 0
+        try:
+            unexpired = 1 if _parse_created(x["expires_at"]) > _now_ts else 0
+        except (KeyError, IndexError, TypeError):
+            unexpired = 0
+        return (saved, unexpired, _parse_created(x["created_at"]))
+
+    groups: dict[tuple, list] = {}
+    for r in rows:
+        norm_q = normalize_word(r["query_text"] or "")
+        key = (r["user_id"], r["lang"], norm_q)
+        groups.setdefault(key, []).append(r)
+
+    deletes: list[str] = []
+    updates: list[tuple[str, str, str]] = []
+    for items in groups.values():
+        items.sort(key=_keeper_key, reverse=True)
+        keeper = items[0]
+        new_q = normalize_word(keeper["query_text"] or "")
+        new_w = normalize_word(keeper["word"] or "")
+        if keeper["query_text"] != new_q or keeper["word"] != new_w:
+            updates.append((new_q, new_w, keeper["token"]))
+        for dup in items[1:]:
+            deletes.append(dup["token"])
+    for token in deletes:
+        conn.execute("DELETE FROM query_results WHERE token=?", (token,))
+    for new_q, new_w, token in updates:
+        conn.execute(
+            "UPDATE query_results SET query_text=?, word=? WHERE token=?",
+            (new_q, new_w, token),
+        )
+    # Singletons are normalized via the keeper UPDATE above; no second pass needed.
+    conn.execute(
+        "INSERT INTO settings(key, value) VALUES (?, '1') "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        ("_migration_query_results_normalization_done",),
+    )
+
+
 # Rows per commit for the one-time review-counter backfill below: small
 # enough that startup never holds a long write transaction on large DBs.
 _BACKFILL_BATCH = 2000
@@ -391,11 +468,13 @@ def _guard_destructive_op(path: str) -> None:
 
 # How long a writer waits for a busy database before raising "database is
 # locked" (milliseconds). Matches the PRAGMA and the sqlite3.connect timeout.
-# Trade-off (Kilo #477): 10s + asyncio.to_thread on the bounded default executor
+# Trade-off (Kilo #477): 25s + asyncio.to_thread on the bounded default executor
 # (min(32, cpu+4) workers) means a burst of contended writes can hold pool
-# slots up to 10s; keep DB ops short (no long transaction across await) and
+# slots up to 25s; keep DB ops short (no long transaction across await) and
 # consider a dedicated DB executor if contention grows (deferred to A-track).
-_DB_BUSY_TIMEOUT = 10000
+# Contract lock 2026-09-05 (consultant): 10s→25s with BEGIN IMMEDIATE to bring
+# "database is locked" risk near-zero under concurrent load.
+_DB_BUSY_TIMEOUT = 25000
 
 
 class _MaintenanceGate:
@@ -500,7 +579,7 @@ def get_conn(path: str | None = None):
     _check_test_mode_guard(_active_db_path)
     with _DB_GATE.shared():
         # sqlite3.connect(timeout=...) is in SECONDS; busy_timeout PRAGMA is in
-        # MILLISECONDS. Keep both at _DB_BUSY_TIMEOUT (10000 ms == 10 s) so they
+        # MILLISECONDS. Keep both at _DB_BUSY_TIMEOUT (25000 ms == 25 s) so they
         # agree and a busy write never hangs far beyond the intended wait.
         conn = sqlite3.connect(_active_db_path, timeout=_DB_BUSY_TIMEOUT / 1000)
         # WAL lets readers and writers proceed concurrently; busy_timeout makes
@@ -840,6 +919,7 @@ def init_db(path: str | None = None):
             "GROUP BY user_id, lang, normalized_word)"
         )
         _backfill_saved_word_normalization(conn)
+        _backfill_query_results_normalization(conn)
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS saved_words_user_lang_word "
             "ON saved_words(user_id, lang, normalized_word)"
@@ -947,7 +1027,7 @@ def init_db(path: str | None = None):
             ):
                 conn.execute(index_sql)
         conn.execute(
-            "DELETE FROM query_results WHERE expires_at<?",
+            "DELETE FROM query_results WHERE expires_at<=?",
             (_utc_now().isoformat(),),
         )
 

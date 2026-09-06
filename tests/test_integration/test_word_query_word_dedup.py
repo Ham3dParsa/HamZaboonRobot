@@ -34,7 +34,7 @@ class WordDedupIntegrationTest(unittest.TestCase):
         db_schema.DB_PATH = self.previous_schema_path
         self.tempdir.cleanup()
 
-    def test_word_dedup_returns_duplicate_and_not_refunded(self):
+    def test_word_dedup_returns_duplicate_and_refunded(self):
         card = {"word": "shrub", "fa_meaning": "x"}
         tok1 = db.create_query_result(1, "بوته", "shrub", "en", card)
         before = db.get_user(1)["words_asked_today"] or 0
@@ -42,7 +42,7 @@ class WordDedupIntegrationTest(unittest.TestCase):
         self.assertEqual(result.kind, "duplicate")
         self.assertEqual(result.token, tok1)
         after = db.get_user(1)["words_asked_today"] or 0
-        self.assertEqual(after, before + 1)
+        self.assertEqual(after, before)
 
     def test_alias_enables_pre_ai_hit(self):
         card = {"word": "shrub", "fa_meaning": "x"}

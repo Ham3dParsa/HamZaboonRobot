@@ -260,7 +260,10 @@ async def _send_media_with_retry(
                 return result
         except Forbidden:
             if chat_id > 0:
-                db.set_user_blocked(chat_id)
+                try:
+                    db.set_user_blocked(chat_id)
+                except Exception:
+                    pass
             raise
         except BadRequest:
             raise
