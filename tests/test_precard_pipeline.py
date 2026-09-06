@@ -1124,21 +1124,33 @@ def test_avalai_transport_shape(monkeypatch):
     assert seen["auth"] == "Bearer k-test"
     assert seen["body"]["model"] == "glm-5.3-flash"
     assert seen["body"]["extra_body"] == {"reasoning_effort": "low"}
+    assert seen["body"]["reasoning_effort"] == "low"
 
 
 def test_avalai_transport_http_error_propagates(monkeypatch):
-    """AvalAI chain: 429/401 reach the caller untouched (rotation/auth)."""
+    """AvalAI chain: HTTP errors (429 rotation fuel, 401 auth) reach the
+    caller untouched (rotation/auth mapping owned by shared seams)."""
     import urllib.error
     import pytest
     import precard_pipeline
 
-    def boom(req, timeout=120):
+    def boom_429(req, timeout=120):
         raise urllib.error.HTTPError("http://x", 429, "throttled", {},
                                      None)
 
-    monkeypatch.setattr(precard_pipeline.urllib.request, "urlopen", boom)
-    with pytest.raises(urllib.error.HTTPError):
+    def boom_401(req, timeout=120):
+        raise urllib.error.HTTPError("http://x", 401, "denied", {}, None)
+
+    monkeypatch.setattr(precard_pipeline.urllib.request, "urlopen",
+                        boom_429)
+    with pytest.raises(urllib.error.HTTPError) as e429:
         precard_pipeline._avalai_chat_transport("k", "m", "u")
+    assert e429.value.code == 429
+    monkeypatch.setattr(precard_pipeline.urllib.request, "urlopen",
+                        boom_401)
+    with pytest.raises(urllib.error.HTTPError) as e401:
+        precard_pipeline._avalai_chat_transport("k", "m", "u")
+    assert e401.value.code == 401
 
 
 def test_s2_models_override_used():
@@ -1237,6 +1249,49 @@ def test_full_llm_provider_wires_precard_model(tmp_path, monkeypatch):
     s2 = json.loads(
         (pathlib.Path(prog) / "s2.json").read_text(encoding="utf-8"))
     assert s2["done"]["w:apple"]["model"] == "deepseek-v4-flash"
+
+
+def test_full_avalai_needs_no_zen_key(tmp_path, monkeypatch):
+    """Review: --llm-provider avalai must not demand the unused Zen key.
+
+    All transports at default (true full-line mode) + a strict loader
+    with no factory/.env file fallback, so the test proves the Zen path
+    is never touched — not that a local .env rescued it.
+    """
+    import os as _os
+    import precard_pipeline
+    import env_loader
+    monkeypatch.delenv("OPENCODE_ZEN_API_KEY", raising=False)
+    monkeypatch.delenv("OPENCODE_ZEN_API_KEY_2", raising=False)
+    monkeypatch.setenv("AVALAI_API_KEY", "avalai-key")
+
+    def strict_loader(required=()):
+        missing = [k for k in required if not _os.environ.get(k)]
+        if missing:
+            raise KeyError("missing: " + ", ".join(missing))
+        return {k: _os.environ.get(k, "") for k in env_loader.KEYS}
+
+    monkeypatch.setattr(env_loader, "load_factory_env", strict_loader)
+    sample = write_sample(tmp_path, ITEMS[:1])
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    seen = []
+
+    def rec_judge(api_key, model, user_text):
+        seen.append((api_key, model))
+        return fake_judge(api_key, model, user_text)
+
+    monkeypatch.setattr(precard_pipeline, "_avalai_chat_transport",
+                        rec_judge)
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog,
+         "--stages", "s0,s1,s2", "--llm-provider", "avalai"],
+        _sleep_fn=lambda s: None, _index=make_index(),
+        _read_entry=read_entry, _tatoeba={}, _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    assert seen and seen[0] == ("avalai-key", "glm-5.3-flash")
+    s2 = json.loads(
+        (pathlib.Path(prog) / "s2.json").read_text(encoding="utf-8"))
+    assert s2["done"]["w:apple"]["model"] == "glm-5.3-flash"
 
 
 def test_avalai_remap_substitutes_model():

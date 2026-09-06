@@ -1092,6 +1092,10 @@ def _avalai_chat_transport(api_key, model, user_text):
         "model": model,
         "messages": [{"role": "user", "content": user_text}],
         "temperature": 0,
+        # reasoning_effort low in BOTH places (verified 2026-09-06:
+        # nested-only, top-only, and both all return reasoning_tokens=0;
+        # either alone works, both together is belt-and-suspenders).
+        "reasoning_effort": "low",
         "extra_body": {"reasoning_effort": "low"},
     }).encode("utf-8")
     req = urllib.request.Request(
@@ -1352,9 +1356,20 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 or _topic_transport is _USE_DEFAULT
                 or _assign_transport is _USE_DEFAULT
                 or _inflect_transport is _USE_DEFAULT)
+    # Provider intent before any key loading (review: full-AvalAI runs
+    # must not demand an unused Zen key). None = caller-owned/skipped leg
+    # (no Zen), _USE_DEFAULT = pipeline default (Zen unless AvalAI mode).
+    full_avalai = (_judge_transport is _USE_DEFAULT
+                   and args.llm_provider == "avalai"
+                   and _topic_transport in (_USE_DEFAULT, None)
+                   and _assign_transport in (_USE_DEFAULT, None)
+                   and _inflect_transport in (_USE_DEFAULT, None))
+    s2_avalai = (_judge_transport is _USE_DEFAULT
+                 and (args.judge_provider == "avalai"
+                      or args.llm_provider == "avalai"))
     api_key = "injected"
     api_key_2 = ""
-    if need_llm:
+    if need_llm and not full_avalai:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from env_loader import load_factory_env
         env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
@@ -1362,10 +1377,15 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         api_key_2 = env.get("OPENCODE_ZEN_API_KEY_2", "")
         if not api_key:
             raise SystemExit("no OPENCODE_ZEN_API_KEY in factory/.env")
-    try:
-        ring = KeyRing([api_key, api_key_2])
-    except ValueError as exc:
-        raise SystemExit("no Zen keys: %s" % exc)
+    if full_avalai:
+        # No Zen anywhere: skip the Zen ring (replaced by the AvalAI ring
+        # in the wiring block below). Zen key is not required either.
+        ring = None
+    else:
+        try:
+            ring = KeyRing([api_key, api_key_2])
+        except ValueError as exc:
+            raise SystemExit("no Zen keys: %s" % exc)
     judge_transport = (_default_judge_transport
                        if _judge_transport is _USE_DEFAULT
                        else _judge_transport)
@@ -1375,13 +1395,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # S2-only back-compat (--judge-provider avalai): only the S2 call site
     # receives the AvalAI pair (F1 scoping); S0b/S3/S4 stay Zen.
     judge_api_key, judge_ring = None, None
-    full_avalai = (_judge_transport is _USE_DEFAULT
-                   and args.llm_provider == "avalai")
-    s2_avalai = (_judge_transport is _USE_DEFAULT
-                 and (args.judge_provider == "avalai"
-                      or args.llm_provider == "avalai"))
+    # full_avalai/s2_avalai computed above (before key loading).
     precard_model = args.precard_model or AVALAI_PRECARD_MODEL
     if full_avalai or s2_avalai:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from env_loader import load_factory_env
         try:
             env_av = load_factory_env(required=("AVALAI_API_KEY",))
             avalai_key = env_av["AVALAI_API_KEY"]
