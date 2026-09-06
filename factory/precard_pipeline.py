@@ -758,10 +758,11 @@ def _rotating_llm_transport(transport, sleep_fn, state, ring):
     """Wrap an (api_key, model, user_text) transport with KeyRing rotation.
 
     On 429: brief ROTATE_PAUSE pause, rotate to the next key, retry the
-    SAME call. When EVERY key 429s consecutively, raises SystemExit
-    telling the operator to switch VPN server — SystemExit (BaseException,
-    not Exception) so card_pilot.assign_topic's fail-closed
-    `except Exception: continue` cannot swallow the stop.
+    SAME call. When EVERY key 429s consecutively, raises RateLimited —
+    the S4 caller converts it to SystemExit AFTER flushing progress
+    (OC must-fix: raising SystemExit here bypassed the flush and lost
+    in-memory s4.done entries). card_pilot.assign_topic re-raises
+    RateLimited through its fail-closed handler for the same reason.
     """
     def wrap(_api_key, model, user_text):
         while True:
@@ -779,8 +780,8 @@ def _rotating_llm_transport(transport, sleep_fn, state, ring):
                     continue
                 _note_backoff(state, "%s/s4" % model, [],
                               "all-keys-429-stop")
-                raise SystemExit(
-                    "STOP s4: all Zen keys 429 — switch VPN server, "
+                raise RateLimited(
+                    "all Zen keys 429 — switch VPN server, "
                     "then re-run (progress flushed, resume safe)")
     return wrap
 

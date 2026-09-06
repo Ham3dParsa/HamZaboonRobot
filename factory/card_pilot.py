@@ -2136,6 +2136,10 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
     user_text = _TOPUP_TMPL + _topup_block(
         text, [{"sense_id": sid, "gloss": gloss or ""}])
     from llm_json import extract_json as _extract
+    try:
+        from phrase_judge import RateLimited as _RateLimited
+    except Exception:
+        _RateLimited = None
     for model in _TOPUP_MODELS:
         if model_calls is not None:
             model_calls[model] = model_calls.get(model, 0) + 1
@@ -2143,7 +2147,9 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
             res = llm_transport(api_key, model, user_text)
             raw, usage = _unwrap_transport_result(res)
             data = _extract(raw)
-        except Exception:
+        except Exception as exc:
+            if _RateLimited is not None and isinstance(exc, _RateLimited):
+                raise
             continue
         by_lemma = {x.get("lemma"): x for x in (data.get("results") or [])
                     if isinstance(x, dict)}

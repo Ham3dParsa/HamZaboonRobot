@@ -463,16 +463,17 @@ def test_s4_429_rotates_and_all_keys_stop(tmp_path, monkeypatch):
                                    KeyRing(["k1", "k2"]))
     assert wrap("ignored", "m", "prompt") == "ok"
     assert seen == ["k1", "k2"] and sleeps == [5.0]
-    # All keys 429 -> SystemExit (propagates through assign_topic's
-    # `except Exception`, which cannot swallow BaseException).
+    # All keys 429 -> RateLimited (the S4 caller converts to SystemExit
+    # AFTER flushing progress; raising SystemExit here bypassed the flush).
     def always_429(api_key, model, user_text):
         raise _http_429()
 
+    from phrase_judge import RateLimited
     wrap2 = _rotating_llm_transport(always_429, sleeps.append,
                                     {"done": {}, "failed": [],
                                      "backoffs": []},
                                     KeyRing(["k1", "k2"]))
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(RateLimited) as excinfo:
         wrap2("ignored", "m", "prompt")
     assert "VPN" in str(excinfo.value) or "server" in str(excinfo.value)
 
@@ -1049,3 +1050,19 @@ def test_precard_output_atomic_no_partial(tmp_path, monkeypatch):
             _tatoeba={}, _zipf_fn=lambda t: 5.0)
     # Original file intact (tmp write never replaced it).
     assert out.read_text(encoding="utf-8") == "SENTINEL-OLD-CONTENT\n"
+
+def test_s4_ratelimited_flushes_not_swallowed(monkeypatch):
+    """OC must-fix: all-keys-429 in S4 must flush via RateLimited (not a
+    SystemExit that bypasses the caller flush)."""
+    import urllib.error
+    from precard_pipeline import _rotating_llm_transport
+    from phrase_judge import KeyRing, RateLimited
+    import pytest
+
+    def transport_429(api_key, model, user_text):
+        raise urllib.error.HTTPError("http://x", 429, "throttled", {}, None)
+
+    ring = KeyRing(["k1", "k2"])
+    wrap = _rotating_llm_transport(transport_429, lambda s: None, {}, ring)
+    with pytest.raises(RateLimited):
+        wrap("k1", "m", "u")
