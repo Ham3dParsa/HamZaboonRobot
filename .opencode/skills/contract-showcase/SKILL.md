@@ -1,3 +1,13 @@
+---
+name: contract-showcase
+description: Present, defend, or explain a contract/proposal/design decision for owner review as a standalone Persian RTL HTML decision document with read-state tracking and per-rule lock toggles. Load when owner asks to "unslop" a debate or needs an owner-readable decision doc.
+license: MIT
+compatibility: opencode
+metadata:
+  category: workflow
+author: Ham3dParsa
+author_url: https://github.com/Ham3dParsa
+---
 # Contract Showcase Skill
 
 ## When to load
@@ -72,5 +82,6 @@ is later superseded auto-unlocks with a باطل‌شده mark.
   Jalali for the owner, Gregorian+commit for the machine, issue for the thread.
 - When a rule changes: old annex stays, marked باطل‌شده with date + link to the
   replacing annex. History is never rewritten.
-- When a rule maps to an issue (#588/#590/#550…), the annex links it and the
-  agent posts the decision back to that issue thread, so chat and tracker agree.
+- When a rule maps to an issue, the annex links it (`#NNN` form only — never
+  hardcoded numbers); the agent posts the decision back to that issue thread,
+  so chat and tracker agree.
