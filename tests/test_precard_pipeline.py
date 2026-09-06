@@ -262,46 +262,66 @@ def test_s0_phrase_type_pending_when_no_log(tmp_path, monkeypatch):
 
 
 def test_s1_anchor_proper_noun_drop(tmp_path, monkeypatch):
-    """V7: anchored entry POS in {name, propn} drops with reason
-    anchor-proper-noun (deterministic, no name lists); a normal anchor
-    passes through to precard.jsonl."""
+    """V7+act-fix: a proper-topped anchor with a common sense lower in the
+    window re-anchors (kept); all-proper anchors still drop with reason
+    anchor-proper-noun (deterministic, no name lists)."""
     items = [{"kind": "word", "text": "Apple", "pos": "noun",
               "pool_level": "A1"},
              {"kind": "word", "text": "Banana", "pos": "noun",
+              "pool_level": "A1"},
+             {"kind": "word", "text": "Zambia", "pos": "noun",
               "pool_level": "A1"}]
 
     def name_rows():
+        # name entry FIRST in file order (like real "act"): file-decay
+        # crowns the proper sense, so the test exercises the reroute.
         return [
+            {"pos": "name",
+             "entry": {"pos": "name", "sounds": [],
+                       "senses": [{"glosses": ["A tech company"], "tags": [],
+                                   "examples": [{"text": LONG_EXAMPLE}]}]}},
             {"pos": "noun",
              "entry": {"pos": "noun", "sounds": [],
                        "senses": [{"glosses": ["Alternative spelling of xyz"],
                                    "tags": [],
                                    "examples": [{"text": LONG_EXAMPLE}]}]}},
+        ]
+
+    def all_name_rows():
+        return [
             {"pos": "name",
              "entry": {"pos": "name", "sounds": [],
-                       "senses": [{"glosses": ["A tech company"], "tags": [],
+                       "senses": [{"glosses": ["A country in Africa"],
+                                   "tags": [],
                                    "examples": [{"text": LONG_EXAMPLE}]}]}},
         ]
 
     index = {"apple": name_rows(),
-             "banana": _word_rows("banana", ("a long fruit",))}
+             "banana": _word_rows("banana", ("a long fruit",)),
+             "zambia": all_name_rows()}
     rows, s0 = _run_s0_only(tmp_path, monkeypatch, items, index,
                             _zipf_fn=lambda t: 5.0)
-    # S0 keeps both (POS set {noun, name} is not name-only).
+    # S0 keeps all (POS sets are not name-only).
     assert s0["done"]["w:Apple"]["kept"] is True
-    assert [r["key"] for r in rows] == ["w:Banana"]  # Apple dropped in S1
+    # Apple re-anchored to the noun sense (kept, not dropped).
+    assert [r["key"] for r in rows] == ["w:Apple", "w:Banana"]
     s1 = json.loads(
         (pathlib.Path(str(tmp_path / "prog")) / "s1.json").read_text(
             encoding="utf-8"))
-    assert s1["done"]["w:Apple"]["dropped"] == "anchor-proper-noun"
-    assert s1["done"]["w:Apple"]["anchor_pos"] == "name"
-    assert "w:Apple" in s1["failed"]
+    assert "dropped" not in s1["done"]["w:Apple"]
+    assert s1["done"]["w:Apple"]["anchor_pos"] == "noun"
+    assert s1["done"]["w:Apple"].get("rerouted_from_proper") is True
+    assert "w:Apple" not in s1["failed"]
+    # Zambia (name-only POS set) still drops at S0/R4, never reaching S1.
+    assert s0["done"]["w:Zambia"]["kept"] is False
+    assert s0["done"]["w:Zambia"]["reason"] == "r4-name-only"
     assert "dropped" not in s1["done"]["w:Banana"]
     assert s1["done"]["w:Banana"]["anchor_pos"] == "noun"
 
 
 def test_run_log_and_batch_lines(tmp_path, monkeypatch, capsys):
-    """V7: every batch prints ONE SsN line; run.log has stage start/end."""
+    """V7: live one-line progress per batch; run.log has stage start/end;
+    each stage prints one English summary box."""
     rc, out, prog, _ = run_pipeline(tmp_path, monkeypatch)
     assert rc == 0
     logged = (tmp_path / "run.log").read_text(encoding="utf-8")
@@ -309,9 +329,9 @@ def test_run_log_and_batch_lines(tmp_path, monkeypatch, capsys):
         assert ("stage %s start" % stage) in logged
         assert ("stage %s end" % stage) in logged
     captured = capsys.readouterr()
-    assert "Ss0 batch 1/1 ok=2 fail=0 model=0" in captured.out
-    assert "Ss1 batch 1/1 ok=2 fail=0 model=0" in captured.out
-    assert "Ss5 batch 1/1 ok=" in captured.out
+    assert "[s0]" in captured.out and "ok=2 fail=0" in captured.out
+    assert "[STAGE s0]" in captured.out
+    assert "[STAGE s5]" in captured.out
 
 
 def test_stage_skip_on_resume(tmp_path, monkeypatch):
@@ -1368,3 +1388,40 @@ def test_telemetry_flush_incremental_no_dup(tmp_path):
                            ).read_text(encoding="utf-8"))
     assert summary["by_stage"]["s2"]["prompt_tokens"] == 17
     assert summary["records"] == 2
+
+
+def test_s1_proper_anchor_reroutes_to_common_sense():
+    """act-fix: a proper-topped anchor with common senses lower in the
+    window re-anchors instead of dropping; all-proper still drops."""
+    from precard_pipeline import _reroute_proper_anchor, s1_rank_item
+
+    def rows(pos, glosses):
+        return [{"pos": pos,
+                 "entry": {"pos": pos, "sounds": [],
+                           "senses": [{"glosses": [g], "tags": [],
+                                       "examples": []} for g in glosses]}}]
+
+    index = {"act": rows("name", ["Initialism of X", "Initialism of Y"])
+             + rows("noun", ["Something done, a deed"])
+             + rows("verb", ["To take action"])}
+
+    def read_entry(row):
+        return row["entry"]
+
+    item = {"kind": "word", "text": "act", "pos": "",
+            "pool_level": "A1"}
+    ranked = s1_rank_item(item, index, read_entry)
+    assert ranked["anchor_pos"] in card_pilot.PROPER_NOUN_POS
+    rerouted = _reroute_proper_anchor(item, ranked, index, read_entry)
+    assert rerouted is not None
+    top, en_def, pos = rerouted
+    assert pos not in card_pilot.PROPER_NOUN_POS
+    assert "deed" in en_def or "action" in en_def
+
+    # All-proper window: no reroute (true propers still drop).
+    index2 = {"zambia": rows("name", ["A country in Africa"])}
+    item2 = {"kind": "word", "text": "zambia", "pos": "",
+             "pool_level": "A1"}
+    ranked2 = s1_rank_item(item2, index2, read_entry)
+    assert _reroute_proper_anchor(item2, ranked2, index2,
+                                  read_entry) is None

@@ -456,6 +456,37 @@ def s0b_needs_review(item, index, read_entry):
 
 # ---------------------------------------------------------------- S1 ---
 
+def _reroute_proper_anchor(item, ranked, index, read_entry):
+    """Best non-proper candidate when the anchor is proper (act-fix).
+
+    File-order decay can crown an initialism (act#0 ACT-territory) while
+    common senses (act#6 deed) sit lower in the same window. Dropping the
+    item loses a base word; re-anchoring to the first candidate whose
+    entry POS is not proper keeps it. Returns (top, en_def, anchor_pos)
+    or None when every candidate is proper (true propers still drop).
+    Lookup errors fail open to None (caller keeps the drop).
+    """
+    try:
+        for pos_idx, cand in enumerate(ranked.get("candidates") or []):
+            sid = cand.get("sense_id", "")
+            if not sid:
+                continue
+            pos = _picked_entry_pos(item, sid, index, read_entry)
+            if pos and pos not in card_pilot.PROPER_NOUN_POS:
+                # Re-rank: the re-anchored sense becomes window rank 1 so
+                # the S2 judge sees the same best-first order as the
+                # anchor (otherwise S2 would still pick the proper top).
+                rest = [c for c in ranked["candidates"]
+                        if c.get("sense_id") != sid]
+                ranked["candidates"] = [cand] + rest
+                return ({"sense_id": sid,
+                         "gloss": cand.get("gloss", "")},
+                        cand.get("gloss", ""), pos)
+    except Exception:
+        return None
+    return None
+
+
 def s1_rank_item(item, index, read_entry):
     """S1 deterministic rank via the card_pilot anchor path (imported).
 
@@ -1145,6 +1176,63 @@ def _default_inflect_transport(api_key, model, sys_text, user_text):
     return card_pilot.call_responses(api_key, model, sys_text, user_text)
 
 
+def _batch_progress(stage, batch_no, n_batches, ok, fail):
+    """Live one-line progress (carriage return, English-only console).
+
+    Replaces per-batch line spam: the line rewrites in place. run.log
+    keeps full history (unchanged); a stage summary box follows at each
+    stage end. Persian drop details go to dropped.log, never the console
+    (Windows terminal mojibake).
+    """
+    width = 20
+    total = n_batches or 1
+    done = min(batch_no, total)
+    filled = int(width * done / total)
+    print("\r[%s] [%s%s] %d/%d | ok=%d fail=%d" % (
+        stage, "=" * filled, " " * (width - filled),
+        done, total, ok, fail), end="", flush=True)
+
+
+def _reason_slug(reason):
+    """English slug of a drop reason (text before the first colon)."""
+    return str(reason or "").split(":")[0].strip() or "unknown"
+
+
+def _stage_summary(stage, states, out_path):
+    """English stage box on stdout + full multilingual details to file."""
+    from collections import Counter
+    done = states.get(stage, {}).get("done", {}) or {}
+    failed = states.get(stage, {}).get("failed", []) or []
+    kept = sum(1 for v in done.values()
+               if isinstance(v, dict) and v.get("kept", True)
+               and not v.get("dropped"))
+    slugs = Counter()
+    details = []
+    for key, verdict in done.items():
+        if not isinstance(verdict, dict):
+            continue
+        reason = verdict.get("reason") or verdict.get("dropped") or ""
+        if verdict.get("kept", True) and not verdict.get("dropped"):
+            continue
+        slugs[_reason_slug(reason)] += 1
+        details.append("%s: %s" % (key, reason))
+    for key in failed:
+        if key not in done:
+            slugs["failed-no-entry"] += 1
+            details.append("%s: failed-no-entry" % key)
+    print("")
+    print("[STAGE %s] kept=%d dropped=%d%s" % (
+        stage, kept, len(failed),
+        " | " + ", ".join("%s=%d" % kv for kv in slugs.most_common(4))
+        if slugs else ""))
+    if details:
+        drop_log = pathlib.Path(str(out_path)).parent / "dropped.log"
+        with open(drop_log, "a", encoding="utf-8") as handle:
+            handle.write("=== %s ===\n" % stage)
+            for line in details:
+                handle.write(line + "\n")
+
+
 def _flush(progress_dir, states):
     for stage in STAGES:
         write_progress(str(pathlib.Path(progress_dir) / ("%s.json" % stage)),
@@ -1335,13 +1423,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         _flush(progress_dir, states)
         ok = sum(1 for i in batch
                  if (states["s0"]["done"].get(item_key(i)) or {}).get("kept"))
-        print(batch_log_line("s0", batch_no, n_s0_batches, ok,
-                             len(batch) - ok, {}))
+        _batch_progress("s0", batch_no, n_s0_batches, ok,
+                          len(batch) - ok)
     run_logger.stage_end(
         "s0",
         ok=sum(1 for v in states["s0"]["done"].values() if v.get("kept")),
         fail=len(states["s0"].get("failed", [])))
     tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+    _stage_summary("s0", states, args.out)
     for key, verdict in states["s0"]["done"].items():
         s0_info[key] = verdict
     dropped = {k for k, v in s0_info.items() if not v.get("kept")}
@@ -1545,15 +1634,15 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 1 for i in batch
                 if not (states["s0b"]["done"].get(item_key(i)) or {}).get(
                     "kept", True))
-            print(batch_log_line("s0b", batch_no, n_s0b_batches,
-                                 len(batch) - failed_here, failed_here,
-                                 {}))
+            _batch_progress("s0b", batch_no, n_s0b_batches,
+                              len(batch) - failed_here, failed_here)
         run_logger.stage_end(
             "s0b",
             ok=sum(1 for v in states["s0b"]["done"].values()
                    if v.get("kept")),
             fail=len(states["s0b"].get("failed", [])))
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("s0b", states, args.out)
         s0b_dropped = {k for k, v in states["s0b"]["done"].items()
                        if isinstance(v, dict) and not v.get("kept")}
         items = [i for i in items if item_key(i) not in s0b_dropped]
@@ -1608,9 +1697,16 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         ranked = s1_rank_item(item, index, read_entry)
                         if (ranked.get("anchor_pos") or "") in \
                                 card_pilot.PROPER_NOUN_POS:
-                            ranked["dropped"] = "anchor-proper-noun"
-                            if key not in states["s1"]["failed"]:
-                                states["s1"]["failed"].append(key)
+                            rerouted = _reroute_proper_anchor(
+                                item, ranked, index, read_entry)
+                            if rerouted is not None:
+                                ranked["top"], ranked["en_def"], \
+                                    ranked["anchor_pos"] = rerouted
+                                ranked["rerouted_from_proper"] = True
+                            else:
+                                ranked["dropped"] = "anchor-proper-noun"
+                                if key not in states["s1"]["failed"]:
+                                    states["s1"]["failed"].append(key)
                         elif set(ranked.get("anchor_tags") or {}) & \
                                 card_pilot.VULGAR_TAGS:
                             ranked["dropped"] = "vulgar-anchor"
@@ -1637,14 +1733,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 if (states["s1"]["done"].get(item_key(i)) or {}).get(
                     "dropped")
                 or item_key(i) in states["s1"]["failed"])
-            print(batch_log_line("s1", batch_no, n_s1_batches,
-                                 len(batch) - failed_here, failed_here,
-                                 {}))
+            _batch_progress("s1", batch_no, n_s1_batches,
+                              len(batch) - failed_here, failed_here)
         s1_dropped = {k for k, v in states["s1"]["done"].items()
                       if isinstance(v, dict) and v.get("dropped")}
         run_logger.stage_end("s1", ok=len(states["s1"]["done"]) - len(
             s1_dropped), fail=len(s1_dropped))
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("s1", states, args.out)
         if s1_dropped:
             print("s1 anchor-pos: kept=%d dropped=%d (%s)" % (
                 len(items) - len(s1_dropped & {item_key(i) for i in items}),
@@ -1699,8 +1795,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 1 for i in batch
                 if ((states["s2"]["done"].get(item_key(i)) or {}).get(
                     "model", "") or "").startswith("s1-"))
-            print(batch_log_line("s2", batch_no, n_s2_batches,
-                                 len(batch) - fail, fail, {}))
+            _batch_progress("s2", batch_no, n_s2_batches,
+                              len(batch) - fail, fail)
         run_logger.stage_end(
             "s2",
             ok=sum(1 for v in states["s2"]["done"].values()
@@ -1708,6 +1804,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             fail=sum(1 for v in states["s2"]["done"].values()
                      if (v.get("model", "") or "").startswith("s1-")))
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("s2", states, args.out)
         # Post-S2 proper-noun routing (idempotent pass over the s2 done
         # state — evaluated here, right after S2, so S3+ only ever see
         # routed/kept items; resume-safe via the proper_route/proper_drop
@@ -1791,8 +1888,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 1 for i in batch
                 if (states["s3"]["done"].get(item_key(i)) or {}).get(
                     "model") == "deterministic")
-            print(batch_log_line("s3", batch_no, n_s3_batches,
-                                 len(batch) - fail, fail, {}))
+            _batch_progress("s3", batch_no, n_s3_batches,
+                              len(batch) - fail, fail)
         run_logger.stage_end(
             "s3",
             ok=sum(1 for v in states["s3"]["done"].values()
@@ -1800,6 +1897,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             fail=sum(1 for v in states["s3"]["done"].values()
                      if v.get("model") == "deterministic"))
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("s3", states, args.out)
         # S4 (label per item, batch-flushed). No fail-closed signal on
         # this stage (exceptions propagate, except auth which aborts),
         # so fail is always 0.
@@ -1851,10 +1949,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             if did_work:
                 sleep_fn(SLEEP)
             _flush(progress_dir, states)
-            print(batch_log_line("s4", batch_no, n_s4_batches,
-                                 len(batch), 0, s4_calls))
+            _batch_progress("s4", batch_no, n_s4_batches,
+                              len(batch), 0)
         run_logger.stage_end("s4", ok=len(states["s4"]["done"]), fail=0)
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("s4", states, args.out)
         # S5 (deterministic enrichment, batch-flushed). Same as S4: no
         # fail-closed signal, fail is always 0.
         run_logger.stage_start("s5")
@@ -1869,10 +1968,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         item, states["s2"]["done"].get(key) or {},
                         index, read_entry, tatoeba_pool)
             _flush(progress_dir, states)
-            print(batch_log_line("s5", batch_no, n_s5_batches,
-                                 len(batch), 0, {}))
+            _batch_progress("s5", batch_no, n_s5_batches,
+                              len(batch), 0)
         run_logger.stage_end("s5", ok=len(states["s5"]["done"]), fail=0)
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
+        _stage_summary("s5", states, args.out)
         # Assemble output (survivors only; drops live in s0/s1 progress).
         for item in items:
             key = item_key(item)
