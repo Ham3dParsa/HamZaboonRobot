@@ -403,7 +403,8 @@ def test_timings_payload_keys():
     topic = assign_topic("apple", "a fruit",
                          lookup=lambda text, gloss: "Food & Drink")
     assert topic == {"label": "Food & Drink", "method": "v16b-exact",
-                     "vector": [{"label": "Food & Drink", "weight": 1.0}]}
+                     "vector": [{"label": "Food & Drink", "weight": 1.0}],
+                     "topic_path": "leg1"}
 
 
 def test_anchor_prefers_higher_scored_sense_over_first_gloss():
@@ -539,7 +540,8 @@ def test_topic_v16b_exact_topup_leg_mocked(tmp_path):
     hit = assign_topic("apple", "a fruit",
                        lookup=lambda t, g: "Food & Drink")
     assert hit == {"label": "Food & Drink", "method": "v16b-exact",
-                   "vector": [{"label": "Food & Drink", "weight": 1.0}]}
+                   "vector": [{"label": "Food & Drink", "weight": 1.0}],
+                   "topic_path": "leg1"}
     # Other -> LLM top-up leg by import (mocked transport), resume separate.
     prog = tmp_path / "pilot_topic_progress.json"
 
@@ -561,14 +563,16 @@ def test_topic_v16b_exact_topup_leg_mocked(tmp_path):
     assert relabeled == {"label": "Animals & Living Beings",
                          "method": "v16b-exact",
                          "vector": [{"label": "Animals & Living Beings",
-                                     "weight": 1.0}]}
+                                     "weight": 1.0}],
+                         "topic_path": "llm"}
     assert prog.exists()  # pilot resume separate from v16b originals
     # No transport -> Other stays Other, still tagged v16b-exact.
     other = assign_topic("zebra", "an animal",
                          lookup=lambda t, g: None)
     assert other == {"label": "Other / Abstract", "method": "v16b-exact",
                      "vector": [{"label": "Other / Abstract",
-                                 "weight": 1.0}]}
+                                 "weight": 1.0}],
+                     "topic_path": "fallback"}
 
 
 def test_anchor_item_sets_sense_id_and_en_def():
@@ -2207,3 +2211,86 @@ def test_run_logger_close_idempotent_and_reopen(tmp_path):
     logger.log("after close reopens")  # reopen path still works
     logger.close()
     assert "stage sample start" in log.read_text(encoding="utf-8")
+
+
+def test_review_tuple_usage_captured():
+    """T1: tuple (text, usage) review transports surface tokens (None-tolerated)."""
+    items = [{"key": "w:a", "text": "apple", "en_def": "a fruit",
+              "grammar_tip": "tip"}]
+
+    def tuple_transport(api_key, model, sys_text, user_text):
+        return (json.dumps({"results": [{"key": "w:a", "ok": True,
+                                         "problem": ""}]}),
+                {"input_tokens": 21, "output_tokens": 4})
+
+    tele = []
+    out = review_grammar_tips(items, tuple_transport, "k", telemetry=tele)
+    assert out["w:a"]["ok"] is True
+    assert tele and tele[0]["outcome"] == "ok"
+    assert tele[0]["prompt_tokens"] == 21
+    assert tele[0]["completion_tokens"] == 4
+    # Plain-text transports record None tokens without failing.
+    tele2 = []
+    review_grammar_tips(
+        items,
+        lambda a, m, s, t: json.dumps({"results": [{"key": "w:a",
+                                                    "ok": True,
+                                                    "problem": ""}]}),
+        "k", telemetry=tele2)
+    assert tele2 and tele2[0]["prompt_tokens"] is None
+    assert tele2[0]["completion_tokens"] is None
+
+
+def test_inflection_tuple_usage_captured():
+    """T1: S0b review leg surfaces tuple usage into telemetry."""
+    items = [{"key": "w:cats", "text": "cats",
+              "gloss": "plural of cat"}]
+
+    def tuple_transport(api_key, model, sys_text, user_text):
+        return (json.dumps({"results": [{"key": "w:cats", "keep": True,
+                                         "reason": "irregular"}]}),
+                {"input_tokens": 9, "output_tokens": 2})
+
+    tele = []
+    out = inflection_review(items, tuple_transport, "k", telemetry=tele)
+    assert out["w:cats"]["keep"] is True
+    assert tele and tele[0]["outcome"] == "ok"
+    assert tele[0]["prompt_tokens"] == 9
+    assert tele[0]["completion_tokens"] == 2
+
+
+def test_assign_topic_path_and_token_telemetry():
+    """T1: leg-1 vs LLM vs fallback paths counted with token capture."""
+    tele = []
+    hit = assign_topic("apple", "a fruit",
+                       lookup=lambda t, g: "Food & Drink",
+                       telemetry=tele)
+    assert hit["topic_path"] == "leg1"
+    assert tele and tele[-1]["outcome"] == "ok"
+    assert tele[-1]["model"] == "deterministic"
+
+    def llm(api_key, model, user_text):
+        return (json.dumps({"results": [{"lemma": "zebra", "senses": [
+            {"sense_id": "zebra#0", "topic_id": 9,
+             "topic_label": "Animals & Living Beings", "confidence": 0.9,
+             "vector": [{"topic_id": 9,
+                         "topic_label": "Animals & Living Beings",
+                         "weight": 1.0}]}]}]}),
+                {"input_tokens": 30, "output_tokens": 9})
+
+    tele2 = []
+    got = assign_topic("zebra", "an animal", sense_id="zebra#0",
+                       lookup=lambda t, g: None, llm_transport=llm,
+                       api_key="k", model_calls={}, telemetry=tele2)
+    assert got["topic_path"] == "llm"
+    assert got["label"] == "Animals & Living Beings"
+    assert tele2[-1]["prompt_tokens"] == 30
+    assert tele2[-1]["completion_tokens"] == 9
+
+    tele3 = []
+    bad = assign_topic("zebra", "an animal", sense_id="zebra#0",
+                       lookup=lambda t, g: None,
+                       llm_transport=lambda a, m, t: "garbage",
+                       api_key="k", model_calls={}, telemetry=tele3)
+    assert bad["topic_path"] == "fallback"
+    assert tele3 and tele3[-1]["outcome"] == "fallback"

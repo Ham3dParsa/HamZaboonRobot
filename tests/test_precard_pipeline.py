@@ -910,3 +910,106 @@ def test_telemetry_history_uses_card_pilot_seam(tmp_path, monkeypatch):
     assert hist.exists()
     assert sum(1 for line in hist.read_text(encoding="utf-8").splitlines()
                if line.strip()) > 0
+
+
+def test_s2_tuple_usage_recorded():
+    """T1: tuple (text, usage) judge transports surface tokens (None-tolerated)."""
+    from phrase_judge import KeyRing
+    from precard_pipeline import s1_rank_item, s2_judge_batch
+    index = make_index()
+    item = {"kind": "word", "text": "apple", "pos": "noun",
+            "pool_level": "A1"}
+    s1map = {"w:apple": s1_rank_item(item, index, read_entry)}
+
+    def tuple_judge(api_key, model, user_text):
+        return (fake_judge(api_key, model, user_text),
+                {"input_tokens": 11, "output_tokens": 5})
+
+    tele = []
+    out = s2_judge_batch([item], s1map, "k", tuple_judge, lambda s: None,
+                         {"done": {}, "failed": [], "backoffs": []},
+                         telemetry=tele, tele_batch=1, ring=KeyRing(["k"]))
+    assert out["w:apple"]["sense_id"] == "apple#0"
+    ok = [r for r in tele if r.get("outcome") == "ok"]
+    assert ok and ok[0]["prompt_tokens"] == 11
+    assert ok[0]["completion_tokens"] == 5
+    # Plain-text transports record None tokens without failing.
+    tele2 = []
+    s2_judge_batch([item], s1map, "k", fake_judge, lambda s: None,
+                   {"done": {}, "failed": [], "backoffs": []},
+                   telemetry=tele2, tele_batch=1, ring=KeyRing(["k"]))
+    ok2 = [r for r in tele2 if r.get("outcome") == "ok"]
+    assert ok2 and ok2[0]["prompt_tokens"] is None
+    assert ok2[0]["completion_tokens"] is None
+
+
+def test_s3_tuple_usage_recorded():
+    """T1: tuple (text, usage) topic transports surface tokens."""
+    from phrase_judge import KeyRing
+    from precard_pipeline import s1_rank_item, s3_vector_batch
+    index = make_index()
+    item = {"kind": "word", "text": "apple", "pos": "noun",
+            "pool_level": "A1"}
+    s1map = {"w:apple": s1_rank_item(item, index, read_entry)}
+    s2map = {"w:apple": {"sense_id": "apple#0", "gloss": "a round fruit"}}
+
+    def tuple_topics(api_key, model, user_text):
+        return (json.dumps({"results": [{"lemma": "apple", "vectors": [
+            {"sense_id": "apple#0",
+             "vector": [{"topic_id": 13,
+                         "topic_label": "Other / Abstract",
+                         "weight": 1.0}]}]}]}),
+                {"input_tokens": 13, "output_tokens": 7})
+
+    tele = []
+    out = s3_vector_batch([item], s2map, s1map, "k", tuple_topics,
+                          lambda s: None,
+                          {"done": {}, "failed": [], "backoffs": []},
+                          telemetry=tele, tele_batch=1, ring=KeyRing(["k"]))
+    assert out["apple#0"]["model"] != "deterministic"
+    ok = [r for r in tele if r.get("outcome") == "ok"]
+    assert ok and ok[0]["prompt_tokens"] == 13
+    assert ok[0]["completion_tokens"] == 7
+
+
+def test_s4_fallback_path_counted(tmp_path):
+    """T1: S4 deterministic fallback carries topic_path + fallback telemetry."""
+    from phrase_judge import KeyRing
+    from precard_pipeline import s4_label_item
+    state = {"done": {}, "failed": [], "backoffs": []}
+    item = {"kind": "word", "text": "zzqx", "pool_level": "B1"}
+
+    def garbage(api_key, model, user_text):
+        return "not json {{{"
+
+    tele = []
+    assigned = s4_label_item(
+        item, "plural of zzqx", "zzqx#0", None, "k", garbage,
+        lambda s: None, state, str(tmp_path / "s4.json"), {},
+        telemetry=tele, tele_batch=1, ring=KeyRing(["k"]))
+    assert assigned["label"] == "Other / Abstract"
+    assert assigned["topic_path"] == "fallback"
+    assert any(r.get("stage") == "s4" and r.get("outcome") == "fallback"
+               for r in tele)
+
+
+def test_s5_enrich_path_full_and_partial():
+    """T1: S5 marks full carriers vs partial (model must fill gaps)."""
+    from precard_pipeline import s5_enrich_item
+    full_ex = ["The dvd player sits on the wooden shelf today",
+               "She bought a new dvd for the long family trip"]
+    index = {"dvd": [{"pos": "noun",
+                      "entry": {"pos": "noun", "sounds": [{"ipa": "/x/"}],
+                                "senses": [{"glosses": ["a disc"],
+                                            "tags": [],
+                                            "examples": [{"text": e}
+                                                         for e in full_ex]}]}}]}
+    item = {"kind": "word", "text": "dvd", "pos": "noun",
+            "pool_level": "B1"}
+    full = s5_enrich_item(item, {"sense_id": "dvd#0", "gloss": "a disc"},
+                          index, read_entry, {})
+    assert full["enrich_path"] == "full"
+    assert len(full["dataset_examples"]) == 2
+    partial = s5_enrich_item(item, {"sense_id": "", "gloss": ""},
+                             index, read_entry, {})
+    assert partial["enrich_path"] == "partial"

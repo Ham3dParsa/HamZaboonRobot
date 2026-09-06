@@ -2017,9 +2017,31 @@ def merge_precard_delta(item, precard, kept, filled, improved,
     return obj, report
 
 
+# Token capture (telemetry, None-tolerant): transports return either plain
+# text or a (text, usage-dict) tuple (phrase_judge pattern); the API often
+# returns no usage, so None flows through to the record untouched.
+
+
+def _unwrap_transport_result(res):
+    """Split a transport reply into (raw_text, usage-dict-or-None)."""
+    if isinstance(res, tuple) and len(res) == 2:
+        usage = res[1] if isinstance(res[1], dict) else None
+        return res[0], usage
+    return res, None
+
+
+def _tele_tokens(usage):
+    """Token pair from a surfaced usage dict (None-tolerated)."""
+    if isinstance(usage, dict):
+        return tele_extract_usage(usage)
+    return None, None
+
+
 def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
                  progress_path=None, api_key=None, model_calls=None,
-                 vector_lookup=None):
+                 vector_lookup=None,
+                 telemetry=None, tele_stage="s4", tele_batch=0,
+                 tele_key_idx=0):
     """R6 topic via the exact v16b path + R12 full vector. Method "v16b-exact".
 
     Leg 1 (deterministic v16): run_v16_topics.evp_fallback_label by import.
@@ -2027,13 +2049,30 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
     same free model chain, resume file pilot_topic_progress.json (separate
     from the v16b originals). Hermetic when lookup/llm_transport injected;
     without an LLM transport an Other stays Other (no network in tests).
-    Returns {"label", "method", "vector"} with method tag "v16b-exact";
+    Returns {"label", "method", "vector", "topic_path"} with method tag
+    "v16b-exact"; "topic_path" is the leg taken ("leg1" deterministic v16
+    hit, "cache" progress-cache hit, "llm" top-up success, "fallback"
+    otherwise) so callers can count leg-1 vs fallback in stage_calls.
+    Leg-2 LLM attempts are telemetry-recorded (model + surfaced tokens,
+    None-tolerated); leg-1/cache hits record one deterministic-ok each so
+    per-item coverage matches the old wrapper-level records.
     "vector" is the full 1-3 entry [{label, weight}] list for the anchored
     sense — from the leg-2 normed output, else vector_lookup (sense_id ->
     vector, loaded from topic_vectors-v16b.json via load_topic_vectors),
     else the single-label fallback [{label, 1.0}].
     """
     sid = sense_id or ("%s#0" % ((text or "").strip().lower()))
+
+    def _rec(outcome, model="", prompt_tokens=None,
+             completion_tokens=None):
+        if telemetry is not None:
+            tele_record_call(
+                telemetry, stage=tele_stage, batch_id=tele_batch,
+                key_idx=tele_key_idx, model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                latency_s=0.0, outcome=outcome)
+
     if lookup is None:
         try:
             from run_v16_topics import evp_fallback_label as lookup
@@ -2047,8 +2086,10 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
             label = None
     if label:
         vec = (vector_lookup or {}).get(sid)
+        _rec("ok", model="deterministic")
         return {"label": label, "method": TOPIC_METHOD_TAG,
-                "vector": list(vec) if vec else single_topic_vector(label)}
+                "vector": list(vec) if vec else single_topic_vector(label),
+                "topic_path": "leg1"}
     # Leg 2 — v16b top-up for Others, by import (no substitute heuristics).
     try:
         from run_v16b_topup import (MODELS as _TOPUP_MODELS,
@@ -2057,9 +2098,11 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
         from run_v16b_topup import lemma_block as _topup_block
     except Exception:
         vec = (vector_lookup or {}).get(sid)
+        _rec("fallback", model="deterministic")
         return {"label": "Other / Abstract", "method": TOPIC_METHOD_TAG,
                 "vector": list(vec) if vec
-                else single_topic_vector("Other / Abstract")}
+                else single_topic_vector("Other / Abstract"),
+                "topic_path": "fallback"}
     prog_path = pathlib.Path(progress_path) if progress_path else None
     cache = {}
     if prog_path is not None and prog_path.exists():
@@ -2070,21 +2113,26 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
     cache_key = "%s\t%s\t%s" % (text, gloss or "", sid)
     if isinstance(cache, dict) and cache_key in cache:
         cached = cache[cache_key]
+        _rec("ok", model="deterministic")
         if isinstance(cached, dict) and cached.get("label"):
             vec = cached.get("vector") or (vector_lookup or {}).get(sid)
             return {"label": cached["label"], "method": TOPIC_METHOD_TAG,
                     "vector": list(vec) if vec
-                    else single_topic_vector(cached["label"])}
+                    else single_topic_vector(cached["label"]),
+                    "topic_path": "cache"}
         return {"label": cached if isinstance(cached, str) else "Other / Abstract",
                 "method": TOPIC_METHOD_TAG,
                 "vector": list((vector_lookup or {}).get(sid) or [])
                 or single_topic_vector(
-                    cached if isinstance(cached, str) else "Other / Abstract")}
+                    cached if isinstance(cached, str) else "Other / Abstract"),
+                "topic_path": "cache"}
     if llm_transport is None:
         vec = (vector_lookup or {}).get(sid)
+        _rec("fallback", model="deterministic")
         return {"label": "Other / Abstract", "method": TOPIC_METHOD_TAG,
                 "vector": list(vec) if vec
-                else single_topic_vector("Other / Abstract")}
+                else single_topic_vector("Other / Abstract"),
+                "topic_path": "fallback"}
     user_text = _TOPUP_TMPL + _topup_block(
         text, [{"sense_id": sid, "gloss": gloss or ""}])
     from llm_json import extract_json as _extract
@@ -2092,7 +2140,8 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
         if model_calls is not None:
             model_calls[model] = model_calls.get(model, 0) + 1
         try:
-            raw = llm_transport(api_key, model, user_text)
+            res = llm_transport(api_key, model, user_text)
+            raw, usage = _unwrap_transport_result(res)
             data = _extract(raw)
         except Exception:
             continue
@@ -2101,6 +2150,9 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
         items = (by_lemma.get(text) or {}).get("senses")
         ok, normed = _topup_validate(items, [sid])
         if ok and normed:
+            prompt_tokens, completion_tokens = _tele_tokens(usage)
+            _rec("ok", model=model, prompt_tokens=prompt_tokens,
+                 completion_tokens=completion_tokens)
             found = normed[0].get("topic_label") or "Other / Abstract"
             vec = [{"label": e.get("topic_label"),
                     "weight": round(float(e.get("weight")), 4)}
@@ -2114,11 +2166,14 @@ def assign_topic(text, gloss, lookup=None, sense_id=None, llm_transport=None,
                                          encoding="utf-8")
                 except Exception:
                     pass
-            return {"label": found, "method": TOPIC_METHOD_TAG, "vector": vec}
+            return {"label": found, "method": TOPIC_METHOD_TAG,
+                    "vector": vec, "topic_path": "llm"}
     vec = (vector_lookup or {}).get(sid)
+    _rec("fallback", model="deterministic")
     return {"label": "Other / Abstract", "method": TOPIC_METHOD_TAG,
             "vector": list(vec) if vec
-            else single_topic_vector("Other / Abstract")}
+            else single_topic_vector("Other / Abstract"),
+            "topic_path": "fallback"}
 
 
 def compute_quotas(n, levels=LEVEL_ORDER, extras=QUOTA_EXTRAS_ORDER):
@@ -2469,14 +2524,9 @@ def generate_card(item, api_key, transport=None, model_calls=None,
                 attempt_start = time.perf_counter()
                 res = transport(api_key, model, system, prompt)
                 latency = time.perf_counter() - attempt_start
-                if isinstance(res, tuple) and len(res) == 2:
-                    raw, usage = res
-                else:
-                    raw, usage = res, None
+                raw, usage = _unwrap_transport_result(res)
                 if telemetry is not None:
-                    prompt_tokens, completion_tokens = (
-                        tele_extract_usage(usage)
-                        if isinstance(usage, dict) else (None, None))
+                    prompt_tokens, completion_tokens = _tele_tokens(usage)
                     tele_record_call(
                         telemetry, stage=tele_stage, batch_id=tele_batch,
                         key_idx=tele_key_idx, model=model,
@@ -2718,34 +2768,69 @@ def _validate_review_results(data, want_keys, key_field="key"):
     return by_key
 
 
-def review_grammar_tips(items, transport, api_key="", model_calls=None):
+def _review_tele(telemetry, tele_stage, batch_id, tele_key_idx, model,
+                 usage, outcome):
+    """One terminal review-batch record (tokens None-tolerated)."""
+    if telemetry is None:
+        return
+    prompt_tokens, completion_tokens = _tele_tokens(usage)
+    tele_record_call(
+        telemetry, stage=tele_stage, batch_id=batch_id,
+        key_idx=tele_key_idx, model=model,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        latency_s=0.0, outcome=outcome)
+
+
+def _review_auth_tele(telemetry, tele_stage, batch_id, tele_key_idx, model):
+    """Auth record before a loud 401/403 abort (never silent)."""
+    if telemetry is None:
+        return
+    tele_record_call(
+        telemetry, stage=tele_stage, batch_id=batch_id,
+        key_idx=tele_key_idx, model=model,
+        latency_s=0.0, outcome="auth", http_status=401)
+
+
+def review_grammar_tips(items, transport, api_key="", model_calls=None,
+                        telemetry=None, tele_stage="grammar-review",
+                        tele_key_idx=0):
     """R30: batched grammar fact-check. Returns {key: {ok, problem, model}}.
 
     Muse-only chain (MODELS[:2]), batch 16, 2 attempts per model. Auth
     (401/403) aborts loudly; any other failure fails closed per item to
     {ok: True, problem: "", model: "review-fallback"} (a broken reviewer
     must never sink cards). Hermetic with an injected transport.
+    Tuple (text, usage) transports surface token counts into one
+    terminal telemetry record per batch (None-tolerated).
     """
     if model_calls is None:
         model_calls = {}
     out = {}
-    for base in range(0, len(items), GRAMMAR_REVIEW_BATCH):
+    for batch_no, base in enumerate(
+            range(0, len(items), GRAMMAR_REVIEW_BATCH), start=1):
         batch = items[base:base + GRAMMAR_REVIEW_BATCH]
         want = [e["key"] for e in batch]
         prompt = _grammar_review_prompt(batch)
         settled = False
+        win_model, win_usage = "review-fallback", None
         for model in GRAMMAR_REVIEW_MODELS:
             for attempt in range(MAX_ATTEMPTS):
                 text = prompt if attempt == 0 else REPAIR_PREFIX + prompt
                 try:
                     model_calls[model] = model_calls.get(model, 0) + 1
-                    raw = transport(api_key, model, GRAMMAR_REVIEW_SYS,
+                    res = transport(api_key, model, GRAMMAR_REVIEW_SYS,
                                     text)
+                    raw, usage = _unwrap_transport_result(res)
                     data = extract_json(raw)
                 except AuthError:
+                    _review_auth_tele(telemetry, tele_stage, batch_no,
+                                      tele_key_idx, model)
                     raise
                 except urllib.error.HTTPError as exc:
                     if exc.code in (401, 403):
+                        _review_auth_tele(telemetry, tele_stage, batch_no,
+                                          tele_key_idx, model)
                         raise_for_auth(exc)
                     data = None
                 except Exception:
@@ -2765,6 +2850,7 @@ def review_grammar_tips(items, transport, api_key="", model_calls=None):
                         else "",
                         "model": model}
                 settled = True
+                win_model, win_usage = model, usage
                 break
             if settled:
                 break
@@ -2772,15 +2858,21 @@ def review_grammar_tips(items, transport, api_key="", model_calls=None):
             for key in want:
                 out[key] = {"ok": True, "problem": "",
                             "model": "review-fallback"}
+        _review_tele(telemetry, tele_stage, batch_no, tele_key_idx,
+                     win_model, win_usage,
+                     "ok" if settled else "fallback")
     return out
 
 
 def regen_grammar_tip(item_text, en_def, bad_tip, problem, api_key,
-                      transport, model_calls=None):
+                      transport, model_calls=None,
+                      telemetry=None, tele_stage="grammar-review",
+                      tele_key_idx=0):
     """R30: 1 focused regen of the tip field only. Returns the new tip.
 
     Returns "" when the regen fails (caller keeps the original tip and
-    records the outcome — fail-closed).
+    records the outcome — fail-closed). The winning attempt's surfaced
+    tokens are telemetry-recorded (None-tolerated).
     """
     if model_calls is None:
         model_calls = {}
@@ -2794,16 +2886,23 @@ def regen_grammar_tip(item_text, en_def, bad_tip, problem, api_key,
     for model in GRAMMAR_REVIEW_MODELS:
         try:
             model_calls[model] = model_calls.get(model, 0) + 1
-            raw = transport(api_key, model, GRAMMAR_REGEN_SYS, user_text)
+            res = transport(api_key, model, GRAMMAR_REGEN_SYS, user_text)
+            raw, usage = _unwrap_transport_result(res)
             data = extract_json(raw)
         except AuthError:
+            _review_auth_tele(telemetry, tele_stage, 0, tele_key_idx,
+                              model)
             raise
         except Exception:
             continue
         if isinstance(data, dict) and isinstance(
                 data.get("grammar_tip"), str) \
                 and data["grammar_tip"].strip():
+            _review_tele(telemetry, tele_stage, 0, tele_key_idx, model,
+                         usage, "ok")
             return data["grammar_tip"].strip()
+    _review_tele(telemetry, tele_stage, 0, tele_key_idx,
+                 "review-fallback", None, "fallback")
     return ""
 
 
@@ -2832,7 +2931,8 @@ def _save_review_progress(path, state):
 
 
 def review_records_grammar(records, api_key, transport=None, model_calls=None,
-                           progress_path=None):
+                           progress_path=None, telemetry=None,
+                           tele_stage="grammar-review", tele_key_idx=0):
     """R30 post-step: fact-check valid records' tips, 1 focused regen each.
 
     Mutates records in place: rec["grammar_review"] = {verdict
@@ -2840,7 +2940,8 @@ def review_records_grammar(records, api_key, transport=None, model_calls=None,
     progress_path (done keys are re-applied, never re-called). Returns
     (checked, regens). Fail-closed: review errors keep the original tip.
     transport=None skips the pass entirely (hermetic tests): records are
-    untouched, (0, 0) returned.
+    untouched, (0, 0) returned. Telemetry (when given) is forwarded to
+    the verdict + regen transports (tokens None-tolerated).
     """
     if transport is None:
         return 0, 0
@@ -2872,7 +2973,9 @@ def review_records_grammar(records, api_key, transport=None, model_calls=None,
                   "grammar_tip": (r.get("card") or {}).get(
                       "grammar_tip") or ""}
                  for r in batch],
-                transport, api_key, model_calls)
+                transport, api_key, model_calls,
+                telemetry=telemetry, tele_stage=tele_stage,
+                tele_key_idx=tele_key_idx)
         except AuthError:
             raise
         except Exception:
@@ -2896,7 +2999,9 @@ def review_records_grammar(records, api_key, transport=None, model_calls=None,
                         rec.get("text") or "", rec.get("en_def") or "",
                         card.get("grammar_tip") or "",
                         verdict.get("problem") or "", api_key, transport,
-                        model_calls)
+                        model_calls, telemetry=telemetry,
+                        tele_stage=tele_stage,
+                        tele_key_idx=tele_key_idx)
                 except AuthError:
                     raise
                 except Exception:
@@ -2952,32 +3057,44 @@ def _sense_review_prompt(batch):
     return "\n".join(lines)
 
 
-def review_sense_items(items, transport, api_key="", model_calls=None):
+def review_sense_items(items, transport, api_key="", model_calls=None,
+                       telemetry=None, tele_stage="sense-review",
+                       tele_key_idx=0):
     """R41b: batched sense-consistency check. Returns {key: {...}}.
 
     Muse-only chain, 2 attempts per model. Auth aborts loudly; any other
     failure fails closed per item to {coherent: True, ...review-uncertain}.
-    Hermetic with an injected transport.
+    Hermetic with an injected transport. Tuple (text, usage) transports
+    surface token counts into one terminal telemetry record per batch
+    (None-tolerated).
     """
     if model_calls is None:
         model_calls = {}
     out = {}
-    for base in range(0, len(items), SENSE_REVIEW_BATCH):
+    for batch_no, base in enumerate(
+            range(0, len(items), SENSE_REVIEW_BATCH), start=1):
         batch = items[base:base + SENSE_REVIEW_BATCH]
         want = [e["key"] for e in batch]
         prompt = _sense_review_prompt(batch)
         settled = False
+        win_model, win_usage = "review-fallback", None
         for model in SENSE_REVIEW_MODELS:
             for attempt in range(MAX_ATTEMPTS):
                 text = prompt if attempt == 0 else REPAIR_PREFIX + prompt
                 try:
                     model_calls[model] = model_calls.get(model, 0) + 1
-                    raw = transport(api_key, model, SENSE_REVIEW_SYS, text)
+                    res = transport(api_key, model, SENSE_REVIEW_SYS,
+                                    text)
+                    raw, usage = _unwrap_transport_result(res)
                     data = extract_json(raw)
                 except AuthError:
+                    _review_auth_tele(telemetry, tele_stage, batch_no,
+                                      tele_key_idx, model)
                     raise
                 except urllib.error.HTTPError as exc:
                     if exc.code in (401, 403):
+                        _review_auth_tele(telemetry, tele_stage, batch_no,
+                                          tele_key_idx, model)
                         raise_for_auth(exc)
                     data = None
                 except Exception:
@@ -2998,6 +3115,7 @@ def review_sense_items(items, transport, api_key="", model_calls=None):
                         if isinstance(row.get("reason"), str) else "",
                         "model": model}
                 settled = True
+                win_model, win_usage = model, usage
                 break
             if settled:
                 break
@@ -3005,17 +3123,22 @@ def review_sense_items(items, transport, api_key="", model_calls=None):
             for key in want:
                 out[key] = {"coherent": True, "uncertain": True,
                             "reason": "", "model": "review-fallback"}
+        _review_tele(telemetry, tele_stage, batch_no, tele_key_idx,
+                     win_model, win_usage,
+                     "ok" if settled else "fallback")
     return out
 
 
 def review_records_sense(records, api_key, transport=None, model_calls=None,
-                         progress_path=None):
+                         progress_path=None, telemetry=None,
+                         tele_stage="sense-review", tele_key_idx=0):
     """R41b post-step: judge token-undecided valid records, reject mismatch.
 
     Mutates records in place: rec["sense_coherence"] = {verdict
     llm-pass/llm-reject/review-uncertain, reason, model}; rejected records
     get valid=False reason sense-incoherence. Resume via progress_path.
-    transport=None skips entirely (hermetic tests): (0, 0).
+    transport=None skips entirely (hermetic tests): (0, 0). Telemetry
+    (when given) is forwarded to the review transport (None-tolerated).
     """
     if transport is None:
         return 0, 0
@@ -3042,7 +3165,9 @@ def review_records_sense(records, api_key, transport=None, model_calls=None,
                 [{"key": r.get("key") or "", "text": r.get("text") or "",
                   "en_def": r.get("en_def") or "", "card": r.get("card") or {}}
                  for r in batch],
-                transport, api_key, model_calls)
+                transport, api_key, model_calls,
+                telemetry=telemetry, tele_stage=tele_stage,
+                tele_key_idx=tele_key_idx)
         except AuthError:
             raise
         except Exception:
@@ -3116,36 +3241,46 @@ def _content_review_prompt(batch):
     return "\n".join(lines)
 
 
-def review_dataset_examples(items, transport, api_key="", model_calls=None):
+def review_dataset_examples(items, transport, api_key="", model_calls=None,
+                              telemetry=None, tele_stage="content-gate",
+                              tele_key_idx=0):
     """R31: batched appropriateness review.
 
     items: [{key, examples[]}]. Returns {key: {flagged:[exact examples],
     reason, model}}. Flagged entries not quoting a given example exactly
     are dropped. Auth aborts loudly; anything else fails closed to
     {flagged: [], ...} (fail-open keep — a broken reviewer never drops
-    dataset content).
+    dataset content). Tuple (text, usage) transports surface token counts
+    into one terminal telemetry record per batch (None-tolerated).
     """
     if model_calls is None:
         model_calls = {}
     out = {}
-    for base in range(0, len(items), CONTENT_REVIEW_BATCH):
+    for batch_no, base in enumerate(
+            range(0, len(items), CONTENT_REVIEW_BATCH), start=1):
         batch = items[base:base + CONTENT_REVIEW_BATCH]
         want = [e["key"] for e in batch]
         members = {e["key"]: set(e.get("examples") or []) for e in batch}
         prompt = _content_review_prompt(batch)
         settled = False
+        win_model, win_usage = "review-fallback", None
         for model in CONTENT_REVIEW_MODELS:
             for attempt in range(MAX_ATTEMPTS):
                 text = prompt if attempt == 0 else REPAIR_PREFIX + prompt
                 try:
                     model_calls[model] = model_calls.get(model, 0) + 1
-                    raw = transport(api_key, model, CONTENT_REVIEW_SYS,
+                    res = transport(api_key, model, CONTENT_REVIEW_SYS,
                                     text)
+                    raw, usage = _unwrap_transport_result(res)
                     data = extract_json(raw)
                 except AuthError:
+                    _review_auth_tele(telemetry, tele_stage, batch_no,
+                                      tele_key_idx, model)
                     raise
                 except urllib.error.HTTPError as exc:
                     if exc.code in (401, 403):
+                        _review_auth_tele(telemetry, tele_stage, batch_no,
+                                          tele_key_idx, model)
                         raise_for_auth(exc)
                     data = None
                 except Exception:
@@ -3169,6 +3304,7 @@ def review_dataset_examples(items, transport, api_key="", model_calls=None):
                         else "",
                         "model": model}
                 settled = True
+                win_model, win_usage = model, usage
                 break
             if settled:
                 break
@@ -3176,11 +3312,15 @@ def review_dataset_examples(items, transport, api_key="", model_calls=None):
             for key in want:
                 out[key] = {"flagged": [], "reason": "",
                             "model": "review-fallback"}
+        _review_tele(telemetry, tele_stage, batch_no, tele_key_idx,
+                     win_model, win_usage,
+                     "ok" if settled else "fallback")
     return out
 
 
 def run_content_gate(items, api_key, transport=None, model_calls=None,
-                     progress_path=None, sleep_fn=None):
+                     progress_path=None, sleep_fn=None, telemetry=None,
+                     tele_stage="content-gate", tele_key_idx=0):
     """R31 pre-step: review dataset examples, set item["content_flags"].
 
     {example: reason} per item; flagged examples are released by
@@ -3188,7 +3328,8 @@ def run_content_gate(items, api_key, transport=None, model_calls=None,
     progress_path. Returns (flagged_total,). Fail-open: review errors
     keep every example (never silent — failed keys recorded).
     transport=None skips the gate entirely (hermetic tests / dry runs):
-    items only get the default empty content_flags.
+    items only get the default empty content_flags. Telemetry (when
+    given) is forwarded to the review transport (None-tolerated).
     """
     if transport is None:
         for item in items or []:
@@ -3213,7 +3354,9 @@ def run_content_gate(items, api_key, transport=None, model_calls=None,
                   "examples": [e for e in (i.get("dataset_examples") or [])
                                if isinstance(e, str) and e.strip()]}
                  for i in batch],
-                transport, api_key, model_calls)
+                transport, api_key, model_calls,
+                telemetry=telemetry, tele_stage=tele_stage,
+                tele_key_idx=tele_key_idx)
         except AuthError:
             raise
         except Exception:
@@ -3277,7 +3420,9 @@ def _inflection_review_prompt(batch):
     return "\n".join(lines)
 
 
-def inflection_review(items, transport, api_key="", model_calls=None):
+def inflection_review(items, transport, api_key="", model_calls=None,
+                      telemetry=None, tele_stage="s0b",
+                      tele_key_idx=0):
     """R36: batched inflection-form review.
 
     items: [{key, text, gloss}]. Returns {key: {keep:bool, reason:str,
@@ -3285,28 +3430,37 @@ def inflection_review(items, transport, api_key="", model_calls=None):
     drop verdict; every failure (transport error, bad JSON, envelope
     mismatch) fails closed to {keep: True, uncertain: True} flagged
     review-uncertain (never drop on uncertainty). Auth aborts loudly.
-    Hermetic with an injected transport.
+    Hermetic with an injected transport. Tuple (text, usage) transports
+    surface token counts into one terminal telemetry record per batch
+    (None-tolerated).
     """
     if model_calls is None:
         model_calls = {}
     out = {}
-    for base in range(0, len(items or []), INFLECTION_REVIEW_BATCH):
+    for batch_no, base in enumerate(
+            range(0, len(items or []), INFLECTION_REVIEW_BATCH), start=1):
         batch = items[base:base + INFLECTION_REVIEW_BATCH]
         want = [e["key"] for e in batch]
         prompt = _inflection_review_prompt(batch)
         settled = False
+        win_model, win_usage = "review-fallback", None
         for model in INFLECTION_REVIEW_MODELS:
             for attempt in range(MAX_ATTEMPTS):
                 text = prompt if attempt == 0 else REPAIR_PREFIX + prompt
                 try:
                     model_calls[model] = model_calls.get(model, 0) + 1
-                    raw = transport(api_key, model,
+                    res = transport(api_key, model,
                                     INFLECTION_REVIEW_SYS, text)
+                    raw, usage = _unwrap_transport_result(res)
                     data = extract_json(raw)
                 except AuthError:
+                    _review_auth_tele(telemetry, tele_stage, batch_no,
+                                      tele_key_idx, model)
                     raise
                 except urllib.error.HTTPError as exc:
                     if exc.code in (401, 403):
+                        _review_auth_tele(telemetry, tele_stage, batch_no,
+                                          tele_key_idx, model)
                         raise_for_auth(exc)
                     data = None
                 except Exception:
@@ -3333,6 +3487,7 @@ def inflection_review(items, transport, api_key="", model_calls=None):
                     out = {k: v for k, v in out.items() if k not in want}
                     continue
                 settled = True
+                win_model, win_usage = model, usage
                 break
             if settled:
                 break
@@ -3342,6 +3497,9 @@ def inflection_review(items, transport, api_key="", model_calls=None):
                     out[key] = {"keep": True, "reason": "review-error",
                                 "model": "review-fallback",
                                 "uncertain": True}
+        _review_tele(telemetry, tele_stage, batch_no, tele_key_idx,
+                     win_model, win_usage,
+                     "ok" if settled else "fallback")
     return out
 
 
@@ -4787,6 +4945,7 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
               "no network calls" % (args.n_words, args.n_phrases))
         return 0
 
+    tele_store = []  # R27: per-attempt records (key_idx only, never values)
     if precard_sample is not None:
         index = {}
         sample = []
@@ -4864,7 +5023,8 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                     sense_id=item.get("sense_id") or None,
                     llm_transport=_topup_transport, progress_path=topic_prog,
                     api_key=_topic_key, model_calls=topic_calls,
-                    vector_lookup=topic_vectors)  # R12 full vector
+                    vector_lookup=topic_vectors,
+                    telemetry=tele_store)  # R12 full vector
                 item["topic"] = assigned["label"]
                 item["topic_method"] = assigned["method"]
                 item["topic_vector"] = assigned["vector"]
@@ -4890,7 +5050,6 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
     done = prog.get("done", {})
     model_calls = prog.get("model_calls", {})
     gen_timings = {"validate": 0.0}
-    tele_store = []  # R27: per-attempt records (key_idx only, never values)
     per_card = []
     # R31 v8 content gate (pre-step): batched appropriateness review of
     # dataset examples; flagged examples land in item["content_flags"] and
@@ -4904,7 +5063,7 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                        if _content_transport is _DEFAULT_REVIEW_TRANSPORT
                        else _content_transport),
             progress_path=out_dir / "content_review_progress.json",
-            model_calls=model_calls)
+            model_calls=model_calls, telemetry=tele_store)
     except AuthError:
         raise
     except Exception:
@@ -4964,7 +5123,7 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                        if _grammar_transport is _DEFAULT_REVIEW_TRANSPORT
                        else _grammar_transport),
             progress_path=out_dir / "review_grammar_progress.json",
-            model_calls=model_calls)
+            model_calls=model_calls, telemetry=tele_store)
     except AuthError:
         raise
     except Exception:
@@ -4981,7 +5140,7 @@ def main(argv=None, _content_transport=_DEFAULT_REVIEW_TRANSPORT,
                        if _sense_transport is _DEFAULT_REVIEW_TRANSPORT
                        else _sense_transport),
             progress_path=out_dir / "sense_coherence_progress.json",
-            model_calls=model_calls)
+            model_calls=model_calls, telemetry=tele_store)
     except AuthError:
         raise
     except Exception:

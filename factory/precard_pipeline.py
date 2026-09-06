@@ -79,6 +79,7 @@ from card_pilot import append_telemetry_history  # noqa: E402  (F7 history seam)
 from card_pilot import item_key  # noqa: E402
 from llm_json import AuthError, extract_json, raise_for_auth  # noqa: E402
 from phrase_judge import KeyRing, RateLimited, write_progress  # noqa: E402  (resume + rotation seam)
+from telemetry import extract_usage as _tele_usage  # noqa: E402
 from telemetry import record_call as _tele_record  # noqa: E402
 from telemetry import write_summary as _tele_write  # noqa: E402
 
@@ -346,6 +347,13 @@ def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
     return {"kept": True, "reason": None, "type_pending": False}
 
 
+def _tele_tokens(usage):
+    """Token pair from a surfaced usage dict (None-tolerated)."""
+    if isinstance(usage, dict):
+        return _tele_usage(usage)
+    return None, None
+
+
 def _note_backoff(state, label, waits, outcome):
     state.setdefault("backoffs", []).append(
         {"label": label, "waits": list(waits), "outcome": outcome})
@@ -361,12 +369,18 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
     records the stop event and raises RateLimited — the caller flushes
     progress and STOPS for a VPN-server switch. Auth (401/403) and
     other errors propagate to the caller.
+    Returns (raw_text, usage-dict-or-None): tuple (text, usage)
+    transports surface token counts (None-tolerated); plain-text
+    transports yield None.
     """
     while True:
         try:
             out = transport(ring.current, model, text)
             ring.used = 0
-            return out
+            if isinstance(out, tuple) and len(out) == 2:
+                return out[0], (out[1] if isinstance(out[1], dict)
+                                else None)
+            return out, None
         except urllib.error.HTTPError as exc:
             if getattr(exc, "code", None) != 429:
                 raise
@@ -539,14 +553,15 @@ def _s2_validate(data, batch, s1map):
 def s2_judge_batch(batch, s1map, api_key, transport, sleep_fn, state,
                    telemetry=None, tele_stage="s2", tele_batch=0,
                    ring=None):
-    """Judge-pick one batch. Returns {key: {sense_id, gloss, model}}.
+    """    Judge-pick one batch. Returns {key: {sense_id, gloss, model}}.
 
     Muse-only chain (judge MODELS[:2]), 2 attempts per model, 401/403
     loud abort, 429 rotates the KeyRing (brief pause, same-call retry;
     all-keys-429 raises RateLimited so the runner flushes and STOPS),
     anything else fail-closed to the S1 top pick per item. R27: one
     telemetry record per batch (ok on a judge-model pick, fallback on
-    s1-fallback, error on all-keys-429).
+    s1-fallback, error on all-keys-429); tuple (text, usage) transports
+    surface token counts (None-tolerated).
     """
     from run_v14_phase3_judge import MODELS as JUDGE_MODELS
     from run_v14_phase3_judge import call_responses as _  # noqa: F401 (owner path ref)
@@ -560,8 +575,9 @@ def s2_judge_batch(batch, s1map, api_key, transport, sleep_fn, state,
             text = prompt if attempt == 0 else RETRY_PREFIX + prompt
             label = "%s/%s#%d" % (model, "+".join(
                 item_key(i) for i in batch), attempt)
+            usage = None
             try:
-                raw = _call_with_rotation(
+                raw, usage = _call_with_rotation(
                     transport, ring, model, text, sleep_fn, state, label)
             except AuthError:
                 raise
@@ -575,9 +591,9 @@ def s2_judge_batch(batch, s1map, api_key, transport, sleep_fn, state,
             except urllib.error.HTTPError as exc:
                 if getattr(exc, "code", None) in (401, 403):
                     raise_for_auth(exc)
-                raw = None
+                raw, usage = None, None
             except Exception:
-                raw = None
+                raw, usage = None, None
             if raw is None:
                 continue
             try:
@@ -593,9 +609,12 @@ def s2_judge_batch(batch, s1map, api_key, transport, sleep_fn, state,
             if valid is not None:
                 out = {k: {**v, "model": model} for k, v in valid.items()}
                 if telemetry is not None:
+                    prompt_tokens, completion_tokens = _tele_tokens(usage)
                     _tele_record(telemetry, stage=tele_stage,
                                  batch_id=tele_batch, key_idx=0,
-                                 model=model, latency_s=0.0, outcome="ok")
+                                 model=model, latency_s=0.0, outcome="ok",
+                                 prompt_tokens=prompt_tokens,
+                                 completion_tokens=completion_tokens)
                 return out
     out = {item_key(i): {**_s2_fallback(i, s1map.get(item_key(i))),
                          } for i in batch}
@@ -639,7 +658,8 @@ def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn, state,
     fallback). Total failure fails closed per lemma to fallback_vectors.
     429 rotates the KeyRing (brief pause, same-call retry; all-keys-429
     raises RateLimited so the runner flushes and STOPS).
-    R27: one telemetry record per batch (ok / fallback / error).
+    R27: one telemetry record per batch (ok / fallback / error); tuple
+    (text, usage) transports surface token counts (None-tolerated).
     """
     from run_v15_topics import MODELS as V15_MODELS
     from run_v15_topics import USER_TMPL, fallback_vectors, lemma_block
@@ -656,8 +676,9 @@ def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn, state,
         for attempt in range(MAX_ATTEMPTS):
             text = prompt if attempt == 0 else RETRY_PREFIX + prompt
             label = "%s/v15#%d" % (model, attempt)
+            usage = None
             try:
-                raw = _call_with_rotation(
+                raw, usage = _call_with_rotation(
                     transport, ring, model, text, sleep_fn, state, label)
             except AuthError:
                 raise
@@ -671,9 +692,9 @@ def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn, state,
             except urllib.error.HTTPError as exc:
                 if getattr(exc, "code", None) in (401, 403):
                     raise_for_auth(exc)
-                raw = None
+                raw, usage = None, None
             except Exception:
-                raw = None
+                raw, usage = None, None
             if raw is None:
                 continue
             try:
@@ -704,9 +725,12 @@ def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn, state,
                         "model": model}
             if ok_all:
                 if telemetry is not None:
+                    prompt_tokens, completion_tokens = _tele_tokens(usage)
                     _tele_record(telemetry, stage=tele_stage,
                                  batch_id=tele_batch, key_idx=0,
-                                 model=model, latency_s=0.0, outcome="ok")
+                                 model=model, latency_s=0.0, outcome="ok",
+                                 prompt_tokens=prompt_tokens,
+                                 completion_tokens=completion_tokens)
                 return merged
     for pseudo in pseudos:
         try:
@@ -763,37 +787,35 @@ def s4_label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
                   sleep_fn, state, progress_path, model_calls,
                   telemetry=None, tele_stage="s4", tele_batch=0,
                   ring=None):
-    """S4 topic label via card_pilot.assign_topic (imported two-leg)."""
+    """S4 topic label via card_pilot.assign_topic (imported two-leg).
+
+    Telemetry (model + surfaced tokens, fallback on deterministic miss)
+    is owned by assign_topic — this wrapper only maps auth/stop signals
+    and stays fail-closed to Other / Abstract (the except branch is
+    near-dead by design: assign_topic swallows Exception itself, and
+    the rotating transport's all-keys-429 SystemExit propagates
+    untouched through both layers).
+    """
     if ring is None:
         ring = KeyRing([api_key])
     llm_leg = (_rotating_llm_transport(transport, sleep_fn, state, ring)
                if transport is not None else None)
     try:
-        assigned = card_pilot.assign_topic(
+        return card_pilot.assign_topic(
             item.get("text", ""), gloss or "",
             sense_id=sense_id or None, llm_transport=llm_leg,
             progress_path=progress_path, api_key=api_key,
-            model_calls=model_calls, vector_lookup=vector_lookup)
+            model_calls=model_calls, vector_lookup=vector_lookup,
+            telemetry=telemetry, tele_stage=tele_stage,
+            tele_batch=tele_batch)
     except AuthError:
-        if telemetry is not None:
-            _tele_record(telemetry, stage=tele_stage, batch_id=tele_batch,
-                         key_idx=0, model="", latency_s=0.0,
-                         outcome="auth")
         raise
     except Exception:
-        assigned = {"label": "Other / Abstract",
-                    "method": card_pilot.TOPIC_METHOD_TAG,
-                    "vector": card_pilot.single_topic_vector(
-                        "Other / Abstract")}
-        if telemetry is not None:
-            _tele_record(telemetry, stage=tele_stage, batch_id=tele_batch,
-                         key_idx=0, model="", latency_s=0.0,
-                         outcome="fallback")
-    else:
-        if telemetry is not None:
-            _tele_record(telemetry, stage=tele_stage, batch_id=tele_batch,
-                         key_idx=0, model="", latency_s=0.0, outcome="ok")
-    return assigned
+        return {"label": "Other / Abstract",
+                "method": card_pilot.TOPIC_METHOD_TAG,
+                "vector": card_pilot.single_topic_vector(
+                    "Other / Abstract"),
+                "topic_path": "fallback"}
 
 
 # ---------------------------------------------------------------- S5 ---
@@ -827,6 +849,9 @@ def s5_enrich_item(item, s2pick, index, read_entry, tatoeba_pool,
     only when no passing alternative exists, so the downstream release
     machinery (split_frozen_by_containment) still records them with
     their cloze-<gate> reason instead of silently keeping weak slots.
+    "enrich_path" is "full" when the dataset carriers cover IPA + all
+    N_EXAMPLES slots, else "partial" (the model fills gaps downstream)
+    so the fallback is counted in stage_calls, not silent.
     """
     sid = (s2pick or {}).get("sense_id", "")
     gloss = (s2pick or {}).get("gloss", "")
@@ -834,7 +859,7 @@ def s5_enrich_item(item, s2pick, index, read_entry, tatoeba_pool,
         return {"sense_id": "", "en_def": gloss or "",
                 "ipa": "", "ipa_src": card_pilot.IPA_SRC_MODEL,
                 "dataset_examples": [], "abbrev_expansion": "",
-                "pos": [], "pos_src": "none"}
+                "pos": [], "pos_src": "none", "enrich_path": "partial"}
     try:
         want_idx = int(sid.split("#")[-1])
     except (TypeError, ValueError):
@@ -879,15 +904,19 @@ def s5_enrich_item(item, s2pick, index, read_entry, tatoeba_pool,
         item.get("pool_level", ""), card_pilot.N_EXAMPLES, zipf_fn)
     pos_tags = card_pilot.anchor_pos_tags(
         item.get("text", ""), entries, pos, read_entry)
+    picked_examples = picked[:card_pilot.N_EXAMPLES]
+    enrich_path = ("full" if ipa and len(picked_examples) >=
+                   card_pilot.N_EXAMPLES else "partial")
     return {"sense_id": sid, "en_def": gloss or "",
             "ipa": ipa,
             "ipa_src": card_pilot.IPA_SRC_DATASET if ipa
             else card_pilot.IPA_SRC_MODEL,
-            "dataset_examples": picked[:card_pilot.N_EXAMPLES],
+            "dataset_examples": picked_examples,
             "abbrev_expansion": card_pilot.parse_abbrev_expansion(
                 gloss or ""),
             "pos": pos_tags,
-            "pos_src": "dataset" if pos_tags else "none"}
+            "pos_src": "dataset" if pos_tags else "none",
+            "enrich_path": enrich_path}
 
 
 # ------------------------------------------------------------- main ---
@@ -1169,7 +1198,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             if review and inflect_transport is not None:
                 try:
                     verdicts = card_pilot.inflection_review(
-                        review, inflect_transport, api_key)
+                        review, inflect_transport, api_key,
+                        telemetry=tele_store, tele_stage="s0b")
                 except AuthError:
                     raise
                 except Exception:
@@ -1526,7 +1556,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     "s2": pick.get("model", ""),
                     "s3": vec3.get("model", ""),
                     "s4": label.get("method", ""),
-                    "s4_models": dict(s4_calls)},
+                    "s4_path": label.get("topic_path", ""),
+                    "s4_models": dict(s4_calls),
+                    "s5": enrich.get("enrich_path", "")},
             }
             if s0v.get("type_pending"):
                 rec["type_pending"] = True
