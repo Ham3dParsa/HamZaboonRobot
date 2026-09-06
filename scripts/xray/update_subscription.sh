@@ -76,12 +76,19 @@ unset K MODEL
 if [ ! -s /tmp/clean.json ]; then echo "no clean" >> "$LOG"; exit 0; fi
 cp -f /tmp/clean.json /app/.xray/clean.json 2>&1 | head || true
 python3 /usr/local/bin/rebuild-xray.py 2>>"$LOG" || echo "rebuild failed - keep previous config" >> "$LOG"
-if xray test -c /app/.xray/config.json > /tmp/xray_test.log 2>&1; then
-  echo "config test ok" >> "$LOG"
-else
-  if grep -qi "Failed\|error" /tmp/xray_test.log; then echo "config test failed" >> "$LOG"; cat /tmp/xray_test.log >> "$LOG"; exit 1; fi
-  echo "config test ok (fallback)" >> "$LOG"
+_VALIDATE=""
+if [ -x /usr/local/bin/validate-xray.py ]; then _VALIDATE="/usr/local/bin/validate-xray.py"
+elif [ -f /app/scripts/xray/validate_config.py ]; then _VALIDATE="/app/scripts/xray/validate_config.py"
 fi
+if [ -n "$_VALIDATE" ] && python3 "$_VALIDATE" /app/.xray/config.json > /tmp/xray_test.log 2>&1; then
+  echo "config validate ok" >> "$LOG"
+else
+  echo "config validate failed - keep previous config" >> "$LOG"
+  cat /tmp/xray_test.log >> "$LOG" 2>/dev/null || true
+  unset _VALIDATE
+  exit 1
+fi
+unset _VALIDATE
 if command -v supervisorctl >/dev/null 2>&1; then
   supervisorctl restart xray 2>&1 | head || { pkill -f "xray run" || true; sleep 1; nohup /usr/local/bin/xray run -c /app/.xray/config.json > /var/log/xray/xray.log 2>&1 & }
 else

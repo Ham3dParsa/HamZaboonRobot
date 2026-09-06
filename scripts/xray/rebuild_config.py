@@ -17,6 +17,7 @@ with open(src) as f:
 if not isinstance(outs, list) or len(outs) == 0:
     print(f"rebuild_config: no nodes in {src} - abort, keep previous config", file=sys.stderr)
     sys.exit(1)
+tags = [o["tag"] for o in outs]
 cfg = {
     "inbounds": [
         {"port": 1080, "protocol": "socks", "settings": {"auth": "noauth", "udp": True}},
@@ -28,7 +29,12 @@ cfg = {
             {"type": "field", "domain": ["generativelanguage.googleapis.com", "generativelanguage.google.com"], "balancerTag": "auto"},
             {"type": "field", "network": "tcp,udp", "outboundTag": "direct"},
         ],
-        "balancers": [{"tag": "auto", "selector": [o["tag"] for o in outs], "strategy": {"type": "leastPing"}}],
+        "balancers": [{"tag": "auto", "selector": tags, "strategy": {"type": "leastPing"}}],
+    },
+    "observatory": {
+        "subjectSelector": tags,
+        "probeUrl": "https://www.google.com/generate_204",
+        "probeInterval": "10m",
     },
     "log": {"loglevel": "warning", "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log"},
 }
