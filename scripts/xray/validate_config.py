@@ -7,6 +7,8 @@ Exit 0 when the config is structurally usable, 1 otherwise.
 Checks:
   - file parses as JSON object;
   - `outbounds` is a non-empty list;
+  - `inbounds` is a non-empty list with at least one entry carrying a
+    numeric `port` and a `protocol` string;
   - every balancer has a non-empty `selector` matching outbound tags;
   - every balancer strategy type is one Xray supports for balancers;
   - every routing rule `balancerTag` matches an existing balancer `tag`;
@@ -39,6 +41,11 @@ def main(argv):
     outbounds = cfg.get("outbounds")
     if not isinstance(outbounds, list) or len(outbounds) == 0:
         return fail("outbounds is empty or missing")
+    inbounds = cfg.get("inbounds")
+    if not isinstance(inbounds, list) or len(inbounds) == 0:
+        return fail("inbounds is empty or missing")
+    if not any(isinstance(i, dict) and isinstance(i.get("port"), (int, float)) and isinstance(i.get("protocol"), str) for i in inbounds):
+        return fail("no inbound with numeric port and protocol")
     tags = set()
     for o in outbounds:
         if isinstance(o, dict) and isinstance(o.get("tag"), str):

@@ -81,7 +81,8 @@ _VALIDATE=""
 if [ -x /usr/local/bin/validate-xray.py ]; then _VALIDATE="/usr/local/bin/validate-xray.py"
 elif [ -f /app/scripts/xray/validate_config.py ]; then _VALIDATE="/app/scripts/xray/validate_config.py"
 fi
-if [ -n "$_VALIDATE" ] && python3 "$_VALIDATE" /app/.xray/config.json > /tmp/xray_test.log 2>&1; then
+if [ -z "$_VALIDATE" ]; then echo "no validator - skip refresh" >>"$LOG"; exit 1; fi
+if python3 "$_VALIDATE" /app/.xray/config.json > /tmp/xray_test.log 2>&1; then
   echo "config validate ok" >> "$LOG"
 else
   echo "config validate failed - restore backup, keep previous config" >> "$LOG"
