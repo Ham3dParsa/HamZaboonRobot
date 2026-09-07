@@ -1932,3 +1932,36 @@ def test_stage_selection_accepts_names():
     assert ns("judge") == "s2"
     assert ns("S2") == "s2"
     assert ns("bogus") == "bogus"
+
+
+def test_dropped_log_headers_use_stable_ids(tmp_path, monkeypatch):
+    """v13 identity: dropped.log section headers carry the stable stage
+    id (greppable on disk); the console label stays human-readable."""
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    items = [{"kind": "word", "text": "led", "pos": "noun",
+              "pool_level": "A2"}]
+
+    def rows():
+        return [{"pos": "noun",
+                 "entry": {"pos": "noun", "sounds": [],
+                           "senses": [{"glosses": ["light-emitting diode"],
+                                       "tags": ["abbreviation"],
+                                       "examples": []}]}}]
+
+    sample = write_sample(tmp_path, items)
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog,
+         "--stages", "s0"],
+        _judge_transport=fake_judge, _topic_transport=fake_topics,
+        _assign_transport=None, _sleep_fn=lambda s: None,
+        _index={"led": rows()}, _read_entry=read_entry, _tatoeba={},
+        _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    drop_log = (pathlib.Path(out).parent / "dropped.log"
+                ).read_text(encoding="utf-8")
+    headers = [line for line in drop_log.splitlines()
+               if line.startswith("===")]
+    assert headers, drop_log
+    assert any(line == "=== s0 drops ===" for line in headers), headers
+    assert not any("langar" in line for line in headers), headers

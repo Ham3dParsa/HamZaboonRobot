@@ -1494,12 +1494,12 @@ def _stage_summary(stage, states, out_path):
         drop_log = pathlib.Path(str(out_path)).parent / "dropped.log"
         try:
             with open(drop_log, "a", encoding="utf-8") as handle:
-                handle.write("=== %s drops ===\n" % stage_label(stage))
+                handle.write("=== %s drops ===\n" % stage)
                 for line in details:
                     handle.write(line + "\n")
                 if quarantined:
                     handle.write("=== %s quarantine (kept, review) ===\n"
-                                 % stage_label(stage))
+                                 % stage)
                     for line in quarantined:
                         handle.write(line + "\n")
         except OSError as exc:
