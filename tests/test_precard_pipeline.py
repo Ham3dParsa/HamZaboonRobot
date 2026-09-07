@@ -1686,7 +1686,8 @@ def test_g5_boundary_phrasings():
     for gloss in ("a native of France", "an inhabitant of Rome",
                   "a person from Spain",
                   "the country's national language is X",
-                  "of or pertaining to Italy"):
+                  "of or pertaining to Italy",
+                  "Of or pertaining to Italy"):
         v = _g_classify("t" + gloss[:3], _g_view([(gloss, [])]))
         assert v["reason"] == "g5-demonym", gloss
     for gloss in ("a national park", "an international treaty",
@@ -1710,10 +1711,9 @@ def test_gates_normalize_mixed_casing():
 
 def test_g3_multi_pos_survives():
     """by/would/when: interjection among other POS rows is NOT a drop."""
-    from precard_pipeline import _s0_input_gates
-    view = {"senses": [{"gloss": "near", "tags": []}],
-            "poss": {"prep", "interj"}}
-    assert _s0_input_gates("by", view) == (None, None)
+    v = _g_classify("by", _g_view([("near", [])],
+                                   poss=["prep", "interj"]))
+    assert v["kept"] is True
 
 
 def test_unknown_zipf_keeps_quarantine():

@@ -430,7 +430,7 @@ _G5_DEMONYM_RX = re.compile(
     r"countr(y|ies)\b[^.]{0,20}?\b(language|nation|nationality)\b|"
     r"language spoken)\b", re.IGNORECASE)
 _G5_PERTAIN_RX = re.compile(
-    r"\bof or (pertaining|relating) to [A-Z]")
+    r"\b[Oo]f or (pertaining|relating) to [A-Z]")
 
 
 def _s0_entry_view(item, index, read_entry):
