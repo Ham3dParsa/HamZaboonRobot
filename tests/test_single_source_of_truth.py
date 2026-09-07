@@ -61,6 +61,10 @@ DOMAIN_KEYWORDS: dict[str, str] = {
     "plan_label": "config/plan_identity.py",
     "has_feature": "config/plan_identity.py",
     "feature_audience": "config/plan_identity.py",
+    # config/themes.py owns the learner-facing theme catalog (issue #467).
+    "THEMES": "config/themes.py",
+    "get_theme": "config/themes.py",
+    "validate_themes": "config/themes.py",
     # services/plan_fields.py owns the admin-editable plan field schema (G3 F8/R8).
     "PLAN_FIELDS": "services/plan_fields.py",
     "PLAN_GROUPS": "services/plan_fields.py",

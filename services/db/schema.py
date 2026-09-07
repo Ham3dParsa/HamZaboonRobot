@@ -658,7 +658,8 @@ def init_db(path: str | None = None):
                 first_exposure_mode TEXT,
                 review_mode TEXT,
                 onboarded INTEGER DEFAULT 0,
-                created_at TEXT
+                created_at TEXT,
+                theme_id TEXT DEFAULT 'fire_temple'
             );
             CREATE TABLE IF NOT EXISTS saved_words (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -818,6 +819,7 @@ def init_db(path: str | None = None):
             "display_toggles_forced": "TEXT",
             "first_exposure_mode": "TEXT",
             "review_mode": "TEXT",
+            "theme_id": "TEXT DEFAULT 'fire_temple'",
         }
         for name, definition in user_columns.items():
             if name not in columns:

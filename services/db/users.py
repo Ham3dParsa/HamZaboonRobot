@@ -456,6 +456,40 @@ def set_plan(user_id: int, plan: str):
         conn.execute("UPDATE users SET plan=? WHERE user_id=?", (plan, user_id))
 
 
+def get_user_theme(user_id: int, row=None) -> str:
+    """Return a user's theme id; unknown/missing values fail closed to default.
+
+    Reads fail closed (never raise): unknown stored ids, missing users, or a
+    pre-migration DB without the column all return ``DEFAULT_THEME_ID``.
+    """
+    from config.themes import DEFAULT_THEME_ID, THEMES
+
+    if row is None:
+        try:
+            row = get_user(user_id)
+        except Exception:
+            return DEFAULT_THEME_ID
+    if not row:
+        return DEFAULT_THEME_ID
+    try:
+        theme_id = row["theme_id"]
+    except (KeyError, IndexError, TypeError):
+        return DEFAULT_THEME_ID
+    if isinstance(theme_id, str) and theme_id in THEMES:
+        return theme_id
+    return DEFAULT_THEME_ID
+
+
+def set_user_theme(user_id: int, theme_id: str):
+    """Persist a user's theme id; unknown ids raise ``ValueError`` (fail fast)."""
+    from config.themes import THEMES
+
+    if theme_id not in THEMES:
+        raise ValueError(f"Unknown theme: {theme_id}")
+    with transaction() as conn:
+        conn.execute("UPDATE users SET theme_id=? WHERE user_id=?", (theme_id, user_id))
+
+
 def find_user(identifier: str):
     identifier = identifier.strip()
     if identifier.startswith("@"):
