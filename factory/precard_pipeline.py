@@ -1371,14 +1371,18 @@ def _stage_summary(stage, states, out_path):
         " | " + ", ".join("%s=%d" % kv for kv in slugs.most_common(4))
         if slugs else "",
         " | quarantined=%d" % len(quarantined) if quarantined else ""))
-    details.extend(quarantined)
-    if details:
+    if details or quarantined:
         drop_log = pathlib.Path(str(out_path)).parent / "dropped.log"
         try:
             with open(drop_log, "a", encoding="utf-8") as handle:
-                handle.write("=== %s ===\n" % stage)
+                handle.write("=== %s drops ===\n" % stage)
                 for line in details:
                     handle.write(line + "\n")
+                if quarantined:
+                    handle.write("=== %s quarantine (kept, review) ===\n"
+                                 % stage)
+                    for line in quarantined:
+                        handle.write(line + "\n")
         except OSError as exc:
             print("warning: dropped.log append failed (%s)" % exc)
 
@@ -1561,7 +1565,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     s0_view_cache: dict = {}
 
     def _cached_view(text):
-        key = (text or "").strip().lower()
+        key = (text or "").strip().casefold()
         if key not in s0_view_cache:
             s0_view_cache[key] = _s0_entry_view(
                 {"kind": "word", "text": text}, index, read_entry)
