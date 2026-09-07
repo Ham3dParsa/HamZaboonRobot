@@ -423,8 +423,8 @@ _G2_FORM_RX = re.compile(
 # positive/negative boundary).
 _G5_DEMONYM_RX = re.compile(
     r"\b(nationality|demonym|capital of|city in|native of|"
-    r"inhabitant of|person from|of or (pertaining|relating) to|"
-    r"\bcountr(y|ies)\b[^.]{0,20}?\b(language|nation|nationality)\b|"
+    r"inhabitant of|person from|"
+    r"countr(y|ies)\b[^.]{0,20}?\b(language|nation|nationality)\b|"
     r"language spoken)\b", re.IGNORECASE)
 
 
@@ -484,9 +484,11 @@ def _s0_input_gates(text, view):
                      for t in s.get("tags", [])],
         })
     glosses = [s.get("gloss") or "" for s in senses]
-    # G3: interjection entries have no flashcard value (all POS
-    # spellings: interj/intj/interjection).
-    if poss & {"interj", "intj", "interjection"}:
+    # G3: interjection-only entries have no flashcard value (all POS
+    # spellings: interj/intj/interjection). A word with other POS rows
+    # (by/would/when) is NOT dropped here — proper channels own those.
+    _interj = {"interj", "intj", "interjection"}
+    if poss and poss <= _interj:
         return "g3-interjection", None
     # G4: abbreviations. All-caps fires on case-preserving samples
     # (live: FEB/WHO/NSW dropped in pilot200g); the tag leg covers
