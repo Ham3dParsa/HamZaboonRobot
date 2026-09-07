@@ -287,8 +287,20 @@ def probe_pool(top_n=PROBE_TOP_N, workers=20):
         return (ms if ms is not None else 10 ** 9, server)
 
     with _fut.ThreadPoolExecutor(max_workers=workers) as pool:
-        ranked = sorted(pool.map(one, servers),
-                        key=lambda pair: pair[0])
+        future_of = {pool.submit(one, s): s for s in servers}
+        ranked = []
+        done = 0
+        for future in _fut.as_completed(future_of):
+            done += 1
+            ms, server = future.result()
+            print("\rprobing %d/%d: %s:%s %s" % (
+                done, len(servers), server.get("host"),
+                server.get("port"),
+                ("%dms" % ms) if ms < 10 ** 9 else "dead"),
+                end="", flush=True)
+            ranked.append((ms, server))
+        print("")
+        ranked.sort(key=lambda pair: pair[0])
     return [{"host": s["host"], "port": s["port"], "scheme": s["scheme"],
              "id": s["id"],
              "latency_ms": (None if ms >= 10 ** 9 else ms),
