@@ -421,11 +421,16 @@ _G2_FORM_RX = re.compile(
 # G5: demonym / geo glosses on adjective entries. Canonical phrasings
 # (calibrated 2026-09-07; intentionally narrow — see tests for the
 # positive/negative boundary).
+# G5: demonym / geo glosses. "of or pertaining to X" counts only with a
+# capitalized object (Italy, not words) — proper names signal places, so
+# this branch is case-SENSITIVE on purpose (no IGNORECASE here).
 _G5_DEMONYM_RX = re.compile(
     r"\b(nationality|demonym|capital of|city in|native of|"
     r"inhabitant of|person from|"
     r"countr(y|ies)\b[^.]{0,20}?\b(language|nation|nationality)\b|"
     r"language spoken)\b", re.IGNORECASE)
+_G5_PERTAIN_RX = re.compile(
+    r"\bof or (pertaining|relating) to [A-Z]")
 
 
 def _s0_entry_view(item, index, read_entry):
@@ -511,7 +516,9 @@ def _s0_input_gates(text, view):
         return "g2-inflection-form", None
     # G5: demonym/geo glosses (phase-1 learner pool; travel phase brings
     # them back from a dedicated dataset).
-    if glosses and any(_G5_DEMONYM_RX.search(g) for g in glosses):
+    if glosses and any(_G5_DEMONYM_RX.search(g or "")
+                        or _G5_PERTAIN_RX.search(g or "")
+                        for g in glosses):
         return "g5-demonym", None
     return None, None
 

@@ -1685,7 +1685,8 @@ def test_g5_boundary_phrasings():
     """G5 hits canonical demonym phrasings, spares lookalikes."""
     for gloss in ("a native of France", "an inhabitant of Rome",
                   "a person from Spain",
-                  "the country's national language is X"):
+                  "the country's national language is X",
+                  "of or pertaining to Italy"):
         v = _g_classify("t" + gloss[:3], _g_view([(gloss, [])]))
         assert v["reason"] == "g5-demonym", gloss
     for gloss in ("a national park", "an international treaty",
