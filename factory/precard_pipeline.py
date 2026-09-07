@@ -50,9 +50,10 @@ while the S1 anchor was not is either routed to the proper-pool track
 continues to S3+) or dropped with reason pick-proper-noun/<suffix>
 (org-guard / person-name / no-class / zipf-low — recorded on the s2
 done entry + failed list, never in precard.jsonl).
-V7: every batch prints ONE stdout line "S<stage> batch i/N ok=X fail=Y
-model=calls" (batch_log_line, owned by card_pilot) and each run writes
-a compact run.log beside --out (stage start/end + counts + timings).
+V7: console shows a live one-line progress per batch (_batch_progress)
+plus an English [STAGE] summary box; multilingual drop details go to
+dropped.log. Each run writes a compact run.log beside --out (stage
+start/end + counts + timings).
 
 S0 PREPROCESS (strict, v6 scope: junk words/phrases and rare senses leak
 less): word items drop when R4 name-only (card_pilot.is_proper_noun_lemma
@@ -335,14 +336,23 @@ def _is_academic(item, awl_set):
 
 
 def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
-                     type_log_available):
+                     type_log_available, entry_fn=None):
     """S0 verdict for one sample item: {"kept", "reason", "type_pending"}.
 
     kept=False carries a drop reason (r4-name-only / r20-zipf-low:<z> /
-    applied-keep-false:<type>); kept=True has reason None except the
-    zipf-unknown-kept note. Phrase items kept without a type judgement
+    applied-keep-false:<type> / g2..g6 input gates, locked 2026-09-07).
+    Order for words: R4 proper-noun, G-gates (no zipf bypass — entry
+    lookup is fail-open), then the R20 zipf floor. A computed quarantine
+    flag rides along on unknown zipf (kept, review value survives) but a
+    low-zipf suspect drops on frequency, never quarantines. kept=True has reason None except the
+    zipf-unknown-kept note. A kept item may carry quarantine=<gate> (G4
+    single-sense suspect — surfaced in the stage summary + dropped.log
+    for owner review, item is NOT dropped).
+    Phrase items kept without a type judgement
     carry type_pending=True ("type-pending" flag). R35 v9: the word zipf
     gate is level-aware (ZIPF_FLOORS by pool_level); academic bypass kept.
+    entry_fn(text) -> {"senses": [{"gloss", "tags"}], "poss": set()}
+    or None; without entry data the G-gates are skipped (keep).
     """
     kind = item.get("kind") or "word"
     text = (item.get("text") or "").strip()
@@ -351,11 +361,29 @@ def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
                 text, (pos_sets or {}).get(text.lower(), set())):
             return {"kept": False, "reason": "r4-name-only",
                     "type_pending": False}
+        # G-gates evaluate even on unknown zipf (review: no bypass —
+        # entry lookup itself is fail-open, so uncertainty keeps).
+        quarantine = None
+        if entry_fn is not None:
+            try:
+                view = entry_fn(text)
+            except Exception:
+                view = None
+            if view and view.get("senses"):
+                reason, quarantine = _s0_input_gates(text, view)
+                if reason:
+                    return {"kept": False, "reason": reason,
+                            "type_pending": False}
         try:
             zipf = zipf_fn(text)
         except Exception:
             zipf = None
         if zipf is None:
+            # Unknown frequency keeps, but a computed quarantine flag
+            # still rides along (review value survives the unknown).
+            if quarantine:
+                return {"kept": True, "reason": "zipf-unknown-kept",
+                        "type_pending": False, "quarantine": quarantine}
             return {"kept": True, "reason": "zipf-unknown-kept",
                     "type_pending": False}
         floor = ZIPF_FLOORS.get(
@@ -364,6 +392,12 @@ def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
             return {"kept": False,
                     "reason": "r20-zipf-low:%.2f" % float(zipf),
                     "type_pending": False}
+        # Quarantine is reserved for frequency-passing items (Q1): a
+        # low-zipf suspect drops on frequency above, never quarantines.
+        if quarantine:
+            return {"kept": True, "reason": None,
+                    "type_pending": False,
+                    "quarantine": quarantine}
         return {"kept": True, "reason": None, "type_pending": False}
     entry = (type_map or {}).get(text) if type_log_available else None
     if not isinstance(entry, dict):
@@ -374,6 +408,110 @@ def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
                     entry.get("phrase_type") or "unknown"),
                 "type_pending": False}
     return {"kept": True, "reason": None, "type_pending": False}
+
+
+# G-gate patterns (locked 2026-09-07, calibrated on the 284 dry run).
+# G2: every sense gloss is a mechanical inflection reference. Includes
+# bare variants ("past of go", hyphenated "third-person singular").
+_G2_FORM_RX = re.compile(
+    r"\b(third[ -]?person singular|simple past|past of|past tense|"
+    r"past participle|present participle|present of|gerund|plural of|"
+    r"comparative|superlative)\b",
+    re.IGNORECASE)
+# G5: demonym / geo glosses on adjective entries. Canonical phrasings
+# (calibrated 2026-09-07; intentionally narrow — see tests for the
+# positive/negative boundary).
+_G5_DEMONYM_RX = re.compile(
+    r"\b(nationality|demonym|capital of|city in|native of|"
+    r"inhabitant of|person from|of or (pertaining|relating) to|"
+    r"\bcountr(y|ies)\b[^.]{0,20}?\b(language|nation|nationality)\b|"
+    r"language spoken)\b", re.IGNORECASE)
+
+
+def _s0_entry_view(item, index, read_entry):
+    """Collect {senses:[{gloss,tags}], poss:set} across all rows of a lemma.
+
+    Fail-open to None on any lookup error (caller keeps the item — G-gates
+    never drop on uncertainty).
+    """
+    try:
+        rows, _pos = _entries_for(item, index)
+    except Exception:
+        return None
+    senses, poss = [], set()
+    try:
+        for row in rows or []:
+            entry = read_entry(row) or {}
+            if isinstance(entry, dict):
+                pos = str(entry.get("pos") or "").strip().casefold()
+                if pos:
+                    poss.add(pos)
+                for sense in entry.get("senses") or []:
+                    if not isinstance(sense, dict):
+                        continue
+                    glosses = sense.get("glosses") or []
+                    tags = [str(t or "").strip().casefold()
+                            for t in sense.get("tags") or []]
+                    senses.append({
+                        "gloss": glosses[0] if glosses else "",
+                        "tags": [t for t in tags if t],
+                    })
+    except Exception:
+        return None
+    if not senses:
+        return None
+    return {"senses": senses, "poss": poss}
+
+
+def _s0_input_gates(text, view):
+    """G2..G6 input gates. Returns (drop_reason|None, quarantine|None).
+
+    G1 (case-fold) lives in the sample builder, not here. Order: G3/G4/G6
+    metadata checks, then G2/G5 gloss scans. Quarantine (G4 single-sense
+    suspect like "led") keeps the item with a review flag.
+    Normalization is enforced HERE (not trusted from the caller): poss
+    and per-sense tags are casefolded up front, so any entry_fn casing
+    (Abbreviation, Interj) still matches.
+    """
+    poss = {str(p or "").strip().casefold() for p in view.get("poss", set())}
+    senses = []
+    for s in view.get("senses") or []:
+        if not isinstance(s, dict):
+            continue
+        senses.append({
+            "gloss": s.get("gloss") or "",
+            "tags": [str(t or "").strip().casefold()
+                     for t in s.get("tags", [])],
+        })
+    glosses = [s.get("gloss") or "" for s in senses]
+    # G3: interjection entries have no flashcard value (all POS
+    # spellings: interj/intj/interjection).
+    if poss & {"interj", "intj", "interjection"}:
+        return "g3-interjection", None
+    # G4: abbreviations. All-caps fires on case-preserving samples
+    # (live: FEB/WHO/NSW dropped in pilot200g); the tag leg covers
+    # lowercased inputs. A lone lowercase single-abbrev sense is
+    # quarantined, not dropped (led).
+    n_abbr = sum(1 for s in senses if "abbreviation" in s.get("tags", []))
+    # Caps alone never drops (BOOK/PLAY stay); caps + at least one abbrev
+    # tag, or every-sense-abbrev (multi-sense), drops.
+    if (re.fullmatch(r"[A-Z]{2,6}", text or "") and n_abbr > 0) or \
+            (senses and n_abbr == len(senses) and len(senses) > 1):
+        return "g4-abbrev", None
+    if senses and len(senses) == 1 and n_abbr == 1:
+        return None, "g4-abbrev"
+    # G6: every sense obsolete.
+    if senses and all("obsolete" in s.get("tags", []) for s in senses):
+        return "g6-obsolete", None
+    # G2: every gloss a mechanical inflection reference (kept when at
+    # least one sense is independent, e.g. accusing#1 adjective).
+    if glosses and all(_G2_FORM_RX.search(g) for g in glosses):
+        return "g2-inflection-form", None
+    # G5: demonym/geo glosses (phase-1 learner pool; travel phase brings
+    # them back from a dedicated dataset).
+    if glosses and any(_G5_DEMONYM_RX.search(g) for g in glosses):
+        return "g5-demonym", None
+    return None, None
 
 
 def _tele_tokens(usage):
@@ -1211,10 +1349,14 @@ def _stage_summary(stage, states, out_path):
                and not v.get("dropped"))
     slugs = Counter()
     details = []
+    quarantined = []
     for key, verdict in done.items():
         if not isinstance(verdict, dict):
             continue
         reason = verdict.get("reason") or verdict.get("dropped") or ""
+        if verdict.get("quarantine"):
+            quarantined.append("%s: quarantine-%s" % (
+                key, verdict.get("quarantine")))
         if verdict.get("kept", True) and not verdict.get("dropped"):
             continue
         slugs[_reason_slug(reason)] += 1
@@ -1224,17 +1366,23 @@ def _stage_summary(stage, states, out_path):
             slugs["failed-no-entry"] += 1
             details.append("%s: failed-no-entry" % key)
     print("")
-    print("[STAGE %s] kept=%d dropped=%d%s" % (
+    print("[STAGE %s] kept=%d dropped=%d%s%s" % (
         stage, kept, len(failed),
         " | " + ", ".join("%s=%d" % kv for kv in slugs.most_common(4))
-        if slugs else ""))
-    if details:
+        if slugs else "",
+        " | quarantined=%d" % len(quarantined) if quarantined else ""))
+    if details or quarantined:
         drop_log = pathlib.Path(str(out_path)).parent / "dropped.log"
         try:
             with open(drop_log, "a", encoding="utf-8") as handle:
-                handle.write("=== %s ===\n" % stage)
+                handle.write("=== %s drops ===\n" % stage)
                 for line in details:
                     handle.write(line + "\n")
+                if quarantined:
+                    handle.write("=== %s quarantine (kept, review) ===\n"
+                                 % stage)
+                    for line in quarantined:
+                        handle.write(line + "\n")
         except OSError as exc:
             print("warning: dropped.log append failed (%s)" % exc)
 
@@ -1363,12 +1511,13 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             ", ".join(s for s in STAGES if s in selected)))
 
     # V7: compact run.log in the out dir (stage start/end + counts +
-    # timings); batch_log_line (owned by card_pilot, reused by import)
-    # prints ONE stdout line per batch. ok/fail per stage: s0 kept vs
+    # timings). Console shows a live one-line progress per batch
+    # (_batch_progress) plus an English [STAGE] box; multilingual drop
+    # details go to dropped.log. ok/fail per stage: s0 kept vs
     # dropped; s1 ranked vs anchor-proper-noun/error; s2 judge model vs
     # s1-fallback; s3 model vector vs deterministic fallback; s4/s5 have
     # no fail-closed signal, so fail is always 0 there.
-    from card_pilot import RunLogger, batch_log_line  # noqa: E402
+    from card_pilot import RunLogger  # noqa: E402
     run_logger = RunLogger(
         str(pathlib.Path(args.out).parent / "run.log"))
     for stage in STAGES:
@@ -1411,6 +1560,16 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                           else bool(_type_log_available))
     pos_sets = card_pilot.build_pos_sets(index)
     s0_info: dict = {}
+    # Memoized entry views: one Kaikki read pass per lemma per run (S0
+    # was previously in-memory; without this each item pays open+seek).
+    s0_view_cache: dict = {}
+
+    def _cached_view(text):
+        key = (text or "").strip().casefold()
+        if key not in s0_view_cache:
+            s0_view_cache[key] = _s0_entry_view(
+                {"kind": "word", "text": text}, index, read_entry)
+        return s0_view_cache[key]
     run_logger.stage_start("s0")
     n_s0_batches = (len(items) + BATCH - 1) // BATCH or 1
     for batch_no, base in enumerate(
@@ -1421,7 +1580,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             if key not in states["s0"]["done"]:
                 verdict = s0_classify_item(
                     item, pos_sets, zipf_fn, awl_set, type_map,
-                    type_log_available)
+                    type_log_available, entry_fn=_cached_view)
                 states["s0"]["done"][key] = verdict
                 if not verdict["kept"] \
                         and key not in states["s0"]["failed"]:
@@ -2013,7 +2172,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 "drop_reason": None,
                 "stage_calls": {
                     "s0": ("kept:type-pending" if s0v.get("type_pending")
-                           else "kept"),
+                            else "kept:quarantine-%s" % s0v.get("quarantine")
+                            if s0v.get("quarantine") else "kept"),
                     "s0b": (s0b.get("reason", "") or "kept"),
                     "s2": pick.get("model", ""),
                     "s3": vec3.get("model", ""),
@@ -2024,6 +2184,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             }
             if s0v.get("type_pending"):
                 rec["type_pending"] = True
+            if s0v.get("quarantine"):
+                # Advisory review flag flows downstream (card stays live;
+                # owner filters quarantine=* for the review list).
+                rec["quarantine"] = s0v["quarantine"]
             if (pick.get("proper_route") or ""):
                 rec["proper_route"] = pick["proper_route"]
             if key not in precards:
