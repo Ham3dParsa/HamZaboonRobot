@@ -54,7 +54,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from telegram.error import RetryAfter
 
-from tools.load_sim.plan_mix import sample_workload
+from tools.load_sim.plan_mix import edge_scenarios, sample_workload
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +77,80 @@ _RETRY_AFTER_LO_S = 0.01
 _RETRY_AFTER_HI_S = 0.05
 _P429 = 0.015  # 1.5% — inside the locked 1-2% band
 _AI_TIMEOUT_P = 0.02
+
+# Patient word-query mock (locked plan scale/plan-load-sim-60day round 2, F2).
+# Real learner queries wait on the AI pipeline: p50 ~1.5s, p95 ~8s, with a
+# small timeout rate. The replay scales every sampled delay by
+# ``PATIENT_FAST_SCALE`` (documented FAST factor) so CI miniatures stay fast
+# while the SHAPE (lognormal, mu=ln(1.5), sigma=1.0 → p50 1.5s, p95 ~7.8s)
+# is measured at scale 1.0. A fraction ``PATIENT_SAVE_TAP_P`` of delivered
+# queries taps save-for-review via the real ``services.word_query.toggle_save``.
+_PATIENT_P50_S = 1.5
+_PATIENT_P95_S = 8.0
+_PATIENT_TIMEOUT_P = 0.03
+PATIENT_FAST_SCALE = 0.01
+PATIENT_SAVE_TAP_P = 0.30
+_PATIENT_MU = 0.4054651081081644  # ln(1.5) → lognormal median 1.5s
+_PATIENT_SIGMA = 1.0  # p95 = exp(mu + 1.645*sigma) ≈ 7.8s
+
+# Realistic card fixtures shaped like real AI cards: every entry carries the
+# full card schema (word, phonetic, fa_meaning, explanation, examples with
+# translations, synonyms, grammar tip). The patient fake clones one template
+# per queried word (word field overridden) so downstream persistence and
+# rendering see production-shaped payloads. Zero real AI tokens — canned only.
+PATIENT_CARDS: list[dict] = [
+    {
+        "word": "resilient",
+        "phonetic": "/rɪˈzɪl.jənt/",
+        "fa_meaning": "انعطاف‌پذیر؛ تاب‌آور",
+        "fa_explanation": "کسی یا چیزی که بعد از سختی سریع به حالت عادی برمی‌گردد.",
+        "examples": [
+            "She is resilient after every failure.",
+            "A resilient team adapts to change.",
+        ],
+        "example_translations": [
+            "او بعد از هر شکستی تاب‌آور است.",
+            "یک تیم تاب‌آور با تغییر سازگار می‌شود.",
+        ],
+        "synonyms": ["tough", "adaptable"],
+        "antonyms": ["fragile"],
+        "grammar_tip": "صفت است: قبل از اسم می‌آید (a resilient child).",
+    },
+    {
+        "word": "hesitate",
+        "phonetic": "/ˈhez.ɪ.teɪt/",
+        "fa_meaning": "تردید کردن؛ درنگ کردن",
+        "fa_explanation": "وقتی مطمئن نیستی و قبل از عمل مکث می‌کنی.",
+        "examples": [
+            "Don't hesitate to ask for help.",
+            "He hesitated before answering.",
+        ],
+        "example_translations": [
+            "برای کمک خواستن تردید نکن.",
+            "او قبل از جواب دادن درنگ کرد.",
+        ],
+        "synonyms": ["pause", "waver"],
+        "antonyms": [],
+        "grammar_tip": "با مصدر با to می‌آید: hesitate to decide.",
+    },
+    {
+        "word": "brilliant",
+        "phonetic": "/ˈbrɪl.jənt/",
+        "fa_meaning": "درخشان؛ بسیار باهوش",
+        "fa_explanation": "هم برای نور درخشان و هم برای هوش زیاد به کار می‌رود.",
+        "examples": [
+            "She has a brilliant idea.",
+            "The stars look brilliant tonight.",
+        ],
+        "example_translations": [
+            "او یک ایده درخشان دارد.",
+            "ستاره‌ها امشب درخشان به نظر می‌رسند.",
+        ],
+        "synonyms": ["bright", "clever"],
+        "antonyms": ["dull"],
+        "grammar_tip": "صفت است: هم برای اشیا هم انسان (a brilliant student).",
+    },
+]
 
 # 5k peak-slice replay bounds (locked plan scale/plan-load-sim-5k, T1).
 _5K_MAX_CONCURRENCY = 50
@@ -136,6 +210,52 @@ def _words_asked(db, user_id: int) -> int:
         return row["words_asked_today"] or 0
     except (KeyError, IndexError, TypeError):
         return 0
+
+
+def _live_plan_limits(db) -> dict | None:
+    """Read sessions/cards-per-session per plan from the live plans table.
+
+    Returns ``{code: {"sessions": s, "cards": c}}`` for plan_mix (R1 input),
+    or ``None`` when unreadable so plan_mix falls back to its DB-seed mirror.
+    """
+    try:
+        rows = db.list_plans(active_only=True) or db.list_plans()
+    except Exception:
+        return None
+    limits: dict = {}
+    try:
+        for row in rows:
+            limits[row["name"]] = {
+                "sessions": int(row["max_sessions"]),
+                "cards": int(row["cards_per_session"]),
+            }
+    except (KeyError, TypeError, ValueError):
+        return None
+    return limits or None
+
+
+def _arrival_summary(workload: list[dict]) -> dict:
+    """Summarize arrival metadata (personas, sessions, abandons, queries)."""
+    personas: dict[str, int] = {}
+    sessions_total = 0
+    abandoned = 0
+    resumed = 0
+    queries_total = 0
+    for user in workload:
+        personas[user.get("persona", "?")] = personas.get(user.get("persona", "?"), 0) + 1
+        sessions_total += int(user.get("sessions", 1))
+        if user.get("abandoned"):
+            abandoned += 1
+        if user.get("resume_hours_later") is not None:
+            resumed += 1
+        queries_total += int(user.get("queries", 0))
+    return {
+        "sessions_total": sessions_total,
+        "personas": personas,
+        "abandoned": abandoned,
+        "resumed": resumed,
+        "queries_total": queries_total,
+    }
 
 
 def _alpha_suffix(i: int) -> str:
@@ -242,6 +362,86 @@ def _make_replay_ai_fakes(*, seed: int, counters: dict, ai_override, lock):
     return fake_step, fake_prep
 
 
+def patient_delay_seconds(rng: random.Random) -> float:
+    """Sample one unscaled patient word-query delay in seconds (pure).
+
+    Lognormal(mu=ln(1.5), sigma=1.0): median 1.5s, p95 ~7.8s (documents the
+    locked p50 ~1.5s / p95 ~8s shape). Callers scale by ``PATIENT_FAST_SCALE``
+    for practical runtimes; distribution tests measure this function at
+    scale 1.0 so the FAST factor never hides a shape regression.
+    """
+    return float(rng.lognormvariate(_PATIENT_MU, _PATIENT_SIGMA))
+
+
+def patient_card_for(word: str, rng: random.Random | None = None) -> dict:
+    """Return a production-shaped canned card for ``word`` (pure, no I/O).
+
+    Clones one :data:`PATIENT_CARDS` template (index from the word hash, so
+    the choice never consumes the caller's RNG stream) and overrides the
+    ``word`` field. Shape matches the real AI card schema the validators
+    accept; zero real AI tokens.
+    """
+    digest = hashlib.md5(str(word).encode("utf-8")).digest()
+    template = PATIENT_CARDS[int.from_bytes(digest[:2], "little") % len(PATIENT_CARDS)]
+    card = dict(template)
+    card["word"] = word
+    card["examples"] = list(template["examples"])
+    card["example_translations"] = list(template["example_translations"])
+    card["synonyms"] = list(template["synonyms"])
+    card["antonyms"] = list(template.get("antonyms", []))
+    return card
+
+
+def make_patient_replay_ai_fakes(
+    *,
+    seed: int,
+    counters: dict,
+    lock,
+    fast_scale: float = PATIENT_FAST_SCALE,
+):
+    """Build the patient word-query AI fake pair (F2, zero real AI tokens).
+
+    Same replay-wide patching discipline as :func:`_make_replay_ai_fakes`
+    (one shared pair per replay, per-(seed, user, word) deterministic draws).
+    The step fake sleeps ``patient_delay_seconds(draw) * fast_scale`` then
+    answers :func:`patient_card_for` for THAT word; with probability
+    ``_PATIENT_TIMEOUT_P`` it raises ``asyncio.TimeoutError`` (counted as
+    ``ai_timeouts``) instead. Only the bot-namespace seam is patched by the
+    caller; providers never run.
+    """
+    if fast_scale <= 0:
+        raise ValueError(f"fast_scale must be positive, got {fast_scale!r}")
+
+    def _draw_rng(user_id, word: str) -> random.Random:
+        digest = hashlib.md5(
+            f"{seed}:{user_id}:{word}".encode("utf-8")
+        ).digest()
+        return random.Random(int.from_bytes(digest[:8], "little"))
+
+    def fake_step(function, *args, deadline=None, **kwargs):
+        user_id = kwargs.get("user_id")
+        word = kwargs.get("user_prompt")
+        if not isinstance(word, str) or not word:
+            maybe_card = args[0] if args else None
+            if isinstance(maybe_card, dict) and maybe_card.get("word"):
+                word = str(maybe_card["word"])
+            else:
+                word = "hello"
+        draw = _draw_rng(user_id, word)
+        if draw.random() < _PATIENT_TIMEOUT_P:
+            with lock:
+                counters["ai_timeouts"] += 1
+            raise asyncio.TimeoutError("simulated patient AI timeout")
+        delay_s = patient_delay_seconds(draw) * fast_scale
+        time.sleep(max(0.0, delay_s))
+        return patient_card_for(word, draw)
+
+    def fake_prep(data, **kwargs):
+        return dict(data)
+
+    return fake_step, fake_prep
+
+
 def _make_ask_spy(counters: dict, lock):
     """Build a replay-wide ``services.word_query.ask`` wrapper counting kinds.
 
@@ -319,7 +519,7 @@ async def _with_db_retry_sync(op, counters: dict, attempts: int = 3):
     raise RuntimeError("load_sim db retry called with attempts=0")
 
 
-async def run_load(n, seed, db_path, bot_mock=None, ai_mock=None) -> dict:
+async def run_load(n, seed, db_path, bot_mock=None, ai_mock=None, workload_override=None) -> dict:
     """Replay ``n`` synthetic users (seed ``seed``) against ``db_path``.
 
     Returns a metrics dict with per-journey latencies (ms) plus counters:
@@ -327,6 +527,10 @@ async def run_load(n, seed, db_path, bot_mock=None, ai_mock=None) -> dict:
     ``ai_timeouts``, ``ai_error``, ``word_query_ok``, ``quota_double_spend``,
     ``report_loss``, ``plan_fallbacks``, ``real_grades``,
     ``card_lookup_miss``, ``grade_check_failed``.
+
+    Arrival-v2: the workload is sampled with the LIVE plans-table limits
+    (R1 input to plan_mix); ``workload_override`` (e.g. an edge_scenarios
+    workload from :func:`run_edge_scenario`) replays as-is instead.
     """
     import bot
     from services import db
@@ -340,18 +544,74 @@ async def run_load(n, seed, db_path, bot_mock=None, ai_mock=None) -> dict:
     db.init_db()
     bot._telegram_offline = False
     try:
-        return await _run(n, seed, bot, db, bot_mock, ai_mock)
+        return await _run(n, seed, bot, db, bot_mock, ai_mock, workload_override)
     finally:
         db.DB_PATH = prev_db
         db_schema.DB_PATH = prev_schema
         bot._telegram_offline = prev_offline
 
 
-async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
+async def run_edge_scenario(
+    scenario: str,
+    n: int,
+    seed: int,
+    db_path,
+    bot_mock=None,
+    ai_mock=None,
+    plan_limits=None,
+    workload_override=None,
+) -> dict:
+    """Replay one R3 named edge scenario; returns the run_load metrics.
+
+    The edge workload is built with the LIVE plans-table limits (or the
+    ``plan_limits`` override when given; ``workload_override`` replays
+    as-is instead, mirroring :func:`run_load`) and every metric flows
+    through the existing counters (plus ``scenario`` naming the edge and
+    ``arrival`` summarizing its personas/sessions).
+    """
+    import bot
+    from services import db
+    from services.db import schema as db_schema
+
+    prev_db = db.DB_PATH
+    prev_schema = db_schema.DB_PATH
+    prev_offline = bot._telegram_offline
+    db.DB_PATH = db_path
+    db_schema.DB_PATH = db_path
+    db.init_db()
+    bot._telegram_offline = False
+    try:
+        if workload_override is None:
+            workload = edge_scenarios(
+                scenario,
+                n=n,
+                seed=seed,
+                plan_limits=(
+                    plan_limits if plan_limits is not None else _live_plan_limits(db)
+                ),
+            )
+        else:
+            workload = workload_override
+        metrics = await _run(n, seed, bot, db, bot_mock, ai_mock, workload)
+        metrics["scenario"] = scenario
+        return metrics
+    finally:
+        db.DB_PATH = prev_db
+        db_schema.DB_PATH = prev_schema
+        bot._telegram_offline = prev_offline
+
+
+async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock, workload_override=None) -> dict:
     from config.keyboards import BTN_SETTINGS
 
     rng = random.Random(seed)
-    workload = sample_workload(n=n, seed=seed)
+    if workload_override is None:
+        workload = sample_workload(
+            n=n, seed=seed, plan_limits=_live_plan_limits(db)
+        )
+    else:
+        workload = workload_override
+    arrival = _arrival_summary(workload)
     counters = {
         "telegram_429": 0,
         "telegram_retries": 0,
@@ -582,6 +842,8 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
         "journey_counts": {
             j: len(v) for j, v in latencies.items()
         },
+        "personas": arrival["personas"],
+        "arrival": arrival,
     }
 
 
@@ -593,6 +855,8 @@ async def run_load_5k(
     concurrency=_5K_MAX_CONCURRENCY,
     bot_mock=None,
     ai_mock=None,
+    plan_limits=None,
+    workload_override=None,
 ) -> dict:
     """Replay the peak slice (``n`` synthetic users, seed ``seed``) in staggered
     batches with bounded asyncio concurrency.
@@ -638,14 +902,36 @@ async def run_load_5k(
     db.init_db()
     bot._telegram_offline = False
     try:
-        return await _run_5k(n, seed, bot, db, bot_mock, ai_mock, db_path, concurrency)
+        return await _run_5k(
+            n,
+            seed,
+            bot,
+            db,
+            bot_mock,
+            ai_mock,
+            db_path,
+            concurrency,
+            plan_limits,
+            workload_override,
+        )
     finally:
         db.DB_PATH = prev_db
         db_schema.DB_PATH = prev_schema
         bot._telegram_offline = prev_offline
 
 
-async def _run_5k(n, seed, bot, db, bot_mock, ai_mock, db_path, concurrency) -> dict:
+async def _run_5k(
+    n,
+    seed,
+    bot,
+    db,
+    bot_mock,
+    ai_mock,
+    db_path,
+    concurrency,
+    plan_limits=None,
+    workload_override=None,
+) -> dict:
     from config.keyboards import BTN_SETTINGS
 
     from tools.load_sim.resources import (
@@ -656,7 +942,17 @@ async def _run_5k(n, seed, bot, db, bot_mock, ai_mock, db_path, concurrency) -> 
     )
 
     rng_seed = seed
-    workload = sample_workload(n=n, seed=seed)
+    if workload_override is None:
+        workload = sample_workload(
+            n=n,
+            seed=seed,
+            plan_limits=(
+                plan_limits if plan_limits is not None else _live_plan_limits(db)
+            ),
+        )
+    else:
+        workload = workload_override
+    arrival_5k = _arrival_summary(workload)
     counters = {
         "telegram_429": 0,
         "telegram_retries": 0,
@@ -975,6 +1271,8 @@ async def _run_5k(n, seed, bot, db, bot_mock, ai_mock, db_path, concurrency) -> 
         "journey_counts": {
             j: len(v) for j, v in latencies.items()
         },
+        "personas": arrival_5k["personas"],
+        "arrival": arrival_5k,
         "concurrency": concurrency,
         "batches": batches,
         "txn_p95_ms": txn_p95,

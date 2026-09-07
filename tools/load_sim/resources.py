@@ -13,12 +13,17 @@ Probes:
 - :func:`db_file_sizes` — ``(db_bytes, wal_bytes)`` for a SQLite path via
   ``os.stat``; missing files report ``0``.
 - :func:`p95_ms` — nearest-rank p95 over a list of millisecond timings.
+<<<<<<< HEAD
 - :func:`percentile_summary` — p50/p90/p95/p99/max/count summary over a
   list of millisecond timings (same nearest-rank as ``p95_ms``).
+  :func:`percentiles_ms` is the same shape kept for the multiday
+  callers (follow-up: unify the two names).
 - :func:`cpu_process_seconds` — total user+system CPU seconds for this
   process. ``psutil`` is OPTIONAL here too (same import-cleanly rule):
   ``psutil.Process().cpu_times()`` sum → ``resource.getrusage``
   ``ru_utime`` + ``ru_stime`` → ``None`` when neither source is available.
+  :func:`cpu_seconds` is the ``0.0``-fallback twin kept for the multiday
+  callers (follow-up: unify the two names).
 - :func:`probe_loop_lag_ms` / :func:`lag_probe_loop` — cooperative
   event-loop lag probes: sleep ``delay_s``/``interval_s`` and report the
   overshoot in ms. The driver runs :func:`lag_probe_loop` as a background
@@ -149,6 +154,58 @@ def cpu_process_seconds() -> float | None:
         return float(usage.ru_utime + usage.ru_stime)
     except Exception:
         return None
+
+
+def percentiles_ms(values: list[float]) -> dict:
+    """Full distribution summary over millisecond timings (round-3 T6/V3).
+
+    Returns ``{"p50", "p90", "p95", "p99", "max", "count"}`` via the same
+    nearest-rank rule as :func:`p95_ms` (``ceil(p*n)-1``, clamped), so the
+    ordering ``p50 <= p90 <= p95 <= p99 <= max`` holds by construction.
+    Empty input reports ``0.0`` for every percentile and ``count`` 0.
+    """
+    n = len(values)
+    if n == 0:
+        return {"p50": 0.0, "p90": 0.0, "p95": 0.0, "p99": 0.0, "max": 0.0, "count": 0}
+    ordered = sorted(float(v) for v in values)
+
+    def _rank(p: float) -> float:
+        idx = max(0, min(n - 1, math.ceil(p * n) - 1))
+        return float(ordered[idx])
+
+    return {
+        "p50": _rank(0.50),
+        "p90": _rank(0.90),
+        "p95": _rank(0.95),
+        "p99": _rank(0.99),
+        "max": float(ordered[-1]),
+        "count": n,
+    }
+
+
+def cpu_seconds() -> float:
+    """Return current process CPU time in seconds (user + system).
+
+    Fallback chain (documented): ``psutil.Process().cpu_times()``
+    (user + system) → ``resource.getrusage(RUSAGE_SELF)``
+    (``ru_utime`` + ``ru_stime``) → ``0.0`` when neither source is
+    available. ``psutil`` stays OPTIONAL (same discipline as
+    :func:`rss_bytes`).
+    """
+    if psutil is not None:
+        try:
+            times = psutil.Process().cpu_times()
+            return float(times.user + times.system)
+        except Exception:
+            pass
+    try:
+        import resource
+
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        total = float(usage.ru_utime + usage.ru_stime)
+        return max(0.0, total)
+    except Exception:
+        return 0.0
 
 
 async def probe_loop_lag_ms(delay_s: float = 0.02) -> float:
