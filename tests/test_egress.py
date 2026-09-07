@@ -43,6 +43,35 @@ def test_pool_direct_lease_and_report():
     assert pool.report("nope", "ok") == {"action": "unknown-lease"}
 
 
+def test_sub_sources_merge_order_and_dedup():
+    from supervisor import sub_sources
+    env = {"EGRESS_SUB_URLS": "https://a/sub, https://b/sub\nhttps://a/sub",
+           "EGRESS_SUB_URL": "https://b/sub"}
+    assert sub_sources(env) == ["https://a/sub", "https://b/sub"]
+    assert sub_sources({}) == []
+    assert sub_sources({"EGRESS_SUB_URL": "x"}) == ["x"]
+
+
+def test_probe_pool_ranks_and_marks_top(monkeypatch):
+    import supervisor
+    pool = Pool()
+    pool.load([
+        {"scheme": "vless", "host": "slow", "port": 1, "id": "s1"},
+        {"scheme": "vless", "host": "fast", "port": 1, "id": "s2"},
+        {"scheme": "vless", "host": "dead", "port": 1, "id": "s3"},
+    ])
+    lat = {"slow": 900, "fast": 120, "dead": None}
+    monkeypatch.setattr(supervisor, "tcp_ping",
+                        lambda h, p, timeout=5.0: lat[h])
+    monkeypatch.setattr(supervisor, "POOL", pool)
+    rows = supervisor.probe_pool(top_n=1)
+    assert [r["host"] for r in rows] == ["fast", "slow", "dead"]
+    assert rows[0]["zen_candidate"] is True
+    assert rows[0]["latency_ms"] == 120
+    assert rows[2]["alive"] is False
+    assert rows[2]["zen_candidate"] is False
+
+
 def test_pool_zen_parks_without_tunnel_backend():
     pool = Pool()
     out = pool.lease("zen")

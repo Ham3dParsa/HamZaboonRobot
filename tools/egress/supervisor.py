@@ -35,8 +35,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 ENV_PATH = pathlib.Path(__file__).resolve().parent / ".env"
 SUB_VAR = "EGRESS_SUB_URL"
+SUBS_VAR = "EGRESS_SUB_URLS"
 TOKEN_VAR = "EGRESS_SUP_TOKEN"
 DEFAULT_PORT = 18789
+PROBE_TOP_N = 5
+PROBE_TIMEOUT_S = 5.0
 
 
 def load_env():
@@ -47,10 +50,24 @@ def load_env():
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
                 data[k.strip()] = v.strip().strip("'\"")
-    for k in (SUB_VAR, TOKEN_VAR):
+    for k in (SUB_VAR, SUBS_VAR, TOKEN_VAR):
         if k in os.environ and os.environ[k]:
             data[k] = os.environ[k]
     return data
+
+
+def sub_sources(env):
+    """All subscription sources: plural var (comma/newline separated) plus
+    the legacy singular var. Order preserved, empties dropped."""
+    out = []
+    for chunk in (env.get(SUBS_VAR, "") or "").replace(",", "\n").splitlines():
+        chunk = chunk.strip()
+        if chunk and chunk not in out:
+            out.append(chunk)
+    single = (env.get(SUB_VAR, "") or "").strip()
+    if single and single not in out:
+        out.append(single)
+    return out
 
 
 def parse_subscription(text):
@@ -214,15 +231,55 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def refresh_subscription(env):
-    sub = env.get(SUB_VAR, "")
-    if sub.startswith("http"):
-        try:
-            with urllib.request.urlopen(sub, timeout=30) as resp:
-                sub = resp.read().decode("utf-8", "replace")
-        except Exception as exc:  # noqa: BLE001 (refresh is best-effort)
-            print("subscription refresh failed: %s" % exc)
-            return
-    POOL.load(parse_subscription(sub))
+    for src in sub_sources(env):
+        body = src
+        if body.startswith("http"):
+            try:
+                with urllib.request.urlopen(body, timeout=30) as resp:
+                    body = resp.read().decode("utf-8", "replace")
+            except Exception as exc:  # noqa: BLE001 (best-effort)
+                print("subscription refresh failed: %s" % exc)
+                continue
+        POOL.load(parse_subscription(body))
+
+
+def tcp_ping(host, port, timeout=PROBE_TIMEOUT_S):
+    """TCP handshake latency in ms, or None when unreachable."""
+    import socket as _socket
+    import time as _time
+    try:
+        port = int(port or 0)
+    except (TypeError, ValueError):
+        return None
+    if not host or not port:
+        return None
+    start = _time.time()
+    try:
+        conn = _socket.create_connection((host, port), timeout=timeout)
+    except OSError:
+        return None
+    try:
+        conn.close()
+    except OSError:
+        pass
+    return int((_time.time() - start) * 1000)
+
+
+def probe_pool(top_n=PROBE_TOP_N):
+    """Rank pool servers by TCP latency; Zen-liveness needs a tunnel
+    (phase 2) so it is NOT probed here — ranking is reachability only,
+    and live 429 feedback (report/cooldown) does the rest at runtime."""
+    ranked = []
+    for server in POOL.servers:
+        ms = tcp_ping(server.get("host"), server.get("port"))
+        ranked.append((ms if ms is not None else 10 ** 9, server))
+    ranked.sort(key=lambda pair: pair[0])
+    return [{"host": s["host"], "port": s["port"], "scheme": s["scheme"],
+             "id": s["id"],
+             "latency_ms": (None if ms >= 10 ** 9 else ms),
+             "alive": ms < 10 ** 9,
+             "zen_candidate": idx < top_n and ms < 10 ** 9}
+            for idx, (ms, s) in enumerate(ranked)]
 
 
 def main(argv=None):
@@ -232,11 +289,28 @@ def main(argv=None):
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--gen-token", action="store_true",
                     help="print a fresh token and exit")
+    ap.add_argument("--probe", action="store_true",
+                    help="rank pool servers by TCP latency and exit "
+                         "(top-N marked zen_candidate)")
+    ap.add_argument("--top-n", type=int, default=PROBE_TOP_N)
     args = ap.parse_args(argv)
     if args.gen_token:
         print(secrets.token_hex(24))
         return 0
     env = load_env()
+    if args.probe:
+        refresh_subscription(env)
+        rows = probe_pool(top_n=args.top_n)
+        alive = [r for r in rows if r["alive"]]
+        print("servers=%d alive=%d (top-%d marked *)" % (
+            len(rows), len(alive), args.top_n))
+        for row in rows:
+            mark = "*" if row["zen_candidate"] and row["alive"] else " "
+            ms = ("%dms" % row["latency_ms"]) if row["alive"] else "dead"
+            print("%s %-5s %-40s %s" % (
+                mark, row["scheme"], "%s:%s" % (row["host"], row["port"]),
+                ms))
+        return 0
     TOKEN = env.get(TOKEN_VAR, "")
     if not TOKEN:
         print("missing %s in %s (run --gen-token, paste it there)"
