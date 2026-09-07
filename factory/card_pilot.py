@@ -364,6 +364,25 @@ def _v14_register_penalty(tags, gloss):
     return 1.0
 
 
+# R40 (#607): kaikki grouped meta-glosses ("Senses relating to X") are
+# sense buckets, never a learnable sense — yet file-decay crowns them
+# (style#0-5 "thin, pointed object" beat the fashion senses, which can
+# sit as deep as file-index 18: no multiplicative penalty demotes idx0
+# below idx18, so meta senses sort strictly AFTER every real sense).
+# A word with ONLY meta senses still anchors (demotion is relative,
+# never a drop).
+REGISTER_META_RX = None  # compiled lazily (re import is local)
+
+
+def _is_meta_gloss(gloss):
+    """R40: True on kaikki grouped meta-gloss buckets."""
+    import re as _re
+    global REGISTER_META_RX
+    if REGISTER_META_RX is None:
+        REGISTER_META_RX = _re.compile(r"^senses relating to\b")
+    return bool(REGISTER_META_RX.search((gloss or "").strip().lower()))
+
+
 def _v14_ppos(entry_pos, pool_pos):
     """R6 POS factor, owner: factory/run_v14_phase1.py ranking (ppos line).
 
@@ -589,10 +608,15 @@ def score_senses(text, entries, pool_pos, read_entry, zipf_fn=None):
         preg = _v14_register_penalty(
             (sense or {}).get("tags"), gloss)
         ppos = _v14_ppos(entry_pos, pool_pos)
+        # R40 (#607): meta buckets demote below real senses (flag rides
+        # along for the comparator; the score itself is untouched).
         score = _decay_prescore(idx, preg, ppos)
-        scored.append([score, idx, entry, sense, gloss, float(fn)])
+        scored.append([score, idx, entry, sense, gloss, float(fn),
+                       _is_meta_gloss(gloss)])
 
     def _cmp(a, b):
+        if a[6] != b[6]:
+            return 1 if a[6] else -1
         if abs(a[0] - b[0]) >= FREQ_TIE_EPS:
             return -1 if a[0] > b[0] else 1
         if abs(a[5] - b[5]) >= 1e-12:
@@ -602,7 +626,7 @@ def score_senses(text, entries, pool_pos, read_entry, zipf_fn=None):
         return 0
 
     scored.sort(key=_ft.cmp_to_key(_cmp))
-    return [(s, i, e, se, g) for s, i, e, se, g, _fn in scored]
+    return [(s, i, e, se, g) for s, i, e, se, g, _fn, _m in scored]
 
 
 # R39 v10 — tiered bucketing for the candidate window feeding S2 (and the

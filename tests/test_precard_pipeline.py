@@ -1837,3 +1837,36 @@ def test_mixed_mode_s3_uses_avalai(tmp_path, monkeypatch):
     s3 = _json.loads(
         (_pl.Path(prog) / "s3.json").read_text(encoding="utf-8"))
     assert s3["done"]["w:apple"]["model"] == "deepseek-v4-flash"
+
+
+def _style_rows():
+    """'style' (real kaikki shape): meta bucket glosses at 0-1, fashion
+    sense at 2. Pre-fix, file-decay crowns the meta bucket."""
+    return [{"pos": "noun",
+             "entry": {"pos": "noun", "sounds": [],
+                       "senses": [
+                           {"glosses": ["Senses relating to a thin, "
+                                        "pointed object."],
+                            "tags": ["countable", "uncountable"],
+                            "examples": []},
+                           {"glosses": ["Senses relating to a thin, "
+                                        "pointed object."],
+                            "tags": ["countable", "historical",
+                                     "uncountable"],
+                            "examples": []},
+                           {"glosses": ["A particular manner of "
+                                        "creating, doing, or presenting "
+                                        "something, especially one that "
+                                        "is typical of a person"],
+                            "tags": ["countable", "uncountable"],
+                            "examples": []}]}}]
+
+
+def test_register_meta_penalty_prefers_fashion_over_bucket():
+    """#607: kaikki grouped meta-glosses must not crown over a common
+    sense (real style shape: bucket #0-1 vs fashion #2)."""
+    scored = card_pilot.score_senses(
+        "style", _style_rows(), "noun", read_entry,
+        zipf_fn=lambda t: 5.0)
+    top_gloss = scored[0][4]
+    assert "particular manner" in top_gloss, scored[0][:2]
