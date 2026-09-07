@@ -1662,9 +1662,19 @@ def test_g5_boundary_phrasings():
         v = _g_classify("t" + gloss[:3], _g_view([(gloss, [])]))
         assert v["reason"] == "g5-demonym", gloss
     for gloss in ("a national park", "an international treaty",
-                  "a nice country walk"):
+                  "a nice country walk",
+                  "the country's national park is big"):
         v = _g_classify("t" + gloss[:3], _g_view([(gloss, [])]))
         assert v["kept"] is True, gloss
+
+
+def test_gates_normalize_mixed_casing():
+    """Caller-supplied casing (Abbreviation, Interj) still matches."""
+    v = _g_classify("ahem", _g_view([("hey", [])], poss=["Interj"]))
+    assert v["reason"] == "g3-interjection"
+    v2 = _g_classify("comp", _g_view(
+        [("x", ["Abbreviation"]), ("y", ["ABBREVIATION"])]))
+    assert v2["reason"] == "g4-abbrev"
 
 
 def test_unknown_zipf_keeps_quarantine():

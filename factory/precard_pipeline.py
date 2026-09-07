@@ -424,7 +424,7 @@ _G2_FORM_RX = re.compile(
 _G5_DEMONYM_RX = re.compile(
     r"\b(nationality|demonym|capital of|city in|native of|"
     r"inhabitant of|person from|of or (pertaining|relating) to|"
-    r"country[^.]{0,20}?\b(language|nation|national)\b|"
+    r"country[^.]{0,20}?\b(language|nation|nationality)\b|"
     r"language spoken)\b", re.IGNORECASE)
 
 
@@ -469,12 +469,24 @@ def _s0_input_gates(text, view):
     G1 (case-fold) lives in the sample builder, not here. Order: G3/G4/G6
     metadata checks, then G2/G5 gloss scans. Quarantine (G4 single-sense
     suspect like "led") keeps the item with a review flag.
+    Normalization is enforced HERE (not trusted from the caller): poss
+    and per-sense tags are casefolded up front, so any entry_fn casing
+    (Abbreviation, Interj) still matches.
     """
-    senses = view.get("senses") or []
+    poss = {str(p or "").strip().casefold() for p in view.get("poss", set())}
+    senses = []
+    for s in view.get("senses") or []:
+        if not isinstance(s, dict):
+            continue
+        senses.append({
+            "gloss": s.get("gloss") or "",
+            "tags": [str(t or "").strip().casefold()
+                     for t in s.get("tags", [])],
+        })
     glosses = [s.get("gloss") or "" for s in senses]
     # G3: interjection entries have no flashcard value (all POS
     # spellings: interj/intj/interjection).
-    if (view.get("poss") or set()) & {"interj", "intj", "interjection"}:
+    if poss & {"interj", "intj", "interjection"}:
         return "g3-interjection", None
     # G4: abbreviations. All-caps fires on case-preserving samples
     # (live: FEB/WHO/NSW dropped in pilot200g); the tag leg covers
