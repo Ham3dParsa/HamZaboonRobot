@@ -1803,3 +1803,37 @@ def test_mixed_line_s2_zen_rest_avalai(tmp_path, monkeypatch):
     assert prov["s2"]["provider"] == "zen"
     assert prov["s3"]["provider"] == "avalai"
     assert prov["s3"]["model"] == "glm-5.3-flash"
+
+
+def test_mixed_mode_s3_uses_avalai(tmp_path, monkeypatch):
+    """Kilo: mixed mode must route S3 calls to AvalAI, not Zen default."""
+    import precard_pipeline
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "zen-key")
+    monkeypatch.setenv("AVALAI_API_KEY", "avalai-key")
+    sample = write_sample(tmp_path, ITEMS[:1])
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    seen = []
+
+    def rec_topic(api_key, model, user_text):
+        seen.append((api_key, model))
+        return (json.dumps({"results": [{"lemma": "apple", "vectors": [
+            {"sense_id": "apple#0",
+             "vector": [{"topic_id": 13, "topic_label": "Other / Abstract",
+                         "weight": 1.0}]}]}]}), None)
+
+    monkeypatch.setattr(precard_pipeline, "_avalai_chat_transport",
+                        rec_topic)
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog,
+         "--stages", "s0,s1,s2,s3", "--stage-provider", "s3=avalai",
+         "--stage-model", "s3=deepseek-v4-flash"],
+        _judge_transport=fake_judge, _assign_transport=None,
+        _sleep_fn=lambda s: None, _index=make_index(),
+        _read_entry=read_entry, _tatoeba={}, _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    assert seen and seen[0] == ("avalai-key", "deepseek-v4-flash")
+    import json as _json
+    import pathlib as _pl
+    s3 = _json.loads(
+        (_pl.Path(prog) / "s3.json").read_text(encoding="utf-8"))
+    assert s3["done"]["w:apple"]["model"] == "deepseek-v4-flash"

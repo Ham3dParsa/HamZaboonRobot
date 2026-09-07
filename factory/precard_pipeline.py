@@ -1804,51 +1804,41 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             judge_models = [models["s2"]]
     if full_avalai:
         api_key, ring = avalai_key, KeyRing([avalai_key])
-        remap = _avalai_remap_transport(precard_model)
-        if _topic_transport is _USE_DEFAULT:
-            topic_transport = remap
-        if _assign_transport is _USE_DEFAULT:
-            assign_transport = remap
-        if _inflect_transport is _USE_DEFAULT:
-            inflect_transport = remap
-        s3_models_override = [models["s3"]]
-    else:
-        s3_models_override = None
-        if _leg_avalai("s3"):
-            s3_models_override = [models["s3"]]
+    topic_transport = assign_transport = inflect_transport = None
+    s3_models_override = [models["s3"]] if _leg_avalai("s3") else None
+    # Per-leg remaps (uniform for full and mixed modes, per-leg models).
+    # A leg keeps its remap when avalai, else falls back to Zen below.
     for leg in ("s0b", "s3", "s4"):
-        if _leg_avalai(leg):
-            _remap_leg = _avalai_remap_transport(models[leg])
-            if leg == "s0b" and _inflect_transport is _USE_DEFAULT:
-                inflect_transport = _remap_leg
-            elif leg == "s3" and _topic_transport is _USE_DEFAULT:
-                topic_transport = _remap_leg
-            elif leg == "s4" and _assign_transport is _USE_DEFAULT:
-                assign_transport = _remap_leg
+        if not _leg_avalai(leg):
+            continue
+        _remap_leg = _avalai_remap_transport(models[leg])
+        if leg == "s0b" and _inflect_transport is _USE_DEFAULT:
+            inflect_transport = _remap_leg
+        elif leg == "s3" and _topic_transport is _USE_DEFAULT:
+            topic_transport = _remap_leg
+        elif leg == "s4" and _assign_transport is _USE_DEFAULT:
+            assign_transport = _remap_leg
+    _any_avalai_leg = any(_leg_avalai(leg) for leg in LLM_LEGS)
     if (args.judge_model or args.precard_model or args.stage_model) \
             and _judge_transport is _USE_DEFAULT \
-            and not (full_avalai or s2_avalai):
+            and not _any_avalai_leg:
         print("warning: model flags apply only with "
               "an avalai provider; ignored on the zen path",
               file=sys.stderr)
-    topic_transport = (_default_topic_transport
-                       if _topic_transport is _USE_DEFAULT
-                       and not full_avalai
-                       else _topic_transport
-                       if _topic_transport is not _USE_DEFAULT
-                       else topic_transport)
-    assign_transport = (_default_assign_transport
-                        if _assign_transport is _USE_DEFAULT
-                        and not full_avalai
-                        else _assign_transport
-                        if _assign_transport is not _USE_DEFAULT
-                        else assign_transport)
-    inflect_transport = (_default_inflect_transport
-                         if _inflect_transport is _USE_DEFAULT
-                         and not full_avalai
-                         else _inflect_transport
-                         if _inflect_transport is not _USE_DEFAULT
-                         else inflect_transport)
+    # Defaults for legs the remap loop above did not claim: a leg keeps
+    # its remap when avalai, else falls back to the Zen default.
+    if _topic_transport is _USE_DEFAULT and topic_transport is None:
+        topic_transport = _default_topic_transport
+    elif _topic_transport is not _USE_DEFAULT:
+        topic_transport = _topic_transport
+    if _assign_transport is _USE_DEFAULT and assign_transport is None:
+        assign_transport = _default_assign_transport
+    elif _assign_transport is not _USE_DEFAULT:
+        assign_transport = _assign_transport
+    if _inflect_transport is _USE_DEFAULT and inflect_transport is None:
+        inflect_transport = _default_inflect_transport
+    elif _inflect_transport is not _USE_DEFAULT:
+        inflect_transport = _inflect_transport
 
     s4_cache = progress_dir / "s4_topup_cache.json"
     s4_calls: dict = {}
