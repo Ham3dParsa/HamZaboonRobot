@@ -13,7 +13,6 @@ Probes:
 - :func:`db_file_sizes` — ``(db_bytes, wal_bytes)`` for a SQLite path via
   ``os.stat``; missing files report ``0``.
 - :func:`p95_ms` — nearest-rank p95 over a list of millisecond timings.
-<<<<<<< HEAD
 - :func:`percentile_summary` — p50/p90/p95/p99/max/count summary over a
   list of millisecond timings (same nearest-rank as ``p95_ms``).
   :func:`percentiles_ms` is the same shape kept for the multiday
