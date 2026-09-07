@@ -64,6 +64,14 @@ class DbWalConcurrencyTests(unittest.TestCase):
             pass
         self.assertEqual(self._busy_timeout(), db_schema._DB_BUSY_TIMEOUT)
 
+    def test_synchronous_normal_with_wal_on_fresh_connection(self):
+        db_module.init_db()
+        with db_module.get_conn() as conn:
+            sync = conn.execute("PRAGMA synchronous").fetchone()[0]
+            journal = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        self.assertEqual(sync, 1)
+        self.assertEqual(journal.lower(), "wal")
+
     def test_concurrent_writers_do_not_raise_database_is_locked(self):
         db_module.init_db()
         NUM_THREADS = 10

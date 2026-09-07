@@ -584,8 +584,13 @@ def get_conn(path: str | None = None):
         conn = sqlite3.connect(_active_db_path, timeout=_DB_BUSY_TIMEOUT / 1000)
         # WAL lets readers and writers proceed concurrently; busy_timeout makes
         # a contending writer wait instead of failing with "database is locked".
+        # synchronous=NORMAL (WAL-safe: process-kill durable, only a host power
+        # cut could lose the last seconds): fsync bench on the tiny box measured
+        # 1.41ms/commit FULL vs 0.20ms NORMAL, and FULL stalls the event loop on
+        # a 0.15 shared CPU (plan scale/plan-sqlite-normal T1, owner decision).
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute(f"PRAGMA busy_timeout={_DB_BUSY_TIMEOUT}")
+        conn.execute("PRAGMA synchronous=NORMAL")
         conn.row_factory = sqlite3.Row
         try:
             yield conn
