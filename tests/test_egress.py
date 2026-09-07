@@ -155,11 +155,34 @@ def test_rank_restored_after_refresh_sequence(tmp_path):
 
 def test_sub_sources_merge_order_and_dedup():
     from supervisor import sub_sources
-    env = {"EGRESS_SUB_URLS": "https://a/sub, https://b/sub\nhttps://a/sub",
+    env = {"EGRESS_SUB_URLS": "https://a/sub\nhttps://b/sub\nhttps://a/sub",
            "EGRESS_SUB_URL": "https://b/sub"}
     assert sub_sources(env) == ["https://a/sub", "https://b/sub"]
     assert sub_sources({}) == []
     assert sub_sources({"EGRESS_SUB_URL": "x"}) == ["x"]
+    # commas are legal in URLs: never split points
+    assert sub_sources({"EGRESS_SUB_URLS": "https://a/x,y"}) == \
+        ["https://a/x,y"]
+
+
+def test_refresh_subscription_partial_load(monkeypatch):
+    """One poisoned source must not abort the rest."""
+    import supervisor as sup
+    sup.POOL.servers.clear()
+    calls = []
+
+    def fake_fetch(url):
+        calls.append(url)
+        if "bad" in url:
+            raise OSError("down")
+        return sup.parse_subscription(_sub_body())
+
+    monkeypatch.setattr(sup, "fetch_sub", fake_fetch)
+    sup.refresh_subscription({"EGRESS_SUB_URLS": "https://bad/sub\n"
+                                                 + _sub_body()})
+    assert calls == ["https://bad/sub"]
+    assert len(sup.POOL.servers) == 2
+    sup.POOL.servers.clear()
 
 
 def test_probe_pool_ranks_and_marks_top(monkeypatch):

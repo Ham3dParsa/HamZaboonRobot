@@ -58,10 +58,11 @@ def load_env():
 
 
 def sub_sources(env):
-    """All subscription sources: plural var (comma/newline separated) plus
-    the legacy singular var. Order preserved, empties dropped."""
+    """All subscription sources: plural var (newline/whitespace separated)
+    plus the legacy singular var. Commas are NOT split points (legal in
+    URLs). Order preserved, empties dropped."""
     out = []
-    for chunk in (env.get(SUBS_VAR, "") or "").replace(",", "\n").splitlines():
+    for chunk in (env.get(SUBS_VAR, "") or "").split():
         chunk = chunk.strip()
         if chunk and chunk not in out:
             out.append(chunk)
@@ -72,7 +73,16 @@ def sub_sources(env):
 
 
 def parse_subscription(text):
-    """Parse a v2ray subscription body into [{scheme, host, port, id}]."""
+    """Parse a v2ray subscription body into [{scheme, host, port, id}].
+
+    One poisoned line never aborts the source: xrayconf.parse_link is
+    the single parser (ValueError contract) and every per-line failure
+    is skipped.
+    """
+    try:
+        from . import xrayconf as _xc
+    except ImportError:
+        import xrayconf as _xc
     servers = []
     blob = (text or "").strip()
     if not blob:
@@ -86,33 +96,15 @@ def parse_subscription(text):
         line = line.strip()
         if "://" not in line:
             continue
-        scheme, rest = line.split("://", 1)
-        scheme = scheme.lower()
-        if scheme not in ("vmess", "vless", "trojan", "ss"):
-            continue
-        host, port = "", 0
         try:
-            if scheme == "vmess":
-                payload = json.loads(base64.b64decode(
-                    rest + "=" * (-len(rest) % 4)).decode("utf-8",
-                                                          "replace"))
-                host, port = payload.get("add", ""), int(
-                    payload.get("port", 0) or 0)
-            else:
-                at = rest.rfind("@")
-                hp = rest[at + 1:].split("?")[0].split("#")[0].split("/")
-                host = hp[0].rsplit(":", 1)[0] if hp else ""
-                try:
-                    port = int(hp[0].rsplit(":", 1)[1]) if hp else 0
-                except (ValueError, IndexError):
-                    port = 0
-        except (ValueError, KeyError, IndexError):
+            node = _xc.parse_link(line)
+        except Exception:  # noqa: BLE001 (skip poisoned lines)
             continue
-        if host:
-            servers.append({"scheme": scheme, "host": host, "port": port,
-                            "id": hashlib.sha256(
-                                line.encode()).hexdigest()[:8],
-                            "link": line})
+        servers.append({"scheme": node["scheme"], "host": node["address"],
+                        "port": node["port"],
+                        "id": hashlib.sha256(
+                            line.encode()).hexdigest()[:8],
+                        "link": line})
     return servers
 
 
@@ -138,11 +130,15 @@ class Pool:
     def load_ranked(self, ranked):
         """Replace pool order with a ranked probe list (whitelist)."""
         with self._lock:
-            by_id = {s["id"]: s for s in self.servers}
+            by_id = {s["id"]: s for s in self.servers
+                     if isinstance(s, dict) and s.get("id")}
             ordered = []
-            for row in ranked:
-                if row.get("alive") and row["id"] in by_id:
-                    ordered.append(by_id[row["id"]])
+            for row in ranked or []:
+                if not isinstance(row, dict):
+                    continue
+                hit = by_id.get(row.get("id"))
+                if row.get("alive") and hit is not None:
+                    ordered.append(hit)
             for s in self.servers:
                 if s["id"] not in {r["id"] for r in ordered}:
                     ordered.append(s)
@@ -174,15 +170,17 @@ class Pool:
             else None
         if not isinstance(servers, list):
             return 0
-        self.load([s for s in servers if isinstance(s, dict)])
+        valid = [s for s in servers
+                 if isinstance(s, dict) and s.get("id")
+                 and s.get("host") and s.get("port")]
+        self.load(valid)
         # Restore the saved rank order (load() only appends).
-        order = [s.get("id") for s in servers
-                 if isinstance(s, dict) and s.get("id")]
+        order = [s["id"] for s in valid]
         with self._lock:
             rank = {sid: idx for idx, sid in enumerate(order)}
             self.servers.sort(
-                key=lambda s: rank.get(s["id"], len(order)))
-        return len(servers)
+                key=lambda s: rank.get(s.get("id"), len(order)))
+        return len(valid)
 
     def lease(self, target):
         with self._lock:
@@ -403,7 +401,7 @@ def tcp_ping(host, port, timeout=PROBE_TIMEOUT_S):
     start = _time.time()
     try:
         conn = _socket.create_connection((host, port), timeout=timeout)
-    except OSError:
+    except Exception:  # noqa: BLE001 (best-effort probe: any failure = dead)
         return None
     try:
         conn.close()

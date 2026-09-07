@@ -20,11 +20,18 @@ def _b64decode(text):
 
 def _parse_vmess(link):
     payload = json.loads(_b64decode(link.split("://", 1)[1]))
+    if not isinstance(payload, dict):
+        raise ValueError("vmess payload is not an object")
+    try:
+        port = int(payload.get("port", 0) or 0)
+        alter = int(payload.get("aid", 0) or 0)
+    except (TypeError, ValueError):
+        raise ValueError("vmess non-numeric port/aid")
     return {
         "address": str(payload.get("add", "")),
-        "port": int(payload.get("port", 0) or 0),
+        "port": port,
         "uuid": str(payload.get("id", "")),
-        "alter_id": int(payload.get("aid", 0) or 0),
+        "alter_id": alter,
         "security": str(payload.get("scy", "auto") or "auto"),
         "network": str(payload.get("net", "tcp") or "tcp"),
         "tls": str(payload.get("tls", "") or "").lower() == "tls",
@@ -74,8 +81,12 @@ def _parse_ss(link):
     method, _, password = cred.partition(":")
     hostport = at.split("?")[0].split("#")[0].split("/")[0]
     host, _, port_s = hostport.rpartition(":")
+    try:
+        port = int(port_s)
+    except (TypeError, ValueError):
+        raise ValueError("ss bad port")
     return {"method": method, "password": password,
-            "address": host.strip("[]"), "port": int(port_s)}
+            "address": host.strip("[]"), "port": port}
 
 
 def parse_link(link):
