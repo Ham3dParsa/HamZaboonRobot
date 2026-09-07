@@ -56,7 +56,11 @@ def main(argv=None):
         print("[egress] spawn failed: %s" % exc)
         return 4
     try:
-        outcome = "ok" if code == 0 else "net_err"
+        # Exit code alone cannot prove network health: only report ok
+        # (0) or unknown (anything else — keeps the lease, cools nothing).
+        # Report net_err ONLY on transport-level proof (timeouts/429s
+        # observed by the child are its own business via direct report).
+        outcome = "ok" if code == 0 else "unknown"
         client.report(lease.get("lease_id", ""), outcome)
     except Exception as exc:  # noqa: BLE001 (report is best-effort)
         print("[egress] report failed: %s" % exc)

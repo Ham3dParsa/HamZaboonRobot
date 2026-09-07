@@ -84,9 +84,11 @@ class Tunnel:
             from . import xrayconf
         except ImportError:  # run as top-level script, not a package
             import xrayconf
+        # Parse first (pure, hermetic): bad links fail here, never as a
+        # half-spawned child.
+        node = xrayconf.parse_link(self.link)
         if not xray_available():
             raise RuntimeError("xray.exe missing in tools/egress/bin")
-        node = xrayconf.parse_link(self.link)
         self.port = free_port()
         cfg = xrayconf.xray_config(node, self.port)
         tmp = tempfile.NamedTemporaryFile(

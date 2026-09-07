@@ -127,8 +127,10 @@ class Pool:
 
     def load(self, servers):
         with self._lock:
-            known = {s["id"] for s in self.servers}
+            known = {s["id"] for s in self.servers if isinstance(s, dict)}
             for s in servers:
+                if not isinstance(s, dict) or not s.get("id"):
+                    continue
                 if s["id"] not in known:
                     self.servers.append(dict(s))
                     known.add(s["id"])
@@ -220,6 +222,9 @@ class Pool:
                 # lease so the caller re-authenticates instead of looping.
                 self.leases.pop(lease_id, None)
                 return {"action": "reauth"}
+            # "unknown" (e.g. child exit code with no network signal):
+            # keep the lease, cool nothing. App failure is not proof of
+            # a bad egress.
             return {"action": "keep"}
 
     def health(self):
@@ -343,13 +348,12 @@ class Handler(BaseHTTPRequestHandler):
             if data.get("mode") == "tunnel":
                 try:
                     proxy, ip, _sid = TUNNELS.acquire()
-                except RuntimeError as exc:
+                except (RuntimeError, ValueError, OSError) as exc:
+                    # Acquire failed: drop the minted lease (no orphan
+                    # records) and park with a message.
+                    POOL.leases.pop(data.get("lease_id", ""), None)
                     return self._send(200, {"error": "park",
                                             "message": str(exc)})
-                except ValueError as exc:
-                    return self._send(200, {"error": "park",
-                                            "message": "bad link: %s"
-                                            % exc})
                 data["proxy_url"] = proxy
                 data["egress_ip"] = ip
             return self._send(200, data)
@@ -408,6 +412,13 @@ def tcp_ping(host, port, timeout=PROBE_TIMEOUT_S):
     return int((_time.time() - start) * 1000)
 
 
+def _proxy_opener(proxy_url):
+    """Explicit proxy opener (Request.set_proxy is dead on the shared
+    global opener — verified live)."""
+    return urllib.request.build_opener(urllib.request.ProxyHandler(
+        {"http": proxy_url, "https": proxy_url}))
+
+
 def zen_probe(proxy_url, api_key, timeout=60):
     """One minimal Zen call through proxy_url. Returns (code, ms, note)."""
     import time as _time
@@ -422,10 +433,10 @@ def zen_probe(proxy_url, api_key, timeout=60):
         headers={"Content-Type": "application/json",
                  "Authorization": "Bearer " + api_key,
                  "User-Agent": "HamZaban-factory/1.0"})
-    req.set_proxy(proxy_url, ("http", "https"))
+    opener = _proxy_opener(proxy_url)
     start = _time.time()
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with opener.open(req, timeout=timeout) as resp:
             code = getattr(resp, "status", 200)
             return code, int((_time.time() - start) * 1000), "live"
     except Exception as exc:  # noqa: BLE001 (probe reports, not raises)
