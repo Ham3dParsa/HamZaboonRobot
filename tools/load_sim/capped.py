@@ -63,7 +63,7 @@ import sys
 import time
 from unittest.mock import MagicMock, patch
 
-from tools.load_sim.resources import p95_ms, rss_bytes
+from tools.load_sim.resources import percentiles_ms, rss_bytes
 
 # Locked T4 caps.
 TINY_BOX = {"cpu_percent": 15, "ram_bytes": 256 * 1024**2}
@@ -351,23 +351,11 @@ def scaled_mock_sleeps(scale: float):
         yield
 
 
-def percentiles_ms(values: list[float]) -> dict:
-    """Nearest-rank p50/p95/p99 over millisecond timings (0.0 when empty)."""
-    import math
-
-    def _rank(frac: float) -> float:
-        if not values:
-            return 0.0
-        ordered = sorted(values)
-        idx = max(0, min(len(ordered) - 1, math.ceil(frac * len(ordered)) - 1))
-        return float(ordered[idx])
-
-    return {"p50": _rank(0.50), "p95": _rank(0.95), "p99": _rank(0.99)}
-
-
 # ---------------------------------------------------------------------------
 # Child thunks (module-level so ``spawn`` can pickle them; heavy production
 # imports stay INSIDE the functions so importing this module is cheap).
+# Percentile summaries use the canonical tools.load_sim.resources owner
+# (imported above) — no local duplicate.
 # ---------------------------------------------------------------------------
 
 
@@ -440,28 +428,52 @@ def _child_main(result_path, fn, args, kwargs, cpu_percent, ram_bytes, fallback_
     thousands of latency samples and exceed the pipe buffer, which deadlocks
     ``queue.put`` when the parent is still in ``join`` with no concurrent
     reader. The parent polls for the file instead.
-    """
-    import pickle
 
-    mode = "none"
-    caps_enforced = False
-    cap_error = None
-    rss_before = rss_bytes()
+    ``result_path`` lives in a private ``mkdtemp`` dir (mode 0700), and the
+    child writes a ``.part`` file with ``O_CREAT|O_EXCL`` (mode 0600) then
+    atomically renames it — no shared-/tmp symlink race, no partial reads.
+    """
 
     def _store(envelope: dict) -> None:
+        import pickle
+
         try:
-            with open(result_path, "wb") as fh:
-                pickle.dump(envelope, fh, protocol=4)
+            data = pickle.dumps(envelope, protocol=4)
         except Exception:
             # Pickle can fail on exotic fn returns: keep the envelope,
             # degrade the payload to repr (metrics dicts always survive).
             envelope = dict(envelope)
             envelope["result"] = {"unpicklable": repr(envelope.get("result"))[:2000]}
             try:
-                with open(result_path, "wb") as fh:
-                    pickle.dump(envelope, fh, protocol=4)
+                data = pickle.dumps(envelope, protocol=4)
             except Exception:
+                return
+        part_path = result_path + ".part"
+        try:
+            fd = os.open(part_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except OSError:
+            return
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+        except Exception:
+            try:
+                os.remove(part_path)
+            except OSError:
                 pass
+            return
+        try:
+            os.replace(part_path, result_path)
+        except OSError:
+            try:
+                os.remove(part_path)
+            except OSError:
+                pass
+
+    mode = "none"
+    caps_enforced = False
+    cap_error = None
+    rss_before = rss_bytes()
 
     try:
         apply_job_cap(cpu_percent, ram_bytes)
@@ -606,14 +618,15 @@ def run_capped(
                 "result": None,
                 "error": f"{type(exc).__name__}: {exc}",
             }
+        rss_after = rss_bytes()
         envelope.update(
             {
                 "wall_s": time.perf_counter() - t0,
                 "rss_before": rss_before,
-                "rss_after": rss_bytes(),
+                "rss_after": rss_after,
                 "cpu_percent": cpu_percent,
                 "ram_cap_bytes": ram_bytes,
-                "headroom_bytes": ram_bytes - rss_bytes(),
+                "headroom_bytes": ram_bytes - rss_after,
                 "killed": False,
                 "timed_out": False,
                 "caps_enforced": caps_enforced,
@@ -628,17 +641,47 @@ def run_capped(
     # put() while the parent is still in join). The parent polls for the
     # file with a 1s cadence so a finished-but-unreaped child is picked up
     # promptly; a missing file at deadline means hang (terminate,
-    # timed_out) or death (killed).
+    # timed_out) or death (killed). The result file lives in a private
+    # mkdtemp dir (mode 0700), so no shared-/tmp entry can be pre-placed.
     import pickle
+    import shutil
     import tempfile
 
     ctx = mp.get_context("spawn")
-    fd, result_path = tempfile.mkstemp(prefix="capped_result_", suffix=".pkl")
-    os.close(fd)
+    result_dir = tempfile.mkdtemp(prefix="capped_result_")
+    result_path = os.path.join(result_dir, "envelope.pkl")
     try:
-        os.remove(result_path)
-    except OSError:
-        pass
+        return _run_capped_child(
+            ctx,
+            result_path,
+            fn,
+            args,
+            kwargs,
+            cpu_percent,
+            ram_bytes,
+            timeout_s,
+            baseline_wall_s,
+            fallback_affinity,
+        )
+    finally:
+        shutil.rmtree(result_dir, ignore_errors=True)
+
+
+def _run_capped_child(
+    ctx,
+    result_path,
+    fn,
+    args,
+    kwargs,
+    cpu_percent,
+    ram_bytes,
+    timeout_s,
+    baseline_wall_s,
+    fallback_affinity,
+) -> dict:
+    """Spawn the capped child and translate its result file into an envelope."""
+    import pickle
+
     proc = ctx.Process(
         target=_child_main,
         args=(result_path, fn, args, kwargs, cpu_percent, ram_bytes, fallback_affinity),
@@ -664,10 +707,6 @@ def run_capped(
             load_error = None
     else:
         load_error = None
-    try:
-        os.remove(result_path)
-    except OSError:
-        pass
     if envelope is not None:
         return _finalize_throttle(envelope, baseline_wall_s)
     if proc.is_alive():
