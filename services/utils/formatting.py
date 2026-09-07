@@ -885,7 +885,7 @@ def _heat_label(used: int, total: int) -> tuple[str, str]:
     return "🔥", "یک‌آتیشه"
 
 
-def format_session_summary(report, *, is_admin: bool = False, rng=None, heat_used=None, heat_total=None):
+def format_session_summary(report, *, is_admin: bool = False, rng=None, heat_used=None, heat_total=None, m01_note: str | None = None):
     """Build the session summary as a Rich structured ``Message`` (T4).
 
     Layout mirrors the demo ``demo_report_summary_v2``: ``heading(3)`` title,
@@ -894,7 +894,9 @@ def format_session_summary(report, *, is_admin: bool = False, rng=None, heat_use
     4-col 🌱👀📚🧠 counts mini-table. ``is_admin`` is kept for signature
     compat but renders identically for True/False (no admin diagnostics;
     dedicated telemetry is deferred). Dynamic values ride ``Plain`` spans and
-    are escaped exactly once by the renderer.
+    are escaped exactly once by the renderer. ``m01_note`` (issue #467) is an
+    optional pre-rendered M01 same-day-dues line appended as a quote; the
+    default ``None`` leaves existing renders unchanged.
     """
     from services.send_pretty import Message, heading, plain, quote, table
 
@@ -908,6 +910,12 @@ def format_session_summary(report, *, is_admin: bool = False, rng=None, heat_use
     if motivation is not None:
         tier = classify_tier(report.recall_rate)
         msg.add_line(quote(plain(f"{_TIER_LABEL[tier]}\n{motivation}")))
+
+    # M01 short-interval same-day note (issue #467): appended by the
+    # handler/summary-render site that already holds heat params; None keeps
+    # existing callers byte-identical.
+    if m01_note is not None:
+        msg.add_line(quote(plain(m01_note)))
 
     if report.recall_rate is not None:
         pct = to_persian_digits(round(report.recall_rate * 100))

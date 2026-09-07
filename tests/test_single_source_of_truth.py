@@ -120,6 +120,12 @@ DOMAIN_KEYWORDS: dict[str, str] = {
     "get_global_defaults": "services/db/display_toggles.py",
     "set_global_defaults": "services/db/display_toggles.py",
     "set_forced": "services/db/display_toggles.py",
+    # services/nudges.py owns the nudge catalog + silence policy (#467).
+    "is_quiet_hours": "services/nudges.py",
+    "evaluate_silence": "services/nudges.py",
+    "window_for": "services/nudges.py",
+    "select_nudge": "services/nudges.py",
+    "NUDGE_TEMPLATES": "services/nudges.py",
     # services/send_pretty.py owns the Telegram send retry/slot seam (phase-03 R2).
     "_telegram_slots": "services/send_pretty.py",
     "_send_media_with_retry": "services/send_pretty.py",
