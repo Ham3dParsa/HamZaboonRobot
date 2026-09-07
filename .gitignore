@@ -73,3 +73,6 @@ docs/reports/*.json
 
 # FSRS simulator archived experiment versions
 tools/**/archive/
+# Egress supervisor runtime (binary + pool + secrets)
+tools/egress/bin/
+tools/egress/egress_pool.json

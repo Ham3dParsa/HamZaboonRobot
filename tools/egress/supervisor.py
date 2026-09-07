@@ -88,7 +88,7 @@ def parse_subscription(text):
             continue
         scheme, rest = line.split("://", 1)
         scheme = scheme.lower()
-        if scheme not in ("vmess", "vless", "trojan", "ss", "ssr"):
+        if scheme not in ("vmess", "vless", "trojan", "ss"):
             continue
         host, port = "", 0
         try:
@@ -111,7 +111,8 @@ def parse_subscription(text):
         if host:
             servers.append({"scheme": scheme, "host": host, "port": port,
                             "id": hashlib.sha256(
-                                line.encode()).hexdigest()[:8]})
+                                line.encode()).hexdigest()[:8],
+                            "link": line})
     return servers
 
 
@@ -150,7 +151,11 @@ class Pool:
         with self._lock:
             payload = {"saved_at": _dt.datetime.now(
                 _dt.timezone.utc).isoformat(),
-                "servers": self.servers}
+                # links carry credentials: never persisted, only
+                # host/port/scheme/id (relink on refresh).
+                "servers": [{k: s[k] for k in
+                              ("scheme", "host", "port", "id")
+                              if k in s} for s in self.servers]}
         try:
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle)
@@ -168,6 +173,13 @@ class Pool:
         if not isinstance(servers, list):
             return 0
         self.load([s for s in servers if isinstance(s, dict)])
+        # Restore the saved rank order (load() only appends).
+        order = [s.get("id") for s in servers
+                 if isinstance(s, dict) and s.get("id")]
+        with self._lock:
+            rank = {sid: idx for idx, sid in enumerate(order)}
+            self.servers.sort(
+                key=lambda s: rank.get(s["id"], len(order)))
         return len(servers)
 
     def lease(self, target):
@@ -180,20 +192,18 @@ class Pool:
                 return {"lease_id": lid, "mode": "direct", "proxy_url": "",
                         "egress_ip": "direct"}
             avail = [s for s in self.servers
-                     if self.cooldown_until.get(s["id"], 0) <= now]
+                     if self.cooldown_until.get(s["id"], 0) <= now
+                     and s.get("link")]
             if not avail:
                 return {"error": "park",
-                        "message": "no tunnel backend in phase 1: "
-                                   "use target=direct (AvalAI/domestic) "
-                                   "or wait for phase 2 (xray children)"}
+                        "message": "no link-bearing server available "
+                                   "(refresh the subscription)"}
             s = avail[0]
             lid = secrets.token_hex(8)
             self.leases[lid] = {"mode": "tunnel", "server": s["id"],
                                 "since": now}
-            return {"lease_id": lid, "mode": "tunnel-pending",
-                    "proxy_url": "", "egress_ip": s["host"],
-                    "server_id": s["id"],
-                    "note": "phase 2 wires the xray child proxy here"}
+            return {"lease_id": lid, "mode": "tunnel",
+                    "server_id": s["id"]}
 
     def report(self, lease_id, outcome):
         with self._lock:
@@ -218,7 +228,77 @@ class Pool:
                     "leases": len(self.leases)}
 
 
+class TunnelOwner:
+    """Single active xray tunnel, owned by the supervisor process.
+
+    lease("zen") starts the best available server's tunnel and returns
+    its proxy_url + verified egress IP; report(http429) stops it, cools
+    the server down, and the next lease starts the next server. One
+    egress at a time (owner's choice: predictable, no parallel burn).
+    """
+
+    def __init__(self, pool):
+        self._pool = pool
+        self._lock = threading.Lock()
+        self._tunnel = None
+        self._server_id = None
+
+    def acquire(self):
+        """Start (or reuse) the tunnel for the best server. Returns
+        (proxy_url, egress_ip, server_id) or raises RuntimeError."""
+        try:
+            from . import tunnel as _tunnel_mod
+        except ImportError:  # top-level script run
+            import tunnel as _tunnel_mod
+        with self._lock:
+            now = time.time()
+            avail = [s for s in self._pool.servers
+                     if self._pool.cooldown_until.get(s["id"], 0) <= now
+                     and s.get("link")]
+            if not avail:
+                raise RuntimeError("no link-bearing server available")
+            if self._tunnel is not None and self._server_id == avail[0]["id"] \
+                    and self._tunnel.proc is not None \
+                    and self._tunnel.proc.poll() is None:
+                return (self._tunnel.proxy_url,
+                        self._tunnel.egress_ip(), self._server_id)
+            self._drop_locked()
+            server = avail[0]
+            tun = _tunnel_mod.Tunnel(server, server["link"])
+            proxy = tun.start()
+            try:
+                ip = tun.egress_ip()
+            except Exception:
+                tun.stop()
+                raise RuntimeError("tunnel up but egress check failed")
+            self._tunnel = tun
+            self._server_id = server["id"]
+            return proxy, ip, server["id"]
+
+    def rotate(self, reason=""):
+        """Stop the current tunnel (429/quit); next acquire() moves on."""
+        with self._lock:
+            if self._server_id:
+                self._pool.cooldown_until[self._server_id] = \
+                    time.time() + 300
+            self._drop_locked()
+
+    def _drop_locked(self):
+        if self._tunnel is not None:
+            try:
+                self._tunnel.stop()
+            except Exception:  # noqa: BLE001 (stop must not raise)
+                pass
+            self._tunnel = None
+            self._server_id = None
+
+    def stop(self):
+        with self._lock:
+            self._drop_locked()
+
+
 POOL = Pool()
+TUNNELS = TunnelOwner(POOL)
 TOKEN = ""
 
 
@@ -259,10 +339,26 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return self._send(400, {"error": "bad-json"})
         if self.path == "/v1/lease":
-            return self._send(200, POOL.lease(data.get("target", "")))
+            data = POOL.lease(data.get("target", ""))
+            if data.get("mode") == "tunnel":
+                try:
+                    proxy, ip, _sid = TUNNELS.acquire()
+                except RuntimeError as exc:
+                    return self._send(200, {"error": "park",
+                                            "message": str(exc)})
+                except ValueError as exc:
+                    return self._send(200, {"error": "park",
+                                            "message": "bad link: %s"
+                                            % exc})
+                data["proxy_url"] = proxy
+                data["egress_ip"] = ip
+            return self._send(200, data)
         if self.path == "/v1/report":
-            return self._send(200, POOL.report(data.get("lease_id", ""),
-                                               data.get("outcome", "")))
+            res = POOL.report(data.get("lease_id", ""),
+                              data.get("outcome", ""))
+            if res.get("action") == "switch":
+                TUNNELS.rotate("reported " + str(data.get("outcome", "")))
+            return self._send(200, res)
         return self._send(404, {"error": "not-found"})
 
     def log_message(self, *args):  # quieter stdout; rolling log is phase 2
@@ -284,8 +380,8 @@ def refresh_subscription(env):
         if body.startswith("http"):
             try:
                 body = fetch_sub(body)
-            except Exception as exc:  # noqa: BLE001 (best-effort)
-                print("subscription refresh failed: %s" % exc)
+            except Exception:  # noqa: BLE001 (best-effort; URL is secret)
+                print("subscription refresh failed (network error)")
                 continue
         POOL.load(parse_subscription(body))
 
@@ -310,6 +406,34 @@ def tcp_ping(host, port, timeout=PROBE_TIMEOUT_S):
     except OSError:
         pass
     return int((_time.time() - start) * 1000)
+
+
+def zen_probe(proxy_url, api_key, timeout=60):
+    """One minimal Zen call through proxy_url. Returns (code, ms, note)."""
+    import time as _time
+    body = json.dumps({
+        "model": "muse-spark-1.3-contributor-free",
+        "input": "Reply with the single word: ok",
+        "reasoning": {"effort": "minimal"},
+        "max_output_tokens": 16,
+    }).encode()
+    req = urllib.request.Request(
+        "https://opencode.ai/zen/v1/responses", data=body,
+        headers={"Content-Type": "application/json",
+                 "Authorization": "Bearer " + api_key,
+                 "User-Agent": "HamZaban-factory/1.0"})
+    req.set_proxy(proxy_url, ("http", "https"))
+    start = _time.time()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            code = getattr(resp, "status", 200)
+            return code, int((_time.time() - start) * 1000), "live"
+    except Exception as exc:  # noqa: BLE001 (probe reports, not raises)
+        ms = int((_time.time() - start) * 1000)
+        code = getattr(exc, "code", "?")
+        hint = {429: "quota out", 401: "bad key",
+                403: "forbidden"}.get(code, "net/unknown")
+        return code, ms, hint
 
 
 def probe_pool(top_n=PROBE_TOP_N, workers=20):
@@ -359,6 +483,12 @@ def main(argv=None):
                     help="rank pool servers by TCP latency and exit "
                          "(top-N marked zen_candidate)")
     ap.add_argument("--top-n", type=int, default=PROBE_TOP_N)
+    ap.add_argument("--probe-zen", type=int, default=0, metavar="N",
+                    help="tunnel the top-N alive servers one by one and "
+                         "take one real Zen ping each (needs --zen-key "
+                         "or ZEN_API_KEY env). Slow by design.")
+    ap.add_argument("--zen-key", default="",
+                    help="Zen API key for --probe-zen (or ZEN_API_KEY env)")
     args = ap.parse_args(argv)
     if args.gen_token:
         print(secrets.token_hex(24))
@@ -382,6 +512,42 @@ def main(argv=None):
         POOL.save_pool()
         print("whitelist saved: %d servers -> %s" % (
             len(POOL.servers), POOL_PATH))
+        if args.probe_zen:
+            key = args.zen_key or os.environ.get("ZEN_API_KEY", "")
+            if not key:
+                print("probe-zen needs --zen-key or ZEN_API_KEY env")
+                return 2
+            try:
+                from . import tunnel as _tunnel_mod
+            except ImportError:
+                import tunnel as _tunnel_mod
+            cands = [r for r in rows if r["alive"]][:args.probe_zen]
+            print("zen ping: %d tunneled servers" % len(cands))
+            for idx, row in enumerate(cands, 1):
+                server = next((s for s in POOL.servers
+                               if s["id"] == row["id"] and s.get("link")),
+                              None)
+                if server is None:
+                    print("[%d/%d] %s: no link (relink)" % (
+                        idx, len(cands), row["host"]))
+                    continue
+                tun = _tunnel_mod.Tunnel(server, server["link"])
+                try:
+                    proxy = tun.start()
+                    ip = tun.egress_ip()
+                    code, ms, note = zen_probe(proxy, key)
+                    print("[%d/%d] %s -> egress %s zen=%s %dms (%s)" % (
+                        idx, len(cands), row["host"], ip, code, ms,
+                        note))
+                    if code == 429:
+                        POOL.cooldown_until[server["id"]] = \
+                            time.time() + 300
+                except Exception as exc:  # noqa: BLE001 (per-server)
+                    print("[%d/%d] %s: tunnel failed (%s)" % (
+                        idx, len(cands), row["host"], exc))
+                finally:
+                    tun.stop()
+            POOL.save_pool()
         return 0
     TOKEN = env.get(TOKEN_VAR, "")
     if not TOKEN:
@@ -399,6 +565,8 @@ def main(argv=None):
         server.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        TUNNELS.stop()
     return 0
 
 
