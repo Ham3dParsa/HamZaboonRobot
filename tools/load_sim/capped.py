@@ -429,7 +429,8 @@ def _child_main(result_path, fn, args, kwargs, cpu_percent, ram_bytes, fallback_
     ``queue.put`` when the parent is still in ``join`` with no concurrent
     reader. The parent polls for the file instead.
 
-    ``result_path`` lives in a private ``mkdtemp`` dir (mode 0700), and the
+    ``result_path`` lives in a private ``mkdtemp`` dir (0700 per
+    ``tempfile.mkdtemp``), and the
     child writes a ``.part`` file with ``O_CREAT|O_EXCL`` (mode 0600) then
     atomically renames it — no shared-/tmp symlink race, no partial reads.
     """
@@ -642,7 +643,8 @@ def run_capped(
     # file with a 1s cadence so a finished-but-unreaped child is picked up
     # promptly; a missing file at deadline means hang (terminate,
     # timed_out) or death (killed). The result file lives in a private
-    # mkdtemp dir (mode 0700), so no shared-/tmp entry can be pre-placed.
+    # mkdtemp dir (0700 per tempfile.mkdtemp), so no shared-/tmp entry
+    # can be pre-placed.
     import pickle
     import shutil
     import tempfile

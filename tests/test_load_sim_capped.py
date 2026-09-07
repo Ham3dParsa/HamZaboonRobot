@@ -47,6 +47,7 @@ ENVELOPE_KEYS = (
     "caps_enforced",
     "mode",
     "cap_error",
+    "throttle_baseline_s",
 )
 
 
@@ -93,6 +94,8 @@ class CappedRunnerProofTests(unittest.TestCase):
         self.assertEqual(readback["cpu_rate"], 50 * 100)
 
     def test_child_oom_reported_not_crashed(self):
+        if not WINDOWS:
+            self.skipTest("RAM caps need Windows Job Objects")
         from tools.load_sim import capped
 
         env = capped.run_capped(
@@ -108,8 +111,6 @@ class CappedRunnerProofTests(unittest.TestCase):
         # OOM did not crash the runner. Under a real Job Object RAM cap the
         # child either dies (killed=True) or raises MemoryError into the
         # envelope; without enforcement there is nothing to trip.
-        if not WINDOWS:
-            self.skipTest("RAM caps need Windows Job Objects")
         tripped = env["killed"] or (
             not env["ok"]
             and env["error"] is not None
