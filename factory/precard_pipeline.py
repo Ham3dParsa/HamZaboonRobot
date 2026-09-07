@@ -335,14 +335,22 @@ def _is_academic(item, awl_set):
 
 
 def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
-                     type_log_available):
+                     type_log_available, entry_fn=None):
     """S0 verdict for one sample item: {"kept", "reason", "type_pending"}.
 
     kept=False carries a drop reason (r4-name-only / r20-zipf-low:<z> /
-    applied-keep-false:<type>); kept=True has reason None except the
-    zipf-unknown-kept note. Phrase items kept without a type judgement
+    applied-keep-false:<type> / g2..g6 input gates, locked 2026-09-07).
+    Order for words: R4 proper-noun, R20 zipf floor, then G-gates (a
+    low-zipf item drops on frequency; quarantine review is reserved for
+    frequency-passing items). kept=True has reason None except the
+    zipf-unknown-kept note. A kept item may carry quarantine=<gate> (G4
+    single-sense suspect — surfaced in the stage summary + dropped.log
+    for owner review, item is NOT dropped).
+    Phrase items kept without a type judgement
     carry type_pending=True ("type-pending" flag). R35 v9: the word zipf
     gate is level-aware (ZIPF_FLOORS by pool_level); academic bypass kept.
+    entry_fn(text) -> {"senses": [{"gloss", "tags"}], "poss": set()}
+    or None; without entry data the G-gates are skipped (keep).
     """
     kind = item.get("kind") or "word"
     text = (item.get("text") or "").strip()
@@ -364,6 +372,23 @@ def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
             return {"kept": False,
                     "reason": "r20-zipf-low:%.2f" % float(zipf),
                     "type_pending": False}
+        # G-gates run AFTER the zipf floor (review Q1): a low-zipf item
+        # drops on frequency alone; quarantine review is reserved for
+        # items that passed frequency.
+        if entry_fn is not None:
+            try:
+                view = entry_fn(text)
+            except Exception:
+                view = None
+            if view and view.get("senses"):
+                reason, quarantine = _s0_input_gates(text, view)
+                if reason:
+                    return {"kept": False, "reason": reason,
+                            "type_pending": False}
+                if quarantine:
+                    return {"kept": True, "reason": None,
+                            "type_pending": False,
+                            "quarantine": quarantine}
         return {"kept": True, "reason": None, "type_pending": False}
     entry = (type_map or {}).get(text) if type_log_available else None
     if not isinstance(entry, dict):
@@ -374,6 +399,84 @@ def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
                     entry.get("phrase_type") or "unknown"),
                 "type_pending": False}
     return {"kept": True, "reason": None, "type_pending": False}
+
+
+# G-gate patterns (locked 2026-09-07, calibrated on the 284 dry run).
+# G2: every sense gloss is a mechanical inflection reference.
+_G2_FORM_RX = re.compile(
+    r"\b(third-person singular|simple past|past participle|"
+    r"present participle|gerund|plural of|comparative|superlative)\b",
+    re.IGNORECASE)
+# G5: demonym / geo glosses on adjective entries.
+_G5_DEMONYM_RX = re.compile(
+    r"\b(nationality|demonym|capital of|city in|country\b.{0,10}"
+    r"(language|nation)|language spoken)\b", re.IGNORECASE)
+
+
+def _s0_entry_view(item, index, read_entry):
+    """Collect {senses:[{gloss,tags}], poss:set} across all rows of a lemma.
+
+    Fail-open to None on any lookup error (caller keeps the item — G-gates
+    never drop on uncertainty).
+    """
+    try:
+        rows, _pos = _entries_for(item, index)
+    except Exception:
+        return None
+    senses, poss = [], set()
+    try:
+        for row in rows or []:
+            entry = read_entry(row) or {}
+            if isinstance(entry, dict):
+                if entry.get("pos"):
+                    poss.add(str(entry["pos"]))
+                for sense in entry.get("senses") or []:
+                    if not isinstance(sense, dict):
+                        continue
+                    glosses = sense.get("glosses") or []
+                    senses.append({
+                        "gloss": glosses[0] if glosses else "",
+                        "tags": list(sense.get("tags") or []),
+                    })
+    except Exception:
+        return None
+    if not senses:
+        return None
+    return {"senses": senses, "poss": poss}
+
+
+def _s0_input_gates(text, view):
+    """G2..G6 input gates. Returns (drop_reason|None, quarantine|None).
+
+    G1 (case-fold) lives in the sample builder, not here. Order: G3/G4/G6
+    metadata checks, then G2/G5 gloss scans. Quarantine (G4 single-sense
+    suspect like "led") keeps the item with a review flag.
+    """
+    senses = view.get("senses") or []
+    glosses = [s.get("gloss") or "" for s in senses]
+    # G3: interjection entries have no flashcard value.
+    if "interj" in (view.get("poss") or set()):
+        return "g3-interjection", None
+    # G4: abbreviations. All-caps or every-sense-abbrev (multi-sense)
+    # drops; a lone lowercase single-abbrev sense is quarantined.
+    n_abbr = sum(1 for s in senses if "abbreviation" in s.get("tags", []))
+    if re.fullmatch(r"[A-Z]{2,6}", text or "") or \
+            (senses and n_abbr == len(senses) and len(senses) > 1):
+        return "g4-abbrev", None
+    if senses and len(senses) == 1 and n_abbr == 1:
+        return None, "g4-abbrev"
+    # G6: every sense obsolete.
+    if senses and all("obsolete" in s.get("tags", []) for s in senses):
+        return "g6-obsolete", None
+    # G2: every gloss a mechanical inflection reference (kept when at
+    # least one sense is independent, e.g. accusing#1 adjective).
+    if glosses and all(_G2_FORM_RX.search(g) for g in glosses):
+        return "g2-inflection-form", None
+    # G5: demonym/geo glosses (phase-1 learner pool; travel phase brings
+    # them back from a dedicated dataset).
+    if glosses and any(_G5_DEMONYM_RX.search(g) for g in glosses):
+        return "g5-demonym", None
+    return None, None
 
 
 def _tele_tokens(usage):
@@ -1211,10 +1314,14 @@ def _stage_summary(stage, states, out_path):
                and not v.get("dropped"))
     slugs = Counter()
     details = []
+    quarantined = []
     for key, verdict in done.items():
         if not isinstance(verdict, dict):
             continue
         reason = verdict.get("reason") or verdict.get("dropped") or ""
+        if verdict.get("quarantine"):
+            quarantined.append("%s: quarantine-%s" % (
+                key, verdict.get("quarantine")))
         if verdict.get("kept", True) and not verdict.get("dropped"):
             continue
         slugs[_reason_slug(reason)] += 1
@@ -1224,10 +1331,12 @@ def _stage_summary(stage, states, out_path):
             slugs["failed-no-entry"] += 1
             details.append("%s: failed-no-entry" % key)
     print("")
-    print("[STAGE %s] kept=%d dropped=%d%s" % (
+    print("[STAGE %s] kept=%d dropped=%d%s%s" % (
         stage, kept, len(failed),
         " | " + ", ".join("%s=%d" % kv for kv in slugs.most_common(4))
-        if slugs else ""))
+        if slugs else "",
+        " | quarantined=%d" % len(quarantined) if quarantined else ""))
+    details.extend(quarantined)
     if details:
         drop_log = pathlib.Path(str(out_path)).parent / "dropped.log"
         try:
@@ -1421,7 +1530,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             if key not in states["s0"]["done"]:
                 verdict = s0_classify_item(
                     item, pos_sets, zipf_fn, awl_set, type_map,
-                    type_log_available)
+                    type_log_available,
+                    entry_fn=lambda t, _item=item: _s0_entry_view(
+                        _item, index, read_entry))
                 states["s0"]["done"][key] = verdict
                 if not verdict["kept"] \
                         and key not in states["s0"]["failed"]:

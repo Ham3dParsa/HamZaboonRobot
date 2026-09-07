@@ -708,13 +708,16 @@ def test_s1_xref_unresolvable_drop(tmp_path, monkeypatch):
 # ---------------- v9 R36: S0b inflection stage ----------------
 
 def _inflect_index():
-    def rows(gloss):
+    # Mixed entries (stub top + one real sense) so items pass the G2
+    # all-form S0 gate and reach the S0b review under test. Pure-form
+    # entries die at S0 (see test_g2_*); S0b owns mixed tops.
+    def rows(*glosses):
         return [{"pos": "noun",
                  "entry": {"pos": "noun", "sounds": [],
-                           "senses": [{"glosses": [gloss], "tags": [],
-                                       "examples": []}]}}]
-    return {"cats": rows("plural of cat"),
-            "went": rows("past of go"),
+                           "senses": [{"glosses": [g], "tags": [],
+                                       "examples": []} for g in glosses]}}]
+    return {"cats": rows("plural of cat", "feline companions"),
+            "went": rows("past of go", "to move along"),
             "apple": rows("a round fruit")}
 
 
@@ -810,13 +813,15 @@ def test_coherence_stem_overlap():
 # ---------------- v12 R44: superlative redirect (S0b verdict variant) ---
 
 def _superlative_index():
-    def rows(gloss):
+    # Mixed entries (stub top + one real sense) so items pass the G2
+    # all-form S0 gate and reach the S0b review under test.
+    def rows(*glosses):
         return [{"pos": "adj",
                  "entry": {"pos": "adj", "sounds": [],
-                           "senses": [{"glosses": [gloss], "tags": [],
-                                       "examples": []}]}}]
-    return {"best": rows("superlative of good"),
-            "better": rows("comparative of good"),
+                           "senses": [{"glosses": [g], "tags": [],
+                                       "examples": []} for g in glosses]}}]
+    return {"best": rows("superlative of good", "of the highest quality"),
+            "better": rows("comparative of good", "of higher quality"),
             "good": rows("having good qualities")}
 
 
@@ -1425,3 +1430,116 @@ def test_s1_proper_anchor_reroutes_to_common_sense():
     ranked2 = s1_rank_item(item2, index2, read_entry)
     assert _reroute_proper_anchor(item2, ranked2, index2,
                                   read_entry) is None
+
+
+def _g_view(senses, poss=None):
+    return {"senses": [{"gloss": g, "tags": t} for g, t in senses],
+            "poss": set(poss or [])}
+
+
+def _g_item(text, level="B1"):
+    return {"kind": "word", "text": text, "pos": "", "pool_level": level}
+
+
+def _g_classify(text, view, level="B1"):
+    from precard_pipeline import s0_classify_item
+    return s0_classify_item(
+        _g_item(text, level), {}, lambda t: 5.0, set(), {}, False,
+        entry_fn=lambda t: view)
+
+
+def test_g2_drops_all_form_entries():
+    v = _g_classify("arrives", _g_view(
+        [("third-person singular simple present of arrive", [])]))
+    assert v == {"kept": False, "reason": "g2-inflection-form",
+                 "type_pending": False}
+
+
+def test_g2_keeps_with_independent_sense():
+    v = _g_classify("accusing", _g_view(
+        [("third-person singular simple present of accuse", []),
+         ("making accusations; blaming", [])]))
+    assert v["kept"] is True and v.get("reason") is None
+
+
+def test_g3_drops_interjections():
+    v = _g_classify("ahem", _g_view(
+        [("used to attract attention", [])], poss=["interj"]))
+    assert v["reason"] == "g3-interjection" and v["kept"] is False
+
+
+def test_g4_drops_allcaps_and_multi_abbrev():
+    v = _g_classify("FEB", _g_view([("February", ["abbreviation"])]))
+    assert v["reason"] == "g4-abbrev" and v["kept"] is False
+    v2 = _g_classify("comp", _g_view(
+        [("complimentary", ["abbreviation"]),
+         ("composition", ["abbreviation"])]))
+    assert v2["reason"] == "g4-abbrev" and v2["kept"] is False
+
+
+def test_g4_quarantines_single_suspect():
+    v = _g_classify("led", _g_view([("light-emitting diode",
+                                     ["abbreviation"])]))
+    assert v["kept"] is True
+    assert v.get("quarantine") == "g4-abbrev"
+
+
+def test_g4_keeps_real_words_with_abbrev_sense():
+    v = _g_classify("think", _g_view(
+        [("to believe", []), ("Think (band)", ["abbreviation"])]))
+    assert v["kept"] is True and "quarantine" not in v
+
+
+def test_g5_drops_demonyms():
+    v = _g_classify("American", _g_view(
+        [("a person from the United States; nationality American", [])]))
+    assert v["reason"] == "g5-demonym" and v["kept"] is False
+
+
+def test_g6_drops_obsolete_only():
+    v = _g_classify("los", _g_view([("a lynx", ["obsolete"])]))
+    assert v["reason"] == "g6-obsolete" and v["kept"] is False
+
+
+def test_g_gates_skipped_without_entry_fn():
+    from precard_pipeline import s0_classify_item
+    v = s0_classify_item(_g_item("arrives"), {}, lambda t: 5.0, set(),
+                         {}, False)
+    assert v == {"kept": True, "reason": None, "type_pending": False}
+
+
+def test_s0_entry_view_merges_rows_and_fails_open():
+    from precard_pipeline import _s0_entry_view
+
+    def rows(pos, senses):
+        return [{"pos": pos,
+                 "entry": {"pos": pos, "sounds": [],
+                           "senses": [{"glosses": [g], "tags": t}
+                                      for g, t in senses]}}]
+
+    index = {"w": rows("noun", [("a thing", [])])
+             + rows("verb", [("to want", [])])}
+
+    def read_entry(row):
+        return row["entry"]
+
+    view = _s0_entry_view({"kind": "word", "text": "w"}, index,
+                          read_entry)
+    assert view is not None
+    assert view["poss"] == {"noun", "verb"}
+    assert [s["gloss"] for s in view["senses"]] == ["a thing", "to want"]
+
+    # read_entry raising -> None (keep, never drop on uncertainty).
+    def boom(row):
+        raise OSError("disk gone")
+
+    assert _s0_entry_view({"kind": "word", "text": "w"}, index,
+                          boom) is None
+    # unknown lemma -> None.
+    assert _s0_entry_view({"kind": "word", "text": "nope"}, {}, read_entry) \
+        is None
+    # senseless entry -> None.
+    assert _s0_entry_view(
+        {"kind": "word", "text": "w"},
+        {"w": [{"pos": "noun", "entry": {"pos": "noun"}}]},
+        read_entry) is None
