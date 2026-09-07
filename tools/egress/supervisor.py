@@ -230,13 +230,21 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+def fetch_sub(url):
+    """Fetch a subscription URL with a browser UA (raw hosts 403 the
+    default urllib agent)."""
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64)"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.read().decode("utf-8", "replace")
+
+
 def refresh_subscription(env):
     for src in sub_sources(env):
         body = src
         if body.startswith("http"):
             try:
-                with urllib.request.urlopen(body, timeout=30) as resp:
-                    body = resp.read().decode("utf-8", "replace")
+                body = fetch_sub(body)
             except Exception as exc:  # noqa: BLE001 (best-effort)
                 print("subscription refresh failed: %s" % exc)
                 continue
@@ -265,15 +273,22 @@ def tcp_ping(host, port, timeout=PROBE_TIMEOUT_S):
     return int((_time.time() - start) * 1000)
 
 
-def probe_pool(top_n=PROBE_TOP_N):
+def probe_pool(top_n=PROBE_TOP_N, workers=20):
     """Rank pool servers by TCP latency; Zen-liveness needs a tunnel
     (phase 2) so it is NOT probed here — ranking is reachability only,
-    and live 429 feedback (report/cooldown) does the rest at runtime."""
-    ranked = []
-    for server in POOL.servers:
+    and live 429 feedback (report/cooldown) does the rest at runtime.
+    Probes run concurrently (sequential 5s timeouts would hang on big
+    subscription lists)."""
+    import concurrent.futures as _fut
+    servers = list(POOL.servers)
+
+    def one(server):
         ms = tcp_ping(server.get("host"), server.get("port"))
-        ranked.append((ms if ms is not None else 10 ** 9, server))
-    ranked.sort(key=lambda pair: pair[0])
+        return (ms if ms is not None else 10 ** 9, server)
+
+    with _fut.ThreadPoolExecutor(max_workers=workers) as pool:
+        ranked = sorted(pool.map(one, servers),
+                        key=lambda pair: pair[0])
     return [{"host": s["host"], "port": s["port"], "scheme": s["scheme"],
              "id": s["id"],
              "latency_ms": (None if ms >= 10 ** 9 else ms),
