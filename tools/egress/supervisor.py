@@ -459,12 +459,16 @@ def probe_pool(top_n=PROBE_TOP_N, workers=20):
         return (ms if ms is not None else 10 ** 9, server)
 
     with _fut.ThreadPoolExecutor(max_workers=workers) as pool:
-        future_of = {pool.submit(one, s): s for s in servers}
+        future_of = {pool.submit(one, s): s for s in servers
+                     if isinstance(s, dict)}
         ranked = []
         done = 0
         for future in _fut.as_completed(future_of):
             done += 1
             ms, server = future.result()
+            if not isinstance(server, dict) or not server.get("id") \
+                    or not server.get("host") or not server.get("port"):
+                continue
             print("\rprobing %d/%d: %s:%s %s" % (
                 done, len(servers), server.get("host"),
                 server.get("port"),
