@@ -120,11 +120,40 @@ STAGE_NAMES = {
     "s0": "preprocess", "s0b": "inflection", "s1": "anchor",
     "s2": "judge", "s3": "vectors", "s4": "label", "s5": "enrich",
 }
+# Finglish stage tags for the console (plain ASCII — Windows terminal
+# safe). run.log keeps bare ids (greppable, stable); the console shows
+# "name (finglish)" so a non-developer owner can follow the run.
+STAGE_FINGLESH = {
+    "s0": "pishpardazesh", "s0b": "sarf", "s1": "langar",
+    "s2": "davari", "s3": "bordar", "s4": "barchasb",
+    "s5": "ghanasazi",
+}
 
 
 def stage_name(stage):
-    """Display name for logs; unknown ids pass through unchanged."""
+    """Bare display name (no Finglish tag). Kept: tests pin it and
+    parallel sessions may reference it; console uses stage_label()."""
     return STAGE_NAMES.get(stage, stage)
+
+
+def stage_label(stage):
+    """Console label: English name + Finglish tag, ASCII-only."""
+    name = STAGE_NAMES.get(stage)
+    if name is None:
+        return stage
+    return "%s (%s)" % (name, STAGE_FINGLESH.get(stage, stage))
+
+
+# Reverse map: --only/--stages accept ids or names ("judge" == "s2").
+_NAME_TO_STAGE = {name: sid for sid, name in STAGE_NAMES.items()}
+
+
+def _normalize_stage(pick):
+    """Stage id from an id or a display name (case-insensitive)."""
+    key = (pick or "").strip().lower()
+    if key in STAGES:
+        return key
+    return _NAME_TO_STAGE.get(key, key)
 RETRY_PREFIX = ("Your last reply was not valid JSON. "
                 "Re-send ONLY the JSON object.\n")
 
@@ -140,11 +169,12 @@ def parse_args(argv=None):
     ap.add_argument("--no-resume", action="store_true",
                     help="ignore existing stage progress (default: resume on)")
     ap.add_argument("--only", default="",
-                    help="run a single stage only (S0..S5 incl. S0b, "
-                    "case-insensitive; "
+                    help="run a single stage only (id or name, e.g. "
+                    "--only judge; case-insensitive; "
                     "other stages are skipped, resume still honored)")
     ap.add_argument("--stages", default="",
-                    help="comma-separated stage subset (e.g. --stages s1,s2; "
+                    help="comma-separated stage subset (ids or names, e.g. "
+                    "--stages anchor,judge; "
                     "mutually exclusive with --only)")
     ap.add_argument("--rekey", default="",
                     help="keyfile (one item key per line, # comments "
@@ -249,12 +279,14 @@ def _selected_stages(args):
     if only and stages:
         raise SystemExit("--only and --stages are mutually exclusive")
     if only:
+        only = _normalize_stage(only)
         if only not in STAGES:
             raise SystemExit("--only must be one of %s (got %r)"
                              % (", ".join(STAGES), args.only))
         return {only}
     if stages:
-        picks = [s.strip() for s in stages.split(",") if s.strip()]
+        picks = [_normalize_stage(s)
+                 for s in stages.split(",") if s.strip()]
         bad = [s for s in picks if s not in STAGES]
         if not picks or bad:
             raise SystemExit("--stages must be a comma list from %s (got %r)"
@@ -1408,7 +1440,7 @@ def _batch_progress(stage, batch_no, n_batches, ok, fail):
     filled = int(width * done / total)
     print("\r%s" % _color(
         "[%s] [%s%s] %d/%d | ok=%d fail=%d" % (
-            stage_name(stage), "=" * filled, " " * (width - filled),
+            stage_label(stage), "=" * filled, " " * (width - filled),
             done, total, ok, fail), "cyan"), end="", flush=True)
 
 
@@ -1453,7 +1485,7 @@ def _stage_summary(stage, states, out_path):
             details.append("%s: failed-no-entry" % key)
     print("")
     print(_color("[STAGE %s] kept=%d dropped=%d%s%s" % (
-        stage_name(stage), kept, len(failed),
+        stage_label(stage), kept, len(failed),
         " | " + ", ".join("%s=%d" % kv for kv in slugs.most_common(4))
         if slugs else "",
         " | quarantined=%d" % len(quarantined) if quarantined else ""),
@@ -1462,12 +1494,12 @@ def _stage_summary(stage, states, out_path):
         drop_log = pathlib.Path(str(out_path)).parent / "dropped.log"
         try:
             with open(drop_log, "a", encoding="utf-8") as handle:
-                handle.write("=== %s drops ===\n" % stage)
+                handle.write("=== %s drops ===\n" % stage_label(stage))
                 for line in details:
                     handle.write(line + "\n")
                 if quarantined:
                     handle.write("=== %s quarantine (kept, review) ===\n"
-                                 % stage)
+                                 % stage_label(stage))
                     for line in quarantined:
                         handle.write(line + "\n")
         except OSError as exc:
@@ -1528,23 +1560,26 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         print("  sample:   %s (%d items)" % (args.sample, len(items)))
         print("  out:      %s (not written)" % args.out)
         print("  progress: %s (not written)" % args.progress_dir)
-        print("  batches:  %d x %d (S0..S5 incl. S0b, resume %s)" % (
+        print("  batches:  %d x %d (preprocess..enrich incl. inflection, "
+              "resume %s)" % (
             (len(items) + BATCH - 1) // BATCH if items else 0, BATCH,
             "off" if args.no_resume else "on"))
-        print("  stages:   S0 preprocess[R4-name/R20-zipf-level/phrase-type] / "
-              "S0b inflection-review / S1 rank / S2 judge[1.3->1.2] / "
-              "S3 vectors / S4 label / S5 enrich")
-        print("  selected: %s" % ", ".join(s for s in STAGES
-                                           if s in selected))
+        print("  stages:   preprocess[name/zipf/phrase gates] / "
+              "inflection-review / anchor-rank / judge / "
+              "vectors / label / enrich")
+        print("  selected: %s" % ", ".join(
+            stage_label(s) for s in STAGES if s in selected))
         if rekeyed:
             print("  rekey:    %d key(s) forced to redo" % len(rekeyed))
         for stage in STAGES:
             if stage in selected:
                 print("  need %s: %d todo (%d done kept, upper bound "
-                      "pre-drop)" % (stage, needs[stage]["todo"],
+                      "pre-drop)" % (stage_label(stage),
+                                     needs[stage]["todo"],
                                      needs[stage]["done"]))
             else:
-                print("  stage %s: skipped (not selected)" % stage)
+                print("  stage %s: skipped (not selected)"
+                      % stage_label(stage))
         return 0
 
     progress_dir = pathlib.Path(args.progress_dir)
@@ -1567,13 +1602,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     for stage in STAGES:
         done_n = len(states[stage]["done"])
         banner.append("%s done=%d remaining=%d" % (
-            stage_name(stage), done_n, max(0, total - done_n)))
+            stage_label(stage), done_n, max(0, total - done_n)))
     print("resume: %s" % " | ".join(banner))
     # R26: stage selection + rekey eviction (resume still skips the rest).
-    # Stage dependency: S1/S2 feed S3/S4/S5 (anchor -> judge -> vector ->
-    # label -> enrich), so rekeying an upstream stage auto-invalidates the
-    # same keys downstream — otherwise assembly mixes new anchors with
-    # stale enrichment (kiss#5-style staleness).
+    # Stage dependency: anchor -> judge -> vectors -> label -> enrich,
+    # so rekeying an upstream stage auto-invalidates the same keys downstream — otherwise assembly mixes
+    # new anchors with stale enrichment (kiss#5-style staleness).
     _DOWNSTREAM = {"s1": ("s2", "s3", "s4", "s5"), "s2": ("s3", "s4", "s5"),
                    "s3": ("s4", "s5"), "s4": ("s5",)}
     selected = _selected_stages(args)
@@ -1595,7 +1629,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     if k not in rekeyed_set]
         print("rekey: %d key(s) forced to redo in %s" % (
             len(rekeyed),
-            ", ".join(s for s in STAGES if s in selected)))
+            ", ".join(stage_label(s) for s in STAGES if s in selected)))
 
     # V7: compact run.log in the out dir (stage start/end + counts +
     # timings). Console shows a live one-line progress per batch

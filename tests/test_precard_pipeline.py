@@ -329,9 +329,10 @@ def test_run_log_and_batch_lines(tmp_path, monkeypatch, capsys):
         assert ("stage %s start" % stage) in logged
         assert ("stage %s end" % stage) in logged
     captured = capsys.readouterr()
-    assert "[preprocess]" in captured.out and "ok=2 fail=0" in captured.out
-    assert "[STAGE preprocess]" in captured.out
-    assert "[STAGE enrich]" in captured.out
+    assert "[preprocess (pishpardazesh)]" in captured.out \
+        and "ok=2 fail=0" in captured.out
+    assert "[STAGE preprocess" in captured.out
+    assert "[STAGE enrich" in captured.out
 
 
 def test_stage_skip_on_resume(tmp_path, monkeypatch):
@@ -1909,3 +1910,25 @@ def test_register_meta_interleaved_deep_demotes():
         "thing", rows, "noun", read_entry, zipf_fn=lambda t: 5.0)
     flags = [card_pilot._is_meta_gloss(g) for _, _, _, _, g in scored]
     assert flags == [False, False, True, True], flags
+
+
+def test_stage_labels_cover_all_ids_ascii_only():
+    """v13 identity: every stable id has a name + Finglish tag; console
+    labels stay plain ASCII (Windows terminal safe); unknown ids pass
+    through both helpers unchanged."""
+    for stage in precard_pipeline.STAGES:
+        name = precard_pipeline.STAGE_NAMES[stage]
+        tag = precard_pipeline.STAGE_FINGLESH[stage]
+        label = precard_pipeline.stage_label(stage)
+        assert name and tag and label.startswith(name)
+        label.encode("ascii")
+    assert precard_pipeline.stage_name("sx") == "sx"
+    assert precard_pipeline.stage_label("sx") == "sx"
+
+
+def test_stage_selection_accepts_names():
+    """v13 identity: --only/--stages take ids or display names."""
+    ns = precard_pipeline._normalize_stage
+    assert ns("judge") == "s2"
+    assert ns("S2") == "s2"
+    assert ns("bogus") == "bogus"
