@@ -1735,3 +1735,13 @@ def test_unknown_zipf_keeps_quarantine():
     assert v["kept"] is True
     assert v["reason"] == "zipf-unknown-kept"
     assert v.get("quarantine") == "g4-abbrev"
+
+
+def test_color_plain_when_piped(monkeypatch, capsys):
+    """Console colors never leak into pipes/files (capsys is not a tty)."""
+    from precard_pipeline import _color
+    out = _color("hello", "green")
+    assert out == "hello"
+    assert "\x1b" not in out
+    captured = capsys.readouterr()
+    assert captured.out == ""

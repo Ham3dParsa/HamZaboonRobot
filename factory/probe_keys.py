@@ -48,9 +48,16 @@ def probe(name, key):
     except Exception as exc:  # noqa: BLE001 (probe must report, not raise)
         ms = int((_t.time() - _t0) * 1000)
         code = getattr(exc, "code", "?")
+        body = ""
+        try:
+            raw = exc.read()
+            body = (" | body: " + raw.decode("utf-8", "replace")[:200]) \
+                if raw else ""
+        except Exception:  # noqa: BLE001 (body is best-effort)
+            pass
         hint = {429: "quota out — switch server",
                 401: "bad key", 403: "forbidden"}.get(code, "see error")
-        return "%s: HTTP %s (%s, %dms)" % (name, code, hint, ms)
+        return "%s: HTTP %s (%s, %dms%s)" % (name, code, hint, ms, body)
 
 
 def main():

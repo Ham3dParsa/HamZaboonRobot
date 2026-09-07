@@ -1328,6 +1328,24 @@ def _default_inflect_transport(api_key, model, sys_text, user_text):
     return card_pilot.call_responses(api_key, model, sys_text, user_text)
 
 
+def _color(text, name):
+    """ANSI color for consoles; plain text when piped/NO_COLOR/Windows-legacy.
+
+    Console-only helper (stored reasons/logs stay uncolored for files).
+    """
+    import os as _os
+    codes = {"green": "32", "red": "31", "yellow": "33", "cyan": "36",
+             "bold": "1"}
+    try:
+        use = sys.stdout.isatty() and not _os.environ.get("NO_COLOR") \
+            and name in codes
+    except Exception:
+        use = False
+    if not use:
+        return text
+    return "\x1b[%sm%s\x1b[0m" % (codes[name], text)
+
+
 def _batch_progress(stage, batch_no, n_batches, ok, fail):
     """Live one-line progress (carriage return, English-only console).
 
@@ -1340,9 +1358,10 @@ def _batch_progress(stage, batch_no, n_batches, ok, fail):
     total = n_batches or 1
     done = min(batch_no, total)
     filled = int(width * done / total)
-    print("\r[%s] [%s%s] %d/%d | ok=%d fail=%d" % (
-        stage, "=" * filled, " " * (width - filled),
-        done, total, ok, fail), end="", flush=True)
+    print("\r%s" % _color(
+        "[%s] [%s%s] %d/%d | ok=%d fail=%d" % (
+            stage, "=" * filled, " " * (width - filled),
+            done, total, ok, fail), "cyan"), end="", flush=True)
 
 
 def _reason_slug(reason):
@@ -1380,11 +1399,12 @@ def _stage_summary(stage, states, out_path):
             slugs["failed-no-entry"] += 1
             details.append("%s: failed-no-entry" % key)
     print("")
-    print("[STAGE %s] kept=%d dropped=%d%s%s" % (
+    print(_color("[STAGE %s] kept=%d dropped=%d%s%s" % (
         stage, kept, len(failed),
         " | " + ", ".join("%s=%d" % kv for kv in slugs.most_common(4))
         if slugs else "",
-        " | quarantined=%d" % len(quarantined) if quarantined else ""))
+        " | quarantined=%d" % len(quarantined) if quarantined else ""),
+        "green" if not failed else "yellow"))
     if details or quarantined:
         drop_log = pathlib.Path(str(out_path)).parent / "dropped.log"
         try:
@@ -1615,10 +1635,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     dropped = {k for k, v in s0_info.items() if not v.get("kept")}
     items = [i for i in items if item_key(i) not in dropped]
     if dropped:
-        print("s0 preprocess: kept=%d dropped=%d (%s)" % (
-            len(items), len(dropped),
-            ", ".join(sorted("%s:%s" % (k, s0_info[k].get("reason"))
-                             for k in dropped))))
+        # Details live in dropped.log (written by _stage_summary);
+        # console stays a single short line (no 80-item spam).
+        print(_color("s0 preprocess: kept=%d dropped=%d "
+                     "(see dropped.log)" % (len(items), len(dropped)),
+                     "cyan"))
 
     need_llm = (_judge_transport is _USE_DEFAULT
                 or _topic_transport is _USE_DEFAULT
@@ -1840,12 +1861,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     item["redirected_from"] = item.get("text", "")
                     item["text"] = base
         if s0b_dropped:
-            print("s0b inflection: kept=%d dropped=%d (%s)" % (
-                len(items), len(s0b_dropped),
-                ", ".join(sorted(
-                    "%s:%s" % (k, states["s0b"]["done"][k].get("reason"))
-                    for k in s0b_dropped
-                    if k in states["s0b"]["done"]))))
+            # Details live in dropped.log; console stays one short line.
+            print(_color("s0b inflection: kept=%d dropped=%d "
+                         "(see dropped.log)" % (len(items),
+                                                len(s0b_dropped)),
+                         "cyan"))
         # S1 (deterministic, batch-flushed). V7 anchor-POS drop lives ONLY
         # here: when the anchored sense's entry POS is in {name, propn}
         # (card_pilot.PROPER_NOUN_POS, reused by import — deterministic,
@@ -1921,13 +1941,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         _stage_summary("s1", states, args.out)
         if s1_dropped:
-            print("s1 anchor-pos: kept=%d dropped=%d (%s)" % (
-                len(items) - len(s1_dropped & {item_key(i) for i in items}),
-                len(s1_dropped & {item_key(i) for i in items}),
-                ", ".join(sorted(
-                    "%s:%s" % (k, states["s1"]["done"][k].get("dropped"))
-                    for k in s1_dropped
-                    if k in states["s1"]["done"]))))
+            # Details live in dropped.log; console stays one short line.
+            print(_color("s1 anchor-pos: kept=%d dropped=%d "
+                         "(see dropped.log)" % (
+                             len(items) - len(s1_dropped & {item_key(i)
+                                                            for i in items}),
+                             len(s1_dropped & {item_key(i)
+                                               for i in items})),
+                         "cyan"))
         items = [i for i in items if item_key(i) not in s1_dropped]
         # S2 (judge batches). ok = judge-model picks in the batch,
         # fail = s1-fallback (fail-closed) picks in the batch.
