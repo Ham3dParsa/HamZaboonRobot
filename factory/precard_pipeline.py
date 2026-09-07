@@ -342,9 +342,9 @@ def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
     kept=False carries a drop reason (r4-name-only / r20-zipf-low:<z> /
     applied-keep-false:<type> / g2..g6 input gates, locked 2026-09-07).
     Order for words: R4 proper-noun, G-gates (no zipf bypass — entry
-    lookup is fail-open), then the R20 zipf floor; quarantine review is
-    reserved for frequency-passing items (a low-zipf suspect drops on
-    frequency, never quarantines). kept=True has reason None except the
+    lookup is fail-open), then the R20 zipf floor. A computed quarantine
+    flag rides along on unknown zipf (kept, review value survives) but a
+    low-zipf suspect drops on frequency, never quarantines. kept=True has reason None except the
     zipf-unknown-kept note. A kept item may carry quarantine=<gate> (G4
     single-sense suspect — surfaced in the stage summary + dropped.log
     for owner review, item is NOT dropped).
@@ -379,6 +379,11 @@ def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
         except Exception:
             zipf = None
         if zipf is None:
+            # Unknown frequency keeps, but a computed quarantine flag
+            # still rides along (review value survives the unknown).
+            if quarantine:
+                return {"kept": True, "reason": "zipf-unknown-kept",
+                        "type_pending": False, "quarantine": quarantine}
             return {"kept": True, "reason": "zipf-unknown-kept",
                     "type_pending": False}
         floor = ZIPF_FLOORS.get(
@@ -419,8 +424,8 @@ _G2_FORM_RX = re.compile(
 _G5_DEMONYM_RX = re.compile(
     r"\b(nationality|demonym|capital of|city in|native of|"
     r"inhabitant of|person from|of or (pertaining|relating) to|"
-    r"country\b.{0,10}(language|nation)|language spoken)\b",
-    re.IGNORECASE)
+    r"country[^.]{0,20}?\b(language|nation|national)\b|"
+    r"language spoken)\b", re.IGNORECASE)
 
 
 def _s0_entry_view(item, index, read_entry):
@@ -445,9 +450,11 @@ def _s0_entry_view(item, index, read_entry):
                     if not isinstance(sense, dict):
                         continue
                     glosses = sense.get("glosses") or []
+                    tags = [str(t or "").strip().casefold()
+                            for t in sense.get("tags") or []]
                     senses.append({
                         "gloss": glosses[0] if glosses else "",
-                        "tags": list(sense.get("tags") or []),
+                        "tags": [t for t in tags if t],
                     })
     except Exception:
         return None
@@ -465,15 +472,18 @@ def _s0_input_gates(text, view):
     """
     senses = view.get("senses") or []
     glosses = [s.get("gloss") or "" for s in senses]
-    # G3: interjection entries have no flashcard value.
-    if "interj" in (view.get("poss") or set()):
+    # G3: interjection entries have no flashcard value (all POS
+    # spellings: interj/intj/interjection).
+    if (view.get("poss") or set()) & {"interj", "intj", "interjection"}:
         return "g3-interjection", None
     # G4: abbreviations. All-caps fires on case-preserving samples
     # (live: FEB/WHO/NSW dropped in pilot200g); the tag leg covers
     # lowercased inputs. A lone lowercase single-abbrev sense is
     # quarantined, not dropped (led).
     n_abbr = sum(1 for s in senses if "abbreviation" in s.get("tags", []))
-    if re.fullmatch(r"[A-Z]{2,6}", text or "") or \
+    # Caps alone never drops (BOOK/PLAY stay); caps + at least one abbrev
+    # tag, or every-sense-abbrev (multi-sense), drops.
+    if (re.fullmatch(r"[A-Z]{2,6}", text or "") and n_abbr > 0) or \
             (senses and n_abbr == len(senses) and len(senses) > 1):
         return "g4-abbrev", None
     if senses and len(senses) == 1 and n_abbr == 1:

@@ -1645,3 +1645,40 @@ def test_g4_lowercase_tags_path():
     assert v["reason"] == "g4-abbrev" and v["kept"] is False
     v2 = _g_classify("feb", _g_view([("February", ["abbreviation"])]))
     assert v2["kept"] is True and v2.get("quarantine") == "g4-abbrev"
+
+
+def test_g4_caps_without_tags_stays():
+    """BOOK/PLAY: all-caps alone never drops (needs an abbrev tag)."""
+    v = _g_classify("BOOK", _g_view([("a written work", [])]))
+    assert v["kept"] is True and "quarantine" not in v
+
+
+def test_g5_boundary_phrasings():
+    """G5 hits canonical demonym phrasings, spares lookalikes."""
+    for gloss in ("a native of France", "an inhabitant of Rome",
+                  "a person from Spain",
+                  "of or pertaining to Italy",
+                  "the country's national language is X"):
+        v = _g_classify("t" + gloss[:3], _g_view([(gloss, [])]))
+        assert v["reason"] == "g5-demonym", gloss
+    for gloss in ("a national park", "an international treaty",
+                  "a nice country walk"):
+        v = _g_classify("t" + gloss[:3], _g_view([(gloss, [])]))
+        assert v["kept"] is True, gloss
+
+
+def test_unknown_zipf_keeps_quarantine():
+    """zipf-unknown keeps but preserves a computed quarantine flag."""
+
+    def nozipf(t):
+        return None
+
+    from precard_pipeline import s0_classify_item
+    view = {"senses": [{"gloss": "light-emitting diode",
+                        "tags": ["abbreviation"]}],
+            "poss": {"noun"}}
+    v = s0_classify_item(_g_item("led", "A2"), {}, nozipf, set(), {},
+                         False, entry_fn=lambda t: view)
+    assert v["kept"] is True
+    assert v["reason"] == "zipf-unknown-kept"
+    assert v.get("quarantine") == "g4-abbrev"
