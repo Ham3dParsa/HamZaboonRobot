@@ -522,9 +522,14 @@ def main(argv=None):
                 "%s:%s" % (row["host"], row["port"]),
                 row["latency_ms"]))
         POOL.load_ranked(rows)
-        POOL.save_pool()
-        print("whitelist saved: %d servers -> %s" % (
-            len(POOL.servers), POOL_PATH))
+        if alive:
+            POOL.save_pool()
+            print("whitelist saved: %d servers -> %s" % (
+                len(POOL.servers), POOL_PATH))
+        else:
+            # Never overwrite a good whitelist with an empty probe
+            # (failed refresh / dead network). Old file stays intact.
+            print("probe found 0 alive servers: whitelist NOT overwritten")
         if args.probe_zen:
             key = args.zen_key or os.environ.get("ZEN_API_KEY", "")
             if not key:
