@@ -329,9 +329,9 @@ def test_run_log_and_batch_lines(tmp_path, monkeypatch, capsys):
         assert ("stage %s start" % stage) in logged
         assert ("stage %s end" % stage) in logged
     captured = capsys.readouterr()
-    assert "[s0]" in captured.out and "ok=2 fail=0" in captured.out
-    assert "[STAGE s0]" in captured.out
-    assert "[STAGE s5]" in captured.out
+    assert "[preprocess]" in captured.out and "ok=2 fail=0" in captured.out
+    assert "[STAGE preprocess]" in captured.out
+    assert "[STAGE enrich]" in captured.out
 
 
 def test_stage_skip_on_resume(tmp_path, monkeypatch):
@@ -1745,3 +1745,61 @@ def test_color_plain_when_piped(monkeypatch, capsys):
     assert "\x1b" not in out
     captured = capsys.readouterr()
     assert captured.out == ""
+
+
+def test_parse_stage_map_validates():
+    import pytest
+    from precard_pipeline import _parse_stage_map, LLM_LEGS
+    assert _parse_stage_map(["s2=avalai", "s4=zen"]) == {"s2": "avalai",
+                                                        "s4": "zen"}
+    assert _parse_stage_map([]) == {}
+    assert _parse_stage_map(None) == {}
+    assert set(LLM_LEGS) == {"s0b", "s2", "s3", "s4"}
+    with pytest.raises(SystemExit):
+        _parse_stage_map(["s9=avalai"])
+    with pytest.raises(SystemExit):
+        _parse_stage_map(["s2"])
+    with pytest.raises(SystemExit):
+        _parse_stage_map(["s2=bogus"], ("zen", "avalai"))
+    with pytest.raises(SystemExit):
+        _parse_stage_map(["s2="], ("zen", "avalai"))
+
+
+def test_mixed_line_s2_zen_rest_avalai(tmp_path, monkeypatch):
+    """Mixed providers: s2 stays Zen (default chain), s0b/s3/s4 go GLM."""
+    import precard_pipeline
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "zen-key")
+    monkeypatch.setenv("AVALAI_API_KEY", "avalai-key")
+    sample = write_sample(tmp_path, ITEMS[:1])
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    seen = []
+
+    def rec_judge(api_key, model, user_text):
+        seen.append((api_key, model))
+        return fake_judge(api_key, model, user_text)
+
+    monkeypatch.setattr(precard_pipeline, "_avalai_chat_transport",
+                        rec_judge)
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog,
+         "--stages", "s0,s1,s2", "--llm-provider", "avalai",
+         "--stage-provider", "s2=zen"],
+        _judge_transport=fake_judge, _topic_transport=None,
+        _assign_transport=None,
+        _sleep_fn=lambda s: None, _index=make_index(),
+        _read_entry=read_entry, _tatoeba={}, _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    # s2 ran on the injected (Zen-stand-in) chain, never AvalAI...
+    assert seen == []
+    import json as _json
+    import pathlib as _pl
+    s2 = _json.loads(
+        (_pl.Path(prog) / "s2.json").read_text(encoding="utf-8"))
+    assert s2["done"]["w:apple"]["model"] != "glm-5.3-flash"
+    # ...and the provider manifest records the mix.
+    prov = _json.loads(
+        (_pl.Path(out).parent / "provider_map.json").read_text(
+            encoding="utf-8"))
+    assert prov["s2"]["provider"] == "zen"
+    assert prov["s3"]["provider"] == "avalai"
+    assert prov["s3"]["model"] == "glm-5.3-flash"
