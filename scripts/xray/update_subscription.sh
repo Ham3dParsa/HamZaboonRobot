@@ -75,7 +75,7 @@ PY
 unset K MODEL
 if [ ! -s /tmp/clean.json ]; then echo "no clean" >> "$LOG"; exit 0; fi
 cp -f /tmp/clean.json /app/.xray/clean.json 2>&1 | head || true
-cp -f /app/.xray/config.json /app/.xray/config.json.bak 2>/dev/null || true
+if ! cp -f /app/.xray/config.json /app/.xray/config.json.bak 2>>"$LOG"; then echo "backup failed - skip refresh, keep previous config" >> "$LOG"; exit 0; fi
 python3 /usr/local/bin/rebuild-xray.py 2>>"$LOG" || echo "rebuild failed - keep previous config" >> "$LOG"
 _VALIDATE=""
 if [ -x /usr/local/bin/validate-xray.py ]; then _VALIDATE="/usr/local/bin/validate-xray.py"

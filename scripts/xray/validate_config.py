@@ -11,7 +11,8 @@ Checks:
   - every balancer strategy type is one Xray supports for balancers;
   - every routing rule `balancerTag` matches an existing balancer `tag`;
   - when any balancer uses leastPing/leastLoad, `observatory.subjectSelector`
-    covers all balancer selectors (probes need targets).
+    covers all balancer selectors and `observatory.probeUrl` is non-empty
+    (probes need targets and a URL to probe).
 """
 import json
 import sys
@@ -83,6 +84,9 @@ def main(argv):
         missing = sorted(set(sel for b in balancers for sel in b.get("selector", []) if sel not in subjects))
         if missing:
             return fail("observatory.subjectSelector misses %s" % (missing,))
+        probe = obs.get("probeUrl")
+        if not isinstance(probe, str) or not probe.strip():
+            return fail("observatory.probeUrl missing or empty - required by leastPing/leastLoad")
     print("validate_config: usable (%d outbounds, %d balancers)" % (len(outbounds), len(balancers)))
     return 0
 
