@@ -1870,3 +1870,42 @@ def test_register_meta_penalty_prefers_fashion_over_bucket():
         zipf_fn=lambda t: 5.0)
     top_gloss = scored[0][4]
     assert "particular manner" in top_gloss, scored[0][:2]
+
+
+def test_register_meta_all_meta_still_anchors():
+    """Pin the 'relative, never a drop' guarantee: an all-meta word
+    still anchors (scored[0] + pick_anchor non-empty)."""
+    rows = [{"pos": "noun",
+             "entry": {"pos": "noun", "sounds": [],
+                       "senses": [
+                           {"glosses": ["Senses relating to X."],
+                            "tags": ["countable"], "examples": []},
+                           {"glosses": ["Senses relating to Y."],
+                            "tags": ["uncountable"], "examples": []}]}}]
+    scored = card_pilot.score_senses(
+        "thing", rows, "noun", read_entry, zipf_fn=lambda t: 5.0)
+    assert scored, "all-meta word must still anchor"
+    assert card_pilot._is_meta_gloss(scored[0][4])
+    sid, gloss = card_pilot.pick_anchor_sense(
+        "thing", rows, "noun", read_entry)
+    assert sid and gloss, (sid, gloss)
+
+
+def test_register_meta_interleaved_deep_demotes():
+    """Meta buckets interleaved at deeper file indices still sort
+    strictly after every real sense (equal pre-scores)."""
+    rows = [{"pos": "noun",
+             "entry": {"pos": "noun", "sounds": [],
+                       "senses": [
+                           {"glosses": ["A real sense one."],
+                            "tags": ["countable"], "examples": []},
+                           {"glosses": ["Senses relating to Z."],
+                            "tags": ["countable"], "examples": []},
+                           {"glosses": ["A real sense two."],
+                            "tags": ["countable"], "examples": []},
+                           {"glosses": ["Senses relating to W."],
+                            "tags": ["countable"], "examples": []}]}}]
+    scored = card_pilot.score_senses(
+        "thing", rows, "noun", read_entry, zipf_fn=lambda t: 5.0)
+    flags = [card_pilot._is_meta_gloss(g) for _, _, _, _, g in scored]
+    assert flags == [False, False, True, True], flags

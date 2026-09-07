@@ -371,16 +371,12 @@ def _v14_register_penalty(tags, gloss):
 # below idx18, so meta senses sort strictly AFTER every real sense).
 # A word with ONLY meta senses still anchors (demotion is relative,
 # never a drop).
-REGISTER_META_RX = None  # compiled lazily (re import is local)
+REGISTER_META_RX = re.compile(r"^senses relating to\b")
 
 
 def _is_meta_gloss(gloss):
     """R40: True on kaikki grouped meta-gloss buckets."""
-    import re as _re
-    global REGISTER_META_RX
-    if REGISTER_META_RX is None:
-        REGISTER_META_RX = _re.compile(r"^senses relating to\b")
-    return bool(REGISTER_META_RX.search((gloss or "").strip().lower()))
+    return bool(REGISTER_META_RX.match((gloss or "").strip().lower()))
 
 
 def _v14_ppos(entry_pos, pool_pos):
@@ -615,6 +611,9 @@ def score_senses(text, entries, pool_pos, read_entry, zipf_fn=None):
                        _is_meta_gloss(gloss)])
 
     def _cmp(a, b):
+        # R40 (#607): meta-vs-real sorts first (intended — a meta bucket
+        # never outranks a real sense, even a penalized vulgar/obsolete
+        # one); preg/ppos/freq legs only order within the same class.
         if a[6] != b[6]:
             return 1 if a[6] else -1
         if abs(a[0] - b[0]) >= FREQ_TIE_EPS:
