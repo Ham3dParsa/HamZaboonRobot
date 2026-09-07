@@ -1687,7 +1687,10 @@ def test_g5_boundary_phrasings():
                   "a person from Spain",
                   "the country's national language is X",
                   "of or pertaining to Italy",
-                  "Of or pertaining to Italy"):
+                  "Of or pertaining to Italy",
+                  "OF OR PERTAINING TO Italy",
+                  "of or Pertaining to Italy",
+                  "of or pertaining to the United States"):
         v = _g_classify("t" + gloss[:3], _g_view([(gloss, [])]))
         assert v["reason"] == "g5-demonym", gloss
     for gloss in ("a national park", "an international treaty",
@@ -1695,6 +1698,7 @@ def test_g5_boundary_phrasings():
                   "the country's national park is big",
                   "countryside language variety course",
                   "of or pertaining to words",
+                  "of or pertaining to the words",
                   "a local custom"):
         v = _g_classify("t" + gloss[:3], _g_view([(gloss, [])]))
         assert v["kept"] is True, gloss
