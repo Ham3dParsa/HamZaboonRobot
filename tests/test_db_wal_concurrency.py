@@ -66,6 +66,21 @@ class DbWalConcurrencyTests(unittest.TestCase):
 
     def test_synchronous_normal_with_wal_on_fresh_connection(self):
         db_module.init_db()
+        with db_module.get_conn():
+            pass
+        # Read back on a SECOND connection: proves re-application on every
+        # open, not just the connection that set the PRAGMAs.
+        with db_module.get_conn() as conn:
+            sync = conn.execute("PRAGMA synchronous").fetchone()[0]
+            journal = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        self.assertEqual(sync, 1)
+        self.assertEqual(journal.lower(), "wal")
+
+    def test_synchronous_normal_reapplied_on_existing_db_reopen(self):
+        db_module.init_db()
+        self._set_journal_mode("delete")
+        with db_module.get_conn():
+            pass
         with db_module.get_conn() as conn:
             sync = conn.execute("PRAGMA synchronous").fetchone()[0]
             journal = conn.execute("PRAGMA journal_mode").fetchone()[0]
