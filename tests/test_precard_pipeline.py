@@ -1543,3 +1543,105 @@ def test_s0_entry_view_merges_rows_and_fails_open():
         {"kind": "word", "text": "w"},
         {"w": [{"pos": "noun", "entry": {"pos": "noun"}}]},
         read_entry) is None
+
+
+def test_g2_pure_form_drops_end_to_end(tmp_path, monkeypatch):
+    """Coverage: pure-form entries die at S0 (g2) via the real main
+    wiring (fixture index + fixture read_entry), never reaching S0b."""
+    from precard_pipeline import _s0_entry_view  # noqa: F401 (seam ref)
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    items = [{"kind": "word", "text": "cats", "pos": "noun",
+              "pool_level": "A1"}]
+
+    def rows(*glosses):
+        return [{"pos": "noun",
+                 "entry": {"pos": "noun", "sounds": [],
+                           "senses": [{"glosses": [g], "tags": [],
+                                       "examples": []} for g in glosses]}}]
+
+    index = {"cats": rows("plural of cat")}
+    sample = write_sample(tmp_path, items)
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog,
+         "--stages", "s0"],
+        _judge_transport=fake_judge, _topic_transport=fake_topics,
+        _assign_transport=None, _sleep_fn=lambda s: None,
+        _index=index, _read_entry=read_entry, _tatoeba={},
+        _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    s0 = json.loads(
+        (pathlib.Path(prog) / "s0.json").read_text(encoding="utf-8"))
+    assert s0["done"]["w:cats"]["reason"] == "g2-inflection-form"
+    assert "w:cats" in s0["failed"]
+
+
+def test_quarantine_surfaces_in_summary_and_log(tmp_path, monkeypatch,
+                                                capsys):
+    """Coverage: quarantine flag appears in the S0 box + dropped.log;
+    the item itself stays live."""
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    items = [{"kind": "word", "text": "led", "pos": "noun",
+              "pool_level": "A2"}]
+
+    def rows():
+        return [{"pos": "noun",
+                 "entry": {"pos": "noun", "sounds": [],
+                           "senses": [{"glosses": ["light-emitting diode"],
+                                       "tags": ["abbreviation"],
+                                       "examples": []}]}}]
+
+    sample = write_sample(tmp_path, items)
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog,
+         "--stages", "s0"],
+        _judge_transport=fake_judge, _topic_transport=fake_topics,
+        _assign_transport=None, _sleep_fn=lambda s: None,
+        _index={"led": rows()}, _read_entry=read_entry, _tatoeba={},
+        _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "quarantined=1" in captured.out
+    drop_log = (pathlib.Path(out).parent / "dropped.log"
+                ).read_text(encoding="utf-8")
+    assert "w:led: quarantine-g4-abbrev" in drop_log
+    s0 = json.loads(
+        (pathlib.Path(prog) / "s0.json").read_text(encoding="utf-8"))
+    assert s0["done"]["w:led"]["kept"] is True
+
+
+def test_zipf_low_beats_quarantine():
+    """Precedence: low-zipf suspect drops on frequency, never quarantines."""
+    from precard_pipeline import s0_classify_item
+    view = {"senses": [{"gloss": "light-emitting diode",
+                        "tags": ["abbreviation"]}],
+            "poss": {"noun"}}
+    v = s0_classify_item(_g_item("led", "A1"), {}, lambda t: 1.0, set(),
+                         {}, False, entry_fn=lambda t: view)
+    assert v == {"kept": False, "reason": "r20-zipf-low:1.00",
+                 "type_pending": False}
+
+
+def test_entry_fn_exception_keeps_at_classify_level():
+    """Fail-open: entry_fn raising keeps the item (no drop on error)."""
+    from precard_pipeline import s0_classify_item
+
+    def boom(t):
+        raise OSError("gone")
+
+    v = s0_classify_item(_g_item("arrives"), {}, lambda t: 5.0, set(),
+                         {}, False, entry_fn=boom)
+    assert v == {"kept": True, "reason": None, "type_pending": False}
+
+
+def test_g4_lowercase_tags_path():
+    """Calibration: lowercased multi-abbrev drops via tags (no caps);
+    a lone lowercase abbrev quarantines (feb-like); zipf finishes the
+    truly rare ones downstream."""
+    v = _g_classify("comp", _g_view(
+        [("complimentary", ["abbreviation"]),
+         ("composition", ["abbreviation"])]))
+    assert v["reason"] == "g4-abbrev" and v["kept"] is False
+    v2 = _g_classify("feb", _g_view([("February", ["abbreviation"])]))
+    assert v2["kept"] is True and v2.get("quarantine") == "g4-abbrev"

@@ -341,9 +341,10 @@ def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
 
     kept=False carries a drop reason (r4-name-only / r20-zipf-low:<z> /
     applied-keep-false:<type> / g2..g6 input gates, locked 2026-09-07).
-    Order for words: R4 proper-noun, R20 zipf floor, then G-gates (a
-    low-zipf item drops on frequency; quarantine review is reserved for
-    frequency-passing items). kept=True has reason None except the
+    Order for words: R4 proper-noun, G-gates (no zipf bypass — entry
+    lookup is fail-open), then the R20 zipf floor; quarantine review is
+    reserved for frequency-passing items (a low-zipf suspect drops on
+    frequency, never quarantines). kept=True has reason None except the
     zipf-unknown-kept note. A kept item may carry quarantine=<gate> (G4
     single-sense suspect — surfaced in the stage summary + dropped.log
     for owner review, item is NOT dropped).
@@ -360,6 +361,19 @@ def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
                 text, (pos_sets or {}).get(text.lower(), set())):
             return {"kept": False, "reason": "r4-name-only",
                     "type_pending": False}
+        # G-gates evaluate even on unknown zipf (review: no bypass —
+        # entry lookup itself is fail-open, so uncertainty keeps).
+        quarantine = None
+        if entry_fn is not None:
+            try:
+                view = entry_fn(text)
+            except Exception:
+                view = None
+            if view and view.get("senses"):
+                reason, quarantine = _s0_input_gates(text, view)
+                if reason:
+                    return {"kept": False, "reason": reason,
+                            "type_pending": False}
         try:
             zipf = zipf_fn(text)
         except Exception:
@@ -373,23 +387,12 @@ def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
             return {"kept": False,
                     "reason": "r20-zipf-low:%.2f" % float(zipf),
                     "type_pending": False}
-        # G-gates run AFTER the zipf floor (review Q1): a low-zipf item
-        # drops on frequency alone; quarantine review is reserved for
-        # items that passed frequency.
-        if entry_fn is not None:
-            try:
-                view = entry_fn(text)
-            except Exception:
-                view = None
-            if view and view.get("senses"):
-                reason, quarantine = _s0_input_gates(text, view)
-                if reason:
-                    return {"kept": False, "reason": reason,
-                            "type_pending": False}
-                if quarantine:
-                    return {"kept": True, "reason": None,
-                            "type_pending": False,
-                            "quarantine": quarantine}
+        # Quarantine is reserved for frequency-passing items (Q1): a
+        # low-zipf suspect drops on frequency above, never quarantines.
+        if quarantine:
+            return {"kept": True, "reason": None,
+                    "type_pending": False,
+                    "quarantine": quarantine}
         return {"kept": True, "reason": None, "type_pending": False}
     entry = (type_map or {}).get(text) if type_log_available else None
     if not isinstance(entry, dict):
@@ -403,15 +406,21 @@ def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
 
 
 # G-gate patterns (locked 2026-09-07, calibrated on the 284 dry run).
-# G2: every sense gloss is a mechanical inflection reference.
+# G2: every sense gloss is a mechanical inflection reference. Includes
+# bare variants ("past of go", hyphenated "third-person singular").
 _G2_FORM_RX = re.compile(
-    r"\b(third-person singular|simple past|past participle|"
-    r"present participle|gerund|plural of|comparative|superlative)\b",
+    r"\b(third[ -]?person singular|simple past|past of|past tense|"
+    r"past participle|present participle|present of|gerund|plural of|"
+    r"comparative|superlative)\b",
     re.IGNORECASE)
-# G5: demonym / geo glosses on adjective entries.
+# G5: demonym / geo glosses on adjective entries. Canonical phrasings
+# (calibrated 2026-09-07; intentionally narrow — see tests for the
+# positive/negative boundary).
 _G5_DEMONYM_RX = re.compile(
-    r"\b(nationality|demonym|capital of|city in|country\b.{0,10}"
-    r"(language|nation)|language spoken)\b", re.IGNORECASE)
+    r"\b(nationality|demonym|capital of|city in|native of|"
+    r"inhabitant of|person from|of or (pertaining|relating) to|"
+    r"country\b.{0,10}(language|nation)|language spoken)\b",
+    re.IGNORECASE)
 
 
 def _s0_entry_view(item, index, read_entry):
@@ -429,8 +438,9 @@ def _s0_entry_view(item, index, read_entry):
         for row in rows or []:
             entry = read_entry(row) or {}
             if isinstance(entry, dict):
-                if entry.get("pos"):
-                    poss.add(str(entry["pos"]))
+                pos = str(entry.get("pos") or "").strip().casefold()
+                if pos:
+                    poss.add(pos)
                 for sense in entry.get("senses") or []:
                     if not isinstance(sense, dict):
                         continue
@@ -458,8 +468,10 @@ def _s0_input_gates(text, view):
     # G3: interjection entries have no flashcard value.
     if "interj" in (view.get("poss") or set()):
         return "g3-interjection", None
-    # G4: abbreviations. All-caps or every-sense-abbrev (multi-sense)
-    # drops; a lone lowercase single-abbrev sense is quarantined.
+    # G4: abbreviations. All-caps fires on case-preserving samples
+    # (live: FEB/WHO/NSW dropped in pilot200g); the tag leg covers
+    # lowercased inputs. A lone lowercase single-abbrev sense is
+    # quarantined, not dropped (led).
     n_abbr = sum(1 for s in senses if "abbreviation" in s.get("tags", []))
     if re.fullmatch(r"[A-Z]{2,6}", text or "") or \
             (senses and n_abbr == len(senses) and len(senses) > 1):
@@ -1522,6 +1534,16 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                           else bool(_type_log_available))
     pos_sets = card_pilot.build_pos_sets(index)
     s0_info: dict = {}
+    # Memoized entry views: one Kaikki read pass per lemma per run (S0
+    # was previously in-memory; without this each item pays open+seek).
+    s0_view_cache: dict = {}
+
+    def _cached_view(text):
+        key = (text or "").strip().lower()
+        if key not in s0_view_cache:
+            s0_view_cache[key] = _s0_entry_view(
+                {"kind": "word", "text": text}, index, read_entry)
+        return s0_view_cache[key]
     run_logger.stage_start("s0")
     n_s0_batches = (len(items) + BATCH - 1) // BATCH or 1
     for batch_no, base in enumerate(
@@ -1532,9 +1554,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             if key not in states["s0"]["done"]:
                 verdict = s0_classify_item(
                     item, pos_sets, zipf_fn, awl_set, type_map,
-                    type_log_available,
-                    entry_fn=lambda t, _item=item: _s0_entry_view(
-                        _item, index, read_entry))
+                    type_log_available, entry_fn=_cached_view)
                 states["s0"]["done"][key] = verdict
                 if not verdict["kept"] \
                         and key not in states["s0"]["failed"]:
@@ -2126,7 +2146,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 "drop_reason": None,
                 "stage_calls": {
                     "s0": ("kept:type-pending" if s0v.get("type_pending")
-                           else "kept"),
+                            else "kept:quarantine-%s" % s0v.get("quarantine")
+                            if s0v.get("quarantine") else "kept"),
                     "s0b": (s0b.get("reason", "") or "kept"),
                     "s2": pick.get("model", ""),
                     "s3": vec3.get("model", ""),
@@ -2137,6 +2158,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             }
             if s0v.get("type_pending"):
                 rec["type_pending"] = True
+            if s0v.get("quarantine"):
+                # Advisory review flag flows downstream (card stays live;
+                # owner filters quarantine=* for the review list).
+                rec["quarantine"] = s0v["quarantine"]
             if (pick.get("proper_route") or ""):
                 rec["proper_route"] = pick["proper_route"]
             if key not in precards:
