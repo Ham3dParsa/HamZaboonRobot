@@ -56,6 +56,7 @@ fi
 # Install helper scripts from repo (they are ephemeral in /usr/local/bin)
 if [ -f "$BASE_ROOT/scripts/xray/rebuild_config.py" ]; then cp -f "$BASE_ROOT/scripts/xray/rebuild_config.py" /usr/local/bin/rebuild-xray.py; chmod +x /usr/local/bin/rebuild-xray.py; fi
 if [ -f "$BASE_ROOT/scripts/xray/sub2xray.py" ]; then cp -f "$BASE_ROOT/scripts/xray/sub2xray.py" /usr/local/bin/sub2xray.py; chmod +x /usr/local/bin/sub2xray.py; fi
+if [ -f "$BASE_ROOT/scripts/xray/validate_config.py" ]; then cp -f "$BASE_ROOT/scripts/xray/validate_config.py" /usr/local/bin/validate-xray.py; chmod +x /usr/local/bin/validate-xray.py; fi
 if [ -f "$BASE_ROOT/scripts/xray/update_subscription.sh" ]; then cp -f "$BASE_ROOT/scripts/xray/update_subscription.sh" /usr/local/bin/update_xray_subscription.sh; chmod +x /usr/local/bin/update_xray_subscription.sh; fi
 
 # 4) Rebuild Xray config from clean list (fallback to outs if clean missing)
@@ -77,6 +78,41 @@ if command -v supervisord >/dev/null 2>&1 && [ -f "$BASE_ROOT/supervisor.conf" ]
   else
     supervisorctl -c "$BASE_ROOT/supervisor.conf" reread 2>&1 | head -5 || true
     supervisorctl -c "$BASE_ROOT/supervisor.conf" update 2>&1 | head -5 || true
+  fi
+fi
+
+# 4b) Start xray at boot when a usable config exists but nothing listens.
+# Runs AFTER the section-6 supervisord launch so supervisord owns xray when
+# it is available (raw nohup only when the daemon itself is unreachable).
+# Daemon-aware: `status xray` showing RUNNING means trust supervisor, done;
+# any other answer from a live daemon gets one `start` + recheck; a bare
+# `status` gate would misfire while xray is STARTING/BACKOFF and cause a
+# duplicate raw launch fighting for the ports.
+# Fresh boots otherwise have a dead proxy until the next 6h refresh.
+# No `xray test` gate: the pinned xray build has no `test` subcommand, so
+# the shared validator (validate-xray.py) checks structure instead.
+if ! pgrep -x xray >/dev/null 2>&1; then
+  if supervisorctl -c "$BASE_ROOT/supervisor.conf" status xray 2>/dev/null | grep -q RUNNING; then
+    : # supervisor owns it - done
+  elif supervisorctl -c "$BASE_ROOT/supervisor.conf" status >/dev/null 2>&1; then
+    supervisorctl -c "$BASE_ROOT/supervisor.conf" start xray >/dev/null 2>&1 || true
+    sleep 2
+    supervisorctl -c "$BASE_ROOT/supervisor.conf" status xray 2>&1 | head -3 || true
+  elif [ -x /usr/local/bin/xray ] && [ -s "$XRAY_DIR/config.json" ]; then
+    _valid=0
+    if [ -x /usr/local/bin/validate-xray.py ]; then
+      python3 /usr/local/bin/validate-xray.py "$XRAY_DIR/config.json" >/dev/null 2>&1 && _valid=1 || _valid=0
+    elif [ -f "$BASE_ROOT/scripts/xray/validate_config.py" ]; then
+      python3 "$BASE_ROOT/scripts/xray/validate_config.py" "$XRAY_DIR/config.json" >/dev/null 2>&1 && _valid=1 || _valid=0
+    else
+      _valid=1
+    fi
+    if [ "$_valid" = "1" ]; then
+      nohup /usr/local/bin/xray run -c "$XRAY_DIR/config.json" >> /var/log/xray/xray.log 2>&1 &
+    else
+      echo "[chabok-pre-start] WARN: xray config invalid - skip boot start, keep previous config"
+    fi
+    unset _valid
   fi
 fi
 
