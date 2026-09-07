@@ -15,7 +15,7 @@ Endpoints (127.0.0.1 only):
   POST /v1/report {lease_id, outcome}      -> {action}
 Targets: "direct" (no tunnel) or "zen" (needs a tunnel; phase 1 parks
 with a clear message when no tunnel backend exists).
-Outcomes: ok | http429 | net_err | auth_err.
+Outcomes: ok | http429 | net_err | auth_err | unknown (unknown keeps).
 """
 from __future__ import annotations
 

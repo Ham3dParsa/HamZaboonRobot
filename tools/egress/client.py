@@ -29,7 +29,7 @@ def lease(target="direct"):
 
 
 def report(lease_id, outcome):
-    """Report outcome (ok|http429|net_err|auth_err). Returns {action}."""
+    """Report outcome (ok|http429|net_err|auth_err|unknown)."""
     return _call("/v1/report", {"lease_id": lease_id,
                                 "outcome": outcome})
 
