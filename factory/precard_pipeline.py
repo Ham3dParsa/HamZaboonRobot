@@ -115,6 +115,16 @@ ZIPF_MIN = 3.0
 ZIPF_FLOORS = {"A1": 3.0, "A2": 3.0, "B1": 3.0, "B2": 3.0,
                "C1": 2.5, "C2": 1.5}
 STAGES = ("s0", "s0b", "s1", "s2", "s3", "s4", "s5")
+# Human-readable stage names for logs (ids stay stable in files/progress).
+STAGE_NAMES = {
+    "s0": "preprocess", "s0b": "inflection", "s1": "anchor",
+    "s2": "judge", "s3": "vectors", "s4": "label", "s5": "enrich",
+}
+
+
+def stage_name(stage):
+    """Display name for logs; unknown ids pass through unchanged."""
+    return STAGE_NAMES.get(stage, stage)
 RETRY_PREFIX = ("Your last reply was not valid JSON. "
                 "Re-send ONLY the JSON object.\n")
 
@@ -167,10 +177,48 @@ def parse_args(argv=None):
     ap.add_argument("--judge-model", default="",
                     help="S2 judge model id (default: provider default — "
                     "Zen chain models for zen, glm-5.3-flash for avalai)")
+    ap.add_argument("--stage-provider", action="append", default=[],
+                    metavar="STAGE=PROVIDER",
+                    help="per-leg provider override, repeatable "
+                    "(e.g. --stage-provider s2=avalai --stage-provider "
+                    "s4=zen). Legs: s0b, s2, s3, s4. Wins over "
+                    "--llm-provider for that leg.")
+    ap.add_argument("--stage-model", action="append", default=[],
+                    metavar="STAGE=MODEL",
+                    help="per-leg model override, repeatable "
+                    "(e.g. --stage-model s2=deepseek-v4-flash). "
+                    "Wins over --precard-model/--judge-model for that leg.")
     args = ap.parse_args(argv)
     if args.limit is not None and args.limit < 0:
         ap.error("--limit must be >= 0")
     return args
+
+
+# LLM legs of the precard line (S0/S1/S5 are deterministic).
+LLM_LEGS = ("s0b", "s2", "s3", "s4")
+
+
+def _parse_stage_map(values, allowed_values=None):
+    """Parse ["s2=avalai"] into {s2: avalai}. Bad entries raise SystemExit
+    (fail-fast: a typo must not silently burn paid calls on the wrong leg).
+    """
+    out = {}
+    for raw in values or []:
+        if "=" not in raw:
+            raise SystemExit("bad --stage-* value %r (want STAGE=value)"
+                             % raw)
+        stage, _, value = raw.partition("=")
+        stage, value = stage.strip().lower(), value.strip()
+        if stage not in LLM_LEGS:
+            raise SystemExit("bad --stage-* leg %r (legs: %s)" % (
+                stage, ", ".join(LLM_LEGS)))
+        if allowed_values is not None and value not in allowed_values:
+            raise SystemExit("bad --stage-* value %r (want one of: %s)" % (
+                value, ", ".join(allowed_values)))
+        if not value:
+            raise SystemExit("bad --stage-* value %r (empty)" % raw)
+        out[stage] = value
+    return out
 
 
 def load_sample(path):
@@ -1328,6 +1376,24 @@ def _default_inflect_transport(api_key, model, sys_text, user_text):
     return card_pilot.call_responses(api_key, model, sys_text, user_text)
 
 
+def _color(text, name):
+    """ANSI color for consoles; plain text when piped/NO_COLOR/Windows-legacy.
+
+    Console-only helper (stored reasons/logs stay uncolored for files).
+    """
+    import os as _os
+    codes = {"green": "32", "red": "31", "yellow": "33", "cyan": "36",
+             "bold": "1"}
+    try:
+        use = sys.stdout.isatty() and not _os.environ.get("NO_COLOR") \
+            and name in codes
+    except Exception:
+        use = False
+    if not use:
+        return text
+    return "\x1b[%sm%s\x1b[0m" % (codes[name], text)
+
+
 def _batch_progress(stage, batch_no, n_batches, ok, fail):
     """Live one-line progress (carriage return, English-only console).
 
@@ -1340,9 +1406,10 @@ def _batch_progress(stage, batch_no, n_batches, ok, fail):
     total = n_batches or 1
     done = min(batch_no, total)
     filled = int(width * done / total)
-    print("\r[%s] [%s%s] %d/%d | ok=%d fail=%d" % (
-        stage, "=" * filled, " " * (width - filled),
-        done, total, ok, fail), end="", flush=True)
+    print("\r%s" % _color(
+        "[%s] [%s%s] %d/%d | ok=%d fail=%d" % (
+            stage_name(stage), "=" * filled, " " * (width - filled),
+            done, total, ok, fail), "cyan"), end="", flush=True)
 
 
 def _reason_slug(reason):
@@ -1372,6 +1439,11 @@ def _stage_summary(stage, states, out_path):
             quarantined.append("%s: quarantine-%s" % (
                 key, verdict.get("quarantine")))
         if verdict.get("kept", True) and not verdict.get("dropped"):
+            # S2 judge fallbacks stay live but are notable: the judge
+            # failed and the S1 anchor survived instead.
+            if str(verdict.get("model", "")).startswith("s1-"):
+                slugs["s1-fallback"] += 1
+                details.append("%s: s1-fallback" % key)
             continue
         slugs[_reason_slug(reason)] += 1
         details.append("%s: %s" % (key, reason))
@@ -1380,11 +1452,12 @@ def _stage_summary(stage, states, out_path):
             slugs["failed-no-entry"] += 1
             details.append("%s: failed-no-entry" % key)
     print("")
-    print("[STAGE %s] kept=%d dropped=%d%s%s" % (
-        stage, kept, len(failed),
+    print(_color("[STAGE %s] kept=%d dropped=%d%s%s" % (
+        stage_name(stage), kept, len(failed),
         " | " + ", ".join("%s=%d" % kv for kv in slugs.most_common(4))
         if slugs else "",
-        " | quarantined=%d" % len(quarantined) if quarantined else ""))
+        " | quarantined=%d" % len(quarantined) if quarantined else ""),
+        "green" if not failed else "yellow"))
     if details or quarantined:
         drop_log = pathlib.Path(str(out_path)).parent / "dropped.log"
         try:
@@ -1494,7 +1567,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     for stage in STAGES:
         done_n = len(states[stage]["done"])
         banner.append("%s done=%d remaining=%d" % (
-            stage, done_n, max(0, total - done_n)))
+            stage_name(stage), done_n, max(0, total - done_n)))
     print("resume: %s" % " | ".join(banner))
     # R26: stage selection + rekey eviction (resume still skips the rest).
     # Stage dependency: S1/S2 feed S3/S4/S5 (anchor -> judge -> vector ->
@@ -1615,10 +1688,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     dropped = {k for k, v in s0_info.items() if not v.get("kept")}
     items = [i for i in items if item_key(i) not in dropped]
     if dropped:
-        print("s0 preprocess: kept=%d dropped=%d (%s)" % (
-            len(items), len(dropped),
-            ", ".join(sorted("%s:%s" % (k, s0_info[k].get("reason"))
-                             for k in dropped))))
+        # Details live in dropped.log (written by _stage_summary);
+        # console stays a single short line (no 80-item spam).
+        print(_color("s0 preprocess: kept=%d dropped=%d "
+                     "(see dropped.log)" % (len(items), len(dropped)),
+                     "cyan"))
 
     need_llm = (_judge_transport is _USE_DEFAULT
                 or _topic_transport is _USE_DEFAULT
@@ -1627,17 +1701,56 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # Provider intent before any key loading (review: full-AvalAI runs
     # must not demand an unused Zen key). None = caller-owned/skipped leg
     # (no Zen), _USE_DEFAULT = pipeline default (Zen unless AvalAI mode).
-    full_avalai = (_judge_transport is _USE_DEFAULT
-                   and args.llm_provider == "avalai"
-                   and _topic_transport in (_USE_DEFAULT, None)
-                   and _assign_transport in (_USE_DEFAULT, None)
-                   and _inflect_transport in (_USE_DEFAULT, None))
-    s2_avalai = (_judge_transport is _USE_DEFAULT
-                 and (args.judge_provider == "avalai"
-                      or args.llm_provider == "avalai"))
+    # Per-leg overrides (--stage-provider/--stage-model) participate in
+    # every decision below, so a mixed line (e.g. s2 zen + rest avalai)
+    # wires correctly. Precedence per leg: --stage-* win, then S2-only
+    # --judge-*, then master --llm-provider/--precard-model, then Zen.
+    stage_prov = _parse_stage_map(args.stage_provider, ("zen", "avalai"))
+    stage_model = _parse_stage_map(args.stage_model)
+
+    def _leg_provider(leg):
+        if leg in stage_prov:
+            return stage_prov[leg]
+        if leg == "s2" and args.judge_provider == "avalai":
+            return "avalai"
+        return args.llm_provider
+
+    def _leg_model(leg):
+        if leg in stage_model:
+            return stage_model[leg]
+        if leg == "s2" and args.judge_model:
+            return args.judge_model
+        if args.precard_model:
+            return args.precard_model
+        return AVALAI_PRECARD_MODEL
+
+    _injected = {"s0b": _inflect_transport, "s2": _judge_transport,
+                 "s3": _topic_transport, "s4": _assign_transport}
+    providers = {leg: _leg_provider(leg) for leg in LLM_LEGS}
+    models = {leg: _leg_model(leg) for leg in LLM_LEGS}
+
+    def _leg_avalai(leg):
+        return providers[leg] == "avalai" \
+            and _injected[leg] in (_USE_DEFAULT, None)
+
+    full_avalai = all(_leg_avalai(leg) for leg in LLM_LEGS) and any(
+        _injected[leg] is _USE_DEFAULT for leg in LLM_LEGS)
+    s2_avalai = _judge_transport is _USE_DEFAULT \
+        and providers["s2"] == "avalai"
+    # Exact provider manifest: stage -> provider + actual model (telemetry
+    # loops record requested Zen names on remap legs, so this file is the
+    # disambiguator for cost attribution).
+    provider_map = {
+        leg: {"provider": providers[leg],
+              "model": (models[leg] if providers[leg] == "avalai"
+                        else "zen-chain")}
+        for leg in LLM_LEGS}
     api_key = "injected"
     api_key_2 = ""
-    if need_llm and not full_avalai:
+    zen_needed = any(providers[leg] == "zen"
+                     and _injected[leg] is _USE_DEFAULT for leg in LLM_LEGS)
+    avalai_needed = any(_leg_avalai(leg) for leg in LLM_LEGS)
+    if need_llm and zen_needed and not full_avalai:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from env_loader import load_factory_env
         env = load_factory_env(required=("OPENCODE_ZEN_API_KEY",))
@@ -1645,9 +1758,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         api_key_2 = env.get("OPENCODE_ZEN_API_KEY_2", "")
         if not api_key:
             raise SystemExit("no OPENCODE_ZEN_API_KEY in factory/.env")
-    if full_avalai:
-        # No Zen anywhere: skip the Zen ring (replaced by the AvalAI ring
-        # in the wiring block below). Zen key is not required either.
+    if full_avalai or not zen_needed:
+        # No Zen anywhere (or Zen unused): skip the Zen ring.
         ring = None
     else:
         try:
@@ -1658,14 +1770,13 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                        if _judge_transport is _USE_DEFAULT
                        else _judge_transport)
     judge_models = None
-    # AvalAI wiring. Full-line mode (--llm-provider avalai): every precard
-    # LLM leg (S0b/S2/S3/S4) runs on the precard model, no Zen anywhere.
-    # S2-only back-compat (--judge-provider avalai): only the S2 call site
-    # receives the AvalAI pair (F1 scoping); S0b/S3/S4 stay Zen.
+    # AvalAI wiring per leg. S2 gets its own key/ring pair (F1 scoping);
+    # S0b/S3/S4 share the leg-keyed pairs below.
+    leg_api_key, leg_ring = {}, {}
     judge_api_key, judge_ring = None, None
     # full_avalai/s2_avalai computed above (before key loading).
     precard_model = args.precard_model or AVALAI_PRECARD_MODEL
-    if full_avalai or s2_avalai:
+    if avalai_needed:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from env_loader import load_factory_env
         try:
@@ -1678,53 +1789,74 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             raise SystemExit("no AVALAI_API_KEY in factory/.env "
                              "(avalai provider needs it)")
         try:
-            judge_ring = KeyRing([avalai_key])
+            avalai_ring = KeyRing([avalai_key])
         except ValueError as exc:
             raise SystemExit("no AvalAI keys: %s" % exc)
-        judge_api_key = avalai_key
-        judge_transport = _avalai_chat_transport
-        judge_models = [args.judge_model or precard_model]
+        for leg in LLM_LEGS:
+            if not _leg_avalai(leg):
+                continue
+            leg_api_key[leg] = avalai_key
+            leg_ring[leg] = avalai_ring
+        if s2_avalai:
+            judge_api_key = avalai_key
+            judge_ring = avalai_ring
+            judge_transport = _avalai_chat_transport
+            judge_models = [models["s2"]]
     if full_avalai:
         api_key, ring = avalai_key, KeyRing([avalai_key])
-        remap = _avalai_remap_transport(precard_model)
-        if _topic_transport is _USE_DEFAULT:
-            topic_transport = remap
-        if _assign_transport is _USE_DEFAULT:
-            assign_transport = remap
-        if _inflect_transport is _USE_DEFAULT:
-            inflect_transport = remap
-        s3_models_override = [precard_model]
-    else:
-        s3_models_override = None
-    if (args.judge_model or args.precard_model) \
+    topic_transport = assign_transport = inflect_transport = None
+    s3_models_override = [models["s3"]] if _leg_avalai("s3") else None
+    # Per-leg remaps (uniform for full and mixed modes, per-leg models).
+    # A leg keeps its remap when avalai, else falls back to Zen below.
+    for leg in ("s0b", "s3", "s4"):
+        if not _leg_avalai(leg):
+            continue
+        _remap_leg = _avalai_remap_transport(models[leg])
+        if leg == "s0b" and _inflect_transport is _USE_DEFAULT:
+            inflect_transport = _remap_leg
+        elif leg == "s3" and _topic_transport is _USE_DEFAULT:
+            topic_transport = _remap_leg
+        elif leg == "s4" and _assign_transport is _USE_DEFAULT:
+            assign_transport = _remap_leg
+    _any_avalai_leg = any(_leg_avalai(leg) for leg in LLM_LEGS)
+    if (args.judge_model or args.precard_model or args.stage_model) \
             and _judge_transport is _USE_DEFAULT \
-            and not (full_avalai or s2_avalai):
-        print("warning: --judge-model/--precard-model apply only with "
+            and not _any_avalai_leg:
+        print("warning: model flags apply only with "
               "an avalai provider; ignored on the zen path",
               file=sys.stderr)
-    topic_transport = (_default_topic_transport
-                       if _topic_transport is _USE_DEFAULT
-                       and not full_avalai
-                       else _topic_transport
-                       if _topic_transport is not _USE_DEFAULT
-                       else topic_transport)
-    assign_transport = (_default_assign_transport
-                        if _assign_transport is _USE_DEFAULT
-                        and not full_avalai
-                        else _assign_transport
-                        if _assign_transport is not _USE_DEFAULT
-                        else assign_transport)
-    inflect_transport = (_default_inflect_transport
-                         if _inflect_transport is _USE_DEFAULT
-                         and not full_avalai
-                         else _inflect_transport
-                         if _inflect_transport is not _USE_DEFAULT
-                         else inflect_transport)
+    # Defaults for legs the remap loop above did not claim: a leg keeps
+    # its remap when avalai, else falls back to the Zen default.
+    if _topic_transport is _USE_DEFAULT and topic_transport is None:
+        topic_transport = _default_topic_transport
+    elif _topic_transport is not _USE_DEFAULT:
+        topic_transport = _topic_transport
+    if _assign_transport is _USE_DEFAULT and assign_transport is None:
+        assign_transport = _default_assign_transport
+    elif _assign_transport is not _USE_DEFAULT:
+        assign_transport = _assign_transport
+    if _inflect_transport is _USE_DEFAULT and inflect_transport is None:
+        inflect_transport = _default_inflect_transport
+    elif _inflect_transport is not _USE_DEFAULT:
+        inflect_transport = _inflect_transport
 
     s4_cache = progress_dir / "s4_topup_cache.json"
     s4_calls: dict = {}
     precards: dict = {}
     s0b_dropped: set = set()
+    # Provider manifest: exact stage -> provider + actual model for cost
+    # attribution (console + run.log + provider_map.json beside --out).
+    _prov_line = ", ".join(
+        "%s=%s/%s" % (leg, provider_map[leg]["provider"],
+                      provider_map[leg]["model"]) for leg in LLM_LEGS)
+    print(_color("providers: %s" % _prov_line, "cyan"))
+    run_logger.log("providers: %s" % _prov_line)
+    try:
+        with open(pathlib.Path(args.out).parent / "provider_map.json",
+                  "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(provider_map, ensure_ascii=False))
+    except OSError as exc:
+        print("warning: provider_map.json write failed (%s)" % exc)
     try:
         # S0b R36: inflection micro-stage (own progress key s0b.json).
         # Items whose raw anchor top is an inflection stub go to the
@@ -1764,7 +1896,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             if review and inflect_transport is not None:
                 try:
                     verdicts = card_pilot.inflection_review(
-                        review, inflect_transport, api_key,
+                        review, inflect_transport,
+                        leg_api_key.get("s0b", api_key),
                         telemetry=tele_store, tele_stage="s0b")
                 except AuthError:
                     raise
@@ -1840,12 +1973,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     item["redirected_from"] = item.get("text", "")
                     item["text"] = base
         if s0b_dropped:
-            print("s0b inflection: kept=%d dropped=%d (%s)" % (
-                len(items), len(s0b_dropped),
-                ", ".join(sorted(
-                    "%s:%s" % (k, states["s0b"]["done"][k].get("reason"))
-                    for k in s0b_dropped
-                    if k in states["s0b"]["done"]))))
+            # Details live in dropped.log; console stays one short line.
+            print(_color("s0b inflection: kept=%d dropped=%d "
+                         "(see dropped.log)" % (len(items),
+                                                len(s0b_dropped)),
+                         "cyan"))
         # S1 (deterministic, batch-flushed). V7 anchor-POS drop lives ONLY
         # here: when the anchored sense's entry POS is in {name, propn}
         # (card_pilot.PROPER_NOUN_POS, reused by import — deterministic,
@@ -1882,6 +2014,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                 ranked["top"], ranked["en_def"], \
                                     ranked["anchor_pos"] = rerouted
                                 ranked["rerouted_from_proper"] = True
+                                print(_color(
+                                    "warning: %s re-anchored off proper "
+                                    "top -> %s" % (
+                                        key,
+                                        rerouted[0].get("sense_id", "")),
+                                    "yellow"))
                             else:
                                 ranked["dropped"] = "anchor-proper-noun"
                                 if key not in states["s1"]["failed"]:
@@ -1921,13 +2059,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         _stage_summary("s1", states, args.out)
         if s1_dropped:
-            print("s1 anchor-pos: kept=%d dropped=%d (%s)" % (
-                len(items) - len(s1_dropped & {item_key(i) for i in items}),
-                len(s1_dropped & {item_key(i) for i in items}),
-                ", ".join(sorted(
-                    "%s:%s" % (k, states["s1"]["done"][k].get("dropped"))
-                    for k in s1_dropped
-                    if k in states["s1"]["done"]))))
+            # Details live in dropped.log; console stays one short line.
+            print(_color("s1 anchor-pos: kept=%d dropped=%d "
+                         "(see dropped.log)" % (
+                             len(items) - len(s1_dropped & {item_key(i)
+                                                            for i in items}),
+                             len(s1_dropped & {item_key(i)
+                                               for i in items})),
+                         "cyan"))
         items = [i for i in items if item_key(i) not in s1_dropped]
         # S2 (judge batches). ok = judge-model picks in the batch,
         # fail = s1-fallback (fail-closed) picks in the batch.
@@ -2033,10 +2172,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 try:
                     vecs = s3_vector_batch(
                         todo, states["s2"]["done"],
-                        states["s1"]["done"], api_key,
+                        states["s1"]["done"],
+                        leg_api_key.get("s3", api_key),
                         topic_transport, sleep_fn, states["s3"],
                         telemetry=tele_store, tele_batch=batch_no,
-                        ring=ring, models=s3_models_override)
+                        ring=leg_ring.get("s3", ring),
+                        models=s3_models_override)
                 except AuthError:
                     raise
                 except RateLimited as exc:
@@ -2107,10 +2248,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         assigned = s4_label_item(
                             item, pick.get("gloss", ""),
                             pick.get("sense_id", ""), lookup or None,
-                            api_key, assign_transport, sleep_fn,
+                            leg_api_key.get("s4", api_key),
+                            assign_transport, sleep_fn,
                             states["s4"], str(s4_cache), s4_calls,
                             telemetry=tele_store, tele_batch=batch_no,
-                            ring=ring)
+                            ring=leg_ring.get("s4", ring))
                     except AuthError:
                         raise
                     except RateLimited as exc:
