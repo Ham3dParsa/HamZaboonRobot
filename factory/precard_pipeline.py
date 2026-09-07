@@ -430,9 +430,12 @@ _G5_DEMONYM_RX = re.compile(
     r"countr(y|ies)\b[^.]{0,20}?\b(language|nation|nationality)\b|"
     r"language spoken)\b", re.IGNORECASE)
 # Case-sensitive on purpose (no IGNORECASE): the place guard [A-Z]
-# must not match lowercase. Connector casing is spelled out instead.
+# must not match lowercase. Connector words are spelled case-explicitly.
 _G5_PERTAIN_RX = re.compile(
-    r"\b[Oo][Ff] [Oo][Rr] ([Pp]ertaining|[Rr]elating) to (the [A-Z]|[A-Z])")
+    r"\b[Oo][Ff] [Oo][Rr] "
+    r"([Pp][Ee][Rr][Tt][Aa][Ii][Nn][Ii][Nn][Gg]|"
+    r"[Rr][Ee][Ll][Aa][Tt][Ii][Nn][Gg]) "
+    r"[Tt][Oo] ([Tt][Hh][Ee] [A-Z]|[A-Z])")
 
 
 def _s0_entry_view(item, index, read_entry):
