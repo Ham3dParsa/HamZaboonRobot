@@ -93,6 +93,41 @@ def _p95_ms(values: list[float]) -> float:
     return ordered[idx]
 
 
+_CPU_NOTE = (
+    "process cpu_times delta around the replay, attributed per journey "
+    "kind by wall-time share (exact under sequential replay; proportional "
+    "estimate under concurrent replay); cpu_total_ms None means no process "
+    "CPU source was available (psutil + resource both absent)"
+)
+
+
+def _cpu_total_ms(start_s: float | None, end_s: float | None) -> float | None:
+    """CPU ms consumed between two :func:`cpu_process_seconds` samples."""
+    if start_s is None or end_s is None:
+        return None
+    return max(0.0, (end_s - start_s) * 1000.0)
+
+
+def _cpu_ms_per_journey(
+    cpu_total_ms: float | None, latencies: dict[str, list[float]]
+) -> dict[str, float]:
+    """Attribute replay-total CPU ms to journey kinds by wall-time share.
+
+    Process ``cpu_times`` is process-wide (no per-task isolation), so
+    per-kind values split the replay total proportionally to each kind's
+    summed wall latency. Thread-safe: inputs are merged single-threaded
+    (sequential loop / ordered gather merge); this function only reads.
+    Returns ``{}`` when CPU accounting was unavailable.
+    """
+    if cpu_total_ms is None:
+        return {}
+    sums = {j: sum(v) for j, v in latencies.items()}
+    total = sum(sums.values())
+    if total <= 0:
+        return {j: 0.0 for j in sums}
+    return {j: cpu_total_ms * s / total for j, s in sums.items()}
+
+
 def _words_asked(db, user_id: int) -> int:
     row = db.get_user(user_id)
     if row is None:
@@ -363,6 +398,12 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
     ask_spy = _make_ask_spy(counters, ai_lock)
     from services import word_query as _word_query_svc
 
+    from tools.load_sim.resources import (
+        cpu_process_seconds,
+        percentile_summary,
+    )
+
+    cpu_start_s = cpu_process_seconds()
     with (
         patch.object(bot, "_start_llm_wait_state", new=AsyncMock(return_value=None)),
         patch.object(bot, "_finish_llm_wait_state", new=AsyncMock()),
@@ -511,6 +552,7 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
                         else dt_ms
                     )
 
+    cpu_total_ms = _cpu_total_ms(cpu_start_s, cpu_process_seconds())
     total = max(1, n)
     grade_p95 = _p95_ms(grade_latencies)
     return {
@@ -521,6 +563,10 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock) -> dict:
         "latencies_ms": latencies,
         "grade_latencies_ms": list(grade_latencies),
         "grade_p95_ms": grade_p95,
+        "grade_pct": percentile_summary(grade_latencies),
+        "cpu_total_ms": cpu_total_ms,
+        "cpu_ms_per_journey": _cpu_ms_per_journey(cpu_total_ms, latencies),
+        "cpu_note": _CPU_NOTE,
         "telegram_429": counters["telegram_429"],
         "telegram_retries": counters["telegram_retries"],
         "db_busy_retries": counters["db_busy_retries"],
@@ -820,6 +866,10 @@ async def _run_5k(n, seed, bot, db, bot_mock, ai_mock, db_path, concurrency) -> 
             latencies.setdefault(spec["journey"], []).append(dt_ms)
 
     rss_before = rss_bytes()
+    from tools.load_sim.resources import cpu_process_seconds, percentile_summary
+
+    replay_wall_start = time.perf_counter()
+    cpu_start_s = cpu_process_seconds()
     lag_samples: list[float] = []
     lag_stop = asyncio.Event()
     lag_task = asyncio.create_task(
@@ -886,6 +936,12 @@ async def _run_5k(n, seed, bot, db, bot_mock, ai_mock, db_path, concurrency) -> 
     db_bytes, wal_bytes = db_file_sizes(db_path)
     txn_p95 = p95_ms(txn_timings)
     lag_p95 = p95_ms(lag_samples)
+    cpu_total_ms = _cpu_total_ms(cpu_start_s, cpu_process_seconds())
+    replay_wall_s = time.perf_counter() - replay_wall_start
+    grade_pct = percentile_summary(grade_latencies)
+    txn_pct = percentile_summary(txn_timings)
+    loop_lag_pct = percentile_summary(lag_samples)
+    cpu_split = _cpu_ms_per_journey(cpu_total_ms, latencies)
 
     total = max(1, n)
     grade_p95 = _p95_ms(grade_latencies)
@@ -897,6 +953,13 @@ async def _run_5k(n, seed, bot, db, bot_mock, ai_mock, db_path, concurrency) -> 
         "latencies_ms": latencies,
         "grade_latencies_ms": list(grade_latencies),
         "grade_p95_ms": grade_p95,
+        "grade_pct": grade_pct,
+        "txn_pct": txn_pct,
+        "loop_lag_pct": loop_lag_pct,
+        "cpu_total_ms": cpu_total_ms,
+        "cpu_ms_per_journey": cpu_split,
+        "cpu_note": _CPU_NOTE,
+        "replay_wall_s": replay_wall_s,
         "telegram_429": counters["telegram_429"],
         "telegram_retries": counters["telegram_retries"],
         "db_busy_retries": counters["db_busy_retries"],
@@ -920,8 +983,10 @@ async def _run_5k(n, seed, bot, db, bot_mock, ai_mock, db_path, concurrency) -> 
             "rss_after": rss_after,
             "rss_delta": rss_after - rss_before,
             "loop_lag_p95_ms": lag_p95,
+            "loop_lag_pct": loop_lag_pct,
             "db_bytes": db_bytes,
             "wal_bytes": wal_bytes,
             "txn_p95_ms": txn_p95,
+            "txn_pct": txn_pct,
         },
     }
