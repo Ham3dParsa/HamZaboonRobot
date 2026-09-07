@@ -17,7 +17,13 @@ with open(src) as f:
 if not isinstance(outs, list) or len(outs) == 0:
     print(f"rebuild_config: no nodes in {src} - abort, keep previous config", file=sys.stderr)
     sys.exit(1)
-tags = [o["tag"] for o in outs]
+tags = []
+for _i, _o in enumerate(outs):
+    _t = _o.get("tag") if isinstance(_o, dict) else None
+    if not isinstance(_t, str) or not _t:
+        print(f"rebuild_config: entry {_i} in {src} has no non-empty string tag - abort, keep previous config", file=sys.stderr)
+        sys.exit(1)
+    tags.append(_t)
 cfg = {
     "inbounds": [
         {"port": 1080, "protocol": "socks", "settings": {"auth": "noauth", "udp": True}},

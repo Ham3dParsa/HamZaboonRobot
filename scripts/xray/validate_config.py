@@ -7,8 +7,11 @@ Exit 0 when the config is structurally usable, 1 otherwise.
 Checks:
   - file parses as JSON object;
   - `outbounds` is a non-empty list;
-  - every balancer `selector` entry matches an outbound tag;
-  - every balancer strategy type is one Xray supports for balancers.
+  - every balancer has a non-empty `selector` matching outbound tags;
+  - every balancer strategy type is one Xray supports for balancers;
+  - every routing rule `balancerTag` matches an existing balancer `tag`;
+  - when any balancer uses leastPing/leastLoad, `observatory.subjectSelector`
+    covers all balancer selectors (probes need targets).
 """
 import json
 import sys
@@ -45,16 +48,41 @@ def main(argv):
     balancers = routing.get("balancers", [])
     if not isinstance(balancers, list):
         return fail("balancers is not a list")
+    balancer_tags = set()
+    needs_probes = False
     for b in balancers:
         if not isinstance(b, dict):
             return fail("balancer entry is not an object")
-        for sel in b.get("selector", []):
+        btag = b.get("tag")
+        if isinstance(btag, str):
+            balancer_tags.add(btag)
+        selector = b.get("selector", [])
+        if not isinstance(selector, list) or len(selector) == 0:
+            return fail("balancer %r has empty or missing selector" % (btag,))
+        for sel in selector:
             if sel not in tags:
                 return fail("selector %r matches no outbound tag" % (sel,))
         strategy = b.get("strategy")
         stype = strategy.get("type") if isinstance(strategy, dict) else None
         if stype not in ALLOWED_STRATEGIES:
             return fail("strategy type %r not in %s" % (stype, sorted(ALLOWED_STRATEGIES)))
+        if stype in ("leastPing", "leastLoad"):
+            needs_probes = True
+    rules = routing.get("rules", [])
+    if not isinstance(rules, list):
+        return fail("rules is not a list")
+    for r in rules:
+        if isinstance(r, dict) and "balancerTag" in r:
+            if r["balancerTag"] not in balancer_tags:
+                return fail("rule balancerTag %r matches no balancer tag" % (r["balancerTag"],))
+    if needs_probes:
+        obs = cfg.get("observatory")
+        subjects = obs.get("subjectSelector") if isinstance(obs, dict) else None
+        if not isinstance(subjects, list):
+            return fail("observatory.subjectSelector missing - required by leastPing/leastLoad")
+        missing = sorted(set(sel for b in balancers for sel in b.get("selector", []) if sel not in subjects))
+        if missing:
+            return fail("observatory.subjectSelector misses %s" % (missing,))
     print("validate_config: usable (%d outbounds, %d balancers)" % (len(outbounds), len(balancers)))
     return 0
 

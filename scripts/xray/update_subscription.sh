@@ -75,6 +75,7 @@ PY
 unset K MODEL
 if [ ! -s /tmp/clean.json ]; then echo "no clean" >> "$LOG"; exit 0; fi
 cp -f /tmp/clean.json /app/.xray/clean.json 2>&1 | head || true
+cp -f /app/.xray/config.json /app/.xray/config.json.bak 2>/dev/null || true
 python3 /usr/local/bin/rebuild-xray.py 2>>"$LOG" || echo "rebuild failed - keep previous config" >> "$LOG"
 _VALIDATE=""
 if [ -x /usr/local/bin/validate-xray.py ]; then _VALIDATE="/usr/local/bin/validate-xray.py"
@@ -83,8 +84,9 @@ fi
 if [ -n "$_VALIDATE" ] && python3 "$_VALIDATE" /app/.xray/config.json > /tmp/xray_test.log 2>&1; then
   echo "config validate ok" >> "$LOG"
 else
-  echo "config validate failed - keep previous config" >> "$LOG"
+  echo "config validate failed - restore backup, keep previous config" >> "$LOG"
   cat /tmp/xray_test.log >> "$LOG" 2>/dev/null || true
+  cp -f /app/.xray/config.json.bak /app/.xray/config.json 2>/dev/null || true
   unset _VALIDATE
   exit 1
 fi
@@ -94,4 +96,4 @@ if command -v supervisorctl >/dev/null 2>&1; then
 else
   pkill -f "xray run" || true; sleep 1; nohup /usr/local/bin/xray run -c /app/.xray/config.json > /var/log/xray/xray.log 2>&1 &
 fi
-sleep 2; pgrep -f "xray" && echo "$(date) ok $(python3 -c "import json; print(len(json.load(open('/app/.xray/clean.json'))))") nodes" >> "$LOG"
+sleep 2; pgrep -x xray && echo "$(date) ok $(python3 -c "import json; print(len(json.load(open('/app/.xray/clean.json'))))") nodes" >> "$LOG"
