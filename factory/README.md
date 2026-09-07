@@ -1,4 +1,4 @@
-# Factory (lexicon) — map + backup policy
+# Factory (lexicon) — map + backup policy + PishCard v13 line
 
 ## Where things live (three homes, one truth per kind)
 - **Code + small data (PR-bound):** this `factory/` dir — runners (`run_v14_*`, `run_v15*`, `run_v16*`),
@@ -20,3 +20,52 @@
 - Fixtures: `python factory/run_v14_phase1.py` (~7 min local GPU) → phases 2/3 scripts (need keys).
 - Registry: `python factory/registry.py` (migration import, zero reprocessing).
 - Big JSONs/zips/progress files are scratch: safe to delete once backed-up-or-regenerable.
+
+## PishCard Pipeline v13 — precard line
+
+Builds learner-ready EN precards (sense-picked + topic-tagged rows) from a
+word sample. Deterministic stages first, one cheap AI judge (GLM), no
+per-card reasoning burn.
+
+## The 7 stages (ids are stable — files/progress keys never change)
+
+| id | console label | does what | in | out |
+|---|---|---|---|---|
+| `s0` | preprocess (pishpardazesh) | drops names/junk, level-aware frequency floor | sample json | `progress/s0.json` |
+| `s0b` | inflection (sarf) | flags inflection stubs for LLM review | s0 kept | `progress/s0b.json` |
+| `s1` | anchor (langar) | deterministic sense ranking per lemma | s0b kept | `progress/s1.json` |
+| `s2` | judge (davari) | GLM picks one sense per item (same prompt for all) | s1 window | `progress/s2.json` |
+| `s3` | vectors (bordar) | topic vectors per picked sense | s2 picks | `progress/s3.json` |
+| `s4` | label (barchasb) | CEFR/topic labels | s3 | `progress/s4.json` |
+| `s5` | enrich (ghanasazi) | examples, IPA, Persian gloss | s4 | `progress/s5.json` → `precard.jsonl` |
+
+Reading a run: the console speaks labels (`[STAGE judge (davari)]`);
+`run.log` speaks ids (`stage s2 start`) — grep-friendly and stable.
+Persian drop details go to `dropped.log`, never the console.
+
+## Run
+
+```powershell
+# dry run, no keys, no network (first 20 items of your sample file)
+python factory\precard_pipeline.py --sample W:\hamzaban_data_factory\pilot\sample200b.json `
+  --out out\precard.jsonl --progress-dir out\prog --limit 20 --dry-run
+
+# blind judge comparison on the frozen 50 (needs keys + PR #614 merged)
+python factory\blind50.py --accept W:\hamzaban_data_factory\pilot\accept50.json `
+  --s1 W:\hamzaban_data_factory\pilot200glm\progress\s1.json --glm-s2 W:\hamzaban_data_factory\pilot200glm\progress\s2.json `
+  --out W:\hamzaban_data_factory\blind50\blind50.json --progress W:\hamzaban_data_factory\blind50\progress.json --dry-run
+```
+
+Keys: `factory\.env` first, then `tools\egress\.env` (owner layout).
+Three consecutive 429s stop the run — rotate key/server, re-run, resume
+continues from `progress/*.json` (per-stage files named by stable id).
+
+## Files
+
+- `precard_pipeline.py` — the line (stages, gates G1–G6, resume).
+- `card_pilot.py` — anchor scorer, kaikki readers, run logger.
+- `probe_keys.py` — egress + key health check (no secrets in output).
+- `blind50.py` — 4-way judge comparison (lands with PR #614, not yet on
+  main; run only after that merge).
+- `run_v14_phase*.py`, `run_v15_topics.py` — vendored scorer owners
+  (rank logic lives here; do not re-implement elsewhere).

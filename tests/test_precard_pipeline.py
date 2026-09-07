@@ -329,9 +329,10 @@ def test_run_log_and_batch_lines(tmp_path, monkeypatch, capsys):
         assert ("stage %s start" % stage) in logged
         assert ("stage %s end" % stage) in logged
     captured = capsys.readouterr()
-    assert "[preprocess]" in captured.out and "ok=2 fail=0" in captured.out
-    assert "[STAGE preprocess]" in captured.out
-    assert "[STAGE enrich]" in captured.out
+    assert "[preprocess (pishpardazesh)]" in captured.out \
+        and "ok=2 fail=0" in captured.out
+    assert "[STAGE preprocess" in captured.out
+    assert "[STAGE enrich" in captured.out
 
 
 def test_stage_skip_on_resume(tmp_path, monkeypatch):
@@ -1909,3 +1910,58 @@ def test_register_meta_interleaved_deep_demotes():
         "thing", rows, "noun", read_entry, zipf_fn=lambda t: 5.0)
     flags = [card_pilot._is_meta_gloss(g) for _, _, _, _, g in scored]
     assert flags == [False, False, True, True], flags
+
+
+def test_stage_labels_cover_all_ids_ascii_only():
+    """v13 identity: every stable id has a name + Finglish tag; console
+    labels stay plain ASCII (Windows terminal safe); unknown ids pass
+    through both helpers unchanged."""
+    for stage in precard_pipeline.STAGES:
+        name = precard_pipeline.STAGE_NAMES[stage]
+        tag = precard_pipeline.STAGE_FINGLESH[stage]
+        label = precard_pipeline.stage_label(stage)
+        assert name and tag and label.startswith(name)
+        label.encode("ascii")
+    assert precard_pipeline.stage_name("sx") == "sx"
+    assert precard_pipeline.stage_label("sx") == "sx"
+
+
+def test_stage_selection_accepts_names():
+    """v13 identity: --only/--stages take ids or display names."""
+    ns = precard_pipeline._normalize_stage
+    assert ns("judge") == "s2"
+    assert ns("S2") == "s2"
+    assert ns("bogus") == "bogus"
+
+
+def test_dropped_log_headers_use_stable_ids(tmp_path, monkeypatch):
+    """v13 identity: dropped.log section headers carry the stable stage
+    id (greppable on disk); the console label stays human-readable."""
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    items = [{"kind": "word", "text": "led", "pos": "noun",
+              "pool_level": "A2"}]
+
+    def rows():
+        return [{"pos": "noun",
+                 "entry": {"pos": "noun", "sounds": [],
+                           "senses": [{"glosses": ["light-emitting diode"],
+                                       "tags": ["abbreviation"],
+                                       "examples": []}]}}]
+
+    sample = write_sample(tmp_path, items)
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog,
+         "--stages", "s0"],
+        _judge_transport=fake_judge, _topic_transport=fake_topics,
+        _assign_transport=None, _sleep_fn=lambda s: None,
+        _index={"led": rows()}, _read_entry=read_entry, _tatoeba={},
+        _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    drop_log = (pathlib.Path(out).parent / "dropped.log"
+                ).read_text(encoding="utf-8")
+    headers = [line for line in drop_log.splitlines()
+               if line.startswith("===")]
+    assert headers, drop_log
+    assert any(line == "=== s0 drops ===" for line in headers), headers
+    assert not any("langar" in line for line in headers), headers
