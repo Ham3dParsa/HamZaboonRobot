@@ -54,6 +54,26 @@ class CappedRunnerProofTests(unittest.TestCase):
     def test_cap_triplet_applies(self):
         from tools.load_sim import capped
 
+        if not WINDOWS:
+            # Job Objects are Windows-only: prove the honest fallback
+            # labeling (affinity-estimate, caps NOT enforced, error names
+            # the failing API) via a thunk that needs no caps.
+            env = capped.run_capped(
+                capped.echo_counters,
+                {"probe": 1},
+                cpu_percent=100,
+                ram_bytes=1024**3,
+                timeout_s=180,
+            )
+            for key in ENVELOPE_KEYS:
+                self.assertIn(key, env)
+            self.assertFalse(env["killed"])
+            self.assertTrue(env["ok"], f"fallback probe failed: {env['error']}")
+            self.assertFalse(env["caps_enforced"])
+            self.assertIn(env["mode"], ("affinity-estimate", "none"))
+            self.assertIsNotNone(env["cap_error"])
+            return
+
         env = capped.run_capped(
             capped.apply_and_report,
             50,
@@ -66,16 +86,11 @@ class CappedRunnerProofTests(unittest.TestCase):
             self.assertIn(key, env)
         self.assertFalse(env["killed"], f"cap probe child died: {env['error']}")
         self.assertTrue(env["ok"], f"cap probe failed: {env['error']}")
-        if WINDOWS:
-            self.assertEqual(env["mode"], "job-objects")
-            self.assertTrue(env["caps_enforced"])
-            readback = env["result"]["readback"]
-            self.assertEqual(readback["process_memory_limit"], 512 * 1024**2)
-            self.assertEqual(readback["cpu_rate"], 50 * 100)
-        else:
-            self.assertFalse(env["caps_enforced"])
-            self.assertIn(env["mode"], ("affinity-estimate", "none"))
-            self.assertIsNotNone(env["cap_error"])
+        self.assertEqual(env["mode"], "job-objects")
+        self.assertTrue(env["caps_enforced"])
+        readback = env["result"]["readback"]
+        self.assertEqual(readback["process_memory_limit"], 512 * 1024**2)
+        self.assertEqual(readback["cpu_rate"], 50 * 100)
 
     def test_child_oom_reported_not_crashed(self):
         from tools.load_sim import capped
