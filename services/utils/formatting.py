@@ -895,8 +895,9 @@ def format_session_summary(report, *, is_admin: bool = False, rng=None, heat_use
     compat but renders identically for True/False (no admin diagnostics;
     dedicated telemetry is deferred). Dynamic values ride ``Plain`` spans and
     are escaped exactly once by the renderer. ``m01_note`` (issue #467) is an
-    optional pre-rendered M01 same-day-dues line appended as a quote; the
-    default ``None`` leaves existing renders unchanged.
+    optional raw pre-rendered M01 same-day-dues line (``render_m01`` output,
+    escaped once here via ``Plain``) appended as a quote; ``None``/empty
+    leaves existing renders unchanged.
     """
     from services.send_pretty import Message, heading, plain, quote, table
 
@@ -914,7 +915,7 @@ def format_session_summary(report, *, is_admin: bool = False, rng=None, heat_use
     # M01 short-interval same-day note (issue #467): appended by the
     # handler/summary-render site that already holds heat params; None keeps
     # existing callers byte-identical.
-    if m01_note is not None:
+    if m01_note:
         msg.add_line(quote(plain(m01_note)))
 
     if report.recall_rate is not None:

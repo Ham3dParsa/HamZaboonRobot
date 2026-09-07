@@ -22,6 +22,11 @@ Theme slots (``{target_heat_theme}``, ``{theme_shield_event}``) are resolved
 by the CALLER: ``config/themes.py`` does not exist yet, so callers pass
 plain strings. Documented seam: when a themes module lands, callers switch
 to it without touching this module.
+
+Render contract: all ``render_*`` output is RAW text (no MarkdownV2
+escaping) and must ride ``Plain`` spans — the send-site renderer escapes
+exactly once. Naive datetimes: APP_TZ for quiet/windows helpers, UTC for
+``hours_between`` (documented per function).
 """
 
 from __future__ import annotations
@@ -70,8 +75,9 @@ NUDGE_TEMPLATES: dict[str, str] = {
     "M07": "هنوز {remaining} نشست از سهمیه امروزت مونده؛ سرت خلوت شد یکیش رو بریم؟",
     "M08": "فقط یه نشست تا {target_heat_theme} مونده؛ همینو بری وضعیت امروزت می‌درخشه!",
     "M09": "چند تا {content_type} برای امشب آماده مرور شدن؛ وقت داری یه دور سریع بزنیم؟",
-    # M10: alias of services.session.summary.pick_motivation (no copy here).
-    "M10": "pick_motivation",
+    # M10: alias of services.session.summary.pick_motivation (no copy here)
+    # — see M10_ALIAS + m10_for_report. No "M10" key: the registry stays pure
+    # Persian send text, never the "pick_motivation" seam literal.
 }
 
 M10_ALIAS = "services.session.summary.pick_motivation"
@@ -111,7 +117,7 @@ def evaluate_silence(
 ) -> bool:
     """Hard-silence predicate: True means send NOTHING this tick.
 
-    True iff an/ a session is open, OR the daily budget is exhausted
+    True iff a session is open, OR the daily budget is exhausted
     (remaining == 0), OR there is nothing to study
     (due == 0 and no Tier-2 new cards). ``session_budget`` is the
     ``scheduling.daily_session_budget`` dict (``remaining`` key) or a bare
@@ -174,6 +180,7 @@ def select_nudge(
 
     Flags mirror message ids (caller maps its own conditions). Promoted M04
     jumps to priority 2 (ahead of M06); a normal M04 stays last.
+    ``m04_promoted=True`` implies M04 eligibility even when ``m04=False``.
     """
     eligible = {
         "M03": m03,
@@ -219,10 +226,15 @@ def can_send(sent_in_window: int, sent_today: int) -> bool:
 
 
 def _slot(value: object) -> str:
-    """Sanitize one template slot: escape_MDv2 FIRST, then Persian digits."""
-    from services.utils.formatting import escape_mdv2, to_persian_digits
+    """One template slot: Persian digits, NO MarkdownV2 escaping.
 
-    return to_persian_digits(escape_mdv2(str(value)))
+    ``render_*`` output is raw and must ride ``Plain`` spans so the
+    send-site renderer escapes it exactly once (pre-escaping here would
+    double-escape on the MDV2 backend).
+    """
+    from services.utils.formatting import to_persian_digits
+
+    return to_persian_digits(str(value))
 
 
 def hours_between(
@@ -260,7 +272,7 @@ def m01_due_today(records, today_str: str) -> list:
 
 
 def render_m01(count: object, content_type: str, hours: object) -> str:
-    """Render M01 with sanitized slots (escape, then Persian digits)."""
+    """Render M01 raw (ride a ``Plain`` span; escaped once at send)."""
     return NUDGE_TEMPLATES["M01"].format(
         count=_slot(count), content_type=_slot(content_type), hours=_slot(hours)
     )
@@ -289,6 +301,11 @@ def render_m04(content_type: str) -> str:
 def render_m05(content_type: str) -> str:
     """Render M05 morning dues with sanitized slot."""
     return NUDGE_TEMPLATES["M05"].format(content_type=_slot(content_type))
+
+
+def render_m06() -> str:
+    """Render M06 unfinished-session nudge (slot-less static text, raw)."""
+    return NUDGE_TEMPLATES["M06"]
 
 
 def render_m07(remaining: object) -> str:
@@ -340,6 +357,7 @@ __all__ = [
     "render_m03",
     "render_m04",
     "render_m05",
+    "render_m06",
     "render_m07",
     "render_m08",
     "render_m09",

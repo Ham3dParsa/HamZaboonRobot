@@ -8,7 +8,7 @@ import unittest
 from config import APP_TZ
 from services import nudges
 from services.session.summary import WordReviewRecord, build_report
-from services.utils.formatting import escape_mdv2, to_persian_digits
+from services.utils.formatting import to_persian_digits
 
 
 def _at(hour: int, minute: int) -> datetime.datetime:
@@ -77,12 +77,17 @@ class PriorityTests(unittest.TestCase):
 
 
 class SlotTests(unittest.TestCase):
-    def test_escape_then_persian_digits(self):
+    def test_raw_slots_persian_digits_no_preescape(self):
         text = nudges.render_m01(3, "واژه*تست_", 5)
         self.assertIn(to_persian_digits(3), text)
         self.assertIn(to_persian_digits(5), text)
-        self.assertIn(escape_mdv2("واژه*تست_"), text)
+        # Raw: dynamic value verbatim, escaping happens once at send site.
+        self.assertIn("واژه*تست_", text)
+        self.assertNotIn("\\", text)
         self.assertNotIn("3", text.replace("۳", ""))
+
+    def test_render_m06_static(self):
+        self.assertEqual(nudges.render_m06(), nudges.NUDGE_TEMPLATES["M06"])
 
     def test_hours_rounding(self):
         now = datetime.datetime(2026, 9, 7, 10, 0, tzinfo=datetime.timezone.utc)
@@ -92,9 +97,8 @@ class SlotTests(unittest.TestCase):
         self.assertEqual(nudges.hours_between(now, past), 1)
 
     def test_persian_law(self):
+        self.assertNotIn("M10", nudges.NUDGE_TEMPLATES)
         for mid, template in nudges.NUDGE_TEMPLATES.items():
-            if mid == "M10":
-                continue
             self.assertNotIn("·", template, mid)
             self.assertNotIn("—", template, mid)
             self.assertNotIn("|", template, mid)
