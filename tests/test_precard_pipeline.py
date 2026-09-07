@@ -1611,6 +1611,34 @@ def test_quarantine_surfaces_in_summary_and_log(tmp_path, monkeypatch,
     assert s0["done"]["w:led"]["kept"] is True
 
 
+def test_quarantine_reaches_precard_row(tmp_path, monkeypatch):
+    """Emission: quarantine flag lands on the precard row + stage_calls."""
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    items = [{"kind": "word", "text": "led", "pos": "noun",
+              "pool_level": "A2"}]
+
+    def rows():
+        return [{"pos": "noun",
+                 "entry": {"pos": "noun", "sounds": [],
+                           "senses": [{"glosses": ["light-emitting diode"],
+                                       "tags": ["abbreviation"],
+                                       "examples": [{"text": LONG_EXAMPLE}]}]}}]
+
+    sample = write_sample(tmp_path, items)
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog],
+        _judge_transport=fake_judge, _topic_transport=fake_topics,
+        _assign_transport=None, _sleep_fn=lambda s: None,
+        _index={"led": rows()}, _read_entry=read_entry, _tatoeba={},
+        _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    rows_out = load_out(out)
+    assert [r["key"] for r in rows_out] == ["w:led"]
+    assert rows_out[0].get("quarantine") == "g4-abbrev"
+    assert rows_out[0]["stage_calls"]["s0"] == "kept:quarantine-g4-abbrev"
+
+
 def test_zipf_low_beats_quarantine():
     """Precedence: low-zipf suspect drops on frequency, never quarantines."""
     from precard_pipeline import s0_classify_item
@@ -1663,7 +1691,8 @@ def test_g5_boundary_phrasings():
         assert v["reason"] == "g5-demonym", gloss
     for gloss in ("a national park", "an international treaty",
                   "a nice country walk",
-                  "the country's national park is big"):
+                  "the country's national park is big",
+                  "countryside language variety course"):
         v = _g_classify("t" + gloss[:3], _g_view([(gloss, [])]))
         assert v["kept"] is True, gloss
 

@@ -424,7 +424,7 @@ _G2_FORM_RX = re.compile(
 _G5_DEMONYM_RX = re.compile(
     r"\b(nationality|demonym|capital of|city in|native of|"
     r"inhabitant of|person from|of or (pertaining|relating) to|"
-    r"country[^.]{0,20}?\b(language|nation|nationality)\b|"
+    r"\bcountr(y|ies)\b[^.]{0,20}?\b(language|nation|nationality)\b|"
     r"language spoken)\b", re.IGNORECASE)
 
 
