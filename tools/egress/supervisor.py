@@ -38,8 +38,9 @@ SUB_VAR = "EGRESS_SUB_URL"
 SUBS_VAR = "EGRESS_SUB_URLS"
 TOKEN_VAR = "EGRESS_SUP_TOKEN"
 DEFAULT_PORT = 18789
-PROBE_TOP_N = 5
+PROBE_TOP_N = 20
 PROBE_TIMEOUT_S = 5.0
+POOL_PATH = pathlib.Path(__file__).resolve().parent / "egress_pool.json"
 
 
 def load_env():
@@ -130,6 +131,44 @@ class Pool:
                 if s["id"] not in known:
                     self.servers.append(dict(s))
                     known.add(s["id"])
+
+    def load_ranked(self, ranked):
+        """Replace pool order with a ranked probe list (whitelist)."""
+        with self._lock:
+            by_id = {s["id"]: s for s in self.servers}
+            ordered = []
+            for row in ranked:
+                if row.get("alive") and row["id"] in by_id:
+                    ordered.append(by_id[row["id"]])
+            for s in self.servers:
+                if s["id"] not in {r["id"] for r in ordered}:
+                    ordered.append(s)
+            self.servers = ordered
+
+    def save_pool(self, path=POOL_PATH):
+        import datetime as _dt
+        with self._lock:
+            payload = {"saved_at": _dt.datetime.now(
+                _dt.timezone.utc).isoformat(),
+                "servers": self.servers}
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle)
+        except OSError as exc:
+            print("pool save failed: %s" % exc)
+
+    def load_pool(self, path=POOL_PATH):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, ValueError):
+            return 0
+        servers = payload.get("servers") if isinstance(payload, dict) \
+            else None
+        if not isinstance(servers, list):
+            return 0
+        self.load([s for s in servers if isinstance(s, dict)])
+        return len(servers)
 
     def lease(self, target):
         with self._lock:
@@ -332,11 +371,17 @@ def main(argv=None):
         print("servers=%d alive=%d (top-%d marked *)" % (
             len(rows), len(alive), args.top_n))
         for row in rows:
-            mark = "*" if row["zen_candidate"] and row["alive"] else " "
-            ms = ("%dms" % row["latency_ms"]) if row["alive"] else "dead"
-            print("%s %-5s %-40s %s" % (
-                mark, row["scheme"], "%s:%s" % (row["host"], row["port"]),
-                ms))
+            if not row["alive"]:
+                continue
+            mark = "*" if row["zen_candidate"] else " "
+            print("%s %-5s %-40s %dms" % (
+                mark, row["scheme"],
+                "%s:%s" % (row["host"], row["port"]),
+                row["latency_ms"]))
+        POOL.load_ranked(rows)
+        POOL.save_pool()
+        print("whitelist saved: %d servers -> %s" % (
+            len(POOL.servers), POOL_PATH))
         return 0
     TOKEN = env.get(TOKEN_VAR, "")
     if not TOKEN:
@@ -344,6 +389,9 @@ def main(argv=None):
               % (TOKEN_VAR, ENV_PATH))
         return 2
     refresh_subscription(env)
+    n_saved = POOL.load_pool()
+    if n_saved:
+        print("pool loaded: %d servers from whitelist" % n_saved)
     server = HTTPServer(("127.0.0.1", args.port), Handler)
     print("egress supervisor on 127.0.0.1:%d (%d servers)" % (
         args.port, POOL.health()["servers"]))

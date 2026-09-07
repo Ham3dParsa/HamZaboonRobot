@@ -43,6 +43,25 @@ def test_pool_direct_lease_and_report():
     assert pool.report("nope", "ok") == {"action": "unknown-lease"}
 
 
+def test_pool_ranked_whitelist_roundtrip(tmp_path):
+    pool = Pool()
+    pool.load([
+        {"scheme": "vless", "host": "slow", "port": 1, "id": "s1"},
+        {"scheme": "vless", "host": "fast", "port": 1, "id": "s2"},
+    ])
+    pool.load_ranked([
+        {"id": "s1", "alive": True}, {"id": "s2", "alive": True},
+        {"id": "ghost", "alive": True},
+    ])
+    assert [s["id"] for s in pool.servers] == ["s1", "s2"]
+    path = str(tmp_path / "pool.json")
+    pool.save_pool(path)
+    pool2 = Pool()
+    assert pool2.load_pool(path) == 2
+    assert [s["id"] for s in pool2.servers] == ["s1", "s2"]
+    assert pool2.load_pool(str(tmp_path / "nope.json")) == 0
+
+
 def test_sub_sources_merge_order_and_dedup():
     from supervisor import sub_sources
     env = {"EGRESS_SUB_URLS": "https://a/sub, https://b/sub\nhttps://a/sub",
