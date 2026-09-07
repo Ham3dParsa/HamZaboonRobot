@@ -1685,14 +1685,21 @@ def test_g5_boundary_phrasings():
     """G5 hits canonical demonym phrasings, spares lookalikes."""
     for gloss in ("a native of France", "an inhabitant of Rome",
                   "a person from Spain",
+                  "the country's national language is X",
                   "of or pertaining to Italy",
-                  "the country's national language is X"):
+                  "Of or pertaining to Italy",
+                  "OF OR PERTAINING TO Italy",
+                  "of or Pertaining to Italy",
+                  "of or pertaining to the United States"):
         v = _g_classify("t" + gloss[:3], _g_view([(gloss, [])]))
         assert v["reason"] == "g5-demonym", gloss
     for gloss in ("a national park", "an international treaty",
                   "a nice country walk",
                   "the country's national park is big",
-                  "countryside language variety course"):
+                  "countryside language variety course",
+                  "of or pertaining to words",
+                  "of or pertaining to the words",
+                  "a local custom"):
         v = _g_classify("t" + gloss[:3], _g_view([(gloss, [])]))
         assert v["kept"] is True, gloss
 
@@ -1704,6 +1711,13 @@ def test_gates_normalize_mixed_casing():
     v2 = _g_classify("comp", _g_view(
         [("x", ["Abbreviation"]), ("y", ["ABBREVIATION"])]))
     assert v2["reason"] == "g4-abbrev"
+
+
+def test_g3_multi_pos_survives():
+    """by/would/when: interjection among other POS rows is NOT a drop."""
+    v = _g_classify("by", _g_view([("near", [])],
+                                   poss=["prep", "interj"]))
+    assert v["kept"] is True
 
 
 def test_unknown_zipf_keeps_quarantine():

@@ -421,11 +421,21 @@ _G2_FORM_RX = re.compile(
 # G5: demonym / geo glosses on adjective entries. Canonical phrasings
 # (calibrated 2026-09-07; intentionally narrow — see tests for the
 # positive/negative boundary).
+# G5: demonym / geo glosses. "of or pertaining to X" counts only with a
+# capitalized object (Italy, not words) — proper names signal places, so
+# this branch is case-SENSITIVE on purpose (no IGNORECASE here).
 _G5_DEMONYM_RX = re.compile(
     r"\b(nationality|demonym|capital of|city in|native of|"
-    r"inhabitant of|person from|of or (pertaining|relating) to|"
-    r"\bcountr(y|ies)\b[^.]{0,20}?\b(language|nation|nationality)\b|"
+    r"inhabitant of|person from|"
+    r"countr(y|ies)\b[^.]{0,20}?\b(language|nation|nationality)\b|"
     r"language spoken)\b", re.IGNORECASE)
+# Case-sensitive on purpose (no IGNORECASE): the place guard [A-Z]
+# must not match lowercase. Connector words are spelled case-explicitly.
+_G5_PERTAIN_RX = re.compile(
+    r"\b[Oo][Ff] [Oo][Rr] "
+    r"([Pp][Ee][Rr][Tt][Aa][Ii][Nn][Ii][Nn][Gg]|"
+    r"[Rr][Ee][Ll][Aa][Tt][Ii][Nn][Gg]) "
+    r"[Tt][Oo] ([Tt][Hh][Ee] [A-Z]|[A-Z])")
 
 
 def _s0_entry_view(item, index, read_entry):
@@ -484,9 +494,11 @@ def _s0_input_gates(text, view):
                      for t in s.get("tags", [])],
         })
     glosses = [s.get("gloss") or "" for s in senses]
-    # G3: interjection entries have no flashcard value (all POS
-    # spellings: interj/intj/interjection).
-    if poss & {"interj", "intj", "interjection"}:
+    # G3: interjection-only entries have no flashcard value (all POS
+    # spellings: interj/intj/interjection). A word with other POS rows
+    # (by/would/when) is NOT dropped here — proper channels own those.
+    _interj = {"interj", "intj", "interjection"}
+    if poss and poss <= _interj:
         return "g3-interjection", None
     # G4: abbreviations. All-caps fires on case-preserving samples
     # (live: FEB/WHO/NSW dropped in pilot200g); the tag leg covers
@@ -509,7 +521,9 @@ def _s0_input_gates(text, view):
         return "g2-inflection-form", None
     # G5: demonym/geo glosses (phase-1 learner pool; travel phase brings
     # them back from a dedicated dataset).
-    if glosses and any(_G5_DEMONYM_RX.search(g) for g in glosses):
+    if glosses and any(_G5_DEMONYM_RX.search(g or "")
+                        or _G5_PERTAIN_RX.search(g or "")
+                        for g in glosses):
         return "g5-demonym", None
     return None, None
 
