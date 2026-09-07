@@ -50,9 +50,10 @@ while the S1 anchor was not is either routed to the proper-pool track
 continues to S3+) or dropped with reason pick-proper-noun/<suffix>
 (org-guard / person-name / no-class / zipf-low — recorded on the s2
 done entry + failed list, never in precard.jsonl).
-V7: every batch prints ONE stdout line "S<stage> batch i/N ok=X fail=Y
-model=calls" (batch_log_line, owned by card_pilot) and each run writes
-a compact run.log beside --out (stage start/end + counts + timings).
+V7: console shows a live one-line progress per batch (_batch_progress)
+plus an English [STAGE] summary box; multilingual drop details go to
+dropped.log. Each run writes a compact run.log beside --out (stage
+start/end + counts + timings).
 
 S0 PREPROCESS (strict, v6 scope: junk words/phrases and rare senses leak
 less): word items drop when R4 name-only (card_pilot.is_proper_noun_lemma
@@ -1472,12 +1473,13 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             ", ".join(s for s in STAGES if s in selected)))
 
     # V7: compact run.log in the out dir (stage start/end + counts +
-    # timings); batch_log_line (owned by card_pilot, reused by import)
-    # prints ONE stdout line per batch. ok/fail per stage: s0 kept vs
+    # timings). Console shows a live one-line progress per batch
+    # (_batch_progress) plus an English [STAGE] box; multilingual drop
+    # details go to dropped.log. ok/fail per stage: s0 kept vs
     # dropped; s1 ranked vs anchor-proper-noun/error; s2 judge model vs
     # s1-fallback; s3 model vector vs deterministic fallback; s4/s5 have
     # no fail-closed signal, so fail is always 0 there.
-    from card_pilot import RunLogger, batch_log_line  # noqa: E402
+    from card_pilot import RunLogger  # noqa: E402
     run_logger = RunLogger(
         str(pathlib.Path(args.out).parent / "run.log"))
     for stage in STAGES:
