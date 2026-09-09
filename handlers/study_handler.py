@@ -90,6 +90,24 @@ class SessionState:
     revealed: bool = False
     active_prompt_type: str | None = None
     active_prompt_word_id: int | None = None
+    # Canonical app-day (YYYY-MM-DD) when the session was created. Used for
+    # lazy cross-day invalidation without polling (Fix: Stale cross-day leak).
+    session_date: str = ""
+
+    def __post_init__(self) -> None:
+        # Back-fill for legacy constructions (tests/tools) that omit session_date.
+        # Persisted rows without the field remain "" until hydrated by
+        # _restore_persisted_session, so missing-JSON staleness is still detected
+        # via the explicit empty-check in handle_study_start.
+        if not self.session_date:
+            # Avoid circular import: _app_day_str is defined below; resolve at runtime.
+            try:
+                self.session_date = _app_day_str()  # type: ignore[name-defined]
+            except NameError:
+                # _app_day_str not yet bound during import-time dataclass checks;
+                # leave empty — handle_study_start will treat as stale and the
+                # fresh-build path will populate correctly.
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +128,7 @@ def _state_to_json(state: SessionState) -> str:
             "revealed": state.revealed,
             "active_prompt_type": state.active_prompt_type,
             "active_prompt_word_id": state.active_prompt_word_id,
+            "session_date": state.session_date,
         }
     )
 
@@ -175,6 +194,8 @@ def _state_from_json(raw: str) -> SessionState:
     if prompt_type is None and prompt_wid is not None:
         prompt_wid = None
     revealed = bool(data.get("revealed", False)) and prompt_type is not None and prompt_wid is not None
+    raw_session_date = data.get("session_date")
+    session_date = raw_session_date if isinstance(raw_session_date, str) else ""
     return SessionState(
         nodes=[SessionNode(**node) for node in data["nodes"]],
         total_cards=data["total_cards"],
@@ -189,6 +210,7 @@ def _state_from_json(raw: str) -> SessionState:
         revealed=revealed,
         active_prompt_type=prompt_type,
         active_prompt_word_id=prompt_wid,
+        session_date=session_date,
     )
 
 
@@ -225,6 +247,9 @@ def _restore_persisted_session(user_id: int) -> SessionState | None:
     if not state.nodes:
         _clear_persisted_session(user_id)
         return None
+    # Hydrate canonical date for rows written before session_date existed
+    if not state.session_date:
+        state.session_date = session_date
     return state
 
 
@@ -315,11 +340,21 @@ async def handle_study_start(
 
     plan = row["plan"] or "free"
 
-    # --- resume existing session (Decision 30: don't double-count slots) ---
+    # --- lazy cross-day invalidation (Fix: Stale cross-day leak) ---
+    # Memory-held sessions bypass DB calendar checks; validate app-day here
+    # and atomically clear memory + persisted row + grade ledger before
+    # falling through to quota + fresh assembly (Rule 1/2, silent transition).
     existing = context.user_data.get("current_session")
-    if existing is not None and existing.nodes:
-        await _resume_existing_session(update, context, existing, user_id)
-        return
+    if existing is not None:
+        existing_date = getattr(existing, "session_date", "")
+        if not existing_date or existing_date != _app_day_str():
+            context.user_data.pop("current_session", None)
+            await asyncio.to_thread(_clear_persisted_session, user_id)
+            await asyncio.to_thread(db.clear_session_grades, user_id)
+            existing = None
+        elif existing.nodes:
+            await _resume_existing_session(update, context, existing, user_id)
+            return
 
     # --- restart recovery: a same-day session persisted to the DB (Bug 1) ---
     restored = await asyncio.to_thread(_restore_persisted_session, user_id)
@@ -377,6 +412,7 @@ async def handle_study_start(
             study_msg_id=None,
             plan=plan,
             graded_word_ids=[],
+            session_date=_app_day_str(),
         )
         context.user_data["current_session"] = state
 
