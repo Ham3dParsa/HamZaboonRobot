@@ -33,8 +33,13 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           KILO_API_KEY: ${{ secrets.KILO_API_KEY }}
         with:
+          # Standardized to opencode/muse-spark-1.3-contributor-free (vars override allowed, default pinned)
           model: ${{ vars.OPENCODE_MODEL || 'opencode/muse-spark-1.3-contributor-free' }}
           prompt: |-
+            ROUTING SEPARATION (immediate comment vs gated code):
+            - Conversational/analytical triggers (unslop, explain, review, translate, summarize) → immediate comment response, NO branch/PR.
+            - File modifications → strict contract-lock gate (§2), no code before lock + explicit owner approval.
+
             CORE OPERATING PRINCIPLES & ROLE DEFINITION:
             You are an autonomous engineering assistant strictly governed by AGENTS.md, REVIEW.md, and explicit architectural skills.
             Your execution is gated. You have ZERO autonomy to write code or touch git refs without an explicit, multi-turn locked contract.
