@@ -28,10 +28,29 @@ def test_code_rules_beat_body():
 
 def test_provider_snippets_every_row():
     for provider, rows in LJ._PROVIDER_SNIPPETS.items():
-        assert 1 <= len(rows) <= 3, provider
-        for snippet, action in rows:
+        precode = LJ._PROVIDER_PRECODE_SNIPPETS.get(provider, ())
+        assert 1 <= len(rows) + len(precode) <= 3, provider
+        for snippet, action in list(rows) + list(precode):
             got = LJ.classify(None, "xx %s yy" % snippet.upper(), provider)
             assert got == action, (provider, snippet)
+
+
+def test_precode_beats_code_rules():
+    # Google 429 carrying project-quota body cools down + switches.
+    assert LJ.classify(429, "RESOURCE_EXHAUSTED: quota", "google") == (
+        LJ.COOLDOWN_SWITCH
+    )
+    # Ordinary 429s still rotate (code rule beats non-precode snippets).
+    assert LJ.classify(429, "rate limit exceeded", "zen") == LJ.ROTATE
+    assert LJ.classify(429, "user location is not supported", "google") == (
+        LJ.ROTATE
+    )
+
+
+def test_provider_normalization():
+    assert LJ.classify(None, "rate limit exceeded", "  ZEN ") == LJ.ROTATE
+    assert LJ.classify(None, "rate limit exceeded", "groq") == LJ.FAIL_CLOSED
+    assert LJ.classify(None, "rate limit exceeded", None) == LJ.FAIL_CLOSED
 
 
 def test_provider_scope_isolation():

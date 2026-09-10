@@ -47,9 +47,6 @@ _PROVIDER_SNIPPETS = {
         # Location-gated only: a bare FAILED_PRECONDITION also covers
         # billing/API-disabled/quota, which must NOT cool down + switch.
         ("location is not supported", COOLDOWN_SWITCH),
-        # Project-level quota (rotating keys on the same project fails
-        # the same way) -> cool down + switch provider, not rotate.
-        ("resource_exhausted", COOLDOWN_SWITCH),
     ),
     "openrouter": (
         ("rate limit", ROTATE),
@@ -60,6 +57,15 @@ _PROVIDER_SNIPPETS = {
         ("rate limit exceeded", ROTATE),
         ("service unavailable", RETRY_ONCE),
         ("overloaded", RETRY_ONCE),
+    ),
+}
+
+# Provider snippets that beat even the code rules (checked first).
+# Google RESOURCE_EXHAUSTED is project-level quota: a 429 carrying it
+# must cool down + switch provider, NOT rotate keys on the same project.
+_PROVIDER_PRECODE_SNIPPETS = {
+    "google": (
+        ("resource_exhausted", COOLDOWN_SWITCH),
     ),
 }
 
@@ -80,21 +86,24 @@ def classify(code, body, provider="generic"):
     code: HTTP status int (or None for transport timeouts); body: raw
     error text/JSON (or None); provider: zen/google/openrouter/avalai
     (case-insensitive, anything else matches generic rows only).
-    First match wins: code rules, then provider snippets, then generic
-    snippets, else FAIL_CLOSED.
+    First match wins: pre-code provider snippets, then code rules, then
+    provider snippets, then generic snippets, else FAIL_CLOSED.
     """
     try:
         code = int(code)
     except (TypeError, ValueError):
         code = None
+    text = "" if body is None else str(body).lower()
+    prov = "" if provider is None else str(provider).strip().lower()
+    for snippet, action in _PROVIDER_PRECODE_SNIPPETS.get(prov, ()):
+        if snippet in text:
+            return action
     if code is not None:
         for codes, action in _CODE_RULES:
             if code in codes:
                 return action
         if 500 <= code <= 599:
             return RETRY_ONCE
-    text = "" if body is None else str(body).lower()
-    prov = "" if provider is None else str(provider).strip().lower()
     for snippet, action in _PROVIDER_SNIPPETS.get(prov, ()):
         if snippet in text:
             return action
