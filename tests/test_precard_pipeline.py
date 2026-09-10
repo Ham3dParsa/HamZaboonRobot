@@ -1965,3 +1965,187 @@ def test_dropped_log_headers_use_stable_ids(tmp_path, monkeypatch):
     assert headers, drop_log
     assert any(line == "=== s0 drops ===" for line in headers), headers
     assert not any("langar" in line for line in headers), headers
+
+
+# ---------------- C3 pack wirings: lexical_type / register / pre_card_id ---
+
+def _tagged_rows(*gloss_tags, ipa="/x/"):
+    """Fake kaikki rows with per-sense kaikki tags."""
+    return [{"pos": "noun",
+             "entry": {"pos": "noun", "sounds": [{"ipa": ipa}],
+                       "senses": [{"glosses": [gloss], "tags": list(tags),
+                                   "examples": [{"text": LONG_EXAMPLE}]}
+                                  for gloss, tags in gloss_tags]}}]
+
+
+def test_c3a_word_lexical_type_from_kaikki_tags():
+    """C3a: picked-sense kaikki tags drive lexical_type (word default)."""
+    from precard_pipeline import enrich_item
+    index = {
+        "simp": _tagged_rows(("a silly person", ["slang"])),
+        "chap": _tagged_rows(("a fellow", ["colloquial"])),
+        "kicker": _tagged_rows(("an unexpected twist", ["idiomatic"])),
+        "apple": _tagged_rows(("a round fruit", [])),
+    }
+    for text, gloss, want in (
+            ("simp", "a silly person", "slang"),
+            ("chap", "a fellow", "colloquial"),
+            ("kicker", "an unexpected twist", "idiomatic"),
+            ("apple", "a round fruit", "word")):
+        item = {"kind": "word", "text": text, "pos": "noun",
+                "pool_level": "B1"}
+        out = enrich_item(item, {"sense_id": "%s#0" % text, "gloss": gloss},
+                          index, read_entry, {})
+        assert out["lexical_type"] == want, text
+
+
+def test_c3b_register_from_kaikki_tags():
+    """C3b: neutral default; informal tag; vulgar/offensive -> slang_vulgar
+    (slang_vulgar wins over informal)."""
+    from precard_pipeline import enrich_item
+    cases = (
+        ("plainwd", [], "neutral"),
+        ("mate", ["informal"], "informal"),
+        ("mfwd", ["vulgar"], "slang_vulgar"),
+        ("slurwd", ["offensive"], "slang_vulgar"),
+        ("bothwd", ["informal", "vulgar"], "slang_vulgar"),
+    )
+    for text, tags, want in cases:
+        index = {text: _tagged_rows(("a gloss here", tags))}
+        item = {"kind": "word", "text": text, "pos": "noun",
+                "pool_level": "B1"}
+        out = enrich_item(item, {"sense_id": "%s#0" % text,
+                                 "gloss": "a gloss here"},
+                          index, read_entry, {})
+        assert out["register"] == want, text
+
+
+def test_c3a_phrase_lexical_type_from_type_log():
+    """C3a: phrases take lexical_type from the phrase-type log verbatim;
+    without a log entry the kaikki/default fallback applies (type_pending
+    flag path itself unchanged)."""
+    from precard_pipeline import enrich_item
+    index = {"nickel and dime": _tagged_rows(("a small sum", []))}
+    item = {"kind": "phrase", "text": "nickel and dime", "pool_level": "B1"}
+    pick = {"sense_id": "nickel and dime#0", "gloss": "a small sum"}
+    logged = enrich_item(
+        item, pick, index, read_entry, {},
+        phrase_entry={"phrase_type": "idiom", "applied_keep": True})
+    assert logged["lexical_type"] == "idiom"
+    bare = enrich_item(item, pick, index, read_entry, {})
+    assert bare["lexical_type"] == "word"
+
+
+def test_c3c_pre_card_id_stable_and_en_sensitive():
+    """C3c: sha1-hex16(lemma.lower|pos|en_def normalized); stable across
+    case/whitespace variants, changes when EN gloss or POS changes."""
+    from precard_pipeline import compute_pre_card_id
+    base = compute_pre_card_id("Apple", "noun", "a round  fruit")
+    assert base == compute_pre_card_id("apple", "noun", "a round fruit")
+    assert base == compute_pre_card_id("  APPLE ", "NOUN", "A Round Fruit")
+    assert len(base) == 16
+    assert all(c in "0123456789abcdef" for c in base)
+    assert compute_pre_card_id(
+        "apple", "noun", "a tech company") != base
+    assert compute_pre_card_id(
+        "apple", "verb", "a round fruit") != base
+
+
+def test_c3_rows_carry_new_fields(tmp_path, monkeypatch):
+    """C3 end-to-end: precard rows carry lexical_type/register/pre_card_id
+    (simp->slang, nickel and dime->idiom via log, plain word->word)."""
+    from precard_pipeline import compute_pre_card_id
+    items = [
+        {"kind": "word", "text": "simp", "pos": "noun",
+         "pool_level": "B1"},
+        {"kind": "phrase", "text": "nickel and dime", "pool_level": "B1"},
+        {"kind": "word", "text": "apple", "pos": "noun",
+         "pool_level": "A1"},
+    ]
+    index = {
+        "simp": _tagged_rows(("a silly person", ["slang"])),
+        "nickel and dime": _tagged_rows(("a small sum", [])),
+        "apple": _tagged_rows(("a round fruit", [])),
+    }
+    rows, _s0 = _run_s0_only(
+        tmp_path, monkeypatch, items, index,
+        _zipf_fn=lambda t: 5.0,
+        _type_map={"nickel and dime": {"phrase_type": "idiom",
+                                       "applied_keep": True}},
+        _type_log_available=True)
+    by_key = {r["key"]: r for r in rows}
+    assert set(by_key) == {"w:simp", "p:nickel and dime", "w:apple"}
+    assert by_key["w:simp"]["lexical_type"] == "slang"
+    assert by_key["p:nickel and dime"]["lexical_type"] == "idiom"
+    assert by_key["w:apple"]["lexical_type"] == "word"
+    for rec in rows:
+        assert rec["register"] in ("neutral", "informal", "slang_vulgar")
+        assert len(rec["pre_card_id"]) == 16
+    assert by_key["w:apple"]["register"] == "neutral"
+    apple = by_key["w:apple"]
+    assert apple["pre_card_id"] == compute_pre_card_id(
+        "apple", apple["pos"][0], apple["en_def"])
+
+
+def test_c3_helpers_normalize_messy_tags():
+    """C3 review: public helpers normalize casing/whitespace themselves
+    (a raw "Slang"/" Vulgar " tag must map, never fall to the default)."""
+    from precard_pipeline import lexical_type_for, register_for
+    assert lexical_type_for("word", ["Slang"]) == "slang"
+    assert lexical_type_for("word", [" colloquial "]) == "colloquial"
+    assert lexical_type_for("word", "IDIOMATIC") == "idiomatic"
+    assert register_for(["INFORMAL"]) == "informal"
+    assert register_for([" Vulgar "]) == "slang_vulgar"
+    assert lexical_type_for(
+        "phrase", [],
+        {"phrase_type": "Idiom", "applied_keep": True}) == "idiom"
+
+
+def test_c3_empty_pick_still_emits_fields():
+    """C3 review: the empty-sid early-return path emits the three fields
+    (word/neutral defaults + stable id; phrase keeps its log type)."""
+    from precard_pipeline import compute_pre_card_id, enrich_item
+    item = {"kind": "word", "text": "ghostwd", "pos": "noun",
+            "pool_level": "A1"}
+    out = enrich_item(item, {"sense_id": "", "gloss": ""},
+                      {}, read_entry, {})
+    assert out["lexical_type"] == "word"
+    assert out["register"] == "neutral"
+    assert out["pre_card_id"] == compute_pre_card_id(
+        "ghostwd", "noun", "")
+    phrase = enrich_item(
+        {"kind": "phrase", "text": "x y", "pool_level": "B1"},
+        {"sense_id": "", "gloss": ""}, {}, read_entry, {},
+        phrase_entry={"phrase_type": "proverb", "applied_keep": True})
+    assert phrase["lexical_type"] == "proverb"
+    assert phrase["register"] == "neutral"
+
+
+def test_c3_s5_resume_reenriches_legacy_entries(tmp_path, monkeypatch):
+    """C3 review: pre-C3 s5 progress entries (no pre_card_id) re-enrich
+    deterministically on resume instead of emitting default rows."""
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    items = [{"kind": "word", "text": "simp", "pos": "noun",
+              "pool_level": "B1"}]
+    sample = write_sample(tmp_path, items)
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+    index = {"simp": _tagged_rows(("a silly person", ["slang"]))}
+    argv = ["--sample", sample, "--out", out, "--progress-dir", prog]
+    common = dict(_judge_transport=fake_judge,
+                  _topic_transport=fake_topics, _assign_transport=None,
+                  _sleep_fn=lambda s: None, _index=index,
+                  _read_entry=read_entry, _tatoeba={},
+                  _zipf_fn=lambda t: 5.0)
+    assert precard_main(argv, **common) == 0
+    # Simulate a pre-C3 resume state: strip the C3 keys from s5.
+    s5_path = pathlib.Path(prog) / "s5.json"
+    state = json.loads(s5_path.read_text(encoding="utf-8"))
+    for entry in state["done"].values():
+        for field in ("lexical_type", "register", "pre_card_id"):
+            entry.pop(field, None)
+    s5_path.write_text(json.dumps(state), encoding="utf-8")
+    assert precard_main(argv, **common) == 0  # resume
+    rows = load_out(out)
+    assert rows[0]["lexical_type"] == "slang"
+    assert rows[0]["register"] == "neutral"
+    assert len(rows[0]["pre_card_id"]) == 16
