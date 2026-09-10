@@ -68,8 +68,9 @@ def test_reason_slugs_cover_pipeline_literals():
     import re
 
     here = os.path.dirname(__file__)
-    src = open(os.path.join(here, "..", "factory", "precard_pipeline.py"),
-               encoding="utf-8").read()
+    with open(os.path.join(here, "..", "factory", "precard_pipeline.py"),
+              encoding="utf-8") as handle:
+        src = handle.read()
     emitted = set(re.findall(r'\["(?:reason|dropped)"\]\s*=\s*'
                              r'"([a-z][a-z0-9-]*)"', src))
     emitted.update(re.findall(r'"reason":\s*"([a-z][a-z0-9-]*)"', src))
@@ -80,8 +81,9 @@ def test_reason_slugs_cover_pipeline_literals():
                 "type-pending"):
         assert lit in src, lit
         emitted.add(lit)
-    card_pilot = open(os.path.join(here, "..", "factory", "card_pilot.py"),
-                      encoding="utf-8").read()
+    with open(os.path.join(here, "..", "factory", "card_pilot.py"),
+               encoding="utf-8") as handle:
+        card_pilot = handle.read()
     for lit in re.findall(r'"(cloze-[a-z]+)"', card_pilot):
         emitted.add(lit)
     missing = sorted(s for s in emitted if s not in g.REASON_SLUGS)
