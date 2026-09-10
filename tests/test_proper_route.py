@@ -14,7 +14,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "factory"))
 import precard_pipeline  # noqa: E402
 from precard_pipeline import main as precard_main  # noqa: E402
-from precard_pipeline import s2_proper_route  # noqa: E402
+from precard_pipeline import judge_proper_route  # noqa: E402
 
 LONG_EX = ("She eats a fresh red apple every single morning "
            "with her family")
@@ -223,7 +223,7 @@ def test_unit_zipf_unknown_drops():
     index = make_index()
     pick = {"sense_id": "pacific#1",
             "gloss": "the Pacific Ocean, the largest ocean on earth"}
-    verdict = s2_proper_route(
+    verdict = judge_proper_route(
         item("pacific"), pick, {"anchor_pos": "noun"},
         index, read_entry, zipf_fn=lambda t: None)
     assert verdict == {"routed": False, "proper_route": "",
@@ -234,7 +234,7 @@ def test_unit_anchor_proper_passes_through():
     index = make_index()
     pick = {"sense_id": "pacific#1",
             "gloss": "the Pacific Ocean, the largest ocean on earth"}
-    verdict = s2_proper_route(
+    verdict = judge_proper_route(
         item("pacific"), pick, {"anchor_pos": "name"},
         index, read_entry, zipf_fn=zipf_fn)
     assert verdict == {"routed": False, "proper_route": "",
@@ -243,7 +243,7 @@ def test_unit_anchor_proper_passes_through():
 
 def test_unit_empty_pick_passes_through():
     index = make_index()
-    verdict = s2_proper_route(
+    verdict = judge_proper_route(
         item("pacific"), {"sense_id": "", "gloss": ""},
         {"anchor_pos": "noun"}, index, read_entry, zipf_fn=zipf_fn)
     assert verdict == {"routed": False, "proper_route": "",
@@ -252,7 +252,7 @@ def test_unit_empty_pick_passes_through():
 def test_proper_gloss_unit_boundaries(tmp_path):
     # Unit-level twin of the run_all money/holiday + substring tests
     # below (no dead duplicate: classify_proper_gloss does not exist as
-    # a helper — classification lives in s2_proper_route; this pins the
+    # a helper — classification lives in judge_proper_route; this pins the
     # regexes directly).
     import re
     from precard_pipeline import (_PROPER_ROUTE_CLASSES,

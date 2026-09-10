@@ -12,7 +12,7 @@ import urllib.error
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "factory"))
 import blind50
 
-S1MAP = {
+ANCHOR_MAP = {
     "w:apple": {"candidates": [
         {"sense_id": "apple#0", "gloss": "a round fruit"},
         {"sense_id": "apple#1", "gloss": "a tech company"}]},
@@ -56,7 +56,7 @@ def test_google_judge_parses_envelope():
         return _google_envelope(GOOD)
 
     out = blind50.google_judge("k", "gemini-3.5-flash-lite", ITEMS,
-                               "PROMPT", S1MAP, http_post=fake_post)
+                               "PROMPT", ANCHOR_MAP, http_post=fake_post)
     assert out["w:apple"]["sense_id"] == "apple#0"
     assert "gemini-3.5-flash-lite" in calls[0][0]
     body = json.loads(calls[0][1].decode())
@@ -73,7 +73,7 @@ def test_invalid_json_retries_once_then_fails_closed():
             return _google_envelope("not json{{")
         return _google_envelope(json.dumps({"results": []}))
 
-    out = blind50.google_judge("k", "m", ITEMS, "PROMPT", S1MAP,
+    out = blind50.google_judge("k", "m", ITEMS, "PROMPT", ANCHOR_MAP,
                                http_post=fake_post)
     assert len(seen) == 2  # one retry, then fail-closed {}
     assert out == {}
@@ -86,7 +86,7 @@ def test_three_consecutive_429_aborts(tmp_path):
         raise urllib.error.HTTPError("u", 429, "slow", {}, None)
 
     try:
-        blind50.run_model("g35", items, S1MAP, str(tmp_path / "p.json"),
+        blind50.run_model("g35", items, ANCHOR_MAP, str(tmp_path / "p.json"),
                           fake_judge, batch=1, pace=0,
                           sleep_fn=lambda s: None)
     except blind50.RateLimited:
@@ -103,7 +103,7 @@ def test_isolated_429_requeues_instead_of_dropping(tmp_path):
             raise urllib.error.HTTPError("u", 429, "slow", {}, None)
         return {"w:apple": {"sense_id": "apple#0", "gloss": "x"}}
 
-    out = blind50.run_model("g35", ITEMS, S1MAP, str(tmp_path / "p.json"),
+    out = blind50.run_model("g35", ITEMS, ANCHOR_MAP, str(tmp_path / "p.json"),
                             fake_judge, pace=0,
                             sleep_fn=lambda s: None)
     assert calls == ["apple", "apple"]  # same batch retried
@@ -120,7 +120,7 @@ def test_openrouter_sends_bearer_token(monkeypatch):
 
     monkeypatch.setattr(blind50, "_default_post", fake_default)
     out = blind50.openrouter_judge("secret-k", "m", ITEMS, "PROMPT",
-                                   S1MAP)
+                                   ANCHOR_MAP)
     assert out["w:apple"]["sense_id"] == "apple#0"
     assert seen.get("Authorization") == "Bearer secret-k"
 
@@ -133,13 +133,13 @@ def test_progress_resume_skips_done(tmp_path):
     def fake_judge(chunk, prompt):
         raise AssertionError("must not call network for done keys")
 
-    out = blind50.run_model("g35", ITEMS, S1MAP, str(prog), fake_judge,
+    out = blind50.run_model("g35", ITEMS, ANCHOR_MAP, str(prog), fake_judge,
                             pace=0, sleep_fn=lambda s: None)
     assert out == {"w:apple": {"sense_id": "x"}}
 
 
 def test_fill_missing_windows_uses_ranker():
-    s1map = dict(S1MAP)
+    anchor_map = dict(ANCHOR_MAP)
 
     def fake_rank(item, index, read_entry):
         assert index is None and read_entry is None
@@ -148,9 +148,9 @@ def test_fill_missing_windows_uses_ranker():
 
     items = ITEMS + [{"kind": "word", "text": "pear", "pos": "noun",
                       "pool_level": "A1"}]
-    out = blind50.fill_missing_windows(items, s1map,
+    out = blind50.fill_missing_windows(items, anchor_map,
                                        rank_fn=fake_rank)
-    assert out["w:apple"] is S1MAP["w:apple"]
+    assert out["w:apple"] is ANCHOR_MAP["w:apple"]
     assert out["w:pear"]["candidates"][0]["sense_id"] == "pear#0"
 
 
@@ -160,5 +160,5 @@ def test_fill_missing_windows_fail_closed():
 
     items = ITEMS + [{"kind": "word", "text": "pear", "pos": "noun",
                       "pool_level": "A1"}]
-    out = blind50.fill_missing_windows(items, S1MAP, rank_fn=bad_rank)
+    out = blind50.fill_missing_windows(items, ANCHOR_MAP, rank_fn=bad_rank)
     assert out["w:pear"] == {"candidates": []}

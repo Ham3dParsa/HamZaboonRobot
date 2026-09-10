@@ -264,7 +264,7 @@ def test_gallery_cloze_op_chip():
 # ---------------- S5 preference (reuse by import) ----------------
 
 def test_s5_prefers_cloze_passing_examples():
-    from precard_pipeline import s5_enrich_item
+    from precard_pipeline import enrich_item
 
     good2 = "Resilient trees grow strong after every winter storm here."
     sense = {"glosses": ["able to recover quickly"], "tags": [],
@@ -281,7 +281,7 @@ def test_s5_prefers_cloze_passing_examples():
 
     item = {"kind": "word", "text": HEAD, "pos": "adj",
             "pool_level": "B2"}
-    enriched = s5_enrich_item(
+    enriched = enrich_item(
         item, {"sense_id": "resilient#0", "gloss": sense["glosses"][0]},
         index, read_entry, {}, zipf_fn=_zipf({}))
     assert enriched["dataset_examples"] == [PASSING, good2]

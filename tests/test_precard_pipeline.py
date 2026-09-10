@@ -151,7 +151,7 @@ def test_full_run_writes_precard_shape(tmp_path, monkeypatch):
 
 def test_s5_enrich_pos_and_abbrev(tmp_path, monkeypatch):
     """R29/R32: S5 returns abbrev_expansion + pos/pos_src from the pick."""
-    from precard_pipeline import s5_enrich_item
+    from precard_pipeline import enrich_item
     index = {"dvd": [{"pos": "noun",
                       "entry": {"pos": "noun", "sounds": [{"ipa": "/x/"}],
                                 "senses": [{"glosses": [
@@ -160,14 +160,14 @@ def test_s5_enrich_pos_and_abbrev(tmp_path, monkeypatch):
                                     "examples": [{"text": LONG_EXAMPLE}]}]}}]}
     item = {"kind": "word", "text": "dvd", "pos": "noun",
             "pool_level": "B1"}
-    enriched = s5_enrich_item(
+    enriched = enrich_item(
         item, {"sense_id": "dvd#0",
                "gloss": "Initialism of digital video disc"},
         index, read_entry, {})
     assert enriched["abbrev_expansion"] == "digital video disc"
     assert enriched["pos"] == ["noun"]
     assert enriched["pos_src"] == "dataset"
-    empty = s5_enrich_item(item, {"sense_id": "", "gloss": ""},
+    empty = enrich_item(item, {"sense_id": "", "gloss": ""},
                            index, read_entry, {})
     assert empty["abbrev_expansion"] == ""
     assert empty["pos"] == [] and empty["pos_src"] == "none"
@@ -382,18 +382,18 @@ def test_429_rotates_across_keys_then_succeeds(tmp_path, monkeypatch):
             raise _http_429()
         return fake_judge(api_key, model, user_text)
 
-    from precard_pipeline import s1_rank_item
+    from precard_pipeline import anchor_rank_item
     index = make_index()
-    ranked = s1_rank_item(
+    ranked = anchor_rank_item(
         {"kind": "word", "text": "apple", "pos": "noun",
          "pool_level": "A1"}, index, read_entry)
-    s1map = {"w:apple": ranked}
+    anchor_map = {"w:apple": ranked}
     batch = [{"kind": "word", "text": "apple", "pos": "noun",
               "pool_level": "A1"}]
     ring = KeyRing(["k1", "k2"])
     tele = []
-    from precard_pipeline import s2_judge_batch
-    out = s2_judge_batch(batch, s1map, "k1", flaky, sleeps.append,
+    from precard_pipeline import judge_batch
+    out = judge_batch(batch, anchor_map, "k1", flaky, sleeps.append,
                          prog_state, telemetry=tele, tele_batch=1,
                          ring=ring)
     assert out["w:apple"]["sense_id"] == "apple#0"
@@ -436,14 +436,14 @@ def test_all_keys_429_stops_fast_with_flush(tmp_path, monkeypatch):
 def test_s3_429_rotates_across_keys(tmp_path, monkeypatch):
     """S3 429 rotates keys with a 5s pause and retries the same call."""
     from phrase_judge import KeyRing
-    from precard_pipeline import s1_rank_item, s3_vector_batch
+    from precard_pipeline import anchor_rank_item, vectors_batch
     monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     index = make_index()
     item = {"kind": "word", "text": "apple", "pos": "noun",
             "pool_level": "A1"}
-    ranked = s1_rank_item(item, index, read_entry)
-    s1map = {"w:apple": ranked}
-    s2map = {"w:apple": {"sense_id": "apple#0", "gloss": "a round fruit"}}
+    ranked = anchor_rank_item(item, index, read_entry)
+    anchor_map = {"w:apple": ranked}
+    judge_map = {"w:apple": {"sense_id": "apple#0", "gloss": "a round fruit"}}
     sleeps, seen = [], []
     state = {"done": {}, "failed": [], "backoffs": []}
 
@@ -453,7 +453,7 @@ def test_s3_429_rotates_across_keys(tmp_path, monkeypatch):
             raise _http_429()
         return fake_topics(api_key, model, user_text)
 
-    out = s3_vector_batch([item], s2map, s1map, "k1", flaky,
+    out = vectors_batch([item], judge_map, anchor_map, "k1", flaky,
                           sleeps.append, state, tele_batch=1,
                           ring=KeyRing(["k1", "k2"]))
     assert out["apple#0"]["vector"]
@@ -788,10 +788,10 @@ def test_s0b_uncertain_keeps(tmp_path, monkeypatch):
         "kept": True, "reason": "review-uncertain", "uncertain": True}
 
 def test_s1_drops_vulgar_anchor():
-    from precard_pipeline import s1_rank_item
+    from precard_pipeline import anchor_rank_item
     import card_pilot
     probe = {"kind": "word", "text": "mf", "pool_level": "B2"}
-    out = s1_rank_item(probe, {"mf": [{"pos": "noun", "offset": 0, "length": 10}]},
+    out = anchor_rank_item(probe, {"mf": [{"pos": "noun", "offset": 0, "length": 10}]},
                        lambda row: {"pos": "noun", "sounds": [],
                                     "senses": [{"glosses": ["Initialism of motherfucker."],
                                                 "tags": ["vulgar"], "examples": []}]})
@@ -879,7 +879,7 @@ def test_s0b_superlative_redirects_on_plain_drop(tmp_path, monkeypatch):
 def test_s0b_superlative_base_missing_from_index_is_not_inflection():
     # F4: a superlative-pattern gloss whose base is absent from the
     # index is not-inflection (no review); base present -> review.
-    from precard_pipeline import s0b_needs_review
+    from precard_pipeline import inflection_needs_review
 
     def rows(gloss):
         return [{"pos": "adj",
@@ -889,11 +889,11 @@ def test_s0b_superlative_base_missing_from_index_is_not_inflection():
     index = {"biggest": rows("superlative of big"),
              "best": rows("superlative of good"),
              "good": rows("having good qualities")}
-    needs, _gloss = s0b_needs_review(
+    needs, _gloss = inflection_needs_review(
         {"kind": "word", "text": "biggest", "pos": "adj"}, index,
         read_entry)
     assert needs is False  # base "big" not in index
-    needs, gloss = s0b_needs_review(
+    needs, gloss = inflection_needs_review(
         {"kind": "word", "text": "best", "pos": "adj"}, index, read_entry)
     assert needs is True
     assert gloss == "superlative of good"
@@ -944,18 +944,18 @@ def test_telemetry_history_uses_card_pilot_seam(tmp_path, monkeypatch):
 def test_s2_tuple_usage_recorded():
     """T1: tuple (text, usage) judge transports surface tokens (None-tolerated)."""
     from phrase_judge import KeyRing
-    from precard_pipeline import s1_rank_item, s2_judge_batch
+    from precard_pipeline import anchor_rank_item, judge_batch
     index = make_index()
     item = {"kind": "word", "text": "apple", "pos": "noun",
             "pool_level": "A1"}
-    s1map = {"w:apple": s1_rank_item(item, index, read_entry)}
+    anchor_map = {"w:apple": anchor_rank_item(item, index, read_entry)}
 
     def tuple_judge(api_key, model, user_text):
         return (fake_judge(api_key, model, user_text),
                 {"input_tokens": 11, "output_tokens": 5})
 
     tele = []
-    out = s2_judge_batch([item], s1map, "k", tuple_judge, lambda s: None,
+    out = judge_batch([item], anchor_map, "k", tuple_judge, lambda s: None,
                          {"done": {}, "failed": [], "backoffs": []},
                          telemetry=tele, tele_batch=1, ring=KeyRing(["k"]))
     assert out["w:apple"]["sense_id"] == "apple#0"
@@ -964,7 +964,7 @@ def test_s2_tuple_usage_recorded():
     assert ok[0]["completion_tokens"] == 5
     # Plain-text transports record None tokens without failing.
     tele2 = []
-    s2_judge_batch([item], s1map, "k", fake_judge, lambda s: None,
+    judge_batch([item], anchor_map, "k", fake_judge, lambda s: None,
                    {"done": {}, "failed": [], "backoffs": []},
                    telemetry=tele2, tele_batch=1, ring=KeyRing(["k"]))
     ok2 = [r for r in tele2 if r.get("outcome") == "ok"]
@@ -975,12 +975,12 @@ def test_s2_tuple_usage_recorded():
 def test_s3_tuple_usage_recorded():
     """T1: tuple (text, usage) topic transports surface tokens."""
     from phrase_judge import KeyRing
-    from precard_pipeline import s1_rank_item, s3_vector_batch
+    from precard_pipeline import anchor_rank_item, vectors_batch
     index = make_index()
     item = {"kind": "word", "text": "apple", "pos": "noun",
             "pool_level": "A1"}
-    s1map = {"w:apple": s1_rank_item(item, index, read_entry)}
-    s2map = {"w:apple": {"sense_id": "apple#0", "gloss": "a round fruit"}}
+    anchor_map = {"w:apple": anchor_rank_item(item, index, read_entry)}
+    judge_map = {"w:apple": {"sense_id": "apple#0", "gloss": "a round fruit"}}
 
     def tuple_topics(api_key, model, user_text):
         return (json.dumps({"results": [{"lemma": "apple", "vectors": [
@@ -991,7 +991,7 @@ def test_s3_tuple_usage_recorded():
                 {"input_tokens": 13, "output_tokens": 7})
 
     tele = []
-    out = s3_vector_batch([item], s2map, s1map, "k", tuple_topics,
+    out = vectors_batch([item], judge_map, anchor_map, "k", tuple_topics,
                           lambda s: None,
                           {"done": {}, "failed": [], "backoffs": []},
                           telemetry=tele, tele_batch=1, ring=KeyRing(["k"]))
@@ -1004,7 +1004,7 @@ def test_s3_tuple_usage_recorded():
 def test_s4_fallback_path_counted(tmp_path):
     """T1: S4 deterministic fallback carries topic_path + fallback telemetry."""
     from phrase_judge import KeyRing
-    from precard_pipeline import s4_label_item
+    from precard_pipeline import label_item
     state = {"done": {}, "failed": [], "backoffs": []}
     item = {"kind": "word", "text": "zzqx", "pool_level": "B1"}
 
@@ -1012,7 +1012,7 @@ def test_s4_fallback_path_counted(tmp_path):
         return "not json {{{"
 
     tele = []
-    assigned = s4_label_item(
+    assigned = label_item(
         item, "plural of zzqx", "zzqx#0", None, "k", garbage,
         lambda s: None, state, str(tmp_path / "s4.json"), {},
         telemetry=tele, tele_batch=1, ring=KeyRing(["k"]))
@@ -1024,7 +1024,7 @@ def test_s4_fallback_path_counted(tmp_path):
 
 def test_s5_enrich_path_full_and_partial():
     """T1: S5 marks full carriers vs partial (model must fill gaps)."""
-    from precard_pipeline import s5_enrich_item
+    from precard_pipeline import enrich_item
     full_ex = ["The dvd player sits on the wooden shelf today",
                "She bought a new dvd for the long family trip"]
     index = {"dvd": [{"pos": "noun",
@@ -1035,11 +1035,11 @@ def test_s5_enrich_path_full_and_partial():
                                                          for e in full_ex]}]}}]}
     item = {"kind": "word", "text": "dvd", "pos": "noun",
             "pool_level": "B1"}
-    full = s5_enrich_item(item, {"sense_id": "dvd#0", "gloss": "a disc"},
+    full = enrich_item(item, {"sense_id": "dvd#0", "gloss": "a disc"},
                           index, read_entry, {})
     assert full["enrich_path"] == "full"
     assert len(full["dataset_examples"]) == 2
-    partial = s5_enrich_item(item, {"sense_id": "", "gloss": ""},
+    partial = enrich_item(item, {"sense_id": "", "gloss": ""},
                              index, read_entry, {})
     assert partial["enrich_path"] == "partial"
 
@@ -1095,18 +1095,18 @@ def test_s4_ratelimited_flushes_not_swallowed(monkeypatch):
     with pytest.raises(RateLimited):
         wrap("k1", "m", "u")
 
-def test_s4_label_item_reraises_ratelimited():
-    """OC must-fix: s4_label_item must not swallow RateLimited into fallback."""
+def test_label_item_reraises_ratelimited():
+    """OC must-fix: label_item must not swallow RateLimited into fallback."""
     import urllib.error
     import pytest
-    from precard_pipeline import s4_label_item
+    from precard_pipeline import label_item
     from phrase_judge import KeyRing, RateLimited
 
     def transport_429(api_key, model, user_text):
         raise urllib.error.HTTPError("http://x", 429, "throttled", {}, None)
 
     with pytest.raises(RateLimited):
-        s4_label_item(
+        label_item(
             {"kind": "word", "text": "x", "pool_level": "A1"}, "gloss",
             "x#0", None, "k", transport_429, lambda s: None,
             {"done": {}, "failed": [], "backoffs": []}, None, {},
@@ -1182,18 +1182,18 @@ def test_avalai_transport_http_error_propagates(monkeypatch):
 def test_s2_models_override_used():
     """AvalAI chain: explicit models list replaces the Zen chain."""
     from phrase_judge import KeyRing
-    from precard_pipeline import s1_rank_item, s2_judge_batch
+    from precard_pipeline import anchor_rank_item, judge_batch
     index = make_index()
     item = {"kind": "word", "text": "apple", "pos": "noun",
             "pool_level": "A1"}
-    s1map = {"w:apple": s1_rank_item(item, index, read_entry)}
+    anchor_map = {"w:apple": anchor_rank_item(item, index, read_entry)}
     seen = []
 
     def rec(api_key, model, user_text):
         seen.append(model)
         return fake_judge(api_key, model, user_text)
 
-    out = s2_judge_batch([item], s1map, "k", rec, lambda s: None,
+    out = judge_batch([item], anchor_map, "k", rec, lambda s: None,
                          {"done": {}, "failed": [], "backoffs": []},
                          ring=KeyRing(["k"]), models=["glm-5.3-flash"])
     assert out["w:apple"]["model"] == "glm-5.3-flash"
@@ -1347,12 +1347,12 @@ def test_full_avalai_s3_uses_precard_model(tmp_path, monkeypatch):
     not the Zen V15 chain."""
     import precard_pipeline
     from phrase_judge import KeyRing
-    from precard_pipeline import s1_rank_item, s3_vector_batch
+    from precard_pipeline import anchor_rank_item, vectors_batch
     index = make_index()
     item = {"kind": "word", "text": "apple", "pos": "noun",
             "pool_level": "A1"}
-    s1map = {"w:apple": s1_rank_item(item, index, read_entry)}
-    s2map = {"w:apple": {"sense_id": "apple#0", "gloss": "a round fruit"}}
+    anchor_map = {"w:apple": anchor_rank_item(item, index, read_entry)}
+    judge_map = {"w:apple": {"sense_id": "apple#0", "gloss": "a round fruit"}}
     seen = []
 
     def rec(api_key, model, user_text):
@@ -1362,7 +1362,7 @@ def test_full_avalai_s3_uses_precard_model(tmp_path, monkeypatch):
              "vector": [{"topic_id": 13, "topic_label": "Other / Abstract",
                          "weight": 1.0}]}]}]}), None)
 
-    out = s3_vector_batch([item], s2map, s1map, "k", rec, lambda s: None,
+    out = vectors_batch([item], judge_map, anchor_map, "k", rec, lambda s: None,
                           {"done": {}, "failed": [], "backoffs": []},
                           ring=KeyRing(["k"]),
                           models=["deepseek-v4-flash"])
@@ -1399,7 +1399,7 @@ def test_telemetry_flush_incremental_no_dup(tmp_path):
 def test_s1_proper_anchor_reroutes_to_common_sense():
     """act-fix: a proper-topped anchor with common senses lower in the
     window re-anchors instead of dropping; all-proper still drops."""
-    from precard_pipeline import _reroute_proper_anchor, s1_rank_item
+    from precard_pipeline import _reroute_proper_anchor, anchor_rank_item
 
     def rows(pos, glosses):
         return [{"pos": pos,
@@ -1416,7 +1416,7 @@ def test_s1_proper_anchor_reroutes_to_common_sense():
 
     item = {"kind": "word", "text": "act", "pos": "",
             "pool_level": "A1"}
-    ranked = s1_rank_item(item, index, read_entry)
+    ranked = anchor_rank_item(item, index, read_entry)
     assert ranked["anchor_pos"] in card_pilot.PROPER_NOUN_POS
     rerouted = _reroute_proper_anchor(item, ranked, index, read_entry)
     assert rerouted is not None
@@ -1428,7 +1428,7 @@ def test_s1_proper_anchor_reroutes_to_common_sense():
     index2 = {"zambia": rows("name", ["A country in Africa"])}
     item2 = {"kind": "word", "text": "zambia", "pos": "",
              "pool_level": "A1"}
-    ranked2 = s1_rank_item(item2, index2, read_entry)
+    ranked2 = anchor_rank_item(item2, index2, read_entry)
     assert _reroute_proper_anchor(item2, ranked2, index2,
                                   read_entry) is None
 
@@ -1443,8 +1443,8 @@ def _g_item(text, level="B1"):
 
 
 def _g_classify(text, view, level="B1"):
-    from precard_pipeline import s0_classify_item
-    return s0_classify_item(
+    from precard_pipeline import preprocess_classify_item
+    return preprocess_classify_item(
         _g_item(text, level), {}, lambda t: 5.0, set(), {}, False,
         entry_fn=lambda t: view)
 
@@ -1503,14 +1503,14 @@ def test_g6_drops_obsolete_only():
 
 
 def test_g_gates_skipped_without_entry_fn():
-    from precard_pipeline import s0_classify_item
-    v = s0_classify_item(_g_item("arrives"), {}, lambda t: 5.0, set(),
+    from precard_pipeline import preprocess_classify_item
+    v = preprocess_classify_item(_g_item("arrives"), {}, lambda t: 5.0, set(),
                          {}, False)
     assert v == {"kept": True, "reason": None, "type_pending": False}
 
 
-def test_s0_entry_view_merges_rows_and_fails_open():
-    from precard_pipeline import _s0_entry_view
+def test_preprocess_entry_view_merges_rows_and_fails_open():
+    from precard_pipeline import _preprocess_entry_view
 
     def rows(pos, senses):
         return [{"pos": pos,
@@ -1524,7 +1524,7 @@ def test_s0_entry_view_merges_rows_and_fails_open():
     def read_entry(row):
         return row["entry"]
 
-    view = _s0_entry_view({"kind": "word", "text": "w"}, index,
+    view = _preprocess_entry_view({"kind": "word", "text": "w"}, index,
                           read_entry)
     assert view is not None
     assert view["poss"] == {"noun", "verb"}
@@ -1534,13 +1534,13 @@ def test_s0_entry_view_merges_rows_and_fails_open():
     def boom(row):
         raise OSError("disk gone")
 
-    assert _s0_entry_view({"kind": "word", "text": "w"}, index,
+    assert _preprocess_entry_view({"kind": "word", "text": "w"}, index,
                           boom) is None
     # unknown lemma -> None.
-    assert _s0_entry_view({"kind": "word", "text": "nope"}, {}, read_entry) \
+    assert _preprocess_entry_view({"kind": "word", "text": "nope"}, {}, read_entry) \
         is None
     # senseless entry -> None.
-    assert _s0_entry_view(
+    assert _preprocess_entry_view(
         {"kind": "word", "text": "w"},
         {"w": [{"pos": "noun", "entry": {"pos": "noun"}}]},
         read_entry) is None
@@ -1549,7 +1549,7 @@ def test_s0_entry_view_merges_rows_and_fails_open():
 def test_g2_pure_form_drops_end_to_end(tmp_path, monkeypatch):
     """Coverage: pure-form entries die at S0 (g2) via the real main
     wiring (fixture index + fixture read_entry), never reaching S0b."""
-    from precard_pipeline import _s0_entry_view  # noqa: F401 (seam ref)
+    from precard_pipeline import _preprocess_entry_view  # noqa: F401 (seam ref)
     monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     items = [{"kind": "word", "text": "cats", "pos": "noun",
               "pool_level": "A1"}]
@@ -1642,11 +1642,11 @@ def test_quarantine_reaches_precard_row(tmp_path, monkeypatch):
 
 def test_zipf_low_beats_quarantine():
     """Precedence: low-zipf suspect drops on frequency, never quarantines."""
-    from precard_pipeline import s0_classify_item
+    from precard_pipeline import preprocess_classify_item
     view = {"senses": [{"gloss": "light-emitting diode",
                         "tags": ["abbreviation"]}],
             "poss": {"noun"}}
-    v = s0_classify_item(_g_item("led", "A1"), {}, lambda t: 1.0, set(),
+    v = preprocess_classify_item(_g_item("led", "A1"), {}, lambda t: 1.0, set(),
                          {}, False, entry_fn=lambda t: view)
     assert v == {"kept": False, "reason": "r20-zipf-low:1.00",
                  "type_pending": False}
@@ -1654,12 +1654,12 @@ def test_zipf_low_beats_quarantine():
 
 def test_entry_fn_exception_keeps_at_classify_level():
     """Fail-open: entry_fn raising keeps the item (no drop on error)."""
-    from precard_pipeline import s0_classify_item
+    from precard_pipeline import preprocess_classify_item
 
     def boom(t):
         raise OSError("gone")
 
-    v = s0_classify_item(_g_item("arrives"), {}, lambda t: 5.0, set(),
+    v = preprocess_classify_item(_g_item("arrives"), {}, lambda t: 5.0, set(),
                          {}, False, entry_fn=boom)
     assert v == {"kept": True, "reason": None, "type_pending": False}
 
@@ -1727,11 +1727,11 @@ def test_unknown_zipf_keeps_quarantine():
     def nozipf(t):
         return None
 
-    from precard_pipeline import s0_classify_item
+    from precard_pipeline import preprocess_classify_item
     view = {"senses": [{"gloss": "light-emitting diode",
                         "tags": ["abbreviation"]}],
             "poss": {"noun"}}
-    v = s0_classify_item(_g_item("led", "A2"), {}, nozipf, set(), {},
+    v = preprocess_classify_item(_g_item("led", "A2"), {}, nozipf, set(), {},
                          False, entry_fn=lambda t: view)
     assert v["kept"] is True
     assert v["reason"] == "zipf-unknown-kept"
