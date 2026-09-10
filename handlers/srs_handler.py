@@ -33,6 +33,7 @@ from handlers.study_handler import (
     session_progress_footer,
     _app_day_str,
     _persist_session,
+    _state_from_json,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,19 @@ async def _reject_stale_day_tap(update, context: ContextTypes.DEFAULT_TYPE, user
         intent=CallbackNoticeIntent.IMPORTANT_ERROR,
     )
     return True
+
+
+def _snapshot_inner_date(state_json: str) -> str:
+    """Inner session_date from a persisted snapshot blob.
+
+    Reuses _state_from_json semantics: missing means "" (stale, locked R1).
+    Corrupt payloads also yield "" so the caller treats them as stale
+    rather than crashing the snapshot path.
+    """
+    try:
+        return _state_from_json(state_json).session_date or ""
+    except Exception:
+        return ""
 
 
 def _grade_error_text(reason: str) -> str:
@@ -282,19 +296,29 @@ async def _handle_srs_review(
             intent=CallbackNoticeIntent.THROTTLE,
         )
         return
-    # W3: remember whether a past-date persisted row exists BEFORE
+    # W3: remember whether a persisted-stale row exists BEFORE
     # get_active_study_session restores/clears it — the restore wipes stale
     # rows, after which a stale tap is indistinguishable from legitimate
     # standalone (sessionless) grading. Only consulted on the session-None
     # path below; a live memory session always wins over the row.
+    # Snapshot is (row_date, inner_date): row-date-today plus
+    # inner-JSON-yesterday (or missing/empty inner) is stale too — the row
+    # date alone is not authoritative (locked R1: missing means stale).
     try:
         _stale_snapshot = await asyncio.to_thread(db.load_study_session, user_id)
     except Exception:
         logger.exception("stale-row snapshot failed user_id=%s", user_id)
         _stale_snapshot = None
-    _persisted_stale = (
-        _stale_snapshot is not None and _stale_snapshot[0] != _app_day_str()
-    )
+    _stale_today = _app_day_str()
+    if _stale_snapshot is None:
+        _persisted_stale = False
+    else:
+        _inner_date = _snapshot_inner_date(_stale_snapshot[1])
+        _persisted_stale = (
+            _stale_snapshot[0] != _stale_today
+            or not _inner_date
+            or _inner_date != _stale_today
+        )
     session = get_active_study_session(user_id, context)
     if session is not None and word_id in session.graded_word_ids:
         already_graded = True
@@ -468,9 +492,16 @@ async def _handle_first_exposure_grade(
     except Exception:
         logger.exception("stale-row snapshot failed user_id=%s", user_id)
         _stale_snapshot = None
-    _persisted_stale = (
-        _stale_snapshot is not None and _stale_snapshot[0] != _app_day_str()
-    )
+    _stale_today = _app_day_str()
+    if _stale_snapshot is None:
+        _persisted_stale = False
+    else:
+        _inner_date = _snapshot_inner_date(_stale_snapshot[1])
+        _persisted_stale = (
+            _stale_snapshot[0] != _stale_today
+            or not _inner_date
+            or _inner_date != _stale_today
+        )
     session = get_active_study_session(user_id, context)
     if session is not None and word_id in session.graded_word_ids:
         already_graded = True

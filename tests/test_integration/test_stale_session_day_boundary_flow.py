@@ -459,6 +459,51 @@ class StaleSessionDayBoundaryFlowTests(unittest.IsolatedAsyncioTestCase):
         ctx.bot.send_message.assert_not_awaited()
         ctx.bot.edit_message_text.assert_not_awaited()
 
+    # -- (g2) row-today + inner-yesterday, empty memory, exposed word:
+    #      tap answers stale, NO sessionless grade lands --------------------
+    async def test_g2_row_today_inner_yesterday_exposed_word_stale_no_grade(self):
+        from handlers import srs_handler
+        from handlers.study_handler import SessionState, _state_to_json
+        from services.utils.callback_notifications import CallbackNoticeIntent
+
+        # Same as (g) but the row date looks current while the inner stamp is
+        # yesterday: the row date alone must not mark the tap as legitimate.
+        # No ledger entry: without the inner-date check the tap falls through
+        # to a sessionless grade on yesterday's exposed card (the reviewer
+        # scenario). The guard must answer stale and grade nothing.
+        w1 = self._seed_word("hello", expose=True)
+        node = self._node("srs_review", w1)
+        stale_inner = SessionState(
+            nodes=[node], total_cards=1, tier3_context={},
+            study_msg_id=123, plan="free", graded_word_ids=[],
+            session_date=_yesterday(),
+        )
+        db.save_study_session(1, _today(), _state_to_json(stale_inner))
+        self.assertFalse(db.is_word_graded(1, w1, "srs_review"))
+
+        ctx = self._context()  # memory absent (restart-over-day)
+        self.assertNotIn("current_session", ctx.user_data)
+        with patch(
+            "handlers.srs_handler.notify_callback", new_callable=AsyncMock
+        ) as notify:
+            await srs_handler._handle_srs_review(
+                self._grade_update(), 3, "1", str(w1), ctx
+            )
+            notify.assert_called_once()
+            self.assertIn("این پیام دیگر معتبر نیست", notify.call_args.args[1])
+            self.assertEqual(
+                notify.call_args.kwargs["intent"],
+                CallbackNoticeIntent.IMPORTANT_ERROR,
+            )
+
+        # No grade landed, session gone, row + ledger cleared, nothing rendered.
+        self.assertEqual(self._review_events(w1), 0)
+        self.assertNotIn("current_session", ctx.user_data)
+        self.assertIsNone(db.load_study_session(1))
+        self.assertFalse(db.is_word_graded(1, w1, "srs_review"))
+        ctx.bot.send_message.assert_not_awaited()
+        ctx.bot.edit_message_text.assert_not_awaited()
+
     # -- (h) W7: advance with stale memory pops + invalidates, no render ----
     async def test_h_advance_memory_stale_pops_invalidates_with_notice(self):
         from handlers.study_handler import advance_session, handle_study_start
