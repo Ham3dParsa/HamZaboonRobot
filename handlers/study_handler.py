@@ -203,11 +203,14 @@ def _persist_session(
     """Persist the active session keyed by the user's app-day (Rule 1/2).
 
     ``today`` is the already-computed app-day from the caller; when omitted
-    it defaults to ``_app_day_str()`` for old callers. Passing it through
-    keeps the row date and the inner ``session_date`` from straddling
-    midnight.
+    it falls back to the session's own ``session_date`` stamp, then to
+    ``_app_day_str()``, so the row date can never differ from the inner
+    date (W1 midnight-straddle fix). Callers pass their computed today
+    (or the state's stamp) explicitly.
     """
-    db.save_study_session(user_id, today or _app_day_str(), _state_to_json(state))
+    db.save_study_session(
+        user_id, today or state.session_date or _app_day_str(), _state_to_json(state)
+    )
 
 
 def _clear_persisted_session(user_id: int) -> None:
@@ -249,12 +252,23 @@ def get_active_study_session(
     DB-persisted same-day session after a restart. Stashes the restored session
     back into user_data so subsequent advances reuse it (R1/R3, Bug #401).
 
+    Sync by design: the restore path runs short-lived SQLite statements
+    inline — a same-day row read, plus cleanup writes (persisted-row clear
+    and grade-ledger clear) on a row-date mismatch or on a corrupt/empty
+    payload. Each statement uses its own short-lived connection and the
+    function never awaits, so no transaction is ever held across an await.
+
     Day-boundary (T2, 619/622): a memory state whose ``session_date`` is not
-    today is popped and None is returned WITHOUT any DB I/O here (this is a
-    sync function — it must never block on SQLite writes). The persisted row
-    + ledger cleanup happens on the next ``handle_study_start``/``advance``
-    pass via one ``to_thread(invalidate_stale_study_session)``.
+    today is popped and None is returned with no DB I/O. A restored state
+    whose inner ``session_date`` is stale is likewise dropped WITHOUT any
+    cleanup writes here; the persisted row + ledger cleanup happens on the
+    next ``handle_study_start``/``advance`` pass via one
+    ``to_thread(invalidate_stale_study_session)``.
     """
+    # NOTE (follow-up, not this change): if the inline restore ever shows up
+    # in profiling, move the _restore_persisted_session call behind
+    # asyncio.to_thread at the (async) call sites and keep this function as
+    # the pure memory gate. Deliberately left sync here (W4 doc-only fix).
     state = context.user_data.get("current_session")
     if state is not None:
         if is_stale(state, _app_day_str()):
@@ -552,7 +566,8 @@ async def _resume_existing_session(
             keyboard=keyboard,
         )
         state.study_msg_id = msg.message_id
-        await asyncio.to_thread(_persist_session, user_id, state)
+        # W1: persist under the session's own stamp so row == inner date.
+        await asyncio.to_thread(_persist_session, user_id, state, state.session_date)
     except Exception:
         logger.exception(
             "handle_study_start resume render failed user_id=%s", user_id
@@ -586,11 +601,13 @@ async def _render_and_send_first_card(
     )
     state.study_msg_id = msg.message_id
     # Persist frozen prompt + revealed + new msg_id so a restart resumes identically (R1/R2).
+    # W1: persist under the session's own stamp so row == inner date.
     try:
         await asyncio.to_thread(
             _persist_session,
             node.activity_meta.get("user_id", 0) or update.effective_user.id,
             state,
+            state.session_date,
         )
     except Exception:
         logger.exception("first-card post-send persist failed")
@@ -883,11 +900,20 @@ async def advance_session(
         state = await asyncio.to_thread(_restore_persisted_session, user_id)
         if state is not None:
             if is_stale(state, today):
-                # Persisted-but-stale (legacy inner date): invalidate silently
+                # Persisted-but-stale (legacy inner date): invalidate
                 # and stop — never render or re-persist yesterday's state.
+                # W6: answer the tap with the standard stale notice, but only
+                # when this advance came from a button press (text-menu entry
+                # has no callback_query to answer).
                 await asyncio.to_thread(
                     db.invalidate_stale_study_session, user_id
                 )
+                if update.callback_query is not None:
+                    await notify_callback(
+                        update.callback_query,
+                        "این پیام دیگر معتبر نیست.",
+                        intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+                    )
                 return
             context.user_data["current_session"] = state
         else:
@@ -895,8 +921,15 @@ async def advance_session(
     elif is_stale(state, today):
         # Cross-day stale memory: pop + single worker-call invalidate, then
         # return without rendering or re-persisting the stale state (T2 R4).
+        # W6: same guarded stale notice as the persisted-stale branch above.
         context.user_data.pop("current_session", None)
         await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
+        if update.callback_query is not None:
+            await notify_callback(
+                update.callback_query,
+                "این پیام دیگر معتبر نیست.",
+                intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+            )
         return
 
     try:

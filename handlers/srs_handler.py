@@ -52,7 +52,21 @@ async def _reject_stale_day_tap(update, context: ContextTypes.DEFAULT_TYPE, user
     try:
         today = _app_day_str()
     except Exception:
-        return False
+        # Fail closed (W2): without a trustworthy today we cannot prove the
+        # tap is fresh — discard memory and reject rather than risk grading
+        # onto yesterday's card. Practically non-throwing.
+        logger.exception("stale day tap day-compute failed user_id=%s", user_id)
+        context.user_data.pop("current_session", None)
+        try:
+            await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
+        except Exception:
+            logger.exception("stale day tap invalidate failed user_id=%s", user_id)
+        await notify_callback(
+            update.callback_query,
+            "این پیام دیگر معتبر نیست.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+        return True
     if not is_stale(raw, today):
         return False
     context.user_data.pop("current_session", None)
@@ -223,7 +237,8 @@ async def _handle_srs_reveal(
     if state.active_prompt_word_id != word_id:
         state.active_prompt_word_id = word_id
     try:
-        await asyncio.to_thread(_persist_session, user_id, state)
+        # W1: persist under the session's own stamp so row == inner date.
+        await asyncio.to_thread(_persist_session, user_id, state, state.session_date)
     except Exception:
         # Roll back so memory and DB stay in sync (front) until next reveal.
         state.revealed = old_revealed
@@ -267,6 +282,19 @@ async def _handle_srs_review(
             intent=CallbackNoticeIntent.THROTTLE,
         )
         return
+    # W3: remember whether a past-date persisted row exists BEFORE
+    # get_active_study_session restores/clears it — the restore wipes stale
+    # rows, after which a stale tap is indistinguishable from legitimate
+    # standalone (sessionless) grading. Only consulted on the session-None
+    # path below; a live memory session always wins over the row.
+    try:
+        _stale_snapshot = await asyncio.to_thread(db.load_study_session, user_id)
+    except Exception:
+        logger.exception("stale-row snapshot failed user_id=%s", user_id)
+        _stale_snapshot = None
+    _persisted_stale = (
+        _stale_snapshot is not None and _stale_snapshot[0] != _app_day_str()
+    )
     session = get_active_study_session(user_id, context)
     if session is not None and word_id in session.graded_word_ids:
         already_graded = True
@@ -325,6 +353,21 @@ async def _handle_srs_review(
                 intent=CallbackNoticeIntent.INFO,
             )
             return
+        if _persisted_stale:
+            # W3: memory empty but a past-date row existed at restore time —
+            # this tap belongs to yesterday (overnight restart). The restore
+            # already cleared the row + ledger; answer the standard stale
+            # notice and never fall through to a sessionless grade.
+            try:
+                await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
+            except Exception:
+                logger.exception("stale-row invalidate failed user_id=%s", user_id)
+            await notify_callback(
+                update.callback_query,
+                "این پیام دیگر معتبر نیست.",
+                intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+            )
+            return
     resolved = resolve_grade("srs_review", grade)
     # F1 batch inputs are computed BEFORE the single DB transaction (no await
     # may run inside the open transaction; the transaction itself lives in
@@ -361,8 +404,8 @@ async def _handle_srs_review(
             session.graded_word_ids.append(word_id)
             # Persist durable IMMEDIATELY (before advance_session) so a restart
             # or lost advance still records this card as graded for the
-            # idempotent re-grade guard (R3, Bug #401).
-            await asyncio.to_thread(_persist_session, user_id, session)
+            # idempotent re-grade guard (R3, Bug #401). W1: own stamp.
+            await asyncio.to_thread(_persist_session, user_id, session, session.session_date)
         await notify_callback(
             update.callback_query,
             format_next_review_text(result.interval_seconds),
@@ -418,6 +461,16 @@ async def _handle_first_exposure_grade(
             intent=CallbackNoticeIntent.THROTTLE,
         )
         return
+    # W3: same persisted-stale snapshot as the review path (see above) —
+    # only consulted on the session-None path below.
+    try:
+        _stale_snapshot = await asyncio.to_thread(db.load_study_session, user_id)
+    except Exception:
+        logger.exception("stale-row snapshot failed user_id=%s", user_id)
+        _stale_snapshot = None
+    _persisted_stale = (
+        _stale_snapshot is not None and _stale_snapshot[0] != _app_day_str()
+    )
     session = get_active_study_session(user_id, context)
     if session is not None and word_id in session.graded_word_ids:
         already_graded = True
@@ -470,6 +523,21 @@ async def _handle_first_exposure_grade(
                 intent=CallbackNoticeIntent.INFO,
             )
             return
+        if _persisted_stale:
+            # W3: memory empty but a past-date row existed at restore time —
+            # this tap belongs to yesterday (overnight restart). The restore
+            # already cleared the row + ledger; answer the standard stale
+            # notice and never fall through to a sessionless grade.
+            try:
+                await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
+            except Exception:
+                logger.exception("stale-row invalidate failed user_id=%s", user_id)
+            await notify_callback(
+                update.callback_query,
+                "این پیام دیگر معتبر نیست.",
+                intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+            )
+            return
     resolved = resolve_grade("first_exposure", grade)
     # F1 batch: single transaction for grade + event + streak (see review path).
     # response_time_ms intentionally None for first-exposure: there is no
@@ -501,8 +569,8 @@ async def _handle_first_exposure_grade(
             session.graded_word_ids.append(word_id)
             # Persist durable IMMEDIATELY (before advance_session) so a restart
             # or lost advance still records this card as graded for the
-            # idempotent re-grade guard (R3, Bug #401).
-            await asyncio.to_thread(_persist_session, user_id, session)
+            # idempotent re-grade guard (R3, Bug #401). W1: own stamp.
+            await asyncio.to_thread(_persist_session, user_id, session, session.session_date)
         await notify_callback(
             update.callback_query,
             format_next_review_text(result.interval_seconds),
@@ -658,7 +726,8 @@ async def _handle_srs_delete_yes(
     try:
         deleted = await asyncio.to_thread(db.delete_saved_word, word_id, user_id)
         await asyncio.to_thread(_refill_session_from_due, user_id, state)
-        await asyncio.to_thread(_persist_session, user_id, state)
+        # W1: persist under the session's own stamp so row == inner date.
+        await asyncio.to_thread(_persist_session, user_id, state, state.session_date)
     except Exception:
         logger.exception("srs delete failed user_id=%s word_id=%s", user_id, word_id)
         await notify_callback(
