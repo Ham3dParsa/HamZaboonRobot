@@ -77,6 +77,9 @@ class StudySessionGradeRestartTests(unittest.TestCase):
             ).fetchone()["id"]
 
     def _session(self, word_ids, activity_type="first_exposure", graded_word_ids=None, plan="free"):
+        # T2 day-boundary (619/622): same-day harness states carry today's
+        # stamp; a missing/empty date now means stale and is discarded.
+        from handlers.study_handler import _app_day_str
         return SessionState(
             nodes=[
                 SessionNode(activity_type=activity_type, source_tier=0, card_data={}, source_id=w)
@@ -87,6 +90,7 @@ class StudySessionGradeRestartTests(unittest.TestCase):
             study_msg_id=None,
             plan=plan,
             graded_word_ids=list(graded_word_ids or []),
+            session_date=_app_day_str(),
         )
 
     def _persist(self, state):

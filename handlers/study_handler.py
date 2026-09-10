@@ -90,6 +90,9 @@ class SessionState:
     revealed: bool = False
     active_prompt_type: str | None = None
     active_prompt_word_id: int | None = None
+    # Explicit app-day stamp set only at fresh-build time (T1, issues 619/622).
+    # Never auto-filled: missing/legacy means "".
+    session_date: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +113,7 @@ def _state_to_json(state: SessionState) -> str:
             "revealed": state.revealed,
             "active_prompt_type": state.active_prompt_type,
             "active_prompt_word_id": state.active_prompt_word_id,
+            "session_date": state.session_date,
         }
     )
 
@@ -189,12 +193,21 @@ def _state_from_json(raw: str) -> SessionState:
         revealed=revealed,
         active_prompt_type=prompt_type,
         active_prompt_word_id=prompt_wid,
+        session_date=data.get("session_date") or "",
     )
 
 
-def _persist_session(user_id: int, state: SessionState) -> None:
-    """Persist the active session keyed by the user's app-day (Rule 1/2)."""
-    db.save_study_session(user_id, _app_day_str(), _state_to_json(state))
+def _persist_session(
+    user_id: int, state: SessionState, today: str | None = None
+) -> None:
+    """Persist the active session keyed by the user's app-day (Rule 1/2).
+
+    ``today`` is the already-computed app-day from the caller; when omitted
+    it defaults to ``_app_day_str()`` for old callers. Passing it through
+    keeps the row date and the inner ``session_date`` from straddling
+    midnight.
+    """
+    db.save_study_session(user_id, today or _app_day_str(), _state_to_json(state))
 
 
 def _clear_persisted_session(user_id: int) -> None:
@@ -213,6 +226,7 @@ def _restore_persisted_session(user_id: int) -> SessionState | None:
     session_date, state_json = row
     if session_date != _app_day_str():
         _clear_persisted_session(user_id)
+        db.clear_session_grades(user_id)
         return None
     try:
         state = _state_from_json(state_json)
@@ -233,18 +247,49 @@ def get_active_study_session(
 ) -> SessionState | None:
     """Resolve the active study session from memory, falling back to the
     DB-persisted same-day session after a restart. Stashes the restored session
-    back into user_data so subsequent advances reuse it (R1/R3, Bug #401)."""
+    back into user_data so subsequent advances reuse it (R1/R3, Bug #401).
+
+    Day-boundary (T2, 619/622): a memory state whose ``session_date`` is not
+    today is popped and None is returned WITHOUT any DB I/O here (this is a
+    sync function — it must never block on SQLite writes). The persisted row
+    + ledger cleanup happens on the next ``handle_study_start``/``advance``
+    pass via one ``to_thread(invalidate_stale_study_session)``.
+    """
     state = context.user_data.get("current_session")
-    if state is None:
-        state = _restore_persisted_session(user_id)
-        if state is not None:
-            context.user_data["current_session"] = state
+    if state is not None:
+        if is_stale(state, _app_day_str()):
+            context.user_data.pop("current_session", None)
+            return None
+        return state
+    state = _restore_persisted_session(user_id)
+    if state is not None:
+        if is_stale(state, _app_day_str()):
+            context.user_data.pop("current_session", None)
+            return None
+        context.user_data["current_session"] = state
     return state
 
 
 def _app_day_str() -> str:
     """Today's app-day string (shared with scheduling quota keys)."""
     return _today_str()
+
+
+def is_stale(state: SessionState | None, today: str) -> bool:
+    """True when a session state belongs to a previous app-day (T2, 619/622).
+
+    None-safe (None counts as stale, though callers check None first);
+    missing/empty ``session_date`` (legacy rows) counts as stale; otherwise
+    stale exactly when ``session_date != today``. Single seam gating the
+    three resume paths (handle_study_start / get_active_study_session /
+    advance_session); grade handlers reuse it for the stale-tap guard.
+    """
+    if state is None:
+        return True
+    date = getattr(state, "session_date", "") or ""
+    if not date:
+        return True
+    return date != today
 
 
 # ---------------------------------------------------------------------------
@@ -315,14 +360,32 @@ async def handle_study_start(
 
     plan = row["plan"] or "free"
 
-    # --- resume existing session (Decision 30: don't double-count slots) ---
+    # --- day-boundary (T2, 619/622): today computed ONCE for the whole start ---
+    today = _app_day_str()
+
+    # --- stale memory: silent invalidate, then fall through to quota + fresh ---
+    # A yesterday (or legacy dateless) memory state is popped and its
+    # persisted row + grade ledger cleared via ONE worker call, BEFORE quota.
+    # Silent: no toast, no partial report — the fresh session below is the
+    # only signal. Never re-persist the stale state afterwards.
     existing = context.user_data.get("current_session")
+    if existing is not None and is_stale(existing, today):
+        context.user_data.pop("current_session", None)
+        await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
+        existing = None
+
+    # --- resume existing session (Decision 30: don't double-count slots) ---
     if existing is not None and existing.nodes:
         await _resume_existing_session(update, context, existing, user_id)
         return
 
     # --- restart recovery: a same-day session persisted to the DB (Bug 1) ---
     restored = await asyncio.to_thread(_restore_persisted_session, user_id)
+    if restored is not None and is_stale(restored, today):
+        # Legacy row whose inner date is missing/stale while the row date
+        # looked current: same silent invalidate, then fresh build below.
+        await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
+        restored = None
     if restored is not None:
         context.user_data["current_session"] = restored
         await _resume_existing_session(update, context, restored, user_id)
@@ -377,6 +440,7 @@ async def handle_study_start(
             study_msg_id=None,
             plan=plan,
             graded_word_ids=[],
+            session_date=today,
         )
         context.user_data["current_session"] = state
 
@@ -385,7 +449,7 @@ async def handle_study_start(
         # reaches the screen (owner decision 2026-08-15). The first card has no
         # study_msg_id yet; the next advance persists the updated id. On failure
         # the row is cleared and the slot released via finally.
-        await asyncio.to_thread(_persist_session, user_id, state)
+        await asyncio.to_thread(_persist_session, user_id, state, today)
         await _render_and_send_first_card(state, update, context)
         delivered = True
     except Exception:
@@ -807,6 +871,9 @@ async def advance_session(
     """
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
+    # Day-boundary: compute once so stale checks and persists share one date
+    # and can never straddle midnight.
+    today = _app_day_str()
 
     state: SessionState | None = context.user_data.get("current_session")
     if state is None:
@@ -815,9 +882,22 @@ async def advance_session(
         # F2 off-loop: sync DB read in a worker thread.
         state = await asyncio.to_thread(_restore_persisted_session, user_id)
         if state is not None:
+            if is_stale(state, today):
+                # Persisted-but-stale (legacy inner date): invalidate silently
+                # and stop — never render or re-persist yesterday's state.
+                await asyncio.to_thread(
+                    db.invalidate_stale_study_session, user_id
+                )
+                return
             context.user_data["current_session"] = state
         else:
             return
+    elif is_stale(state, today):
+        # Cross-day stale memory: pop + single worker-call invalidate, then
+        # return without rendering or re-persisting the stale state (T2 R4).
+        context.user_data.pop("current_session", None)
+        await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
+        return
 
     try:
         # Advance only mutates session state AFTER the Telegram edit that
@@ -868,7 +948,7 @@ async def advance_session(
                 state.active_prompt_type = old_prompt_type
                 state.active_prompt_word_id = old_prompt_wid
                 raise
-            await asyncio.to_thread(_persist_session, user_id, state)
+            await asyncio.to_thread(_persist_session, user_id, state, today)
             return
 
         # Tiers 1+2 exhausted — attempt Tier 3 (Decision 26: stub returns None).
@@ -912,7 +992,7 @@ async def advance_session(
                     state.active_prompt_type = old_prompt_type
                     state.active_prompt_word_id = old_prompt_wid
                     raise
-                await asyncio.to_thread(_persist_session, user_id, state)
+                await asyncio.to_thread(_persist_session, user_id, state, today)
                 return
 
         completion = escape_mdv2("جلسه مطالعه تموم شد! 🎉")

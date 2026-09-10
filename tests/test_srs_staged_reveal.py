@@ -17,7 +17,7 @@ from telegram.error import BadRequest
 from config.catalog import DISPLAY_TOGGLE_DEFAULTS
 from services.utils import formatting as fmt
 from config.keyboards import get_review_keyboard, get_first_exposure_keyboard, get_srs_front_keyboard
-from handlers.study_handler import SessionState
+from handlers.study_handler import SessionState, _app_day_str
 
 
 ALL_TOGGLES_ON = dict(DISPLAY_TOGGLE_DEFAULTS)
@@ -341,6 +341,8 @@ class TestRevealHandler(unittest.TestCase):
         self.state = SessionState(
             nodes=[node], total_cards=1, tier3_context={},
             study_msg_id=777, plan="free",
+            # T2 day-boundary (619/622): same-day harness states are stamped.
+            session_date=_app_day_str(),
         )
 
     def tearDown(self):
@@ -464,6 +466,8 @@ class TestRevealHandler(unittest.TestCase):
         ctx.user_data["current_session"] = SessionState(
             nodes=[fe_node], total_cards=1, tier3_context={},
             study_msg_id=777, plan="free",
+            # T2 day-boundary (619/622): same-day harness states are stamped.
+            session_date=_app_day_str(),
         )
         update = self._update()
         asyncio.run(srs_handler._handle_srs_reveal(update, ctx, "1", str(self.word_id)))

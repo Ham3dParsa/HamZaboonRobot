@@ -12,6 +12,7 @@ from services import db
 from services.db import schema as db_schema
 from handlers.study_handler import (
     SessionState,
+    _app_day_str,
     advance_session,
     handle_study_inactive,
     handle_study_start,
@@ -77,6 +78,46 @@ class TestSessionStateDataclass(_BaseStudyHandlerTest):
         )
         self.assertEqual(state.total_cards, 5)
         self.assertEqual(len(state.nodes), 0)
+
+
+class TestSessionDateField(_BaseStudyHandlerTest):
+    """T1 (issues 619/622): explicit session_date, never auto-filled."""
+
+    def test_session_state_without_date_keeps_empty(self):
+        state = SessionState(
+            nodes=[], total_cards=0, tier3_context={},
+            study_msg_id=None, plan="free",
+        )
+        self.assertEqual(state.session_date, "")
+
+    def test_state_json_roundtrip_preserves_session_date(self):
+        from handlers.study_handler import (
+            _state_from_json,
+            _state_to_json,
+        )
+        state = SessionState(
+            nodes=[], total_cards=0, tier3_context={},
+            study_msg_id=None, plan="free",
+            session_date="2026-09-10",
+        )
+        restored = _state_from_json(_state_to_json(state))
+        self.assertEqual(restored.session_date, "2026-09-10")
+
+    def test_state_from_json_missing_session_date_is_empty(self):
+        import json as _json
+        from handlers.study_handler import (
+            _state_from_json,
+            _state_to_json,
+        )
+        state = SessionState(
+            nodes=[], total_cards=0, tier3_context={},
+            study_msg_id=None, plan="free",
+            session_date="2026-09-10",
+        )
+        payload = _json.loads(_state_to_json(state))
+        payload.pop("session_date", None)
+        restored = _state_from_json(_json.dumps(payload))
+        self.assertEqual(restored.session_date, "")
 
 
 class TestBeforeStabilitySnapshot(_BaseStudyHandlerTest):
@@ -240,6 +281,7 @@ class TestHandleStudyStart(_BaseStudyHandlerTest):
             tier3_context={},
             study_msg_id=777,
             plan="free",
+            session_date=_app_day_str(),
         )
         update = self._update()
         ctx = self._context()
@@ -307,7 +349,7 @@ class TestHandleStudyStart(_BaseStudyHandlerTest):
         )
         state = SessionState(
             nodes=[node], total_cards=1, tier3_context={},
-            study_msg_id=42, plan="free",
+            study_msg_id=42, plan="free", session_date=_app_day_str(),
         )
         ctx = self._context()
         ctx.bot.edit_message_reply_markup = AsyncMock()
@@ -368,7 +410,7 @@ class TestHandleStudyStart(_BaseStudyHandlerTest):
         )
         state = SessionState(
             nodes=[node], total_cards=1, tier3_context={},
-            study_msg_id=42, plan="free",
+            study_msg_id=42, plan="free", session_date=_app_day_str(),
         )
         ctx = self._context()
         ctx.bot.edit_message_reply_markup = AsyncMock(
@@ -613,7 +655,7 @@ class TestStagedRevealRender(_BaseStudyHandlerTest):
         node2 = self._review_node(world_id)
         state = SessionState(
             nodes=[node1, node2], total_cards=2, tier3_context={},
-            study_msg_id=999, plan="free",
+            study_msg_id=999, plan="free", session_date=_app_day_str(),
         )
         ctx = self._context()
         ctx.user_data["current_session"] = state
@@ -634,7 +676,7 @@ class TestStagedRevealRender(_BaseStudyHandlerTest):
         node = self._review_node(word_id)
         state = SessionState(
             nodes=[node], total_cards=1, tier3_context={},
-            study_msg_id=42, plan="free",
+            study_msg_id=42, plan="free", session_date=_app_day_str(),
         )
         ctx = self._context()
         ctx.bot.edit_message_reply_markup = AsyncMock()
@@ -655,6 +697,7 @@ class TestAdvanceSession(_BaseStudyHandlerTest):
             tier3_context={},
             study_msg_id=999,
             plan="free",
+            session_date=_app_day_str(),
         )
 
     @patch("handlers.study_handler.generate_tier3_node", return_value=None)

@@ -767,6 +767,7 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock, workload_override=
                     if journey == "full_session":
                         from handlers.study_handler import (
                             SessionState,
+                            _app_day_str,
                             advance_session,
                         )
                         from services.db.session_reports import (
@@ -781,6 +782,9 @@ async def _run(n: int, seed: int, bot, db, bot_mock, ai_mock, workload_override=
                             plan=spec["plan"],
                             graded_word_ids=[word_id],
                             before_stability={},
+                            # Same-day sim journey: stamp today so the
+                            # day-boundary guard treats it as current.
+                            session_date=_app_day_str(),
                         )
                         ctx.user_data["current_session"] = state
                         await advance_session(update, ctx)
@@ -1104,6 +1108,7 @@ async def _run_5k(
                     if journey == "full_session":
                         from handlers.study_handler import (
                             SessionState,
+                            _app_day_str,
                             advance_session,
                         )
                         from services.db.session_reports import (
@@ -1118,6 +1123,9 @@ async def _run_5k(
                             plan=spec["plan"],
                             graded_word_ids=[word_id],
                             before_stability={},
+                            # Same-day sim journey: stamp today so the
+                            # day-boundary guard treats it as current.
+                            session_date=_app_day_str(),
                         )
                         ctx.user_data["current_session"] = state
 

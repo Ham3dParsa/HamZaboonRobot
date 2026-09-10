@@ -126,6 +126,7 @@ from services.db.sessions import (
     mark_word_graded,
     is_word_graded,
     clear_session_grades,
+    invalidate_stale_study_session,
     purge_stale_study_sessions,
 )
 

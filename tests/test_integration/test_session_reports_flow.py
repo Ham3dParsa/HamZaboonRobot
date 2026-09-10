@@ -85,6 +85,8 @@ class SessionReportsFlowTests(unittest.TestCase):
             nodes=[], total_cards=len(word_ids), tier3_context={},
             study_msg_id=99, plan=plan, graded_word_ids=list(word_ids),
             before_stability={wid: 1.0 for wid in word_ids},
+            # T2 day-boundary (619/622): same-day harness states are stamped.
+            session_date=study_handler._app_day_str(),
         )
         ctx.user_data["current_session"] = state
         u = self._update(user_id)

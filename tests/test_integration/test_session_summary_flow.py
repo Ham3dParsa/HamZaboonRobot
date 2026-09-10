@@ -195,10 +195,12 @@ class SessionSummaryFlowTests(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def _completing_state(self, word_ids, plan, before_stability=None):
+        # T2 day-boundary (619/622): same-day harness states carry today's stamp.
         return SessionState(
             nodes=[], total_cards=len(word_ids), tier3_context={},
             study_msg_id=99, plan=plan, graded_word_ids=list(word_ids),
             before_stability=before_stability or {},
+            session_date=study_handler._app_day_str(),
         )
 
     def test_completion_renders_summary_for_bronze_plus(self):

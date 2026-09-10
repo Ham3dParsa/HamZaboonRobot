@@ -29,11 +29,43 @@ from config.keyboards import (
 from handlers.study_handler import (
     advance_session,
     get_active_study_session,
+    is_stale,
     session_progress_footer,
+    _app_day_str,
     _persist_session,
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _reject_stale_day_tap(update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
+    """Reject a grade tap on a cross-day stale memory session (T2, 619/622).
+
+    Returns True when the in-memory session was stale: memory is popped, the
+    persisted row + grade ledger are cleared via ONE worker call, the tap is
+    answered with the standard stale notice, and the caller must return
+    WITHOUT grading. Fresh (or absent) sessions return False.
+    """
+    raw = context.user_data.get("current_session")
+    if raw is None:
+        return False
+    try:
+        today = _app_day_str()
+    except Exception:
+        return False
+    if not is_stale(raw, today):
+        return False
+    context.user_data.pop("current_session", None)
+    try:
+        await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
+    except Exception:
+        logger.exception("stale day tap invalidate failed user_id=%s", user_id)
+    await notify_callback(
+        update.callback_query,
+        "این پیام دیگر معتبر نیست.",
+        intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+    )
+    return True
 
 
 def _grade_error_text(reason: str) -> str:
@@ -223,6 +255,10 @@ async def _handle_srs_review(
     if user_id != target_user_id:
         await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
         return
+    # T2 day-boundary (619/622): a tap on yesterday's card never grades —
+    # discard stale memory + persisted row/ledger first.
+    if await _reject_stale_day_tap(update, context, user_id):
+        return
     # --- per-user spam guard (plan-27) atomic before FSRS update ---
     if not try_acquire_per_user_slot(user_id, "srs_grade_review"):
         await notify_callback(
@@ -369,6 +405,10 @@ async def _handle_first_exposure_grade(
     user_id = update.effective_user.id
     if user_id != target_user_id:
         await notify_callback(update.callback_query, "این مرور برای کاربر دیگری است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+        return
+    # T2 day-boundary (619/622): a tap on yesterday's card never grades —
+    # discard stale memory + persisted row/ledger first.
+    if await _reject_stale_day_tap(update, context, user_id):
         return
     # --- per-user spam guard (plan-27) atomic before FSRS update ---
     if not try_acquire_per_user_slot(user_id, "srs_grade_first"):
