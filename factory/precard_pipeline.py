@@ -1270,34 +1270,46 @@ _REGISTER_INFORMAL_TAGS = {"informal"}
 _REGISTER_SLANG_VULGAR_TAGS = {"vulgar", "offensive"}
 
 
-def _sense_tag_set(sense):
-    """Lowercased kaikki tag set of one sense dict ({} on bad shape)."""
-    try:
-        tags = (sense or {}).get("tags") or []
-    except AttributeError:
-        return set()
+def _normalize_tags(tags):
+    """Lowercased tag set from any caller shape (None/str/list of str).
+
+    Normalization lives HERE (not trusted from the caller) so the public
+    C3 helpers stay safe for any caller — a raw "Slang"/" Vulgar " tag
+    still maps instead of silently falling through to the default.
+    """
     if isinstance(tags, str):
         tags = [tags]
     try:
-        items = list(tags)
+        items = list(tags or [])
     except TypeError:
         return set()
     return {str(t or "").strip().casefold()
             for t in items if str(t or "").strip()}
 
 
+def _sense_tag_set(sense):
+    """Lowercased kaikki tag set of one sense dict ({} on bad shape)."""
+    try:
+        tags = (sense or {}).get("tags") or []
+    except AttributeError:
+        return set()
+    return _normalize_tags(tags)
+
+
 def lexical_type_for(kind, sense_tags, phrase_entry=None):
     """Lexical type for one precard row (pure, dataset-only).
 
-    Phrases with a phrase-type log entry use its phrase_type verbatim
-    (idiom, phrasal-verb, ...); everything else maps the picked-sense
-    kaikki tags (slang > colloquial > idiomatic) with a "word" default.
+    Phrases with a phrase-type log entry use its phrase_type, casefolded
+    (log values are the lowercase PHRASE_TYPES vocabulary; the fold only
+    guards a stray capital from forking downstream pack filters).
+    Everything else maps the picked-sense kaikki tags (slang >
+    colloquial > idiomatic) with a "word" default.
     """
     if (kind or "word") == "phrase" and isinstance(phrase_entry, dict):
         phrase_type = str(phrase_entry.get("phrase_type") or "").strip()
         if phrase_type:
-            return phrase_type
-    tags = set(sense_tags or [])
+            return phrase_type.casefold()
+    tags = _normalize_tags(sense_tags)
     if tags & _LEXICAL_SLANG_TAGS:
         return "slang"
     if tags & _LEXICAL_COLLOQUIAL_TAGS:
@@ -1314,7 +1326,7 @@ def register_for(sense_tags):
     neutral. The vulgar/offensive set is the locked ticket scope — the
     broader S1 VULGAR_TAGS drop is a separate gate, untouched here.
     """
-    tags = set(sense_tags or [])
+    tags = _normalize_tags(sense_tags)
     if tags & _REGISTER_SLANG_VULGAR_TAGS:
         return REGISTER_SLANG_VULGAR
     if tags & _REGISTER_INFORMAL_TAGS:
@@ -1329,7 +1341,9 @@ def _normalize_id_part(text):
 
 def compute_pre_card_id(lemma, pos, en_def):
     """Stable precard id: sha1-hex16("lemma|pos|en_def") over normalized
-    EN content only (Persian phase-2 edits can never move it)."""
+    EN content only (Persian phase-2 edits can never move it). The 64-bit
+    truncation is fine at precard volume; if this id ever becomes a
+    cross-run dedup key, revisit the birthday bound first."""
     key = "%s|%s|%s" % (_normalize_id_part(lemma),
                         _normalize_id_part(pos),
                         _normalize_id_part(en_def))
