@@ -475,3 +475,60 @@ def test_bad_link_lease_parks_over_http(monkeypatch):
         server.shutdown()
         thread.join(timeout=10)
         sup.TOKEN = ""
+
+
+class _FakeHTTPError(Exception):
+    def __init__(self, code, body):
+        super().__init__("HTTP %s" % code)
+        self.code = code
+        self._body = body
+
+    def read(self, size=-1):
+        return self._body
+
+
+class _FakeOpener:
+    def __init__(self, result):
+        self.result = result
+        self.urls = []
+
+    def open(self, req, timeout=None):
+        import urllib.request as _u
+        self.urls.append(req.full_url if isinstance(req, _u.Request)
+                         else req)
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+def test_google_probe_live():
+    class Resp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    code, ms, note = supervisor.google_probe(
+        "http://127.0.0.1:1", "k",
+        opener=_FakeOpener(Resp()))
+    assert code == 200 and note == "live"
+
+
+def test_google_probe_location_blocked():
+    body = (b'{"error": {"code": 400, "message": "User location is not '
+            b'supported for the API use.", "status": "FAILED_PRECONDITION"}}')
+    code, ms, note = supervisor.google_probe(
+        "http://127.0.0.1:1", "k",
+        opener=_FakeOpener(_FakeHTTPError(400, body)))
+    assert code == 400 and note == "location-blocked"
+
+
+def test_google_probe_bad_key():
+    body = b'{"error": {"code": 400, "message": "API key not valid."}}'
+    code, ms, note = supervisor.google_probe(
+        "http://127.0.0.1:1", "k",
+        opener=_FakeOpener(_FakeHTTPError(400, body)))
+    assert code == 400 and note == "bad-key"

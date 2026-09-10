@@ -445,6 +445,57 @@ def zen_probe(proxy_url, api_key, timeout=60):
         return code, ms, hint
 
 
+GOOGLE_MODELS_URL = ("https://generativelanguage.googleapis.com/"
+                      "v1beta/models?pageSize=1&key=")
+
+
+def google_probe(proxy_url, api_key, timeout=60, opener=None):
+    """One free models:list call through proxy_url. Returns (code, ms,
+    note): live | location-blocked (sanctioned egress country) |
+    bad-key | bad-request | forbidden | quota | net/unknown."""
+    import time as _time
+    open_fn = opener or _proxy_opener(proxy_url)
+    req = urllib.request.Request(
+        GOOGLE_MODELS_URL + api_key,
+        headers={"User-Agent": "HamZaban-factory/1.0"})
+    start = _time.time()
+    try:
+        with open_fn.open(req, timeout=timeout) as resp:
+            code = getattr(resp, "status", 200)
+            return code, int((_time.time() - start) * 1000), "live"
+    except Exception as exc:  # noqa: BLE001 (probe reports, not raises)
+        ms = int((_time.time() - start) * 1000)
+        code = getattr(exc, "code", "?")
+        body = ""
+        try:
+            body = (exc.read(2048) or b"").decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001 (body is best-effort)
+            pass
+        if code == 400 and "not supported for the API use" in body:
+            return code, ms, "location-blocked"
+        if code == 400 and ("API key not valid" in body
+                            or "API_KEY_INVALID" in body):
+            return code, ms, "bad-key"
+        hint = {400: "bad-request", 401: "bad-key", 403: "forbidden",
+                429: "quota"}.get(code, "net/unknown")
+        return code, ms, hint
+
+
+def geo_country(proxy_url, ip, timeout=15, opener=None):
+    """Egress country via ip-api (best-effort, '?' on failure)."""
+    import time as _time  # noqa: F401 (symmetry with probes)
+    open_fn = opener or _proxy_opener(proxy_url)
+    req = urllib.request.Request(
+        "http://ip-api.com/json/%s?fields=country" % ip,
+        headers={"User-Agent": "HamZaban-factory/1.0"})
+    try:
+        with open_fn.open(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace"))
+            return data.get("country") or "?"
+    except Exception:  # noqa: BLE001 (best-effort label)
+        return "?"
+
+
 def probe_pool(top_n=PROBE_TOP_N, workers=20):
     """Rank pool servers by TCP latency; Zen-liveness needs a tunnel
     (phase 2) so it is NOT probed here — ranking is reachability only,
@@ -502,6 +553,16 @@ def main(argv=None):
                          "or ZEN_API_KEY env). Slow by design.")
     ap.add_argument("--zen-key", default="",
                     help="Zen API key for --probe-zen (or ZEN_API_KEY env)")
+    ap.add_argument("--probe-google", type=int, default=0, metavar="N",
+                    help="tunnel the top-N alive servers one by one and "
+                         "take one free Google models:list ping each "
+                         "(needs --google-key, GOOGLE_AI_API_KEY env, or "
+                         "tools/egress/.env). Google-ok servers move to "
+                         "the front of the whitelist, so serve mode "
+                         "leases them first. Slow by design.")
+    ap.add_argument("--google-key", default="",
+                    help="Google AI key for --probe-google (or "
+                         "GOOGLE_AI_API_KEY env)")
     args = ap.parse_args(argv)
     if args.gen_token:
         print(secrets.token_hex(24))
@@ -571,6 +632,57 @@ def main(argv=None):
                 POOL.save_pool()
             else:
                 print("zen probe skipped: whitelist NOT overwritten")
+        if args.probe_google:
+            key = args.google_key or os.environ.get(
+                "GOOGLE_AI_API_KEY", "") or env.get(
+                    "GOOGLE_AI_API_KEY", "")
+            if not key:
+                print("probe-google needs --google-key, GOOGLE_AI_API_KEY "
+                      "env, or tools/egress/.env")
+                return 2
+            try:
+                from . import tunnel as _tunnel_mod
+            except ImportError:
+                import tunnel as _tunnel_mod
+            cands = [r for r in rows if r["alive"]][:args.probe_google]
+            print("google ping: %d tunneled servers" % len(cands))
+            good = []
+            for idx, row in enumerate(cands, 1):
+                server = next((s for s in POOL.servers
+                               if s["id"] == row["id"] and s.get("link")),
+                              None)
+                if server is None:
+                    print("[%d/%d] %s: no link (relink)" % (
+                        idx, len(cands), row["host"]))
+                    continue
+                tun = _tunnel_mod.Tunnel(server, server["link"])
+                try:
+                    proxy = tun.start()
+                    ip = tun.egress_ip()
+                    code, ms, note = google_probe(proxy, key)
+                    country = geo_country(proxy, ip) \
+                        if note == "live" else "?"
+                    print("[%d/%d] %s -> egress %s (%s) google=%s "
+                          "%dms (%s)" % (
+                              idx, len(cands), row["host"], ip,
+                              country, code, ms, note))
+                    if note == "live":
+                        good.append(row["id"])
+                except Exception as exc:  # noqa: BLE001 (per-server)
+                    print("[%d/%d] %s: tunnel failed (%s)" % (
+                        idx, len(cands), row["host"], exc))
+                finally:
+                    tun.stop()
+            if good:
+                ranked = [r for r in rows
+                          if r["id"] in good and r["alive"]]
+                ranked += [r for r in rows if r["id"] not in good]
+                POOL.load_ranked(ranked)
+                POOL.save_pool()
+                print("google-ok first: %d servers -> %s" % (
+                    len(good), POOL_PATH))
+            else:
+                print("no google-ok server found")
         return 0
     TOKEN = env.get(TOKEN_VAR, "")
     if not TOKEN:
