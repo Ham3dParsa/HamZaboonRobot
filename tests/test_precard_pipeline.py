@@ -1537,14 +1537,6 @@ def test_r4_capitalised_country_still_drops():
                   "type_pending": False}
 
 
-def test_r4_country_blocklist_keeps_non_country():
-    """Control: an ordinary word is untouched by the blocklist."""
-    from precard_pipeline import preprocess_classify_item
-    v = preprocess_classify_item(_g_item("handel", "B2"), {},
-                                 lambda t: 5.0, set(), {}, False)
-    assert v == {"kept": True, "reason": None, "type_pending": False}
-
-
 def test_r4_country_blocklist_exempts_common_noun_pos():
     """#606 POS-aware exemption: kaikki knows china/jersey as common
     nouns, so they fall through to the normal gates (kept on good zipf)
@@ -1557,6 +1549,27 @@ def test_r4_country_blocklist_exempts_common_noun_pos():
                                   {"jersey": {"noun"}}, lambda t: 5.0,
                                   set(), {}, False)
     assert v2 == {"kept": True, "reason": None, "type_pending": False}
+
+
+def test_r4_country_blocklist_ascii_aliases():
+    """#606 review: ASCII/diacritic spellings (turkiye, vietnam,
+    cote d'ivoire, curacao, reunion, aland islands) plus a multi-word
+    hit (united states of america) drop via the blocklist on empty POS."""
+    from precard_pipeline import preprocess_classify_item
+    for alias in ("turkiye", "vietnam", "cote d'ivoire", "curacao",
+                  "reunion", "aland islands", "united states of america"):
+        v = preprocess_classify_item(_g_item(alias, "B2"), {},
+                                     lambda t: 5.0, set(), {}, False)
+        assert v == {"kept": False, "reason": "r4-country-blocklist",
+                     "type_pending": False}, alias
+
+
+def test_r4_country_blocklist_keeps_non_country():
+    """Control: an ordinary word is untouched by the blocklist."""
+    from precard_pipeline import preprocess_classify_item
+    v = preprocess_classify_item(_g_item("handel", "B2"), {},
+                                 lambda t: 5.0, set(), {}, False)
+    assert v == {"kept": True, "reason": None, "type_pending": False}
 
 
 def test_preprocess_entry_view_merges_rows_and_fails_open():
