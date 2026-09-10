@@ -114,6 +114,65 @@ ZIPF_MIN = 3.0
 # path only.
 ZIPF_FLOORS = {"A1": 3.0, "A2": 3.0, "B1": 3.0, "B2": 3.0,
                "C1": 2.5, "C2": 1.5}
+# R4 country backstop (#606): hardcoded ISO 3166-1 English short names,
+# matched casefolded BEFORE every other gate so a lowercase leak like
+# "bolivia" drops even with no kaikki POS data. "turkey" is deliberately
+# the ISO/UN "türkiye" spelling — the bare bird/food noun stays keepable.
+COUNTRY_NAMES = frozenset({
+    "afghanistan", "albania", "algeria", "andorra", "angola",
+    "antigua and barbuda", "argentina", "armenia", "australia",
+    "austria", "azerbaijan", "bahamas", "bahrain", "bangladesh",
+    "barbados", "belarus", "belgium", "belize", "benin", "bhutan",
+    "bolivia", "bosnia and herzegovina", "botswana", "brazil",
+    "brunei", "bulgaria", "burkina faso", "burundi", "cabo verde",
+    "cambodia", "cameroon", "canada", "central african republic",
+    "chad", "chile", "china", "colombia", "comoros", "congo",
+    "costa rica", "croatia", "cuba", "cyprus", "czechia",
+    "côte d'ivoire", "denmark", "djibouti", "dominica",
+    "dominican republic", "ecuador", "egypt", "el salvador",
+    "equatorial guinea", "eritrea", "estonia", "eswatini", "ethiopia",
+    "fiji", "finland", "france", "gabon", "gambia", "georgia",
+    "germany", "ghana", "greece", "grenada", "guatemala", "guinea",
+    "guinea-bissau", "guyana", "haiti", "honduras", "hungary",
+    "iceland", "india", "indonesia", "iran", "iraq", "ireland",
+    "israel", "italy", "jamaica", "japan", "jordan", "kazakhstan",
+    "kenya", "kiribati", "kuwait", "kyrgyzstan", "laos", "latvia",
+    "lebanon", "lesotho", "liberia", "libya", "liechtenstein",
+    "lithuania", "luxembourg", "madagascar", "malawi", "malaysia",
+    "maldives", "mali", "malta", "marshall islands", "mauritania",
+    "mauritius", "mexico", "micronesia", "moldova", "monaco",
+    "mongolia", "montenegro", "morocco", "mozambique", "myanmar",
+    "namibia", "nauru", "nepal", "netherlands", "new zealand",
+    "nicaragua", "niger", "nigeria", "north korea", "north macedonia",
+    "norway", "oman", "pakistan", "palau", "palestine", "panama",
+    "papua new guinea", "paraguay", "peru", "philippines", "poland",
+    "portugal", "qatar", "romania", "russia", "rwanda",
+    "saint kitts and nevis", "saint lucia",
+    "saint vincent and the grenadines", "samoa", "san marino",
+    "sao tome and principe", "saudi arabia", "senegal", "serbia",
+    "seychelles", "sierra leone", "singapore", "slovakia",
+    "slovenia", "solomon islands", "somalia", "south africa",
+    "south korea", "south sudan", "spain", "sri lanka", "sudan",
+    "suriname", "sweden", "switzerland", "syria", "taiwan",
+    "tajikistan", "tanzania", "thailand", "timor-leste", "togo",
+    "tonga", "trinidad and tobago", "tunisia", "türkiye",
+    "turkmenistan", "tuvalu", "uganda", "ukraine",
+    "united arab emirates", "united kingdom",
+    "united states of america", "uruguay", "uzbekistan", "vanuatu",
+    "venezuela", "viet nam", "yemen", "zambia", "zimbabwe",
+    "american samoa", "anguilla", "antarctica", "aruba", "bermuda",
+    "british virgin islands", "cayman islands", "christmas island",
+    "cocos islands", "cook islands", "curaçao", "faroe islands",
+    "french guiana", "french polynesia", "gibraltar", "greenland",
+    "guam", "guernsey", "hong kong", "isle of man", "jersey",
+    "macao", "martinique", "mayotte", "montserrat", "new caledonia",
+    "niue", "norfolk island", "northern mariana islands", "pitcairn",
+    "puerto rico", "réunion", "saint helena",
+    "saint pierre and miquelon", "sint maarten",
+    "svalbard and jan mayen", "tokelau", "turks and caicos islands",
+    "us virgin islands", "vatican city", "wallis and futuna",
+    "western sahara", "åland islands",
+})
 STAGES = ("s0", "s0b", "s1", "s2", "s3", "s4", "s5")
 # Human-readable stage names for logs (ids stay stable in files/progress).
 STAGE_NAMES = {
@@ -419,9 +478,12 @@ def preprocess_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
                      type_log_available, entry_fn=None):
     """Preprocess verdict for one sample item (s0): {"kept", "reason", "type_pending"}.
 
-    kept=False carries a drop reason (r4-name-only / r20-zipf-low:<z> /
-    applied-keep-false:<type> / g2..g6 input gates, locked 2026-09-07).
-    Order for words: R4 proper-noun, G-gates (no zipf bypass — entry
+    kept=False carries a drop reason (r4-name-only / r4-country-blocklist /
+    r20-zipf-low:<z> / applied-keep-false:<type> / g2..g6 input gates,
+    locked 2026-09-07).
+    Order for words: R4 country blocklist (casefolded; drops on empty/unknown
+    or proper-noun-only POS, exempts kaikki-known common nouns),
+    R4 proper-noun, G-gates (no zipf bypass — entry
     lookup is fail-open), then the R20 zipf floor. A computed quarantine
     flag rides along on unknown zipf (kept, review value survives) but a
     low-zipf suspect drops on frequency, never quarantines. kept=True has reason None except the
@@ -437,6 +499,14 @@ def preprocess_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
     kind = item.get("kind") or "word"
     text = (item.get("text") or "").strip()
     if kind == "word":
+        if text.casefold() in COUNTRY_NAMES:
+            pos_set = (pos_sets or {}).get(text.lower(), set())
+            if not pos_set or card_pilot.is_proper_noun_lemma(text, pos_set):
+                return {"kept": False, "reason": "r4-country-blocklist",
+                        "type_pending": False}
+            # POS-aware exemption (#606): kaikki knows this lemma as a
+            # common noun (china porcelain, jersey shirt) — fall through
+            # to the normal gates instead of dropping.
         if card_pilot.is_proper_noun_lemma(
                 text, (pos_sets or {}).get(text.lower(), set())):
             return {"kept": False, "reason": "r4-name-only",

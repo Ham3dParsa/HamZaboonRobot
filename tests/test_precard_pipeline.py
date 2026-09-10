@@ -312,9 +312,10 @@ def test_s1_anchor_proper_noun_drop(tmp_path, monkeypatch):
     assert s1["done"]["w:Apple"]["anchor_pos"] == "noun"
     assert s1["done"]["w:Apple"].get("rerouted_from_proper") is True
     assert "w:Apple" not in s1["failed"]
-    # Zambia (name-only POS set) still drops at S0/R4, never reaching S1.
+    # Zambia (a country) drops at S0 via the R4 country blocklist
+    # (#606 — casefolded, no POS data needed), never reaching S1.
     assert s0["done"]["w:Zambia"]["kept"] is False
-    assert s0["done"]["w:Zambia"]["reason"] == "r4-name-only"
+    assert s0["done"]["w:Zambia"]["reason"] == "r4-country-blocklist"
     assert "dropped" not in s1["done"]["w:Banana"]
     assert s1["done"]["w:Banana"]["anchor_pos"] == "noun"
 
@@ -1507,6 +1508,55 @@ def test_g_gates_skipped_without_entry_fn():
     v = preprocess_classify_item(_g_item("arrives"), {}, lambda t: 5.0, set(),
                          {}, False)
     assert v == {"kept": True, "reason": None, "type_pending": False}
+
+
+def test_r4_country_blocklist_drops_lowercase():
+    """#606: lowercase country names leak past R4 (no POS data) — the
+    casefolded blocklist drops them before every other gate."""
+    from precard_pipeline import preprocess_classify_item
+    v = preprocess_classify_item(_g_item("bolivia", "B2"), {},
+                                 lambda t: 5.0, set(), {}, False)
+    assert v == {"kept": False, "reason": "r4-country-blocklist",
+                 "type_pending": False}
+
+
+def test_r4_capitalised_country_still_drops():
+    """Bolivia still drops (now via the blocklist, which runs before the
+    proper-noun gate); a non-country proper noun keeps the old
+    r4-name-only path."""
+    from precard_pipeline import preprocess_classify_item
+    v = preprocess_classify_item(_g_item("Bolivia", "B2"),
+                                 {"bolivia": {"name"}}, lambda t: 5.0,
+                                 set(), {}, False)
+    assert v == {"kept": False, "reason": "r4-country-blocklist",
+                 "type_pending": False}
+    v2 = preprocess_classify_item(_g_item("Xyzztown", "B2"),
+                                  {"xyzztown": {"name"}}, lambda t: 5.0,
+                                  set(), {}, False)
+    assert v2 == {"kept": False, "reason": "r4-name-only",
+                  "type_pending": False}
+
+
+def test_r4_country_blocklist_keeps_non_country():
+    """Control: an ordinary word is untouched by the blocklist."""
+    from precard_pipeline import preprocess_classify_item
+    v = preprocess_classify_item(_g_item("handel", "B2"), {},
+                                 lambda t: 5.0, set(), {}, False)
+    assert v == {"kept": True, "reason": None, "type_pending": False}
+
+
+def test_r4_country_blocklist_exempts_common_noun_pos():
+    """#606 POS-aware exemption: kaikki knows china/jersey as common
+    nouns, so they fall through to the normal gates (kept on good zipf)
+    instead of dropping via the blocklist."""
+    from precard_pipeline import preprocess_classify_item
+    v = preprocess_classify_item(_g_item("china", "B2"), {"china": {"noun"}},
+                                 lambda t: 5.0, set(), {}, False)
+    assert v == {"kept": True, "reason": None, "type_pending": False}
+    v2 = preprocess_classify_item(_g_item("Jersey", "B2"),
+                                  {"jersey": {"noun"}}, lambda t: 5.0,
+                                  set(), {}, False)
+    assert v2 == {"kept": True, "reason": None, "type_pending": False}
 
 
 def test_preprocess_entry_view_merges_rows_and_fails_open():
