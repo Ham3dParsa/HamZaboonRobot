@@ -162,3 +162,16 @@ def test_fill_missing_windows_fail_closed():
                       "pool_level": "A1"}]
     out = blind50.fill_missing_windows(items, ANCHOR_MAP, rank_fn=bad_rank)
     assert out["w:pear"] == {"candidates": []}
+
+
+def test_run_model_prints_progress(capsys, tmp_path):
+    def fake_judge(chunk, prompt):
+        return {"w:apple": {"sense_id": "apple#0", "gloss": "x"}}
+
+    blind50.run_model("g35", ITEMS, ANCHOR_MAP, str(tmp_path / "p.json"),
+                      fake_judge, pace=0, sleep_fn=lambda s: None)
+    out = capsys.readouterr().out
+    assert "[blind50 g35] start: 1 items (1 todo, 0 kept)" in out
+    assert "[blind50 g35] batch 1/1: done=1/1" in out
+    assert "[blind50 g35] finished: done=1/1" in out
+    out.encode("ascii")
