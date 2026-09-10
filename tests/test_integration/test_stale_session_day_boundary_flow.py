@@ -345,6 +345,7 @@ class StaleSessionDayBoundaryFlowTests(unittest.IsolatedAsyncioTestCase):
         ctx.bot.edit_message_text.assert_not_awaited()
 
     # -- (F1) row-today + inner-yesterday, empty memory: get_active None --
+    # Memory-only contract: the sync gate performs no DB I/O (row left deferred).
     async def test_f1_row_today_inner_yesterday_get_active_none(self):
         from handlers.study_handler import (
             SessionState,
@@ -376,6 +377,78 @@ class StaleSessionDayBoundaryFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row[0], _today())
         # Nothing was graded.
         self.assertEqual(self._review_events(w1), 0)
+        self.assertFalse(db.is_word_graded(1, w1, "srs_review"))
+
+    # -- (async-a) seam memory-hit fresh: returned as-is, no DB writes -----
+    async def test_async_a_memory_hit_fresh_returned_as_is_no_db_writes(self):
+        from handlers.study_handler import SessionState, get_active_session_async
+
+        w1 = self._seed_word("hello", expose=True)
+        node = self._node("srs_review", w1)
+        fresh = SessionState(
+            nodes=[node], total_cards=1, tier3_context={},
+            study_msg_id=123, plan="free", graded_word_ids=[],
+            session_date=_today(),
+        )
+        ctx = self._context()
+        ctx.user_data["current_session"] = fresh
+        with patch(
+            "services.db.invalidate_stale_study_session",
+            wraps=db.invalidate_stale_study_session,
+        ) as mock_inv:
+            result = await get_active_session_async(1, ctx)
+            mock_inv.assert_not_called()
+        self.assertIs(result, fresh)
+        self.assertIs(ctx.user_data["current_session"], fresh)
+        # No DB writes: the memory hit created no persisted row.
+        self.assertIsNone(db.load_study_session(1))
+        self.assertFalse(db.is_word_graded(1, w1, "srs_review"))
+
+    # -- (async-b) seam memory-miss stale row: None + immediate clear ------
+    async def test_async_b_memory_miss_stale_row_returns_none_clears_row_and_ledger(self):
+        from handlers.study_handler import (
+            SessionState,
+            _state_to_json,
+            get_active_session_async,
+        )
+
+        # Same row-today/inner-yesterday shape as (F1): unlike the sync
+        # gate's deferred behavior, the async seam invalidates immediately.
+        w1 = self._seed_word("hello", expose=True)
+        node = self._node("srs_review", w1)
+        stale_inner = SessionState(
+            nodes=[node], total_cards=1, tier3_context={},
+            study_msg_id=123, plan="free", graded_word_ids=[],
+            session_date=_yesterday(),
+        )
+        db.save_study_session(1, _today(), _state_to_json(stale_inner))
+        db.mark_word_graded(1, w1, "srs_review")
+        self.assertTrue(db.is_word_graded(1, w1, "srs_review"))
+
+        ctx = self._context()  # memory absent (restart-over-day)
+        self.assertNotIn("current_session", ctx.user_data)
+        result = await get_active_session_async(1, ctx)
+        self.assertIsNone(result)
+        self.assertNotIn("current_session", ctx.user_data)
+        self.assertIsNone(db.load_study_session(1))
+        self.assertFalse(db.is_word_graded(1, w1, "srs_review"))
+        self.assertEqual(self._review_events(w1), 0)
+
+    # -- (async-c) seam memory-miss no row: None, sessionless path open ----
+    async def test_async_c_memory_miss_no_row_returns_none_allows_sessionless_path(self):
+        from handlers.study_handler import get_active_session_async
+
+        w1 = self._seed_word("hello", expose=True)
+        ctx = self._context()
+        self.assertIsNone(db.load_study_session(1))
+        result = await get_active_session_async(1, ctx)
+        self.assertIsNone(result)
+        # Seam itself raises nothing, sends no notice, stashes nothing —
+        # the caller may proceed down the legitimate sessionless path.
+        self.assertNotIn("current_session", ctx.user_data)
+        ctx.bot.send_message.assert_not_awaited()
+        ctx.bot.edit_message_text.assert_not_awaited()
+        self.assertIsNone(db.load_study_session(1))
         self.assertFalse(db.is_word_graded(1, w1, "srs_review"))
 
     # -- (F2) memory-absent + row-stale + ledger: tap not already-graded --

@@ -248,40 +248,51 @@ def _restore_persisted_session(user_id: int) -> SessionState | None:
 def get_active_study_session(
     user_id: int, context: ContextTypes.DEFAULT_TYPE
 ) -> SessionState | None:
-    """Resolve the active study session from memory, falling back to the
-    DB-persisted same-day session after a restart. Stashes the restored session
-    back into user_data so subsequent advances reuse it (R1/R3, Bug #401).
+    """Pure memory gate for the active study session — no DB I/O at all.
 
-    Sync by design: the restore path runs short-lived SQLite statements
-    inline — a same-day row read, plus cleanup writes (persisted-row clear
-    and grade-ledger clear) on a row-date mismatch or on a corrupt/empty
-    payload. Each statement uses its own short-lived connection and the
-    function never awaits, so no transaction is ever held across an await.
-
-    Day-boundary (T2, 619/622): a memory state whose ``session_date`` is not
-    today is popped and None is returned with no DB I/O. A restored state
-    whose inner ``session_date`` is stale is likewise dropped WITHOUT any
-    cleanup writes here; the persisted row + ledger cleanup happens on the
-    next ``handle_study_start``/``advance`` pass via one
-    ``to_thread(invalidate_stale_study_session)``.
+    Memory hit is checked with ``is_stale`` (popped if stale, then None);
+    on a memory miss None is returned WITHOUT restoring from the DB.
+    Callers needing restart recovery must use ``get_active_session_async``.
     """
-    # NOTE (follow-up, not this change): if the inline restore ever shows up
-    # in profiling, move the _restore_persisted_session call behind
-    # asyncio.to_thread at the (async) call sites and keep this function as
-    # the pure memory gate. Deliberately left sync here (W4 doc-only fix).
     state = context.user_data.get("current_session")
     if state is not None:
         if is_stale(state, _app_day_str()):
             context.user_data.pop("current_session", None)
             return None
         return state
-    state = _restore_persisted_session(user_id)
+    return None
+
+
+async def get_active_session_async(
+    user_id: int, context: ContextTypes.DEFAULT_TYPE
+) -> SessionState | None:
+    """Single async choke point for session validity (F1).
+
+    Memory is gated first with ``is_stale``; on a miss the persisted
+    same-day session is restored via ``asyncio.to_thread``
+    (``_restore_persisted_session``) and likewise gated with ``is_stale``.
+    Either stale case pops memory and performs the single-worker invalidate
+    (``to_thread(db.invalidate_stale_study_session, user_id)``). Returns the
+    fresh state or None. Each ``to_thread`` boundary sits outside any SQLite
+    transaction scope — SQLite is never held across an await.
+    """
+    today = _app_day_str()
+    state = context.user_data.get("current_session")
     if state is not None:
-        if is_stale(state, _app_day_str()):
+        if is_stale(state, today):
             context.user_data.pop("current_session", None)
+            await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
             return None
-        context.user_data["current_session"] = state
-    return state
+        return state
+    restored = await asyncio.to_thread(_restore_persisted_session, user_id)
+    if restored is None:
+        return None
+    if is_stale(restored, today):
+        context.user_data.pop("current_session", None)
+        await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
+        return None
+    context.user_data["current_session"] = restored
+    return restored
 
 
 def _app_day_str() -> str:
@@ -295,7 +306,7 @@ def is_stale(state: SessionState | None, today: str) -> bool:
     None-safe (None counts as stale, though callers check None first);
     missing/empty ``session_date`` (legacy rows) counts as stale; otherwise
     stale exactly when ``session_date != today``. Single seam gating the
-    three resume paths (handle_study_start / get_active_study_session /
+    three resume paths (handle_study_start / get_active_session_async /
     advance_session); grade handlers reuse it for the stale-tap guard.
     """
     if state is None:
