@@ -64,6 +64,20 @@ def target_spec(target):
     return TARGETS.get(norm_target(target))
 
 
+def known_provider(provider):
+    """True when ``provider`` is a TARGETS provider (or absent/None).
+
+    Guards the cooldown table: an arbitrary caller-supplied string must
+    never mint junk (server, provider) keys.
+    """
+    if provider is None:
+        return True
+    want = norm_provider(provider)
+    return any(spec["provider"] is not None
+               and norm_provider(spec["provider"]) == want
+               for spec in TARGETS.values())
+
+
 def load_env():
     data = {}
     if ENV_PATH.exists():
@@ -240,6 +254,11 @@ class Pool:
             lease = self.leases.get(lease_id)
             return lease.get("provider") if lease else None
 
+    def discard_lease(self, lease_id):
+        """Drop a minted lease (acquire-failure cleanup) under the lock."""
+        with self._lock:
+            self.leases.pop(lease_id, None)
+
     def lease(self, target):
         with self._lock:
             now = time.time()
@@ -279,6 +298,10 @@ class Pool:
             lease = self.leases.get(lease_id)
             if lease is None:
                 return {"action": "unknown-lease"}
+            if not known_provider(provider):
+                # Unvalidated provider strings must never mint cooldown
+                # keys: ignore the outcome, keep the lease.
+                return {"action": "keep"}
             eff = norm_provider(provider) if provider is not None \
                 else lease.get("provider")
             if outcome == "http429" and lease.get("server"):
@@ -427,7 +450,7 @@ class Handler(BaseHTTPRequestHandler):
                 except (RuntimeError, ValueError, OSError) as exc:
                     # Acquire failed: drop the minted lease (no orphan
                     # records) and park with a message.
-                    POOL.leases.pop(data.get("lease_id", ""), None)
+                    POOL.discard_lease(data.get("lease_id", ""))
                     return self._send(200, {"error": "park",
                                             "message": str(exc)})
                 data["proxy_url"] = proxy

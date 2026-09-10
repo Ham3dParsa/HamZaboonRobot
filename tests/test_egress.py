@@ -824,3 +824,53 @@ def test_run_with_lease_accepts_new_targets(monkeypatch):
     assert calls["target"] == "google"
     assert rwl.main(["avalai", "--", "echo", "hi"]) == 0
     assert calls["target"] == "avalai"
+
+
+def test_report_rejects_unknown_provider():
+    """Review finding: arbitrary provider strings must not mint keys."""
+    from supervisor import known_provider
+    assert known_provider(None) is True
+    assert known_provider("zen") is True
+    assert known_provider(" ZEN ") is True
+    assert known_provider("victim-provider") is False
+    assert known_provider("") is False
+    pool = _link_pool()
+    lease = pool.lease("zen")
+    assert pool.report(lease["lease_id"], "http429",
+                       "victim-provider") == {"action": "keep"}
+    assert pool.lease("zen")["mode"] == "tunnel"  # nothing cooled
+    assert pool.lease("google")["mode"] == "tunnel"
+
+
+def test_discard_lease_drops_under_lock():
+    """Review finding: lease cleanup owns its locking."""
+    pool = _link_pool()
+    lease = pool.lease("zen")
+    pool.discard_lease(lease["lease_id"])
+    assert pool.report(lease["lease_id"], "ok") == {
+        "action": "unknown-lease"}
+    pool.discard_lease("never-existed")  # no-op, no raise
+
+
+def test_run_with_lease_normalizes_target(monkeypatch):
+    """Review finding: CLI gate matches supervisor normalization."""
+    import run_with_lease as rwl
+    calls = {}
+
+    def fake_lease(target):
+        calls["target"] = target
+        return {"lease_id": "L1", "mode": "direct", "proxy_url": "",
+                "egress_ip": "direct"}
+
+    monkeypatch.setattr(rwl.client, "lease", fake_lease)
+    monkeypatch.setattr(rwl.client, "report",
+                        lambda lid, outcome: {"action": "keep"})
+
+    class FakeProc:
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(rwl.subprocess, "Popen",
+                        lambda cmd, env=None: FakeProc())
+    assert rwl.main(["  ZEN ", "--", "echo", "hi"]) == 0
+    assert calls["target"] == "zen"

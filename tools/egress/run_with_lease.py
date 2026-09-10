@@ -18,7 +18,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import client  # noqa: E402  (same dir companion)
-from supervisor import TARGETS  # noqa: E402  (single target registry)
+from supervisor import TARGETS, norm_target  # noqa: E402  (registry)
 
 NO_PROXY_DOMESTIC = "api.avalai.ir,localhost,127.0.0.1"
 
@@ -27,10 +27,10 @@ USAGE = "usage: run_with_lease.py <%s> -- <command...>" % "|".join(TARGETS)
 
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
-    if not args or args[0] not in TARGETS:
+    target = norm_target(args[0]) if args else ""
+    if not target or target not in TARGETS:
         print(USAGE)
         return 2
-    target = args[0]
     rest = args[1:]
     if rest and rest[0] == "--":
         rest = rest[1:]
