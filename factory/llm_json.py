@@ -44,8 +44,12 @@ _PROVIDER_SNIPPETS = {
     ),
     "google": (
         ("user location is not supported", COOLDOWN_SWITCH),
-        ("failed_precondition", COOLDOWN_SWITCH),
-        ("resource_exhausted", ROTATE),
+        # Location-gated only: a bare FAILED_PRECONDITION also covers
+        # billing/API-disabled/quota, which must NOT cool down + switch.
+        ("location is not supported", COOLDOWN_SWITCH),
+        # Project-level quota (rotating keys on the same project fails
+        # the same way) -> cool down + switch provider, not rotate.
+        ("resource_exhausted", COOLDOWN_SWITCH),
     ),
     "openrouter": (
         ("rate limit", ROTATE),

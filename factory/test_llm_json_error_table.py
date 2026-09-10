@@ -5,6 +5,7 @@ generic snippet, and the fail-closed default. No network, no clock.
 """
 
 import pathlib
+import re
 
 import llm_json as LJ
 
@@ -38,6 +39,14 @@ def test_provider_scope_isolation():
     body = "User location is not supported for the API use."
     assert LJ.classify(400, body, "google") == LJ.COOLDOWN_SWITCH
     assert LJ.classify(400, body, "zen") == LJ.FAIL_CLOSED
+    # Non-location FAILED_PRECONDITION (billing/API-disabled/quota)
+    # must NOT cool down + switch.
+    assert LJ.classify(400, "FAILED_PRECONDITION: billing disabled",
+                        "google") == LJ.FAIL_CLOSED
+    # Google project-level quota cools down + switches, not rotates.
+    assert LJ.classify(400, "RESOURCE_EXHAUSTED: quota", "google") == (
+        LJ.COOLDOWN_SWITCH
+    )
     # Unknown providers only match generic rows.
     assert LJ.classify(None, "rate limit exceeded", "nope") == LJ.FAIL_CLOSED
 
@@ -60,8 +69,10 @@ def test_fail_closed_default():
 
 
 def test_recorded_real_bodies():
-    # Bodies copied from W:/hamzaban_data_factory/logs + canonical Google
-    # 400 location payload (no network; pure classify).
+    # Bodies 1-4 verbatim from the factory logs dir
+    # (hamzaban_data_factory/logs); the Google 400 location payload is
+    # the canonical documented Gemini FAILED_PRECONDITION body (no
+    # on-disk recording exists). No network; pure classify.
     zen_429 = (
         '{"type":"error","error":{"type":"FreeUsageLimitError",'
         '"message":"Rate limit exceeded. Please try again later."}}'
@@ -92,7 +103,9 @@ def test_single_owner_guard():
         list((root / "factory").glob("*.py"))
         + list((root / "services").rglob("*.py"))
         + list((root / "handlers").glob("*.py"))
-        + [root / "bot.py"]
+        + list((root / "config").rglob("*.py"))
+        + list((root / "scripts").glob("*.py"))
+        + list(root.glob("*.py"))
     )
     assert scanned, "scan found no modules"
     offenders = []
@@ -103,14 +116,17 @@ def test_single_owner_guard():
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        # Error-taxonomy classify has (code, body, ...) signature; the
-        # unrelated lemma classifier in sample_lemmas.py is out of scope.
-        if "def classify(code" in text:
-            offenders.append("%s: rival def classify(code" % path.name)
-        # Action literals are production-taxonomy markers; other test
-        # files (e.g. test_awl_coverage's test_load_awl_fail_closed)
-        # may use similar words for unrelated behavior.
-        if path.name.startswith("test_"):
+        # Any `def classify(` outside the owner is a rival — except the
+        # known-unrelated lemma classifier (word, pos, pack_data, lang).
+        for match in re.finditer(r"def\s+classify\s*\(", text):
+            line = text[match.start():].split("\n", 1)[0]
+            if "pack_data" in line:
+                continue
+            offenders.append("%s: rival %s" % (path.name, line.strip()))
+        # Action literals are production-taxonomy markers. Explicit
+        # allowlist only (no blanket test_* skip): test_awl_coverage
+        # uses fail_closed for an unrelated AWL-loader behavior.
+        if path.name in ("test_awl_coverage.py",):
             continue
         for lit in ("cooldown_switch", "retry_once", "fail_closed"):
             if lit in text:
