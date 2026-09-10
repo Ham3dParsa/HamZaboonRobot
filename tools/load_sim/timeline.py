@@ -709,7 +709,7 @@ async def _replay_complete(
     event: dict, user_id: int, counters: dict, last_grade: dict
 ) -> None:
     """Drive the real session-completion report path for one session."""
-    from handlers.study_handler import SessionState, advance_session
+    from handlers.study_handler import SessionState, _app_day_str, advance_session
     from services.db.session_reports import list_recent_reports
     from tools.load_sim import driver as _driver
 
@@ -725,6 +725,9 @@ async def _replay_complete(
         plan=str(event.get("plan", "free")),
         graded_word_ids=[stored["word_id"]],
         before_stability={},
+        # Same-day sim journey: stamp today so the
+        # day-boundary guard treats it as current.
+        session_date=_app_day_str(),
     )
     stored["ctx"].user_data["current_session"] = state
 
