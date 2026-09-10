@@ -121,9 +121,9 @@ def test_single_owner_guard():
     scanned = (
         list((root / "factory").glob("*.py"))
         + list((root / "services").rglob("*.py"))
-        + list((root / "handlers").glob("*.py"))
+        + list((root / "handlers").rglob("*.py"))
         + list((root / "config").rglob("*.py"))
-        + list((root / "scripts").glob("*.py"))
+        + list((root / "scripts").rglob("*.py"))
         + list(root.glob("*.py"))
     )
     assert scanned, "scan found no modules"
