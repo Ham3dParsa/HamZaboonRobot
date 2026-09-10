@@ -86,7 +86,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import card_pilot  # noqa: E402  (S1/S4/S5 owner path, reused by import)
+import card_pilot  # noqa: E402  (anchor/label/enrich owner path, reused by import)
 from card_pilot import append_telemetry_history  # noqa: E402  (F7 history seam)
 from card_pilot import item_key  # noqa: E402
 from llm_json import AuthError, extract_json, raise_for_auth  # noqa: E402
@@ -224,7 +224,7 @@ def parse_args(argv=None):
     return args
 
 
-# LLM legs of the precard line (S0/S1/S5 are deterministic).
+# LLM legs of the precard line (preprocess/anchor/enrich are deterministic).
 LLM_LEGS = ("s0b", "s2", "s3", "s4")
 
 
@@ -415,9 +415,9 @@ def _is_academic(item, awl_set):
     return (item.get("text") or "").strip().lower() in (awl_set or set())
 
 
-def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
+def preprocess_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
                      type_log_available, entry_fn=None):
-    """S0 verdict for one sample item: {"kept", "reason", "type_pending"}.
+    """Preprocess verdict for one sample item (s0): {"kept", "reason", "type_pending"}.
 
     kept=False carries a drop reason (r4-name-only / r20-zipf-low:<z> /
     applied-keep-false:<type> / g2..g6 input gates, locked 2026-09-07).
@@ -450,7 +450,7 @@ def s0_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
             except Exception:
                 view = None
             if view and view.get("senses"):
-                reason, quarantine = _s0_input_gates(text, view)
+                reason, quarantine = _preprocess_input_gates(text, view)
                 if reason:
                     return {"kept": False, "reason": reason,
                             "type_pending": False}
@@ -518,7 +518,7 @@ _G5_PERTAIN_RX = re.compile(
     r"[Tt][Oo] ([Tt][Hh][Ee] [A-Z]|[A-Z])")
 
 
-def _s0_entry_view(item, index, read_entry):
+def _preprocess_entry_view(item, index, read_entry):
     """Collect {senses:[{gloss,tags}], poss:set} across all rows of a lemma.
 
     Fail-open to None on any lookup error (caller keeps the item — G-gates
@@ -553,7 +553,7 @@ def _s0_entry_view(item, index, read_entry):
     return {"senses": senses, "poss": poss}
 
 
-def _s0_input_gates(text, view):
+def _preprocess_input_gates(text, view):
     """G2..G6 input gates. Returns (drop_reason|None, quarantine|None).
 
     G1 (case-fold) lives in the sample builder, not here. Order: G3/G4/G6
@@ -656,7 +656,7 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
 
 # -------------------------------------------------------------- S0b ---
 
-def s0b_needs_review(item, index, read_entry):
+def inflection_needs_review(item, index, read_entry):
     """R36: (needs, gloss) — True when the raw anchor top is inflection.
 
     The check runs on the unresolved top scorer (no xref index): xref
@@ -706,8 +706,8 @@ def _reroute_proper_anchor(item, ranked, index, read_entry):
             pos = _picked_entry_pos(item, sid, index, read_entry)
             if pos and pos not in card_pilot.PROPER_NOUN_POS:
                 # Re-rank: the re-anchored sense becomes window rank 1 so
-                # the S2 judge sees the same best-first order as the
-                # anchor (otherwise S2 would still pick the proper top).
+                # the judge sees the same best-first order as the
+                # anchor (otherwise the judge would still pick the proper top).
                 rest = [c for c in ranked["candidates"]
                         if c.get("sense_id") != sid]
                 ranked["candidates"] = [cand] + rest
@@ -719,8 +719,8 @@ def _reroute_proper_anchor(item, ranked, index, read_entry):
     return None
 
 
-def s1_rank_item(item, index, read_entry):
-    """S1 deterministic rank via the card_pilot anchor path (imported).
+def anchor_rank_item(item, index, read_entry):
+    """Anchor deterministic rank (s1) via the card_pilot anchor path.
 
     Returns {"candidates": [{sense_id, gloss, score}...],
              "top": {"sense_id", "gloss"} or None,
@@ -759,7 +759,7 @@ def s1_rank_item(item, index, read_entry):
 
 # ---------------------------------------------------------------- S2 ---
 
-def _s2_prompt(batch, s1map):
+def _judge_prompt(batch, anchor_map):
     lines = ["PICK the single most useful sense per item for Persian "
              "learners of English (most concrete everyday meaning first).",
              'Output: {"results": [{"key": "<item key>", '
@@ -769,7 +769,7 @@ def _s2_prompt(batch, s1map):
              "Input follows:"]
     for item in batch:
         key = item_key(item)
-        cands = (s1map.get(key) or {}).get("candidates", [])
+        cands = (anchor_map.get(key) or {}).get("candidates", [])
         lines.append("KEY %s (%s, pool %s):" % (
             key, item.get("kind", "?"), item.get("pool_level", "?")))
         for cand in cands:
@@ -780,10 +780,10 @@ def _s2_prompt(batch, s1map):
     return "\n".join(lines)
 
 
-def _s2_fallback(item, s1res):
-    """Fail-closed pick: S1 top (via the imported deterministic_picks)."""
+def _judge_fallback(item, anchor_res):
+    """Fail-closed pick: anchor top (via the imported deterministic_picks)."""
     from run_v14_phase3_judge import deterministic_picks
-    cands = (s1res or {}).get("candidates", [])
+    cands = (anchor_res or {}).get("candidates", [])
     if not cands:
         return {"sense_id": "", "gloss": "", "model": "s1-fallback-empty"}
     pseudo = {"ranked_senses": [
@@ -798,7 +798,7 @@ def _s2_fallback(item, s1res):
     return {"sense_id": first, "gloss": gloss, "model": "s1-fallback"}
 
 
-def _s2_validate(data, batch, s1map):
+def _judge_validate(data, batch, anchor_map):
     """Accept single {"key","pick"} rows (plus lemma-style "picks" rows).
 
     Lemma-style rows are validated with the imported validate_picks and
@@ -817,7 +817,7 @@ def _s2_validate(data, batch, s1map):
     for item in batch:
         key = item_key(item)
         row = by_key.get(key)
-        cands = (s1map.get(key) or {}).get("candidates", [])
+        cands = (anchor_map.get(key) or {}).get("candidates", [])
         ids = [c["sense_id"] for c in cands]
         if not isinstance(row, dict):
             continue
@@ -842,7 +842,7 @@ def _s2_validate(data, batch, s1map):
     return out
 
 
-def s2_judge_batch(batch, s1map, api_key, transport, sleep_fn, state,
+def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                    telemetry=None, tele_stage="s2", tele_batch=0,
                    ring=None, models=None):
     """    Judge-pick one batch. Returns {key: {sense_id, gloss, model}}.
@@ -860,7 +860,7 @@ def s2_judge_batch(batch, s1map, api_key, transport, sleep_fn, state,
     from run_v14_phase3_judge import MODELS as JUDGE_MODELS
     from run_v14_phase3_judge import call_responses as _  # noqa: F401 (owner path ref)
     models = list(models) if models else list(JUDGE_MODELS[:2])
-    prompt = _s2_prompt(batch, s1map)
+    prompt = _judge_prompt(batch, anchor_map)
     transport = transport  # default wired by caller to judge call_responses
     if ring is None:
         ring = KeyRing([api_key])
@@ -897,7 +897,7 @@ def s2_judge_batch(batch, s1map, api_key, transport, sleep_fn, state,
             except Exception:
                 continue
             try:
-                valid = _s2_validate(data, batch, s1map)
+                valid = _judge_validate(data, batch, anchor_map)
             except Exception:
                 valid = None
             if valid is not None:
@@ -910,7 +910,7 @@ def s2_judge_batch(batch, s1map, api_key, transport, sleep_fn, state,
                                  prompt_tokens=prompt_tokens,
                                  completion_tokens=completion_tokens)
                 return out
-    out = {item_key(i): {**_s2_fallback(i, s1map.get(item_key(i))),
+    out = {item_key(i): {**_judge_fallback(i, anchor_map.get(item_key(i))),
                          } for i in batch}
     if telemetry is not None:
         _tele_record(telemetry, stage=tele_stage, batch_id=tele_batch,
@@ -919,23 +919,24 @@ def s2_judge_batch(batch, s1map, api_key, transport, sleep_fn, state,
     return out
 
 
-# ---------------------------------- post-S2 proper-noun routing ---
+# ------------------------------ post-judge proper-noun routing ---
 
-# Post-S2 proper-noun routing: a picked sense whose entry POS is proper
+# Post-judge proper-noun routing: a picked sense whose entry POS is proper
 # (card_pilot.PROPER_NOUN_POS, reused by import — deterministic, no name
-# lists) while the S1 anchor was NOT proper is either routed to the
-# proper-pool track (proper_route=<class>, item continues to S3+) or
+# lists) while the anchor was NOT proper is either routed to the
+# proper-pool track (proper_route=<class>, item continues to vectors+) or
 # dropped with reason pick-proper-noun/<suffix>. Classes come from
 # GENERAL gloss regexes only (no lists of specific names); the lemma
 # zipf floor (2.5, injectable via zipf_fn) keeps rare proper nouns out;
 # the org-guard (club|team|band|company|companies) and the person-guard
 # (given name|surname|family name) NEVER route — organisations and
 # person names are not learner cards. Seam: an idempotent pass over the
-# s2 done state immediately after the S2 stage (NOT a new stage —
-# STAGES and every stage signature are untouched). Verdicts ride as
-# additive proper_route/proper_drop markers on the s2 done entries, so
-# resume only evaluates keys missing both markers, and rekeying s1/s2
-# (which evicts s2 done downstream) re-runs the pass by construction.
+# judge done entries (s2.json) immediately after the judge stage (NOT a
+# new stage — STAGES and every stage signature are untouched). Verdicts
+# ride as additive proper_route/proper_drop markers on the judge done
+# entries, so resume only evaluates keys missing both markers, and
+# rekeying anchor/judge (which evicts judge done downstream) re-runs the
+# pass by construction.
 # Precard rows gain ONLY the optional proper_route field (additive —
 # the parallel fork session reads it).
 PROPER_ROUTE_ZIPF_MIN = 2.5
@@ -989,8 +990,8 @@ def _picked_entry_pos(item, sense_id, index, read_entry):
     return ""
 
 
-def s2_proper_route(item, pick, s1res, index, read_entry, zipf_fn=None):
-    """Post-S2 proper-noun verdict for one item.
+def judge_proper_route(item, pick, anchor_res, index, read_entry, zipf_fn=None):
+    """Post-judge proper-noun verdict for one item.
 
     Returns {"routed", "proper_route", "reason"}: routed=True carries
     proper_route=<class> (item continues to S3+ on the proper-pool
@@ -1000,7 +1001,7 @@ def s2_proper_route(item, pick, s1res, index, read_entry, zipf_fn=None):
     before class/zipf so they always win. zipf_fn=None uses the live
     default_zipf (tests inject a stub).
     """
-    anchored = str((s1res or {}).get("anchor_pos") or "").strip().casefold()
+    anchored = str((anchor_res or {}).get("anchor_pos") or "").strip().casefold()
     picked_pos = _picked_entry_pos(
         item, (pick or {}).get("sense_id", ""), index, read_entry)
     if picked_pos not in card_pilot.PROPER_NOUN_POS \
@@ -1037,12 +1038,12 @@ def s2_proper_route(item, pick, s1res, index, read_entry, zipf_fn=None):
 
 # ---------------------------------------------------------------- S3 ---
 
-def _s3_pseudo_records(batch, s2map, s1map):
+def _vectors_pseudo_records(batch, judge_map, anchor_map):
     """Group batch picks into run_v15 pseudo lemma records."""
     groups = {}
     for item in batch:
         key = item_key(item)
-        pick = (s2map.get(key) or {})
+        pick = (judge_map.get(key) or {})
         sid = pick.get("sense_id", "")
         if not sid:
             continue
@@ -1051,14 +1052,14 @@ def _s3_pseudo_records(batch, s2map, s1map):
             lemma, {"lemma": lemma, "ranked_senses": []})
         if all(s["sense_id"] != sid for s in rec["ranked_senses"]):
             gloss = pick.get("gloss", "") or (
-                s1map.get(key) or {}).get("en_def", "")
+                anchor_map.get(key) or {}).get("en_def", "")
             rec["ranked_senses"].append(
                 {"sense_id": sid, "gloss": gloss,
                  "topic_label": "Other / Abstract"})
     return list(groups.values())
 
 
-def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn,
+def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
                     state, telemetry=None, tele_stage="s3", tele_batch=0,
                     ring=None, models=None):
     """Topic vectors for one batch via the run_v15 path (imported).
@@ -1076,7 +1077,7 @@ def s3_vector_batch(batch, s2map, s1map, api_key, transport, sleep_fn,
     from run_v15_topics import validate_vectors
     from run_v15_topics import call_responses as _  # noqa: F401 (owner path ref)
     v15_models = list(models) if models else list(V15_MODELS)
-    pseudos = _s3_pseudo_records(batch, s2map, s1map)
+    pseudos = _vectors_pseudo_records(batch, judge_map, anchor_map)
     out = {}
     if not pseudos:
         return out
@@ -1195,11 +1196,11 @@ def _rotating_llm_transport(transport, sleep_fn, state, ring):
     return wrap
 
 
-def s4_label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
+def label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
                   sleep_fn, state, progress_path, model_calls,
                   telemetry=None, tele_stage="s4", tele_batch=0,
                   ring=None):
-    """S4 topic label via card_pilot.assign_topic (imported two-leg).
+    """Label topic (s4) via card_pilot.assign_topic (imported two-leg).
 
     Telemetry (model + surfaced tokens, fallback on deterministic miss)
     is owned by assign_topic — this wrapper only maps auth/stop signals
@@ -1248,9 +1249,9 @@ def _entries_for(item, index):
     return [], ""
 
 
-def s5_enrich_item(item, s2pick, index, read_entry, tatoeba_pool,
+def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
                    zipf_fn=None):
-    """S5 enrichment from the S2-chosen sense (card_pilot helpers only).
+    """Enrichment (s5) from the judge-chosen sense (card_pilot helpers).
 
     R29/R32 v8: also returns abbrev_expansion (dataset-first parse of the
     chosen gloss) and pos/pos_src (anchored entry POS first, 1-3 tags).
@@ -1266,8 +1267,8 @@ def s5_enrich_item(item, s2pick, index, read_entry, tatoeba_pool,
     N_EXAMPLES slots, else "partial" (the model fills gaps downstream)
     so the fallback is counted in stage_calls, not silent.
     """
-    sid = (s2pick or {}).get("sense_id", "")
-    gloss = (s2pick or {}).get("gloss", "")
+    sid = (judge_pick or {}).get("sense_id", "")
+    gloss = (judge_pick or {}).get("gloss", "")
     if not sid:
         return {"sense_id": "", "en_def": gloss or "",
                 "ipa": "", "ipa_src": card_pilot.IPA_SRC_MODEL,
@@ -1680,26 +1681,26 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     type_log_available = (bool(type_map) if _type_log_available is None
                           else bool(_type_log_available))
     pos_sets = card_pilot.build_pos_sets(index)
-    s0_info: dict = {}
+    preprocess_info: dict = {}
     # Memoized entry views: one Kaikki read pass per lemma per run (S0
     # was previously in-memory; without this each item pays open+seek).
-    s0_view_cache: dict = {}
+    preprocess_view_cache: dict = {}
 
     def _cached_view(text):
         key = (text or "").strip().casefold()
-        if key not in s0_view_cache:
-            s0_view_cache[key] = _s0_entry_view(
+        if key not in preprocess_view_cache:
+            preprocess_view_cache[key] = _preprocess_entry_view(
                 {"kind": "word", "text": text}, index, read_entry)
-        return s0_view_cache[key]
+        return preprocess_view_cache[key]
     run_logger.stage_start("s0")
-    n_s0_batches = (len(items) + BATCH - 1) // BATCH or 1
+    n_preprocess_batches = (len(items) + BATCH - 1) // BATCH or 1
     for batch_no, base in enumerate(
             _stage_range(selected, "s0", items), start=1):
         batch = items[base:base + BATCH]
         for item in batch:
             key = item_key(item)
             if key not in states["s0"]["done"]:
-                verdict = s0_classify_item(
+                verdict = preprocess_classify_item(
                     item, pos_sets, zipf_fn, awl_set, type_map,
                     type_log_available, entry_fn=_cached_view)
                 states["s0"]["done"][key] = verdict
@@ -1709,7 +1710,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         _flush(progress_dir, states)
         ok = sum(1 for i in batch
                  if (states["s0"]["done"].get(item_key(i)) or {}).get("kept"))
-        _batch_progress("s0", batch_no, n_s0_batches, ok,
+        _batch_progress("s0", batch_no, n_preprocess_batches, ok,
                           len(batch) - ok)
     run_logger.stage_end(
         "s0",
@@ -1718,8 +1719,8 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
     _stage_summary("s0", states, args.out)
     for key, verdict in states["s0"]["done"].items():
-        s0_info[key] = verdict
-    dropped = {k for k, v in s0_info.items() if not v.get("kept")}
+        preprocess_info[key] = verdict
+    dropped = {k for k, v in preprocess_info.items() if not v.get("kept")}
     items = [i for i in items if item_key(i) not in dropped]
     if dropped:
         # Details live in dropped.log (written by _stage_summary);
@@ -1769,7 +1770,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
 
     full_avalai = all(_leg_avalai(leg) for leg in LLM_LEGS) and any(
         _injected[leg] is _USE_DEFAULT for leg in LLM_LEGS)
-    s2_avalai = _judge_transport is _USE_DEFAULT \
+    judge_avalai = _judge_transport is _USE_DEFAULT \
         and providers["s2"] == "avalai"
     # Exact provider manifest: stage -> provider + actual model (telemetry
     # loops record requested Zen names on remap legs, so this file is the
@@ -1808,7 +1809,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # S0b/S3/S4 share the leg-keyed pairs below.
     leg_api_key, leg_ring = {}, {}
     judge_api_key, judge_ring = None, None
-    # full_avalai/s2_avalai computed above (before key loading).
+    # full_avalai/judge_avalai computed above (before key loading).
     precard_model = args.precard_model or AVALAI_PRECARD_MODEL
     if avalai_needed:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -1831,7 +1832,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 continue
             leg_api_key[leg] = avalai_key
             leg_ring[leg] = avalai_ring
-        if s2_avalai:
+        if judge_avalai:
             judge_api_key = avalai_key
             judge_ring = avalai_ring
             judge_transport = _avalai_chat_transport
@@ -1839,7 +1840,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     if full_avalai:
         api_key, ring = avalai_key, KeyRing([avalai_key])
     topic_transport = assign_transport = inflect_transport = None
-    s3_models_override = [models["s3"]] if _leg_avalai("s3") else None
+    vectors_models_override = [models["s3"]] if _leg_avalai("s3") else None
     # Per-leg remaps (uniform for full and mixed modes, per-leg models).
     # A leg keeps its remap when avalai, else falls back to Zen below.
     for leg in ("s0b", "s3", "s4"):
@@ -1874,10 +1875,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     elif _inflect_transport is not _USE_DEFAULT:
         inflect_transport = _inflect_transport
 
-    s4_cache = progress_dir / "s4_topup_cache.json"
-    s4_calls: dict = {}
+    label_topup_cache = progress_dir / "s4_topup_cache.json"
+    label_calls: dict = {}
     precards: dict = {}
-    s0b_dropped: set = set()
+    inflection_dropped: set = set()
     # Provider manifest: exact stage -> provider + actual model for cost
     # attribution (console + run.log + provider_map.json beside --out).
     _prov_line = ", ".join(
@@ -1905,7 +1906,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # (established nominal/idiomatic sense) stays inflection-keep.
         # Verdict variant inside S0b — no new stage.
         run_logger.stage_start("s0b")
-        n_s0b_batches = (len(items) + BATCH - 1) // BATCH or 1
+        n_inflection_batches = (len(items) + BATCH - 1) // BATCH or 1
         for batch_no, base in enumerate(
                 _stage_range(selected, "s0b", items), start=1):
             batch = items[base:base + BATCH]
@@ -1915,7 +1916,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             for item in todo:
                 key = item_key(item)
                 try:
-                    needs, gloss = s0b_needs_review(
+                    needs, gloss = inflection_needs_review(
                         item, index, read_entry)
                 except Exception:
                     needs, gloss = False, ""
@@ -1980,7 +1981,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 1 for i in batch
                 if not (states["s0b"]["done"].get(item_key(i)) or {}).get(
                     "kept", True))
-            _batch_progress("s0b", batch_no, n_s0b_batches,
+            _batch_progress("s0b", batch_no, n_inflection_batches,
                               len(batch) - failed_here, failed_here)
         run_logger.stage_end(
             "s0b",
@@ -1989,9 +1990,9 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             fail=len(states["s0b"].get("failed", [])))
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         _stage_summary("s0b", states, args.out)
-        s0b_dropped = {k for k, v in states["s0b"]["done"].items()
+        inflection_dropped = {k for k, v in states["s0b"]["done"].items()
                        if isinstance(v, dict) and not v.get("kept")}
-        items = [i for i in items if item_key(i) not in s0b_dropped]
+        items = [i for i in items if item_key(i) not in inflection_dropped]
         # R44 v12: propagate superlative redirects onto the in-memory
         # items AND merge into the base lemma (Gemini: avoid FSRS
         # fragmentation across best/good). The item becomes the base form
@@ -2006,11 +2007,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 if base and base != (item.get("text") or "").strip().lower():
                     item["redirected_from"] = item.get("text", "")
                     item["text"] = base
-        if s0b_dropped:
+        if inflection_dropped:
             # Details live in dropped.log; console stays one short line.
             print(_color("s0b inflection: kept=%d dropped=%d "
                          "(see dropped.log)" % (len(items),
-                                                len(s0b_dropped)),
+                                                len(inflection_dropped)),
                          "cyan"))
         # S1 (deterministic, batch-flushed). V7 anchor-POS drop lives ONLY
         # here: when the anchored sense's entry POS is in {name, propn}
@@ -2020,10 +2021,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # no-real-def: no target entry, or the target is also a bare
         # xref — 1 hop max, no chains).
         # The reason rides on the s1 done entry + failed list (drops never
-        # reach precard.jsonl); s1_dropped is rebuilt from state, so the
+        # reach precard.jsonl); anchor_dropped is rebuilt from state, so the
         # drop is resume-safe with no re-run needed.
         run_logger.stage_start("s1")
-        n_s1_batches = (len(items) + BATCH - 1) // BATCH or 1
+        n_anchor_batches = (len(items) + BATCH - 1) // BATCH or 1
         for batch_no, base in enumerate(
                 _stage_range(selected, "s1", items), start=1):
             batch = items[base:base + BATCH]
@@ -2039,7 +2040,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         or "anchor_tags" not in done_entry \
                         or "xref_unresolvable" not in done_entry:
                     try:
-                        ranked = s1_rank_item(item, index, read_entry)
+                        ranked = anchor_rank_item(item, index, read_entry)
                         if (ranked.get("anchor_pos") or "") in \
                                 card_pilot.PROPER_NOUN_POS:
                             rerouted = _reroute_proper_anchor(
@@ -2084,28 +2085,28 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 if (states["s1"]["done"].get(item_key(i)) or {}).get(
                     "dropped")
                 or item_key(i) in states["s1"]["failed"])
-            _batch_progress("s1", batch_no, n_s1_batches,
+            _batch_progress("s1", batch_no, n_anchor_batches,
                               len(batch) - failed_here, failed_here)
-        s1_dropped = {k for k, v in states["s1"]["done"].items()
+        anchor_dropped = {k for k, v in states["s1"]["done"].items()
                       if isinstance(v, dict) and v.get("dropped")}
         run_logger.stage_end("s1", ok=len(states["s1"]["done"]) - len(
-            s1_dropped), fail=len(s1_dropped))
+            anchor_dropped), fail=len(anchor_dropped))
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         _stage_summary("s1", states, args.out)
-        if s1_dropped:
+        if anchor_dropped:
             # Details live in dropped.log; console stays one short line.
             print(_color("s1 anchor-pos: kept=%d dropped=%d "
                          "(see dropped.log)" % (
-                             len(items) - len(s1_dropped & {item_key(i)
+                             len(items) - len(anchor_dropped & {item_key(i)
                                                             for i in items}),
-                             len(s1_dropped & {item_key(i)
+                             len(anchor_dropped & {item_key(i)
                                                for i in items})),
                          "cyan"))
-        items = [i for i in items if item_key(i) not in s1_dropped]
+        items = [i for i in items if item_key(i) not in anchor_dropped]
         # S2 (judge batches). ok = judge-model picks in the batch,
         # fail = s1-fallback (fail-closed) picks in the batch.
         run_logger.stage_start("s2")
-        n_s2_batches = (len(items) + BATCH - 1) // BATCH or 1
+        n_judge_batches = (len(items) + BATCH - 1) // BATCH or 1
         for batch_no, base in enumerate(
                 _stage_range(selected, "s2", items), start=1):
             batch = items[base:base + BATCH]
@@ -2113,7 +2114,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     if item_key(i) not in states["s2"]["done"]]
             if todo:
                 try:
-                    verdicts = s2_judge_batch(
+                    verdicts = judge_batch(
                         todo, states["s1"]["done"],
                         judge_api_key or api_key,
                         judge_transport, sleep_fn, states["s2"],
@@ -2126,7 +2127,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     tele_flushed = _flush_telemetry(tele_dir, tele_store,
                                                     tele_flushed)
                     hint = ("wait for quota reset then re-run"
-                            if (full_avalai or s2_avalai)
+                            if (full_avalai or judge_avalai)
                             else "switch VPN server then re-run")
                     raise SystemExit(
                         "STOP s2 at batch %d: %s — progress flushed, "
@@ -2135,7 +2136,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     key = item_key(item)
                     verdict = verdicts.get(key)
                     if verdict is None:
-                        verdict = _s2_fallback(
+                        verdict = _judge_fallback(
                             item, states["s1"]["done"].get(key))
                     states["s2"]["done"][key] = verdict
                     if (verdict.get("model") or "").startswith("s1-") \
@@ -2147,7 +2148,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 1 for i in batch
                 if ((states["s2"]["done"].get(item_key(i)) or {}).get(
                     "model", "") or "").startswith("s1-"))
-            _batch_progress("s2", batch_no, n_s2_batches,
+            _batch_progress("s2", batch_no, n_judge_batches,
                               len(batch) - fail, fail)
         run_logger.stage_end(
             "s2",
@@ -2169,7 +2170,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 continue
             if "proper_route" in entry and "proper_drop" in entry:
                 continue
-            verdict = s2_proper_route(
+            verdict = judge_proper_route(
                 item, entry, states["s1"]["done"].get(key),
                 index, read_entry, zipf_fn)
             entry["proper_route"] = verdict["proper_route"]
@@ -2179,24 +2180,24 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             evaluated += 1
         if evaluated:
             _flush(progress_dir, states)
-        s2_proper_dropped = {
+        judge_proper_dropped = {
             k for k, v in states["s2"]["done"].items()
             if isinstance(v, dict) and v.get("proper_drop")}
-        s2_proper_here = s2_proper_dropped & {item_key(i) for i in items}
-        if evaluated or s2_proper_here:
+        judge_proper_here = judge_proper_dropped & {item_key(i) for i in items}
+        if evaluated or judge_proper_here:
             print("s2 proper-route: routed=%d dropped=%d%s" % (
                 sum(1 for i in items
                     if (states["s2"]["done"].get(item_key(i)) or {}).get(
                         "proper_route")),
-                len(s2_proper_here),
+                len(judge_proper_here),
                 " (%s)" % ", ".join(sorted(
                     "%s:%s" % (k, states["s2"]["done"][k].get("proper_drop"))
-                    for k in s2_proper_here)) if s2_proper_here else ""))
-        items = [i for i in items if item_key(i) not in s2_proper_dropped]
+                    for k in judge_proper_here)) if judge_proper_here else ""))
+        items = [i for i in items if item_key(i) not in judge_proper_dropped]
         # S3 (vector batches). ok = model vectors, fail = deterministic
         # (fail-closed) fallbacks.
         run_logger.stage_start("s3")
-        n_s3_batches = (len(items) + BATCH - 1) // BATCH or 1
+        n_vectors_batches = (len(items) + BATCH - 1) // BATCH or 1
         for batch_no, base in enumerate(
                 _stage_range(selected, "s3", items), start=1):
             batch = items[base:base + BATCH]
@@ -2204,14 +2205,14 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                     if item_key(i) not in states["s3"]["done"]]
             if todo:
                 try:
-                    vecs = s3_vector_batch(
+                    vecs = vectors_batch(
                         todo, states["s2"]["done"],
                         states["s1"]["done"],
                         leg_api_key.get("s3", api_key),
                         topic_transport, sleep_fn, states["s3"],
                         telemetry=tele_store, tele_batch=batch_no,
                         ring=leg_ring.get("s3", ring),
-                        models=s3_models_override)
+                        models=vectors_models_override)
                 except AuthError:
                     raise
                 except RateLimited as exc:
@@ -2242,7 +2243,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 1 for i in batch
                 if (states["s3"]["done"].get(item_key(i)) or {}).get(
                     "model") == "deterministic")
-            _batch_progress("s3", batch_no, n_s3_batches,
+            _batch_progress("s3", batch_no, n_vectors_batches,
                               len(batch) - fail, fail)
         run_logger.stage_end(
             "s3",
@@ -2264,7 +2265,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         (states["s2"]["done"].get(key) or {}).get(
                             "sense_id", ""),
                         []).append(entry)
-        n_s4_batches = (len(items) + BATCH - 1) // BATCH or 1
+        n_label_batches = (len(items) + BATCH - 1) // BATCH or 1
         for batch_no, base in enumerate(
                 _stage_range(selected, "s4", items), start=1):
             batch = items[base:base + BATCH]
@@ -2279,12 +2280,12 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         lookup[pick["sense_id"]] = vec_lookup[
                             pick["sense_id"]]
                     try:
-                        assigned = s4_label_item(
+                        assigned = label_item(
                             item, pick.get("gloss", ""),
                             pick.get("sense_id", ""), lookup or None,
                             leg_api_key.get("s4", api_key),
                             assign_transport, sleep_fn,
-                            states["s4"], str(s4_cache), s4_calls,
+                            states["s4"], str(label_topup_cache), label_calls,
                             telemetry=tele_store, tele_batch=batch_no,
                             ring=leg_ring.get("s4", ring))
                     except AuthError:
@@ -2304,7 +2305,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             if did_work:
                 sleep_fn(SLEEP)
             _flush(progress_dir, states)
-            _batch_progress("s4", batch_no, n_s4_batches,
+            _batch_progress("s4", batch_no, n_label_batches,
                               len(batch), 0)
         run_logger.stage_end("s4", ok=len(states["s4"]["done"]), fail=0)
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
@@ -2312,18 +2313,18 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # S5 (deterministic enrichment, batch-flushed). Same as S4: no
         # fail-closed signal, fail is always 0.
         run_logger.stage_start("s5")
-        n_s5_batches = (len(items) + BATCH - 1) // BATCH or 1
+        n_enrich_batches = (len(items) + BATCH - 1) // BATCH or 1
         for batch_no, base in enumerate(
                 _stage_range(selected, "s5", items), start=1):
             batch = items[base:base + BATCH]
             for item in batch:
                 key = item_key(item)
                 if key not in states["s5"]["done"]:
-                    states["s5"]["done"][key] = s5_enrich_item(
+                    states["s5"]["done"][key] = enrich_item(
                         item, states["s2"]["done"].get(key) or {},
                         index, read_entry, tatoeba_pool)
             _flush(progress_dir, states)
-            _batch_progress("s5", batch_no, n_s5_batches,
+            _batch_progress("s5", batch_no, n_enrich_batches,
                               len(batch), 0)
         run_logger.stage_end("s5", ok=len(states["s5"]["done"]), fail=0)
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
@@ -2335,7 +2336,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             label = states["s4"]["done"].get(key) or {}
             vec3 = states["s3"]["done"].get(key) or {}
             pick = states["s2"]["done"].get(key) or {}
-            s0v = s0_info.get(key) or {}
+            preprocess_view = preprocess_info.get(key) or {}
             s0b = states["s0b"]["done"].get(key) or {}
             topic_vector = (label.get("vector")
                             or vec3.get("vector")
@@ -2361,23 +2362,23 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 or card_pilot.TOPIC_METHOD_TAG,
                 "drop_reason": None,
                 "stage_calls": {
-                    "s0": ("kept:type-pending" if s0v.get("type_pending")
-                            else "kept:quarantine-%s" % s0v.get("quarantine")
-                            if s0v.get("quarantine") else "kept"),
+                    "s0": ("kept:type-pending" if preprocess_view.get("type_pending")
+                            else "kept:quarantine-%s" % preprocess_view.get("quarantine")
+                            if preprocess_view.get("quarantine") else "kept"),
                     "s0b": (s0b.get("reason", "") or "kept"),
                     "s2": pick.get("model", ""),
                     "s3": vec3.get("model", ""),
                     "s4": label.get("method", ""),
                     "s4_path": label.get("topic_path", ""),
-                    "s4_models": dict(s4_calls),
+                    "s4_models": dict(label_calls),
                     "s5": enrich.get("enrich_path", "")},
             }
-            if s0v.get("type_pending"):
+            if preprocess_view.get("type_pending"):
                 rec["type_pending"] = True
-            if s0v.get("quarantine"):
+            if preprocess_view.get("quarantine"):
                 # Advisory review flag flows downstream (card stays live;
                 # owner filters quarantine=* for the review list).
-                rec["quarantine"] = s0v["quarantine"]
+                rec["quarantine"] = preprocess_view["quarantine"]
             if (pick.get("proper_route") or ""):
                 rec["proper_route"] = pick["proper_route"]
             if key not in precards:
@@ -2433,11 +2434,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     print("precard done: %d items -> %s (s0 dropped=%d, s0b dropped=%d, "
           "s1 dropped=%d, failed flags=%d)"
           % (len(items), out_path, len(states["s0"].get("failed", [])),
-             len(s0b_dropped), len(s1_dropped), n_failed))
+             len(inflection_dropped), len(anchor_dropped), n_failed))
     run_logger.log("precard done: %d items s0_dropped=%d s0b_dropped=%d "
                    "s1_dropped=%d failed=%d" % (
                        len(items), len(states["s0"].get("failed", [])),
-                       len(s0b_dropped), len(s1_dropped), n_failed))
+                       len(inflection_dropped), len(anchor_dropped), n_failed))
     run_logger.close()
     return 0
 

@@ -189,11 +189,11 @@ def test_r39_fallback_to_higher_when_no_pos_match():
 
 
 def test_r39_s1_window_is_judge_width():
-    from precard_pipeline import s1_rank_item
+    from precard_pipeline import anchor_rank_item
     index = {"bank": _twelve_nouns()}
     item = {"kind": "word", "text": "bank", "pos": "noun",
             "pool_level": "B1"}
-    ranked = s1_rank_item(item, index, read_entry)
+    ranked = anchor_rank_item(item, index, read_entry)
     assert len(ranked["candidates"]) == 10  # S2 judge width, not top-3
     assert ranked["top"]["sense_id"] == ranked["candidates"][0]["sense_id"]
 

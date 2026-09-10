@@ -1,7 +1,7 @@
 """Blind 4-way S2 judge test: GLM (recorded) vs 2x Gemini Lite (direct)
 vs Cohere North Mini (OpenRouter :free) on the frozen accept50 set.
 
-Same prompt for every contender (precard_pipeline._s2_prompt), one
+Same prompt for every contender (precard_pipeline._judge_prompt), one
 retry on invalid JSON only, three consecutive 429s abort the run
 (owner rule: stop, never long-backoff). GLM needs no new calls:
 its picks are read from the recorded pilot200glm s2.json baseline.
@@ -94,7 +94,7 @@ def _fetch_data(call_once):
     return None
 
 
-def google_judge(api_key, model, chunk, prompt, s1map,
+def google_judge(api_key, model, chunk, prompt, anchor_map,
                  http_post=None, timeout=90):
     """Gemini-direct judge: thinking MINIMAL, JSON mime, prompt verbatim."""
     post = http_post or _default_post
@@ -118,10 +118,10 @@ def google_judge(api_key, model, chunk, prompt, s1map,
         raise
     if data is None:
         return {}
-    return precard_pipeline._s2_validate(data, chunk, s1map) or {}
+    return precard_pipeline._judge_validate(data, chunk, anchor_map) or {}
 
 
-def openrouter_judge(api_key, model, chunk, prompt, s1map,
+def openrouter_judge(api_key, model, chunk, prompt, anchor_map,
                      http_post=None, timeout=90):
     """OpenRouter judge: reasoning effort none + excluded."""
     post = http_post or (
@@ -147,19 +147,19 @@ def openrouter_judge(api_key, model, chunk, prompt, s1map,
         raise
     if data is None:
         return {}
-    return precard_pipeline._s2_validate(data, chunk, s1map) or {}
+    return precard_pipeline._judge_validate(data, chunk, anchor_map) or {}
 
 
-def fill_missing_windows(items, s1map, kaikki_index=None,
+def fill_missing_windows(items, anchor_map, kaikki_index=None,
                        kaikki_raw=None, rank_fn=None):
     """Same S1 windows for every contender: compute windows missing
-    from the recorded s1map (dropped/proper items) via the pipeline
+    from the recorded anchor windows (dropped/proper items) via the pipeline
     S1 ranker. rank_fn(item, index, read_entry) injectable (tests)."""
     missing = [it for it in items
-               if precard_pipeline.item_key(it) not in s1map]
+               if precard_pipeline.item_key(it) not in anchor_map]
     if not missing:
-        return dict(s1map)
-    rank = rank_fn or precard_pipeline.s1_rank_item
+        return dict(anchor_map)
+    rank = rank_fn or precard_pipeline.anchor_rank_item
     if rank_fn is None:
         index = kaikki_index or card_pilot.load_kaikki_index(
             card_pilot.DEFAULT_KAIKKI_INDEX)
@@ -170,7 +170,7 @@ def fill_missing_windows(items, s1map, kaikki_index=None,
                 _raw, row["offset"], row["length"])
     else:
         index, read_entry = None, None
-    out = dict(s1map)
+    out = dict(anchor_map)
     for item in missing:
         try:
             out[precard_pipeline.item_key(item)] = rank(
@@ -180,7 +180,7 @@ def fill_missing_windows(items, s1map, kaikki_index=None,
     return out
 
 
-def run_model(tag, items, s1map, progress_path, judge_fn,
+def run_model(tag, items, anchor_map, progress_path, judge_fn,
               batch=BATCH, pace=4.0, sleep_fn=None):
     """Judge every item (batched S2 prompts), resume from progress.
 
@@ -200,7 +200,7 @@ def run_model(tag, items, s1map, progress_path, judge_fn,
     queue = list(todo)
     while queue:
         chunk, queue = queue[:batch], queue[batch:]
-        prompt = precard_pipeline._s2_prompt(chunk, s1map)
+        prompt = precard_pipeline._judge_prompt(chunk, anchor_map)
         try:
             valid = judge_fn(chunk, prompt)
         except urllib.error.HTTPError as exc:
@@ -250,13 +250,13 @@ def main(argv=None):
     with open(args.accept, encoding="utf-8") as handle:
         items = json.load(handle)
     with open(args.s1, encoding="utf-8") as handle:
-        s1map = json.load(handle)["done"]
+        anchor_map = json.load(handle)["done"]
     with open(args.glm_s2, encoding="utf-8") as handle:
         glm = json.load(handle)["done"]
 
     # Identical candidate windows for every contender (recorded +
     # live-filled for items the recorded run dropped).
-    s1map = fill_missing_windows(items, s1map, args.kaikki_index,
+    anchor_map = fill_missing_windows(items, anchor_map, args.kaikki_index,
                                  args.kaikki_raw)
 
     here = os.path.dirname(os.path.abspath(__file__))
@@ -285,9 +285,9 @@ def main(argv=None):
         if not api_key:
             raise KeyError("missing key: %s" % key_name)
         result[tag] = run_model(
-            tag, items, s1map, args.progress,
+            tag, items, anchor_map, args.progress,
             lambda chunk, prompt, _fn=fn, _k=api_key, _m=model: _fn(
-                _k, _m, chunk, prompt, s1map),
+                _k, _m, chunk, prompt, anchor_map),
             pace=args.pace)
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(result, handle, ensure_ascii=False, indent=1)
