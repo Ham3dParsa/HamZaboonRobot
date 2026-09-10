@@ -81,5 +81,10 @@ scan-target update requirement.
   intentionally not listed as a seam. Its divergence risk is guarded by
   `tests/test_single_source_of_truth.py` (`PLAN_FIELDS` + accessors ->
   `services/plan_fields.py`).
+- `config/themes.py` (issue #467, added 2026-09-07): pure frozen theme catalog
+  (`THEMES`, `DEFAULT_THEME_ID`; no I/O, no handler/callback boundary).
+  Same rationale as `services/plan_fields.py`; guarded by
+  `tests/test_single_source_of_truth.py` (`THEMES`/`DEFAULT_THEME_ID`/
+  `get_theme`/`validate_themes` -> `config/themes.py`).
 
 Copyright (c) Ham3dParsa. All rights reserved.

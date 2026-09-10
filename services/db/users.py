@@ -467,7 +467,9 @@ def get_user_theme(user_id: int, row=None) -> str:
     if row is None:
         try:
             row = get_user(user_id)
-        except Exception:
+        except Exception as exc:
+            if not is_missing_table_error(exc):
+                logger.exception("get_user_theme read failed")
             return DEFAULT_THEME_ID
     if not row:
         return DEFAULT_THEME_ID
@@ -481,10 +483,14 @@ def get_user_theme(user_id: int, row=None) -> str:
 
 
 def set_user_theme(user_id: int, theme_id: str):
-    """Persist a user's theme id; unknown ids raise ``ValueError`` (fail fast)."""
+    """Persist a user's theme id; unknown ids raise ``ValueError`` (fail fast).
+
+    No-op when ``user_id`` has no row; callers create the user first via
+    ``create_user_if_needed``.
+    """
     from config.themes import THEMES
 
-    if theme_id not in THEMES:
+    if not isinstance(theme_id, str) or theme_id not in THEMES:
         raise ValueError(f"Unknown theme: {theme_id}")
     with transaction() as conn:
         conn.execute("UPDATE users SET theme_id=? WHERE user_id=?", (theme_id, user_id))

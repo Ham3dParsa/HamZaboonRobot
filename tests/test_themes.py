@@ -173,8 +173,19 @@ class UserThemeDbTest(unittest.TestCase):
         try:
             cols = {row[1] for row in check.execute("PRAGMA table_info(users)")}
             self.assertIn("theme_id", cols)
+            stored = check.execute(
+                "SELECT theme_id FROM users WHERE user_id=7"
+            ).fetchone()
+            self.assertIsNotNone(stored)
+            self.assertEqual(stored[0], "fire_temple")
         finally:
             check.close()
+        saved_db_path, saved_schema_path = db.DB_PATH, db_schema.DB_PATH
+        db.DB_PATH, db_schema.DB_PATH = legacy_path, legacy_path
+        try:
+            self.assertEqual(users_module.get_user_theme(7), "fire_temple")
+        finally:
+            db.DB_PATH, db_schema.DB_PATH = saved_db_path, saved_schema_path
 
 
 if __name__ == "__main__":

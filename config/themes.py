@@ -122,7 +122,11 @@ def validate_themes() -> None:
         if set(heat.keys()) != {1, 2, 3}:
             raise ValueError(f"theme {theme_id}.heat must map exactly 1/2/3")
         for level, label in heat.items():
-            if not label or _FORBIDDEN_LEARNER_CHARS & set(label):
+            if (
+                not isinstance(label, str)
+                or not label
+                or _FORBIDDEN_LEARNER_CHARS & set(label)
+            ):
                 raise ValueError(f"theme {theme_id}.heat[{level}] breaks Persian law")
         if not isinstance(spec["has_animation"], bool):
             raise ValueError(f"theme {theme_id}.has_animation must be bool")
