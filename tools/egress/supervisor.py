@@ -565,7 +565,12 @@ def main(argv=None):
                         idx, len(cands), row["host"], exc))
                 finally:
                     tun.stop()
-            POOL.save_pool()
+            if alive:
+                # Same empty-probe rule as above: never overwrite a good
+                # whitelist after a probe that found 0 alive servers.
+                POOL.save_pool()
+            else:
+                print("zen probe skipped: whitelist NOT overwritten")
         return 0
     TOKEN = env.get(TOKEN_VAR, "")
     if not TOKEN:
