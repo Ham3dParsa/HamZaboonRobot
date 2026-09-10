@@ -264,7 +264,10 @@ def get_active_study_session(
 
 
 async def get_active_session_async(
-    user_id: int, context: ContextTypes.DEFAULT_TYPE
+    user_id: int,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    notify_update: Update | None = None,
 ) -> SessionState | None:
     """Single async choke point for session validity (F1).
 
@@ -275,24 +278,68 @@ async def get_active_session_async(
     (``to_thread(db.invalidate_stale_study_session, user_id)``). Returns the
     fresh state or None. Each ``to_thread`` boundary sits outside any SQLite
     transaction scope — SQLite is never held across an await.
+
+    Fail-closed (W1): every worker call is wrapped — an SQLite failure logs
+    via ``logger.exception`` and resolves to None (memory popped, never
+    re-persisted), mirroring the ``_reject_stale_day_tap`` pattern, so no
+    exception bubbles to the grade/delete/reveal call sites.
+
+    ``notify_update`` (advance_session path only): on a CONFIRMED-stale
+    discard the update's callback_query is answered with the standard stale
+    notice — the identical string/intent advance_session used for both its
+    former memory-stale and persisted-stale branches. Absent sessions and
+    worker failures stay silent; every other caller leaves this None so the
+    seam itself never notifies (async-c contract).
     """
     today = _app_day_str()
     state = context.user_data.get("current_session")
     if state is not None:
         if is_stale(state, today):
             context.user_data.pop("current_session", None)
-            await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
+            try:
+                await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
+            except Exception:
+                logger.exception(
+                    "session gate invalidate failed user_id=%s", user_id
+                )
+            await _notify_confirmed_stale(notify_update)
             return None
         return state
-    restored = await asyncio.to_thread(_restore_persisted_session, user_id)
+    try:
+        restored = await asyncio.to_thread(_restore_persisted_session, user_id)
+    except Exception:
+        logger.exception("session gate restore failed user_id=%s", user_id)
+        context.user_data.pop("current_session", None)
+        return None
     if restored is None:
         return None
     if is_stale(restored, today):
         context.user_data.pop("current_session", None)
-        await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
+        try:
+            await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
+        except Exception:
+            logger.exception(
+                "session gate invalidate failed user_id=%s", user_id
+            )
+        await _notify_confirmed_stale(notify_update)
         return None
     context.user_data["current_session"] = restored
     return restored
+
+
+async def _notify_confirmed_stale(notify_update: Update | None) -> None:
+    """Answer the standard stale-session notice when a callback exists.
+
+    Single seam for the gate's confirmed-stale notice (W2 collapse of
+    advance_session's two identical branches). Guarded exactly like the old
+    branches: text-menu entry (no callback_query) stays silent.
+    """
+    if notify_update is not None and notify_update.callback_query is not None:
+        await notify_callback(
+            notify_update.callback_query,
+            "این پیام دیگر معتبر نیست.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
 
 
 def _app_day_str() -> str:
@@ -388,32 +435,16 @@ async def handle_study_start(
     # --- day-boundary (T2, 619/622): today computed ONCE for the whole start ---
     today = _app_day_str()
 
-    # --- stale memory: silent invalidate, then fall through to quota + fresh ---
-    # A yesterday (or legacy dateless) memory state is popped and its
-    # persisted row + grade ledger cleared via ONE worker call, BEFORE quota.
-    # Silent: no toast, no partial report — the fresh session below is the
-    # only signal. Never re-persist the stale state afterwards.
-    existing = context.user_data.get("current_session")
-    if existing is not None and is_stale(existing, today):
-        context.user_data.pop("current_session", None)
-        await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
-        existing = None
-
-    # --- resume existing session (Decision 30: don't double-count slots) ---
-    if existing is not None and existing.nodes:
-        await _resume_existing_session(update, context, existing, user_id)
-        return
-
-    # --- restart recovery: a same-day session persisted to the DB (Bug 1) ---
-    restored = await asyncio.to_thread(_restore_persisted_session, user_id)
-    if restored is not None and is_stale(restored, today):
-        # Legacy row whose inner date is missing/stale while the row date
-        # looked current: same silent invalidate, then fresh build below.
-        await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
-        restored = None
-    if restored is not None:
-        context.user_data["current_session"] = restored
-        await _resume_existing_session(update, context, restored, user_id)
+    # --- single async gate (W2): fresh memory or a same-day persisted
+    # session resumes with NO quota consumed; stale (any flavor) is silently
+    # popped + invalidated inside the gate, so None flows to quota + fresh
+    # build below exactly like an absent session. Never re-persists stale.
+    # The nodes guard is unreachable-false in practice (fresh states always
+    # carry nodes; _restore filters empty), kept so resume can never index
+    # an empty list.
+    session = await get_active_session_async(user_id, context)
+    if session is not None and session.nodes:
+        await _resume_existing_session(update, context, session, user_id)
         return
 
     # --- quota check (Decision 30: once at top, before build) ---
@@ -899,48 +930,14 @@ async def advance_session(
     """
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
-    # Day-boundary: compute once so stale checks and persists share one date
-    # and can never straddle midnight.
+    # Day-boundary (W2): the async gate owns the whole stale check +
+    # invalidate — confirmed-stale answers the single standard stale notice
+    # via notify_update (both old branches used this identical string), an
+    # absent session stays silent. today is computed once for persists only.
     today = _app_day_str()
 
-    state: SessionState | None = context.user_data.get("current_session")
+    state = await get_active_session_async(user_id, context, notify_update=update)
     if state is None:
-        # Restart recovery: a same-day session may still be persisted in the DB
-        # even though the in-memory session was lost (Bug #401 / R1).
-        # F2 off-loop: sync DB read in a worker thread.
-        state = await asyncio.to_thread(_restore_persisted_session, user_id)
-        if state is not None:
-            if is_stale(state, today):
-                # Persisted-but-stale (legacy inner date): invalidate
-                # and stop — never render or re-persist yesterday's state.
-                # W6: answer the tap with the standard stale notice, but only
-                # when this advance came from a button press (text-menu entry
-                # has no callback_query to answer).
-                await asyncio.to_thread(
-                    db.invalidate_stale_study_session, user_id
-                )
-                if update.callback_query is not None:
-                    await notify_callback(
-                        update.callback_query,
-                        "این پیام دیگر معتبر نیست.",
-                        intent=CallbackNoticeIntent.IMPORTANT_ERROR,
-                    )
-                return
-            context.user_data["current_session"] = state
-        else:
-            return
-    elif is_stale(state, today):
-        # Cross-day stale memory: pop + single worker-call invalidate, then
-        # return without rendering or re-persisting the stale state (T2 R4).
-        # W6: same guarded stale notice as the persisted-stale branch above.
-        context.user_data.pop("current_session", None)
-        await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
-        if update.callback_query is not None:
-            await notify_callback(
-                update.callback_query,
-                "این پیام دیگر معتبر نیست.",
-                intent=CallbackNoticeIntent.IMPORTANT_ERROR,
-            )
         return
 
     try:
