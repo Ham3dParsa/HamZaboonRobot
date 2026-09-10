@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from config.catalog import DEFAULT_LEVEL, DISPLAY_TOGGLE_DEFAULTS
+from config.themes import DEFAULT_THEME_ID
 
 from config import (
     DB_PATH,
@@ -637,7 +638,7 @@ def init_db(path: str | None = None):
     with get_conn(path) as conn:
         _require_daily_cards_migrated(conn)
         conn.executescript(
-            """
+            f"""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
                 username TEXT,
@@ -659,7 +660,7 @@ def init_db(path: str | None = None):
                 review_mode TEXT,
                 onboarded INTEGER DEFAULT 0,
                 created_at TEXT,
-                theme_id TEXT DEFAULT 'fire_temple'
+                theme_id TEXT DEFAULT '{DEFAULT_THEME_ID}'
             );
             CREATE TABLE IF NOT EXISTS saved_words (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -819,7 +820,7 @@ def init_db(path: str | None = None):
             "display_toggles_forced": "TEXT",
             "first_exposure_mode": "TEXT",
             "review_mode": "TEXT",
-            "theme_id": "TEXT DEFAULT 'fire_temple'",
+            "theme_id": f"TEXT DEFAULT '{DEFAULT_THEME_ID}'",
         }
         for name, definition in user_columns.items():
             if name not in columns:
