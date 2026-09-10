@@ -700,6 +700,7 @@ async def run_fidelity_day(
                 if not action["abandoned"]:
                     from handlers.study_handler import (
                         SessionState,
+                        _app_day_str,
                         advance_session,
                     )
                     from services.db.session_reports import list_recent_reports
@@ -712,6 +713,9 @@ async def run_fidelity_day(
                         plan=action["plan"],
                         graded_word_ids=[word_id],
                         before_stability={},
+                        # Same-day sim journey: stamp today so the
+                        # day-boundary guard treats it as current.
+                        session_date=_app_day_str(),
                     )
                     ctx.user_data["current_session"] = state
 
