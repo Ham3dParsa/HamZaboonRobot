@@ -34,6 +34,7 @@ stage at startup.
 Output: precard.jsonl, one line per SURVIVING item:
 {key, kind, text, pool_level, sense_id, en_def, ipa, ipa_src,
  dataset_examples[], abbrev_expansion (R29), pos[]/pos_src (R32),
+ lexical_type/register/pre_card_id (C3, dataset-only, zero LLM),
  topic_vector[{label, weight}], topic_method,
  drop_reason (None when kept), type_pending (only when true),
  proper_route (only when the S2 pick routed to the proper-pool track),
@@ -75,6 +76,7 @@ Usage (owner run, needs VPN-ready long run — NOT run by the agent):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import pathlib
@@ -1249,8 +1251,93 @@ def _entries_for(item, index):
     return [], ""
 
 
+# --------------------------------- C3 pack wirings (locked 2026-09-10) ---
+# Additive precard row fields from dataset sources only (zero LLM calls):
+# lexical_type (word default; slang/colloquial/idiomatic from the picked
+# kaikki sense tags; phrases from the phrase-type log verbatim), register
+# (neutral default; informal tag; slang_vulgar from vulgar/offensive tags),
+# pre_card_id (sha1-hex16 of lemma.lower|pos|en_def normalized — EN only,
+# never Persian). Destination-side pack filters read these; gates/scoring
+# never do (no behavior change there).
+LEXICAL_TYPE_DEFAULT = "word"
+REGISTER_DEFAULT = "neutral"
+REGISTER_INFORMAL = "informal"
+REGISTER_SLANG_VULGAR = "slang_vulgar"
+_LEXICAL_SLANG_TAGS = {"slang"}
+_LEXICAL_COLLOQUIAL_TAGS = {"colloquial"}
+_LEXICAL_IDIOMATIC_TAGS = {"idiomatic"}
+_REGISTER_INFORMAL_TAGS = {"informal"}
+_REGISTER_SLANG_VULGAR_TAGS = {"vulgar", "offensive"}
+
+
+def _sense_tag_set(sense):
+    """Lowercased kaikki tag set of one sense dict ({} on bad shape)."""
+    try:
+        tags = (sense or {}).get("tags") or []
+    except AttributeError:
+        return set()
+    if isinstance(tags, str):
+        tags = [tags]
+    try:
+        items = list(tags)
+    except TypeError:
+        return set()
+    return {str(t or "").strip().casefold()
+            for t in items if str(t or "").strip()}
+
+
+def lexical_type_for(kind, sense_tags, phrase_entry=None):
+    """Lexical type for one precard row (pure, dataset-only).
+
+    Phrases with a phrase-type log entry use its phrase_type verbatim
+    (idiom, phrasal-verb, ...); everything else maps the picked-sense
+    kaikki tags (slang > colloquial > idiomatic) with a "word" default.
+    """
+    if (kind or "word") == "phrase" and isinstance(phrase_entry, dict):
+        phrase_type = str(phrase_entry.get("phrase_type") or "").strip()
+        if phrase_type:
+            return phrase_type
+    tags = set(sense_tags or [])
+    if tags & _LEXICAL_SLANG_TAGS:
+        return "slang"
+    if tags & _LEXICAL_COLLOQUIAL_TAGS:
+        return "colloquial"
+    if tags & _LEXICAL_IDIOMATIC_TAGS:
+        return "idiomatic"
+    return LEXICAL_TYPE_DEFAULT
+
+
+def register_for(sense_tags):
+    """Register for one precard row (pure, dataset-only).
+
+    slang_vulgar (vulgar/offensive tags) wins over informal; default is
+    neutral. The vulgar/offensive set is the locked ticket scope — the
+    broader S1 VULGAR_TAGS drop is a separate gate, untouched here.
+    """
+    tags = set(sense_tags or [])
+    if tags & _REGISTER_SLANG_VULGAR_TAGS:
+        return REGISTER_SLANG_VULGAR
+    if tags & _REGISTER_INFORMAL_TAGS:
+        return REGISTER_INFORMAL
+    return REGISTER_DEFAULT
+
+
+def _normalize_id_part(text):
+    """One pre_card_id component: stripped, lowered, whitespace-collapsed."""
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def compute_pre_card_id(lemma, pos, en_def):
+    """Stable precard id: sha1-hex16("lemma|pos|en_def") over normalized
+    EN content only (Persian phase-2 edits can never move it)."""
+    key = "%s|%s|%s" % (_normalize_id_part(lemma),
+                        _normalize_id_part(pos),
+                        _normalize_id_part(en_def))
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+
+
 def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
-                   zipf_fn=None):
+                   zipf_fn=None, phrase_entry=None):
     """Enrichment (s5) from the judge-chosen sense (card_pilot helpers).
 
     R29/R32 v8: also returns abbrev_expansion (dataset-first parse of the
@@ -1266,14 +1353,24 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     "enrich_path" is "full" when the dataset carriers cover IPA + all
     N_EXAMPLES slots, else "partial" (the model fills gaps downstream)
     so the fallback is counted in stage_calls, not silent.
+    C3: also returns lexical_type + register (picked-sense kaikki tags /
+    phrase-type log entry) and pre_card_id (stable EN-content id) —
+    dataset sources only, zero LLM calls.
     """
     sid = (judge_pick or {}).get("sense_id", "")
     gloss = (judge_pick or {}).get("gloss", "")
+    kind = item.get("kind") or "word"
+    lemma = (item.get("text") or "").strip()
     if not sid:
         return {"sense_id": "", "en_def": gloss or "",
                 "ipa": "", "ipa_src": card_pilot.IPA_SRC_MODEL,
                 "dataset_examples": [], "abbrev_expansion": "",
-                "pos": [], "pos_src": "none", "enrich_path": "partial"}
+                "pos": [], "pos_src": "none", "enrich_path": "partial",
+                "lexical_type": lexical_type_for(kind, set(),
+                                                 phrase_entry),
+                "register": REGISTER_DEFAULT,
+                "pre_card_id": compute_pre_card_id(
+                    lemma, item.get("pos", ""), gloss or "")}
     try:
         want_idx = int(sid.split("#")[-1])
     except (TypeError, ValueError):
@@ -1321,6 +1418,8 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     picked_examples = picked[:card_pilot.N_EXAMPLES]
     enrich_path = ("full" if ipa and len(picked_examples) >=
                    card_pilot.N_EXAMPLES else "partial")
+    sense_tags = _sense_tag_set(sense)
+    id_pos = (pos_tags[0] if pos_tags else (item.get("pos") or ""))
     return {"sense_id": sid, "en_def": gloss or "",
             "ipa": ipa,
             "ipa_src": card_pilot.IPA_SRC_DATASET if ipa
@@ -1330,7 +1429,12 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
                 gloss or ""),
             "pos": pos_tags,
             "pos_src": "dataset" if pos_tags else "none",
-            "enrich_path": enrich_path}
+            "enrich_path": enrich_path,
+            "lexical_type": lexical_type_for(kind, sense_tags,
+                                             phrase_entry),
+            "register": register_for(sense_tags),
+            "pre_card_id": compute_pre_card_id(lemma, id_pos,
+                                               gloss or "")}
 
 
 # ------------------------------------------------------------- main ---
@@ -2319,10 +2423,20 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
             batch = items[base:base + BATCH]
             for item in batch:
                 key = item_key(item)
-                if key not in states["s5"]["done"]:
+                done = states["s5"]["done"].get(key)
+                # C3 resume-compat: pre-C3 s5 entries lack pre_card_id —
+                # re-enrich deterministically (no LLM) instead of skipping.
+                if not isinstance(done, dict) \
+                        or "pre_card_id" not in done:
+                    phrase_entry = None
+                    if (item.get("kind") or "word") == "phrase" \
+                            and type_log_available:
+                        phrase_entry = (type_map or {}).get(
+                            (item.get("text") or "").strip())
                     states["s5"]["done"][key] = enrich_item(
                         item, states["s2"]["done"].get(key) or {},
-                        index, read_entry, tatoeba_pool)
+                        index, read_entry, tatoeba_pool,
+                        phrase_entry=phrase_entry)
             _flush(progress_dir, states)
             _batch_progress("s5", batch_no, n_enrich_batches,
                               len(batch), 0)
@@ -2357,6 +2471,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 "abbrev_expansion": enrich.get("abbrev_expansion", ""),
                 "pos": enrich.get("pos", []),
                 "pos_src": enrich.get("pos_src", "none"),
+                "lexical_type": enrich.get("lexical_type",
+                                           LEXICAL_TYPE_DEFAULT),
+                "register": enrich.get("register", REGISTER_DEFAULT),
+                "pre_card_id": enrich.get("pre_card_id", ""),
                 "topic_vector": topic_vector,
                 "topic_method": label.get("method")
                 or card_pilot.TOPIC_METHOD_TAG,
