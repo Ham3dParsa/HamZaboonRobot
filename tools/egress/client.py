@@ -24,14 +24,25 @@ def _call(path, payload):
 
 
 def lease(target="direct"):
-    """Lease an egress. Returns dict with lease_id/mode/proxy_url."""
+    """Lease an egress. Returns dict with lease_id/mode/proxy_url.
+
+    target is one of supervisor.TARGETS (direct/zen/google/openrouter/
+    avalai); "zen" keeps its historic tunnel meaning.
+    """
     return _call("/v1/lease", {"target": target})
 
 
-def report(lease_id, outcome):
-    """Report outcome (ok|http429|net_err|auth_err|unknown)."""
-    return _call("/v1/report", {"lease_id": lease_id,
-                                "outcome": outcome})
+def report(lease_id, outcome, provider=None):
+    """Report outcome (ok|http429|net_err|auth_err|unknown).
+
+    provider overrides the lease's provider for per-(server,provider)
+    cooldowns; None (default) cools the lease's own provider, which
+    keeps every old caller working unmodified.
+    """
+    payload = {"lease_id": lease_id, "outcome": outcome}
+    if provider is not None:
+        payload["provider"] = provider
+    return _call("/v1/report", payload)
 
 
 def health():
