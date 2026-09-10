@@ -77,6 +77,9 @@ GATE_RULES = {
 RULE_NAMES = {
     "R4": "proper-noun-rule",
     "R20": "zipf-floor-rule",
+    "R22-R25": "pipeline-range-rule",
+    "R29": "abbrev-expansion-rule",
+    "R32": "pos-carrier-rule",
     "R34": "cross-reference-rule",
     "R35": "level-aware-zipf-rule",
     "R36": "inflection-review-rule",
@@ -87,6 +90,9 @@ RULE_NAMES = {
 RULE_SENTENCES = {
     "R4": "Proper-noun lemmas are name-only and never become cards.",
     "R20": "Words below the zipf floor drop unless academically tagged.",
+    "R22-R25": "Locked end-to-end sample-to-precard pipeline range.",
+    "R29": "Abbreviation expansions parse dataset-first from the gloss.",
+    "R32": "POS carriers (pos/pos_src) come from the anchored entry.",
     "R34": "Cross-reference stubs resolve through the target entry.",
     "R35": "Zipf floors relax by pool level (C1/C2 may be rarer).",
     "R36": "Inflection-stub anchors go to the batched LLM micro-pass.",
@@ -109,7 +115,10 @@ REASON_SLUGS = (
     "quarantine-g4-abbrev",
     "pick-proper-noun",
     "anchor-proper-noun",
+    "vulgar-anchor",
+    "no-real-def",
     "inflection-drop",
+    "inflection-keep",
     "superlative-redirect",
     "review-uncertain",
     "not-inflection",
@@ -151,12 +160,18 @@ def normalize_stage(pick):
     """Stage id from an old id or a domain name (case-insensitive).
 
     Both directions resolve here: "s2" -> "s2" and "judge" -> "s2".
-    Unknown input passes through untouched (callers fail closed).
+    Unknown strings fall back to their stripped/lowered form (live-shim
+    parity); None becomes ""; other non-string input passes through
+    untouched (callers fail closed).
     """
-    key = (pick or "").strip().lower()
+    if pick is None:
+        pick = ""
+    if not isinstance(pick, str):
+        return pick
+    key = pick.strip().lower()
     if key in STAGE_IDS:
         return key
-    return NEW_STAGE_TO_OLD.get(key, pick)
+    return NEW_STAGE_TO_OLD.get(key, key)
 
 
 def stage_label(stage):
