@@ -196,8 +196,13 @@ def run_model(tag, items, anchor_map, progress_path, judge_fn,
     done = dict(progress.get(tag, {}))
     todo = [it for it in items
             if precard_pipeline.item_key(it) not in done]
+    total = len(items)
+    print("[blind50 %s] start: %d items (%d todo, %d kept)" % (
+        tag, total, len(todo), total - len(todo)), flush=True)
     strikes = 0
     queue = list(todo)
+    n_batches = (len(queue) + batch - 1) // batch if queue else 0
+    batch_no = 0
     while queue:
         chunk, queue = queue[:batch], queue[batch:]
         prompt = precard_pipeline._judge_prompt(chunk, anchor_map)
@@ -208,17 +213,28 @@ def run_model(tag, items, anchor_map, progress_path, judge_fn,
                 raise
             strikes += 1
             if strikes >= 3:
+                print("[blind50 %s] batch %d/%d: 429 (strike %d/3, "
+                      "stopping)" % (tag, batch_no + 1, n_batches, strikes),
+                      flush=True)
                 raise RateLimited(
                     "3 consecutive 429 batches — stopping")
+            print("[blind50 %s] batch %d/%d: 429 (strike %d/3, "
+                  "re-queued)" % (tag, batch_no + 1, n_batches, strikes),
+                  flush=True)
             queue.extend(chunk)  # re-queue: never silently drop
             continue
+        batch_no += 1
         strikes = 0
         for item in chunk:
             key = precard_pipeline.item_key(item)
             done[key] = valid.get(key, {"sense_id": "", "gloss": ""})
         progress[tag] = done
         _atomic_write(progress_path, progress)
+        print("[blind50 %s] batch %d/%d: done=%d/%d" % (
+            tag, batch_no, n_batches, len(done), total), flush=True)
         sleep(pace)
+    print("[blind50 %s] finished: done=%d/%d" % (
+        tag, len(done), total), flush=True)
     return done
 
 

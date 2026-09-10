@@ -79,7 +79,7 @@ def test_invalid_json_retries_once_then_fails_closed():
     assert out == {}
 
 
-def test_three_consecutive_429_aborts(tmp_path):
+def test_three_consecutive_429_aborts(tmp_path, capsys):
     items = [dict(ITEMS[0], text="w%d" % i) for i in range(3)]
 
     def fake_judge(chunk, prompt):
@@ -90,11 +90,14 @@ def test_three_consecutive_429_aborts(tmp_path):
                           fake_judge, batch=1, pace=0,
                           sleep_fn=lambda s: None)
     except blind50.RateLimited:
+        out = capsys.readouterr().out
+        assert "429 (strike 3/3, stopping)" in out
+        assert out.count("re-queued") == 2
         return
     raise AssertionError("expected RateLimited after 3x429")
 
 
-def test_isolated_429_requeues_instead_of_dropping(tmp_path):
+def test_isolated_429_requeues_instead_of_dropping(tmp_path, capsys):
     calls = []
 
     def fake_judge(chunk, prompt):
@@ -108,6 +111,8 @@ def test_isolated_429_requeues_instead_of_dropping(tmp_path):
                             sleep_fn=lambda s: None)
     assert calls == ["apple", "apple"]  # same batch retried
     assert out["w:apple"]["sense_id"] == "apple#0"
+    logs = capsys.readouterr().out
+    assert "429 (strike 1/3, re-queued)" in logs
 
 
 def test_openrouter_sends_bearer_token(monkeypatch):
@@ -162,3 +167,16 @@ def test_fill_missing_windows_fail_closed():
                       "pool_level": "A1"}]
     out = blind50.fill_missing_windows(items, ANCHOR_MAP, rank_fn=bad_rank)
     assert out["w:pear"] == {"candidates": []}
+
+
+def test_run_model_prints_progress(capsys, tmp_path):
+    def fake_judge(chunk, prompt):
+        return {"w:apple": {"sense_id": "apple#0", "gloss": "x"}}
+
+    blind50.run_model("g35", ITEMS, ANCHOR_MAP, str(tmp_path / "p.json"),
+                      fake_judge, pace=0, sleep_fn=lambda s: None)
+    out = capsys.readouterr().out
+    assert "[blind50 g35] start: 1 items (1 todo, 0 kept)" in out
+    assert "[blind50 g35] batch 1/1: done=1/1" in out
+    assert "[blind50 g35] finished: done=1/1" in out
+    out.encode("ascii")
