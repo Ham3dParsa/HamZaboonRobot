@@ -174,10 +174,10 @@ COUNTRY_NAMES = frozenset({
     "western sahara", "åland islands",
     # ASCII/diacritic aliases (#606 review): spellings owners actually
     # type — turkiye, vietnam, cote d'ivoire, curacao, reunion,
-    # aland islands. Same leak class as the lowercase fix; without these
+    # aland islands, são tomé and príncipe. Same leak class as the lowercase fix; without these
     # the empty-POS path misses both the blocklist and the R4 gate.
     "turkiye", "vietnam", "cote d'ivoire", "curacao", "reunion",
-    "aland islands",
+    "aland islands", "são tomé and príncipe",
 })
 STAGES = ("s0", "s0b", "s1", "s2", "s3", "s4", "s5")
 # Human-readable stage names for logs (ids stay stable in files/progress).

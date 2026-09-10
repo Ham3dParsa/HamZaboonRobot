@@ -1557,7 +1557,8 @@ def test_r4_country_blocklist_ascii_aliases():
     hit (united states of america) drop via the blocklist on empty POS."""
     from precard_pipeline import preprocess_classify_item
     for alias in ("turkiye", "vietnam", "cote d'ivoire", "curacao",
-                  "reunion", "aland islands", "united states of america"):
+                  "reunion", "aland islands", "são tomé and príncipe",
+                  "united states of america"):
         v = preprocess_classify_item(_g_item(alias, "B2"), {},
                                      lambda t: 5.0, set(), {}, False)
         assert v == {"kept": False, "reason": "r4-country-blocklist",
