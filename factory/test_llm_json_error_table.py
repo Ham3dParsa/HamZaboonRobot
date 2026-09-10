@@ -4,10 +4,15 @@ Every table row is pinned: code rules, each per-provider snippet, each
 generic snippet, and the fail-closed default. No network, no clock.
 """
 
+import os
 import pathlib
 import re
+import sys
 
-import llm_json as LJ
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(_HERE))
+
+from factory import llm_json as LJ  # noqa: E402
 
 
 def test_code_rules():
@@ -118,8 +123,11 @@ def test_single_owner_guard():
     (cooldown_switch/retry_once/fail_closed) in any other scanned module.
     """
     root = pathlib.Path(__file__).resolve().parent.parent
+    # Scope boundary: production + tooling trees. tests/ is out of scope
+    # by design — "fail_closed" there describes unrelated behaviors, and
+    # a production rival taxonomy must live in a production module.
     scanned = (
-        list((root / "factory").glob("*.py"))
+        list((root / "factory").rglob("*.py"))
         + list((root / "services").rglob("*.py"))
         + list((root / "handlers").rglob("*.py"))
         + list((root / "config").rglob("*.py"))
