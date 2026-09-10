@@ -629,3 +629,248 @@ def test_geo_country_quotes_ip():
     supervisor.geo_country(
         "http://127.0.0.1:1", "1.2.3.4?x=1", opener=opener)
     assert "%3F" in opener.urls[0] and "?x=1&" not in opener.urls[0]
+
+
+# --- C4b: TARGETS table + per-(server,provider) cooldowns ---
+
+def _link_pool():
+    pool = Pool()
+    pool.load([{"scheme": "vless", "host": "h", "port": 1, "id": "s1",
+                "link": "vless://u@h:1"}])
+    return pool
+
+
+def test_targets_table_shape():
+    from supervisor import TARGETS, google_probe, zen_probe
+    assert set(TARGETS) == {"direct", "zen", "google", "openrouter",
+                            "avalai"}
+    assert TARGETS["direct"] == {"provider": None, "tunnel": False,
+                                 "probe": None}
+    assert TARGETS["zen"]["tunnel"] is True  # historic name unchanged
+    assert TARGETS["zen"]["provider"] == "zen"
+    assert TARGETS["zen"]["probe"] is zen_probe
+    assert TARGETS["google"]["probe"] is google_probe
+    assert TARGETS["openrouter"] == {"provider": "openrouter",
+                                     "tunnel": True, "probe": None}
+    assert TARGETS["avalai"] == {"provider": "avalai", "tunnel": False,
+                                 "probe": None}
+
+
+def test_lease_all_targets_no_network():
+    pool = _link_pool()
+    for target, mode, provider in (
+            ("direct", "direct", None), ("avalai", "direct", "avalai"),
+            ("zen", "tunnel", "zen"), ("google", "tunnel", "google"),
+            ("openrouter", "tunnel", "openrouter")):
+        lease = pool.lease(target)
+        assert lease["mode"] == mode, target
+        assert lease["provider"] == provider, target
+        assert lease["target"] == target, target
+        assert pool.report(lease["lease_id"], "ok") == {"action": "keep"}
+
+
+def test_unknown_target_parks():
+    pool = _link_pool()
+    out = pool.lease("bogus")
+    assert out["error"] == "park"
+    assert "direct" in out["message"] and "bogus" in out["message"]
+
+
+def test_target_case_and_space_normalized():
+    pool = _link_pool()
+    assert pool.lease("  ZEN ")["mode"] == "tunnel"
+    assert pool.lease("Direct")["mode"] == "direct"
+
+
+def test_per_provider_cooldown_isolation():
+    """A zen 429 parks zen but leaves google/openrouter on the server."""
+    pool = _link_pool()
+    lease = pool.lease("zen")
+    assert pool.report(lease["lease_id"], "http429") == {"action": "switch"}
+    assert pool.lease("zen")["error"] == "park"
+    assert pool.lease("google")["mode"] == "tunnel"
+    assert pool.lease("openrouter")["mode"] == "tunnel"
+
+
+def test_report_provider_override():
+    """Explicit provider cools that pair, not the lease's provider."""
+    pool = _link_pool()
+    lease = pool.lease("zen")
+    assert pool.report(lease["lease_id"], "http429",
+                       "google") == {"action": "switch"}
+    assert pool.lease("zen")["mode"] == "tunnel"  # zen pair untouched
+    assert pool.lease("google")["error"] == "park"
+
+
+def test_cool_is_cool_helpers():
+    pool = Pool()
+    assert pool.is_cool("ghost") is False
+    assert pool.is_cool("") is False
+    pool.cool("s1", "zen", seconds=60)
+    assert pool.is_cool("s1", "zen") is True
+    assert pool.is_cool("s1", "google") is False  # pair isolation
+    assert pool.is_cool("s1", "zen", now=10 ** 12) is False  # expired
+    assert pool.provider_of("nope") is None
+    lease = pool.lease("direct")
+    assert pool.provider_of(lease["lease_id"]) is None
+
+
+def test_tunnel_owner_acquire_honors_provider(monkeypatch):
+    """acquire(provider) skips only that provider's cooled servers."""
+    from supervisor import TunnelOwner
+    import tunnel as tunnel_mod
+    monkeypatch.setattr(tunnel_mod, "Tunnel", _FakeTunnel)
+    pool = _link_pool()
+    owner = TunnelOwner(pool)
+    pool.cool("s1", "zen")
+    try:
+        with __import__("pytest").raises(RuntimeError):
+            owner.acquire(provider="zen")
+    finally:
+        owner.stop()
+    proxy, _, sid = owner.acquire(provider="google")
+    assert (proxy, sid) == ("http://127.0.0.1:19999", "s1")
+    owner.stop()
+
+
+def test_http_report_provider_override(monkeypatch):
+    """Over loopback: google-override cools google only; zen still leases."""
+    import supervisor as sup
+    import tunnel as tunnel_mod
+    monkeypatch.setattr(tunnel_mod, "Tunnel", _FakeTunnel)
+    sup.TOKEN = "test-token"
+    sup.POOL.servers.clear()
+    sup.POOL.cooldown_until.clear()
+    sup.POOL.leases.clear()
+    sup.POOL.load([{"scheme": "vless", "host": "a", "port": 1,
+                    "id": "s1", "link": "vless://u@a:1"}])
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        import urllib.request as _url
+
+        def post(path, payload):
+            req = _url.Request(
+                "http://127.0.0.1:%d%s" % (port, path),
+                data=json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json",
+                         "Authorization": "Bearer test-token"})
+            with _url.urlopen(req, timeout=10) as resp:
+                return json.load(resp)
+
+        lease = post("/v1/lease", {"target": "zen"})
+        assert lease["mode"] == "tunnel"
+        assert lease["provider"] == "zen"
+        res = post("/v1/report", {"lease_id": lease["lease_id"],
+                                  "outcome": "http429",
+                                  "provider": "google"})
+        assert res == {"action": "switch"}
+        again = post("/v1/lease", {"target": "zen"})
+        assert again["mode"] == "tunnel"  # zen pair untouched
+    finally:
+        server.shutdown()
+        thread.join(timeout=10)
+        sup.TUNNELS.stop()
+        sup.TOKEN = ""
+
+
+def test_client_report_provider_wire(monkeypatch):
+    """client.report forwards provider; omits it when None."""
+    import client as egress_client
+    seen = {}
+
+    def fake_call(path, payload):
+        seen[path] = payload
+        return {"action": "keep"}
+
+    monkeypatch.setattr(egress_client, "_call", fake_call)
+    egress_client.report("L1", "ok")
+    assert seen["/v1/report"] == {"lease_id": "L1", "outcome": "ok"}
+    egress_client.report("L1", "http429", provider="zen")
+    assert seen["/v1/report"] == {"lease_id": "L1", "outcome": "http429",
+                                  "provider": "zen"}
+
+
+def test_run_with_lease_accepts_new_targets(monkeypatch):
+    """run_with_lease gates on TARGETS keys, not a hardcoded pair."""
+    import run_with_lease as rwl
+    assert set(rwl.TARGETS) >= {"direct", "zen", "google", "openrouter",
+                                "avalai"}
+    assert rwl.main([]) == 2
+    assert rwl.main(["bogus", "--", "echo"]) == 2
+    calls = {}
+
+    def fake_lease(target):
+        calls["target"] = target
+        return {"lease_id": "L1", "mode": "direct", "proxy_url": "",
+                "egress_ip": "direct"}
+
+    def fake_report(lid, outcome, provider=None):
+        calls["report"] = (lid, outcome, provider)
+        return {"action": "keep"}
+
+    monkeypatch.setattr(rwl.client, "lease", fake_lease)
+    monkeypatch.setattr(rwl.client, "report", fake_report)
+
+    class FakeProc:
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(rwl.subprocess, "Popen",
+                        lambda cmd, env=None: FakeProc())
+    assert rwl.main(["google", "--", "echo", "hi"]) == 0
+    assert calls["target"] == "google"
+    assert rwl.main(["avalai", "--", "echo", "hi"]) == 0
+    assert calls["target"] == "avalai"
+
+
+def test_report_rejects_unknown_provider():
+    """Review finding: arbitrary provider strings must not mint keys."""
+    from supervisor import known_provider
+    assert known_provider(None) is True
+    assert known_provider("zen") is True
+    assert known_provider(" ZEN ") is True
+    assert known_provider("victim-provider") is False
+    assert known_provider("") is False
+    pool = _link_pool()
+    lease = pool.lease("zen")
+    assert pool.report(lease["lease_id"], "http429",
+                       "victim-provider") == {"action": "keep"}
+    assert pool.lease("zen")["mode"] == "tunnel"  # nothing cooled
+    assert pool.lease("google")["mode"] == "tunnel"
+
+
+def test_discard_lease_drops_under_lock():
+    """Review finding: lease cleanup owns its locking."""
+    pool = _link_pool()
+    lease = pool.lease("zen")
+    pool.discard_lease(lease["lease_id"])
+    assert pool.report(lease["lease_id"], "ok") == {
+        "action": "unknown-lease"}
+    pool.discard_lease("never-existed")  # no-op, no raise
+
+
+def test_run_with_lease_normalizes_target(monkeypatch):
+    """Review finding: CLI gate matches supervisor normalization."""
+    import run_with_lease as rwl
+    calls = {}
+
+    def fake_lease(target):
+        calls["target"] = target
+        return {"lease_id": "L1", "mode": "direct", "proxy_url": "",
+                "egress_ip": "direct"}
+
+    monkeypatch.setattr(rwl.client, "lease", fake_lease)
+    monkeypatch.setattr(rwl.client, "report",
+                        lambda lid, outcome: {"action": "keep"})
+
+    class FakeProc:
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(rwl.subprocess, "Popen",
+                        lambda cmd, env=None: FakeProc())
+    assert rwl.main(["  ZEN ", "--", "echo", "hi"]) == 0
+    assert calls["target"] == "zen"

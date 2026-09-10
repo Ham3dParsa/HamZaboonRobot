@@ -11,11 +11,16 @@ B3 secrets in tools/egress/.env (EGRESS_SUB_URL, EGRESS_SUP_TOKEN).
 Endpoints (127.0.0.1 only):
   GET  /v1/health                          -> {ok, servers, leases}
   POST /v1/lease  {target}                 -> {lease_id, mode, proxy_url,
-                                              egress_ip}
-  POST /v1/report {lease_id, outcome}      -> {action}
-Targets: "direct" (no tunnel) or "zen" (needs a tunnel; phase 1 parks
-with a clear message when no tunnel backend exists).
+                                              egress_ip, provider, target}
+  POST /v1/report {lease_id, outcome, provider?} -> {action}
+Targets (TARGETS table): "direct" (no tunnel, provider None),
+"avalai" (domestic: no tunnel, provider avalai), "zen" / "google" /
+"openrouter" (tunnel, one provider each; "zen" is the historic tunnel
+name and keeps working unchanged). Unknown targets park.
 Outcomes: ok | http429 | net_err | auth_err | unknown (unknown keeps).
+Cooldowns are per (server, provider): a 429 on zen never blocks google
+on the same server. report() cools the lease's provider unless the
+payload overrides it.
 """
 from __future__ import annotations
 
@@ -41,6 +46,36 @@ DEFAULT_PORT = 18789
 PROBE_TOP_N = 20
 PROBE_TIMEOUT_S = 5.0
 POOL_PATH = pathlib.Path(__file__).resolve().parent / "egress_pool.json"
+COOLDOWN_S = 300
+
+
+def norm_provider(provider):
+    """Canonical provider key: lowercase, stripped, "" when absent."""
+    return str(provider or "").strip().lower()
+
+
+def norm_target(target):
+    """Canonical target key: lowercase, stripped."""
+    return str(target or "").strip().lower()
+
+
+def target_spec(target):
+    """TARGETS row for a lease target, or None when unknown."""
+    return TARGETS.get(norm_target(target))
+
+
+def known_provider(provider):
+    """True when ``provider`` is a TARGETS provider (or absent/None).
+
+    Guards the cooldown table: an arbitrary caller-supplied string must
+    never mint junk (server, provider) keys.
+    """
+    if provider is None:
+        return True
+    want = norm_provider(provider)
+    return any(spec["provider"] is not None
+               and norm_provider(spec["provider"]) == want
+               for spec in TARGETS.values())
 
 
 def load_env():
@@ -109,10 +144,14 @@ def parse_subscription(text):
 
 
 class Pool:
-    """Ranked server pool with cooldowns. Thread-safe."""
+    """Ranked server pool with per-(server, provider) cooldowns.
+
+    Thread-safe (RLock: cool()/is_cool() are called both directly and
+    from inside lease()/report() while the lock is held).
+    """
 
     def __init__(self):
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self.servers = []
         self.cooldown_until = {}
         self.leases = {}
@@ -182,17 +221,64 @@ class Pool:
                 key=lambda s: rank.get(s.get("id"), len(order)))
         return len(valid)
 
+    def cool(self, server_id, provider=None, seconds=COOLDOWN_S):
+        """Mark (server, provider) as cooling for ``seconds``.
+
+        The ONLY writer of cooldown_until (lease/report/rotate/probes
+        all route through here). Falsy server_id is a no-op.
+        """
+        if not server_id:
+            return
+        with self._lock:
+            self.cooldown_until[(server_id,
+                                 norm_provider(provider))] = \
+                time.time() + seconds
+
+    def is_cool(self, server_id, provider=None, now=None):
+        """True while (server, provider) is still cooling (unusable).
+
+        The ONLY reader of cooldown_until for availability. ``now``
+        is injectable for hermetic tests.
+        """
+        if not server_id:
+            return False
+        if now is None:
+            now = time.time()
+        with self._lock:
+            return self.cooldown_until.get(
+                (server_id, norm_provider(provider)), 0) > now
+
+    def provider_of(self, lease_id):
+        """Provider recorded on a lease, or None for unknown leases."""
+        with self._lock:
+            lease = self.leases.get(lease_id)
+            return lease.get("provider") if lease else None
+
+    def discard_lease(self, lease_id):
+        """Drop a minted lease (acquire-failure cleanup) under the lock."""
+        with self._lock:
+            self.leases.pop(lease_id, None)
+
     def lease(self, target):
         with self._lock:
             now = time.time()
-            if target == "direct":
+            spec = target_spec(target)
+            if spec is None:
+                return {"error": "park",
+                        "message": "unknown target %r (want one of: %s)"
+                                   % (target, ", ".join(TARGETS))}
+            name = norm_target(target)
+            if not spec["tunnel"]:
                 lid = secrets.token_hex(8)
                 self.leases[lid] = {"mode": "direct", "server": None,
-                                    "since": now}
+                                    "since": now,
+                                    "provider": spec["provider"],
+                                    "target": name}
                 return {"lease_id": lid, "mode": "direct", "proxy_url": "",
-                        "egress_ip": "direct"}
+                        "egress_ip": "direct",
+                        "provider": spec["provider"], "target": name}
             avail = [s for s in self.servers
-                     if self.cooldown_until.get(s["id"], 0) <= now
+                     if not self.is_cool(s["id"], spec["provider"], now)
                      and s.get("link")]
             if not avail:
                 return {"error": "park",
@@ -201,17 +287,25 @@ class Pool:
             s = avail[0]
             lid = secrets.token_hex(8)
             self.leases[lid] = {"mode": "tunnel", "server": s["id"],
-                                "since": now}
+                                "since": now, "provider": spec["provider"],
+                                "target": name}
             return {"lease_id": lid, "mode": "tunnel",
-                    "server_id": s["id"]}
+                    "server_id": s["id"], "provider": spec["provider"],
+                    "target": name}
 
-    def report(self, lease_id, outcome):
+    def report(self, lease_id, outcome, provider=None):
         with self._lock:
             lease = self.leases.get(lease_id)
             if lease is None:
                 return {"action": "unknown-lease"}
+            if not known_provider(provider):
+                # Unvalidated provider strings must never mint cooldown
+                # keys: ignore the outcome, keep the lease.
+                return {"action": "keep"}
+            eff = norm_provider(provider) if provider is not None \
+                else lease.get("provider")
             if outcome == "http429" and lease.get("server"):
-                self.cooldown_until[lease["server"]] = time.time() + 300
+                self.cool(lease["server"], eff)
                 return {"action": "switch"}
             if outcome in ("net_err",):
                 return {"action": "switch"}
@@ -246,9 +340,13 @@ class TunnelOwner:
         self._tunnel = None
         self._server_id = None
 
-    def acquire(self):
+    def acquire(self, provider=None):
         """Start (or reuse) the tunnel for the best server. Returns
-        (proxy_url, egress_ip, server_id) or raises RuntimeError."""
+        (proxy_url, egress_ip, server_id) or raises RuntimeError.
+
+        Availability skips only servers cooling for ``provider``: a
+        zen-429 never blocks a google lease on the same server.
+        """
         try:
             from . import tunnel as _tunnel_mod
         except ImportError:  # top-level script run
@@ -256,7 +354,7 @@ class TunnelOwner:
         with self._lock:
             now = time.time()
             avail = [s for s in self._pool.servers
-                     if self._pool.cooldown_until.get(s["id"], 0) <= now
+                     if not self._pool.is_cool(s["id"], provider, now)
                      and s.get("link")]
             if not avail:
                 raise RuntimeError("no link-bearing server available")
@@ -278,12 +376,14 @@ class TunnelOwner:
             self._server_id = server["id"]
             return proxy, ip, server["id"]
 
-    def rotate(self, reason=""):
-        """Stop the current tunnel (429/quit); next acquire() moves on."""
+    def rotate(self, reason="", provider=None):
+        """Stop the current tunnel (429/quit); next acquire() moves on.
+
+        Cools the stopped server for ``provider`` via Pool.cool().
+        """
         with self._lock:
             if self._server_id:
-                self._pool.cooldown_until[self._server_id] = \
-                    time.time() + 300
+                self._pool.cool(self._server_id, provider)
             self._drop_locked()
 
     def _drop_locked(self):
@@ -345,11 +445,12 @@ class Handler(BaseHTTPRequestHandler):
             data = POOL.lease(data.get("target", ""))
             if data.get("mode") == "tunnel":
                 try:
-                    proxy, ip, _sid = TUNNELS.acquire()
+                    proxy, ip, _sid = TUNNELS.acquire(
+                        provider=data.get("provider"))
                 except (RuntimeError, ValueError, OSError) as exc:
                     # Acquire failed: drop the minted lease (no orphan
                     # records) and park with a message.
-                    POOL.leases.pop(data.get("lease_id", ""), None)
+                    POOL.discard_lease(data.get("lease_id", ""))
                     return self._send(200, {"error": "park",
                                             "message": str(exc)})
                 data["proxy_url"] = proxy
@@ -357,9 +458,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, data)
         if self.path == "/v1/report":
             res = POOL.report(data.get("lease_id", ""),
-                              data.get("outcome", ""))
+                              data.get("outcome", ""),
+                              data.get("provider"))
             if res.get("action") == "switch":
-                TUNNELS.rotate("reported " + str(data.get("outcome", "")))
+                TUNNELS.rotate("reported " + str(data.get("outcome", "")),
+                               provider=data.get("provider")
+                               if data.get("provider") is not None
+                               else POOL.provider_of(data.get("lease_id",
+                                                              "")))
             return self._send(200, res)
         return self._send(404, {"error": "not-found"})
 
@@ -509,6 +615,23 @@ def geo_country(proxy_url, ip, timeout=15, opener=None):
         return "?"
 
 
+# Canonical lease-target table (C4b): the single owner of target ->
+# provider/tunnel/probe mapping. ``tunnel`` False = direct mode (no
+# server, domestic); True = tunnel mode (needs a link-bearing server).
+# ``probe`` is the per-target liveness fn, or None when TCP ranking is
+# all there is (no probe exists for that provider yet). "zen" is the
+# historic tunnel name: it keeps leasing tunnels unchanged.
+TARGETS = {
+    "direct": {"provider": None, "tunnel": False, "probe": None},
+    "zen": {"provider": "zen", "tunnel": True, "probe": zen_probe},
+    "google": {"provider": "google", "tunnel": True,
+               "probe": google_probe},
+    "openrouter": {"provider": "openrouter", "tunnel": True,
+                   "probe": None},
+    "avalai": {"provider": "avalai", "tunnel": False, "probe": None},
+}
+
+
 def probe_pool(top_n=PROBE_TOP_N, workers=20):
     """Rank pool servers by TCP latency; Zen-liveness needs a tunnel
     (phase 2) so it is NOT probed here — ranking is reachability only,
@@ -629,13 +752,12 @@ def main(argv=None):
                     tun = _tunnel_mod.Tunnel(server, server["link"])
                     proxy = tun.start()
                     ip = tun.egress_ip()
-                    code, ms, note = zen_probe(proxy, key)
+                    code, ms, note = TARGETS["zen"]["probe"](proxy, key)
                     print("[%d/%d] %s -> egress %s zen=%s %dms (%s)" % (
                         idx, len(cands), row["host"], ip, code, ms,
                         note))
                     if code == 429:
-                        POOL.cooldown_until[server["id"]] = \
-                            time.time() + 300
+                        POOL.cool(server["id"], "zen")
                 except Exception as exc:  # noqa: BLE001 (per-server)
                     print("[%d/%d] %s: tunnel failed (%s)" % (
                         idx, len(cands), row["host"], exc))
@@ -677,7 +799,8 @@ def main(argv=None):
                     tun = _tunnel_mod.Tunnel(server, server["link"])
                     proxy = tun.start()
                     ip = tun.egress_ip()
-                    code, ms, note = google_probe(proxy, key)
+                    code, ms, note = TARGETS["google"]["probe"](proxy,
+                                                                key)
                     country = geo_country(proxy, ip) \
                         if note == "live" else "?"
                     print("[%d/%d] %s -> egress %s (%s) google=%s "
