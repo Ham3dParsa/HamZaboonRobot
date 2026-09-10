@@ -532,3 +532,100 @@ def test_google_probe_bad_key():
         "http://127.0.0.1:1", "k",
         opener=_FakeOpener(_FakeHTTPError(400, body)))
     assert code == 400 and note == "bad-key"
+
+
+def test_google_probe_forbidden():
+    code, ms, note = supervisor.google_probe(
+        "http://127.0.0.1:1", "k",
+        opener=_FakeOpener(_FakeHTTPError(403, b"denied")))
+    assert code == 403 and note == "forbidden"
+
+
+def test_google_probe_quota():
+    code, ms, note = supervisor.google_probe(
+        "http://127.0.0.1:1", "k",
+        opener=_FakeOpener(_FakeHTTPError(429, b"slow down")))
+    assert code == 429 and note == "quota"
+
+
+def test_google_probe_net_unknown():
+    import urllib.error as _err
+
+    code, ms, note = supervisor.google_probe(
+        "http://127.0.0.1:1", "k",
+        opener=_FakeOpener(_err.URLError("refused")))
+    assert code == "?" and note == "net/unknown"
+
+
+def test_google_probe_str_code_normalized():
+    class _StrCode(Exception):
+        code = "oops"
+
+        def read(self, size=-1):
+            return b""
+
+    code, ms, note = supervisor.google_probe(
+        "http://127.0.0.1:1", "k",
+        opener=_FakeOpener(_StrCode()))
+    assert code == "?" and note == "net/unknown"
+
+
+def test_google_probe_key_stripped():
+    class Resp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    opener = _FakeOpener(Resp())
+    code, ms, note = supervisor.google_probe(
+        "http://127.0.0.1:1", "  k  ", opener=opener)
+    assert code == 200 and note == "live"
+    assert opener.urls[0].endswith("key=k")
+
+
+def test_geo_country_success():
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b'{"country": "Germany"}'
+
+    assert supervisor.geo_country(
+        "http://127.0.0.1:1", "1.2.3.4",
+        opener=_FakeOpener(Resp())) == "Germany"
+
+
+def test_geo_country_failure_and_blank_ip():
+    import urllib.error as _err
+
+    assert supervisor.geo_country(
+        "http://127.0.0.1:1", "1.2.3.4",
+        opener=_FakeOpener(_err.URLError("down"))) == "?"
+    assert supervisor.geo_country(
+        "http://127.0.0.1:1", "",
+        opener=_FakeOpener(_err.URLError("unused"))) == "?"
+
+
+def test_geo_country_quotes_ip():
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b'{"country": "?"}'
+
+    opener = _FakeOpener(Resp())
+    supervisor.geo_country(
+        "http://127.0.0.1:1", "1.2.3.4?x=1", opener=opener)
+    assert "%3F" in opener.urls[0] and "?x=1&" not in opener.urls[0]

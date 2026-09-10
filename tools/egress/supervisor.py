@@ -439,7 +439,9 @@ def zen_probe(proxy_url, api_key, timeout=60):
             return code, int((_time.time() - start) * 1000), "live"
     except Exception as exc:  # noqa: BLE001 (probe reports, not raises)
         ms = int((_time.time() - start) * 1000)
-        code = getattr(exc, "code", "?")
+        raw = getattr(exc, "code", "?")
+        code = raw if isinstance(raw, int) and not isinstance(raw, bool) \
+            else "?"
         hint = {429: "quota out", 401: "bad key",
                 403: "forbidden"}.get(code, "net/unknown")
         return code, ms, hint
@@ -452,11 +454,15 @@ GOOGLE_MODELS_URL = ("https://generativelanguage.googleapis.com/"
 def google_probe(proxy_url, api_key, timeout=60, opener=None):
     """One free models:list call through proxy_url. Returns (code, ms,
     note): live | location-blocked (sanctioned egress country) |
-    bad-key | bad-request | forbidden | quota | net/unknown."""
+    bad-key | bad-request | forbidden | quota | net/unknown.
+
+    ``code`` is ``int`` for HTTP responses and ``"?"`` for non-HTTP
+    failures (DNS/timeout/refused); callers must ``==``-compare ints
+    only and ``%s``-format for display."""
     import time as _time
     open_fn = opener or _proxy_opener(proxy_url)
     req = urllib.request.Request(
-        GOOGLE_MODELS_URL + api_key,
+        GOOGLE_MODELS_URL + api_key.strip(),
         headers={"User-Agent": "HamZaban-factory/1.0"})
     start = _time.time()
     try:
@@ -465,7 +471,9 @@ def google_probe(proxy_url, api_key, timeout=60, opener=None):
             return code, int((_time.time() - start) * 1000), "live"
     except Exception as exc:  # noqa: BLE001 (probe reports, not raises)
         ms = int((_time.time() - start) * 1000)
-        code = getattr(exc, "code", "?")
+        raw = getattr(exc, "code", "?")
+        code = raw if isinstance(raw, int) and not isinstance(raw, bool) \
+            else "?"
         body = ""
         try:
             body = (exc.read(2048) or b"").decode("utf-8", "replace")
@@ -482,11 +490,16 @@ def google_probe(proxy_url, api_key, timeout=60, opener=None):
 
 
 def geo_country(proxy_url, ip, timeout=15, opener=None):
-    """Egress country via ip-api (best-effort, '?' on failure)."""
-    import time as _time  # noqa: F401 (symmetry with probes)
+    """Egress country via ip-api (best-effort, '?' on failure).
+
+    NOTE: free tier is http-only, so the egress IP is visible on the
+    wire by design (factory diagnostics, not learner traffic)."""
+    if not ip:
+        return "?"
     open_fn = opener or _proxy_opener(proxy_url)
     req = urllib.request.Request(
-        "http://ip-api.com/json/%s?fields=country" % ip,
+        "http://ip-api.com/json/%s?fields=country"
+        % urllib.parse.quote(str(ip), safe=""),
         headers={"User-Agent": "HamZaban-factory/1.0"})
     try:
         with open_fn.open(req, timeout=timeout) as resp:
@@ -600,7 +613,8 @@ def main(argv=None):
                 from . import tunnel as _tunnel_mod
             except ImportError:
                 import tunnel as _tunnel_mod
-            cands = [r for r in rows if r["alive"]][:args.probe_zen]
+            cands = [r for r in rows if r["alive"]][
+                :max(0, args.probe_zen)]
             print("zen ping: %d tunneled servers" % len(cands))
             for idx, row in enumerate(cands, 1):
                 server = next((s for s in POOL.servers
@@ -610,8 +624,9 @@ def main(argv=None):
                     print("[%d/%d] %s: no link (relink)" % (
                         idx, len(cands), row["host"]))
                     continue
-                tun = _tunnel_mod.Tunnel(server, server["link"])
+                tun = None
                 try:
+                    tun = _tunnel_mod.Tunnel(server, server["link"])
                     proxy = tun.start()
                     ip = tun.egress_ip()
                     code, ms, note = zen_probe(proxy, key)
@@ -625,7 +640,8 @@ def main(argv=None):
                     print("[%d/%d] %s: tunnel failed (%s)" % (
                         idx, len(cands), row["host"], exc))
                 finally:
-                    tun.stop()
+                    if tun is not None:
+                        tun.stop()
             if alive:
                 # Same empty-probe rule as above: never overwrite a good
                 # whitelist after a probe that found 0 alive servers.
@@ -644,7 +660,8 @@ def main(argv=None):
                 from . import tunnel as _tunnel_mod
             except ImportError:
                 import tunnel as _tunnel_mod
-            cands = [r for r in rows if r["alive"]][:args.probe_google]
+            cands = [r for r in rows if r["alive"]][
+                :max(0, args.probe_google)]
             print("google ping: %d tunneled servers" % len(cands))
             good = []
             for idx, row in enumerate(cands, 1):
@@ -655,8 +672,9 @@ def main(argv=None):
                     print("[%d/%d] %s: no link (relink)" % (
                         idx, len(cands), row["host"]))
                     continue
-                tun = _tunnel_mod.Tunnel(server, server["link"])
+                tun = None
                 try:
+                    tun = _tunnel_mod.Tunnel(server, server["link"])
                     proxy = tun.start()
                     ip = tun.egress_ip()
                     code, ms, note = google_probe(proxy, key)
@@ -672,7 +690,8 @@ def main(argv=None):
                     print("[%d/%d] %s: tunnel failed (%s)" % (
                         idx, len(cands), row["host"], exc))
                 finally:
-                    tun.stop()
+                    if tun is not None:
+                        tun.stop()
             if good:
                 ranked = [r for r in rows
                           if r["id"] in good and r["alive"]]
