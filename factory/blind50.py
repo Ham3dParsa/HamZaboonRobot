@@ -212,12 +212,15 @@ def run_model(tag, items, anchor_map, progress_path, judge_fn,
             if getattr(exc, "code", None) != 429:
                 raise
             strikes += 1
+            if strikes >= 3:
+                print("[blind50 %s] batch %d/%d: 429 (strike %d/3, "
+                      "stopping)" % (tag, batch_no + 1, n_batches, strikes),
+                      flush=True)
+                raise RateLimited(
+                    "3 consecutive 429 batches — stopping")
             print("[blind50 %s] batch %d/%d: 429 (strike %d/3, "
                   "re-queued)" % (tag, batch_no + 1, n_batches, strikes),
                   flush=True)
-            if strikes >= 3:
-                raise RateLimited(
-                    "3 consecutive 429 batches — stopping")
             queue.extend(chunk)  # re-queue: never silently drop
             continue
         batch_no += 1
