@@ -1809,7 +1809,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
     # S0b/S3/S4 share the leg-keyed pairs below.
     leg_api_key, leg_ring = {}, {}
     judge_api_key, judge_ring = None, None
-    # full_avalai/s2_avalai computed above (before key loading).
+    # full_avalai/judge_avalai computed above (before key loading).
     precard_model = args.precard_model or AVALAI_PRECARD_MODEL
     if avalai_needed:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -2021,7 +2021,7 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # no-real-def: no target entry, or the target is also a bare
         # xref — 1 hop max, no chains).
         # The reason rides on the s1 done entry + failed list (drops never
-        # reach precard.jsonl); s1_dropped is rebuilt from state, so the
+        # reach precard.jsonl); anchor_dropped is rebuilt from state, so the
         # drop is resume-safe with no re-run needed.
         run_logger.stage_start("s1")
         n_anchor_batches = (len(items) + BATCH - 1) // BATCH or 1

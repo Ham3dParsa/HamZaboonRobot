@@ -149,7 +149,7 @@ def test_full_run_writes_precard_shape(tmp_path, monkeypatch):
         assert len(state["done"]) == 2
 
 
-def test_s5_enrich_pos_and_abbrev(tmp_path, monkeypatch):
+def test_enrich_pos_and_abbrev(tmp_path, monkeypatch):
     """R29/R32: S5 returns abbrev_expansion + pos/pos_src from the pick."""
     from precard_pipeline import enrich_item
     index = {"dvd": [{"pos": "noun",
@@ -1022,7 +1022,7 @@ def test_s4_fallback_path_counted(tmp_path):
                for r in tele)
 
 
-def test_s5_enrich_path_full_and_partial():
+def test_enrich_path_full_and_partial():
     """T1: S5 marks full carriers vs partial (model must fill gaps)."""
     from precard_pipeline import enrich_item
     full_ex = ["The dvd player sits on the wooden shelf today",
