@@ -650,17 +650,21 @@ def probe_pool(top_n=PROBE_TOP_N, workers=20):
                      if isinstance(s, dict)}
         ranked = []
         done = 0
+        # \r rewrites share one line: pad to the longest line so far or
+        # a short line leaves ghosts of the previous long one.
+        width = 0
         for future in _fut.as_completed(future_of):
             done += 1
             ms, server = future.result()
             if not isinstance(server, dict) or not server.get("id") \
                     or not server.get("host") or not server.get("port"):
                 continue
-            print("\rprobing %d/%d: %s:%s %s" % (
+            line = "probing %d/%d: %s:%s %s" % (
                 done, len(servers), server.get("host"),
                 server.get("port"),
-                ("%dms" % ms) if ms < 10 ** 9 else "dead"),
-                end="", flush=True)
+                ("%dms" % ms) if ms < 10 ** 9 else "dead")
+            width = max(width, len(line))
+            print("\r" + line.ljust(width), end="", flush=True)
             ranked.append((ms, server))
         print("")
         ranked.sort(key=lambda pair: pair[0])
