@@ -50,7 +50,7 @@ Persian drop details go to `dropped.log`, never the console.
 python factory\precard_pipeline.py --sample W:\hamzaban_data_factory\pilot\sample200b.json `
   --out out\precard.jsonl --progress-dir out\prog --limit 20 --dry-run
 
-# blind judge comparison on the frozen 50 (needs keys + PR #614 merged)
+# blind judge comparison on the frozen 50 (needs keys)
 python factory\blind50.py --accept W:\hamzaban_data_factory\pilot\accept50.json `
   --s1 W:\hamzaban_data_factory\pilot200glm\progress\s1.json --glm-s2 W:\hamzaban_data_factory\pilot200glm\progress\s2.json `
   --out W:\hamzaban_data_factory\blind50\blind50.json --progress W:\hamzaban_data_factory\blind50\progress.json --dry-run
