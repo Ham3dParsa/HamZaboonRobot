@@ -104,6 +104,7 @@ RULE_SENTENCES = {
 # values after a colon, e.g. "r20-zipf-low:2.10", are measurements).
 REASON_SLUGS = (
     "r4-name-only",
+    "r4-country-blocklist",
     "r20-zipf-low",
     "applied-keep-false",
     "zipf-unknown-kept",
