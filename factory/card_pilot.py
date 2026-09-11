@@ -957,13 +957,20 @@ def filter_examples_by_length(texts, loose_cap=False):
     return kept
 
 
+def _fold_separators(value):
+    """Fold both slash styles to "/" so normpath compares equal on POSIX
+    and Windows alike (bare normpath does not fold backslash on POSIX).
+    """
+    return str(value or "").replace("\\", "/")
+
+
 def _is_pinned_default(path, default):
     """True when path names the pinned default (str or Path, either
     slash style). Guards the loud-missing teeth against caller spelling.
     """
     try:
-        return os.path.normpath(str(path or "")) == os.path.normpath(
-            str(default or ""))
+        return os.path.normpath(_fold_separators(path)) == os.path.normpath(
+            _fold_separators(default))
     except (TypeError, ValueError):
         return False
 

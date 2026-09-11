@@ -2264,3 +2264,17 @@ def test_default_topic_vectors_missing_warns_loud(tmp_path, capsys,
     captured = capsys.readouterr()
     assert "WARNING: default topic vectors missing" in \
         captured.out + captured.err
+
+def test_pinned_default_backslash_spelling_matches(tmp_path, capsys,
+                                                   monkeypatch):
+    """Either slash style names the pinned default (POSIX-safe fold)."""
+    missing = str(tmp_path / "gone.json")
+    monkeypatch.setattr(card_pilot, "DEFAULT_TATOEBA_POOL", missing)
+    forward = missing.replace(chr(92), "/")
+    backward = missing.replace("/", chr(92))
+    assert card_pilot._is_pinned_default(forward, missing) is True
+    assert card_pilot._is_pinned_default(backward, missing) is True
+    assert card_pilot.load_tatoeba_pool(backward) == {}
+    captured = capsys.readouterr()
+    assert "WARNING: default Tatoeba pool missing" in (
+        captured.out + captured.err)
