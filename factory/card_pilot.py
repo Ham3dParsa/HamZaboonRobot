@@ -489,10 +489,16 @@ def detect_xref(gloss):
 
 # R36 v9 — inflection-stub detection. General pattern over the
 # inflectional categories (no word lists): plural / past / participles /
-# comparative / superlative / 3rd-person-singular "of X".
+# comparative / superlative / 3rd-person-singular "of X". Covers the
+# kaikki prose variants: "present participle and gerund of X"
+# (adjacency broken by "and gerund") and "comparative/superlative
+# degree of X". Single source: S0b verdicts and the F4 veto inherit
+# this exact boundary.
 _INFLECTION_RX = re.compile(
-    r"(?i)\b(?:plural|past(?:\s+participle)?|present\s+participle|"
-    r"comparative|superlative|third(?:-|\s+)person\s+singular)\s+of\b")
+    r"(?i)\b(?:plural|past(?:\s+participle)?|present\s+participle"
+    r"(?:\s+and\s+gerund)?|gerund|comparative(?:\s+degree)?|"
+    r"superlative(?:\s+degree)?|third(?:-|\s+)person\s+singular)"
+    r"\s+of\b")
 
 
 def is_inflection_gloss(gloss):
@@ -532,6 +538,100 @@ def parse_superlative_base(gloss):
 def is_superlative_gloss(gloss):
     """R44: True when the gloss is a superlative/comparative-pattern stub."""
     return bool(parse_superlative_base(gloss))
+
+
+# Form-of-driven anchor fixes (one PR): kaikki form-of senses carry a
+# "form-of" tag, sometimes with only the participle/gerund/past-family
+# tags. Such senses are never learnable anchors — they sort below every
+# real sense (same strict-bucket pattern as the R40 meta bucket: the
+# score itself is untouched, so a word with ONLY form-of senses still
+# anchors instead of dropping).
+_FORMOF_FAMILY = frozenset({
+    "form-of", "participle", "present-participle", "past-participle",
+    "gerund", "past",
+})
+
+
+def _is_formof_sense(sense):
+    """True when the sense is a form-of inflection stub (tags only)."""
+    try:
+        tags = {str(t or "").strip().casefold()
+                for t in (sense or {}).get("tags") or []}
+    except Exception:
+        return False
+    tags = {t for t in tags if t}
+    if not tags:
+        return False
+    if tags & _FORMOF_FAMILY:
+        return True
+    return any("participle" in t for t in tags)
+
+
+def is_stub_sense(sense, gloss):
+    """Stub predicate for the S2 judge window: form-of-tagged senses
+    plus the shared gloss stubs (S0b/F4 boundary, inherited — the veto
+    keeps its own gloss-only path, the window adds the tag leg)."""
+    return bool(_is_formof_sense(sense)
+                or is_inflection_gloss(gloss)
+                or is_superlative_gloss(gloss))
+
+
+def parse_mother_lemma(sense):
+    """Mother lemma(s) of a form-of sense from form_of[].word.
+
+    Cleaning mirrors parse_superlative_base (strip quotes/dots, cut
+    trailing qualifiers at [:;,(], single alpha token only — a
+    multi-word target is not a clean redirect, EXCEPT the dataset
+    multi-target shape (better#0 form_of=[{word: "good and well"}]):
+    one form_of word joining two+ alpha tokens with "and"/commas
+    splits into a mothers list + multi True). Returns
+    (mother, mothers, multi): singletons -> ("go", ["go"], False);
+    multi-target (better: good+well, one string or two entries) ->
+    ("good", ["good", "well"], True); missing/unclean ->
+    ("", [], False). Order-preserving dedupe; the stored form is the
+    cleaned dataset word, case as-is.
+    """
+    try:
+        forms = (sense or {}).get("form_of") or []
+    except AttributeError:
+        return "", [], False
+    mothers = []
+    try:
+        items = list(forms)
+    except TypeError:
+        return "", [], False
+    for form in items:
+        if isinstance(form, dict):
+            word = form.get("word")
+        elif isinstance(form, str):
+            word = form
+        else:
+            continue
+        target = (word or "").strip().strip(
+            "'\"\u201c\u201d\u2018\u2019").strip().rstrip(".").strip()
+        target = re.split(r"[:;,(]", target, maxsplit=1)[0].strip()
+        # Multi-target single string ("good and well", "good, well"):
+        # split on "and"/commas/slashes before the single-token check.
+        parts = re.split(r"\s+and\s+|,\s*|/\s*|\s+&\s+",
+                         target, flags=re.IGNORECASE)
+        if len(parts) > 1:
+            for part in parts:
+                piece = (part or "").strip().strip(
+                    "'\"\u201c\u201d\u2018\u2019").strip().rstrip(
+                    ".").strip()
+                if re.fullmatch(r"[A-Za-z]+", piece or "") \
+                        and piece not in mothers:
+                    mothers.append(piece)
+            continue
+        if not re.fullmatch(r"[A-Za-z]+", target):
+            continue
+        if target not in mothers:
+            mothers.append(target)
+    if not mothers:
+        return "", [], False
+    if len(mothers) == 1:
+        return mothers[0], mothers, False
+    return mothers[0], mothers, True
 
 
 # R34 v9 — xref method tag (anchor resolved through the target entry).
@@ -606,16 +706,22 @@ def score_senses(text, entries, pool_pos, read_entry, zipf_fn=None):
         ppos = _v14_ppos(entry_pos, pool_pos)
         # R40 (#607): meta buckets demote below real senses (flag rides
         # along for the comparator; the score itself is untouched).
+        # Form-of stubs ride the same demoted bucket (weight ZERO —
+        # strict sort below every real sense, never a multiplicative
+        # penalty file-decay could outrank).
         score = _decay_prescore(idx, preg, ppos)
         scored.append([score, idx, entry, sense, gloss, float(fn),
-                       _is_meta_gloss(gloss)])
+                       _is_meta_gloss(gloss), _is_formof_sense(sense)])
 
     def _cmp(a, b):
         # R40 (#607): meta-vs-real sorts first (intended — a meta bucket
         # never outranks a real sense, even a penalized vulgar/obsolete
         # one); preg/ppos/freq legs only order within the same class.
-        if a[6] != b[6]:
-            return 1 if a[6] else -1
+        # Form-of stubs share the demoted bucket: any demoted sense
+        # (meta OR form-of) sorts below every real sense.
+        ad, bd = (a[6] or a[7]), (b[6] or b[7])
+        if ad != bd:
+            return 1 if ad else -1
         if abs(a[0] - b[0]) >= FREQ_TIE_EPS:
             return -1 if a[0] > b[0] else 1
         if abs(a[5] - b[5]) >= 1e-12:
@@ -625,7 +731,7 @@ def score_senses(text, entries, pool_pos, read_entry, zipf_fn=None):
         return 0
 
     scored.sort(key=_ft.cmp_to_key(_cmp))
-    return [(s, i, e, se, g) for s, i, e, se, g, _fn, _m in scored]
+    return [(s, i, e, se, g) for s, i, e, se, g, _fn, _m, _f in scored]
 
 
 # R39 v10 — tiered bucketing for the candidate window feeding S2 (and the
@@ -661,6 +767,16 @@ def select_candidate_window(scored, pool_pos="", pool_level="A1", cap=10):
     scored = list(scored or [])
     if not scored:
         return []
+    # Stub-free S2 window: form-of/stub senses never reach the judge
+    # (fewer tokens, zero stub-picks). Fail-closed: an all-stub list
+    # keeps every candidate — a veto reroutes, it never drops.
+    # POS coverage below runs over the filtered list, so a stub-only
+    # POS is never pulled back in.
+    live = [t for t in scored
+            if not is_stub_sense(t[3] if len(t) > 3 else None,
+                                 t[4] if len(t) > 4 else "")]
+    if live:
+        scored = live
     try:
         cap = max(1, int(cap))
     except (TypeError, ValueError):
@@ -1256,6 +1372,16 @@ def anchor_item_en(item, index, read_entry, vector_lookup=None,
             {str(t).strip().casefold() for t in _tags if str(t or "").strip()})
     except Exception:
         item["anchor_tags"] = []
+    # Mother-lemma carrier (additive, no consumer yet): the form_of
+    # target(s) of the anchored sense — singleton -> string, multi ->
+    # list + flag, missing -> ""/[]/False.
+    try:
+        _mother, _mothers, _multi = parse_mother_lemma(sense)
+    except Exception:
+        _mother, _mothers, _multi = "", [], False
+    item["mother_lemma"] = _mother
+    item["mother_lemmas"] = list(_mothers)
+    item["mother_multi"] = bool(_multi)
     item["abbrev_expansion"] = parse_abbrev_expansion(gloss)
     pos_tags = anchor_pos_tags(cand_text, cand_entries, cand_pos,
                                read_entry)
