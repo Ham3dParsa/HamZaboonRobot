@@ -20,6 +20,7 @@ from factory.pipeline import card_pilot
 from factory.lexicon import phrase_judge
 from factory.pipeline import precard_pipeline
 from factory.core import telemetry
+from factory.core.stage_glossary import STAGE_FILES
 from factory.pipeline.card_pilot import (
     GRAMMAR_TIP_FA_RULE,
     OP_RELEASED,
@@ -184,12 +185,12 @@ def test_r26_only_one_stage_runs(monkeypatch):
         assert code == 0
         assert seen  # s1 ranked via the injected read_entry
         s1 = json.loads(
-            (tmp_path / "prog" / "s1.json").read_text(encoding="utf-8"))
+            (tmp_path / "prog" / STAGE_FILES["s1"]).read_text(encoding="utf-8"))
         assert set(s1["done"]) == {"w:apple", "w:pear"}
         assert s1["done"]["w:apple"]["anchor_pos"] == "noun"
         for stage in ("s2", "s3", "s4", "s5"):
             later = json.loads(
-                (tmp_path / "prog" / ("%s.json" % stage)).read_text(
+                (tmp_path / "prog" / STAGE_FILES[stage]).read_text(
                     encoding="utf-8"))
             assert later["done"] == {}
         lines = [line for line in
@@ -220,7 +221,7 @@ def test_r26_rekey_forces_redo_and_resume_skips(monkeypatch):
         # Pear stayed resumed.
         assert len(seen3) == 4
         s1 = json.loads(
-            (tmp_path / "prog" / "s1.json").read_text(encoding="utf-8"))
+            (tmp_path / "prog" / STAGE_FILES["s1"]).read_text(encoding="utf-8"))
         assert set(s1["done"]) == {"w:apple", "w:pear"}
 
 
