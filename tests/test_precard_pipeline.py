@@ -17,11 +17,9 @@ import urllib.error
 from factory.pipeline import card_pilot
 from factory.pipeline import precard_pipeline
 from factory.pipeline.precard_pipeline import main as precard_main
-from factory.core.stage_glossary import OLD_PROGRESS_FILE_TO_NEW as _OLD_PROGRESS_FILE_TO_NEW
 from factory.core.stage_glossary import STAGE_FILES
-
-# T2: new on-disk top-up cache name (sole owner: stage_glossary).
-_TOPUP_NEW_NAME = _OLD_PROGRESS_FILE_TO_NEW["s4_topup_cache.json"]
+from factory.core.stage_glossary import TOPUP_NEW_NAME as _TOPUP_NEW_NAME
+from factory.core.stage_glossary import TOPUP_OLD_NAME as _TOPUP_OLD_NAME
 
 ITEMS = [
     {"kind": "word", "text": "apple", "pos": "noun", "pool_level": "A1"},
@@ -621,8 +619,7 @@ def test_label_topup_cache_old_name_seeds_new(tmp_path):
     key = "w\tg\tw#0"
     seeded = {key: {"label": "Seeded Label",
                     "vector": [{"label": "Seeded Label", "weight": 1.0}]}}
-    old_name = next(old for old, new in
-                    _OLD_PROGRESS_FILE_TO_NEW.items() if new == _TOPUP_NEW_NAME)
+    old_name = _TOPUP_OLD_NAME
     old = tmp_path / old_name
     old.write_text(json.dumps(seeded), encoding="utf-8")
     new_path = _resolve_label_topup_cache(tmp_path)
