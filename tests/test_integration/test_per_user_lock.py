@@ -239,7 +239,7 @@ class PerUserLockSrsTest(unittest.TestCase):
             grade_calls.append(word_id)
             return res
 
-        # Need active session per grade to pass active check. Mock get_active_study_session
+        # Need active session per grade to pass active check. Mock get_active_session_async
         from services.session import SessionNode
         from handlers.study_handler import SessionState
 
@@ -267,7 +267,10 @@ class PerUserLockSrsTest(unittest.TestCase):
                 return make_state_for(wids[idx])
             return None
 
-        with patch("handlers.srs_handler.get_active_study_session", side_effect=fake_get_active), \
+        async def async_fake_get_active(uid, ctx):
+            return fake_get_active(uid, ctx)
+
+        with patch("handlers.srs_handler.get_active_session_async", side_effect=async_fake_get_active), \
              patch.object(db, "grade_word_review", side_effect=counting_grade), \
              patch("handlers.srs_handler.advance_session", new=AsyncMock()), \
              patch("services.send_pretty.edit", new=AsyncMock()):

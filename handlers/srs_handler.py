@@ -28,7 +28,7 @@ from config.keyboards import (
 )
 from handlers.study_handler import (
     advance_session,
-    get_active_study_session,
+    get_active_session_async,
     is_stale,
     session_progress_footer,
     _app_day_str,
@@ -96,6 +96,16 @@ def _snapshot_inner_date(state_json: str) -> str:
         return ""
 
 
+def _is_persisted_stale(snapshot_row_date: str, inner_date: str, today: str) -> bool:
+    """Shared persisted-stale predicate (locked R1).
+
+    Row-date-today plus inner-JSON-yesterday (or missing/empty inner) is
+    stale too — the row date alone is not authoritative. None snapshots
+    never reach here (caller maps them to False).
+    """
+    return snapshot_row_date != today or not inner_date or inner_date != today
+
+
 def _grade_error_text(reason: str) -> str:
     """Persian copy for a failed GradeResult (Rule 8: expected errors alert)."""
     if reason == "not_found":
@@ -161,7 +171,7 @@ async def _handle_srs_reveal(
         )
         return
     # Frozen reveal is authoritative; check both ephemeral and persisted.
-    state_early = get_active_study_session(user_id, context)
+    state_early = await get_active_session_async(user_id, context)
     if state_early is not None and state_early.revealed and state_early.active_prompt_word_id == word_id:
         await notify_callback(update.callback_query)
         return
@@ -297,7 +307,7 @@ async def _handle_srs_review(
         )
         return
     # W3: remember whether a persisted-stale row exists BEFORE
-    # get_active_study_session restores/clears it — the restore wipes stale
+    # get_active_session_async restores/clears it — the restore wipes stale
     # rows, after which a stale tap is indistinguishable from legitimate
     # standalone (sessionless) grading. Only consulted on the session-None
     # path below; a live memory session always wins over the row.
@@ -314,12 +324,8 @@ async def _handle_srs_review(
         _persisted_stale = False
     else:
         _inner_date = _snapshot_inner_date(_stale_snapshot[1])
-        _persisted_stale = (
-            _stale_snapshot[0] != _stale_today
-            or not _inner_date
-            or _inner_date != _stale_today
-        )
-    session = get_active_study_session(user_id, context)
+        _persisted_stale = _is_persisted_stale(_stale_snapshot[0], _inner_date, _stale_today)
+    session = await get_active_session_async(user_id, context)
     if session is not None and word_id in session.graded_word_ids:
         already_graded = True
     else:
@@ -382,6 +388,7 @@ async def _handle_srs_review(
             # this tap belongs to yesterday (overnight restart). The restore
             # already cleared the row + ledger; answer the standard stale
             # notice and never fall through to a sessionless grade.
+            # Accepted double-invalidate: both DELETEs are idempotent and stale taps are rare.
             try:
                 await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
             except Exception:
@@ -497,12 +504,8 @@ async def _handle_first_exposure_grade(
         _persisted_stale = False
     else:
         _inner_date = _snapshot_inner_date(_stale_snapshot[1])
-        _persisted_stale = (
-            _stale_snapshot[0] != _stale_today
-            or not _inner_date
-            or _inner_date != _stale_today
-        )
-    session = get_active_study_session(user_id, context)
+        _persisted_stale = _is_persisted_stale(_stale_snapshot[0], _inner_date, _stale_today)
+    session = await get_active_session_async(user_id, context)
     if session is not None and word_id in session.graded_word_ids:
         already_graded = True
     else:
@@ -559,6 +562,7 @@ async def _handle_first_exposure_grade(
             # this tap belongs to yesterday (overnight restart). The restore
             # already cleared the row + ledger; answer the standard stale
             # notice and never fall through to a sessionless grade.
+            # Accepted double-invalidate: both DELETEs are idempotent and stale taps are rare.
             try:
                 await asyncio.to_thread(db.invalidate_stale_study_session, user_id)
             except Exception:
@@ -658,7 +662,7 @@ async def _resolve_delete_context(
             intent=CallbackNoticeIntent.IMPORTANT_ERROR,
         )
         return None
-    state = get_active_study_session(user_id, context)
+    state = await get_active_session_async(user_id, context)
     node = _active_node_for_word(state, word_id)
     if node is None or not state or not state.study_msg_id:
         await notify_callback(
