@@ -112,13 +112,16 @@ def parse_subscription(text):
 
     One poisoned line never aborts the source: xrayconf.parse_link is
     the single parser (ValueError contract) and every per-line failure
-    is skipped.
+    is skipped. Exact-duplicate links collapse to one server (public
+    subs repeat configs; cross-source dupes additionally collapse in
+    Pool.load by id).
     """
     try:
         from . import xrayconf as _xc
     except ImportError:
         import xrayconf as _xc
     servers = []
+    seen = set()
     blob = (text or "").strip()
     if not blob:
         return servers
@@ -129,8 +132,9 @@ def parse_subscription(text):
         pass
     for line in blob.splitlines():
         line = line.strip()
-        if "://" not in line:
+        if "://" not in line or line in seen:
             continue
+        seen.add(line)
         try:
             node = _xc.parse_link(line)
         except Exception:  # noqa: BLE001 (skip poisoned lines)
