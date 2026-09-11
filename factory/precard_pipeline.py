@@ -95,6 +95,8 @@ from llm_json import AuthError, extract_json, raise_for_auth  # noqa: E402
 from phrase_judge import KeyRing, RateLimited, write_progress  # noqa: E402  (resume + rotation seam)
 from stage_glossary import OLD_PROGRESS_FILE_TO_NEW as _OLD_PROGRESS_FILE_TO_NEW  # noqa: E402  (T2: sole on-disk naming owner)
 from stage_glossary import STAGE_FILES as _STAGE_FILES  # noqa: E402  (T2: sole on-disk naming owner)
+from stage_glossary import TOPUP_NEW_NAME as _TOPUP_NEW_NAME  # noqa: E402  (T2: sole on-disk naming owner)
+from stage_glossary import TOPUP_OLD_NAME as _TOPUP_OLD_NAME  # noqa: E402  (T2: sole on-disk naming owner)
 from telemetry import extract_usage as _tele_usage  # noqa: E402
 from telemetry import record_call as _tele_record  # noqa: E402
 from telemetry import write_summary as _tele_write  # noqa: E402
@@ -235,8 +237,6 @@ def _normalize_stage(pick):
 # of either naming convention).
 _NEW_TO_OLD_PROGRESS = {new: old
                         for old, new in _OLD_PROGRESS_FILE_TO_NEW.items()}
-_TOPUP_OLD_NAME = "s4_topup_cache.json"
-_TOPUP_NEW_NAME = _OLD_PROGRESS_FILE_TO_NEW[_TOPUP_OLD_NAME]
 
 
 def _progress_write_path(progress_dir, stage):
@@ -269,16 +269,21 @@ def _resolve_label_topup_cache(progress_dir):
     card_pilot.assign_topic reads/writes whatever path it is given, so the
     fallback lives here: when only the old cache exists, copy it to the new
     name (best-effort), then hand out the new path. The old file is never
-    written.
+    written. The seed is atomic (tmp + rename) and JSON-validated, with a
+    warning on failure — a failed seed only costs bounded LLM rework, since
+    assign_topic treats a missing cache as empty.
     """
     new_path = pathlib.Path(progress_dir) / _TOPUP_NEW_NAME
     old_path = pathlib.Path(progress_dir) / _TOPUP_OLD_NAME
     if not new_path.exists() and old_path.exists():
         try:
-            new_path.write_text(old_path.read_text(encoding="utf-8"),
-                                encoding="utf-8")
-        except (OSError, ValueError):
-            pass
+            blob = old_path.read_text(encoding="utf-8")
+            json.loads(blob)
+            tmp_path = new_path.with_name(new_path.name + ".tmp")
+            tmp_path.write_text(blob, encoding="utf-8")
+            os.replace(tmp_path, new_path)
+        except (OSError, ValueError) as exc:
+            print("warning: topup cache seed skipped (%s)" % exc)
     return new_path
 RETRY_PREFIX = ("Your last reply was not valid JSON. "
                 "Re-send ONLY the JSON object.\n")
