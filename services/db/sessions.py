@@ -51,12 +51,32 @@ def load_study_session(
         return row["session_date"], row["state_json"]
 
 
+def _delete_study_session_row(
+    conn: sqlite3.Connection, user_id: int
+) -> None:
+    """Raw row delete behind ``clear_study_session`` / ``invalidate_*``.
+
+    Conn-level so callers keep their own transaction boundaries: the two
+    single-row clears each open their own ``transaction()``, while
+    ``invalidate_stale_study_session`` runs both deletes in ONE transaction.
+    """
+    conn.execute("DELETE FROM study_sessions WHERE user_id=?", (user_id,))
+
+
+def _delete_session_grades(conn: sqlite3.Connection, user_id: int) -> None:
+    """Raw ledger delete behind ``clear_session_grades`` / ``invalidate_*``.
+
+    Same conn-level contract as ``_delete_study_session_row``.
+    """
+    conn.execute(
+        "DELETE FROM session_grade_ledger WHERE user_id=?", (user_id,)
+    )
+
+
 def clear_study_session(user_id: int) -> None:
     """Remove the user's persisted session row (no-op when absent)."""
     with transaction() as conn:
-        conn.execute(
-            "DELETE FROM study_sessions WHERE user_id=?", (user_id,)
-        )
+        _delete_study_session_row(conn, user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -118,9 +138,7 @@ def is_word_graded(user_id: int, word_id: int, activity_type: str) -> bool:
 def clear_session_grades(user_id: int) -> None:
     """Reset the ledger for a new study session (fresh build only)."""
     with transaction() as conn:
-        conn.execute(
-            "DELETE FROM session_grade_ledger WHERE user_id=?", (user_id,)
-        )
+        _delete_session_grades(conn, user_id)
 
 
 def invalidate_stale_study_session(user_id: int) -> None:
@@ -133,10 +151,8 @@ def invalidate_stale_study_session(user_id: int) -> None:
     across an await.
     """
     with transaction() as conn:
-        conn.execute("DELETE FROM study_sessions WHERE user_id=?", (user_id,))
-        conn.execute(
-            "DELETE FROM session_grade_ledger WHERE user_id=?", (user_id,)
-        )
+        _delete_study_session_row(conn, user_id)
+        _delete_session_grades(conn, user_id)
 
 
 def purge_stale_study_sessions(*, batch: int = 500, deadline: float | None = None) -> dict[str, int]:
