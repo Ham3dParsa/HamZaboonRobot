@@ -2607,3 +2607,49 @@ def test_f4_judge_stub_pick_vetoed_end_to_end(tmp_path, monkeypatch):
     assert len(rows) == 1
     assert rows[0]["sense_id"] == "forcing#0"
     assert rows[0]["en_def"] == "the act of compelling"
+
+
+def test_label_batch_16_items_single_call():
+    """B1: 16 items share exactly 1 LLM call; prompt holds all 16."""
+    import precard_pipeline
+    from precard_pipeline import label_batch
+    from phrase_judge import KeyRing
+
+    assert precard_pipeline.LABEL_BATCH == 16
+    items = [{"kind": "word", "text": "w%02d" % i, "pool_level": "B1"}
+             for i in range(16)]
+    from precard_pipeline import item_key
+    picks = {item_key(it): {"sense_id": "%s#0" % it["text"],
+                            "gloss": "gloss %s" % it["text"]}
+             for it in items}
+    calls = []
+
+    def fake_transport(api_key, model, user_text):
+        calls.append(user_text)
+        results = []
+        for it in items:
+            sid = "%s#0" % it["text"]
+            results.append({
+                "lemma": it["text"], "senses": [{
+                    "sense_id": sid, "topic_id": 4,
+                    "topic_label": "Work & Careers",
+                    "confidence": 0.9, "vector": [{
+                        "topic_id": 4,
+                        "topic_label": "Work & Careers",
+                        "weight": 1.0}]}]})
+        return json.dumps({"results": results})
+
+    state = {"done": {}, "failed": [], "backoffs": []}
+    out = label_batch(
+        items, picks, None, "k", fake_transport, lambda s: None, state,
+        None, {}, ring=KeyRing(["k"]),
+        lookup=lambda t, g: None)
+    assert len(calls) == 1
+    for it in items:
+        assert it["text"] in calls[0]
+        assert ("%s#0" % it["text"]) in calls[0]
+    assert len(out) == 16
+    for it in items:
+        row = out[item_key(it)]
+        assert row["label"] == "Work & Careers"
+        assert row["topic_path"] == "llm"
