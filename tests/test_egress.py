@@ -874,3 +874,12 @@ def test_run_with_lease_normalizes_target(monkeypatch):
                         lambda cmd, env=None: FakeProc())
     assert rwl.main(["  ZEN ", "--", "echo", "hi"]) == 0
     assert calls["target"] == "zen"
+
+
+def test_parse_subscription_dedupes_exact_links():
+    body = ("vless://u@one.org:443?x=1\n"
+            "vless://u@one.org:443?x=1\n"
+            "vless://u@two.org:443?x=1\n")
+    rows = supervisor.parse_subscription(body)
+    assert [(r["host"], r["port"]) for r in rows] == [("one.org", 443),
+                                                     ("two.org", 443)]
