@@ -89,6 +89,43 @@ def test_s1_anchor_top_is_real_for_going():
     assert ranked["top"]["gloss"] == "the act of leaving"
 
 
+def test_bare_past_tag_with_real_gloss_not_demoted():
+    """Review fix: a bare "past" tag WITHOUT form-of/form_of is not a
+    stub signal — a real gloss keeps its rank and its window seat."""
+    entries = _rows("verb", [
+        _sense("to travel on foot", tags=["past"]),
+        _sense("to leave", tags=[]),
+    ])
+    scored = card_pilot.score_senses("tread", entries, "verb",
+                                     read_entry, zipf_fn=ZIPF)
+    assert [t[4] for t in scored] == ["to travel on foot", "to leave"]
+    window = card_pilot.select_candidate_window(scored, "verb", "B1",
+                                                cap=10)
+    assert [t[4] for t in window] == ["to travel on foot", "to leave"]
+
+
+def test_bare_gerund_tag_with_real_gloss_not_demoted():
+    entries = _rows("verb", [
+        _sense("to manage", tags=["gerund"]),
+        _sense("to leave", tags=[]),
+    ])
+    scored = card_pilot.score_senses("cope", entries, "verb",
+                                     read_entry, zipf_fn=ZIPF)
+    assert [t[4] for t in scored] == ["to manage", "to leave"]
+
+
+def test_formof_field_without_tag_still_demotes():
+    """The form_of mother pointer alone (no tags) is a stub signal."""
+    entries = _rows("verb", [
+        _sense("to leave", tags=[],
+               form_of=[{"word": "go"}]),
+        _sense("to stay", tags=[]),
+    ])
+    scored = card_pilot.score_senses("went", entries, "verb",
+                                     read_entry, zipf_fn=ZIPF)
+    assert scored[0][4] == "to stay"
+
+
 # --- Item 2: inflection-stub regex ---------------------------------------
 
 

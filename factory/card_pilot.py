@@ -541,30 +541,38 @@ def is_superlative_gloss(gloss):
 
 
 # Form-of-driven anchor fixes (one PR): kaikki form-of senses carry a
-# "form-of" tag, sometimes with only the participle/gerund/past-family
-# tags. Such senses are never learnable anchors — they sort below every
-# real sense (same strict-bucket pattern as the R40 meta bucket: the
-# score itself is untouched, so a word with ONLY form-of senses still
-# anchors instead of dropping).
-_FORMOF_FAMILY = frozenset({
-    "form-of", "participle", "present-participle", "past-participle",
-    "gerund", "past",
-})
+# "form-of" tag and/or a form_of[] mother pointer. Such senses are never
+# learnable anchors — they sort below every real sense (same strict-bucket
+# pattern as the R40 meta bucket: the score itself is untouched, so a word
+# with ONLY form-of senses still anchors instead of dropping). The tag
+# neighborhood (participle/gerund/past) is descriptive only: bare family
+# tags WITHOUT a form-of tag or form_of pointer never trigger — a real
+# sense carrying a bare "past"/"gerund" tag keeps its rank and its
+# judge-window seat (review: over-broad demotion would bury real senses).
 
 
 def _is_formof_sense(sense):
-    """True when the sense is a form-of inflection stub (tags only)."""
+    """True when the sense is a form-of inflection stub (tag/pointer).
+
+    Requires the "form-of" tag or a non-empty form_of[] mother pointer;
+    bare participle/gerund/past-family tags alone are not stub signals.
+    """
     try:
         tags = {str(t or "").strip().casefold()
                 for t in (sense or {}).get("tags") or []}
     except Exception:
         return False
     tags = {t for t in tags if t}
-    if not tags:
-        return False
-    if tags & _FORMOF_FAMILY:
+    if "form-of" in tags:
         return True
-    return any("participle" in t for t in tags)
+    try:
+        forms = (sense or {}).get("form_of") or []
+    except Exception:
+        return False
+    try:
+        return len(list(forms)) > 0
+    except TypeError:
+        return bool(forms)
 
 
 def is_stub_sense(sense, gloss):
@@ -763,6 +771,9 @@ def select_candidate_window(scored, pool_pos="", pool_level="A1", cap=10):
     POS coverage is enforced: for every distinct entry POS in scored
     missing from the window, the top-scored sense of that POS is pulled
     in. The result preserves score order and is capped at cap entries.
+    Stub senses (is_stub_sense: form-of-tagged/pointed plus the shared
+    gloss stubs) are filtered BEFORE bucketing and POS coverage — a
+    stub-only POS is never pulled back in.
     """
     scored = list(scored or [])
     if not scored:
