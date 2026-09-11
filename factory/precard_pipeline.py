@@ -133,7 +133,7 @@ COUNTRY_NAMES = frozenset({
     "equatorial guinea", "eritrea", "estonia", "eswatini", "ethiopia",
     "fiji", "finland", "france", "gabon", "gambia", "georgia",
     "germany", "ghana", "greece", "grenada", "guatemala", "guinea",
-    "guinea-bissau", "guyana", "haiti", "honduras", "hungary",
+    "guinea bissau", "guyana", "haiti", "honduras", "hungary",
     "iceland", "india", "indonesia", "iran", "iraq", "ireland",
     "israel", "italy", "jamaica", "japan", "jordan", "kazakhstan",
     "kenya", "kiribati", "kuwait", "kyrgyzstan", "laos", "latvia",
@@ -154,7 +154,7 @@ COUNTRY_NAMES = frozenset({
     "slovenia", "solomon islands", "somalia", "south africa",
     "south korea", "south sudan", "spain", "sri lanka", "sudan",
     "suriname", "sweden", "switzerland", "syria", "taiwan",
-    "tajikistan", "tanzania", "thailand", "timor-leste", "togo",
+    "tajikistan", "tanzania", "thailand", "timor leste", "togo",
     "tonga", "trinidad and tobago", "tunisia", "türkiye",
     "turkmenistan", "tuvalu", "uganda", "ukraine",
     "united arab emirates", "united kingdom",
@@ -176,6 +176,9 @@ COUNTRY_NAMES = frozenset({
     # type — turkiye, vietnam, cote d'ivoire, curacao, reunion,
     # aland islands, são tomé and príncipe. Same leak class as the lowercase fix; without these
     # the empty-POS path misses both the blocklist and the R4 gate.
+    # Lookup also folds separators (hyphen to space, curly quotes to
+    # ASCII) so guinea-bissau/guinea bissau, timor-leste/timor leste,
+    # and curly-apostrophe côte d’ivoire all hit one entry.
     "turkiye", "vietnam", "cote d'ivoire", "curacao", "reunion",
     "aland islands", "são tomé and príncipe",
 })
@@ -505,7 +508,9 @@ def preprocess_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
     kind = item.get("kind") or "word"
     text = (item.get("text") or "").strip()
     if kind == "word":
-        if text.casefold() in COUNTRY_NAMES:
+        country_key = text.casefold().replace("-", " ").replace(
+            "’", "'").replace("‘", "'")
+        if country_key in COUNTRY_NAMES:
             pos_set = (pos_sets or {}).get(text.lower(), set())
             if not pos_set or card_pilot.is_proper_noun_lemma(text, pos_set):
                 return {"kept": False, "reason": "r4-country-blocklist",

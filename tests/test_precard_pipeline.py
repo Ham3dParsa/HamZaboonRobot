@@ -1553,11 +1553,16 @@ def test_r4_country_blocklist_exempts_common_noun_pos():
 
 def test_r4_country_blocklist_ascii_aliases():
     """#606 review: ASCII/diacritic spellings (turkiye, vietnam,
-    cote d'ivoire, curacao, reunion, aland islands) plus a multi-word
-    hit (united states of america) drop via the blocklist on empty POS."""
+    cote d'ivoire, curacao, reunion, aland islands, são tomé and
+    príncipe), separator variants (guinea-bissau/guinea bissau,
+    timor-leste/timor leste, curly-apostrophe côte d’ivoire), plus a
+    multi-word hit (united states of america) drop via the blocklist
+    on empty POS."""
     from precard_pipeline import preprocess_classify_item
     for alias in ("turkiye", "vietnam", "cote d'ivoire", "curacao",
                   "reunion", "aland islands", "são tomé and príncipe",
+                  "guinea-bissau", "guinea bissau", "timor-leste",
+                  "timor leste", "côte d’ivoire",
                   "united states of america"):
         v = preprocess_classify_item(_g_item(alias, "B2"), {},
                                      lambda t: 5.0, set(), {}, False)
