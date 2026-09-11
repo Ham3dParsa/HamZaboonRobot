@@ -2345,13 +2345,18 @@ def test_f2_name_gloss_pattern():
                   "A family name.", "A place name.",
                   "A unisex given name.", "A masculine given name.",
                   "A feminine given name.", "A first name.",
-                  "A last name.", "A maiden name.", "A nickname."):
+                  "A last name.", "A maiden name.", "A nickname.",
+                  "An English surname.", "A Norman surname.",
+                  "A German family name.", "A diminutive of Robert.",
+                  "A pet form of Elizabeth.", "A short form of Thomas."):
         assert _is_name_gloss(gloss) is True, gloss
     for gloss in ("a round fruit", "A dictionary of surnames.",
                   "a visible mark", "past of remove", "",
-                  "A diminutive suffix."):
+                  "A diminutive suffix.", "A variant of the plan."):
         # Boundary (review): bare "diminutive" is NOT a head — it would
-        # collide with the real "diminutive suffix" linguistics sense.
+        # collide with the real "diminutive suffix" linguistics sense;
+        # bare "variant" is NOT a head either ("A variant of the plan"
+        # is a real sense; bare "Variant of X" is owned by xref R34).
         assert _is_name_gloss(gloss) is False, gloss
 
 
@@ -2399,6 +2404,55 @@ def test_f2_reroute_keeps_on_unresolvable_pos():
     top, en_def, pos = rerouted
     assert (top["sense_id"], en_def, pos) == ("zzz#99",
                                              "a small songbird", "")
+
+
+def test_f2_helper_error_keeps_input_top():
+    """Review W-b: a lookup/structure error inside the helper keeps the
+    input top (marked name_eval_error, no reroute flag) instead of
+    returning None (which the caller would drop)."""
+    from precard_pipeline import _reroute_name_gloss_anchor
+    ranked = {"top": {"sense_id": "gillian#0",
+                      "gloss": "A female given name."},
+              "anchor_pos": "noun",
+              "candidates": ["BOOM"]}  # str.get -> AttributeError
+    out = _reroute_name_gloss_anchor(
+        {"kind": "word", "text": "gillian"}, ranked, {}, read_entry)
+    assert out is not None
+    top, en_def, pos = out
+    assert (top["sense_id"], en_def, pos) == (
+        "gillian#0", "A female given name.", "noun")
+    assert ranked.get("name_eval_error") is True
+    assert "rerouted_from_name" not in ranked
+
+
+def test_f2_s1_error_path_keeps_item(tmp_path, monkeypatch):
+    """Review W-b end-to-end: a target-POS lookup failure in S1 keeps
+    the item on its anchor top (marked, unflagged, undropped) instead
+    of dropping it as anchor-name-gloss."""
+    import precard_pipeline as pp
+    real_picked = pp._picked_entry_pos
+
+    def flaky(item, sense_id, index, read_entry):
+        if (sense_id or "") == "gillianx#1":
+            raise AttributeError("simulated lookup failure")
+        return real_picked(item, sense_id, index, read_entry)
+
+    monkeypatch.setattr(pp, "_picked_entry_pos", flaky)
+    items = [{"kind": "word", "text": "gillianx", "pos": "noun",
+              "pool_level": "B1"}]
+    index = {"gillianx": _name_rows("A female given name.",
+                                    "a small songbird")}
+    rows, _s0 = _run_s0_only(tmp_path, monkeypatch, items, index,
+                             _zipf_fn=lambda t: 5.0)
+    assert [r["key"] for r in rows] == ["w:gillianx"]  # kept, not dropped
+    s1 = json.loads(
+        (pathlib.Path(str(tmp_path / "prog")) / "s1.json").read_text(
+            encoding="utf-8"))
+    done = s1["done"]["w:gillianx"]
+    assert "dropped" not in done
+    assert done.get("rerouted_from_name") is not True
+    assert done["top"]["gloss"] == "A female given name."
+    assert done.get("name_eval_error") is True
 
 
 def test_f2_real_words_untouched_and_all_names_drop(tmp_path, monkeypatch):

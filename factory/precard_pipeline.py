@@ -804,17 +804,25 @@ def _reroute_proper_anchor(item, ranked, index, read_entry):
 
 
 # F2: name-gloss heads (given/surname/place-name + first/last/maiden/
-# nickname). Anchored on purpose: a gloss merely MENTIONING a surname
-# ("a dictionary of surnames") is a real sense, while kaikki name senses
-# open with the head ("A female given name.", "A surname."). Mirrors the
-# person-guard vocabulary in judge_proper_route, plus place names (same
-# leak class). Boundary (review): bare "diminutive" is NOT a head — it
-# would collide with the real "diminutive suffix" linguistics sense.
+# nickname + diminutive/pet-form/short-form of). Anchored on purpose:
+# a gloss merely MENTIONING a surname ("a dictionary of surnames") is a
+# real sense, while kaikki name senses open with the head ("A female
+# given name.", "An English surname.", "A diminutive of Robert.").
+# Mirrors the person-guard vocabulary in judge_proper_route, plus place
+# names (same leak class). An optional middle segment (up to 2 words)
+# covers adjective-headed names ("A German family name") — it cannot
+# manufacture a match because the trailing head noun stays
+# name-specific. Boundary (review): bare "diminutive" is NOT a head
+# (collides with the real "diminutive suffix" sense); bare "variant"
+# is NOT a head either ("A variant of the plan" is a real sense, and
+# bare "Variant of X" is owned by xref R34).
 _NAME_GLOSS_RX = re.compile(
     r"^\s*(?:a|an|the)\s+"
     r"(?:(?:male|female|unisex|masculine|feminine)\s+)?"
+    r"(?:[A-Za-z]+\s+){0,2}"
     r"(?:given\s+name|surname|family\s+name|place\s+name|first\s+name|"
-    r"last\s+name|maiden\s+name|nickname)\b",
+    r"last\s+name|maiden\s+name|nickname|pet\s+form\s+of|"
+    r"diminutive\s+of|short\s+form\s+of)\b",
     re.IGNORECASE)
 
 
@@ -835,9 +843,13 @@ def _reroute_name_gloss_anchor(item, ranked, index, read_entry):
     unresolvable target POS ("") is uncertainty, not disqualification —
     the gloss signal already picked the target, so it reroutes with
     anchor_pos "" (downstream treats "" as non-proper) instead of
-    dropping. Returns (top, en_def, anchor_pos) or None when the top is
-    not a name gloss or every candidate is a name (true names still
-    drop). Lookup errors fail open to None (caller keeps the drop).
+    dropping. A lookup/structure error inside this helper keeps the
+    input top (marked name_eval_error, WITHOUT the reroute flag) so the
+    caller keeps instead of dropping — uncertainty keeps, and the mark
+    re-arms evaluation on resume (transient errors self-heal). Returns
+    (top, en_def, anchor_pos), or None when the top is not a name gloss
+    or every candidate is a name (true names still drop) or the input
+    has no usable top.
     """
     try:
         if not _is_name_gloss((ranked.get("top") or {}).get("gloss", "")):
@@ -851,11 +863,22 @@ def _reroute_name_gloss_anchor(item, ranked, index, read_entry):
                 rest = [c for c in ranked["candidates"]
                         if c.get("sense_id") != sid]
                 ranked["candidates"] = [cand] + rest
+                ranked.pop("name_eval_error", None)
+                ranked["rerouted_from_name"] = True
                 return ({"sense_id": sid,
                          "gloss": cand.get("gloss", "")},
                         cand.get("gloss", ""), pos)
     except (KeyError, TypeError, AttributeError, ValueError):
-        return None
+        try:
+            top = ranked.get("top") or {}
+        except Exception:
+            return None
+        if not top.get("sense_id"):
+            return None
+        ranked["name_eval_error"] = True
+        return ({"sense_id": top.get("sense_id", ""),
+                 "gloss": top.get("gloss", "")},
+                top.get("gloss", ""), ranked.get("anchor_pos", ""))
     return None
 
 
@@ -2391,19 +2414,29 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                             # with a non-proper entry POS — the gloss-based
                             # sibling of the proper branch above. Reroutes
                             # to the first non-name sense (act-fix
-                            # pattern), else drops as anchor-name-gloss.
+                            # pattern, flagged rerouted_from_name by the
+                            # helper), keeps the anchor top on helper
+                            # errors (marked name_eval_error — uncertainty
+                            # keeps, re-armed on resume), else drops as
+                            # anchor-name-gloss.
                             rerouted = _reroute_name_gloss_anchor(
                                 item, ranked, index, read_entry)
                             if rerouted is not None:
                                 ranked["top"], ranked["en_def"], \
                                     ranked["anchor_pos"] = rerouted
-                                ranked["rerouted_from_name"] = True
-                                print(_color(
-                                    "warning: %s re-anchored off name "
-                                    "top -> %s" % (
-                                        key,
-                                        rerouted[0].get("sense_id", "")),
-                                    "yellow"))
+                                if ranked.get("rerouted_from_name"):
+                                    print(_color(
+                                        "warning: %s re-anchored off name "
+                                        "top -> %s" % (
+                                            key,
+                                            rerouted[0].get("sense_id",
+                                                              "")),
+                                        "yellow"))
+                                elif ranked.get("name_eval_error"):
+                                    print(_color(
+                                        "warning: %s name-eval error, "
+                                        "keeping anchor top" % key,
+                                        "yellow"))
                             else:
                                 ranked["dropped"] = "anchor-name-gloss"
                                 if key not in states["s1"]["failed"]:
