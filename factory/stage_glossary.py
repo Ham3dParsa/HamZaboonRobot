@@ -156,6 +156,12 @@ OLD_PROGRESS_FILE_TO_NEW = {
 # Old gate id -> domain slug (log/telemetry backfill).
 OLD_GATE_TO_NEW = dict(GATE_NAMES)
 
+# Old/new on-disk names of the S4 label top-up cache (T2 reads the old
+# name as a resume fallback and writes the new one; callers import these
+# so neither literal is embedded outside this module).
+TOPUP_OLD_NAME = "s4_topup_cache.json"
+TOPUP_NEW_NAME = OLD_PROGRESS_FILE_TO_NEW[TOPUP_OLD_NAME]
+
 
 def normalize_stage(pick):
     """Stage id from an old id or a domain name (case-insensitive).

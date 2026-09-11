@@ -18,6 +18,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "factory"))
 import card_pilot
 import precard_pipeline
 from precard_pipeline import main as precard_main
+from stage_glossary import STAGE_FILES
+from stage_glossary import TOPUP_NEW_NAME as _TOPUP_NEW_NAME
+from stage_glossary import TOPUP_OLD_NAME as _TOPUP_OLD_NAME
 
 ITEMS = [
     {"kind": "word", "text": "apple", "pos": "noun", "pool_level": "A1"},
@@ -144,7 +147,7 @@ def test_full_run_writes_precard_shape(tmp_path, monkeypatch):
     assert apple["pos_src"] == "dataset"
     for stage in ("s0", "s1", "s2", "s3", "s4", "s5"):
         state = json.loads(
-            (pathlib.Path(prog) / (stage + ".json")).read_text(
+            (pathlib.Path(prog) / STAGE_FILES[stage]).read_text(
                 encoding="utf-8"))
         assert len(state["done"]) == 2
 
@@ -194,7 +197,7 @@ def _run_s0_only(tmp_path, monkeypatch, items, index, **kwargs):
     assert rc == 0
     rows = load_out(out)
     s0 = json.loads(
-        (pathlib.Path(prog) / "s0.json").read_text(encoding="utf-8"))
+        (pathlib.Path(prog) / STAGE_FILES["s0"]).read_text(encoding="utf-8"))
     return rows, s0
 
 
@@ -306,7 +309,7 @@ def test_s1_anchor_proper_noun_drop(tmp_path, monkeypatch):
     # Apple re-anchored to the noun sense (kept, not dropped).
     assert [r["key"] for r in rows] == ["w:Apple", "w:Banana"]
     s1 = json.loads(
-        (pathlib.Path(str(tmp_path / "prog")) / "s1.json").read_text(
+        (pathlib.Path(str(tmp_path / "prog")) / STAGE_FILES["s1"]).read_text(
             encoding="utf-8"))
     assert "dropped" not in s1["done"]["w:Apple"]
     assert s1["done"]["w:Apple"]["anchor_pos"] == "noun"
@@ -427,9 +430,9 @@ def test_all_keys_429_stops_fast_with_flush(tmp_path, monkeypatch):
     assert "VPN" in str(excinfo.value) or "server" in str(excinfo.value)
     assert sum(sleeps) < 60.0  # 5s rotation pause, never 60+300
     assert 60.0 not in sleeps and 300.0 not in sleeps
-    # Progress flushed before exit (per-batch + finally): s2.json on disk
+    # Progress flushed before exit (per-batch + finally): judge.json on disk
     # with the stop event recorded.
-    state = json.loads(open(prog + "/s2.json", encoding="utf-8").read())
+    state = json.loads(open(os.path.join(prog, STAGE_FILES["s2"]), encoding="utf-8").read())
     assert any(e["outcome"] == "all-keys-429-stop"
                for e in state["backoffs"])
 
@@ -530,6 +533,111 @@ def test_resume_continues_after_429_stop(tmp_path, monkeypatch):
     assert len(rows) == 1 and rows[0]["sense_id"] == "apple#0"
 
 
+def _run_with_counters(tmp_path, prog):
+    """Run the 1-item pipeline; return (rows, llm_calls)."""
+    sample = write_sample(tmp_path, ITEMS[:1])
+    out = str(tmp_path / "precard.jsonl")
+    calls = {"judge": 0, "topics": 0}
+
+    def judge(api_key, model, user_text):
+        calls["judge"] += 1
+        return fake_judge(api_key, model, user_text)
+
+    def topics(api_key, model, user_text):
+        calls["topics"] += 1
+        return fake_topics(api_key, model, user_text)
+
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", str(prog)],
+        _judge_transport=judge, _topic_transport=topics,
+        _assign_transport=None, _sleep_fn=lambda s: None,
+        _index=make_index(), _read_entry=read_entry, _tatoeba={})
+    assert rc == 0
+    return load_out(out), calls
+
+
+def test_resume_old_only_progress_names(tmp_path, monkeypatch):
+    """T2: an old-only (sX.json) progress dir resumes with zero LLM rework.
+
+    New domain files are written; the old files are read as fallback and
+    never written again (byte-identical after the run)."""
+    import shutil
+    from stage_glossary import OLD_PROGRESS_FILE_TO_NEW
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    rows, _ = _run_with_counters(tmp_path, tmp_path / "prog")
+    assert [r["key"] for r in rows] == ["w:apple"]
+    # Old-only dir: every new domain file renamed back to its old name.
+    new_to_old = {new: old
+                  for old, new in OLD_PROGRESS_FILE_TO_NEW.items()}
+    old_dir = tmp_path / "prog_old"
+    shutil.copytree(tmp_path / "prog", old_dir)
+    for path in list(old_dir.iterdir()):
+        if path.name in new_to_old:
+            path.rename(old_dir / new_to_old[path.name])
+    assert not any(p.name in STAGE_FILES.values()
+                   for p in old_dir.iterdir())
+    old_bytes = {p.name: p.read_bytes() for p in old_dir.iterdir()}
+    rows_old, calls_old = _run_with_counters(tmp_path, old_dir)
+    assert [r["key"] for r in rows_old] == ["w:apple"]  # full output kept
+    assert calls_old == {"judge": 0, "topics": 0}  # no LLM rework
+    for name, blob in old_bytes.items():
+        assert (old_dir / name).read_bytes() == blob  # old never written
+    for stage in ("s0", "s1", "s2", "s3", "s4", "s5"):
+        assert (old_dir / STAGE_FILES[stage]).exists()  # new written
+
+
+def test_resume_mixed_progress_names(tmp_path, monkeypatch):
+    """T2: a mixed dir (old s0/s1/s2 + new rest) resumes; new names win."""
+    import shutil
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    rows, _ = _run_with_counters(tmp_path, tmp_path / "prog")
+    assert [r["key"] for r in rows] == ["w:apple"]
+    mixed_dir = tmp_path / "prog_mixed"
+    shutil.copytree(tmp_path / "prog", mixed_dir)
+    from precard_pipeline import _progress_old_path
+    for sid in ("s0", "s1", "s2"):
+        (mixed_dir / STAGE_FILES[sid]).rename(_progress_old_path(mixed_dir, sid))
+    old_bytes = {_progress_old_path(mixed_dir, sid).name:
+                 _progress_old_path(mixed_dir, sid).read_bytes()
+                 for sid in ("s0", "s1", "s2")}
+    rows_mixed, calls_mixed = _run_with_counters(tmp_path, mixed_dir)
+    assert [r["key"] for r in rows_mixed] == ["w:apple"]
+    assert calls_mixed == {"judge": 0, "topics": 0}
+    for sid in ("s0", "s1", "s2"):
+        old_path = _progress_old_path(mixed_dir, sid)
+        assert old_path.read_bytes() == \
+            old_bytes[old_path.name]  # old never written
+        assert (mixed_dir / STAGE_FILES[sid]).exists()  # new written
+
+
+def test_label_topup_cache_old_name_seeds_new(tmp_path):
+    """T2: an old-only s4_topup_cache.json seeds label_topup_cache.json.
+
+    The real card_pilot.assign_topic reader then serves the seeded entry
+    (topic_path "cache"); a present new file always wins over the old one.
+    """
+    from precard_pipeline import _resolve_label_topup_cache
+    key = "w\tg\tw#0"
+    seeded = {key: {"label": "Seeded Label",
+                    "vector": [{"label": "Seeded Label", "weight": 1.0}]}}
+    old_name = _TOPUP_OLD_NAME
+    old = tmp_path / old_name
+    old.write_text(json.dumps(seeded), encoding="utf-8")
+    new_path = _resolve_label_topup_cache(tmp_path)
+    assert new_path.name == _TOPUP_NEW_NAME
+    assert json.loads(new_path.read_text(encoding="utf-8")) == seeded
+    got = card_pilot.assign_topic(
+        "w", "g", lookup=lambda t, g: None, sense_id="w#0",
+        llm_transport=None, progress_path=str(new_path), api_key="k",
+        model_calls={})
+    assert got["label"] == "Seeded Label" and got["topic_path"] == "cache"
+    # Mixed: the new file wins, the old one is left untouched.
+    new_path.write_text(json.dumps({"other": 1}), encoding="utf-8")
+    assert _resolve_label_topup_cache(tmp_path).read_text(
+        encoding="utf-8") == json.dumps({"other": 1})
+    assert json.loads(old.read_text(encoding="utf-8")) == seeded
+
+
 def test_fail_closed_to_s1_pick(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     sample = write_sample(tmp_path, ITEMS[:1])
@@ -547,7 +655,7 @@ def test_fail_closed_to_s1_pick(tmp_path, monkeypatch):
     rows = load_out(out)
     assert rows[0]["sense_id"] == "apple#0"
     assert rows[0]["en_def"] == "a round fruit"
-    state = json.loads(open(prog + "/s2.json", encoding="utf-8").read())
+    state = json.loads(open(os.path.join(prog, STAGE_FILES["s2"]), encoding="utf-8").read())
     assert "w:apple" in state["failed"]
 
 
@@ -695,7 +803,7 @@ def test_s1_xref_unresolvable_drop(tmp_path, monkeypatch):
                              _zipf_fn=lambda t: 5.0)
     assert [r["key"] for r in rows] == ["w:Color"]  # Ghost: no-real-def
     s1 = json.loads(
-        (pathlib.Path(str(tmp_path / "prog")) / "s1.json").read_text(
+        (pathlib.Path(str(tmp_path / "prog")) / STAGE_FILES["s1"]).read_text(
             encoding="utf-8"))
     assert s1["done"]["w:Ghost"]["dropped"] == "no-real-def"
     assert s1["done"]["w:Ghost"]["xref_unresolvable"] is True
@@ -725,7 +833,7 @@ def _inflect_index():
 
 def test_s0b_inflection_keep_and_drop(tmp_path, monkeypatch):
     """R36: explicit keep-false drops (inflection-drop), keep passes;
-    non-inflection items skip review; own progress key s0b.json."""
+    non-inflection items skip review; own progress key inflection.json."""
     monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     items = [{"kind": "word", "text": "cats", "pos": "noun",
               "pool_level": "A1"},
@@ -754,7 +862,7 @@ def test_s0b_inflection_keep_and_drop(tmp_path, monkeypatch):
     rows = load_out(out)
     assert {r["key"] for r in rows} == {"w:went", "w:apple"}
     s0b = json.loads(
-        (pathlib.Path(prog) / "s0b.json").read_text(encoding="utf-8"))
+        (pathlib.Path(prog) / STAGE_FILES["s0b"]).read_text(encoding="utf-8"))
     assert s0b["done"]["w:cats"]["kept"] is False
     assert s0b["done"]["w:cats"]["reason"].startswith("inflection-drop")
     assert "w:cats" in s0b["failed"]
@@ -784,7 +892,7 @@ def test_s0b_uncertain_keeps(tmp_path, monkeypatch):
     assert rc == 0
     assert [r["key"] for r in load_out(out)] == ["w:cats"]  # kept
     s0b = json.loads(
-        (pathlib.Path(prog) / "s0b.json").read_text(encoding="utf-8"))
+        (pathlib.Path(prog) / STAGE_FILES["s0b"]).read_text(encoding="utf-8"))
     assert s0b["done"]["w:cats"] == {
         "kept": True, "reason": "review-uncertain", "uncertain": True}
 
@@ -856,7 +964,7 @@ def test_s0b_superlative_redirects_on_plain_drop(tmp_path, monkeypatch):
         _zipf_fn=lambda t: 5.0)
     assert rc == 0
     s0b = json.loads(
-        (pathlib.Path(prog) / "s0b.json").read_text(encoding="utf-8"))
+        (pathlib.Path(prog) / STAGE_FILES["s0b"]).read_text(encoding="utf-8"))
     assert s0b["done"]["w:best"] == {
         "kept": True, "reason": "superlative-redirect",
         "redirect_to": "good", "uncertain": False}
@@ -871,7 +979,7 @@ def test_s0b_superlative_redirects_on_plain_drop(tmp_path, monkeypatch):
     # merged key — order-indifferent membership is NOT enough.
     assert rows["w:good"]["redirected_from"] == "best"
     s5 = json.loads(
-        (pathlib.Path(prog) / "s5.json").read_text(encoding="utf-8"))
+        (pathlib.Path(prog) / STAGE_FILES["s5"]).read_text(encoding="utf-8"))
     assert rows["w:good"]["sense_id"] == s5["done"]["w:good"]["sense_id"]
     assert rows["w:good"]["sense_id"] == "good#0"  # base-lemma S5 pick
     assert len(rows) == 1
@@ -921,7 +1029,7 @@ def test_s0b_superlative_idiomatic_kept(tmp_path, monkeypatch):
         _zipf_fn=lambda t: 5.0)
     assert rc == 0
     s0b = json.loads(
-        (pathlib.Path(prog) / "s0b.json").read_text(encoding="utf-8"))
+        (pathlib.Path(prog) / STAGE_FILES["s0b"]).read_text(encoding="utf-8"))
     assert s0b["done"]["w:best"]["reason"] == "inflection-keep"
     assert s0b["done"]["w:best"].get("redirect_to", "") == ""
     assert [r["key"] for r in load_out(out)] == ["w:best"]
@@ -1015,7 +1123,7 @@ def test_s4_fallback_path_counted(tmp_path):
     tele = []
     assigned = label_item(
         item, "plural of zzqx", "zzqx#0", None, "k", garbage,
-        lambda s: None, state, str(tmp_path / "s4.json"), {},
+        lambda s: None, state, str(tmp_path / _TOPUP_NEW_NAME), {},
         telemetry=tele, tele_batch=1, ring=KeyRing(["k"]))
     assert assigned["label"] == "Other / Abstract"
     assert assigned["topic_path"] == "fallback"
@@ -1244,7 +1352,7 @@ def test_avalai_key_scoped_to_s2(tmp_path, monkeypatch):
     assert seen and seen[0][0] == "avalai-key"
     assert seen[0][1] == "glm-5.3-flash"
     s2 = json.loads(
-        (pathlib.Path(prog) / "s2.json").read_text(encoding="utf-8"))
+        (pathlib.Path(prog) / STAGE_FILES["s2"]).read_text(encoding="utf-8"))
     assert s2["done"]["w:apple"]["model"] == "glm-5.3-flash"
 
 
@@ -1274,7 +1382,7 @@ def test_full_llm_provider_wires_precard_model(tmp_path, monkeypatch):
     assert rc == 0
     assert seen and seen[0] == ("avalai-key", "deepseek-v4-flash")
     s2 = json.loads(
-        (pathlib.Path(prog) / "s2.json").read_text(encoding="utf-8"))
+        (pathlib.Path(prog) / STAGE_FILES["s2"]).read_text(encoding="utf-8"))
     assert s2["done"]["w:apple"]["model"] == "deepseek-v4-flash"
 
 
@@ -1317,7 +1425,7 @@ def test_full_avalai_needs_no_zen_key(tmp_path, monkeypatch):
     assert rc == 0
     assert seen and seen[0] == ("avalai-key", "glm-5.3-flash")
     s2 = json.loads(
-        (pathlib.Path(prog) / "s2.json").read_text(encoding="utf-8"))
+        (pathlib.Path(prog) / STAGE_FILES["s2"]).read_text(encoding="utf-8"))
     assert s2["done"]["w:apple"]["model"] == "glm-5.3-flash"
 
 
@@ -1654,7 +1762,7 @@ def test_g2_pure_form_drops_end_to_end(tmp_path, monkeypatch):
         _zipf_fn=lambda t: 5.0)
     assert rc == 0
     s0 = json.loads(
-        (pathlib.Path(prog) / "s0.json").read_text(encoding="utf-8"))
+        (pathlib.Path(prog) / STAGE_FILES["s0"]).read_text(encoding="utf-8"))
     assert s0["done"]["w:cats"]["reason"] == "g2-inflection-form"
     assert "w:cats" in s0["failed"]
 
@@ -1690,7 +1798,7 @@ def test_quarantine_surfaces_in_summary_and_log(tmp_path, monkeypatch,
                 ).read_text(encoding="utf-8")
     assert "w:led: quarantine-g4-abbrev" in drop_log
     s0 = json.loads(
-        (pathlib.Path(prog) / "s0.json").read_text(encoding="utf-8"))
+        (pathlib.Path(prog) / STAGE_FILES["s0"]).read_text(encoding="utf-8"))
     assert s0["done"]["w:led"]["kept"] is True
 
 
@@ -1877,7 +1985,7 @@ def test_mixed_line_s2_zen_rest_avalai(tmp_path, monkeypatch):
     import json as _json
     import pathlib as _pl
     s2 = _json.loads(
-        (_pl.Path(prog) / "s2.json").read_text(encoding="utf-8"))
+        (_pl.Path(prog) / STAGE_FILES["s2"]).read_text(encoding="utf-8"))
     assert s2["done"]["w:apple"]["model"] != "glm-5.3-flash"
     # ...and the provider manifest records the mix.
     prov = _json.loads(
@@ -1918,7 +2026,7 @@ def test_mixed_mode_s3_uses_avalai(tmp_path, monkeypatch):
     import json as _json
     import pathlib as _pl
     s3 = _json.loads(
-        (_pl.Path(prog) / "s3.json").read_text(encoding="utf-8"))
+        (_pl.Path(prog) / STAGE_FILES["s3"]).read_text(encoding="utf-8"))
     assert s3["done"]["w:apple"]["model"] == "deepseek-v4-flash"
 
 
@@ -2220,7 +2328,7 @@ def test_c3_s5_resume_reenriches_legacy_entries(tmp_path, monkeypatch):
                   _zipf_fn=lambda t: 5.0)
     assert precard_main(argv, **common) == 0
     # Simulate a pre-C3 resume state: strip the C3 keys from s5.
-    s5_path = pathlib.Path(prog) / "s5.json"
+    s5_path = pathlib.Path(prog) / STAGE_FILES["s5"]
     state = json.loads(s5_path.read_text(encoding="utf-8"))
     for entry in state["done"].values():
         for field in ("lexical_type", "register", "pre_card_id"):

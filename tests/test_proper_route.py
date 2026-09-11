@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "factory"))
 import precard_pipeline  # noqa: E402
 from precard_pipeline import main as precard_main  # noqa: E402
 from precard_pipeline import judge_proper_route  # noqa: E402
+from stage_glossary import STAGE_FILES  # noqa: E402
 
 LONG_EX = ("She eats a fresh red apple every single morning "
            "with her family")
@@ -149,7 +150,7 @@ def run_all(tmp_path, texts, prog=None, pools=None):
 
 
 def s2_state(progdir):
-    with open(os.path.join(progdir, "s2.json"),
+    with open(os.path.join(progdir, STAGE_FILES["s2"]),
               encoding="utf-8") as handle:
         return json.load(handle)
 
