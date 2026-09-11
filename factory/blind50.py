@@ -22,6 +22,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import card_pilot
+import llm_json
 import precard_pipeline
 
 GOOGLE_URL = ("https://generativelanguage.googleapis.com/v1beta/"
@@ -29,6 +30,14 @@ GOOGLE_URL = ("https://generativelanguage.googleapis.com/v1beta/"
 OR_URL = "https://openrouter.ai/api/v1/chat/completions"
 BATCH = 8
 RETRY_PREFIX = precard_pipeline.RETRY_PREFIX
+
+# report_fn outcome vocabulary (C4c, opt-in supervisor reporting): "ok"
+# per judged batch, "http429" per rate-limited batch, "location-blocked"
+# per location-blocked batch. The supervisor adapter maps
+# "location-blocked" to supervisor "http429" (cools + switches) while
+# report_fn observers keep seeing the unmapped outcome.
+LOCATION_BLOCKED = "location-blocked"
+_SUPERVISOR_OUTCOME = {LOCATION_BLOCKED: "http429"}
 
 
 class RateLimited(Exception):
@@ -68,6 +77,57 @@ def _default_post(url, payload, timeout, headers=None):
     req = urllib.request.Request(url, data=payload, headers=heads)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read()
+
+
+def _error_body(exc):
+    """Best-effort HTTP error body (str, may be "")."""
+    try:
+        read = getattr(exc, "read", None)
+        if not callable(read):
+            return ""
+        data = read()
+        if isinstance(data, bytes):
+            return data.decode("utf-8", "replace")
+        return str(data or "")
+    except Exception:
+        return ""
+
+
+def _supervisor_outcome(outcome):
+    """Map a report_fn outcome to the supervisor report vocabulary."""
+    return _SUPERVISOR_OUTCOME.get(outcome, outcome)
+
+
+class _SupervisorClient:
+    """Minimal supervisor lease/report client (stdlib only).
+
+    Mirrors tools/egress/client.py lease/report shapes without importing
+    the egress tree (factory runners stay stdlib-only).
+    """
+
+    def __init__(self, base_url, token=""):
+        self._base = (base_url or "").rstrip("/")
+        self._token = token or ""
+
+    def _call(self, path, payload):
+        body = json.dumps(payload or {}).encode()
+        req = urllib.request.Request(
+            self._base + path, data=body,
+            headers={"Content-Type": "application/json",
+                     "Authorization": "Bearer " + self._token})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.load(resp)
+
+    def lease(self, target):
+        """Lease an egress target (google/openrouter)."""
+        return self._call("/v1/lease", {"target": target})
+
+    def report(self, lease_id, outcome, provider=None):
+        """Report outcome; provider selects per-(server,provider) cooldowns."""
+        payload = {"lease_id": lease_id, "outcome": outcome}
+        if provider is not None:
+            payload["provider"] = provider
+        return self._call("/v1/report", payload)
 
 
 def _strip_fences(text):
@@ -181,13 +241,22 @@ def fill_missing_windows(items, anchor_map, kaikki_index=None,
 
 
 def run_model(tag, items, anchor_map, progress_path, judge_fn,
-              batch=BATCH, pace=4.0, sleep_fn=None):
+              batch=BATCH, pace=4.0, sleep_fn=None, provider=None,
+              report_fn=None):
     """Judge every item (batched S2 prompts), resume from progress.
 
     judge_fn(chunk, prompt) -> validated {key: {...}}. Three
-    consecutive HTTP-429 batches raise RateLimited.
+    consecutive HTTP-429 batches raise RateLimited. A batch whose
+    HTTP error classifies (llm_json.classify) as a location block
+    counts like a 429 batch but reports "location-blocked" instead of
+    "http429". report_fn(provider, outcome) fires once per attempted
+    batch when set (None by default = today's behavior, no reporting).
     """
     sleep = sleep_fn or time.sleep
+
+    def _report(outcome):
+        if report_fn is not None:
+            report_fn(provider, outcome)
     try:
         with open(progress_path, encoding="utf-8") as handle:
             progress = json.load(handle)
@@ -209,9 +278,17 @@ def run_model(tag, items, anchor_map, progress_path, judge_fn,
         try:
             valid = judge_fn(chunk, prompt)
         except urllib.error.HTTPError as exc:
-            if getattr(exc, "code", None) != 429:
+            code = getattr(exc, "code", None)
+            if llm_json.classify(
+                    code, _error_body(exc), provider
+                    ) == llm_json.COOLDOWN_SWITCH:
+                outcome = LOCATION_BLOCKED
+            elif code != 429:
                 raise
+            else:
+                outcome = "http429"
             strikes += 1
+            _report(outcome)
             if strikes >= 3:
                 print("[blind50 %s] batch %d/%d: 429 (strike %d/3, "
                       "stopping)" % (tag, batch_no + 1, n_batches, strikes),
@@ -230,6 +307,7 @@ def run_model(tag, items, anchor_map, progress_path, judge_fn,
             done[key] = valid.get(key, {"sense_id": "", "gloss": ""})
         progress[tag] = done
         _atomic_write(progress_path, progress)
+        _report("ok")
         print("[blind50 %s] batch %d/%d: done=%d/%d" % (
             tag, batch_no, n_batches, len(done), total), flush=True)
         sleep(pace)
@@ -261,6 +339,11 @@ def main(argv=None):
     ap.add_argument("--pace", type=float, default=4.0)
     ap.add_argument("--kaikki-index", default=None)
     ap.add_argument("--kaikki-raw", default=None)
+    ap.add_argument("--supervisor", default="",
+                    help="supervisor base URL for opt-in lease/report "
+                         "(empty=off: today's behavior, no reporting)")
+    ap.add_argument("--sup-token", default="",
+                    help="supervisor bearer token")
     args = ap.parse_args(argv)
 
     with open(args.accept, encoding="utf-8") as handle:
@@ -281,30 +364,54 @@ def main(argv=None):
         os.path.join(here, "..", "tools", "egress", ".env"))
     models = [m.strip() for m in args.models.split(",") if m.strip()]
     specs = {"g35": ("GOOGLE_AI_API_KEY", "gemini-3.5-flash-lite",
-                     google_judge),
+                     google_judge, "google"),
              "g31": ("GOOGLE_AI_API_KEY", "gemini-3.1-flash-lite",
-                     google_judge),
+                     google_judge, "google"),
              "north": ("OPENROUTER_API_KEY",
-                       "cohere/north-mini-code:free", openrouter_judge)}
+                       "cohere/north-mini-code:free", openrouter_judge,
+                       "openrouter")}
     unknown = [m for m in models if m not in specs]
     if unknown:
         raise SystemExit("unknown --models: %s (choose from %s)" % (
             ",".join(unknown), ",".join(sorted(specs))))
     result = {"glm": {k: {"sense_id": (v or {}).get("sense_id", "")}
                       for k, v in glm.items()}}
+    sup = (_SupervisorClient(args.supervisor, args.sup_token)
+           if args.supervisor else None)
     for tag in models:
-        key_name, model, fn = specs[tag]
+        key_name, model, fn, provider = specs[tag]
         if args.dry_run:
             print("dry-run %s %s (%d items)" % (tag, model, len(items)))
             continue
         api_key = keys[key_name]
         if not api_key:
             raise KeyError("missing key: %s" % key_name)
+        report_fn = None
+        if sup is not None:
+            lease = sup.lease(provider)
+            if not isinstance(lease, dict) or lease.get("error"):
+                detail = (lease.get("message") if isinstance(
+                    lease, dict) else lease)
+                raise SystemExit(
+                    "supervisor lease failed for %s: %s" % (tag, detail))
+
+            def report_fn(outcome_provider, outcome,
+                          _sup=sup,
+                          _lease_id=lease.get("lease_id", ""),
+                          _tag=tag):
+                try:
+                    _sup.report(_lease_id,
+                                _supervisor_outcome(outcome),
+                                provider=outcome_provider)
+                except Exception as exc:  # noqa: BLE001 (best-effort)
+                    print("[blind50 %s] report failed: %s" % (_tag, exc),
+                          flush=True)
+
         result[tag] = run_model(
             tag, items, anchor_map, args.progress,
             lambda chunk, prompt, _fn=fn, _k=api_key, _m=model: _fn(
                 _k, _m, chunk, prompt, anchor_map),
-            pace=args.pace)
+            pace=args.pace, provider=provider, report_fn=report_fn)
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(result, handle, ensure_ascii=False, indent=1)
     print("wrote %s (%d models)" % (args.out, len(result)))
