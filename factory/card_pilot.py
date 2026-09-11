@@ -957,14 +957,45 @@ def filter_examples_by_length(texts, loose_cap=False):
     return kept
 
 
+def _fold_separators(value):
+    """Fold both slash styles to "/" so normpath compares equal on POSIX
+    and Windows alike (bare normpath does not fold backslash on POSIX).
+    """
+    return str(value or "").replace("\\", "/")
+
+
+def _is_pinned_default(path, default):
+    """True when path names the pinned default (str or Path, either
+    slash style, any case Windows accepts). Guards the loud-missing
+    teeth against caller spelling.
+    """
+    try:
+        return os.path.normcase(
+            os.path.normpath(_fold_separators(path))) == os.path.normcase(
+            os.path.normpath(_fold_separators(default)))
+    except (TypeError, ValueError):
+        return False
+
+
 def load_tatoeba_pool(path):
-    """lemma.lower() -> [example, ...]; missing/unreadable file -> {}."""
+    """lemma.lower() -> [example, ...]; missing/unreadable file -> {}.
+
+    A missing DEFAULT pool warns LOUD (stderr): silent {} would
+    disable examples invisibly if someone deletes the "old-looking"
+    v13a file (namespace rule — pinned live set, see factory/README).
+    Explicit custom paths stay silent (tests, experiments).
+    """
     try:
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
     except (OSError, ValueError):
-        return {}
+        data = None
     if not isinstance(data, dict):
+        if _is_pinned_default(path, DEFAULT_TATOEBA_POOL):
+            print("WARNING: default Tatoeba pool missing: %s "
+                  "(examples disabled; pinned live file, do not "
+                  "delete/rename — see factory/README namespace rule)"
+                  % DEFAULT_TATOEBA_POOL, file=sys.stderr)
         return {}
     return {str(k).lower(): [s for s in v if isinstance(s, str) and s.strip()]
             for k, v in data.items() if isinstance(v, list)}
@@ -1030,13 +1061,26 @@ def load_topic_vectors(path):
 
     File shape: [{lemma, vectors: [{sense_id, vector:
     [{topic_id, topic_label, weight}]}]}]. Missing/unreadable -> {}.
+    A missing DEFAULT warns LOUD like the Tatoeba pool (same pinned
+    namespace rule); custom paths stay silent.
     """
     try:
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
     except (OSError, ValueError):
+        data = None
+    if data is None:
+        if _is_pinned_default(path, DEFAULT_TOPIC_VECTORS):
+            print("WARNING: default topic vectors missing: %s "
+                  "(topics fall back to single-label; pinned live "
+                  "file — see factory/README namespace rule)"
+                  % DEFAULT_TOPIC_VECTORS, file=sys.stderr)
         return {}
     if not isinstance(data, list):
+        if _is_pinned_default(path, DEFAULT_TOPIC_VECTORS):
+            print("WARNING: default topic vectors unreadable: %s "
+                  "(pinned live file — see factory/README namespace "
+                  "rule)" % DEFAULT_TOPIC_VECTORS, file=sys.stderr)
         return {}
     out = {}
     for row in data:

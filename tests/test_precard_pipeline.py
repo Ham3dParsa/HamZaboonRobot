@@ -2231,3 +2231,90 @@ def test_c3_s5_resume_reenriches_legacy_entries(tmp_path, monkeypatch):
     assert rows[0]["lexical_type"] == "slang"
     assert rows[0]["register"] == "neutral"
     assert len(rows[0]["pre_card_id"]) == 16
+
+
+def test_default_tatoeba_pool_missing_warns_loud(tmp_path, capsys,
+                                                     monkeypatch):
+    """Namespace tooth: deleting the pinned default pool must scream,
+    not silently disable examples."""
+    missing = str(tmp_path / "gone.json")
+    monkeypatch.setattr(card_pilot, "DEFAULT_TATOEBA_POOL", missing)
+    assert card_pilot.load_tatoeba_pool(missing) == {}
+    captured = capsys.readouterr()
+    assert "WARNING: default Tatoeba pool missing" in \
+        captured.out + captured.err
+
+
+def test_custom_tatoeba_pool_missing_stays_silent(tmp_path, capsys):
+    """Explicit custom paths keep fail-open silence (tests, runs)."""
+    assert card_pilot.load_tatoeba_pool(
+        str(tmp_path / "nope.json")) == {}
+    captured = capsys.readouterr()
+    assert "WARNING" not in captured.out + captured.err
+
+
+def test_default_topic_vectors_missing_warns_loud(tmp_path, capsys,
+                                                  monkeypatch):
+    """Same tooth for the topic pool (pathlib spelling also matches)."""
+    import pathlib
+    missing = tmp_path / "gone.json"
+    monkeypatch.setattr(card_pilot, "DEFAULT_TOPIC_VECTORS",
+                        str(missing).replace("\\", "/"))
+    assert card_pilot.load_topic_vectors(missing) == {}
+    captured = capsys.readouterr()
+    assert "WARNING: default topic vectors missing" in \
+        captured.out + captured.err
+
+def test_pinned_default_backslash_spelling_matches(tmp_path, capsys,
+                                                   monkeypatch):
+    """Either slash style names the pinned default (POSIX-safe fold)."""
+    missing = str(tmp_path / "gone.json")
+    monkeypatch.setattr(card_pilot, "DEFAULT_TATOEBA_POOL", missing)
+    forward = missing.replace(chr(92), "/")
+    backward = missing.replace("/", chr(92))
+    assert card_pilot._is_pinned_default(forward, missing) is True
+    assert card_pilot._is_pinned_default(backward, missing) is True
+    assert card_pilot.load_tatoeba_pool(backward) == {}
+    captured = capsys.readouterr()
+    assert "WARNING: default Tatoeba pool missing" in (
+        captured.out + captured.err)
+
+
+def test_pinned_default_case_variant_matches(tmp_path, capsys,
+                                               monkeypatch):
+    """Windows spellings differing only by case still name the pinned
+    default (normcase fold; simulated so the tooth holds on POSIX CI)."""
+    pinned = str(tmp_path / "Pinned.json")
+    monkeypatch.setattr(card_pilot, "DEFAULT_TATOEBA_POOL", pinned)
+    monkeypatch.setattr(os.path, "normcase",
+                        lambda s: os.path.normpath(s).lower())
+    assert card_pilot._is_pinned_default(pinned.upper(), pinned) is True
+    assert card_pilot.load_tatoeba_pool(pinned.upper()) == {}
+    captured = capsys.readouterr()
+    assert "WARNING: default Tatoeba pool missing" in (
+        captured.out + captured.err)
+
+
+def test_pinned_tatoeba_pool_corrupt_warns_loud(tmp_path, capsys,
+                                                monkeypatch):
+    """Unreadable-but-present pinned pool still screams (missing tooth
+    covers the corrupt/wrong-shape branch too)."""
+    pinned = tmp_path / "pool.json"
+    pinned.write_text("{not valid json", encoding="utf-8")
+    monkeypatch.setattr(card_pilot, "DEFAULT_TATOEBA_POOL", str(pinned))
+    assert card_pilot.load_tatoeba_pool(str(pinned)) == {}
+    captured = capsys.readouterr()
+    assert "WARNING: default Tatoeba pool missing" in (
+        captured.out + captured.err)
+
+
+def test_pinned_topic_vectors_nonlist_warns_unreadable(tmp_path, capsys,
+                                                       monkeypatch):
+    """Present-but-wrong-shape pinned topic file warns unreadable."""
+    pinned = tmp_path / "topics.json"
+    pinned.write_text(json.dumps({"x": 1}), encoding="utf-8")
+    monkeypatch.setattr(card_pilot, "DEFAULT_TOPIC_VECTORS", str(pinned))
+    assert card_pilot.load_topic_vectors(str(pinned)) == {}
+    captured = capsys.readouterr()
+    assert "WARNING: default topic vectors unreadable" in (
+        captured.out + captured.err)

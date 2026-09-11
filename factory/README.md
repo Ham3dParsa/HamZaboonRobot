@@ -10,6 +10,7 @@
   `factory/.env` (keys), `*_progress.json` (resume state). Gitignored by design.
 
 ## Backup policy (locked 2026-09-03)
+
 - Before any cleanup/migration/scale-up: copy `registry.db` + `.env` + builders into
   `W:\hamzaban_data_factory\backups\<timestamp>\` (see W: README §Backups).
 - The live DB is never opened from W: (SQLite locking) — W: copies are backup only.
@@ -20,6 +21,21 @@
 - Fixtures: `python factory/run_v14_phase1.py` (~7 min local GPU) → phases 2/3 scripts (need keys).
 - Registry: `python factory/registry.py` (migration import, zero reprocessing).
 - Big JSONs/zips/progress files are scratch: safe to delete once backed-up-or-regenerable.
+
+## Namespace rule (locked 2026-09-11) — two counters, never one
+
+Research snapshots keep their v-numbers frozen (`ranked_senses-v13a.json`,
+`card-pilot-v12-*.html`, `run_v14_*`): never rename, never delete the
+pinned live set below. Living outputs never take v-numbers — they take
+kind prefixes (`precard-*`, `pilot-final*`). "PishCard v13" names the
+13th line generation, unrelated to snapshot v13a.
+
+Pinned live files (load-bearing defaults — do not delete/rename):
+`fixtures/tatoeba_pool_v13a.json` (examples; missing file now warns
+LOUD instead of silently disabling), `fixtures/topic_vectors-v16b.json`,
+`fixtures/phrase_type_log.jsonl`. A missing default pool prints
+`WARNING: default Tatoeba pool missing` — if you see it, restore from
+`W:\hamzaban_data_factory\backups\`, do not silence it.
 
 ## PishCard Pipeline v13 — precard line
 
