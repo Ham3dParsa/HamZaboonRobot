@@ -36,5 +36,6 @@ others; per-source status prints with host only (never full links).
 ## Key rule
 
 `--probe-zen` / `--probe-google` nest under `--probe`. An empty probe
-never overwrites the whitelist. Three consecutive 429s stop the caller,
-never long-backoff.
+never overwrites the whitelist. In factory callers (blind50/precard),
+three consecutive 429s stop the run, never long-backoff (the supervisor
+itself only cools per-server).
