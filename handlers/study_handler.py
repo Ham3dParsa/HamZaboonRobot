@@ -228,8 +228,7 @@ def _restore_persisted_session(user_id: int) -> SessionState | None:
         return None
     session_date, state_json = row
     if session_date != _app_day_str():
-        _clear_persisted_session(user_id)
-        db.clear_session_grades(user_id)
+        db.invalidate_stale_study_session(user_id)
         return None
     try:
         state = _state_from_json(state_json)
@@ -237,12 +236,10 @@ def _restore_persisted_session(user_id: int) -> SessionState | None:
         logger.exception(
             "corrupt persisted study session user_id=%s", user_id
         )
-        _clear_persisted_session(user_id)
-        db.clear_session_grades(user_id)
+        db.invalidate_stale_study_session(user_id)
         return None
     if not state.nodes:
-        _clear_persisted_session(user_id)
-        db.clear_session_grades(user_id)
+        db.invalidate_stale_study_session(user_id)
         return None
     return state
 

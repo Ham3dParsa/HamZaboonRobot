@@ -705,5 +705,44 @@ class IsStaleTests(unittest.TestCase):
         self.assertFalse(is_stale(fresh, "2026-09-10"))
 
 
+class RestoreDiscardClearsLedgerTests(unittest.TestCase):
+    """_restore_persisted_session discard clears row AND ledger atomically."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+        self._prev_db = db.DB_PATH
+        self._prev_schema = db_schema.DB_PATH
+        self.addCleanup(self._restore)
+        new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db.DB_PATH = new_path
+        db_schema.DB_PATH = new_path
+        db.init_db()
+
+    def _restore(self):
+        db.DB_PATH = self._prev_db
+        db_schema.DB_PATH = self._prev_schema
+
+    def test_corrupt_json_clears_ledger(self):
+        from handlers.study_handler import _restore_persisted_session
+
+        db.save_study_session(1, _today(), "{not valid json")
+        db.mark_word_graded(1, 42, "srs_review")
+        self.assertTrue(db.is_word_graded(1, 42, "srs_review"))
+        self.assertIsNone(_restore_persisted_session(1))
+        self.assertIsNone(db.load_study_session(1))
+        self.assertFalse(db.is_word_graded(1, 42, "srs_review"))
+
+    def test_empty_nodes_clears_ledger(self):
+        from handlers.study_handler import _restore_persisted_session
+
+        db.save_study_session(1, _today(), '{"nodes": []}')
+        db.mark_word_graded(1, 43, "srs_review")
+        self.assertTrue(db.is_word_graded(1, 43, "srs_review"))
+        self.assertIsNone(_restore_persisted_session(1))
+        self.assertIsNone(db.load_study_session(1))
+        self.assertFalse(db.is_word_graded(1, 43, "srs_review"))
+
+
 if __name__ == "__main__":
     unittest.main()
