@@ -80,12 +80,29 @@ def known_provider(provider):
 
 def load_env():
     data = {}
+    last_key = None
     if ENV_PATH.exists():
         for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                data[k.strip()] = v.strip().strip("'\"")
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if "=" in stripped:
+                k, v = stripped.split("=", 1)
+                k = k.strip()
+                if not k.isidentifier():
+                    # Not a KEY=value line (e.g. a continuation URL with
+                    # a query string): it belongs to the previous value
+                    # only for subscription vars — a stray line after the
+                    # token must never corrupt it.
+                    if last_key in (SUB_VAR, SUBS_VAR):
+                        data[last_key] += "\n" + stripped
+                    continue
+                data[k] = v.strip().strip("'\"")
+                last_key = k
+            elif last_key in (SUB_VAR, SUBS_VAR):
+                # Continuation line: a bare URL on its own line belongs
+                # to the previous value (multi-line EGRESS_SUB_URLS).
+                data[last_key] += "\n" + stripped
     for k in (SUB_VAR, SUBS_VAR, TOKEN_VAR):
         if k in os.environ and os.environ[k]:
             data[k] = os.environ[k]
@@ -93,11 +110,14 @@ def load_env():
 
 
 def sub_sources(env):
-    """All subscription sources: plural var (newline/whitespace separated)
-    plus the legacy singular var. Commas are NOT split points (legal in
-    URLs). Order preserved, empties dropped."""
+    """All subscription sources: plural var (commas AND newlines split)
+    plus the legacy singular var. Order preserved, empties dropped.
+
+    Limitation: a link containing a literal comma is unsupported (it
+    is treated as a split point)."""
     out = []
-    for chunk in (env.get(SUBS_VAR, "") or "").split():
+    raw = (env.get(SUBS_VAR, "") or "").replace(",", " ")
+    for chunk in raw.split():
         chunk = chunk.strip()
         if chunk and chunk not in out:
             out.append(chunk)
@@ -114,7 +134,10 @@ def parse_subscription(text):
     the single parser (ValueError contract) and every per-line failure
     is skipped. Exact-duplicate links collapse to one server (public
     subs repeat configs; cross-source dupes additionally collapse in
-    Pool.load by id).
+    Pool.load by id). Plain-text bodies (e.g. xirix-style non-base64)
+    are used as-is: a base64 decode that yields no link line is
+    discarded, since single-line raw bodies can spuriously decode into
+    garbage.
     """
     try:
         from . import xrayconf as _xc
@@ -126,8 +149,10 @@ def parse_subscription(text):
     if not blob:
         return servers
     try:
-        blob = base64.b64decode(blob + "=" * (-len(blob) % 4)).decode(
-            "utf-8", "replace")
+        decoded = base64.b64decode(
+            blob + "=" * (-len(blob) % 4)).decode("utf-8", "replace")
+        if "://" in decoded:
+            blob = decoded
     except (ValueError, binascii.Error):
         pass
     for line in blob.splitlines():
@@ -477,25 +502,61 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-def fetch_sub(url):
+def fetch_sub(url, attempts=2):
     """Fetch a subscription URL with a browser UA (raw hosts 403 the
-    default urllib agent)."""
-    req = urllib.request.Request(
-        url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64)"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return resp.read().decode("utf-8", "replace")
+    default urllib agent). Two attempts with a short backoff; raises
+    the last error when all attempts fail (URL itself never logged)."""
+    last = RuntimeError("fetch failed")
+    for i in range(max(1, attempts)):
+        req = urllib.request.Request(
+            url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64)",
+                "Accept": "*/*"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return resp.read().decode("utf-8", "replace")
+        except Exception as exc:  # noqa: BLE001 (retry then raise)
+            last = exc
+            if i + 1 < max(1, attempts):
+                time.sleep(1.0)
+    raise last
+
+
+def _source_label(src):
+    """Redacted per-source label (host only, never the full URL/body).
+
+    hostname (not netloc): netloc keeps userinfo, so credential-bearing
+    subscription URLs would leak secrets into stdout logs."""
+    if not (src or "").startswith("http"):
+        return "inline"
+    try:
+        return urllib.parse.urlparse(src).hostname or "sub"
+    except Exception:  # noqa: BLE001 (label is best-effort)
+        return "sub"
 
 
 def refresh_subscription(env):
-    for src in sub_sources(env):
+    sources = sub_sources(env)
+    if not sources:
+        print("subscription refresh: no sources configured")
+        return
+    for src in sources:
+        label = _source_label(src)
         body = src
         if body.startswith("http"):
             try:
                 body = fetch_sub(body)
-            except Exception:  # noqa: BLE001 (best-effort; URL is secret)
-                print("subscription refresh failed (network error)")
+            except Exception as exc:  # noqa: BLE001 (per-source)
+                print("sub %s: failed (%s)" % (label,
+                                               type(exc).__name__))
                 continue
-        POOL.load(parse_subscription(body))
+        try:
+            servers = parse_subscription(body)
+        except Exception:  # noqa: BLE001 (one bad body never aborts)
+            print("sub %s: failed (parse error)" % label)
+            continue
+        POOL.load(servers)
+        print("sub %s: ok %d servers" % (label, len(servers)))
 
 
 def tcp_ping(host, port, timeout=PROBE_TIMEOUT_S):
