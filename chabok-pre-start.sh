@@ -13,8 +13,8 @@ XRAY_DIR="/app/.xray"
 # Master switch for all Xray/proxy logic below (install, cron, rebuild,
 # boot-start, supervisord). Set XRAY_ENABLED=0 in panel env to run without
 # the proxy (also clear AI_PROXY_URL then, or AI calls hang on a dead port).
-# Default 1 preserves current behavior.
-XRAY_ENABLED="${XRAY_ENABLED:-1}"
+# Default 0 (off; set 1 explicitly to enable).
+XRAY_ENABLED="${XRAY_ENABLED:-0}"
 mkdir -p "$XRAY_DIR" /var/log/xray /var/log/supervisor
 # Ensure log file exists for supervisor/cron (canonical path /var/log/xray/xray.log)
 touch /var/log/xray/xray.log 2>&1 | head || true
