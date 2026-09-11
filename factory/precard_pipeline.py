@@ -809,17 +809,18 @@ def _reroute_proper_anchor(item, ranked, index, read_entry):
 # real sense, while kaikki name senses open with the head ("A female
 # given name.", "An English surname.", "A diminutive of Robert.").
 # Mirrors the person-guard vocabulary in judge_proper_route, plus place
-# names (same leak class). An optional middle segment (up to 2 words)
-# covers adjective-headed names ("A German family name") — it cannot
-# manufacture a match because the trailing head noun stays
-# name-specific. Boundary (review): bare "diminutive" is NOT a head
-# (collides with the real "diminutive suffix" sense); bare "variant"
-# is NOT a head either ("A variant of the plan" is a real sense, and
-# bare "Variant of X" is owned by xref R34).
+# names (same leak class). An optional middle segment (up to 2 words —
+# word chars incl. hyphens/apostrophes/unicode, so "A French-Canadian
+# surname." and "A São Tomé surname." match) covers adjective-headed
+# names — it cannot manufacture a match because the trailing head noun
+# stays name-specific. Boundary (review): bare "diminutive" is NOT a
+# head (collides with the real "diminutive suffix" sense); bare
+# "variant" is NOT a head either ("A variant of the plan" is a real
+# sense, and bare "Variant of X" is owned by xref R34).
 _NAME_GLOSS_RX = re.compile(
     r"^\s*(?:a|an|the)\s+"
     r"(?:(?:male|female|unisex|masculine|feminine)\s+)?"
-    r"(?:[A-Za-z]+\s+){0,2}"
+    r"(?:[\w'’-]+\s+){0,2}"
     r"(?:given\s+name|surname|family\s+name|place\s+name|first\s+name|"
     r"last\s+name|maiden\s+name|nickname|pet\s+form\s+of|"
     r"diminutive\s+of|short\s+form\s+of)\b",
@@ -880,6 +881,35 @@ def _reroute_name_gloss_anchor(item, ranked, index, read_entry):
                  "gloss": top.get("gloss", "")},
                 top.get("gloss", ""), ranked.get("anchor_pos", ""))
     return None
+
+
+def _target_sense_tags(item, sense_id, index, read_entry):
+    """Kaikki tag set of one window candidate (empty set when
+    unresolvable). Mirrors _picked_entry_pos's xref-target switch, but
+    returns the sense's tags (via the C3 _sense_tag_set normalizer)
+    instead of the entry POS. Lookup errors fail open to empty — tags
+    only ever add drops, never keeps, so uncertainty keeps.
+    """
+    try:
+        want_idx = int((sense_id or "").split("#")[-1])
+    except (TypeError, ValueError, AttributeError):
+        return set()
+    try:
+        entries, pos = _entries_for(item, index)
+        sid_lemma = (sense_id or "").rpartition("#")[0].strip().lower()
+        if sid_lemma and sid_lemma != (
+                item.get("text") or "").strip().lower():
+            target_rows = (index or {}).get(sid_lemma)
+            if target_rows:
+                entries, pos = list(target_rows), ""
+        scored = card_pilot.score_senses(
+            sid_lemma or item.get("text", ""), entries, pos, read_entry)
+    except Exception:
+        return set()
+    for _score, idx, _entry, sense, _gloss in scored:
+        if idx == want_idx:
+            return _sense_tag_set(sense)
+    return set()
 
 
 def anchor_rank_item(item, index, read_entry):
@@ -2418,20 +2448,42 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                             # helper), keeps the anchor top on helper
                             # errors (marked name_eval_error — uncertainty
                             # keeps, re-armed on resume), else drops as
-                            # anchor-name-gloss.
+                            # anchor-name-gloss. A true reroute refreshes
+                            # the tag carrier from the TARGET sense and
+                            # re-runs the vulgar verdict (review: stale
+                            # anchor_tags would leak a vulgar target past
+                            # the gate below); empty lookups keep the
+                            # anchor's tags (uncertainty keeps).
                             rerouted = _reroute_name_gloss_anchor(
                                 item, ranked, index, read_entry)
                             if rerouted is not None:
                                 ranked["top"], ranked["en_def"], \
                                     ranked["anchor_pos"] = rerouted
                                 if ranked.get("rerouted_from_name"):
-                                    print(_color(
-                                        "warning: %s re-anchored off name "
-                                        "top -> %s" % (
-                                            key,
-                                            rerouted[0].get("sense_id",
-                                                              "")),
-                                        "yellow"))
+                                    fresh = _target_sense_tags(
+                                        item,
+                                        rerouted[0].get("sense_id", ""),
+                                        index, read_entry)
+                                    if fresh:
+                                        ranked["anchor_tags"] = sorted(
+                                            fresh)
+                                    if set(ranked.get("anchor_tags")
+                                           or {}) & card_pilot.VULGAR_TAGS:
+                                        ranked.pop("rerouted_from_name",
+                                                   None)
+                                        ranked["dropped"] = "vulgar-anchor"
+                                        if key not in states["s1"][
+                                                "failed"]:
+                                            states["s1"]["failed"].append(
+                                                key)
+                                    else:
+                                        print(_color(
+                                            "warning: %s re-anchored off "
+                                            "name top -> %s" % (
+                                                key,
+                                                rerouted[0].get(
+                                                    "sense_id", "")),
+                                            "yellow"))
                                 elif ranked.get("name_eval_error"):
                                     print(_color(
                                         "warning: %s name-eval error, "

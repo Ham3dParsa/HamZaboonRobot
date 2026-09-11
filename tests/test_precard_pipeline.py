@@ -2336,6 +2336,15 @@ def _name_rows(*glosses, pos="noun"):
                                    "examples": []} for g in glosses]}}]
 
 
+def _name_rows_tagged(gloss_tags, pos="noun"):
+    """Fake kaikki rows with per-sense (gloss, tags) pairs."""
+    return [{"pos": pos,
+             "entry": {"pos": pos, "sounds": [],
+                       "senses": [{"glosses": [g], "tags": list(tags),
+                                   "examples": []}
+                                  for g, tags in gloss_tags]}}]
+
+
 def test_f2_name_gloss_pattern():
     """F2: given/surname/place-name gloss heads match (incl. male/female
     variants); ordinary glosses and mid-sentence mentions do not."""
@@ -2348,7 +2357,9 @@ def test_f2_name_gloss_pattern():
                   "A last name.", "A maiden name.", "A nickname.",
                   "An English surname.", "A Norman surname.",
                   "A German family name.", "A diminutive of Robert.",
-                  "A pet form of Elizabeth.", "A short form of Thomas."):
+                  "A pet form of Elizabeth.", "A short form of Thomas.",
+                  "A French-Canadian surname.",
+                  "A São Tomé surname."):
         assert _is_name_gloss(gloss) is True, gloss
     for gloss in ("a round fruit", "A dictionary of surnames.",
                   "a visible mark", "past of remove", "",
@@ -2453,6 +2464,26 @@ def test_f2_s1_error_path_keeps_item(tmp_path, monkeypatch):
     assert done.get("rerouted_from_name") is not True
     assert done["top"]["gloss"] == "A female given name."
     assert done.get("name_eval_error") is True
+
+
+def test_f2_reroute_onto_vulgar_target_drops(tmp_path, monkeypatch):
+    """Review OC-W1: a name-top rerouting onto a vulgar-tagged sense must
+    not leak a vulgar card on stale anchor_tags — S1 drops it as
+    vulgar-anchor with the target's tags on the entry."""
+    items = [{"kind": "word", "text": "gillianv", "pos": "noun",
+              "pool_level": "B1"}]
+    index = {"gillianv": _name_rows_tagged(
+        [("A female given name.", []), ("a crude insult", ["vulgar"])])}
+    rows, _s0 = _run_s0_only(tmp_path, monkeypatch, items, index,
+                             _zipf_fn=lambda t: 5.0)
+    assert rows == []  # dropped items never reach precard.jsonl
+    s1 = json.loads(
+        (pathlib.Path(str(tmp_path / "prog")) / "s1.json").read_text(
+            encoding="utf-8"))
+    done = s1["done"]["w:gillianv"]
+    assert done["dropped"] == "vulgar-anchor"
+    assert "vulgar" in (done.get("anchor_tags") or [])
+    assert "w:gillianv" in s1["failed"]
 
 
 def test_f2_real_words_untouched_and_all_names_drop(tmp_path, monkeypatch):
