@@ -512,7 +512,7 @@ def preprocess_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
             "’", "'").replace("‘", "'")
         if country_key in COUNTRY_NAMES:
             pos_set = (pos_sets or {}).get(text.lower(), set())
-            if not pos_set or card_pilot.is_proper_noun_lemma(text, pos_set):
+            if not pos_set or set(pos_set) <= card_pilot.PROPER_NOUN_POS:
                 return {"kept": False, "reason": "r4-country-blocklist",
                         "type_pending": False}
             # POS-aware exemption (#606): kaikki knows this lemma as a

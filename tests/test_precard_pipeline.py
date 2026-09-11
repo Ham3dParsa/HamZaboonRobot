@@ -1570,6 +1570,19 @@ def test_r4_country_blocklist_ascii_aliases():
                      "type_pending": False}, alias
 
 
+def test_r4_country_blocklist_multiword_proper_pos_drops():
+    """#606 review round 4: a multi-word hit with proper-noun-only POS
+    drops via the blocklist (subset test, not the single-token helper,
+    which is False for any text with a space)."""
+    from precard_pipeline import preprocess_classify_item
+    v = preprocess_classify_item(
+        _g_item("United States of America", "B2"),
+        {"united states of america": {"name"}},
+        lambda t: 5.0, set(), {}, False)
+    assert v == {"kept": False, "reason": "r4-country-blocklist",
+                 "type_pending": False}
+
+
 def test_r4_country_blocklist_keeps_non_country():
     """Control: an ordinary word is untouched by the blocklist."""
     from precard_pipeline import preprocess_classify_item
