@@ -2231,3 +2231,36 @@ def test_c3_s5_resume_reenriches_legacy_entries(tmp_path, monkeypatch):
     assert rows[0]["lexical_type"] == "slang"
     assert rows[0]["register"] == "neutral"
     assert len(rows[0]["pre_card_id"]) == 16
+
+
+def test_default_tatoeba_pool_missing_warns_loud(tmp_path, capsys,
+                                                     monkeypatch):
+    """Namespace tooth: deleting the pinned default pool must scream,
+    not silently disable examples."""
+    missing = str(tmp_path / "gone.json")
+    monkeypatch.setattr(card_pilot, "DEFAULT_TATOEBA_POOL", missing)
+    assert card_pilot.load_tatoeba_pool(missing) == {}
+    captured = capsys.readouterr()
+    assert "WARNING: default Tatoeba pool missing" in \
+        captured.out + captured.err
+
+
+def test_custom_tatoeba_pool_missing_stays_silent(tmp_path, capsys):
+    """Explicit custom paths keep fail-open silence (tests, runs)."""
+    assert card_pilot.load_tatoeba_pool(
+        str(tmp_path / "nope.json")) == {}
+    captured = capsys.readouterr()
+    assert "WARNING" not in captured.out + captured.err
+
+
+def test_default_topic_vectors_missing_warns_loud(tmp_path, capsys,
+                                                  monkeypatch):
+    """Same tooth for the topic pool (pathlib spelling also matches)."""
+    import pathlib
+    missing = tmp_path / "gone.json"
+    monkeypatch.setattr(card_pilot, "DEFAULT_TOPIC_VECTORS",
+                        str(missing).replace("\\", "/"))
+    assert card_pilot.load_topic_vectors(missing) == {}
+    captured = capsys.readouterr()
+    assert "WARNING: default topic vectors missing" in \
+        captured.out + captured.err
