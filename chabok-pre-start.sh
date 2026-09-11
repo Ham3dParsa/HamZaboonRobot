@@ -10,6 +10,11 @@ export DEBIAN_FRONTEND=noninteractive
 # (single source — no override; cron-jobs and supervisor.conf use the same).
 BASE_ROOT="/app"
 XRAY_DIR="/app/.xray"
+# Master switch for all Xray/proxy logic below (install, cron, rebuild,
+# boot-start, supervisord). Set XRAY_ENABLED=0 in panel env to run without
+# the proxy (also clear AI_PROXY_URL then, or AI calls hang on a dead port).
+# Default 1 preserves current behavior.
+XRAY_ENABLED="${XRAY_ENABLED:-1}"
 mkdir -p "$XRAY_DIR" /var/log/xray /var/log/supervisor
 # Ensure log file exists for supervisor/cron (canonical path /var/log/xray/xray.log)
 touch /var/log/xray/xray.log 2>&1 | head || true
@@ -20,7 +25,7 @@ if ! command -v supervisord >/dev/null 2>&1 || ! command -v cron >/dev/null 2>&1
   apt-get install -y --no-install-recommends cron supervisor procps || true
 fi
 # Install Xray if missing (console installs are ephemeral) - pin version + verify checksum
-if ! command -v xray >/dev/null 2>&1; then
+if [ "$XRAY_ENABLED" = "1" ] && ! command -v xray >/dev/null 2>&1; then
   apt-get update -qq
   apt-get install -y --no-install-recommends unzip curl ca-certificates || true
   XRAY_VERSION="v26.3.27"
@@ -37,8 +42,10 @@ fi
 # The repo cron-jobs file IS the /etc/cron.d content (single source, already
 # carries the USER field) — copy it verbatim instead of echoing hardcoded lines.
 service cron start 2>&1 | head -5 || cron 2>&1 | head -5 || true
-if [ -f "$BASE_ROOT/cron-jobs" ]; then
+if [ "$XRAY_ENABLED" = "1" ] && [ -f "$BASE_ROOT/cron-jobs" ]; then
   cp -f "$BASE_ROOT/cron-jobs" /etc/cron.d/xray-update && chmod 0644 /etc/cron.d/xray-update || true
+elif [ "$XRAY_ENABLED" != "1" ]; then
+  rm -f /etc/cron.d/xray-update || true
 fi
 
 # 3) Restore persistent subscription state and install helper scripts from repo
@@ -60,7 +67,7 @@ if [ -f "$BASE_ROOT/scripts/xray/validate_config.py" ]; then cp -f "$BASE_ROOT/s
 if [ -f "$BASE_ROOT/scripts/xray/update_subscription.sh" ]; then cp -f "$BASE_ROOT/scripts/xray/update_subscription.sh" /usr/local/bin/update_xray_subscription.sh; chmod +x /usr/local/bin/update_xray_subscription.sh; fi
 
 # 4) Rebuild Xray config from clean list (fallback to outs if clean missing)
-if [ -f /tmp/clean.json ] || [ -f "$XRAY_DIR/clean.json" ]; then
+if [ "$XRAY_ENABLED" = "1" ] && { [ -f /tmp/clean.json ] || [ -f "$XRAY_DIR/clean.json" ]; }; then
   if [ -x /usr/local/bin/rebuild-xray.py ]; then python3 /usr/local/bin/rebuild-xray.py 2>&1 | head -5 || echo "[chabok-pre-start] WARN: rebuild-xray.py failed - keep previous config"; else echo "[chabok-pre-start] WARN: rebuild-xray.py missing"; fi
 fi
 
@@ -68,8 +75,9 @@ fi
 # ${...:-} guard: under `set -eu` a bare $AI_PROXY_URL aborts when unset.
 if [ -z "${AI_PROXY_URL:-}" ]; then echo "[chabok-pre-start] WARN: AI_PROXY_URL empty - geoblock bypass OFF"; else _host=$(echo "$AI_PROXY_URL" | sed -E 's|.*://||; s|.*@||; s|:.*||'); echo "[chabok-pre-start] AI_PROXY_URL set (host=$_host)"; fi
 
-# 6) Launch supervisord if available (supervisor installed above)
-if command -v supervisord >/dev/null 2>&1 && [ -f "$BASE_ROOT/supervisor.conf" ]; then
+# 6) Launch supervisord if available (supervisor installed above).
+# Skipped when Xray is disabled: the conf only manages the xray program.
+if [ "$XRAY_ENABLED" = "1" ] && command -v supervisord >/dev/null 2>&1 && [ -f "$BASE_ROOT/supervisor.conf" ]; then
   mkdir -p /var/run /var/log/supervisor
   # install supervisor.conf to standard location if needed
   if [ "$BASE_ROOT/supervisor.conf" != "/app/supervisor.conf" ]; then cp -f "$BASE_ROOT/supervisor.conf" /app/supervisor.conf 2>&1 | head || true; fi
@@ -91,7 +99,7 @@ fi
 # Fresh boots otherwise have a dead proxy until the next 6h refresh.
 # No `xray test` gate: the pinned xray build has no `test` subcommand, so
 # the shared validator (validate-xray.py) checks structure instead.
-if ! pgrep -x xray >/dev/null 2>&1; then
+if [ "$XRAY_ENABLED" = "1" ] && ! pgrep -x xray >/dev/null 2>&1; then
   if supervisorctl -c "$BASE_ROOT/supervisor.conf" status xray 2>/dev/null | grep -q RUNNING; then
     : # supervisor owns it - done
   elif supervisorctl -c "$BASE_ROOT/supervisor.conf" status >/dev/null 2>&1; then
