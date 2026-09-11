@@ -2278,3 +2278,43 @@ def test_pinned_default_backslash_spelling_matches(tmp_path, capsys,
     captured = capsys.readouterr()
     assert "WARNING: default Tatoeba pool missing" in (
         captured.out + captured.err)
+
+
+def test_pinned_default_case_variant_matches(tmp_path, capsys,
+                                               monkeypatch):
+    """Windows spellings differing only by case still name the pinned
+    default (normcase fold; simulated so the tooth holds on POSIX CI)."""
+    pinned = str(tmp_path / "Pinned.json")
+    monkeypatch.setattr(card_pilot, "DEFAULT_TATOEBA_POOL", pinned)
+    monkeypatch.setattr(os.path, "normcase",
+                        lambda s: os.path.normpath(s).lower())
+    assert card_pilot._is_pinned_default(pinned.upper(), pinned) is True
+    assert card_pilot.load_tatoeba_pool(pinned.upper()) == {}
+    captured = capsys.readouterr()
+    assert "WARNING: default Tatoeba pool missing" in (
+        captured.out + captured.err)
+
+
+def test_pinned_tatoeba_pool_corrupt_warns_loud(tmp_path, capsys,
+                                                monkeypatch):
+    """Unreadable-but-present pinned pool still screams (missing tooth
+    covers the corrupt/wrong-shape branch too)."""
+    pinned = tmp_path / "pool.json"
+    pinned.write_text("{not valid json", encoding="utf-8")
+    monkeypatch.setattr(card_pilot, "DEFAULT_TATOEBA_POOL", str(pinned))
+    assert card_pilot.load_tatoeba_pool(str(pinned)) == {}
+    captured = capsys.readouterr()
+    assert "WARNING: default Tatoeba pool missing" in (
+        captured.out + captured.err)
+
+
+def test_pinned_topic_vectors_nonlist_warns_unreadable(tmp_path, capsys,
+                                                       monkeypatch):
+    """Present-but-wrong-shape pinned topic file warns unreadable."""
+    pinned = tmp_path / "topics.json"
+    pinned.write_text(json.dumps({"x": 1}), encoding="utf-8")
+    monkeypatch.setattr(card_pilot, "DEFAULT_TOPIC_VECTORS", str(pinned))
+    assert card_pilot.load_topic_vectors(str(pinned)) == {}
+    captured = capsys.readouterr()
+    assert "WARNING: default topic vectors unreadable" in (
+        captured.out + captured.err)

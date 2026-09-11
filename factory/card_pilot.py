@@ -966,11 +966,13 @@ def _fold_separators(value):
 
 def _is_pinned_default(path, default):
     """True when path names the pinned default (str or Path, either
-    slash style). Guards the loud-missing teeth against caller spelling.
+    slash style, any case Windows accepts). Guards the loud-missing
+    teeth against caller spelling.
     """
     try:
-        return os.path.normpath(_fold_separators(path)) == os.path.normpath(
-            _fold_separators(default))
+        return os.path.normcase(
+            os.path.normpath(_fold_separators(path))) == os.path.normcase(
+            os.path.normpath(_fold_separators(default)))
     except (TypeError, ValueError):
         return False
 
