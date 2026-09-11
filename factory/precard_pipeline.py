@@ -1407,6 +1407,333 @@ def vectors_batch(batch, judge_map, anchor_map, api_key, transport, sleep_fn,
 
 
 # ---------------------------------------------------------------- S4 ---
+# B1 (locked 2026-09-11): the S4 LLM leg batches up to LABEL_BATCH items
+# per transport call (today effectively per-item: ~900 input tokens per
+# ~80 output). Leg 1 (deterministic v16) + the file cache stay per-item
+# (free/local — batching them saves nothing); only the top-up LLM call
+# is shared. Prompt shape reuses run_v16b_topup USER_TMPL + lemma_block
+# by import (never a copy). Pacing (SLEEP per worked chunk) and the
+# all-keys-429 RateLimited stop ride the existing _call_with_rotation,
+# untouched; 401/403 aborts loud.
+
+LABEL_BATCH = 16
+
+
+def _label_prompt(entries):
+    """Batched S4 prompt: USER_TMPL + one lemma_block per entry.
+
+    entries: [{text, sense_id, gloss}]. Shape pinned by the B1 hermetic
+    test (16 items -> 1 call, prompt contains all 16). Raises
+    ImportError when run_v16b_topup is unimportable (the caller fails
+    closed — never a stage crash).
+    """
+    try:
+        from run_v16b_topup import USER_TMPL as _TOPUP_TMPL
+        from run_v16b_topup import lemma_block as _topup_block
+    except Exception as exc:
+        raise ImportError("run_v16b_topup unavailable: %s" % exc)
+    return _TOPUP_TMPL + "\n\n".join(
+        _topup_block(e["text"], [{"sense_id": e["sense_id"],
+                                  "gloss": e.get("gloss") or ""}])
+        for e in entries)
+
+
+def _label_fallback_result(vector_lookup, sense_id):
+    """Fail-closed S4 row (Other / Abstract, dataset vector when known)."""
+    vec = (vector_lookup or {}).get(sense_id)
+    return {"label": "Other / Abstract",
+            "method": card_pilot.TOPIC_METHOD_TAG,
+            "vector": list(vec) if vec
+            else card_pilot.single_topic_vector("Other / Abstract"),
+            "topic_path": "fallback"}
+
+
+def _label_leg1_lookup():
+    """Deterministic v16 lookup by import (None when unimportable)."""
+    try:
+        from run_v16_topics import evp_fallback_label as lookup
+        return lookup
+    except Exception:
+        return None
+
+
+def _label_read_cache(progress_path):
+    """S4 top-up file cache ({cache_key: {label, vector}}) or {}."""
+    if not progress_path:
+        return {}
+    try:
+        cache = json.loads(pathlib.Path(progress_path).read_text(
+            encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return cache if isinstance(cache, dict) else {}
+
+
+def _label_cache_hit(cache, text, gloss, sense_id, vector_lookup):
+    """Cached S4 row for one item (None on miss)."""
+    key = "%s\t%s\t%s" % (text, gloss or "", sense_id)
+    if not isinstance(cache, dict) or key not in cache:
+        return None
+    cached = cache[key]
+    if isinstance(cached, dict) and cached.get("label"):
+        vec = cached.get("vector") or (vector_lookup or {}).get(sense_id)
+        return {"label": cached["label"],
+                "method": card_pilot.TOPIC_METHOD_TAG,
+                "vector": list(vec) if vec
+                else card_pilot.single_topic_vector(cached["label"]),
+                "topic_path": "cache"}
+    label = cached if isinstance(cached, str) else "Other / Abstract"
+    vec = list((vector_lookup or {}).get(sense_id) or []) or \
+        card_pilot.single_topic_vector(label)
+    return {"label": label, "method": card_pilot.TOPIC_METHOD_TAG,
+            "vector": vec, "topic_path": "cache"}
+
+
+def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
+                          model_calls, telemetry, tele_stage, tele_batch,
+                          ring, models):
+    """One batched LLM top-up call for up to LABEL_BATCH entries.
+
+    Returns {item-key: {"label", "vector", "model"}}. Validated items
+    are salvaged per item (a malformed row fails closed only its own
+    item — never the whole chunk); unvalidated keys are absent (caller
+    fails them closed) and None means nothing validated. Auth (401/403)
+    raises loud; all-keys-429 raises RateLimited via _call_with_rotation
+    (caller flushes progress and STOPS). Import failure fails closed
+    (fallback telemetry + None — never a stage crash). Other errors
+    fall through to the next attempt, then to None.
+    """
+    try:
+        from run_v16b_topup import MODELS as _TOPUP_MODELS
+        from run_v16b_topup import validate_senses as _topup_validate
+        from run_v16b_topup import call_responses as _  # noqa: F401 (owner path ref)
+        prompt = _label_prompt(entries)
+    except Exception:
+        if telemetry is not None:
+            _tele_record(telemetry, stage=tele_stage, batch_id=tele_batch,
+                         key_idx=0, model="deterministic", latency_s=0.0,
+                         outcome="fallback")
+        return None
+    topup_models = list(models) if models else list(_TOPUP_MODELS)
+    if ring is None:
+        ring = KeyRing([api_key])
+    best = {}
+    best_model = "deterministic"
+    for model in topup_models:
+        if model_calls is not None:
+            model_calls[model] = model_calls.get(model, 0) + 1
+        for attempt in range(MAX_ATTEMPTS):
+            text = prompt if attempt == 0 else RETRY_PREFIX + prompt
+            label = "%s/s4-label#%d" % (model, attempt)
+            usage = None
+            try:
+                raw, usage = _call_with_rotation(
+                    transport, ring, model, text, sleep_fn, state, label)
+            except AuthError:
+                raise
+            except RateLimited:
+                if telemetry is not None:
+                    _tele_record(telemetry, stage=tele_stage,
+                                 batch_id=tele_batch, key_idx=0,
+                                 model=model, latency_s=0.0,
+                                 outcome="error", http_status=429)
+                raise
+            except urllib.error.HTTPError as exc:
+                if getattr(exc, "code", None) in (401, 403):
+                    raise_for_auth(exc)
+                raw, usage = None, None
+            except Exception:
+                raw, usage = None, None
+            if raw is None:
+                continue
+            try:
+                data = extract_json(raw)
+            except AuthError:
+                raise
+            except Exception:
+                continue
+            try:
+                by_lemma = {x.get("lemma"): x for x in
+                            (data.get("results") or [])
+                            if isinstance(x, dict)} \
+                    if isinstance(data, dict) else {}
+                rows = [x for x in (data.get("results") or [])
+                        if isinstance(x, dict)] \
+                    if isinstance(data, dict) else []
+                # Match rows by sense_id (not by lemma dict — two items
+                # may share a lemma text, e.g. word+phrase; a lemma-keyed
+                # map would collapse them and fail the chunk).
+                used = set()
+                merged = {}
+                for entry in entries:
+                    senses = None
+                    for idx, row in enumerate(rows):
+                        if idx in used:
+                            continue
+                        have = {s.get("sense_id") for s in
+                                ((row.get("senses") or [])
+                                 if isinstance(row.get("senses"), list)
+                                 else []) if isinstance(s, dict)}
+                        if entry["sense_id"] in have:
+                            senses = row.get("senses")
+                            used.add(idx)
+                            break
+                    if senses is None:
+                        senses = (by_lemma.get(entry["text"]) or {}).get(
+                            "senses")
+                    try:
+                        good, normed = _topup_validate(
+                            senses, [entry["sense_id"]])
+                    except Exception:
+                        good, normed = False, None
+                    if not good or not normed:
+                        continue
+                    found = normed[0].get("topic_label") \
+                        or "Other / Abstract"
+                    vec = [{"label": e.get("topic_label"),
+                            "weight": round(float(e.get("weight")), 4)}
+                           for e in (normed[0].get("vector") or [])
+                           if isinstance(e, dict)
+                           and e.get("topic_label")] or \
+                        card_pilot.single_topic_vector(found)
+                    # Keyed by item key (not sense_id — duplicate texts
+                    # share sense_id shapes but never item keys).
+                    merged[entry["key"]] = (found, vec)
+                if len(merged) > len(best):
+                    best = dict(merged)
+                    best_model = model
+                if len(merged) == len(entries):
+                    if telemetry is not None:
+                        prompt_tokens, completion_tokens = _tele_tokens(
+                            usage)
+                        _tele_record(telemetry, stage=tele_stage,
+                                     batch_id=tele_batch, key_idx=0,
+                                     model=model, latency_s=0.0,
+                                     outcome="ok",
+                                     prompt_tokens=prompt_tokens,
+                                     completion_tokens=completion_tokens)
+                    return {k: {"label": lab, "vector": vec,
+                                "model": model}
+                            for k, (lab, vec) in merged.items()}
+            except AuthError:
+                raise
+            except Exception:
+                continue
+    if best:
+        if telemetry is not None:
+            _tele_record(telemetry, stage=tele_stage, batch_id=tele_batch,
+                         key_idx=0, model=best_model, latency_s=0.0,
+                         outcome="ok")
+        return {k: {"label": lab, "vector": vec, "model": best_model}
+                for k, (lab, vec) in best.items()}
+    if telemetry is not None:
+        _tele_record(telemetry, stage=tele_stage, batch_id=tele_batch,
+                     key_idx=0, model="deterministic", latency_s=0.0,
+                     outcome="fallback")
+    return None
+
+
+def label_batch(batch, picks, vector_lookups, api_key, transport,
+                sleep_fn, state, progress_path, model_calls,
+                telemetry=None, tele_stage="s4", tele_batch=0,
+                ring=None, models=None, lookup=None):
+    """Label topics (s4) for one batch, batching the LLM leg (B1).
+
+    batch: sample items; picks: {key: {sense_id, gloss}};
+    vector_lookups: {key: {sense_id: vector}} (S3 vectors, optional).
+    Leg 1 (deterministic v16, injectable `lookup` for hermetic tests)
+    and the file cache resolve per item with zero LLM; the remaining
+    items share one LLM call per LABEL_BATCH chunk. Returns
+    {key: assign_topic-shaped row}. transport=None skips the LLM leg
+    (all remaining fall back, stated). RateLimited/AuthError propagate
+    (caller flushes + stops/aborts); anything else fails closed per
+    item to Other / Abstract.
+    """
+    if ring is None:
+        ring = KeyRing([api_key])
+    if lookup is None:
+        lookup = _label_leg1_lookup()
+    cache = _label_read_cache(progress_path)
+    prog_path = pathlib.Path(progress_path) if progress_path else None
+    out = {}
+    pending = []
+    for item in batch:
+        key = item_key(item)
+        pick = (picks or {}).get(key) or {}
+        text = item.get("text", "")
+        gloss = pick.get("gloss", "")
+        # Same default as card_pilot.assign_topic (text#0): an empty pick
+        # still labels under a well-formed sense id in the LLM block.
+        sense_id = pick.get("sense_id", "") or (
+            "%s#0" % (text or "").strip().lower())
+        vector_lookup = (vector_lookups or {}).get(key)
+        label = None
+        if lookup is not None:
+            try:
+                label = lookup(text, gloss or "")
+            except Exception:
+                label = None
+        if label:
+            vec = (vector_lookup or {}).get(sense_id)
+            if telemetry is not None:
+                _tele_record(telemetry, stage=tele_stage,
+                             batch_id=tele_batch, key_idx=0,
+                             model="deterministic", latency_s=0.0,
+                             outcome="ok")
+            out[key] = {"label": label,
+                        "method": card_pilot.TOPIC_METHOD_TAG,
+                        "vector": list(vec) if vec
+                        else card_pilot.single_topic_vector(label),
+                        "topic_path": "leg1"}
+            continue
+        hit = _label_cache_hit(cache, text, gloss, sense_id,
+                               vector_lookup)
+        if hit is not None:
+            if telemetry is not None:
+                _tele_record(telemetry, stage=tele_stage,
+                             batch_id=tele_batch, key_idx=0,
+                             model="deterministic", latency_s=0.0,
+                             outcome="ok")
+            out[key] = hit
+            continue
+        pending.append({"key": key, "text": text, "gloss": gloss,
+                        "sense_id": sense_id,
+                        "vector_lookup": vector_lookup})
+    for chunk_no in range(0, len(pending), LABEL_BATCH):
+        chunk = pending[chunk_no:chunk_no + LABEL_BATCH]
+        resolved = None
+        if transport is not None:
+            resolved = _label_chunk_via_llm(
+                chunk, api_key, transport, sleep_fn, state, model_calls,
+                telemetry, tele_stage, tele_batch, ring, models)
+        for entry in chunk:
+            key, sense_id = entry["key"], entry["sense_id"]
+            if resolved is not None and key in resolved:
+                got = resolved[key]
+                out[key] = {"label": got["label"],
+                            "method": card_pilot.TOPIC_METHOD_TAG,
+                            "vector": got["vector"], "topic_path": "llm"}
+                if isinstance(cache, dict):
+                    cache["%s\t%s\t%s" % (
+                        entry["text"], entry["gloss"] or "",
+                        sense_id)] = {"label": got["label"],
+                                      "vector": got["vector"]}
+            else:
+                out[key] = _label_fallback_result(entry["vector_lookup"],
+                                                  sense_id)
+        # One atomic cache write per chunk (tmp + rename — a crash
+        # mid-write never truncates the resume cache).
+        if isinstance(cache, dict) and prog_path is not None and \
+                resolved:
+            try:
+                tmp = str(prog_path) + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as handle:
+                    handle.write(json.dumps(cache, ensure_ascii=False))
+                os.replace(tmp, prog_path)
+            except Exception:
+                pass
+    return out
+
 
 def _rotating_llm_transport(transport, sleep_fn, state, ring):
     """Wrap an (api_key, model, user_text) transport with KeyRing rotation.
@@ -1441,29 +1768,26 @@ def _rotating_llm_transport(transport, sleep_fn, state, ring):
 
 
 def label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
-                  sleep_fn, state, progress_path, model_calls,
-                  telemetry=None, tele_stage="s4", tele_batch=0,
-                  ring=None):
-    """Label topic (s4) via card_pilot.assign_topic (imported two-leg).
+                   sleep_fn, state, progress_path, model_calls,
+                   telemetry=None, tele_stage="s4", tele_batch=0,
+                   ring=None):
+    """Label topic (s4) for one item via the batched path (B1).
 
-    Telemetry (model + surfaced tokens, fallback on deterministic miss)
-    is owned by assign_topic — this wrapper only maps auth/stop signals
-    and stays fail-closed to Other / Abstract. RateLimited from the
-    rotating transport propagates untouched (re-raised below) so the S4
-    caller flushes progress and stops for a server switch.
+    Thin single-item wrapper over label_batch (no second code path):
+    same leg-1/cache/LLM/fallback semantics, same AuthError/RateLimited
+    propagation (caller flushes + stops/aborts), fail-closed to
+    Other / Abstract on anything else.
     """
     if ring is None:
         ring = KeyRing([api_key])
-    llm_leg = (_rotating_llm_transport(transport, sleep_fn, state, ring)
-               if transport is not None else None)
+    key = item_key(item)
     try:
-        return card_pilot.assign_topic(
-            item.get("text", ""), gloss or "",
-            sense_id=sense_id or None, llm_transport=llm_leg,
-            progress_path=progress_path, api_key=api_key,
-            model_calls=model_calls, vector_lookup=vector_lookup,
-            telemetry=telemetry, tele_stage=tele_stage,
-            tele_batch=tele_batch)
+        out = label_batch(
+            [item], {key: {"sense_id": sense_id, "gloss": gloss or ""}},
+            {key: vector_lookup} if vector_lookup else None,
+            api_key, transport, sleep_fn, state, progress_path,
+            model_calls, telemetry=telemetry, tele_stage=tele_stage,
+            tele_batch=tele_batch, ring=ring)
     except AuthError:
         raise
     except RateLimited:
@@ -1474,6 +1798,14 @@ def label_item(item, gloss, sense_id, vector_lookup, api_key, transport,
                 "vector": card_pilot.single_topic_vector(
                     "Other / Abstract"),
                 "topic_path": "fallback"}
+    got = out.get(key)
+    if not isinstance(got, dict) or not got.get("label"):
+        return {"label": "Other / Abstract",
+                "method": card_pilot.TOPIC_METHOD_TAG,
+                "vector": card_pilot.single_topic_vector(
+                    "Other / Abstract"),
+                "topic_path": "fallback"}
+    return got
 
 
 # ---------------------------------------------------------------- S5 ---
@@ -2687,9 +3019,11 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                      if v.get("model") == "deterministic"))
         tele_flushed = _flush_telemetry(tele_dir, tele_store, tele_flushed)
         _stage_summary("s3", states, args.out)
-        # S4 (label per item, batch-flushed). No fail-closed signal on
-        # this stage (exceptions propagate, except auth which aborts),
-        # so fail is always 0.
+        # S4 (label batched, B1: up to LABEL_BATCH items share one LLM
+        # call). No fail-closed signal on this stage (exceptions
+        # propagate, except auth which aborts), so fail is always 0.
+        # Stride is LABEL_BATCH (pacing sleep per worked chunk, same
+        # SLEEP as before — pacing, not backoff).
         run_logger.stage_start("s4")
         vec_lookup = {}
         for key, hit in states["s3"]["done"].items():
@@ -2699,44 +3033,49 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                         (states["s2"]["done"].get(key) or {}).get(
                             "sense_id", ""),
                         []).append(entry)
-        n_label_batches = (len(items) + BATCH - 1) // BATCH or 1
-        for batch_no, base in enumerate(
-                _stage_range(selected, "s4", items), start=1):
-            batch = items[base:base + BATCH]
-            did_work = False
-            for item in batch:
-                key = item_key(item)
-                if key not in states["s4"]["done"]:
-                    did_work = True
-                    pick = states["s2"]["done"].get(key) or {}
-                    lookup = {}
-                    if pick.get("sense_id") in vec_lookup:
-                        lookup[pick["sense_id"]] = vec_lookup[
-                            pick["sense_id"]]
-                    try:
-                        assigned = label_item(
-                            item, pick.get("gloss", ""),
-                            pick.get("sense_id", ""), lookup or None,
-                            leg_api_key.get("s4", api_key),
-                            assign_transport, sleep_fn,
-                            states["s4"], str(label_topup_cache), label_calls,
-                            telemetry=tele_store, tele_batch=batch_no,
-                            ring=leg_ring.get("s4", ring))
-                    except AuthError:
-                        raise
-                    except RateLimited as exc:
-                        _flush(progress_dir, states)
-                        tele_flushed = _flush_telemetry(
-                            tele_dir, tele_store, tele_flushed)
-                        raise SystemExit(
-                            "STOP s4 at batch %d: %s — progress flushed, "
-                            "%s"
-                            % (batch_no, exc,
-                               "wait for quota reset then re-run"
-                               if full_avalai else
-                               "switch VPN server then re-run"))
-                    states["s4"]["done"][key] = assigned
-            if did_work:
+        n_label_batches = (len(items) + LABEL_BATCH - 1) // LABEL_BATCH or 1
+        _s4_offsets = (list(range(0, len(items), LABEL_BATCH))
+                       if "s4" in selected else [])
+        for batch_no, base in enumerate(_s4_offsets, start=1):
+            batch = items[base:base + LABEL_BATCH]
+            todo = [i for i in batch
+                    if item_key(i) not in states["s4"]["done"]]
+            if todo:
+                picks = {item_key(i): {
+                    "sense_id": (states["s2"]["done"].get(item_key(i))
+                                 or {}).get("sense_id", ""),
+                    "gloss": (states["s2"]["done"].get(item_key(i))
+                              or {}).get("gloss", "")} for i in todo}
+                lookups = {}
+                for i in todo:
+                    key = item_key(i)
+                    sid = picks[key]["sense_id"]
+                    if sid in vec_lookup:
+                        lookups[key] = {sid: vec_lookup[sid]}
+                try:
+                    assigned_map = label_batch(
+                        todo, picks, lookups or None,
+                        leg_api_key.get("s4", api_key),
+                        assign_transport, sleep_fn,
+                        states["s4"], str(label_topup_cache), label_calls,
+                        telemetry=tele_store, tele_batch=batch_no,
+                        ring=leg_ring.get("s4", ring))
+                except AuthError:
+                    raise
+                except RateLimited as exc:
+                    _flush(progress_dir, states)
+                    tele_flushed = _flush_telemetry(
+                        tele_dir, tele_store, tele_flushed)
+                    raise SystemExit(
+                        "STOP s4 at batch %d: %s — progress flushed, "
+                        "%s"
+                        % (batch_no, exc,
+                           "wait for quota reset then re-run"
+                           if full_avalai else
+                           "switch VPN server then re-run"))
+                for item in todo:
+                    states["s4"]["done"][item_key(item)] = assigned_map[
+                        item_key(item)]
                 sleep_fn(SLEEP)
             _flush(progress_dir, states)
             _batch_progress("s4", batch_no, n_label_batches,
