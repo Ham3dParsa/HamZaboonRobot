@@ -1423,10 +1423,15 @@ def _label_prompt(entries):
     """Batched S4 prompt: USER_TMPL + one lemma_block per entry.
 
     entries: [{text, sense_id, gloss}]. Shape pinned by the B1 hermetic
-    test (16 items -> 1 call, prompt contains all 16).
+    test (16 items -> 1 call, prompt contains all 16). Raises
+    ImportError when run_v16b_topup is unimportable (the caller fails
+    closed — never a stage crash).
     """
-    from run_v16b_topup import USER_TMPL as _TOPUP_TMPL
-    from run_v16b_topup import lemma_block as _topup_block
+    try:
+        from run_v16b_topup import USER_TMPL as _TOPUP_TMPL
+        from run_v16b_topup import lemma_block as _topup_block
+    except Exception as exc:
+        raise ImportError("run_v16b_topup unavailable: %s" % exc)
     return _TOPUP_TMPL + "\n\n".join(
         _topup_block(e["text"], [{"sense_id": e["sense_id"],
                                   "gloss": e.get("gloss") or ""}])
@@ -1489,18 +1494,31 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                           ring, models):
     """One batched LLM top-up call for up to LABEL_BATCH entries.
 
-    Returns {sense_id: {"label", "vector", "model"}} on full
-    validation, else None (caller fails closed per item). Auth (401/403) raises loud;
-    all-keys-429 raises RateLimited via _call_with_rotation (caller
-    flushes progress and STOPS). Other errors fall through to None.
+    Returns {item-key: {"label", "vector", "model"}}. Validated items
+    are salvaged per item (a malformed row fails closed only its own
+    item — never the whole chunk); unvalidated keys are absent (caller
+    fails them closed) and None means nothing validated. Auth (401/403)
+    raises loud; all-keys-429 raises RateLimited via _call_with_rotation
+    (caller flushes progress and STOPS). Import failure fails closed
+    (fallback telemetry + None — never a stage crash). Other errors
+    fall through to the next attempt, then to None.
     """
-    from run_v16b_topup import MODELS as _TOPUP_MODELS
-    from run_v16b_topup import validate_senses as _topup_validate
-    from run_v16b_topup import call_responses as _  # noqa: F401 (owner path ref)
+    try:
+        from run_v16b_topup import MODELS as _TOPUP_MODELS
+        from run_v16b_topup import validate_senses as _topup_validate
+        from run_v16b_topup import call_responses as _  # noqa: F401 (owner path ref)
+        prompt = _label_prompt(entries)
+    except Exception:
+        if telemetry is not None:
+            _tele_record(telemetry, stage=tele_stage, batch_id=tele_batch,
+                         key_idx=0, model="deterministic", latency_s=0.0,
+                         outcome="fallback")
+        return None
     topup_models = list(models) if models else list(_TOPUP_MODELS)
-    prompt = _label_prompt(entries)
     if ring is None:
         ring = KeyRing([api_key])
+    best = {}
+    best_model = "deterministic"
     for model in topup_models:
         if model_calls is not None:
             model_calls[model] = model_calls.get(model, 0) + 1
@@ -1547,7 +1565,6 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                 # map would collapse them and fail the chunk).
                 used = set()
                 merged = {}
-                ok_all = True
                 for entry in entries:
                     senses = None
                     for idx, row in enumerate(rows):
@@ -1570,8 +1587,7 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                     except Exception:
                         good, normed = False, None
                     if not good or not normed:
-                        ok_all = False
-                        break
+                        continue
                     found = normed[0].get("topic_label") \
                         or "Other / Abstract"
                     vec = [{"label": e.get("topic_label"),
@@ -1580,22 +1596,36 @@ def _label_chunk_via_llm(entries, api_key, transport, sleep_fn, state,
                            if isinstance(e, dict)
                            and e.get("topic_label")] or \
                         card_pilot.single_topic_vector(found)
-                    merged[entry["sense_id"]] = (found, vec)
-                if not ok_all:
-                    continue
+                    # Keyed by item key (not sense_id — duplicate texts
+                    # share sense_id shapes but never item keys).
+                    merged[entry["key"]] = (found, vec)
+                if len(merged) > len(best):
+                    best = dict(merged)
+                    best_model = model
+                if len(merged) == len(entries):
+                    if telemetry is not None:
+                        prompt_tokens, completion_tokens = _tele_tokens(
+                            usage)
+                        _tele_record(telemetry, stage=tele_stage,
+                                     batch_id=tele_batch, key_idx=0,
+                                     model=model, latency_s=0.0,
+                                     outcome="ok",
+                                     prompt_tokens=prompt_tokens,
+                                     completion_tokens=completion_tokens)
+                    return {k: {"label": lab, "vector": vec,
+                                "model": model}
+                            for k, (lab, vec) in merged.items()}
             except AuthError:
                 raise
             except Exception:
                 continue
-            if telemetry is not None:
-                prompt_tokens, completion_tokens = _tele_tokens(usage)
-                _tele_record(telemetry, stage=tele_stage,
-                             batch_id=tele_batch, key_idx=0,
-                             model=model, latency_s=0.0, outcome="ok",
-                             prompt_tokens=prompt_tokens,
-                             completion_tokens=completion_tokens)
-            return {sid: {"label": lab, "vector": vec, "model": model}
-                    for sid, (lab, vec) in merged.items()}
+    if best:
+        if telemetry is not None:
+            _tele_record(telemetry, stage=tele_stage, batch_id=tele_batch,
+                         key_idx=0, model=best_model, latency_s=0.0,
+                         outcome="ok")
+        return {k: {"label": lab, "vector": vec, "model": best_model}
+                for k, (lab, vec) in best.items()}
     if telemetry is not None:
         _tele_record(telemetry, stage=tele_stage, batch_id=tele_batch,
                      key_idx=0, model="deterministic", latency_s=0.0,
@@ -1678,26 +1708,32 @@ def label_batch(batch, picks, vector_lookups, api_key, transport,
                 telemetry, tele_stage, tele_batch, ring, models)
         for entry in chunk:
             key, sense_id = entry["key"], entry["sense_id"]
-            if resolved is not None and sense_id in resolved:
-                got = resolved[sense_id]
+            if resolved is not None and key in resolved:
+                got = resolved[key]
                 out[key] = {"label": got["label"],
                             "method": card_pilot.TOPIC_METHOD_TAG,
                             "vector": got["vector"], "topic_path": "llm"}
-                if isinstance(cache, dict) and prog_path is not None:
-                    try:
-                        cache["%s\t%s\t%s" % (
-                            entry["text"], entry["gloss"] or "",
-                            sense_id)] = {"label": got["label"],
-                                          "vector": got["vector"]}
-                        prog_path.write_text(
-                            json.dumps(cache, ensure_ascii=False),
-                            encoding="utf-8")
-                    except Exception:
-                        pass
+                if isinstance(cache, dict):
+                    cache["%s\t%s\t%s" % (
+                        entry["text"], entry["gloss"] or "",
+                        sense_id)] = {"label": got["label"],
+                                      "vector": got["vector"]}
             else:
                 out[key] = _label_fallback_result(entry["vector_lookup"],
                                                   sense_id)
+        # One atomic cache write per chunk (tmp + rename — a crash
+        # mid-write never truncates the resume cache).
+        if isinstance(cache, dict) and prog_path is not None and \
+                resolved:
+            try:
+                tmp = str(prog_path) + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as handle:
+                    handle.write(json.dumps(cache, ensure_ascii=False))
+                os.replace(tmp, prog_path)
+            except Exception:
+                pass
     return out
+
 
 def _rotating_llm_transport(transport, sleep_fn, state, ring):
     """Wrap an (api_key, model, user_text) transport with KeyRing rotation.
