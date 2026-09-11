@@ -65,9 +65,9 @@ continues from `progress/*.json` (per-stage files named by stable id).
 | I want to... | Script | Keys needed | Command |
 |---|---|---|---|
 | Dry-run the line (no cost) | precard_pipeline.py | none | `python factory\precard_pipeline.py --sample W:\hamzaban_data_factory\pilot\sample200b.json --out out\precard.jsonl --progress-dir out\prog --limit 20 --dry-run` |
-| Full precard run (GLM judge via AvalAI) | precard_pipeline.py | AVALAI in factory/.env | same without `--dry-run` (drop `--limit` for full sample) |
+| Full precard run (GLM judge via AvalAI) | precard_pipeline.py | AVALAI in factory/.env | same + `--judge-provider avalai` (drop `--limit` for full sample; GLM is the AvalAI default, bare defaults run Zen) |
 | Blind-compare 4 judges on the frozen 50 | blind50.py | GOOGLE + OPENROUTER (factory/.env or tools/egress/.env) | `python factory\blind50.py --accept W:\hamzaban_data_factory\pilot\accept50.json --s1 W:\hamzaban_data_factory\pilot200glm\progress\s1.json --glm-s2 W:\hamzaban_data_factory\pilot200glm\progress\s2.json --out W:\hamzaban_data_factory\blind50\blind50.json --progress W:\hamzaban_data_factory\blind50\progress.json` |
-| Check key + egress health (no secrets printed) | probe_keys.py | reads both .env files | `python factory\probe_keys.py` |
+| Check key + egress health (no secrets printed) | probe_keys.py | factory/.env; ZEN keys + egress IP only (no SUB ranking, no GOOGLE/OPENROUTER/AVALAI check) | `python factory\probe_keys.py` |
 | Rank SUB servers by latency | supervisor --probe | SUBs in tools/egress/.env | `python tools\egress\supervisor.py --probe --top-n 30` |
 | Find Google-friendly servers | supervisor --probe-google | + GOOGLE key | `python tools\egress\supervisor.py --probe --top-n 30 --probe-google 15` |
 | Serve leases to scripts | supervisor (serve) | + EGRESS_SUP_TOKEN | `python tools\egress\supervisor.py` (then `run_with_lease.py zen -- <cmd>`) |
@@ -77,7 +77,7 @@ continues from `progress/*.json` (per-stage files named by stable id).
 | File | Read by | Holds | Never holds |
 |---|---|---|---|
 | `.env` (root) | bot runtime (`config/__init__.py`) | BOT_TOKEN, runtime AI key, DB_PATH, quotas | factory research keys |
-| `factory/.env` | factory scripts (`env_loader.py`, `blind50.load_keys`) | ZEN x2, OPENROUTER, GOOGLE, AVALAI | bot token |
+| `factory/.env` | factory scripts (`env_loader.py`, `blind50.load_keys`) | ZEN x2, OPENROUTER, GOOGLE, AVALAI (`blind50` also falls back to `tools/egress/.env` for GOOGLE/OPENROUTER) | bot token |
 | `tools/egress/.env` | supervisor only | EGRESS_SUB_URL(S), EGRESS_SUP_TOKEN (+ owner's spare LLM keys as fallback) | anything committed |
 
 Rule of thumb: running the bot → root; running the line → factory; touching VPN/SUBs → egress. If a script says "missing key", this table tells you which file to open.
