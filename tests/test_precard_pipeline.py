@@ -1537,18 +1537,24 @@ def test_r4_capitalised_country_still_drops():
                   "type_pending": False}
 
 
-def test_r4_country_blocklist_exempts_common_noun_pos():
-    """#606 POS-aware exemption: kaikki knows china/jersey as common
-    nouns, so they fall through to the normal gates (kept on good zipf)
-    instead of dropping via the blocklist."""
+def test_f1_country_blocklist_absolute_noun_pos():
+    """F1: the country blocklist is ABSOLUTE for single tokens — the old
+    #606 POS-aware exemption is gone. bolivia/china/Jersey drop even when
+    kaikki knows them as common nouns (china-porcelain loss accepted,
+    rare); the turkey bird (ISO spelling turkiye, not in the list) stays
+    keepable as the control."""
     from precard_pipeline import preprocess_classify_item
-    v = preprocess_classify_item(_g_item("china", "B2"), {"china": {"noun"}},
-                                 lambda t: 5.0, set(), {}, False)
-    assert v == {"kept": True, "reason": None, "type_pending": False}
-    v2 = preprocess_classify_item(_g_item("Jersey", "B2"),
-                                  {"jersey": {"noun"}}, lambda t: 5.0,
-                                  set(), {}, False)
-    assert v2 == {"kept": True, "reason": None, "type_pending": False}
+    for text, pos in (("bolivia", {"noun"}), ("china", {"noun"}),
+                      ("Jersey", {"noun"})):
+        v = preprocess_classify_item(
+            _g_item(text, "B2"), {text.lower(): pos}, lambda t: 5.0,
+            set(), {}, False)
+        assert v == {"kept": False, "reason": "r4-country-blocklist",
+                     "type_pending": False}, text
+    bird = preprocess_classify_item(_g_item("turkey", "B2"),
+                                    {"turkey": {"noun"}}, lambda t: 5.0,
+                                    set(), {}, False)
+    assert bird == {"kept": True, "reason": None, "type_pending": False}
 
 
 def test_r4_country_blocklist_ascii_aliases():
@@ -2205,7 +2211,8 @@ def test_c3_empty_pick_still_emits_fields():
 
 def test_c3_s5_resume_reenriches_legacy_entries(tmp_path, monkeypatch):
     """C3 review: pre-C3 s5 progress entries (no pre_card_id) re-enrich
-    deterministically on resume instead of emitting default rows."""
+    deterministically on resume instead of emitting default rows. F3:
+    the slang-tagged simp re-enriches to informal (register floor)."""
     monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
     items = [{"kind": "word", "text": "simp", "pos": "noun",
               "pool_level": "B1"}]
@@ -2229,7 +2236,7 @@ def test_c3_s5_resume_reenriches_legacy_entries(tmp_path, monkeypatch):
     assert precard_main(argv, **common) == 0  # resume
     rows = load_out(out)
     assert rows[0]["lexical_type"] == "slang"
-    assert rows[0]["register"] == "neutral"
+    assert rows[0]["register"] == "informal"  # F3 floor (was neutral pre-F3)
     assert len(rows[0]["pre_card_id"]) == 16
 
 
@@ -2318,3 +2325,166 @@ def test_pinned_topic_vectors_nonlist_warns_unreadable(tmp_path, capsys,
     captured = capsys.readouterr()
     assert "WARNING: default topic vectors unreadable" in (
         captured.out + captured.err)
+
+
+# ---------------- F2: anchor name-gloss reroute-or-drop ----------------
+
+def _name_rows(*glosses, pos="noun"):
+    return [{"pos": pos,
+             "entry": {"pos": pos, "sounds": [],
+                       "senses": [{"glosses": [g], "tags": [],
+                                   "examples": []} for g in glosses]}}]
+
+
+def test_f2_name_gloss_pattern():
+    """F2: given/surname/place-name gloss heads match (incl. male/female
+    variants); ordinary glosses and mid-sentence mentions do not."""
+    from precard_pipeline import _is_name_gloss
+    for gloss in ("A given name.", "A female given name.",
+                  "A male given name.", "A surname.",
+                  "A family name.", "A place name."):
+        assert _is_name_gloss(gloss) is True, gloss
+    for gloss in ("a round fruit", "A dictionary of surnames.",
+                  "a visible mark", "past of remove", ""):
+        assert _is_name_gloss(gloss) is False, gloss
+
+
+def test_f2_name_top_reroutes_to_first_non_name():
+    """F2 act-fix pattern: a name-gloss anchor top re-anchors onto the
+    first non-name candidate (re-ranked first, POS follows the target)."""
+    from precard_pipeline import (_reroute_name_gloss_anchor,
+                                  anchor_rank_item)
+    index = {"gillian": _name_rows("A female given name.",
+                                   "a small songbird")}
+    item = {"kind": "word", "text": "gillian", "pos": "",
+            "pool_level": "B1"}
+    ranked = anchor_rank_item(item, index, read_entry)
+    assert ranked["top"]["gloss"] == "A female given name."
+    rerouted = _reroute_name_gloss_anchor(item, ranked, index, read_entry)
+    assert rerouted is not None
+    top, en_def, pos = rerouted
+    assert en_def == "a small songbird"
+    assert top["sense_id"] == "gillian#1"
+    assert ranked["candidates"][0]["sense_id"] == "gillian#1"
+    # All-names window: no reroute (true names still drop).
+    index2 = {"gillian": _name_rows("A female given name.")}
+    ranked2 = anchor_rank_item(
+        {"kind": "word", "text": "gillian", "pos": "",
+         "pool_level": "B1"}, index2, read_entry)
+    assert _reroute_name_gloss_anchor(
+        {"kind": "word", "text": "gillian"}, ranked2, index2,
+        read_entry) is None
+
+
+def test_f2_real_words_untouched_and_all_names_drop(tmp_path, monkeypatch):
+    """F2 end-to-end: mark (real top, name sense lower) keeps its anchor
+    with no reroute flag; all-names gillian drops as anchor-name-gloss;
+    mixed gillian reroutes and survives."""
+    items = [{"kind": "word", "text": "mark", "pos": "noun",
+              "pool_level": "B1"},
+             {"kind": "word", "text": "gillian", "pos": "noun",
+              "pool_level": "B1"},
+             {"kind": "word", "text": "gillianx", "pos": "noun",
+              "pool_level": "B1"}]
+    index = {"mark": _name_rows("a visible mark", "A male given name."),
+             "gillian": _name_rows("A female given name."),
+             "gillianx": _name_rows("A female given name.",
+                                     "a small songbird")}
+    rows, _s0 = _run_s0_only(tmp_path, monkeypatch, items, index,
+                             _zipf_fn=lambda t: 5.0)
+    assert {r["key"] for r in rows} == {"w:mark", "w:gillianx"}
+    s1 = json.loads(
+        (pathlib.Path(str(tmp_path / "prog")) / "s1.json").read_text(
+            encoding="utf-8"))
+    assert s1["done"]["w:mark"]["top"]["gloss"] == "a visible mark"
+    assert "rerouted_from_name" not in s1["done"]["w:mark"]
+    assert s1["done"]["w:gillian"]["dropped"] == "anchor-name-gloss"
+    assert "w:gillian" in s1["failed"]
+    assert s1["done"]["w:gillianx"].get("rerouted_from_name") is True
+    assert s1["done"]["w:gillianx"]["top"]["gloss"] == "a small songbird"
+
+
+# ---------------- F3: slang/colloquial register floor ----------------
+
+def test_f3_slang_colloquial_floor_informal():
+    """F3: slang/colloquial sense tags imply at least informal (vulgar
+    still wins; plain words stay neutral)."""
+    from precard_pipeline import register_for
+    assert register_for(["slang"]) == "informal"
+    assert register_for(["colloquial"]) == "informal"
+    assert register_for(["Slang"]) == "informal"  # normalized here
+    assert register_for(["vulgar"]) == "slang_vulgar"
+    assert register_for(["slang", "vulgar"]) == "slang_vulgar"
+    assert register_for(["colloquial", "offensive"]) == "slang_vulgar"
+    assert register_for(["informal"]) == "informal"
+    assert register_for([]) == "neutral"
+
+
+def test_f3_slang_word_enriches_informal(tmp_path, monkeypatch):
+    """F3 end-to-end: kush/recon-style slang tags land informal (not
+    neutral) on the precard row."""
+    items = [{"kind": "word", "text": "kush", "pos": "noun",
+              "pool_level": "B1"}]
+    index = {"kush": _tagged_rows(("a strain of cannabis", ["slang"]))}
+    rows, _s0 = _run_s0_only(tmp_path, monkeypatch, items, index,
+                             _zipf_fn=lambda t: 5.0)
+    assert len(rows) == 1
+    assert rows[0]["register"] == "informal"
+    assert rows[0]["lexical_type"] == "slang"
+
+
+# ---------------- F4: post-judge inflection-stub veto ----------------
+
+def test_f4_veto_falls_back_to_anchor_top_non_stub():
+    """F4: a judged pick whose gloss is a mechanical-inflection reference
+    falls back to the anchor-top non-stub; real picks, empty picks, and
+    all-stub windows stay untouched (fail-closed)."""
+    from precard_pipeline import _veto_inflection_pick
+    anchor = {"candidates": [
+        {"sense_id": "removed#0", "gloss": "to take away"},
+        {"sense_id": "removed#1", "gloss": "simple past of remove"}]}
+    sid, gloss = _veto_inflection_pick(
+        {"sense_id": "removed#1", "gloss": "simple past of remove"},
+        anchor)
+    assert (sid, gloss) == ("removed#0", "to take away")
+    # Real pick untouched.
+    assert _veto_inflection_pick(
+        {"sense_id": "removed#0", "gloss": "to take away"},
+        anchor) == ("removed#0", "to take away")
+    # Empty pick untouched.
+    assert _veto_inflection_pick({"sense_id": "", "gloss": ""},
+                                 anchor) == ("", "")
+    # All-stub window: keep the original (never veto into nothing).
+    all_stub = {"candidates": [
+        {"sense_id": "went#0", "gloss": "past of go"}]}
+    assert _veto_inflection_pick(
+        {"sense_id": "went#0", "gloss": "past of go"},
+        all_stub) == ("went#0", "past of go")
+
+
+def test_f4_judge_stub_pick_vetoed_end_to_end(tmp_path, monkeypatch):
+    """F4 end-to-end: the judge picking forcing#1 (present participle of
+    force) resolves to the real forcing#0 sense in the precard row."""
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY", "test-key")
+    items = [{"kind": "word", "text": "forcing", "pos": "noun",
+              "pool_level": "B1"}]
+    index = {"forcing": _name_rows("the act of compelling",
+                                   "present participle of force")}
+    sample = write_sample(tmp_path, items)
+    out, prog = str(tmp_path / "precard.jsonl"), str(tmp_path / "prog")
+
+    def stub_judge(api_key, model, user_text):
+        return json.dumps({"results": [
+            {"key": "w:forcing", "pick": "forcing#1"}]})
+
+    rc = precard_main(
+        ["--sample", sample, "--out", out, "--progress-dir", prog],
+        _judge_transport=stub_judge, _topic_transport=fake_topics,
+        _assign_transport=None, _sleep_fn=lambda s: None,
+        _index=index, _read_entry=read_entry, _tatoeba={},
+        _zipf_fn=lambda t: 5.0)
+    assert rc == 0
+    rows = load_out(out)
+    assert len(rows) == 1
+    assert rows[0]["sense_id"] == "forcing#0"
+    assert rows[0]["en_def"] == "the act of compelling"

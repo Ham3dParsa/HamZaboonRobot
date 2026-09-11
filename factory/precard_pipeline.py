@@ -492,8 +492,8 @@ def preprocess_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
     kept=False carries a drop reason (r4-name-only / r4-country-blocklist /
     r20-zipf-low:<z> / applied-keep-false:<type> / g2..g6 input gates,
     locked 2026-09-07).
-    Order for words: R4 country blocklist (casefolded; drops on empty/unknown
-    or proper-noun-only POS, exempts kaikki-known common nouns),
+    Order for words: R4 country blocklist (casefolded, ABSOLUTE for
+    single tokens since F1 — no POS-aware exemption, china drops too),
     R4 proper-noun, G-gates (no zipf bypass — entry
     lookup is fail-open), then the R20 zipf floor. A computed quarantine
     flag rides along on unknown zipf (kept, review value survives) but a
@@ -513,13 +513,14 @@ def preprocess_classify_item(item, pos_sets, zipf_fn, awl_set, type_map,
         country_key = text.casefold().replace("-", " ").replace(
             "’", "'").replace("‘", "'")
         if country_key in COUNTRY_NAMES:
-            pos_set = (pos_sets or {}).get(text.lower(), set())
-            if not pos_set or set(pos_set) <= card_pilot.PROPER_NOUN_POS:
-                return {"kept": False, "reason": "r4-country-blocklist",
-                        "type_pending": False}
-            # POS-aware exemption (#606): kaikki knows this lemma as a
-            # common noun (china porcelain, jersey shirt) — fall through
-            # to the normal gates instead of dropping.
+            # F1: ABSOLUTE for single tokens — the old #606 POS-aware
+            # exemption (china porcelain, jersey shirt) is gone: a
+            # country-named lemma never becomes a card, whatever kaikki
+            # knows it as. The rare china-porcelain loss is accepted
+            # (owner lock); the turkey bird stays keepable because the
+            # list carries the ISO/UN "türkiye" spelling, not "turkey".
+            return {"kept": False, "reason": "r4-country-blocklist",
+                    "type_pending": False}
         if card_pilot.is_proper_noun_lemma(
                 text, (pos_sets or {}).get(text.lower(), set())):
             return {"kept": False, "reason": "r4-name-only",
@@ -802,6 +803,55 @@ def _reroute_proper_anchor(item, ranked, index, read_entry):
     return None
 
 
+# F2: name-gloss heads (given/surname/place-name). Anchored on purpose:
+# a gloss merely MENTIONING a surname ("a dictionary of surnames") is a
+# real sense, while kaikki name senses open with the head ("A female
+# given name.", "A surname.", "A place name."). Mirrors the person-guard
+# vocabulary in judge_proper_route, plus place names (same leak class).
+_NAME_GLOSS_RX = re.compile(
+    r"^\s*(?:a|an|the)\s+(?:(?:male|female)\s+)?"
+    r"(?:given\s+name|surname|family\s+name|place\s+name)\b",
+    re.IGNORECASE)
+
+
+def _is_name_gloss(gloss):
+    """F2: True when the gloss is a name head (given/surname/place-name)."""
+    return bool(_NAME_GLOSS_RX.match(gloss or ""))
+
+
+def _reroute_name_gloss_anchor(item, ranked, index, read_entry):
+    """Best non-name candidate when the anchor top is a name gloss (F2).
+
+    Single-POS name entries (gillian#0 "A female given name." under a
+    noun entry) crown the name the same way file-order decay crowned
+    ACT — dropping the item loses a base word, so re-anchor to the
+    first candidate whose gloss is not a name gloss AND whose entry POS
+    is not proper (act-fix re-rank pattern: the target becomes window
+    rank 1 so the judge sees the same best-first order). Returns
+    (top, en_def, anchor_pos) or None when the top is not a name gloss
+    or every candidate is a name (true names still drop). Lookup
+    errors fail open to None (caller keeps the drop).
+    """
+    try:
+        if not _is_name_gloss((ranked.get("top") or {}).get("gloss", "")):
+            return None
+        for cand in ranked.get("candidates") or []:
+            sid = cand.get("sense_id", "")
+            if not sid or _is_name_gloss(cand.get("gloss", "")):
+                continue
+            pos = _picked_entry_pos(item, sid, index, read_entry)
+            if pos and pos not in card_pilot.PROPER_NOUN_POS:
+                rest = [c for c in ranked["candidates"]
+                        if c.get("sense_id") != sid]
+                ranked["candidates"] = [cand] + rest
+                return ({"sense_id": sid,
+                         "gloss": cand.get("gloss", "")},
+                        cand.get("gloss", ""), pos)
+    except (KeyError, TypeError, AttributeError, ValueError):
+        return None
+    return None
+
+
 def anchor_rank_item(item, index, read_entry):
     """Anchor deterministic rank (s1) via the card_pilot anchor path.
 
@@ -925,6 +975,41 @@ def _judge_validate(data, batch, anchor_map):
     return out
 
 
+def _veto_inflection_pick(pick, anchor_res):
+    """F4 post-judge veto: (sense_id, gloss) with stub picks corrected.
+
+    When the picked gloss is a mechanical-inflection reference (the G2
+    pattern — "past of", "present participle of", "comparative of",
+    ...), the judge crowned a stub (removed/forcing/wondering/better):
+    fall back to the anchor-top non-stub — the first window candidate
+    in anchor order whose gloss is NOT such a reference. Anything else
+    (real pick, empty pick, all-stub window) returns the pick unchanged
+    — a veto reroutes, it never drops, so uncertainty keeps the item.
+    The judge model tag is untouched (the sense_id change is visible in
+    s2 progress); the G2 pattern is reused by import, not redefined.
+    """
+    sid = (pick or {}).get("sense_id", "")
+    gloss = (pick or {}).get("gloss", "")
+    if not sid or not gloss or not _G2_FORM_RX.search(gloss):
+        return sid, gloss
+    for cand in (anchor_res or {}).get("candidates", []) or []:
+        if cand.get("sense_id") \
+                and not _G2_FORM_RX.search(cand.get("gloss", "")):
+            return cand.get("sense_id", ""), cand.get("gloss", "")
+    return sid, gloss
+
+
+def _apply_inflection_veto(out, batch, anchor_map):
+    """F4: veto every stub pick in a judge_batch result dict, in place."""
+    for item in batch:
+        key = item_key(item)
+        if key in out:
+            sid, gloss = _veto_inflection_pick(
+                out[key], (anchor_map or {}).get(key))
+            out[key]["sense_id"], out[key]["gloss"] = sid, gloss
+    return out
+
+
 def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                    telemetry=None, tele_stage="s2", tele_batch=0,
                    ring=None, models=None):
@@ -935,7 +1020,10 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
     it. 2 attempts per model, 401/403
     loud abort, 429 rotates the KeyRing (brief pause, same-call retry;
     all-keys-429 raises RateLimited so the runner flushes and STOPS),
-    anything else fail-closed to the S1 top pick per item. R27: one
+    anything else fail-closed to the S1 top pick per item. F4: every
+    pick (judge-model AND s1-fallback) passes the inflection-stub veto
+    — a stub gloss falls back to the anchor-top non-stub candidate.
+    R27: one
     telemetry record per batch (ok on a judge-model pick, fallback on
     s1-fallback, error on all-keys-429); tuple (text, usage) transports
     surface token counts (None-tolerated).
@@ -985,6 +1073,7 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                 valid = None
             if valid is not None:
                 out = {k: {**v, "model": model} for k, v in valid.items()}
+                _apply_inflection_veto(out, batch, anchor_map)  # F4
                 if telemetry is not None:
                     prompt_tokens, completion_tokens = _tele_tokens(usage)
                     _tele_record(telemetry, stage=tele_stage,
@@ -995,6 +1084,8 @@ def judge_batch(batch, anchor_map, api_key, transport, sleep_fn, state,
                 return out
     out = {item_key(i): {**_judge_fallback(i, anchor_map.get(item_key(i))),
                          } for i in batch}
+    _apply_inflection_veto(out, batch, anchor_map)  # F4 (fallback too:
+    # the S1 anchor top itself can be a stub when S0b kept it)
     if telemetry is not None:
         _tele_record(telemetry, stage=tele_stage, batch_id=tele_batch,
                      key_idx=0, model="s1-fallback", latency_s=0.0,
@@ -1349,6 +1440,9 @@ _LEXICAL_COLLOQUIAL_TAGS = {"colloquial"}
 _LEXICAL_IDIOMATIC_TAGS = {"idiomatic"}
 _REGISTER_INFORMAL_TAGS = {"informal"}
 _REGISTER_SLANG_VULGAR_TAGS = {"vulgar", "offensive"}
+# F3 register floor: slang/colloquial sense tags imply at least informal
+# (kush/recon land informal, not neutral). Reuses the lexical-type tag
+# sets above (single source — no second copy of the vocabulary).
 
 
 def _normalize_tags(tags):
@@ -1403,14 +1497,16 @@ def lexical_type_for(kind, sense_tags, phrase_entry=None):
 def register_for(sense_tags):
     """Register for one precard row (pure, dataset-only).
 
-    slang_vulgar (vulgar/offensive tags) wins over informal; default is
+    slang_vulgar (vulgar/offensive tags) wins over informal; slang or
+    colloquial tags imply at least informal (F3 floor); default is
     neutral. The vulgar/offensive set is the locked ticket scope — the
     broader S1 VULGAR_TAGS drop is a separate gate, untouched here.
     """
     tags = _normalize_tags(sense_tags)
     if tags & _REGISTER_SLANG_VULGAR_TAGS:
         return REGISTER_SLANG_VULGAR
-    if tags & _REGISTER_INFORMAL_TAGS:
+    if tags & (_REGISTER_INFORMAL_TAGS | _LEXICAL_SLANG_TAGS
+               | _LEXICAL_COLLOQUIAL_TAGS):
         return REGISTER_INFORMAL
     return REGISTER_DEFAULT
 
@@ -2219,6 +2315,10 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
         # R34 v9: unresolvable bare-xref anchors drop here too (reason
         # no-real-def: no target entry, or the target is also a bare
         # xref — 1 hop max, no chains).
+        # F2: name-gloss anchor tops (given/surname/place-name) with a
+        # non-proper entry POS reroute to the first non-name sense here
+        # (act-fix pattern, flagged rerouted_from_name) or drop as
+        # anchor-name-gloss when every candidate is a name.
         # The reason rides on the s1 done entry + failed list (drops never
         # reach precard.jsonl); anchor_dropped is rebuilt from state, so the
         # drop is resume-safe with no re-run needed.
@@ -2232,12 +2332,22 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                 # V7 resume-compat: v6-era s1 entries lack anchor_pos, so
                 # they are re-ranked deterministically (same scores plus
                 # anchor_pos/drop verdict) instead of skipped. R34 v9
-                # extends the compat to the xref fields.
+                # extends the compat to the xref fields. F2 extends it to
+                # kept name-topped entries (pre-F2 progress never ran the
+                # name-gloss verdict); dropped entries are never re-run.
                 done_entry = states["s1"]["done"].get(key)
+                done_top = ((done_entry.get("top") or {}).get("gloss", "")
+                            if isinstance(done_entry, dict) else "")
+                needs_name_eval = (
+                    isinstance(done_entry, dict)
+                    and "dropped" not in done_entry
+                    and not done_entry.get("rerouted_from_name")
+                    and _is_name_gloss(done_top))
                 if not isinstance(done_entry, dict) \
                         or "anchor_pos" not in done_entry \
                         or "anchor_tags" not in done_entry \
-                        or "xref_unresolvable" not in done_entry:
+                        or "xref_unresolvable" not in done_entry \
+                        or needs_name_eval:
                     try:
                         ranked = anchor_rank_item(item, index, read_entry)
                         if (ranked.get("anchor_pos") or "") in \
@@ -2256,6 +2366,29 @@ def main(argv=None, _judge_transport=_USE_DEFAULT,
                                     "yellow"))
                             else:
                                 ranked["dropped"] = "anchor-proper-noun"
+                                if key not in states["s1"]["failed"]:
+                                    states["s1"]["failed"].append(key)
+                        elif _is_name_gloss(
+                                (ranked.get("top") or {}).get("gloss", "")):
+                            # F2: name-gloss top (given/surname/place-name)
+                            # with a non-proper entry POS — the gloss-based
+                            # sibling of the proper branch above. Reroutes
+                            # to the first non-name sense (act-fix
+                            # pattern), else drops as anchor-name-gloss.
+                            rerouted = _reroute_name_gloss_anchor(
+                                item, ranked, index, read_entry)
+                            if rerouted is not None:
+                                ranked["top"], ranked["en_def"], \
+                                    ranked["anchor_pos"] = rerouted
+                                ranked["rerouted_from_name"] = True
+                                print(_color(
+                                    "warning: %s re-anchored off name "
+                                    "top -> %s" % (
+                                        key,
+                                        rerouted[0].get("sense_id", "")),
+                                    "yellow"))
+                            else:
+                                ranked["dropped"] = "anchor-name-gloss"
                                 if key not in states["s1"]["failed"]:
                                     states["s1"]["failed"].append(key)
                         elif set(ranked.get("anchor_tags") or {}) & \
