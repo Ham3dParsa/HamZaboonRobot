@@ -160,9 +160,42 @@ def test_sub_sources_merge_order_and_dedup():
     assert sub_sources(env) == ["https://a/sub", "https://b/sub"]
     assert sub_sources({}) == []
     assert sub_sources({"EGRESS_SUB_URL": "x"}) == ["x"]
-    # commas are legal in URLs: never split points
-    assert sub_sources({"EGRESS_SUB_URLS": "https://a/x,y"}) == \
-        ["https://a/x,y"]
+    # commas AND newlines both split (literal comma in a link is
+    # unsupported by contract: it is a split point).
+    assert sub_sources(
+        {"EGRESS_SUB_URLS": "https://a/sub,https://b/sub"}) == \
+        ["https://a/sub", "https://b/sub"]
+    assert sub_sources(
+        {"EGRESS_SUB_URLS": "https://a/sub,\n\n https://b/sub\n,"}) == \
+        ["https://a/sub", "https://b/sub"]
+    assert sub_sources({"EGRESS_SUB_URLS": "https://only/sub"}) == \
+        ["https://only/sub"]
+
+
+def test_load_env_continuation_line(tmp_path, monkeypatch):
+    """A bare URL line after EGRESS_SUB_URLS= joins that value."""
+    import supervisor as sup
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "EGRESS_SUB_URLS=https://a/sub\nhttps://b/sub\n"
+        "EGRESS_SUP_TOKEN=t\n", encoding="utf-8")
+    monkeypatch.setattr(sup, "ENV_PATH", env_file)
+    data = sup.load_env()
+    assert sup.sub_sources(data) == ["https://a/sub", "https://b/sub"]
+
+
+def test_load_env_continuation_with_query_equals(tmp_path, monkeypatch):
+    """A continuation URL carrying ?token=... must not become a key."""
+    import supervisor as sup
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "EGRESS_SUB_URLS=https://a/sub\nhttps://b/sub?token=abc&x=1\n"
+        "EGRESS_SUP_TOKEN=t\n", encoding="utf-8")
+    monkeypatch.setattr(sup, "ENV_PATH", env_file)
+    data = sup.load_env()
+    assert data["EGRESS_SUP_TOKEN"] == "t"
+    assert sup.sub_sources(data) == [
+        "https://a/sub", "https://b/sub?token=abc&x=1"]
 
 
 def test_refresh_subscription_partial_load(monkeypatch):
@@ -171,11 +204,11 @@ def test_refresh_subscription_partial_load(monkeypatch):
     sup.POOL.servers.clear()
     calls = []
 
-    def fake_fetch(url):
+    def fake_fetch(url, attempts=2):
         calls.append(url)
         if "bad" in url:
             raise OSError("down")
-        return sup.parse_subscription(_sub_body())
+        return _sub_body()
 
     monkeypatch.setattr(sup, "fetch_sub", fake_fetch)
     sup.refresh_subscription({"EGRESS_SUB_URLS": "https://bad/sub\n"
@@ -183,6 +216,57 @@ def test_refresh_subscription_partial_load(monkeypatch):
     assert calls == ["https://bad/sub"]
     assert len(sup.POOL.servers) == 2
     sup.POOL.servers.clear()
+
+
+def test_refresh_subscription_failure_isolation(monkeypatch, capsys):
+    """One bad URL + one good URL: both attempted, bad never kills good,
+    status lines carry host only (never the full URL)."""
+    import supervisor as sup
+    sup.POOL.servers.clear()
+    calls = []
+    good_body = ("vless://u@good.example:443?security=tls&sni=good.example"
+                 "#g\n")
+
+    def fake_fetch(url, attempts=2):
+        calls.append(url)
+        if "bad" in url:
+            raise OSError("down")
+        return good_body
+
+    monkeypatch.setattr(sup, "fetch_sub", fake_fetch)
+    sup.refresh_subscription(
+        {"EGRESS_SUB_URLS": "https://bad.example/sub,"
+                            "https://good.example/sub"})
+    assert calls == ["https://bad.example/sub",
+                     "https://good.example/sub"]
+    assert [s["host"] for s in sup.POOL.servers] == ["good.example"]
+    out = capsys.readouterr().out
+    assert "bad.example" in out and "good.example" in out
+    assert "https://bad.example/sub" not in out
+    assert "https://good.example/sub" not in out
+    sup.POOL.servers.clear()
+
+
+def test_refresh_subscription_raw_xirix_shape(monkeypatch):
+    """Xirix-shape body: plain non-base64 link lines (no fetch)."""
+    import supervisor as sup
+    sup.POOL.servers.clear()
+    raw = "vless://u@plain.example:443?security=tls&sni=plain.example#x"
+    monkeypatch.setattr(sup, "fetch_sub",
+                        lambda url, attempts=2: (_ for _ in ()).throw(
+                            AssertionError("no fetch for inline body")))
+    sup.refresh_subscription({"EGRESS_SUB_URLS": raw})
+    assert [s["host"] for s in sup.POOL.servers] == ["plain.example"]
+    sup.POOL.servers.clear()
+
+
+def test_parse_subscription_raw_single_line():
+    """Single-line plain-text body must not die to a spurious decode."""
+    import supervisor as sup
+    rows = sup.parse_subscription(
+        "vless://u@plain.example:443?security=tls&sni=plain.example#x")
+    assert [(r["host"], r["port"]) for r in rows] == [("plain.example",
+                                                      443)]
 
 
 def test_probe_pool_ranks_and_marks_top(monkeypatch):
