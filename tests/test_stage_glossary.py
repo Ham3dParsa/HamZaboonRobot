@@ -102,6 +102,8 @@ def test_stage_names_match_live_pipeline():
     assert dict(g.STAGE_FINGLESH) == dict(live.STAGE_FINGLESH)
     for sid in g.STAGE_IDS:
         assert g.stage_label(sid) == live.stage_label(sid)
+    for raw in ("s2", "judge", " Nope ", "", None):
+        assert g.normalize_stage(raw) == live._normalize_stage(raw)
 
 
 def test_progress_shim_covers_every_stage_plus_topup():
