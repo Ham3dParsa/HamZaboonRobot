@@ -91,13 +91,15 @@ def load_env():
                 k = k.strip()
                 if not k.isidentifier():
                     # Not a KEY=value line (e.g. a continuation URL with
-                    # a query string): it belongs to the previous value.
-                    if last_key is not None:
+                    # a query string): it belongs to the previous value
+                    # only for subscription vars — a stray line after the
+                    # token must never corrupt it.
+                    if last_key in (SUB_VAR, SUBS_VAR):
                         data[last_key] += "\n" + stripped
                     continue
                 data[k] = v.strip().strip("'\"")
                 last_key = k
-            elif last_key is not None:
+            elif last_key in (SUB_VAR, SUBS_VAR):
                 # Continuation line: a bare URL on its own line belongs
                 # to the previous value (multi-line EGRESS_SUB_URLS).
                 data[last_key] += "\n" + stripped
@@ -521,11 +523,14 @@ def fetch_sub(url, attempts=2):
 
 
 def _source_label(src):
-    """Redacted per-source label (host only, never the full URL/body)."""
+    """Redacted per-source label (host only, never the full URL/body).
+
+    hostname (not netloc): netloc keeps userinfo, so credential-bearing
+    subscription URLs would leak secrets into stdout logs."""
     if not (src or "").startswith("http"):
         return "inline"
     try:
-        return urllib.parse.urlparse(src).netloc or "sub"
+        return urllib.parse.urlparse(src).hostname or "sub"
     except Exception:  # noqa: BLE001 (label is best-effort)
         return "sub"
 

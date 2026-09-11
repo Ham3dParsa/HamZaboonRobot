@@ -198,6 +198,30 @@ def test_load_env_continuation_with_query_equals(tmp_path, monkeypatch):
         "https://a/sub", "https://b/sub?token=abc&x=1"]
 
 
+def test_source_label_strips_userinfo():
+    """Review finding: credential-bearing sub URLs must not leak into logs."""
+    import supervisor as sup
+    label = sup._source_label("https://user:pass@h.example/sub")
+    assert label == "h.example"
+    assert "user" not in label and "pass" not in label
+    assert sup._source_label("https://h.example:8443/sub") == "h.example"
+    assert sup._source_label("inline-body") == "inline"
+
+
+def test_load_env_stray_lines_after_token_ignored(tmp_path, monkeypatch):
+    """Review finding: bare/URL lines after the token must not corrupt it."""
+    import supervisor as sup
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "EGRESS_SUP_TOKEN=t\nstray-bare-line\n"
+        "https://evil.example/x?token=abc\n"
+        "EGRESS_SUB_URLS=https://a/sub\n", encoding="utf-8")
+    monkeypatch.setattr(sup, "ENV_PATH", env_file)
+    data = sup.load_env()
+    assert data["EGRESS_SUP_TOKEN"] == "t"
+    assert sup.sub_sources(data) == ["https://a/sub"]
+
+
 def test_refresh_subscription_partial_load(monkeypatch):
     """One poisoned source must not abort the rest."""
     import supervisor as sup
