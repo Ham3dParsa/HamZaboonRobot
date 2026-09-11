@@ -127,12 +127,16 @@ def invalidate_stale_study_session(user_id: int) -> None:
     """Silently discard a cross-day stale study session (issues 619/622, T2).
 
     Deletes BOTH the persisted ``study_sessions`` row and the
-    ``session_grade_ledger`` rows for ``user_id``, sequentially, each in its
-    own short transaction. Call via ONE ``asyncio.to_thread`` from the
-    handler — never hold a transaction across an await.
+    ``session_grade_ledger`` rows for ``user_id`` in ONE transaction, so a
+    crash between them cannot leave half-state. Call via ONE
+    ``asyncio.to_thread`` from the handler — never hold a transaction
+    across an await.
     """
-    clear_study_session(user_id)
-    clear_session_grades(user_id)
+    with transaction() as conn:
+        conn.execute("DELETE FROM study_sessions WHERE user_id=?", (user_id,))
+        conn.execute(
+            "DELETE FROM session_grade_ledger WHERE user_id=?", (user_id,)
+        )
 
 
 def purge_stale_study_sessions(*, batch: int = 500, deadline: float | None = None) -> dict[str, int]:

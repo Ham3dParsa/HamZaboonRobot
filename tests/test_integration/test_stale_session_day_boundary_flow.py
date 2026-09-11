@@ -1,7 +1,7 @@
 """Integration flow — cross-day stale study-session discard (issues 619/622, T2).
 
 Locked contract R3/R4: all three resume paths (``handle_study_start``,
-``get_active_study_session``, ``advance_session``) are gated by the single
+``_get_active_study_session_memory``, ``advance_session``) are gated by the single
 ``is_stale`` helper; a stale session is popped from memory and its persisted
 row + grade ledger cleared via ONE worker-call invalidate, silently, before
 quota — then a fresh session is built (quota consumed normally). Stale state
@@ -350,7 +350,7 @@ class StaleSessionDayBoundaryFlowTests(unittest.IsolatedAsyncioTestCase):
         from handlers.study_handler import (
             SessionState,
             _state_to_json,
-            get_active_study_session,
+            _get_active_study_session_memory,
         )
 
         w1 = self._seed_word("hello", expose=True)
@@ -365,7 +365,7 @@ class StaleSessionDayBoundaryFlowTests(unittest.IsolatedAsyncioTestCase):
 
         ctx = self._context()
         self.assertNotIn("current_session", ctx.user_data)
-        result = get_active_study_session(1, ctx)
+        result = _get_active_study_session_memory(1, ctx)
         self.assertIsNone(result)
         # No stash, no render, no re-persist of the stale state.
         self.assertNotIn("current_session", ctx.user_data)
