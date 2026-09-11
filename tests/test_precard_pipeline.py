@@ -2342,10 +2342,16 @@ def test_f2_name_gloss_pattern():
     from precard_pipeline import _is_name_gloss
     for gloss in ("A given name.", "A female given name.",
                   "A male given name.", "A surname.",
-                  "A family name.", "A place name."):
+                  "A family name.", "A place name.",
+                  "A unisex given name.", "A masculine given name.",
+                  "A feminine given name.", "A first name.",
+                  "A last name.", "A maiden name.", "A nickname."):
         assert _is_name_gloss(gloss) is True, gloss
     for gloss in ("a round fruit", "A dictionary of surnames.",
-                  "a visible mark", "past of remove", ""):
+                  "a visible mark", "past of remove", "",
+                  "A diminutive suffix."):
+        # Boundary (review): bare "diminutive" is NOT a head — it would
+        # collide with the real "diminutive suffix" linguistics sense.
         assert _is_name_gloss(gloss) is False, gloss
 
 
@@ -2374,6 +2380,25 @@ def test_f2_name_top_reroutes_to_first_non_name():
     assert _reroute_name_gloss_anchor(
         {"kind": "word", "text": "gillian"}, ranked2, index2,
         read_entry) is None
+
+
+def test_f2_reroute_keeps_on_unresolvable_pos():
+    """Review W3: an unresolvable target POS ("") is uncertainty, not
+    disqualification — the gloss signal already picked the target, so
+    the item reroutes (anchor_pos "") instead of dropping."""
+    from precard_pipeline import _reroute_name_gloss_anchor
+    ranked = {"top": {"sense_id": "gillian#0",
+                      "gloss": "A female given name."},
+              "candidates": [
+                  {"sense_id": "gillian#0",
+                   "gloss": "A female given name."},
+                  {"sense_id": "zzz#99", "gloss": "a small songbird"}]}
+    rerouted = _reroute_name_gloss_anchor(
+        {"kind": "word", "text": "gillian"}, ranked, {}, read_entry)
+    assert rerouted is not None
+    top, en_def, pos = rerouted
+    assert (top["sense_id"], en_def, pos) == ("zzz#99",
+                                             "a small songbird", "")
 
 
 def test_f2_real_words_untouched_and_all_names_drop(tmp_path, monkeypatch):
@@ -2460,6 +2485,15 @@ def test_f4_veto_falls_back_to_anchor_top_non_stub():
     assert _veto_inflection_pick(
         {"sense_id": "went#0", "gloss": "past of go"},
         all_stub) == ("went#0", "past of go")
+    # Review W1: bare "comparative" without "of" is a real gloss, not a
+    # stub ("a comparative study" must not veto into another sense).
+    assert _veto_inflection_pick(
+        {"sense_id": "study#0", "gloss": "a comparative study"},
+        {"candidates": [{"sense_id": "study#0",
+                         "gloss": "a comparative study"},
+                        {"sense_id": "study#1",
+                         "gloss": "to examine closely"}]}) == (
+        "study#0", "a comparative study")
 
 
 def test_f4_judge_stub_pick_vetoed_end_to_end(tmp_path, monkeypatch):

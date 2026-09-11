@@ -803,14 +803,18 @@ def _reroute_proper_anchor(item, ranked, index, read_entry):
     return None
 
 
-# F2: name-gloss heads (given/surname/place-name). Anchored on purpose:
-# a gloss merely MENTIONING a surname ("a dictionary of surnames") is a
-# real sense, while kaikki name senses open with the head ("A female
-# given name.", "A surname.", "A place name."). Mirrors the person-guard
-# vocabulary in judge_proper_route, plus place names (same leak class).
+# F2: name-gloss heads (given/surname/place-name + first/last/maiden/
+# nickname). Anchored on purpose: a gloss merely MENTIONING a surname
+# ("a dictionary of surnames") is a real sense, while kaikki name senses
+# open with the head ("A female given name.", "A surname."). Mirrors the
+# person-guard vocabulary in judge_proper_route, plus place names (same
+# leak class). Boundary (review): bare "diminutive" is NOT a head — it
+# would collide with the real "diminutive suffix" linguistics sense.
 _NAME_GLOSS_RX = re.compile(
-    r"^\s*(?:a|an|the)\s+(?:(?:male|female)\s+)?"
-    r"(?:given\s+name|surname|family\s+name|place\s+name)\b",
+    r"^\s*(?:a|an|the)\s+"
+    r"(?:(?:male|female|unisex|masculine|feminine)\s+)?"
+    r"(?:given\s+name|surname|family\s+name|place\s+name|first\s+name|"
+    r"last\s+name|maiden\s+name|nickname)\b",
     re.IGNORECASE)
 
 
@@ -825,12 +829,15 @@ def _reroute_name_gloss_anchor(item, ranked, index, read_entry):
     Single-POS name entries (gillian#0 "A female given name." under a
     noun entry) crown the name the same way file-order decay crowned
     ACT — dropping the item loses a base word, so re-anchor to the
-    first candidate whose gloss is not a name gloss AND whose entry POS
+    first candidate whose gloss is not a name gloss and whose entry POS
     is not proper (act-fix re-rank pattern: the target becomes window
-    rank 1 so the judge sees the same best-first order). Returns
-    (top, en_def, anchor_pos) or None when the top is not a name gloss
-    or every candidate is a name (true names still drop). Lookup
-    errors fail open to None (caller keeps the drop).
+    rank 1 so the judge sees the same best-first order). An
+    unresolvable target POS ("") is uncertainty, not disqualification —
+    the gloss signal already picked the target, so it reroutes with
+    anchor_pos "" (downstream treats "" as non-proper) instead of
+    dropping. Returns (top, en_def, anchor_pos) or None when the top is
+    not a name gloss or every candidate is a name (true names still
+    drop). Lookup errors fail open to None (caller keeps the drop).
     """
     try:
         if not _is_name_gloss((ranked.get("top") or {}).get("gloss", "")):
@@ -840,7 +847,7 @@ def _reroute_name_gloss_anchor(item, ranked, index, read_entry):
             if not sid or _is_name_gloss(cand.get("gloss", "")):
                 continue
             pos = _picked_entry_pos(item, sid, index, read_entry)
-            if pos and pos not in card_pilot.PROPER_NOUN_POS:
+            if pos not in card_pilot.PROPER_NOUN_POS:
                 rest = [c for c in ranked["candidates"]
                         if c.get("sense_id") != sid]
                 ranked["candidates"] = [cand] + rest
@@ -978,25 +985,35 @@ def _judge_validate(data, batch, anchor_map):
 def _veto_inflection_pick(pick, anchor_res):
     """F4 post-judge veto: (sense_id, gloss) with stub picks corrected.
 
-    When the picked gloss is a mechanical-inflection reference (the G2
-    pattern — "past of", "present participle of", "comparative of",
-    ...), the judge crowned a stub (removed/forcing/wondering/better):
-    fall back to the anchor-top non-stub — the first window candidate
-    in anchor order whose gloss is NOT such a reference. Anything else
-    (real pick, empty pick, all-stub window) returns the pick unchanged
-    — a veto reroutes, it never drops, so uncertainty keeps the item.
-    The judge model tag is untouched (the sense_id change is visible in
-    s2 progress); the G2 pattern is reused by import, not redefined.
+    When the picked gloss is a mechanical-inflection reference (S0b
+    verdict-path predicates: is_inflection_gloss / is_superlative_gloss
+    — both "of"-requiring, so a real gloss like "a comparative study"
+    never vetoes), the judge crowned a stub
+    (removed/forcing/wondering/better): fall back to the anchor-top
+    non-stub — the first window candidate in anchor order whose gloss
+    is NOT such a reference. Anything else (real pick, empty pick,
+    all-stub window) returns the pick unchanged — a veto reroutes, it
+    never drops, so uncertainty keeps the item. The judge model tag is
+    untouched (the sense_id change is visible in s2 progress); the
+    predicates live in card_pilot (single source, reused by import —
+    the veto inherits their exact boundary, including whole-gloss
+    superlative anchoring).
     """
     sid = (pick or {}).get("sense_id", "")
     gloss = (pick or {}).get("gloss", "")
-    if not sid or not gloss or not _G2_FORM_RX.search(gloss):
+    if not sid or not gloss or not _is_veto_stub_gloss(gloss):
         return sid, gloss
     for cand in (anchor_res or {}).get("candidates", []) or []:
         if cand.get("sense_id") \
-                and not _G2_FORM_RX.search(cand.get("gloss", "")):
+                and not _is_veto_stub_gloss(cand.get("gloss", "")):
             return cand.get("sense_id", ""), cand.get("gloss", "")
     return sid, gloss
+
+
+def _is_veto_stub_gloss(gloss):
+    """F4 stub predicate: S0b verdict-path predicates, reused by import."""
+    return bool(card_pilot.is_inflection_gloss(gloss)
+                or card_pilot.is_superlative_gloss(gloss))
 
 
 def _apply_inflection_veto(out, batch, anchor_map):
