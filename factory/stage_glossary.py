@@ -116,6 +116,7 @@ REASON_SLUGS = (
     "quarantine-g4-abbrev",
     "pick-proper-noun",
     "anchor-proper-noun",
+    "anchor-name-gloss",
     "vulgar-anchor",
     "no-real-def",
     "inflection-drop",
