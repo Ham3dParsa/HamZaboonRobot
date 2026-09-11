@@ -56,7 +56,7 @@ python factory\blind50.py --accept W:\hamzaban_data_factory\pilot\accept50.json 
   --out W:\hamzaban_data_factory\blind50\blind50.json --progress W:\hamzaban_data_factory\blind50\progress.json --dry-run
 ```
 
-Keys: `factory\.env` first, then `tools\egress\.env` (owner layout).
+Keys: env vars win, then `factory\.env`, then `tools\egress\.env` (owner layout).
 Three consecutive 429s stop the run — rotate key/server, re-run, resume
 continues from `progress/*.json` (per-stage files named by stable id).
 
