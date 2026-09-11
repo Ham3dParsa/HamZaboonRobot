@@ -1,7 +1,7 @@
 """Integration flow — cross-day stale study-session discard (issues 619/622, T2).
 
 Locked contract R3/R4: all three resume paths (``handle_study_start``,
-``get_active_study_session``, ``advance_session``) are gated by the single
+``_get_active_study_session_memory``, ``advance_session``) are gated by the single
 ``is_stale`` helper; a stale session is popped from memory and its persisted
 row + grade ledger cleared via ONE worker-call invalidate, silently, before
 quota — then a fresh session is built (quota consumed normally). Stale state
@@ -350,7 +350,7 @@ class StaleSessionDayBoundaryFlowTests(unittest.IsolatedAsyncioTestCase):
         from handlers.study_handler import (
             SessionState,
             _state_to_json,
-            get_active_study_session,
+            _get_active_study_session_memory,
         )
 
         w1 = self._seed_word("hello", expose=True)
@@ -365,7 +365,7 @@ class StaleSessionDayBoundaryFlowTests(unittest.IsolatedAsyncioTestCase):
 
         ctx = self._context()
         self.assertNotIn("current_session", ctx.user_data)
-        result = get_active_study_session(1, ctx)
+        result = _get_active_study_session_memory(1, ctx)
         self.assertIsNone(result)
         # No stash, no render, no re-persist of the stale state.
         self.assertNotIn("current_session", ctx.user_data)
@@ -703,6 +703,45 @@ class IsStaleTests(unittest.TestCase):
             study_msg_id=None, plan="free", session_date="2026-09-10",
         )
         self.assertFalse(is_stale(fresh, "2026-09-10"))
+
+
+class RestoreDiscardClearsLedgerTests(unittest.TestCase):
+    """_restore_persisted_session discard clears row AND ledger atomically."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+        self._prev_db = db.DB_PATH
+        self._prev_schema = db_schema.DB_PATH
+        self.addCleanup(self._restore)
+        new_path = os.path.join(self.tempdir.name, "test.sqlite")
+        db.DB_PATH = new_path
+        db_schema.DB_PATH = new_path
+        db.init_db()
+
+    def _restore(self):
+        db.DB_PATH = self._prev_db
+        db_schema.DB_PATH = self._prev_schema
+
+    def test_corrupt_json_clears_ledger(self):
+        from handlers.study_handler import _restore_persisted_session
+
+        db.save_study_session(1, _today(), "{not valid json")
+        db.mark_word_graded(1, 42, "srs_review")
+        self.assertTrue(db.is_word_graded(1, 42, "srs_review"))
+        self.assertIsNone(_restore_persisted_session(1))
+        self.assertIsNone(db.load_study_session(1))
+        self.assertFalse(db.is_word_graded(1, 42, "srs_review"))
+
+    def test_empty_nodes_clears_ledger(self):
+        from handlers.study_handler import _restore_persisted_session
+
+        db.save_study_session(1, _today(), '{"nodes": []}')
+        db.mark_word_graded(1, 43, "srs_review")
+        self.assertTrue(db.is_word_graded(1, 43, "srs_review"))
+        self.assertIsNone(_restore_persisted_session(1))
+        self.assertIsNone(db.load_study_session(1))
+        self.assertFalse(db.is_word_graded(1, 43, "srs_review"))
 
 
 if __name__ == "__main__":

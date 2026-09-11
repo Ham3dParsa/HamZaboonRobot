@@ -228,8 +228,7 @@ def _restore_persisted_session(user_id: int) -> SessionState | None:
         return None
     session_date, state_json = row
     if session_date != _app_day_str():
-        _clear_persisted_session(user_id)
-        db.clear_session_grades(user_id)
+        db.invalidate_stale_study_session(user_id)
         return None
     try:
         state = _state_from_json(state_json)
@@ -237,18 +236,22 @@ def _restore_persisted_session(user_id: int) -> SessionState | None:
         logger.exception(
             "corrupt persisted study session user_id=%s", user_id
         )
-        _clear_persisted_session(user_id)
+        db.invalidate_stale_study_session(user_id)
         return None
     if not state.nodes:
-        _clear_persisted_session(user_id)
+        db.invalidate_stale_study_session(user_id)
         return None
     return state
 
 
-def get_active_study_session(
+def _get_active_study_session_memory(
     user_id: int, context: ContextTypes.DEFAULT_TYPE
 ) -> SessionState | None:
     """Pure memory gate for the active study session — no DB I/O at all.
+
+    Exists only for the memory-only contract test
+    (``test_stale_session_day_boundary_flow.py``); production callers must
+    use ``get_active_session_async``.
 
     Memory hit is checked with ``is_stale`` (popped if stale, then None);
     on a memory miss None is returned WITHOUT restoring from the DB.
