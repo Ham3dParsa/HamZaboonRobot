@@ -36,15 +36,11 @@ from config import (
     COST,
     USER_ACTIVITY,
 )
-from config.plan_identity import has_feature
 from services import db, send_pretty
 from services.ai import ai
 from services import tts
 from services import word_query
 from config.catalog import (
-    GOALS,
-    LANGUAGES,
-    LEVELS,
     goal_label,
     language_label,
     level_cefr,
@@ -57,7 +53,6 @@ from config.keyboards import (
     lang_inline_keyboard,
     goal_inline_keyboard,
     level_inline_keyboard,
-    presentation_settings_keyboard,
     settings_inline_keyboard,
     awaiting_reply_keyboard,
     awaiting_inline_keyboard,
@@ -81,10 +76,8 @@ from services.scheduling import THROTTLE_TEXT, try_acquire_per_user_slot, word_q
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 
 from services.utils.helpers import (
-    _clear_awaiting_prompt,
     _delete_with_retry,
     _edit_or_send,
-    _edit_with_retry,
     _exit_awaiting_flow,
     _finish_llm_wait_state,
     _is_cancel_input,
@@ -93,7 +86,6 @@ from services.utils.helpers import (
     _user_activity_line,
     _CANCEL_INPUTS,
     apply_log_level,
-    clear_admin_pending_state,
     exit_admin_awaiting_cancel,
 )
 from services.send_pretty import _telegram_slots
@@ -130,24 +122,20 @@ from services.routing import ROUTES, dispatch as routing_dispatch
 
 # Builtin prefixes handled directly in bot.py (not via routing registry) — single
 # definition for allowlist derivation (R2, #20). Keyboards literals are validated
-# by tests/test_wiring.py, ROUTES covers admin/llm/srs:delete etc.
+# by tests/test_wiring.py, ROUTES covers admin/llm/srs:delete/session:summary,
+# reports plus REF1-T4 group 1 (flow/settings/help/presentation/lang/goal/level).
 _BUILTIN_CALLBACK_PREFIXES: tuple[str, ...] = (
     "study:start",
     "query:add:",
     "query:dup:new:",
     "query:dup:reuse:",
     "query:dup:cancel",
-    "presentation:",
-    "flow:",
     "srs:",
     "tts:pronounce:",
-    "settings:",
-    "help:",
 )
 
 from handlers.admin import (
     open_admin_panel,
-    handle_flow_back,
 )
 from handlers.admin_backup import (
     cmd_backup,
@@ -164,26 +152,11 @@ from handlers.flows import (
 
 from handlers.user import (
     cmd_start,
-    on_lang_selected,
-    on_goal_selected,
-    on_level_selected,
-    change_lang_start,
-    change_goal_start,
-    change_level_start,
-    change_presentation_start,
-    handle_display_toggle,
-    handle_display_toggle_cancel,
-    handle_display_toggle_confirm,
-    on_lang_changed,
-    on_goal_changed,
-    on_level_changed,
     ask_for_ask_word,
-    show_display_toggles_menu,
-    show_status,
     _show_settings_menu,
 )
 
-from handlers.help_command import send_help_panel, handle_help_callback
+from handlers.help_command import send_help_panel
 
 from handlers.study_handler import handle_study_inactive, handle_study_start, send_reports_list
 
@@ -734,74 +707,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not any(data.startswith(p) for p in _allowlist_prefixes):
         await notify_callback(update.callback_query)
 
-    if data == "flow:back":
-        await handle_flow_back(update, context)
-        return
-
-    if data == "flow:cancel":
-        awaiting = context.user_data.get("awaiting", "")
-        if awaiting:
-            clear_admin_pending_state(context)
-            await _clear_awaiting_prompt(context)
-            await _exit_awaiting_flow(update, context, via_callback=True)
-        else:
-            await notify_callback(update.callback_query, "فعلاً چیزی برای لغو نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-        return
-
-    if data.startswith("presentation:set:"):
-        preference = data.split(":", 2)[2]
-        if preference not in {"brief", "detailed"}:
-            await notify_callback(update.callback_query, "انتخاب نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-            return
-        user_id = update.effective_user.id
-        row = db.get_user(user_id)
-        if not row or not row["onboarded"]:
-            await notify_callback(update.callback_query, "ابتدا /start را بزنید.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-            return
-        if not has_feature(row["plan"] or "free", "presentation"):
-            await notify_callback(update.callback_query, "این تنظیم فقط برای کاربران پریمیوم فعال است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-            return
-        db.set_presentation_preference(user_id, preference)
-        label = "خلاصه" if preference == "brief" else "کامل"
-        await _edit_with_retry(
-            update.callback_query,
-            f"نمایش کارت‌ها روی «{label}» تنظیم شد.",
-            reply_markup=presentation_settings_keyboard(preference, back_to_settings=True),
-        )
-        await notify_callback(update.callback_query, "تنظیمات ذخیره شد.", intent=CallbackNoticeIntent.SUCCESS)
-        return
-
-    if data.startswith("lang:"):
-        lang = data.split(":", 1)[1]
-        if lang not in LANGUAGES:
-            await notify_callback(update.callback_query, "زبان نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-            return
-        row = db.get_user(update.effective_user.id)
-        if row and row["onboarded"]:
-            await on_lang_changed(update, context, lang)      # تغییر زبان
-        else:
-            await on_lang_selected(update, context, lang)     # onboarding
-    elif data.startswith("goal:"):
-        goal = data.split(":", 1)[1]
-        if goal not in GOALS:
-            await notify_callback(update.callback_query, "هدف نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-            return
-        row = db.get_user(update.effective_user.id)
-        if row and row["onboarded"]:
-            await on_goal_changed(update, context, goal)      # تغییر هدف
-        else:
-            await on_goal_selected(update, context, goal)     # onboarding
-    elif data.startswith("level:"):
-        level = data.split(":", 1)[1]
-        if level not in LEVELS:
-            await notify_callback(update.callback_query, "سطح نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-            return
-        row = db.get_user(update.effective_user.id)
-        if row and row["onboarded"]:
-            await on_level_changed(update, context, level)
-        else:
-            await on_level_selected(update, context, level)
-    elif data.startswith("query:add:"):
+    if data.startswith("query:add:"):
         parts = data.split(":", 2)
         if len(parts) != 3:
             await notify_callback(update.callback_query, "دکمه‌ی نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
@@ -836,37 +742,6 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _handle_query_dup_reuse(update, context, parts[3])
     elif data == "query:dup:cancel":
         await _handle_query_dup_cancel(update, context)
-    elif data == "settings:lang":
-        await change_lang_start(update, context)
-    elif data == "settings:goal":
-        await change_goal_start(update, context)
-    elif data == "settings:level":
-        await change_level_start(update, context)
-    elif data == "settings:presentation":
-        await change_presentation_start(update, context)
-    elif data == "settings:display_toggles":
-        await show_display_toggles_menu(update, context)
-    elif data.startswith("settings:display_toggle:confirm:"):
-        field = data.split(":", 3)[3]
-        await handle_display_toggle_confirm(update, context, field)
-    elif data == "settings:display_toggle:cancel":
-        await handle_display_toggle_cancel(update, context)
-    elif data.startswith("settings:display_toggle:"):
-        field = data.split(":", 2)[2]
-        if ":" in field:
-            await notify_callback(update.callback_query, "فیلد نامعتبر است.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
-            return
-        await handle_display_toggle(update, context, field)
-    elif data == "settings:status":
-        await show_status(update, context)
-    elif data == "settings:back":
-        await _show_settings_menu(update, context)
-    elif data == "settings:close":
-        try:
-            await update.callback_query.message.delete()
-            await notify_callback(update.callback_query, "بسته شد.", intent=CallbackNoticeIntent.INFO)
-        except BadRequest:
-            await notify_callback(update.callback_query)
     elif data.startswith("srs:reveal:"):
         parts = data.split(":")
         if len(parts) != 4:
@@ -932,8 +807,6 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         async with _lock:
             await _handle_tts_pronounce(update, context, data.split(":", 2)[2])
-    elif data.startswith("help:"):
-        await handle_help_callback(update, context, data)
     else:
         log.warning("Unhandled callback data in recognized prefix: %s", data)
         await notify_callback(

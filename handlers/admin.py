@@ -12,6 +12,7 @@ from telegram.ext import ContextTypes
 
 from config import APP_TZ, BROADCAST_MAX_CONCURRENCY, DB_PATH, is_owner
 from services import db, send_pretty
+from services.routing import register
 from services.send_pretty import RawFormat, say
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.utils.formatting import html_escape
@@ -644,6 +645,35 @@ async def handle_flow_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _exit_awaiting_flow(update, context, via_callback=True)
     else:
         await notify_callback(update.callback_query, "فعلاً چیزی برای لغو نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+
+
+async def _handle_flow_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Registry route for ``flow:*`` (REF1-T4, R1 coarse).
+
+    ``flow:back`` resumes the awaiting flow; ``flow:cancel`` exits it;
+    anything else is the unknown fallback (previously the
+    ``callback_router`` catch-all ``else``). Bodies moved byte-identically
+    from ``bot.callback_router``.
+    """
+    if action == "back":
+        await handle_flow_back(update, context)
+    elif action == "cancel":
+        awaiting = context.user_data.get("awaiting", "")
+        if awaiting:
+            clear_admin_pending_state(context)
+            await _clear_awaiting_prompt(context)
+            await _exit_awaiting_flow(update, context, via_callback=True)
+        else:
+            await notify_callback(update.callback_query, "فعلاً چیزی برای لغو نیست.", intent=CallbackNoticeIntent.IMPORTANT_ERROR)
+    else:
+        await notify_callback(
+            update.callback_query,
+            "عملیات ناموفق بود.",
+            intent=CallbackNoticeIntent.IMPORTANT_ERROR,
+        )
+
+
+register("flow", _handle_flow_callback)
 
 
 def _register_admin_flows() -> None:

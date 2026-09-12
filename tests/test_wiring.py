@@ -853,6 +853,56 @@ class TestCallbackWiring(unittest.TestCase):
         self.assertIn('action.startswith("day:")', handler_text)
         self.assertIn('reports_day_keyboard', handler_text)
 
+    def test_routing_group1_prefixes_registered_and_dispatched(self):
+        """REF1-T4: flow/settings/help/presentation/lang/goal/level must be
+        registered in the central routing registry and routed through
+        routing_dispatch in callback_router (longest-prefix, single-answer).
+
+        The thin wrapper (callback_router), the _BUILTIN alias, the
+        ROUTES-first branch and the derived allowlist stay intact; group-1
+        entries move from _BUILTIN/inline branches to ROUTES (admin precedent).
+        The generic srs: inline branch stays for REF1-T5 (longest-prefix
+        keeps srs:delete:* winning via ROUTES)."""
+        import handlers.admin  # noqa: F401  (flow route)
+        import handlers.help_command  # noqa: F401  (help route)
+        import handlers.user  # noqa: F401  (settings/presentation/lang/goal/level)
+        from services.routing import ROUTES
+
+        registered = {prefix for (prefix, _, _) in ROUTES}
+        for prefix in ("flow", "settings", "help", "presentation", "lang", "goal", "level"):
+            self.assertIn(prefix, registered, f"group-1 prefix {prefix!r} not registered")
+
+        bot_text = Path("bot.py").read_text(encoding="utf-8")
+        # Thin wrapper + registry-first dispatch + derived allowlist intact.
+        self.assertIn("async def callback_router", bot_text)
+        self.assertIn("_BUILTIN_CALLBACK_PREFIXES", bot_text)
+        self.assertIn("await routing_dispatch(update, context, data)", bot_text)
+        self.assertIn("_allowlist_prefixes = _BUILTIN_CALLBACK_PREFIXES", bot_text)
+        # Group-1 inline branches are gone (replaced by registry); the
+        # generic srs: branch and the catch-all stay for REF1-T5.
+        for gone in (
+            'data.startswith("presentation:set:")',
+            'data.startswith("lang:")',
+            'data == "settings:lang"',
+            'data.startswith("help:")',
+            'data == "flow:back"',
+        ):
+            self.assertNotIn(gone, bot_text, f"replaced inline branch still present: {gone}")
+        self.assertIn('data.startswith("srs:")', bot_text)
+        # Group-1 entries pruned from _BUILTIN (single source: ROUTES now).
+        builtin_block = bot_text.split("_BUILTIN_CALLBACK_PREFIXES", 2)[1]
+        for pruned in ('"presentation:"', '"flow:"', '"settings:"', '"help:"'):
+            self.assertNotIn(pruned, builtin_block.split(")", 1)[0])
+        # Owner-module registrations (precedent: admin/srs/study bare register).
+        for path, snippet in (
+            ("handlers/user.py", 'register("settings"'),
+            ("handlers/user.py", 'register("presentation"'),
+            ("handlers/user.py", 'register("lang"'),
+            ("handlers/help_command.py", 'register("help"'),
+            ("handlers/admin.py", 'register("flow"'),
+        ):
+            self.assertIn(snippet, Path(path).read_text(encoding="utf-8"))
+
     # ------------------------------------------------------------------
     # Reverse direction: routes and imports must resolve to real symbols.
     # ------------------------------------------------------------------

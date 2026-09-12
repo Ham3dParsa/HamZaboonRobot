@@ -202,14 +202,15 @@ class TestTextRouterPrefixDispatch(unittest.IsolatedAsyncioTestCase):
                 mock_fn.assert_not_awaited()
 
     async def test_callback_router_routes_flow_back_to_handle_flow_back(self):
-        """callback_router(data='flow:back') must delegate to handle_flow_back."""
+        """callback_router(data='flow:back') must delegate to handle_flow_back
+        via the central routing registry (REF1-T4 group 1)."""
         from bot import callback_router
         update = _make_update(user_id=1, text="")
         update.callback_query.data = "flow:back"
         context = _make_context()
         context.user_data["awaiting"] = "ai_preset_edit:gpt:model"
         with patch("bot.db.reset_user_blocked"):
-            with patch("bot.handle_flow_back", new=AsyncMock()) as mock_fn:
+            with patch("handlers.admin.handle_flow_back", new=AsyncMock()) as mock_fn:
                 await callback_router(update, context)
             mock_fn.assert_called_once()
 
