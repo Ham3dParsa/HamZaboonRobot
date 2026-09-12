@@ -79,11 +79,11 @@ DOMAIN_KEYWORDS: dict[str, str] = {
     "escape_mdv2": "services/utils/formatting_escape.py",
     "escape_mdv2_code": "services/utils/formatting_escape.py",
     "to_persian_digits": "services/utils/formatting_escape.py",
-    # services/utils/formatting.py owns the card/SRS/jalali renderings.
-    "format_card": "services/utils/formatting.py",
+    # services/utils/formatting_cards.py owns the card/SRS renderings (REF2-T2).
+    "format_card": "services/utils/formatting_cards.py",
     "html_escape": "services/utils/formatting_escape.py",
-    "phonetic_lines": "services/utils/formatting.py",
-    "format_grammar_tip": "services/utils/formatting.py",
+    "phonetic_lines": "services/utils/formatting_cards.py",
+    "format_grammar_tip": "services/utils/formatting_cards.py",
     # services/utils/validation.py owns word-query validation.
     "validate_word_query": "services/utils/validation.py",
     "_CUSTOM_WORD_MAX_WORDS": "services/utils/validation.py",

@@ -834,7 +834,8 @@ def session_summary_legend_keyboard(page_index: int, nonce: str) -> InlineKeyboa
 
 def reports_days_keyboard(grouped: dict[str, list]) -> InlineKeyboardMarkup:
     """Two-level top: one button per jalali day (R1,R2,R4)."""
-    from services.utils.formatting import is_iso_day_key, jalali_day_label, reports_day_sort_key, to_persian_digits as _tpd
+    from services.utils.formatting_jalali import is_iso_day_key, jalali_day_label, reports_day_sort_key
+    from services.utils.formatting_escape import to_persian_digits as _tpd
 
     rows: list[list[InlineKeyboardButton]] = []
     for day_key in sorted(grouped.keys(), key=reports_day_sort_key, reverse=True):
@@ -865,7 +866,8 @@ def reports_days_keyboard(grouped: dict[str, list]) -> InlineKeyboardMarkup:
 
 def reports_day_keyboard(day_key: str, entries: list) -> InlineKeyboardMarkup:
     """Second level: one button per session sorted ASC for per-day numbering (R3,R8)."""
-    from services.utils.formatting import jalali_time_label, parse_iso_to_app_tz, to_persian_digits as _tpd
+    from services.utils.formatting_jalali import jalali_time_label, parse_iso_to_app_tz
+    from services.utils.formatting_escape import to_persian_digits as _tpd
 
     # sort ASC by actual Tehran time — consistent tuple key to avoid datetime/str mix (Kilo)
     def _sort_key(e):
@@ -902,7 +904,7 @@ def reports_list_keyboard(entries) -> InlineKeyboardMarkup:
     Kept for wiring tests; new handler uses reports_days_keyboard.
     """
     # Build grouped dict for compat path: group by APP_TZ day (single source)
-    from services.utils.formatting import reports_jalali_group_key
+    from services.utils.formatting_jalali import reports_jalali_group_key
 
     grouped: dict[str, list] = {}
     for e in entries:

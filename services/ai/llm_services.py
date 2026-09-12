@@ -3,7 +3,7 @@ import time
 
 from services.ai import ai, ai_read_cache, limiter, preset_fields
 from services import db
-from services.utils.formatting import CardPreparationError
+from services.utils.formatting_cards import CardPreparationError
 
 logger = logging.getLogger(__name__)
 

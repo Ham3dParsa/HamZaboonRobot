@@ -4,7 +4,7 @@ import datetime
 import unittest
 from unittest import mock
 
-from services.utils import formatting as fmt
+from services.utils import formatting_jalali as fmt
 
 
 class JalaliDayLabelTests(unittest.TestCase):
