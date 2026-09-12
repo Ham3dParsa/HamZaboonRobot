@@ -8,7 +8,7 @@ from telegram.error import BadRequest, Forbidden, NetworkError, TimedOut
 
 from services import tts
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
-from services.utils.helpers import _send_media_with_retry, _send_with_retry
+from services.send_pretty import _send_media_with_retry, _send_with_retry
 
 logger = logging.getLogger(__name__)
 
