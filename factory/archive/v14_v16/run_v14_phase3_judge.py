@@ -6,7 +6,7 @@
 # (b) topic_label+confidence for every currently-Other sense (13 fixed labels from packs/en/topic_prototypes.json).
 # Resume: v14_judge_progress.json. Batch: 8 lemmas/call. Sleep 2.5s.
 # Any parse/validation failure -> deterministic fallback (score-rank top-N picks, topics stay Other), lemma logged. No placeholders.
-# Dry run (no keys): python factory/archive/v14_v16/run_v14_phase3_judge.py --dry-run
+# Dry run (no keys): python -m factory.archive.v14_v16.run_v14_phase3_judge.py --dry-run
 import argparse, json, pathlib, re, sys, time
 import urllib.request
 import urllib.error

@@ -8,9 +8,9 @@
 # Fallback per lemma: keep original v16 Other rows unchanged, logged in failed_lemmas.
 # Validation: ids exact (subset), topic_id 1..16, label matches id, weights sum 1.0+-0.01, primary == vector top.
 # Transport: Zen /responses, bare model ids, browser UA, reasoning minimal. Batch 8 lemmas, sleep 2.5s, live tqdm, resume every batch.
-# Usage: dry-run: python factory/archive/v14_v16/run_v16b_topup.py --dry-run --limit 8
-#        smoke:    python factory/archive/v14_v16/run_v16b_topup.py --lemmas rock,light,pass,flat
-#        full:     python factory/archive/v14_v16/run_v16b_topup.py
+# Usage: dry-run: python -m factory.archive.v14_v16.run_v16b_topup.py --dry-run --limit 8
+#        smoke:    python -m factory.archive.v14_v16.run_v16b_topup.py --lemmas rock,light,pass,flat
+#        full:     python -m factory.archive.v14_v16.run_v16b_topup.py
 import argparse, json, pathlib, re, sys, time
 import urllib.request
 import urllib.error

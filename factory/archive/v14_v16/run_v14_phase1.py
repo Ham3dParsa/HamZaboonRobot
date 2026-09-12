@@ -1,7 +1,7 @@
 # v14 phase 1 (deterministic, no API keys) — contract R1/R2/R3-exact/R3b/R5 LOCKED 2026-09-03.
 # Reads factory/packs/en (R5). Rebuilds uniq from raw Kaikki (threads tags/src_pos/evidence),
 # EVP recall guard (R2/R10), new weights (R1), exact-dup merge with synset-single freq (R3/R3b),
-# keyword topics (LLM refine = phase 2, needs keys). Run: python factory/archive/v14_v16/run_v14_phase1.py
+# keyword topics (LLM refine = phase 2, needs keys). Run: python -m factory.archive.v14_v16.run_v14_phase1.py
 import json, collections, csv, gc, math, pathlib, re
 import numpy as np, torch
 from tqdm.auto import tqdm

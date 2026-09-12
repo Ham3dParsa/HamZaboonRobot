@@ -5,9 +5,9 @@
 # Batch 8 lemmas/call (~63 calls), sleep 2.5s, live tqdm, resume JSON after every batch.
 # Any lemma failure -> fallback: current single v14c label @1.0, source deterministic, logged.
 # Output: factory/fixtures/topic_vectors-v15.json
-# Usage: dry-run: python factory/archive/v14_v16/run_v15_topics.py --dry-run --limit 8
-#        smoke:    python factory/archive/v14_v16/run_v15_topics.py --limit 8
-#        full:     python factory/archive/v14_v16/run_v15_topics.py
+# Usage: dry-run: python -m factory.archive.v14_v16.run_v15_topics.py --dry-run --limit 8
+#        smoke:    python -m factory.archive.v14_v16.run_v15_topics.py --limit 8
+#        full:     python -m factory.archive.v14_v16.run_v15_topics.py
 # Needs: factory/.env with OPENCODE_ZEN_API_KEY. Never prints keys, never stages .env.
 import argparse, json, pathlib, re, sys, time
 import urllib.request

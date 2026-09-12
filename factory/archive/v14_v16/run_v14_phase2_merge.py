@@ -3,7 +3,7 @@
 # Chain (all Zen, free): spark-1.3 -> spark-1.2 -> ling-3.0-flash-fin -> mimo-v2.5 -> nemotron-3.5-lightning.
 # Transport: /responses, reasoning minimal (responses-only for muse-spark; chat 500s).
 # Resume: v14_merge_progress.json. Batch: 8 lemmas/call. Fallback per lemma: singleton clusters.
-# Dry run (no keys): python factory/archive/v14_v16/run_v14_phase2_merge.py --dry-run
+# Dry run (no keys): python -m factory.archive.v14_v16.run_v14_phase2_merge.py --dry-run
 import argparse, json, pathlib, re, sys, time
 import urllib.request
 import urllib.error
