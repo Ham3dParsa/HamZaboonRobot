@@ -11,10 +11,25 @@ export DEBIAN_FRONTEND=noninteractive
 BASE_ROOT="/app"
 XRAY_DIR="/app/.xray"
 # Master switch for all Xray/proxy logic below (install, cron, rebuild,
-# boot-start, supervisord). Set XRAY_ENABLED=0 in panel env to run without
-# the proxy (also clear AI_PROXY_URL then, or AI calls hang on a dead port).
-# Default 0 (off; set 1 explicitly to enable).
+# boot-start, supervisord). Default 0 (off): set XRAY_ENABLED=1 in panel env
+# to enable, and keep AI_PROXY_URL set then. When disabled, also clear
+# AI_PROXY_URL, or AI calls hang on a dead port.
+# NOTE: default-off is intentional (owner decision 2026-09-11): existing
+# deploys lose the proxy unless they set XRAY_ENABLED=1 explicitly.
 XRAY_ENABLED="${XRAY_ENABLED:-0}"
+# Normalize common truthy spellings; anything else (including empty) is off.
+case "$XRAY_ENABLED" in
+  1|[Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn]) XRAY_ENABLED=1 ;;
+  *) XRAY_ENABLED=0 ;;
+esac
+# Stop any already-running proxy when disabled (warm-host reuse), then drop
+# its cron entry so nothing revives it.
+if [ "$XRAY_ENABLED" != "1" ]; then
+  supervisorctl stop xray >/dev/null 2>&1 || true
+  pkill -f "xray run" >/dev/null 2>&1 || true
+  rm -f /etc/cron.d/xray-update || true
+  if [ -n "${AI_PROXY_URL:-}" ]; then echo "[chabok-pre-start] WARN: XRAY_ENABLED!=1 but AI_PROXY_URL is set - AI calls will hang, clear AI_PROXY_URL"; fi
+fi
 mkdir -p "$XRAY_DIR" /var/log/xray /var/log/supervisor
 # Ensure log file exists for supervisor/cron (canonical path /var/log/xray/xray.log)
 touch /var/log/xray/xray.log 2>&1 | head || true
@@ -44,8 +59,6 @@ fi
 service cron start 2>&1 | head -5 || cron 2>&1 | head -5 || true
 if [ "$XRAY_ENABLED" = "1" ] && [ -f "$BASE_ROOT/cron-jobs" ]; then
   cp -f "$BASE_ROOT/cron-jobs" /etc/cron.d/xray-update && chmod 0644 /etc/cron.d/xray-update || true
-elif [ "$XRAY_ENABLED" != "1" ]; then
-  rm -f /etc/cron.d/xray-update || true
 fi
 
 # 3) Restore persistent subscription state and install helper scripts from repo
