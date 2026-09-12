@@ -209,6 +209,10 @@ def sense_cefr_for(lemma, pos, gloss, bridge=None, evp=None):
         bridge = get_bridge()
     if evp is None:
         evp = get_evp()
+    if not isinstance(bridge, dict):
+        bridge = {}
+    if not isinstance(evp, dict):
+        evp = {}
     try:
         lemma_norm = normalize_lemma(str(lemma or "").replace("_", " "))
     except ValueError:
@@ -226,8 +230,19 @@ def sense_cefr_for(lemma, pos, gloss, bridge=None, evp=None):
     cand_levels = {cefr for _, cefr in cands}
     glossary = gloss.lower() if isinstance(gloss, str) else ""
     if glossary:
+        try:
+            pairs = list(evp.get(lemma_norm, []) or [])
+        except (TypeError, AttributeError):
+            pairs = []
         matched = set()
-        for guideword, cefr in evp.get(lemma_norm, []):
+        for pair in pairs:
+            try:
+                guideword, cefr = pair
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(guideword, str) \
+                    or not isinstance(cefr, str):
+                continue
             if cefr not in cand_levels:
                 continue
             # Word-boundary match: raw substring lets "art" hit "heart".

@@ -136,6 +136,22 @@ def test_undecodable_bytes_fail_closed(tmp_path):
         B.clear_cache()
 
 
+def test_hostile_in_memory_maps_never_raise(bridge):
+    # Hand-built maps bypassing the loaders must still degrade, not crash.
+    hostile = {"good": [(123, "B1"),  # int guideword, level in candidates
+                        ("quality", ["B1"]),  # unhashable level
+                        "notapair",  # unpack failure
+                        ("quality", "B1")]}  # one good pair survives
+    assert B.sense_cefr_for("good", "adj", "of high quality", bridge,
+                            hostile) == ("B1", "wn-evp-gloss")
+    assert B.sense_cefr_for("good", "adj", "a pleasant day", bridge,
+                            hostile) == ("A2", "wn-lemma-min")
+    assert B.sense_cefr_for("good", "adj", "x", bridge, "junk") == (
+        "A2", "wn-lemma-min")
+    assert B.sense_cefr_for("good", "adj", "x", "junk", {}) == (
+        None, "unmapped")
+
+
 def test_non_string_evp_file_values_skipped(tmp_path):
     import json
     path = tmp_path / "evp_sense.json"

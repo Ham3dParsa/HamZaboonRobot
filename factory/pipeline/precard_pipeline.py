@@ -2004,7 +2004,7 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     lemma = (item.get("text") or "").strip()
     if not sid:
         sense_cefr, sense_cefr_method = cefr_bridge.sense_cefr_for(
-            lemma, item.get("pos", ""), gloss or "")
+            lemma, item.get("pos") or "", gloss or "")
         return {"sense_id": "", "en_def": gloss or "",
                 "ipa": "", "ipa_src": card_pilot.IPA_SRC_MODEL,
                 "dataset_examples": [], "abbrev_expansion": "",
