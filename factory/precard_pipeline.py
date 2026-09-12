@@ -741,20 +741,22 @@ def _call_with_rotation(transport, ring, model, text, sleep_fn, state,
 # -------------------------------------------------------------- S0b ---
 
 def inflection_needs_review(item, index, read_entry):
-    """R36: (needs, gloss) — True when the raw anchor top is inflection.
+    """R36: (needs, gloss) — True when the raw lemma head is inflection.
 
-    The check runs on the unresolved top scorer (no xref index): xref
-    stubs never match the inflection pattern, so ordering is moot.
-    Read failures fail open to (False, "") — S0b only ever adds drops
-    on an explicit LLM verdict, never on lookup errors.
+    The check runs on the file-first sense (raw_first_gloss), NOT the
+    demoted anchor top: stub demotion answers "which sense represents
+    the word", this answers "is the word inflection-led" — demotion
+    must not silence the review trigger. Xref stubs never match the
+    inflection pattern, so unresolved order is moot. Read failures
+    fail open to (False, "") — S0b only ever adds drops on an explicit
+    LLM verdict, never on lookup errors.
     """
     text = (item.get("text") or "").strip()
     if not text:
         return False, ""
     entries, pos = _entries_for(item, index)
     try:
-        _, gloss, _, _ = card_pilot.pick_anchor_sense_full(
-            text, entries, pos, read_entry)
+        gloss = card_pilot.raw_first_gloss(entries, read_entry)
     except Exception:
         return False, ""
     if gloss and card_pilot.is_superlative_gloss(gloss):

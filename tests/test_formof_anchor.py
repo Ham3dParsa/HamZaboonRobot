@@ -233,6 +233,31 @@ def test_mother_missing_is_empty():
     assert multi is False
 
 
+def test_mother_single_string_comma_shape():
+    """Review: "good, well" one string must split, not degrade to good."""
+    mother, mothers, multi = card_pilot.parse_mother_lemma(
+        {"form_of": [{"word": "good, well"}]})
+    assert mother == "good"
+    assert mothers == ["good", "well"]
+    assert multi is True
+
+
+def test_gloss_stub_file_first_demotes_below_real():
+    """Review: S1 demotion covers gloss stubs too — a file-first
+    gloss-only stub must not stay anchor top outside the window."""
+    entries = _rows("verb", [
+        _sense("present participle of wonder"),
+        _sense("to think about something"),
+    ])
+    scored = card_pilot.score_senses(
+        "wondering", entries, "verb", read_entry, zipf_fn=ZIPF)
+    top_gloss = scored[0][4]
+    assert "think about" in top_gloss, scored[0][:2]
+    window = card_pilot.select_candidate_window(
+        scored, pool_pos="verb", pool_level="B1")
+    assert scored[0] in window  # top == window rank 1 invariant
+
+
 def test_mother_cleans_like_superlative_parser():
     mother, mothers, multi = card_pilot.parse_mother_lemma(
         {"form_of": [{"word": '"Go."'}]})

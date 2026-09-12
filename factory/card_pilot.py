@@ -617,24 +617,19 @@ def parse_mother_lemma(sense):
             continue
         target = (word or "").strip().strip(
             "'\"\u201c\u201d\u2018\u2019").strip().rstrip(".").strip()
-        target = re.split(r"[:;,(]", target, maxsplit=1)[0].strip()
         # Multi-target single string ("good and well", "good, well"):
-        # split on "and"/commas/slashes before the single-token check.
+        # split on multi-delimiters FIRST, then clean each piece
+        # (cut pieces at [:;(] only — comma is a delimiter, not noise).
         parts = re.split(r"\s+and\s+|,\s*|/\s*|\s+&\s+",
                          target, flags=re.IGNORECASE)
-        if len(parts) > 1:
-            for part in parts:
-                piece = (part or "").strip().strip(
-                    "'\"\u201c\u201d\u2018\u2019").strip().rstrip(
-                    ".").strip()
-                if re.fullmatch(r"[A-Za-z]+", piece or "") \
-                        and piece not in mothers:
-                    mothers.append(piece)
-            continue
-        if not re.fullmatch(r"[A-Za-z]+", target):
-            continue
-        if target not in mothers:
-            mothers.append(target)
+        for part in parts:
+            piece = (part or "").strip().strip(
+                "'\"\u201c\u201d\u2018\u2019").strip().rstrip(
+                ".").strip()
+            piece = re.split(r"[:;(]", piece, maxsplit=1)[0].strip()
+            if re.fullmatch(r"[A-Za-z]+", piece or "") \
+                    and piece not in mothers:
+                mothers.append(piece)
     if not mothers:
         return "", [], False
     if len(mothers) == 1:
@@ -716,10 +711,14 @@ def score_senses(text, entries, pool_pos, read_entry, zipf_fn=None):
         # along for the comparator; the score itself is untouched).
         # Form-of stubs ride the same demoted bucket (weight ZERO —
         # strict sort below every real sense, never a multiplicative
-        # penalty file-decay could outrank).
+        # penalty file-decay could outrank). The flag is the SHARED
+        # stub predicate (tag/pointer form-of AND gloss stubs), exactly
+        # what the S2 window filters — so the anchor top always sits
+        # inside its own window (top == window rank 1 invariant).
         score = _decay_prescore(idx, preg, ppos)
         scored.append([score, idx, entry, sense, gloss, float(fn),
-                       _is_meta_gloss(gloss), _is_formof_sense(sense)])
+                       _is_meta_gloss(gloss),
+                       is_stub_sense(sense, gloss)])
 
     def _cmp(a, b):
         # R40 (#607): meta-vs-real sorts first (intended — a meta bucket
@@ -919,6 +918,22 @@ def resolve_xref_anchor(target, pool_pos, read_entry, index, zipf_fn=None):
     if detect_xref(best_gloss) is not None:
         return None, None, None, None  # 1-hop max: target also bare-xref
     return "%s#%d" % (tkey, best_idx), best_gloss, best_sense, best_entry
+
+
+def raw_first_gloss(entries, read_entry):
+    """Gloss of the file-order-first collected sense ("" when none).
+
+    S0b inflection review asks about the RAW lemma head, not the
+    demoted anchor top: stub demotion (form-of/meta buckets) must not
+    silence the "is this lemma inflection-led?" question.
+    """
+    try:
+        senses = _collect_kaikki_senses(entries, read_entry)
+    except Exception:
+        return ""
+    if not senses:
+        return ""
+    return senses[0][3] or ""
 
 
 def pick_anchor_sense_full(text, entries, pool_pos, read_entry,
