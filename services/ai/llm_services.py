@@ -374,7 +374,7 @@ def _retry_primary_preset():
     """Try primary preset connection and restore if it succeeds while fallback is active."""
     if not db.get_bool_setting("ai_fallback_active", False):
         return
-    primary_name = db.get_setting("ai_primary_preset", db.get_active_preset_name())
+    primary_name = db.get_setting("ai_primary_preset", "") or db.get_active_preset_name()
     preset = db.get_preset(primary_name)
     if not preset:
         logger.warning("Primary preset %s not found for retry", primary_name)
