@@ -65,6 +65,24 @@ fresh box. Lock is NEVER set by the agent — only by the owner's click (or an
 explicit "قفل شد" in chat, which the agent then mirrors). A rule whose annex
 is later superseded is manually unlocked by the agent with a باطل‌شده mark.
 
+## Verdict line (per-rule, machine-readable status)
+Directly after every rule heading, add one status line so the owner sees at a
+glance what is decided and the agent can parse it without reading prose:
+`وضعیت: نهایی | نیمه‌قفل | پیشنهادی | معوق — <date>، <ref>`.
+- `نهایی` = locked and (if applicable) shipped; `نیمه‌قفل` = partly locked or
+  locked-but-unimplemented; `پیشنهادی` = awaiting owner pick; `معوق` =
+  explicitly deferred (never use "rejected" for deferred — rejected means
+  decided-against).
+- Never derive verdicts from lock toggles or prose; the line is the source.
+
+## Rejected options (collapsible history)
+Rejected options must not clutter the decision view. For every options table,
+keep chosen rows visible and move rejected rows into a collapsed history block
+after the table (`<details><summary>گزینه‌های مردود (تاریخچه)</summary><table>`
+with the same header `</table></details>`). A `<details>` element must never be
+a direct child of `<table>` — split the table instead. Rejected rows are never
+deleted (audit trail), never shown expanded by default.
+
 ## Acceptance checklist (soft-hard: all boxes ticked before delivery)
 - [ ] Every rule has مسئله + سناریوی واقعی + جدول انتخاب/رد با قیمت اشتباه.
 - [ ] Every empirical claim carries a stamp: [Jalali date | Gregorian date | commit | issue].
@@ -76,6 +94,8 @@ is later superseded is manually unlocked by the agent with a باطل‌شده m
 - [ ] No term unexplained; no threshold locked on n<30 evidence (lock metric family, record calibration pending).
 - [ ] Lock toggles on every rule; progress line in fresh box; nothing pre-locked by the agent.
 - [ ] Copy-status button present; handoff instruction (paste → parse → persist) followed.
+- [ ] Verdict line after every rule heading (نهایی/نیمه‌قفل/پیشنهادی/معوق + date + ref).
+- [ ] Rejected rows collapsed in per-table history blocks, never deleted, never expanded by default.
 
 ## Lifecycle & ticket sync
 - Each annex stamp: `[1405-06-15 شمسی | 2026-09-06 | commit:<sha> | issue:#NNN]` —
