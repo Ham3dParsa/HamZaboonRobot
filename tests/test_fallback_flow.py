@@ -50,7 +50,7 @@ class FallbackChainTests(unittest.TestCase):
         db_schema.DB_PATH = self.previous_schema_db_path
         self.tempdir.cleanup()
 
-    @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
+    @patch("services.ai.fallback_router._is_preset_rate_limited", return_value=False)
     def test_grammar_tip_fallback_chain(self, _mock_rate):
         """Fallback: first preset fails (RateLimitError), second succeeds."""
         _seed_test_presets([
@@ -74,7 +74,7 @@ class FallbackChainTests(unittest.TestCase):
         self.assertEqual(call_count["b"], 1, "preset_b should be called once")
         self.assertEqual(result, {"result": "success", "preset": "preset_b"})
 
-    @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
+    @patch("services.ai.fallback_router._is_preset_rate_limited", return_value=False)
     def test_word_query_fallback_chain(self, _mock_rate):
         """Fallback: first preset fails (RateLimitError), second succeeds."""
         _seed_test_presets([
@@ -96,7 +96,7 @@ class FallbackChainTests(unittest.TestCase):
         self.assertEqual(call_order, ["preset_a", "preset_b"])
         self.assertEqual(result["preset"], "preset_b")
 
-    @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
+    @patch("services.ai.fallback_router._is_preset_rate_limited", return_value=False)
     def test_all_presets_exhausted(self, _mock_rate):
         """When all presets are rate-limited, AllPresetsExhausted is raised."""
         _seed_test_presets([
@@ -109,7 +109,7 @@ class FallbackChainTests(unittest.TestCase):
         with self.assertRaises(AllPresetsExhausted):
             _call_ai_limited(always_429, request_kind="grammar_tip")
 
-    @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
+    @patch("services.ai.fallback_router._is_preset_rate_limited", return_value=False)
     def test_in_fallback_chain_exclusion(self, _mock_rate):
         """Preset B with in_fallback_chain=0 is skipped in chain but callable directly."""
         _seed_test_presets([
@@ -139,7 +139,7 @@ class FallbackChainTests(unittest.TestCase):
             result = _call_ai_limited(mock_func, request_kind="grammar_tip")
             self.assertEqual(result, {"preset": "preset_b"})
 
-    @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
+    @patch("services.ai.fallback_router._is_preset_rate_limited", return_value=False)
     def test_past_deadline_aborts_before_calling_any_preset(self, _mock_rate):
         """An already-expired deadline must abort before any preset runs."""
         _seed_test_presets([
@@ -162,7 +162,7 @@ class FallbackChainTests(unittest.TestCase):
 
         self.assertEqual(call_order, [], "no preset should be called after deadline")
 
-    @patch("services.ai.llm_services._is_preset_rate_limited", return_value=False)
+    @patch("services.ai.fallback_router._is_preset_rate_limited", return_value=False)
     def test_rpm_wait_loop_honors_deadline(self, _mock_rate):
         """A saturated RPM queue must not spin forever; deadline aborts it."""
         _seed_test_presets([
