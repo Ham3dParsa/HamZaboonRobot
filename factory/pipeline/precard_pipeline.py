@@ -314,11 +314,11 @@ def _parse_stage_map(values, allowed_values=None):
             raise SystemExit("bad --stage-* value %r (want STAGE=value)"
                              % raw)
         stage, _, value = raw.partition("=")
-        stage, value = _normalize_stage(
-            stage.strip().lower()), value.strip()
+        raw_stage = stage.strip().lower()
+        stage, value = _normalize_stage(raw_stage), value.strip()
         if stage not in LLM_LEGS:
             raise SystemExit("bad --stage-* leg %r (legs: %s)" % (
-                stage, ", ".join(
+                raw_stage, ", ".join(
                     "%s/%s" % (s, stage_name(s)) for s in LLM_LEGS)))
         if allowed_values is not None and value not in allowed_values:
             raise SystemExit("bad --stage-* value %r (want one of: %s)" % (
