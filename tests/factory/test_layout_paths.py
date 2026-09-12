@@ -71,3 +71,26 @@ def test_pack_pool_progress_defaults_stay_in_factory():
     _inside_factory(PP.DEFAULT_OUT_DIR)
     _inside_factory(BKI.progress_path("en"))
     _inside_factory(DK.progress_path("en"))
+
+
+def test_blind50_env_defaults_stay_put():
+    """blind50 key files: factory/.env + repo tools/egress/.env."""
+    import os as _os
+
+    here = _os.path.dirname(
+        _os.path.abspath(__import__(
+            "factory.pipeline.blind50", fromlist=["x"]).__file__))
+    factory_env = _os.path.normpath(_os.path.join(here, "..", ".env"))
+    egress_env = _os.path.normpath(
+        _os.path.join(here, "..", "..", "tools", "egress", ".env"))
+    assert pathlib.Path(factory_env).resolve() == FACTORY_DIR / ".env"
+    repo_root = FACTORY_DIR.parent
+    assert pathlib.Path(egress_env).resolve() == \
+        repo_root / "tools" / "egress" / ".env"
+
+
+def test_archive_root_is_factory():
+    """Archive ROOT triple-parent must equal factory/ (move detector)."""
+    import factory.archive.v14_v16.run_v15_topics as _rt
+
+    assert pathlib.Path(_rt.ROOT).resolve() == FACTORY_DIR.resolve()

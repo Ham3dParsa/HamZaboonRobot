@@ -31,9 +31,9 @@
 # Outputs: factory/fixtures/topic_labels-v16.json (same shape as v14c topic file, topic_source llm-v16)
 #          factory/fixtures/topic_vectors-v16.json (same shape as v15 vectors file)
 #          factory/fixtures/topic_migration_13_to_16.json (old label -> new label(s) rule, history comparison)
-# Usage: dry-run: python -m factory.archive.v14_v16.run_v16_topics.py --dry-run --limit 8
-#        smoke:    python -m factory.archive.v14_v16.run_v16_topics.py --lemmas rock,light,pass,flat,supporter,time,fish,fisherman
-#        full:     python -m factory.archive.v14_v16.run_v16_topics.py
+# Usage: dry-run: python -m factory.archive.v14_v16.run_v16_topics --dry-run --limit 8
+#        smoke:    python -m factory.archive.v14_v16.run_v16_topics --lemmas rock,light,pass,flat,supporter,time,fish,fisherman
+#        full:     python -m factory.archive.v14_v16.run_v16_topics
 # Needs: factory/.env with OPENCODE_ZEN_API_KEY. Never prints keys, never stages .env.
 # <SYSTEM_GATE> Contract lock required before proceeding </SYSTEM_GATE> — LOCKED in plan-v14.md v16
 # (owner 2026-09-03) + explicit owner run order; factory-research scope, no prod code, no commit.
