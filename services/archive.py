@@ -18,7 +18,7 @@ from config import (
     DB_PATH,
 )
 from services import db
-from services.utils.helpers import _send_media_with_retry
+from services.send_pretty import _send_media_with_retry
 
 logger = logging.getLogger(__name__)
 
