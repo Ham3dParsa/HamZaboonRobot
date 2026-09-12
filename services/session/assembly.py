@@ -58,7 +58,8 @@ def build_session_list(
 
     # Materialize Tier 2
     if len(nodes) < max_nodes:
-        fe = get_pre_first_exposure_words(user_id, target_lang) or []
+        remaining = max_nodes - len(nodes)
+        fe = get_pre_first_exposure_words(user_id, target_lang, limit=remaining) or []
         for row in fe:
             if len(nodes) >= max_nodes:
                 break

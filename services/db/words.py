@@ -1,4 +1,5 @@
 import json
+import operator
 import sqlite3
 import datetime
 from dataclasses import dataclass
@@ -332,7 +333,17 @@ def delete_saved_word(word_id: int, user_id: int) -> bool:
 
 # ---------- توابع جدید (پوسته) ----------
 
-def get_pre_first_exposure_words(user_id, lang: str | None = None):
+def get_pre_first_exposure_words(
+    user_id, lang: str | None = None, limit: int | None = None
+):
+    if limit is not None:
+        # operator.index accepts ints (rejects floats/str); bool is an int
+        # subclass — treat True/False as 1/0 via <=0 guard below.
+        limit = operator.index(limit)
+        if limit <= 0:
+            # SQLite treats LIMIT -1 as unbounded — never pass non-positive
+            # through; empty result without issuing a query.
+            return []
     query = (
         "SELECT * FROM saved_words WHERE user_id=? AND first_exposure_done=0 "
     )
@@ -343,6 +354,9 @@ def get_pre_first_exposure_words(user_id, lang: str | None = None):
     query += (
         "ORDER BY CASE WHEN entry_source='manual' THEN 0 ELSE 1 END, added_at ASC"
     )
+    if limit is not None:
+        query += " LIMIT ?"
+        params.append(limit)
     with get_conn() as conn:
         return conn.execute(query, params).fetchall()
 
