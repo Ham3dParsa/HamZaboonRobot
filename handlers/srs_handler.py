@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
 from services import db, send_pretty
+from services import grade_service
 from services import word_query
 from services.utils.callback_notifications import CallbackNoticeIntent, notify_callback
 from services.activity_log import log_user_activity
@@ -402,7 +403,7 @@ async def _handle_srs_review(
     resolved = resolve_grade("srs_review", grade)
     # F1 batch inputs are computed BEFORE the single DB transaction (no await
     # may run inside the open transaction; the transaction itself lives in
-    # grade_word_review via asyncio.to_thread).
+    # the owning words body behind grade_service.grade via asyncio.to_thread).
     shown_at = context.user_data.pop(f"card_shown_at_{word_id}", None)
     response_time_ms = None
     if shown_at is not None:
@@ -411,10 +412,11 @@ async def _handle_srs_review(
     raw_signal = json.dumps({"button_value": grade})
     try:
         result = await asyncio.to_thread(
-            db.grade_word_review,
+            grade_service.grade,
             word_id,
             resolved,
             user_id,
+            activity="srs_review",
             grade_source="direct_button",
             raw_signal=raw_signal,
             response_time_ms=response_time_ms,
@@ -582,10 +584,11 @@ async def _handle_first_exposure_grade(
     raw_signal = json.dumps({"button_value": grade})
     try:
         result = await asyncio.to_thread(
-            db.grade_first_exposure,
+            grade_service.grade,
             word_id,
             resolved,
             user_id,
+            activity="first_exposure",
             grade_source="direct_button",
             raw_signal=raw_signal,
             response_time_ms=None,

@@ -15,7 +15,7 @@ This is disclosed reference — loaded only when parallel-work-guard fires.
 | 3 | Session Assembly | services/session/__init__.py + assembly.py + summary.py | build_session_list(), generate_tier3_node(), build_report(), serialize_report(), deserialize_report() |
 | 4 | SRS Algorithm | services/fsrs_core.py | compute_retrievability(), compute_interval(), initial_stability(), update_stability() |
 | 5 | Telegram UI -> Study | handlers/study_handler.py | handle_study_start(), advance_session(), send_reports_list(), _handle_reports_callback() |
-| 6 | Telegram UI -> SRS Grading | handlers/srs_handler.py | _handle_srs_review(), _handle_first_exposure_grade() |
+| 6 | Telegram UI -> SRS Grading | handlers/srs_handler.py (thin callers via grade_service.grade) + services/grade_service.py (thin activity facade; formulas + single transaction stay in services/db/words.py) | _handle_srs_review(), _handle_first_exposure_grade(); grade_service.grade() over activity∈{srs_review,first_exposure} |
 | 7 | Telegram UI -> User Domain | handlers/user.py | cmd_start, ask_for_ask_word, send_grammar_tip, on_lang_selected |
 | 16 | Telegram UI -> Help | handlers/help_command.py | send_help_panel(), handle_help_callback() |
 | 8 | Telegram UI -> Admin | handlers/admin.py | open_admin_panel, _handle_admin_callback, _register_admin_flows() |

@@ -230,12 +230,14 @@ class PerUserLockSrsTest(unittest.TestCase):
 
         grade_calls = []
 
-        orig_grade = db.grade_word_review
+        from services import grade_service as grade_service_mod
 
-        def counting_grade(word_id, grade, user_id, *args, **kwargs):
-            # F1 batch: the handler forwards event/streak kwargs; forward them
-            # so the mock stays compatible with the batched signature.
-            res = orig_grade(word_id, grade, user_id, *args, **kwargs)
+        orig_grade = grade_service_mod.grade
+
+        def counting_grade(word_id, grade_value, user_id, *args, **kwargs):
+            # F1 batch: the handler forwards activity/event/streak kwargs;
+            # forward them so the mock stays compatible with the facade.
+            res = orig_grade(word_id, grade_value, user_id, *args, **kwargs)
             grade_calls.append(word_id)
             return res
 
@@ -271,7 +273,7 @@ class PerUserLockSrsTest(unittest.TestCase):
             return fake_get_active(uid, ctx)
 
         with patch("handlers.srs_handler.get_active_session_async", side_effect=async_fake_get_active), \
-             patch.object(db, "grade_word_review", side_effect=counting_grade), \
+             patch.object(grade_service_mod, "grade", side_effect=counting_grade), \
              patch("handlers.srs_handler.advance_session", new=AsyncMock()), \
              patch("services.send_pretty.edit", new=AsyncMock()):
 
@@ -284,14 +286,14 @@ class PerUserLockSrsTest(unittest.TestCase):
                 texts = [c[0][0] for c in upd.callback_query.answer.call_args_list if c[0]]
                 self.assertFalse(any(THROTTLE_TEXT in (t or "") for t in texts), f"unexpected throttle at i={i}")
 
-            # 6th should throttle before grade_word_review
+            # 6th should throttle before the grade facade
             call_count["n"] = 5
             upd6 = self._make_update(wids[5])
             ctx6 = self._ctx()
             asyncio.run(_handle_srs_review(upd6, 3, "1", str(wids[5]), ctx6))
             texts6 = [c[0][0] for c in upd6.callback_query.answer.call_args_list if c[0]]
             self.assertTrue(any(THROTTLE_TEXT in (t or "") for t in texts6), f"expected throttle, got {texts6}")
-            self.assertEqual(len(grade_calls), 5, "6th throttled must not call grade_word_review")
+            self.assertEqual(len(grade_calls), 5, "6th throttled must not call grade")
 
 
 class PerUserLockQueryTest(unittest.TestCase):
