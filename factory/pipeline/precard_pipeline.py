@@ -1981,15 +1981,18 @@ def _sense_cefr_or_pool_fallback(item, lemma, pos, gloss):
     """Bridge sense-CEFR with the never-null pool fallback.
 
     Returns (sense_cefr, method): the bridge value when non-empty, else
-    the item pool_level with method "pool-fallback". When pool_level is
-    itself missing/empty the bridge verdict is kept as-is (unmapped) —
-    uncertainty keeps, never a fabricated level.
+    the item pool_level (stripped + uppercased) with method
+    "pool-fallback" — but only when the normalized pool value is a known
+    CEFR level (``cefr_bridge.CEFR_ORDER``). Unknown/empty/non-string
+    pool values keep the bridge verdict as-is (unmapped): uncertainty
+    keeps, never a fabricated level, never a raise on hostile items.
     """
     sense_cefr, method = cefr_bridge.sense_cefr_for(lemma, pos, gloss)
     if sense_cefr:
         return sense_cefr, method
-    pool = (item.get("pool_level") or "").strip()
-    if pool:
+    pool_raw = item.get("pool_level")
+    pool = pool_raw.strip().upper() if isinstance(pool_raw, str) else ""
+    if pool and pool in cefr_bridge.CEFR_ORDER:
         return pool, cefr_bridge.METHOD_POOL_FALLBACK
     return sense_cefr, method
 
@@ -2015,9 +2018,10 @@ def enrich_item(item, judge_pick, index, read_entry, tatoeba_pool,
     phrase-type log entry) and pre_card_id (stable EN-content id) —
     dataset sources only, zero LLM calls.
     Sense-CEFR never-null rule (owner lock 2026-09-12): when the bridge
-    returns an empty/None sense_cefr, the item pool_level is copied with
-    method "pool-fallback" — every precard row leaves with non-empty
-    sense_cefr whenever pool_level is present.
+    returns an empty/None sense_cefr, the item pool_level is copied
+    (stripped + uppercased, known CEFR levels only) with method
+    "pool-fallback" — every precard row leaves with non-empty sense_cefr
+    whenever pool_level carries a valid level.
     """
     sid = (judge_pick or {}).get("sense_id", "")
     gloss = (judge_pick or {}).get("gloss", "")
